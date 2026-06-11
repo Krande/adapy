@@ -387,15 +387,30 @@ const StorageBrowser: React.FC = () => {
     // Right-click context menu: items are computed at open time by the
     // same builders that feed the kebab, so the two stay in lockstep.
     const [ctxMenu, setCtxMenu] = useState<{x: number; y: number; items: KebabMenuItem[]} | null>(null);
-    const openCtxMenu = (e: React.MouseEvent, items: KebabMenuItem[]) => {
+    const openCtxMenu = (
+        e: {clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void},
+        items: KebabMenuItem[],
+    ) => {
         if (items.length === 0) return;
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault?.();
+        e.stopPropagation?.();
         setCtxMenu({x: e.clientX, y: e.clientY, items});
     };
     // In-panel drag state: keys being dragged (for row dimming + the
     // move-to-root strip). Cleared on dragend/drop.
     const [draggingKeys, setDraggingKeys] = useState<string[] | null>(null);
+    // Keyboard-navigation focus, keyed `folder:<path>` / `file:<name>`.
+    // Pointer interactions move it too, so arrows continue from the
+    // last clicked row.
+    const [focusedKey, setFocusedKey] = useState<string | null>(null);
+    const listScrollRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!focusedKey) return;
+        const el = listScrollRef.current?.querySelector(
+            `[data-rowkey="${CSS.escape(focusedKey)}"]`,
+        ) as HTMLElement | null;
+        el?.scrollIntoView({block: "nearest"});
+    }, [focusedKey]);
     // Maximize: same component, restyled as a centered fixed overlay
     // with a backdrop. Styling-only so every bit of panel state
     // (selection, expansion, menus) survives the toggle.
@@ -888,6 +903,79 @@ const StorageBrowser: React.FC = () => {
         new Set([...collectFolderPaths(files, (f) => f.name), ...pendingFolders]),
     ).sort((a, b) => a.localeCompare(b));
 
+    // ── Keyboard navigation over the visible (regular) tree ────────
+    // Flattened render order of the rows currently on screen; versions
+    // subtree is excluded (its own collapsing structure).
+    const {regular: regularFiles, branches: versionBranches} = classifyFiles(files, sidecars);
+    const visibleTree = buildFileTree(regularFiles, (f) => f.name, pendingFolders);
+    type FlatRow =
+        | {kind: "folder"; path: string; depth: number; parent: string}
+        | {kind: "file"; name: string; file: ServerFileEntry; depth: number; parent: string};
+    const flatRows: FlatRow[] = [];
+    {
+        const walk = (nodes: ServerFileTreeNode[], depth: number, parent: string) => {
+            for (const n of nodes) {
+                if (n.kind === "folder") {
+                    flatRows.push({kind: "folder", path: n.path, depth, parent});
+                    if (expandedFolders.has(n.path)) walk(n.children, depth + 1, n.path);
+                } else {
+                    flatRows.push({kind: "file", name: n.file.name, file: n.file, depth, parent});
+                }
+            }
+        };
+        walk(visibleTree, 0, "");
+    }
+    const rowKeyOf = (r: FlatRow) => (r.kind === "folder" ? `folder:${r.path}` : `file:${r.name}`);
+
+    const onListKeyDown = (e: React.KeyboardEvent) => {
+        if (flatRows.length === 0) return;
+        if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", " "].includes(e.key)) return;
+        // Don't steal keys from the inline rename/new-folder inputs.
+        if ((e.target as HTMLElement).tagName === "INPUT") return;
+        e.preventDefault();
+        e.stopPropagation();
+        const idx = focusedKey ? flatRows.findIndex((r) => rowKeyOf(r) === focusedKey) : -1;
+        const row = idx >= 0 ? flatRows[idx] : null;
+        const focusAt = (i: number) => {
+            const clamped = Math.max(0, Math.min(flatRows.length - 1, i));
+            setFocusedKey(rowKeyOf(flatRows[clamped]));
+        };
+        switch (e.key) {
+            case "ArrowDown":
+                focusAt(idx < 0 ? 0 : idx + 1);
+                break;
+            case "ArrowUp":
+                focusAt(idx < 0 ? flatRows.length - 1 : idx - 1);
+                break;
+            case "ArrowRight":
+                if (!row) {
+                    focusAt(0);
+                } else if (row.kind === "folder") {
+                    if (!expandedFolders.has(row.path)) toggleFolder(row.path);
+                    else if (idx + 1 < flatRows.length && flatRows[idx + 1].parent === row.path) focusAt(idx + 1);
+                }
+                break;
+            case "ArrowLeft":
+                if (!row) {
+                    focusAt(0);
+                } else if (row.kind === "folder" && expandedFolders.has(row.path)) {
+                    toggleFolder(row.path);
+                } else if (row.parent) {
+                    const pIdx = flatRows.findIndex((r) => r.kind === "folder" && r.path === row.parent);
+                    if (pIdx >= 0) focusAt(pIdx);
+                }
+                break;
+            case "Enter":
+                if (!row) break;
+                if (row.kind === "folder") toggleFolder(row.path);
+                else void onToggle(row.file, !(loadedSourceNames.has(row.name) || queuedLoadNames.has(row.name)));
+                break;
+            case " ":
+                if (row?.kind === "file") toggleSelection(row.name);
+                break;
+        }
+    };
+
     const showRootDropStrip =
         draggingKeys !== null && draggingKeys.some((k) => dirnameOf(k) !== "");
 
@@ -1158,11 +1246,16 @@ const StorageBrowser: React.FC = () => {
                 </div>
             ) : (
                 (() => {
-                    const {regular, branches} = classifyFiles(files, sidecars);
+                    const regular = regularFiles;
+                    const branches = versionBranches;
                     return (
                         <div
+                            ref={listScrollRef}
+                            tabIndex={0}
+                            onKeyDown={onListKeyDown}
                             className={
-                                "flex flex-col overflow-auto " +
+                                "flex flex-col overflow-auto focus:outline-hidden " +
+                                "focus-visible:ring-1 focus-visible:ring-blue-500/40 rounded-sm " +
                                 (maximized ? "flex-1 min-h-0" : "max-h-80")
                             }
                             // Background (non-row) drops land at root:
@@ -1206,7 +1299,7 @@ const StorageBrowser: React.FC = () => {
                                 </div>
                             )}
                             {(regular.length > 0 || pendingFolders.length > 0) && (() => {
-                                const tree = buildFileTree(regular, (f) => f.name, pendingFolders);
+                                const tree = visibleTree;
                                 const renderNode = (
                                     node: ServerFileTreeNode,
                                     depth: number,
@@ -1227,11 +1320,14 @@ const StorageBrowser: React.FC = () => {
                                                 setExpandedName={setExpandedName}
                                                 onToggle={onToggle}
                                                 setPickerName={setPickerName}
-                                                selectionMode={inSelectionMode}
                                                 isSelected={selection.has(node.file.name)}
                                                 isQueued={queuedLoadNames.has(node.file.name)}
-                                                onLongPress={toggleSelection}
-                                                onSelectToggle={toggleSelection}
+                                                onSelectToggle={(name) => {
+                                                    setFocusedKey(`file:${name}`);
+                                                    toggleSelection(name);
+                                                }}
+                                                rowKey={`file:${node.file.name}`}
+                                                focused={focusedKey === `file:${node.file.name}`}
                                                 menuItems={items}
                                                 onOpenContextMenu={(e) => openCtxMenu(e, items)}
                                                 draggable={canMutate}
@@ -1272,7 +1368,12 @@ const StorageBrowser: React.FC = () => {
                                                 fileCount={total}
                                                 isPending={isPending}
                                                 loadedCount={loadedCount}
-                                                onToggle={() => toggleFolder(node.path)}
+                                                onToggle={() => {
+                                                    setFocusedKey(`folder:${node.path}`);
+                                                    toggleFolder(node.path);
+                                                }}
+                                                rowKey={`folder:${node.path}`}
+                                                focused={focusedKey === `folder:${node.path}`}
                                                 menuItems={items}
                                                 onOpenContextMenu={(e) => openCtxMenu(e, items)}
                                                 onDropInto={(e) => void handleDropOnFolder(node.path, e)}
@@ -1319,9 +1420,7 @@ const StorageBrowser: React.FC = () => {
                                     onToggle={onToggle}
                                     setPickerName={setPickerName}
                                     onOpenGitHistory={() => setGitHistoryOpen(true)}
-                                    selectionMode={inSelectionMode}
                                     selection={selection}
-                                    onLongPress={toggleSelection}
                                     onSelectToggle={toggleSelection}
                                     fileMenuItemsFor={versionFileMenuItems}
                                     onOpenContextMenu={openCtxMenu}
@@ -1402,6 +1501,9 @@ interface FolderRowProps {
     renaming?: boolean;
     onRenameCommit?: (newName: string) => void;
     onRenameCancel?: () => void;
+    /** Keyboard-navigation identity + highlight. */
+    rowKey?: string;
+    focused?: boolean;
 }
 
 const FolderRow: React.FC<FolderRowProps> = ({
@@ -1418,6 +1520,8 @@ const FolderRow: React.FC<FolderRowProps> = ({
     renaming,
     onRenameCommit,
     onRenameCancel,
+    rowKey,
+    focused,
 }) => {
     const indentPx = depth * 12;
     // dragenter/dragleave fire per child element; a counter survives
@@ -1427,10 +1531,12 @@ const FolderRow: React.FC<FolderRowProps> = ({
         e.dataTransfer.types.includes(KEYS_MIME) || e.dataTransfer.types.includes("Files");
     return (
         <li
+            data-rowkey={rowKey}
             className={
                 "flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer select-none " +
                 "hover:bg-gray-800/80 " +
                 (dragHover > 0 ? "ring-1 ring-blue-400 bg-blue-900/30 " : "") +
+                (focused && dragHover === 0 ? "ring-1 ring-blue-400/70 " : "") +
                 (isPending ? "opacity-80 " : "")
             }
             style={{paddingLeft: 8 + indentPx}}
@@ -1525,16 +1631,18 @@ interface FileRowProps {
     setExpandedName: (n: string | null) => void;
     onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
-    selectionMode: boolean;
     isSelected: boolean;
     /** Waiting in the scene-load queue (untick to remove). */
     isQueued?: boolean;
-    onLongPress: (name: string) => void;
     onSelectToggle: (name: string) => void;
     /** Row actions — shared between the kebab and the right-click
      * context menu (parent builds both from one list). */
     menuItems: KebabMenuItem[];
-    onOpenContextMenu?: (e: React.MouseEvent) => void;
+    /** Desktop right-click AND touch long-press both land here. */
+    onOpenContextMenu?: (e: {clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void}) => void;
+    /** Keyboard-navigation identity + highlight. */
+    rowKey?: string;
+    focused?: boolean;
     /** In-panel drag source (move to folder). */
     draggable?: boolean;
     onDragStartRow?: (e: React.DragEvent) => void;
@@ -1561,13 +1669,13 @@ const FileRow: React.FC<FileRowProps> = ({
     setExpandedName,
     onToggle,
     setPickerName,
-    selectionMode,
     isSelected,
     isQueued,
-    onLongPress,
     onSelectToggle,
     menuItems,
     onOpenContextMenu,
+    rowKey,
+    focused,
     draggable,
     onDragStartRow,
     onDragEndRow,
@@ -1587,10 +1695,9 @@ const FileRow: React.FC<FileRowProps> = ({
         : 0;
     const indentPx = indentLevel * 12;
 
-    // Long-press to enter selection mode. 500 ms hold, cancelled by
-    // pointer move > 8 px (treats it as a scroll, not a hold). Once
-    // we're in selection mode, taps toggle membership instead — see
-    // the row's onClick below.
+    // Long-press = the touch path to the context menu (desktop has
+    // right-click). 500 ms hold, cancelled by pointer move > 8 px
+    // (treats it as a scroll, not a hold) or by a drag starting.
     const longPressTimer = useRef<number | null>(null);
     const longPressStart = useRef<{x: number; y: number} | null>(null);
     const longPressFired = useRef(false);
@@ -1601,13 +1708,13 @@ const FileRow: React.FC<FileRowProps> = ({
         }
     };
     const onPointerDown: React.PointerEventHandler = (e) => {
-        if (selectionMode) return; // already in mode; rely on click
-        longPressStart.current = {x: e.clientX, y: e.clientY};
+        const {clientX, clientY} = e;
+        longPressStart.current = {x: clientX, y: clientY};
         longPressFired.current = false;
         cancelLongPress();
         longPressTimer.current = window.setTimeout(() => {
             longPressFired.current = true;
-            onLongPress(f.name);
+            onOpenContextMenu?.({clientX, clientY});
         }, 500);
     };
     const onPointerMove: React.PointerEventHandler = (e) => {
@@ -1624,11 +1731,12 @@ const FileRow: React.FC<FileRowProps> = ({
 
     return (
         <li
+            data-rowkey={rowKey}
             className={
-                "flex flex-col pr-1 py-1 text-xs rounded " +
+                "flex flex-col pr-1 py-1 text-xs rounded cursor-pointer select-none " +
                 (dimmed ? "opacity-40 " : "") +
-                (isSelected ? "bg-amber-700/30 " : "hover:bg-gray-800/60 ") +
-                (selectionMode ? "cursor-pointer" : "")
+                (focused ? "ring-1 ring-blue-400/70 " : "") +
+                (isSelected ? "bg-amber-700/30 " : "hover:bg-gray-800/60 ")
             }
             style={{paddingLeft: `${8 + indentPx}px`}}
             draggable={draggable || undefined}
@@ -1653,47 +1761,24 @@ const FileRow: React.FC<FileRowProps> = ({
             }}
             onClick={(e) => {
                 if (longPressFired.current) {
-                    // The long-press already toggled selection on; the
-                    // synthetic click fires after pointerup and would
-                    // double-toggle if we let it through.
+                    // The long-press already opened the context menu;
+                    // the synthetic click fires after pointerup and
+                    // would also toggle selection if let through.
                     longPressFired.current = false;
                     e.stopPropagation();
                     return;
                 }
-                if (selectionMode) {
-                    onSelectToggle(f.name);
-                    return;
-                }
-                // Tap/click anywhere on the row (outside the toggle and
-                // row buttons) opens the same menu as right-click — the
-                // primary mobile path to rename/move/delete/download.
-                onOpenContextMenu?.(e);
+                // Single click/tap = selection toggle (feeds the bulk
+                // toolbar). Context menu is right-click / long-press.
+                onSelectToggle(f.name);
             }}
         >
             <div className="flex items-center justify-between gap-2">
-                {/* Normal mode: the checkbox IS the load toggle —
-                    checked (+ the eye marker) while the model is in the
-                    scene; clicking it loads/unloads directly. Long-press
-                    swaps the rows into selection mode, where the amber
-                    circle marks bulk-toolbar membership instead. */}
-                {selectionMode ? (
-                    <span
-                        className={
-                            "h-5 w-5 shrink-0 rounded-full border-2 inline-flex items-center justify-center " +
-                            (isSelected
-                                ? "bg-amber-600 border-amber-400"
-                                : "border-gray-400")
-                        }
-                        aria-checked={isSelected}
-                        role="checkbox"
-                    >
-                        {isSelected && (
-                            <svg viewBox="0 0 16 16" className="w-3 h-3 fill-white" aria-hidden>
-                                <path d="M6 11.2 2.4 7.6l1.4-1.4L6 8.4l6.2-6.2 1.4 1.4z"/>
-                            </svg>
-                        )}
-                    </span>
-                ) : (
+                {/* The checkbox IS the load toggle — checked (+ the
+                    eye marker) while the model is in the scene; clicking
+                    it loads/unloads directly. Row click = selection
+                    (amber highlight feeds the bulk toolbar). */}
+                {(
                     <input
                         type="checkbox"
                         className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
@@ -1727,14 +1812,7 @@ const FileRow: React.FC<FileRowProps> = ({
                         type="button"
                         onClick={(e) => {
                             e.stopPropagation();
-                            if (selectionMode) {
-                                onSelectToggle(f.name);
-                                return;
-                            }
-                            // Same menu as right-click — full path shows
-                            // in the menu header, so no separate
-                            // truncation toggle is needed.
-                            onOpenContextMenu?.(e);
+                            onSelectToggle(f.name);
                         }}
                         className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'} ${isLoaded ? 'text-blue-200 font-medium' : ''}`}
                         title={f.name}
@@ -1854,13 +1932,14 @@ interface VersionsTreeProps {
     onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
     onOpenGitHistory: () => void;
-    selectionMode: boolean;
     selection: Set<string>;
-    onLongPress: (name: string) => void;
     onSelectToggle: (name: string) => void;
     /** Read-only menu builder from the parent (load/streamer/download). */
     fileMenuItemsFor: (file: ServerFileEntry) => KebabMenuItem[];
-    onOpenContextMenu: (e: React.MouseEvent, items: KebabMenuItem[]) => void;
+    onOpenContextMenu: (
+        e: {clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void},
+        items: KebabMenuItem[],
+    ) => void;
     showModified?: boolean;
 }
 
@@ -2012,9 +2091,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                                     setExpandedName={props.setExpandedName}
                                                                     onToggle={props.onToggle}
                                                                     setPickerName={props.setPickerName}
-                                                                    selectionMode={props.selectionMode}
                                                                     isSelected={props.selection.has(leaf.file.name)}
-                                                                    onLongPress={props.onLongPress}
                                                                     onSelectToggle={props.onSelectToggle}
                                                                     menuItems={items}
                                                                     onOpenContextMenu={(e) => props.onOpenContextMenu(e, items)}
