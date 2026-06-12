@@ -2,6 +2,15 @@
 
 
 
+## v0.20.1 (2026-06-12)
+
+### Fix
+
+* fix: touching is not overlapping in is_face_inside_box (#221)
+
+Co-authored-by: Claude Fable 5 &lt;noreply@anthropic.com&gt; ([`7e9f5cf`](https://github.com/Krande/adapy/commit/7e9f5cf7363432c41b4944dd95b87af1574e78eb))
+
+
 ## v0.20.0 (2026-06-11)
 
 ### Feature
