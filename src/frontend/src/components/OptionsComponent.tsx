@@ -58,8 +58,6 @@ function OptionsComponent() {
     const adapy_version = runtime.adapyVersion();
     const frontend_sha = runtime.frontendSha();
     const viewer_image_tag = runtime.viewerImageTag();
-    const worker_image_tag = runtime.workerImageTag();
-    const show_image_tags = runtime.isRestMode() && (viewer_image_tag || worker_image_tag);
 
     // Build line: adapy package version (from config.js) + commit sha, e.g. "0.15.0 (43ae2883)".
     // The sha is the frontend build-time git sha when present, else the deployed image's sha tag
@@ -146,16 +144,6 @@ function OptionsComponent() {
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 flex flex-col space-y-4">
                     {versionInfo}
-                    {show_image_tags && (
-                        <div className="text-xs text-gray-300 space-y-0.5">
-                            {viewer_image_tag && (
-                                <div>Viewer: <span className="font-mono">{viewer_image_tag}</span></div>
-                            )}
-                            {worker_image_tag && (
-                                <div>Worker: <span className="font-mono">{worker_image_tag}</span></div>
-                            )}
-                        </div>
-                    )}
                     {sections}
                 </div>
             </div>
@@ -172,16 +160,6 @@ function OptionsComponent() {
         >
             <h2 className="font-bold">Options</h2>
             {versionInfo}
-            {show_image_tags && (
-                <div className="text-xs text-gray-300 space-y-0.5">
-                    {viewer_image_tag && (
-                        <div>Viewer: <span className="font-mono">{viewer_image_tag}</span></div>
-                    )}
-                    {worker_image_tag && (
-                        <div>Worker: <span className="font-mono">{worker_image_tag}</span></div>
-                    )}
-                </div>
-            )}
             {sections}
         </div>
     );

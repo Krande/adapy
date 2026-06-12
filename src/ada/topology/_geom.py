@@ -101,9 +101,16 @@ def is_face_inside_box(face_points, p1, p2, tolerance=1e-3):
         face_min = np.min(fp_mv, axis=0)
         face_max = np.max(fp_mv, axis=0)
 
-        # Overlap checks (strict inequalities, per original behavior)
-        overlap_x = (face_max[0] > min_bounds[moving_axes[0]]) and (face_min[0] < max_bounds[moving_axes[0]])
-        overlap_y = (face_max[1] > min_bounds[moving_axes[1]]) and (face_min[1] < max_bounds[moving_axes[1]])
+        # Overlap must exceed the tolerance: a face that merely touches the
+        # box boundary (zero-area contact) is NOT inside. Without the margin,
+        # kernel float noise on the face coordinates (e.g. 7.1500000000000012
+        # vs a box edge at 7.15) flips grazing faces to "inside".
+        overlap_x = (face_max[0] > min_bounds[moving_axes[0]] + tolerance) and (
+            face_min[0] < max_bounds[moving_axes[0]] - tolerance
+        )
+        overlap_y = (face_max[1] > min_bounds[moving_axes[1]] + tolerance) and (
+            face_min[1] < max_bounds[moving_axes[1]] - tolerance
+        )
 
         return overlap_x and overlap_y
 
@@ -112,10 +119,10 @@ def is_face_inside_box(face_points, p1, p2, tolerance=1e-3):
         face_min = np.min(face_points, axis=0)
         face_max = np.max(face_points, axis=0)
 
-        # Overlap checks (strict inequalities, per original behavior)
-        overlap_x = (face_max[0] > min_bounds[0]) and (face_min[0] < max_bounds[0])
-        overlap_y = (face_max[1] > min_bounds[1]) and (face_min[1] < max_bounds[1])
-        overlap_z = (face_max[2] > min_bounds[2]) and (face_min[2] < max_bounds[2])
+        # Overlap must exceed the tolerance — see the box-plate branch above.
+        overlap_x = (face_max[0] > min_bounds[0] + tolerance) and (face_min[0] < max_bounds[0] - tolerance)
+        overlap_y = (face_max[1] > min_bounds[1] + tolerance) and (face_min[1] < max_bounds[1] - tolerance)
+        overlap_z = (face_max[2] > min_bounds[2] + tolerance) and (face_min[2] < max_bounds[2] - tolerance)
 
         # Check if the face fully coincides with any of the bounding box's surfaces
         # Replace six np.allclose calls with faster reductions
