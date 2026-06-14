@@ -2,6 +2,15 @@
 
 
 
+## v0.20.2 (2026-06-14)
+
+### Fix
+
+* fix: edge-overlay highlight on high-index objects (highp int) + cross-buffer guard (#222)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`5a547bc`](https://github.com/Krande/adapy/commit/5a547bca2a5ca22bc8e6ca6b5ebe7b709b459058))
+
+
 ## v0.20.1 (2026-06-12)
 
 ### Fix
