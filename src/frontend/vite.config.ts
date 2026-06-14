@@ -23,6 +23,12 @@ export default defineConfig({
     build: {
         outDir: path.resolve(__dirname, 'dist'), // Output directory outside of 'src'
         sourcemap: false,
+        // esnext: skip esbuild's syntax-lowering. Required since esbuild was
+        // pinned to 0.28.1 (security fix, see package.json overrides) — 0.28
+        // fails to transform the worker bundle's destructuring for the default
+        // browser-list target. The viewer already requires a modern WebGL2
+        // browser, so shipping un-lowered modern JS is a non-issue.
+        target: 'esnext',
         rollupOptions: {
             input: path.resolve(__dirname, 'src/index.html'), // Normal Frontend Entry
             output: {
