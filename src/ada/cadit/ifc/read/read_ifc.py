@@ -38,7 +38,7 @@ class IfcReader:
         A Pipe is written as an IfcDistributionSystem grouping its IfcPipeSegment/IfcPipeFitting
         members (which the per-product pass skips). Build one Pipe per system from its members and
         add it to the spatial element the system services."""
-        from ada import Node, Pipe
+        from ada import Pipe
 
         from .read_pipe import import_pipe_segment
 

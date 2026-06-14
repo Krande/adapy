@@ -17,7 +17,6 @@ from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
 from .reader_utils import (
     get_associated_material,
-    get_axis_polyline_points_from_product,
     get_ifc_body,
     get_placement,
     get_point,
