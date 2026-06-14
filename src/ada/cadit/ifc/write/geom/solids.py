@@ -7,10 +7,76 @@ from ada.cadit.ifc.write.geom.placement import (
     ifc_placement_from_axis3d,
     point,
 )
+from ada.geom import curves as geo_cu
 from ada.geom import solids as geo_so
 from ada.geom import surfaces as geo_su
 
-from .surfaces import arbitrary_profile_def
+from .curves import circle_curve, indexed_poly_curve, poly_line
+from .surfaces import arbitrary_profile_def, create_closed_shell
+
+
+def faceted_brep(fb: geo_so.FacetedBrep, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a FacetedBrep to an IfcFacetedBrep, or IfcFacetedBrepWithVoids when it has
+    inner void shells."""
+    outer = create_closed_shell(fb.outer, f)
+    if not fb.voids:
+        return f.create_entity("IfcFacetedBrep", Outer=outer)
+    voids = [create_closed_shell(v, f) for v in fb.voids]
+    return f.create_entity("IfcFacetedBrepWithVoids", Outer=outer, Voids=voids)
+
+
+def _directrix(curve: geo_cu.CURVE_GEOM_TYPES, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Write a sweep directrix curve to its matching IFC curve entity."""
+    if isinstance(curve, geo_cu.IndexedPolyCurve):
+        return indexed_poly_curve(curve, f)
+    elif isinstance(curve, geo_cu.PolyLine):
+        return poly_line(curve, f)
+    elif isinstance(curve, geo_cu.Circle):
+        return circle_curve(curve, f)
+    raise NotImplementedError(f"Unsupported directrix curve type: {type(curve)}")
+
+
+def fixed_reference_swept_area_solid(
+    frs: geo_so.FixedReferenceSweptAreaSolid, f: ifcopenshell.file
+) -> ifcopenshell.entity_instance:
+    """Converts a FixedReferenceSweptAreaSolid to an IfcFixedReferenceSweptAreaSolid.
+
+    adapy's geom model doesn't track the fixed-reference direction (the OCC build derives
+    orientation from the directrix), so FixedReference is emitted from the position's
+    ref_direction to satisfy the (mandatory) IFC attribute."""
+    from ada.geom.direction import Direction
+
+    ref = frs.position.ref_direction if frs.position.ref_direction is not None else Direction(1, 0, 0)
+    return f.create_entity(
+        "IfcFixedReferenceSweptAreaSolid",
+        SweptArea=arbitrary_profile_def(frs.swept_area, f),
+        Position=ifc_placement_from_axis3d(frs.position, f),
+        Directrix=_directrix(frs.directrix, f),
+        FixedReference=direction(ref, f),
+    )
+
+
+def rectangular_pyramid(rp: geo_so.RectangularPyramid, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a RectangularPyramid to an IfcRectangularPyramid."""
+    return f.create_entity(
+        "IfcRectangularPyramid",
+        Position=ifc_placement_from_axis3d(rp.position, f),
+        XLength=float(rp.x_length),
+        YLength=float(rp.y_length),
+        Height=float(rp.z_length),
+    )
+
+
+def swept_disk_solid(sds: geo_so.SweptDiskSolid, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a SweptDiskSolid to an IfcSweptDiskSolid."""
+    kwargs = dict(Directrix=_directrix(sds.directrix, f), Radius=float(sds.radius))
+    if sds.inner_radius is not None:
+        kwargs["InnerRadius"] = float(sds.inner_radius)
+    if sds.start_param is not None:
+        kwargs["StartParam"] = float(sds.start_param)
+    if sds.end_param is not None:
+        kwargs["EndParam"] = float(sds.end_param)
+    return f.create_entity("IfcSweptDiskSolid", **kwargs)
 
 
 def extruded_area_solid(

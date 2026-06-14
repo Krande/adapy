@@ -362,6 +362,42 @@ def make_wire_from_ellipse(ellipse: geo_cu.Ellipse) -> TopoDS_Wire:
     return wire.Wire()
 
 
+def make_wire_from_trimmed_curve(tc: geo_cu.TrimmedCurve) -> TopoDS_Wire:
+    """Build a bounded wire from a TrimmedCurve.
+
+    Supports the two common geometric cases with Cartesian-point trims: a Line basis (straight
+    segment between the trims) and a Circle basis (arc between the trims). Parameter-only trims
+    and other bases are not yet built into OCC geometry."""
+    from ada.geom.points import Point
+
+    basis = tc.basis_curve
+    p1, p2 = tc.trim1, tc.trim2
+    if not (isinstance(p1, Point) and isinstance(p2, Point)):
+        raise NotImplementedError("TrimmedCurve OCC build currently requires Cartesian-point trims")
+
+    if isinstance(basis, geo_cu.Line):
+        edge = BRepBuilderAPI_MakeEdge(point3d(p1), point3d(p2)).Edge()
+    elif isinstance(basis, geo_cu.Circle):
+        circ = gp_Circ(gp_Ax2(gp_Pnt(*basis.position.location), gp_Dir(*basis.position.axis)), float(basis.radius))
+        arc = GC_MakeArcOfCircle(circ, point3d(p1), point3d(p2), bool(tc.sense_agreement)).Value()
+        edge = BRepBuilderAPI_MakeEdge(arc).Edge()
+    else:
+        raise NotImplementedError(f"TrimmedCurve OCC build not implemented for basis {type(basis)}")
+
+    wire = BRepBuilderAPI_MakeWire()
+    wire.Add(edge)
+    wire.Build()
+    return wire.Wire()
+
+
+def make_wire_from_composite_curve(cc: geo_cu.CompositeCurve) -> TopoDS_Wire:
+    """Concatenate each segment's parent-curve wire into a single wire."""
+    wire_builder = BRepBuilderAPI_MakeWire()
+    for seg in cc.segments:
+        wire_builder.Add(make_wire_from_curve(seg.parent_curve))
+    return wire_builder.Wire()
+
+
 def make_wire_from_edge_loop(edge_loop: geo_cu.EdgeLoop) -> TopoDS_Wire:
     from ada.config import logger
 
@@ -446,6 +482,10 @@ def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
         return make_wire_from_circle(outer_curve)
     elif isinstance(outer_curve, geo_cu.Edge):
         return segments_to_wire([outer_curve])
+    elif isinstance(outer_curve, geo_cu.TrimmedCurve):
+        return make_wire_from_trimmed_curve(outer_curve)
+    elif isinstance(outer_curve, geo_cu.CompositeCurve):
+        return make_wire_from_composite_curve(outer_curve)
     else:
         raise NotImplementedError(f"Unsupported curve type {type(outer_curve)}")
 

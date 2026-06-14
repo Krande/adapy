@@ -8,7 +8,9 @@ from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
+    BRepBuilderAPI_MakePolygon,
     BRepBuilderAPI_MakeWire,
+    BRepBuilderAPI_Sewing,
 )
 from OCC.Core.BRepTools import BRepTools_WireExplorer, breptools
 from OCC.Core.Geom import (
@@ -1358,6 +1360,21 @@ def make_conical_surface_from_geom(cone: geo_su.ConicalSurface) -> Geom_ConicalS
     return Geom_ConicalSurface(gp_Cone(ax3, cone.semi_angle, cone.radius))
 
 
+def make_surface_of_revolution_from_geom(sor: geo_su.SurfaceOfRevolution):
+    """Build a Geom_SurfaceOfRevolution by revolving the generatrix curve about the axis.
+    Currently supports a Line generatrix (the common cone/cylinder-from-revolution case)."""
+    from OCC.Core.Geom import Geom_Line, Geom_SurfaceOfRevolution
+    from OCC.Core.gp import gp_Ax1
+
+    gen = sor.swept_curve
+    if isinstance(gen, geo_cu.Line):
+        generatrix = Geom_Line(gp_Pnt(*gen.pnt), gp_Dir(*gen.dir))
+    else:
+        raise NotImplementedError(f"SurfaceOfRevolution generatrix {type(gen)} not implemented")
+    axis = gp_Ax1(gp_Pnt(*sor.axis_position.location), gp_Dir(*sor.axis_position.axis))
+    return Geom_SurfaceOfRevolution(generatrix, axis)
+
+
 def make_spherical_surface_from_geom(sphere: geo_su.SphericalSurface) -> Geom_SphericalSurface:
     location = sphere.position.location
     axis = sphere.position.axis
@@ -1420,6 +1437,8 @@ def make_surface_from_geom(face_surface):
         return make_spherical_surface_from_geom(face_surface)
     elif type(face_surface) is geo_su.ToroidalSurface:
         return make_toroidal_surface_from_geom(face_surface)
+    elif type(face_surface) is geo_su.SurfaceOfRevolution:
+        return make_surface_of_revolution_from_geom(face_surface)
     elif type(face_surface) in (geo_su.BSplineSurfaceWithKnots, geo_su.RationalBSplineSurfaceWithKnots):
         return make_bspline_surface_with_knots(face_surface)
     else:
@@ -1483,6 +1502,21 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                 logger.warning("Skipping AdvancedFace (%s surface): %s", type(cfs_face.face_surface).__name__, ex)
                 continue
 
+        # Handle plain Face with PolyLoop bounds (faceted-brep polygons)
+        elif type(cfs_face) is geo_su.Face:
+            n_faces += 1
+            try:
+                outer = cfs_face.bounds[0].bound
+                if not isinstance(outer, PolyLoop):
+                    raise NotImplementedError(f"Only PolyLoop bounds supported for Face, not {type(outer)}")
+                face = make_face_from_poly_loop(outer)
+                builder.UpdateFace(face, 1e-6)
+                builder.Add(occ_shell, face)
+            except Exception as ex:
+                n_dropped += 1
+                logger.warning("Skipping Face (PolyLoop): %s", ex)
+                continue
+
         # Handle FaceSurface (legacy support)
         elif type(cfs_face) is geo_su.FaceSurface:
             n_faces += 1
@@ -1540,6 +1574,36 @@ def make_open_shell_from_geom(shell: geo_su.OpenShell) -> TopoDS_Shell:
     builder.MakeShell(occ_shell)
     _add_cfs_faces_to_shell(builder, occ_shell, shell.cfs_faces)
     return occ_shell
+
+
+def make_shell_from_polygonal_face_set_geom(pfs: geo_su.PolygonalFaceSet) -> TopoDS_Shape:
+    """Build an IfcPolygonalFaceSet — a shared point list plus n-gon faces — into a sewn
+    OCC shell. Each face is a planar polygon wire (1-based indices into the point list);
+    sewing stitches the per-face shells along shared edges so a closed set becomes a solidable
+    watertight shell."""
+    coords = pfs.coordinates
+    sewing = BRepBuilderAPI_Sewing(1e-6)
+    n_faces = 0
+    for face_idx in pfs.faces:
+        poly = BRepBuilderAPI_MakePolygon()
+        for i in face_idx:
+            poly.Add(point3d(coords[i - 1]))
+        poly.Close()
+        if not poly.IsDone():
+            logger.warning("PolygonalFaceSet: skipping face %s (could not build polygon wire)", face_idx)
+            continue
+        face_maker = BRepBuilderAPI_MakeFace(poly.Wire(), True)
+        if not face_maker.IsDone():
+            logger.warning("PolygonalFaceSet: skipping non-planar/degenerate face %s", face_idx)
+            continue
+        sewing.Add(face_maker.Face())
+        n_faces += 1
+
+    if n_faces == 0:
+        raise UnableToCreateTesselationFromSolidOCCGeom("PolygonalFaceSet produced no usable faces")
+
+    sewing.Perform()
+    return sewing.SewedShape()
 
 
 def make_shell_from_shell_based_surface_geom(sbsm: geo_su.ShellBasedSurfaceModel) -> TopoDS_Shape:

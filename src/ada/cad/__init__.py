@@ -462,6 +462,46 @@ class AdacppBackend:
                     shape = self._cad.build_advanced_face_bspline(*surf_args, bounds)
                 else:
                     shape = self._cad.build_bspline_surface_face(*surf_args)
+        elif isinstance(g, su.Face) and not isinstance(g, su.FaceSurface):
+            # Plain polygonal face (faceted-brep / PolyLoop bound) — a single planar polygon.
+            import ada.geom.curves as cu
+
+            bound = g.bounds[0].bound
+            if not isinstance(bound, cu.PolyLoop):
+                raise NotImplementedError(
+                    f"AdacppBackend.build: Face bound {type(bound).__name__!r} not yet ported to adacpp."
+                )
+            shape = self._cad.polygon_face([self._xyz(p) for p in bound.polygon])
+        elif isinstance(g, su.PolygonalFaceSet):
+            # n-gon mesh: a planar face per (1-based) index loop, sewn into a shell.
+            faces = [
+                self._cad.polygon_face([self._xyz(g.coordinates[i - 1]) for i in face_idx]) for face_idx in g.faces
+            ]
+            shape = self._cad.sew_faces(faces)
+        elif isinstance(g, so.RectangularPyramid):
+            # Rectangular base + 4 triangular sides (apex centred above), placed at the frame.
+            x, y, z = g.x_length, g.y_length, g.z_length
+            base = [(0, 0, 0), (x, 0, 0), (x, y, 0), (0, y, 0)]
+            apex = (x / 2.0, y / 2.0, z)
+            world = [self._to_world(g.position, p) for p in base] + [self._to_world(g.position, apex)]
+            faces = [self._cad.polygon_face(world[:4])]
+            for i in range(4):
+                faces.append(self._cad.polygon_face([world[i], world[(i + 1) % 4], world[4]]))
+            shape = self._cad.sew_faces(faces)
+        elif isinstance(g, so.FacetedBrep):
+            from ada.geom import Geometry as _Geometry
+            from ada.geom.booleans import BoolOpEnum
+
+            shape = self.build(_Geometry(geometry.id, g.outer))
+            for void in g.voids:
+                shape = self.boolean(BoolOpEnum.DIFFERENCE, shape, self.build(_Geometry(geometry.id, void)))
+        elif isinstance(g, so.SweptDiskSolid):
+            # Disk swept along the directrix; the native verb extracts the start frame and
+            # builds the circular profile in C++ (robust for any directrix kind).
+            directrix = self._encode_curve(g.directrix)
+            shape = self._cad.build_swept_disk_solid(
+                directrix, float(g.radius), float(g.inner_radius) if g.inner_radius else 0.0
+            )
         elif isinstance(g, su.WireFilledFace):
             # Interpolate a smooth surface through the boundary edges
             # (BRepOffsetAPI_MakeFilling) — the SAT exppc fallback face.
@@ -491,6 +531,48 @@ class AdacppBackend:
         c = list(p)
         return [float(c[0]), float(c[1]), float(c[2]) if len(c) > 2 else 0.0]
 
+    @staticmethod
+    def _to_world(position, local) -> list[float]:
+        """Transform a point in an Axis2Placement3D's local frame to world coordinates."""
+        import numpy as np
+
+        loc = np.asarray(list(position.location), dtype=float)
+        z = np.asarray(list(position.axis) if position.axis is not None else (0, 0, 1), dtype=float)
+        x = np.asarray(list(position.ref_direction) if position.ref_direction is not None else (1, 0, 0), dtype=float)
+        z = z / (np.linalg.norm(z) or 1.0)
+        x = x / (np.linalg.norm(x) or 1.0)
+        y = np.cross(z, x)
+        lx, ly, lz = local
+        w = loc + lx * x + ly * y + lz * z
+        return [float(v) for v in w]
+
+    @staticmethod
+    def _arc_midpoint(circle, p_start, p_end, sense: bool = True) -> list[float]:
+        """A point on ``circle`` at the angle bisecting start→end (along ``sense``) — the
+        midpoint an arc edge record (kind 1) needs."""
+        import numpy as np
+
+        c = np.asarray(list(circle.position.location), dtype=float)
+        z = np.asarray(list(circle.position.axis), dtype=float)
+        x = np.asarray(list(circle.position.ref_direction), dtype=float)
+        z = z / (np.linalg.norm(z) or 1.0)
+        x = x / (np.linalg.norm(x) or 1.0)
+        y = np.cross(z, x)
+        r = float(circle.radius)
+
+        def ang(p):
+            d = np.asarray(list(p), dtype=float) - c
+            return np.arctan2(float(d @ y), float(d @ x))
+
+        a0, a1 = ang(p_start), ang(p_end)
+        if sense and a1 <= a0:
+            a1 += 2.0 * np.pi
+        elif not sense and a1 >= a0:
+            a1 -= 2.0 * np.pi
+        am = 0.5 * (a0 + a1)
+        m = c + r * (np.cos(am) * x + np.sin(am) * y)
+        return [float(v) for v in m]
+
     def _encode_curve(self, curve) -> list[list[float]]:
         # Encode an ada.geom profile curve as adacpp edge records:
         #   line=[0, p1, p2], arc=[1, start, mid, end], circle=[2, centre, axis, r].
@@ -507,6 +589,26 @@ class AdacppBackend:
         if isinstance(curve, cu.Circle):
             axis = self._xyz(curve.position.axis) if curve.position.axis is not None else [0.0, 0.0, 1.0]
             return [[2.0, *self._xyz(curve.position.location), *axis, float(curve.radius)]]
+        if isinstance(curve, cu.PolyLine):
+            pts = curve.points
+            return [[0.0, *self._xyz(a), *self._xyz(b)] for a, b in zip(pts[:-1], pts[1:])]
+        if isinstance(curve, cu.TrimmedCurve):
+            from ada.geom.points import Point as _Point
+
+            b, t1, t2 = curve.basis_curve, curve.trim1, curve.trim2
+            if isinstance(b, cu.Line) and isinstance(t1, _Point) and isinstance(t2, _Point):
+                return [[0.0, *self._xyz(t1), *self._xyz(t2)]]
+            if isinstance(b, cu.Circle) and isinstance(t1, _Point) and isinstance(t2, _Point):
+                mid = self._arc_midpoint(b, t1, t2, curve.sense_agreement)
+                return [[1.0, *self._xyz(t1), *mid, *self._xyz(t2)]]
+            raise NotImplementedError(
+                f"AdacppBackend.build: TrimmedCurve basis {type(b).__name__!r} not yet ported to adacpp."
+            )
+        if isinstance(curve, cu.CompositeCurve):
+            edges = []
+            for seg in curve.segments:
+                edges.extend(self._encode_curve(seg.parent_curve))
+            return edges
         raise NotImplementedError(
             f"AdacppBackend.build: profile curve {type(curve).__name__!r} not yet ported to adacpp."
         )

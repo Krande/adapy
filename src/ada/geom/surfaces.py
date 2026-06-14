@@ -7,7 +7,7 @@ from typing import Union
 import ada.geom.curves as geo_cu
 from ada.geom.curves import EdgeLoop, PolyLoop
 from ada.geom.direction import Direction
-from ada.geom.placement import Axis2Placement3D
+from ada.geom.placement import Axis1Placement, Axis2Placement3D
 from ada.geom.points import Point
 
 
@@ -31,8 +31,14 @@ class CylindricalSurface:
 @dataclass
 class ConicalSurface:
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurface.htm)
     STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_conical_surface.html)
+
+    NOTE: there is **no** ``IfcConicalSurface`` in IFC4 / IFC4x3 — the conical surface only
+    exists in STEP AP242 and ACIS SAT. This class is used for STEP/SAT round-trip and OCC build
+    (``Geom_ConicalSurface``); it has no direct IFC entity. To express it in IFC it must be
+    written as an ``IfcSurfaceOfRevolution`` (a line generatrix revolved about the axis), which
+    is not yet implemented — the IFC face-surface writers raise rather than emit a non-existent
+    ``IfcConicalSurface``.
     """
 
     position: Axis2Placement3D
@@ -170,6 +176,22 @@ class SurfaceOfLinearExtrusion:
 
 
 @dataclass
+class SurfaceOfRevolution:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurfaceOfRevolution.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_surface_of_revolution.html)
+
+    A surface formed by revolving a generatrix curve about an axis. Note: the IFC entity types
+    ``SweptCurve`` as an ``IfcProfileDef`` (the generatrix wrapped in an open profile) — adapy
+    models the generatrix directly as a curve and wraps/unwraps the profile on write/read.
+    """
+
+    swept_curve: geo_cu.CURVE_GEOM_TYPES
+    axis_position: Axis1Placement
+    position: Axis2Placement3D = None
+
+
+@dataclass
 class IShapeProfileDef(ProfileDef):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcIShapeProfileDef.htm)
@@ -219,6 +241,21 @@ class TriangulatedFaceSet:
     coordinates: list[Point]
     normals: list[Direction]
     indices: list[int]
+
+
+@dataclass
+class PolygonalFaceSet:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPolygonalFaceSet.htm)
+
+    The compact sibling of :class:`TriangulatedFaceSet`: an indexed mesh whose faces are
+    arbitrary planar polygons (n-gons) rather than triangles. Each face is a list of 1-based
+    indices into the shared ``coordinates`` list (matching IFC's ``IfcIndexedPolygonalFace``).
+    """
+
+    coordinates: list[Point]
+    faces: list[list[int]]
+    closed: bool = True
 
 
 @dataclass
@@ -386,11 +423,13 @@ SURFACE_GEOM_TYPES = Union[
     IShapeProfileDef,
     TShapeProfileDef,
     TriangulatedFaceSet,
+    PolygonalFaceSet,
     CircleProfileDef,
     RectangleProfileDef,
     AdvancedFace,
     BSplineSurfaceWithKnots,
     RationalBSplineSurfaceWithKnots,
     SurfaceOfLinearExtrusion,
+    SurfaceOfRevolution,
     ClosedShell,
 ]

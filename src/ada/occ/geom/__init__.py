@@ -30,6 +30,8 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
         occ_geom = geo_so.make_cylinder_from_geom(geometry)
     elif isinstance(geometry, so.Sphere):
         occ_geom = geo_so.make_sphere_from_geom(geometry)
+    elif isinstance(geometry, so.RectangularPyramid):
+        occ_geom = geo_so.make_rectangular_pyramid_from_geom(geometry)
     elif isinstance(geometry, so.ExtrudedAreaSolidTapered):
         occ_geom = geo_so.make_extruded_area_shape_tapered_from_geom(geometry)
     elif isinstance(geometry, so.ExtrudedAreaSolid):
@@ -38,6 +40,10 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
         occ_geom = geo_so.make_revolved_area_shape_from_geom(geometry)
     elif isinstance(geometry, so.FixedReferenceSweptAreaSolid):
         occ_geom = geo_so.make_fixed_reference_swept_area_shape_from_geom(geometry)
+    elif isinstance(geometry, so.SweptDiskSolid):
+        occ_geom = geo_so.make_swept_disk_solid_from_geom(geometry)
+    elif isinstance(geometry, so.FacetedBrep):
+        occ_geom = geo_so.make_faceted_brep_from_geom(geometry)
 
     # Surface models
     elif isinstance(geometry, su.FaceBasedSurfaceModel):
@@ -54,6 +60,8 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
         occ_geom = geo_su.make_open_shell_from_geom(geometry)
     elif isinstance(geometry, su.ShellBasedSurfaceModel):
         occ_geom = geo_su.make_shell_from_shell_based_surface_geom(geometry)
+    elif isinstance(geometry, su.PolygonalFaceSet):
+        occ_geom = geo_su.make_shell_from_polygonal_face_set_geom(geometry)
     else:
         raise NotImplementedError(f"Geometry to OCC conversion for type {type(geometry)} not implemented")
 

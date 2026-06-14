@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Union
 
 from ada.core.vector_utils import create_right_hand_vectors_xv_yv_from_zv
@@ -11,6 +11,7 @@ from ada.geom.points import Point
 from ada.geom.surfaces import (
     SURFACE_GEOM_TYPES,
     ArbitraryProfileDef,
+    ClosedShell,
     ConnectedFaceSet,
     ProfileDef,
 )
@@ -61,6 +62,25 @@ class FixedReferenceSweptAreaSolid:
     swept_area: SURFACE_GEOM_TYPES
     position: Axis2Placement3D
     directrix: CURVE_GEOM_TYPES
+
+
+@dataclass
+class SweptDiskSolid:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSweptDiskSolid.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_swept_disk_solid.html)
+
+    A circular — or annular, when ``inner_radius`` is set — disk swept along the ``directrix``
+    curve. The canonical representation for pipes/rods. ``IfcSweptDiskSolidPolygonal`` (a
+    polyline directrix with a fillet radius) maps here too, with ``fillet_radius`` set.
+    """
+
+    directrix: CURVE_GEOM_TYPES
+    radius: float
+    inner_radius: float | None = None
+    start_param: float | None = None
+    end_param: float | None = None
+    fillet_radius: float | None = None
 
 
 @dataclass
@@ -168,6 +188,19 @@ class AdvancedBrep:
     outer: ConnectedFaceSet
 
 
+@dataclass
+class FacetedBrep:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFacetedBrep.htm)
+
+    A manifold solid bounded by planar polygonal faces — the most common B-rep encoding. Maps to
+    ``IfcFacetedBrepWithVoids`` when ``voids`` (inner closed shells) are present.
+    """
+
+    outer: ClosedShell
+    voids: list[ClosedShell] = field(default_factory=list)
+
+
 SOLID_GEOM_TYPES = Union[
     ExtrudedAreaSolid,
     RevolvedAreaSolid,
@@ -178,5 +211,7 @@ SOLID_GEOM_TYPES = Union[
     Sphere,
     FixedReferenceSweptAreaSolid,
     AdvancedBrep,
+    FacetedBrep,
     ExtrudedAreaSolidTapered,
+    SweptDiskSolid,
 ]

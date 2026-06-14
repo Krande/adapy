@@ -2837,15 +2837,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 continue
             ext = pathlib.PurePosixPath(f.key).suffix.lower()
             targets = ConverterRegistry.targets_for(ext)
-            # validate_only runs skip the conversion grid and emit only parity cells.
-            if not validate_only:
+            if validate_only:
+                # A validation run does cross-format visual-parity only (no conversion
+                # grid), and only when the source can produce a structure-preserving
+                # format to compare against. Parity is a validation concern — full
+                # conversion runs do not emit parity cells.
+                if any(t in ("ifc", "xml", "step") for t in targets):
+                    cells.append((f.key, "parity"))
+            else:
                 for target_format in targets:
                     cells.append((f.key, target_format))
-            # Cross-format visual-parity validation cell — only when the source
-            # can produce a structure-preserving format to compare against.
-            # Appended before set_audit_run_total so the run total accounts for it.
-            if any(t in ("ifc", "xml", "step") for t in targets):
-                cells.append((f.key, "parity"))
 
         await db_module.set_audit_run_total(pool, run_id, len(cells))
         if not cells:
@@ -2863,6 +2864,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         scope_id=scope_obj.id,
                         target_capability=worker_pool,
                         force_rebuild=force_rebuild,
+                        # Parity produces no derived blob — pass an explicit derived_key so
+                        # enqueue doesn't route through derived_key_for(), which rejects the
+                        # "parity" pseudo-format (not in TARGET_FORMATS). Same pattern the
+                        # fea_artefacts flow uses for its manifest key.
+                        derived_key=f"_derived/{source_key}.parity",
                     )
                 except Exception as exc:
                     logger.exception("audit run %s: parity enqueue failed for %s", run_id, source_key)

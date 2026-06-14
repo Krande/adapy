@@ -99,6 +99,17 @@ def triangulated_face_set(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Tr
     )
 
 
+def polygonal_face_set(ifc_entity: ifcopenshell.entity_instance) -> geo_su.PolygonalFaceSet:
+    # Each IfcIndexedPolygonalFace carries 1-based CoordIndex into the shared point list.
+    # IfcIndexedPolygonalFaceWithVoids (a subtype) additionally has InnerCoordIndices — not
+    # yet represented; its outer loop still reads correctly here.
+    return geo_su.PolygonalFaceSet(
+        coordinates=[Point(*x) for x in ifc_entity.Coordinates.CoordList],
+        faces=[list(face.CoordIndex) for face in ifc_entity.Faces],
+        closed=bool(ifc_entity.Closed) if ifc_entity.Closed is not None else True,
+    )
+
+
 def rectangle_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.RectangleProfileDef:
     return geo_su.RectangleProfileDef(
         profile_type=geo_su.ProfileType.from_str(ifc_entity.ProfileType),
@@ -107,11 +118,28 @@ def rectangle_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Re
     )
 
 
+def curve_bounded_plane(ifc_entity: ifcopenshell.entity_instance) -> geo_su.CurveBoundedPlane:
+    from .curves import get_curve
+
+    inner = [get_curve(c) for c in ifc_entity.InnerBoundaries] if ifc_entity.InnerBoundaries else []
+    return geo_su.CurveBoundedPlane(
+        basis_surface=plane(ifc_entity.BasisSurface),
+        outer_boundary=get_curve(ifc_entity.OuterBoundary),
+        inner_boundaries=inner,
+    )
+
+
+def poly_loop(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.PolyLoop:
+    return geo_cu.PolyLoop(polygon=[Point(p.Coordinates) for p in ifc_entity.Polygon])
+
+
 def face_bound(ifc_entity: ifcopenshell.entity_instance) -> geo_su.FaceBound:
 
     ifc_bound = ifc_entity.Bound
     if ifc_bound.is_a("IfcEdgeLoop"):
         bound = edge_loop(ifc_bound)
+    elif ifc_bound.is_a("IfcPolyLoop"):
+        bound = poly_loop(ifc_bound)
     else:
         raise NotImplementedError(f"{ifc_entity} is not yet implemented.")
 
@@ -121,8 +149,15 @@ def face_bound(ifc_entity: ifcopenshell.entity_instance) -> geo_su.FaceBound:
     )
 
 
-def bspline_surface_with_knots(ifc_entity: ifcopenshell.entity_instance) -> geo_su.BSplineSurfaceWithKnots:
-    return geo_su.BSplineSurfaceWithKnots(
+def face(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Face:
+    """IfcFace -> Face. IfcFaceBound and IfcFaceOuterBound both read as FaceBound."""
+    return geo_su.Face(bounds=[face_bound(b) for b in ifc_entity.Bounds])
+
+
+def bspline_surface_with_knots(
+    ifc_entity: ifcopenshell.entity_instance,
+) -> geo_su.BSplineSurfaceWithKnots | geo_su.RationalBSplineSurfaceWithKnots:
+    kwargs = dict(
         u_degree=ifc_entity.UDegree,
         v_degree=ifc_entity.VDegree,
         control_points_list=[[Point(*p) for p in x] for x in ifc_entity.ControlPointsList],
@@ -136,19 +171,75 @@ def bspline_surface_with_knots(ifc_entity: ifcopenshell.entity_instance) -> geo_
         v_knots=ifc_entity.VKnots,
         knot_spec=geo_cu.KnotType.from_str(ifc_entity.KnotSpec),
     )
+    # IfcRationalBSplineSurfaceWithKnots is a subtype of IfcBSplineSurfaceWithKnots — preserve
+    # its per-control-point weights instead of silently downcasting to a non-rational surface.
+    if ifc_entity.is_a("IfcRationalBSplineSurfaceWithKnots"):
+        return geo_su.RationalBSplineSurfaceWithKnots(
+            **kwargs, weights_data=[list(row) for row in ifc_entity.WeightsData]
+        )
+    return geo_su.BSplineSurfaceWithKnots(**kwargs)
+
+
+def cylindrical_surface(ifc_entity: ifcopenshell.entity_instance) -> geo_su.CylindricalSurface:
+    from .placement import axis3d
+
+    return geo_su.CylindricalSurface(position=axis3d(ifc_entity.Position), radius=ifc_entity.Radius)
+
+
+def spherical_surface(ifc_entity: ifcopenshell.entity_instance) -> geo_su.SphericalSurface:
+    from .placement import axis3d
+
+    return geo_su.SphericalSurface(position=axis3d(ifc_entity.Position), radius=ifc_entity.Radius)
+
+
+def toroidal_surface(ifc_entity: ifcopenshell.entity_instance) -> geo_su.ToroidalSurface:
+    from .placement import axis3d
+
+    return geo_su.ToroidalSurface(
+        position=axis3d(ifc_entity.Position),
+        major_radius=ifc_entity.MajorRadius,
+        minor_radius=ifc_entity.MinorRadius,
+    )
+
+
+def surface_of_revolution(ifc_entity: ifcopenshell.entity_instance) -> geo_su.SurfaceOfRevolution:
+    from .curves import get_curve
+    from .placement import axis1placement, axis3d
+
+    swept = ifc_entity.SweptCurve
+    # IFC SweptCurve is an IfcProfileDef; the generatrix is its wrapped Curve.
+    curve = get_curve(swept.Curve) if swept.is_a("IfcArbitraryOpenProfileDef") else get_curve(swept)
+    return geo_su.SurfaceOfRevolution(
+        swept_curve=curve,
+        axis_position=axis1placement(ifc_entity.AxisPosition),
+        position=axis3d(ifc_entity.Position) if ifc_entity.Position is not None else None,
+    )
+
+
+def face_surface_geom(ifc_surface: ifcopenshell.entity_instance) -> geo_su.SURFACE_GEOM_TYPES:
+    """Read any supported IfcSurface used as an AdvancedFace.FaceSurface."""
+    # IfcRationalBSplineSurfaceWithKnots is a subtype of IfcBSplineSurfaceWithKnots — the one
+    # reader handles both and preserves rationality.
+    if ifc_surface.is_a("IfcBSplineSurfaceWithKnots"):
+        return bspline_surface_with_knots(ifc_surface)
+    elif ifc_surface.is_a("IfcCylindricalSurface"):
+        return cylindrical_surface(ifc_surface)
+    elif ifc_surface.is_a("IfcSphericalSurface"):
+        return spherical_surface(ifc_surface)
+    elif ifc_surface.is_a("IfcToroidalSurface"):
+        return toroidal_surface(ifc_surface)
+    elif ifc_surface.is_a("IfcSurfaceOfRevolution"):
+        return surface_of_revolution(ifc_surface)
+    elif ifc_surface.is_a("IfcPlane"):
+        return plane(ifc_surface)
+    raise NotImplementedError(f"Face surface type {ifc_surface.is_a()} is not implemented")
 
 
 def advanced_face(ifc_entity: ifcopenshell.entity_instance) -> geo_su.AdvancedFace:
-    ifc_face_surface = ifc_entity.FaceSurface
-
-    face_surface = None
-    if ifc_face_surface.is_a("IfcBSplineSurfaceWithKnots"):
-        face_surface = bspline_surface_with_knots(ifc_face_surface)
-
-    if face_surface is None:
-        raise NotImplementedError(f"{ifc_entity} is not yet implemented.")
-
-    return geo_su.AdvancedFace(bounds=[face_bound(x) for x in ifc_entity.Bounds], face_surface=face_surface)
+    return geo_su.AdvancedFace(
+        bounds=[face_bound(x) for x in ifc_entity.Bounds],
+        face_surface=face_surface_geom(ifc_entity.FaceSurface),
+    )
 
 
 def closed_shell(ifc_entity: ifcopenshell.entity_instance) -> geo_su.ClosedShell:

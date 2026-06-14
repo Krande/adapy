@@ -44,7 +44,9 @@ ENV PYTHONUNBUFFERED=1 \
     HOME=/home/app \
     XDG_CACHE_HOME=/home/app/.cache \
     NUMBA_CACHE_DIR=/home/app/.cache \
-    MPLCONFIGDIR=/home/app/.cache/matplotlib
+    MPLCONFIGDIR=/home/app/.cache/matplotlib \
+    USER=app \
+    LOGNAME=app
 
 # `pixi run` activates the env and exec's the task. Python's asyncio
 # signal handlers in the worker handle SIGTERM/SIGINT cleanly as PID 1.
