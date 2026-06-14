@@ -2,6 +2,15 @@
 
 
 
+## v0.21.0 (2026-06-14)
+
+### Feature
+
+* feat: IFC geometry-primitive coverage (#47) — Tiers 1–3 (#223)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`f9990e4`](https://github.com/Krande/adapy/commit/f9990e4264ebe3d8e8c38aa002783e593c43c4d4))
+
+
 ## v0.20.2 (2026-06-14)
 
 ### Fix
