@@ -10,6 +10,7 @@ from ada.cadit.ifc.utils import (
     create_ifcpolyline,
     create_local_placement,
     tesselate_shape,
+    write_elem_property_sets,
 )
 from ada.config import logger
 from ada.core.constants import O, X, Z
@@ -87,6 +88,16 @@ def write_ifc_wall(ifc_store: IfcStore, wall: Wall):
         ObjectType=None,
         ObjectPlacement=wall_placement,
         Representation=product_shape,
+    )
+
+    # Thickness/offset can't be recovered unambiguously from the extruded footprint, so persist
+    # them as properties for a faithful read-back (mirrors how the pipe elbow round-trips its
+    # bend params). Points come from the Axis polyline and height from the body extrusion depth.
+    write_elem_property_sets(
+        {"thickness": float(wall.thickness), "offset": float(wall.offset)},
+        wall_el,
+        f,
+        owner_history,
     )
 
     return wall_el

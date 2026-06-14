@@ -174,6 +174,21 @@ def import_ifc_sphere(product: ifcopenshell.entity_instance, name, ifc_store: If
     if obj_placement is not None and obj_placement.PlacementRelTo:
         extra_opts["placement"] = Placement.from_4x4_matrix(get_local_placement(obj_placement))
 
+    # A sphere-bodied product marked MassPoint reads back as MassPoint (mass from properties).
+    if product.ObjectType == "MassPoint":
+        from ada.api.mass import MassPoint
+
+        from .reader_utils import get_ifc_property_sets
+
+        mass = get_ifc_property_sets(product).get("Properties", {}).get("mass", 0.0)
+        return MassPoint(
+            name,
+            center,
+            float(mass),
+            radius=float(sphere.Radius),
+            **{k: v for k, v in extra_opts.items() if k == "placement"},
+        )
+
     return PrimSphere(
         name,
         center,

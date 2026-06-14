@@ -35,12 +35,10 @@ def write_pipe_elbow_seg(ifc_store: IfcStore, pipe_elbow: PipeSegElbow):  # -> i
 
     ifc_elbow = elbow_revolved_solid(pipe_elbow, f, tol)
 
-    parent = ifc_store.get_by_guid(pipe_elbow.parent.guid)
-
-    pfitting_placement = create_local_placement(
-        f,
-        relative_to=parent.ObjectPlacement,
-    )
+    # Elbow geometry is in world coordinates (like the straight segment), so use an identity
+    # placement. This also decouples the segment from the pipe's IFC entity, which no longer
+    # exists when segments are written (the pipe is now an IfcDistributionSystem created after).
+    pfitting_placement = create_local_placement(f)
 
     pfitting = f.create_entity(
         "IfcPipeFitting",
@@ -110,15 +108,18 @@ def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
     core_geom = elbow.solid_geom()
     geom: geo_so.RevolvedAreaSolid = core_geom.geometry
 
-    rev_area_solid = igeo_so.revolved_area_solid(geom, f)
+    a = elbow.get_assembly()
+    ifc_store = a.ifc_store
+
+    # Reuse the section's parametric profile (carries the ADA parameter bag) so the elbow
+    # section round-trips exactly, like the straight segment.
+    profile = ifc_store.get_profile_def(elbow.section)
+    rev_area_solid = igeo_so.revolved_area_solid(geom, f, profile)
 
     if core_geom.color is not None:
         add_colour(f, rev_area_solid, str(core_geom.color), core_geom.color)
 
     p1, p2, p3 = elbow.p1.p, elbow.p2.p, elbow.p3.p
-
-    a = elbow.get_assembly()
-    ifc_store = a.ifc_store
 
     body = f.create_entity(
         "IfcShapeRepresentation", ifc_store.get_context("Body"), "Body", "SweptSolid", [rev_area_solid]

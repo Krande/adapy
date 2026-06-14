@@ -17,6 +17,7 @@ from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
 from .reader_utils import (
     get_associated_material,
+    get_ifc_body,
     get_placement,
     get_point,
     get_swept_area,
@@ -47,11 +48,17 @@ def import_ifc_beam(ifc_elem, name, ifc_store: IfcStore) -> Beam:
         raise ValueError("Number of items objects attached to axis is not 1")
 
     axis = axes[0].Items[0]
-    if axis.is_a("IfcPolyline") and len(axis.Points) != 2:
-        return import_polyline_beam(ifc_elem, axis, name, sec, mat, ifc_store)
-    elif axis.is_a("IfcTrimmedCurve"):
+
+    # Dispatch on the body solid type — the authoritative discriminator. (The axis curve type
+    # is unreliable: a swept beam's axis is an IfcIndexedPolyCurve, not an IfcPolyline.)
+    body_solid = get_ifc_body(ifc_elem)
+    body_type = body_solid.is_a()
+    if body_type == "IfcRevolvedAreaSolid":
         return import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store)
+    elif body_type == "IfcFixedReferenceSweptAreaSolid":
+        return import_polyline_beam(ifc_elem, axis, name, sec, mat, ifc_store)
     else:
+        # IfcExtrudedAreaSolid (straight) or IfcExtrudedAreaSolidTapered (→ BeamTapered)
         return import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store)
 
 
@@ -76,10 +83,7 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
         place = Placement.from_4x4_matrix(local_placement)
         extra_opts["placement"] = place
 
-    return Beam(
-        name,
-        p1,
-        p2,
+    common = dict(
         sec=sec,
         mat=mat,
         up=local_y,
@@ -88,6 +92,17 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
         units=ifc_store.assembly.units,
         **extra_opts,
     )
+
+    # A tapered extrusion (IfcExtrudedAreaSolidTapered) carries an EndSweptArea — reconstruct
+    # the BeamTapered subtype with its end section rather than collapsing to a prismatic Beam.
+    body_solid = get_ifc_body(ifc_elem)
+    if body_solid.is_a("IfcExtrudedAreaSolidTapered"):
+        from ada import BeamTapered
+
+        end_sec = import_section_from_ifc(body_solid.EndSweptArea, units=ifc_store.assembly.units)
+        return BeamTapered(name, p1, p2, tap=end_sec, **common)
+
+    return Beam(name, p1, p2, **common)
 
 
 def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) -> Beam:
@@ -118,4 +133,25 @@ def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
 
 
 def import_polyline_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) -> Beam:
-    raise NotImplementedError("Reading beams swept along IfcPolyLines of length > 2 is not yet supported")
+    """A beam swept along a multi-point polyline directrix (IfcFixedReferenceSweptAreaSolid) →
+    BeamSweep. The Axis polyline is the sweep curve (written from beam.curve)."""
+    from ada import BeamSweep
+    from ada.api.curves import CurvePoly2d
+
+    # The sweep directrix is written by write_curve_poly as an IfcIndexedPolyCurve (points in
+    # a CartesianPointList), not an IfcPolyline (list of CartesianPoints) — handle both.
+    if axis.is_a("IfcIndexedPolyCurve"):
+        coords = [tuple(float(c) for c in pt) for pt in axis.Points.CoordList]
+    else:
+        coords = [tuple(float(c) for c in p.Coordinates) for p in axis.Points]
+    curve = CurvePoly2d.from_3d_points(coords)
+
+    return BeamSweep(
+        name,
+        curve=curve,
+        sec=sec,
+        mat=mat,
+        guid=ifc_elem.GlobalId,
+        ifc_store=ifc_store,
+        units=ifc_store.assembly.units,
+    )

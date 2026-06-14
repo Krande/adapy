@@ -6,12 +6,23 @@ from ada.config import logger
 
 from .exceptions import NoIfcAxesAttachedError, UnableToConvertBoolResToBeamException
 from .read_beams import import_ifc_beam
+from .read_fasteners import import_ifc_fastener
 from .read_pipe import import_pipe_segment
 from .read_plates import import_ifc_plate
 from .read_shapes import _has_body_representation, import_ifc_shape, import_ifc_sphere
+from .read_wall import import_ifc_wall
 
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
+
+
+def _belongs_to_system(product) -> bool:
+    """True if the product is grouped by an IfcSystem (e.g. a pipe segment in a distribution
+    system) — reconstructed at the system layer, not as a loose element."""
+    for rel in getattr(product, "HasAssignments", None) or []:
+        if rel.is_a("IfcRelAssignsToGroup") and rel.RelatingGroup is not None and rel.RelatingGroup.is_a("IfcSystem"):
+            return True
+    return False
 
 
 def import_physical_ifc_elem(product, name, ifc_store: IfcStore):
@@ -30,15 +41,26 @@ def import_physical_ifc_elem(product, name, ifc_store: IfcStore):
             logger.debug(e)
             pass
 
+    if pr_type in ["IfcWall", "IfcWallStandardCase"]:
+        try:
+            return import_ifc_wall(product, name, ifc_store)
+        except NoIfcAxesAttachedError as e:
+            logger.debug(e)
+            pass
+
+    if product.is_a("IfcFastener"):
+        return import_ifc_fastener(product, name, ifc_store)
+
     if product.is_a("IfcOpeningElement") is True:
         logger.info(f'skipping opening element "{product}"')
         return None
 
     if product.is_a() in ("IfcPipeSegment", "IfcPipeFitting"):
+        # Segments grouped by an IfcDistributionSystem are reconstructed as a Pipe in
+        # load_systems(); skip them here so they aren't also imported as loose segments.
+        if _belongs_to_system(product):
+            return None
         return import_pipe_segment(product, name, ifc_store)
-
-    if product.is_a("IfcPipeFitting"):
-        logger.info('"IfcPipeFitting" is not yet added')
 
     # Non-physical products (alignment, annotation, grid, positioning) carry only
     # curve/axis representations, never body geometry. Importing them as empty Shapes

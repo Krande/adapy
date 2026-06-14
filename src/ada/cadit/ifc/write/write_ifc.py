@@ -116,6 +116,13 @@ class IfcWriter:
             self.eval_validity(to_be_added, mat_map, rel_mats_map)
 
             ifc_elem = self.add(to_be_added)
+            if ifc_elem is None:
+                # Some objects legitimately produce no IFC entity — e.g. a Pipe whose segments
+                # couldn't be built (write_ifc_pipe returns None). Skip the post-processing
+                # (openings/props/containment) instead of choking on a missing GlobalId.
+                logger.warning(f'"{to_be_added.name}" ({type(to_be_added).__name__}) produced no IFC entity; skipping')
+                to_be_added.change_type = ChangeAction.NOCHANGE
+                continue
             created_ifc_by_obj_guid[to_be_added.guid] = ifc_elem
 
             self.create_ifc_openings(to_be_added, ifc_elem)
@@ -127,7 +134,10 @@ class IfcWriter:
                 self.ifc_store.owner_history,
             )
 
-            contained_in_spatial[to_be_added.parent.guid].append(ifc_elem)
+            # A Pipe writes an IfcDistributionSystem (not a spatially-containable product) and
+            # contains its own segments in the spatial structure, so skip the generic step.
+            if not isinstance(to_be_added, Pipe):
+                contained_in_spatial[to_be_added.parent.guid].append(ifc_elem)
             to_be_added.change_type = ChangeAction.NOCHANGE
 
             if self.callback is not None:
@@ -191,7 +201,9 @@ class IfcWriter:
         return num_mod
 
     def sync_added_welds(self):
-        for weld in self.ifc_store.assembly.welds:
+        # Welds may live on any part, not just the top-level assembly.
+        welds = [w for p in self.ifc_store.assembly.get_all_parts_in_assembly(include_self=True) for w in p.welds]
+        for weld in welds:
             ifc_weld = write_ifc_fastener(weld)
             self.add_related_elements_to_spatial_container([ifc_weld], weld.parent.guid)
             if weld.groove is None:
