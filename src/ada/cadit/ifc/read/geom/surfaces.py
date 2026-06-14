@@ -169,17 +169,50 @@ def bspline_surface_with_knots(
     return geo_su.BSplineSurfaceWithKnots(**kwargs)
 
 
+def cylindrical_surface(ifc_entity: ifcopenshell.entity_instance) -> geo_su.CylindricalSurface:
+    from .placement import axis3d
+
+    return geo_su.CylindricalSurface(position=axis3d(ifc_entity.Position), radius=ifc_entity.Radius)
+
+
+def spherical_surface(ifc_entity: ifcopenshell.entity_instance) -> geo_su.SphericalSurface:
+    from .placement import axis3d
+
+    return geo_su.SphericalSurface(position=axis3d(ifc_entity.Position), radius=ifc_entity.Radius)
+
+
+def toroidal_surface(ifc_entity: ifcopenshell.entity_instance) -> geo_su.ToroidalSurface:
+    from .placement import axis3d
+
+    return geo_su.ToroidalSurface(
+        position=axis3d(ifc_entity.Position),
+        major_radius=ifc_entity.MajorRadius,
+        minor_radius=ifc_entity.MinorRadius,
+    )
+
+
+def face_surface_geom(ifc_surface: ifcopenshell.entity_instance) -> geo_su.SURFACE_GEOM_TYPES:
+    """Read any supported IfcSurface used as an AdvancedFace.FaceSurface."""
+    # IfcRationalBSplineSurfaceWithKnots is a subtype of IfcBSplineSurfaceWithKnots — the one
+    # reader handles both and preserves rationality.
+    if ifc_surface.is_a("IfcBSplineSurfaceWithKnots"):
+        return bspline_surface_with_knots(ifc_surface)
+    elif ifc_surface.is_a("IfcCylindricalSurface"):
+        return cylindrical_surface(ifc_surface)
+    elif ifc_surface.is_a("IfcSphericalSurface"):
+        return spherical_surface(ifc_surface)
+    elif ifc_surface.is_a("IfcToroidalSurface"):
+        return toroidal_surface(ifc_surface)
+    elif ifc_surface.is_a("IfcPlane"):
+        return plane(ifc_surface)
+    raise NotImplementedError(f"Face surface type {ifc_surface.is_a()} is not implemented")
+
+
 def advanced_face(ifc_entity: ifcopenshell.entity_instance) -> geo_su.AdvancedFace:
-    ifc_face_surface = ifc_entity.FaceSurface
-
-    face_surface = None
-    if ifc_face_surface.is_a("IfcBSplineSurfaceWithKnots"):
-        face_surface = bspline_surface_with_knots(ifc_face_surface)
-
-    if face_surface is None:
-        raise NotImplementedError(f"{ifc_entity} is not yet implemented.")
-
-    return geo_su.AdvancedFace(bounds=[face_bound(x) for x in ifc_entity.Bounds], face_surface=face_surface)
+    return geo_su.AdvancedFace(
+        bounds=[face_bound(x) for x in ifc_entity.Bounds],
+        face_surface=face_surface_geom(ifc_entity.FaceSurface),
+    )
 
 
 def closed_shell(ifc_entity: ifcopenshell.entity_instance) -> geo_su.ClosedShell:

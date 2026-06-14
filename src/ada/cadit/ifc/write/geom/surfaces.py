@@ -242,6 +242,30 @@ def create_plane(plane: geo_su.Plane, f: ifcopenshell.file) -> ifcopenshell.enti
     )
 
 
+def create_cylindrical_surface(cs: geo_su.CylindricalSurface, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a CylindricalSurface to an IfcCylindricalSurface."""
+    return f.create_entity(
+        "IfcCylindricalSurface", Position=ifc_placement_from_axis3d(cs.position, f), Radius=float(cs.radius)
+    )
+
+
+def create_spherical_surface(ss: geo_su.SphericalSurface, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a SphericalSurface to an IfcSphericalSurface."""
+    return f.create_entity(
+        "IfcSphericalSurface", Position=ifc_placement_from_axis3d(ss.position, f), Radius=float(ss.radius)
+    )
+
+
+def create_toroidal_surface(ts: geo_su.ToroidalSurface, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a ToroidalSurface to an IfcToroidalSurface."""
+    return f.create_entity(
+        "IfcToroidalSurface",
+        Position=ifc_placement_from_axis3d(ts.position, f),
+        MajorRadius=float(ts.major_radius),
+        MinorRadius=float(ts.minor_radius),
+    )
+
+
 def curve_bounded_plane(cbp: geo_su.CurveBoundedPlane, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts a CurveBoundedPlane to an IFC representation"""
     basis_surface = create_plane(cbp.basis_surface, f)
