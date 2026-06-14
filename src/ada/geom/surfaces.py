@@ -31,8 +31,14 @@ class CylindricalSurface:
 @dataclass
 class ConicalSurface:
     """
-    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurface.htm)
     STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_conical_surface.html)
+
+    NOTE: there is **no** ``IfcConicalSurface`` in IFC4 / IFC4x3 — the conical surface only
+    exists in STEP AP242 and ACIS SAT. This class is used for STEP/SAT round-trip and OCC build
+    (``Geom_ConicalSurface``); it has no direct IFC entity. To express it in IFC it must be
+    written as an ``IfcSurfaceOfRevolution`` (a line generatrix revolved about the axis), which
+    is not yet implemented — the IFC face-surface writers raise rather than emit a non-existent
+    ``IfcConicalSurface``.
     """
 
     position: Axis2Placement3D
