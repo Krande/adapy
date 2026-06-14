@@ -6,8 +6,8 @@ from ada.cadit.ifc.read.geom.solids import (
     extruded_solid_area_tapered,
     fixed_reference_swept_area_solid,
 )
+from ada.cadit.ifc.write.geom.solids import extruded_area_solid_tapered
 from ada.cadit.ifc.write.geom.solids import (
-    extruded_area_solid_tapered,
     fixed_reference_swept_area_solid as write_frs,
 )
 from ada.geom import curves as geo_cu

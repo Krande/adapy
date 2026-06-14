@@ -1,10 +1,8 @@
 import ifcopenshell
 
-from ada.cadit.ifc.read.geom.surfaces import (
-    cylindrical_surface as read_cyl,
-    spherical_surface as read_sph,
-    toroidal_surface as read_tor,
-)
+from ada.cadit.ifc.read.geom.surfaces import cylindrical_surface as read_cyl
+from ada.cadit.ifc.read.geom.surfaces import spherical_surface as read_sph
+from ada.cadit.ifc.read.geom.surfaces import toroidal_surface as read_tor
 from ada.cadit.ifc.write.geom.surfaces import (
     create_cylindrical_surface,
     create_spherical_surface,

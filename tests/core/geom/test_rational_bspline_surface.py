@@ -1,7 +1,9 @@
 import ifcopenshell
 
 from ada.cadit.ifc.read.geom.surfaces import bspline_surface_with_knots as read_bspline
-from ada.cadit.ifc.write.geom.surfaces import bspline_surface_with_knots as write_bspline
+from ada.cadit.ifc.write.geom.surfaces import (
+    bspline_surface_with_knots as write_bspline,
+)
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 from ada.geom.points import Point

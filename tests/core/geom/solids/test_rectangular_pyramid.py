@@ -2,7 +2,9 @@ import ifcopenshell
 
 from ada.cad import active_backend
 from ada.cadit.ifc.read.geom.solids import ifc_rectangular_pyramid
-from ada.cadit.ifc.write.geom.solids import rectangular_pyramid as write_rectangular_pyramid
+from ada.cadit.ifc.write.geom.solids import (
+    rectangular_pyramid as write_rectangular_pyramid,
+)
 from ada.geom import Geometry
 from ada.geom import solids as geo_so
 from ada.geom.direction import Direction

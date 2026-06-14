@@ -22,15 +22,14 @@ from .solids import (
     revolved_solid_area,
     swept_disk_solid,
 )
+from .surfaces import advanced_face, curve_bounded_plane
+from .surfaces import face as read_face
 from .surfaces import (
-    advanced_face,
-    curve_bounded_plane,
     half_space_solid,
     polygonal_face_set,
     shell_based_surface_model,
     triangulated_face_set,
 )
-from .surfaces import face as read_face
 
 GEOM = Union[geo_so.SOLID_GEOM_TYPES | geo_cu.CURVE_GEOM_TYPES | geo_su.SURFACE_GEOM_TYPES]
 

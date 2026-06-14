@@ -1,8 +1,12 @@
 import ifcopenshell
 
 from ada.cad import active_backend
-from ada.cadit.ifc.read.geom.surfaces import polygonal_face_set as read_polygonal_face_set
-from ada.cadit.ifc.write.geom.surfaces import polygonal_face_set as write_polygonal_face_set
+from ada.cadit.ifc.read.geom.surfaces import (
+    polygonal_face_set as read_polygonal_face_set,
+)
+from ada.cadit.ifc.write.geom.surfaces import (
+    polygonal_face_set as write_polygonal_face_set,
+)
 from ada.geom import Geometry
 from ada.geom import surfaces as geo_su
 from ada.geom.points import Point

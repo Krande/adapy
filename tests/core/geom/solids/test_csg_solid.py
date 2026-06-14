@@ -25,7 +25,9 @@ def test_csg_solid_wrapping_primitive():
 def test_csg_solid_wrapping_boolean_result():
     f = ifcopenshell.file(schema="IFC4")
     axis = _axis(f)
-    cut = f.create_entity("IfcBooleanResult", "DIFFERENCE", _block(f, axis, 2.0, 2.0, 2.0), _block(f, axis, 1.0, 1.0, 1.0))
+    cut = f.create_entity(
+        "IfcBooleanResult", "DIFFERENCE", _block(f, axis, 2.0, 2.0, 2.0), _block(f, axis, 1.0, 1.0, 1.0)
+    )
     csg = f.create_entity("IfcCsgSolid", cut)
 
     geom = import_geometry_from_ifc_geom(csg)
