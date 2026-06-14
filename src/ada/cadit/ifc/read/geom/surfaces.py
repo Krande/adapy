@@ -202,6 +202,20 @@ def toroidal_surface(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Toroida
     )
 
 
+def surface_of_revolution(ifc_entity: ifcopenshell.entity_instance) -> geo_su.SurfaceOfRevolution:
+    from .curves import get_curve
+    from .placement import axis1placement, axis3d
+
+    swept = ifc_entity.SweptCurve
+    # IFC SweptCurve is an IfcProfileDef; the generatrix is its wrapped Curve.
+    curve = get_curve(swept.Curve) if swept.is_a("IfcArbitraryOpenProfileDef") else get_curve(swept)
+    return geo_su.SurfaceOfRevolution(
+        swept_curve=curve,
+        axis_position=axis1placement(ifc_entity.AxisPosition),
+        position=axis3d(ifc_entity.Position) if ifc_entity.Position is not None else None,
+    )
+
+
 def face_surface_geom(ifc_surface: ifcopenshell.entity_instance) -> geo_su.SURFACE_GEOM_TYPES:
     """Read any supported IfcSurface used as an AdvancedFace.FaceSurface."""
     # IfcRationalBSplineSurfaceWithKnots is a subtype of IfcBSplineSurfaceWithKnots — the one
@@ -214,6 +228,8 @@ def face_surface_geom(ifc_surface: ifcopenshell.entity_instance) -> geo_su.SURFA
         return spherical_surface(ifc_surface)
     elif ifc_surface.is_a("IfcToroidalSurface"):
         return toroidal_surface(ifc_surface)
+    elif ifc_surface.is_a("IfcSurfaceOfRevolution"):
+        return surface_of_revolution(ifc_surface)
     elif ifc_surface.is_a("IfcPlane"):
         return plane(ifc_surface)
     raise NotImplementedError(f"Face surface type {ifc_surface.is_a()} is not implemented")

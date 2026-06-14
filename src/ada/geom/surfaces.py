@@ -7,7 +7,7 @@ from typing import Union
 import ada.geom.curves as geo_cu
 from ada.geom.curves import EdgeLoop, PolyLoop
 from ada.geom.direction import Direction
-from ada.geom.placement import Axis2Placement3D
+from ada.geom.placement import Axis1Placement, Axis2Placement3D
 from ada.geom.points import Point
 
 
@@ -173,6 +173,22 @@ class SurfaceOfLinearExtrusion:
     position: Axis2Placement3D
     extrusion_direction: Direction
     depth: float
+
+
+@dataclass
+class SurfaceOfRevolution:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurfaceOfRevolution.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_surface_of_revolution.html)
+
+    A surface formed by revolving a generatrix curve about an axis. Note: the IFC entity types
+    ``SweptCurve`` as an ``IfcProfileDef`` (the generatrix wrapped in an open profile) — adapy
+    models the generatrix directly as a curve and wraps/unwraps the profile on write/read.
+    """
+
+    swept_curve: geo_cu.CURVE_GEOM_TYPES
+    axis_position: Axis1Placement
+    position: Axis2Placement3D = None
 
 
 @dataclass
@@ -414,5 +430,6 @@ SURFACE_GEOM_TYPES = Union[
     BSplineSurfaceWithKnots,
     RationalBSplineSurfaceWithKnots,
     SurfaceOfLinearExtrusion,
+    SurfaceOfRevolution,
     ClosedShell,
 ]

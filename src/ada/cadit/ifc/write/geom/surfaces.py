@@ -6,8 +6,8 @@ from ada import BoolHalfSpace
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 
-from .curves import circle_curve, edge_loop, indexed_poly_curve, poly_line, poly_loop
-from .placement import ifc_placement_from_axis3d
+from .curves import circle_curve, edge_loop, indexed_poly_curve, poly_line, poly_loop, write_curve
+from .placement import direction, ifc_placement_from_axis3d, point
 from .points import cpt
 
 
@@ -239,6 +239,24 @@ def create_plane(plane: geo_su.Plane, f: ifcopenshell.file) -> ifcopenshell.enti
     return f.create_entity(
         "IfcPlane",
         Position=ifc_placement_from_axis3d(plane.position, f),
+    )
+
+
+def create_surface_of_revolution(
+    sor: geo_su.SurfaceOfRevolution, f: ifcopenshell.file
+) -> ifcopenshell.entity_instance:
+    """Converts a SurfaceOfRevolution to an IfcSurfaceOfRevolution.
+
+    The generatrix curve is wrapped in an IfcArbitraryOpenProfileDef (the IFC SweptCurve type)."""
+    profile = f.create_entity(
+        "IfcArbitraryOpenProfileDef", ProfileType="CURVE", Curve=write_curve(sor.swept_curve, f)
+    )
+    axis_position = f.create_entity(
+        "IfcAxis1Placement", point(sor.axis_position.location, f), direction(sor.axis_position.axis, f)
+    )
+    position = ifc_placement_from_axis3d(sor.position, f) if sor.position is not None else None
+    return f.create_entity(
+        "IfcSurfaceOfRevolution", SweptCurve=profile, Position=position, AxisPosition=axis_position
     )
 
 

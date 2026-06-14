@@ -1360,6 +1360,21 @@ def make_conical_surface_from_geom(cone: geo_su.ConicalSurface) -> Geom_ConicalS
     return Geom_ConicalSurface(gp_Cone(ax3, cone.semi_angle, cone.radius))
 
 
+def make_surface_of_revolution_from_geom(sor: geo_su.SurfaceOfRevolution):
+    """Build a Geom_SurfaceOfRevolution by revolving the generatrix curve about the axis.
+    Currently supports a Line generatrix (the common cone/cylinder-from-revolution case)."""
+    from OCC.Core.Geom import Geom_Line, Geom_SurfaceOfRevolution
+    from OCC.Core.gp import gp_Ax1
+
+    gen = sor.swept_curve
+    if isinstance(gen, geo_cu.Line):
+        generatrix = Geom_Line(gp_Pnt(*gen.pnt), gp_Dir(*gen.dir))
+    else:
+        raise NotImplementedError(f"SurfaceOfRevolution generatrix {type(gen)} not implemented")
+    axis = gp_Ax1(gp_Pnt(*sor.axis_position.location), gp_Dir(*sor.axis_position.axis))
+    return Geom_SurfaceOfRevolution(generatrix, axis)
+
+
 def make_spherical_surface_from_geom(sphere: geo_su.SphericalSurface) -> Geom_SphericalSurface:
     location = sphere.position.location
     axis = sphere.position.axis
@@ -1422,6 +1437,8 @@ def make_surface_from_geom(face_surface):
         return make_spherical_surface_from_geom(face_surface)
     elif type(face_surface) is geo_su.ToroidalSurface:
         return make_toroidal_surface_from_geom(face_surface)
+    elif type(face_surface) is geo_su.SurfaceOfRevolution:
+        return make_surface_of_revolution_from_geom(face_surface)
     elif type(face_surface) in (geo_su.BSplineSurfaceWithKnots, geo_su.RationalBSplineSurfaceWithKnots):
         return make_bspline_surface_with_knots(face_surface)
     else:
