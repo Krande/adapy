@@ -1,6 +1,7 @@
 import ifcopenshell
 
 from ada.geom import curves as geo_cu
+from ada.geom.direction import Direction
 from ada.geom.points import Point
 
 
@@ -13,12 +14,59 @@ def get_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CURVE_GEOM_TYP
         return rational_b_spline_curve_with_knots(ifc_entity)
     elif ifc_entity.is_a("IfcBSplineCurveWithKnots"):
         return b_spline_curve_with_knots(ifc_entity)
+    elif ifc_entity.is_a("IfcTrimmedCurve"):
+        return trimmed_curve(ifc_entity)
+    elif ifc_entity.is_a("IfcLine"):
+        return line(ifc_entity)
+    elif ifc_entity.is_a("IfcCircle"):
+        return circle(ifc_entity)
+    elif ifc_entity.is_a("IfcEllipse"):
+        return ellipse(ifc_entity)
     elif ifc_entity.is_a("IfcSurfaceCurve"):
         # The 3D curve is the geometric master; the attached p-curve is recovered
         # separately by oriented_edge() onto the OrientedEdge.
         return get_curve(ifc_entity.Curve3D)
     else:
         raise NotImplementedError(f"Geometry type {ifc_entity.is_a()} not implemented")
+
+
+def line(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Line:
+    return geo_cu.Line(pnt=Point(ifc_entity.Pnt.Coordinates), dir=Direction(ifc_entity.Dir.Orientation.DirectionRatios))
+
+
+def circle(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Circle:
+    from .placement import axis3d
+
+    return geo_cu.Circle(position=axis3d(ifc_entity.Position), radius=ifc_entity.Radius)
+
+
+def ellipse(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Ellipse:
+    from .placement import axis3d
+
+    return geo_cu.Ellipse(
+        position=axis3d(ifc_entity.Position),
+        semi_axis1=ifc_entity.SemiAxis1,
+        semi_axis2=ifc_entity.SemiAxis2,
+    )
+
+
+def _trim_select(trim) -> "Point | float":
+    """One IfcTrimmingSelect entry: a Cartesian point or a parameter value. IFC allows up to
+    two (point AND parameter) — we keep the Cartesian point when present, else the parameter."""
+    for item in trim:
+        if hasattr(item, "is_a") and item.is_a("IfcCartesianPoint"):
+            return Point(item.Coordinates)
+    return float(trim[0].wrappedValue if hasattr(trim[0], "wrappedValue") else trim[0])
+
+
+def trimmed_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.TrimmedCurve:
+    return geo_cu.TrimmedCurve(
+        basis_curve=get_curve(ifc_entity.BasisCurve),
+        trim1=_trim_select(ifc_entity.Trim1),
+        trim2=_trim_select(ifc_entity.Trim2),
+        sense_agreement=ifc_entity.SenseAgreement,
+        master_representation=ifc_entity.MasterRepresentation,
+    )
 
 
 def pcurve_2d_from_surface_curve(surface_curve: ifcopenshell.entity_instance) -> geo_cu.Pcurve2dBSpline | None:

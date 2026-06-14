@@ -191,6 +191,40 @@ def create_line(line: geo_cu.Line, f: ifcopenshell.file) -> ifcopenshell.entity_
     return f.create_entity("IfcLine", Pnt=cpt(f, line.pnt), Dir=vector(line.dir, f))
 
 
+def _basis_curve(curve: geo_cu.CURVE_GEOM_TYPES, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Write a TrimmedCurve basis curve to its matching IFC curve entity."""
+    if isinstance(curve, geo_cu.Line):
+        return create_line(curve, f)
+    elif isinstance(curve, geo_cu.Circle):
+        return circle_curve(curve, f)
+    elif isinstance(curve, geo_cu.Ellipse):
+        return create_ellipse(curve, f)
+    elif isinstance(curve, geo_cu.BSplineCurveWithKnots):
+        return b_spline_curve_with_knots(curve, f)
+    raise NotImplementedError(f"Unsupported trimmed-curve basis type: {type(curve)}")
+
+
+def _trim_select(trim, f: ifcopenshell.file) -> tuple:
+    """A single IfcTrimmingSelect entry: a Cartesian point or a parameter value."""
+    from ada.geom.points import Point
+
+    if isinstance(trim, Point):
+        return (cpt(f, trim),)
+    return (float(trim),)
+
+
+def create_trimmed_curve(tc: geo_cu.TrimmedCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a TrimmedCurve to an IfcTrimmedCurve."""
+    return f.create_entity(
+        "IfcTrimmedCurve",
+        BasisCurve=_basis_curve(tc.basis_curve, f),
+        Trim1=_trim_select(tc.trim1, f),
+        Trim2=_trim_select(tc.trim2, f),
+        SenseAgreement=tc.sense_agreement,
+        MasterRepresentation=tc.master_representation,
+    )
+
+
 def oriented_edge(
     oe: geo_cu.OrientedEdge,
     f: ifcopenshell.file,

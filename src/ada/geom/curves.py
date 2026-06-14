@@ -24,6 +24,7 @@ CURVE_GEOM_TYPES = Union[
     "BSplineCurveWithKnots",
     "IndexedPolyCurve",
     "PolyLine",
+    "TrimmedCurve",
     "GeometricCurveSet",
 ]
 
@@ -79,6 +80,25 @@ class ArcLine:
 @dataclass
 class PolyLine:
     points: list[Point]
+
+
+@dataclass
+class TrimmedCurve:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcTrimmedCurve.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_trimmed_curve.html)
+
+    A bounded segment of an (unbounded) basis curve — line / circle / ellipse. Each trim is
+    either a Cartesian ``Point`` lying on the curve or a parameter value (float);
+    ``master_representation`` records which the producer considered authoritative
+    ("PARAMETER", "CARTESIAN" or "UNSPECIFIED").
+    """
+
+    basis_curve: "Line | Circle | Ellipse | BSplineCurveWithKnots"
+    trim1: "Point | float"
+    trim2: "Point | float"
+    sense_agreement: bool = True
+    master_representation: str = "PARAMETER"
 
 
 @dataclass
