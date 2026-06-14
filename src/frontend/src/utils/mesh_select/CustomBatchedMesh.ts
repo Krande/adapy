@@ -265,10 +265,23 @@ export class CustomBatchedMesh extends THREE.Mesh {
         // Update groups regardless (to maintain hidden/selected visibility and non-vertex-colored behavior)
         this.updateGroups();
 
-        // Edge overlay highlight (unchanged)
+        // Edge overlay highlight. Selection is dispatched to EVERY
+        // CustomBatchedMesh in the model, but each mesh's rangeIdToIndex only
+        // covers the objects in its own buffer. Highlight the first selected id
+        // this mesh actually owns; if it owns none, clear to -1. Using a bare
+        // ``get(rangeIds[0])!`` here pushed ``undefined`` into the int uniform
+        // (coerced to 0) on every non-owning mesh, so selecting any object lit
+        // up the range-index-0 object's edges on all the other buffers.
         if (this.edgeMaterial && this.rangeIdToIndex) {
-            this.edgeMaterial.uniforms.uHighlighted.value =
-                rangeIds.length ? this.rangeIdToIndex.get(rangeIds[0])! : -1;
+            let highlighted = -1;
+            for (const id of rangeIds) {
+                const idx = this.rangeIdToIndex.get(id);
+                if (idx !== undefined) {
+                    highlighted = idx;
+                    break;
+                }
+            }
+            this.edgeMaterial.uniforms.uHighlighted.value = highlighted;
         }
     }
 
