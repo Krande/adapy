@@ -6,7 +6,13 @@ from ada.geom.points import Point
 
 from .curves import get_curve
 from .placement import axis1placement, axis2placement, axis3d, ifc_direction
-from .surfaces import get_surface
+from .surfaces import closed_shell, get_surface
+
+
+def faceted_brep(ifc_entity: ifcopenshell.entity_instance) -> geo_so.FacetedBrep:
+    # Handles IfcFacetedBrep and the sibling IfcFacetedBrepWithVoids (adds inner void shells).
+    voids = [closed_shell(v) for v in ifc_entity.Voids] if ifc_entity.is_a("IfcFacetedBrepWithVoids") else []
+    return geo_so.FacetedBrep(outer=closed_shell(ifc_entity.Outer), voids=voids)
 
 
 def swept_disk_solid(ifc_entity: ifcopenshell.entity_instance) -> geo_so.SweptDiskSolid:

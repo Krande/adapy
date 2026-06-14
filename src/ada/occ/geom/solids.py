@@ -100,6 +100,21 @@ def make_revolved_area_shape_from_geom(ras: geo_so.RevolvedAreaSolid) -> TopoDS_
     return ras_shape
 
 
+def make_faceted_brep_from_geom(brep: geo_so.FacetedBrep) -> TopoDS_Shape | TopoDS_Solid:
+    """Build a faceted B-rep: the outer closed shell becomes a solid, and each inner void shell
+    is made solid and cut out."""
+    from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeSolid
+
+    from ada.occ.geom.surfaces import make_closed_shell_from_geom
+
+    solid = BRepBuilderAPI_MakeSolid(make_closed_shell_from_geom(brep.outer)).Solid()
+    for void in brep.voids:
+        void_solid = BRepBuilderAPI_MakeSolid(make_closed_shell_from_geom(void)).Solid()
+        solid = BRepAlgoAPI_Cut(solid, void_solid).Shape()
+    return solid
+
+
 def make_swept_disk_solid_from_geom(sds: geo_so.SweptDiskSolid) -> TopoDS_Shape | TopoDS_Solid:
     """Sweep a circular (or annular) disk along the directrix — the pipe/rod primitive.
 

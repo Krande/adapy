@@ -6,7 +6,7 @@ from ada import BoolHalfSpace
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 
-from .curves import circle_curve, edge_loop, indexed_poly_curve
+from .curves import circle_curve, edge_loop, indexed_poly_curve, poly_loop
 from .placement import ifc_placement_from_axis3d
 from .points import cpt
 
@@ -89,6 +89,8 @@ def face_bound(fb: geo_su.FaceBound, f: ifcopenshell.file, basis_surface=None) -
     """Converts a FaceBound to an IFC representation"""
     if isinstance(fb.bound, geo_cu.EdgeLoop):
         bound = edge_loop(fb.bound, f, basis_surface=basis_surface)
+    elif isinstance(fb.bound, geo_cu.PolyLoop):
+        bound = poly_loop(fb.bound, f)
     else:
         raise NotImplementedError(f"Unsupported bound type: {type(fb.bound)}")
 

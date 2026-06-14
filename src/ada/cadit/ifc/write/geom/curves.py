@@ -259,3 +259,8 @@ def edge_loop(
     """Converts an EdgeLoop to an IFC representation"""
     edges = [oriented_edge(e, f, basis_surface=basis_surface) for e in el.edge_list]
     return f.create_entity("IfcEdgeLoop", EdgeList=edges)
+
+
+def poly_loop(pl: geo_cu.PolyLoop, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a PolyLoop to an IfcPolyLoop (a closed polygon of Cartesian points)."""
+    return f.create_entity("IfcPolyLoop", Polygon=[cpt(f, p) for p in pl.polygon])

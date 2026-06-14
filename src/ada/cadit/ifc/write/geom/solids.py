@@ -12,7 +12,17 @@ from ada.geom import solids as geo_so
 from ada.geom import surfaces as geo_su
 
 from .curves import circle_curve, indexed_poly_curve, poly_line
-from .surfaces import arbitrary_profile_def
+from .surfaces import arbitrary_profile_def, create_closed_shell
+
+
+def faceted_brep(fb: geo_so.FacetedBrep, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a FacetedBrep to an IfcFacetedBrep, or IfcFacetedBrepWithVoids when it has
+    inner void shells."""
+    outer = create_closed_shell(fb.outer, f)
+    if not fb.voids:
+        return f.create_entity("IfcFacetedBrep", Outer=outer)
+    voids = [create_closed_shell(v, f) for v in fb.voids]
+    return f.create_entity("IfcFacetedBrepWithVoids", Outer=outer, Voids=voids)
 
 
 def _directrix(curve: geo_cu.CURVE_GEOM_TYPES, f: ifcopenshell.file) -> ifcopenshell.entity_instance:

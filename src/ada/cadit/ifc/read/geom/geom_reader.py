@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 from .solids import (
     extruded_solid_area,
+    faceted_brep,
     ifc_block,
     ifc_cone,
     ifc_cylinder,
@@ -25,6 +26,7 @@ from .surfaces import (
     shell_based_surface_model,
     triangulated_face_set,
 )
+from .surfaces import face as read_face
 
 GEOM = Union[geo_so.SOLID_GEOM_TYPES | geo_cu.CURVE_GEOM_TYPES | geo_su.SURFACE_GEOM_TYPES]
 
@@ -60,8 +62,16 @@ def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GE
         return ifc_cylinder(geom_repr)
     elif geom_repr.is_a("IfcRightCircularCone"):
         return ifc_cone(geom_repr)
+    elif geom_repr.is_a("IfcFacetedBrep") or geom_repr.is_a("IfcFacetedBrepWithVoids"):
+        # WithVoids is a sibling of FacetedBrep (both direct IfcManifoldSolidBrep subtypes),
+        # so it must be matched explicitly — is_a("IfcFacetedBrep") does not cover it.
+        return faceted_brep(geom_repr)
     elif geom_repr.is_a("IfcAdvancedFace"):
         return advanced_face(geom_repr)
+    elif geom_repr.is_a("IfcFace"):
+        # Plain polygonal face (after IfcAdvancedFace, which is a subtype) — used by
+        # faceted-brep closed shells.
+        return read_face(geom_repr)
     elif geom_repr.is_a("IfcShellBasedSurfaceModel"):
         return shell_based_surface_model(geom_repr)
     elif geom_repr.is_a("IfcHalfSpaceSolid"):

@@ -1485,6 +1485,21 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                 logger.warning("Skipping AdvancedFace (%s surface): %s", type(cfs_face.face_surface).__name__, ex)
                 continue
 
+        # Handle plain Face with PolyLoop bounds (faceted-brep polygons)
+        elif type(cfs_face) is geo_su.Face:
+            n_faces += 1
+            try:
+                outer = cfs_face.bounds[0].bound
+                if not isinstance(outer, PolyLoop):
+                    raise NotImplementedError(f"Only PolyLoop bounds supported for Face, not {type(outer)}")
+                face = make_face_from_poly_loop(outer)
+                builder.UpdateFace(face, 1e-6)
+                builder.Add(occ_shell, face)
+            except Exception as ex:
+                n_dropped += 1
+                logger.warning("Skipping Face (PolyLoop): %s", ex)
+                continue
+
         # Handle FaceSurface (legacy support)
         elif type(cfs_face) is geo_su.FaceSurface:
             n_faces += 1

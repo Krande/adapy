@@ -118,11 +118,17 @@ def rectangle_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Re
     )
 
 
+def poly_loop(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.PolyLoop:
+    return geo_cu.PolyLoop(polygon=[Point(p.Coordinates) for p in ifc_entity.Polygon])
+
+
 def face_bound(ifc_entity: ifcopenshell.entity_instance) -> geo_su.FaceBound:
 
     ifc_bound = ifc_entity.Bound
     if ifc_bound.is_a("IfcEdgeLoop"):
         bound = edge_loop(ifc_bound)
+    elif ifc_bound.is_a("IfcPolyLoop"):
+        bound = poly_loop(ifc_bound)
     else:
         raise NotImplementedError(f"{ifc_entity} is not yet implemented.")
 
@@ -130,6 +136,11 @@ def face_bound(ifc_entity: ifcopenshell.entity_instance) -> geo_su.FaceBound:
         bound=bound,
         orientation=ifc_entity.Orientation,
     )
+
+
+def face(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Face:
+    """IfcFace -> Face. IfcFaceBound and IfcFaceOuterBound both read as FaceBound."""
+    return geo_su.Face(bounds=[face_bound(b) for b in ifc_entity.Bounds])
 
 
 def bspline_surface_with_knots(ifc_entity: ifcopenshell.entity_instance) -> geo_su.BSplineSurfaceWithKnots:
