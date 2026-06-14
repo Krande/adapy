@@ -143,8 +143,10 @@ def face(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Face:
     return geo_su.Face(bounds=[face_bound(b) for b in ifc_entity.Bounds])
 
 
-def bspline_surface_with_knots(ifc_entity: ifcopenshell.entity_instance) -> geo_su.BSplineSurfaceWithKnots:
-    return geo_su.BSplineSurfaceWithKnots(
+def bspline_surface_with_knots(
+    ifc_entity: ifcopenshell.entity_instance,
+) -> geo_su.BSplineSurfaceWithKnots | geo_su.RationalBSplineSurfaceWithKnots:
+    kwargs = dict(
         u_degree=ifc_entity.UDegree,
         v_degree=ifc_entity.VDegree,
         control_points_list=[[Point(*p) for p in x] for x in ifc_entity.ControlPointsList],
@@ -158,6 +160,13 @@ def bspline_surface_with_knots(ifc_entity: ifcopenshell.entity_instance) -> geo_
         v_knots=ifc_entity.VKnots,
         knot_spec=geo_cu.KnotType.from_str(ifc_entity.KnotSpec),
     )
+    # IfcRationalBSplineSurfaceWithKnots is a subtype of IfcBSplineSurfaceWithKnots — preserve
+    # its per-control-point weights instead of silently downcasting to a non-rational surface.
+    if ifc_entity.is_a("IfcRationalBSplineSurfaceWithKnots"):
+        return geo_su.RationalBSplineSurfaceWithKnots(
+            **kwargs, weights_data=[list(row) for row in ifc_entity.WeightsData]
+        )
+    return geo_su.BSplineSurfaceWithKnots(**kwargs)
 
 
 def advanced_face(ifc_entity: ifcopenshell.entity_instance) -> geo_su.AdvancedFace:
