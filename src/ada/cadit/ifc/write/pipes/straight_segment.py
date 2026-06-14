@@ -25,7 +25,11 @@ def write_pipe_straight_seg(ifc_store: IfcStore, pipe_seg: PipeSegStraight):  # 
     rp2 = to_real(p2.p)
 
     solid_geo = pipe_seg.solid_geom()
-    solid = igeo_so.extruded_area_solid(solid_geo.geometry, f)
+    # Reuse the section's parametric profile (carries the ADA parameter bag — e.g. an
+    # IfcCircleHollowProfileDef) for the body, like beams do, so the section round-trips
+    # exactly instead of an inline bag-less IfcArbitraryProfileDefWithVoids.
+    profile = ifc_store.get_profile_def(pipe_seg.section)
+    solid = igeo_so.extruded_area_solid(solid_geo.geometry, f, profile)
 
     if solid_geo.color is not None:
         add_colour(f, solid, str(solid_geo.color), solid_geo.color)

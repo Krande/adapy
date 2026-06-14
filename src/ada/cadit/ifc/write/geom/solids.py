@@ -116,19 +116,26 @@ def extruded_area_solid_tapered(
     )
 
 
-def revolved_area_solid(ras: geo_so.RevolvedAreaSolid, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+def revolved_area_solid(
+    ras: geo_so.RevolvedAreaSolid, f: ifcopenshell.file, profile: ifcopenshell.entity_instance = None
+) -> ifcopenshell.entity_instance:
     """Converts a RevolvedAreaSolid to an IFC representation.
 
     The geom carries the revolution axis in global coordinates (the convention
     both CAD backends build from). ``IfcRevolvedAreaSolid.Axis`` is defined in the
     ``Position`` coordinate system, so we transform global -> local here — keeping
     the geom backend-native while emitting spec-correct IFC.
+
+    ``profile`` lets the caller reuse a parametric profile def (carrying the ADA parameter bag)
+    so the section round-trips exactly — used by the pipe elbow.
     """
     import math
 
     axis3d = ifc_placement_from_axis3d(ras.position, f)
 
-    if isinstance(ras.swept_area, geo_su.ArbitraryProfileDef):
+    if profile is not None:
+        pass
+    elif isinstance(ras.swept_area, geo_su.ArbitraryProfileDef):
         profile = arbitrary_profile_def(ras.swept_area, f)
     else:
         raise NotImplementedError(f"Unsupported swept area type: {type(ras.swept_area)}")

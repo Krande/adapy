@@ -108,15 +108,18 @@ def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
     core_geom = elbow.solid_geom()
     geom: geo_so.RevolvedAreaSolid = core_geom.geometry
 
-    rev_area_solid = igeo_so.revolved_area_solid(geom, f)
+    a = elbow.get_assembly()
+    ifc_store = a.ifc_store
+
+    # Reuse the section's parametric profile (carries the ADA parameter bag) so the elbow
+    # section round-trips exactly, like the straight segment.
+    profile = ifc_store.get_profile_def(elbow.section)
+    rev_area_solid = igeo_so.revolved_area_solid(geom, f, profile)
 
     if core_geom.color is not None:
         add_colour(f, rev_area_solid, str(core_geom.color), core_geom.color)
 
     p1, p2, p3 = elbow.p1.p, elbow.p2.p, elbow.p3.p
-
-    a = elbow.get_assembly()
-    ifc_store = a.ifc_store
 
     body = f.create_entity(
         "IfcShapeRepresentation", ifc_store.get_context("Body"), "Body", "SweptSolid", [rev_area_solid]
