@@ -2,6 +2,15 @@
 
 
 
+## v0.22.0 (2026-06-14)
+
+### Feature
+
+* feat: round-trip all Part primitives to/from IFC (#16) (#224)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`112a865`](https://github.com/Krande/adapy/commit/112a86527a9e0b41369abd0e1569f7a2778be47c))
+
+
 ## v0.21.0 (2026-06-14)
 
 ### Feature
