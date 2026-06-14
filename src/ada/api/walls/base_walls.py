@@ -240,10 +240,6 @@ class Wall(BackendGeom):
             op_extrudes.append([p1.tolist(), p2.tolist(), p3.tolist(), p4.tolist(), p1.tolist()])
         return op_extrudes
 
-    @property
-    def metadata(self):
-        return self._metadata
-
     def shell_occ(self):
         poly = CurvePoly2d.from_3d_points(self.extrusion_area(), parent=self)
         return poly.entity()

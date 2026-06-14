@@ -9,6 +9,7 @@ from .read_beams import import_ifc_beam
 from .read_pipe import import_pipe_segment
 from .read_plates import import_ifc_plate
 from .read_shapes import _has_body_representation, import_ifc_shape, import_ifc_sphere
+from .read_wall import import_ifc_wall
 
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
@@ -26,6 +27,13 @@ def import_physical_ifc_elem(product, name, ifc_store: IfcStore):
     if pr_type in ["IfcPlateStandardCase", "IfcPlate"]:
         try:
             return import_ifc_plate(product, name, ifc_store)
+        except NoIfcAxesAttachedError as e:
+            logger.debug(e)
+            pass
+
+    if pr_type in ["IfcWall", "IfcWallStandardCase"]:
+        try:
+            return import_ifc_wall(product, name, ifc_store)
         except NoIfcAxesAttachedError as e:
             logger.debug(e)
             pass

@@ -828,6 +828,14 @@ class Part(BackendGeom):
                     if getattr(seg, prop) == value:
                         return seg
 
+            for wl in p.walls:
+                if getattr(wl, prop) == value:
+                    return wl
+
+            for ms in p.masses:
+                if getattr(ms, prop) == value:
+                    return ms
+
             for mat in p.materials:
                 if getattr(mat, prop) == value:
                     return mat
