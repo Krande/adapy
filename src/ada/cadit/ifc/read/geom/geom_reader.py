@@ -20,6 +20,7 @@ from .solids import (
 from .surfaces import (
     advanced_face,
     half_space_solid,
+    polygonal_face_set,
     shell_based_surface_model,
     triangulated_face_set,
 )
@@ -45,6 +46,8 @@ def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GE
         return revolved_solid_area(geom_repr)
     elif geom_repr.is_a("IfcTriangulatedFaceSet"):
         return triangulated_face_set(geom_repr)
+    elif geom_repr.is_a("IfcPolygonalFaceSet"):
+        return polygonal_face_set(geom_repr)
     elif geom_repr.is_a("IfcBlock"):
         return ifc_block(geom_repr)
     elif geom_repr.is_a("IfcSphere"):

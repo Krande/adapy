@@ -54,6 +54,8 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
         occ_geom = geo_su.make_open_shell_from_geom(geometry)
     elif isinstance(geometry, su.ShellBasedSurfaceModel):
         occ_geom = geo_su.make_shell_from_shell_based_surface_geom(geometry)
+    elif isinstance(geometry, su.PolygonalFaceSet):
+        occ_geom = geo_su.make_shell_from_polygonal_face_set_geom(geometry)
     else:
         raise NotImplementedError(f"Geometry to OCC conversion for type {type(geometry)} not implemented")
 

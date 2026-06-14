@@ -8,7 +8,9 @@ from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
+    BRepBuilderAPI_MakePolygon,
     BRepBuilderAPI_MakeWire,
+    BRepBuilderAPI_Sewing,
 )
 from OCC.Core.BRepTools import BRepTools_WireExplorer, breptools
 from OCC.Core.Geom import (
@@ -1540,6 +1542,36 @@ def make_open_shell_from_geom(shell: geo_su.OpenShell) -> TopoDS_Shell:
     builder.MakeShell(occ_shell)
     _add_cfs_faces_to_shell(builder, occ_shell, shell.cfs_faces)
     return occ_shell
+
+
+def make_shell_from_polygonal_face_set_geom(pfs: geo_su.PolygonalFaceSet) -> TopoDS_Shape:
+    """Build an IfcPolygonalFaceSet — a shared point list plus n-gon faces — into a sewn
+    OCC shell. Each face is a planar polygon wire (1-based indices into the point list);
+    sewing stitches the per-face shells along shared edges so a closed set becomes a solidable
+    watertight shell."""
+    coords = pfs.coordinates
+    sewing = BRepBuilderAPI_Sewing(1e-6)
+    n_faces = 0
+    for face_idx in pfs.faces:
+        poly = BRepBuilderAPI_MakePolygon()
+        for i in face_idx:
+            poly.Add(point3d(coords[i - 1]))
+        poly.Close()
+        if not poly.IsDone():
+            logger.warning("PolygonalFaceSet: skipping face %s (could not build polygon wire)", face_idx)
+            continue
+        face_maker = BRepBuilderAPI_MakeFace(poly.Wire(), True)
+        if not face_maker.IsDone():
+            logger.warning("PolygonalFaceSet: skipping non-planar/degenerate face %s", face_idx)
+            continue
+        sewing.Add(face_maker.Face())
+        n_faces += 1
+
+    if n_faces == 0:
+        raise UnableToCreateTesselationFromSolidOCCGeom("PolygonalFaceSet produced no usable faces")
+
+    sewing.Perform()
+    return sewing.SewedShape()
 
 
 def make_shell_from_shell_based_surface_geom(sbsm: geo_su.ShellBasedSurfaceModel) -> TopoDS_Shape:

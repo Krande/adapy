@@ -222,6 +222,21 @@ class TriangulatedFaceSet:
 
 
 @dataclass
+class PolygonalFaceSet:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPolygonalFaceSet.htm)
+
+    The compact sibling of :class:`TriangulatedFaceSet`: an indexed mesh whose faces are
+    arbitrary planar polygons (n-gons) rather than triangles. Each face is a list of 1-based
+    indices into the shared ``coordinates`` list (matching IFC's ``IfcIndexedPolygonalFace``).
+    """
+
+    coordinates: list[Point]
+    faces: list[list[int]]
+    closed: bool = True
+
+
+@dataclass
 class RectangleProfileDef(ProfileDef):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRectangleProfileDef.htm)
@@ -386,6 +401,7 @@ SURFACE_GEOM_TYPES = Union[
     IShapeProfileDef,
     TShapeProfileDef,
     TriangulatedFaceSet,
+    PolygonalFaceSet,
     CircleProfileDef,
     RectangleProfileDef,
     AdvancedFace,

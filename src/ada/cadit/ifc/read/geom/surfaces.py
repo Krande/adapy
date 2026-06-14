@@ -99,6 +99,17 @@ def triangulated_face_set(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Tr
     )
 
 
+def polygonal_face_set(ifc_entity: ifcopenshell.entity_instance) -> geo_su.PolygonalFaceSet:
+    # Each IfcIndexedPolygonalFace carries 1-based CoordIndex into the shared point list.
+    # IfcIndexedPolygonalFaceWithVoids (a subtype) additionally has InnerCoordIndices — not
+    # yet represented; its outer loop still reads correctly here.
+    return geo_su.PolygonalFaceSet(
+        coordinates=[Point(*x) for x in ifc_entity.Coordinates.CoordList],
+        faces=[list(face.CoordIndex) for face in ifc_entity.Faces],
+        closed=bool(ifc_entity.Closed) if ifc_entity.Closed is not None else True,
+    )
+
+
 def rectangle_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.RectangleProfileDef:
     return geo_su.RectangleProfileDef(
         profile_type=geo_su.ProfileType.from_str(ifc_entity.ProfileType),

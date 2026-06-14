@@ -152,6 +152,24 @@ def create_face_surface(fs: geo_su.FaceSurface, f: ifcopenshell.file) -> ifcopen
     )
 
 
+def polygonal_face_set(pfs: geo_su.PolygonalFaceSet, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a PolygonalFaceSet to an IfcPolygonalFaceSet.
+
+    Faces reference the shared IfcCartesianPointList3D by 1-based index via
+    IfcIndexedPolygonalFace (the sibling of the triangulated face set's CoordIndex)."""
+    coordinates = f.create_entity(
+        "IfcCartesianPointList3D",
+        CoordList=[(float(p.x), float(p.y), float(p.z)) for p in pfs.coordinates],
+    )
+    faces = [f.create_entity("IfcIndexedPolygonalFace", CoordIndex=[int(i) for i in face]) for face in pfs.faces]
+    return f.create_entity(
+        "IfcPolygonalFaceSet",
+        Coordinates=coordinates,
+        Closed=pfs.closed,
+        Faces=faces,
+    )
+
+
 def create_closed_shell(cs: geo_su.ClosedShell, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts a ClosedShell to an IFC representation.
 
