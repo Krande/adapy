@@ -116,6 +116,13 @@ class IfcWriter:
             self.eval_validity(to_be_added, mat_map, rel_mats_map)
 
             ifc_elem = self.add(to_be_added)
+            if ifc_elem is None:
+                # Some objects legitimately produce no IFC entity — e.g. a Pipe whose segments
+                # couldn't be built (write_ifc_pipe returns None). Skip the post-processing
+                # (openings/props/containment) instead of choking on a missing GlobalId.
+                logger.warning(f'"{to_be_added.name}" ({type(to_be_added).__name__}) produced no IFC entity; skipping')
+                to_be_added.change_type = ChangeAction.NOCHANGE
+                continue
             created_ifc_by_obj_guid[to_be_added.guid] = ifc_elem
 
             self.create_ifc_openings(to_be_added, ifc_elem)
