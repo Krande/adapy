@@ -25,6 +25,7 @@ CURVE_GEOM_TYPES = Union[
     "IndexedPolyCurve",
     "PolyLine",
     "TrimmedCurve",
+    "CompositeCurve",
     "GeometricCurveSet",
 ]
 
@@ -99,6 +100,32 @@ class TrimmedCurve:
     trim2: "Point | float"
     sense_agreement: bool = True
     master_representation: str = "PARAMETER"
+
+
+@dataclass
+class CompositeCurveSegment:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCompositeCurveSegment.htm)
+
+    One segment of a CompositeCurve, wrapping a bounded parent curve.
+    """
+
+    parent_curve: "CURVE_GEOM_TYPES"
+    same_sense: bool = True
+    transition: str = "CONTINUOUS"
+
+
+@dataclass
+class CompositeCurve:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCompositeCurve.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_composite_curve.html)
+
+    A curve assembled from an ordered list of bounded parent-curve segments.
+    """
+
+    segments: list[CompositeCurveSegment]
+    self_intersect: bool = False
 
 
 @dataclass

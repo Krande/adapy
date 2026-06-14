@@ -191,6 +191,27 @@ def create_line(line: geo_cu.Line, f: ifcopenshell.file) -> ifcopenshell.entity_
     return f.create_entity("IfcLine", Pnt=cpt(f, line.pnt), Dir=vector(line.dir, f))
 
 
+def write_curve(curve: geo_cu.CURVE_GEOM_TYPES, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Write any supported curve to its matching IFC curve entity (IfcCurve)."""
+    if isinstance(curve, geo_cu.IndexedPolyCurve):
+        return indexed_poly_curve(curve, f)
+    elif isinstance(curve, geo_cu.PolyLine):
+        return poly_line(curve, f)
+    elif isinstance(curve, geo_cu.Line):
+        return create_line(curve, f)
+    elif isinstance(curve, geo_cu.Circle):
+        return circle_curve(curve, f)
+    elif isinstance(curve, geo_cu.Ellipse):
+        return create_ellipse(curve, f)
+    elif isinstance(curve, geo_cu.BSplineCurveWithKnots):
+        return b_spline_curve_with_knots(curve, f)
+    elif isinstance(curve, geo_cu.TrimmedCurve):
+        return create_trimmed_curve(curve, f)
+    elif isinstance(curve, geo_cu.CompositeCurve):
+        return composite_curve(curve, f)
+    raise NotImplementedError(f"Unsupported curve type for IFC write: {type(curve)}")
+
+
 def _basis_curve(curve: geo_cu.CURVE_GEOM_TYPES, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Write a TrimmedCurve basis curve to its matching IFC curve entity."""
     if isinstance(curve, geo_cu.Line):
@@ -202,6 +223,20 @@ def _basis_curve(curve: geo_cu.CURVE_GEOM_TYPES, f: ifcopenshell.file) -> ifcope
     elif isinstance(curve, geo_cu.BSplineCurveWithKnots):
         return b_spline_curve_with_knots(curve, f)
     raise NotImplementedError(f"Unsupported trimmed-curve basis type: {type(curve)}")
+
+
+def composite_curve(cc: geo_cu.CompositeCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a CompositeCurve to an IfcCompositeCurve."""
+    segments = [
+        f.create_entity(
+            "IfcCompositeCurveSegment",
+            Transition=seg.transition,
+            SameSense=seg.same_sense,
+            ParentCurve=write_curve(seg.parent_curve, f),
+        )
+        for seg in cc.segments
+    ]
+    return f.create_entity("IfcCompositeCurve", Segments=segments, SelfIntersect=cc.self_intersect)
 
 
 def _trim_select(trim, f: ifcopenshell.file) -> tuple:

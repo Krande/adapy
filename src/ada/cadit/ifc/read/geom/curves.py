@@ -16,6 +16,8 @@ def get_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CURVE_GEOM_TYP
         return b_spline_curve_with_knots(ifc_entity)
     elif ifc_entity.is_a("IfcTrimmedCurve"):
         return trimmed_curve(ifc_entity)
+    elif ifc_entity.is_a("IfcCompositeCurve"):
+        return composite_curve(ifc_entity)
     elif ifc_entity.is_a("IfcLine"):
         return line(ifc_entity)
     elif ifc_entity.is_a("IfcCircle"):
@@ -57,6 +59,18 @@ def _trim_select(trim) -> "Point | float":
         if hasattr(item, "is_a") and item.is_a("IfcCartesianPoint"):
             return Point(item.Coordinates)
     return float(trim[0].wrappedValue if hasattr(trim[0], "wrappedValue") else trim[0])
+
+
+def composite_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CompositeCurve:
+    segments = [
+        geo_cu.CompositeCurveSegment(
+            parent_curve=get_curve(seg.ParentCurve),
+            same_sense=seg.SameSense,
+            transition=seg.Transition,
+        )
+        for seg in ifc_entity.Segments
+    ]
+    return geo_cu.CompositeCurve(segments=segments, self_intersect=bool(ifc_entity.SelfIntersect))
 
 
 def trimmed_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.TrimmedCurve:
