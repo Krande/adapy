@@ -42,6 +42,30 @@ def extruded_solid_area(ifc_entity: ifcopenshell.entity_instance) -> geo_so.Extr
     )
 
 
+def extruded_solid_area_tapered(ifc_entity: ifcopenshell.entity_instance) -> geo_so.ExtrudedAreaSolidTapered:
+    base = extruded_solid_area(ifc_entity)
+    return geo_so.ExtrudedAreaSolidTapered(
+        swept_area=base.swept_area,
+        position=base.position,
+        depth=base.depth,
+        extruded_direction=base.extruded_direction,
+        end_swept_area=get_surface(ifc_entity.EndSweptArea),
+    )
+
+
+def fixed_reference_swept_area_solid(
+    ifc_entity: ifcopenshell.entity_instance,
+) -> geo_so.FixedReferenceSweptAreaSolid:
+    # FixedReference / StartParam / EndParam are not part of adapy's geom model (the OCC build
+    # derives orientation from the directrix), so they are intentionally dropped on read.
+    position = axis3d(ifc_entity.Position) if ifc_entity.Position is not None else Axis2Placement3D()
+    return geo_so.FixedReferenceSweptAreaSolid(
+        swept_area=get_surface(ifc_entity.SweptArea),
+        position=position,
+        directrix=get_curve(ifc_entity.Directrix),
+    )
+
+
 def revolved_solid_area(ifc_entity: ifcopenshell.entity_instance) -> geo_so.RevolvedAreaSolid:
     revolve_axis = axis1placement(ifc_entity.Axis)
     position = axis3d(ifc_entity.Position) if ifc_entity.Position is not None else Axis2Placement3D()

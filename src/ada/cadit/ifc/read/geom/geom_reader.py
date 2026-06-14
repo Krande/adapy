@@ -11,7 +11,9 @@ if TYPE_CHECKING:
 
 from .solids import (
     extruded_solid_area,
+    extruded_solid_area_tapered,
     faceted_brep,
+    fixed_reference_swept_area_solid,
     ifc_block,
     ifc_cone,
     ifc_cylinder,
@@ -43,10 +45,15 @@ def get_product_definitions(prod_def: ifcopenshell.entity_instance) -> list[GEOM
 
 
 def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GEOM:
-    if geom_repr.is_a("IfcExtrudedAreaSolid"):
+    if geom_repr.is_a("IfcExtrudedAreaSolidTapered"):
+        # Must precede IfcExtrudedAreaSolid — Tapered is a subtype of it.
+        return extruded_solid_area_tapered(geom_repr)
+    elif geom_repr.is_a("IfcExtrudedAreaSolid"):
         return extruded_solid_area(geom_repr)
     elif geom_repr.is_a("IfcRevolvedAreaSolid"):
         return revolved_solid_area(geom_repr)
+    elif geom_repr.is_a("IfcFixedReferenceSweptAreaSolid"):
+        return fixed_reference_swept_area_solid(geom_repr)
     elif geom_repr.is_a("IfcSweptDiskSolid"):
         # Covers the IfcSweptDiskSolidPolygonal subtype too.
         return swept_disk_solid(geom_repr)

@@ -36,6 +36,26 @@ def _directrix(curve: geo_cu.CURVE_GEOM_TYPES, f: ifcopenshell.file) -> ifcopens
     raise NotImplementedError(f"Unsupported directrix curve type: {type(curve)}")
 
 
+def fixed_reference_swept_area_solid(
+    frs: geo_so.FixedReferenceSweptAreaSolid, f: ifcopenshell.file
+) -> ifcopenshell.entity_instance:
+    """Converts a FixedReferenceSweptAreaSolid to an IfcFixedReferenceSweptAreaSolid.
+
+    adapy's geom model doesn't track the fixed-reference direction (the OCC build derives
+    orientation from the directrix), so FixedReference is emitted from the position's
+    ref_direction to satisfy the (mandatory) IFC attribute."""
+    from ada.geom.direction import Direction
+
+    ref = frs.position.ref_direction if frs.position.ref_direction is not None else Direction(1, 0, 0)
+    return f.create_entity(
+        "IfcFixedReferenceSweptAreaSolid",
+        SweptArea=arbitrary_profile_def(frs.swept_area, f),
+        Position=ifc_placement_from_axis3d(frs.position, f),
+        Directrix=_directrix(frs.directrix, f),
+        FixedReference=direction(ref, f),
+    )
+
+
 def swept_disk_solid(sds: geo_so.SweptDiskSolid, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts a SweptDiskSolid to an IfcSweptDiskSolid."""
     kwargs = dict(Directrix=_directrix(sds.directrix, f), Radius=float(sds.radius))
