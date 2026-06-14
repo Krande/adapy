@@ -4,11 +4,9 @@ from typing import TYPE_CHECKING
 
 import ifcopenshell
 
-from ada.cadit.ifc.utils import create_local_placement
 from ada.cadit.ifc.write.pipes.elbow_segment import write_pipe_elbow_seg
 from ada.cadit.ifc.write.pipes.straight_segment import write_pipe_straight_seg
 from ada.config import logger
-from ada.core.constants import X, Z
 from ada.core.guid import create_guid
 
 if TYPE_CHECKING:
@@ -20,25 +18,82 @@ def update_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
     logger.warning("Updating IFC pipe not implemented yet")
 
 
-def write_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
+def _resolve_spatial_parent(ifc_store: IfcStore, part) -> ifcopenshell.entity_instance:
+    """Nearest IfcSpatialElement ancestor for ``part``.
 
-    ifc_pipe = write_pipe_ifc_elem(ifc_store, pipe)
+    Plant-agnostic: ``IfcRelContainedInSpatialStructure``/``IfcRelServicesBuildings`` accept any
+    IfcSpatialElement (IfcSite/IfcSpatialZone/IfcBuilding in IFC4; IfcFacility/IfcFacilityPart in
+    IFC4x3), so a pipe on a site or plant area works. Walks up when a Part maps to a non-spatial
+    IFC type (e.g. IfcElementAssembly)."""
+    p = part
+    while p is not None:
+        ifc_elem = ifc_store.get_by_guid(p.guid)
+        if ifc_elem is not None and ifc_elem.is_a("IfcSpatialElement"):
+            return ifc_elem
+        p = p.parent
+    raise ValueError(f"No IfcSpatialElement ancestor found for pipe parent {part}")
+
+
+def write_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
+    """Write a Pipe as a proper IFC distribution system.
+
+    The flow elements (IfcPipeSegment / IfcPipeFitting) are contained in the real spatial
+    structure and grouped by an IfcDistributionSystem (IfcRelAssignsToGroup), which services that
+    spatial element (IfcRelServicesBuildings) — NOT modelled as an IfcSpatialZone."""
+    if pipe.parent is None:
+        raise ValueError("Cannot build ifc element without parent")
+
+    f = ifc_store.f
+    owner_history = ifc_store.owner_history
+
+    spatial = _resolve_spatial_parent(ifc_store, pipe.parent)
 
     segments = []
-
     for param_seg in pipe.segments:
         res = write_pipe_segment(ifc_store, param_seg)
-
         if res is None:
-            logger.error(f'Branch "{param_seg.name}" was not converted to ifc element')
+            logger.error(f'Pipe segment "{param_seg.name}" was not converted to ifc element')
             continue
-
         segments.append(res)
 
-    if segments:
-        ifc_store.writer.add_related_elements_to_spatial_container(segments, ifc_pipe.GlobalId)
+    if not segments:
+        return None
 
-    return ifc_pipe
+    # Contain the flow elements directly in the spatial structure (site/zone/facility/…).
+    ifc_store.writer.add_related_elements_to_spatial_container(segments, spatial.GlobalId)
+
+    # Group them as a distribution system — the functional grouping for a pipe run. The system
+    # carries the pipe's GUID so get_by_guid(pipe.guid) keeps resolving.
+    system = f.create_entity(
+        "IfcDistributionSystem",
+        pipe.guid,
+        owner_history,
+        pipe.name,
+        None,
+        None,
+        None,
+        "NOTDEFINED",
+    )
+    f.create_entity(
+        "IfcRelAssignsToGroup",
+        create_guid(),
+        owner_history,
+        pipe.name,
+        None,
+        RelatedObjects=segments,
+        RelatingGroup=system,
+    )
+    f.create_entity(
+        "IfcRelServicesBuildings",
+        create_guid(),
+        owner_history,
+        pipe.name,
+        None,
+        RelatingSystem=system,
+        RelatedBuildings=[spatial],
+    )
+
+    return system
 
 
 def write_pipe_segment(ifc_store: IfcStore, segment: PipeSegElbow | PipeSegStraight) -> ifcopenshell.entity_instance:
@@ -62,46 +117,3 @@ def write_pipe_segment(ifc_store: IfcStore, segment: PipeSegElbow | PipeSegStrai
     ifc_store.writer.associate_elem_with_material(segment.material, pipe_seg)
 
     return pipe_seg
-
-
-def write_pipe_ifc_elem(ifc_store: IfcStore, pipe: Pipe):
-    if pipe.parent is None:
-        raise ValueError("Cannot build ifc element without parent")
-
-    f = ifc_store.f
-    owner_history = ifc_store.owner_history
-
-    # parent = f.by_guid(pipe.parent.guid)
-    parent = ifc_store.get_by_guid(pipe.parent.guid)
-
-    placement = create_local_placement(
-        f,
-        origin=pipe.n1.p.astype(float).tolist(),
-        loc_x=X,
-        loc_z=Z,
-        relative_to=parent.ObjectPlacement,
-    )
-
-    ifc_elem = f.create_entity(
-        "IfcSpatialZone",
-        pipe.guid,
-        owner_history,
-        pipe.name,
-        "Description",
-        None,
-        placement,
-        None,
-        None,
-        None,
-    )
-
-    f.createIfcRelAggregates(
-        create_guid(),
-        owner_history,
-        "Pipe Container",
-        None,
-        parent,
-        [ifc_elem],
-    )
-
-    return ifc_elem

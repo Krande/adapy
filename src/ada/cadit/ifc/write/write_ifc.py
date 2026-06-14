@@ -127,7 +127,10 @@ class IfcWriter:
                 self.ifc_store.owner_history,
             )
 
-            contained_in_spatial[to_be_added.parent.guid].append(ifc_elem)
+            # A Pipe writes an IfcDistributionSystem (not a spatially-containable product) and
+            # contains its own segments in the spatial structure, so skip the generic step.
+            if not isinstance(to_be_added, Pipe):
+                contained_in_spatial[to_be_added.parent.guid].append(ifc_elem)
             to_be_added.change_type = ChangeAction.NOCHANGE
 
             if self.callback is not None:

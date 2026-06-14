@@ -35,12 +35,10 @@ def write_pipe_elbow_seg(ifc_store: IfcStore, pipe_elbow: PipeSegElbow):  # -> i
 
     ifc_elbow = elbow_revolved_solid(pipe_elbow, f, tol)
 
-    parent = ifc_store.get_by_guid(pipe_elbow.parent.guid)
-
-    pfitting_placement = create_local_placement(
-        f,
-        relative_to=parent.ObjectPlacement,
-    )
+    # Elbow geometry is in world coordinates (like the straight segment), so use an identity
+    # placement. This also decouples the segment from the pipe's IFC entity, which no longer
+    # exists when segments are written (the pipe is now an IfcDistributionSystem created after).
+    pfitting_placement = create_local_placement(f)
 
     pfitting = f.create_entity(
         "IfcPipeFitting",

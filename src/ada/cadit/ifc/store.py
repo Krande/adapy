@@ -265,6 +265,9 @@ class IfcStore:
         # Load physical elements
         self.reader.load_objects(data_only=data_only, elements2part=elements2part)
 
+        # Reconstruct pipes from IfcDistributionSystem groupings (segments were skipped above)
+        self.reader.load_systems()
+
         self.reader.load_presentation_layers()
 
         ifc_file_name = "object" if self.ifc_file_path is None else self.ifc_file_path

@@ -15,6 +15,15 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
 
+def _belongs_to_system(product) -> bool:
+    """True if the product is grouped by an IfcSystem (e.g. a pipe segment in a distribution
+    system) — reconstructed at the system layer, not as a loose element."""
+    for rel in getattr(product, "HasAssignments", None) or []:
+        if rel.is_a("IfcRelAssignsToGroup") and rel.RelatingGroup is not None and rel.RelatingGroup.is_a("IfcSystem"):
+            return True
+    return False
+
+
 def import_physical_ifc_elem(product, name, ifc_store: IfcStore):
     pr_type = product.is_a()
 
@@ -43,10 +52,11 @@ def import_physical_ifc_elem(product, name, ifc_store: IfcStore):
         return None
 
     if product.is_a() in ("IfcPipeSegment", "IfcPipeFitting"):
+        # Segments grouped by an IfcDistributionSystem are reconstructed as a Pipe in
+        # load_systems(); skip them here so they aren't also imported as loose segments.
+        if _belongs_to_system(product):
+            return None
         return import_pipe_segment(product, name, ifc_store)
-
-    if product.is_a("IfcPipeFitting"):
-        logger.info('"IfcPipeFitting" is not yet added')
 
     # Non-physical products (alignment, annotation, grid, positioning) carry only
     # curve/axis representations, never body geometry. Importing them as empty Shapes

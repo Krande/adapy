@@ -32,6 +32,57 @@ class IfcReader:
         mi = MaterialImporter(self.ifc_store)
         mi.load_ifc_materials()
 
+    def load_systems(self):
+        """Reconstruct pipes from IfcDistributionSystem groupings.
+
+        A Pipe is written as an IfcDistributionSystem grouping its IfcPipeSegment/IfcPipeFitting
+        members (which the per-product pass skips). Build one Pipe per system from its members and
+        add it to the spatial element the system services."""
+        from ada import Node, Pipe
+
+        from .read_pipe import import_pipe_segment
+
+        f = self.ifc_store.f
+        assembly = self.ifc_store.assembly
+
+        for system in f.by_type("IfcDistributionSystem"):
+            members = []
+            for rel in system.IsGroupedBy or []:
+                members.extend(rel.RelatedObjects)
+            seg_products = [m for m in members if m.is_a() in ("IfcPipeSegment", "IfcPipeFitting")]
+            if not seg_products:
+                continue
+
+            segments = []
+            for sp in seg_products:
+                try:
+                    segments.append(import_pipe_segment(sp, sp.Name, self.ifc_store))
+                except Exception as e:  # noqa: BLE001 - one bad segment must not drop the pipe
+                    logger.warning(f"Skipping pipe segment {sp.Name} of system {system.Name}: {e}")
+            if not segments:
+                continue
+
+            # Build the Pipe and assign the imported segments directly — Pipe.from_segments would
+            # rebuild the segments from points (losing the straight/elbow decomposition). The
+            # centerline points are only for completeness; the segments carry the real geometry.
+            points = [segments[0].p1, segments[-1].p2]
+            pipe = Pipe(system.Name, points, segments[0].section, segments[0].material, guid=system.GlobalId)
+            pipe._segments = segments
+            for seg in segments:
+                seg.parent = pipe
+
+            parent = self._resolve_system_parent(system) or assembly
+            parent.add_pipe(pipe)
+
+    def _resolve_system_parent(self, system):
+        """The adapy Part that the system services (via IfcRelServicesBuildings → spatial elem)."""
+        for rel in system.ServicesBuildings or []:
+            for spatial in rel.RelatedBuildings:
+                part = self.ifc_store.assembly.get_by_guid(spatial.GlobalId)
+                if part is not None:
+                    return part
+        return None
+
     def load_presentation_layers(self):
         from ada.api.presentation_layers import PresentationLayer, PresentationLayers
 
