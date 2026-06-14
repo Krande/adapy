@@ -64,6 +64,25 @@ class FixedReferenceSweptAreaSolid:
 
 
 @dataclass
+class SweptDiskSolid:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSweptDiskSolid.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_swept_disk_solid.html)
+
+    A circular — or annular, when ``inner_radius`` is set — disk swept along the ``directrix``
+    curve. The canonical representation for pipes/rods. ``IfcSweptDiskSolidPolygonal`` (a
+    polyline directrix with a fillet radius) maps here too, with ``fillet_radius`` set.
+    """
+
+    directrix: CURVE_GEOM_TYPES
+    radius: float
+    inner_radius: float | None = None
+    start_param: float | None = None
+    end_param: float | None = None
+    fillet_radius: float | None = None
+
+
+@dataclass
 class Box:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcBlock.htm)
@@ -179,4 +198,5 @@ SOLID_GEOM_TYPES = Union[
     FixedReferenceSweptAreaSolid,
     AdvancedBrep,
     ExtrudedAreaSolidTapered,
+    SweptDiskSolid,
 ]

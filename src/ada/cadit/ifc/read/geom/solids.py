@@ -4,8 +4,22 @@ from ada.geom import solids as geo_so
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
+from .curves import get_curve
 from .placement import axis1placement, axis2placement, axis3d, ifc_direction
 from .surfaces import get_surface
+
+
+def swept_disk_solid(ifc_entity: ifcopenshell.entity_instance) -> geo_so.SweptDiskSolid:
+    # Covers the IfcSweptDiskSolidPolygonal subtype (which adds a FilletRadius).
+    fillet_radius = getattr(ifc_entity, "FilletRadius", None)
+    return geo_so.SweptDiskSolid(
+        directrix=get_curve(ifc_entity.Directrix),
+        radius=ifc_entity.Radius,
+        inner_radius=ifc_entity.InnerRadius,
+        start_param=ifc_entity.StartParam,
+        end_param=ifc_entity.EndParam,
+        fillet_radius=fillet_radius,
+    )
 
 
 def ifc_sphere(ifc_entity: ifcopenshell.entity_instance) -> geo_so.Sphere:

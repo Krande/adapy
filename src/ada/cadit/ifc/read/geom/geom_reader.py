@@ -16,6 +16,7 @@ from .solids import (
     ifc_cylinder,
     ifc_sphere,
     revolved_solid_area,
+    swept_disk_solid,
 )
 from .surfaces import (
     advanced_face,
@@ -44,6 +45,9 @@ def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GE
         return extruded_solid_area(geom_repr)
     elif geom_repr.is_a("IfcRevolvedAreaSolid"):
         return revolved_solid_area(geom_repr)
+    elif geom_repr.is_a("IfcSweptDiskSolid"):
+        # Covers the IfcSweptDiskSolidPolygonal subtype too.
+        return swept_disk_solid(geom_repr)
     elif geom_repr.is_a("IfcTriangulatedFaceSet"):
         return triangulated_face_set(geom_repr)
     elif geom_repr.is_a("IfcPolygonalFaceSet"):

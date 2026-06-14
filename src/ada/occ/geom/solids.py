@@ -100,6 +100,47 @@ def make_revolved_area_shape_from_geom(ras: geo_so.RevolvedAreaSolid) -> TopoDS_
     return ras_shape
 
 
+def make_swept_disk_solid_from_geom(sds: geo_so.SweptDiskSolid) -> TopoDS_Shape | TopoDS_Solid:
+    """Sweep a circular (or annular) disk along the directrix — the pipe/rod primitive.
+
+    The disk profile is placed at the spine start, normal to the start tangent; PipeShell
+    keeps it perpendicular along the spine. An inner radius is swept the same way and cut out
+    to leave a tube."""
+    from OCC.Core.BRep import BRep_Tool
+    from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+    from OCC.Core.BRepTools import BRepTools_WireExplorer
+    from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Pnt, gp_Vec
+
+    spine = make_wire_from_curve(sds.directrix)
+
+    # Start point + tangent of the spine (a circle is rotationally symmetric, so the
+    # tangent's sign is irrelevant — only the plane it defines matters).
+    first_edge = BRepTools_WireExplorer(spine).Current()
+    curve, f0, _ = BRep_Tool.Curve(first_edge)
+    p0 = gp_Pnt()
+    d0 = gp_Vec()
+    curve.D1(f0, p0, d0)
+    disk_axis = gp_Ax2(p0, gp_Dir(d0))
+
+    def _disk_wire(r: float):
+        edge = BRepBuilderAPI_MakeEdge(gp_Circ(disk_axis, r)).Edge()
+        return BRepBuilderAPI_MakeWire(edge).Wire()
+
+    def _sweep(profile_wire):
+        pipe_builder = BRepOffsetAPI_MakePipeShell(spine)
+        pipe_builder.SetTransitionMode(BRepBuilderAPI_RoundCorner)
+        pipe_builder.Add(profile_wire, True, False)
+        pipe_builder.Build()
+        pipe_builder.MakeSolid()
+        return pipe_builder.Shape()
+
+    solid = _sweep(_disk_wire(sds.radius))
+    if sds.inner_radius:
+        solid = BRepAlgoAPI_Cut(solid, _sweep(_disk_wire(sds.inner_radius))).Shape()
+    return solid
+
+
 def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSweptAreaSolid) -> TopoDS_Solid:
     spine = make_wire_from_curve(frs.directrix)
 

@@ -7,10 +7,35 @@ from ada.cadit.ifc.write.geom.placement import (
     ifc_placement_from_axis3d,
     point,
 )
+from ada.geom import curves as geo_cu
 from ada.geom import solids as geo_so
 from ada.geom import surfaces as geo_su
 
+from .curves import circle_curve, indexed_poly_curve, poly_line
 from .surfaces import arbitrary_profile_def
+
+
+def _directrix(curve: geo_cu.CURVE_GEOM_TYPES, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Write a sweep directrix curve to its matching IFC curve entity."""
+    if isinstance(curve, geo_cu.IndexedPolyCurve):
+        return indexed_poly_curve(curve, f)
+    elif isinstance(curve, geo_cu.PolyLine):
+        return poly_line(curve, f)
+    elif isinstance(curve, geo_cu.Circle):
+        return circle_curve(curve, f)
+    raise NotImplementedError(f"Unsupported directrix curve type: {type(curve)}")
+
+
+def swept_disk_solid(sds: geo_so.SweptDiskSolid, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a SweptDiskSolid to an IfcSweptDiskSolid."""
+    kwargs = dict(Directrix=_directrix(sds.directrix, f), Radius=float(sds.radius))
+    if sds.inner_radius is not None:
+        kwargs["InnerRadius"] = float(sds.inner_radius)
+    if sds.start_param is not None:
+        kwargs["StartParam"] = float(sds.start_param)
+    if sds.end_param is not None:
+        kwargs["EndParam"] = float(sds.end_param)
+    return f.create_entity("IfcSweptDiskSolid", **kwargs)
 
 
 def extruded_area_solid(
