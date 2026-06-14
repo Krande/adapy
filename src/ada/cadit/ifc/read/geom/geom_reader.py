@@ -90,6 +90,10 @@ def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GE
     elif geom_repr.is_a("IfcHalfSpaceSolid"):
         # Covers the IfcPolygonalBoundedHalfSpace subtype too.
         return half_space_solid(geom_repr)
+    elif geom_repr.is_a("IfcCsgSolid"):
+        # A CSG container — the solid is its tree-root expression (a CSG primitive or a
+        # boolean result). adapy has no distinct CsgSolid type; read through to the root.
+        return import_geometry_from_ifc_geom(geom_repr.TreeRootExpression)
     elif geom_repr.is_a("IfcBooleanResult"):
         # Covers IfcBooleanClippingResult (a subtype). Returns a wrapped Geometry carrying
         # the cut(s) as bool_operations, not a raw geom — callers handle both (read_shapes).
