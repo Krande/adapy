@@ -6,7 +6,7 @@ from ada import BoolHalfSpace
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 
-from .curves import circle_curve, edge_loop, indexed_poly_curve, poly_loop
+from .curves import circle_curve, edge_loop, indexed_poly_curve, poly_line, poly_loop
 from .placement import ifc_placement_from_axis3d
 from .points import cpt
 
@@ -266,25 +266,26 @@ def create_toroidal_surface(ts: geo_su.ToroidalSurface, f: ifcopenshell.file) ->
     )
 
 
+def _bounded_curve(curve: geo_cu.CURVE_GEOM_TYPES, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Write a boundary curve to an IfcCurve (IfcCurveBoundedPlane boundaries are IfcCurve, not
+    topological loops)."""
+    if isinstance(curve, geo_cu.IndexedPolyCurve):
+        return indexed_poly_curve(curve, f)
+    elif isinstance(curve, geo_cu.PolyLine):
+        return poly_line(curve, f)
+    elif isinstance(curve, geo_cu.Circle):
+        return circle_curve(curve, f)
+    raise NotImplementedError(f"Unsupported curve-bounded-plane boundary type: {type(curve)}")
+
+
 def curve_bounded_plane(cbp: geo_su.CurveBoundedPlane, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
-    """Converts a CurveBoundedPlane to an IFC representation"""
-    basis_surface = create_plane(cbp.basis_surface, f)
+    """Converts a CurveBoundedPlane to an IfcCurveBoundedPlane.
 
-    if isinstance(cbp.outer_boundary, geo_cu.EdgeLoop):
-        outer_boundary = edge_loop(cbp.outer_boundary, f)
-    else:
-        raise NotImplementedError(f"Unsupported outer boundary type: {type(cbp.outer_boundary)}")
-
-    if isinstance(cbp.inner_boundaries, list) and len(cbp.inner_boundaries) == 0:
-        inner_boundaries = cbp.inner_boundaries
-    elif isinstance(cbp.inner_boundaries, geo_cu.EdgeLoop):
-        inner_boundaries = edge_loop(cbp.inner_boundaries, f)
-    else:
-        raise NotImplementedError(f"Unsupported inner boundaries type: {type(cbp.inner_boundaries)}")
-
+    IfcCurveBoundedPlane.OuterBoundary / InnerBoundaries are IfcCurve (a planar bounded curve),
+    not topological edge loops — the geom ``outer_boundary`` is a CURVE_GEOM_TYPES accordingly."""
     return f.create_entity(
         "IfcCurveBoundedPlane",
-        BasisSurface=basis_surface,
-        OuterBoundary=outer_boundary,
-        InnerBoundaries=inner_boundaries,
+        BasisSurface=create_plane(cbp.basis_surface, f),
+        OuterBoundary=_bounded_curve(cbp.outer_boundary, f),
+        InnerBoundaries=[_bounded_curve(c, f) for c in cbp.inner_boundaries],
     )

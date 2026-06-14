@@ -24,6 +24,7 @@ from .solids import (
 )
 from .surfaces import (
     advanced_face,
+    curve_bounded_plane,
     half_space_solid,
     polygonal_face_set,
     shell_based_surface_model,
@@ -84,6 +85,8 @@ def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GE
         return read_face(geom_repr)
     elif geom_repr.is_a("IfcShellBasedSurfaceModel"):
         return shell_based_surface_model(geom_repr)
+    elif geom_repr.is_a("IfcCurveBoundedPlane"):
+        return curve_bounded_plane(geom_repr)
     elif geom_repr.is_a("IfcHalfSpaceSolid"):
         # Covers the IfcPolygonalBoundedHalfSpace subtype too.
         return half_space_solid(geom_repr)

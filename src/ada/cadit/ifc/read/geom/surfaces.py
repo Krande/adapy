@@ -118,6 +118,17 @@ def rectangle_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Re
     )
 
 
+def curve_bounded_plane(ifc_entity: ifcopenshell.entity_instance) -> geo_su.CurveBoundedPlane:
+    from .curves import get_curve
+
+    inner = [get_curve(c) for c in ifc_entity.InnerBoundaries] if ifc_entity.InnerBoundaries else []
+    return geo_su.CurveBoundedPlane(
+        basis_surface=plane(ifc_entity.BasisSurface),
+        outer_boundary=get_curve(ifc_entity.OuterBoundary),
+        inner_boundaries=inner,
+    )
+
+
 def poly_loop(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.PolyLoop:
     return geo_cu.PolyLoop(polygon=[Point(p.Coordinates) for p in ifc_entity.Polygon])
 
