@@ -30,3 +30,6 @@ def test_roundtrip_weld(tmp_path):
     assert tuple(float(c) for c in got.p1.p) == (1.0, 0.0, 0.0)
     assert tuple(float(c) for c in got.p2.p) == (1.0, 1.0, 0.0)
     assert tuple(got.xdir) == (-1.0, 0.0, 0.0)
+    # members resolved back to the welded plates by GUID
+    assert {m.name for m in got.members} == {"pl1", "pl2"}
+    assert all(isinstance(m, ada.Plate) for m in got.members)

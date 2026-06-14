@@ -54,6 +54,9 @@ def write_ifc_fastener(weld: Weld) -> ifcopenshell.entity_instance:
             "weld_type": weld.type.value,
             "xdir": json.dumps([float(c) for c in weld.xdir]),
             "profile": json.dumps([[float(c) for c in pt] for pt in weld.profile]),
+            # Member GUIDs are resolved back to the welded elements in a post-import pass
+            # (members may be imported after the weld).
+            "members": json.dumps([m.guid for m in weld.members]),
         },
         ifc_fastener,
         f,

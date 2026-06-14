@@ -268,6 +268,9 @@ class IfcStore:
         # Reconstruct pipes from IfcDistributionSystem groupings (segments were skipped above)
         self.reader.load_systems()
 
+        # Link welds to their members by GUID (members may have been imported after the weld)
+        self.reader.resolve_weld_members()
+
         self.reader.load_presentation_layers()
 
         ifc_file_name = "object" if self.ifc_file_path is None else self.ifc_file_path

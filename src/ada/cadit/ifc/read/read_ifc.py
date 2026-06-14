@@ -74,6 +74,27 @@ class IfcReader:
             parent = self._resolve_system_parent(system) or assembly
             parent.add_pipe(pipe)
 
+    def resolve_weld_members(self):
+        """Link each imported Weld back to its welded members by GUID.
+
+        Members are persisted as GUIDs on the IfcFastener (read into ``weld.metadata``); they
+        may be imported after the weld, so resolution runs as a post-pass."""
+        import json
+
+        from ada import Weld
+
+        assembly = self.ifc_store.assembly
+        for part in assembly.get_all_parts_in_assembly(include_self=True):
+            for w in part.welds:
+                if not isinstance(w, Weld):
+                    continue
+                raw = w.metadata.get("Properties", {}).get("members")
+                if not raw:
+                    continue
+                resolved = [obj for obj in (assembly.get_by_guid(g) for g in json.loads(raw)) if obj is not None]
+                if resolved:
+                    w._members = tuple(resolved)
+
     def _resolve_system_parent(self, system):
         """The adapy Part that the system services (via IfcRelServicesBuildings → spatial elem)."""
         for rel in system.ServicesBuildings or []:
