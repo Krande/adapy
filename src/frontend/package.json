@@ -3,7 +3,8 @@
   "version": "0.20.1",
   "type": "module",
   "overrides": {
-    "qs": ">=6.15.2"
+    "qs": ">=6.15.2",
+    "esbuild": "$esbuild"
   },
   "scripts": {
     "prebuild": "node clean.cjs",
@@ -11,7 +12,7 @@
     "build:serve": "vite build --config vite.config.serve.ts --emptyOutDir",
     "build:embed": "vite build --config vite.config.embed.ts",
     "dev": "vite --force",
-    "test": "node --import tsx --test src/__tests__/services/feaManifestPoll.test.ts src/__tests__/services/feaFieldBlob.test.ts src/__tests__/services/feaElemFieldBlob.test.ts src/__tests__/services/feaMeshEdges.test.ts src/__tests__/services/feaMeshElements.test.ts src/__tests__/services/feaBeamSolidsWarp.test.ts src/__tests__/utils/edgeShaderHelper.test.ts src/__tests__/utils/rangeIndex.test.ts"
+    "test": "node --import tsx --test src/__tests__/services/feaManifestPoll.test.ts src/__tests__/services/feaFieldBlob.test.ts src/__tests__/services/feaElemFieldBlob.test.ts src/__tests__/services/feaMeshEdges.test.ts src/__tests__/services/feaMeshElements.test.ts src/__tests__/services/feaBeamSolidsWarp.test.ts src/__tests__/utils/edgeShaderHelper.test.ts src/__tests__/utils/rangeIndex.test.ts src/__tests__/utils/customBatchedMeshHighlight.test.ts"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.0",
@@ -29,7 +30,7 @@
     "cross-env": "^7.0.3",
     "depcheck": "^1.4.7",
     "dexie": "4.0.11",
-    "esbuild": "0.25.1",
+    "esbuild": "0.28.1",
     "esbuild-helpers": "2.0.1",
     "flatbuffers": "25.2.10",
     "lodash": ">=4.18.0",
@@ -44,7 +45,7 @@
     "react-rnd": "10.5.2",
     "tailwindcss": "^4.3.0",
     "three": "0.176.0",
-    "tsx": "^4.21.0",
+    "tsx": "^4.22.4",
     "typescript": "5.8.2",
     "urdf-loader": "0.12.4",
     "vite": "^6.4.1",

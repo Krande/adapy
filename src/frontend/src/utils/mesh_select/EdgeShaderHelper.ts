@@ -178,7 +178,19 @@ export function makeEdgeShaderMaterial(
 
   // Clipping chunks let section planes cut the edge overlay too (needs
   // `clipping: true` on the material + a per-frame mvPosition for vClipPosition).
+  // highp int is REQUIRED here, not cosmetic. rangeId/uHighlighted are
+  // per-object indices that reach the full draw-range count (tens of
+  // thousands on big models). In a WebGL1 fragment shader `int` defaults to
+  // mediump, which GLSL ES only guarantees to ±2^10 (1024). On GPUs that
+  // honour that minimum, any object with index > 1024 gets a saturated/
+  // wrapped `rid` — so `rid == uHighlighted` mis-matches (a neighbour lights
+  // up) and `rid % int(uTexSize.x)` samples the wrong visibility texel (the
+  // selected object's own edges vanish). Faces are unaffected because they
+  // highlight via CPU material-index, not this shader. Forcing highp int (and
+  // float, so the vRangeId varying stays exact) fixes it for all indices.
   const vs = `
+    precision highp float;
+    precision highp int;
     attribute float rangeId;
     varying float vRangeId;
     #include <clipping_planes_pars_vertex>
@@ -191,7 +203,8 @@ export function makeEdgeShaderMaterial(
   `;
 
   const fs = `
-    precision mediump float;
+    precision highp float;
+    precision highp int;
     varying float vRangeId;
     uniform sampler2D uVisibleTex;
     uniform vec2 uTexSize;
