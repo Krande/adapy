@@ -65,11 +65,21 @@ def roundoff(x: float, precision=Config().general_precision) -> float:
     return xout if abs(xout) != 0.0 else 0.0
 
 
-def get_current_user():
-    """Return the username of currently logged in user"""
-    import getpass
+def get_current_user() -> str:
+    """Return the username of the current user.
 
-    return getpass.getuser()
+    ``getpass.getuser()`` falls back to ``pwd.getpwuid(os.getuid())`` when no
+    USER/LOGNAME/LNAME/USERNAME env var is set, which raises in a non-root
+    container whose runtime uid has no ``/etc/passwd`` entry (e.g. the worker
+    image running as uid 10001). Degrade gracefully to a sensible default so
+    FEM deck writers never crash on the username stamp."""
+    import getpass
+    import os
+
+    try:
+        return getpass.getuser()
+    except (KeyError, OSError):
+        return os.environ.get("USER") or os.environ.get("LOGNAME") or "unknown"
 
 
 def thread_this(list_in, function, cpus=4):
