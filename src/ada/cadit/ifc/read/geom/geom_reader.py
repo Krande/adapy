@@ -17,6 +17,7 @@ from .solids import (
     ifc_block,
     ifc_cone,
     ifc_cylinder,
+    ifc_rectangular_pyramid,
     ifc_sphere,
     revolved_solid_area,
     swept_disk_solid,
@@ -63,6 +64,8 @@ def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GE
         return polygonal_face_set(geom_repr)
     elif geom_repr.is_a("IfcBlock"):
         return ifc_block(geom_repr)
+    elif geom_repr.is_a("IfcRectangularPyramid"):
+        return ifc_rectangular_pyramid(geom_repr)
     elif geom_repr.is_a("IfcSphere"):
         return ifc_sphere(geom_repr)
     elif geom_repr.is_a("IfcRightCircularCylinder"):

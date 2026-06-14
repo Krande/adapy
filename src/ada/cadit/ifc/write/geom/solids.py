@@ -56,6 +56,17 @@ def fixed_reference_swept_area_solid(
     )
 
 
+def rectangular_pyramid(rp: geo_so.RectangularPyramid, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a RectangularPyramid to an IfcRectangularPyramid."""
+    return f.create_entity(
+        "IfcRectangularPyramid",
+        Position=ifc_placement_from_axis3d(rp.position, f),
+        XLength=float(rp.x_length),
+        YLength=float(rp.y_length),
+        Height=float(rp.z_length),
+    )
+
+
 def swept_disk_solid(sds: geo_so.SweptDiskSolid, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts a SweptDiskSolid to an IfcSweptDiskSolid."""
     kwargs = dict(Directrix=_directrix(sds.directrix, f), Radius=float(sds.radius))

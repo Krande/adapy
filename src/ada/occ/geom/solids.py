@@ -41,6 +41,33 @@ def make_sphere_from_geom(sphere: geo_so.Sphere) -> TopoDS_Shape:
     return occBrep.BRepPrimAPI_MakeSphere(gp_Pnt(*sphere.center), sphere.radius).Shape()
 
 
+def make_rectangular_pyramid_from_geom(rp: geo_so.RectangularPyramid) -> TopoDS_Shape:
+    """Build an IfcRectangularPyramid: a rectangular base in the local XY plane with the apex
+    centred above it at the given height. Built from its 4 triangular sides + base, sewn into a
+    solid, then placed."""
+    from OCC.Core.BRepBuilderAPI import (
+        BRepBuilderAPI_MakeFace,
+        BRepBuilderAPI_MakePolygon,
+        BRepBuilderAPI_MakeSolid,
+        BRepBuilderAPI_Sewing,
+    )
+
+    x, y, z = rp.x_length, rp.y_length, rp.z_length
+    base = [gp_Pnt(0, 0, 0), gp_Pnt(x, 0, 0), gp_Pnt(x, y, 0), gp_Pnt(0, y, 0)]
+    apex = gp_Pnt(x / 2.0, y / 2.0, z)
+
+    sewing = BRepBuilderAPI_Sewing(1e-7)
+    base_poly = BRepBuilderAPI_MakePolygon(base[0], base[1], base[2], base[3], True)
+    sewing.Add(BRepBuilderAPI_MakeFace(base_poly.Wire(), True).Face())
+    for i in range(4):
+        tri = BRepBuilderAPI_MakePolygon(base[i], base[(i + 1) % 4], apex, True)
+        sewing.Add(BRepBuilderAPI_MakeFace(tri.Wire(), True).Face())
+    sewing.Perform()
+
+    solid = BRepBuilderAPI_MakeSolid(sewing.SewedShape()).Solid()
+    return transform_shape_to_pos(solid, rp.position.location, rp.position.axis, rp.position.ref_direction)
+
+
 def make_cylinder_from_geom(cylinder: geo_so.Cylinder) -> TopoDS_Shape:
     axis = cylinder.position.axis
     vec = gp_Dir(0, 0, 1) if axis is None else gp_Dir(*axis)

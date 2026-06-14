@@ -30,6 +30,8 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
         occ_geom = geo_so.make_cylinder_from_geom(geometry)
     elif isinstance(geometry, so.Sphere):
         occ_geom = geo_so.make_sphere_from_geom(geometry)
+    elif isinstance(geometry, so.RectangularPyramid):
+        occ_geom = geo_so.make_rectangular_pyramid_from_geom(geometry)
     elif isinstance(geometry, so.ExtrudedAreaSolidTapered):
         occ_geom = geo_so.make_extruded_area_shape_tapered_from_geom(geometry)
     elif isinstance(geometry, so.ExtrudedAreaSolid):

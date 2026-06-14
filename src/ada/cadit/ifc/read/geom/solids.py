@@ -88,6 +88,16 @@ def ifc_cone(ifc_entity: ifcopenshell.entity_instance) -> geo_so.Cone:
     return geo_so.Cone(position=position, bottom_radius=ifc_entity.BottomRadius, height=ifc_entity.Height)
 
 
+def ifc_rectangular_pyramid(ifc_entity: ifcopenshell.entity_instance) -> geo_so.RectangularPyramid:
+    position = axis2placement(ifc_entity.Position) if ifc_entity.Position is not None else Axis2Placement3D()
+    return geo_so.RectangularPyramid(
+        position=position,
+        x_length=ifc_entity.XLength,
+        y_length=ifc_entity.YLength,
+        z_length=ifc_entity.Height,
+    )
+
+
 def ifc_block(ifc_entity: ifcopenshell.entity_instance) -> geo_so.Box:
     position = axis2placement(ifc_entity.Position) if ifc_entity.Position is not None else Axis2Placement3D()
     return geo_so.Box(
