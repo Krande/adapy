@@ -231,6 +231,7 @@ class Weld(BackendGeom):
         self._p2 = p2_node
         self._members = members_tuple
         self._weld_type = weld_type
+        self._profile = profile
         self._throat = throat
         self._leg1 = leg1
         self._leg2 = leg2
@@ -256,6 +257,14 @@ class Weld(BackendGeom):
     @property
     def members(self) -> tuple[BackendGeom, ...]:
         return self._members
+
+    @property
+    def profile(self):
+        return self._profile
+
+    @property
+    def xdir(self):
+        return self._xdir
 
     def other_members(self, of: BackendGeom) -> list[BackendGeom]:
         return [m for m in self._members if m is not of]

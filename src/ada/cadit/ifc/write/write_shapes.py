@@ -141,15 +141,24 @@ def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
 
     from ada.base.ifc_types import ShapeTypes
 
+    # Mark a MassPoint (sphere-bodied) so it reads back as MassPoint, not PrimSphere, and
+    # persist its mass (geometry alone can't carry it).
+    is_mass_point = isinstance(shape, MassPoint)
+
     ifc_elem = f.create_entity(
         str(shape.ifc_class.value) if isinstance(shape.ifc_class, ShapeTypes) else shape.ifc_class,
         GlobalId=shape.guid,
         OwnerHistory=owner_history,
         Name=shape.name,
-        ObjectType=None,
+        ObjectType="MassPoint" if is_mass_point else None,
         ObjectPlacement=shape_placement,
         Representation=ifc_shape,
     )
+
+    if is_mass_point:
+        from ada.cadit.ifc.utils import write_elem_property_sets
+
+        write_elem_property_sets({"mass": float(shape.mass)}, ifc_elem, f, owner_history)
 
     return ifc_elem
 

@@ -194,7 +194,9 @@ class IfcWriter:
         return num_mod
 
     def sync_added_welds(self):
-        for weld in self.ifc_store.assembly.welds:
+        # Welds may live on any part, not just the top-level assembly.
+        welds = [w for p in self.ifc_store.assembly.get_all_parts_in_assembly(include_self=True) for w in p.welds]
+        for weld in welds:
             ifc_weld = write_ifc_fastener(weld)
             self.add_related_elements_to_spatial_container([ifc_weld], weld.parent.guid)
             if weld.groove is None:

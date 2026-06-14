@@ -6,6 +6,7 @@ from ada.config import logger
 
 from .exceptions import NoIfcAxesAttachedError, UnableToConvertBoolResToBeamException
 from .read_beams import import_ifc_beam
+from .read_fasteners import import_ifc_fastener
 from .read_pipe import import_pipe_segment
 from .read_plates import import_ifc_plate
 from .read_shapes import _has_body_representation, import_ifc_shape, import_ifc_sphere
@@ -46,6 +47,9 @@ def import_physical_ifc_elem(product, name, ifc_store: IfcStore):
         except NoIfcAxesAttachedError as e:
             logger.debug(e)
             pass
+
+    if product.is_a("IfcFastener"):
+        return import_ifc_fastener(product, name, ifc_store)
 
     if product.is_a("IfcOpeningElement") is True:
         logger.info(f'skipping opening element "{product}"')

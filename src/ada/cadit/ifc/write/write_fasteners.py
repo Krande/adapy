@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
-from ada.cadit.ifc.utils import create_axis, create_property_set
+from ada.cadit.ifc.utils import (
+    create_axis,
+    create_property_set,
+    write_elem_property_sets,
+)
 from ada.cadit.ifc.write.shapes.prim_extrude_area import generate_ifc_prim_extrude_geom
 
 if TYPE_CHECKING:
@@ -40,5 +45,19 @@ def write_ifc_fastener(weld: Weld) -> ifcopenshell.entity_instance:
 
     # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/lexical/Pset_FastenerWeld.htm
     create_property_set("Pset_FastenerWeld", f, dict(Type1=weld.type.value), ifc_store.owner_history)
+
+    # adapy reconstruction params (geometry/Pset can't carry them): the weld profile + xdir.
+    # p1/p2 come from the Axis; weld_type from Pset_FastenerWeld. Members/groove are not
+    # round-tripped (the bead geometry is rebuilt from profile + p1/p2 + xdir).
+    write_elem_property_sets(
+        {
+            "weld_type": weld.type.value,
+            "xdir": json.dumps([float(c) for c in weld.xdir]),
+            "profile": json.dumps([[float(c) for c in pt] for pt in weld.profile]),
+        },
+        ifc_fastener,
+        f,
+        ifc_store.owner_history,
+    )
 
     return ifc_fastener
