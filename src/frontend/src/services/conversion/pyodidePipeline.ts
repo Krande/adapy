@@ -11,17 +11,17 @@
 
 import {useConversionStore, ConversionJob} from "@/state/conversionStore";
 import {convertViaPyodide} from "@/utils/pyodide/pyodide_converter";
-import {viewerApi, ScopeUrl} from "@/services/viewerApi";
-import {detectWasmFormat, isWasmFeaSource} from "./wasmSupport";
+import {viewerApi, ScopeUrl, TargetFormat} from "@/services/viewerApi";
+import {detectWasmFormat, isWasmFeaSource, wasmSupportsConversion} from "./wasmSupport";
 
 // Identifies in-browser conversions in the audit panel (worker_image_tag
-// prefix "wasm:" → "WASM" badge). The adacpp/adapy wheel versions can be
-// appended here once the FEM/SAT wheel lands.
-const WASM_IMAGE_TAG = "wasm:pyodide-0.27.7";
+// prefix "wasm:" → "WASM" badge).
+const WASM_IMAGE_TAG = "wasm:pyodide-0.29.4";
 
 export async function convertViaPyodideAndUpload(
     scope: ScopeUrl,
     sourceKey: string,
+    targetFormat: TargetFormat = "glb",
     opts?: {auditRunId?: string | null},
 ): Promise<string> {
     const detected = detectWasmFormat(sourceKey);
@@ -30,8 +30,13 @@ export async function convertViaPyodideAndUpload(
             `pyodide pipeline does not support source extension for ${sourceKey}`,
         );
     }
+    if (!wasmSupportsConversion(sourceKey, targetFormat)) {
+        throw new Error(
+            `pyodide pipeline does not support ${detected.format} → ${targetFormat}`,
+        );
+    }
     const {format, ext} = detected;
-    const storeKey = `${sourceKey}::glb`;
+    const storeKey = `${sourceKey}::${targetFormat}`;
     const store = useConversionStore.getState();
     const startedAt = Date.now();
     const job: ConversionJob = {
@@ -53,7 +58,7 @@ export async function convertViaPyodideAndUpload(
     try {
         auditJobId = await viewerApi.auditLocalCreate(scope, {
             key: sourceKey,
-            target_format: "glb",
+            target_format: targetFormat,
             audit_run_id: opts?.auditRunId ?? null,
             image_tag: WASM_IMAGE_TAG,
         });
@@ -76,10 +81,15 @@ export async function convertViaPyodideAndUpload(
         const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
         const readBytes = sourceBuf.byteLength; // capture before the buffer is transferred to the worker
 
-        store.setJob(storeKey, {...job, progress: 0.15, stage: `tessellating ${format} in browser`});
+        store.setJob(storeKey, {
+            ...job,
+            progress: 0.15,
+            stage: `converting ${format} → ${targetFormat} in browser`,
+        });
 
-        const glb = await convertViaPyodide(format, sourceBuf, {
+        const outBytes = await convertViaPyodide(format, sourceBuf, {
             ext,
+            target: targetFormat,
             onLog: (msg) =>
                 store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
         });
@@ -92,7 +102,7 @@ export async function convertViaPyodideAndUpload(
 
         // putDerivedBlob computes the canonical derived key server-side
         // (and skips its own auto-audit via managed_audit=1).
-        const derivedKey = await viewerApi.putDerivedBlob(scope, sourceKey, "glb", glb);
+        const derivedKey = await viewerApi.putDerivedBlob(scope, sourceKey, targetFormat, outBytes);
 
         store.setJob(storeKey, {
             ...(store.jobs[storeKey] || job),
@@ -106,7 +116,7 @@ export async function convertViaPyodideAndUpload(
             status: "done",
             duration_ms: Date.now() - startedAt,
             read_bytes: readBytes,
-            write_bytes: glb.byteLength,
+            write_bytes: outBytes.byteLength,
         });
         return derivedKey;
     } catch (err) {

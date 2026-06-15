@@ -75,13 +75,11 @@ for mod in [
     "ada.fem.formats.sesam.results.read_sif",
     "ada.cadit.sat",
     "ada.cadit.sat.store",
-    "ada.cadit.sat.parser",
     "ada.occ.tessellating",
     "ada.api.beams",
     "ada.api.plates",
     "ada.api.spatial",
     "ada.api.primitives",
-    "ada.visit.gltf.glb",
 ]:
     results[mod] = try_import(mod)
 

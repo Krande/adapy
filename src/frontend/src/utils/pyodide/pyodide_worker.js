@@ -14,7 +14,10 @@
 // keeping the comment here so the genealogy of the bootstrap idiom
 // (loadPyodide → micropip.install → import) is discoverable.
 
-const PYODIDE_VERSION = "0.27.7";
+// 0.29.4: Python 3.13 + emscripten 4.0.9 + native wasm-EH — the ABI the adacpp
+// wheel (cp313/pyodide_2025_0) and the ifcopenshell wasm wheel target. Keep in
+// lockstep with adacpp's tools/build_wheel.py tags + pixi.toml.
+const PYODIDE_VERSION = "0.29.4";
 const IFC_WASM_WHEEL =
     "https://ifcopenshell.github.io/wasm-wheels/ifcopenshell-0.8.5-cp313-cp313-pyodide_2025_0_wasm32.whl";
 
@@ -421,6 +424,80 @@ glb
     return arr;
 }
 
+// Non-GLB output (.obj/.stl/.step/.xml/.ifc) for ada-loadable geometry
+// sources, mirroring the worker's converter.py _via_ada* handlers:
+//   from_acis / from_ifc → Assembly → to_{trimesh,stp,genie_xml,ifc,gltf}.
+// The wasm-supported (source, target) cells are gated upstream by
+// wasmSupport.ts; this just executes whatever cell the router allowed.
+async function convertAdaExport(format, bytes, ext, target) {
+    const tgt = (target || "").toLowerCase();
+    // The SAT stack pulls the full adapy export machinery (adapy + adacpp
+    // backend + trimesh + pyquaternion + pydantic + Pillow). IFC source or
+    // IFC target additionally needs ifcopenshell (from_ifc / to_ifc).
+    await ensureSatStack();
+    if (format === "ifc" || tgt === "ifc") {
+        await ensureIfcStack();
+    }
+
+    const e = (ext || "").toLowerCase();
+    const u8 = new Uint8Array(bytes);
+    pyodide.FS.writeFile(`/tmp/input.${e}`, u8);
+    log(`Wrote ${u8.byteLength} bytes to /tmp/input.${e} (${format} → ${tgt})`);
+    pyodide.globals.set("_ada_fmt", format);
+    pyodide.globals.set("_ada_ext", e);
+    pyodide.globals.set("_ada_target", tgt);
+
+    try {
+        const result = await pyodide.runPythonAsync(`
+import io, ada
+
+fmt = _ada_fmt
+ext = _ada_ext
+target = _ada_target
+src = f"/tmp/input.{ext}"
+
+if fmt == "sat":
+    asm = ada.from_acis(src)
+elif fmt == "ifc":
+    asm = ada.from_ifc(src)
+else:
+    raise RuntimeError(f"adapy-export does not handle source format {fmt!r}")
+
+if target == "glb":
+    buf = io.BytesIO(); asm.to_gltf(buf); out = buf.getvalue()
+elif target in ("obj", "stl"):
+    data = asm.to_trimesh_scene().export(file_type=target)
+    out = data.encode() if isinstance(data, str) else bytes(data)
+elif target in ("step", "stp"):
+    asm.to_stp("/tmp/out.step")
+    with open("/tmp/out.step", "rb") as fh: out = fh.read()
+elif target == "xml":
+    asm.to_genie_xml("/tmp/out.xml")
+    with open("/tmp/out.xml", "rb") as fh: out = fh.read()
+elif target == "ifc":
+    asm.to_ifc("/tmp/out.ifc")
+    with open("/tmp/out.ifc", "rb") as fh: out = fh.read()
+else:
+    raise RuntimeError(f"adapy-export does not handle target {target!r}")
+
+if not out:
+    raise RuntimeError(f"adapy export produced an empty {target}")
+out
+        `);
+        const arr = result.toJs({create_proxies: false});
+        result.destroy();
+        return arr;
+    } finally {
+        for (const g of ["_ada_fmt", "_ada_ext", "_ada_target"]) {
+            try {
+                pyodide.globals.delete(g);
+            } catch (_) {
+                /* already gone — fine */
+            }
+        }
+    }
+}
+
 const FEA_EXTS = new Set(["rmed", "med", "sif", "sin"]);
 
 // FEA result (.rmed/.med/.sif/.sin) → streaming-viewer artefact tree, baked
@@ -491,20 +568,31 @@ self.onmessage = async (e) => {
         // Default to "ifc" so the existing IFC code paths keep working
         // without explicitly tagging the format.
         const format = (data.format || "ifc").toLowerCase();
+        // Default to "glb" — the historical single-target behaviour.
+        const target = (data.target || "glb").toLowerCase();
         try {
             let bytes;
-            if (format === "ifc") {
-                bytes = await convertIfc(data.bytes);
-            } else if (format === "step" || format === "stp") {
-                bytes = await convertStep(data.bytes);
-            } else if (format === "mesh") {
-                bytes = await convertMesh(data.bytes, data.ext);
-            } else if (format === "sat") {
-                bytes = await convertSat(data.bytes);
-            } else if (format === "fea") {
+            if (format === "fea") {
+                // FEA bakes a streaming-artefact zip; target is implied.
                 bytes = await bakeFea(data.bytes, data.ext);
+            } else if (target === "glb") {
+                // GLB fast paths — kept distinct because each uses the
+                // cheapest stack (adacpp backend for STEP, ifcopenshell for
+                // IFC, trimesh for mesh) rather than the full adapy loader.
+                if (format === "ifc") {
+                    bytes = await convertIfc(data.bytes);
+                } else if (format === "step" || format === "stp") {
+                    bytes = await convertStep(data.bytes);
+                } else if (format === "mesh") {
+                    bytes = await convertMesh(data.bytes, data.ext);
+                } else if (format === "sat") {
+                    bytes = await convertSat(data.bytes);
+                } else {
+                    throw new Error(`unsupported format for pyodide GLB conversion: ${format}`);
+                }
             } else {
-                throw new Error(`unsupported format for pyodide conversion: ${format}`);
+                // Non-GLB output via the generic adapy from_<src> → to_<tgt> path.
+                bytes = await convertAdaExport(format, data.bytes, data.ext, target);
             }
             self.postMessage(
                 {type: "result", reqId, bytes},

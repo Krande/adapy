@@ -71,7 +71,7 @@ export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea";
 export async function convertViaPyodide(
     format: PyodideSourceFormat,
     bytes: ArrayBuffer,
-    opts?: {onLog?: (msg: string) => void; ext?: string},
+    opts?: {onLog?: (msg: string) => void; ext?: string; target?: string},
 ): Promise<Uint8Array> {
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
@@ -93,7 +93,10 @@ export async function convertViaPyodide(
             }
         };
         worker.addEventListener("message", onMessage);
-        worker.postMessage({type: "convert", reqId, format, ext: opts?.ext, bytes}, [bytes]);
+        worker.postMessage(
+            {type: "convert", reqId, format, ext: opts?.ext, target: opts?.target ?? "glb", bytes},
+            [bytes],
+        );
     });
 }
 

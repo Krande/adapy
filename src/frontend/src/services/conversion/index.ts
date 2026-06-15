@@ -55,7 +55,7 @@ export async function ensureConverted(
 ): Promise<string> {
     if (shouldUsePyodide(sourceKey, targetFormat)) {
         const {convertViaPyodideAndUpload} = await import("./pyodidePipeline");
-        return convertViaPyodideAndUpload(scope, sourceKey);
+        return convertViaPyodideAndUpload(scope, sourceKey, targetFormat);
     }
     if (!runtime.convertEnabled()) {
         throw new Error("conversion not enabled on this deployment");

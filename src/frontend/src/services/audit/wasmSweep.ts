@@ -44,10 +44,13 @@ export async function runWasmAuditSweep(
     for (const cell of pending) {
         onProgress?.({total, completed, current: `${cell.source_key} → ${cell.target_format}`});
         try {
-            if (cell.target_format === "glb" && wasmSupportsConversion(cell.source_key, "glb")) {
+            if (wasmSupportsConversion(cell.source_key, cell.target_format)) {
                 // convertViaPyodideAndUpload records its own audit row
-                // (running→done/error) tagged with audit_run_id.
-                await convertViaPyodideAndUpload(scope, cell.source_key, {auditRunId: runId});
+                // (running→done/error) tagged with audit_run_id. Routes the
+                // cell's target through the same matrix the viewer uses.
+                await convertViaPyodideAndUpload(scope, cell.source_key, cell.target_format, {
+                    auditRunId: runId,
+                });
             } else {
                 // Not convertible in-browser — close the cell as skipped so
                 // the run's counters reach total.

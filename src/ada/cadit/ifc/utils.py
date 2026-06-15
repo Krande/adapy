@@ -690,6 +690,17 @@ def _serialize_occ_shape(shape) -> str:
     Fall back to calling ``WriteToString(shape)`` directly when
     that happens; semantically equivalent for a single-shape set.
     """
+    # adacpp backend (incl. wasm): the shape is an adacpp handle and the
+    # ifcopenshell wasm wheel ships no ``geom.occ_utils``. Serialize the BREP via
+    # the CAD backend (BRepTools_ShapeSet text) — the same string format
+    # ifcopenshell.geom.serialise consumes. Passing a string keeps adacpp's and
+    # ifcopenshell's separate OCCT copies from interposing.
+    from ada.cad import active_backend
+
+    backend = active_backend()
+    if getattr(backend, "is_handle", None) and backend.is_handle(shape) and hasattr(backend, "serialize_brep"):
+        return backend.serialize_brep(shape)
+
     try:
         return ifcopenshell.geom.occ_utils.serialize_shape(shape)
     except TypeError as exc:

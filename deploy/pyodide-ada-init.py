@@ -69,30 +69,98 @@ _LAZY_EXPORTS = {
     "BeamRevolve": ("ada.api.beams", "BeamRevolve"),
     "Plate": ("ada.api.plates", "Plate"),
     "PlateCurved": ("ada.api.plates", "PlateCurved"),
+    "Wall": ("ada.api.walls", "Wall"),
+    "Pipe": ("ada.api.piping", "Pipe"),
+    "PipeSegStraight": ("ada.api.piping", "PipeSegStraight"),
+    "PipeSegElbow": ("ada.api.piping", "PipeSegElbow"),
+    "Boolean": ("ada.api.boolean", "Boolean"),
+    # BoolHalfSpace lives in a submodule the primitives package __init__ does
+    # not re-export, so the fallback scan misses it; map it explicitly. The IFC
+    # writer (ada.cadit.ifc.write.geom.surfaces) does ``from ada import
+    # BoolHalfSpace`` — without this, to_ifc fails under wasm with ImportError.
+    "BoolHalfSpace": ("ada.api.primitives.bool_half_space", "BoolHalfSpace"),
     "Shape": ("ada.api.primitives", "Shape"),
+    "PrimBox": ("ada.api.primitives", "PrimBox"),
+    "PrimCyl": ("ada.api.primitives", "PrimCyl"),
+    "PrimCone": ("ada.api.primitives", "PrimCone"),
+    "PrimSphere": ("ada.api.primitives", "PrimSphere"),
+    "PrimExtrude": ("ada.api.primitives", "PrimExtrude"),
+    "PrimRevolve": ("ada.api.primitives", "PrimRevolve"),
+    "PrimSweep": ("ada.api.primitives", "PrimSweep"),
     "Node": ("ada.api.nodes", "Node"),
     "Group": ("ada.api.groups", "Group"),
+    "Instance": ("ada.api.transforms", "Instance"),
+    "Placement": ("ada.api.transforms", "Placement"),
+    "Transform": ("ada.api.transforms", "Transform"),
 }
 
 
+# Fallback scan: pyodide-safe modules that re-export top-level API names.
+# After the explicit map, ``__getattr__`` scans these for the requested
+# name so any pure-python export (Equipment, Surface, Connection, the FEM
+# concept types, …) resolves without enumerating each by hand. Order
+# matters only for disambiguation; _factories first so the from_* factories
+# win. Every module here imports cleanly under pyodide (when its deps are
+# present); a module that can't import in the current stack is skipped.
+_LAZY_MODULES = (
+    "ada._factories",
+    "ada.api.spatial",
+    "ada.api.spatial.equipment",
+    "ada.api.beams",
+    "ada.api.plates",
+    "ada.api.primitives",
+    "ada.api.piping",
+    "ada.api.walls",
+    "ada.api.curves",
+    "ada.api.fasteners",
+    "ada.api.groups",
+    "ada.api.mass",
+    "ada.api.nodes",
+    "ada.api.transforms",
+    "ada.api.boolean",
+    "ada.api.connections",
+    "ada.api.user",
+    "ada.fem",
+    "ada.fem.concept.constraints",
+    "ada.fem.concept.loads",
+    "ada.geom.direction",
+    "ada.geom.points",
+    "ada.base.units",
+    "ada.core.utils",
+    "ada.materials",
+    "ada.sections",
+)
+
+
 def __getattr__(name: str):
-    target = _LAZY_EXPORTS.get(name)
-    if target is None:
-        raise AttributeError(
-            f"module 'ada' has no attribute {name!r} — the pyodide/WASM build of "
-            f"adapy exposes only a pure-python subset; CAD-kernel-backed names "
-            f"require the native build."
-        )
     import importlib
 
-    try:
-        module = importlib.import_module(target[0])
-        return getattr(module, target[1])
-    except ImportError as exc:
-        # The name is known but its module can't load in this stack (a
-        # dependency isn't installed) — surface as AttributeError so
-        # ``hasattr(ada, name)`` is a clean False rather than a hard error.
-        raise AttributeError(f"{name!r} is unavailable in this environment: {exc}") from exc
+    # Explicit map first (canonical source / disambiguation).
+    target = _LAZY_EXPORTS.get(name)
+    candidates = (target[0],) if target is not None else _LAZY_MODULES
+    attr = target[1] if target is not None else name
+
+    last_import_error = None
+    for modname in candidates:
+        try:
+            module = importlib.import_module(modname)
+        except ImportError as exc:
+            # Module's deps aren't in this stack (e.g. the CAD-only stack
+            # without pyquaternion) — skip; another module may still have it.
+            last_import_error = exc
+            continue
+        if hasattr(module, attr):
+            return getattr(module, attr)
+
+    if last_import_error is not None:
+        # Known-ish name, but nothing that defines it could import here.
+        raise AttributeError(
+            f"{name!r} is unavailable in this environment: {last_import_error}"
+        ) from last_import_error
+    raise AttributeError(
+        f"module 'ada' has no attribute {name!r} — the pyodide/WASM build of adapy "
+        f"exposes only a pure-python subset; CAD-kernel-backed names require the native build."
+    )
 
 
 def _jupyter_nbextension_paths():

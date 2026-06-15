@@ -21,6 +21,24 @@ export interface WasmFormat {
     ext: string;
 }
 
+// Target formats each WASM source-format can actually PRODUCE in-browser.
+// This is the verified set, not the aspirational one — keep it honest so the
+// router never sends the engine a cell that fatally aborts or silently fails:
+//   - sat/acis: from_acis (pure-python) → to_{gltf,trimesh,stp,genie_xml}. IFC
+//     output is omitted pending an adacpp build_advanced_face_planar wasm fix.
+//   - ifc:      from_ifc (ifcopenshell-wasm) → every writer incl. to_ifc.
+//   - step/stp: GLB only — from_step defaults to the OCC reader (not wasm-safe);
+//     non-GLB targets wait on routing read_step_file through the CadBackend.
+//   - mesh:     trimesh → glb (mesh→mesh round-trips aren't worker-registry pairs).
+// Mirrors the worker's converter.py registry for the wasm-loadable sources.
+const WASM_TARGETS_BY_FORMAT: Record<PyodideSourceFormat, readonly string[]> = {
+    sat: ["glb", "obj", "stl", "step", "xml"],
+    ifc: ["glb", "obj", "stl", "step", "xml", "ifc"],
+    step: ["glb"],
+    mesh: ["glb"],
+    fea: [], // FEA sources go through the bake path (isWasmFeaSource), not this matrix
+};
+
 function extOf(sourceKey: string): string {
     const lower = sourceKey.toLowerCase();
     const dot = lower.lastIndexOf(".");
@@ -56,10 +74,13 @@ export function isWasmFeaSource(sourceKey: string): boolean {
 
 /**
  * True if the WASM engine can produce ``targetFormat`` from ``sourceKey``.
- * Only GLB output is supported in-browser today. Engine-agnostic — does
- * NOT consult the user's conversion-engine toggle.
+ * Consults the per-source target matrix (WASM_TARGETS_BY_FORMAT) so non-GLB
+ * outputs (obj/stl/step/xml/ifc) route in-browser for the sources that
+ * support them. Engine-agnostic — does NOT consult the conversion-engine
+ * toggle (the router does that separately).
  */
 export function wasmSupportsConversion(sourceKey: string, targetFormat: TargetFormat): boolean {
-    if (targetFormat !== "glb") return false;
-    return detectWasmFormat(sourceKey) !== null;
+    const detected = detectWasmFormat(sourceKey);
+    if (!detected) return false;
+    return WASM_TARGETS_BY_FORMAT[detected.format].includes(targetFormat);
 }
