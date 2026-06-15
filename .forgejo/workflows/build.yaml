@@ -389,7 +389,7 @@ jobs:
           else
             echo "Full viewer build (FULL=$FULL)"
             if [ -z "$ADACPP_BASE_IMAGE" ]; then
-              echo "::error::ADACPP_BASE_IMAGE secret is not set. Point it at the adacpp-published wasm base (e.g. ``ghcr.io/krande/adacpp-wasm-base:0.4.2``) under Settings → Actions → Secrets before re-running."
+              echo "::error::ADACPP_BASE_IMAGE secret is not set. Point it at the adacpp-published wasm base (e.g. ``ghcr.io/krande/adacpp-wasm-base:0.8.0``; >=0.8.0 needed for SAT→GLB) under Settings → Actions → Secrets before re-running."
               exit 1
             fi
             # Pull the base ahead of the viewer build so a missing tag

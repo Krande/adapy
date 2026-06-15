@@ -110,13 +110,12 @@ function OptionsComponent() {
                 <PerformanceOptions/>
             </CollapsibleSection>
             <hr className="border-gray-600"/>
-            {/* The Pyodide in-browser IFC converter only makes sense for the
+            {/* The in-browser (WASM) conversion engine only makes sense for the
                 hosted REST viewer; the websocket/desktop and embed bundles
-                don't expose it. Tucked behind an "Other" disclosure (like
-                Scene config / Performance) so it doesn't crowd the menu. */}
+                don't expose it. */}
             {runtime.isRestMode() && (
                 <>
-                    <CollapsibleSection title="Other">
+                    <CollapsibleSection title="Conversion engine">
                         <ExperimentalOptions/>
                     </CollapsibleSection>
                     <hr className="border-gray-600"/>

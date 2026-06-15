@@ -9,7 +9,6 @@ import numpy as np
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.cad import active_backend, is_shape_handle
-from ada.cadit.ifc.utils import default_settings
 from ada.config import logger
 from ada.geom import Geometry
 from ada.occ.exceptions import (
@@ -698,6 +697,11 @@ class BatchTessellator:
         import ifcopenshell.geom
         import ifcopenshell.util.representation
 
+        # Imported lazily (not at module load) so ``ada.occ.tessellating``
+        # stays importable under pyodide/WASM, where ifcopenshell may be
+        # absent — the beam-solid tessellation path (tessellate_geom →
+        # active_backend) needs this module but not its IFC bits.
+        from ada.cadit.ifc.utils import default_settings
         from ada.visit.gltf.meshes import MeshStore, MeshType
 
         # see Ifcopenshell src/ifcgeom/ConversionSettings.h for the various parameters

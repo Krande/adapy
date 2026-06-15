@@ -59,15 +59,19 @@ export async function ensurePyodideWorker(onLog?: (msg: string) => void): Promis
     return workerPromise;
 }
 
-export type PyodideSourceFormat = "ifc" | "step";
+export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea";
 
 /** Run a single conversion via the Pyodide worker. Format selects which
  * pyodide stack handles the bytes — ifc → ifcopenshell+trimesh; step →
- * adacpp.cad (OCCT-cross-compiled wasm). */
+ * adacpp.cad (OCCT-cross-compiled wasm); mesh → trimesh (the ``ext``
+ * tells trimesh which loader to use: obj/stl/ply/gltf/dae/off); sat →
+ * adapy ACIS parser + adacpp backend (returns GLB); fea → adapy FEA bake
+ * (returns a zip of the streaming-viewer artefact tree, ``ext`` =
+ * rmed/med/sif/sin). */
 export async function convertViaPyodide(
     format: PyodideSourceFormat,
     bytes: ArrayBuffer,
-    opts?: {onLog?: (msg: string) => void},
+    opts?: {onLog?: (msg: string) => void; ext?: string},
 ): Promise<Uint8Array> {
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
@@ -89,7 +93,7 @@ export async function convertViaPyodide(
             }
         };
         worker.addEventListener("message", onMessage);
-        worker.postMessage({type: "convert", reqId, format, bytes}, [bytes]);
+        worker.postMessage({type: "convert", reqId, format, ext: opts?.ext, bytes}, [bytes]);
     });
 }
 

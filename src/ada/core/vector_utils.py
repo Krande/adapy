@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING, Iterable
 import numpy as np
 
 from ada.config import Config
-from ada.geom.direction import Direction
 
 from .exceptions import VectorNormalizeError
 
 if TYPE_CHECKING:
     from ada import Placement, Point
+    from ada.geom.direction import Direction
 
 
 def angle_between(v1, v2):
@@ -286,7 +286,14 @@ def unit_vector(vector: np.ndarray | list | tuple) -> Direction:
     else:
         vec_tup = tuple(vector)
     norm_tup = _unit_vector_cached(vec_tup)
-    # expand back into Direction
+    # expand back into Direction. Imported lazily: a module-level
+    # ``from ada.geom.direction import Direction`` creates a core↔geom
+    # import cycle (geom → curve_utils → vector_utils → geom) that breaks
+    # whenever ada.api.* is the first entry into the cluster (e.g. the
+    # pyodide slim init). geom is the more fundamental layer, so core
+    # resolves Direction on demand instead.
+    from ada.geom.direction import Direction
+
     return Direction(*norm_tup)
 
 

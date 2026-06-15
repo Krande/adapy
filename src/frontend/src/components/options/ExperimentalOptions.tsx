@@ -13,10 +13,12 @@ const ExperimentalOptions: React.FC = () => {
                     onChange={() => setPyodideConverter(!pyodideConverter)}
                 />
                 <span className="leading-tight">
-                    Convert IFC in-browser (Pyodide).
+                    Convert in-browser (WASM)
                     <span className="block text-xs text-gray-400">
-                        Lazy-loads ifcopenshell WASM on first use. Server pipeline still
-                        handles other formats.
+                        Runs STEP / IFC / mesh → GLB conversions client-side instead of on a
+                        server worker, off-loading shared infrastructure. Lazy-loads the WASM
+                        runtime on first use; unsupported formats still use the server. Off by
+                        default.
                     </span>
                 </span>
             </label>

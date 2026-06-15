@@ -6,6 +6,7 @@ import {useExperimentalStore} from "@/state/experimentalStore";
 import {runtime} from "@/runtime/config";
 import {viewerApi, TargetFormat, ScopeUrl} from "@/services/viewerApi";
 import {convertViaServer} from "./serverPipeline";
+import {wasmSupportsConversion, isWasmFeaSource} from "./wasmSupport";
 
 // NOTE: the Pyodide pipeline is imported lazily (inside ensureConverted), not
 // at module top. It pulls a `new Worker(new URL(...))` that Vite emits as a
@@ -16,15 +17,12 @@ import {convertViaServer} from "./serverPipeline";
 export type {TargetFormat} from "@/services/viewerApi";
 
 function shouldUsePyodide(sourceKey: string, targetFormat: TargetFormat): boolean {
-    if (targetFormat !== "glb") return false;
-    const lower = sourceKey.toLowerCase();
-    // .ifc → ifcopenshell wasm wheel + trimesh; .step/.stp → adacpp wasm
-    // wheel + adapy.cad. Both share one Pyodide worker, lazy-initialised
-    // per stack so the unused format never pays its install cost.
-    const supported = lower.endsWith(".ifc")
-        || lower.endsWith(".step")
-        || lower.endsWith(".stp");
-    if (!supported) return false;
+    // Route to the in-browser engine only when (a) the global conversion
+    // engine is set to WASM and (b) the WASM engine actually supports this
+    // (source, target). The support matrix lives in wasmSupport.ts so the
+    // pipeline, this router, and the audit-run sweep agree. Unsupported
+    // combos silently fall through to the server worker.
+    if (!wasmSupportsConversion(sourceKey, targetFormat)) return false;
     return useExperimentalStore.getState().pyodideConverter;
 }
 
@@ -98,6 +96,13 @@ export async function ensureBakedFeaManifest(
     scope: ScopeUrl,
     sourceKey: string,
 ): Promise<void> {
+    // In-browser (WASM) FEA bake when the engine is set to WASM and the
+    // source is bakeable client-side; otherwise the server worker bakes it.
+    if (useExperimentalStore.getState().pyodideConverter && isWasmFeaSource(sourceKey)) {
+        const {convertViaPyodideFeaBake} = await import("./pyodidePipeline");
+        await convertViaPyodideFeaBake(scope, sourceKey);
+        return;
+    }
     const convStore = useConversionStore.getState();
     const storeKey = `${sourceKey}::fea`;
     const startedAt = Date.now();

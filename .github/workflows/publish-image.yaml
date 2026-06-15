@@ -38,7 +38,8 @@ permissions:
 # NOTE: this is a cross-repo ghcr package; it must be public (or grant the
 # adapy repo read access) for the GITHUB_TOKEN pull below to resolve it.
 env:
-  ADACPP_WASM_BASE: ghcr.io/krande/adacpp-wasm-base:0.4.2
+  # 0.8.0 adds the build_advanced_face_* verbs the SAT→GLB path needs.
+  ADACPP_WASM_BASE: ghcr.io/krande/adacpp-wasm-base:0.8.0
 
 jobs:
   viewer:

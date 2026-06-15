@@ -1069,9 +1069,12 @@ export const viewerApi = {
         target: TargetFormat,
         body: BodyInit,
     ): Promise<string> {
+        // managed_audit=1: the WASM pipeline records its own metrics-rich
+        // audit row via auditLocalCreate/Update, so tell the derived-PUT
+        // not to also auto-audit (which would double-count the conversion).
         const url =
             `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/derived` +
-            `?source=${encodeURIComponent(sourceKey)}&target=${encodeURIComponent(target)}`;
+            `?source=${encodeURIComponent(sourceKey)}&target=${encodeURIComponent(target)}&managed_audit=1`;
         const r = await authedFetch(url, {
             method: "PUT",
             body,
@@ -1082,6 +1085,77 @@ export const viewerApi = {
         }
         const j: {key: string; size: number} = await r.json();
         return j.key;
+    },
+
+    /** Open an audit row for an in-browser (WASM) conversion. Returns the
+     * server-assigned ``wasm-<uuid>`` job id to pass to auditLocalUpdate.
+     * ``auditRunId`` attaches the row to an admin audit-run sweep. */
+    async auditLocalCreate(
+        scope: ScopeUrl,
+        body: {
+            key: string;
+            target_format: string;
+            audit_run_id?: string | null;
+            image_tag?: string;
+        },
+    ): Promise<string> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/audit/local`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(body),
+            },
+        );
+        const j = await jsonOrThrow<{job_id: string}>(r, "auditLocalCreate");
+        return j.job_id;
+    },
+
+    /** Patch a WASM conversion's audit row to its terminal outcome with
+     * captured metrics. Best-effort at the call site — a lost audit
+     * update must never fail the conversion. */
+    async auditLocalUpdate(
+        scope: ScopeUrl,
+        jobId: string,
+        body: {
+            status: "done" | "ok" | "error" | "skipped" | "cancelled";
+            duration_ms?: number;
+            read_bytes?: number;
+            write_bytes?: number;
+            peak_rss_kb?: number;
+            error?: string | null;
+            traceback?: string | null;
+            metrics_samples?: Array<Record<string, number>>;
+        },
+    ): Promise<void> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/audit/local/${encodeURIComponent(jobId)}`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(body),
+            },
+        );
+        if (!r.ok) {
+            throw new ApiError(`auditLocalUpdate(${jobId})`, r.status, await readDetail(r));
+        }
+    },
+
+    /** Upload a browser-baked FEA artefact tree (a zip of fea.manifest.json
+     * + fea.mesh.glb + fea.*.bin) produced by the in-browser FEM stack. The
+     * server unpacks it under ``_derived/<source>.fea/`` with the worker's
+     * gzip policy. Returns the manifest key. */
+    async uploadFeaArtefacts(scope: ScopeUrl, sourceKey: string, zip: BodyInit): Promise<string> {
+        const url =
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/fea/artefacts` +
+            `?source=${encodeURIComponent(sourceKey)}`;
+        const r = await authedFetch(url, {
+            method: "POST",
+            body: zip,
+            headers: {"Content-Type": "application/zip"},
+        });
+        const j = await jsonOrThrow<{manifest_key: string; count: number}>(r, "uploadFeaArtefacts");
+        return j.manifest_key;
     },
 
     /** Request a presigned PUT URL for a too-large-to-buffer upload.
@@ -1463,6 +1537,20 @@ export const viewerApi = {
             body: JSON.stringify(body),
         });
         return jsonOrThrow(r, "adminAuditRunCreate");
+    },
+
+    /** Cell matrix for an audit run — drives the in-browser (WASM) sweep
+     * executor. ``done`` flags cells that already have a terminal audit row
+     * for this run, so a reload resumes instead of re-running them. */
+    async adminAuditRunCells(runId: string): Promise<{
+        run_id: string;
+        scope: ScopeUrl;
+        cells: Array<{source_key: string; target_format: string; done: boolean}>;
+    }> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}/cells`,
+        );
+        return jsonOrThrow(r, "adminAuditRunCells");
     },
 
     /** Admin: ambient summary of currently-running audit sweeps.
