@@ -188,4 +188,4 @@ class StepWriter:
         if status != 1:
             raise Exception("STEP export failed")
         else:
-            print(f"STEP export status: {status}")
+            logger.debug(f"STEP export status: {status}")

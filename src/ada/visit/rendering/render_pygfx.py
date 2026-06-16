@@ -152,7 +152,7 @@ class RendererPyGFX:
             self.on_click_pre(event)
 
         info = event.pick_info
-        print(f"Clicked: {info=}")
+        logger.debug(f"Clicked: {info=}")
         if event.button != 1:
             return
 
@@ -173,7 +173,7 @@ class RendererPyGFX:
         # Get what face was clicked
         res = self._mesh_map.get(mesh.id, None)
         if res is None:
-            print("Could not find mesh id in map")
+            logger.warning("Could not find mesh id in map")
             return
 
         glb_fname, buffer_id = res
@@ -223,7 +223,7 @@ class RendererPyGFX:
         if self.on_click_post is not None:
             self.on_click_post(event, mesh_data)
         else:
-            print(mesh_data, event.pick_info)
+            logger.debug("%s %s", mesh_data, event.pick_info)
 
     def _add_event_handlers(self):
         ob = self._scene_objects

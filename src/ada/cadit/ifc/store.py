@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ada.config import logger
 
 import os
 import pathlib
@@ -13,7 +14,7 @@ from ada.base.types import GeomRepr
 from ada.cadit.ifc.units_conversion import convert_file_length_units
 from ada.cadit.ifc.utils import assembly_to_ifc_file, default_settings, get_unit_type
 from ada.cadit.ifc.write.write_user import create_owner_history_from_user
-from ada.config import Config, logger
+from ada.config import Config
 
 if TYPE_CHECKING:
 
@@ -207,7 +208,7 @@ class IfcStore:
         mod_str = f"Modified {num_mod} objects"
         del_str = f"Deleted {num_del} objects"
 
-        print(f"Sync Complete. {add_str}. {mod_str}. {del_str}")
+        logger.info(f"Sync Complete. {add_str}. {mod_str}. {del_str}")
         self.callback = None
 
     def save_to_file(self, filepath: str | os.PathLike):
@@ -287,7 +288,7 @@ class IfcStore:
         for obj in self.assembly.get_all_parts_in_assembly(include_self=True):
             obj.change_type = ChangeAction.NOCHANGE
 
-        print(f'Import of IFC file "{ifc_file_name}" is complete')
+        logger.info(f'Import of IFC file "{ifc_file_name}" is complete')
 
     def get_ifc_geom(self, ifc_elem, settings: ifcopenshell.geom.settings):
         return ifcopenshell.geom.create_shape(settings, inst=ifc_elem)

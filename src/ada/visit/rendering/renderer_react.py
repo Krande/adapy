@@ -93,9 +93,9 @@ class RendererReact:
 
         if embed_trimesh_scene is not None or embed_base64_glb is not None:
             if gltf_tree_postprocessor is not None:
-                print("gltf_tree_postprocessor")
+                logger.debug("gltf_tree_postprocessor")
             if gltf_buffer_postprocessor is not None:
-                print("gltf_buffer_postprocessor")
+                logger.debug("gltf_buffer_postprocessor")
             if embed_trimesh_scene:
                 data = embed_trimesh_scene.export(
                     file_type="glb",

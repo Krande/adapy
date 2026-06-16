@@ -1,3 +1,4 @@
+from ada.config import logger
 from collections import deque
 
 import ifcopenshell
@@ -79,5 +80,5 @@ def general_optimization(ifc_file: ifcopenshell.file) -> ifcopenshell.file:
 
     start_entities = len(list(ifc_file))
     end_entities = len(list(optimized_file))
-    print(f"Optimized number of IFC entities from {start_entities} to {end_entities}")
+    logger.info(f"Optimized number of IFC entities from {start_entities} to {end_entities}")
     return optimized_file
