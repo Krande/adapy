@@ -24,6 +24,13 @@
 # destinations. Everything else (env, SPA, adacpp wheel, CMD, healthcheck)
 # is inherited from the base image.
 
+# BASE_IMAGE must be declared in the global scope (before the first FROM)
+# so it can populate the `FROM ${BASE_IMAGE}` below. An ARG declared inside
+# or after a build stage is scoped to that stage and resolves blank in a
+# later FROM ("base name should not be blank"). The runtime stage re-declares
+# it to bring the value back into that stage's scope.
+ARG BASE_IMAGE
+
 # Stage 0: rebuild the pure-python pyodide adapy wheel from the full source
 # (stdlib-only builder — see Dockerfile.viewer's adapy-wheel stage). Outputs
 # ada_py-<ver>-py3-none-any.whl + adapy-manifest.json to /out.
@@ -33,6 +40,7 @@ COPY src/ada/ ./src/ada/
 COPY tools/build_pyodide_adapy_wheel.py ./tools/build_pyodide_adapy_wheel.py
 RUN python tools/build_pyodide_adapy_wheel.py /out
 
+# Re-declare to pull the global BASE_IMAGE into this stage's FROM.
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 ARG IMAGE_TAG=dev
