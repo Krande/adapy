@@ -1,8 +1,9 @@
 from __future__ import annotations
-from ada.config import logger
 
 from io import StringIO
 from typing import TYPE_CHECKING
+
+from ada.config import logger
 
 from .write_amplitudes import amplitudes_str
 from .write_bc import boundary_conditions_str

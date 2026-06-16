@@ -1,9 +1,10 @@
-from ada.config import logger
 from collections import deque
 
 import ifcopenshell
 import ifcopenshell.util.element
 from toposort import toposort_flatten as toposort
+
+from ada.config import logger
 
 
 def recycle_non_rooted(ifc_file: ifcopenshell.file) -> ifcopenshell.file:

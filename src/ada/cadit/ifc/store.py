@@ -1,5 +1,4 @@
 from __future__ import annotations
-from ada.config import logger
 
 import os
 import pathlib
@@ -14,7 +13,7 @@ from ada.base.types import GeomRepr
 from ada.cadit.ifc.units_conversion import convert_file_length_units
 from ada.cadit.ifc.utils import assembly_to_ifc_file, default_settings, get_unit_type
 from ada.cadit.ifc.write.write_user import create_owner_history_from_user
-from ada.config import Config
+from ada.config import Config, logger
 
 if TYPE_CHECKING:
 

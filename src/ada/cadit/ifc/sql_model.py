@@ -1,4 +1,3 @@
-from ada.config import logger
 import json
 import pathlib
 import re
@@ -6,6 +5,8 @@ import re
 import ifcopenshell
 from ifcopenshell import ifcopenshell_wrapper
 from ifcopenshell.entity_instance import entity_instance
+
+from ada.config import logger
 
 
 class IfcSqlModel:

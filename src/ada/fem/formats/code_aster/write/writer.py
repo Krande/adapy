@@ -1,11 +1,11 @@
 from __future__ import annotations
-from ada.config import logger
 
 from typing import TYPE_CHECKING
 
 import h5py
 import numpy as np
 
+from ada.config import logger
 from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
 

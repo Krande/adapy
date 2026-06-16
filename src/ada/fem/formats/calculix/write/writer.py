@@ -1,5 +1,4 @@
 from __future__ import annotations
-from ada.config import logger
 
 import traceback
 from itertools import groupby
@@ -7,6 +6,7 @@ from operator import attrgetter
 from typing import TYPE_CHECKING
 
 from ada.api.containers import Nodes
+from ada.config import logger
 from ada.core.utils import NewLine, get_current_user
 from ada.fem import Bc, FemSection, FemSet
 from ada.fem.formats.abaqus.write.write_bc import aba_bc_map, valid_aba_bcs

@@ -1,7 +1,7 @@
-from ada.config import logger
 import re
 from typing import TYPE_CHECKING
 
+from ada.config import logger
 from ada.core.utils import roundoff
 from ada.materials.concept import Material
 from ada.materials.metals import CarbonSteel, PlasticityModel

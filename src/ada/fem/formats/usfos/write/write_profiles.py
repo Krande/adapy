@@ -1,7 +1,7 @@
-from ada.config import logger
 from typing import Dict
 
 from ada import FEM
+from ada.config import logger
 from ada.fem import FemSection
 from ada.sections.categories import BaseTypes
 

@@ -1,6 +1,7 @@
-from ada.config import logger
 import pathlib
 import sqlite3
+
+from ada.config import logger
 
 _RESULTS_SCHEMA_PATH = pathlib.Path(__file__).parent / "resources/results.sql"
 

@@ -1,8 +1,9 @@
 from __future__ import annotations
-from ada.config import logger
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from ada.config import logger
 
 if TYPE_CHECKING:
     from ada import Assembly, Shape
