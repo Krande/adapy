@@ -377,7 +377,12 @@ jobs:
             echo "::error::VIEWER_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
             exit 1
           fi
-          TAG="sha-${GITHUB_SHA::7}"
+          # Unique per build run. The bare commit sha is reused across rebuilds
+          # of the same commit, so a changed image (e.g. a base-image fix) under
+          # the same tag never re-pulls (IfNotPresent + cached digest). The
+          # run-number suffix makes every build a distinct, immutable tag, and
+          # the gitops bump below pins that exact tag.
+          TAG="sha-${GITHUB_SHA::7}-${GITHUB_RUN_NUMBER:-0}"
           BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
           # Fast path: only the curated ada subset changed AND a prior
           # branch image exists. It FROMs that image, so the adacpp wasm
@@ -434,7 +439,12 @@ jobs:
             echo "::error::WORKER_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
             exit 1
           fi
-          TAG="sha-${GITHUB_SHA::7}"
+          # Unique per build run. The bare commit sha is reused across rebuilds
+          # of the same commit, so a changed image (e.g. a base-image fix) under
+          # the same tag never re-pulls (IfNotPresent + cached digest). The
+          # run-number suffix makes every build a distinct, immutable tag, and
+          # the gitops bump below pins that exact tag.
+          TAG="sha-${GITHUB_SHA::7}-${GITHUB_RUN_NUMBER:-0}"
           BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
           # Fast path: only adapy source changed AND a prior branch image
           # exists to overlay onto. Anything else → full build.
@@ -519,7 +529,12 @@ jobs:
             echo "::error::DOCS_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
             exit 1
           fi
-          TAG="sha-${GITHUB_SHA::7}"
+          # Unique per build run. The bare commit sha is reused across rebuilds
+          # of the same commit, so a changed image (e.g. a base-image fix) under
+          # the same tag never re-pulls (IfNotPresent + cached digest). The
+          # run-number suffix makes every build a distinct, immutable tag, and
+          # the gitops bump below pins that exact tag.
+          TAG="sha-${GITHUB_SHA::7}-${GITHUB_RUN_NUMBER:-0}"
           BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
           # The reusable env base (apt GUI/Vulkan closure + solved docs
           # pixi env) is published as a sibling tag so fast doc rebuilds
@@ -610,7 +625,12 @@ jobs:
             exit 0
           fi
 
-          TAG="sha-${GITHUB_SHA::7}"
+          # Unique per build run. The bare commit sha is reused across rebuilds
+          # of the same commit, so a changed image (e.g. a base-image fix) under
+          # the same tag never re-pulls (IfNotPresent + cached digest). The
+          # run-number suffix makes every build a distinct, immutable tag, and
+          # the gitops bump below pins that exact tag.
+          TAG="sha-${GITHUB_SHA::7}-${GITHUB_RUN_NUMBER:-0}"
           WORK=$(mktemp -d)
           cd "$WORK"
           git clone --branch "$GITOPS_BRANCH" \
