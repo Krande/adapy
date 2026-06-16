@@ -132,7 +132,12 @@ async function ensurePyquaternion() {
 
 // Resolve a wheel filename via its manifest and stage it on the pyodide FS.
 async function fetchWheelToFs(manifestUrl, key) {
-    const mResp = await fetch(manifestUrl);
+    // no-store: the manifest is the indirection that changes when the wheel is
+    // rebuilt/rebumped. A browser-cached manifest names a stale wheel (e.g. an
+    // old emscripten-3.1.58 build), so micropip then installs an incompatible
+    // wheel. Always resolve the filename fresh; the wheel itself is versioned
+    // in its filename, so it stays safely cacheable.
+    const mResp = await fetch(manifestUrl, {cache: "no-store"});
     if (!mResp.ok) {
         throw new Error(`${key} manifest fetch failed: ${mResp.status} ${mResp.statusText} (${manifestUrl})`);
     }
