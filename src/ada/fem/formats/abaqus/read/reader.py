@@ -57,7 +57,7 @@ def read_fem(fem_file, fem_name=None) -> Assembly:
     """This will create and add an AbaqusPart object based on a path reference to a Abaqus input file."""
     from ada import Assembly
 
-    print("Starting import of Abaqus input file")
+    logger.info("Starting import of Abaqus input file")
 
     if fem_name is not None:
         global part_name_counter
@@ -229,7 +229,7 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
     fem.lcsys = get_lcsys_from_bulk(bulk_str, fem)
     fem.constraints = get_constraints_from_inp(bulk_str, fem)
 
-    print(8 * "-" + f'Imported "{part.fem.instance_name}"')
+    logger.info(8 * "-" + f'Imported "{part.fem.instance_name}"')
 
     return part
 

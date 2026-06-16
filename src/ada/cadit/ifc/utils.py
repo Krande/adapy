@@ -608,19 +608,19 @@ def merge_ifc_files(parent_dir, output_file_name, clean_files=False, include_ele
     f = ifcopenshell.open(files[0])
     for i, fp in enumerate(files[1:]):
         checkpoint = time.time()
-        print(f'merging products ({i + 1} of {len(files) - 1}) from "{fp}"')
+        logger.info(f'merging products ({i + 1} of {len(files) - 1}) from "{fp}"')
         fn = ifcopenshell.open(fp)
-        print(f"file opened in {time.time() - checkpoint:.2f} seconds")
+        logger.info(f"file opened in {time.time() - checkpoint:.2f} seconds")
         checkpoint = time.time()
         for product in fn.by_type("IfcProduct"):
             f.add(product)
-        print(f"Products added in {time.time() - checkpoint:.2f} seconds")
+        logger.info(f"Products added in {time.time() - checkpoint:.2f} seconds")
         del fn
     out_file_name = str((parent_dir / output_file_name).with_suffix(".ifc"))
-    print(f'Writing file "{out_file_name}"')
+    logger.info(f'Writing file "{out_file_name}"')
     checkpoint = time.time()
     f.write(out_file_name)
-    print(f"File written in {time.time() - checkpoint:.2f} seconds")
+    logger.info(f"File written in {time.time() - checkpoint:.2f} seconds")
 
 
 def convert_bm_jusl_to_ifc(bm: Beam) -> int:

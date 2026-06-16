@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ada.config import logger
 
 import traceback
 from itertools import groupby
@@ -70,7 +71,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         # f.write(constraints_str)
         # f.write(springs_str)
 
-    print(f'Created a Calculix input deck at "{analysis_dir}"')
+    logger.info(f'Created a Calculix input deck at "{analysis_dir}"')
 
 
 class CcxSecTypes:

@@ -595,7 +595,7 @@ class SegCreator:
         )
         self._fig.add_trace(trace1)
         self._add_to_plot([self.p1, self.p2, self.p3], label=f"p={self._i}: p1, p2, p3 ")
-        print(f'Creating debug HTML at "{self.plot_path}"')
+        logger.debug(f'Creating debug HTML at "{self.plot_path}"')
         self._fig.write_html(self.plot_path)
 
     def _add_to_plot(self, data, label=None, mode="lines+markers", hovertemplate=None, text=None):

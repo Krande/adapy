@@ -604,7 +604,7 @@ class FEAResult:
             scene.apply_transform(m4x4)
 
         os.makedirs(dest_file.parent, exist_ok=True)
-        print(f'Writing Visual Mesh to "{dest_file}"')
+        logger.info(f'Writing Visual Mesh to "{dest_file}"')
         with open(dest_file, "wb") as f:
             scene.export(file_obj=f, file_type=dest_file.suffix[1:])
 

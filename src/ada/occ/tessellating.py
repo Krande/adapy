@@ -315,17 +315,15 @@ class BatchTessellator:
             # the default backend). Same funnel as ada.occ.geom.cache.
             occ_geom = active_backend().build(geom)
         except Exception as e:
-            print("\n================ GLB TESSELLATION ERROR ================")
-            print(f"Beam name: {getattr(obj, 'name', None)}")
-            print(f"Beam guid: {getattr(obj, 'guid', None)}")
-            print(f"Beam type: {type(obj)}")
-
-            # If it has section
-            if hasattr(obj, "section"):
-                print(f"Section: {obj.section}")
-
-            print("Exception:", e)
-            print("========================================================\n")
+            section = getattr(obj, "section", None)
+            logger.error(
+                "tessellation failed for %s name=%r guid=%r section=%r: %s",
+                type(obj).__name__,
+                getattr(obj, "name", None),
+                getattr(obj, "guid", None),
+                section,
+                e,
+            )
             raise
 
         if graph_store is not None:

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ada.config import logger
 
 from typing import TYPE_CHECKING
 
@@ -67,7 +68,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     with open((analysis_dir / name).with_suffix(".comm"), "w") as f:
         f.write(create_comm_str(assembly, p))
 
-    print(f'Created a Code_Aster input deck at "{analysis_dir}"')
+    logger.info(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
 
 def create_comm_str(assembly: Assembly, part: Part) -> str:

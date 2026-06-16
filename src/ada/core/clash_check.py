@@ -228,7 +228,7 @@ class PipeClash:
                 v2 = (p2 - origin) * normal
                 is_clashing = np.dot(v1, v2) < 0
                 if is_clashing:
-                    print(f"{seg.name=} {is_clashing=} with {plate.name=}")
+                    logger.debug(f"{seg.name=} {is_clashing=} with {plate.name=}")
                     clashes.append(PipeClash(seg, plate))
         return clashes
 

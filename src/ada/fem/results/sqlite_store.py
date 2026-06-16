@@ -1,3 +1,4 @@
+from ada.config import logger
 import pathlib
 import sqlite3
 
@@ -44,7 +45,7 @@ class SQLiteFEAStore:
 
     def insert_table(self, table_name: str, data: list[tuple]):
         if not data:
-            print("No data to insert")
+            logger.warning("No data to insert")
             return
 
         num_columns = len(data[0])

@@ -51,7 +51,7 @@ def meshio_to_fem(assembly: Assembly, name: str, scratch_dir=None, metadata=None
             mesh,
             file_format=mesh_name,
         )
-        print(f'Exported "{mesh_format}" using meshio to "{analysis_dir}"')
+        logger.info(f'Exported "{mesh_format}" using meshio to "{analysis_dir}"')
 
 
 def fem_to_meshio(fem: FEM) -> Union["meshio.Mesh", None]:

@@ -47,9 +47,8 @@ def curve_fitting(in_data):
     MSE = np.mean(SE)  # mean squared errors
     RMSE = np.sqrt(MSE)  # Root Mean Squared Error, RMSE
     Rsquared = 1.0 - (np.var(absError) / np.var(yData))
-    print("RMSE:", RMSE)
-    print("R-squared:", Rsquared)
-    print()
+    logger.debug("RMSE: %s", RMSE)
+    logger.debug("R-squared: %s", Rsquared)
     return fittedParameters
 
 
