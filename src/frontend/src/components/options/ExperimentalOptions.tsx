@@ -3,6 +3,9 @@ import {useExperimentalStore} from "@/state/experimentalStore";
 
 const ExperimentalOptions: React.FC = () => {
     const {pyodideConverter, setPyodideConverter} = useExperimentalStore();
+
+    // Note: enabling this triggers a background pre-warm of the WASM runtime +
+    // CAD stack (see RestModeUI), so the first conversion is instant.
     return (
         <div className="space-y-1">
             <label className="flex items-start space-x-2">
@@ -15,10 +18,10 @@ const ExperimentalOptions: React.FC = () => {
                 <span className="leading-tight">
                     Convert in-browser (WASM)
                     <span className="block text-xs text-gray-400">
-                        Runs STEP / IFC / mesh → GLB conversions client-side instead of on a
-                        server worker, off-loading shared infrastructure. Lazy-loads the WASM
-                        runtime on first use; unsupported formats still use the server. Off by
-                        default.
+                        Runs STEP / IFC / mesh / FEM → GLB (and more) conversions client-side
+                        instead of on a server worker, off-loading shared infrastructure. The
+                        WASM runtime pre-loads in the background when enabled; unsupported
+                        formats still use the server. Off by default.
                     </span>
                 </span>
             </label>

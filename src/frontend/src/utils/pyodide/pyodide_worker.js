@@ -341,6 +341,20 @@ self.onmessage = async (e) => {
         return;
     }
 
+    if (data.type === "prewarm") {
+        // Pre-load the CAD stack (adacpp + adapy + OCCT) in the background when
+        // the engine is enabled, so the first conversion after toggling on is
+        // instant instead of cold-loading on file open. IFC (ifcopenshell, a
+        // large wheel) and FEA (h5py) add their extras lazily on first use.
+        try {
+            await ensureSatStack();
+            self.postMessage({type: "log", message: "WASM engine pre-warmed"});
+        } catch (err) {
+            self.postMessage({type: "log", message: `prewarm failed: ${String(err.message || err)}`});
+        }
+        return;
+    }
+
     if (data.type === "convert") {
         const reqId = data.reqId;
         // Default to "ifc" so the existing IFC code paths keep working

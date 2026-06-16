@@ -45,15 +45,37 @@ def _load_assembly(fmt: str, src: str):
     raise RuntimeError(f"wasm_convert: no loader for source format {fmt!r}")
 
 
+_NO_GEOMETRY_MSG = (
+    "source contains no renderable geometry — no surfaces or solids to mesh "
+    "(e.g. a wireframe/points-only or empty model)"
+)
+
+
+def _is_empty_scene(exc: Exception) -> bool:
+    # trimesh raises ValueError("Can't export empty scenes!") when the
+    # tessellated scene has zero geometry (the source had no faces/solids).
+    return isinstance(exc, ValueError) and "empty scene" in str(exc).lower()
+
+
 def _export_assembly(asm, target: str) -> bytes:
     """Write an Assembly to a single-blob target."""
     target = target.lower()
     if target == "glb":
         buf = io.BytesIO()
-        asm.to_gltf(buf)
+        try:
+            asm.to_gltf(buf)
+        except ValueError as exc:
+            if _is_empty_scene(exc):
+                raise RuntimeError(_NO_GEOMETRY_MSG) from exc
+            raise
         out = buf.getvalue()
     elif target in ("obj", "stl"):
-        data = asm.to_trimesh_scene().export(file_type=target)
+        try:
+            data = asm.to_trimesh_scene().export(file_type=target)
+        except ValueError as exc:
+            if _is_empty_scene(exc):
+                raise RuntimeError(_NO_GEOMETRY_MSG) from exc
+            raise
         out = data.encode() if isinstance(data, str) else bytes(data)
     elif target in ("step", "stp"):
         asm.to_stp("/tmp/_wasm_out.step")

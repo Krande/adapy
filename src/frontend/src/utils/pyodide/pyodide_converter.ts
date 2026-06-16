@@ -81,6 +81,17 @@ export async function ensurePyodideWorker(onLog?: (msg: string) => void): Promis
     return workerPromise;
 }
 
+/** Boot the worker and pre-load the CAD stack in the background. Call when the
+ * WASM engine is enabled so the first conversion doesn't pay the cold
+ * pyodide-boot + kernel-load cost when the user opens a file. Fire-and-forget. */
+export function prewarmPyodide(onLog?: (msg: string) => void): void {
+    ensurePyodideWorker(onLog)
+        .then((w) => w.postMessage({type: "prewarm"}))
+        .catch(() => {
+            /* best-effort warm-up; a real conversion will surface any error */
+        });
+}
+
 export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea" | "fem" | "genie";
 
 /** Run a single conversion via the Pyodide worker. Format selects which
