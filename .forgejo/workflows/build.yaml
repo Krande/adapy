@@ -259,10 +259,11 @@ jobs:
             echo "$scope_changed" | grep -qE "$pattern"
           }
 
-          # Viewer image is the slim API + bundled SPA. ada.* under
-          # the runtime is only comms/** + config.py (see
-          # deploy/Dockerfile.viewer); CAD/FEM parsers are unused
-          # here, so a cadit-only change should not rebuild it.
+          # Viewer image = slim API + bundled SPA + the in-browser pyodide
+          # adapy wheel. The runtime server uses only comms/** + config.py,
+          # but the WASM wheel bundles ALL of src/ada — so ANY src/ada change
+          # must rebuild the viewer to refresh that wheel (the fast overlay
+          # rebuilds it cheaply; see deploy/Dockerfile.viewer-fast).
           # Per image we emit two flags: `<img>` (build at all) and
           # `<img>_full` (do the heavy full build vs the fast overlay).
           # FAST = build AND NOT full. A "full" trigger is any non-source
@@ -273,16 +274,17 @@ jobs:
           # `:branch-<ref>` base image doesn't exist yet.
           viewer=false
           viewer_full=false
-          if match_scope "$VIEWER_CHANGED" '^src/ada/comms/' || \
-             match_scope "$VIEWER_CHANGED" '^src/ada/config\.py$' || \
+          if match_scope "$VIEWER_CHANGED" '^src/ada/' || \
              match_scope "$VIEWER_CHANGED" '^src/frontend/' || \
              match_scope "$VIEWER_CHANGED" '^deploy/Dockerfile\.viewer(-fast)?$' || \
              match_scope "$VIEWER_CHANGED" '^deploy/viewer-ada-init\.py$' || \
              match_scope "$VIEWER_CHANGED" '^\.forgejo/workflows/build\.yaml$'; then
             viewer=true
           fi
-          # Fast viewer overlay only re-applies the curated ada subset
-          # (comms/ + config.py); anything else needs the full build.
+          # Fast viewer overlay re-applies the curated runtime ada subset AND
+          # rebuilds the in-browser adapy wheel from full src/ada, so any
+          # ada-only change is fast. Only env/SPA/Dockerfile/workflow changes
+          # force the heavy full build (SPA + pixi solve + adacpp pull).
           if match_scope "$VIEWER_CHANGED" '^src/frontend/' || \
              match_scope "$VIEWER_CHANGED" '^pixi\.(toml|lock)$' || \
              match_scope "$VIEWER_CHANGED" '^pyproject\.toml$' || \
