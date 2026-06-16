@@ -2425,7 +2425,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         now = time.time()
         # Annotate each row with a derived ``online`` boolean so the
         # frontend doesn't have to recompute the staleness threshold.
-        stale_after_s = 60.0
+        # Same window the routing path uses (queue._capability_for_ext) so
+        # "shown online in the UI" and "eligible for auto-routing" agree.
+        stale_after_s = queue.WORKER_STALE_AFTER_S
         for w in workers:
             hb = w.get("last_heartbeat")
             try:
