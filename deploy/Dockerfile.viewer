@@ -3,7 +3,7 @@
 # Stage 0: pull the prebuilt adacpp pyodide wheel from the base image
 # adacpp publishes on tag (ghcr.io/krande/adacpp-wasm-base:<ver>). The
 # base image carries
-# /out/ada_cpp-<ver>-cp312-cp312-emscripten_3_1_58_wasm32.whl plus
+# /out/ada_cpp-<ver>-cp313-cp313-pyodide_2025_0_wasm32.whl plus
 # /out/manifest.json — exactly what this stage consumes. adapy no
 # longer cross-compiles OCCT→wasm itself; that ~30-min build lives in
 # adacpp's own publish-wasm-base workflow and runs only on adacpp

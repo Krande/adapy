@@ -37,9 +37,10 @@ const SAT_FIXTURE = path.join(REPO, "files", "sat_files", "flat_plate_sesam_10x1
     await py.loadPackage(["micropip", "numpy", "h5py", "pydantic", "Pillow"]);
     const mp = py.pyimport("micropip");
     await mp.install(["trimesh", "pyquaternion"]);
-    // NOTE: ifcopenshell's wasm wheel (pyodide_2025_0) won't install in this
-    // node-pyodide (emscripten-3.1.58 platform tag) — to_ifc is browser-only
-    // to validate. We skip it here and probe the rest.
+    // NOTE: node-pyodide here now carries the pyodide_2025_0 platform tag
+    // (0.29.4 / emscripten 4.0.9), so ifcopenshell's wasm wheel is ABI-
+    // compatible — but to_ifc is exercised in the IFC-specific browser
+    // harness, so we keep this probe scoped to the non-IFC targets.
     void IFC_WASM_WHEEL;
     await mp.install("emfs:/dist/" + path.basename(adacppWheel), false);
     await mp.install("emfs:/dist/" + path.basename(adapyWheel), false);

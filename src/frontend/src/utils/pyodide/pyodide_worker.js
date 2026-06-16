@@ -55,8 +55,15 @@ async function bootstrap() {
     pyodide = await loadPyodide({
         indexURL: `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`,
     });
-    log("Loading numpy + micropip…");
-    await pyodide.loadPackage(["micropip", "numpy"]);
+    // Pillow is loaded here, before ANY `import ada` (and therefore before the
+    // first `import trimesh` the real ada init triggers). trimesh decides
+    // whether it has image/texture support at import time by probing for PIL;
+    // if trimesh is first imported without Pillow present (e.g. a STEP cell
+    // importing ada.cad), it caches "no PIL" and every later textured GLB
+    // export (SAT/IFC) fails in trimesh._append_material. Loading Pillow up
+    // front makes this order-independent across cells in the shared instance.
+    log("Loading numpy + Pillow + micropip…");
+    await pyodide.loadPackage(["micropip", "numpy", "Pillow"]);
     self.postMessage({type: "ready"});
 }
 
@@ -200,6 +207,12 @@ async function ensureAdapyWheel() {
 async function ensureStepStack() {
     if (!stepStackPromise) {
         stepStackPromise = (async () => {
+            // The adapy wheel now ships the real ada/__init__.py, so importing
+            // even ada.cad runs the full init, which eagerly imports trimesh +
+            // pyquaternion (numpy is already loaded at bootstrap). Provide them
+            // before the import or it raises ModuleNotFoundError.
+            await ensureTrimesh();
+            await ensurePyquaternion();
             await ensureAdacppWheel();
             await ensureAdapyWheel();
             log("Verifying adapy.cad backend…");
@@ -262,289 +275,49 @@ async function ensureFemStack() {
     return femStackPromise;
 }
 
-async function convertIfc(bytes) {
-    await ensureIfcStack();
+// ── stack selection (host-specific) + dispatch into adapy ─────────────────
+// All conversion LOGIC lives in adapy (ada.cadit.wasm_convert), shipped in the
+// pyodide wheel and shared verbatim with the node sweep driver — no duplicated
+// Python here. The worker only installs the right packages/wheels for a cell,
+// then calls wasm_convert.run.
 
-    const u8 = new Uint8Array(bytes);
-    pyodide.FS.writeFile("/tmp/input.ifc", u8);
-    log(`Wrote ${u8.byteLength} bytes to /tmp/input.ifc`);
-
-    const result = await pyodide.runPythonAsync(`
-import ifcopenshell
-import ifcopenshell.geom
-import numpy as np
-import trimesh
-from io import BytesIO
-
-ifc = ifcopenshell.open("/tmp/input.ifc")
-settings = ifcopenshell.geom.settings()
-try:
-    settings.set("use-world-coords", True)
-except Exception:
-    pass
-
-iterator = ifcopenshell.geom.iterator(settings, ifc)
-scene = trimesh.Scene()
-n_meshes = 0
-n_skipped = 0
-n_errors = 0
-
-if iterator.initialize():
-    while True:
-        try:
-            shape = iterator.get()
-            geom = shape.geometry
-            verts = np.asarray(geom.verts, dtype=np.float32).reshape(-1, 3)
-            faces = np.asarray(geom.faces, dtype=np.int32).reshape(-1, 3)
-            if faces.size == 0:
-                n_skipped += 1
-            else:
-                node_name = (getattr(shape, "name", None) or shape.guid or f"mesh_{n_meshes}")
-                mesh = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
-                scene.add_geometry(mesh, node_name=node_name)
-                n_meshes += 1
-        except Exception:
-            n_errors += 1
-        if not iterator.next():
-            break
-
-print(f"meshes={n_meshes} skipped={n_skipped} errors={n_errors}")
-if n_meshes == 0:
-    raise RuntimeError("no meshable geometry produced from this IFC")
-
-buf = BytesIO()
-scene.export(buf, file_type="glb")
-buf.getvalue()
-    `);
-
-    const arr = result.toJs({create_proxies: false});
-    result.destroy();
-    return arr;
+async function ensureStacks(format, target) {
+    const tgt = (target || "glb").toLowerCase();
+    if (format === "fea") return ensureFemStack();
+    if (format === "mesh") return ensureMeshStack();
+    if (format === "ifc" && tgt === "glb") return ensureIfcStack(); // raw ifcopenshell fast path
+    if (format === "step" && tgt === "glb") return ensureStepStack(); // adacpp fast path
+    if (format === "fem") {
+        await ensureFemStack();
+    } else {
+        await ensureSatStack();
+    }
+    if (format === "ifc" || tgt === "ifc") await ensureIfcStack();
 }
 
-async function convertStep(bytes) {
-    await ensureStepStack();
-
+// Run one conversion: install the stack, hand the bytes to adapy, return the
+// output bytes (Uint8Array) for the caller to post back / upload.
+async function runConversion(format, bytes, ext, target) {
+    await ensureStacks(format, target);
+    const e = (ext || "bin").toLowerCase();
     const u8 = new Uint8Array(bytes);
-    // Push the bytes into the Python heap via globals so we don't have
-    // to round-trip through the FS twice (adacpp's read_step_bytes
-    // accepts a bytes buffer directly and writes its own MEMFS temp).
-    pyodide.globals.set("_step_input_bytes", u8);
-    log(`Forwarded ${u8.byteLength} bytes of STEP into Python`);
-
+    const inPath = `/tmp/input.${e}`;
+    pyodide.FS.writeFile(inPath, u8);
+    pyodide.globals.set("_wc_fmt", format);
+    pyodide.globals.set("_wc_ext", e);
+    pyodide.globals.set("_wc_target", (target || "glb").toLowerCase());
+    pyodide.globals.set("_wc_src", inPath);
     try {
         const result = await pyodide.runPythonAsync(`
-import ada.cad
-
-backend = ada.cad.select_backend(prefer="adacpp")
-shape = backend.read_step_bytes(bytes(_step_input_bytes))
-glb = backend.write_glb_bytes(shape)
-glb
-        `);
+import ada.cadit.wasm_convert as _wc
+_wc.run(_wc_fmt, _wc_ext, _wc_target, _wc_src)
+`);
         const arr = result.toJs({create_proxies: false});
         result.destroy();
         return arr;
     } finally {
-        // Single point of cleanup. The Python snippet used to also
-        // ``del _step_input_bytes``, but that left the JS-side
-        // ``globals.delete`` to throw KeyError on the success path
-        // ("KeyError: '_step_input_bytes'"). Owning cleanup on the JS
-        // side keeps both success and exception paths symmetrical.
-        try {
-            pyodide.globals.delete("_step_input_bytes");
-        } catch (_) {
-            /* already gone — fine */
-        }
-    }
-}
-
-const MESH_EXTS = new Set(["obj", "stl", "ply", "gltf", "dae", "off"]);
-
-async function convertMesh(bytes, ext) {
-    await ensureMeshStack();
-    const e = (ext || "").toLowerCase();
-    if (!MESH_EXTS.has(e)) {
-        throw new Error(`unsupported mesh extension for pyodide conversion: ${ext}`);
-    }
-    const u8 = new Uint8Array(bytes);
-    pyodide.FS.writeFile(`/tmp/input.${e}`, u8);
-    log(`Wrote ${u8.byteLength} bytes to /tmp/input.${e}`);
-    pyodide.globals.set("_mesh_ext", e);
-
-    try {
-        const result = await pyodide.runPythonAsync(`
-import trimesh
-from io import BytesIO
-
-ext = _mesh_ext
-loaded = trimesh.load("/tmp/input." + ext, file_type=ext, process=False)
-# Normalise to a Scene so single-mesh and multi-mesh inputs export uniformly.
-scene = loaded if isinstance(loaded, trimesh.Scene) else trimesh.Scene(loaded)
-if len(scene.geometry) == 0:
-    raise RuntimeError("no meshable geometry produced from this file")
-buf = BytesIO()
-scene.export(buf, file_type="glb")
-buf.getvalue()
-        `);
-        const arr = result.toJs({create_proxies: false});
-        result.destroy();
-        return arr;
-    } finally {
-        try {
-            pyodide.globals.delete("_mesh_ext");
-        } catch (_) {
-            /* already gone — fine */
-        }
-    }
-}
-
-// .sat / .acis → GLB. adapy's pure-python ACIS parser (ada.from_acis)
-// builds ada.geom; Part.to_gltf tessellates through the adacpp backend and
-// trimesh-exports the GLB.
-async function convertSat(bytes) {
-    await ensureSatStack();
-    const u8 = new Uint8Array(bytes);
-    pyodide.FS.writeFile("/tmp/input.sat", u8);
-    log(`Wrote ${u8.byteLength} bytes to /tmp/input.sat`);
-
-    const result = await pyodide.runPythonAsync(`
-import io
-import ada
-
-asm = ada.from_acis("/tmp/input.sat")
-buf = io.BytesIO()
-asm.to_gltf(buf)
-glb = buf.getvalue()
-if not glb:
-    raise RuntimeError("SAT produced an empty GLB")
-glb
-    `);
-    const arr = result.toJs({create_proxies: false});
-    result.destroy();
-    return arr;
-}
-
-// Non-GLB output (.obj/.stl/.step/.xml/.ifc) for ada-loadable geometry
-// sources, mirroring the worker's converter.py _via_ada* handlers:
-//   from_acis / from_ifc → Assembly → to_{trimesh,stp,genie_xml,ifc,gltf}.
-// The wasm-supported (source, target) cells are gated upstream by
-// wasmSupport.ts; this just executes whatever cell the router allowed.
-async function convertAdaExport(format, bytes, ext, target) {
-    const tgt = (target || "").toLowerCase();
-    // The SAT stack pulls the full adapy export machinery (adapy + adacpp
-    // backend + trimesh + pyquaternion + pydantic + Pillow). IFC source or
-    // IFC target additionally needs ifcopenshell (from_ifc / to_ifc).
-    await ensureSatStack();
-    if (format === "ifc" || tgt === "ifc") {
-        await ensureIfcStack();
-    }
-
-    const e = (ext || "").toLowerCase();
-    const u8 = new Uint8Array(bytes);
-    pyodide.FS.writeFile(`/tmp/input.${e}`, u8);
-    log(`Wrote ${u8.byteLength} bytes to /tmp/input.${e} (${format} → ${tgt})`);
-    pyodide.globals.set("_ada_fmt", format);
-    pyodide.globals.set("_ada_ext", e);
-    pyodide.globals.set("_ada_target", tgt);
-
-    try {
-        const result = await pyodide.runPythonAsync(`
-import io, ada
-
-fmt = _ada_fmt
-ext = _ada_ext
-target = _ada_target
-src = f"/tmp/input.{ext}"
-
-if fmt == "sat":
-    asm = ada.from_acis(src)
-elif fmt == "ifc":
-    asm = ada.from_ifc(src)
-else:
-    raise RuntimeError(f"adapy-export does not handle source format {fmt!r}")
-
-if target == "glb":
-    buf = io.BytesIO(); asm.to_gltf(buf); out = buf.getvalue()
-elif target in ("obj", "stl"):
-    data = asm.to_trimesh_scene().export(file_type=target)
-    out = data.encode() if isinstance(data, str) else bytes(data)
-elif target in ("step", "stp"):
-    asm.to_stp("/tmp/out.step")
-    with open("/tmp/out.step", "rb") as fh: out = fh.read()
-elif target == "xml":
-    asm.to_genie_xml("/tmp/out.xml")
-    with open("/tmp/out.xml", "rb") as fh: out = fh.read()
-elif target == "ifc":
-    asm.to_ifc("/tmp/out.ifc")
-    with open("/tmp/out.ifc", "rb") as fh: out = fh.read()
-else:
-    raise RuntimeError(f"adapy-export does not handle target {target!r}")
-
-if not out:
-    raise RuntimeError(f"adapy export produced an empty {target}")
-out
-        `);
-        const arr = result.toJs({create_proxies: false});
-        result.destroy();
-        return arr;
-    } finally {
-        for (const g of ["_ada_fmt", "_ada_ext", "_ada_target"]) {
-            try {
-                pyodide.globals.delete(g);
-            } catch (_) {
-                /* already gone — fine */
-            }
-        }
-    }
-}
-
-const FEA_EXTS = new Set(["rmed", "med", "sif", "sin"]);
-
-// FEA result (.rmed/.med/.sif/.sin) → streaming-viewer artefact tree, baked
-// in-browser and returned as a zip. The pipeline POSTs the zip to
-// /fea/artefacts, which unpacks it under _derived/<source>.fea/ with the
-// same gzip policy the worker uses.
-async function bakeFea(bytes, ext) {
-    await ensureFemStack();
-    const e = (ext || "").toLowerCase();
-    if (!FEA_EXTS.has(e)) {
-        throw new Error(`unsupported FEA extension for pyodide bake: ${ext}`);
-    }
-    const u8 = new Uint8Array(bytes);
-    pyodide.FS.writeFile(`/tmp/input.${e}`, u8);
-    log(`Wrote ${u8.byteLength} bytes to /tmp/input.${e}`);
-    pyodide.globals.set("_fea_ext", e);
-
-    try {
-        const result = await pyodide.runPythonAsync(`
-import io, os, shutil, zipfile
-from ada.fem.results.artefacts import bake_fea_artefacts_from_source
-
-ext = _fea_ext
-out_dir = "/tmp/fea_out"
-if os.path.exists(out_dir):
-    shutil.rmtree(out_dir)
-os.makedirs(out_dir, exist_ok=True)
-
-bake_fea_artefacts_from_source(f"/tmp/input.{ext}", out_dir)
-
-names = sorted(n for n in os.listdir(out_dir) if os.path.isfile(os.path.join(out_dir, n)))
-if "fea.manifest.json" not in names:
-    raise RuntimeError("FEA bake produced no manifest")
-buf = io.BytesIO()
-with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-    for n in names:
-        zf.write(os.path.join(out_dir, n), arcname=n)
-buf.getvalue()
-        `);
-        const arr = result.toJs({create_proxies: false});
-        result.destroy();
-        return arr;
-    } finally {
-        try {
-            pyodide.globals.delete("_fea_ext");
-        } catch (_) {
-            /* already gone — fine */
+        for (const g of ["_wc_fmt", "_wc_ext", "_wc_target", "_wc_src"]) {
+            try { pyodide.globals.delete(g); } catch (_) { /* fine */ }
         }
     }
 }
@@ -571,31 +344,20 @@ self.onmessage = async (e) => {
         // Default to "glb" — the historical single-target behaviour.
         const target = (data.target || "glb").toLowerCase();
         try {
-            let bytes;
-            if (format === "fea") {
-                // FEA bakes a streaming-artefact zip; target is implied.
-                bytes = await bakeFea(data.bytes, data.ext);
-            } else if (target === "glb") {
-                // GLB fast paths — kept distinct because each uses the
-                // cheapest stack (adacpp backend for STEP, ifcopenshell for
-                // IFC, trimesh for mesh) rather than the full adapy loader.
-                if (format === "ifc") {
-                    bytes = await convertIfc(data.bytes);
-                } else if (format === "step" || format === "stp") {
-                    bytes = await convertStep(data.bytes);
-                } else if (format === "mesh") {
-                    bytes = await convertMesh(data.bytes, data.ext);
-                } else if (format === "sat") {
-                    bytes = await convertSat(data.bytes);
-                } else {
-                    throw new Error(`unsupported format for pyodide GLB conversion: ${format}`);
-                }
-            } else {
-                // Non-GLB output via the generic adapy from_<src> → to_<tgt> path.
-                bytes = await convertAdaExport(format, data.bytes, data.ext, target);
+            // One entrypoint: adapy's wasm_convert.run handles every
+            // (format, target) — fast paths included. fea returns a zip.
+            const bytes = await runConversion(format, data.bytes, data.ext, target);
+            // Report the current wasm linear-memory size so the manager can
+            // recycle this worker before it approaches the wasm32 ceiling
+            // (pyodide never frees heap back to the OS).
+            let heap = 0;
+            try {
+                heap = pyodide._module.HEAP8.length;
+            } catch (_) {
+                /* heap introspection unavailable — manager falls back to its timeout */
             }
             self.postMessage(
-                {type: "result", reqId, bytes},
+                {type: "result", reqId, bytes, heap},
                 [bytes.buffer],
             );
         } catch (err) {

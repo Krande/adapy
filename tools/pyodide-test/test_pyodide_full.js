@@ -1,5 +1,5 @@
 // End-to-end validation of the browser conversion entrypoints under real
-// pyodide (0.27.7), installing BOTH wasm wheels (adacpp + adapy) exactly
+// pyodide (0.29.4), installing BOTH wasm wheels (adacpp + adapy) exactly
 // as the browser worker will. Exercises the actual Python calls the worker
 // makes for each stack:
 //

@@ -1061,6 +1061,10 @@ def _via_ada_to_step(
             pass
 
 
+# NOTE: _INCLUDE_RE / _inline_abaqus_includes / _find_writer_output /
+# _FEM_TARGET_TO_FORMAT below are superseded by ada.fem.formats.deck_convert
+# (the single source now shared with the WASM path) and are no longer called.
+# Kept temporarily; safe to delete in a follow-up.
 _INCLUDE_RE = re.compile(
     r"^\s*\*INCLUDE\s*,\s*INPUT\s*=\s*(.+?)\s*$",
     re.IGNORECASE,
@@ -1155,58 +1159,15 @@ def _via_fea_to_fem(
       zip-output target.
     """
 
-    on_progress("parsing", 0.15)
-    import ada
+    # Shared with the WASM path (ada.cadit.wasm_convert) — the deck-rewrite
+    # logic (writer dispatch, output-file selection, *INCLUDE inlining) lives
+    # in ada.fem.formats.deck_convert so server and browser can't diverge.
+    from ada.fem.formats.deck_convert import fem_deck_to_bytes
 
-    assembly = ada.from_fem(src_path)
-    on_progress("translating", 0.45)
-
-    # ``fem_format`` is a string the general writer dispatcher knows
-    # how to resolve (``"abaqus"`` / ``"sesam"`` / ``"code_aster"``).
-    fmt = _FEM_TARGET_TO_FORMAT.get(target_ext.lower())
-    if fmt is None:
-        raise UnsupportedFormat(f"no FEA writer for target {target_ext!r}")
-
-    out_dir = pathlib.Path(tempfile.mkdtemp(prefix="ada-convert-"))
-    name = "model"
     try:
-        on_progress("writing", 0.65)
-        assembly.to_fem(
-            name,
-            fem_format=fmt,
-            scratch_dir=out_dir,
-            overwrite=True,
-            write_input_files_only=True,
-        )
-        # Writers nest output in ``{scratch_dir}/{name}/`` — find the
-        # produced deck file. Each writer has its own filename
-        # conventions:
-        #
-        # * Abaqus: ``{name}.inp`` (lowercase, matches target_ext)
-        # * Code_Aster: ``{name}.med`` plus a ``.comm`` sidecar we
-        #   deliberately drop (see docstring)
-        # * Sesam: ``{name}T1.FEM`` — uppercase extension, plus a
-        #   ``T1`` super-element suffix the writer appends. Globbing
-        #   case-insensitively against ``*{target_ext}`` covers both
-        #   the suffix and the case difference without hard-coding
-        #   either.
-        deck = _find_writer_output(out_dir / name, name, target_ext) or _find_writer_output(out_dir, name, target_ext)
-        if deck is None:
-            raise UnsupportedFormat(
-                f"FEA writer ran but no {target_ext} appeared under "
-                f"{out_dir} — adapy writer layout may have changed."
-            )
-        on_progress("ready", 1.0)
-        if target_ext.lower() == ".inp":
-            return _inline_abaqus_includes(deck)
-        return deck.read_bytes()
-    finally:
-        try:
-            import shutil as _sh
-
-            _sh.rmtree(out_dir, ignore_errors=True)
-        except Exception:
-            pass
+        return fem_deck_to_bytes(src_path, target_ext, on_progress)
+    except ValueError as exc:
+        raise UnsupportedFormat(str(exc)) from exc
 
 
 def _find_writer_output(

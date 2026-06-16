@@ -7,12 +7,34 @@
 
 let workerPromise: Promise<Worker> | null = null;
 let nextReqId = 1;
+// Peak wasm linear-memory the live worker last reported. Pyodide never frees
+// heap back to the OS, so once a worker has grown near the wasm32 ceiling we
+// recycle it (terminate + respawn) before the NEXT job rather than risk an OOM
+// abort mid-conversion.
+let lastHeapBytes = 0;
+
+// A single in-browser conversion that runs longer than this is treated as hung
+// (or thrashing against the memory limit) and its worker is killed.
+const JOB_TIMEOUT_MS = 300_000;
+// Recycle the worker once its heap crosses this (~1.4 GB) — comfortably under
+// the ~2 GB emscripten/wasm32 ceiling, leaving room for one more conversion's
+// working set before a fresh worker is spawned.
+const RECYCLE_HEAP_BYTES = 1_400_000_000;
 
 type WorkerMessage =
     | {type: "log"; message: string}
     | {type: "ready"}
-    | {type: "result"; reqId: number; bytes: Uint8Array}
+    | {type: "result"; reqId: number; bytes: Uint8Array; heap?: number}
     | {type: "error"; reqId?: number; message: string};
+
+/** Terminate the live worker (the "subprocess") and reset state so the next
+ * call spawns a fresh one. Never touches the page/main thread. */
+function killWorker(): void {
+    const p = workerPromise;
+    workerPromise = null;
+    lastHeapBytes = 0;
+    if (p) p.then((w) => w.terminate()).catch(() => {});
+}
 
 function spawnWorker(onLog?: (msg: string) => void): Promise<Worker> {
     return new Promise((resolve, reject) => {
@@ -59,7 +81,7 @@ export async function ensurePyodideWorker(onLog?: (msg: string) => void): Promis
     return workerPromise;
 }
 
-export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea";
+export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea" | "fem" | "genie";
 
 /** Run a single conversion via the Pyodide worker. Format selects which
  * pyodide stack handles the bytes — ifc → ifcopenshell+trimesh; step →
@@ -73,9 +95,29 @@ export async function convertViaPyodide(
     bytes: ArrayBuffer,
     opts?: {onLog?: (msg: string) => void; ext?: string; target?: string},
 ): Promise<Uint8Array> {
+    // Proactively recycle a worker whose heap has grown near the ceiling, so
+    // this job starts with reclaimed memory instead of risking an OOM abort.
+    if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
+        killWorker();
+    }
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
     return new Promise<Uint8Array>((resolve, reject) => {
+        let settled = false;
+        const cleanup = () => {
+            worker.removeEventListener("message", onMessage);
+            worker.removeEventListener("error", onError);
+            clearTimeout(timer);
+        };
+        // kill=true tears down the worker (used when it's crashed/hung/OOM);
+        // a handled conversion error keeps the warm worker for the next job.
+        const fail = (message: string, kill: boolean) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            if (kill) killWorker();
+            reject(new Error(message));
+        };
         const onMessage = (e: MessageEvent<WorkerMessage>) => {
             const data = e.data;
             if (data.type === "log") {
@@ -85,14 +127,30 @@ export async function convertViaPyodide(
             if ((data.type === "result" || data.type === "error") && data.reqId !== reqId) {
                 return;
             }
-            worker.removeEventListener("message", onMessage);
+            if (settled) return;
             if (data.type === "result") {
+                settled = true;
+                cleanup();
+                if (typeof data.heap === "number") lastHeapBytes = data.heap;
                 resolve(data.bytes);
             } else if (data.type === "error") {
-                reject(new Error(data.message));
+                // Handled Python-side failure (incl. MemoryError) — worker is
+                // still healthy, keep it warm.
+                fail(data.message, false);
             }
         };
+        // The worker thread itself died — a fatal wasm abort/OOM. Kill + respawn;
+        // the page is unaffected (this is the "kill the subprocess, not the
+        // page" guarantee).
+        const onError = () => fail("wasm worker crashed (likely out-of-memory); it was restarted", true);
+        // Hung or thrashing against the memory limit: terminate the worker so it
+        // can't wedge the engine; the next conversion gets a fresh one.
+        const timer = setTimeout(
+            () => fail(`wasm conversion exceeded ${JOB_TIMEOUT_MS / 1000}s; worker terminated`, true),
+            JOB_TIMEOUT_MS,
+        );
         worker.addEventListener("message", onMessage);
+        worker.addEventListener("error", onError);
         worker.postMessage(
             {type: "convert", reqId, format, ext: opts?.ext, target: opts?.target ?? "glb", bytes},
             [bytes],
