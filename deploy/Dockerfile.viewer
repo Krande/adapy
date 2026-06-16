@@ -16,14 +16,14 @@ ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.9.0
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
-# FEM/SAT stacks micropip-install this; it's the adapy source tree with
-# ada/__init__.py swapped for the pyodide-safe slim init. Stdlib-only
-# build script — no setuptools/build needed. Outputs the wheel +
+# FEM/SAT stacks micropip-install this; it's the adapy source tree shipped
+# verbatim — the real ada/__init__.py loads under pyodide (its module-level
+# deps are only numpy/pyquaternion/trimesh; CAD/FEM kernels are lazy).
+# Stdlib-only build script — no setuptools/build needed. Outputs the wheel +
 # adapy-manifest.json to /out.
 FROM python:3.12-slim AS adapy-wheel
 WORKDIR /repo
 COPY src/ada/ ./src/ada/
-COPY deploy/pyodide-ada-init.py ./deploy/pyodide-ada-init.py
 COPY tools/build_pyodide_adapy_wheel.py ./tools/build_pyodide_adapy_wheel.py
 RUN python tools/build_pyodide_adapy_wheel.py /out
 

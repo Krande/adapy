@@ -365,6 +365,11 @@ jobs:
           # OCCT→wasm itself — adacpp publishes this base on tag
           # (ghcr.io/krande/adacpp-wasm-base:<ver>). Point this secret at
           # that reference; bump it when adopting a newer adacpp release.
+          # MUST be >=0.9.0 (pyodide_2025_0 / emscripten 4.0.9); older bases
+          # ship an emscripten 3.1.58 wheel micropip rejects at runtime. NOTE:
+          # the fast path below FROMs the prior branch image and does NOT
+          # re-pull this base — after bumping, run a FULL build once (or delete
+          # the branch image) so the new adacpp wheel is actually picked up.
           ADACPP_BASE_IMAGE: ${{ secrets.ADACPP_BASE_IMAGE }}
           FULL: ${{ needs.detect.outputs.viewer_full }}
         run: |
@@ -388,10 +393,12 @@ jobs:
               .
           else
             echo "Full viewer build (FULL=$FULL)"
-            if [ -z "$ADACPP_BASE_IMAGE" ]; then
-              echo "::error::ADACPP_BASE_IMAGE secret is not set. Point it at the adacpp-published wasm base (e.g. ``ghcr.io/krande/adacpp-wasm-base:0.8.0``; >=0.8.0 needed for SAT→GLB) under Settings → Actions → Secrets before re-running."
-              exit 1
-            fi
+            # Default to the repo-pinned base when the secret is unset, so the
+            # version lives in ONE place (matches deploy/Dockerfile.viewer) and
+            # a cleared secret can't fall back to a stale emscripten-3.1.58
+            # base. Override via the secret only to point at a different
+            # registry/tag (>=0.9.0 = pyodide_2025_0 / emscripten 4.0.9).
+            ADACPP_BASE_IMAGE="${ADACPP_BASE_IMAGE:-ghcr.io/krande/adacpp-wasm-base:0.9.0}"
             # Pull the base ahead of the viewer build so a missing tag
             # fails loudly here, not buried in BuildKit output.
             docker pull "${ADACPP_BASE_IMAGE}"

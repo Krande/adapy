@@ -12,10 +12,10 @@ native-only dep (pythonocc-core / gmsh / ifcopenshell / kaleido) off the
 import path, so the full ``import ada`` loads under emscripten and any
 genuinely-native *operation* fails at call time with a clear error.
 
-This retires the old hand-curated slim init (deploy/pyodide-ada-init.py),
-which had to enumerate each kernel-free re-export by hand and drifted out of
-sync (missing ``from_ifc``/``from_step``, stale builds) — see the audit
-wasm-sweep that caught those gaps.
+This replaced an earlier hand-curated slim init that had to enumerate each
+kernel-free re-export by hand and drifted out of sync (missing
+``from_ifc``/``from_step``); shipping the real init removed that whole class
+of drift.
 
 IMPORTANT: because the real init is eager, *any* stack that does
 ``import ada`` (incl. ``import ada.cad``, which runs ``ada/__init__.py``

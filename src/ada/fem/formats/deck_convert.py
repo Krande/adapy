@@ -131,9 +131,7 @@ def fem_deck_to_bytes(
             overwrite=True,
             write_input_files_only=True,
         )
-        deck = _find_writer_output(out_dir / name, name, target_ext) or _find_writer_output(
-            out_dir, name, target_ext
-        )
+        deck = _find_writer_output(out_dir / name, name, target_ext) or _find_writer_output(out_dir, name, target_ext)
         if deck is None:
             raise ValueError(
                 f"FEA writer ran but no {target_ext} appeared under {out_dir} "

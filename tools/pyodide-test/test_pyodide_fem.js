@@ -1,6 +1,6 @@
 // Import-safety smoke test for the adapy FEM + SAT pyodide path.
 //
-// Unlike test_pyodide_cad.js this needs NO adacpp wheel — it only proves
+// This needs NO adacpp wheel — it only proves
 // that the FEM-result-baking and SAT-reader import chains load under real
 // pyodide (0.29.4) with just numpy + h5py (pyodide built-ins) + trimesh
 // (micropip). If any module on these chains eagerly imports a native-only
