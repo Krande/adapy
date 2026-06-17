@@ -2,9 +2,9 @@
 //
 //   1. Streaming-FEA session (the new path): rows = nodes, columns =
 //      the active field's components plus a magnitude column for
-//      vector fields. Reads the parsed AFBL blob from feaFieldBlob's
-//      cache (already populated by load_fea_streaming) so opening the
-//      panel is free after the first apply, and tracks
+//      vector fields. Range-fetches just the shown step via
+//      ``fetchFieldStep`` (shared per-step cache with load_fea_streaming,
+//      so a step the render path already pulled is free here) and tracks
 //      ``stepIndex`` / ``fieldName`` / ``reduction`` from
 //      feaAnimationStore so the table follows the controls.
 //
@@ -23,7 +23,7 @@ import {simulationDataRef} from "@/state/refs";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {useTableNavStore} from "@/state/tableNavStore";
-import {fetchFieldBlob, makeViewerApiFetcher, ParsedFeaFieldBlob} from "@/services/feaFieldBlob";
+import {fetchFieldStep, makeViewerApiFetcher} from "@/services/feaFieldBlob";
 import {goToNode, clearGoToNode} from "@/utils/scene/fea/goToNode";
 import type {SimulationDataExtensionMetadata, FieldObject} from "@/extensions/design_and_analysis_extension";
 import type {
@@ -162,7 +162,7 @@ const FeaNodalTable: React.FC<{
     stepIndex: number;
     reduction: string;
 }> = ({scopeUrl, sourceName, field, stepIndex, reduction}) => {
-    const [blob, setBlob] = useState<ParsedFeaFieldBlob | null>(null);
+    const [stepValues, setStepValues] = useState<Float32Array | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
@@ -188,22 +188,24 @@ const FeaNodalTable: React.FC<{
         setActiveNodeId(nodeId);
     };
 
-    // Fetch (or hit the cache) on mount + whenever the field changes.
-    // Step changes don't refetch — all steps live in one blob.
+    // Fetch only the *shown* step (HTTP-Range), not the whole multi-step
+    // blob — so opening the table on a 200-mode deck pulls ~one stride,
+    // not every mode. Refetches on step change; fetchFieldStep caches per
+    // step, so revisiting a step (and the render path, which shares the
+    // cache) is free. Falls back to whole-blob automatically where Range
+    // isn't available (legacy gzip blob / no-Range transport).
     useEffect(() => {
         let cancelled = false;
         setError(null);
         setLoading(true);
-        // Build a fetcher for the standalone-viewer's bake-job
-        // storage convention; the helper returns both the fetcher and
-        // a stable cache key keyed off the (scope, source) tuple.
-        ((): Promise<ParsedFeaFieldBlob> => {
-            const {fetcher, cacheKey} = makeViewerApiFetcher(scopeUrl, sourceName);
-            return fetchFieldBlob(fetcher, field, cacheKey);
-        })()
-            .then((b) => {
+        // Build a fetcher for the standalone-viewer's bake-job storage
+        // convention; the helper returns the whole-blob fetcher (fallback),
+        // the range fetcher, and a stable (scope, source) cache key.
+        const {fetcher, rangeFetcher, cacheKey} = makeViewerApiFetcher(scopeUrl, sourceName);
+        fetchFieldStep(rangeFetcher, fetcher, field, stepIndex, cacheKey)
+            .then((sv) => {
                 if (cancelled) return;
-                setBlob(b);
+                setStepValues(sv);
                 setLoading(false);
             })
             .catch((err) => {
@@ -214,7 +216,7 @@ const FeaNodalTable: React.FC<{
         return () => {
             cancelled = true;
         };
-    }, [scopeUrl, sourceName, field.name_canonical, field.blob?.url]);
+    }, [scopeUrl, sourceName, field.name_canonical, field.blob?.url, stepIndex]);
 
     const isVector = field.kind.startsWith("vector");
     const components = field.components;
@@ -230,13 +232,9 @@ const FeaNodalTable: React.FC<{
         return cols;
     }, [components, isVector]);
 
-    const stepValues = useMemo<Float32Array | null>(() => {
-        if (!blob) return null;
-        if (stepIndex < 0 || stepIndex >= blob.steps.length) return null;
-        return blob.steps[stepIndex];
-    }, [blob, stepIndex]);
-
-    const n_points = blob?.header.n_points ?? 0;
+    // Node count is implicit in the step's length (n_points × n_components
+    // float32s) — the whole-blob header isn't fetched anymore.
+    const n_points = stepValues && n_components > 0 ? stepValues.length / n_components : 0;
 
     // Filter + sort state. Both live as table-local state (not in
     // the store) since they don't affect the scene — just the table
