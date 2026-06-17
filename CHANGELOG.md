@@ -2,6 +2,15 @@
 
 
 
+## v0.23.0 (2026-06-17)
+
+### Feature
+
+* feat: in-browser WASM conversion engine with full worker-matrix parity (#225)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`ef540ff`](https://github.com/Krande/adapy/commit/ef540ff79ab3448434b03f6f030f11f0dcd36bf5))
+
+
 ## v0.22.0 (2026-06-14)
 
 ### Feature
