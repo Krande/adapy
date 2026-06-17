@@ -55,6 +55,10 @@ WASM_TARGETS_BY_FORMAT = {
     # (inp→inp, fem→fem) are excluded by the self-conversion guard below.
     "fem": {"glb", "ifc", "step", "xml", "obj", "stl", "inp", "fem", "med"},
     "genie": {"glb", "ifc", "step", "xml", "obj", "stl"},
+    # Sesam SIF/SIN result → single GLB (read_sif/read_sin → FEAResult.to_gltf).
+    # Distinct from the bake path ("fea"); this is the registry's lone cell for
+    # those sources, so the sweep runs it instead of treating sif/sin as a bake.
+    "fea_glb": {"glb"},
 }
 # adacpp wheels below this version predate the OCCT symbol-isolation fix
 # (-fvisibility=hidden) + serialize_brep — a sweep with one validates the OLD
@@ -456,13 +460,18 @@ def _wasm_classify(ext: str, target: str) -> tuple[str | None, str]:
     """Map (source ext, requested target) → (wasm pipeline format, effective
     target), or (None, "") if the WASM engine can't do this cell.
 
-    FEA sources go through the bake path (format "fea", target ignored); the
-    rest must match the per-format target matrix.
+    FEA bake sources go through the bake path (format "fea", target ignored);
+    Sesam SIF/SIN → glb is the registry's single-GLB cell, routed via the
+    "fea_glb" pipeline; the rest must match the per-format target matrix.
     """
     ext = (ext or "").lower()
     target = (target or "").lower()
     if target == "stp":  # canonicalise; the registry/matrix use "step"
         target = "step"
+    if ext in ("sif", "sin") and target == "glb":
+        # The registry's lone cell for SIF/SIN (FEAResult.to_gltf), distinct
+        # from the bake tree below — match my frontend wasmSupport.ts fix.
+        return "fea_glb", "glb"
     if ext in WASM_FEA_EXTS:
         return "fea", "fea"
     if ext == "ifc":
@@ -749,8 +758,10 @@ def cmd_wasm_sweep(args: argparse.Namespace) -> int:
         )
         return 2
 
-    adacpp = _resolve_adacpp_wheel(args)
-    adapy = _resolve_adapy_wheel(args)
+    # Absolute: the driver subprocess runs with cwd=driver_dir, so wheel paths
+    # relative to the sweep's cwd would not resolve there.
+    adacpp = os.path.abspath(_resolve_adacpp_wheel(args))
+    adapy = os.path.abspath(_resolve_adapy_wheel(args))
     print(f"node:   {node}", file=sys.stderr)
     print(f"adacpp: {adacpp}", file=sys.stderr)
     print(f"adapy:  {adapy}", file=sys.stderr)
@@ -761,6 +772,9 @@ def cmd_wasm_sweep(args: argparse.Namespace) -> int:
     if args.format:
         want = args.format.lstrip(".")
         jobs = [j for j in jobs if (j.get("target_format") or "").lstrip(".") == want]
+    if args.source_ext:
+        wanted = {e.strip().lstrip(".").lower() for e in args.source_ext.split(",") if e.strip()}
+        jobs = [j for j in jobs if (j.get("key") or "").rsplit(".", 1)[-1].lower() in wanted]
 
     out_root = pathlib.Path(args.out)
     cells: list[dict] = []
@@ -782,7 +796,9 @@ def cmd_wasm_sweep(args: argparse.Namespace) -> int:
             src_path = key_cache[key]
         else:
             src, _meta = fetch(base, token, audit_id, out_root)
-            src_path = str(src)
+            # Absolute: the driver subprocess runs with cwd=driver_dir, so a
+            # path relative to the sweep's cwd would not resolve there.
+            src_path = str(src.resolve())
             key_cache[key] = src_path
         cells.append({"id": audit_id, "key": key, "ext": ext, "format": fmt, "target": eff_target, "src": src_path})
 
@@ -938,6 +954,11 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     sweep.add_argument("--out", default=DEFAULT_OUT, help=f"Download root for source blobs (default: {DEFAULT_OUT}).")
     sweep.add_argument("--report", default=None, help="Report JSON path (default: <out>/wasm_sweep_<run>.json).")
     sweep.add_argument("--format", default=None, help="Only cells with this target format, e.g. glb.")
+    sweep.add_argument(
+        "--source-ext",
+        default=None,
+        help="Only cells whose source has one of these extensions (comma-separated), e.g. sin,sif.",
+    )
     sweep.add_argument("--limit", type=int, default=0, help="Cap the number of wasm cells (0 = all).")
     sweep.add_argument(
         "--adacpp-wheel",
