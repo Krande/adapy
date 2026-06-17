@@ -3,7 +3,7 @@
 # Stage 0: pull the prebuilt adacpp pyodide wheel from the base image
 # adacpp publishes on tag (ghcr.io/krande/adacpp-wasm-base:<ver>). The
 # base image carries
-# /out/ada_cpp-<ver>-cp312-cp312-emscripten_3_1_58_wasm32.whl plus
+# /out/ada_cpp-<ver>-cp313-cp313-pyodide_2025_0_wasm32.whl plus
 # /out/manifest.json — exactly what this stage consumes. adapy no
 # longer cross-compiles OCCT→wasm itself; that ~30-min build lives in
 # adacpp's own publish-wasm-base workflow and runs only on adacpp
@@ -12,8 +12,20 @@
 # CI passes the full image reference as a build-arg so this Dockerfile
 # stays registry-agnostic. Pin a different adacpp by pointing the
 # build-arg at a different version tag.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.4.2
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.9.0
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
+
+# Stage 0b: build the pure-python adapy wheel for pyodide. The browser
+# FEM/SAT stacks micropip-install this; it's the adapy source tree shipped
+# verbatim — the real ada/__init__.py loads under pyodide (its module-level
+# deps are only numpy/pyquaternion/trimesh; CAD/FEM kernels are lazy).
+# Stdlib-only build script — no setuptools/build needed. Outputs the wheel +
+# adapy-manifest.json to /out.
+FROM python:3.12-slim AS adapy-wheel
+WORKDIR /repo
+COPY src/ada/ ./src/ada/
+COPY tools/build_pyodide_adapy_wheel.py ./tools/build_pyodide_adapy_wheel.py
+RUN python tools/build_pyodide_adapy_wheel.py /out
 
 # Stage 1: build the SPA bundle.
 FROM node:20-slim AS frontend-build
@@ -27,15 +39,13 @@ COPY src/frontend/ ./
 RUN npm run build:serve
 
 # After Vite produces dist/, layer in the static assets the pyodide
-# worker fetches at runtime: the adacpp wheel and the minimal adapy
-# source closure (just ada/__init__.py + ada/cad/__init__.py — these
-# are the only files imported under pyodide). The real
-# src/ada/__init__.py imports adapy's full native-dep surface and can't
-# run under wasm, so we stage the pyodide-only entrypoint in its place
-# (see deploy/pyodide-ada-init.py).
+# worker fetches at runtime under /wheels/: the adacpp wasm wheel (+ its
+# manifest.json) and the pure-python adapy wheel (+ adapy-manifest.json).
+# Both /out/ trees have distinct filenames, so they coexist in one dir.
+# The worker micropip-installs the adapy wheel (deps=False) instead of the
+# old hand-mounted source closure.
 COPY --from=adacpp-wheel /out/ /build/dist/wheels/
-COPY deploy/pyodide-ada-init.py /build/dist/adapy_src/ada/__init__.py
-COPY src/ada/cad/__init__.py    /build/dist/adapy_src/ada/cad/__init__.py
+COPY --from=adapy-wheel  /out/ /build/dist/wheels/
 
 # Stage 2a: pixi env solver — installs the viewer-api-slim environment
 # from pixi.toml/pixi.lock so the runtime stack stays in lockstep with

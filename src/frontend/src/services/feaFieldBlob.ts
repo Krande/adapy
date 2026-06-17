@@ -14,7 +14,8 @@
 // Per-step labels and time/freq values live in the manifest, not
 // the blob.
 
-import type {FeaFetcher} from "./fea/feaFetcher";
+import {disableFeaRange, feaRangeSupported} from "./fea/feaFetcher";
+import type {FeaFetcher, FeaRangeFetcher} from "./fea/feaFetcher";
 import type {FeaManifestField, ScopeUrl} from "./viewerApi";
 
 const BLOB_MAGIC = 0x4c424641; // "AFBL" little-endian
@@ -89,8 +90,106 @@ export function parseFieldBlob(buf: ArrayBuffer): ParsedFeaFieldBlob {
 // paradoc's `/api/docs/<id>/3d/<key>/fea/<filename>` URLs are stable.
 const BLOB_CACHE = new Map<string, Promise<ParsedFeaFieldBlob>>();
 
+// Per-(bundle, field, step) cache for the range-fetched single steps —
+// the fast path. Keyed off the same stable url as BLOB_CACHE plus the
+// step index, so dragging the step slider re-fetches each step at most
+// once and switching back is free.
+const STEP_CACHE = new Map<string, Promise<Float32Array>>();
+
 export function clearFieldBlobCache(): void {
     BLOB_CACHE.clear();
+    STEP_CACHE.clear();
+}
+
+/** Fetch a single step's values for a nodal field by HTTP-Range, pulling
+ * only that step's stride instead of the whole multi-step blob — the fix
+ * for many-step decks (a 200-mode eigen result would otherwise download
+ * every mode's displacement just to show one).
+ *
+ * Always safe — never worse than the old whole-blob path:
+ *   - whole blob already cached (a prior full fetch) → slice it;
+ *   - Range disabled this session (a prior failure) or non-float32/big-
+ *     endian → plain whole-blob `fetcher` (no Range header) + slice;
+ *   - the ranged request *fails* (network/proxy/"Failed to fetch") →
+ *     disable Range session-wide and fall back to the whole-blob fetcher;
+ *   - the server *ignores* Range (legacy gzip blob → 200 whole) → parse
+ *     the whole blob, cache it, slice.
+ * Only new identity-stored blobs over a Range-capable transport get the
+ * bandwidth win; everything else still works. */
+export async function fetchFieldStep(
+    rangeFetcher: FeaRangeFetcher,
+    fetcher: FeaFetcher,
+    field: FeaManifestField,
+    stepIndex: number,
+    cacheKey: string,
+): Promise<Float32Array> {
+    if (!field.blob) {
+        throw new Error(
+            `fetchFieldStep: field ${field.name_canonical} has no blob ` +
+            `(category=${field.category}, support=${field.support}); ` +
+            `element fields use the AFEL loader.`,
+        );
+    }
+    const blob = field.blob;
+    const fullKey = `${cacheKey}::${blob.url}`;
+
+    // Already have the whole blob (a prior full fetch / fallback)? Slice it.
+    const wholeCached = BLOB_CACHE.get(fullKey);
+    if (wholeCached) return (await wholeCached).steps[stepIndex];
+
+    const wholeFallback = async () => (await fetchFieldBlob(fetcher, field, cacheKey)).steps[stepIndex];
+
+    // Range unavailable (disabled after an earlier failure) or a payload
+    // the zero-copy view can't handle → plain whole-blob fetch.
+    if (!feaRangeSupported() || blob.dtype !== "float32" || blob.byte_order === "big") {
+        return wholeFallback();
+    }
+
+    const stepKey = `${fullKey}::${stepIndex}`;
+    const cached = STEP_CACHE.get(stepKey);
+    if (cached) return cached;
+
+    const stride = blob.stride_bytes;
+    const start = blob.header_bytes + stepIndex * stride;
+    const end = start + stride - 1;
+    const promise = (async () => {
+        let res: {buf: ArrayBuffer; ranged: boolean};
+        try {
+            res = await rangeFetcher(blob.url, start, end);
+        } catch (err) {
+            // Network/proxy rejected the Range request ("Failed to fetch").
+            // Disable Range for the session and fall back to whole-blob so
+            // the viewer still loads (just without the per-step win).
+            // eslint-disable-next-line no-console
+            console.warn(`[fea] range fetch failed for ${blob.url}; using whole-blob fallback`, err);
+            disableFeaRange();
+            return wholeFallback();
+        }
+        const {buf, ranged} = res;
+        if (ranged) {
+            // The 206 body is exactly this step's stride — a 4-aligned,
+            // offset-0 buffer, so a direct Float32Array view is valid.
+            if (buf.byteLength < stride) {
+                throw new Error(
+                    `field ${field.name_canonical} step ${stepIndex}: short range ` +
+                    `(${buf.byteLength} < ${stride} bytes)`,
+                );
+            }
+            return new Float32Array(buf, 0, stride / 4);
+        }
+        // Server ignored Range (legacy gzipped blob): we got the whole
+        // object. Parse + cache it so other steps slice for free.
+        const parsed = parseFieldBlob(buf);
+        BLOB_CACHE.set(fullKey, Promise.resolve(parsed));
+        return parsed.steps[stepIndex];
+    })();
+    STEP_CACHE.set(stepKey, promise);
+    try {
+        return await promise;
+    } catch (err) {
+        STEP_CACHE.delete(stepKey);
+        throw err;
+    }
 }
 
 /** Fetch + parse the field blob for one (source, field). Cached
@@ -147,7 +246,7 @@ export async function fetchFieldBlob(
 export function makeViewerApiFetcher(
     scope: ScopeUrl,
     sourceKey: string,
-): {fetcher: FeaFetcher; cacheKey: string} {
+): {fetcher: FeaFetcher; rangeFetcher: FeaRangeFetcher; cacheKey: string} {
     const cleanSrc = sourceKey.replace(/^\/+/, "");
     const prefix = `_derived/${cleanSrc}.fea/`;
     const cacheKey = `${scope}::${prefix}`;
@@ -155,5 +254,9 @@ export function makeViewerApiFetcher(
         const {viewerApi} = await import("./viewerApi");
         return viewerApi.getBlob(scope, `${prefix}${filename.replace(/^\/+/, "")}`);
     };
-    return {fetcher, cacheKey};
+    const rangeFetcher: FeaRangeFetcher = async (filename, start, end) => {
+        const {viewerApi} = await import("./viewerApi");
+        return viewerApi.getBlobRange(scope, `${prefix}${filename.replace(/^\/+/, "")}`, start, end);
+    };
+    return {fetcher, rangeFetcher, cacheKey};
 }

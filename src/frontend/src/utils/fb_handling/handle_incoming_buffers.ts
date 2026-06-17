@@ -111,14 +111,6 @@ export async function handleFlatbufferMessage(buffer: ArrayBuffer): Promise<void
                     CommandType[commandType]
                 );
         }
-
-        console.log('Flatbuffer message received');
-        console.log('Instance ID:', message.instanceId());
-        console.log(
-            'Command Type:',
-            CommandType[message.commandType()]
-        );
-        console.log('Mesh Info:', message.meshInfo());
     } catch (err) {
         console.error(
             'Error handling FlatBuffer message:',

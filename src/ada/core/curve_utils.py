@@ -12,7 +12,6 @@ from ada.geom.points import Point
 
 from .exceptions import VectorNormalizeError
 from .utils import roundoff
-from .vector_transforms import linear_2dtransform_rotate, transform_3x3
 from .vector_utils import (
     angle_between,
     intersect_calc,
@@ -596,7 +595,7 @@ class SegCreator:
         )
         self._fig.add_trace(trace1)
         self._add_to_plot([self.p1, self.p2, self.p3], label=f"p={self._i}: p1, p2, p3 ")
-        print(f'Creating debug HTML at "{self.plot_path}"')
+        logger.debug(f'Creating debug HTML at "{self.plot_path}"')
         self._fig.write_html(self.plot_path)
 
     def _add_to_plot(self, data, label=None, mode="lines+markers", hovertemplate=None, text=None):
@@ -667,6 +666,11 @@ def segments_to_local_points(segments_in: list[LineSegment | ArcSegment]) -> lis
 
 def transform_2d_arc_segment_to_3d(arc2d: ArcSegment, place: Placement):
     from ada import ArcSegment
+
+    # Lazy import to break a module-load cycle (vector_transforms ↔ curve_utils
+    # via ada.geom) that otherwise surfaces when ada.api.* is the first entry
+    # into the core/geom cluster — e.g. under the pyodide slim init.
+    from ada.core.vector_transforms import transform_3x3
 
     arc_points = [arc2d.p1, arc2d.p2, arc2d.midpoint, arc2d.center, arc2d.intersection]
     r = place.transform_local_points_back_to_global(np.asarray(arc_points))
@@ -807,6 +811,10 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius, tol=1e-1) -> ArcS
 
     """
     from ada import ArcSegment
+
+    # Lazy import to break the vector_transforms ↔ curve_utils module-load
+    # cycle (see transform_2d_arc_segment_to_3d).
+    from ada.core.vector_transforms import linear_2dtransform_rotate
 
     points = np.array([p1, p2, p3])
 

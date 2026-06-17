@@ -122,7 +122,14 @@ class SinReader(SifReader):
 
     def load(self) -> None:
         """Walk every SIN type block and populate the internal
-        SifReader-shaped state.
+        SifReader-shaped state for ``self.step`` (all steps when
+        ``step is None``).
+
+        Equivalent to :meth:`_load_static` followed by
+        :meth:`load_step` — the streaming reader (:class:`SinStreamReader`)
+        splits the two so the step-invariant mesh/section/RDPOINTS blocks
+        are read once across many steps and only the per-step RV* tables
+        re-read.
 
         ``self.nodes`` / ``self.node_ids`` are kept as raw record
         arrays for compatibility with :meth:`Sif2Mesh.get_sif_mesh`'s
@@ -132,6 +139,15 @@ class SinReader(SifReader):
         emits — without it, Sif2Mesh would group elements by ``elnox``
         and dereference the wrong fields as element type.
         """
+        self._load_static()
+        self.load_step(self.step)
+
+    def _load_static(self) -> None:
+        """Read the step-invariant blocks once: mesh (GCOORD/GNODE/
+        GELMNT1/GELREF1), sections, other, and the non-RV* result cards
+        (e.g. the RDPOINTS super-headers). Idempotent-by-reuse: callers
+        that stream many steps run this once, then :meth:`load_step` per
+        step only re-reads the RV* tables."""
         gcoord_rows = _records_for(self.sin, cards.GCOORD)
         if gcoord_rows:
             self.nodes = np.array(gcoord_rows, dtype=float)
@@ -166,28 +182,71 @@ class SinReader(SifReader):
             if rows:
                 self._sections[card.name] = rows
 
-        # Result cards: SifReader keeps the first record as the
-        # type-block "super-header" (a `[-ndim, ndim, dim0, …]` line
-        # that documents the table's shape), and Sif2Mesh consumers
-        # do `records[1:]` to skip past it. SIN doesn't store that
-        # line as a record — the shape lives in the per-type block
-        # header — so synthesise one from the block's metadata so
-        # the downstream slice doesn't drop the first real record.
+        # Non-RV* result cards (e.g. RDPOINTS) are step-invariant — read
+        # them once and stash so load_step can prepend them to each step's
+        # results without re-reading.
+        self._static_results = []
         for card in _RESULT_CARDS:
-            block = self.sin.type_blocks.get(card.name)
-            if block is None:
+            if card.name in _RV_TYPE_NAMES:
                 continue
-            rows = _records_for(self.sin, card, step=self.step)
-            # Always emit the super-header — Sif2Mesh's RDPOINTS map
-            # (and other shape-driven consumers) do
-            # ``self.get_result(card.name)[0]`` and crash if the card
-            # is missing from results. Some eigen decks have RDPOINTS
-            # present as a type-block but empty (no record rows) in
-            # certain super-elements, so without this guard the whole
-            # convert fails.
-            super_header = [-float(block.ndim), float(block.ndim)] + [float(d) for d in block.dims]
+            rec = self._read_result_card(card, step=None)
+            if rec is not None:
+                self._static_results.append(rec)
+        self._static_loaded = True
+
+    def load_step(self, step: int | None) -> None:
+        """(Re)materialise just the per-step RV* result tables for
+        ``step`` on top of the static blocks. ``step is None`` reads every
+        step (the full-materialise path). Cheap to call repeatedly: the
+        mesh/section/RDPOINTS blocks are not touched."""
+        if not getattr(self, "_static_loaded", False):
+            self._load_static()
+        self.step = step
+        # Fresh per-step results = static (RDPOINTS …) + this step's RV*.
+        self.results = list(self._static_results)
+        for card in _RESULT_CARDS:
+            if card.name not in _RV_TYPE_NAMES:
+                continue
+            rec = self._read_result_card(card, step=step)
+            if rec is not None:
+                self.results.append(rec)
+
+    def _read_result_card(self, card, step):
+        """Read one result card → ``(name, rows)`` (or None if the block
+        is absent), step-filtered for RV* cards.
+
+        SifReader keeps the first record as the type-block "super-header"
+        (`[-ndim, ndim, dim0, …]`) and consumers do ``records[1:]`` to skip
+        it; SIN stores the shape in the block header, not as a record, so
+        we synthesise the super-header. Always emit it even when the block
+        has no rows — Sif2Mesh does ``get_result(name)[0]`` and would crash
+        on a card missing from results."""
+        block = self.sin.type_blocks.get(card.name)
+        if block is None:
+            return None
+        super_header = [-float(block.ndim), float(block.ndim)] + [float(d) for d in block.dims]
+        # Big RV* tables (RVNODDIS/RVSTRESS/RVFORCES — up to tens of
+        # millions of rows) dominate the read's heap. Materialise them as
+        # one contiguous float64 ndarray via the vectorised gather instead
+        # of a per-record list[float] (≈80 B/row vs ≈376 B), padding the
+        # synthetic super-header into row 0 — downstream consumers only ever
+        # do ``rows[1:]``, so the pad is never read. ``gather_records``
+        # returns None for variable-width tables, which fall through to the
+        # per-record path.
+        wfw = step if (step is not None and card.name in _RV_TYPE_NAMES) else None
+        arr = self.sin.gather_records(card.name, where_first_word=wfw)
+        if arr is not None and arr.ndim == 2 and arr.shape[1] >= len(super_header):
+            sh = np.zeros((1, arr.shape[1]), dtype=np.float64)
+            sh[0, : len(super_header)] = super_header
+            rows = np.vstack((sh, arr)) if arr.shape[0] else sh
+        else:
+            rows = _records_for(self.sin, card, step=step)
             rows = [super_header, *rows]
-            self.results.append((card.name, rows))
+        # The card's record bytes are now copied into ``rows`` — drop the
+        # mmap pages so the next (often equally large) RV* table doesn't
+        # stack its resident pages on top of this one's.
+        self.sin.release_record_pages(card.name)
+        return (card.name, rows)
 
 
 @dataclass
@@ -286,12 +345,183 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "
     """
     from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
 
-    sin_path = pathlib.Path(sin_file)
-    sin = open_sin(sin_path)
+    # ``sin_file`` may be a local path or an s3://, http(s):// URI — let
+    # open_sin pick the backend. Don't Path()-mangle a URI; use the
+    # source's display name (basename) for the FEAResult / convert path.
+    sin = open_sin(sin_file)
+    name_path = sin.path if sin.path is not None else pathlib.Path(str(sin_file))
     reader = SinReader(sin=sin, step=step)
     reader.load()
     s2m = Sif2Mesh(reader)
-    return s2m.convert(sin_path)
+    return s2m.convert(name_path)
 
 
-__all__ = ["SinMetadata", "SinReader", "read_sin_file", "read_sin_metadata"]
+class SinStreamReader:
+    """Memory-bounded ``FEAStreamReader`` for Sesam SIN.
+
+    Reads one step at a time from a single, warm-cached :class:`SinFile`, so
+    the whole multi-step ``FEAResult`` is never resident — at most ~2 steps
+    (the representative first step kept for geometry/specs, plus the step
+    currently being emitted). This is what lets a many-mode deck *bake* in
+    the browser without the full result blowing the wasm32 ceiling, on top
+    of the source itself being range-streamed.
+
+    The SIN→artefact mapping is **not** reimplemented: each step is mapped
+    through the validated :class:`Sif2Mesh` + ``FEAResultStreamAdapter``
+    path; only the per-step orchestration and the global ``(n_steps,
+    step_values)`` of the specs are new. Step labels are the RV* IRES
+    indices (a remote SIN has no ``SESTRA.LIS`` eigen-frequency sidecar, so
+    the index *is* the label); the server/path bake keeps the full-
+    materialise adapter, which can enrich labels from LIS.
+
+    Accepts a :class:`SinFile` or any ``ByteSource`` (wrapped into one).
+    """
+
+    def __init__(self, source) -> None:
+        from ada.fem.formats.sesam.results.sin_reader import SinFile
+
+        self.sin = source if isinstance(source, SinFile) else SinFile(source=source)
+        self._steps = self._discover_steps()
+        self._rep = None  # FEAResultStreamAdapter over the first step (geometry/specs/beams)
+        self._mesh = None  # step-invariant Mesh, built once and reused across steps
+        self._reader = None  # one SinReader; static blocks read once, RV* re-read per step
+
+    # ── lifecycle ─────────────────────────────────────────────────────
+    def close(self) -> None:
+        self.sin.close()
+
+    def __enter__(self) -> "SinStreamReader":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    # ── helpers ───────────────────────────────────────────────────────
+    def _discover_steps(self) -> list[int]:
+        steps: set[int] = set()
+        for rv in _RV_TYPE_NAMES:
+            if rv in self.sin.type_blocks:
+                ires = self.sin.gather_first_words(rv)
+                if ires.size:
+                    steps.update(int(x) for x in np.unique(ires.astype(np.int64)).tolist())
+        return sorted(steps)
+
+    def _step_values(self) -> list[float]:
+        return [float(s) for s in self._steps]
+
+    def _load_step(self, step: int):
+        """Materialise just one step's FEAResult from the shared SinFile.
+
+        The mesh topology is step-invariant, so :meth:`Sif2Mesh.get_sif_mesh`
+        — the dominant per-step cost (a pure-Python pass over every element:
+        groupby, type resolution, node-order reconciliation) — is run **once**
+        and the built ``Mesh`` reused for every subsequent step. Only the
+        per-step RV* field extraction (``get_sif_results``) re-runs. This is
+        what keeps the per-step bake from regressing badly on speed vs the
+        full-materialise path while staying memory-bounded. (No LIS/MLG
+        enrichment here — same as before; the source is a bare SinFile.)"""
+        from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
+        from ada.fem.results.common import FEAResult, FEATypes
+
+        # One persistent reader: read the step-invariant mesh/section/
+        # RDPOINTS blocks once, then only re-read this step's RV* tables.
+        if self._reader is None:
+            self._reader = SinReader(sin=self.sin)
+            self._reader._load_static()
+        reader = self._reader
+        reader.load_step(int(step))
+        s2m = Sif2Mesh(reader)
+        if self._mesh is None:
+            self._mesh = s2m.get_sif_mesh()
+        # Reuse the cached mesh; get_sif_results() needs it set (RVFORCES
+        # resolves element ids against it) but never rebuilds it.
+        s2m.mesh = self._mesh
+        results = s2m.get_sif_results()
+        return FEAResult(
+            "remote",
+            FEATypes.SESAM,
+            results=results,
+            mesh=self._mesh,
+            results_file_path=pathlib.Path("remote.sin"),
+            step_name_map=s2m.get_result_name_map(),
+            software_version="N/A",
+        )
+
+    def _adapter_for(self, idx: int):
+        """``FEAResultStreamAdapter`` over step ``idx``; step 0 is cached as
+        the representative (its result stays resident for geometry/specs)."""
+        from ada.fem.results.artefacts import FEAResultStreamAdapter
+
+        if idx == 0:
+            if self._rep is None:
+                if not self._steps:
+                    raise RuntimeError("SIN result has no RV* result steps to bake")
+                self._rep = FEAResultStreamAdapter(self._load_step(self._steps[0]))
+            return self._rep
+        return FEAResultStreamAdapter(self._load_step(self._steps[idx]))
+
+    def _with_global_steps(self, specs):
+        import dataclasses
+
+        labels = self._step_values()
+        return [dataclasses.replace(s, n_steps=len(labels), step_values=labels) for s in specs]
+
+    # ── FEAStreamReader protocol ──────────────────────────────────────
+    def read_mesh_geometry(self):
+        return self._adapter_for(0).read_mesh_geometry()
+
+    def field_specs(self):
+        return self._with_global_steps(self._adapter_for(0).field_specs())
+
+    def element_field_specs(self):
+        return self._with_global_steps(self._adapter_for(0).element_field_specs())
+
+    def iter_field_steps(self, field_name: str):
+        import dataclasses
+
+        labels = self._step_values()
+        for i in range(len(self._steps)):
+            ad = self._adapter_for(i)
+            emitted = 0
+            for sv in ad.iter_field_steps(field_name):
+                yield dataclasses.replace(sv, step_index=i, step_value=labels[i])
+                emitted += 1
+            if emitted != 1:
+                raise RuntimeError(
+                    f"SIN nodal field {field_name!r} yielded {emitted} steps at step "
+                    f"index {i} (expected 1) — field missing or duplicated for a step"
+                )
+
+    def iter_element_field_steps(self, spec):
+        import dataclasses
+
+        labels = self._step_values()
+        for i in range(len(self._steps)):
+            ad = self._adapter_for(i)
+            ad_spec = next(
+                (s for s in ad.element_field_specs() if s.name == spec.name and s.elem_type == spec.elem_type),
+                None,
+            )
+            if ad_spec is None:
+                raise RuntimeError(f"SIN element field {spec.name!r}/{spec.elem_type} missing at step index {i}")
+            if ad_spec.element_labels != spec.element_labels:
+                # The bake writes every step against spec.element_labels (step 0's
+                # order); a reordered step would silently mis-correlate values.
+                raise RuntimeError(f"SIN element field {spec.name!r} element order drifted at step index {i}")
+            for esv in ad.iter_element_field_steps(ad_spec):
+                yield dataclasses.replace(esv, step_index=i, step_value=labels[i])
+
+    def try_solid_beams(self):
+        return self._adapter_for(0).try_solid_beams()
+
+    def try_history_records(self):
+        return None
+
+    def try_fem_concepts(self):
+        return None
+
+    def try_groups(self):
+        return None
+
+
+__all__ = ["SinMetadata", "SinReader", "SinStreamReader", "read_sin_file", "read_sin_metadata"]

@@ -152,7 +152,7 @@ async def _run_fea_artefact_bake(
 
     * ``_derived/<src>.fea/fea.mesh.glb``
     * ``_derived/<src>.fea/fea.manifest.json`` (gzip)
-    * ``_derived/<src>.fea/fea.<field>.bin`` × N (gzip)
+    * ``_derived/<src>.fea/fea.<field>.bin`` × N (identity — HTTP-Range-able)
 
     Updates the queue + audit row to mirror the convert flow's
     end-of-job semantics so the existing ``/convert/{job_id}`` poll
@@ -167,6 +167,24 @@ async def _run_fea_artefact_bake(
     from ada.fem.results.artefacts import bake_fea_artefacts_from_source
 
     await _on_progress("parsing", 0.10)
+
+    # Admin "Stream SIN FEA bake" toggle (app_settings ``fea_sin_streamer``).
+    # The bake runs in-process on an executor thread, so we drive the
+    # reader choice through the same ADA_* env-var seam the convert path
+    # uses; _make_sin_reader reads it. Default (unset/empty) keeps adapy's
+    # full-materialise reader. Set fresh per job so toggling takes effect
+    # without a worker restart.
+    if db_pool is not None:
+        try:
+            sin_stream = await db_module.get_setting(db_pool, "fea_sin_streamer")
+        except Exception:
+            logger.exception("worker: failed to read fea_sin_streamer setting")
+            sin_stream = None
+        if sin_stream is not None and sin_stream.strip() != "":
+            os.environ["ADA_FEA_SIN_STREAMER"] = sin_stream
+        else:
+            os.environ.pop("ADA_FEA_SIN_STREAMER", None)
+
     bake_dir = pathlib.Path(tempfile.mkdtemp(prefix="fea-bake-"))
     try:
         loop = asyncio.get_running_loop()
@@ -240,10 +258,13 @@ async def _run_fea_artefact_bake(
                 if not produced.is_file():
                     continue
                 target_key = prefix + produced.name
-                # Compression policy mirrors the API-side endpoint:
-                # gzip the manifest JSON and field blobs (compress
-                # well), skip the mesh GLB (already binary-packed).
-                content_encoding = "gzip" if produced.suffix.lower() in {".json", ".bin"} else None
+                # Compression policy mirrors the API-side endpoint: gzip
+                # only the manifest JSON. Field/edge/element ``.bin`` blobs
+                # are stored *identity* — float32/int payloads barely
+                # compress, and keeping them uncompressed lets the viewer
+                # HTTP-Range a single step out of a multi-step field blob
+                # (see the blobs route) instead of pulling every step.
+                content_encoding = "gzip" if produced.suffix.lower() == ".json" else None
                 await storage.put_bytes(
                     scope,
                     target_key,

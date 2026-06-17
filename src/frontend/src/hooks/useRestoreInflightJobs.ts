@@ -101,6 +101,24 @@ export function useRestoreInflightJobs(): void {
                 // dismissable-as-Cancel toast before the next poll
                 // corrected it to "error" — confusing the buttons.
                 if (j.status !== "queued" && j.status !== "running") continue;
+                // In-browser (WASM) conversions run in a page-bound worker that
+                // dies on reload, so a wasm- job can never be reattached or
+                // polled (convertStatus only knows worker jobs) — restoring it
+                // sits on a "restoring" toast forever and its kill button can't
+                // cancel a worker that doesn't exist. Skip it, and best-effort
+                // mark the orphaned audit row cancelled so it stops showing as
+                // running in the panel.
+                if (j.job_id.startsWith("wasm-")) {
+                    if (j.status === "running") {
+                        void viewerApi
+                            .auditLocalUpdate(scopeUrl, j.job_id, {
+                                status: "cancelled",
+                                error: "interrupted by page reload",
+                            })
+                            .catch(() => {});
+                    }
+                    continue;
+                }
                 // Match serverPipeline.ts's key shape so a fresh
                 // conversion of the same source won't clobber the
                 // restored entry: ``${sourceKey}::${target_format}``.

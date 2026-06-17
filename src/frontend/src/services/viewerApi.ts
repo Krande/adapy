@@ -510,6 +510,14 @@ function authHeader(): Record<string, string> {
  * regardless because they don't return 401.
  */
 async function authedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+    // Pre-flight: if our cached token has fallen out of the 30s skew
+    // window, refresh before sending rather than letting the request
+    // 401 first. Background pollers (e.g. the admin audit badge) fire
+    // on a timer and would otherwise log a browser-level 401 on every
+    // tick that straddles a token expiry.
+    if (isAuthEnabled() && !getAccessToken()) {
+        await refreshAccessToken();
+    }
     const merged: RequestInit = {
         ...init,
         headers: {...(init.headers as Record<string, string> | undefined), ...authHeader()},
@@ -982,6 +990,36 @@ export const viewerApi = {
         return await r.arrayBuffer();
     },
 
+    /** Fetch a byte range `[start, end]` (inclusive) of a stored object.
+     * Returns the bytes and whether the server honoured the range (206)
+     * or ignored it and sent the whole object (200 — e.g. a gzip-at-rest
+     * blob that can't be ranged). The FEA viewer uses this to pull a
+     * single field step instead of the whole multi-step blob. */
+    async getBlobRange(
+        scope: ScopeUrl,
+        key: string,
+        start: number,
+        end: number,
+    ): Promise<{buf: ArrayBuffer; ranged: boolean}> {
+        // Send the range BOTH as ?range_start/range_end query params and as a
+        // Range header. The query params are proxy-proof — some ingresses/CDNs
+        // (seen on the mobile path) strip the Range header, which would
+        // silently return the whole multi-step blob. The header stays for any
+        // cache/proxy that prefers it; the server replies 206 either way.
+        const base = this.blobUrl(scope, key);
+        const url = `${base}${base.includes("?") ? "&" : "?"}range_start=${start}&range_end=${end}`;
+        const r = await authedFetch(url, {
+            headers: {Range: `bytes=${start}-${end}`},
+        });
+        if (!r.ok && r.status !== 206) {
+            throw new ApiError(`getBlobRange(${key})`, r.status, await readDetail(r));
+        }
+        const buf = await r.arrayBuffer();
+        // 206 ⇒ honoured (header or query-param path); 200 ⇒ a proxy/old
+        // backend served the whole object → caller parses + slices.
+        return {buf, ranged: r.status === 206};
+    },
+
     /** Upload bytes under a given key. body is anything fetch/XHR can
      * send (File, Blob, ArrayBuffer, ...). When `onProgress` is given,
      * the request goes through XMLHttpRequest because fetch doesn't
@@ -1069,9 +1107,12 @@ export const viewerApi = {
         target: TargetFormat,
         body: BodyInit,
     ): Promise<string> {
+        // managed_audit=1: the WASM pipeline records its own metrics-rich
+        // audit row via auditLocalCreate/Update, so tell the derived-PUT
+        // not to also auto-audit (which would double-count the conversion).
         const url =
             `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/derived` +
-            `?source=${encodeURIComponent(sourceKey)}&target=${encodeURIComponent(target)}`;
+            `?source=${encodeURIComponent(sourceKey)}&target=${encodeURIComponent(target)}&managed_audit=1`;
         const r = await authedFetch(url, {
             method: "PUT",
             body,
@@ -1082,6 +1123,90 @@ export const viewerApi = {
         }
         const j: {key: string; size: number} = await r.json();
         return j.key;
+    },
+
+    /** Open an audit row for an in-browser (WASM) conversion. Returns the
+     * server-assigned ``wasm-<uuid>`` job id to pass to auditLocalUpdate.
+     * ``auditRunId`` attaches the row to an admin audit-run sweep. */
+    async auditLocalCreate(
+        scope: ScopeUrl,
+        body: {
+            key: string;
+            target_format: string;
+            audit_run_id?: string | null;
+            image_tag?: string;
+        },
+    ): Promise<string> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/audit/local`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(body),
+            },
+        );
+        const j = await jsonOrThrow<{job_id: string}>(r, "auditLocalCreate");
+        return j.job_id;
+    },
+
+    /** Patch a WASM conversion's audit row to its terminal outcome with
+     * captured metrics. Best-effort at the call site — a lost audit
+     * update must never fail the conversion. */
+    async auditLocalUpdate(
+        scope: ScopeUrl,
+        jobId: string,
+        body: {
+            status: "done" | "ok" | "error" | "skipped" | "cancelled";
+            duration_ms?: number;
+            read_bytes?: number;
+            write_bytes?: number;
+            peak_rss_kb?: number;
+            error?: string | null;
+            traceback?: string | null;
+            metrics_samples?: Array<Record<string, number>>;
+        },
+    ): Promise<void> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/audit/local/${encodeURIComponent(jobId)}`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(body),
+            },
+        );
+        if (!r.ok) {
+            throw new ApiError(`auditLocalUpdate(${jobId})`, r.status, await readDetail(r));
+        }
+    },
+
+    /** Upload a browser-baked FEA artefact tree (a zip of fea.manifest.json
+     * + fea.mesh.glb + fea.*.bin) produced by the in-browser FEM stack. The
+     * server unpacks it under ``_derived/<source>.fea/`` with the worker's
+     * gzip policy. Returns the manifest key. */
+    async uploadFeaArtefacts(scope: ScopeUrl, sourceKey: string, zip: BodyInit): Promise<string> {
+        const url =
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/fea/artefacts` +
+            `?source=${encodeURIComponent(sourceKey)}`;
+        const r = await authedFetch(url, {
+            method: "POST",
+            body: zip,
+            headers: {"Content-Type": "application/zip"},
+        });
+        const j = await jsonOrThrow<{manifest_key: string; count: number}>(r, "uploadFeaArtefacts");
+        return j.manifest_key;
+    },
+
+    /** Build the per-file FEA artefact upload target (URL + auth headers) for
+     * the pyodide worker's synchronous-XHR POSTs (``POST /fea/artefact``, one
+     * file each). The worker thread can't reach the SPA's auth module, so we
+     * capture the bearer header now; all of one bake's POSTs ride this token.
+     * The ``manifest_key`` for the streamed tree is deterministic, so the
+     * caller computes it without a round-trip. */
+    feaArtefactUploadTarget(scope: ScopeUrl, sourceKey: string): {url: string; headers: Record<string, string>} {
+        const url =
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/fea/artefact` +
+            `?source=${encodeURIComponent(sourceKey)}`;
+        return {url, headers: authHeader()};
     },
 
     /** Request a presigned PUT URL for a too-large-to-buffer upload.
@@ -1115,6 +1240,26 @@ export const viewerApi = {
             },
         );
         return jsonOrThrow(r, `requestUploadUrl(${key})`);
+    },
+
+    /** Request a presigned GET URL for direct, Range-capable download from
+     * the object store. Mirrors requestUploadUrl. Used by the in-browser
+     * streaming converter to read a huge source (e.g. a multi-GB SIN) in
+     * ranges without API-tunneling the whole transfer. Local-backed
+     * deployments 503 here — callers fall back to the buffered getBlob path. */
+    async requestDownloadUrl(
+        scope: ScopeUrl,
+        key: string,
+    ): Promise<{url: string; key: string; method: string; expires_in_seconds: number; size: number}> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/download-url`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({key}),
+            },
+        );
+        return jsonOrThrow(r, `requestDownloadUrl(${key})`);
     },
 
     /** Finalise a presigned-URL upload: server confirms the object
@@ -1463,6 +1608,20 @@ export const viewerApi = {
             body: JSON.stringify(body),
         });
         return jsonOrThrow(r, "adminAuditRunCreate");
+    },
+
+    /** Cell matrix for an audit run — drives the in-browser (WASM) sweep
+     * executor. ``done`` flags cells that already have a terminal audit row
+     * for this run, so a reload resumes instead of re-running them. */
+    async adminAuditRunCells(runId: string): Promise<{
+        run_id: string;
+        scope: ScopeUrl;
+        cells: Array<{source_key: string; target_format: string; done: boolean}>;
+    }> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}/cells`,
+        );
+        return jsonOrThrow(r, "adminAuditRunCells");
     },
 
     /** Admin: ambient summary of currently-running audit sweeps.

@@ -41,3 +41,36 @@
  *     static asset URL. Used by paradoc-embed.
  */
 export type FeaFetcher = (filename: string) => Promise<ArrayBuffer>;
+
+/**
+ * Fetch a byte range `[start, end]` (inclusive) of a manifest-relative
+ * file. Returns the bytes plus whether the server actually honoured the
+ * range (`ranged: true` ⇒ a 206 with exactly that window; `ranged:
+ * false` ⇒ the server ignored Range and sent the whole object, e.g. a
+ * legacy gzip-at-rest field blob). Callers use `ranged` to decide
+ * between using the buffer directly as one step vs. parsing the whole
+ * blob and slicing.
+ *
+ * This is what makes opening a many-step field (a 200-mode eigen deck)
+ * fast: the viewer pulls only the shown step (~one stride) instead of
+ * downloading every step's values up front.
+ */
+export type FeaRangeFetcher = (
+    filename: string,
+    start: number,
+    end: number,
+) => Promise<{buf: ArrayBuffer; ranged: boolean}>;
+
+// Session-wide kill switch for per-step Range fetches. Some deployments
+// (a reverse proxy that mishandles Range/206, a service worker, an old
+// backend without Range support) make a ranged request fail outright
+// ("Failed to fetch"). The first such failure flips this off and every
+// field load falls back to the whole-blob fetch — so per-step is never
+// *worse* than the old path, just not faster. Reset on page reload.
+let _rangeSupported = true;
+export function feaRangeSupported(): boolean {
+    return _rangeSupported;
+}
+export function disableFeaRange(): void {
+    _rangeSupported = false;
+}

@@ -2124,6 +2124,22 @@ def _make_sin_reader(path: pathlib.Path) -> "FEAStreamReader":
     # Pure-Python Sesam Norsam-binary reader (see
     # ada.fem.formats.sesam.results.read_sin). No Prepost.exe shell-out
     # and no SIF text intermediate — feeds the streaming bake directly.
+    #
+    # Default: the full-materialise adapter — fastest, and it enriches
+    # step labels from SESTRA.LIS eigen-frequencies. The admin "Stream
+    # SIN FEA bake" toggle sets ADA_FEA_SIN_STREAMER to opt into the
+    # per-step SinStreamReader instead: ~1.7x slower but peak RSS stays
+    # flat in step count, for many-mode / large decks whose full result
+    # would OOM the worker. On the streamer path step labels fall back to
+    # the IRES mode index (no LIS enrichment).
+    import os
+
+    if os.environ.get("ADA_FEA_SIN_STREAMER", "").strip().lower() in {"1", "true", "yes", "on"}:
+        from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+        from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+        return SinStreamReader(open_sin(str(path)))
+
     from ada.fem.formats.sesam.results.read_sin import read_sin_file
 
     return FEAResultStreamAdapter(read_sin_file(path))
@@ -2296,6 +2312,7 @@ def bake_artefacts(
     legacy_glb_url_template: str | None = None,
     nodal_only: bool = True,
     include_element_fields: bool = True,
+    on_artefact: Callable[[pathlib.Path], None] | None = None,
 ) -> BakeResult:
     """Drive the streaming bake end-to-end.
 
@@ -2310,10 +2327,23 @@ def bake_artefacts(
     ``iter_field_steps`` callers still drop non-nodal specs (the
     nodal blob writer can't handle them). Element fields flow
     through the new ``iter_element_field_steps`` path instead.
-    """
+
+    ``on_artefact``: optional sink invoked with each artefact file's
+    path *immediately after it is fully written* (the manifest last).
+    It lets a caller ship each file as it lands — e.g. the in-browser
+    bake uploads and then unlinks each blob, so the output tree never
+    has to reside whole in wasm memory before a zip. Manifest
+    construction reads only in-memory metas (never the blob bytes), so
+    a sink that deletes the file after shipping it is safe. The
+    returned ``BakeResult`` still lists every path; whether those
+    files survive on disk is the sink's choice."""
 
     out_dir = pathlib.Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    def emit(path: pathlib.Path) -> None:
+        if on_artefact is not None:
+            on_artefact(path)
 
     geom = reader.read_mesh_geometry()
 
@@ -2327,6 +2357,7 @@ def bake_artefacts(
 
     mesh_glb_path = out_dir / "fea.mesh.glb"
     write_mesh_glb(geom, mesh_glb_path, faces=topology.faces)
+    emit(mesh_glb_path)
 
     # Element edges (deduped) — frontend renders them as a
     # LineSegments overlay sharing the mesh's position attribute,
@@ -2335,6 +2366,7 @@ def bake_artefacts(
     # the deformation automatically.
     mesh_edges_path = out_dir / "fea.mesh.edges.bin"
     n_edges = write_mesh_edges(geom, mesh_edges_path, edges=topology.edges)
+    emit(mesh_edges_path)
 
     # Per-element draw ranges — frontend hydrates these into
     # userdata.id_hierarchy + userdata.draw_ranges_<meshName> so the
@@ -2342,6 +2374,7 @@ def bake_artefacts(
     # pipeline without a parallel selection path.
     mesh_elements_path = out_dir / "fea.mesh.elements.bin"
     n_elements = write_mesh_elements(geom, mesh_elements_path, element_ranges=topology.element_ranges)
+    emit(mesh_elements_path)
 
     # Beam-solid mesh — optional, depends on whether the reader has
     # section + axis info per beam (SIF via FEAResultStreamAdapter
@@ -2362,8 +2395,10 @@ def bake_artefacts(
     if solid_beams is not None and solid_beams.triangles.size:
         beam_solids_glb_path = out_dir / "fea.beam_solids.glb"
         write_beam_solids_glb(solid_beams, beam_solids_glb_path)
+        emit(beam_solids_glb_path)
         beam_solids_elements_path = out_dir / "fea.beam_solids.elements.bin"
         n_beam_solids = write_beam_solids_elements(solid_beams, beam_solids_elements_path)
+        emit(beam_solids_elements_path)
         # AFBV warp mapping — every solid vertex's parent beam
         # endpoints + axial parameter. Skip when the reader didn't
         # populate the vertex_* arrays (defensive: the SIF adapter
@@ -2371,11 +2406,13 @@ def bake_artefacts(
         if solid_beams.vertex_node0.size:
             beam_solids_warp_path = out_dir / "fea.beam_solids.warp.bin"
             n_beam_solid_verts = write_beam_solids_warp(solid_beams, beam_solids_warp_path)
+            emit(beam_solids_warp_path)
         # AFEG element-boundary wireframe for the solid mesh. Without
         # this the beam solids render as one continuous tube — see the
         # writer docstring for the boundary-edge rules.
         beam_solids_edges_path = out_dir / "fea.beam_solids.edges.bin"
         n_beam_solid_edges = write_beam_solids_edges(solid_beams, beam_solids_edges_path)
+        emit(beam_solids_edges_path)
 
     field_metas: list[FieldArtefactMeta] = []
     blob_paths: list[pathlib.Path] = []
@@ -2386,6 +2423,7 @@ def bake_artefacts(
         meta = write_field_blob_streaming(reader, spec, blob_path)
         field_metas.append(meta)
         blob_paths.append(blob_path)
+        emit(blob_path)
 
     elem_field_metas: list[ElementFieldArtefactMeta] = []
     if include_element_fields:
@@ -2405,6 +2443,7 @@ def bake_artefacts(
             em = write_element_field_blob_streaming(reader, es, blob_path)
             elem_field_metas.append(em)
             blob_paths.append(blob_path)
+            emit(blob_path)
 
     # History output — time series at monitored points. Optional; the
     # bake tolerates readers that pre-date the method (AttributeError)
@@ -2469,6 +2508,7 @@ def bake_artefacts(
     )
     manifest_path = out_dir / "fea.manifest.json"
     write_manifest(manifest, manifest_path)
+    emit(manifest_path)
 
     return BakeResult(
         out_dir=out_dir,

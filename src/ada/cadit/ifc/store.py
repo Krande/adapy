@@ -207,7 +207,7 @@ class IfcStore:
         mod_str = f"Modified {num_mod} objects"
         del_str = f"Deleted {num_del} objects"
 
-        print(f"Sync Complete. {add_str}. {mod_str}. {del_str}")
+        logger.info(f"Sync Complete. {add_str}. {mod_str}. {del_str}")
         self.callback = None
 
     def save_to_file(self, filepath: str | os.PathLike):
@@ -287,7 +287,7 @@ class IfcStore:
         for obj in self.assembly.get_all_parts_in_assembly(include_self=True):
             obj.change_type = ChangeAction.NOCHANGE
 
-        print(f'Import of IFC file "{ifc_file_name}" is complete')
+        logger.info(f'Import of IFC file "{ifc_file_name}" is complete')
 
     def get_ifc_geom(self, ifc_elem, settings: ifcopenshell.geom.settings):
         return ifcopenshell.geom.create_shape(settings, inst=ifc_elem)

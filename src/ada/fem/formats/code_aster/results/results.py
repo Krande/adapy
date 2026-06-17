@@ -95,7 +95,7 @@ def get_eigen_frequency_deformed_meshes(rmed_file):
             eig_deformed_meshes.append(nodes + np.delete(dofs, np.s_[2:5], 1))
             mode = m.attrs["NDT"]
             freq = m.attrs["PDT"]
-            print(mode, freq)
+            logger.debug("mode=%s freq=%s", mode, freq)
 
     # TODO: Figure out what kind of information is needed for animating frames in threejs/blender
     return fem, eig_deformed_meshes

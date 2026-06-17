@@ -775,6 +775,12 @@ class AdacppBackend:
         # bytes object so callers don't need to know about the underlying type.
         return bytes(self._cad.write_glb_bytes(shape, linear_deflection))
 
+    def serialize_brep(self, shape: ShapeHandle) -> str:
+        # OCCT BRepTools_ShapeSet text — the BREP string ifcopenshell.geom.serialise
+        # consumes for the IFC tessellation fallback. Lets *→ifc work under the
+        # adacpp backend / wasm (ifcopenshell's wasm wheel ships no occ_utils).
+        return self._cad.serialize_brep(shape)
+
     def write_step(
         self, shapes: list, names: list, colors: list, filename: str, unit: str = "m", schema: str = "AP214"
     ) -> None:

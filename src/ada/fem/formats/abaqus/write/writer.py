@@ -3,6 +3,8 @@ from __future__ import annotations
 from io import StringIO
 from typing import TYPE_CHECKING
 
+from ada.config import logger
+
 from .write_amplitudes import amplitudes_str
 from .write_bc import boundary_conditions_str
 from .write_connectors import connector_section_str, connector_str
@@ -127,4 +129,4 @@ def to_fem(
 
         bundle_deck(analysis_dir, name)
 
-    print(f'Created an Abaqus input deck at "{analysis_dir}"')
+    logger.info(f'Created an Abaqus input deck at "{analysis_dir}"')

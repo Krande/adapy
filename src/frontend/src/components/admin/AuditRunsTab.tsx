@@ -1,5 +1,9 @@
 import React, {useCallback, useEffect, useMemo, useState} from "react";
 import {viewerApi, AuditRun, AuditRunJob, Corpus} from "@/services/viewerApi";
+import {runWasmAuditSweep, WasmSweepProgress} from "@/services/audit/wasmSweep";
+
+// Synthetic worker-pool value routing a run to the in-browser WASM engine.
+const WASM_POOL = "wasm";
 
 // Admin tab — kick off regression sweeps across the converter matrix
 // and drill into per-cell results. Layer 1 of the audit panel from
@@ -297,6 +301,10 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
     const [forceRebuild, setForceRebuild] = useState(false);
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
+    // In-browser sweep progress (WASM pool only); null when idle.
+    const [sweep, setSweep] = useState<WasmSweepProgress | null>(null);
+    const [sweepErr, setSweepErr] = useState<string | null>(null);
+    const isWasmPool = workerPool.trim().toLowerCase() === WASM_POOL;
     // Distinct capability tags advertised by every currently-online
     // worker (M2). Used to populate the pool picker so the operator
     // can't typo a tag — if a regression pod isn't registered yet,
@@ -343,8 +351,9 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
     const createRun = useCallback(async (validateOnly: boolean) => {
         setBusy(true);
         setErr(null);
+        setSweepErr(null);
         try {
-            await viewerApi.adminAuditRunCreate({
+            const run = await viewerApi.adminAuditRunCreate({
                 scope,
                 worker_pool: workerPool.trim() || null,
                 note: note.trim() || null,
@@ -353,12 +362,23 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
             });
             setNote("");
             onCreated();
+            // A WASM run is created server-side but dispatches nothing — the
+            // browser drives its cells here. Fire-and-forget: the runs list
+            // polls and reflects progress from the audit rows the sweep
+            // writes; we also surface a local progress line.
+            if (isWasmPool && !validateOnly) {
+                setSweep({total: 0, completed: 0, current: null});
+                void runWasmAuditSweep(scope, run.id, (p) => setSweep(p))
+                    .then(() => onCreated())
+                    .catch((e) => setSweepErr((e as Error).message || "wasm sweep failed"))
+                    .finally(() => setSweep(null));
+            }
         } catch (e) {
             setErr((e as Error).message || "audit run create failed");
         } finally {
             setBusy(false);
         }
-    }, [scope, workerPool, note, forceRebuild, onCreated]);
+    }, [scope, workerPool, note, forceRebuild, onCreated, isWasmPool]);
 
     const onSubmit = useCallback((e: React.FormEvent) => {
         e.preventDefault();
@@ -403,6 +423,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                     }
                 >
                     <option value="">any pool</option>
+                    <option value={WASM_POOL}>WASM (in-browser)</option>
                     {capabilities.map((c) => (
                         <option key={c} value={c}>{c}</option>
                     ))}
@@ -453,6 +474,22 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
             </button>
             {err && (
                 <div className="w-full text-xs text-red-400" role="alert">{err}</div>
+            )}
+            {isWasmPool && (
+                <div className="w-full text-xs text-amber-300/90">
+                    In-browser sweep: runs in this tab via the WASM engine — keep it open until it finishes.
+                    Reopening resumes (completed cells are skipped); non-WASM cells (e.g. <code>.odb</code>,
+                    non-GLB targets) are recorded as skipped.
+                </div>
+            )}
+            {sweep && (
+                <div className="w-full text-xs text-gray-300" role="status">
+                    Sweeping {sweep.completed}/{sweep.total}
+                    {sweep.current ? <> — <span className="font-mono text-gray-400">{sweep.current}</span></> : null}
+                </div>
+            )}
+            {sweepErr && (
+                <div className="w-full text-xs text-red-400" role="alert">sweep: {sweepErr}</div>
             )}
         </form>
     );

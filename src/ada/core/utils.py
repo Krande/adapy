@@ -109,7 +109,7 @@ def thread_this(list_in, function, cpus=4):
     out_res = []
     for r in res:
         out_res += r
-        print(r)
+        logger.debug(r)
     return out_res
 
 

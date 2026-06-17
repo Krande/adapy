@@ -39,6 +39,7 @@ from .converter import (
     UnsupportedFormat,
     derived_key_for,
     fea_artefact_manifest_key_for,
+    fea_artefact_prefix_for,
     fea_meta_key_for,
     is_fea_artefact_source,
     is_fea_result_key,
@@ -729,13 +730,100 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse({"files": out})
 
+    async def _serve_blob_range(request: Request, scope_obj: Scope, key: str, range_header: str) -> Response | None:
+        """Serve a single byte range of an identity-stored object as 206.
+
+        Returns ``None`` (caller serves the whole object) when the range
+        can't be honoured: a gzip-at-rest object, a malformed/multi-range
+        header, or an unsatisfiable window. Only a single ``bytes=a-b``
+        range is supported — that's all the FEA per-step fetch needs."""
+        spec = range_header.strip()
+        if not spec.lower().startswith("bytes=") or "," in spec:
+            return None  # only single-range bytes= supported
+        rng = spec[len("bytes=") :].strip()
+        if "-" not in rng:
+            return None
+        start_s, end_s = rng.split("-", 1)
+        try:
+            # Ranges over a gzipped body would hand back compressed bytes;
+            # let the caller serve the whole object instead.
+            if await storage.is_gzip_stored(scope_obj, key):
+                return None
+            meta = await storage.head(scope_obj, key)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail=f"not found: {key}")
+        if meta is None:
+            raise HTTPException(status_code=404, detail=f"not found: {key}")
+        size = int(meta["size"])
+        try:
+            if start_s == "":
+                # suffix range: bytes=-N → last N bytes
+                n = int(end_s)
+                start = max(0, size - n)
+                end = size - 1
+            else:
+                start = int(start_s)
+                end = int(end_s) if end_s != "" else size - 1
+        except ValueError:
+            return None
+        if start < 0 or start >= size or end < start:
+            # 416 Range Not Satisfiable
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+        end = min(end, size - 1)
+        length = end - start + 1
+        try:
+            chunk = await storage.get_range(scope_obj, key, start, length)
+        except Exception as exc:
+            logger.warning("blob range fetch failed for %s [%d,%d]: %s", key, start, end, exc)
+            return None
+        # Content-Length is left to Starlette (derived from the body) so it
+        # can never disagree with the payload — a mismatch makes some
+        # reverse proxies emit a broken response ("Failed to fetch").
+        return Response(
+            content=chunk,
+            status_code=206,
+            media_type="application/octet-stream",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes {start}-{end}/{size}",
+            },
+        )
+
     @api.get("/scopes/{scope}/blobs/{key:path}")
     async def api_scope_blob_get(
         key: str,
         request: Request,
         scope_obj: Scope = Depends(_scope_from_path),
         user: User = Depends(auth_module.current_user),
-    ) -> StreamingResponse:
+    ) -> Response:
+        from .converter import is_derived_key
+
+        # Range support — lets the FEA viewer pull a single step out of a
+        # multi-step field blob instead of downloading the whole stack of
+        # steps. Only valid for identity-stored objects; gzip-at-rest blobs
+        # (manifest JSON, legacy field blobs) are served whole with
+        # Content-Encoding so the browser auto-decompresses.
+        #
+        # The range can arrive two ways: the standard ``Range`` header, or
+        # ``?range_start=&range_end=`` query params. The query-param form is
+        # proxy-proof — some ingresses/CDNs (notably on the mobile path)
+        # strip the Range *header*, which would silently fall back to a
+        # whole-blob download; a query string always survives.
+        qp = request.query_params
+        range_header = request.headers.get("range")
+        if "range_start" in qp:
+            rs = (qp.get("range_start") or "").strip()
+            re_ = (qp.get("range_end") or "").strip()
+            if rs:
+                range_header = f"bytes={rs}-{re_}"
+        if range_header:
+            served = await _serve_blob_range(request, scope_obj, key, range_header)
+            if served is not None:
+                if not is_derived_key(key):
+                    await _audit(request, user, scope_obj, "download", key=key, status="ok")
+                return served
+            # else: fall through to whole-object stream (gzipped/un-rangeable)
+
         try:
             result = await storage.open_stream(scope_obj, key)
         except FileNotFoundError as exc:
@@ -746,11 +834,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Audit user-driven downloads, not derived blob fetches — the
         # latter happen for every /api/rpc VIEW_FILE_OBJECT cycle and
         # would drown the log.
-        from .converter import is_derived_key
-
         if not is_derived_key(key):
             await _audit(request, user, scope_obj, "download", key=key, status="ok")
-        headers: dict[str, str] = {}
+        headers: dict[str, str] = {"Accept-Ranges": "bytes"}
         if result.content_encoding:
             # See storage.py: gzipped sources/derived round-trip via
             # Content-Encoding so the browser auto-decompresses.
@@ -943,6 +1029,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         source = (request.query_params.get("source") or "").strip().lstrip("/")
         target = (request.query_params.get("target") or "glb").strip().lstrip(".").lower()
+        # When the caller drives its own audit lifecycle via the
+        # ``audit/local`` endpoints (the WASM pipeline, which records a
+        # metrics-rich two-phase row), suppress the auto-audit here so a
+        # single conversion doesn't produce two audit_log rows.
+        managed_audit = (request.query_params.get("managed_audit") or "").strip().lower() in ("1", "true", "yes")
         if not source:
             raise HTTPException(status_code=400, detail="source query param required")
         if not await _is_accepted_source(source):
@@ -986,6 +1077,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await storage.put_bytes(scope_obj, derived_key, data)
         except Exception as exc:
             logger.exception("derived upload failed for %s", derived_key)
+            if not managed_audit:
+                await _audit(
+                    request,
+                    user,
+                    scope_obj,
+                    "convert",
+                    key=source,
+                    target_format=target,
+                    status="error",
+                    error=str(exc),
+                )
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        if not managed_audit:
             await _audit(
                 request,
                 user,
@@ -993,20 +1097,326 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "convert",
                 key=source,
                 target_format=target,
-                status="error",
-                error=str(exc),
+                status="done",
             )
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-        await _audit(
-            request,
-            user,
-            scope_obj,
-            "convert",
-            key=source,
-            target_format=target,
-            status="done",
-        )
         return JSONResponse({"key": derived_key, "size": len(data)}, status_code=201)
+
+    # ── Browser-driven (WASM) conversion audit ────────────────────────
+    #
+    # The in-browser pyodide engine runs conversions with no NATS job, so
+    # it can't ride the worker's queued→running→done audit lifecycle.
+    # These two routes give it parity: open a 'running' row (returns a
+    # ``wasm-<uuid>`` job_id), then patch it terminal with metrics. The
+    # ``wasm-`` job_id prefix + ``wasm:`` image tag let the audit panel
+    # tell in-browser rows from worker rows; the ``wasm-`` guard on the
+    # update stops a browser from mutating a worker's row.
+    _WASM_JOB_PREFIX = "wasm-"
+
+    @api.post("/scopes/{scope}/audit/local")
+    async def api_scope_audit_local_create(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Open an audit row for an in-browser (WASM) conversion.
+
+        Body (JSON): ``{key, target_format, audit_run_id?, image_tag?}``.
+        ``audit_run_id`` attaches the row to an admin audit-run sweep
+        (section F) and is admin-only. Returns ``{job_id}``.
+        """
+        import uuid
+
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            raise HTTPException(status_code=503, detail="audit requires a database")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="body must be a JSON object")
+        key = (str(body.get("key") or "")).strip().lstrip("/") or None
+        target_format = (str(body.get("target_format") or "")).strip().lstrip(".").lower() or None
+        image_tag = body.get("image_tag")
+        worker_image_tag = (
+            image_tag if (isinstance(image_tag, str) and image_tag.startswith("wasm:")) else "wasm:unknown"
+        )
+        audit_run_id = body.get("audit_run_id")
+        if audit_run_id is not None:
+            audit_run_id = str(audit_run_id).strip() or None
+        if audit_run_id is not None:
+            if not getattr(user, "is_admin", False):
+                raise HTTPException(status_code=403, detail="audit_run_id requires admin")
+            # audit_run_id is a UUID column; a malformed value would raise
+            # a DataError deep in asyncpg. Treat any lookup failure as
+            # "no such run" so a bad id is a clean 404, not a 500.
+            try:
+                run = await db_module.get_audit_run(pool, audit_run_id)
+            except Exception:
+                run = None
+            if run is None:
+                raise HTTPException(status_code=404, detail="audit run not found")
+
+        job_id = _WASM_JOB_PREFIX + uuid.uuid4().hex
+        try:
+            await db_module.insert_audit(
+                pool,
+                user_sub=user.sub,
+                scope_kind=scope_obj.kind,
+                scope_id=scope_obj.id,
+                action="convert",
+                key=key,
+                target_format=target_format,
+                status="running",
+                job_id=job_id,
+                audit_run_id=audit_run_id,
+                worker_image_tag=worker_image_tag,
+            )
+        except Exception as exc:
+            logger.exception("audit/local create failed")
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return JSONResponse({"job_id": job_id}, status_code=201)
+
+    @api.post("/scopes/{scope}/audit/local/{job_id}")
+    async def api_scope_audit_local_update(
+        job_id: str,
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Patch a WASM conversion's audit row to its terminal outcome.
+
+        Body (JSON): ``{status, error?, traceback?, duration_ms?,
+        read_bytes?, write_bytes?, peak_rss_kb?, metrics_samples?}``.
+        ``status`` ∈ {done, ok, error, skipped, cancelled}. Guarded so a
+        browser can only patch its own ``wasm-`` rows.
+        """
+        # Reject a malformed id before touching infra so the guard is
+        # independent of DB availability.
+        if not job_id.startswith(_WASM_JOB_PREFIX):
+            raise HTTPException(status_code=400, detail="job_id must be a wasm- local id")
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            raise HTTPException(status_code=503, detail="audit requires a database")
+        owner = await db_module.get_audit_owner_by_job(pool, job_id)
+        if owner is None:
+            raise HTTPException(status_code=404, detail="audit row not found")
+        # Ownership: the row's creator, or an admin (audit-run sweeps).
+        if owner["user_sub"] != user.sub and not getattr(user, "is_admin", False):
+            raise HTTPException(status_code=403, detail="forbidden")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="body must be a JSON object")
+        status = (str(body.get("status") or "")).strip().lower()
+        _allowed = {"done", "ok", "error", "skipped", "cancelled"}
+        if status not in _allowed:
+            raise HTTPException(status_code=400, detail=f"status must be one of {sorted(_allowed)}")
+
+        def _int_or_none(v):
+            try:
+                return int(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        try:
+            await db_module.update_audit_by_job(
+                pool,
+                job_id=job_id,
+                status=status,
+                error=(str(body["error"]) if body.get("error") is not None else None),
+                duration_ms=_int_or_none(body.get("duration_ms")),
+                traceback=(str(body["traceback"]) if body.get("traceback") is not None else None),
+                peak_rss_kb=_int_or_none(body.get("peak_rss_kb")),
+                read_bytes=_int_or_none(body.get("read_bytes")),
+                write_bytes=_int_or_none(body.get("write_bytes")),
+            )
+        except Exception as exc:
+            logger.exception("audit/local update failed for %s", job_id)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        # Optional heartbeat samples — best-effort, must never fail the call.
+        samples = body.get("metrics_samples")
+        if isinstance(samples, list):
+            for s in samples:
+                if not isinstance(s, dict):
+                    continue
+                try:
+                    await db_module.append_metrics_sample_by_job(pool, job_id=job_id, sample=s)
+                except Exception:
+                    logger.exception("audit/local: metrics sample append failed for %s", job_id)
+        return JSONResponse({"ok": True})
+
+    @api.post("/scopes/{scope}/fea/artefacts")
+    async def api_scope_fea_artefacts_upload(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Upload a browser-baked FEA artefact tree (section D).
+
+        The pyodide FEM stack runs ``bake_fea_artefacts_from_source`` in
+        the browser and zips the output dir; the body is that raw zip.
+        Each entry (``fea.manifest.json``, ``fea.mesh.glb``,
+        ``fea.<field>.bin``, ...) is written under the canonical
+        ``_derived/<source>.fea/`` prefix with the *same* gzip policy the
+        worker uses (``storage.put_bytes`` compresses ``.json``/``.bin``;
+        the mesh GLB is stored as-is), so the existing streaming-FEA
+        reader consumes it unchanged.
+
+        Query: ``source`` (existing source key in the scope).
+        """
+        import io
+        import posixpath
+        import zipfile
+
+        source = (request.query_params.get("source") or "").strip().lstrip("/")
+        if not source:
+            raise HTTPException(status_code=400, detail="source query param required")
+        # Gate on the FEA-artefact source set (.rmed/.sif/...), the same
+        # predicate the GET /fea/manifest worker route uses — not the
+        # general convert-source check, since these sources have no
+        # convert-registry target and the browser path runs worker-free.
+        if not is_fea_artefact_source(source):
+            raise HTTPException(status_code=415, detail=f"not a FEA artefact source: {source}")
+        try:
+            source_exists = await storage.exists(scope_obj, source)
+        except Exception:
+            source_exists = False
+        if not source_exists:
+            raise HTTPException(status_code=404, detail=f"source not found in scope: {source}")
+
+        cl = request.headers.get("content-length")
+        if cl is not None:
+            try:
+                announced = int(cl)
+            except ValueError:
+                announced = -1
+            if announced > _DIRECT_UPLOAD_THRESHOLD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"fea artefact upload exceeds {_DIRECT_UPLOAD_THRESHOLD_BYTES} bytes",
+                )
+
+        data = await request.body()
+        if not data:
+            raise HTTPException(status_code=400, detail="empty body")
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(data))
+        except zipfile.BadZipFile as exc:
+            raise HTTPException(status_code=400, detail=f"body is not a valid zip: {exc}") from exc
+
+        # Each entry must be a bare ``fea.*`` filename — no subdirs, no
+        # path traversal — so a crafted zip can't escape the per-source
+        # prefix and write arbitrary keys.
+        entries = [n for n in zf.namelist() if not n.endswith("/")]
+        for n in entries:
+            base = posixpath.basename(n)
+            if base != n or not base or base.startswith(".") or not base.startswith("fea."):
+                raise HTTPException(status_code=400, detail=f"illegal artefact entry: {n!r}")
+        names = {posixpath.basename(n) for n in entries}
+        if "fea.manifest.json" not in names:
+            raise HTTPException(status_code=400, detail="zip missing fea.manifest.json")
+
+        prefix = fea_artefact_prefix_for(source)
+        written = 0
+        try:
+            for n in entries:
+                base = posixpath.basename(n)
+                payload = zf.read(n)
+                # Mirror the worker's compression policy exactly: gzip only
+                # the manifest JSON; store .bin blobs (and the mesh GLB)
+                # identity so the viewer can HTTP-Range a single field step.
+                content_encoding = "gzip" if base.lower().endswith(".json") else None
+                await storage.put_bytes(
+                    scope_obj,
+                    prefix + base,
+                    payload,
+                    content_encoding=content_encoding,
+                )
+                written += 1
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("fea artefact upload failed for %s", source)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        return JSONResponse(
+            {"manifest_key": fea_artefact_manifest_key_for(source), "count": written},
+            status_code=201,
+        )
+
+    @api.post("/scopes/{scope}/fea/artefact")
+    async def api_scope_fea_artefact_upload_one(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Upload a *single* browser-baked FEA artefact file (section D).
+
+        The per-file counterpart of ``POST /fea/artefacts`` (zip): the
+        in-browser bake ships each ``fea.*`` file as it lands instead of
+        accumulating the whole tree and zipping it, so neither the browser
+        (output tree + zip) nor this endpoint (whole zip in memory, capped
+        by the direct-upload threshold) has to hold the entire artefact set
+        at once. Same prefix, same per-extension gzip policy as the zip
+        route, so the streaming-FEA reader consumes the result unchanged.
+
+        Query: ``source`` (existing source key) + ``name`` (the bare
+        ``fea.*`` filename). Body: the raw file bytes.
+        """
+        import posixpath
+
+        source = (request.query_params.get("source") or "").strip().lstrip("/")
+        if not source:
+            raise HTTPException(status_code=400, detail="source query param required")
+        if not is_fea_artefact_source(source):
+            raise HTTPException(status_code=415, detail=f"not a FEA artefact source: {source}")
+
+        name = (request.query_params.get("name") or "").strip()
+        base = posixpath.basename(name)
+        # Same guard as the zip route: a bare ``fea.*`` filename only — no
+        # subdirs, no traversal, so a request can't escape the per-source
+        # prefix and write an arbitrary key.
+        if base != name or not base or base.startswith(".") or not base.startswith("fea."):
+            raise HTTPException(status_code=400, detail=f"illegal artefact name: {name!r}")
+
+        try:
+            source_exists = await storage.exists(scope_obj, source)
+        except Exception:
+            source_exists = False
+        if not source_exists:
+            raise HTTPException(status_code=404, detail=f"source not found in scope: {source}")
+
+        cl = request.headers.get("content-length")
+        if cl is not None:
+            try:
+                announced = int(cl)
+            except ValueError:
+                announced = -1
+            if announced > _DIRECT_UPLOAD_THRESHOLD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"fea artefact file exceeds {_DIRECT_UPLOAD_THRESHOLD_BYTES} bytes",
+                )
+
+        data = await request.body()
+        if not data:
+            raise HTTPException(status_code=400, detail="empty body")
+
+        prefix = fea_artefact_prefix_for(source)
+        # gzip only the manifest JSON; .bin blobs stay identity so the
+        # viewer can HTTP-Range a single field step (see the blobs route).
+        content_encoding = "gzip" if base.lower().endswith(".json") else None
+        try:
+            await storage.put_bytes(scope_obj, prefix + base, data, content_encoding=content_encoding)
+        except Exception as exc:
+            logger.exception("fea artefact file upload failed for %s/%s", source, base)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        return JSONResponse({"key": prefix + base, "name": base}, status_code=201)
 
     @api.post("/scopes/{scope}/upload-url")
     async def api_scope_upload_url(
@@ -2171,7 +2581,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         now = time.time()
         # Annotate each row with a derived ``online`` boolean so the
         # frontend doesn't have to recompute the staleness threshold.
-        stale_after_s = 60.0
+        # Same window the routing path uses (queue._capability_for_ext) so
+        # "shown online in the UI" and "eligible for auto-routing" agree.
+        stale_after_s = queue.WORKER_STALE_AFTER_S
         for w in workers:
             hb = w.get("last_heartbeat")
             try:
@@ -2786,6 +3198,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.info("issue-bot poller: stopped")
             raise
 
+    async def _audit_run_list_cells(
+        scope_obj: Scope,
+        validate_only: bool,
+    ) -> list[tuple[str, str]]:
+        """Enumerate the (source_key, target_format) cells for an audit
+        run over ``scope_obj`` — the scope's non-derived, supported
+        source files crossed with the converter matrix. ``validate_only``
+        emits only per-source ``parity`` cells. Shared by the NATS
+        dispatcher, the WASM dispatcher, and the cells endpoint so the
+        three never disagree on what a run covers. May raise on a scope
+        listing failure (caller decides how to surface it)."""
+        from .converter import ConverterRegistry, is_derived_key, is_supported_source
+
+        files = await storage.list(scope_obj)
+        cells: list[tuple[str, str]] = []
+        for f in files:
+            if is_derived_key(f.key):
+                continue
+            if not is_supported_source(f.key):
+                continue
+            ext = pathlib.PurePosixPath(f.key).suffix.lower()
+            targets = ConverterRegistry.targets_for(ext)
+            if validate_only:
+                # A validation run does cross-format visual-parity only (no conversion
+                # grid), and only when the source can produce a structure-preserving
+                # format to compare against. Parity is a validation concern — full
+                # conversion runs do not emit parity cells.
+                if any(t in ("ifc", "xml", "step") for t in targets):
+                    cells.append((f.key, "parity"))
+            else:
+                for target_format in targets:
+                    cells.append((f.key, target_format))
+        return cells
+
     async def _audit_dispatch(
         run_id: str,
         scope_obj: Scope,
@@ -2810,43 +3256,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         audit row on the cell that tripped them — the run still
         finishes when the rest of the jobs complete.
         """
-        from .converter import (
-            ConverterRegistry,
-            derived_key_for,
-            is_derived_key,
-            is_supported_source,
-        )
+        from .converter import derived_key_for
 
         synthetic_user = type("AdminAuditUser", (), {"sub": user_sub})()
-        try:
-            files = await storage.list(scope_obj)
-        except Exception:
-            logger.exception("audit run %s: scope listing failed", run_id)
-            await db_module.set_audit_run_total(pool, run_id, 0)
-            return
-
         # Collect viable cells before enqueueing so the total is
         # exact — set_audit_run_total flips the row to 'finished'
         # if it gets zero, so a typo'd scope shows up immediately in
         # the UI rather than as a perpetually-running ghost.
-        cells: list[tuple[str, str]] = []
-        for f in files:
-            if is_derived_key(f.key):
-                continue
-            if not is_supported_source(f.key):
-                continue
-            ext = pathlib.PurePosixPath(f.key).suffix.lower()
-            targets = ConverterRegistry.targets_for(ext)
-            if validate_only:
-                # A validation run does cross-format visual-parity only (no conversion
-                # grid), and only when the source can produce a structure-preserving
-                # format to compare against. Parity is a validation concern — full
-                # conversion runs do not emit parity cells.
-                if any(t in ("ifc", "xml", "step") for t in targets):
-                    cells.append((f.key, "parity"))
-            else:
-                for target_format in targets:
-                    cells.append((f.key, target_format))
+        try:
+            cells = await _audit_run_list_cells(scope_obj, validate_only)
+        except Exception:
+            logger.exception("audit run %s: scope listing failed", run_id)
+            await db_module.set_audit_run_total(pool, run_id, 0)
+            return
 
         await db_module.set_audit_run_total(pool, run_id, len(cells))
         if not cells:
@@ -2993,6 +3415,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 pool=pool,
             )
 
+    # Synthetic worker_pool value that routes an audit run to the
+    # in-browser WASM engine instead of a NATS worker pool.
+    _WASM_POOL = "wasm"
+
+    async def _audit_dispatch_wasm(
+        run_id: str,
+        scope_obj: Scope,
+        pool,
+        validate_only: bool = False,
+    ) -> None:
+        """WASM audit run: enumerate cells + set the run total, but do
+        NOT enqueue anything. The browser fetches the cell matrix via
+        ``GET /admin/audit/runs/{id}/cells`` and runs each cell in
+        pyodide, writing its audit row through the ``audit/local``
+        endpoints (which carry the ``audit_run_id`` and bump the run
+        counters). Mirrors the zero-cell short-circuit so a typo'd scope
+        finishes immediately rather than hanging as a ghost run."""
+        try:
+            cells = await _audit_run_list_cells(scope_obj, validate_only)
+        except Exception:
+            logger.exception("wasm audit run %s: scope listing failed", run_id)
+            await db_module.set_audit_run_total(pool, run_id, 0)
+            return
+        await db_module.set_audit_run_total(pool, run_id, len(cells))
+
     @admin.post("/audit/runs")
     async def admin_audit_run_create(
         request: Request,
@@ -3002,9 +3449,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Kick off a regression sweep across one scope.
 
         Body: ``{"scope": "shared" | "user:me" | "project:<id>",
-                 "worker_pool": "audit" | null,
+                 "worker_pool": "audit" | "wasm" | null,
                  "note": "...",
                  "force_rebuild": false }``.
+
+        ``worker_pool="wasm"`` runs the sweep in the browser (no NATS):
+        the run is created and its cell total computed, but nothing is
+        enqueued — the SPA drives the cells via the WASM engine. Every
+        other pool routes to a NATS worker as before.
 
         ``force_rebuild`` skips the cached-cell short-circuit so
         every cell actually re-converts. Default false — daily
@@ -3013,15 +3465,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Returns 202 with the new run id; client polls
         ``GET /admin/audit/runs/{id}`` for progress.
         """
-        if not queue.enabled:
-            raise HTTPException(
-                status_code=503,
-                detail="conversion disabled (no NATS configured)",
-            )
         pool = _require_pool(request)
         body = await request.json() if await request.body() else {}
         scope_str = (body.get("scope") or "shared").strip()
         worker_pool = body.get("worker_pool") or None
+        is_wasm = isinstance(worker_pool, str) and worker_pool.strip().lower() == _WASM_POOL
+        # The browser engine needs no NATS; only worker-pool runs do.
+        if not is_wasm and not queue.enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="conversion disabled (no NATS configured)",
+            )
         note = body.get("note") or None
         force_rebuild = bool(body.get("force_rebuild") or False)
         # validate_only: a validation-phase run — enqueue only the per-source
@@ -3037,22 +3491,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         run = await db_module.create_audit_run(
             pool,
             scope=scope_str,
-            worker_pool=worker_pool,
+            worker_pool=(_WASM_POOL if is_wasm else worker_pool),
             trigger="manual",
             note=note,
             created_by=user.sub,
             force_rebuild=force_rebuild,
         )
-        background_tasks.add_task(
-            _audit_dispatch,
-            run["id"],
-            s,
-            worker_pool,
-            user.sub,
-            pool,
-            force_rebuild,
-            validate_only,
-        )
+        if is_wasm:
+            # Parity cells are a worker-only concern (no browser parity
+            # engine), so a WASM run is always the full conversion grid —
+            # validate_only is ignored here and in the cells endpoint so
+            # the run total and the browser's cell list always agree.
+            background_tasks.add_task(
+                _audit_dispatch_wasm,
+                run["id"],
+                s,
+                pool,
+            )
+        else:
+            background_tasks.add_task(
+                _audit_dispatch,
+                run["id"],
+                s,
+                worker_pool,
+                user.sub,
+                pool,
+                force_rebuild,
+                validate_only,
+            )
         return JSONResponse(run, status_code=202)
 
     @admin.get("/audit/active")
@@ -3122,6 +3588,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="audit run not found or not in running state",
             )
         return JSONResponse(run)
+
+    @admin.get("/audit/runs/{run_id}/cells")
+    async def admin_audit_run_cells(
+        run_id: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Cell matrix for an audit run — drives the browser (WASM)
+        sweep executor (section F).
+
+        Returns ``{run_id, scope, cells: [{source_key, target_format,
+        done}]}`` where ``done`` flags cells that already have a terminal
+        audit row for this run, so a reload resumes (skips finished cells)
+        instead of re-running them. Cells come from the same enumeration
+        the dispatcher used, so the list matches the run's total.
+        """
+        pool = _require_pool(request)
+        # get_audit_run takes a UUID column; a malformed id would raise
+        # deep in asyncpg — treat any lookup miss as 404.
+        try:
+            run = await db_module.get_audit_run(pool, run_id)
+        except Exception:
+            run = None
+        if run is None:
+            raise HTTPException(status_code=404, detail="audit run not found")
+
+        scope_str = run["scope"]
+        s = _parse_scope(scope_str, user)
+        s = await _resolve_project_scope(pool, s)
+        if not await scope_can_access(user, s, pool):
+            raise HTTPException(status_code=403, detail="forbidden")
+
+        try:
+            cells = await _audit_run_list_cells(s, validate_only=False)
+        except Exception as exc:
+            logger.exception("audit run %s: cell enumeration failed", run_id)
+            raise HTTPException(status_code=503, detail=f"scope listing failed: {exc}") from exc
+
+        jobs = await db_module.list_audit_run_jobs(pool, run_id)
+        _terminal = {"done", "ok", "error", "skipped", "cancelled"}
+        done_set = {(j["key"], j["target_format"]) for j in jobs if j["status"] in _terminal}
+        out = [{"source_key": k, "target_format": t, "done": (k, t) in done_set} for (k, t) in cells]
+        return JSONResponse({"run_id": run_id, "scope": scope_str, "cells": out})
 
     # ── Corpora (M3 admin audit panel) ────────────────────────────────
     #

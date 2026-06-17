@@ -85,7 +85,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         d.write(loads_str(assembly.fem) + loads_str(part.fem))
         d.write("IEND                0.00            0.00            0.00            0.00\n")
 
-    print(f'Created an Sesam input deck at "{analysis_dir}"')
+    logger.info(f'Created an Sesam input deck at "{analysis_dir}"')
 
 
 def materials_str(materials: list[Material]):

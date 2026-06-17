@@ -9,7 +9,6 @@ import numpy as np
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.cad import active_backend, is_shape_handle
-from ada.cadit.ifc.utils import default_settings
 from ada.config import logger
 from ada.geom import Geometry
 from ada.occ.exceptions import (
@@ -316,17 +315,15 @@ class BatchTessellator:
             # the default backend). Same funnel as ada.occ.geom.cache.
             occ_geom = active_backend().build(geom)
         except Exception as e:
-            print("\n================ GLB TESSELLATION ERROR ================")
-            print(f"Beam name: {getattr(obj, 'name', None)}")
-            print(f"Beam guid: {getattr(obj, 'guid', None)}")
-            print(f"Beam type: {type(obj)}")
-
-            # If it has section
-            if hasattr(obj, "section"):
-                print(f"Section: {obj.section}")
-
-            print("Exception:", e)
-            print("========================================================\n")
+            section = getattr(obj, "section", None)
+            logger.error(
+                "tessellation failed for %s name=%r guid=%r section=%r: %s",
+                type(obj).__name__,
+                getattr(obj, "name", None),
+                getattr(obj, "guid", None),
+                section,
+                e,
+            )
             raise
 
         if graph_store is not None:
@@ -698,6 +695,11 @@ class BatchTessellator:
         import ifcopenshell.geom
         import ifcopenshell.util.representation
 
+        # Imported lazily (not at module load) so ``ada.occ.tessellating``
+        # stays importable under pyodide/WASM, where ifcopenshell may be
+        # absent — the beam-solid tessellation path (tessellate_geom →
+        # active_backend) needs this module but not its IFC bits.
+        from ada.cadit.ifc.utils import default_settings
         from ada.visit.gltf.meshes import MeshStore, MeshType
 
         # see Ifcopenshell src/ifcgeom/ConversionSettings.h for the various parameters

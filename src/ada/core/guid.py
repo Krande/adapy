@@ -78,6 +78,11 @@ def new():
 # Add these variables for the cache
 _guid_cache = deque()
 _guid_cache_lock = threading.Lock()
+# Whether to refill the cache on a background thread. Some runtimes have no
+# thread support (e.g. pyodide/WASM, where threading.Thread.start() raises
+# RuntimeError); the first failed start flips this off and we refill
+# synchronously from then on. See get_guid().
+_async_refill = True
 _cache_size = Config().general_guid_cache_num  # Default cache size
 _cache_refill_threshold = Config().general_guid_cache_refill_threshold  # When to refill the cache
 _guid_cache_enabled = Config().general_guid_cache_enabled
@@ -123,13 +128,28 @@ def get_guid(name=None):
     if _guid_cache_enabled is False:
         return compress(uuid.uuid4().hex)
 
+    global _async_refill
     with _guid_cache_lock:
         # Check if we need to refill the cache
         if len(_guid_cache) <= _cache_refill_threshold:
-            # Refill in a separate thread to avoid blocking
-            refill_thread = threading.Thread(target=fill_guid_cache, args=(_cache_size - len(_guid_cache),))
-            refill_thread.daemon = True
-            refill_thread.start()
+            need = _cache_size - len(_guid_cache)
+            if _async_refill:
+                # Refill in a separate thread to avoid blocking.
+                try:
+                    refill_thread = threading.Thread(target=fill_guid_cache, args=(need,))
+                    refill_thread.daemon = True
+                    refill_thread.start()
+                except RuntimeError:
+                    # No thread support in this runtime (e.g. pyodide/WASM).
+                    # Refill synchronously from here on.
+                    _async_refill = False
+            if not _async_refill:
+                # Synchronous refill. The cached path is always name=None, so
+                # only the random branch applies; append directly under the
+                # held lock (calling fill_guid_cache would re-acquire the
+                # non-reentrant lock and deadlock).
+                for _ in range(need):
+                    _guid_cache.append(compress(uuid.uuid4().hex))
 
         # Return a GUID from the cache if available
         if _guid_cache:

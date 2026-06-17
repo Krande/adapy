@@ -30,3 +30,7 @@ audit_repro/
 audit_repro_*/
 # pytest-benchmark timing baselines — machine-specific, regenerate locally
 .benchmarks/
+
+# pyodide adapy wheel build output
+dist_pyodide/
+src/frontend/public/wheels/

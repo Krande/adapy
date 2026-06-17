@@ -206,6 +206,7 @@ async def insert_audit(
     job_id: str | None = None,
     traceback: str | None = None,
     audit_run_id: str | None = None,
+    worker_image_tag: str | None = None,
 ) -> None:
     """Insert one audit_log row.
 
@@ -234,8 +235,8 @@ async def insert_audit(
             INSERT INTO audit_log
                 (user_sub, scope_kind, scope_id, action, key,
                  target_format, status, error, duration_ms, job_id,
-                 traceback, audit_run_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                 traceback, audit_run_id, worker_image_tag)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             """,
             user_sub,
             scope_kind,
@@ -249,6 +250,7 @@ async def insert_audit(
             job_id,
             traceback,
             audit_run_id,
+            worker_image_tag,
         )
         return
 
@@ -262,8 +264,8 @@ async def insert_audit(
                 INSERT INTO audit_log
                     (user_sub, scope_kind, scope_id, action, key,
                      target_format, status, error, duration_ms, job_id,
-                     traceback, audit_run_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                     traceback, audit_run_id, worker_image_tag)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 """,
                 user_sub,
                 scope_kind,
@@ -277,6 +279,7 @@ async def insert_audit(
                 job_id,
                 traceback,
                 audit_run_id,
+                worker_image_tag,
             )
             await _bump_audit_run_counter(conn, audit_run_id, status)
 
@@ -320,6 +323,29 @@ async def audit_is_cancelled(pool: asyncpg.Pool, job_id: str) -> bool:
         job_id,
     )
     return row is not None
+
+
+async def get_audit_owner_by_job(pool: asyncpg.Pool, job_id: str) -> dict | None:
+    """Return ``{user_sub, scope_kind, scope_id, audit_run_id, status}``
+    for the audit row tied to ``job_id``, or ``None`` if absent.
+
+    Used by the browser-driven (WASM) audit-update endpoint to verify
+    the caller owns the row before patching it — the worker's
+    ``update_audit_by_job`` has no such guard because only the worker
+    that owns the NATS job can reach it, whereas the local endpoint is
+    callable by any authenticated browser.
+    """
+    row = await pool.fetchrow(
+        """
+        SELECT user_sub, scope_kind, scope_id, audit_run_id, status
+        FROM audit_log
+        WHERE job_id = $1
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        job_id,
+    )
+    return dict(row) if row is not None else None
 
 
 async def mark_audit_running(

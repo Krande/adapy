@@ -113,5 +113,5 @@ class GxmlStore:
 
         apply_mass_density_factors(self.xml_root, p)
 
-        print(f"Finished importing Genie XML (beams={all_beams}, plates={all_plates}, joints={all_joints})")
+        logger.info(f"Finished importing Genie XML (beams={all_beams}, plates={all_plates}, joints={all_joints})")
         return p

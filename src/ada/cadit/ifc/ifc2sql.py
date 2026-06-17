@@ -229,7 +229,7 @@ class Ifc2SqlPatcher:
                 percent_created = round(progress / total * 100)
                 percent_preprocessed = iterator.progress()
                 _ = (percent_created + percent_preprocessed) / 2
-                print(
+                logger.info(
                     "{} / {} ({}% created, {}% preprocessed) elements processed in {:.2f}s ...".format(
                         progress, total, percent_created, percent_preprocessed, time.time() - checkpoint
                     )
@@ -252,7 +252,7 @@ class Ifc2SqlPatcher:
                 self.shape_rows[shape.id] = [shape.id, float(x), float(y), float(z), m.tobytes(), shape.geometry.id]
             if not iterator.next():
                 break
-        print("Done creating geometry")
+        logger.info("Done creating geometry")
 
     def create_id_map(self):
         if self.sql_type == "sqlite":
@@ -372,7 +372,7 @@ class Ifc2SqlPatcher:
                 data_type = "JSON"
             else:
                 if not self.silenced:
-                    print(attribute, primitive)  # Not implemented?
+                    logger.debug("%s %s", attribute, primitive)  # Not implemented?
             if not self.is_strict or derived[i]:
                 optional = ""
             else:
@@ -383,12 +383,12 @@ class Ifc2SqlPatcher:
             statement += ", inverses JSON"
         statement += ");"
         if not self.silenced:
-            print(statement)
+            logger.debug(statement)
         self.c.execute(statement)
 
     def insert_data(self, ifc_class):
         if not self.silenced:
-            print("Extracting data for", ifc_class)
+            logger.info("Extracting data for %s", ifc_class)
         elements = self.file.by_type(ifc_class, include_subtypes=False)
 
         rows = []

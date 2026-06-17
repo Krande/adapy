@@ -126,6 +126,11 @@ class JobQueue:
     # handle.
     DEFAULT_CAPABILITY = "base"
 
+    # Heartbeat-staleness window for treating a registered worker as online.
+    # Must match the admin endpoint's threshold (``/api/admin/workers``) so the
+    # routing view and the UI view agree on which pools are live.
+    WORKER_STALE_AFTER_S = 60.0
+
     async def connect(self) -> None:
         if not self.enabled:
             raise QueueDisabled("ADA_VIEWER_NATS_URL not set")
@@ -281,8 +286,17 @@ class JobQueue:
             workers = await self.list_workers()
         except Exception:
             return self.DEFAULT_CAPABILITY
+        # ``list_workers`` returns the raw registry entries, which carry a
+        # ``last_heartbeat`` timestamp but NO ``online`` key — that boolean is
+        # derived downstream (the admin endpoint annotates it for the UI). So we
+        # must compute staleness here too; reading ``w["online"]`` directly would
+        # be falsy for EVERY worker and silently route every job to the default
+        # pool (the ``.odb`` → base misroute bug). Mirror the admin endpoint's
+        # 60s threshold via the shared :data:`WORKER_STALE_AFTER_S`.
+        now = time.time()
         for w in workers:
-            if not w.get("online"):
+            hb = w.get("last_heartbeat")
+            if not (isinstance(hb, (int, float)) and (now - hb) <= self.WORKER_STALE_AFTER_S):
                 continue
             for src in w.get("source_exts") or []:
                 if not isinstance(src, str):

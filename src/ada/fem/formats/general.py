@@ -193,7 +193,7 @@ def write_to_fem(
 
             shutil.make_archive(name, "zip", str(analysis_dir))
     else:
-        print(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
+        logger.warning(f'Result file "{res_path}" already exists.\nUse "overwrite=True" if you wish to overwrite')
 
     if out is None and res_path is None:
         logger.info("No Result file is created")

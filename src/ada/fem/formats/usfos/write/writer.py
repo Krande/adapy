@@ -2,6 +2,7 @@ import os
 from operator import attrgetter
 
 from ada import FEM, Assembly, Material, Node, Part
+from ada.config import logger
 from ada.core.utils import Counter, NewLine, roundoff
 from ada.fem import Bc, FemSet, Mass
 
@@ -38,7 +39,7 @@ def to_fem(assembly: Assembly, name, analysis_dir=None, metadata=None, model_dat
             d.write(control_file + "\n")
             d.write(nonstru_str(nonstrus) + "\n")
 
-    print(f'Created an Usfos input deck at "{analysis_dir}"')
+    logger.info(f'Created an Usfos input deck at "{analysis_dir}"')
 
 
 def create_usfos_set_str(fem: FEM, nonstrus):

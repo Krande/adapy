@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import h5py
 import numpy as np
 
+from ada.config import logger
 from ada.fem.formats.utils import get_fem_model_from_assembly
 from ada.fem.utils import is_quad8_shell_elem, is_tri6_shell_elem
 
@@ -67,7 +68,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     with open((analysis_dir / name).with_suffix(".comm"), "w") as f:
         f.write(create_comm_str(assembly, p))
 
-    print(f'Created a Code_Aster input deck at "{analysis_dir}"')
+    logger.info(f'Created a Code_Aster input deck at "{analysis_dir}"')
 
 
 def create_comm_str(assembly: Assembly, part: Part) -> str:

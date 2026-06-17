@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from ada.config import logger
+
 if TYPE_CHECKING:
     from ada import Assembly, Shape
     from ada.geom.solids import Box
@@ -26,7 +28,7 @@ def shape_to_space(shape: Shape) -> Space:
 def space_graph_from_assembly(a: Assembly) -> SpaceGraphModel:
     from ada import Shape
 
-    print("extracting shape graph from assembly")
+    logger.info("extracting shape graph from assembly")
 
     spaces = []
     for shape in a.get_all_physical_objects(Shape):

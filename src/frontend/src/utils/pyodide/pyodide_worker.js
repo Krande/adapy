@@ -14,24 +14,23 @@
 // keeping the comment here so the genealogy of the bootstrap idiom
 // (loadPyodide → micropip.install → import) is discoverable.
 
-const PYODIDE_VERSION = "0.27.7";
+// 0.29.4: Python 3.13 + emscripten 4.0.9 + native wasm-EH — the ABI the adacpp
+// wheel (cp313/pyodide_2025_0) and the ifcopenshell wasm wheel target. Keep in
+// lockstep with adacpp's tools/build_wheel.py tags + pixi.toml.
+const PYODIDE_VERSION = "0.29.4";
 const IFC_WASM_WHEEL =
     "https://ifcopenshell.github.io/wasm-wheels/ifcopenshell-0.8.5-cp313-cp313-pyodide_2025_0_wasm32.whl";
 
-// adacpp wheel + minimal adapy.cad source closure are baked into the
-// SPA dist by deploy/Dockerfile.viewer (stage `adacpp-wheel` + the
-// COPY lines after `npm run build:serve`). Vite serves them from the
-// SPA root, so relative-to-origin URLs work in production and in dev.
+// adacpp wasm wheel + the pure-python adapy wheel are baked into the SPA
+// dist by deploy/Dockerfile.viewer and served from the SPA root, so
+// relative-to-origin URLs work in production and in dev (`pixi run
+// wheel-pyodide` drops the adapy wheel into src/frontend/public/wheels).
 //
-// The wheel keeps its PEP 427 filename (ada_cpp-<ver>-<pytag>-<abi>-<plat>.whl)
-// because micropip parses it to validate name/version/platform tags
-// before it will install. The Dockerfile drops a manifest.json next to
-// the wheel so we don't have to hardcode the version here.
-const ADACPP_MANIFEST_URL = "/wheels/manifest.json";
-const ADAPY_SRC_FILES = [
-    "ada/__init__.py",
-    "ada/cad/__init__.py",
-];
+// Each wheel keeps its PEP 427 filename (micropip parses it to validate
+// name/version/platform tags before installing); a small manifest.json
+// next to each resolves the filename so we don't hardcode the version.
+const ADACPP_MANIFEST_URL = "/wheels/manifest.json"; // {"adacpp": "<file>.whl"}
+const ADAPY_MANIFEST_URL = "/wheels/adapy-manifest.json"; // {"adapy": "<file>.whl"}
 
 importScripts(`https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/pyodide.js`);
 
@@ -39,6 +38,13 @@ let pyodide = null;
 let bootPromise = null;
 let ifcStackPromise = null;
 let stepStackPromise = null;
+let satStackPromise = null;
+let femStackPromise = null;
+let meshStackPromise = null;
+let trimeshPromise = null;
+let pyquaternionPromise = null;
+let adacppWheelPromise = null;
+let adapyWheelPromise = null;
 
 function log(message) {
     self.postMessage({type: "log", message});
@@ -49,19 +55,41 @@ async function bootstrap() {
     pyodide = await loadPyodide({
         indexURL: `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`,
     });
-    log("Loading numpy + micropip…");
-    await pyodide.loadPackage(["micropip", "numpy"]);
+    // Pillow is loaded here, before ANY `import ada` (and therefore before the
+    // first `import trimesh` the real ada init triggers). trimesh decides
+    // whether it has image/texture support at import time by probing for PIL;
+    // if trimesh is first imported without Pillow present (e.g. a STEP cell
+    // importing ada.cad), it caches "no PIL" and every later textured GLB
+    // export (SAT/IFC) fails in trimesh._append_material. Loading Pillow up
+    // front makes this order-independent across cells in the shared instance.
+    log("Loading numpy + Pillow + micropip…");
+    await pyodide.loadPackage(["micropip", "numpy", "Pillow"]);
     self.postMessage({type: "ready"});
+}
+
+// Shared trimesh install — the IFC and mesh stacks both need it, so
+// pay the micropip cost at most once.
+async function ensureTrimesh() {
+    if (!trimeshPromise) {
+        trimeshPromise = (async () => {
+            log("Installing trimesh…");
+            await pyodide.runPythonAsync(`
+                import micropip
+                await micropip.install("trimesh")
+            `);
+        })();
+    }
+    return trimeshPromise;
 }
 
 // Lazy IFC stack — only loaded when an IFC conversion is requested.
 async function ensureIfcStack() {
     if (!ifcStackPromise) {
         ifcStackPromise = (async () => {
-            log("Installing trimesh + ifcopenshell (WASM wheel)…");
+            await ensureTrimesh();
+            log("Installing ifcopenshell (WASM wheel)…");
             await pyodide.runPythonAsync(`
                 import micropip
-                await micropip.install("trimesh")
                 await micropip.install("${IFC_WASM_WHEEL}")
             `);
             log("Verifying ifc imports…");
@@ -76,53 +104,70 @@ async function ensureIfcStack() {
     return ifcStackPromise;
 }
 
-// Lazy STEP stack — installs the adacpp wheel and mounts adapy source.
-async function ensureStepStack() {
-    if (!stepStackPromise) {
-        stepStackPromise = (async () => {
-            log("Reading adacpp wheel manifest…");
-            const manifestResp = await fetch(ADACPP_MANIFEST_URL);
-            if (!manifestResp.ok) {
-                throw new Error(`adacpp manifest fetch failed: ${manifestResp.status} ${manifestResp.statusText} (${ADACPP_MANIFEST_URL})`);
-            }
-            const manifest = await manifestResp.json();
-            const wheelFilename = manifest.adacpp;
-            if (!wheelFilename) {
-                throw new Error(`adacpp manifest missing "adacpp" key: ${JSON.stringify(manifest)}`);
-            }
-            const wheelUrl = `/wheels/${wheelFilename}`;
-            log(`Fetching adacpp wheel (${wheelFilename})…`);
-            const wheelResp = await fetch(wheelUrl);
-            if (!wheelResp.ok) {
-                throw new Error(`adacpp wheel fetch failed: ${wheelResp.status} ${wheelResp.statusText} (${wheelUrl})`);
-            }
-            const wheelBytes = new Uint8Array(await wheelResp.arrayBuffer());
-            pyodide.FS.mkdirTree("/wheels");
-            const wheelFsPath = `/wheels/${wheelFilename}`;
-            pyodide.FS.writeFile(wheelFsPath, wheelBytes);
+// Lazy mesh stack — trimesh only (obj/stl/ply/gltf/dae/off → glb).
+async function ensureMeshStack() {
+    if (!meshStackPromise) {
+        meshStackPromise = (async () => {
+            await ensureTrimesh();
+            await pyodide.runPythonAsync(`import trimesh; print(f"trimesh {trimesh.__version__}")`);
+        })();
+    }
+    return meshStackPromise;
+}
 
-            log("Mounting adapy source closure…");
-            pyodide.FS.mkdirTree("/adapy_src/ada/cad");
-            for (const rel of ADAPY_SRC_FILES) {
-                const r = await fetch(`/adapy_src/${rel}`);
-                if (!r.ok) {
-                    throw new Error(`adapy source fetch failed: ${rel} (${r.status})`);
-                }
-                pyodide.FS.writeFile(`/adapy_src/${rel}`, new Uint8Array(await r.arrayBuffer()));
-            }
+// Shared pyquaternion install — adapy's core (vector_transforms) needs it
+// for the SAT/FEM geometry paths (the CAD-only ada.cad path does not).
+async function ensurePyquaternion() {
+    if (!pyquaternionPromise) {
+        pyquaternionPromise = (async () => {
+            log("Installing pyquaternion…");
+            await pyodide.runPythonAsync(`
+                import micropip
+                await micropip.install("pyquaternion")
+            `);
+        })();
+    }
+    return pyquaternionPromise;
+}
 
-            log("Installing adacpp + verifying adapy.cad…");
-            pyodide.globals.set("_adacpp_wheel_emfs", `emfs:${wheelFsPath}`);
+// Resolve a wheel filename via its manifest and stage it on the pyodide FS.
+async function fetchWheelToFs(manifestUrl, key) {
+    // no-store: the manifest is the indirection that changes when the wheel is
+    // rebuilt/rebumped. A browser-cached manifest names a stale wheel (e.g. an
+    // old emscripten-3.1.58 build), so micropip then installs an incompatible
+    // wheel. Always resolve the filename fresh; the wheel itself is versioned
+    // in its filename, so it stays safely cacheable.
+    const mResp = await fetch(manifestUrl, {cache: "no-store"});
+    if (!mResp.ok) {
+        throw new Error(`${key} manifest fetch failed: ${mResp.status} ${mResp.statusText} (${manifestUrl})`);
+    }
+    const manifest = await mResp.json();
+    const filename = manifest[key];
+    if (!filename) {
+        throw new Error(`${key} manifest missing "${key}" key: ${JSON.stringify(manifest)}`);
+    }
+    const wheelUrl = `/wheels/${filename}`;
+    const wResp = await fetch(wheelUrl);
+    if (!wResp.ok) {
+        throw new Error(`${key} wheel fetch failed: ${wResp.status} ${wResp.statusText} (${wheelUrl})`);
+    }
+    pyodide.FS.mkdirTree("/wheels");
+    const fsPath = `/wheels/${filename}`;
+    pyodide.FS.writeFile(fsPath, new Uint8Array(await wResp.arrayBuffer()));
+    return fsPath;
+}
+
+// Lazy adacpp wasm wheel install (the OCCT-backed CAD kernel).
+async function ensureAdacppWheel() {
+    if (!adacppWheelPromise) {
+        adacppWheelPromise = (async () => {
+            log("Fetching adacpp wasm wheel…");
+            const fsPath = await fetchWheelToFs(ADACPP_MANIFEST_URL, "adacpp");
+            pyodide.globals.set("_adacpp_wheel_emfs", `emfs:${fsPath}`);
             try {
                 await pyodide.runPythonAsync(`
-                    import sys
                     import micropip
                     await micropip.install(_adacpp_wheel_emfs)
-                    if "/adapy_src" not in sys.path:
-                        sys.path.insert(0, "/adapy_src")
-                    import ada.cad
-                    backend = ada.cad.select_backend(prefer="adacpp")
-                    print(f"step stack ready: backend={backend.name}")
                 `);
             } finally {
                 try {
@@ -133,101 +178,305 @@ async function ensureStepStack() {
             }
         })();
     }
+    return adacppWheelPromise;
+}
+
+// Lazy adapy (pure-python) wheel install. deps=False: the wheel declares
+// no deps; each stack provides the wasm-available ones itself
+// (numpy/h5py/pydantic/Pillow via loadPackage; trimesh/pyquaternion via
+// micropip). Replaces the old hand-mounted 2-file source closure.
+async function ensureAdapyWheel() {
+    if (!adapyWheelPromise) {
+        adapyWheelPromise = (async () => {
+            log("Fetching adapy (pyodide) wheel…");
+            const fsPath = await fetchWheelToFs(ADAPY_MANIFEST_URL, "adapy");
+            pyodide.globals.set("_adapy_wheel_emfs", `emfs:${fsPath}`);
+            try {
+                await pyodide.runPythonAsync(`
+                    import micropip
+                    await micropip.install(_adapy_wheel_emfs, deps=False)
+                `);
+            } finally {
+                try {
+                    pyodide.globals.delete("_adapy_wheel_emfs");
+                } catch (_) {
+                    /* already gone — fine */
+                }
+            }
+        })();
+    }
+    return adapyWheelPromise;
+}
+
+// Lazy STEP stack — adacpp kernel + adapy.cad, both from wheels.
+async function ensureStepStack() {
+    if (!stepStackPromise) {
+        stepStackPromise = (async () => {
+            // The adapy wheel now ships the real ada/__init__.py, so importing
+            // even ada.cad runs the full init, which eagerly imports trimesh +
+            // pyquaternion (numpy is already loaded at bootstrap). Provide them
+            // before the import or it raises ModuleNotFoundError.
+            await ensureTrimesh();
+            await ensurePyquaternion();
+            await ensureAdacppWheel();
+            await ensureAdapyWheel();
+            log("Verifying adapy.cad backend…");
+            await pyodide.runPythonAsync(`
+                import ada.cad
+                backend = ada.cad.select_backend(prefer="adacpp")
+                print(f"step stack ready: backend={backend.name}")
+            `);
+        })();
+    }
     return stepStackPromise;
 }
 
-async function convertIfc(bytes) {
-    await ensureIfcStack();
-
-    const u8 = new Uint8Array(bytes);
-    pyodide.FS.writeFile("/tmp/input.ifc", u8);
-    log(`Wrote ${u8.byteLength} bytes to /tmp/input.ifc`);
-
-    const result = await pyodide.runPythonAsync(`
-import ifcopenshell
-import ifcopenshell.geom
-import numpy as np
-import trimesh
-from io import BytesIO
-
-ifc = ifcopenshell.open("/tmp/input.ifc")
-settings = ifcopenshell.geom.settings()
-try:
-    settings.set("use-world-coords", True)
-except Exception:
-    pass
-
-iterator = ifcopenshell.geom.iterator(settings, ifc)
-scene = trimesh.Scene()
-n_meshes = 0
-n_skipped = 0
-n_errors = 0
-
-if iterator.initialize():
-    while True:
-        try:
-            shape = iterator.get()
-            geom = shape.geometry
-            verts = np.asarray(geom.verts, dtype=np.float32).reshape(-1, 3)
-            faces = np.asarray(geom.faces, dtype=np.int32).reshape(-1, 3)
-            if faces.size == 0:
-                n_skipped += 1
-            else:
-                node_name = (getattr(shape, "name", None) or shape.guid or f"mesh_{n_meshes}")
-                mesh = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
-                scene.add_geometry(mesh, node_name=node_name)
-                n_meshes += 1
-        except Exception:
-            n_errors += 1
-        if not iterator.next():
-            break
-
-print(f"meshes={n_meshes} skipped={n_skipped} errors={n_errors}")
-if n_meshes == 0:
-    raise RuntimeError("no meshable geometry produced from this IFC")
-
-buf = BytesIO()
-scene.export(buf, file_type="glb")
-buf.getvalue()
-    `);
-
-    const arr = result.toJs({create_proxies: false});
-    result.destroy();
-    return arr;
+// Lazy SAT stack — adapy's pure-python ACIS parser (ada.from_acis) builds
+// ada.geom and tessellates through the adacpp backend; to_gltf needs
+// trimesh (+ Pillow for material export) and the SAT parser needs pydantic.
+async function ensureSatStack() {
+    if (!satStackPromise) {
+        satStackPromise = (async () => {
+            log("Installing SAT stack (pydantic + Pillow)…");
+            await pyodide.loadPackage(["pydantic", "Pillow"]);
+            await ensureTrimesh();
+            await ensurePyquaternion();
+            await ensureAdacppWheel();
+            await ensureAdapyWheel();
+            log("Verifying SAT stack…");
+            await pyodide.runPythonAsync(`
+                import ada.cad
+                ada.cad.select_backend(prefer="adacpp")
+                import ada  # ada.from_acis resolved lazily by the pyodide init
+                print("sat stack ready")
+            `);
+        })();
+    }
+    return satStackPromise;
 }
 
-async function convertStep(bytes) {
-    await ensureStepStack();
+// Lazy FEM stack — streaming FEA result bake (h5py for .rmed/.med; trimesh
+// for the mesh GLB; Pillow for material export). adacpp is installed so the
+// beam→solid sidecar can build; without it the bake still ships the main
+// mesh + fields (beam-solids are skipped).
+async function ensureFemStack() {
+    if (!femStackPromise) {
+        femStackPromise = (async () => {
+            // pydantic: ada's FEM-deck import path (ada.from_fem → concept
+            // build) pulls it, same as the SAT stack — without it FEM-deck
+            // cells fail with ModuleNotFoundError: pydantic.
+            log("Installing FEM stack (h5py + pydantic + Pillow)…");
+            await pyodide.loadPackage(["h5py", "pydantic", "Pillow"]);
+            await ensureTrimesh();
+            await ensurePyquaternion();
+            await ensureAdacppWheel();
+            await ensureAdapyWheel();
+            log("Verifying FEM stack…");
+            await pyodide.runPythonAsync(`
+                import ada.cad
+                ada.cad.select_backend(prefer="adacpp")
+                from ada.fem.results.artefacts import bake_fea_artefacts_from_source
+                print("fem stack ready")
+            `);
+        })();
+    }
+    return femStackPromise;
+}
 
+// ── stack selection (host-specific) + dispatch into adapy ─────────────────
+// All conversion LOGIC lives in adapy (ada.cadit.wasm_convert), shipped in the
+// pyodide wheel and shared verbatim with the node sweep driver — no duplicated
+// Python here. The worker only installs the right packages/wheels for a cell,
+// then calls wasm_convert.run.
+
+async function ensureStacks(format, target) {
+    const tgt = (target || "glb").toLowerCase();
+    if (format === "fea") return ensureFemStack();
+    if (format === "fea_glb") return ensureFemStack(); // SIF/SIN result → single GLB
+    if (format === "mesh") return ensureMeshStack();
+    if (format === "ifc" && tgt === "glb") return ensureIfcStack(); // raw ifcopenshell fast path
+    if (format === "step" && tgt === "glb") return ensureStepStack(); // adacpp fast path
+    if (format === "fem") {
+        await ensureFemStack();
+    } else {
+        await ensureSatStack();
+    }
+    if (format === "ifc" || tgt === "ifc") await ensureIfcStack();
+}
+
+// Run one conversion: install the stack, hand the bytes to adapy, return the
+// output bytes (Uint8Array) for the caller to post back / upload.
+async function runConversion(format, bytes, ext, target) {
+    await ensureStacks(format, target);
+    const e = (ext || "bin").toLowerCase();
     const u8 = new Uint8Array(bytes);
-    // Push the bytes into the Python heap via globals so we don't have
-    // to round-trip through the FS twice (adacpp's read_step_bytes
-    // accepts a bytes buffer directly and writes its own MEMFS temp).
-    pyodide.globals.set("_step_input_bytes", u8);
-    log(`Forwarded ${u8.byteLength} bytes of STEP into Python`);
-
+    const inPath = `/tmp/input.${e}`;
+    pyodide.FS.writeFile(inPath, u8);
+    pyodide.globals.set("_wc_fmt", format);
+    pyodide.globals.set("_wc_ext", e);
+    pyodide.globals.set("_wc_target", (target || "glb").toLowerCase());
+    pyodide.globals.set("_wc_src", inPath);
     try {
         const result = await pyodide.runPythonAsync(`
-import ada.cad
-
-backend = ada.cad.select_backend(prefer="adacpp")
-shape = backend.read_step_bytes(bytes(_step_input_bytes))
-glb = backend.write_glb_bytes(shape)
-glb
-        `);
+import ada.cadit.wasm_convert as _wc
+_wc.run(_wc_fmt, _wc_ext, _wc_target, _wc_src)
+`);
         const arr = result.toJs({create_proxies: false});
         result.destroy();
         return arr;
     } finally {
-        // Single point of cleanup. The Python snippet used to also
-        // ``del _step_input_bytes``, but that left the JS-side
-        // ``globals.delete`` to throw KeyError on the success path
-        // ("KeyError: '_step_input_bytes'"). Owning cleanup on the JS
-        // side keeps both success and exception paths symmetrical.
-        try {
-            pyodide.globals.delete("_step_input_bytes");
-        } catch (_) {
-            /* already gone — fine */
+        for (const g of ["_wc_fmt", "_wc_ext", "_wc_target", "_wc_src"]) {
+            try { pyodide.globals.delete(g); } catch (_) { /* fine */ }
+        }
+    }
+}
+
+// ── streaming source (range fetch) ────────────────────────────────────────
+// For sources too large to stage in wasm memory (multi-GB SIN: the whole file
+// would have to fit under the 4 GiB wasm32 ceiling, and >2 GiB can't even be
+// one ArrayBuffer), the worker reads the source in ranges on demand instead of
+// receiving its bytes. PagedByteSource.fetch is *synchronous* (called deep in
+// the decoder), so the range read must be a SYNCHRONOUS XHR — allowed in a Web
+// Worker — not async fetch(). This is the browser analogue of the node test's
+// fs.readSync fetcher; in production `url` is a presigned / Range-capable URL.
+
+function syncRangeFetch(url, headers) {
+    return (offset, length) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", url, false); // sync: PagedByteSource.fetch is synchronous
+        xhr.responseType = "arraybuffer";
+        xhr.setRequestHeader("Range", `bytes=${offset}-${offset + length - 1}`);
+        if (headers) for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+        xhr.send();
+        if (xhr.status !== 206 && xhr.status !== 200) {
+            throw new Error(`range fetch ${xhr.status} ${xhr.statusText} for ${url}`);
+        }
+        return new Uint8Array(xhr.response);
+    };
+}
+
+// Synchronous POST of one baked artefact file — the upload analogue of
+// syncRangeFetch. PagedByteSource / the bake sink call into this synchronously
+// from inside Python, so it must be a sync XHR (allowed in a Worker). `urlBase`
+// already carries ?source=…; we append &name=… per file.
+function syncArtefactUpload(urlBase, headers) {
+    return (name, bytes) => {
+        const sep = urlBase.includes("?") ? "&" : "?";
+        const url = `${urlBase}${sep}name=${encodeURIComponent(name)}`;
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", url, false);
+        xhr.setRequestHeader("Content-Type", "application/octet-stream");
+        if (headers) for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+        xhr.send(bytes);
+        if (xhr.status !== 201 && xhr.status !== 200) {
+            throw new Error(`artefact upload ${xhr.status} ${xhr.statusText} for ${name}`);
+        }
+    };
+}
+
+function headContentLength(url, headers) {
+    const xhr = new XMLHttpRequest();
+    xhr.open("HEAD", url, false);
+    if (headers) for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+    xhr.send();
+    const len = xhr.getResponseHeader("Content-Length");
+    if (len == null) throw new Error(`HEAD ${url} returned no Content-Length; pass size explicitly`);
+    return parseInt(len, 10);
+}
+
+// Stream a conversion from a range-capable URL. Bridges the sync-XHR range
+// reader into a Python fetcher (size()/fetch()) and calls adapy's
+// wasm_convert.run_stream — no whole-file buffer crosses into wasm.
+async function runConversionStream(format, ext, target, url, size, headers) {
+    await ensureStacks(format, target);
+    const total = typeof size === "number" && size > 0 ? size : headContentLength(url, headers);
+    pyodide.globals.set("_wcs_fetch", syncRangeFetch(url, headers));
+    pyodide.globals.set("_wcs_size", total);
+    pyodide.globals.set("_wcs_fmt", format);
+    pyodide.globals.set("_wcs_ext", (ext || "bin").toLowerCase());
+    pyodide.globals.set("_wcs_target", (target || "glb").toLowerCase());
+    try {
+        const result = await pyodide.runPythonAsync(`
+import ada.cadit.wasm_convert as _wc
+
+class _JsRangeFetcher:
+    """Range fetcher backed by the host's sync-XHR reader — the in-browser
+    fetch path. adapy stays host-agnostic; the js bridge lives only here."""
+    def __init__(self, fetch, size):
+        self._fetch = fetch
+        self._size = int(size)
+    def size(self):
+        return self._size
+    def fetch(self, offset, length):
+        if length <= 0:
+            return b""
+        return bytes(self._fetch(offset, length).to_py())
+    def close(self):
+        pass
+
+_wc.run_stream(_wcs_fmt, _wcs_ext, _wcs_target, _JsRangeFetcher(_wcs_fetch, _wcs_size))
+`);
+        const arr = result.toJs({create_proxies: false});
+        result.destroy();
+        return arr;
+    } finally {
+        for (const g of ["_wcs_fetch", "_wcs_size", "_wcs_fmt", "_wcs_ext", "_wcs_target"]) {
+            try {
+                pyodide.globals.delete(g);
+            } catch (_) {
+                /* fine */
+            }
+        }
+    }
+}
+
+// Stream a FEA bake from a range-capable source URL AND ship each baked
+// artefact file straight to the server as it lands — so neither the source nor
+// the output tree is ever held whole in wasm memory. Returns the JSON summary
+// string from wasm_convert (count + manifest), not a blob: the files are
+// already uploaded.
+async function runFeaBakeStream(ext, url, size, headers, uploadUrlBase, uploadHeaders) {
+    await ensureStacks("fea", "glb");
+    const total = typeof size === "number" && size > 0 ? size : headContentLength(url, headers);
+    pyodide.globals.set("_wcs_fetch", syncRangeFetch(url, headers));
+    pyodide.globals.set("_wcs_size", total);
+    pyodide.globals.set("_wcs_upload", syncArtefactUpload(uploadUrlBase, uploadHeaders));
+    pyodide.globals.set("_wcs_ext", (ext || "sin").toLowerCase());
+    try {
+        const result = await pyodide.runPythonAsync(`
+import ada.cadit.wasm_convert as _wc
+from pyodide.ffi import to_js
+
+class _JsRangeFetcher:
+    """Range fetcher backed by the host's sync-XHR reader (see runConversionStream)."""
+    def __init__(self, fetch, size):
+        self._fetch = fetch
+        self._size = int(size)
+    def size(self):
+        return self._size
+    def fetch(self, offset, length):
+        if length <= 0:
+            return b""
+        return bytes(self._fetch(offset, length).to_py())
+    def close(self):
+        pass
+
+def _upload(name, data):
+    # Ship one artefact via the host's sync POST. Any error raises through
+    # bake_artefacts and aborts the bake rather than dropping a file silently.
+    _wcs_upload(name, to_js(data))
+
+_wc.run_stream("fea", _wcs_ext, "glb", _JsRangeFetcher(_wcs_fetch, _wcs_size), upload=_upload)
+`);
+        // run_stream returns a Python str (json.dumps) → a JS string here.
+        return typeof result === "string" ? result : String(result);
+    } finally {
+        for (const g of ["_wcs_fetch", "_wcs_size", "_wcs_upload", "_wcs_ext"]) {
+            try {
+                pyodide.globals.delete(g);
+            } catch (_) {
+                /* fine */
+            }
         }
     }
 }
@@ -246,22 +495,56 @@ self.onmessage = async (e) => {
         return;
     }
 
+    if (data.type === "prewarm") {
+        // Pre-load the CAD stack (adacpp + adapy + OCCT) in the background when
+        // the engine is enabled, so the first conversion after toggling on is
+        // instant instead of cold-loading on file open. IFC (ifcopenshell, a
+        // large wheel) and FEA (h5py) add their extras lazily on first use.
+        try {
+            await ensureSatStack();
+            self.postMessage({type: "log", message: "WASM engine pre-warmed"});
+        } catch (err) {
+            self.postMessage({type: "log", message: `prewarm failed: ${String(err.message || err)}`});
+        }
+        return;
+    }
+
     if (data.type === "convert") {
         const reqId = data.reqId;
         // Default to "ifc" so the existing IFC code paths keep working
         // without explicitly tagging the format.
         const format = (data.format || "ifc").toLowerCase();
+        // Default to "glb" — the historical single-target behaviour.
+        const target = (data.target || "glb").toLowerCase();
         try {
+            // One entrypoint: adapy's wasm_convert.run / .run_stream handles
+            // every (format, target) — fast paths included. fea returns a zip.
+            // data.stream → read the source in ranges (huge SIN) instead of
+            // receiving its whole-file bytes. data.uploadUrl (+ stream) → also
+            // ship each baked artefact to the server as it lands, so the output
+            // tree is never held whole; the JSON summary comes back as bytes.
             let bytes;
-            if (format === "ifc") {
-                bytes = await convertIfc(data.bytes);
-            } else if (format === "step" || format === "stp") {
-                bytes = await convertStep(data.bytes);
+            if (data.stream && data.uploadUrl) {
+                const summary = await runFeaBakeStream(
+                    data.ext, data.url, data.size, data.headers, data.uploadUrl, data.uploadHeaders,
+                );
+                bytes = new TextEncoder().encode(summary);
+            } else if (data.stream) {
+                bytes = await runConversionStream(format, data.ext, target, data.url, data.size, data.headers);
             } else {
-                throw new Error(`unsupported format for pyodide conversion: ${format}`);
+                bytes = await runConversion(format, data.bytes, data.ext, target);
+            }
+            // Report the current wasm linear-memory size so the manager can
+            // recycle this worker before it approaches the wasm32 ceiling
+            // (pyodide never frees heap back to the OS).
+            let heap = 0;
+            try {
+                heap = pyodide._module.HEAP8.length;
+            } catch (_) {
+                /* heap introspection unavailable — manager falls back to its timeout */
             }
             self.postMessage(
-                {type: "result", reqId, bytes},
+                {type: "result", reqId, bytes, heap},
                 [bytes.buffer],
             );
         } catch (err) {

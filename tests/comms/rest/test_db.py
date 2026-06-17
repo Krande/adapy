@@ -140,3 +140,58 @@ async def test_audit_insert(tmp_path):
         assert after == before + 1
     finally:
         await dbm.close_pool(pool)
+
+
+@needs_postgres
+@pytest.mark.asyncio
+async def test_local_audit_lifecycle(tmp_path):
+    """The browser (WASM) two-phase flow: insert a 'running' row with a
+    ``wasm-`` job id + ``wasm:`` image tag, look up its owner, then patch
+    it terminal with metrics — mirroring the audit/local endpoints."""
+    pool = await dbm.init_pool(POSTGRES_URL)
+    try:
+        user_sub = f"user-{tmp_path.name}"
+        job_id = f"wasm-{tmp_path.name}"
+        await dbm.insert_audit(
+            pool,
+            user_sub=user_sub,
+            scope_kind="user",
+            scope_id=user_sub,
+            action="convert",
+            key="m.step",
+            target_format="glb",
+            status="running",
+            job_id=job_id,
+            worker_image_tag="wasm:pyodide-0.27.7",
+        )
+        owner = await dbm.get_audit_owner_by_job(pool, job_id)
+        assert owner is not None
+        assert owner["user_sub"] == user_sub
+        assert owner["status"] == "running"
+        assert owner["audit_run_id"] is None
+
+        await dbm.update_audit_by_job(
+            pool,
+            job_id=job_id,
+            status="done",
+            duration_ms=1234,
+            read_bytes=100,
+            write_bytes=50,
+            peak_rss_kb=4096,
+        )
+        row = await pool.fetchrow(
+            "SELECT status, duration_ms, write_bytes, peak_rss_kb, worker_image_tag"
+            " FROM audit_log WHERE job_id = $1",
+            job_id,
+        )
+        assert row["status"] == "done"
+        assert row["duration_ms"] == 1234
+        assert row["write_bytes"] == 50
+        assert row["peak_rss_kb"] == 4096
+        # worker_image_tag set at insert survives the COALESCE update.
+        assert row["worker_image_tag"] == "wasm:pyodide-0.27.7"
+
+        # Unknown job id → no owner row.
+        assert await dbm.get_audit_owner_by_job(pool, "wasm-does-not-exist") is None
+    finally:
+        await dbm.close_pool(pool)

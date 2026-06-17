@@ -1,6 +1,7 @@
 from typing import Dict
 
 from ada import FEM
+from ada.config import logger
 from ada.fem import FemSection
 from ada.sections.categories import BaseTypes
 
@@ -52,7 +53,7 @@ def sections_str(fem: FEM):
                 t_fbtn=s.t_fbtn,
             )
         elif s.type == BaseTypes.TPROFILE:
-            print(f'T-Profiles currently not considered. Relevant for bm id "{fs.id}". Will use IPE for now')
+            logger.warning(f'T-Profiles currently not considered. Relevant for bm id "{fs.id}". Will use IPE for now')
             # IHPROFIL     11011    0.590   0.013    0.300   0.025    0.300   0.025
             tp_str += ipe.format(
                 id=fs.id,
@@ -65,12 +66,12 @@ def sections_str(fem: FEM):
             )
 
         elif s.type == BaseTypes.ANGULAR:
-            print(f'Angular-Profiles are not supported by USFOS. Bm "{fs.id}" will use GENBEAM')
+            logger.warning(f'Angular-Profiles are not supported by USFOS. Bm "{fs.id}" will use GENBEAM')
             gens_str += general_beam(fs)
             # raise ValueError('Angular profiles currently not considered. Relevant for bm id "{}"'.format(fs.id))
 
         elif s.type == BaseTypes.CHANNEL:
-            print(f'Channel-Profiles are not supported by USFOS. Bm "{fs.id}" will use GENBEAM')
+            logger.warning(f'Channel-Profiles are not supported by USFOS. Bm "{fs.id}" will use GENBEAM')
             gens_str += general_beam(fs)
             # raise ValueError('Channel profiles currently not considered. Relevant for bm id "{}"'.format(fs.id))
 

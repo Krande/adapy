@@ -1,6 +1,7 @@
 import re
 from typing import TYPE_CHECKING
 
+from ada.config import logger
 from ada.core.utils import roundoff
 from ada.materials.concept import Material
 from ada.materials.metals import CarbonSteel, PlasticityModel
@@ -33,7 +34,7 @@ def mat_str_to_mat_obj(mat_str) -> Material:
     if density_ is not None:
         density = rd(density_.group(1).strip().split(",")[0].strip(), 10)
     else:
-        print('No density flag found for material "{}"'.format(name))
+        logger.warning('No density flag found for material "{}"'.format(name))
         density = None
 
     # Elastic
@@ -42,7 +43,7 @@ def mat_str_to_mat_obj(mat_str) -> Material:
         re_elastic = re_elastic_.group(2).strip().split(",")
         young, poisson = rd(re_elastic[0]), rd(re_elastic[1])
     else:
-        print('No Elastic properties found for material "{name}"'.format(name=name))
+        logger.warning('No Elastic properties found for material "{name}"'.format(name=name))
         young, poisson = None, None
 
     # Plastic

@@ -112,7 +112,7 @@ class Results:
         if self._import_mesh is False:
             return None
 
-        print(f'Importing mesh data from result file "{file_ref}"')
+        logger.info(f'Importing mesh data from result file "{file_ref}"')
         self.result_mesh.add_results(mesh)
 
     def _get_results_from_result_file(self, file_ref, overwrite=False):

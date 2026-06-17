@@ -61,6 +61,9 @@ npm = { cmd = "npm", cwd = "./src/frontend" }
 winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJECT_ROOT/src/frontend/node_modules"] }
 wdev = { cmd = "npm run dev", cwd = "./src/frontend", depends-on = ["winstall"] }
 wbuild = { cmd = "npm run build", cwd = "./src/frontend", depends-on = ["winstall"] }
+# Build the pyodide ada-py wheel into the SPA's public/wheels so the dev
+# server and build serve it at /wheels/ for the in-browser FEM/SAT stacks.
+wheel-pyodide = { cmd = "python tools/build_pyodide_adapy_wheel.py src/frontend/public/wheels" }
 fdepcheck = { cmd = "depcheck", cwd = "./src/frontend", depends-on = ["winstall"] }
 
 json-code-gen-ts = { cmd = [

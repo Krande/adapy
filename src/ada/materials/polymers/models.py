@@ -349,7 +349,7 @@ class Calibrate:
 *Hyperelastic, neo hooke
  {self._params[0]},0."""
         else:
-            print(f'unrecognized model "{self._model.__name__}"')
+            logger.warning(f'unrecognized model "{self._model.__name__}"')
             return ""
 
     # endregion
@@ -408,7 +408,7 @@ def neo_hookean(strain, mu, load_type="uniaxial"):
     elif load_type == "planar":
         return mu * (lam * lam - 1.0 / lam**2)
     else:
-        print(f"unknown load type {load_type}")
+        logger.warning(f"unknown load type {load_type}")
         return None
 
 
@@ -423,7 +423,7 @@ def yeoh(strain, c10, c20, c30, load_type="uniaxial"):
     elif load_type == "planar":
         return 2 * (c10 + 2 * c20 * (i1 - 3) + 3 * c30 * (i1 - 3) ** 2) * (lam**2 - 1.0 / lam**2)
     else:
-        print(f"unknown load type {load_type}")
+        logger.warning(f"unknown load type {load_type}")
         return None
 
 

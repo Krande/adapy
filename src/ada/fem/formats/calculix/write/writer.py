@@ -6,6 +6,7 @@ from operator import attrgetter
 from typing import TYPE_CHECKING
 
 from ada.api.containers import Nodes
+from ada.config import logger
 from ada.core.utils import NewLine, get_current_user
 from ada.fem import Bc, FemSection, FemSet
 from ada.fem.formats.abaqus.write.write_bc import aba_bc_map, valid_aba_bcs
@@ -70,7 +71,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
         # f.write(constraints_str)
         # f.write(springs_str)
 
-    print(f'Created a Calculix input deck at "{analysis_dir}"')
+    logger.info(f'Created a Calculix input deck at "{analysis_dir}"')
 
 
 class CcxSecTypes:

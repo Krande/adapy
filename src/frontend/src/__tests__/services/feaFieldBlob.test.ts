@@ -1,7 +1,13 @@
-import {describe, it} from "node:test";
+import {describe, it, beforeEach} from "node:test";
 import assert from "node:assert/strict";
 
-import {parseFieldBlob} from "../../services/feaFieldBlob";
+import {
+    parseFieldBlob,
+    fetchFieldStep,
+    clearFieldBlobCache,
+} from "../../services/feaFieldBlob";
+import type {FeaFetcher, FeaRangeFetcher} from "../../services/fea/feaFetcher";
+import type {FeaManifestField} from "../../services/viewerApi";
 
 const HEADER_BYTES = 1024;
 
@@ -146,5 +152,118 @@ describe("parseFieldBlob", () => {
         // Slice off half the payload.
         const truncated = buf.slice(0, HEADER_BYTES + 2 * 10 * 3 * 4);
         assert.throws(() => parseFieldBlob(truncated), /payload/);
+    });
+});
+
+describe("fetchFieldStep (per-step HTTP-Range)", () => {
+    const N_STEPS = 6;
+    const N_POINTS = 4;
+    const N_COMPONENTS = 3;
+    const STRIDE = N_POINTS * N_COMPONENTS * 4;
+
+    function makeBlob(): ArrayBuffer {
+        return buildAfbl({
+            n_steps: N_STEPS,
+            n_points: N_POINTS,
+            n_components: N_COMPONENTS,
+            fillStep: (i, out) => {
+                for (let k = 0; k < out.length; k++) out[k] = i * 1000 + k;
+            },
+        });
+    }
+
+    function makeField(): FeaManifestField {
+        return {
+            name_canonical: "DEPL",
+            category: "displacement",
+            support: "nodal",
+            blob: {
+                url: "fea.DEPL.bin",
+                header_bytes: HEADER_BYTES,
+                stride_bytes: STRIDE,
+                dtype: "float32",
+                byte_order: "little",
+            },
+            n_steps: N_STEPS,
+        } as unknown as FeaManifestField;
+    }
+
+    const wholeFetcher = (blob: ArrayBuffer): FeaFetcher => async () => blob;
+
+    beforeEach(() => clearFieldBlobCache());
+
+    it("ranged response: fetches only the requested step's stride", async () => {
+        const blob = makeBlob();
+        const calls: Array<{start: number; end: number}> = [];
+        const ranged: FeaRangeFetcher = async (_f, start, end) => {
+            calls.push({start, end});
+            return {buf: blob.slice(start, end + 1), ranged: true};
+        };
+
+        const step3 = await fetchFieldStep(ranged, wholeFetcher(blob), makeField(), 3, "ck");
+        assert.equal(step3.length, N_POINTS * N_COMPONENTS);
+        assert.equal(step3[0], 3000);
+        assert.equal(step3[5], 3005);
+        // Exactly one fetch, covering just step 3's window.
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].start, HEADER_BYTES + 3 * STRIDE);
+        assert.equal(calls[0].end, HEADER_BYTES + 4 * STRIDE - 1);
+    });
+
+    it("caches per step: a repeat fetch issues no new request", async () => {
+        const blob = makeBlob();
+        let n = 0;
+        const ranged: FeaRangeFetcher = async (_f, start, end) => {
+            n++;
+            return {buf: blob.slice(start, end + 1), ranged: true};
+        };
+        const field = makeField();
+        await fetchFieldStep(ranged, wholeFetcher(blob), field, 2, "ck");
+        await fetchFieldStep(ranged, wholeFetcher(blob), field, 2, "ck");
+        assert.equal(n, 1);
+    });
+
+    it("non-ranged (legacy gzip) response: parses whole blob, then slices for free", async () => {
+        const blob = makeBlob();
+        let n = 0;
+        // Server ignored Range and returned the whole object (200).
+        const ranged: FeaRangeFetcher = async () => {
+            n++;
+            return {buf: blob, ranged: false};
+        };
+        const field = makeField();
+        const step1 = await fetchFieldStep(ranged, wholeFetcher(blob), field, 1, "ck");
+        assert.equal(step1[0], 1000);
+        // A different step now comes from the cached whole blob — no 2nd fetch.
+        const step4 = await fetchFieldStep(ranged, wholeFetcher(blob), field, 4, "ck");
+        assert.equal(step4[0], 4000);
+        assert.equal(n, 1);
+    });
+
+    it("range fetch throws ('Failed to fetch'): falls back to whole-blob fetcher", async () => {
+        const blob = makeBlob();
+        let wholeCalls = 0;
+        const ranged: FeaRangeFetcher = async () => {
+            throw new TypeError("Failed to fetch");
+        };
+        const fetcher: FeaFetcher = async () => {
+            wholeCalls++;
+            return blob;
+        };
+        const field = makeField();
+        const step2 = await fetchFieldStep(ranged, fetcher, field, 2, "ck");
+        assert.equal(step2[0], 2000);
+        assert.equal(wholeCalls, 1);
+        // Range is now disabled session-wide → a 2nd field load uses the
+        // whole-blob fetcher directly without attempting another range.
+        clearFieldBlobCache();
+        let rangedAttempts = 0;
+        const ranged2: FeaRangeFetcher = async () => {
+            rangedAttempts++;
+            return {buf: blob, ranged: true};
+        };
+        const step3 = await fetchFieldStep(ranged2, wholeFetcher(blob), field, 3, "ck");
+        assert.equal(step3[0], 3000);
+        assert.equal(rangedAttempts, 0, "range should stay disabled after a failure");
     });
 });

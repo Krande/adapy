@@ -290,7 +290,10 @@ const AuditLogTab: React.FC = () => {
                             </Td>
                             <Td>{e.action}</Td>
                             <Td title={e.key || ""}>{e.key || ""}</Td>
-                            <Td>{e.target_format || ""}</Td>
+                            <Td>
+                                {e.target_format || ""}
+                                {isWasmEntry(e) && <WasmBadge/>}
+                            </Td>
                             <Td title={e.error || ""}>
                                 <span className={statusClass(e.status)}>{e.status || ""}</span>
                                 {hasDetails(e) && (
@@ -333,6 +336,7 @@ const AuditLogTab: React.FC = () => {
                                     {e.target_format ? (
                                         <span className="text-gray-400"> → {e.target_format}</span>
                                     ) : null}
+                                    {isWasmEntry(e) && <WasmBadge/>}
                                 </div>
                             )}
                             {e.user_sub && (
@@ -1019,6 +1023,22 @@ const Td: React.FC<{children: React.ReactNode; title?: string}> = ({children, ti
     <td className="px-3 py-1 truncate" title={title}>
         {children}
     </td>
+);
+
+// In-browser (WASM) conversions get a ``wasm-`` job id and a ``wasm:``
+// image tag from the audit/local endpoints; surface either as a badge so
+// operators can tell client-side rows from worker rows at a glance.
+function isWasmEntry(e: {job_id?: string | null; worker_image_tag?: string | null}): boolean {
+    return (e.job_id || "").startsWith("wasm-") || (e.worker_image_tag || "").startsWith("wasm:");
+}
+
+const WasmBadge: React.FC = () => (
+    <span
+        className="ml-1 inline-block rounded bg-purple-900/60 text-purple-200 px-1 text-[9px] font-semibold align-middle"
+        title="Converted in-browser (WASM)"
+    >
+        WASM
+    </span>
 );
 
 function shortSub(s: string | null): string {

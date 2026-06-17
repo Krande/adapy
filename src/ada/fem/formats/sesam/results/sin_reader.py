@@ -14,9 +14,11 @@ Walks the file's per-type blocks and exposes:
 The binary format spec was reverse-engineered against ``dnv-sifio``
 output; see ``SIN_FORMAT.md`` in this directory.
 
-stdlib-only: only ``struct`` + ``pathlib`` are needed. Holds the whole
-file in memory (typical Sesam result files are <100 MB and the layout
-is random-access by design).
+Byte access goes through a :class:`ByteSource`
+(:mod:`ada.fem.formats.sesam.results.byte_source`) so the same decoder
+runs over an ``mmap`` of a local file (:func:`open_sin`, the default) or a
+range-streamed object (no whole file on disk / past the browser's 2 GiB
+buffer cap). Needs ``numpy``; the layout is random-access by design.
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any, Iterator
+
+from ada.fem.formats.sesam.results.byte_source import ByteSource, MmapSource
 
 PREAMBLE = 0x803
 NAME_LEN = 8
@@ -99,51 +103,108 @@ def _validate_first_record(data: Any, block: "TypeBlock") -> bool:
     return True
 
 
-def _truncate_pointer_table(data: Any, ptrs: Any) -> int:
-    """Return the index of the first non-zero invalid pointer in *ptrs*.
+# Pointer values are read in large contiguous blocks (cheap, sequential);
+# the per-record NFIELD validity check — the only access that faults
+# *scattered* record pages — runs in small early-exiting steps so the
+# garbage cap-slots past the real cutoff are never dereferenced.
+_PTR_READ_SLOTS = 1 << 16  # 64 K slots / 512 KiB per value-read block
+_PTR_FINE_SLOTS = 256  # NFIELD-validation granularity (bounds garbage faults)
 
-    On multi-super-element files (multi-GB decks with a dozen+ SEs),
-    huge RV* tables encode ``dims`` as a CAP (~20 M) rather than the
-    real populated count. Walking all 20 M slots reads record bytes
-    that happen to encode small floats (NFIELD=11.0 → 0x41300000 ≈
-    1.09 GB as an int → still in-file) as if they were pointers,
-    producing millions of phantom records.
 
-    The cutoff is detectable cheaply: real pointers either are 0
-    (sparse slot) or point to a byte whose float32 is a sane NFIELD
-    in [1, 1024]. The first non-zero pointer that fails this check
-    marks the end of the real table; everything after is record-data
-    being misread.
+def _first_invalid(source: ByteSource, ptrs: Any, file_end: int) -> int:
+    """Index of the first non-zero invalid pointer in *ptrs*.
 
-    Numpy-vectorised so a million-row-by-hundreds-of-modes RVNODDIS
-    table (~150 MiB of pointer bytes) validates in well under a
-    second without per-entry Python overhead.
+    A pointer is valid iff it is 0 (sparse slot) or its NFIELD word (at
+    ``ptr-1``) is an integral float in [1, 1024]. Real pointers form a
+    contiguous valid prefix; the first non-zero pointer that fails marks
+    the end of the real table — everything after is record data being
+    misread as pointers.
+
+    On multi-super-element files, huge RV* tables encode ``dims`` as a CAP
+    (~20 M) rather than the real populated count, so this truncation is
+    what keeps the reader from materialising millions of phantom records.
+
+    Scanned in ``_PTR_FINE_SLOTS`` steps with an early exit. The NFIELD
+    gather is the only access that faults scattered record pages: the
+    garbage cap-slots beyond the cutoff are float-bit values pointing all
+    over a multi-GB file, so validating the whole table at once faults ~3x
+    the real record span just to find a cutoff in the first ~1.5 M slots.
+    Stopping at the first invalid step touches only the real records' pages
+    plus the single step that straddles the cutoff (see the range-IO
+    backend notes; the mmap path benefits identically — fewer faults).
     """
     import numpy as np
 
-    if ptrs.size == 0:
+    total = int(ptrs.size)
+    if total == 0:
         return 0
-    file_end = len(data)
-    nonzero = ptrs != 0
-    nfield_bytes = (ptrs - 1) * 4
-    in_bounds = (nfield_bytes >= 0) & (nfield_bytes + 4 <= file_end)
-    # Float view over the whole mmap; gather only the bytes we need.
-    # Word index 0 is a safe placeholder for out-of-bounds rows so
-    # the fancy-index can't raise — they get masked out below.
-    as_f32 = np.frombuffer(data, dtype=np.float32)
-    word_idx = np.where(in_bounds & nonzero, nfield_bytes // 4, 0).astype(np.int64)
-    nfield_at = as_f32[word_idx]
-    # NFIELD must be a positive integer in [1, 1024]. NaN/inf compare
-    # False; casting to int32 then back catches non-integer floats.
-    # The cast warns on NaN/inf — they're expected (garbage tail of
-    # the table) and get masked out by the range check anyway.
-    with np.errstate(invalid="ignore"):
-        nfield_int = nfield_at.astype(np.int32).astype(np.float32)
-    nfield_like = (nfield_at == nfield_int) & (nfield_at >= 1.0) & (nfield_at <= 1024.0)
-    invalid = nonzero & ~(in_bounds & nfield_like)
-    if not invalid.any():
-        return int(ptrs.size)
-    return int(np.argmax(invalid))
+    for s in range(0, total, _PTR_FINE_SLOTS):
+        seg = ptrs[s : s + _PTR_FINE_SLOTS]
+        nonzero = seg != 0
+        nfield_bytes = (seg - 1) * 4
+        in_bounds = (nfield_bytes >= 0) & (nfield_bytes + 4 <= file_end)
+        # Word index 0 is a safe placeholder for out-of-bounds/zero rows so
+        # the gather can't raise — they get masked out below.
+        word_idx = np.where(in_bounds & nonzero, nfield_bytes // 4, 0).astype(np.int64)
+        nfield_at = source.gather_f32(word_idx)
+        # NFIELD must be a positive integer in [1, 1024]. NaN/inf compare
+        # False; casting to int32 then back catches non-integer floats.
+        # The cast warns on NaN/inf — expected (garbage tail) and masked
+        # out by the range check anyway.
+        with np.errstate(invalid="ignore"):
+            nfield_int = nfield_at.astype(np.int32).astype(np.float32)
+        nfield_like = (nfield_at == nfield_int) & (nfield_at >= 1.0) & (nfield_at <= 1024.0)
+        invalid = nonzero & ~(in_bounds & nfield_like)
+        if invalid.any():
+            return s + int(np.argmax(invalid))
+    return total
+
+
+def _truncate_pointer_table(source: Any, ptrs: Any) -> int:
+    """Return the index of the first non-zero invalid pointer in *ptrs*.
+
+    Thin wrapper over :func:`_first_invalid` that also accepts a raw
+    bytes-like / ``mmap`` buffer (wrapping it in a :class:`MmapSource`),
+    so callers and unit tests can pass either a :class:`ByteSource` or the
+    underlying buffer.
+    """
+    if not isinstance(source, ByteSource):
+        source = MmapSource(source)
+    return _first_invalid(source, ptrs, source.size())
+
+
+def _read_pointer_table(source: ByteSource, offset: int, max_slots: int) -> Any:
+    """Stream a block's pointer table, validating in fine steps and
+    stopping at the real cutoff.
+
+    Pointer *values* are read in large contiguous ``_PTR_READ_SLOTS``
+    blocks (cheap sequential bytes); validity is checked via
+    :func:`_first_invalid` so the garbage cap-slots past the cutoff are
+    never dereferenced. Returns the truncated numpy int64 word-offset
+    table. This is the single pointer-table reader for both the mmap and
+    the range-streamed backend.
+    """
+    import numpy as np
+
+    file_end = source.size()
+    avail = max(0, (file_end - offset) // SLOT_STRIDE)
+    max_slots = min(max_slots, avail)
+    if max_slots <= 0:
+        return np.empty(0, dtype=np.int64)
+    pieces: list[Any] = []
+    pos = 0
+    while pos < max_slots:
+        n = min(_PTR_READ_SLOTS, max_slots - pos)
+        u32 = source.frombuffer(np.uint32, n * 2, offset + pos * SLOT_STRIDE)
+        ptrs = u32[1::2].astype(np.int64)  # value half of each 8-byte slot
+        cut = _first_invalid(source, ptrs, file_end)
+        pieces.append(ptrs[:cut])
+        if cut < ptrs.size:
+            break
+        pos += n
+    if not pieces:
+        return np.empty(0, dtype=np.int64)
+    return pieces[0] if len(pieces) == 1 else np.concatenate(pieces)
 
 
 def _find_preamble(data: Any, start: int, stop: int) -> int:
@@ -200,11 +261,11 @@ def _find_preamble_chunked(data: Any, start: int, stop: int) -> int:
 _HEADER_NAMES = ("NORSAM", "ALLOCATE", "RESULTS", "IEND")
 
 
-def _read_u32_slot(data: bytes, off: int) -> int:
+def _read_u32_slot(source: ByteSource, off: int) -> int:
     """Return the u32 value stored in the high 4 bytes of an 8-byte slot."""
-    if off + SLOT_STRIDE > len(data):
+    if off + SLOT_STRIDE > source.size():
         return 0
-    return struct.unpack_from("<I", data, off + SLOT_VALUE_OFFSET)[0]
+    return source.u32(off + SLOT_VALUE_OFFSET)
 
 
 _NAME_BODY = set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
@@ -322,10 +383,11 @@ class TypeBlock:
         return self.nfield + (self.nfield & 1)
 
 
-def _decode_type_block(data: bytes, preamble_off: int, next_preamble: int | None) -> TypeBlock:
-    """Decode one per-type block. ``next_preamble`` clamps the pointer
-    table walk so a malformed header can't read past the next block."""
-    name = data[preamble_off + 4 : preamble_off + 4 + NAME_LEN].decode("ascii").rstrip()
+def _decode_type_block(source: ByteSource, preamble_off: int, next_preamble: int | None = None) -> TypeBlock:
+    """Decode one per-type block. ``next_preamble`` is accepted for
+    signature compatibility; the pointer-table read is clamped to the file
+    end and truncated at the real cutoff regardless."""
+    name = source.read(preamble_off + 4, NAME_LEN).decode("ascii").rstrip()
     # Payload (slot stream) starts right after the 8-byte name.
     payload = preamble_off + 4 + NAME_LEN
 
@@ -339,9 +401,9 @@ def _decode_type_block(data: bytes, preamble_off: int, next_preamble: int | None
     #              NDIM = ((ptr_table_word*8 - 4 - payload) / 8 - 4) / 2
     #   slot[4..4+2*NDIM-1]: (capacity, populated) pairs
     #   slot[4+2*NDIM..]:    pointer table (NDIM-flattened)
-    nfield = _read_u32_slot(data, payload + 1 * SLOT_STRIDE)
-    type_flag = _read_u32_slot(data, payload + 2 * SLOT_STRIDE)
-    ptr_table_word = _read_u32_slot(data, payload + 3 * SLOT_STRIDE)
+    nfield = _read_u32_slot(source, payload + 1 * SLOT_STRIDE)
+    type_flag = _read_u32_slot(source, payload + 2 * SLOT_STRIDE)
+    ptr_table_word = _read_u32_slot(source, payload + 3 * SLOT_STRIDE)
 
     # Derive NDIM from ptr_table_word — slot[6+2*NDIM-2]'s value field
     # sits at ptr_table_word*8 bytes; that anchors where dims stop.
@@ -367,8 +429,8 @@ def _decode_type_block(data: bytes, preamble_off: int, next_preamble: int | None
         # capacity > population (BNBCD: cap=200, pop=200, count=13).
         dim_slot = 4
         while True:
-            cap = _read_u32_slot(data, payload + dim_slot * SLOT_STRIDE)
-            pop = _read_u32_slot(data, payload + (dim_slot + 1) * SLOT_STRIDE)
+            cap = _read_u32_slot(source, payload + dim_slot * SLOT_STRIDE)
+            pop = _read_u32_slot(source, payload + (dim_slot + 1) * SLOT_STRIDE)
             if cap == 0 or cap != pop:
                 break
             dim_slot += 2
@@ -380,8 +442,8 @@ def _decode_type_block(data: bytes, preamble_off: int, next_preamble: int | None
     caps: list[int] = []
     dims: list[int] = []
     for d in range(ndim):
-        caps.append(_read_u32_slot(data, payload + (4 + 2 * d) * SLOT_STRIDE))
-        dims.append(_read_u32_slot(data, payload + (4 + 2 * d + 1) * SLOT_STRIDE))
+        caps.append(_read_u32_slot(source, payload + (4 + 2 * d) * SLOT_STRIDE))
+        dims.append(_read_u32_slot(source, payload + (4 + 2 * d + 1) * SLOT_STRIDE))
 
     # Reject obvious-garbage dims before they balloon the pointer table.
     # A junk u32 read can put 2^31 in a dim slot; allocating a list of
@@ -398,49 +460,24 @@ def _decode_type_block(data: bytes, preamble_off: int, next_preamble: int | None
             f"exceeds {_MAX_RECORDS_PER_BLOCK} cap — likely junk header"
         )
 
-    # Bulk-read the pointer table as numpy. Each slot is 8 bytes,
-    # value (low 32 bits of the 64-bit pointer) in the +4 half. We
-    # read both halves as u32 then take every other element — for
-    # huge tables (RVFORCES at 20 M entries) this is 80 MiB of
-    # int64 vs 600 MiB of Python ints.
+    # Stream the pointer table (each slot is 8 bytes, the value half in
+    # the +4 word), validating + truncating at the real cutoff as it
+    # reads. For huge tables (RVFORCES at a 20 M-slot CAP) this stores
+    # 8 B/entry int64 instead of 600 MiB of Python ints, and the
+    # fine-step truncation means the garbage cap-slots past the real
+    # count are never dereferenced.
+    #
+    # ``dims`` is a CAP for huge multi-SE RV* tables (eigen decks report
+    # ~20 M but the real count is n_modes × N nodes/elements); the
+    # truncation is what keeps the table from yielding millions of
+    # phantom records read out of record-data bytes.
     #
     # The pointer table is 1-based: slot[0] is a zero sentinel and
-    # records live at slots[1..N]. dims=(N,) therefore needs N+1
-    # actual slots, otherwise the last record (id N) falls off the
-    # end. Without this, multi-super-element files lose one
-    # node/element per SE — and the missing element references a
-    # node that then looks out-of-bounds to the trimesh builder.
-    import numpy as np
-
-    file_end = len(data)
-    slot_count = total_records + 1
-    n_words = slot_count * 2  # 2 u32 per slot
-    max_bytes = pointer_table_offset + n_words * 4
-    if max_bytes > file_end:
-        n_words = max(0, (file_end - pointer_table_offset) // 4)
-        n_words -= n_words & 1  # even number of u32s
-        slot_count = n_words // 2
-    total_records = slot_count
-    if n_words > 0:
-        u32_pairs = np.frombuffer(
-            data,
-            dtype=np.uint32,
-            count=n_words,
-            offset=pointer_table_offset,
-        )
-        pointer_table = u32_pairs[1::2].astype(np.int64).copy()
-    else:
-        pointer_table = np.empty(0, dtype=np.int64)
-
-    # Truncate the pointer table at the first non-zero invalid pointer.
-    # ``dims`` is a CAP for huge multi-SE RV* tables (some eigen decks
-    # report ~20 M but the real count is n_modes × N nodes/elements).
-    # Without this, walking the table yields millions of phantom
-    # records pulled from record-data bytes being misread as pointers.
-    real_count = _truncate_pointer_table(data, pointer_table)
-    if real_count < pointer_table.size:
-        pointer_table = pointer_table[:real_count].copy()
-        total_records = real_count
+    # records live at slots[1..N]. dims=(N,) therefore needs N+1 slots,
+    # otherwise the last record (id N) falls off the end — multi-super-
+    # element files would lose one node/element per SE.
+    pointer_table = _read_pointer_table(source, pointer_table_offset, total_records + 1)
+    total_records = int(pointer_table.size)
 
     records_start = pointer_table_offset + total_records * SLOT_STRIDE
 
@@ -463,14 +500,14 @@ def _decode_type_block(data: bytes, preamble_off: int, next_preamble: int | None
 class SinFile:
     """Top-level handle for an opened ``.sin`` file.
 
-    Backed by an :class:`mmap.mmap` so the OS pages bytes in on demand
-    — a 5 GB SIN doesn't pin 5 GB of RSS; cold pages get reclaimed
-    under memory pressure. Use :meth:`types` to list every data type
-    present and :meth:`iter_records` to walk a type's records as flat
-    float32 tuples (one per record, length ``nfield``).
-
-    Treat ``_data`` as opaque bytes-like; it satisfies the buffer
-    protocol that ``struct.unpack_from`` and ``bytes.find`` need.
+    Byte access goes through a :class:`ByteSource` so one decoder serves
+    both backends: :class:`MmapSource` (the :func:`open_sin` default — an
+    ``mmap`` the OS pages in on demand, so a 5 GB SIN doesn't pin 5 GB of
+    RSS) and the range-streamed
+    :class:`~ada.fem.formats.sesam.results.byte_source.PagedByteSource`
+    (no whole file on disk / past the browser's 2 GiB buffer cap). Use
+    :meth:`types` to list every data type present and :meth:`iter_records`
+    to walk a type's records as flat float32 tuples.
 
     Multi-super-element files: A Sesam SIN can carry data for multiple
     "first level super-elements" — each is an independent mesh + result
@@ -483,11 +520,8 @@ class SinFile:
     to the first super-element, override via :meth:`use_super_element`.
     """
 
-    path: Path
-    # mmap.mmap satisfies the buffer protocol that struct.unpack_from
-    # and bytes.find expect; we keep the type hint loose so the type
-    # checker doesn't object to .find / slicing on either bytes or mmap.
-    _data: Any = field(repr=False)
+    source: ByteSource = field(repr=False)
+    path: Path | None = None
     _fh: IO[bytes] | None = field(default=None, repr=False)
     header_blocks: list[tuple[int, str]] = field(default_factory=list)
     # Cheap directory: every RESULTS record's (IREF, PTAB byte offset).
@@ -504,17 +538,16 @@ class SinFile:
     _active_iref: int | None = field(default=None, repr=False)
 
     def close(self) -> None:
-        """Release the mmap + file handle.
+        """Release the byte source + file handle.
 
         Idempotent — safe to call multiple times. After ``close()`` the
-        :class:`SinFile` is unusable; reads will raise ``ValueError``.
+        :class:`SinFile` is unusable; reads will raise.
         """
-        if isinstance(self._data, mmap.mmap):
+        if self.source is not None:
             try:
-                self._data.close()
+                self.source.close()
             except (ValueError, BufferError):
                 pass
-        self._data = b""
         if self._fh is not None:
             try:
                 self._fh.close()
@@ -555,12 +588,7 @@ class SinFile:
         type-blocks). The PTAB-driven walk is O(num_super_elements ×
         num_types) and visits only meaningful pages.
         """
-        data = self._data
-        if isinstance(data, mmap.mmap):
-            try:
-                data.madvise(mmap.MADV_RANDOM)
-            except (AttributeError, OSError):
-                pass
+        self.source.advise_random()
 
         # Step 1 — walk the header area to collect NORSAM / ALLOCATE /
         # RESULTS / IEND. Header records are packed contiguously starting
@@ -589,20 +617,20 @@ class SinFile:
         heuristic for "main" super-element (carries the full mesh +
         results). Caller can override via :meth:`use_super_element`.
         """
-        data = self._data
-        file_end = len(data)
+        src = self.source
+        file_end = src.size()
         best_iref = None
         best_count = -1
         for iref, ptab_byte in self.super_element_refs:
             if ptab_byte + 12 + 5 * SLOT_STRIDE + 4 > file_end:
                 continue
-            if struct.unpack_from("<I", data, ptab_byte)[0] != PREAMBLE:
+            if src.u32(ptab_byte) != PREAMBLE:
                 continue
-            name = bytes(data[ptab_byte + 4 : ptab_byte + 12]).decode("ascii", errors="replace").rstrip()
+            name = src.read(ptab_byte + 4, NAME_LEN).decode("ascii", errors="replace").rstrip()
             if name != "PTAB":
                 continue
             payload = ptab_byte + 4 + NAME_LEN
-            count = _read_u32_slot(data, payload + 4 * SLOT_STRIDE)
+            count = _read_u32_slot(src, payload + 4 * SLOT_STRIDE)
             if count > best_count:
                 best_count = count
                 best_iref = iref
@@ -626,8 +654,8 @@ class SinFile:
         ptab_byte = next((b for ir, b in self.super_element_refs if ir == iref), None)
         if ptab_byte is None:
             raise KeyError(f"super-element IREF={iref} not in this SIN")
-        data = self._data
-        file_end = len(data)
+        src = self.source
+        file_end = src.size()
         out: dict[str, TypeBlock] = {}
         for preamble_off in self._walk_ptab(ptab_byte):
             if preamble_off <= 0 or preamble_off + 12 > file_end:
@@ -638,19 +666,24 @@ class SinFile:
                 continue
             # Reject anything that doesn't actually start with 0x803
             # — guard against PTAB corruption.
-            if struct.unpack_from("<I", data, preamble_off)[0] != PREAMBLE:
+            if src.u32(preamble_off) != PREAMBLE:
                 continue
-            raw = bytes(data[preamble_off + 4 : preamble_off + 4 + NAME_LEN])
+            raw = src.read(preamble_off + 4, NAME_LEN)
             if not _is_block_name(raw):
                 continue
             try:
-                block = _decode_type_block(data, preamble_off, None)
+                block = _decode_type_block(src, preamble_off, None)
             except Exception:
                 continue
             # PTAB-sourced blocks are authoritative — skip the
             # post-decode NFIELD/type_flag sanity check that the
             # old scan path needed against false positives.
             out[block.name] = block
+            # _decode_type_block (via _truncate_pointer_table) just
+            # faulted this block's record pages reading each NFIELD
+            # word; the decoded TypeBlock retains everything we need,
+            # so drop those pages before the next block stacks its own.
+            self._release_block_pages(block)
         return out
 
     def _walk_header_area(self) -> list[tuple[int, int]]:
@@ -658,8 +691,8 @@ class SinFile:
         effect: populates ``self.header_blocks``. Returns the list of
         ``(IREF, PTAB byte offset)`` for every RESULTS record.
         """
-        data = self._data
-        file_end = len(data)
+        src = self.source
+        file_end = src.size()
         out: list[tuple[int, int]] = []
         i = 0
         # Cap header walk to a generous prefix — the header area is
@@ -667,9 +700,9 @@ class SinFile:
         # records are present). 1 MiB is enough for any realistic file.
         max_header = min(file_end, 1024 * 1024)
         while i < max_header:
-            if struct.unpack_from("<I", data, i)[0] != PREAMBLE:
+            if src.u32(i) != PREAMBLE:
                 break
-            raw = bytes(data[i + 4 : i + 4 + NAME_LEN])
+            raw = src.read(i + 4, NAME_LEN)
             if not _is_block_name(raw):
                 break
             name = raw.decode("ascii").rstrip()
@@ -680,9 +713,9 @@ class SinFile:
                 #   IREF (4) + IPFILE_low (4) + IPFILE_high (4) +
                 #   Not Used (4). IPFILE is a Fortran 1-indexed
                 #   64-bit-word address; byte_offset = (IPFILE-1)*8.
-                iref = struct.unpack_from("<I", data, i + 16)[0]
-                ipfile_lo = struct.unpack_from("<I", data, i + 20)[0]
-                ipfile_hi = struct.unpack_from("<I", data, i + 24)[0]
+                iref = src.u32(i + 16)
+                ipfile_lo = src.u32(i + 20)
+                ipfile_hi = src.u32(i + 24)
                 ipfile = ipfile_lo | (ipfile_hi << 32)
                 if ipfile > 0:
                     ptab_byte = (ipfile - 1) * 8
@@ -693,7 +726,7 @@ class SinFile:
             # Header records are packed densely; the next preamble
             # follows immediately. Locate it via a small bounded
             # search so we don't depend on per-type record-size math.
-            next_i = data.find(struct.pack("<I", PREAMBLE), i + 4, min(i + 4096, max_header))
+            next_i = src.find(struct.pack("<I", PREAMBLE), i + 4, min(i + 4096, max_header))
             if next_i < 0:
                 break
             i = next_i
@@ -721,20 +754,13 @@ class SinFile:
         the file; ``(ptr - 1) * 8`` is the type-block's preamble byte
         offset.
         """
-        data = self._data
-        file_end = len(data)
+        src = self.source
+        file_end = src.size()
         if ptab_byte + 12 > file_end:
             return []
-        if struct.unpack_from("<I", data, ptab_byte)[0] != PREAMBLE:
+        if src.u32(ptab_byte) != PREAMBLE:
             return []
-        name = (
-            bytes(data[ptab_byte + 4 : ptab_byte + 4 + NAME_LEN])
-            .decode(
-                "ascii",
-                errors="replace",
-            )
-            .rstrip()
-        )
+        name = src.read(ptab_byte + 4, NAME_LEN).decode("ascii", errors="replace").rstrip()
         if name != "PTAB":
             return []
         payload = ptab_byte + 4 + NAME_LEN
@@ -744,7 +770,7 @@ class SinFile:
         # (1 NORSAM + 15 type-blocks including TDMATER, TDRESREF). The
         # same +1 offset is needed on large multi-SE eigen decks —
         # e.g. slot[4]=48 lists 49 pointers each.
-        count = _read_u32_slot(data, payload + 4 * SLOT_STRIDE) + 1
+        count = _read_u32_slot(src, payload + 4 * SLOT_STRIDE) + 1
         if not (1 < count <= 1024):
             # PTAB with absurd count → likely corrupted header; bail.
             return []
@@ -753,8 +779,8 @@ class SinFile:
             slot = payload + (6 + idx) * SLOT_STRIDE
             if slot + SLOT_STRIDE > file_end:
                 break
-            ptr_lo = struct.unpack_from("<I", data, slot)[0]
-            ptr_hi = struct.unpack_from("<I", data, slot + 4)[0]
+            ptr_lo = src.u32(slot)
+            ptr_hi = src.u32(slot + 4)
             # 64-bit pointer reconstruction: SLOT layout puts the LOW
             # 32 bits in bytes [+4..+7] (matching the rest of the
             # NSPI=2 convention). For values ≤ 2^32, ptr_hi=0 and
@@ -789,8 +815,8 @@ class SinFile:
         block = self.type_blocks.get(name)
         if block is None:
             return
-        data = self._data
-        file_end = len(data)
+        src = self.source
+        file_end = src.size()
         for word_ptr in block.pointer_table:
             wp = int(word_ptr)
             if wp == 0:
@@ -798,7 +824,7 @@ class SinFile:
             data_byte = wp * 4
             if data_byte + 4 > file_end:
                 continue
-            yield struct.unpack_from("<f", data, data_byte)[0]
+            yield src.f32(data_byte)
 
     def gather_first_words(self, name: str):
         """Return a numpy ``float32`` array of every populated record's
@@ -821,16 +847,122 @@ class SinFile:
         # _decode_type_block). Filter out unused slots + EOF-overrun
         # pointers via vectorised masks.
         ptrs = block.pointer_table
-        file_end = len(self._data)
+        file_end = self.source.size()
         valid = (ptrs > 0) & (ptrs * 4 + 4 <= file_end)
         ptrs = ptrs[valid]
-        # Float view over the whole file, then fancy-index by word
-        # offset. Numpy issues one read per page, kernel pages in
-        # only the bytes we hit (and they're 4-aligned), so for a
-        # densely-packed records section this touches every page
-        # once and no more.
-        as_f32 = np.frombuffer(self._data, dtype=np.float32)
-        return as_f32[ptrs].copy()
+        # Gather the first data word of each record. On the mmap backend
+        # this is a fancy-index over a zero-copy float view (one page read
+        # per touched page); on the range backend the gather fetches only
+        # the pages those words land in.
+        return self.source.gather_f32(ptrs).copy()
+
+    def _release_block_pages(self, block: "TypeBlock") -> None:
+        """Drop a type-block's record region from resident memory.
+
+        The dominant resident set on a multi-GB eigen SIN is the RV*
+        record streams, faulted in two phases: once at decode time (the
+        pointer-table truncation reads each record's NFIELD word) and
+        again at read time (:meth:`gather_records`). Dropping a block's
+        pages as soon as each phase finishes with it caps peak RSS at a
+        single block's resident span instead of the cumulative sum across
+        all 45 blocks. Correctness is unaffected — a later re-read simply
+        re-faults the pages from the backing store.
+
+        Reclaims [NFIELD-prefix of the first record .. _MAX_RECORD_BYTES
+        past the last]. The mmap backend ``MADV_DONTNEED``s the span; the
+        range backend's LRU already bounds residency, so its ``release``
+        is a no-op.
+        """
+        if block.pointer_table.size == 0:
+            return
+        nz = block.pointer_table[block.pointer_table > 0]
+        if nz.size == 0:
+            return
+        lo = max(0, (int(nz.min()) - 1) * 4)
+        hi = int(nz.max()) * 4 + _MAX_RECORD_BYTES
+        if hi <= lo:
+            return
+        self.source.release(lo, hi)
+
+    def release_record_pages(self, name: str) -> None:
+        """Reclaim a type-block's record pages by name (see
+        :meth:`_release_block_pages`). No-op if the type isn't present."""
+        block = self.type_blocks.get(name)
+        if block is not None:
+            self._release_block_pages(block)
+
+    def gather_records(self, name: str, *, where_first_word: int | None = None):
+        """Bulk-read every populated *fixed-width* record into a single
+        ``(count, nfield)`` float64 array — the vectorised analogue of
+        :meth:`iter_records`.
+
+        Column 0 holds the constant NFIELD (matching the SIF-style row
+        ``[nfield, *data]``); columns 1.. hold the record's data words.
+        One ``np.frombuffer`` view + a broadcast fancy-index does the
+        whole table, so a million-row RVNODDIS materialises as one ~80
+        B/row ndarray instead of a million Python ``list[float]`` rows
+        (~376 B each) — the heap saving the streaming bake needs.
+
+        Returns ``None`` when the records are **not** uniform width
+        (e.g. GELMNT1, whose NFIELD varies per element), signalling the
+        caller to fall back to the per-record :meth:`iter_records` path.
+        Returns an empty ``(0, 0)`` array when the type has no populated
+        records.
+
+        ``where_first_word`` mirrors :meth:`iter_records`: keep only
+        records whose first data word (IRES for RV* types) equals it.
+        """
+        import numpy as np
+
+        block = self.type_blocks.get(name)
+        if block is None:
+            return None
+        ptrs = block.pointer_table
+        src = self.source
+        file_end = src.size()
+        empty = np.empty((0, 0), dtype=np.float64)
+        if ptrs.size == 0:
+            return empty
+        nz = ptrs[ptrs > 0]
+        # Drop pointers whose NFIELD prefix word ((wp-1)*4) is out of
+        # bounds before we touch the buffer.
+        nz = nz[(nz >= 1) & (nz <= file_end // 4)]
+        if nz.size == 0:
+            return empty
+        nfields = src.gather_f32(nz - 1)
+        # Only vectorise truly fixed-width tables; a varying NFIELD
+        # means the per-record path is the only correct reader.
+        if not np.all(nfields == nfields[0]):
+            return None
+        nfield = int(nfields[0])
+        n_data = nfield - 1
+        if n_data <= 0:
+            return empty
+        # Each record needs n_data data words at [wp, wp+n_data).
+        nz = nz[(nz * 4 + n_data * 4) <= file_end]
+        if nz.size == 0:
+            return empty
+        # Per-step pre-filter: narrow the *pointer table* to the matching
+        # records before the heavy gather. The first data word (word idx
+        # ``wp``) is IRES for RV* types; reading just that column is one
+        # small gather, so the big ``(count, n_data)`` allocation that
+        # follows is sized to a single step rather than to all 200 steps
+        # then sliced. On a per-mode streaming bake this keeps the heap
+        # bounded to one mode instead of re-allocating the whole table on
+        # every step.
+        if where_first_word is not None:
+            nz = nz[src.gather_f32(nz).astype(np.int64) == where_first_word]
+            if nz.size == 0:
+                return np.empty((0, nfield), dtype=np.float64)
+        # (count, nfield) output: NFIELD constant in col 0, data in 1..
+        # Gather the data words as one flat fancy-index then reshape (1-D
+        # keeps the range backend's page-grouped gather happy), assigning
+        # straight into the float64 buffer (numpy casts on store).
+        word_idx = (nz[:, None] + np.arange(n_data, dtype=np.int64)[None, :]).ravel()
+        out = np.empty((nz.size, nfield), dtype=np.float64)
+        out[:, 0] = float(nfield)
+        out[:, 1:] = src.gather_f32(word_idx).reshape(nz.size, n_data)
+        return out
 
     def iter_records(self, name: str, *, where_first_word: int | None = None) -> Iterator[tuple[float, ...]]:
         """Yield one tuple of float32 values per populated record (the
@@ -856,8 +988,8 @@ class SinFile:
         block = self.type_blocks.get(name)
         if block is None:
             return
-        data = self._data
-        file_end = len(data)
+        src = self.source
+        file_end = src.size()
         for word_ptr in block.pointer_table:
             wp = int(word_ptr)
             if wp == 0:
@@ -865,7 +997,7 @@ class SinFile:
             nfield_byte = (wp - 1) * 4
             if nfield_byte < 0 or nfield_byte + 4 > file_end:
                 continue
-            nfield = int(struct.unpack_from("<f", data, nfield_byte)[0])
+            nfield = int(src.f32(nfield_byte))
             n_data = nfield - 1
             if n_data <= 0:
                 continue
@@ -875,10 +1007,10 @@ class SinFile:
             if where_first_word is not None:
                 # Cheap pre-filter: read just the first data word and
                 # skip mismatches before paying for the full unpack.
-                first = int(struct.unpack_from("<f", data, data_byte)[0])
+                first = int(src.f32(data_byte))
                 if first != where_first_word:
                     continue
-            yield struct.unpack_from(f"<{n_data}f", data, data_byte)
+            yield struct.unpack(f"<{n_data}f", src.read(data_byte, n_data * 4))
 
     def iter_text_records(self, name: str) -> Iterator[tuple[tuple[float, ...], str]]:
         """Yield ``(numeric_prefix, text)`` per record for text-typed
@@ -895,19 +1027,23 @@ class SinFile:
         block = self.type_blocks.get(name)
         if block is None:
             return
+        src = self.source
+        file_end = src.size()
         for word_ptr in block.pointer_table:
             if word_ptr == 0:
                 continue
-            nfield_byte = (word_ptr - 1) * 4
-            if nfield_byte < 0 or nfield_byte + 4 > len(self._data):
+            nfield_byte = (int(word_ptr) - 1) * 4
+            if nfield_byte < 0 or nfield_byte + 4 > file_end:
                 continue
-            nfield = int(struct.unpack_from("<f", self._data, nfield_byte)[0])
+            nfield = int(src.f32(nfield_byte))
             n_total = nfield - 1
             if n_total <= 0:
                 continue
-            data_byte = word_ptr * 4
-            if data_byte + n_total * 4 > len(self._data):
+            data_byte = int(word_ptr) * 4
+            if data_byte + n_total * 4 > file_end:
                 continue
+            # Read the whole record once, then unpack from the local copy.
+            buf = src.read(data_byte, n_total * 4)
             # Layout: 3 numeric prefix words (ID, NCHAR_LEN, flag),
             # 1 length-prefix word, then text words. Cantilever
             # samples confirm this for TDMATER (NFIELD=6: 3 num + 1
@@ -919,25 +1055,12 @@ class SinFile:
             if n_text_words <= 0:
                 # Defensive — fall through with empty text on
                 # malformed/short records rather than blow up.
-                yield (
-                    struct.unpack_from(f"<{n_total}f", self._data, data_byte),
-                    "",
-                )
+                yield (struct.unpack_from(f"<{n_total}f", buf, 0), "")
                 continue
-            numeric_prefix = struct.unpack_from(
-                f"<{n_numeric_prefix}f",
-                self._data,
-                data_byte,
-            )
-            len_word = struct.unpack_from(
-                "<I",
-                self._data,
-                data_byte + n_numeric_prefix * 4,
-            )[0]
+            numeric_prefix = struct.unpack_from(f"<{n_numeric_prefix}f", buf, 0)
+            len_word = struct.unpack_from("<I", buf, n_numeric_prefix * 4)[0]
             n_chars = (len_word >> 8) & 0xFFFFFF
-            text_bytes = self._data[
-                data_byte + (n_numeric_prefix + 1) * 4 : data_byte + (n_numeric_prefix + 1) * 4 + n_text_words * 4
-            ]
+            text_bytes = buf[(n_numeric_prefix + 1) * 4 : (n_numeric_prefix + 1) * 4 + n_text_words * 4]
             if n_chars and n_chars <= len(text_bytes):
                 text = text_bytes[:n_chars].decode("ascii", errors="replace").rstrip()
             else:
@@ -945,22 +1068,102 @@ class SinFile:
             yield (numeric_prefix, text)
 
 
-def open_sin(path: str | Path) -> SinFile:
-    """Open a ``.sin`` file (memory-mapped) and decode its block index.
+def _uri_scheme(target: str | Path) -> str:
+    """Return the lowercased URI scheme of ``target`` (``""`` for a local
+    path). Single-letter schemes are treated as Windows drive letters."""
+    s = str(target)
+    head, sep, _ = s.partition("://")
+    if not sep:
+        return ""
+    return head.lower() if len(head) > 1 else ""
 
-    Uses ``mmap`` so a multi-GB SIN doesn't load resident — the OS
-    pages bytes in on access. The file handle and mapping live on the
-    returned :class:`SinFile`; call :meth:`SinFile.close` (or use it
-    as a context manager) to release them.
+
+def _s3_client():
+    """A boto3 S3 client using the standard credential/endpoint
+    resolution. ``AWS_ENDPOINT_URL`` (or ``ADAPY_S3_ENDPOINT_URL``) points
+    it at a non-AWS S3-compatible store; everything else (keys, region)
+    comes from the usual environment / config chain."""
+    import os
+
+    import boto3
+
+    endpoint = os.environ.get("ADAPY_S3_ENDPOINT_URL") or os.environ.get("AWS_ENDPOINT_URL")
+    return boto3.client("s3", endpoint_url=endpoint) if endpoint else boto3.client("s3")
+
+
+def open_sin(
+    path: str | Path,
+    *,
+    page_kib: int = 1024,
+    max_resident_mb: int = 256,
+    s3_client: Any = None,
+) -> SinFile:
+    """Open a ``.sin`` from a local path **or a URI** and decode its index.
+
+    Routing by scheme:
+
+    * local path / ``file://`` → memory-mapped (:class:`MmapSource`) so a
+      multi-GB SIN doesn't load resident — the OS pages bytes in on access.
+      Falls back to a one-shot read (bytes-backed) where ``mmap`` is
+      unavailable (e.g. pyodide MEMFS).
+    * ``s3://bucket/key`` → range-streamed from object storage
+      (:class:`PagedByteSource` over
+      :class:`~ada.fem.formats.sesam.results.byte_source.S3RangeSource`) —
+      no whole file on disk. Pass ``s3_client`` to override the default
+      boto3 client (built from the standard env/endpoint chain).
+    * ``http(s)://url`` → range-streamed over HTTP
+      (:class:`~ada.fem.formats.sesam.results.byte_source.HttpRangeSource`),
+      e.g. a presigned URL.
+
+    ``page_kib`` / ``max_resident_mb`` tune the streamed page cache. The
+    returned :class:`SinFile` owns its source; call :meth:`SinFile.close`.
     """
-    p = Path(path)
+    scheme = _uri_scheme(path)
+
+    if scheme in ("s3", "http", "https"):
+        from ada.fem.formats.sesam.results.byte_source import (
+            HttpRangeSource,
+            PagedByteSource,
+            S3RangeSource,
+        )
+
+        page_bits = (page_kib * 1024).bit_length() - 1
+        if scheme == "s3":
+            rest = str(path)[len("s3://") :]
+            bucket, _, key = rest.partition("/")
+            if not key:
+                raise ValueError(f"s3 URI must be s3://bucket/key, got {path!r}")
+            fetcher: Any = S3RangeSource(s3_client or _s3_client(), bucket, key)
+            name = Path(key).name
+        else:
+            from urllib.parse import unquote, urlsplit
+
+            fetcher = HttpRangeSource(str(path))
+            name = Path(unquote(urlsplit(str(path)).path)).name or "remote.sin"
+        source = PagedByteSource(fetcher, page_bits=page_bits, max_resident_bytes=max_resident_mb << 20)
+        return SinFile(source=source, path=Path(name))
+
+    # Local path (optionally file://) — mmap, with a bytes fallback.
+    if scheme == "file":
+        from urllib.parse import unquote, urlsplit
+
+        p = Path(unquote(urlsplit(str(path)).path))
+    else:
+        p = Path(path)
     fh = open(p, "rb")
     try:
         mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
+    except (OSError, ValueError):
+        # mmap not available (e.g. emscripten/pyodide MEMFS) — read once.
+        try:
+            buf = fh.read()
+        finally:
+            fh.close()
+        return SinFile(source=MmapSource(buf), path=p)
     except Exception:
         fh.close()
         raise
-    return SinFile(path=p, _data=mm, _fh=fh)
+    return SinFile(source=MmapSource(mm), path=p, _fh=fh)
 
 
 __all__ = [

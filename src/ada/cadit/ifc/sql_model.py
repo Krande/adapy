@@ -6,6 +6,8 @@ import ifcopenshell
 from ifcopenshell import ifcopenshell_wrapper
 from ifcopenshell.entity_instance import entity_instance
 
+from ada.config import logger
+
 
 class IfcSqlModel:
     def __init__(self, filepath):
@@ -306,7 +308,7 @@ class IfcSqlModel:
 class sqlite_entity(entity_instance):
     def __init__(self, ifc_id, ifc_class, sqlite_store: IfcSqlModel = None):
         if not ifc_class:
-            print(id, ifc_class, sqlite_store)
+            logger.debug("%s %s %s", id, ifc_class, sqlite_store)
             assert False
         schema = sqlite_store.ifc_schema_str
         e = ifcopenshell_wrapper.new_IfcBaseClass(schema, ifc_class)

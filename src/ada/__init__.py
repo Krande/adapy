@@ -4,14 +4,13 @@ import os
 import pathlib
 from typing import TYPE_CHECKING
 
-# NOTE: this module imports adapy's full surface eagerly, which pulls in
-# native-only deps (pythonocc-core, python-gmsh, ifcopenshell-cpp). It is
-# therefore NOT importable under pyodide/wasm, where those deps don't
-# exist. Builds that stage adapy for pyodide copy deploy/pyodide-ada-init.py
-# in over this file instead (see deploy/Dockerfile.viewer and
-# tools/pyodide-test/test_pyodide_cad.js); that variant exposes only the
-# lazy `ada.cad` subpackage. Keep the two in sync where it matters
-# (e.g. the jupyter extension hooks at the bottom).
+# NOTE: this module imports adapy's API surface eagerly, but only pure-python
+# deps at module level (numpy/pyquaternion/trimesh). The CAD/FEM kernels
+# (pythonocc-core / gmsh / ifcopenshell) are pulled lazily at call time via the
+# CadBackend abstraction, so `import ada` loads under pyodide/wasm too — the
+# pyodide wheel (deploy/Dockerfile.viewer) ships this file as-is. Genuinely
+# native *operations* fail at call time with a clear error where no wasm
+# backend exists.
 from ada import fem
 from ada._version import __version__  # noqa: F401 — re-exported as ada.__version__
 from ada.api.beams import (

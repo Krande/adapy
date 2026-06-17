@@ -26,7 +26,7 @@ def read_fem(fem_file: os.PathLike, fem_name: str = None):
         # object section/set/constraint readers).
         part = Part(part_name)
         _read_sesam_fem_array_stream(fem_file, part)
-        print(8 * "-" + f'Imported "{part.fem.instance_name}"')
+        logger.info(8 * "-" + f'Imported "{part.fem.instance_name}"')
         return Assembly("TempAssembly") / part
 
     with open(fem_file, "r") as d:
@@ -45,7 +45,7 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
 
     if Config().meshing_array_backed:
         _read_sesam_fem_array(bulk_str, part)
-        print(8 * "-" + f'Imported "{fem.instance_name}"')
+        logger.info(8 * "-" + f'Imported "{fem.instance_name}"')
         return part
 
     fem.nodes = get_nodes(bulk_str, fem)
@@ -62,7 +62,7 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     renumber_nodes(bulk_str, fem)
     fem.elements.renumber(renumber_map=el_id_map)
 
-    print(8 * "-" + f'Imported "{fem.instance_name}"')
+    logger.info(8 * "-" + f'Imported "{fem.instance_name}"')
     return part
 
 
