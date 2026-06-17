@@ -1158,6 +1158,19 @@ export const viewerApi = {
         return j.manifest_key;
     },
 
+    /** Build the per-file FEA artefact upload target (URL + auth headers) for
+     * the pyodide worker's synchronous-XHR POSTs (``POST /fea/artefact``, one
+     * file each). The worker thread can't reach the SPA's auth module, so we
+     * capture the bearer header now; all of one bake's POSTs ride this token.
+     * The ``manifest_key`` for the streamed tree is deterministic, so the
+     * caller computes it without a round-trip. */
+    feaArtefactUploadTarget(scope: ScopeUrl, sourceKey: string): {url: string; headers: Record<string, string>} {
+        const url =
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/fea/artefact` +
+            `?source=${encodeURIComponent(sourceKey)}`;
+        return {url, headers: authHeader()};
+    },
+
     /** Request a presigned PUT URL for a too-large-to-buffer upload.
      *
      * Used by uploadFile when the file exceeds the server's regular

@@ -355,6 +355,25 @@ function syncRangeFetch(url, headers) {
     };
 }
 
+// Synchronous POST of one baked artefact file — the upload analogue of
+// syncRangeFetch. PagedByteSource / the bake sink call into this synchronously
+// from inside Python, so it must be a sync XHR (allowed in a Worker). `urlBase`
+// already carries ?source=…; we append &name=… per file.
+function syncArtefactUpload(urlBase, headers) {
+    return (name, bytes) => {
+        const sep = urlBase.includes("?") ? "&" : "?";
+        const url = `${urlBase}${sep}name=${encodeURIComponent(name)}`;
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", url, false);
+        xhr.setRequestHeader("Content-Type", "application/octet-stream");
+        if (headers) for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+        xhr.send(bytes);
+        if (xhr.status !== 201 && xhr.status !== 200) {
+            throw new Error(`artefact upload ${xhr.status} ${xhr.statusText} for ${name}`);
+        }
+    };
+}
+
 function headContentLength(url, headers) {
     const xhr = new XMLHttpRequest();
     xhr.open("HEAD", url, false);
@@ -411,6 +430,57 @@ _wc.run_stream(_wcs_fmt, _wcs_ext, _wcs_target, _JsRangeFetcher(_wcs_fetch, _wcs
     }
 }
 
+// Stream a FEA bake from a range-capable source URL AND ship each baked
+// artefact file straight to the server as it lands — so neither the source nor
+// the output tree is ever held whole in wasm memory. Returns the JSON summary
+// string from wasm_convert (count + manifest), not a blob: the files are
+// already uploaded.
+async function runFeaBakeStream(ext, url, size, headers, uploadUrlBase, uploadHeaders) {
+    await ensureStacks("fea", "glb");
+    const total = typeof size === "number" && size > 0 ? size : headContentLength(url, headers);
+    pyodide.globals.set("_wcs_fetch", syncRangeFetch(url, headers));
+    pyodide.globals.set("_wcs_size", total);
+    pyodide.globals.set("_wcs_upload", syncArtefactUpload(uploadUrlBase, uploadHeaders));
+    pyodide.globals.set("_wcs_ext", (ext || "sin").toLowerCase());
+    try {
+        const result = await pyodide.runPythonAsync(`
+import ada.cadit.wasm_convert as _wc
+from pyodide.ffi import to_js
+
+class _JsRangeFetcher:
+    """Range fetcher backed by the host's sync-XHR reader (see runConversionStream)."""
+    def __init__(self, fetch, size):
+        self._fetch = fetch
+        self._size = int(size)
+    def size(self):
+        return self._size
+    def fetch(self, offset, length):
+        if length <= 0:
+            return b""
+        return bytes(self._fetch(offset, length).to_py())
+    def close(self):
+        pass
+
+def _upload(name, data):
+    # Ship one artefact via the host's sync POST. Any error raises through
+    # bake_artefacts and aborts the bake rather than dropping a file silently.
+    _wcs_upload(name, to_js(data))
+
+_wc.run_stream("fea", _wcs_ext, "glb", _JsRangeFetcher(_wcs_fetch, _wcs_size), upload=_upload)
+`);
+        // run_stream returns a Python str (json.dumps) → a JS string here.
+        return typeof result === "string" ? result : String(result);
+    } finally {
+        for (const g of ["_wcs_fetch", "_wcs_size", "_wcs_upload", "_wcs_ext"]) {
+            try {
+                pyodide.globals.delete(g);
+            } catch (_) {
+                /* fine */
+            }
+        }
+    }
+}
+
 self.onmessage = async (e) => {
     const data = e.data;
     if (!bootPromise) {
@@ -450,10 +520,20 @@ self.onmessage = async (e) => {
             // One entrypoint: adapy's wasm_convert.run / .run_stream handles
             // every (format, target) — fast paths included. fea returns a zip.
             // data.stream → read the source in ranges (huge SIN) instead of
-            // receiving its whole-file bytes.
-            const bytes = data.stream
-                ? await runConversionStream(format, data.ext, target, data.url, data.size, data.headers)
-                : await runConversion(format, data.bytes, data.ext, target);
+            // receiving its whole-file bytes. data.uploadUrl (+ stream) → also
+            // ship each baked artefact to the server as it lands, so the output
+            // tree is never held whole; the JSON summary comes back as bytes.
+            let bytes;
+            if (data.stream && data.uploadUrl) {
+                const summary = await runFeaBakeStream(
+                    data.ext, data.url, data.size, data.headers, data.uploadUrl, data.uploadHeaders,
+                );
+                bytes = new TextEncoder().encode(summary);
+            } else if (data.stream) {
+                bytes = await runConversionStream(format, data.ext, target, data.url, data.size, data.headers);
+            } else {
+                bytes = await runConversion(format, data.bytes, data.ext, target);
+            }
             // Report the current wasm linear-memory size so the manager can
             // recycle this worker before it approaches the wasm32 ceiling
             // (pyodide never frees heap back to the OS).

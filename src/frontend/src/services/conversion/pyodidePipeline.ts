@@ -10,7 +10,11 @@
 // exactly like worker conversions.
 
 import {useConversionStore, ConversionJob} from "@/state/conversionStore";
-import {convertViaPyodide, convertViaPyodideStream} from "@/utils/pyodide/pyodide_converter";
+import {
+    convertViaPyodide,
+    convertViaPyodideStream,
+    convertViaPyodideFeaBakeStream,
+} from "@/utils/pyodide/pyodide_converter";
 import {viewerApi, ScopeUrl, TargetFormat} from "@/services/viewerApi";
 import {detectWasmFormat, isWasmFeaSource, wasmSupportsConversion} from "./wasmSupport";
 
@@ -246,35 +250,47 @@ export async function convertViaPyodideFeaBake(
             }
         }
 
-        let zip: Uint8Array;
+        const cleanSrc = sourceKey.replace(/^\/+|\/+$/g, "");
+        const manifestKey = `_derived/${cleanSrc}.fea/fea.manifest.json`;
         let readBytes: number;
+        let writeBytes: number;
         if (downloadUrl) {
+            // Fully-bounded path: range-stream the source AND ship each baked
+            // artefact straight to the server as it lands (per-file POST), then
+            // free it. Neither the source nor the output tree (nor a zip of it)
+            // is ever held whole in wasm memory.
             store.setJob(storeKey, {...job, progress: 0.15, stage: "streaming FEA bake in browser"});
-            zip = await convertViaPyodideStream("fea", downloadUrl.url, {
+            const target = viewerApi.feaArtefactUploadTarget(scope, sourceKey);
+            const summary = await convertViaPyodideFeaBakeStream(downloadUrl.url, target.url, {
                 ext,
                 size: downloadUrl.size,
+                uploadHeaders: target.headers,
                 onLog: (msg) => store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
             });
             readBytes = downloadUrl.size; // source size; only a fraction is actually fetched
+            writeBytes = summary.bytes;
         } else {
+            // No presign (local-disk backends): buffer the source, bake to a
+            // zip, and upload the whole tree at once.
             const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
             readBytes = sourceBuf.byteLength;
 
             store.setJob(storeKey, {...job, progress: 0.15, stage: "baking FEA result in browser"});
 
-            zip = await convertViaPyodide("fea", sourceBuf, {
+            const zip = await convertViaPyodide("fea", sourceBuf, {
                 ext,
                 onLog: (msg) => store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
             });
+
+            store.setJob(storeKey, {
+                ...(store.jobs[storeKey] || job),
+                progress: 0.9,
+                stage: "uploading artefacts",
+            });
+
+            await viewerApi.uploadFeaArtefacts(scope, sourceKey, zip);
+            writeBytes = zip.byteLength;
         }
-
-        store.setJob(storeKey, {
-            ...(store.jobs[storeKey] || job),
-            progress: 0.9,
-            stage: "uploading artefacts",
-        });
-
-        const manifestKey = await viewerApi.uploadFeaArtefacts(scope, sourceKey, zip);
 
         store.setJob(storeKey, {
             ...(store.jobs[storeKey] || job),
@@ -288,7 +304,7 @@ export async function convertViaPyodideFeaBake(
             status: "done",
             duration_ms: Date.now() - startedAt,
             read_bytes: readBytes,
-            write_bytes: zip.byteLength,
+            write_bytes: writeBytes,
         });
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

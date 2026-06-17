@@ -272,6 +272,46 @@ def test_sin_stream_reader_bake_matches_full(tmp_path):
     assert full == stream, f"differing artefacts: {[n for n in full if full[n] != stream.get(n)]}"
 
 
+def test_bake_artefacts_on_artefact_sink_ships_each_file(tmp_path):
+    """The ``on_artefact`` sink must fire once per artefact (manifest last)
+    and yield the same bytes as a normal bake — even when the sink deletes
+    each file the instant it lands. This is the contract the in-browser
+    per-file streaming upload relies on (output tree never resides whole)."""
+    import hashlib
+
+    from ada.fem.formats.sesam.results.byte_source import (
+        FileRangeSource,
+        PagedByteSource,
+    )
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+    from ada.fem.results.artefacts import bake_artefacts
+
+    # Reference tree (sink off).
+    ref_dir = tmp_path / "ref"
+    with SinStreamReader(PagedByteSource(FileRangeSource(str(SIN_PATH)))) as reader:
+        bake_artefacts(reader, ref_dir, src="cantilever")
+    ref = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(ref_dir.iterdir()) if p.is_file()}
+
+    # Streamed tree: capture each file via the sink, then unlink it — so the
+    # out_dir is empty at the end yet every artefact was observed in full.
+    shipped: dict[str, str] = {}
+    order: list[str] = []
+    sink_dir = tmp_path / "sink"
+
+    def sink(path):
+        order.append(path.name)
+        shipped[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        path.unlink()
+
+    with SinStreamReader(PagedByteSource(FileRangeSource(str(SIN_PATH)))) as reader:
+        bake_artefacts(reader, sink_dir, src="cantilever", on_artefact=sink)
+
+    assert shipped == ref, f"sink bytes differ: {[n for n in ref if ref[n] != shipped.get(n)]}"
+    assert order[-1] == "fea.manifest.json", f"manifest must be shipped last, got order {order}"
+    # The sink deleted each file as it landed; nothing should remain.
+    assert not [p for p in sink_dir.iterdir() if p.is_file()], "sink should have drained out_dir"
+
+
 def test_truncate_pointer_table_finds_cutoff():
     """Validate the cap-vs-real-count truncation that keeps huge
     multi-SE RV* tables honest (real-world example: dims advertise

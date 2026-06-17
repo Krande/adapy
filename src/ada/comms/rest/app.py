@@ -1262,6 +1262,74 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code=201,
         )
 
+    @api.post("/scopes/{scope}/fea/artefact")
+    async def api_scope_fea_artefact_upload_one(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Upload a *single* browser-baked FEA artefact file (section D).
+
+        The per-file counterpart of ``POST /fea/artefacts`` (zip): the
+        in-browser bake ships each ``fea.*`` file as it lands instead of
+        accumulating the whole tree and zipping it, so neither the browser
+        (output tree + zip) nor this endpoint (whole zip in memory, capped
+        by the direct-upload threshold) has to hold the entire artefact set
+        at once. Same prefix, same per-extension gzip policy as the zip
+        route, so the streaming-FEA reader consumes the result unchanged.
+
+        Query: ``source`` (existing source key) + ``name`` (the bare
+        ``fea.*`` filename). Body: the raw file bytes.
+        """
+        import posixpath
+
+        source = (request.query_params.get("source") or "").strip().lstrip("/")
+        if not source:
+            raise HTTPException(status_code=400, detail="source query param required")
+        if not is_fea_artefact_source(source):
+            raise HTTPException(status_code=415, detail=f"not a FEA artefact source: {source}")
+
+        name = (request.query_params.get("name") or "").strip()
+        base = posixpath.basename(name)
+        # Same guard as the zip route: a bare ``fea.*`` filename only — no
+        # subdirs, no traversal, so a request can't escape the per-source
+        # prefix and write an arbitrary key.
+        if base != name or not base or base.startswith(".") or not base.startswith("fea."):
+            raise HTTPException(status_code=400, detail=f"illegal artefact name: {name!r}")
+
+        try:
+            source_exists = await storage.exists(scope_obj, source)
+        except Exception:
+            source_exists = False
+        if not source_exists:
+            raise HTTPException(status_code=404, detail=f"source not found in scope: {source}")
+
+        cl = request.headers.get("content-length")
+        if cl is not None:
+            try:
+                announced = int(cl)
+            except ValueError:
+                announced = -1
+            if announced > _DIRECT_UPLOAD_THRESHOLD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"fea artefact file exceeds {_DIRECT_UPLOAD_THRESHOLD_BYTES} bytes",
+                )
+
+        data = await request.body()
+        if not data:
+            raise HTTPException(status_code=400, detail="empty body")
+
+        prefix = fea_artefact_prefix_for(source)
+        content_encoding = "gzip" if base.lower().endswith((".json", ".bin")) else None
+        try:
+            await storage.put_bytes(scope_obj, prefix + base, data, content_encoding=content_encoding)
+        except Exception as exc:
+            logger.exception("fea artefact file upload failed for %s/%s", source, base)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        return JSONResponse({"key": prefix + base, "name": base}, status_code=201)
+
     @api.post("/scopes/{scope}/upload-url")
     async def api_scope_upload_url(
         request: Request,

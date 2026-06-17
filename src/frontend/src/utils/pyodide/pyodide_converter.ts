@@ -210,6 +210,46 @@ export async function convertViaPyodideStream(
     return result;
 }
 
+/** Stream a FEA bake from a range-capable source URL AND have the worker ship
+ * each baked artefact file straight to the server (`uploadUrl`, one POST per
+ * file) as it lands — so neither the multi-GB source nor the whole output tree
+ * (nor a zip of it) is ever held in wasm memory. Resolves to the bake summary
+ * (`{count, files, manifest}`); the artefacts are already uploaded under
+ * `_derived/<source>.fea/`. `uploadUrl` must already carry `?source=…`. */
+export async function convertViaPyodideFeaBakeStream(
+    url: string,
+    uploadUrl: string,
+    opts?: {
+        onLog?: (msg: string) => void;
+        ext?: string;
+        size?: number;
+        headers?: Record<string, string>;
+        uploadHeaders?: Record<string, string>;
+    },
+): Promise<{count: number; files: string[]; manifest: string; bytes: number}> {
+    if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
+        killWorker();
+    }
+    const worker = await ensurePyodideWorker(opts?.onLog);
+    const reqId = nextReqId++;
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    worker.postMessage({
+        type: "convert",
+        reqId,
+        stream: true,
+        url,
+        uploadUrl,
+        uploadHeaders: opts?.uploadHeaders,
+        size: opts?.size,
+        headers: opts?.headers,
+        format: "fea",
+        ext: opts?.ext,
+        target: "glb",
+    });
+    const bytes = await result;
+    return JSON.parse(new TextDecoder().decode(bytes));
+}
+
 /** Backwards-compatible IFC entry point — keeps existing callers working. */
 export async function convertIfcViaPyodide(
     bytes: ArrayBuffer,

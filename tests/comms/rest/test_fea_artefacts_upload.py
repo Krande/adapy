@@ -181,3 +181,69 @@ def test_upload_rejects_bad_zip(app_client: TestClient):
         headers={"content-type": "application/zip"},
     )
     assert r.status_code == 400
+
+
+# ── singular per-file upload (POST /scopes/{scope}/fea/artefact) ──────────
+# The in-browser per-file streaming bake POSTs one artefact at a time instead
+# of a whole zip, so neither the browser nor the endpoint holds the tree whole.
+
+
+def test_upload_one_writes_file_under_prefix(app_client: TestClient):
+    src = "models/wall.rmed"
+    _stage(app_client, src, b"fake rmed source")
+    for name, payload in _GOOD_TREE.items():
+        r = app_client.post(
+            f"/api/scopes/shared/fea/artefact?source={src}&name={name}",
+            content=payload,
+            headers={"content-type": "application/octet-stream"},
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["key"] == f"_derived/models/wall.rmed.fea/{name}"
+
+    storage = _storage(app_client)
+    for name in _GOOD_TREE:
+        key = f"_derived/models/wall.rmed.fea/{name}"
+        assert _run(storage.exists(Scope.shared(), key)), key
+
+
+def test_upload_one_rejects_path_traversal_name(app_client: TestClient):
+    src = "models/wall.rmed"
+    _stage(app_client, src, b"fake rmed source")
+    r = app_client.post(
+        f"/api/scopes/shared/fea/artefact?source={src}&name=../../etc/fea.evil",
+        content=b"pwn",
+        headers={"content-type": "application/octet-stream"},
+    )
+    assert r.status_code == 400
+
+
+def test_upload_one_rejects_non_fea_name(app_client: TestClient):
+    src = "models/wall.rmed"
+    _stage(app_client, src, b"fake rmed source")
+    r = app_client.post(
+        f"/api/scopes/shared/fea/artefact?source={src}&name=evil.txt",
+        content=b"x",
+        headers={"content-type": "application/octet-stream"},
+    )
+    assert r.status_code == 400
+
+
+def test_upload_one_rejects_non_fea_source(app_client: TestClient):
+    src = "models/part.step"
+    _stage(app_client, src, b"fake step")
+    r = app_client.post(
+        f"/api/scopes/shared/fea/artefact?source={src}&name=fea.manifest.json",
+        content=b"{}",
+        headers={"content-type": "application/octet-stream"},
+    )
+    assert r.status_code == 415
+
+
+def test_upload_one_404_for_missing_source(app_client: TestClient):
+    r = app_client.post(
+        "/api/scopes/shared/fea/artefact?source=models/ghost.rmed&name=fea.manifest.json",
+        content=b"{}",
+        headers={"content-type": "application/octet-stream"},
+    )
+    assert r.status_code == 404

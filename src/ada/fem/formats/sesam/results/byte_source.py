@@ -27,6 +27,7 @@ from __future__ import annotations
 import mmap
 import os
 import struct
+import threading
 from collections import OrderedDict
 from typing import Protocol, runtime_checkable
 
@@ -153,11 +154,18 @@ class MmapSource:
 class FileRangeSource:
     """``pread``-style range fetcher over a local file — the worker path
     when avoiding a full mmap, and the dev stand-in for an object store.
-    ``os.pread`` is thread-safe and doesn't disturb a shared offset."""
+
+    Uses ``os.pread`` where available (POSIX) — thread-safe and doesn't
+    disturb a shared offset. Windows has no ``os.pread``, so there we fall
+    back to ``seek`` + ``read`` under a lock so concurrent fetches don't
+    race the shared file offset."""
 
     def __init__(self, path: str):
-        self._fd = os.open(path, os.O_RDONLY)
+        self._fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
         self._size = os.fstat(self._fd).st_size
+        self._has_pread = hasattr(os, "pread")
+        # Only needed for the seek+read fallback; cheap to always hold.
+        self._lock = threading.Lock()
 
     def size(self) -> int:
         return self._size
@@ -165,7 +173,13 @@ class FileRangeSource:
     def fetch(self, offset: int, length: int) -> bytes:
         if length <= 0:
             return b""
-        return os.pread(self._fd, length, offset)
+        if self._has_pread:
+            return os.pread(self._fd, length, offset)
+        # Windows: no pread — serialize seek+read so a concurrent fetch
+        # can't move the offset out from under us mid-read.
+        with self._lock:
+            os.lseek(self._fd, offset, os.SEEK_SET)
+            return os.read(self._fd, length)
 
     def close(self) -> None:
         try:

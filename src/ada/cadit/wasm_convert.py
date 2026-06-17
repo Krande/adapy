@@ -344,8 +344,10 @@ def _streamed_sin_bake(fetcher) -> bytes:
     arbitrarily large deck: the source is range-streamed (the file never
     lands in wasm memory), and :class:`SinStreamReader` materialises only
     ~2 steps' worth of ``FEAResult`` at a time instead of the whole
-    multi-step result. The artefact-tree blobs are still written to MEMFS
-    before zipping (per-step *upload* streaming is a further step)."""
+    multi-step result. This buffered variant still gathers the whole
+    artefact tree on MEMFS and zips it — see :func:`_streamed_sin_bake_to`
+    for the per-file streaming-upload variant that bounds the output side
+    too."""
     from ada.fem.formats.sesam.results.byte_source import PagedByteSource
     from ada.fem.formats.sesam.results.read_sin import SinStreamReader
     from ada.fem.results.artefacts import bake_artefacts
@@ -356,7 +358,59 @@ def _streamed_sin_bake(fetcher) -> bytes:
     return _zip_bake_dir(out_dir)
 
 
-def run_stream(fmt: str, ext: str, target: str, fetcher, step: int | None = None) -> bytes:
+def _streamed_sin_bake_to(fetcher, upload) -> str:
+    """Bake a SIN → artefact tree, shipping **each file as it lands** via
+    ``upload(name, bytes)`` and freeing it from MEMFS immediately.
+
+    The third compounding bound on top of :func:`_streamed_sin_bake`:
+    range-streamed source + per-step result materialisation + **per-file
+    output**. The tree never resides whole on MEMFS and is never zipped
+    into a single in-memory buffer, so peak output memory is one artefact
+    file (the largest single ``.bin``/``.glb``) rather than the whole tree
+    plus its zip. ``upload`` is a host (JS) callback doing a synchronous
+    POST of one artefact; it must raise on failure so the bake aborts
+    rather than silently dropping a file.
+
+    Returns a small JSON summary (file count + manifest filename) — there
+    is no aggregate blob to hand back, the host already has every file.
+    """
+    import json
+    import os
+
+    from ada.fem.formats.sesam.results.byte_source import PagedByteSource
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+    from ada.fem.results.artefacts import bake_artefacts
+
+    out_dir = _fresh_bake_dir()
+    shipped: list[str] = []
+    total_bytes = 0
+
+    def _ship(path) -> None:
+        nonlocal total_bytes
+        name = os.path.basename(str(path))
+        with open(path, "rb") as fh:
+            data = fh.read()
+        upload(name, data)
+        shipped.append(name)
+        total_bytes += len(data)
+        # Free the artefact the instant it's shipped — the manifest is
+        # built from in-memory metas, never re-reads the blob bytes.
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    with SinStreamReader(PagedByteSource(fetcher)) as reader:
+        bake_artefacts(reader, out_dir, src="remote", on_artefact=_ship)
+
+    if "fea.manifest.json" not in shipped:
+        raise RuntimeError("FEA bake produced no manifest")
+    return json.dumps(
+        {"count": len(shipped), "files": shipped, "manifest": "fea.manifest.json", "bytes": total_bytes}
+    )
+
+
+def run_stream(fmt: str, ext: str, target: str, fetcher, step: int | None = None, upload=None):
     """Streamed counterpart of :func:`run` — convert from a *range fetcher*
     rather than a fully-staged source file.
 
@@ -364,12 +418,18 @@ def run_stream(fmt: str, ext: str, target: str, fetcher, step: int | None = None
     the host bridges an HTTP-``Range`` / ``fetch`` reader as ``fetcher``
     (``size()`` / ``fetch(offset, length) -> bytes``) and this streams over
     it. Supports ``fea_glb`` (Sesam ``.sin`` → single-step GLB) and ``fea``
-    (``.sin`` → artefact-tree bake zip); other formats stay on the buffered
+    (``.sin`` → artefact-tree bake); other formats stay on the buffered
     :func:`run` path.
+
+    For ``fea``: pass an ``upload(name, bytes)`` callback to stream each
+    artefact file out as it bakes (returns a JSON summary string); omit it
+    to get the whole tree back as a single zip (``bytes``).
     """
     fmt = (fmt or "").lower()
     target = (target or "glb").lower()
     if fmt == "fea":
+        if upload is not None:
+            return _streamed_sin_bake_to(fetcher, upload)
         return _streamed_sin_bake(fetcher)
     if fmt == "fea_glb":
         return _fea_result_glb_bytes(_streamed_sin_result(fetcher, step=step, pick_first_step=True))
