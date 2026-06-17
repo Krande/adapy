@@ -1191,6 +1191,26 @@ export const viewerApi = {
         return jsonOrThrow(r, `requestUploadUrl(${key})`);
     },
 
+    /** Request a presigned GET URL for direct, Range-capable download from
+     * the object store. Mirrors requestUploadUrl. Used by the in-browser
+     * streaming converter to read a huge source (e.g. a multi-GB SIN) in
+     * ranges without API-tunneling the whole transfer. Local-backed
+     * deployments 503 here — callers fall back to the buffered getBlob path. */
+    async requestDownloadUrl(
+        scope: ScopeUrl,
+        key: string,
+    ): Promise<{url: string; key: string; method: string; expires_in_seconds: number; size: number}> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/download-url`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({key}),
+            },
+        );
+        return jsonOrThrow(r, `requestDownloadUrl(${key})`);
+    },
+
     /** Finalise a presigned-URL upload: server confirms the object
      * landed and writes the audit row. Caller should run this only
      * after a successful direct PUT — otherwise it 404s. */

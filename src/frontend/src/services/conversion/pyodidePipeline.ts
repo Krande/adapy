@@ -10,7 +10,7 @@
 // exactly like worker conversions.
 
 import {useConversionStore, ConversionJob} from "@/state/conversionStore";
-import {convertViaPyodide} from "@/utils/pyodide/pyodide_converter";
+import {convertViaPyodide, convertViaPyodideStream} from "@/utils/pyodide/pyodide_converter";
 import {viewerApi, ScopeUrl, TargetFormat} from "@/services/viewerApi";
 import {detectWasmFormat, isWasmFeaSource, wasmSupportsConversion} from "./wasmSupport";
 
@@ -78,21 +78,54 @@ export async function convertViaPyodideAndUpload(
     };
 
     try {
-        const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
-        const readBytes = sourceBuf.byteLength; // capture before the buffer is transferred to the worker
+        // Streaming path: a Sesam .sin → GLB reads the source in ranges from a
+        // presigned (Range-capable) URL instead of downloading the whole file,
+        // so a multi-GB deck never has to be staged in wasm memory. Only the
+        // presign *availability* gates this — if the backend can't mint a GET
+        // URL (local-disk deployments 503), fall back to the buffered path.
+        // A presigned URL that then fails mid-convert is NOT retried buffered:
+        // re-downloading a huge file would just OOM.
+        let downloadUrl: {url: string; size: number} | null = null;
+        if (format === "fea_glb" && ext === "sin") {
+            try {
+                const dl = await viewerApi.requestDownloadUrl(scope, sourceKey);
+                downloadUrl = {url: dl.url, size: dl.size};
+            } catch {
+                downloadUrl = null; // presign unavailable → buffered fallback
+            }
+        }
 
-        store.setJob(storeKey, {
-            ...job,
-            progress: 0.15,
-            stage: `converting ${format} → ${targetFormat} in browser`,
-        });
+        let outBytes: Uint8Array;
+        let readBytes: number;
+        if (downloadUrl) {
+            store.setJob(storeKey, {
+                ...job,
+                progress: 0.15,
+                stage: `streaming ${format} → ${targetFormat} in browser`,
+            });
+            outBytes = await convertViaPyodideStream(format, downloadUrl.url, {
+                ext,
+                target: targetFormat,
+                size: downloadUrl.size,
+                onLog: (msg) => store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
+            });
+            readBytes = downloadUrl.size; // source size; only a fraction is actually fetched
+        } else {
+            const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
+            readBytes = sourceBuf.byteLength; // capture before the buffer is transferred to the worker
 
-        const outBytes = await convertViaPyodide(format, sourceBuf, {
-            ext,
-            target: targetFormat,
-            onLog: (msg) =>
-                store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
-        });
+            store.setJob(storeKey, {
+                ...job,
+                progress: 0.15,
+                stage: `converting ${format} → ${targetFormat} in browser`,
+            });
+
+            outBytes = await convertViaPyodide(format, sourceBuf, {
+                ext,
+                target: targetFormat,
+                onLog: (msg) => store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
+            });
+        }
 
         store.setJob(storeKey, {
             ...(store.jobs[storeKey] || job),
