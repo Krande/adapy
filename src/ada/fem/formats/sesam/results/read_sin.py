@@ -318,4 +318,140 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "
     return s2m.convert(name_path)
 
 
-__all__ = ["SinMetadata", "SinReader", "read_sin_file", "read_sin_metadata"]
+class SinStreamReader:
+    """Memory-bounded ``FEAStreamReader`` for Sesam SIN.
+
+    Reads one step at a time from a single, warm-cached :class:`SinFile`, so
+    the whole multi-step ``FEAResult`` is never resident — at most ~2 steps
+    (the representative first step kept for geometry/specs, plus the step
+    currently being emitted). This is what lets a many-mode deck *bake* in
+    the browser without the full result blowing the wasm32 ceiling, on top
+    of the source itself being range-streamed.
+
+    The SIN→artefact mapping is **not** reimplemented: each step is mapped
+    through the validated :class:`Sif2Mesh` + ``FEAResultStreamAdapter``
+    path; only the per-step orchestration and the global ``(n_steps,
+    step_values)`` of the specs are new. Step labels are the RV* IRES
+    indices (a remote SIN has no ``SESTRA.LIS`` eigen-frequency sidecar, so
+    the index *is* the label); the server/path bake keeps the full-
+    materialise adapter, which can enrich labels from LIS.
+
+    Accepts a :class:`SinFile` or any ``ByteSource`` (wrapped into one).
+    """
+
+    def __init__(self, source) -> None:
+        from ada.fem.formats.sesam.results.sin_reader import SinFile
+
+        self.sin = source if isinstance(source, SinFile) else SinFile(source=source)
+        self._steps = self._discover_steps()
+        self._rep = None  # FEAResultStreamAdapter over the first step (geometry/specs/beams)
+
+    # ── lifecycle ─────────────────────────────────────────────────────
+    def close(self) -> None:
+        self.sin.close()
+
+    def __enter__(self) -> "SinStreamReader":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    # ── helpers ───────────────────────────────────────────────────────
+    def _discover_steps(self) -> list[int]:
+        steps: set[int] = set()
+        for rv in _RV_TYPE_NAMES:
+            if rv in self.sin.type_blocks:
+                ires = self.sin.gather_first_words(rv)
+                if ires.size:
+                    steps.update(int(x) for x in np.unique(ires.astype(np.int64)).tolist())
+        return sorted(steps)
+
+    def _step_values(self) -> list[float]:
+        return [float(s) for s in self._steps]
+
+    def _load_step(self, step: int):
+        """Materialise just one step's FEAResult from the shared SinFile."""
+        from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
+
+        reader = SinReader(sin=self.sin, step=int(step))
+        reader.load()
+        return Sif2Mesh(reader).convert(pathlib.Path("remote.sin"))
+
+    def _adapter_for(self, idx: int):
+        """``FEAResultStreamAdapter`` over step ``idx``; step 0 is cached as
+        the representative (its result stays resident for geometry/specs)."""
+        from ada.fem.results.artefacts import FEAResultStreamAdapter
+
+        if idx == 0:
+            if self._rep is None:
+                if not self._steps:
+                    raise RuntimeError("SIN result has no RV* result steps to bake")
+                self._rep = FEAResultStreamAdapter(self._load_step(self._steps[0]))
+            return self._rep
+        return FEAResultStreamAdapter(self._load_step(self._steps[idx]))
+
+    def _with_global_steps(self, specs):
+        import dataclasses
+
+        labels = self._step_values()
+        return [dataclasses.replace(s, n_steps=len(labels), step_values=labels) for s in specs]
+
+    # ── FEAStreamReader protocol ──────────────────────────────────────
+    def read_mesh_geometry(self):
+        return self._adapter_for(0).read_mesh_geometry()
+
+    def field_specs(self):
+        return self._with_global_steps(self._adapter_for(0).field_specs())
+
+    def element_field_specs(self):
+        return self._with_global_steps(self._adapter_for(0).element_field_specs())
+
+    def iter_field_steps(self, field_name: str):
+        import dataclasses
+
+        labels = self._step_values()
+        for i in range(len(self._steps)):
+            ad = self._adapter_for(i)
+            emitted = 0
+            for sv in ad.iter_field_steps(field_name):
+                yield dataclasses.replace(sv, step_index=i, step_value=labels[i])
+                emitted += 1
+            if emitted != 1:
+                raise RuntimeError(
+                    f"SIN nodal field {field_name!r} yielded {emitted} steps at step "
+                    f"index {i} (expected 1) — field missing or duplicated for a step"
+                )
+
+    def iter_element_field_steps(self, spec):
+        import dataclasses
+
+        labels = self._step_values()
+        for i in range(len(self._steps)):
+            ad = self._adapter_for(i)
+            ad_spec = next(
+                (s for s in ad.element_field_specs() if s.name == spec.name and s.elem_type == spec.elem_type),
+                None,
+            )
+            if ad_spec is None:
+                raise RuntimeError(f"SIN element field {spec.name!r}/{spec.elem_type} missing at step index {i}")
+            if ad_spec.element_labels != spec.element_labels:
+                # The bake writes every step against spec.element_labels (step 0's
+                # order); a reordered step would silently mis-correlate values.
+                raise RuntimeError(f"SIN element field {spec.name!r} element order drifted at step index {i}")
+            for esv in ad.iter_element_field_steps(ad_spec):
+                yield dataclasses.replace(esv, step_index=i, step_value=labels[i])
+
+    def try_solid_beams(self):
+        return self._adapter_for(0).try_solid_beams()
+
+    def try_history_records(self):
+        return None
+
+    def try_fem_concepts(self):
+        return None
+
+    def try_groups(self):
+        return None
+
+
+__all__ = ["SinMetadata", "SinReader", "SinStreamReader", "read_sin_file", "read_sin_metadata"]

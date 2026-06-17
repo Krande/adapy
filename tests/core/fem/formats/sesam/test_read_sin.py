@@ -240,6 +240,38 @@ def test_read_sin_file_step_filter():
         assert np.allclose(fr.values, sr.values, equal_nan=True)
 
 
+def test_sin_stream_reader_bake_matches_full(tmp_path):
+    """The per-step :class:`SinStreamReader` bake must produce byte-identical
+    artefacts to the full :class:`FEAResultStreamAdapter` bake.
+
+    The committed fixture is single-step, so this guards the per-step
+    plumbing (geometry, global field specs, per-step value re-emission)
+    against regression; the multi-step equivalence is validated out-of-tree
+    on a large eigen deck (per-step == full, byte-for-byte)."""
+    import hashlib
+
+    from ada.fem.formats.sesam.results.byte_source import (
+        FileRangeSource,
+        PagedByteSource,
+    )
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+    from ada.fem.results.artefacts import bake_artefacts, bake_fea_artefacts_from_source
+
+    def digests(d):
+        return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(d.iterdir()) if p.is_file()}
+
+    full_dir = tmp_path / "full"
+    bake_fea_artefacts_from_source(SIN_PATH, full_dir, src_key="cantilever")
+
+    stream_dir = tmp_path / "stream"
+    with SinStreamReader(PagedByteSource(FileRangeSource(str(SIN_PATH)))) as reader:
+        bake_artefacts(reader, stream_dir, src="cantilever")
+
+    full, stream = digests(full_dir), digests(stream_dir)
+    assert set(full) == set(stream), f"file set differs: {set(full) ^ set(stream)}"
+    assert full == stream, f"differing artefacts: {[n for n in full if full[n] != stream.get(n)]}"
+
+
 def test_truncate_pointer_table_finds_cutoff():
     """Validate the cap-vs-real-count truncation that keeps huge
     multi-SE RV* tables honest (real-world example: dims advertise

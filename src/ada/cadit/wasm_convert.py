@@ -337,20 +337,21 @@ def _streamed_sin_result(fetcher, step: int | None = None, *, pick_first_step: b
 
 
 def _streamed_sin_bake(fetcher) -> bytes:
-    """Bake the full SIN (all steps) → streaming-viewer artefact tree (zip),
-    reading the source over a range fetcher.
+    """Bake a SIN → streaming-viewer artefact tree (zip), reading the source
+    over a range fetcher and **one step at a time**.
 
-    Streaming the source is what lets a >4 GiB deck bake in the browser at
-    all: the file never lands in wasm memory, only the materialised
-    ``FEAResult`` (and the artefact tree written to MEMFS) does. NB: that
-    materialisation is still proportional to the deck — a true per-step,
-    per-step-upload bake is the next optimisation for the very largest decks
-    (see notes_wasm_*); this lifts the can't-even-download blocker."""
-    from ada.fem.results.artefacts import FEAResultStreamAdapter, bake_artefacts
+    Two compounding bounds keep this inside the wasm32 ceiling for an
+    arbitrarily large deck: the source is range-streamed (the file never
+    lands in wasm memory), and :class:`SinStreamReader` materialises only
+    ~2 steps' worth of ``FEAResult`` at a time instead of the whole
+    multi-step result. The artefact-tree blobs are still written to MEMFS
+    before zipping (per-step *upload* streaming is a further step)."""
+    from ada.fem.formats.sesam.results.byte_source import PagedByteSource
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+    from ada.fem.results.artefacts import bake_artefacts
 
-    result = _streamed_sin_result(fetcher, step=None, pick_first_step=False)
     out_dir = _fresh_bake_dir()
-    with FEAResultStreamAdapter(result) as reader:
+    with SinStreamReader(PagedByteSource(fetcher)) as reader:
         bake_artefacts(reader, out_dir, src="remote")
     return _zip_bake_dir(out_dir)
 
