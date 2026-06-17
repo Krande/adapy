@@ -178,8 +178,11 @@ async function ensureSatStack() {
 async function ensureFemStack() {
     if (!femP)
         femP = (async () => {
-            log("installing FEM stack (h5py + Pillow)");
-            await pyodide.loadPackage(["h5py", "Pillow"]);
+            // pydantic: ada's FEM-deck import path (ada.from_fem → concept
+            // build) pulls it, same as the SAT stack — without it FEM-deck
+            // cells fail with ModuleNotFoundError: pydantic.
+            log("installing FEM stack (h5py + pydantic + Pillow)");
+            await pyodide.loadPackage(["h5py", "pydantic", "Pillow"]);
             await ensureTrimesh();
             await ensurePyquaternion();
             await ensureAdacppWheel();
