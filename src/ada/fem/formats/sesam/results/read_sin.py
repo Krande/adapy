@@ -122,7 +122,14 @@ class SinReader(SifReader):
 
     def load(self) -> None:
         """Walk every SIN type block and populate the internal
-        SifReader-shaped state.
+        SifReader-shaped state for ``self.step`` (all steps when
+        ``step is None``).
+
+        Equivalent to :meth:`_load_static` followed by
+        :meth:`load_step` — the streaming reader (:class:`SinStreamReader`)
+        splits the two so the step-invariant mesh/section/RDPOINTS blocks
+        are read once across many steps and only the per-step RV* tables
+        re-read.
 
         ``self.nodes`` / ``self.node_ids`` are kept as raw record
         arrays for compatibility with :meth:`Sif2Mesh.get_sif_mesh`'s
@@ -132,6 +139,15 @@ class SinReader(SifReader):
         emits — without it, Sif2Mesh would group elements by ``elnox``
         and dereference the wrong fields as element type.
         """
+        self._load_static()
+        self.load_step(self.step)
+
+    def _load_static(self) -> None:
+        """Read the step-invariant blocks once: mesh (GCOORD/GNODE/
+        GELMNT1/GELREF1), sections, other, and the non-RV* result cards
+        (e.g. the RDPOINTS super-headers). Idempotent-by-reuse: callers
+        that stream many steps run this once, then :meth:`load_step` per
+        step only re-reads the RV* tables."""
         gcoord_rows = _records_for(self.sin, cards.GCOORD)
         if gcoord_rows:
             self.nodes = np.array(gcoord_rows, dtype=float)
@@ -166,49 +182,71 @@ class SinReader(SifReader):
             if rows:
                 self._sections[card.name] = rows
 
-        # Result cards: SifReader keeps the first record as the
-        # type-block "super-header" (a `[-ndim, ndim, dim0, …]` line
-        # that documents the table's shape), and Sif2Mesh consumers
-        # do `records[1:]` to skip past it. SIN doesn't store that
-        # line as a record — the shape lives in the per-type block
-        # header — so synthesise one from the block's metadata so
-        # the downstream slice doesn't drop the first real record.
+        # Non-RV* result cards (e.g. RDPOINTS) are step-invariant — read
+        # them once and stash so load_step can prepend them to each step's
+        # results without re-reading.
+        self._static_results = []
         for card in _RESULT_CARDS:
-            block = self.sin.type_blocks.get(card.name)
-            if block is None:
+            if card.name in _RV_TYPE_NAMES:
                 continue
-            # Always emit the super-header — Sif2Mesh's RDPOINTS map
-            # (and other shape-driven consumers) do
-            # ``self.get_result(card.name)[0]`` and crash if the card
-            # is missing from results. Some eigen decks have RDPOINTS
-            # present as a type-block but empty (no record rows) in
-            # certain super-elements, so without this guard the whole
-            # convert fails.
-            super_header = [-float(block.ndim), float(block.ndim)] + [float(d) for d in block.dims]
-            # Big RV* tables (RVNODDIS/RVSTRESS/RVFORCES — up to tens of
-            # millions of rows) dominate the read's heap. Materialise
-            # them as one contiguous float64 ndarray via the vectorised
-            # gather instead of a per-record list[float] (≈80 B/row vs
-            # ≈376 B), padding the synthetic super-header into row 0 —
-            # downstream consumers only ever do ``rows[1:]``, so the pad
-            # is never read. ``gather_records`` returns None for
-            # variable-width tables, which fall through to the per-record
-            # path below.
-            wfw = self.step if (self.step is not None and card.name in _RV_TYPE_NAMES) else None
-            arr = self.sin.gather_records(card.name, where_first_word=wfw)
-            if arr is not None and arr.ndim == 2 and arr.shape[1] >= len(super_header):
-                sh = np.zeros((1, arr.shape[1]), dtype=np.float64)
-                sh[0, : len(super_header)] = super_header
-                rows = np.vstack((sh, arr)) if arr.shape[0] else sh
-                self.results.append((card.name, rows))
-            else:
-                rows = _records_for(self.sin, card, step=self.step)
-                rows = [super_header, *rows]
-                self.results.append((card.name, rows))
-            # The card's record bytes are now copied into ``rows`` — drop
-            # the mmap pages so the next (often equally large) RV* table
-            # doesn't stack its resident pages on top of this one's.
-            self.sin.release_record_pages(card.name)
+            rec = self._read_result_card(card, step=None)
+            if rec is not None:
+                self._static_results.append(rec)
+        self._static_loaded = True
+
+    def load_step(self, step: int | None) -> None:
+        """(Re)materialise just the per-step RV* result tables for
+        ``step`` on top of the static blocks. ``step is None`` reads every
+        step (the full-materialise path). Cheap to call repeatedly: the
+        mesh/section/RDPOINTS blocks are not touched."""
+        if not getattr(self, "_static_loaded", False):
+            self._load_static()
+        self.step = step
+        # Fresh per-step results = static (RDPOINTS …) + this step's RV*.
+        self.results = list(self._static_results)
+        for card in _RESULT_CARDS:
+            if card.name not in _RV_TYPE_NAMES:
+                continue
+            rec = self._read_result_card(card, step=step)
+            if rec is not None:
+                self.results.append(rec)
+
+    def _read_result_card(self, card, step):
+        """Read one result card → ``(name, rows)`` (or None if the block
+        is absent), step-filtered for RV* cards.
+
+        SifReader keeps the first record as the type-block "super-header"
+        (`[-ndim, ndim, dim0, …]`) and consumers do ``records[1:]`` to skip
+        it; SIN stores the shape in the block header, not as a record, so
+        we synthesise the super-header. Always emit it even when the block
+        has no rows — Sif2Mesh does ``get_result(name)[0]`` and would crash
+        on a card missing from results."""
+        block = self.sin.type_blocks.get(card.name)
+        if block is None:
+            return None
+        super_header = [-float(block.ndim), float(block.ndim)] + [float(d) for d in block.dims]
+        # Big RV* tables (RVNODDIS/RVSTRESS/RVFORCES — up to tens of
+        # millions of rows) dominate the read's heap. Materialise them as
+        # one contiguous float64 ndarray via the vectorised gather instead
+        # of a per-record list[float] (≈80 B/row vs ≈376 B), padding the
+        # synthetic super-header into row 0 — downstream consumers only ever
+        # do ``rows[1:]``, so the pad is never read. ``gather_records``
+        # returns None for variable-width tables, which fall through to the
+        # per-record path.
+        wfw = step if (step is not None and card.name in _RV_TYPE_NAMES) else None
+        arr = self.sin.gather_records(card.name, where_first_word=wfw)
+        if arr is not None and arr.ndim == 2 and arr.shape[1] >= len(super_header):
+            sh = np.zeros((1, arr.shape[1]), dtype=np.float64)
+            sh[0, : len(super_header)] = super_header
+            rows = np.vstack((sh, arr)) if arr.shape[0] else sh
+        else:
+            rows = _records_for(self.sin, card, step=step)
+            rows = [super_header, *rows]
+        # The card's record bytes are now copied into ``rows`` — drop the
+        # mmap pages so the next (often equally large) RV* table doesn't
+        # stack its resident pages on top of this one's.
+        self.sin.release_record_pages(card.name)
+        return (card.name, rows)
 
 
 @dataclass
@@ -345,6 +383,8 @@ class SinStreamReader:
         self.sin = source if isinstance(source, SinFile) else SinFile(source=source)
         self._steps = self._discover_steps()
         self._rep = None  # FEAResultStreamAdapter over the first step (geometry/specs/beams)
+        self._mesh = None  # step-invariant Mesh, built once and reused across steps
+        self._reader = None  # one SinReader; static blocks read once, RV* re-read per step
 
     # ── lifecycle ─────────────────────────────────────────────────────
     def close(self) -> None:
@@ -370,12 +410,42 @@ class SinStreamReader:
         return [float(s) for s in self._steps]
 
     def _load_step(self, step: int):
-        """Materialise just one step's FEAResult from the shared SinFile."""
-        from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
+        """Materialise just one step's FEAResult from the shared SinFile.
 
-        reader = SinReader(sin=self.sin, step=int(step))
-        reader.load()
-        return Sif2Mesh(reader).convert(pathlib.Path("remote.sin"))
+        The mesh topology is step-invariant, so :meth:`Sif2Mesh.get_sif_mesh`
+        — the dominant per-step cost (a pure-Python pass over every element:
+        groupby, type resolution, node-order reconciliation) — is run **once**
+        and the built ``Mesh`` reused for every subsequent step. Only the
+        per-step RV* field extraction (``get_sif_results``) re-runs. This is
+        what keeps the per-step bake from regressing badly on speed vs the
+        full-materialise path while staying memory-bounded. (No LIS/MLG
+        enrichment here — same as before; the source is a bare SinFile.)"""
+        from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
+        from ada.fem.results.common import FEAResult, FEATypes
+
+        # One persistent reader: read the step-invariant mesh/section/
+        # RDPOINTS blocks once, then only re-read this step's RV* tables.
+        if self._reader is None:
+            self._reader = SinReader(sin=self.sin)
+            self._reader._load_static()
+        reader = self._reader
+        reader.load_step(int(step))
+        s2m = Sif2Mesh(reader)
+        if self._mesh is None:
+            self._mesh = s2m.get_sif_mesh()
+        # Reuse the cached mesh; get_sif_results() needs it set (RVFORCES
+        # resolves element ids against it) but never rebuilds it.
+        s2m.mesh = self._mesh
+        results = s2m.get_sif_results()
+        return FEAResult(
+            "remote",
+            FEATypes.SESAM,
+            results=results,
+            mesh=self._mesh,
+            results_file_path=pathlib.Path("remote.sin"),
+            step_name_map=s2m.get_result_name_map(),
+            software_version="N/A",
+        )
 
     def _adapter_for(self, idx: int):
         """``FEAResultStreamAdapter`` over step ``idx``; step 0 is cached as
