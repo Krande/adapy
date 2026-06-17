@@ -204,19 +204,11 @@ def _convert_mesh(src: str, ext: str, target: str) -> bytes:
     return out
 
 
-def bake_fea(src: str, ext: str) -> bytes:
-    """FEA result → streaming-viewer artefact tree, returned as a zip."""
+def _zip_bake_dir(out_dir: str) -> bytes:
+    """Zip a baked artefact directory (must contain fea.manifest.json)."""
     import os
-    import shutil
     import zipfile
 
-    from ada.fem.results.artefacts import bake_fea_artefacts_from_source
-
-    out_dir = "/tmp/_wasm_fea_out"
-    if os.path.exists(out_dir):
-        shutil.rmtree(out_dir)
-    os.makedirs(out_dir, exist_ok=True)
-    bake_fea_artefacts_from_source(src, out_dir)
     names = sorted(n for n in os.listdir(out_dir) if os.path.isfile(os.path.join(out_dir, n)))
     if "fea.manifest.json" not in names:
         raise RuntimeError("FEA bake produced no manifest")
@@ -225,6 +217,26 @@ def bake_fea(src: str, ext: str) -> bytes:
         for n in names:
             zf.write(os.path.join(out_dir, n), arcname=n)
     return buf.getvalue()
+
+
+def _fresh_bake_dir() -> str:
+    import os
+    import shutil
+
+    out_dir = "/tmp/_wasm_fea_out"
+    if os.path.exists(out_dir):
+        shutil.rmtree(out_dir)
+    os.makedirs(out_dir, exist_ok=True)
+    return out_dir
+
+
+def bake_fea(src: str, ext: str) -> bytes:
+    """FEA result → streaming-viewer artefact tree, returned as a zip."""
+    from ada.fem.results.artefacts import bake_fea_artefacts_from_source
+
+    out_dir = _fresh_bake_dir()
+    bake_fea_artefacts_from_source(src, out_dir)
+    return _zip_bake_dir(out_dir)
 
 
 def fea_result_to_glb(src: str) -> bytes:
@@ -280,7 +292,7 @@ def _fea_result_glb_bytes(result) -> bytes:
     return out
 
 
-def _streamed_sin_result(fetcher, step: int | None = None):
+def _streamed_sin_result(fetcher, step: int | None = None, *, pick_first_step: bool = False):
     """Read a Sesam SIN into a :class:`FEAResult` over a *range fetcher*
     instead of a local file — the streaming path for the browser, where a
     multi-GB SIN can't be staged in wasm memory.
@@ -288,11 +300,13 @@ def _streamed_sin_result(fetcher, step: int | None = None):
     ``fetcher`` is any object exposing ``size() -> int`` and
     ``fetch(offset, length) -> bytes`` (an HTTP-``Range`` / ``fetch`` reader
     bridged in by the host). It feeds a ``PagedByteSource`` so only touched
-    pages are pulled and resident memory stays bounded.
+    pages are pulled — the 5.4 GB file never sits in wasm memory; only the
+    materialised result does.
 
-    One ``SinFile`` is reused for step discovery and the single-step read so
-    the discovery page cache stays warm. When ``step`` is None the first RV*
-    step is picked (matching :func:`fea_result_to_glb`).
+    ``step``: read just that IRES. ``pick_first_step``: when no explicit
+    step, discover and read only the first RV* step (the single-GLB path).
+    Otherwise (the bake) read **all** steps. One ``SinFile`` is reused for
+    discovery and the read so the page cache stays warm.
     """
     import pathlib
 
@@ -305,7 +319,7 @@ def _streamed_sin_result(fetcher, step: int | None = None):
 
     sin = SinFile(source=PagedByteSource(fetcher))
     try:
-        if step is None:
+        if step is None and pick_first_step:
             steps: set[int] = set()
             for rv in _RV_TYPE_NAMES:
                 if rv in sin.type_blocks:
@@ -315,11 +329,30 @@ def _streamed_sin_result(fetcher, step: int | None = None):
             if not steps:
                 raise RuntimeError("SIN result has no RV* result steps")
             step = sorted(steps)[0]
-        reader = SinReader(sin=sin, step=int(step))
+        reader = SinReader(sin=sin, step=None if step is None else int(step))
         reader.load()
         return Sif2Mesh(reader).convert(pathlib.Path("remote.sin"))
     finally:
         sin.close()
+
+
+def _streamed_sin_bake(fetcher) -> bytes:
+    """Bake the full SIN (all steps) → streaming-viewer artefact tree (zip),
+    reading the source over a range fetcher.
+
+    Streaming the source is what lets a >4 GiB deck bake in the browser at
+    all: the file never lands in wasm memory, only the materialised
+    ``FEAResult`` (and the artefact tree written to MEMFS) does. NB: that
+    materialisation is still proportional to the deck — a true per-step,
+    per-step-upload bake is the next optimisation for the very largest decks
+    (see notes_wasm_*); this lifts the can't-even-download blocker."""
+    from ada.fem.results.artefacts import FEAResultStreamAdapter, bake_artefacts
+
+    result = _streamed_sin_result(fetcher, step=None, pick_first_step=False)
+    out_dir = _fresh_bake_dir()
+    with FEAResultStreamAdapter(result) as reader:
+        bake_artefacts(reader, out_dir, src="remote")
+    return _zip_bake_dir(out_dir)
 
 
 def run_stream(fmt: str, ext: str, target: str, fetcher, step: int | None = None) -> bytes:
@@ -329,14 +362,17 @@ def run_stream(fmt: str, ext: str, target: str, fetcher, step: int | None = None
     Used by the browser worker for sources too large to hold in wasm memory:
     the host bridges an HTTP-``Range`` / ``fetch`` reader as ``fetcher``
     (``size()`` / ``fetch(offset, length) -> bytes``) and this streams over
-    it. Currently supports ``fea_glb`` (Sesam ``.sin`` → single-step GLB);
-    other formats stay on the buffered :func:`run` path.
+    it. Supports ``fea_glb`` (Sesam ``.sin`` → single-step GLB) and ``fea``
+    (``.sin`` → artefact-tree bake zip); other formats stay on the buffered
+    :func:`run` path.
     """
     fmt = (fmt or "").lower()
     target = (target or "glb").lower()
+    if fmt == "fea":
+        return _streamed_sin_bake(fetcher)
     if fmt == "fea_glb":
-        return _fea_result_glb_bytes(_streamed_sin_result(fetcher, step=step))
-    raise RuntimeError(f"wasm_convert: streaming source not supported for fmt={fmt!r} (only fea_glb)")
+        return _fea_result_glb_bytes(_streamed_sin_result(fetcher, step=step, pick_first_step=True))
+    raise RuntimeError(f"wasm_convert: streaming source not supported for fmt={fmt!r} (only fea / fea_glb)")
 
 
 def run(fmt: str, ext: str, target: str, src: str) -> bytes:

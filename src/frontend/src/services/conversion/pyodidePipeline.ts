@@ -231,16 +231,42 @@ export async function convertViaPyodideFeaBake(
     };
 
     try {
-        const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
-        const readBytes = sourceBuf.byteLength;
+        // Stream a .sin bake from a presigned Range URL so a multi-GB deck
+        // never has to be staged in wasm memory (the source can exceed the
+        // wasm32 ceiling outright). Falls back to the buffered getBlob path
+        // when presign is unavailable (local-disk backends 503). Other FEA
+        // sources (.rmed/.med/.sif) stay buffered for now.
+        let downloadUrl: {url: string; size: number} | null = null;
+        if (ext === "sin") {
+            try {
+                const dl = await viewerApi.requestDownloadUrl(scope, sourceKey);
+                downloadUrl = {url: dl.url, size: dl.size};
+            } catch {
+                downloadUrl = null;
+            }
+        }
 
-        store.setJob(storeKey, {...job, progress: 0.15, stage: "baking FEA result in browser"});
+        let zip: Uint8Array;
+        let readBytes: number;
+        if (downloadUrl) {
+            store.setJob(storeKey, {...job, progress: 0.15, stage: "streaming FEA bake in browser"});
+            zip = await convertViaPyodideStream("fea", downloadUrl.url, {
+                ext,
+                size: downloadUrl.size,
+                onLog: (msg) => store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
+            });
+            readBytes = downloadUrl.size; // source size; only a fraction is actually fetched
+        } else {
+            const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
+            readBytes = sourceBuf.byteLength;
 
-        const zip = await convertViaPyodide("fea", sourceBuf, {
-            ext,
-            onLog: (msg) =>
-                store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
-        });
+            store.setJob(storeKey, {...job, progress: 0.15, stage: "baking FEA result in browser"});
+
+            zip = await convertViaPyodide("fea", sourceBuf, {
+                ext,
+                onLog: (msg) => store.setJob(storeKey, {...(store.jobs[storeKey] || job), stage: msg}),
+            });
+        }
 
         store.setJob(storeKey, {
             ...(store.jobs[storeKey] || job),
