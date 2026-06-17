@@ -41,3 +41,22 @@
  *     static asset URL. Used by paradoc-embed.
  */
 export type FeaFetcher = (filename: string) => Promise<ArrayBuffer>;
+
+/**
+ * Fetch a byte range `[start, end]` (inclusive) of a manifest-relative
+ * file. Returns the bytes plus whether the server actually honoured the
+ * range (`ranged: true` ⇒ a 206 with exactly that window; `ranged:
+ * false` ⇒ the server ignored Range and sent the whole object, e.g. a
+ * legacy gzip-at-rest field blob). Callers use `ranged` to decide
+ * between using the buffer directly as one step vs. parsing the whole
+ * blob and slicing.
+ *
+ * This is what makes opening a many-step field (a 200-mode eigen deck)
+ * fast: the viewer pulls only the shown step (~one stride) instead of
+ * downloading every step's values up front.
+ */
+export type FeaRangeFetcher = (
+    filename: string,
+    start: number,
+    end: number,
+) => Promise<{buf: ArrayBuffer; ranged: boolean}>;

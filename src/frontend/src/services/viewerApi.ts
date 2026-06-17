@@ -982,6 +982,27 @@ export const viewerApi = {
         return await r.arrayBuffer();
     },
 
+    /** Fetch a byte range `[start, end]` (inclusive) of a stored object.
+     * Returns the bytes and whether the server honoured the range (206)
+     * or ignored it and sent the whole object (200 — e.g. a gzip-at-rest
+     * blob that can't be ranged). The FEA viewer uses this to pull a
+     * single field step instead of the whole multi-step blob. */
+    async getBlobRange(
+        scope: ScopeUrl,
+        key: string,
+        start: number,
+        end: number,
+    ): Promise<{buf: ArrayBuffer; ranged: boolean}> {
+        const r = await authedFetch(this.blobUrl(scope, key), {
+            headers: {Range: `bytes=${start}-${end}`},
+        });
+        if (!r.ok && r.status !== 206) {
+            throw new ApiError(`getBlobRange(${key})`, r.status, await readDetail(r));
+        }
+        const buf = await r.arrayBuffer();
+        return {buf, ranged: r.status === 206};
+    },
+
     /** Upload bytes under a given key. body is anything fetch/XHR can
      * send (File, Blob, ArrayBuffer, ...). When `onProgress` is given,
      * the request goes through XMLHttpRequest because fetch doesn't

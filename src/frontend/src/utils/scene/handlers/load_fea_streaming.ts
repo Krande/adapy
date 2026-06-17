@@ -5,9 +5,9 @@ import {runtime} from "@/runtime/config";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 
 import {cacheAndBuildTree} from "@/state/model_worker/cacheModelUtils";
-import {fetchElemFieldBlob} from "@/services/feaElemFieldBlob";
-import {fetchFieldBlob, makeViewerApiFetcher} from "@/services/feaFieldBlob";
-import type {FeaFetcher} from "@/services/fea/feaFetcher";
+import {fetchElemFieldStep} from "@/services/feaElemFieldBlob";
+import {fetchFieldStep, makeViewerApiFetcher} from "@/services/feaFieldBlob";
+import type {FeaFetcher, FeaRangeFetcher} from "@/services/fea/feaFetcher";
 import {fetchBeamSolidsWarp, ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
@@ -209,7 +209,7 @@ function findDisplacementField(manifest: FeaManifest): FeaManifestField | null {
  *  static (reaction fields, warp toggle off + no displacement field
  *  available, or the user picked displacement but warpEnabled is off). */
 async function resolveWarpSource(
-    fetcher: FeaFetcher,
+    rangeFetcher: FeaRangeFetcher,
     cacheKey: string,
     manifest: FeaManifest,
     colorField: FeaManifestField,
@@ -227,8 +227,8 @@ async function resolveWarpSource(
     // inspecting raw DX values may want them on the un-deformed mesh.
     if (colorField.category === "displacement") {
         if (!warpEnabled) return null;
-        const parsed = await fetchFieldBlob(fetcher, colorField, cacheKey);
-        return {field: colorField, stepValues: parsed.steps[stepIndex]};
+        const stepValues = await fetchFieldStep(rangeFetcher, colorField, stepIndex, cacheKey);
+        return {field: colorField, stepValues};
     }
 
     // Stress / strain / other — warp by the manifest's displacement
@@ -248,8 +248,8 @@ async function resolveWarpSource(
             `n_steps=${dispField.n_steps}; clamping warp source to step ${warpStep}`,
         );
     }
-    const parsed = await fetchFieldBlob(fetcher, dispField, cacheKey);
-    return {field: dispField, stepValues: parsed.steps[warpStep]};
+    const stepValues = await fetchFieldStep(rangeFetcher, dispField, warpStep, cacheKey);
+    return {field: dispField, stepValues};
 }
 
 /** Fetch + parse the beam-solid GLB and its AFEM sidecar, returning a
@@ -538,7 +538,7 @@ export async function load_fea_streaming(args: {
     // is encoded in `makeViewerApiFetcher`; downstream helpers stay
     // storage-agnostic so paradoc-embed can plug in its own fetcher
     // that hits paradoc-serve's REST endpoint instead.
-    const {fetcher, cacheKey} = makeViewerApiFetcher(scope, sourceName);
+    const {fetcher, rangeFetcher, cacheKey} = makeViewerApiFetcher(scope, sourceName);
 
     // (Re-)load the mesh into the scene if we don't already have it
     // for this source. Switching field-within-source keeps the same
@@ -871,7 +871,7 @@ export async function load_fea_streaming(args: {
     const reductionStr = reduction ?? "magnitude"; // field present -> reduction is meaningful
     const warpEnabled = useFeaAnimationStore.getState().warpEnabled;
     const warpInfo = await resolveWarpSource(
-        fetcher,
+        rangeFetcher,
         cacheKey,
         manifest,
         field,
@@ -880,26 +880,23 @@ export async function load_fea_streaming(args: {
     );
 
     if (field.per_type && field.per_type.length > 0) {
-        // Element-field render path (AFEL). Fetch one bucket blob per
-        // element type in parallel; the bake guarantees parallel step
-        // counts across buckets within a logical field, so the same
+        // Element-field render path (AFEL). Range-fetch one step per
+        // element-type bucket in parallel; the bake guarantees parallel
+        // step counts across buckets within a logical field, so the same
         // ``stepIndex`` indexes every bucket. The reduction kernel
         // collapses (n_ips × n_components) → 1 scalar per element and
         // writes vertex colours via AFEM draw ranges.
         const buckets = field.per_type;
-        const parsedBuckets = await Promise.all(
-            buckets.map((bk) => fetchElemFieldBlob(fetcher, bk, cacheKey)),
+        const perTypeStepValues = await Promise.all(
+            buckets.map((bk, i) =>
+                fetchElemFieldStep(rangeFetcher, bk, stepIndex, cacheKey).catch((err) => {
+                    throw new Error(
+                        `element field ${field.name_canonical} bucket ${buckets[i].elem_type} ` +
+                        `step ${stepIndex}: ${err instanceof Error ? err.message : String(err)}`,
+                    );
+                }),
+            ),
         );
-        const perTypeStepValues = parsedBuckets.map((pb, i) => {
-            const step = pb.steps[stepIndex];
-            if (!step) {
-                throw new Error(
-                    `element field ${field.name_canonical} bucket ${buckets[i].elem_type} ` +
-                    `has no step ${stepIndex}`,
-                );
-            }
-            return step;
-        });
         const {layer, ipReduction, nodalAverage} = useFeaAnimationStore.getState();
         applyElemFieldToMesh({
             mesh: active.mesh,
@@ -953,8 +950,7 @@ export async function load_fea_streaming(args: {
             }
         }
     } else {
-        const parsed = await fetchFieldBlob(fetcher, field, cacheKey);
-        const colorStepValues = parsed.steps[stepIndex];
+        const colorStepValues = await fetchFieldStep(rangeFetcher, field, stepIndex, cacheKey);
 
         applyFieldToMesh({
             mesh: active.mesh,

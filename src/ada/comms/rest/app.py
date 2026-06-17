@@ -730,13 +730,86 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse({"files": out})
 
+    async def _serve_blob_range(request: Request, scope_obj: Scope, key: str, range_header: str) -> Response | None:
+        """Serve a single byte range of an identity-stored object as 206.
+
+        Returns ``None`` (caller serves the whole object) when the range
+        can't be honoured: a gzip-at-rest object, a malformed/multi-range
+        header, or an unsatisfiable window. Only a single ``bytes=a-b``
+        range is supported — that's all the FEA per-step fetch needs."""
+        spec = range_header.strip()
+        if not spec.lower().startswith("bytes=") or "," in spec:
+            return None  # only single-range bytes= supported
+        rng = spec[len("bytes=") :].strip()
+        if "-" not in rng:
+            return None
+        start_s, end_s = rng.split("-", 1)
+        try:
+            # Ranges over a gzipped body would hand back compressed bytes;
+            # let the caller serve the whole object instead.
+            if await storage.is_gzip_stored(scope_obj, key):
+                return None
+            meta = await storage.head(scope_obj, key)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail=f"not found: {key}")
+        if meta is None:
+            raise HTTPException(status_code=404, detail=f"not found: {key}")
+        size = int(meta["size"])
+        try:
+            if start_s == "":
+                # suffix range: bytes=-N → last N bytes
+                n = int(end_s)
+                start = max(0, size - n)
+                end = size - 1
+            else:
+                start = int(start_s)
+                end = int(end_s) if end_s != "" else size - 1
+        except ValueError:
+            return None
+        if start < 0 or start >= size or end < start:
+            # 416 Range Not Satisfiable
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+        end = min(end, size - 1)
+        length = end - start + 1
+        try:
+            chunk = await storage.get_range(scope_obj, key, start, length)
+        except Exception as exc:
+            logger.warning("blob range fetch failed for %s [%d,%d]: %s", key, start, end, exc)
+            return None
+        return Response(
+            content=chunk,
+            status_code=206,
+            media_type="application/octet-stream",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes {start}-{end}/{size}",
+                "Content-Length": str(len(chunk)),
+            },
+        )
+
     @api.get("/scopes/{scope}/blobs/{key:path}")
     async def api_scope_blob_get(
         key: str,
         request: Request,
         scope_obj: Scope = Depends(_scope_from_path),
         user: User = Depends(auth_module.current_user),
-    ) -> StreamingResponse:
+    ) -> Response:
+        from .converter import is_derived_key
+
+        # Range support — lets the FEA viewer pull a single step out of a
+        # multi-step field blob (`bytes=start-end`) instead of downloading
+        # the whole stack of steps. Only valid for identity-stored objects;
+        # gzip-at-rest blobs (manifest JSON, legacy field blobs) are served
+        # whole with Content-Encoding so the browser auto-decompresses.
+        range_header = request.headers.get("range")
+        if range_header:
+            served = await _serve_blob_range(request, scope_obj, key, range_header)
+            if served is not None:
+                if not is_derived_key(key):
+                    await _audit(request, user, scope_obj, "download", key=key, status="ok")
+                return served
+            # else: fall through to whole-object stream (gzipped/un-rangeable)
+
         try:
             result = await storage.open_stream(scope_obj, key)
         except FileNotFoundError as exc:
@@ -747,11 +820,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Audit user-driven downloads, not derived blob fetches — the
         # latter happen for every /api/rpc VIEW_FILE_OBJECT cycle and
         # would drown the log.
-        from .converter import is_derived_key
-
         if not is_derived_key(key):
             await _audit(request, user, scope_obj, "download", key=key, status="ok")
-        headers: dict[str, str] = {}
+        headers: dict[str, str] = {"Accept-Ranges": "bytes"}
         if result.content_encoding:
             # See storage.py: gzipped sources/derived round-trip via
             # Content-Encoding so the browser auto-decompresses.
@@ -1241,9 +1312,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for n in entries:
                 base = posixpath.basename(n)
                 payload = zf.read(n)
-                # Mirror the worker's compression policy exactly: gzip the
-                # manifest JSON + field blobs, store the mesh GLB as-is.
-                content_encoding = "gzip" if base.lower().endswith((".json", ".bin")) else None
+                # Mirror the worker's compression policy exactly: gzip only
+                # the manifest JSON; store .bin blobs (and the mesh GLB)
+                # identity so the viewer can HTTP-Range a single field step.
+                content_encoding = "gzip" if base.lower().endswith(".json") else None
                 await storage.put_bytes(
                     scope_obj,
                     prefix + base,
@@ -1321,7 +1393,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="empty body")
 
         prefix = fea_artefact_prefix_for(source)
-        content_encoding = "gzip" if base.lower().endswith((".json", ".bin")) else None
+        # gzip only the manifest JSON; .bin blobs stay identity so the
+        # viewer can HTTP-Range a single field step (see the blobs route).
+        content_encoding = "gzip" if base.lower().endswith(".json") else None
         try:
             await storage.put_bytes(scope_obj, prefix + base, data, content_encoding=content_encoding)
         except Exception as exc:

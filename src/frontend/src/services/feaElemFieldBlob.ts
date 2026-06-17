@@ -17,7 +17,7 @@
 // ``ip_layout`` live in the manifest's per_type bucket, not the blob,
 // so the binary stays compact even for very large element counts.
 
-import type {FeaFetcher} from "./fea/feaFetcher";
+import type {FeaFetcher, FeaRangeFetcher} from "./fea/feaFetcher";
 import type {FeaManifestFieldPerType} from "./viewerApi";
 
 const ELEM_FIELD_MAGIC = 0x4c454641; // "AFEL" little-endian
@@ -98,8 +98,67 @@ export function parseElemFieldBlob(buf: ArrayBuffer): ParsedFeaElemFieldBlob {
 // bake, so we never re-fetch unless the user picks a different field.
 const ELEM_BLOB_CACHE = new Map<string, Promise<ParsedFeaElemFieldBlob>>();
 
+// Per-(bucket, step) cache for the range-fetched single steps.
+const ELEM_STEP_CACHE = new Map<string, Promise<Float32Array>>();
+
 export function clearElemFieldBlobCache(): void {
     ELEM_BLOB_CACHE.clear();
+    ELEM_STEP_CACHE.clear();
+}
+
+/** Fetch a single step's values for one AFEL element-type bucket by
+ * HTTP-Range — the element-field counterpart of ``fetchFieldStep``. Same
+ * graceful fallbacks: whole-blob cache hit, or a server that ignores
+ * Range (legacy gzip blob) → parse whole + slice. */
+export async function fetchElemFieldStep(
+    rangeFetcher: FeaRangeFetcher,
+    bucket: FeaManifestFieldPerType,
+    stepIndex: number,
+    cacheKey: string,
+): Promise<Float32Array> {
+    const blob = bucket.blob;
+    const fullKey = `${cacheKey}::${blob.url}`;
+
+    const wholeCached = ELEM_BLOB_CACHE.get(fullKey);
+    if (wholeCached) return (await wholeCached).steps[stepIndex];
+
+    if (blob.dtype !== "float32" || blob.byte_order === "big") {
+        return (await fetchElemFieldBlob(elemRangeAsFetcher(rangeFetcher), bucket, cacheKey)).steps[stepIndex];
+    }
+
+    const stepKey = `${fullKey}::${stepIndex}`;
+    const cached = ELEM_STEP_CACHE.get(stepKey);
+    if (cached) return cached;
+
+    const stride = blob.stride_bytes;
+    const start = blob.header_bytes + stepIndex * stride;
+    const end = start + stride - 1;
+    const promise = (async () => {
+        const {buf, ranged} = await rangeFetcher(blob.url, start, end);
+        if (ranged) {
+            if (buf.byteLength < stride) {
+                throw new Error(
+                    `elem field bucket ${bucket.elem_type} step ${stepIndex}: short range ` +
+                    `(${buf.byteLength} < ${stride} bytes)`,
+                );
+            }
+            return new Float32Array(buf, 0, stride / 4);
+        }
+        const parsed = parseElemFieldBlob(buf);
+        ELEM_BLOB_CACHE.set(fullKey, Promise.resolve(parsed));
+        return parsed.steps[stepIndex];
+    })();
+    ELEM_STEP_CACHE.set(stepKey, promise);
+    try {
+        return await promise;
+    } catch (err) {
+        ELEM_STEP_CACHE.delete(stepKey);
+        throw err;
+    }
+}
+
+function elemRangeAsFetcher(rangeFetcher: FeaRangeFetcher): FeaFetcher {
+    return async (filename: string) => (await rangeFetcher(filename, 0, Number.MAX_SAFE_INTEGER)).buf;
 }
 
 /** Fetch + parse the AFEL blob for one (source, field, elem-type

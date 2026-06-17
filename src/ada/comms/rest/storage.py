@@ -251,6 +251,33 @@ class Storage:
 
         await obs.put_async(self._store, full, data)
 
+    async def get_range(self, scope: Scope, key: str, start: int, length: int) -> bytes:
+        """Read ``[start, start+length)`` raw bytes of an object — no gzip
+        expansion. Only meaningful for objects stored *identity*-encoded;
+        the FEA field blobs are (see worker.py / the artefact upload
+        routes write ``.bin`` uncompressed), so the viewer can range-fetch
+        a single step instead of the whole multi-step blob."""
+        if length <= 0:
+            return b""
+        data = await obs.get_range_async(self._store, self._full_key(scope, key), start=start, length=length)
+        return bytes(data)
+
+    async def is_gzip_stored(self, scope: Scope, key: str) -> bool:
+        """True if the object's stored bytes begin with the gzip magic —
+        i.e. it was put with ``content_encoding="gzip"``. A byte range over
+        such an object would be compressed bytes the browser can't map to
+        logical offsets, so the Range route falls back to whole-object for
+        these. Portable across backends (sniffs the magic, not metadata)."""
+        try:
+            head2 = await self.get_range(scope, key, 0, 2)
+        except FileNotFoundError:
+            raise
+        except Exception:
+            # A backend that can't range a tiny prefix — treat as
+            # non-rangeable so the caller serves the whole object.
+            return True
+        return head2[:2] == _GZIP_MAGIC
+
     async def stream_to_path_raw(self, scope: Scope, key: str, dest_path: pathlib.Path) -> None:
         """Stream an object to a local file *without* decompressing
         gzipped bodies (in contrast to ``stream_to_path`` which
