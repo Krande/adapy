@@ -405,9 +405,7 @@ def _streamed_sin_bake_to(fetcher, upload) -> str:
 
     if "fea.manifest.json" not in shipped:
         raise RuntimeError("FEA bake produced no manifest")
-    return json.dumps(
-        {"count": len(shipped), "files": shipped, "manifest": "fea.manifest.json", "bytes": total_bytes}
-    )
+    return json.dumps({"count": len(shipped), "files": shipped, "manifest": "fea.manifest.json", "bytes": total_bytes})
 
 
 def run_stream(fmt: str, ext: str, target: str, fetcher, step: int | None = None, upload=None):
