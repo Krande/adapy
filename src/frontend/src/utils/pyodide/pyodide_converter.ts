@@ -92,7 +92,7 @@ export function prewarmPyodide(onLog?: (msg: string) => void): void {
         });
 }
 
-export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea" | "fem" | "genie";
+export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea" | "fea_glb" | "fem" | "genie";
 
 /** Run a single conversion via the Pyodide worker. Format selects which
  * pyodide stack handles the bytes — ifc → ifcopenshell+trimesh; step →
@@ -100,7 +100,8 @@ export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea" | "fem
  * tells trimesh which loader to use: obj/stl/ply/gltf/dae/off); sat →
  * adapy ACIS parser + adacpp backend (returns GLB); fea → adapy FEA bake
  * (returns a zip of the streaming-viewer artefact tree, ``ext`` =
- * rmed/med/sif/sin). */
+ * rmed/med/sif/sin); fea_glb → SIF/SIN result → single tessellated GLB
+ * (FEAResult.to_gltf, the registry's lone target for those sources). */
 export async function convertViaPyodide(
     format: PyodideSourceFormat,
     bytes: ArrayBuffer,

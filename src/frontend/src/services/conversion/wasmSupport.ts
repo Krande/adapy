@@ -52,6 +52,11 @@ const WASM_TARGETS_BY_FORMAT: Record<PyodideSourceFormat, readonly string[]> = {
     // Genie xml: from_genie_xml → geometry writers.
     genie: ["glb", "ifc", "step", "xml", "obj", "stl"],
     fea: [], // FEA sources go through the bake path (isWasmFeaSource), not this matrix
+    // SIF/SIN result → single tessellated GLB (read_sif/read_sin → FEAResult
+    // .to_gltf, all pure-python+numpy+trimesh). This is the registry's lone
+    // target for those sources and is distinct from the bake tree (fea), so
+    // the audit sweep can run these cells in-browser instead of skipping them.
+    fea_glb: ["glb"],
 };
 
 function extOf(sourceKey: string): string {
@@ -74,6 +79,11 @@ export function detectWasmFormat(sourceKey: string): WasmFormat | null {
     if (ext === "ifc") return {format: "ifc", ext};
     if (ext === "step" || ext === "stp") return {format: "step", ext};
     if (ext === "sat" || ext === "acis") return {format: "sat", ext};
+    // Sesam SIF/SIN results convert to a single GLB via FEAResult.to_gltf
+    // (the fea_glb stack). Note these are ALSO bake sources (isWasmFeaSource);
+    // the bake path is selected separately by the FEA-viewer flow, this maps
+    // only the registry's single-GLB conversion cell.
+    if (ext === "sif" || ext === "sin") return {format: "fea_glb", ext};
     if ((WASM_FEM_DECK_EXTS as readonly string[]).includes(ext)) return {format: "fem", ext};
     if (ext === "xml") return {format: "genie", ext};
     if ((WASM_MESH_EXTS as readonly string[]).includes(ext)) return {format: "mesh", ext};

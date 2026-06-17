@@ -200,6 +200,7 @@ async function ensureFemStack() {
 async function ensureStacks(format, target) {
     const tgt = (target || "glb").toLowerCase();
     if (format === "fea") return ensureFemStack();
+    if (format === "fea_glb") return ensureFemStack(); // SIF/SIN result → single GLB
     if (format === "mesh") return ensureMeshStack();
     if (format === "ifc" && tgt === "glb") return ensureIfcStack(); // raw ifcopenshell fast path
     if (format === "step" && tgt === "glb") return ensureStepStack(); // adacpp fast path

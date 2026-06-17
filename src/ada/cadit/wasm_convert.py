@@ -227,17 +227,64 @@ def bake_fea(src: str, ext: str) -> bytes:
     return buf.getvalue()
 
 
+def fea_result_to_glb(src: str) -> bytes:
+    """Sesam SIF / SIN result deck → single tessellated GLB.
+
+    The FEAResult.to_gltf path the worker's ``_via_fea_result`` uses — distinct
+    from :func:`bake_fea`, which emits the streaming-viewer artefact *tree*.
+    This is the single-GLB conversion that the converter registry exposes as
+    the lone target for ``.sif``/``.sin``, so the WASM engine (and the audit
+    sweep) can serve those cells instead of falling back to the worker.
+
+    Mirrors the worker's default (step, field) pick so an auto-convert produces
+    something viewable. SIN uses the cheap metadata path to choose a step
+    before loading, avoiding materialising every step of a many-mode deck.
+    """
+    import os
+
+    is_sin = os.path.splitext(src)[1].lower() == ".sin"
+    if is_sin:
+        from ada.fem.formats.sesam.results.read_sin import read_sin_file, read_sin_metadata
+
+        meta = read_sin_metadata(src)
+        if not meta.fields or not meta.steps:
+            raise RuntimeError("SIN result has no RV* result fields")
+        result = read_sin_file(src, step=int(meta.steps[0]))
+    else:
+        from ada.fem.formats.sesam.results.read_sif import read_sif_file
+
+        result = read_sif_file(src)
+
+    steps = result.get_steps()
+    fields = result.get_results_grouped_by_field_value()
+    if not steps:
+        raise RuntimeError("FEA result contains no steps to render")
+    if not fields:
+        raise RuntimeError("FEA result contains no nodal/element fields to render")
+
+    out_path = "/tmp/_wasm_fea_result.glb"
+    result.to_gltf(out_path, step=int(steps[0]), field=next(iter(fields.keys())))
+    with open(out_path, "rb") as fh:
+        out = fh.read()
+    if not out:
+        raise RuntimeError("FEA result GLB export produced no bytes")
+    return out
+
+
 def run(fmt: str, ext: str, target: str, src: str) -> bytes:
     """Convert ``src`` (a path on the pyodide FS) and return the output bytes.
 
-    ``fmt`` is the wasm source-format class (sat/ifc/step/fem/genie/mesh/fea);
-    ``ext`` the source file extension; ``target`` the requested output format.
+    ``fmt`` is the wasm source-format class (sat/ifc/step/fem/genie/mesh/fea/
+    fea_glb); ``ext`` the source file extension; ``target`` the requested
+    output format.
     """
     fmt = (fmt or "").lower()
     target = (target or "glb").lower()
 
     if fmt == "fea":
         return bake_fea(src, ext)
+    if fmt == "fea_glb":
+        return fea_result_to_glb(src)
     if fmt == "mesh":
         return _convert_mesh(src, ext, target)
     if fmt == "fem" and target in _DECK_TARGETS:
