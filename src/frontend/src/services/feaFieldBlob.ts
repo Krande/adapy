@@ -14,6 +14,7 @@
 // Per-step labels and time/freq values live in the manifest, not
 // the blob.
 
+import {disableFeaRange, feaRangeSupported} from "./fea/feaFetcher";
 import type {FeaFetcher, FeaRangeFetcher} from "./fea/feaFetcher";
 import type {FeaManifestField, ScopeUrl} from "./viewerApi";
 
@@ -105,14 +106,19 @@ export function clearFieldBlobCache(): void {
  * for many-step decks (a 200-mode eigen result would otherwise download
  * every mode's displacement just to show one).
  *
- * Falls back gracefully:
- *   - if the whole blob is already cached (a prior full fetch), slice it;
- *   - if the server ignores Range (legacy gzip-at-rest blob → 200 whole),
- *     parse the whole blob, cache it, and slice.
- * So it's correct against both new (identity, rangeable) and old
- * (gzipped) bakes; only the new ones get the bandwidth win. */
+ * Always safe — never worse than the old whole-blob path:
+ *   - whole blob already cached (a prior full fetch) → slice it;
+ *   - Range disabled this session (a prior failure) or non-float32/big-
+ *     endian → plain whole-blob `fetcher` (no Range header) + slice;
+ *   - the ranged request *fails* (network/proxy/"Failed to fetch") →
+ *     disable Range session-wide and fall back to the whole-blob fetcher;
+ *   - the server *ignores* Range (legacy gzip blob → 200 whole) → parse
+ *     the whole blob, cache it, slice.
+ * Only new identity-stored blobs over a Range-capable transport get the
+ * bandwidth win; everything else still works. */
 export async function fetchFieldStep(
     rangeFetcher: FeaRangeFetcher,
+    fetcher: FeaFetcher,
     field: FeaManifestField,
     stepIndex: number,
     cacheKey: string,
@@ -131,10 +137,12 @@ export async function fetchFieldStep(
     const wholeCached = BLOB_CACHE.get(fullKey);
     if (wholeCached) return (await wholeCached).steps[stepIndex];
 
-    // Big-endian / non-float32 aren't handled by the zero-copy view path;
-    // fall back to the whole-blob parser (which raises on unsupported).
-    if (blob.dtype !== "float32" || blob.byte_order === "big") {
-        return (await fetchFieldBlob(rangeAsFetcher(rangeFetcher), field, cacheKey)).steps[stepIndex];
+    const wholeFallback = async () => (await fetchFieldBlob(fetcher, field, cacheKey)).steps[stepIndex];
+
+    // Range unavailable (disabled after an earlier failure) or a payload
+    // the zero-copy view can't handle → plain whole-blob fetch.
+    if (!feaRangeSupported() || blob.dtype !== "float32" || blob.byte_order === "big") {
+        return wholeFallback();
     }
 
     const stepKey = `${fullKey}::${stepIndex}`;
@@ -145,7 +153,19 @@ export async function fetchFieldStep(
     const start = blob.header_bytes + stepIndex * stride;
     const end = start + stride - 1;
     const promise = (async () => {
-        const {buf, ranged} = await rangeFetcher(blob.url, start, end);
+        let res: {buf: ArrayBuffer; ranged: boolean};
+        try {
+            res = await rangeFetcher(blob.url, start, end);
+        } catch (err) {
+            // Network/proxy rejected the Range request ("Failed to fetch").
+            // Disable Range for the session and fall back to whole-blob so
+            // the viewer still loads (just without the per-step win).
+            // eslint-disable-next-line no-console
+            console.warn(`[fea] range fetch failed for ${blob.url}; using whole-blob fallback`, err);
+            disableFeaRange();
+            return wholeFallback();
+        }
+        const {buf, ranged} = res;
         if (ranged) {
             // The 206 body is exactly this step's stride — a 4-aligned,
             // offset-0 buffer, so a direct Float32Array view is valid.
@@ -170,12 +190,6 @@ export async function fetchFieldStep(
         STEP_CACHE.delete(stepKey);
         throw err;
     }
-}
-
-// Adapt a range fetcher to the whole-file FeaFetcher (start 0, open-ended)
-// for the fallback parse path.
-function rangeAsFetcher(rangeFetcher: FeaRangeFetcher): FeaFetcher {
-    return async (filename: string) => (await rangeFetcher(filename, 0, Number.MAX_SAFE_INTEGER)).buf;
 }
 
 /** Fetch + parse the field blob for one (source, field). Cached

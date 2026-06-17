@@ -60,3 +60,17 @@ export type FeaRangeFetcher = (
     start: number,
     end: number,
 ) => Promise<{buf: ArrayBuffer; ranged: boolean}>;
+
+// Session-wide kill switch for per-step Range fetches. Some deployments
+// (a reverse proxy that mishandles Range/206, a service worker, an old
+// backend without Range support) make a ranged request fail outright
+// ("Failed to fetch"). The first such failure flips this off and every
+// field load falls back to the whole-blob fetch — so per-step is never
+// *worse* than the old path, just not faster. Reset on page reload.
+let _rangeSupported = true;
+export function feaRangeSupported(): boolean {
+    return _rangeSupported;
+}
+export function disableFeaRange(): void {
+    _rangeSupported = false;
+}

@@ -17,6 +17,7 @@
 // ``ip_layout`` live in the manifest's per_type bucket, not the blob,
 // so the binary stays compact even for very large element counts.
 
+import {disableFeaRange, feaRangeSupported} from "./fea/feaFetcher";
 import type {FeaFetcher, FeaRangeFetcher} from "./fea/feaFetcher";
 import type {FeaManifestFieldPerType} from "./viewerApi";
 
@@ -108,10 +109,12 @@ export function clearElemFieldBlobCache(): void {
 
 /** Fetch a single step's values for one AFEL element-type bucket by
  * HTTP-Range — the element-field counterpart of ``fetchFieldStep``. Same
- * graceful fallbacks: whole-blob cache hit, or a server that ignores
- * Range (legacy gzip blob) → parse whole + slice. */
+ * always-safe fallbacks: whole-blob cache hit; Range disabled / unsupported
+ * payload → plain whole-blob fetch; ranged request fails → disable Range +
+ * whole-blob; server ignores Range (legacy gzip) → parse whole + slice. */
 export async function fetchElemFieldStep(
     rangeFetcher: FeaRangeFetcher,
+    fetcher: FeaFetcher,
     bucket: FeaManifestFieldPerType,
     stepIndex: number,
     cacheKey: string,
@@ -122,8 +125,10 @@ export async function fetchElemFieldStep(
     const wholeCached = ELEM_BLOB_CACHE.get(fullKey);
     if (wholeCached) return (await wholeCached).steps[stepIndex];
 
-    if (blob.dtype !== "float32" || blob.byte_order === "big") {
-        return (await fetchElemFieldBlob(elemRangeAsFetcher(rangeFetcher), bucket, cacheKey)).steps[stepIndex];
+    const wholeFallback = async () => (await fetchElemFieldBlob(fetcher, bucket, cacheKey)).steps[stepIndex];
+
+    if (!feaRangeSupported() || blob.dtype !== "float32" || blob.byte_order === "big") {
+        return wholeFallback();
     }
 
     const stepKey = `${fullKey}::${stepIndex}`;
@@ -134,7 +139,16 @@ export async function fetchElemFieldStep(
     const start = blob.header_bytes + stepIndex * stride;
     const end = start + stride - 1;
     const promise = (async () => {
-        const {buf, ranged} = await rangeFetcher(blob.url, start, end);
+        let res: {buf: ArrayBuffer; ranged: boolean};
+        try {
+            res = await rangeFetcher(blob.url, start, end);
+        } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn(`[fea] range fetch failed for ${blob.url}; using whole-blob fallback`, err);
+            disableFeaRange();
+            return wholeFallback();
+        }
+        const {buf, ranged} = res;
         if (ranged) {
             if (buf.byteLength < stride) {
                 throw new Error(
@@ -155,10 +169,6 @@ export async function fetchElemFieldStep(
         ELEM_STEP_CACHE.delete(stepKey);
         throw err;
     }
-}
-
-function elemRangeAsFetcher(rangeFetcher: FeaRangeFetcher): FeaFetcher {
-    return async (filename: string) => (await rangeFetcher(filename, 0, Number.MAX_SAFE_INTEGER)).buf;
 }
 
 /** Fetch + parse the AFEL blob for one (source, field, elem-type

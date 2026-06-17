@@ -776,6 +776,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             logger.warning("blob range fetch failed for %s [%d,%d]: %s", key, start, end, exc)
             return None
+        # Content-Length is left to Starlette (derived from the body) so it
+        # can never disagree with the payload — a mismatch makes some
+        # reverse proxies emit a broken response ("Failed to fetch").
         return Response(
             content=chunk,
             status_code=206,
@@ -783,7 +786,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers={
                 "Accept-Ranges": "bytes",
                 "Content-Range": f"bytes {start}-{end}/{size}",
-                "Content-Length": str(len(chunk)),
             },
         )
 

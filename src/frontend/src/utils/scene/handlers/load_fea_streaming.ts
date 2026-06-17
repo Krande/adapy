@@ -210,6 +210,7 @@ function findDisplacementField(manifest: FeaManifest): FeaManifestField | null {
  *  available, or the user picked displacement but warpEnabled is off). */
 async function resolveWarpSource(
     rangeFetcher: FeaRangeFetcher,
+    fetcher: FeaFetcher,
     cacheKey: string,
     manifest: FeaManifest,
     colorField: FeaManifestField,
@@ -227,7 +228,7 @@ async function resolveWarpSource(
     // inspecting raw DX values may want them on the un-deformed mesh.
     if (colorField.category === "displacement") {
         if (!warpEnabled) return null;
-        const stepValues = await fetchFieldStep(rangeFetcher, colorField, stepIndex, cacheKey);
+        const stepValues = await fetchFieldStep(rangeFetcher, fetcher, colorField, stepIndex, cacheKey);
         return {field: colorField, stepValues};
     }
 
@@ -248,7 +249,7 @@ async function resolveWarpSource(
             `n_steps=${dispField.n_steps}; clamping warp source to step ${warpStep}`,
         );
     }
-    const stepValues = await fetchFieldStep(rangeFetcher, dispField, warpStep, cacheKey);
+    const stepValues = await fetchFieldStep(rangeFetcher, fetcher, dispField, warpStep, cacheKey);
     return {field: dispField, stepValues};
 }
 
@@ -872,6 +873,7 @@ export async function load_fea_streaming(args: {
     const warpEnabled = useFeaAnimationStore.getState().warpEnabled;
     const warpInfo = await resolveWarpSource(
         rangeFetcher,
+        fetcher,
         cacheKey,
         manifest,
         field,
@@ -889,7 +891,7 @@ export async function load_fea_streaming(args: {
         const buckets = field.per_type;
         const perTypeStepValues = await Promise.all(
             buckets.map((bk, i) =>
-                fetchElemFieldStep(rangeFetcher, bk, stepIndex, cacheKey).catch((err) => {
+                fetchElemFieldStep(rangeFetcher, fetcher, bk, stepIndex, cacheKey).catch((err) => {
                     throw new Error(
                         `element field ${field.name_canonical} bucket ${buckets[i].elem_type} ` +
                         `step ${stepIndex}: ${err instanceof Error ? err.message : String(err)}`,
@@ -950,7 +952,7 @@ export async function load_fea_streaming(args: {
             }
         }
     } else {
-        const colorStepValues = await fetchFieldStep(rangeFetcher, field, stepIndex, cacheKey);
+        const colorStepValues = await fetchFieldStep(rangeFetcher, fetcher, field, stepIndex, cacheKey);
 
         applyFieldToMesh({
             mesh: active.mesh,
