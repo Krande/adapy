@@ -167,6 +167,24 @@ async def _run_fea_artefact_bake(
     from ada.fem.results.artefacts import bake_fea_artefacts_from_source
 
     await _on_progress("parsing", 0.10)
+
+    # Admin "Stream SIN FEA bake" toggle (app_settings ``fea_sin_streamer``).
+    # The bake runs in-process on an executor thread, so we drive the
+    # reader choice through the same ADA_* env-var seam the convert path
+    # uses; _make_sin_reader reads it. Default (unset/empty) keeps adapy's
+    # full-materialise reader. Set fresh per job so toggling takes effect
+    # without a worker restart.
+    if db_pool is not None:
+        try:
+            sin_stream = await db_module.get_setting(db_pool, "fea_sin_streamer")
+        except Exception:
+            logger.exception("worker: failed to read fea_sin_streamer setting")
+            sin_stream = None
+        if sin_stream is not None and sin_stream.strip() != "":
+            os.environ["ADA_FEA_SIN_STREAMER"] = sin_stream
+        else:
+            os.environ.pop("ADA_FEA_SIN_STREAMER", None)
+
     bake_dir = pathlib.Path(tempfile.mkdtemp(prefix="fea-bake-"))
     try:
         loop = asyncio.get_running_loop()

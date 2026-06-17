@@ -66,6 +66,17 @@ const ROWS: SettingRow[] = [
         codeDefault: true,
     },
     {
+        key: "fea_sin_streamer",
+        label: "Stream SIN FEA bake",
+        description:
+            "Bake Sesam .sin FEA results with the memory-bounded per-step streaming reader " +
+            "instead of materialising the whole multi-step result. ~1.7x slower, but peak RSS " +
+            "stays flat in step count — use it for many-mode / large decks that OOM the worker. " +
+            "On this path step labels fall back to the mode index (no SESTRA.LIS eigen-frequency " +
+            "enrichment). Off → adapy's default full-materialise reader.",
+        codeDefault: false,
+    },
+    {
         key: "profile_conversions",
         label: "Profile conversions",
         description:

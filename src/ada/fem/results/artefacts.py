@@ -2124,6 +2124,22 @@ def _make_sin_reader(path: pathlib.Path) -> "FEAStreamReader":
     # Pure-Python Sesam Norsam-binary reader (see
     # ada.fem.formats.sesam.results.read_sin). No Prepost.exe shell-out
     # and no SIF text intermediate — feeds the streaming bake directly.
+    #
+    # Default: the full-materialise adapter — fastest, and it enriches
+    # step labels from SESTRA.LIS eigen-frequencies. The admin "Stream
+    # SIN FEA bake" toggle sets ADA_FEA_SIN_STREAMER to opt into the
+    # per-step SinStreamReader instead: ~1.7x slower but peak RSS stays
+    # flat in step count, for many-mode / large decks whose full result
+    # would OOM the worker. On the streamer path step labels fall back to
+    # the IRES mode index (no LIS enrichment).
+    import os
+
+    if os.environ.get("ADA_FEA_SIN_STREAMER", "").strip().lower() in {"1", "true", "yes", "on"}:
+        from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+        from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+        return SinStreamReader(open_sin(str(path)))
+
     from ada.fem.formats.sesam.results.read_sin import read_sin_file
 
     return FEAResultStreamAdapter(read_sin_file(path))
