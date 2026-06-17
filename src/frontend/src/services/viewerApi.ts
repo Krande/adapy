@@ -510,6 +510,14 @@ function authHeader(): Record<string, string> {
  * regardless because they don't return 401.
  */
 async function authedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+    // Pre-flight: if our cached token has fallen out of the 30s skew
+    // window, refresh before sending rather than letting the request
+    // 401 first. Background pollers (e.g. the admin audit badge) fire
+    // on a timer and would otherwise log a browser-level 401 on every
+    // tick that straddles a token expiry.
+    if (isAuthEnabled() && !getAccessToken()) {
+        await refreshAccessToken();
+    }
     const merged: RequestInit = {
         ...init,
         headers: {...(init.headers as Record<string, string> | undefined), ...authHeader()},
