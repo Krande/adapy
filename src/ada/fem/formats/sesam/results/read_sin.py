@@ -307,12 +307,15 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "
     """
     from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
 
-    sin_path = pathlib.Path(sin_file)
-    sin = open_sin(sin_path)
+    # ``sin_file`` may be a local path or an s3://, http(s):// URI — let
+    # open_sin pick the backend. Don't Path()-mangle a URI; use the
+    # source's display name (basename) for the FEAResult / convert path.
+    sin = open_sin(sin_file)
+    name_path = sin.path if sin.path is not None else pathlib.Path(str(sin_file))
     reader = SinReader(sin=sin, step=step)
     reader.load()
     s2m = Sif2Mesh(reader)
-    return s2m.convert(sin_path)
+    return s2m.convert(name_path)
 
 
 __all__ = ["SinMetadata", "SinReader", "read_sin_file", "read_sin_metadata"]

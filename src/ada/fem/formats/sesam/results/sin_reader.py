@@ -1068,22 +1068,98 @@ class SinFile:
             yield (numeric_prefix, text)
 
 
-def open_sin(path: str | Path) -> SinFile:
-    """Open a ``.sin`` file (memory-mapped) and decode its block index.
+def _uri_scheme(target: str | Path) -> str:
+    """Return the lowercased URI scheme of ``target`` (``""`` for a local
+    path). Single-letter schemes are treated as Windows drive letters."""
+    s = str(target)
+    head, sep, _ = s.partition("://")
+    if not sep:
+        return ""
+    return head.lower() if len(head) > 1 else ""
 
-    Uses ``mmap`` (via :class:`MmapSource`) so a multi-GB SIN doesn't load
-    resident — the OS pages bytes in on access. The file handle and mapping
-    live on the returned :class:`SinFile`; call :meth:`SinFile.close` (or
-    use it as a context manager) to release them.
 
-    For range-streamed access (no whole file on disk, or past the browser's
-    2 GiB buffer cap) construct ``SinFile`` directly over a
-    :class:`~ada.fem.formats.sesam.results.byte_source.PagedByteSource`.
+def _s3_client():
+    """A boto3 S3 client using the standard credential/endpoint
+    resolution. ``AWS_ENDPOINT_URL`` (or ``ADAPY_S3_ENDPOINT_URL``) points
+    it at a non-AWS S3-compatible store; everything else (keys, region)
+    comes from the usual environment / config chain."""
+    import os
+
+    import boto3
+
+    endpoint = os.environ.get("ADAPY_S3_ENDPOINT_URL") or os.environ.get("AWS_ENDPOINT_URL")
+    return boto3.client("s3", endpoint_url=endpoint) if endpoint else boto3.client("s3")
+
+
+def open_sin(
+    path: str | Path,
+    *,
+    page_kib: int = 1024,
+    max_resident_mb: int = 256,
+    s3_client: Any = None,
+) -> SinFile:
+    """Open a ``.sin`` from a local path **or a URI** and decode its index.
+
+    Routing by scheme:
+
+    * local path / ``file://`` → memory-mapped (:class:`MmapSource`) so a
+      multi-GB SIN doesn't load resident — the OS pages bytes in on access.
+      Falls back to a one-shot read (bytes-backed) where ``mmap`` is
+      unavailable (e.g. pyodide MEMFS).
+    * ``s3://bucket/key`` → range-streamed from object storage
+      (:class:`PagedByteSource` over
+      :class:`~ada.fem.formats.sesam.results.byte_source.S3RangeSource`) —
+      no whole file on disk. Pass ``s3_client`` to override the default
+      boto3 client (built from the standard env/endpoint chain).
+    * ``http(s)://url`` → range-streamed over HTTP
+      (:class:`~ada.fem.formats.sesam.results.byte_source.HttpRangeSource`),
+      e.g. a presigned URL.
+
+    ``page_kib`` / ``max_resident_mb`` tune the streamed page cache. The
+    returned :class:`SinFile` owns its source; call :meth:`SinFile.close`.
     """
-    p = Path(path)
+    scheme = _uri_scheme(path)
+
+    if scheme in ("s3", "http", "https"):
+        from ada.fem.formats.sesam.results.byte_source import (
+            HttpRangeSource,
+            PagedByteSource,
+            S3RangeSource,
+        )
+
+        page_bits = (page_kib * 1024).bit_length() - 1
+        if scheme == "s3":
+            rest = str(path)[len("s3://") :]
+            bucket, _, key = rest.partition("/")
+            if not key:
+                raise ValueError(f"s3 URI must be s3://bucket/key, got {path!r}")
+            fetcher: Any = S3RangeSource(s3_client or _s3_client(), bucket, key)
+            name = Path(key).name
+        else:
+            from urllib.parse import unquote, urlsplit
+
+            fetcher = HttpRangeSource(str(path))
+            name = Path(unquote(urlsplit(str(path)).path)).name or "remote.sin"
+        source = PagedByteSource(fetcher, page_bits=page_bits, max_resident_bytes=max_resident_mb << 20)
+        return SinFile(source=source, path=Path(name))
+
+    # Local path (optionally file://) — mmap, with a bytes fallback.
+    if scheme == "file":
+        from urllib.parse import unquote, urlsplit
+
+        p = Path(unquote(urlsplit(str(path)).path))
+    else:
+        p = Path(path)
     fh = open(p, "rb")
     try:
         mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
+    except (OSError, ValueError):
+        # mmap not available (e.g. emscripten/pyodide MEMFS) — read once.
+        try:
+            buf = fh.read()
+        finally:
+            fh.close()
+        return SinFile(source=MmapSource(buf), path=p)
     except Exception:
         fh.close()
         raise

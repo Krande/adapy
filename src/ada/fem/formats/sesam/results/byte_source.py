@@ -206,6 +206,49 @@ class S3RangeSource:
         pass
 
 
+class HttpRangeSource:
+    """HTTP ``Range``-GET fetcher (stdlib ``urllib``) — for a presigned
+    URL or any range-capable HTTP endpoint on CPython.
+
+    Size comes from a ``HEAD`` (``Content-Length``) unless passed in. Each
+    ``fetch`` is one ranged ``GET``. In the browser, supply a fetch-based
+    fetcher with the same ``size()`` / ``fetch()`` surface instead — this
+    one relies on real sockets that pyodide doesn't provide.
+    """
+
+    def __init__(self, url: str, size: int | None = None, headers: dict | None = None):
+        self._url = url
+        self._headers = dict(headers or {})
+        self._size = int(size) if size is not None else self._head_size()
+
+    def _head_size(self) -> int:
+        import urllib.request
+
+        req = urllib.request.Request(self._url, method="HEAD", headers=self._headers)
+        with urllib.request.urlopen(req) as resp:
+            cl = resp.headers.get("Content-Length")
+        if cl is None:
+            raise ValueError(f"HEAD {self._url} returned no Content-Length; pass size= explicitly")
+        return int(cl)
+
+    def size(self) -> int:
+        return self._size
+
+    def fetch(self, offset: int, length: int) -> bytes:
+        import urllib.request
+
+        if length <= 0:
+            return b""
+        end = offset + length - 1  # HTTP Range is inclusive
+        headers = {**self._headers, "Range": f"bytes={offset}-{end}"}
+        req = urllib.request.Request(self._url, headers=headers)
+        with urllib.request.urlopen(req) as resp:
+            return resp.read()
+
+    def close(self) -> None:
+        pass
+
+
 class PagedByteSource:
     """:class:`ByteSource` backed by an LRU page cache over a range fetcher.
 
@@ -354,5 +397,6 @@ __all__ = [
     "PagedByteSource",
     "FileRangeSource",
     "S3RangeSource",
+    "HttpRangeSource",
     "file_paged_source",
 ]
