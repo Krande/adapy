@@ -118,32 +118,45 @@ def _truncate_pointer_table(data: Any, ptrs: Any) -> int:
     Numpy-vectorised so a million-row-by-hundreds-of-modes RVNODDIS
     table (~150 MiB of pointer bytes) validates in well under a
     second without per-entry Python overhead.
+
+    Scanned in chunks with an early exit at the first invalid pointer.
+    The real records are a contiguous prefix, so the cutoff is found
+    near the start — but the garbage cap-slots beyond it point into
+    record-data bytes spread across the whole multi-GB file. Validating
+    the full table at once (one ``as_f32[word_idx]`` over all ~20 M
+    slots) faults every one of those scattered pages, pinning ~2.4 GiB
+    of RSS on a 5 GB SIN just to find a cutoff that sits in the first
+    chunk. Stopping at the first invalid pointer touches only the real
+    records' pages.
     """
     import numpy as np
 
     if ptrs.size == 0:
         return 0
     file_end = len(data)
-    nonzero = ptrs != 0
-    nfield_bytes = (ptrs - 1) * 4
-    in_bounds = (nfield_bytes >= 0) & (nfield_bytes + 4 <= file_end)
-    # Float view over the whole mmap; gather only the bytes we need.
-    # Word index 0 is a safe placeholder for out-of-bounds rows so
-    # the fancy-index can't raise — they get masked out below.
     as_f32 = np.frombuffer(data, dtype=np.float32)
-    word_idx = np.where(in_bounds & nonzero, nfield_bytes // 4, 0).astype(np.int64)
-    nfield_at = as_f32[word_idx]
-    # NFIELD must be a positive integer in [1, 1024]. NaN/inf compare
-    # False; casting to int32 then back catches non-integer floats.
-    # The cast warns on NaN/inf — they're expected (garbage tail of
-    # the table) and get masked out by the range check anyway.
-    with np.errstate(invalid="ignore"):
-        nfield_int = nfield_at.astype(np.int32).astype(np.float32)
-    nfield_like = (nfield_at == nfield_int) & (nfield_at >= 1.0) & (nfield_at <= 1024.0)
-    invalid = nonzero & ~(in_bounds & nfield_like)
-    if not invalid.any():
-        return int(ptrs.size)
-    return int(np.argmax(invalid))
+    chunk = 1 << 16  # 64 K slots / pass — bounds the pages faulted per step
+    total = int(ptrs.size)
+    for start in range(0, total, chunk):
+        seg = ptrs[start : start + chunk]
+        nonzero = seg != 0
+        nfield_bytes = (seg - 1) * 4
+        in_bounds = (nfield_bytes >= 0) & (nfield_bytes + 4 <= file_end)
+        # Word index 0 is a safe placeholder for out-of-bounds rows so
+        # the fancy-index can't raise — they get masked out below.
+        word_idx = np.where(in_bounds & nonzero, nfield_bytes // 4, 0).astype(np.int64)
+        nfield_at = as_f32[word_idx]
+        # NFIELD must be a positive integer in [1, 1024]. NaN/inf compare
+        # False; casting to int32 then back catches non-integer floats.
+        # The cast warns on NaN/inf — they're expected (garbage tail of
+        # the table) and get masked out by the range check anyway.
+        with np.errstate(invalid="ignore"):
+            nfield_int = nfield_at.astype(np.int32).astype(np.float32)
+        nfield_like = (nfield_at == nfield_int) & (nfield_at >= 1.0) & (nfield_at <= 1024.0)
+        invalid = nonzero & ~(in_bounds & nfield_like)
+        if invalid.any():
+            return start + int(np.argmax(invalid))
+    return total
 
 
 def _find_preamble(data: Any, start: int, stop: int) -> int:
@@ -651,6 +664,11 @@ class SinFile:
             # post-decode NFIELD/type_flag sanity check that the
             # old scan path needed against false positives.
             out[block.name] = block
+            # _decode_type_block (via _truncate_pointer_table) just
+            # faulted this block's record pages reading each NFIELD
+            # word; the decoded TypeBlock retains everything we need,
+            # so drop those pages before the next block stacks its own.
+            self._release_block_pages(block)
         return out
 
     def _walk_header_area(self) -> list[tuple[int, int]]:
@@ -831,6 +849,113 @@ class SinFile:
         # once and no more.
         as_f32 = np.frombuffer(self._data, dtype=np.float32)
         return as_f32[ptrs].copy()
+
+    def _release_block_pages(self, block: "TypeBlock") -> None:
+        """``MADV_DONTNEED`` a type-block's record region so its mmap
+        pages stop counting against RSS.
+
+        The dominant resident set on a multi-GB eigen SIN is the RV*
+        record streams, faulted in two phases: once at decode time (
+        :func:`_truncate_pointer_table` reads each record's NFIELD word)
+        and again at read time (:meth:`gather_records`). Dropping a
+        block's pages as soon as each phase finishes with it caps peak
+        RSS at a single block's resident span instead of the cumulative
+        sum across all 45 blocks. Correctness is unaffected — a later
+        re-read simply re-faults the pages from the backing file.
+
+        Reclaims [NFIELD-prefix of the first record .. _MAX_RECORD_BYTES
+        past the last]. No-op on non-mmap buffers / platforms without
+        ``madvise``.
+        """
+        data = self._data
+        if not isinstance(data, mmap.mmap) or block.pointer_table.size == 0:
+            return
+        nz = block.pointer_table[block.pointer_table > 0]
+        if nz.size == 0:
+            return
+        file_end = len(data)
+        lo = max(0, (int(nz.min()) - 1) * 4)
+        hi = min(file_end, int(nz.max()) * 4 + _MAX_RECORD_BYTES)
+        if hi <= lo:
+            return
+        try:
+            page = mmap.ALLOCATIONGRANULARITY
+            aligned_start = (lo // page) * page
+            aligned_end = min(file_end, ((hi + page - 1) // page) * page)
+            length = aligned_end - aligned_start
+            if length > 0:
+                data.madvise(mmap.MADV_DONTNEED, aligned_start, length)
+        except (AttributeError, OSError, ValueError):
+            pass
+
+    def release_record_pages(self, name: str) -> None:
+        """Reclaim a type-block's record pages by name (see
+        :meth:`_release_block_pages`). No-op if the type isn't present."""
+        block = self.type_blocks.get(name)
+        if block is not None:
+            self._release_block_pages(block)
+
+    def gather_records(self, name: str, *, where_first_word: int | None = None):
+        """Bulk-read every populated *fixed-width* record into a single
+        ``(count, nfield)`` float64 array — the vectorised analogue of
+        :meth:`iter_records`.
+
+        Column 0 holds the constant NFIELD (matching the SIF-style row
+        ``[nfield, *data]``); columns 1.. hold the record's data words.
+        One ``np.frombuffer`` view + a broadcast fancy-index does the
+        whole table, so a million-row RVNODDIS materialises as one ~80
+        B/row ndarray instead of a million Python ``list[float]`` rows
+        (~376 B each) — the heap saving the streaming bake needs.
+
+        Returns ``None`` when the records are **not** uniform width
+        (e.g. GELMNT1, whose NFIELD varies per element), signalling the
+        caller to fall back to the per-record :meth:`iter_records` path.
+        Returns an empty ``(0, 0)`` array when the type has no populated
+        records.
+
+        ``where_first_word`` mirrors :meth:`iter_records`: keep only
+        records whose first data word (IRES for RV* types) equals it.
+        """
+        import numpy as np
+
+        block = self.type_blocks.get(name)
+        if block is None:
+            return None
+        ptrs = block.pointer_table
+        data = self._data
+        file_end = len(data)
+        empty = np.empty((0, 0), dtype=np.float64)
+        if ptrs.size == 0:
+            return empty
+        nz = ptrs[ptrs > 0]
+        # Drop pointers whose NFIELD prefix word ((wp-1)*4) is out of
+        # bounds before we touch the buffer.
+        nz = nz[(nz >= 1) & (nz <= file_end // 4)]
+        if nz.size == 0:
+            return empty
+        as_f32 = np.frombuffer(data, dtype=np.float32)
+        nfields = as_f32[nz - 1]
+        # Only vectorise truly fixed-width tables; a varying NFIELD
+        # means the per-record path is the only correct reader.
+        if not np.all(nfields == nfields[0]):
+            return None
+        nfield = int(nfields[0])
+        n_data = nfield - 1
+        if n_data <= 0:
+            return empty
+        # Each record needs n_data data words at [wp, wp+n_data).
+        nz = nz[(nz * 4 + n_data * 4) <= file_end]
+        if nz.size == 0:
+            return empty
+        # (count, n_data) gather: one float per (record, field).
+        word_idx = nz[:, None] + np.arange(n_data, dtype=np.int64)[None, :]
+        recs = as_f32[word_idx].astype(np.float64)
+        if where_first_word is not None:
+            recs = recs[recs[:, 0].astype(np.int64) == where_first_word]
+        out = np.empty((recs.shape[0], nfield), dtype=np.float64)
+        out[:, 0] = float(nfield)
+        out[:, 1:] = recs
+        return out
 
     def iter_records(self, name: str, *, where_first_word: int | None = None) -> Iterator[tuple[float, ...]]:
         """Yield one tuple of float32 values per populated record (the

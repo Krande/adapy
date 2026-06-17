@@ -177,7 +177,6 @@ class SinReader(SifReader):
             block = self.sin.type_blocks.get(card.name)
             if block is None:
                 continue
-            rows = _records_for(self.sin, card, step=self.step)
             # Always emit the super-header — Sif2Mesh's RDPOINTS map
             # (and other shape-driven consumers) do
             # ``self.get_result(card.name)[0]`` and crash if the card
@@ -186,8 +185,30 @@ class SinReader(SifReader):
             # certain super-elements, so without this guard the whole
             # convert fails.
             super_header = [-float(block.ndim), float(block.ndim)] + [float(d) for d in block.dims]
-            rows = [super_header, *rows]
-            self.results.append((card.name, rows))
+            # Big RV* tables (RVNODDIS/RVSTRESS/RVFORCES — up to tens of
+            # millions of rows) dominate the read's heap. Materialise
+            # them as one contiguous float64 ndarray via the vectorised
+            # gather instead of a per-record list[float] (≈80 B/row vs
+            # ≈376 B), padding the synthetic super-header into row 0 —
+            # downstream consumers only ever do ``rows[1:]``, so the pad
+            # is never read. ``gather_records`` returns None for
+            # variable-width tables, which fall through to the per-record
+            # path below.
+            wfw = self.step if (self.step is not None and card.name in _RV_TYPE_NAMES) else None
+            arr = self.sin.gather_records(card.name, where_first_word=wfw)
+            if arr is not None and arr.ndim == 2 and arr.shape[1] >= len(super_header):
+                sh = np.zeros((1, arr.shape[1]), dtype=np.float64)
+                sh[0, : len(super_header)] = super_header
+                rows = np.vstack((sh, arr)) if arr.shape[0] else sh
+                self.results.append((card.name, rows))
+            else:
+                rows = _records_for(self.sin, card, step=self.step)
+                rows = [super_header, *rows]
+                self.results.append((card.name, rows))
+            # The card's record bytes are now copied into ``rows`` — drop
+            # the mmap pages so the next (often equally large) RV* table
+            # doesn't stack its resident pages on top of this one's.
+            self.sin.release_record_pages(card.name)
 
 
 @dataclass
