@@ -799,11 +799,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         from .converter import is_derived_key
 
         # Range support — lets the FEA viewer pull a single step out of a
-        # multi-step field blob (`bytes=start-end`) instead of downloading
-        # the whole stack of steps. Only valid for identity-stored objects;
-        # gzip-at-rest blobs (manifest JSON, legacy field blobs) are served
-        # whole with Content-Encoding so the browser auto-decompresses.
+        # multi-step field blob instead of downloading the whole stack of
+        # steps. Only valid for identity-stored objects; gzip-at-rest blobs
+        # (manifest JSON, legacy field blobs) are served whole with
+        # Content-Encoding so the browser auto-decompresses.
+        #
+        # The range can arrive two ways: the standard ``Range`` header, or
+        # ``?range_start=&range_end=`` query params. The query-param form is
+        # proxy-proof — some ingresses/CDNs (notably on the mobile path)
+        # strip the Range *header*, which would silently fall back to a
+        # whole-blob download; a query string always survives.
+        qp = request.query_params
         range_header = request.headers.get("range")
+        if "range_start" in qp:
+            rs = (qp.get("range_start") or "").strip()
+            re_ = (qp.get("range_end") or "").strip()
+            if rs:
+                range_header = f"bytes={rs}-{re_}"
         if range_header:
             served = await _serve_blob_range(request, scope_obj, key, range_header)
             if served is not None:

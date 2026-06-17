@@ -95,6 +95,20 @@ def test_range_returns_206_for_identity_object(app_client: TestClient):
     assert r.headers["accept-ranges"] == "bytes"
 
 
+def test_range_via_query_params_returns_206(app_client: TestClient):
+    # Proxy-proof path: range carried in the URL, not the Range header
+    # (some ingresses strip the header — notably the mobile path).
+    body = b"AFBL" + bytes(range(0, 252))
+    _run(_storage(app_client).put_bytes(Scope.shared(), "_derived/m.sin.fea/fea.U.bin", body))
+
+    r = app_client.get(
+        "/api/scopes/shared/blobs/_derived/m.sin.fea/fea.U.bin?range_start=8&range_end=15",
+    )
+    assert r.status_code == 206, r.text
+    assert r.content == body[8:16]
+    assert r.headers["content-range"] == f"bytes 8-15/{len(body)}"
+
+
 def test_range_suffix_and_open_ended(app_client: TestClient):
     body = b"AFEL" + bytes(range(0, 60))  # 64 bytes
     _run(_storage(app_client).put_bytes(Scope.shared(), "_derived/m.sin.fea/fea.S.q.elements.bin", body))

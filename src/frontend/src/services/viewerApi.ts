@@ -1001,13 +1001,22 @@ export const viewerApi = {
         start: number,
         end: number,
     ): Promise<{buf: ArrayBuffer; ranged: boolean}> {
-        const r = await authedFetch(this.blobUrl(scope, key), {
+        // Send the range BOTH as ?range_start/range_end query params and as a
+        // Range header. The query params are proxy-proof — some ingresses/CDNs
+        // (seen on the mobile path) strip the Range header, which would
+        // silently return the whole multi-step blob. The header stays for any
+        // cache/proxy that prefers it; the server replies 206 either way.
+        const base = this.blobUrl(scope, key);
+        const url = `${base}${base.includes("?") ? "&" : "?"}range_start=${start}&range_end=${end}`;
+        const r = await authedFetch(url, {
             headers: {Range: `bytes=${start}-${end}`},
         });
         if (!r.ok && r.status !== 206) {
             throw new ApiError(`getBlobRange(${key})`, r.status, await readDetail(r));
         }
         const buf = await r.arrayBuffer();
+        // 206 ⇒ honoured (header or query-param path); 200 ⇒ a proxy/old
+        // backend served the whole object → caller parses + slices.
         return {buf, ranged: r.status === 206};
     },
 
