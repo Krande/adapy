@@ -244,7 +244,10 @@ def fea_result_to_glb(src: str) -> bytes:
 
     is_sin = os.path.splitext(src)[1].lower() == ".sin"
     if is_sin:
-        from ada.fem.formats.sesam.results.read_sin import read_sin_file, read_sin_metadata
+        from ada.fem.formats.sesam.results.read_sin import (
+            read_sin_file,
+            read_sin_metadata,
+        )
 
         meta = read_sin_metadata(src)
         if not meta.fields or not meta.steps:
