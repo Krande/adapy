@@ -947,14 +947,25 @@ class SinFile:
         nz = nz[(nz * 4 + n_data * 4) <= file_end]
         if nz.size == 0:
             return empty
-        # (count, n_data) gather: one float per (record, field).
-        word_idx = nz[:, None] + np.arange(n_data, dtype=np.int64)[None, :]
-        recs = as_f32[word_idx].astype(np.float64)
+        # Per-step pre-filter: narrow the *pointer table* to the matching
+        # records before the heavy gather. The first data word (word idx
+        # ``wp``) is IRES for RV* types; reading just that column is one
+        # small array, so the big ``(count, n_data)`` allocation that
+        # follows is sized to a single step rather than to all 200 steps
+        # then sliced. On a per-mode streaming bake this keeps the heap
+        # bounded to one mode instead of re-allocating the whole table on
+        # every step.
         if where_first_word is not None:
-            recs = recs[recs[:, 0].astype(np.int64) == where_first_word]
-        out = np.empty((recs.shape[0], nfield), dtype=np.float64)
+            nz = nz[as_f32[nz].astype(np.int64) == where_first_word]
+            if nz.size == 0:
+                return np.empty((0, nfield), dtype=np.float64)
+        # (count, nfield) output: NFIELD constant in col 0, data in 1..
+        # Assign the float32 fancy-index straight into the float64 buffer
+        # (numpy casts on store) — no separate float64 ``recs`` temporary.
+        word_idx = nz[:, None] + np.arange(n_data, dtype=np.int64)[None, :]
+        out = np.empty((nz.size, nfield), dtype=np.float64)
         out[:, 0] = float(nfield)
-        out[:, 1:] = recs
+        out[:, 1:] = as_f32[word_idx]
         return out
 
     def iter_records(self, name: str, *, where_first_word: int | None = None) -> Iterator[tuple[float, ...]]:
