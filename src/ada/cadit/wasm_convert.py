@@ -258,6 +258,12 @@ def fea_result_to_glb(src: str) -> bytes:
 
         result = read_sif_file(src)
 
+    return _fea_result_glb_bytes(result)
+
+
+def _fea_result_glb_bytes(result) -> bytes:
+    """Tessellate a :class:`FEAResult`'s first (step, field) to a single GLB.
+    Shared by the path-based and streamed SIN→GLB entrypoints."""
     steps = result.get_steps()
     fields = result.get_results_grouped_by_field_value()
     if not steps:
@@ -272,6 +278,65 @@ def fea_result_to_glb(src: str) -> bytes:
     if not out:
         raise RuntimeError("FEA result GLB export produced no bytes")
     return out
+
+
+def _streamed_sin_result(fetcher, step: int | None = None):
+    """Read a Sesam SIN into a :class:`FEAResult` over a *range fetcher*
+    instead of a local file — the streaming path for the browser, where a
+    multi-GB SIN can't be staged in wasm memory.
+
+    ``fetcher`` is any object exposing ``size() -> int`` and
+    ``fetch(offset, length) -> bytes`` (an HTTP-``Range`` / ``fetch`` reader
+    bridged in by the host). It feeds a ``PagedByteSource`` so only touched
+    pages are pulled and resident memory stays bounded.
+
+    One ``SinFile`` is reused for step discovery and the single-step read so
+    the discovery page cache stays warm. When ``step`` is None the first RV*
+    step is picked (matching :func:`fea_result_to_glb`).
+    """
+    import pathlib
+
+    import numpy as np
+
+    from ada.fem.formats.sesam.results.byte_source import PagedByteSource
+    from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
+    from ada.fem.formats.sesam.results.read_sin import _RV_TYPE_NAMES, SinReader
+    from ada.fem.formats.sesam.results.sin_reader import SinFile
+
+    sin = SinFile(source=PagedByteSource(fetcher))
+    try:
+        if step is None:
+            steps: set[int] = set()
+            for rv in _RV_TYPE_NAMES:
+                if rv in sin.type_blocks:
+                    ires = sin.gather_first_words(rv)
+                    if ires.size:
+                        steps.update(int(x) for x in np.unique(ires.astype(np.int64)).tolist())
+            if not steps:
+                raise RuntimeError("SIN result has no RV* result steps")
+            step = sorted(steps)[0]
+        reader = SinReader(sin=sin, step=int(step))
+        reader.load()
+        return Sif2Mesh(reader).convert(pathlib.Path("remote.sin"))
+    finally:
+        sin.close()
+
+
+def run_stream(fmt: str, ext: str, target: str, fetcher, step: int | None = None) -> bytes:
+    """Streamed counterpart of :func:`run` — convert from a *range fetcher*
+    rather than a fully-staged source file.
+
+    Used by the browser worker for sources too large to hold in wasm memory:
+    the host bridges an HTTP-``Range`` / ``fetch`` reader as ``fetcher``
+    (``size()`` / ``fetch(offset, length) -> bytes``) and this streams over
+    it. Currently supports ``fea_glb`` (Sesam ``.sin`` → single-step GLB);
+    other formats stay on the buffered :func:`run` path.
+    """
+    fmt = (fmt or "").lower()
+    target = (target or "glb").lower()
+    if fmt == "fea_glb":
+        return _fea_result_glb_bytes(_streamed_sin_result(fetcher, step=step))
+    raise RuntimeError(f"wasm_convert: streaming source not supported for fmt={fmt!r} (only fea_glb)")
 
 
 def run(fmt: str, ext: str, target: str, src: str) -> bytes:

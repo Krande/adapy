@@ -331,6 +331,86 @@ _wc.run(_wc_fmt, _wc_ext, _wc_target, _wc_src)
     }
 }
 
+// ── streaming source (range fetch) ────────────────────────────────────────
+// For sources too large to stage in wasm memory (multi-GB SIN: the whole file
+// would have to fit under the 4 GiB wasm32 ceiling, and >2 GiB can't even be
+// one ArrayBuffer), the worker reads the source in ranges on demand instead of
+// receiving its bytes. PagedByteSource.fetch is *synchronous* (called deep in
+// the decoder), so the range read must be a SYNCHRONOUS XHR — allowed in a Web
+// Worker — not async fetch(). This is the browser analogue of the node test's
+// fs.readSync fetcher; in production `url` is a presigned / Range-capable URL.
+
+function syncRangeFetch(url, headers) {
+    return (offset, length) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", url, false); // sync: PagedByteSource.fetch is synchronous
+        xhr.responseType = "arraybuffer";
+        xhr.setRequestHeader("Range", `bytes=${offset}-${offset + length - 1}`);
+        if (headers) for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+        xhr.send();
+        if (xhr.status !== 206 && xhr.status !== 200) {
+            throw new Error(`range fetch ${xhr.status} ${xhr.statusText} for ${url}`);
+        }
+        return new Uint8Array(xhr.response);
+    };
+}
+
+function headContentLength(url, headers) {
+    const xhr = new XMLHttpRequest();
+    xhr.open("HEAD", url, false);
+    if (headers) for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+    xhr.send();
+    const len = xhr.getResponseHeader("Content-Length");
+    if (len == null) throw new Error(`HEAD ${url} returned no Content-Length; pass size explicitly`);
+    return parseInt(len, 10);
+}
+
+// Stream a conversion from a range-capable URL. Bridges the sync-XHR range
+// reader into a Python fetcher (size()/fetch()) and calls adapy's
+// wasm_convert.run_stream — no whole-file buffer crosses into wasm.
+async function runConversionStream(format, ext, target, url, size, headers) {
+    await ensureStacks(format, target);
+    const total = typeof size === "number" && size > 0 ? size : headContentLength(url, headers);
+    pyodide.globals.set("_wcs_fetch", syncRangeFetch(url, headers));
+    pyodide.globals.set("_wcs_size", total);
+    pyodide.globals.set("_wcs_fmt", format);
+    pyodide.globals.set("_wcs_ext", (ext || "bin").toLowerCase());
+    pyodide.globals.set("_wcs_target", (target || "glb").toLowerCase());
+    try {
+        const result = await pyodide.runPythonAsync(`
+import ada.cadit.wasm_convert as _wc
+
+class _JsRangeFetcher:
+    """Range fetcher backed by the host's sync-XHR reader — the in-browser
+    fetch path. adapy stays host-agnostic; the js bridge lives only here."""
+    def __init__(self, fetch, size):
+        self._fetch = fetch
+        self._size = int(size)
+    def size(self):
+        return self._size
+    def fetch(self, offset, length):
+        if length <= 0:
+            return b""
+        return bytes(self._fetch(offset, length).to_py())
+    def close(self):
+        pass
+
+_wc.run_stream(_wcs_fmt, _wcs_ext, _wcs_target, _JsRangeFetcher(_wcs_fetch, _wcs_size))
+`);
+        const arr = result.toJs({create_proxies: false});
+        result.destroy();
+        return arr;
+    } finally {
+        for (const g of ["_wcs_fetch", "_wcs_size", "_wcs_fmt", "_wcs_ext", "_wcs_target"]) {
+            try {
+                pyodide.globals.delete(g);
+            } catch (_) {
+                /* fine */
+            }
+        }
+    }
+}
+
 self.onmessage = async (e) => {
     const data = e.data;
     if (!bootPromise) {
@@ -367,9 +447,13 @@ self.onmessage = async (e) => {
         // Default to "glb" — the historical single-target behaviour.
         const target = (data.target || "glb").toLowerCase();
         try {
-            // One entrypoint: adapy's wasm_convert.run handles every
-            // (format, target) — fast paths included. fea returns a zip.
-            const bytes = await runConversion(format, data.bytes, data.ext, target);
+            // One entrypoint: adapy's wasm_convert.run / .run_stream handles
+            // every (format, target) — fast paths included. fea returns a zip.
+            // data.stream → read the source in ranges (huge SIN) instead of
+            // receiving its whole-file bytes.
+            const bytes = data.stream
+                ? await runConversionStream(format, data.ext, target, data.url, data.size, data.headers)
+                : await runConversion(format, data.bytes, data.ext, target);
             // Report the current wasm linear-memory size so the manager can
             // recycle this worker before it approaches the wasm32 ceiling
             // (pyodide never frees heap back to the OS).

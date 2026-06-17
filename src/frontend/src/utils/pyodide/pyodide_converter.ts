@@ -102,18 +102,11 @@ export type PyodideSourceFormat = "ifc" | "step" | "mesh" | "sat" | "fea" | "fea
  * (returns a zip of the streaming-viewer artefact tree, ``ext`` =
  * rmed/med/sif/sin); fea_glb → SIF/SIN result → single tessellated GLB
  * (FEAResult.to_gltf, the registry's lone target for those sources). */
-export async function convertViaPyodide(
-    format: PyodideSourceFormat,
-    bytes: ArrayBuffer,
-    opts?: {onLog?: (msg: string) => void; ext?: string; target?: string},
-): Promise<Uint8Array> {
-    // Proactively recycle a worker whose heap has grown near the ceiling, so
-    // this job starts with reclaimed memory instead of risking an OOM abort.
-    if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
-        killWorker();
-    }
-    const worker = await ensurePyodideWorker(opts?.onLog);
-    const reqId = nextReqId++;
+// Shared result/error/timeout plumbing for one worker job. Attaches its
+// listeners synchronously (so they're live before the caller posts), and
+// resolves with the result bytes / rejects on handled error, crash, or
+// timeout. Caller posts the request message after calling this.
+function awaitWorkerResult(worker: Worker, reqId: number, onLog?: (msg: string) => void): Promise<Uint8Array> {
     return new Promise<Uint8Array>((resolve, reject) => {
         let settled = false;
         const cleanup = () => {
@@ -133,7 +126,7 @@ export async function convertViaPyodide(
         const onMessage = (e: MessageEvent<WorkerMessage>) => {
             const data = e.data;
             if (data.type === "log") {
-                opts?.onLog?.(data.message);
+                onLog?.(data.message);
                 return;
             }
             if ((data.type === "result" || data.type === "error") && data.reqId !== reqId) {
@@ -163,11 +156,58 @@ export async function convertViaPyodide(
         );
         worker.addEventListener("message", onMessage);
         worker.addEventListener("error", onError);
-        worker.postMessage(
-            {type: "convert", reqId, format, ext: opts?.ext, target: opts?.target ?? "glb", bytes},
-            [bytes],
-        );
     });
+}
+
+export async function convertViaPyodide(
+    format: PyodideSourceFormat,
+    bytes: ArrayBuffer,
+    opts?: {onLog?: (msg: string) => void; ext?: string; target?: string},
+): Promise<Uint8Array> {
+    // Proactively recycle a worker whose heap has grown near the ceiling, so
+    // this job starts with reclaimed memory instead of risking an OOM abort.
+    if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
+        killWorker();
+    }
+    const worker = await ensurePyodideWorker(opts?.onLog);
+    const reqId = nextReqId++;
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    worker.postMessage(
+        {type: "convert", reqId, format, ext: opts?.ext, target: opts?.target ?? "glb", bytes},
+        [bytes],
+    );
+    return result;
+}
+
+/** Stream a conversion from a range-capable URL instead of uploading the whole
+ * source — for sources too large to stage in wasm memory (a multi-GB SIN
+ * exceeds the wasm32 ceiling and the 2 GiB ArrayBuffer cap). The worker reads
+ * the source on demand via synchronous-XHR Range requests against `url` (a
+ * presigned / Range-capable URL), so only the touched pages cross into wasm.
+ * Currently supports `fea_glb` (Sesam `.sin` → single-step GLB). */
+export async function convertViaPyodideStream(
+    format: PyodideSourceFormat,
+    url: string,
+    opts?: {onLog?: (msg: string) => void; ext?: string; target?: string; size?: number; headers?: Record<string, string>},
+): Promise<Uint8Array> {
+    if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
+        killWorker();
+    }
+    const worker = await ensurePyodideWorker(opts?.onLog);
+    const reqId = nextReqId++;
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    worker.postMessage({
+        type: "convert",
+        reqId,
+        stream: true,
+        url,
+        size: opts?.size,
+        headers: opts?.headers,
+        format,
+        ext: opts?.ext,
+        target: opts?.target ?? "glb",
+    });
+    return result;
 }
 
 /** Backwards-compatible IFC entry point — keeps existing callers working. */
