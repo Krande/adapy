@@ -93,11 +93,36 @@ def test_from_fem_shell_bypasses_lru_and_segcreator(monkeypatch):
     assert counts["segcreator"] == 0
 
     # Sanity: the general path DOES hit both (guards against a no-op monkeypatch).
+    # SegCreator is now built lazily (CurveOpen2d defers segments to first
+    # access), so read .segments to realise it.
     counts.update(lru=0, segcreator=0)
     for _ in range(50):
-        CurvePoly2d.from_3d_points(pts)
+        c = CurvePoly2d.from_3d_points(pts)
+        _ = c.segments
     assert counts["lru"] > 0
     assert counts["segcreator"] > 0
+
+
+def test_general_curve_defers_segments_until_accessed(monkeypatch):
+    """The general CurveOpen2d path builds 2D points eagerly but defers
+    SegCreator (the segment / 3D build) until a derived structure is read."""
+    import ada.core.curve_utils as cu
+
+    n = {"segcreator": 0}
+    orig = cu.SegCreator
+
+    class Counting(orig):
+        def __init__(self, *a, **k):
+            n["segcreator"] += 1
+            super().__init__(*a, **k)
+
+    monkeypatch.setattr(cu, "SegCreator", Counting)
+
+    c = CurvePoly2d.from_3d_points(CASES["tilted_quad"])
+    assert c.points2d is not None  # 2D inputs are eager
+    assert n["segcreator"] == 0  # ...but segments are not built yet
+    _ = c.segments  # first access realises them
+    assert n["segcreator"] > 0
 
 
 def test_fem_conversion_uses_fast_path():
