@@ -247,3 +247,36 @@ def test_axial_loads_preserve_section_5_positions(manager):
     ]
 
     assert non_uniform
+
+
+def test_section_5_moment_components_are_resolved(manager, genie_variables):
+    """Beam moment/force vectors are emitted for q_FE in the Section-6 check."""
+    import statistics
+
+    resolved = manager.resolve_cases()
+    beam_moment_rel: list[float] = []
+    plate_moment_rel: list[float] = []
+    q_fe_nonzero = 0
+    for rc in resolved:
+        g = genie_variables.get((rc.result_case, rc.stiffener))
+        if g is None:
+            continue
+        gv, gvec = g
+        ours_bm = rc.vectors.get("MomentsAboutNeutralAxisBeamMoment", [])
+        genie_bm = gvec.get("MomentsAboutNeutralAxisBeamMoment", [])
+        ours_pm = rc.vectors.get("MomentsAboutNeutralAxisPlate", [])
+        genie_pm = gvec.get("MomentsAboutNeutralAxisPlate", [])
+        if len(ours_bm) == 3 and len(genie_bm) == 3:
+            for ours, ref in zip(ours_bm, genie_bm):
+                if abs(ref) > 1.0:
+                    beam_moment_rel.append(abs(ours - ref) / abs(ref))
+        if len(ours_pm) == 3 and len(genie_pm) == 3:
+            for ours, ref in zip(ours_pm, genie_pm):
+                if abs(ref) > 1.0:
+                    plate_moment_rel.append(abs(ours - ref) / abs(ref))
+        if abs(gv.get("QFE", 0.0)) > 1e-9 and "MomentsAboutNeutralAxis" in rc.vectors:
+            q_fe_nonzero += 1
+
+    assert q_fe_nonzero > 0
+    assert statistics.median(beam_moment_rel) < 1e-3
+    assert statistics.median(plate_moment_rel) < 1e-3

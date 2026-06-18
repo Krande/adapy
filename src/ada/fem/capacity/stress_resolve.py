@@ -19,6 +19,10 @@ Remaining calibration: the along-span variation of the transverse stress (the
 two *end* positions; the *mid* is exact) needs result-point binning — currently
 the 3-position vectors carry the field value at all three positions.
 
+Update: the resolver now emits Section-5 position vectors for axial force and
+moment resultants, and midpoint membrane values are area-weighted by element.
+The remaining tail is the irregular multi-element cut-plane interpolation.
+
 Sign convention: Genie is compression-positive, so normal membrane stresses and
 the plate axial contribution are negated relative to the FE tension-positive
 convention.
@@ -32,7 +36,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ada.fem.capacity import extract
-from ada.fem.capacity.model import CapacityModel, ResolvedCase
+from ada.fem.capacity.model import CapacityModel, CapSection, ResolvedCase
 from ada.fem.results.common import Mesh
 
 
@@ -121,6 +125,33 @@ def _element_membrane_points(
     return [(xyz, _rotate_to_stiffener_frame(mesh, element_id, tensor, axis))]
 
 
+def _element_area(mesh: Mesh, element_id: int) -> float:
+    coords = extract.element_node_coords(mesh, element_id)
+    if len(coords) < 3:
+        return 0.0
+    origin = coords[0]
+    area = 0.0
+    for i in range(1, len(coords) - 1):
+        area += float(np.linalg.norm(np.cross(coords[i] - origin, coords[i + 1] - origin))) / 2.0
+    return area
+
+
+def _area_weighted_element_mean(
+    mesh: Mesh,
+    points_by_element: dict[int, list[tuple[np.ndarray, np.ndarray]]],
+) -> np.ndarray | None:
+    values = []
+    weights = []
+    for element_id, points in points_by_element.items():
+        if not points:
+            continue
+        values.append(np.array([tensor for _, tensor in points]).mean(axis=0))
+        weights.append(_element_area(mesh, element_id))
+    if not values:
+        return None
+    return np.average(np.array(values), axis=0, weights=np.array(weights))
+
+
 def _beam_origin(mesh: Mesh, element_ids: tuple[int, ...]) -> np.ndarray:
     return extract.element_node_coords(mesh, element_ids[0])[0]
 
@@ -168,20 +199,70 @@ def _station_values(
     return [start, mid_value, end]
 
 
-def _beam_axial_force(force_blocks, element_ids: tuple[int, ...]) -> float:
-    """Mean beam axial force (NXX) over a stiffener's beam element(s).
-
-    Sign-flipped to Genie's compression-positive convention.
-    """
-    vals = []
+def _beam_component_positions(
+    force_blocks,
+    element_ids: tuple[int, ...],
+    component: int,
+    *,
+    sign: float = 1.0,
+) -> list[float]:
+    """Mean beam force component at Section-5 positions 1/2/3."""
+    by_pos: dict[int, list[float]] = {1: [], 2: [], 3: []}
     for el in element_ids:
         for b in force_blocks:
             sub = b.get_by_element_id([el])
-            if sub.values.size:
-                vals.append(sub.values[:, 2])  # NXX
-    if not vals:
-        return 0.0
-    return -float(np.concatenate(vals).mean())
+            if not sub.values.size:
+                continue
+            for row in sub.values:
+                pos = int(row[1])
+                if pos in by_pos:
+                    by_pos[pos].append(float(row[2 + component]) * sign)
+
+    values = [float(np.mean(by_pos[pos])) for pos in (1, 2, 3) if by_pos[pos]]
+    if not values:
+        return [0.0, 0.0, 0.0]
+    mean = float(np.mean(values))
+    return [float(np.mean(by_pos[pos])) if by_pos[pos] else mean for pos in (1, 2, 3)]
+
+
+def _beam_axial_positions(force_blocks, element_ids: tuple[int, ...]) -> list[float]:
+    """Beam axial force (NXX) at Section-5 positions, compression positive.
+
+    Sign-flipped to Genie's compression-positive convention.
+    """
+    return _beam_component_positions(force_blocks, element_ids, 0, sign=-1.0)
+
+
+def _beam_moment_positions(force_blocks, element_ids: tuple[int, ...]) -> list[float]:
+    """Beam bending moment contribution at Section-5 positions.
+
+    Sesam's line-force block reports ``MXY`` with the opposite sign to Genie's
+    moment convention for these stiffened-plate checks.
+    """
+    return _beam_component_positions(force_blocks, element_ids, 4, sign=-1.0)
+
+
+def _section_area_and_centroid(section: CapSection) -> tuple[float, float]:
+    """Stiffener area and centroid distance from the plate reference surface."""
+    h = float(section.height)
+    tw = float(section.web_thickness)
+    bf = float(section.flange_width)
+    tf = float(section.flange_thickness)
+    if h <= 0.0 or tw <= 0.0:
+        return 0.0, 0.0
+
+    if bf <= 0.0 or tf <= 0.0:
+        area = h * tw
+        return area, h / 2.0
+
+    web_h = max(h - tf, 0.0)
+    web_area = web_h * tw
+    flange_area = bf * tf
+    area = web_area + flange_area
+    if area <= 0.0:
+        return 0.0, 0.0
+    centroid = (web_area * (web_h / 2.0) + flange_area * (web_h + tf / 2.0)) / area
+    return area, centroid
 
 
 def _resolve_stiffener(
@@ -198,18 +279,17 @@ def _resolve_stiffener(
     candidate_plates = [e for p in model.plates for e in p.element_ids]
     trib = extract.tributary_plate_ids(mesh, st.element_ids, candidate_plates)
 
-    # Field membrane in the stiffener frame: mean of each tributary plate's
-    # element-average membrane, rotated and negated (compression positive). This
-    # reproduces Genie's transverse-mid and shear to float precision; the along-
-    # span transverse profile (start/end) and the longitudinal edge value carry a
-    # residual still under calibration — see module docstring.
-    membrane_points = [
-        point
+    # Field membrane in the stiffener frame: each tributary plate element is
+    # averaged over its membrane result points, then area-weighted and negated
+    # to Genie's compression-positive convention. Irregular cut-plane
+    # interpolation remains the calibrated tail.
+    membrane_points_by_element = {
+        pe: _element_membrane_points(mesh, aux, stress_blocks, pe, axis)
         for pe in trib
-        for point in _element_membrane_points(mesh, aux, stress_blocks, pe, axis)
-    ]
-    rotated = [tensor for _, tensor in membrane_points]
-    overall = -np.array(rotated).mean(axis=0) if rotated else np.zeros(3)
+    }
+    membrane_points = [point for points in membrane_points_by_element.values() for point in points]
+    weighted = _area_weighted_element_mean(mesh, membrane_points_by_element)
+    overall = -weighted if weighted is not None else np.zeros(3)
 
     origin = _beam_origin(mesh, st.element_ids)
     edge_points = _edge_points(membrane_points, origin, axis)
@@ -227,15 +307,27 @@ def _resolve_stiffener(
     plate = next((p for p in model.plates if any(e in trib for e in p.element_ids)), None)
     t = plate.thickness if plate else 0.0
     s_spacing = plate.width if plate else 0.0
-    n_beam = _beam_axial_force(force_blocks, st.element_ids)
-    n_axial_positions = [float(x * t * s_spacing + n_beam) for x in long_pos]
+    n_plate_positions = [float(x * t * s_spacing) for x in long_pos]
+    n_beam_positions = _beam_axial_positions(force_blocks, st.element_ids)
+    n_axial_positions = [float(n_plate + n_beam) for n_plate, n_beam in zip(n_plate_positions, n_beam_positions)]
     n_axial = n_axial_positions[1]
     n_plate = long_mid * t * s_spacing
+    n_beam = n_beam_positions[1]
     n_sd = (
         0.2 * max(n_axial_positions[0], 0.0)
         + 0.6 * max(n_axial_positions[1], 0.0)
         + 0.2 * max(n_axial_positions[2], 0.0)
     )
+
+    section_area, section_centroid = _section_area_and_centroid(st.section)
+    plate_area = t * s_spacing
+    z_na = section_area * section_centroid / (section_area + plate_area) if section_area + plate_area else 0.0
+    m_plate = [-float(n * z_na) for n in n_plate_positions]
+    m_beam_force = [float(n * (section_centroid - z_na)) for n in n_beam_positions]
+    m_beam = _beam_moment_positions(force_blocks, st.element_ids)
+    moments = [float(a + b + c) for a, b, c in zip(m_plate, m_beam_force, m_beam)]
+    span = float(st.span or 0.0)
+    q_fe = (0.5 * (moments[0] + moments[2]) - moments[1]) * 8.0 / (span * span) if span else 0.0
 
     variables = {
         "SigmaYSd": float(v_mid[1]),
@@ -243,6 +335,7 @@ def _resolve_stiffener(
         "SigmaY2Sd": float(min(trans_pos)),
         "TauSd": float(tau_pos[1]),
         "Qdir": 0.0,
+        "QFE": float(q_fe),
         "Nsd": float(n_sd),
         "Naxial": float(n_axial),
         "AxialLoadsBeam": float(n_beam),
@@ -253,6 +346,12 @@ def _resolve_stiffener(
         "AverageTransverseMembraneStresses": [float(x) for x in trans_pos],
         "AverageShearStresses": [float(x) for x in tau_pos],
         "AxialLoads": n_axial_positions,
+        "AxialLoadsPlate": n_plate_positions,
+        "AxialLoadsBeam": n_beam_positions,
+        "MomentsAboutNeutralAxis": moments,
+        "MomentsAboutNeutralAxisPlate": m_plate,
+        "MomentsAboutNeutralAxisBeamForce": m_beam_force,
+        "MomentsAboutNeutralAxisBeamMoment": m_beam,
     }
     return ResolvedCase(
         result_case=0,
