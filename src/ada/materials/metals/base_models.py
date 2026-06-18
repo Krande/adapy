@@ -256,6 +256,12 @@ class CarbonSteel(Metal):
     ]
     EC3_S_RED = [1.0, 1.0, 1.0, 1.0, 1.0, 0.78, 0.47, 0.23, 0.11, 0.06, 0.04, 0.02, 0.0]
 
+    # (start, stop, step) of the default EC3 thermal grid (deg C), built lazily
+    # by ``temp_range`` on first thermal-property access. Modifiable: override
+    # the class attribute for a different default resolution, pass ``temp_range``
+    # to ``__init__``, or assign ``mat.temp_range = <array>`` per instance.
+    TEMP_RANGE_BOUNDS = (20, 1210, 5)
+
     def __init__(
         self,
         grade: Literal["S355", "S420"] = "S355",
@@ -306,7 +312,11 @@ class CarbonSteel(Metal):
         )
         # Manually override variables
 
-        self._temp_range = np.arange(20, 1210, 5) if temp_range is None else temp_range
+        # Lazy: the EC3 temperature grid (~2 KB) is only needed for thermal /
+        # fire analysis (E_therm / sigy_therm / kappa / cp). Building it per
+        # material dominated the per-object footprint when many objects are
+        # created with a string material, so defer it to first access.
+        self._temp_range = temp_range
 
     def __repr__(self):
         return (
@@ -321,6 +331,8 @@ class CarbonSteel(Metal):
 
     @property
     def temp_range(self):
+        if self._temp_range is None:
+            self._temp_range = np.arange(*self.TEMP_RANGE_BOUNDS)
         return self._temp_range
 
     @temp_range.setter
@@ -333,7 +345,7 @@ class CarbonSteel(Metal):
         self._cp = None
 
     def _calc_e_therm(self) -> list[float] | None:
-        E_red_fac = np.interp(self._temp_range, CarbonSteel.EC3_TEMP, CarbonSteel.EC3_E_RED)
+        E_red_fac = np.interp(self.temp_range, CarbonSteel.EC3_TEMP, CarbonSteel.EC3_E_RED)
         return [self._E * x for x in E_red_fac]
 
     @property
@@ -343,7 +355,7 @@ class CarbonSteel(Metal):
         return self._e_therm
 
     def _calc_sigy_therm(self) -> list[float] | None:
-        sig_red_fac = np.interp(self._temp_range, CarbonSteel.EC3_TEMP, CarbonSteel.EC3_S_RED)
+        sig_red_fac = np.interp(self.temp_range, CarbonSteel.EC3_TEMP, CarbonSteel.EC3_S_RED)
         return [self._sig_y * x for x in sig_red_fac]
 
     @property
@@ -354,8 +366,9 @@ class CarbonSteel(Metal):
 
     def _calc_kappa(self) -> list[float] | None:
         phase1_end = 780
-        phase1_arr = [self._temp_range[x] for x in np.where(self._temp_range <= phase1_end)]
-        phase2_arr = [self._temp_range[x] for x in np.where(self._temp_range > phase1_end)]
+        tr = self.temp_range
+        phase1_arr = [tr[x] for x in np.where(tr <= phase1_end)]
+        phase2_arr = [tr[x] for x in np.where(tr > phase1_end)]
         phase1 = [54 - t * 3.33 * 0.01 for t in phase1_arr[0]]
         phase2 = [27.3 for x in range(phase2_arr[0].shape[0])]
         return phase1 + phase2
@@ -372,16 +385,11 @@ class CarbonSteel(Metal):
         phase1_end = 600
         phase2_end = 735
         phase3_end = 900
-        phase1_arr = [self._temp_range[x] for x in np.where(self._temp_range <= phase1_end)]
-        phase2_arr = [
-            self._temp_range[x]
-            for x in np.where(np.logical_and(self._temp_range > phase1_end, self._temp_range <= phase2_end))
-        ]
-        phase3_arr = [
-            self._temp_range[x]
-            for x in np.where(np.logical_and(self._temp_range > phase2_end, self._temp_range <= phase3_end))
-        ]
-        phase4_arr = [self._temp_range[x] for x in np.where(self._temp_range > phase3_end)]
+        tr = self.temp_range
+        phase1_arr = [tr[x] for x in np.where(tr <= phase1_end)]
+        phase2_arr = [tr[x] for x in np.where(np.logical_and(tr > phase1_end, tr <= phase2_end))]
+        phase3_arr = [tr[x] for x in np.where(np.logical_and(tr > phase2_end, tr <= phase3_end))]
+        phase4_arr = [tr[x] for x in np.where(tr > phase3_end)]
         phase1 = [425 + 7.73 * 1e-1 * t - 1.69 * 1e-3 * (t**2) + 2.22 * 1e-6 * t**3 for t in phase1_arr[0]]
         phase2 = [666 + 13002 / (738 - t) for t in phase2_arr[0]]
         phase3 = [545 + 17820 / (t - 731) for t in phase3_arr[0]]
