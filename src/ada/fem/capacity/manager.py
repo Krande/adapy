@@ -63,7 +63,7 @@ class CapacityManager:
     def capacity_models(self) -> list[CapacityModel]:
         if self._models is None:
             self._models = [
-                self.builder.build(self.mesh, self.aux, group) for group in self.source.groups()
+                self.builder.build(self.mesh, self.aux, group) for group in self.source.groups(self.mesh)
             ]
         return self._models
 

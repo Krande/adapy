@@ -14,14 +14,22 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from ada.fem.capacity.model import CapSection
 from ada.fem.results.common import Mesh
 
 
 @dataclass
 class AuxRecords:
-    """SIN records not surfaced by :class:`Mesh`, keyed by ``geono``/id."""
+    """SIN records not surfaced by :class:`Mesh`, keyed by ``geono``/id.
+
+    Carries the plate thicknesses (``GELTH``) and the stiffener cross-sections
+    parsed straight from the raw section cards (``GIORH`` / ``GBOX`` / ``GLSEC``).
+    The latter is needed because adapy mis-parses Holland-bulb sections (stored
+    as an idealized L-section in ``GLSEC``) as a dimensionless circular profile.
+    """
 
     thickness_by_geono: dict[int, float] = field(default_factory=dict)
+    section_by_geono: dict[int, CapSection] = field(default_factory=dict)
 
     @classmethod
     def from_sin(cls, sin_path: str | pathlib.Path) -> "AuxRecords":
@@ -36,9 +44,51 @@ class AuxRecords:
                 for rec in sin.iter_records("GELTH"):
                     if len(rec) >= 2:
                         thickness[int(rec[0])] = float(rec[1])
-            return cls(thickness_by_geono=thickness)
+            names = _section_names(sin)
+            sections = _parse_sections(sin, names)
+            return cls(thickness_by_geono=thickness, section_by_geono=sections)
         finally:
             sin.close()
+
+
+# Genie SectionType code for Holland-profile / bulb-flat sections.
+_BULB = 7
+
+
+def _section_names(sin) -> dict[int, str]:
+    out: dict[int, str] = {}
+    if "TDSECT" not in sin.type_blocks:
+        return out
+    for prefix, text in sin.iter_text_records("TDSECT"):
+        if prefix and text:
+            out[int(prefix[0])] = text
+    return out
+
+
+def _parse_sections(sin, names: dict[int, str]) -> dict[int, CapSection]:
+    """Stiffener cross-sections by ``geono`` from the raw beam-section cards.
+
+    * ``GIORH`` [geono, H, tw, Bt, Tt, Bb, Tb] — I/T girders (no bottom flange
+      when ``Bb == tw``).
+    * ``GLSEC`` [geono, H, tw, b, tf] — L-sections, incl. idealized bulb flats
+      (``HP*`` names → tagged as bulb so the consumer applies the bulb→angle
+      web-height rule).
+    * ``GBOX``  [geono, H, ...] — box; carried with zero flange.
+    """
+    out: dict[int, CapSection] = {}
+    for rec in sin.iter_records("GIORH") if "GIORH" in sin.type_blocks else []:
+        g = int(rec[0])
+        h, tw, bt, tt = float(rec[1]), float(rec[2]), float(rec[3]), float(rec[4])
+        out[g] = CapSection(names.get(g, ""), 0, h, tw, bt, tt)
+    for rec in sin.iter_records("GLSEC") if "GLSEC" in sin.type_blocks else []:
+        g = int(rec[0])
+        h, tw, b, tf = float(rec[1]), float(rec[2]), float(rec[3]), float(rec[4])
+        is_bulb = names.get(g, "").upper().startswith("HP")
+        out[g] = CapSection(names.get(g, ""), _BULB if is_bulb else 0, h, tw, b, tf)
+    for rec in sin.iter_records("GBOX") if "GBOX" in sin.type_blocks else []:
+        g = int(rec[0])
+        out[g] = CapSection(names.get(g, ""), 0, float(rec[1]), float(rec[2]), 0.0, 0.0)
+    return out
 
 
 def geono_of(mesh: Mesh, element_id: int) -> int:

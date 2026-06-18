@@ -73,7 +73,7 @@ class StiffenedPlateBuilder(CapacityModelBuilder):
             if not s.element_ids:
                 continue
             _, span = extract.beam_axis_and_span(mesh, s.element_ids)
-            section = s.section if s.section is not None else _section_from_mesh(mesh, s.element_ids[0])
+            section = s.section if s.section is not None else _section_of(mesh, aux, s.element_ids[0])
             stiffeners.append(
                 CapStiffener(
                     name=s.name,
@@ -87,6 +87,15 @@ class StiffenedPlateBuilder(CapacityModelBuilder):
             )
 
         return CapacityModel(name=group.name, plates=tuple(plates), stiffeners=tuple(stiffeners))
+
+
+def _section_of(mesh: Mesh, aux: extract.AuxRecords, element_id: int) -> CapSection:
+    """CapSection for a stiffener: prefer the raw-card parse (handles bulbs),
+    fall back to adapy's parsed Section (I/box profiles)."""
+    geono = extract.geono_of(mesh, element_id)
+    if geono in aux.section_by_geono:
+        return aux.section_by_geono[geono]
+    return _section_from_mesh(mesh, element_id)
 
 
 def _section_from_mesh(mesh: Mesh, element_id: int) -> CapSection:

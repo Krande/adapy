@@ -28,7 +28,7 @@ from ada.fem.capacity.model import (
     CapStiffener,
     ResolvedCase,
 )
-from ada.fem.capacity.sources import ModelJsonSource, PanelGroupSource, PanelGroupSpec
+from ada.fem.capacity.sources import ModelJsonSource, PanelGroupSource, PanelGroupSpec, SinSource
 
 __all__ = [
     "CapacityManager",
@@ -41,4 +41,5 @@ __all__ = [
     "PanelGroupSource",
     "PanelGroupSpec",
     "ModelJsonSource",
+    "SinSource",
 ]

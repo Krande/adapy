@@ -51,10 +51,14 @@ class PanelGroupSpec:
 
 
 class PanelGroupSource(ABC):
-    """Yields the panel-group membership for a model."""
+    """Yields the panel-group membership for a model.
+
+    ``mesh`` is the SIN :class:`~ada.fem.results.common.Mesh`; a source may use it
+    (e.g. :class:`SinSource`) or ignore it (e.g. :class:`ModelJsonSource`).
+    """
 
     @abstractmethod
-    def groups(self) -> list[PanelGroupSpec]:  # pragma: no cover - interface
+    def groups(self, mesh) -> list[PanelGroupSpec]:  # pragma: no cover - interface
         ...
 
 
@@ -95,7 +99,7 @@ class ModelJsonSource(PanelGroupSource):
     def __post_init__(self) -> None:
         self._data = json.loads(pathlib.Path(self.model_json).read_text(encoding="utf-8"))
 
-    def groups(self) -> list[PanelGroupSpec]:
+    def groups(self, mesh=None) -> list[PanelGroupSpec]:
         out: list[PanelGroupSpec] = []
         for bm in self._data.get("BucklingModels", []):
             plates = tuple(
@@ -125,3 +129,75 @@ class ModelJsonSource(PanelGroupSource):
         s1 = int(stiffener.get("SupportAtFirstCrossSection", 0) or 0)
         s2 = int(stiffener.get("SupportAtSecondCrossSection", 0) or 0)
         return not (s1 and s2)
+
+
+# --------------------------------------------------------------------------- #
+# SIN-native grouping source (no Genie model.json required)
+# --------------------------------------------------------------------------- #
+@dataclass
+class SinSource(PanelGroupSource):
+    """Identify panel groups straight from the SIN mesh.
+
+    Each stiffener (a beam element) becomes a capacity model together with the
+    plate elements that border it (the shells sharing the beam's nodes). This
+    reproduces, per stiffener, the same tributary the Genie ``model.json``
+    grouping yields — so the stiffened-plate check runs without a Genie capacity
+    run. Section dimensions come from the raw section cards via
+    :class:`~ada.fem.capacity.extract.AuxRecords` (so bulb flats resolve too).
+
+    ``group`` optionally restricts the stiffeners to a named Sesam set/group
+    present in the SIN; bordering plates are always included. ``continuous``
+    sets the support assumption ([6.10.2] vs [6.10.1]) for every stiffener.
+
+    Note: stiffener/plate names are synthesised from element ids (the SIN carries
+    no per-stiffener concept names); multi-element stiffener chains are treated
+    one beam element at a time.
+    """
+
+    group: str | None = None
+    continuous: bool = True
+
+    def groups(self, mesh) -> list[PanelGroupSpec]:
+        from ada.fem.shapes.definitions import LineShapes, ShellShapes
+
+        beam_ids: list[int] = []
+        shell_ids: list[int] = []
+        for block in mesh.elements:
+            etype = block.elem_info.type
+            ids = [int(x) for x in block.identifiers]
+            if isinstance(etype, LineShapes):
+                beam_ids.extend(ids)
+            elif isinstance(etype, ShellShapes):
+                shell_ids.extend(ids)
+
+        if self.group is not None:
+            members = self._set_members(mesh, self.group)
+            beam_ids = [b for b in beam_ids if b in members]
+
+        from ada.fem.capacity.extract import tributary_plate_ids
+
+        out: list[PanelGroupSpec] = []
+        for beam in beam_ids:
+            plate_els = tributary_plate_ids(mesh, (beam,), shell_ids)
+            if not plate_els:
+                continue  # a free beam (no bordering plate) is not a stiffener
+            out.append(
+                PanelGroupSpec(
+                    name=f"stiffener_el{beam}",
+                    plates=tuple(PlateSpec(name=f"plate_el{p}", element_ids=(p,)) for p in plate_els),
+                    stiffeners=(StiffenerSpec(name=f"el{beam}", element_ids=(beam,), continuous=self.continuous),),
+                )
+            )
+        return out
+
+    @staticmethod
+    def _set_members(mesh, group: str) -> set[int]:
+        sets = mesh.sets or {}
+        fs = sets.get(group)
+        if fs is None:
+            available = ", ".join(sorted(sets)) or "(none)"
+            raise KeyError(f"set/group {group!r} not found in SIN. Available: {available}")
+        ids = getattr(fs, "_member_ids", None)
+        if ids:
+            return {int(x) for x in ids}
+        return {int(getattr(m, "id", m)) for m in getattr(fs, "members", []) or []}
