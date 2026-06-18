@@ -196,9 +196,9 @@ def test_transverse_and_shear_match_genie(manager, genie_variables):
 def test_rdpoints_sampling_matches_genie_longitudinal_and_transverse_ends(manager, genie_variables):
     """RDPOINTS-coordinate sampling closes the single-connection stress residuals.
 
-    A multi-connection tail remains until the resolver emits one case per
-    connection, so assert the calibrated median plus a broad within-2% fraction
-    instead of full parity.
+    The remaining tail is concentrated in the midpoint field average for a few
+    irregular plate fields, so assert the calibrated median plus per-vector
+    within-2% fractions.
     """
     import statistics
 
@@ -230,10 +230,39 @@ def test_rdpoints_sampling_matches_genie_longitudinal_and_transverse_ends(manage
         if len(ours_a) == 3 and len(genie_a) == 3 and abs(genie_a[1]) > 1.0:
             axial_rel.append(abs(ours_a[1] - genie_a[1]) / abs(genie_a[1]))
 
-    for residuals in (trans_start_rel, trans_end_rel, long_rel, axial_rel):
+    thresholds = (
+        (trans_start_rel, 0.98),
+        (trans_end_rel, 0.94),
+        (long_rel, 0.90),
+        (axial_rel, 0.90),
+    )
+    for residuals, within2 in thresholds:
         assert len(residuals) > 400
         assert statistics.median(residuals) < 1e-3
-        assert sum(r <= 0.02 for r in residuals) / len(residuals) > 0.80
+        assert sum(r <= 0.02 for r in residuals) / len(residuals) > within2
+
+
+def test_irregular_plate_field_sampling_matches_genie_tail(manager, genie_variables):
+    """Triangular/split adjacent fields use RDPOINTS transforms and full fields."""
+    resolved = {(rc.result_case, rc.stiffener): rc for rc in manager.resolve_cases([4, 10])}
+
+    transformed = resolved[(4, "Stiffener_Mini_west_main_f0_i1_j1_sbm1")]
+    _gv, gvec = genie_variables[(4, transformed.stiffener)]
+    assert transformed.vectors["AverageTransverseMembraneStresses"][0] == pytest.approx(
+        gvec["AverageTransverseMembraneStresses"][0], rel=5e-4
+    )
+    assert transformed.vectors["AverageShearStresses"][2] == pytest.approx(
+        gvec["AverageShearStresses"][2], rel=5e-4
+    )
+
+    split_field = resolved[(10, "Stiffener_Mini_west_main_f0_i2_j2_sbm5")]
+    _gv, gvec = genie_variables[(10, split_field.stiffener)]
+    assert split_field.vectors["AverageTransverseMembraneStresses"][2] == pytest.approx(
+        gvec["AverageTransverseMembraneStresses"][2], rel=5e-4
+    )
+    assert split_field.vectors["AverageShearStresses"][2] == pytest.approx(
+        gvec["AverageShearStresses"][2], rel=5e-4
+    )
 
 
 def test_axial_loads_preserve_section_5_positions(manager):

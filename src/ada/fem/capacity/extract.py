@@ -30,6 +30,7 @@ class AuxRecords:
     thickness_by_geono: dict[int, float] = field(default_factory=dict)
     section_by_geono: dict[int, CapSection] = field(default_factory=dict)
     result_point_coords_by_element: dict[int, dict[int, np.ndarray]] = field(default_factory=dict)
+    element_transform_by_element: dict[int, np.ndarray] = field(default_factory=dict)
     concept_name_by_element: dict[int, str] = field(default_factory=dict)
 
     @classmethod
@@ -47,11 +48,12 @@ class AuxRecords:
                         thickness[int(rec[0])] = float(rec[1])
             names = _section_names(sin)
             sections = _parse_sections(sin, names)
-            result_points = _parse_rdpoints(sin)
+            result_points, transforms = _parse_rdpoints(sin)
             return cls(
                 thickness_by_geono=thickness,
                 section_by_geono=sections,
                 result_point_coords_by_element=result_points,
+                element_transform_by_element=transforms,
                 concept_name_by_element=_parse_concept_names(sin),
             )
         finally:
@@ -98,18 +100,20 @@ def _parse_sections(sin, names: dict[int, str]) -> dict[int, CapSection]:
     return out
 
 
-def _parse_rdpoints(sin) -> dict[int, dict[int, np.ndarray]]:
-    """Result-point coordinates by ``element id`` and 1-based point id.
+def _parse_rdpoints(sin) -> tuple[dict[int, dict[int, np.ndarray]], dict[int, np.ndarray]]:
+    """Result-point coordinates and element transforms by element id.
 
     SIN ``RDPOINTS`` stores absolute coordinates in the variable-width bulk
     payload as ``point id, x, y, z`` groups, with optional ``-1`` separators,
     followed by the element transform matrix. The public result field keeps only
-    the point number, so the capacity resolver surfaces the coordinates here.
+    the point number, so the capacity resolver surfaces the coordinates and
+    local-to-global stress basis here.
     """
     if "RDPOINTS" not in sin.type_blocks:
-        return {}
+        return {}, {}
 
     out: dict[int, dict[int, np.ndarray]] = {}
+    transforms: dict[int, np.ndarray] = {}
     for rec in sin.iter_records("RDPOINTS"):
         if len(rec) < 9:
             continue
@@ -117,6 +121,10 @@ def _parse_rdpoints(sin) -> dict[int, dict[int, np.ndarray]]:
         nsptra = int(rec[6])
         transform_len = nsptra * 9
         bulk = rec[8 : -transform_len] if transform_len else rec[8:]
+        if transform_len:
+            transform = np.array(rec[-transform_len:], dtype=float).reshape((nsptra, 3, 3))
+            if len(transform):
+                transforms[elno] = transform[0]
         points: dict[int, np.ndarray] = {}
         i = 0
         while i < len(bulk):
@@ -130,7 +138,7 @@ def _parse_rdpoints(sin) -> dict[int, dict[int, np.ndarray]]:
             i += 3
         if points:
             out[elno] = points
-    return out
+    return out, transforms
 
 
 def _parse_concept_names(sin) -> dict[int, str]:

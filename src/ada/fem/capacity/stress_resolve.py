@@ -65,17 +65,32 @@ def _element_stress_rows(stress_blocks, element_id: int) -> dict[int, np.ndarray
     return {point_id: np.vstack(values).mean(axis=0) for point_id, values in rows.items()}
 
 
-def _rotate_to_stiffener_frame(mesh: Mesh, element_id: int, tensor: np.ndarray, axis: np.ndarray) -> np.ndarray:
+def _rotate_to_stiffener_frame(
+    mesh: Mesh,
+    element_id: int,
+    tensor: np.ndarray,
+    axis: np.ndarray,
+    transform: np.ndarray | None = None,
+) -> np.ndarray:
     """Rotate an element-frame membrane tensor into the stiffener frame.
 
     Returns ``(sigma_long, sigma_trans, tau)`` where *long* is along the
     stiffener axis and *trans* is perpendicular (in the plate plane).
     """
     sxx, syy, txy = tensor
-    coords = extract.element_node_coords(mesh, element_id)
-    lx = coords[1] - coords[0]
+    if transform is not None and np.shape(transform) != (3, 3):
+        transform = None
+    if transform is not None:
+        basis = np.asarray(transform, dtype=float)
+        lx = basis[0]
+        normal = basis[2]
+        if np.linalg.norm(lx) <= 0.0 or np.linalg.norm(normal) <= 0.0:
+            transform = None
+    if transform is None:
+        coords = extract.element_node_coords(mesh, element_id)
+        lx = coords[1] - coords[0]
+        normal = np.cross(coords[1] - coords[0], coords[2] - coords[0])
     lx = lx / (np.linalg.norm(lx) or 1.0)
-    normal = np.cross(coords[1] - coords[0], coords[2] - coords[0])
     normal = normal / (np.linalg.norm(normal) or 1.0)
     ax = axis - normal * float(np.dot(axis, normal))  # project stiffener axis into plate plane
     ax = ax / (np.linalg.norm(ax) or 1.0)
@@ -114,7 +129,8 @@ def _element_membrane_points(
                 continue
             tensor = (rows[a] + rows[b]) / 2.0
             xyz = (coords[a] + coords[b]) / 2.0
-            paired.append((xyz, _rotate_to_stiffener_frame(mesh, element_id, tensor, axis)))
+            transform = aux.element_transform_by_element.get(element_id)
+            paired.append((xyz, _rotate_to_stiffener_frame(mesh, element_id, tensor, axis, transform)))
         if paired:
             return paired
 
@@ -122,7 +138,8 @@ def _element_membrane_points(
     if tensor is None:
         return []
     xyz = extract.element_node_coords(mesh, element_id).mean(axis=0)
-    return [(xyz, _rotate_to_stiffener_frame(mesh, element_id, tensor, axis))]
+    transform = aux.element_transform_by_element.get(element_id)
+    return [(xyz, _rotate_to_stiffener_frame(mesh, element_id, tensor, axis, transform))]
 
 
 def _element_area(mesh: Mesh, element_id: int) -> float:
@@ -150,6 +167,23 @@ def _area_weighted_element_mean(
     if not values:
         return None
     return np.average(np.array(values), axis=0, weights=np.array(weights))
+
+
+def _adjacent_plate_field_ids(model: CapacityModel, edge_plate_ids: list[int]) -> list[int]:
+    """Expand edge-sharing plate elements to their full adjacent plate fields."""
+    if not edge_plate_ids:
+        return []
+    edge = set(edge_plate_ids)
+    out: list[int] = []
+    seen: set[int] = set()
+    for plate in model.plates:
+        if not edge.intersection(plate.element_ids):
+            continue
+        for element_id in plate.element_ids:
+            if element_id not in seen:
+                out.append(element_id)
+                seen.add(element_id)
+    return out or edge_plate_ids
 
 
 def _beam_origin(mesh: Mesh, element_ids: tuple[int, ...]) -> np.ndarray:
@@ -277,34 +311,48 @@ def _resolve_stiffener(
     axis, _ = extract.beam_axis_and_span(mesh, st.element_ids)
 
     candidate_plates = [e for p in model.plates for e in p.element_ids]
-    trib = extract.tributary_plate_ids(mesh, st.element_ids, candidate_plates)
+    edge_trib = extract.tributary_plate_ids(mesh, st.element_ids, candidate_plates)
+    field_trib = _adjacent_plate_field_ids(model, edge_trib)
 
-    # Field membrane in the stiffener frame: each tributary plate element is
-    # averaged over its membrane result points, then area-weighted and negated
-    # to Genie's compression-positive convention. Irregular cut-plane
-    # interpolation remains the calibrated tail.
-    membrane_points_by_element = {
+    # Field transverse/shear membrane in the stiffener frame: each adjacent
+    # plate field is averaged over its membrane result points, then
+    # area-weighted and negated to Genie's compression-positive convention. If
+    # an adjacent plate field is split into several shells, use the full field
+    # rather than only the shell sharing the stiffener nodes; this matches
+    # Genie's Section-5 field integration on irregular triangular/quadrilateral
+    # edge fields.
+    field_points_by_element = {
         pe: _element_membrane_points(mesh, aux, stress_blocks, pe, axis)
-        for pe in trib
+        for pe in field_trib
     }
-    membrane_points = [point for points in membrane_points_by_element.values() for point in points]
-    weighted = _area_weighted_element_mean(mesh, membrane_points_by_element)
-    overall = -weighted if weighted is not None else np.zeros(3)
+    field_points = [point for points in field_points_by_element.values() for point in points]
+    field_weighted = _area_weighted_element_mean(mesh, field_points_by_element)
+    overall = -field_weighted if field_weighted is not None else np.zeros(3)
 
     origin = _beam_origin(mesh, st.element_ids)
-    edge_points = _edge_points(membrane_points, origin, axis)
+    # Longitudinal axial/moment resultants are edge quantities: sample the plate
+    # elements that share the stiffener line, then use result points closest to
+    # that line for the calibrated Section-5 axial reconstruction.
+    edge_points_by_element = {
+        pe: _element_membrane_points(mesh, aux, stress_blocks, pe, axis)
+        for pe in edge_trib
+    }
+    long_points = [point for points in edge_points_by_element.values() for point in points]
+    long_weighted = _area_weighted_element_mean(mesh, edge_points_by_element)
+    long_overall = -long_weighted if long_weighted is not None else overall
+    edge_points = _edge_points(long_points, origin, axis)
     edge_rotated = [tensor for _, tensor in edge_points]
-    edge_mid = -float(np.array(edge_rotated).mean(axis=0)[0]) if edge_rotated else float(overall[0])
-    all_long_pos = [-x for x in _station_values(membrane_points, origin, axis, 0, -float(overall[0]))]
+    edge_mid = -float(np.array(edge_rotated).mean(axis=0)[0]) if edge_rotated else float(long_overall[0])
+    all_long_pos = [-x for x in _station_values(long_points, origin, axis, 0, -float(long_overall[0]))]
     edge_long_pos = [-x for x in _station_values(edge_points, origin, axis, 0, -edge_mid)]
     long_pos = [(a + e) / 2.0 for a, e in zip(all_long_pos, edge_long_pos)]
     long_mid = float(long_pos[1])
-    trans_pos = [-x for x in _station_values(membrane_points, origin, axis, 1, -float(overall[1]))]
-    tau_pos = [abs(x) for x in _station_values(membrane_points, origin, axis, 2, -float(overall[2]))]
+    trans_pos = [-x for x in _station_values(field_points, origin, axis, 1, -float(overall[1]))]
+    tau_pos = [abs(x) for x in _station_values(field_points, origin, axis, 2, -float(overall[2]))]
     v_mid = overall
 
     # Plate tributary area = thickness x spacing of the bordering plate(s).
-    plate = next((p for p in model.plates if any(e in trib for e in p.element_ids)), None)
+    plate = next((p for p in model.plates if any(e in edge_trib for e in p.element_ids)), None)
     t = plate.thickness if plate else 0.0
     s_spacing = plate.width if plate else 0.0
     n_plate_positions = [float(x * t * s_spacing) for x in long_pos]
