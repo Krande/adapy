@@ -948,6 +948,41 @@ def _units_to_step(part):
     return "METRE", None
 
 
+def _part_fuses_from_fem(p) -> bool:
+    """True for a part whose Beam/Plate haven't been materialised but whose FEM
+    mesh carries elements — stream its objects straight from the mesh."""
+    fem = getattr(p, "fem", None)
+    return fem is not None and (len(p.plates) + len(p.beams)) == 0 and len(fem.elements) > 0
+
+
+def _iter_stream_objects(part):
+    """Yield physical objects to stream, fusing Beam/Plate straight from the FEM
+    mesh (``Part.iter_objects_from_fem``, one at a time, detached) when they
+    haven't been materialised — so the whole concept set is never resident (the
+    same win as the IFC streaming writer). Built objects (CAD shapes, pipes, or
+    already-materialised beams/plates) come from the part as before."""
+    from ada import Beam, Plate
+
+    for p in part.get_all_parts_in_assembly(include_self=True):
+        if _part_fuses_from_fem(p):
+            yield from p.iter_objects_from_fem(beams=True, plates=True, detached=True)
+            for o in p.get_all_physical_objects(sub_elements_only=True, pipe_to_segments=True):
+                if not isinstance(o, (Beam, Plate)):  # shapes / pipes / masses still need emitting
+                    yield o
+        else:
+            yield from p.get_all_physical_objects(sub_elements_only=True, pipe_to_segments=True)
+
+
+def _estimate_object_count(part) -> int:
+    n = 0
+    for p in part.get_all_parts_in_assembly(include_self=True):
+        if _part_fuses_from_fem(p):
+            n += len(p.fem.elements)  # rough: shells→plates, lines→beams
+        else:
+            n += sum(1 for _ in p.get_all_physical_objects(sub_elements_only=True, pipe_to_segments=True))
+    return n
+
+
 def write_step_stream(
     part,
     destination_file,
@@ -955,15 +990,24 @@ def write_step_stream(
     schema="AP242",
     assembly=True,
     progress_callback=None,
+    fuse_fem=True,
 ):
     """Stream every supported physical object under ``part`` to a STEP file.
 
     Returns a stats dict: ``{"emitted": int, "skipped": int}``. Kernel-free --
     builds no OCC/adacpp shapes, so it avoids the memory spike that OOMs the OCC
     ``STEPCAFControl_Writer`` path on large FEM models.
+
+    ``fuse_fem`` (default) streams Beam/Plate straight from a part's FEM mesh when
+    they haven't been materialised, so neither the concept objects nor the STEP
+    entities are ever held whole — bounded memory. Set ``False`` to emit only the
+    already-built objects (e.g. an explicit ``fem_to_objects=False`` job).
     """
-    objects = list(part.get_all_physical_objects(pipe_to_segments=True))
-    total = len(objects)
+    if fuse_fem:
+        objects = _iter_stream_objects(part)
+    else:
+        objects = part.get_all_physical_objects(pipe_to_segments=True)
+    total = _estimate_object_count(part)
     lu, lp = _units_to_step(part)
     emitted = 0
     skipped = 0
@@ -994,7 +1038,7 @@ def write_step_stream(
             emitted += 1 if done else 0
             skipped += 0 if done else 1
             if progress_callback is not None:
-                progress_callback(i, total)
+                progress_callback(i, max(total, i))
         writer.end()
 
     logger.info("write_step_stream: emitted %d, skipped %d of %d", emitted, skipped, total)

@@ -1055,16 +1055,23 @@ def _via_ada_to_step(
 
     on_progress("parsing", 0.15)
     model = _load_with_ada(src_path, source_ext)
-    _apply_fem_to_objects(model, source_ext, "step", fem_to_objects, merge_fem_objects, reconstruct_surfaces)
+    is_fem = source_ext.lower() in _FEM_SOURCE_EXTS
+    if not is_fem:
+        # IFC/CAD source: materialise any FEM-derived concept objects up front
+        # (a no-op when there is no mesh) before the OCC writer runs.
+        _apply_fem_to_objects(model, source_ext, "step", fem_to_objects, merge_fem_objects, reconstruct_surfaces)
     on_progress("writing-step", 0.55)
     out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
     try:
-        if source_ext.lower() in _FEM_SOURCE_EXTS:
+        if is_fem:
             # A FEM mesh rebuilds into extruded plates/straight beams, which the
-            # streaming AP242 writer emits one-at-a-time at constant memory. The
-            # default OCC XCAF writer instead accumulates every solid plus a full
-            # entity-graph copy and OOMs the worker on large jackets/ships.
-            stats = model.to_stp(str(out_path), writer="stream")
+            # streaming AP242 writer emits one-at-a-time at constant memory. We
+            # deliberately do NOT pre-build them here: the create_objects_from_fem
+            # phase (not the writer) was the multi-GB peak that OOM-killed the
+            # worker on large jackets/ships — the writer fuses Beam/Plate straight
+            # from the mesh. The OCC XCAF writer would instead accumulate every
+            # solid plus a full entity-graph copy. fem_to_objects=False opts out.
+            stats = model.to_stp(str(out_path), writer="stream", fuse_fem=(fem_to_objects is not False))
             skipped = (stats or {}).get("skipped", 0)
             if skipped:
                 logger.warning(f"streaming STEP writer skipped {skipped} non-extrudable object(s)")

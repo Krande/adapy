@@ -1441,16 +1441,21 @@ class Part(BackendGeom):
         evict_solid_cache: bool = True,
         writer: str = "occ",
         schema: str = "AP242",
+        fuse_fem: bool = True,
     ):
         # The "stream" writer authors AP242 B-rep text directly from parametric
         # geometry without building any OCC/adacpp shapes — constant memory, so
         # it does not OOM on large FEM models the way the OCC XCAF path does. It
         # covers extruded solids only (plates, straight beams, straight pipe
-        # segments); other geometry is skipped. See cadit.step.write.ap242_stream.
+        # segments); other geometry is skipped. ``fuse_fem`` streams Beam/Plate
+        # straight from the FEM mesh when they aren't built (no concept-object
+        # peak). See cadit.step.write.ap242_stream.
         if writer == "stream":
             from ada.cadit.step.write.ap242_stream import write_step_stream
 
-            return write_step_stream(self, destination_file, schema=schema, progress_callback=progress_callback)
+            return write_step_stream(
+                self, destination_file, schema=schema, progress_callback=progress_callback, fuse_fem=fuse_fem
+            )
         if writer != "occ":
             raise ValueError(f"unknown writer {writer!r}; expected 'occ' or 'stream'")
 
