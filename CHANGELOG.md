@@ -2,6 +2,15 @@
 
 
 
+## v0.24.0 (2026-06-18)
+
+### Feature
+
+* feat: memory-bounded streaming IFC writer for large FEM to IFC (#227)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`124a50e`](https://github.com/Krande/adapy/commit/124a50e132f23d3ad1289a89ef118c616c5cc5e0))
+
+
 ## v0.23.1 (2026-06-18)
 
 ### Fix
