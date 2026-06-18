@@ -227,10 +227,15 @@ def _resolve_stiffener(
     plate = next((p for p in model.plates if any(e in trib for e in p.element_ids)), None)
     t = plate.thickness if plate else 0.0
     s_spacing = plate.width if plate else 0.0
-    n_plate = long_mid * t * s_spacing
     n_beam = _beam_axial_force(force_blocks, st.element_ids)
-    n_axial = n_plate + n_beam
-    n_sd = max(n_axial, 0.0)  # buckling axial counts compression only (Genie Nsd)
+    n_axial_positions = [float(x * t * s_spacing + n_beam) for x in long_pos]
+    n_axial = n_axial_positions[1]
+    n_plate = long_mid * t * s_spacing
+    n_sd = (
+        0.2 * max(n_axial_positions[0], 0.0)
+        + 0.6 * max(n_axial_positions[1], 0.0)
+        + 0.2 * max(n_axial_positions[2], 0.0)
+    )
 
     variables = {
         "SigmaYSd": float(v_mid[1]),
@@ -247,7 +252,7 @@ def _resolve_stiffener(
         "AverageLongitudinalMembraneStresses": [float(x) for x in long_pos],
         "AverageTransverseMembraneStresses": [float(x) for x in trans_pos],
         "AverageShearStresses": [float(x) for x in tau_pos],
-        "AxialLoads": [float(n_axial)] * 3,
+        "AxialLoads": n_axial_positions,
     }
     return ResolvedCase(
         result_case=0,

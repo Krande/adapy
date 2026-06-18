@@ -234,3 +234,16 @@ def test_rdpoints_sampling_matches_genie_longitudinal_and_transverse_ends(manage
         assert len(residuals) > 400
         assert statistics.median(residuals) < 1e-3
         assert sum(r <= 0.02 for r in residuals) / len(residuals) > 0.80
+
+
+def test_axial_loads_preserve_section_5_positions(manager):
+    """AxialLoads is a Section-5 three-position resultant, not a repeated scalar."""
+    resolved = manager.resolve_cases()
+    non_uniform = [
+        rc.vectors["AxialLoads"]
+        for rc in resolved
+        if "AxialLoads" in rc.vectors
+        and max(rc.vectors["AxialLoads"]) - min(rc.vectors["AxialLoads"]) > 1e-6
+    ]
+
+    assert non_uniform
