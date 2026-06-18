@@ -29,6 +29,10 @@ def _make_key_and_array(
 class ImmutableNDArrayMixin:
     """Block in-place mutation and catch in-place ufuncs to return new instances."""
 
+    # Empty slots so this mixin doesn't reintroduce a per-instance __dict__ on
+    # the Point / Direction ndarray subclasses (which set __slots__ themselves).
+    __slots__ = ()
+
     def __setitem__(self, idx, val):
         raise TypeError(f"{type(self).__name__} is immutable")
 
@@ -57,6 +61,10 @@ class ImmutableNDArrayMixin:
 
 
 class Point(np.ndarray, ImmutableNDArrayMixin):
+    # No instance attributes: __slots__ = () drops the ~304 B per-instance
+    # __dict__ (a Point holds none). ndarray still provides __weakref__, so the
+    # value-interning _cache below keeps working.
+    __slots__ = ()
     precision: int | None = None
     _cache: weakref.WeakValueDictionary[tuple[float, ...], Point] = weakref.WeakValueDictionary()
 
