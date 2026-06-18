@@ -2,6 +2,15 @@
 
 
 
+## v0.23.1 (2026-06-18)
+
+### Fix
+
+* fix: write swept welds to IFC without p1/p2 (#226)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`71850c2`](https://github.com/Krande/adapy/commit/71850c283f48edfa15ccaefa951b88712693820f))
+
+
 ## v0.23.0 (2026-06-17)
 
 ### Feature
