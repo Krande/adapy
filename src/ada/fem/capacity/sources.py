@@ -156,6 +156,7 @@ class SinSource(PanelGroupSource):
 
     group: str | None = None
     continuous: bool = True
+    classify_secondary: bool = True
 
     def groups(self, mesh) -> list[PanelGroupSpec]:
         from ada.fem.shapes.definitions import LineShapes, ShellShapes
@@ -176,11 +177,21 @@ class SinSource(PanelGroupSource):
 
         from ada.fem.capacity.extract import tributary_plate_ids
 
-        out: list[PanelGroupSpec] = []
+        trib_by_beam: dict[int, list[int]] = {}
         for beam in beam_ids:
             plate_els = tributary_plate_ids(mesh, (beam,), shell_ids)
             if not plate_els:
                 continue  # a free beam (no bordering plate) is not a stiffener
+            trib_by_beam[beam] = plate_els
+
+        if self.classify_secondary:
+            beam_ids = self._secondary_stiffener_ids(mesh, list(trib_by_beam))
+        else:
+            beam_ids = list(trib_by_beam)
+
+        out: list[PanelGroupSpec] = []
+        for beam in beam_ids:
+            plate_els = trib_by_beam[beam]
             out.append(
                 PanelGroupSpec(
                     name=f"stiffener_el{beam}",
@@ -201,3 +212,36 @@ class SinSource(PanelGroupSource):
         if ids:
             return {int(x) for x in ids}
         return {int(getattr(m, "id", m)) for m in getattr(fs, "members", []) or []}
+
+    @staticmethod
+    def _secondary_stiffener_ids(mesh, beam_ids: list[int]) -> list[int]:
+        """Filter out primary girders when several beam profiles share a set."""
+        if not beam_ids:
+            return []
+
+        from ada.fem.capacity.extract import geono_of
+
+        beams_by_geono: dict[int, list[int]] = {}
+        for beam in beam_ids:
+            beams_by_geono.setdefault(geono_of(mesh, beam), []).append(beam)
+        if len(beams_by_geono) == 1:
+            return beam_ids
+
+        depths = {geono: SinSource._section_depth(mesh, geono) for geono in beams_by_geono}
+        known = {geono: depth for geono, depth in depths.items() if depth > 0.0}
+        if not known:
+            return beam_ids
+
+        min_depth = min(known.values())
+        keep_geonos = {geono for geono, depth in known.items() if depth <= min_depth * 1.05}
+        return [beam for beam in beam_ids if geono_of(mesh, beam) in keep_geonos]
+
+    @staticmethod
+    def _section_depth(mesh, geono: int) -> float:
+        sec = mesh.sections.get(geono)
+        for attr in ("h", "r", "w_top", "w_btn"):
+            value = getattr(sec, attr, None)
+            if value:
+                scale = 2.0 if attr == "r" else 1.0
+                return float(value) * scale
+        return 0.0

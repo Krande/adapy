@@ -102,6 +102,30 @@ def test_glsec_sections_parse_as_angular_from_sin():
     assert sec.t_ftop == pytest.approx(0.02505)
 
 
+def test_sin_source_classifies_mini_grid_x100_stiffeners_like_genie():
+    from ada.fem.capacity import SinSource
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    mesh = read_sin_file(SIN, step=1).mesh
+    groups = SinSource(group="Mini_grid_x100").groups(mesh)
+    native_stiffeners = {
+        int(e)
+        for group in groups
+        for stiffener in group.stiffeners
+        for e in stiffener.element_ids
+    }
+
+    genie = json.loads(MODEL_JSON.read_text())
+    genie_stiffeners = {
+        int(e)
+        for model in genie["BucklingModels"]
+        for stiffener in model["Stiffeners"]
+        for e in stiffener["FiniteElements"]
+    }
+    assert native_stiffeners == genie_stiffeners
+    assert len(native_stiffeners) == 54
+
+
 def test_genie_mirror_roundtrips(manager, tmp_path):
     out = tmp_path / "mirror.json"
     manager.to_genie_json(out)
