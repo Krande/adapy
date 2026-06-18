@@ -225,6 +225,7 @@ class Assembly(Part):
         validate=False,
         progress_callback: Callable[[int, int], None] = None,
         geom_repr_override: dict[str, GeomRepr] = None,
+        streaming=False,
     ) -> ifcopenshell.file:
         import ifcopenshell.validate
 
@@ -234,6 +235,26 @@ class Assembly(Part):
             destination = pathlib.Path(destination).resolve().absolute()
 
         logger.info(f'Beginning writing to IFC file "{destination}" using IfcOpenShell')
+
+        # Memory-bounded path: hand-author Plate solids as SPF text instead of
+        # holding the whole ifcopenshell.file in memory. Needs a real on-disk
+        # destination (it never builds a full in-memory model), and skips the
+        # geom_repr_override hook, so fall back to the normal path otherwise.
+        if streaming and not file_obj_only and destination != "object" and geom_repr_override is None:
+            from ada.cadit.ifc.write.stream_ifc import stream_assembly_to_ifc
+
+            stream_assembly_to_ifc(
+                self, destination, include_fem=include_fem, progress_callback=progress_callback
+            )
+            if validate:
+                ifcopenshell.validate.validate(destination, logger)
+            logger.info("IFC file creation complete (streaming)")
+            return None
+        if streaming:
+            logger.warning(
+                "to_ifc(streaming=True) needs an on-disk destination and no geom_repr_override; "
+                "falling back to the in-memory writer."
+            )
 
         self.ifc_store.sync(
             include_fem=include_fem, progress_callback=progress_callback, geom_repr_override=geom_repr_override

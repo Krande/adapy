@@ -619,7 +619,15 @@ def _export_with_ada(
         return buf.getvalue()
     if target_format == "ifc":
         on_progress("writing-ifc", 0.55)
-        model.to_ifc(destination=str(out_path))
+        # Memory-bounded writer is the default: it hand-authors Plate solids as
+        # SPF text instead of holding the whole ifcopenshell.file, ~halving peak
+        # RSS on large FEM→IFC and clearing the worker OOM cap. The admin "Stream
+        # IFC write" toggle / per-job ``ifc_streaming`` sets ADA_IFC_STREAMING;
+        # only an explicit falsy value reverts to the in-memory writer.
+        import os
+
+        streaming = os.environ.get("ADA_IFC_STREAMING", "").strip().lower() not in _FALSE
+        model.to_ifc(destination=str(out_path), streaming=streaming)
     elif target_format == "xml":
         on_progress("writing-xml", 0.55)
         model.to_genie_xml(destination_xml=str(out_path))

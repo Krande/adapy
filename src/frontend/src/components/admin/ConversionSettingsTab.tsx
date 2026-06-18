@@ -77,6 +77,17 @@ const ROWS: SettingRow[] = [
         codeDefault: false,
     },
     {
+        key: "ifc_streaming",
+        label: "Stream IFC write",
+        description:
+            "Write FEM→IFC with the memory-bounded streaming writer: Plate solids are " +
+            "hand-authored as SPF text instead of holding the whole model in memory, " +
+            "~halving peak RSS so large shell meshes (100k+ plates) don't OOM the worker. " +
+            "On by default. Off → the in-memory writer (needed if a model uses groups, " +
+            "presentation layers or welds, which the streaming path omits for plates).",
+        codeDefault: true,
+    },
+    {
         key: "profile_conversions",
         label: "Profile conversions",
         description:
