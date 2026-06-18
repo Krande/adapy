@@ -30,6 +30,7 @@ class AuxRecords:
     thickness_by_geono: dict[int, float] = field(default_factory=dict)
     section_by_geono: dict[int, CapSection] = field(default_factory=dict)
     result_point_coords_by_element: dict[int, dict[int, np.ndarray]] = field(default_factory=dict)
+    concept_name_by_element: dict[int, str] = field(default_factory=dict)
 
     @classmethod
     def from_sin(cls, sin_path: str | pathlib.Path) -> "AuxRecords":
@@ -51,6 +52,7 @@ class AuxRecords:
                 thickness_by_geono=thickness,
                 section_by_geono=sections,
                 result_point_coords_by_element=result_points,
+                concept_name_by_element=_parse_concept_names(sin),
             )
         finally:
             sin.close()
@@ -128,6 +130,33 @@ def _parse_rdpoints(sin) -> dict[int, dict[int, np.ndarray]]:
             i += 3
         if points:
             out[elno] = points
+    return out
+
+
+def _parse_concept_names(sin) -> dict[int, str]:
+    """Map FEM element ids to Sesam concept names from TDSCONC/SCONCEPT/SCONMESH."""
+    if not all(name in sin.type_blocks for name in ("TDSCONC", "SCONCEPT", "SCONMESH")):
+        return {}
+
+    names = {int(prefix[0]): text for prefix, text in sin.iter_text_records("TDSCONC") if prefix and text}
+    concept_to_mesh = {
+        int(rec[0]): int(rec[-1])
+        for rec in sin.iter_records("SCONCEPT")
+        if len(rec) >= 7 and int(rec[1]) == 7
+    }
+    mesh_to_elements = {
+        int(rec[0]): tuple(int(e) for e in rec[4:])
+        for rec in sin.iter_records("SCONMESH")
+        if len(rec) >= 5
+    }
+
+    out: dict[int, str] = {}
+    for concept_id, mesh_id in concept_to_mesh.items():
+        name = names.get(concept_id)
+        if not name:
+            continue
+        for element_id in mesh_to_elements.get(mesh_id, ()):
+            out[element_id] = name
     return out
 
 

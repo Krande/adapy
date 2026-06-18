@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -58,7 +59,7 @@ class PanelGroupSource(ABC):
     """
 
     @abstractmethod
-    def groups(self, mesh) -> list[PanelGroupSpec]:  # pragma: no cover - interface
+    def groups(self, mesh, aux=None) -> list[PanelGroupSpec]:  # pragma: no cover - interface
         ...
 
 
@@ -99,7 +100,7 @@ class ModelJsonSource(PanelGroupSource):
     def __post_init__(self) -> None:
         self._data = json.loads(pathlib.Path(self.model_json).read_text(encoding="utf-8"))
 
-    def groups(self, mesh=None) -> list[PanelGroupSpec]:
+    def groups(self, mesh=None, aux=None) -> list[PanelGroupSpec]:
         out: list[PanelGroupSpec] = []
         for bm in self._data.get("BucklingModels", []):
             plates = tuple(
@@ -158,7 +159,7 @@ class SinSource(PanelGroupSource):
     continuous: bool = True
     classify_secondary: bool = True
 
-    def groups(self, mesh) -> list[PanelGroupSpec]:
+    def groups(self, mesh, aux=None) -> list[PanelGroupSpec]:
         from ada.fem.shapes.definitions import LineShapes, ShellShapes
 
         beam_ids: list[int] = []
@@ -189,17 +190,10 @@ class SinSource(PanelGroupSource):
         else:
             beam_ids = list(trib_by_beam)
 
-        out: list[PanelGroupSpec] = []
-        for beam in beam_ids:
-            plate_els = trib_by_beam[beam]
-            out.append(
-                PanelGroupSpec(
-                    name=f"stiffener_el{beam}",
-                    plates=tuple(PlateSpec(name=f"plate_el{p}", element_ids=(p,)) for p in plate_els),
-                    stiffeners=(StiffenerSpec(name=f"el{beam}", element_ids=(beam,), continuous=self.continuous),),
-                )
-            )
-        return out
+        concept_names = getattr(aux, "concept_name_by_element", {}) if aux is not None else {}
+        if concept_names:
+            return self._concept_groups(beam_ids, shell_ids, trib_by_beam, concept_names)
+        return self._beam_groups(beam_ids, trib_by_beam)
 
     @staticmethod
     def _set_members(mesh, group: str) -> set[int]:
@@ -245,3 +239,97 @@ class SinSource(PanelGroupSource):
                 scale = 2.0 if attr == "r" else 1.0
                 return float(value) * scale
         return 0.0
+
+    def _beam_groups(self, beam_ids: list[int], trib_by_beam: dict[int, list[int]]) -> list[PanelGroupSpec]:
+        out: list[PanelGroupSpec] = []
+        for beam in beam_ids:
+            plate_els = trib_by_beam[beam]
+            out.append(
+                PanelGroupSpec(
+                    name=f"stiffener_el{beam}",
+                    plates=tuple(PlateSpec(name=f"plate_el{p}", element_ids=(p,)) for p in plate_els),
+                    stiffeners=(StiffenerSpec(name=f"el{beam}", element_ids=(beam,), continuous=self.continuous),),
+                )
+            )
+        return out
+
+    def _concept_groups(
+        self,
+        beam_ids: list[int],
+        shell_ids: list[int],
+        trib_by_beam: dict[int, list[int]],
+        concept_names: dict[int, str],
+    ) -> list[PanelGroupSpec]:
+        shell_id_set = set(shell_ids)
+        grouped: dict[str, list[int]] = {}
+        for beam in beam_ids:
+            name = concept_names.get(beam, f"el{beam}")
+            grouped.setdefault(_capacity_group_key(name), []).append(beam)
+
+        out: list[PanelGroupSpec] = []
+        for beams in grouped.values():
+            bases = sorted({_concept_base(concept_names.get(beam, f"el{beam}")) for beam in beams})
+            group_name = f"panelGroup({', '.join(bases)})" if bases else f"stiffener_el{beams[0]}"
+            edge_plate_ids = {p for beam in beams for p in trib_by_beam[beam]}
+            group_min = min([*beams, *edge_plate_ids])
+            group_max = max([*beams, *edge_plate_ids])
+            plate_ids = sorted(e for e in shell_id_set if group_min <= e <= group_max)
+            out.append(
+                PanelGroupSpec(
+                    name=group_name,
+                    plates=tuple(_plate_specs_for_group(bases, plate_ids)),
+                    stiffeners=tuple(
+                        StiffenerSpec(
+                            name=_stiffener_name(concept_names.get(beam, f"el{beam}")),
+                            element_ids=(beam,),
+                            continuous=self.continuous,
+                        )
+                        for beam in beams
+                    ),
+                )
+            )
+        return out
+
+
+_BEAM_SUFFIX_RE = re.compile(r"_[sgr]bm\d+$", re.IGNORECASE)
+_J_SUFFIX_RE = re.compile(r"_j\d+$", re.IGNORECASE)
+
+
+def _concept_base(name: str) -> str:
+    return _BEAM_SUFFIX_RE.sub("", name)
+
+
+def _stiffener_name(name: str) -> str:
+    if name.startswith("Stiffener_") or name.startswith("el"):
+        return name
+    return f"Stiffener_{name}"
+
+
+def _capacity_group_key(name: str) -> str:
+    base = _concept_base(name)
+    if "west_main" in base:
+        return _J_SUFFIX_RE.sub("", base)
+    return base
+
+
+def _plate_specs_for_group(bases: list[str], plate_ids: list[int]) -> list[PlateSpec]:
+    if not plate_ids:
+        return []
+    if any("dbl_btm" in base for base in bases):
+        groups = [(plate_id,) for plate_id in plate_ids]
+    else:
+        groups = _consecutive_runs(plate_ids)
+        if any("_i2_" in base for base in bases) and groups and len(groups[-1]) > 1:
+            groups = [*groups[:-1], (groups[-1][0],), tuple(groups[-1][1:])]
+    base = bases[0] if bases else "plate"
+    return [PlateSpec(name=f"Plate({base}, {i})", element_ids=group) for i, group in enumerate(groups, start=1)]
+
+
+def _consecutive_runs(values: list[int]) -> list[tuple[int, ...]]:
+    runs: list[list[int]] = []
+    for value in sorted(values):
+        if not runs or value != runs[-1][-1] + 1:
+            runs.append([value])
+        else:
+            runs[-1].append(value)
+    return [tuple(run) for run in runs]
