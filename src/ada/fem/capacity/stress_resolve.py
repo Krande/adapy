@@ -220,7 +220,7 @@ def _resolve_stiffener(
     long_pos = [(a + e) / 2.0 for a, e in zip(all_long_pos, edge_long_pos)]
     long_mid = float(long_pos[1])
     trans_pos = [-x for x in _station_values(membrane_points, origin, axis, 1, -float(overall[1]))]
-    tau_pos = [abs(float(overall[2]))] * 3
+    tau_pos = [abs(x) for x in _station_values(membrane_points, origin, axis, 2, -float(overall[2]))]
     v_mid = overall
 
     # Plate tributary area = thickness x spacing of the bordering plate(s).
