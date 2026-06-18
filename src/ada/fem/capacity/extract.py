@@ -22,10 +22,9 @@ from ada.fem.results.common import Mesh
 class AuxRecords:
     """SIN records not surfaced by :class:`Mesh`, keyed by ``geono``/id.
 
-    Carries the plate thicknesses (``GELTH``) and the stiffener cross-sections
-    parsed straight from the raw section cards (``GIORH`` / ``GBOX`` / ``GLSEC``).
-    The latter is needed because adapy mis-parses Holland-bulb sections (stored
-    as an idealized L-section in ``GLSEC``) as a dimensionless circular profile.
+    Carries the plate thicknesses (``GELTH``) and, as a compatibility fallback,
+    the stiffener cross-sections parsed straight from the raw section cards
+    (``GIORH`` / ``GBOX`` / ``GLSEC``).
     """
 
     thickness_by_geono: dict[int, float] = field(default_factory=dict)

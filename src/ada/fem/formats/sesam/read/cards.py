@@ -66,6 +66,17 @@ SEC_MAP = {
         BaseTypes.TUBULAR,
         (("dy", "r"), ("t", "wt")),
     ),
+    "GLSEC": (
+        BaseTypes.ANGULAR,
+        (
+            ("hz", "h"),
+            ("ty", "t_w"),
+            ("by", "w_top"),
+            ("tz", "t_ftop"),
+            ("by", "w_btn"),
+            ("tz", "t_fbtn"),
+        ),
+    ),
 }
 MAT_MAP = {
     "MISOSEL": (
@@ -146,6 +157,7 @@ re_gbeamg = get_ff_regex(
 GIORH = DataCard("GIORH", ("geono", "hz", "ty", "bt", "tt", "bb", "tb", "sfy", "sfz", "NLOBYT|", "NLOBYB|", "NLOBZ|"))
 GBOX = DataCard("GBOX", ("geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz"))
 GPIPE = DataCard("GPIPE", ("geono", "di", "dy", "t", "sfy", "sfz"))
+GLSEC = DataCard("GLSEC", ("geono", "hz", "ty", "by", "tz", "sfy", "sfz", "NLOBY|", "NLOBZ|"))
 # Generic beam properties — area + moments of inertia only, no
 # profile geometry. The streaming bake uses these to synthesise a
 # tubular approximation for elements that reference a sec_id with

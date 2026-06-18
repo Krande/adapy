@@ -90,6 +90,18 @@ def test_stiffener_span_matches_plate_length(manager):
             assert s.span == pytest.approx(ref_span, rel=1e-3, abs=1e-4)
 
 
+def test_glsec_sections_parse_as_angular_from_sin():
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+    from ada.sections.categories import BaseTypes
+
+    sec = read_sin_file(SIN).mesh.sections[3]
+    assert sec.type == BaseTypes.ANGULAR
+    assert sec.h == pytest.approx(0.22)
+    assert sec.t_w == pytest.approx(0.01)
+    assert sec.w_top == pytest.approx(0.041)
+    assert sec.t_ftop == pytest.approx(0.02505)
+
+
 def test_genie_mirror_roundtrips(manager, tmp_path):
     out = tmp_path / "mirror.json"
     manager.to_genie_json(out)

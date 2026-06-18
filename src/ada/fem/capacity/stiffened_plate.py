@@ -90,29 +90,28 @@ class StiffenedPlateBuilder(CapacityModelBuilder):
 
 
 def _section_of(mesh: Mesh, aux: extract.AuxRecords, element_id: int) -> CapSection:
-    """CapSection for a stiffener: prefer the raw-card parse (handles bulbs),
-    fall back to adapy's parsed Section (I/box profiles)."""
+    """CapSection for a stiffener from adapy's parsed Section, with raw-card fallback."""
+    section = _section_from_mesh(mesh, element_id)
+    if section.height > 0.0 and section.web_thickness > 0.0:
+        return section
     geono = extract.geono_of(mesh, element_id)
     if geono in aux.section_by_geono:
         return aux.section_by_geono[geono]
-    return _section_from_mesh(mesh, element_id)
+    return section
 
 
 def _section_from_mesh(mesh: Mesh, element_id: int) -> CapSection:
-    """Best-effort CapSection from adapy's parsed Section (I/box profiles).
-
-    adapy does not parse bulb-flat dimensions, so this returns zeros for those;
-    such profiles must be supplied by the grouping source instead.
-    """
+    """Best-effort CapSection from adapy's parsed Section."""
     sec = mesh.sections.get(extract.geono_of(mesh, element_id))
     name = getattr(sec, "name", "")
     h = getattr(sec, "h", None)
     t_w = getattr(sec, "t_w", None)
     w_top = getattr(sec, "w_top", None)
     t_ftop = getattr(sec, "t_ftop", None)
+    is_bulb = str(name).upper().startswith("HP")
     return CapSection(
         name=name or "",
-        section_type=0,
+        section_type=7 if is_bulb else 0,
         height=float(h) if h else 0.0,
         web_thickness=float(t_w) if t_w else 0.0,
         flange_width=float(w_top) if w_top else 0.0,

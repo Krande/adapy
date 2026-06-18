@@ -39,7 +39,7 @@ _OTHER_CARDS = (
     cards.TDRESREF,
     cards.GBEAMG,
 )
-_SECTION_CARDS = (cards.GIORH, cards.GBOX, cards.GPIPE)
+_SECTION_CARDS = (cards.GIORH, cards.GBOX, cards.GPIPE, cards.GLSEC)
 _RESULT_CARDS = (
     cards.RVNODDIS,
     cards.RVSTRESS,

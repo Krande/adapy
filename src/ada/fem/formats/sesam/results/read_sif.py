@@ -103,7 +103,7 @@ OTHER_CARDS = [
     # coverage was being silently dropped.
     cards.GBEAMG,
 ]
-SECTION_CARDS = [cards.GIORH, cards.GBOX, cards.GPIPE]
+SECTION_CARDS = [cards.GIORH, cards.GBOX, cards.GPIPE, cards.GLSEC]
 RESULT_CARDS = [
     cards.RVNODDIS,
     cards.RVSTRESS,
