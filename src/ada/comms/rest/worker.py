@@ -851,6 +851,9 @@ async def _process_one(
                 # Per-solid tessellation budget; a solid that overruns it (OCC hang) is
                 # killed and skipped so one bad solid can't freeze the whole conversion.
                 "step_stream_solid_timeout_s": "ADA_STEP_STREAM_SOLID_TIMEOUT_S",
+                # FEM→IFC memory-bounded writer. Default on (converter treats
+                # unset as on); set falsy to revert to the in-memory writer.
+                "ifc_streaming": "ADA_IFC_STREAMING",
             }
             for skey, env_name in _env_map.items():
                 raw = await _read_bool_setting(skey)
@@ -868,6 +871,7 @@ async def _process_one(
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
                 "step_streamer": "ADA_STEP_STREAMER",
+                "ifc_streaming": "ADA_IFC_STREAMING",
             }
             for k, v in per_job.items():
                 env_name = _env_map_full.get(k)

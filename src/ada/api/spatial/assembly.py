@@ -225,6 +225,7 @@ class Assembly(Part):
         validate=False,
         progress_callback: Callable[[int, int], None] = None,
         geom_repr_override: dict[str, GeomRepr] = None,
+        streaming=False,
     ) -> ifcopenshell.file:
         import ifcopenshell.validate
 
@@ -234,6 +235,30 @@ class Assembly(Part):
             destination = pathlib.Path(destination).resolve().absolute()
 
         logger.info(f'Beginning writing to IFC file "{destination}" using IfcOpenShell')
+
+        # Memory-bounded path: hand-author Plate solids as SPF text instead of
+        # holding the whole ifcopenshell.file in memory. It rebuilds the IFC
+        # from the assembly's concept objects, so it's only correct for freshly
+        # built models. Fall back to the in-memory writer when:
+        #   * there is no on-disk destination / a geom_repr_override is set, or
+        #   * the model was loaded from IFC — ifc_store.f then already holds the
+        #     source products (objects are NOCHANGE) and the normal writer's
+        #     passthrough is required; rebuilding them from scratch fails.
+        if streaming and not file_obj_only and destination != "object" and geom_repr_override is None:
+            if not self.ifc_store.f.by_type("IfcProduct"):
+                from ada.cadit.ifc.write.stream_ifc import stream_assembly_to_ifc
+
+                stream_assembly_to_ifc(self, destination, include_fem=include_fem, progress_callback=progress_callback)
+                if validate:
+                    ifcopenshell.validate.validate(destination, logger)
+                logger.info("IFC file creation complete (streaming)")
+                return None
+            logger.info("to_ifc(streaming=True): model carries loaded IFC entities; using the in-memory writer")
+        elif streaming:
+            logger.warning(
+                "to_ifc(streaming=True) needs an on-disk destination and no geom_repr_override; "
+                "falling back to the in-memory writer."
+            )
 
         self.ifc_store.sync(
             include_fem=include_fem, progress_callback=progress_callback, geom_repr_override=geom_repr_override

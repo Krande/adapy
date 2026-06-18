@@ -582,7 +582,17 @@ def _apply_fem_to_objects(
         return
     merge = True if merge_fem_objects is None else bool(merge_fem_objects)
     recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
-    model.create_objects_from_fem(merge=merge, reconstruct_surfaces=recon)
+    # The IFC streaming writer fuses shell elements into plates one at a time
+    # (Part.iter_objects_from_fem), so leave plates unbuilt — build beams only —
+    # and let the writer stream them, keeping peak memory bounded. Curved-plate
+    # reconstruction (advanced faces) isn't handled by the text emitter, so it
+    # still takes the full build.
+    skip_plates = False
+    if target_format == "ifc" and not recon:
+        import os
+
+        skip_plates = os.environ.get("ADA_IFC_STREAMING", "").strip().lower() not in _FALSE
+    model.create_objects_from_fem(merge=merge, reconstruct_surfaces=recon, skip_plates=skip_plates)
 
 
 def _export_with_ada(
@@ -619,7 +629,15 @@ def _export_with_ada(
         return buf.getvalue()
     if target_format == "ifc":
         on_progress("writing-ifc", 0.55)
-        model.to_ifc(destination=str(out_path))
+        # Memory-bounded writer is the default: it hand-authors Plate solids as
+        # SPF text instead of holding the whole ifcopenshell.file, ~halving peak
+        # RSS on large FEM→IFC and clearing the worker OOM cap. The admin "Stream
+        # IFC write" toggle / per-job ``ifc_streaming`` sets ADA_IFC_STREAMING;
+        # only an explicit falsy value reverts to the in-memory writer.
+        import os
+
+        streaming = os.environ.get("ADA_IFC_STREAMING", "").strip().lower() not in _FALSE
+        model.to_ifc(destination=str(out_path), streaming=streaming)
     elif target_format == "xml":
         on_progress("writing-xml", 0.55)
         model.to_genie_xml(destination_xml=str(out_path))

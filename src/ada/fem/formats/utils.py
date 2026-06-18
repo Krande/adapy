@@ -478,7 +478,9 @@ def should_convert(res_path, overwrite):
         return False
 
 
-def convert_shell_elem_to_plates(elem: Elem, parent: Part, mat_dict: dict | None = None) -> list[Plate]:
+def convert_shell_elem_to_plates(
+    elem: Elem, parent: Part, mat_dict: dict | None = None, detached: bool = False
+) -> list[Plate]:
     from ada import Plate
     from ada.base.types import GeomRepr
     from ada.core.vector_utils import is_coplanar
@@ -521,13 +523,22 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part, mat_dict: dict | None
         ):
             plates.append(
                 Plate.from_fem_shell(
-                    f"sh{elem.id}", [n.p for n in elem.nodes], fem_sec.thickness, mat=new_mat, parent=parent
+                    f"sh{elem.id}",
+                    [n.p for n in elem.nodes],
+                    fem_sec.thickness,
+                    mat=new_mat,
+                    parent=parent,
+                    detached=detached,
                 )
             )
         else:
             el_n1 = [elem.nodes[0].p, elem.nodes[1].p, elem.nodes[2].p]
             el_n2 = [elem.nodes[0].p, elem.nodes[2].p, elem.nodes[3].p]
-            plates.append(Plate.from_fem_shell(f"sh{elem.id}", el_n1, fem_sec.thickness, mat=new_mat, parent=parent))
+            plates.append(
+                Plate.from_fem_shell(
+                    f"sh{elem.id}", el_n1, fem_sec.thickness, mat=new_mat, parent=parent, detached=detached
+                )
+            )
             plates.append(
                 Plate.from_fem_shell(
                     f"sh{elem.id}_1",
@@ -535,6 +546,7 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part, mat_dict: dict | None
                     fem_sec.thickness,
                     mat=new_mat,
                     parent=parent,
+                    detached=detached,
                 )
             )
     else:
@@ -546,6 +558,7 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part, mat_dict: dict | None
                     fem_sec.thickness,
                     mat=fem_sec.material,
                     parent=parent,
+                    detached=detached,
                 )
             )
         except BaseException as e:

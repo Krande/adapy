@@ -790,6 +790,42 @@ class Part(BackendGeom):
             convert_part_objects(self, skip_plates, skip_beams, merge=merge, reconstruct_surfaces=reconstruct_surfaces)
         logger.info("Conversion complete")
 
+    def iter_objects_from_fem(
+        self, beams: bool = True, plates: bool = True, detached: bool = True, mat_cache: dict | None = None
+    ) -> Iterable[Beam | Plate]:
+        """Lazily build concept objects from this part's FEM mesh.
+
+        Streaming sibling of :meth:`create_objects_from_fem`: yields one object
+        at a time WITHOUT materialising the full set or adding them to the
+        part's containers, so a streaming exporter (e.g.
+        ``Assembly.to_ifc(streaming=True)``) keeps peak memory bounded. Beams
+        are yielded before plates.
+
+        ``detached`` (default) yields transient plates carrying no material
+        back-reference, so each frees as soon as the consumer drops it. Unlike
+        ``create_objects_from_fem`` there is no coplanar/colinear merge —
+        merging needs the whole set resident.
+
+        ``mat_cache`` (name → :class:`Material`) lets the caller pin which
+        material objects the plates reference — pass the already-consolidated
+        materials so the streamed plates share the exporter's material identity
+        (else a post-consolidation ``materials.add`` would mint a fresh copy).
+        """
+        from ada.fem.formats.utils import (
+            convert_shell_elem_to_plates,
+            line_elem_to_beam,
+        )
+
+        if self.fem is None:
+            return
+        if beams:
+            for elem in self.fem.elements.lines:
+                yield line_elem_to_beam(elem, self)
+        if plates:
+            mat_dict: dict = {} if mat_cache is None else mat_cache
+            for elem in self.fem.elements.shell:
+                yield from convert_shell_elem_to_plates(elem, self, mat_dict, detached=detached)
+
     def get_part(self, name: str, search_all_parts_in_assembly=False) -> Part | None:
         """Get part by name."""
         if search_all_parts_in_assembly:
