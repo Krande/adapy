@@ -153,3 +153,46 @@ def test_transverse_and_shear_match_genie(manager, genie_variables):
     # Median relative error is at the float-noise floor → the resolution matches.
     assert statistics.median(trans_rel) < 1e-4
     assert statistics.median(shear_rel) < 1e-4
+
+
+def test_rdpoints_sampling_matches_genie_longitudinal_and_transverse_ends(manager, genie_variables):
+    """RDPOINTS-coordinate sampling closes the single-connection stress residuals.
+
+    A multi-connection tail remains until the resolver emits one case per
+    connection, so assert the calibrated median plus a broad within-2% fraction
+    instead of full parity.
+    """
+    import statistics
+
+    resolved = manager.resolve_cases()
+    trans_start_rel: list[float] = []
+    trans_end_rel: list[float] = []
+    long_rel: list[float] = []
+    axial_rel: list[float] = []
+    for rc in resolved:
+        g = genie_variables.get((rc.result_case, rc.stiffener))
+        if g is None:
+            continue
+        _gv, gvec = g
+        ours_t = rc.vectors.get("AverageTransverseMembraneStresses", [])
+        genie_t = gvec.get("AverageTransverseMembraneStresses", [])
+        if len(ours_t) == 3 and len(genie_t) == 3:
+            if abs(genie_t[0]) > 1.0:
+                trans_start_rel.append(abs(ours_t[0] - genie_t[0]) / abs(genie_t[0]))
+            if abs(genie_t[2]) > 1.0:
+                trans_end_rel.append(abs(ours_t[2] - genie_t[2]) / abs(genie_t[2]))
+
+        ours_l = rc.vectors.get("AverageLongitudinalMembraneStresses", [])
+        genie_l = gvec.get("AverageLongitudinalMembraneStresses", [])
+        if len(ours_l) == 3 and len(genie_l) == 3 and abs(genie_l[1]) > 1.0:
+            long_rel.append(abs(ours_l[1] - genie_l[1]) / abs(genie_l[1]))
+
+        ours_a = rc.vectors.get("AxialLoads", [])
+        genie_a = gvec.get("AxialLoads", [])
+        if len(ours_a) == 3 and len(genie_a) == 3 and abs(genie_a[1]) > 1.0:
+            axial_rel.append(abs(ours_a[1] - genie_a[1]) / abs(genie_a[1]))
+
+    for residuals in (trans_start_rel, trans_end_rel, long_rel, axial_rel):
+        assert len(residuals) > 400
+        assert statistics.median(residuals) < 1e-3
+        assert sum(r <= 0.02 for r in residuals) / len(residuals) > 0.80

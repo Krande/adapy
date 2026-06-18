@@ -49,6 +49,18 @@ def _element_membrane_tensor(stress_blocks, element_id: int) -> np.ndarray | Non
     return np.vstack(rows).mean(axis=0)
 
 
+def _element_stress_rows(stress_blocks, element_id: int) -> dict[int, np.ndarray]:
+    """Element stress tensor rows keyed by 1-based result-point id."""
+    rows: dict[int, list[np.ndarray]] = {}
+    for b in stress_blocks:
+        sub = b.get_by_element_id([element_id])
+        if not sub.values.size:
+            continue
+        for row in sub.values:
+            rows.setdefault(int(row[1]), []).append(np.asarray(row[2:5], dtype=float))
+    return {point_id: np.vstack(values).mean(axis=0) for point_id, values in rows.items()}
+
+
 def _rotate_to_stiffener_frame(mesh: Mesh, element_id: int, tensor: np.ndarray, axis: np.ndarray) -> np.ndarray:
     """Rotate an element-frame membrane tensor into the stiffener frame.
 
@@ -71,6 +83,91 @@ def _rotate_to_stiffener_frame(mesh: Mesh, element_id: int, tensor: np.ndarray, 
     return np.array([s_long, s_trans, tau])
 
 
+def _element_membrane_points(
+    mesh: Mesh,
+    aux: extract.AuxRecords,
+    stress_blocks,
+    element_id: int,
+    axis: np.ndarray,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Membrane stress points as ``(xyz, rotated_tensor)``.
+
+    Shell stress output is top/bottom surface data. Pair the two surfaces by
+    result-point id order and average them into membrane values at the midpoint
+    coordinate before rotating into the stiffener frame.
+    """
+    rows = _element_stress_rows(stress_blocks, element_id)
+    if not rows:
+        return []
+
+    coords = aux.result_point_coords_by_element.get(element_id, {})
+    point_ids = sorted(rows)
+    if coords and len(point_ids) % 2 == 0:
+        half = len(point_ids) // 2
+        paired = []
+        for a, b in zip(point_ids[:half], point_ids[half:]):
+            if a not in coords or b not in coords:
+                continue
+            tensor = (rows[a] + rows[b]) / 2.0
+            xyz = (coords[a] + coords[b]) / 2.0
+            paired.append((xyz, _rotate_to_stiffener_frame(mesh, element_id, tensor, axis)))
+        if paired:
+            return paired
+
+    tensor = _element_membrane_tensor(stress_blocks, element_id)
+    if tensor is None:
+        return []
+    xyz = extract.element_node_coords(mesh, element_id).mean(axis=0)
+    return [(xyz, _rotate_to_stiffener_frame(mesh, element_id, tensor, axis))]
+
+
+def _beam_origin(mesh: Mesh, element_ids: tuple[int, ...]) -> np.ndarray:
+    return extract.element_node_coords(mesh, element_ids[0])[0]
+
+
+def _edge_points(
+    points: list[tuple[np.ndarray, np.ndarray]],
+    origin: np.ndarray,
+    axis: np.ndarray,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Points closest to the stiffener line."""
+    if not points:
+        return []
+    ax = np.asarray(axis, dtype=float)
+    ax = ax / (np.linalg.norm(ax) or 1.0)
+    distances = []
+    for xyz, _ in points:
+        offset = xyz - origin
+        line_vec = offset - ax * float(np.dot(offset, ax))
+        distances.append(float(np.linalg.norm(line_vec)))
+    min_dist = min(distances)
+    tol = max(1e-6, min_dist + 1e-5)
+    return [point for point, distance in zip(points, distances) if distance <= tol]
+
+
+def _station_values(
+    points: list[tuple[np.ndarray, np.ndarray]],
+    origin: np.ndarray,
+    axis: np.ndarray,
+    component: int,
+    mid_value: float,
+) -> list[float]:
+    """Start/mid/end values from result-point coordinates along the stiffener."""
+    if not points:
+        return [mid_value] * 3
+    ax = np.asarray(axis, dtype=float)
+    ax = ax / (np.linalg.norm(ax) or 1.0)
+    along = np.array([float(np.dot(xyz - origin, ax)) for xyz, _ in points])
+    values = np.array([float(v[component]) for _, v in points])
+    span = float(np.ptp(along))
+    if span <= 1e-12:
+        return [float(values.mean()), mid_value, float(values.mean())]
+    tol = max(span * 1e-6, 1e-6)
+    start = float(values[along <= along.min() + tol].mean())
+    end = float(values[along >= along.max() - tol].mean())
+    return [start, mid_value, end]
+
+
 def _beam_axial_force(force_blocks, element_ids: tuple[int, ...]) -> float:
     """Mean beam axial force (NXX) over a stiffener's beam element(s).
 
@@ -89,6 +186,7 @@ def _beam_axial_force(force_blocks, element_ids: tuple[int, ...]) -> float:
 
 def _resolve_stiffener(
     mesh: Mesh,
+    aux: extract.AuxRecords,
     model: CapacityModel,
     stiff_name: str,
     stress_blocks,
@@ -105,15 +203,23 @@ def _resolve_stiffener(
     # reproduces Genie's transverse-mid and shear to float precision; the along-
     # span transverse profile (start/end) and the longitudinal edge value carry a
     # residual still under calibration — see module docstring.
-    rotated = [
-        _rotate_to_stiffener_frame(mesh, pe, t, axis)
+    membrane_points = [
+        point
         for pe in trib
-        if (t := _element_membrane_tensor(stress_blocks, pe)) is not None
+        for point in _element_membrane_points(mesh, aux, stress_blocks, pe, axis)
     ]
+    rotated = [tensor for _, tensor in membrane_points]
     overall = -np.array(rotated).mean(axis=0) if rotated else np.zeros(3)
 
-    long_pos = [float(overall[0])] * 3
-    trans_pos = [float(overall[1])] * 3
+    origin = _beam_origin(mesh, st.element_ids)
+    edge_points = _edge_points(membrane_points, origin, axis)
+    edge_rotated = [tensor for _, tensor in edge_points]
+    edge_mid = -float(np.array(edge_rotated).mean(axis=0)[0]) if edge_rotated else float(overall[0])
+    all_long_pos = [-x for x in _station_values(membrane_points, origin, axis, 0, -float(overall[0]))]
+    edge_long_pos = [-x for x in _station_values(edge_points, origin, axis, 0, -edge_mid)]
+    long_pos = [(a + e) / 2.0 for a, e in zip(all_long_pos, edge_long_pos)]
+    long_mid = float(long_pos[1])
+    trans_pos = [-x for x in _station_values(membrane_points, origin, axis, 1, -float(overall[1]))]
     tau_pos = [abs(float(overall[2]))] * 3
     v_mid = overall
 
@@ -121,7 +227,7 @@ def _resolve_stiffener(
     plate = next((p for p in model.plates if any(e in trib for e in p.element_ids)), None)
     t = plate.thickness if plate else 0.0
     s_spacing = plate.width if plate else 0.0
-    n_plate = float(v_mid[0]) * t * s_spacing
+    n_plate = long_mid * t * s_spacing
     n_beam = _beam_axial_force(force_blocks, st.element_ids)
     n_axial = n_plate + n_beam
     n_sd = max(n_axial, 0.0)  # buckling axial counts compression only (Genie Nsd)
@@ -164,6 +270,7 @@ def resolve_cases(
     if result_cases is None:
         result_cases = read_sin_metadata(sin_path).steps
 
+    aux = extract.AuxRecords.from_sin(sin_path)
     mesh = read_sin_file(sin_path, step=result_cases[0]).mesh if result_cases else None
     out: list[ResolvedCase] = []
     for case in result_cases:
@@ -172,7 +279,7 @@ def resolve_cases(
         force_blocks = [r for r in res.results if r.name == "FORCES"]
         for model in models:
             for st in model.stiffeners:
-                rc = _resolve_stiffener(mesh, model, st.name, stress_blocks, force_blocks)
+                rc = _resolve_stiffener(mesh, aux, model, st.name, stress_blocks, force_blocks)
                 out.append(
                     ResolvedCase(
                         result_case=case,

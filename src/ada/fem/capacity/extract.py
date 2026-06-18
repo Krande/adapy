@@ -29,6 +29,7 @@ class AuxRecords:
 
     thickness_by_geono: dict[int, float] = field(default_factory=dict)
     section_by_geono: dict[int, CapSection] = field(default_factory=dict)
+    result_point_coords_by_element: dict[int, dict[int, np.ndarray]] = field(default_factory=dict)
 
     @classmethod
     def from_sin(cls, sin_path: str | pathlib.Path) -> "AuxRecords":
@@ -45,7 +46,12 @@ class AuxRecords:
                         thickness[int(rec[0])] = float(rec[1])
             names = _section_names(sin)
             sections = _parse_sections(sin, names)
-            return cls(thickness_by_geono=thickness, section_by_geono=sections)
+            result_points = _parse_rdpoints(sin)
+            return cls(
+                thickness_by_geono=thickness,
+                section_by_geono=sections,
+                result_point_coords_by_element=result_points,
+            )
         finally:
             sin.close()
 
@@ -87,6 +93,41 @@ def _parse_sections(sin, names: dict[int, str]) -> dict[int, CapSection]:
     for rec in sin.iter_records("GBOX") if "GBOX" in sin.type_blocks else []:
         g = int(rec[0])
         out[g] = CapSection(names.get(g, ""), 0, float(rec[1]), float(rec[2]), 0.0, 0.0)
+    return out
+
+
+def _parse_rdpoints(sin) -> dict[int, dict[int, np.ndarray]]:
+    """Result-point coordinates by ``element id`` and 1-based point id.
+
+    SIN ``RDPOINTS`` stores absolute coordinates in the variable-width bulk
+    payload as ``point id, x, y, z`` groups, with optional ``-1`` separators,
+    followed by the element transform matrix. The public result field keeps only
+    the point number, so the capacity resolver surfaces the coordinates here.
+    """
+    if "RDPOINTS" not in sin.type_blocks:
+        return {}
+
+    out: dict[int, dict[int, np.ndarray]] = {}
+    for rec in sin.iter_records("RDPOINTS"):
+        if len(rec) < 9:
+            continue
+        elno = int(rec[1])
+        nsptra = int(rec[6])
+        transform_len = nsptra * 9
+        bulk = rec[8 : -transform_len] if transform_len else rec[8:]
+        points: dict[int, np.ndarray] = {}
+        i = 0
+        while i < len(bulk):
+            point_id = int(bulk[i])
+            i += 1
+            if point_id == -1:
+                continue
+            if i + 2 >= len(bulk):
+                break
+            points[point_id] = np.array((float(bulk[i]), float(bulk[i + 1]), float(bulk[i + 2])), dtype=float)
+            i += 3
+        if points:
+            out[elno] = points
     return out
 
 
