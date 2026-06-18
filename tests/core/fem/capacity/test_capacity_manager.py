@@ -126,6 +126,20 @@ def test_sin_source_builds_mini_grid_x100_capacity_models_like_genie():
         assert native_plates == genie_plates
 
 
+def test_sin_source_scopes_area_set_to_capacity_grid_like_genie():
+    from ada.fem.capacity import CapacityManager, SinSource
+
+    native = CapacityManager.from_sin(SIN, SinSource(group="Mini_area_dbl_btm")).capacity_models()
+
+    assert {model.name for model in native} == {
+        "panelGroup(Mini_dbl_btm_f0_i1_j1)",
+        "panelGroup(Mini_dbl_btm_f0_i2_j1)",
+        "panelGroup(Mini_dbl_btm_f0_i3_j1)",
+        "panelGroup(Mini_dbl_btm_f0_i4_j1)",
+    }
+    assert sum(len(model.stiffeners) for model in native) == 12
+
+
 def test_genie_mirror_roundtrips(manager, tmp_path):
     out = tmp_path / "mirror.json"
     manager.to_genie_json(out)

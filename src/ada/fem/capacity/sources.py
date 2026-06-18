@@ -173,7 +173,7 @@ class SinSource(PanelGroupSource):
                 shell_ids.extend(ids)
 
         if self.group is not None:
-            members = self._set_members(mesh, self.group)
+            members = self._scoped_set_members(mesh, self.group)
             beam_ids = [b for b in beam_ids if b in members]
 
         from ada.fem.capacity.extract import tributary_plate_ids
@@ -206,6 +206,25 @@ class SinSource(PanelGroupSource):
         if ids:
             return {int(x) for x in ids}
         return {int(getattr(m, "id", m)) for m in getattr(fs, "members", []) or []}
+
+    @staticmethod
+    def _scoped_set_members(mesh, group: str) -> set[int]:
+        members = SinSource._set_members(mesh, group)
+        prefix, _, area = group.partition("_area_")
+        if not area:
+            return members
+
+        # Sesam concept models often carry broad area sets plus grid-plane sets.
+        # Genie's Capacity Manager scopes a named area to the active x-grid
+        # plane; in the Mini reference this is Mini_area_* ∩ Mini_grid_x100.
+        grid_sets = sorted(
+            name for name in (mesh.sets or {}) if name.startswith(f"{prefix}_grid_x") and name != f"{prefix}_grid_x"
+        )
+        for grid in grid_sets:
+            scoped = members & SinSource._set_members(mesh, grid)
+            if scoped:
+                return scoped
+        return members
 
     @staticmethod
     def _secondary_stiffener_ids(mesh, beam_ids: list[int]) -> list[int]:
