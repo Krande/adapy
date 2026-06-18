@@ -1,0 +1,111 @@
+"""Build a stiffened-plate :class:`CapacityModel` from a mesh + panel-group spec.
+
+This is the stiffened-plate specialization of the abstract
+:class:`CapacityModelBuilder`. A future girder builder implements the same
+interface and slots into :class:`~ada.fem.capacity.manager.CapacityManager`
+without touching the grouping or extraction layers.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+
+import numpy as np
+
+from ada.config import logger
+from ada.fem.capacity import extract
+from ada.fem.capacity.model import CapacityModel, CapMaterial, CapPlate, CapSection, CapStiffener
+from ada.fem.capacity.sources import PanelGroupSpec
+from ada.fem.results.common import Mesh
+
+
+def _cap_material(mesh: Mesh, element_id: int, gamma_m: float = 1.15) -> CapMaterial:
+    mat = mesh.materials.get(extract.matno_of(mesh, element_id))
+    model = getattr(mat, "model", None)
+    E = float(getattr(model, "E", 2.1e11))
+    fy = float(getattr(model, "sig_y", 355e6))
+    poisson = float(getattr(model, "poisson", None) or 0.3)
+    G = E / (2.0 * (1.0 + poisson))
+    name = getattr(mat, "name", "steel")
+    return CapMaterial(E=E, fy=fy, poisson=poisson, gamma_m=gamma_m, G=G, name=name)
+
+
+class CapacityModelBuilder(ABC):
+    """Turns a panel-group membership spec into a :class:`CapacityModel`."""
+
+    @abstractmethod
+    def build(self, mesh: Mesh, aux: extract.AuxRecords, group: PanelGroupSpec) -> CapacityModel:
+        ...
+
+
+class StiffenedPlateBuilder(CapacityModelBuilder):
+    def build(self, mesh: Mesh, aux: extract.AuxRecords, group: PanelGroupSpec) -> CapacityModel:
+        # Stiffener axis (used to orient plate length vs width). Use the first
+        # stiffener with mesh elements; fall back to global z.
+        axis = np.array([0.0, 0.0, 1.0])
+        for st in group.stiffeners:
+            if st.element_ids:
+                axis, _ = extract.beam_axis_and_span(mesh, st.element_ids)
+                break
+
+        plates: list[CapPlate] = []
+        for p in group.plates:
+            if not p.element_ids:
+                continue
+            geono = extract.geono_of(mesh, p.element_ids[0])
+            thickness = aux.thickness_by_geono.get(geono, 0.0)
+            if not thickness:
+                logger.warning("capacity: no GELTH thickness for plate %s (geono %s)", p.name, geono)
+            length, width = extract.plate_dimensions(mesh, p.element_ids, axis)
+            plates.append(
+                CapPlate(
+                    name=p.name,
+                    thickness=thickness,
+                    length=length,
+                    width=width,
+                    material=_cap_material(mesh, p.element_ids[0]),
+                    element_ids=p.element_ids,
+                )
+            )
+
+        stiffeners: list[CapStiffener] = []
+        for s in group.stiffeners:
+            if not s.element_ids:
+                continue
+            _, span = extract.beam_axis_and_span(mesh, s.element_ids)
+            section = s.section if s.section is not None else _section_from_mesh(mesh, s.element_ids[0])
+            stiffeners.append(
+                CapStiffener(
+                    name=s.name,
+                    section=section,
+                    material=_cap_material(mesh, s.element_ids[0]),
+                    span=span,
+                    element_ids=s.element_ids,
+                    eccentricity=s.eccentricity or 0.0,
+                    continuous=s.continuous,
+                )
+            )
+
+        return CapacityModel(name=group.name, plates=tuple(plates), stiffeners=tuple(stiffeners))
+
+
+def _section_from_mesh(mesh: Mesh, element_id: int) -> CapSection:
+    """Best-effort CapSection from adapy's parsed Section (I/box profiles).
+
+    adapy does not parse bulb-flat dimensions, so this returns zeros for those;
+    such profiles must be supplied by the grouping source instead.
+    """
+    sec = mesh.sections.get(extract.geono_of(mesh, element_id))
+    name = getattr(sec, "name", "")
+    h = getattr(sec, "h", None)
+    t_w = getattr(sec, "t_w", None)
+    w_top = getattr(sec, "w_top", None)
+    t_ftop = getattr(sec, "t_ftop", None)
+    return CapSection(
+        name=name or "",
+        section_type=0,
+        height=float(h) if h else 0.0,
+        web_thickness=float(t_w) if t_w else 0.0,
+        flange_width=float(w_top) if w_top else 0.0,
+        flange_thickness=float(t_ftop) if t_ftop else 0.0,
+    )
