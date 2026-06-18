@@ -73,3 +73,19 @@ def test_streaming_falls_back_for_file_obj_only(tmp_path):
     f = _model().to_ifc(file_obj_only=True, streaming=True)
     assert f is not None
     assert len(f.by_type("IfcPlate")) == 2
+
+
+def test_streaming_falls_back_for_loaded_ifc(tmp_path):
+    # A model loaded from IFC keeps its source entities in ifc_store.f; streaming
+    # would rebuild them from scratch and fail, so it must fall back to the
+    # in-memory writer (passthrough) instead of crashing or dropping objects.
+    import ifcopenshell
+
+    _model().to_ifc(tmp_path / "src.ifc")
+    loaded = ada.from_ifc(tmp_path / "src.ifc")
+    assert loaded.ifc_store.f.by_type("IfcProduct")  # preloaded → must not stream
+
+    ret = loaded.to_ifc(tmp_path / "out.ifc", streaming=True)
+    assert ret is not None  # fell back to the in-memory writer (returns the file)
+    g = ifcopenshell.open(str(tmp_path / "out.ifc"))
+    assert len(g.by_type("IfcBeam")) == 1 and len(g.by_type("IfcPlate")) == 2

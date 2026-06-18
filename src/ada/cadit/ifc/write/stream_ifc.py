@@ -314,11 +314,13 @@ def stream_assembly_to_ifc(
         for i, pl in enumerate(prebuilt_plates, 1):
             _emit(pl)
             if i % 2000 == 0 or i == len(prebuilt_plates):
-                out.write("\n".join(lines) + "\n"); lines.clear()
+                out.write("\n".join(lines) + "\n")
+                lines.clear()
                 if progress_callback is not None:
                     progress_callback(i, len(prebuilt_plates))
         if lines:
-            out.write("\n".join(lines) + "\n"); lines.clear()
+            out.write("\n".join(lines) + "\n")
+            lines.clear()
 
         # 2) fused plates — Part.iter_objects_from_fem builds one element's
         # plate(s) at a time; being ``detached`` they carry no material back-ref
@@ -329,11 +331,13 @@ def stream_assembly_to_ifc(
                 _emit(pl)
                 cnt += 1
                 if cnt % 2000 == 0:
-                    out.write("\n".join(lines) + "\n"); lines.clear()
+                    out.write("\n".join(lines) + "\n")
+                    lines.clear()
                     if progress_callback is not None:
                         progress_callback(min(cnt, n_shells), n_shells)
             if lines:
-                out.write("\n".join(lines) + "\n"); lines.clear()
+                out.write("\n".join(lines) + "\n")
+                lines.clear()
             if progress_callback is not None:
                 progress_callback(n_shells, n_shells)
 

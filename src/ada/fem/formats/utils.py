@@ -523,7 +523,11 @@ def convert_shell_elem_to_plates(
         ):
             plates.append(
                 Plate.from_fem_shell(
-                    f"sh{elem.id}", [n.p for n in elem.nodes], fem_sec.thickness, mat=new_mat, parent=parent,
+                    f"sh{elem.id}",
+                    [n.p for n in elem.nodes],
+                    fem_sec.thickness,
+                    mat=new_mat,
+                    parent=parent,
                     detached=detached,
                 )
             )

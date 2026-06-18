@@ -811,7 +811,10 @@ class Part(BackendGeom):
         materials so the streamed plates share the exporter's material identity
         (else a post-consolidation ``materials.add`` would mint a fresh copy).
         """
-        from ada.fem.formats.utils import convert_shell_elem_to_plates, line_elem_to_beam
+        from ada.fem.formats.utils import (
+            convert_shell_elem_to_plates,
+            line_elem_to_beam,
+        )
 
         if self.fem is None:
             return
