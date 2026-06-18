@@ -44,6 +44,30 @@ def test_streaming_matches_normal_object_count(tmp_path):
     assert n is not None  # normal path still returns the in-memory file
 
 
+def test_streaming_fused_from_fem(tmp_path):
+    # A part with a FEM shell mesh but no concept plates takes the fused path:
+    # Part.iter_objects_from_fem builds + streams one plate per shell element.
+    import ifcopenshell
+    import ifcopenshell.util.element as ue
+
+    src = ada.Plate("P", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.02)
+    part = ada.Part("pp")
+    part.fem = src.to_fem_obj(0.5, "shell")
+    n_shells = len(list(part.fem.elements.shell))
+    assert n_shells > 1 and not len(part.plates)  # precondition for the fused path
+
+    (ada.Assembly("A") / part).to_ifc(tmp_path / "fused.ifc", streaming=True)
+
+    g = ifcopenshell.open(str(tmp_path / "fused.ifc"))
+    plates = g.by_type("IfcPlate")
+    assert len(plates) == n_shells  # 1:1, no coplanar merge in the streaming path
+    assert all(p.Representation and p.ObjectPlacement for p in plates)
+    assert ue.get_material(plates[0]) is not None
+    # colour is a per-plate IfcStyledItem referencing a SHARED IfcSurfaceStyle
+    assert len(g.by_type("IfcStyledItem")) >= len(plates)
+    assert len(g.by_type("IfcSurfaceStyle")) < len(plates)
+
+
 def test_streaming_falls_back_for_file_obj_only(tmp_path):
     # streaming needs an on-disk destination; file_obj_only must fall back, not crash
     f = _model().to_ifc(file_obj_only=True, streaming=True)

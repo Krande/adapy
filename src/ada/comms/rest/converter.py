@@ -582,7 +582,17 @@ def _apply_fem_to_objects(
         return
     merge = True if merge_fem_objects is None else bool(merge_fem_objects)
     recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
-    model.create_objects_from_fem(merge=merge, reconstruct_surfaces=recon)
+    # The IFC streaming writer fuses shell elements into plates one at a time
+    # (Part.iter_objects_from_fem), so leave plates unbuilt — build beams only —
+    # and let the writer stream them, keeping peak memory bounded. Curved-plate
+    # reconstruction (advanced faces) isn't handled by the text emitter, so it
+    # still takes the full build.
+    skip_plates = False
+    if target_format == "ifc" and not recon:
+        import os
+
+        skip_plates = os.environ.get("ADA_IFC_STREAMING", "").strip().lower() not in _FALSE
+    model.create_objects_from_fem(merge=merge, reconstruct_surfaces=recon, skip_plates=skip_plates)
 
 
 def _export_with_ada(

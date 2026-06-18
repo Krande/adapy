@@ -2,17 +2,24 @@
 
 The default writer (:meth:`IfcStore.sync`) builds the whole ``ifcopenshell.file``
 in memory and serialises it once at the end, so peak RSS grows ~linearly with
-object count — a large FEM→IFC convert (e.g. a jacket whose shell mesh becomes
-~100k plates) OOM-kills the worker.
+object count — a large FEM→IFC convert (a jacket shell mesh becomes ~100k
+plates) OOM-kills the worker.
 
 ifcopenshell's file API cannot stream: ``remove()`` is ~1 ms/entity (O(N²) for a
 chunked writer) and a fresh ``from_string`` file per chunk leaks on teardown. So
-the dominant per-object entities — ``Plate`` solids, which a FEM shell mesh
-explodes into — are hand-authored as STEP-physical-file (SPF) text and written
-straight to disk. Everything else (spatial structure, sections, materials,
-beams, shapes, …) is built once with the normal writer as a shared *preamble*;
-only that preamble is ever resident, so peak memory is independent of the plate
-count.
+the dominant per-object entities — ``Plate`` solids — are hand-authored as
+STEP-physical-file (SPF) text and written straight to disk. The spatial
+structure, sections, materials and all non-plate objects (beams, shapes, …) are
+built once with the normal writer as a shared *preamble*; only that preamble is
+ever resident.
+
+Two plate sources are supported, both bounded:
+  * **fused** (FEM→IFC): the part's shell elements are turned into plates one at
+    a time during the write — the ~100k-plate concept set is never materialised.
+    The converter leaves plates unbuilt (``create_objects_from_fem(skip_plates``
+    ``=True)``) so this path is taken.
+  * **pre-built**: a non-FEM model whose ``part.plates`` already exist (e.g. a
+    parametric CAD model) streams those objects as text.
 
 Entry point: :func:`stream_assembly_to_ifc`, used by
 ``Assembly.to_ifc(streaming=True)``.
@@ -52,6 +59,22 @@ class _Emitter:
         self.nid = start_id
         self.owner_id = owner_id
         self.body_ctx_id = body_ctx_id
+        # (r,g,b,transparency) → (colour_id, shading_id, style_id). The colour +
+        # surface-style entities are SHARED across every plate of that colour
+        # (one set, referenced by many IfcStyledItems) and emitted once in the
+        # trailing pass; only the per-plate IfcStyledItem is unavoidably 1:1.
+        self.color_styles: dict = {}
+
+    def _surface_style(self, key: tuple) -> int:
+        """Return the shared IfcSurfaceStyle id for ``key``, reserving the 3
+        shared style-entity ids on first sight (forward-referenced; emitted in
+        the trailing pass)."""
+        s = self.color_styles.get(key)
+        if s is None:
+            s = (self.nid, self.nid + 1, self.nid + 2)
+            self.nid += 3
+            self.color_styles[key] = s
+        return s[2]
 
     def _curve(self, lines: list[str], curve) -> int:
         """Emit IfcCartesianPointList2D + IfcIndexedPolyCurve (with segment
@@ -108,10 +131,17 @@ class _Emitter:
         lines.append(f"#{pds}=IfcProductDefinitionShape($,$,(#{body}));")
         pid = pds + 1
         nm = _spf_str(pl.name)
-        lines.append(
-            f"#{pid}=IfcPlate('{pl.guid}',#{self.owner_id},{nm},{nm},$,#{a + 4},#{pds},$,$);"
-        )
+        lines.append(f"#{pid}=IfcPlate('{pl.guid}',#{self.owner_id},{nm},{nm},$,#{a + 4},#{pds},$,$);")
         self.nid = pid + 1
+
+        col = getattr(pl, "color", None)
+        if col is not None:
+            rgb = col.rgb
+            key = (float(rgb[0]), float(rgb[1]), float(rgb[2]), float(getattr(col, "transparency", 0.0) or 0.0))
+            style_id = self._surface_style(key)
+            sitem = self.nid
+            lines.append(f"#{sitem}=IfcStyledItem(#{solid},(#{style_id}),$);")
+            self.nid = sitem + 1
         return pid
 
 
@@ -122,6 +152,23 @@ def _spf_str(s) -> str:
     return "'" + str(s).replace("'", "''") + "'"
 
 
+def _register_plate_materials(part, shells, GeomRepr) -> dict:
+    """First pass over a fused part's shell elements: register their materials
+    on the part (no geometry built) so they land in the preamble. Returns the
+    name→material cache reused by the per-element plate build."""
+    mat_dict: dict = {}
+    for elem in shells:
+        fs = elem.fem_sec
+        if fs is None or fs.material is None:
+            continue
+        if fs.type == GeomRepr.SOLID or getattr(fs, "thickness", None) is None:
+            continue
+        name = fs.material.name
+        if name not in mat_dict:
+            mat_dict[name] = part.materials.add(fs.material.copy_to(name, parent=part))
+    return mat_dict
+
+
 # ── main entry point ────────────────────────────────────────────────────────
 def stream_assembly_to_ifc(
     assembly: "Assembly",
@@ -129,15 +176,12 @@ def stream_assembly_to_ifc(
     include_fem: bool = False,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> None:
-    """Write ``assembly`` to ``destination`` with bounded peak memory.
-
-    Plain ``Plate`` objects are streamed as hand-authored SPF text; every other
-    physical object plus the spatial/section/material structure is built once via
-    the normal writer and kept resident as the preamble.
-    """
+    """Write ``assembly`` to ``destination`` with bounded peak memory."""
     from ada import Beam, Pipe, Plate
+    from ada.base.types import GeomRepr
     from ada.cadit.ifc.utils import create_guid, write_elem_property_sets
     from ada.cadit.ifc.write.write_ifc import IfcWriter
+    from ada.fem.formats.utils import convert_part_elem_bm_to_beams
 
     destination = pathlib.Path(destination).resolve().absolute()
     os.makedirs(destination.parent, exist_ok=True)
@@ -146,6 +190,23 @@ def stream_assembly_to_ifc(
     f = store.f
     writer = IfcWriter(store)
     store.writer = writer
+
+    # ── Decide each part's plate source. A FEM part whose plates haven't been
+    # materialised is *fused*: build its beams + register its plate materials
+    # now (so both land in the preamble), then stream its shells one at a time
+    # via Part.iter_objects_from_fem during the write. ──
+    fused: list = []  # (part, n_shells) — plates streamed from the FEM mesh
+    for part in assembly.get_all_parts_in_assembly(include_self=True):
+        fem = getattr(part, "fem", None)
+        if fem is None or len(part.plates):
+            continue
+        shells = list(fem.elements.shell)
+        if not shells:
+            continue
+        if not len(part.beams) and len(list(fem.elements.lines)):
+            part._beams = convert_part_elem_bm_to_beams(part)
+        _register_plate_materials(part, shells, GeomRepr)
+        fused.append((part, len(shells)))
 
     # ── preamble: spatial structure, sections, materials ──
     assembly.consolidate_sections()
@@ -158,26 +219,29 @@ def stream_assembly_to_ifc(
     owner_id = store.owner_history.id()
     body_ctx_id = store.get_context("Body").id()
 
-    # Partition: plain Plates stream as text; everything else is built normally.
-    streamable: list = []
-    others: list = []
+    # Pre-built plain Plates stream as text; everything else (beams, shapes, …)
+    # is built once via the normal writer.
+    prebuilt_plates, others = [], []
     for obj in assembly.get_all_physical_objects():
-        (streamable if type(obj) is Plate else others).append(obj)
+        (prebuilt_plates if type(obj) is Plate else others).append(obj)
 
-    spatial_id: dict[str, int] = {}
-    for p in assembly.get_all_parts_in_assembly(include_self=True):
+    spatial_id = {}
+    for part in assembly.get_all_parts_in_assembly(include_self=True):
         try:
-            spatial_id[p.guid] = f.by_guid(p.guid).id()
+            spatial_id[part.guid] = f.by_guid(part.guid).id()
         except RuntimeError:
             pass
-    mat_ent_id: dict[str, int] = {}
-    stub_rel_ids: set[int] = set()
+    mat_ent_id, stub_rel_ids = {}, set()
     for rel in f.by_type("IfcRelAssociatesMaterial"):
         mat_ent_id[rel.GlobalId] = rel.RelatingMaterial.id()
         stub_rel_ids.add(rel.id())
+    # Pin the post-consolidation materials by name so fused plates reference the
+    # same objects the preamble wrote (their guids are in mat_ent_id); without
+    # this a post-consolidation materials.add() would mint a fresh-guid copy.
+    mat_cache = {m.name: m for m in assembly.get_all_materials()}
 
-    spatial_members: dict[str, list[int]] = {}
-    material_members: dict[str, list[int]] = {}
+    spatial_members: dict = {}
+    material_members: dict = {}
 
     def _record_spatial(guid, ifc_id):
         spatial_members.setdefault(guid, []).append(ifc_id)
@@ -185,7 +249,7 @@ def stream_assembly_to_ifc(
     def _record_material(guid, ifc_id):
         material_members.setdefault(guid, []).append(ifc_id)
 
-    # ── build the non-streamed objects (kept resident in the preamble) ──
+    # ── build the non-plate objects (kept resident in the preamble) ──
     for obj in others:
         el = writer.add(obj)
         if el is None:
@@ -195,20 +259,13 @@ def stream_assembly_to_ifc(
         if isinstance(obj, Pipe):
             continue  # a Pipe contains its own segments in the spatial structure
         _record_spatial(obj.parent.guid, el.id())
-        # Beams attach their own IfcRelAssociatesMaterial inside write_ifc_beam;
-        # other objects get a material rel hand-emitted in the trailing pass.
         mat = getattr(obj, "material", None)
         if mat is not None and not isinstance(obj, Beam):
             _record_material(mat.guid, el.id())
-
-    # Beam→IfcBeamType memberships are queued by write_ifc_beam (deferred to
-    # avoid O(N²) growth); flush them now — they reference resident beams.
-    store.flush_rel_defines_by_type()
+    store.flush_rel_defines_by_type()  # beam→IfcBeamType rels (reference resident beams)
 
     # Features that reference objects by GlobalId can't be reproduced for the
-    # streamed plates (those entities aren't in the in-memory file). They're
-    # absent in the FEM→IFC path this writer targets; warn rather than drop
-    # silently so an operator can disable streaming for full fidelity.
+    # streamed plates; warn rather than drop silently (absent in FEM→IFC).
     dropped = []
     if assembly.presentation_layers.layers:
         dropped.append("presentation layers")
@@ -222,7 +279,7 @@ def stream_assembly_to_ifc(
             ", ".join(dropped),
         )
 
-    # ── serialise the preamble, dropping empty stub material-rels + the footer ──
+    # ── serialise the preamble (drop empty stub material-rels + the footer) ──
     pre_text = f.wrapped_data.to_string()
     cut = pre_text.rindex("ENDSEC;")
     head = [
@@ -231,34 +288,54 @@ def stream_assembly_to_ifc(
         if not (_ID_LINE.match(ln) and int(_ID_LINE.match(ln).group(1)) in stub_rel_ids)
     ]
     out = open(destination, "w")
+    skipped = 0
+    total = 0
     try:
         out.write("\n".join(head).rstrip("\n") + "\n")
-
-        # ── stream the plates as text ──
         emitter = _Emitter(max((e.id() for e in f), default=0) + 1, owner_id, body_ctx_id)
-        total = len(streamable)
-        skipped = 0
         lines: list[str] = []
-        for i, pl in enumerate(streamable, 1):
+
+        def _emit(pl) -> None:
+            nonlocal skipped, total
             try:
                 pid = emitter.plate(pl, lines)
             except Exception as exc:  # noqa: BLE001 — a bad plate shouldn't sink the file
                 skipped += 1
                 if skipped <= 5:
-                    logger.warning(f"streaming IFC: skipped plate {pl.name!r}: {exc}")
-                # don't clear `lines` — it holds prior plates not yet flushed
-                continue
+                    logger.warning(f"streaming IFC: skipped plate {getattr(pl, 'name', '?')!r}: {exc}")
+                return
+            total += 1
             _record_spatial(pl.parent.guid, pid)
             mat = getattr(pl, "material", None)
             if mat is not None:
                 _record_material(mat.guid, pid)
-            if i % 2000 == 0 or i == total:
-                out.write("\n".join(lines) + "\n")
-                lines.clear()
+
+        # 1) pre-built plates
+        for i, pl in enumerate(prebuilt_plates, 1):
+            _emit(pl)
+            if i % 2000 == 0 or i == len(prebuilt_plates):
+                out.write("\n".join(lines) + "\n"); lines.clear()
                 if progress_callback is not None:
-                    progress_callback(i, total)
+                    progress_callback(i, len(prebuilt_plates))
         if lines:
-            out.write("\n".join(lines) + "\n")
+            out.write("\n".join(lines) + "\n"); lines.clear()
+
+        # 2) fused plates — Part.iter_objects_from_fem builds one element's
+        # plate(s) at a time; being ``detached`` they carry no material back-ref
+        # and free as soon as _emit drops them, so peak memory stays bounded.
+        for part, n_shells in fused:
+            cnt = 0
+            for pl in part.iter_objects_from_fem(beams=False, plates=True, detached=True, mat_cache=mat_cache):
+                _emit(pl)
+                cnt += 1
+                if cnt % 2000 == 0:
+                    out.write("\n".join(lines) + "\n"); lines.clear()
+                    if progress_callback is not None:
+                        progress_callback(min(cnt, n_shells), n_shells)
+            if lines:
+                out.write("\n".join(lines) + "\n"); lines.clear()
+            if progress_callback is not None:
+                progress_callback(n_shells, n_shells)
 
         # ── trailing relationships (hand-emitted from recorded ids) ──
         nid = emitter.nid
@@ -281,10 +358,17 @@ def stream_assembly_to_ifc(
                 )
                 nid += 1
 
+        # Shared colour/surface-style entities — one set per distinct plate
+        # colour, referenced by the per-plate IfcStyledItems emitted above.
+        for (r, g, b, tr), (cid, shid, stid) in emitter.color_styles.items():
+            out.write(f"#{cid}=IfcColourRgb($,{_f(r)},{_f(g)},{_f(b)});\n")
+            out.write(f"#{shid}=IfcSurfaceStyleShading(#{cid},{_f(tr)});\n")
+            out.write(f"#{stid}=IfcSurfaceStyle($,.BOTH.,(#{shid}));\n")
+
         out.write("ENDSEC;\nEND-ISO-10303-21;\n")
     finally:
         out.close()
 
     if skipped:
-        logger.warning(f"streaming IFC: {skipped}/{total} plates skipped (geometry not emittable)")
-    logger.info(f"streaming IFC write complete: {total - skipped} plates + {len(others)} other objects")
+        logger.warning(f"streaming IFC: {skipped} plate(s) skipped (geometry not emittable)")
+    logger.info(f"streaming IFC write complete: {total} plates + {len(others)} other objects")

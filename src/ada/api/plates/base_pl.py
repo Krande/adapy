@@ -62,12 +62,17 @@ class Plate(BackendGeom):
         orientation: Placement = None,
         pl_id=None,
         tol=None,
+        detached: bool = False,
         **kwargs,
     ):
         super().__init__(name, **kwargs)
         self._pl_id = pl_id
         self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat), parent=self)
-        self._material.refs.append(self)
+        # ``detached`` plates are transient — a streaming exporter builds, emits
+        # and discards them — so skip the material back-reference that would
+        # otherwise pin every plate to the long-lived material.
+        if not detached:
+            self._material.refs.append(self)
         self._t = t
         self._hash = None
 
@@ -97,15 +102,21 @@ class Plate(BackendGeom):
         return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, **kwargs)
 
     @staticmethod
-    def from_fem_shell(name, points, t, mat="S420", color=None, metadata=None, parent=None, **kwargs) -> Plate:
+    def from_fem_shell(
+        name, points, t, mat="S420", color=None, metadata=None, parent=None, detached=False, **kwargs
+    ) -> Plate:
         """Fast Plate constructor for flat FEM shell elements (no arcs/radii).
 
         Equivalent geometry to ``from_3d_points`` but routed through
         ``CurvePoly2d.from_fem_shell``, which skips ``build_polycurve`` and the
         computed-placement LRU. See :meth:`CurvePoly2d.from_fem_shell`.
+
+        ``detached`` yields a transient plate (no material back-reference) for
+        streaming exporters that build, emit and discard it — see
+        :meth:`ada.Part.iter_objects_from_fem`.
         """
         poly = CurvePoly2d.from_fem_shell(points, parent=parent)
-        return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, parent=parent, **kwargs)
+        return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, parent=parent, detached=detached, **kwargs)
 
     @staticmethod
     def from_extruded_area_solid(name, solid: ExtrudedAreaSolid): ...
