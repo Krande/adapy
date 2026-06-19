@@ -100,3 +100,19 @@ def test_parity_fem_source_rebuilds_objects(fem_files):
     assert r.counts["ifc"] == r.counts["xml"] == r.counts["step"] == r.expected
     assert r.errors == {}
     assert r.consistent is True
+
+
+def test_parity_skips_xml_for_generic_solid_source():
+    """A source made of generic solids (no Beam/Plate) can't round-trip through
+    Genie XML — it carries only structural concepts. Parity must SKIP xml (a
+    permanent format limit, not a converter fault) and stay consistent on the
+    formats that can carry solids."""
+    box = ada.PrimBox("b", (0, 0, 0), (1, 1, 1))
+    asm = ada.Assembly("m") / (ada.Part("p") / box)
+
+    r = cross_format_parity(asm, ("ifc", "xml", "step"))
+
+    assert "xml" in r.skipped
+    assert "xml" not in r.counts and "xml" not in r.mismatches
+    assert r.counts["ifc"] == r.counts["step"] == r.expected
+    assert r.consistent is True
