@@ -20,6 +20,9 @@ class PlateFactory:
     next_loop_idx = 6
     coedge_ref = 7
 
+    # Coedge row: index of the owning-edge ref ($N).
+    edge_ref_idx = 9
+
     def __init__(self, sat_store: SatStore):
         self.sat_store = sat_store
 
@@ -80,9 +83,27 @@ class PlateFactory:
         loops = list(self._iter_face_loops(face_data_list))
         if not loops:
             return None
+        if len(loops) == 1:
+            return loops[0]
 
         periphery_loop = next((lp for lp in loops if self._loop_type(lp) == "periphery"), None)
-        return periphery_loop if periphery_loop is not None else loops[0]
+        if periphery_loop is not None:
+            return periphery_loop
+
+        # No loop is tagged 'periphery'. SESAM-exported faces carry degenerate
+        # marker loops — a single zero-length point-edge whose coedge.next
+        # points to itself — alongside the real boundary loop. Blindly taking
+        # loops[0] lands on such a marker, the boundary collapses to one point,
+        # and the whole plate is dropped ("0 edges"). Pick the loop that forms
+        # an actual boundary instead: the one with the most distinct edges.
+        return max(loops, key=self._distinct_edge_count)
+
+    def _distinct_edge_count(self, loop: AcisRecord) -> int:
+        try:
+            edges = self.get_edges_from_loop(loop)
+        except Exception:  # noqa: BLE001 - a malformed loop scores 0, never wins
+            return 0
+        return len({e.chunks[self.edge_ref_idx] for e in edges})
 
     def get_points(self, edges: list[AcisRecord]) -> list[tuple[float]]:
         if not edges:
@@ -130,8 +151,7 @@ class PlateFactory:
         self-touching polygon that collapses to a spurious diagonal when the
         downstream vertex dedupe in :meth:`get_points` runs.
         """
-        edge_ref_idx = 9
-        refs = [c.chunks[edge_ref_idx] for c in coedges]
+        refs = [c.chunks[self.edge_ref_idx] for c in coedges]
         counts: dict[str, int] = {}
         for r in refs:
             counts[r] = counts.get(r, 0) + 1
@@ -149,24 +169,22 @@ class PlateFactory:
         # Coedge row
         next_coedge_idx = 6 if coedge_first_direction == "forward" else 7
 
-        next_coedge = True
-        coedge_next_id = coedge_first.chunks[next_coedge_idx]
-        edges = [coedge_first]
-
+        # Walk the coedge ring once, appending each coedge before advancing to
+        # its successor and stopping when we loop back to the start. Appending
+        # *before* the wrap check is what keeps single-coedge loops correct: the
+        # old "seed with the first coedge, then append in the loop" form emitted
+        # the lone coedge twice for a self-referential ring, which then looked
+        # like a whisker pair to `_drop_whisker_coedges` and collapsed the face.
+        edges: list[AcisRecord] = []
+        coedge_id = coedge_start_id
         max_iter = 500
-        i = 0
-        while next_coedge is True:
-            coedge = self.sat_store.get(coedge_next_id)
+        for _ in range(max_iter):
+            coedge = self.sat_store.get(coedge_id)
             edges.append(coedge)
-
-            coedge_next_id = coedge.chunks[next_coedge_idx]
-            if coedge_next_id == coedge_start_id:
-                next_coedge = False
-
-            i += 1
-            if i > max_iter:
-                raise ValueError(f"Found {i} points which is over max={max_iter}")
-        return edges
+            coedge_id = coedge.chunks[next_coedge_idx]
+            if coedge_id == coedge_start_id:
+                return edges
+        raise ValueError(f"Coedge ring did not close within max={max_iter}")
 
     def get_points_from_edge(self, coedge: AcisRecord):
         # Coedge row
