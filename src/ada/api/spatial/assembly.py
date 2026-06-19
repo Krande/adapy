@@ -275,11 +275,25 @@ class Assembly(Part):
         return self.ifc_store.f
 
     def to_genie_xml(
-        self, destination_xml, writer_postprocessor: Callable[[ET.Element, Part], None] = None, embed_sat=False
+        self,
+        destination_xml,
+        writer_postprocessor: Callable[[ET.Element, Part], None] = None,
+        embed_sat=False,
+        streaming=False,
     ):
-        from ada.cadit.gxml.write.write_xml import write_xml
+        # ``streaming`` emits the per-object <structure> entries straight to the
+        # file instead of building the whole ElementTree DOM, cutting peak RSS on
+        # large FEM-derived models. Geometry-identical to the DOM writer. Not
+        # available with embed_sat (the SAT path shares one whole-model CDATA
+        # body), so fall back there.
+        if streaming and not embed_sat:
+            from ada.cadit.gxml.write.stream_xml import write_xml_stream
 
-        write_xml(self, destination_xml, writer_postprocessor=writer_postprocessor, embed_sat=embed_sat)
+            write_xml_stream(self, destination_xml, writer_postprocessor=writer_postprocessor)
+        else:
+            from ada.cadit.gxml.write.write_xml import write_xml
+
+            write_xml(self, destination_xml, writer_postprocessor=writer_postprocessor, embed_sat=embed_sat)
         logger.info(f'Genie XML file "{destination_xml}" created')
 
         return destination_xml

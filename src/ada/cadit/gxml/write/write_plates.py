@@ -13,6 +13,20 @@ if TYPE_CHECKING:
     from ada import Part, Plate
 
 
+def thickness_name(t: float) -> str:
+    """Canonical Genie thickness-property name for a plate thickness (m).
+
+    Shared by the DOM writer (:func:`add_plates`) and the streaming writer so
+    both mint identical ``thkNNN`` references for the same thickness.
+    """
+    thick_mm = t * 1000
+    if thick_mm.is_integer():
+        thick_mm_str = f"{int(thick_mm):03d}"
+    else:
+        thick_mm_str = f"{int(thick_mm):03d}_{str(thick_mm).split('.')[1]}"
+    return f"thk{thick_mm_str}"
+
+
 def add_plate_sat(plate: Plate, thck_name: str, structures_elem, sw: SatWriter):
     structure = ET.SubElement(structures_elem, "structure")
     flat_plate = ET.SubElement(
@@ -81,14 +95,7 @@ def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):
 
     for plate in part.get_all_physical_objects(by_type=Plate):
         if plate.t not in thickness:
-            thick_mm = plate.t * 1000
-
-            if thick_mm.is_integer():
-                thick_mm_str = f"{int(thick_mm):03d}"
-            else:
-                thick_mm_str = f"{int(thick_mm):03d}_{str(thick_mm).split('.')[1]}"
-            thick_name = f"thk{thick_mm_str}"
-            thickness[plate.t] = thick_name
+            thickness[plate.t] = thickness_name(plate.t)
             tck_elem = ET.Element("thickness", {"name": thickness[plate.t], "default": "true"})
             tck_elem.append(ET.Element("constant_thickness", {"th": str(plate.t)}))
             thickness_elem.append(tck_elem)

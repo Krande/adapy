@@ -25,6 +25,46 @@ def test_create_sesam_xml_from_mixed(mixed_model, tmp_path):
     mixed_model.to_genie_xml(xml_file)
 
 
+def test_streaming_xml_byte_identical_to_dom(tmp_path):
+    # The streaming writer must produce byte-identical output to the DOM writer;
+    # it only changes the assembly strategy (per-object flush vs whole-tree),
+    # not the geometry. Cover beams + a (mergeable) plate pair. ``to_genie_xml``
+    # consolidates sections/materials in place, so build a fresh model per
+    # writer rather than writing the same object twice.
+    def build():
+        p = ada.Part("P") / (
+            ada.Beam("bm1", (0, 0, 0), (10, 0, 0), "IPE300"),
+            ada.Plate("pl1", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.2),
+            ada.Plate("pl2", [(10, 0), (20, 0), (20, 10), (10, 10)], 0.2),
+        )
+        return ada.Assembly("a") / p
+
+    dom = tmp_path / "dom.xml"
+    stream = tmp_path / "stream.xml"
+    build().to_genie_xml(dom, streaming=False)
+    build().to_genie_xml(stream, streaming=True)
+
+    assert dom.read_bytes() == stream.read_bytes()
+
+
+def test_streaming_xml_from_fem_byte_identical(fem_files, tmp_path):
+    # FEM-source path: load a Sesam mesh, rebuild + merge concept objects, then
+    # confirm the streaming writer matches the DOM writer byte-for-byte on the
+    # merged model (the case the streaming writer exists for). Fresh load per
+    # writer — to_genie_xml consolidates in place.
+    def build():
+        a = ada.from_fem(fem_files / "sesam/beamMassT1.FEM")
+        a.create_objects_from_fem(merge=True)
+        return a
+
+    dom = tmp_path / "dom.xml"
+    stream = tmp_path / "stream.xml"
+    build().to_genie_xml(dom, streaming=False)
+    build().to_genie_xml(stream, streaming=True)
+
+    assert dom.read_bytes() == stream.read_bytes()
+
+
 def test_create_sesam_xml_with_plate(tmp_path):
     pl = ada.Plate("pl", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.1)
     a = ada.Assembly("a") / pl
