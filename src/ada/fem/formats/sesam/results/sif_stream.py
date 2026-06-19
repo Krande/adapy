@@ -55,6 +55,8 @@ class SifStreamReader:
         self._control: dict | None = None  # card -> control row (block row 0)
         self._mesh = None  # step-invariant Mesh, built once
         self._rep = None  # FEAResultStreamAdapter over the first step (geometry/specs/beams)
+        self._eig = None  # EigenDataSummary from a sibling SESTRA.LIS, if present
+        self._eig_loaded = False
 
     # ── lifecycle ─────────────────────────────────────────────────────
     def close(self) -> None:
@@ -188,14 +190,52 @@ class SifStreamReader:
         cards = {card} if card else None
         return FEAResultStreamAdapter(self._load_step(self._steps[idx], cards=cards))
 
-    def _step_values(self) -> list[float]:
+    def _ensure_lis(self) -> None:
+        """Load a sibling SESTRA.LIS eigen-frequency table once, if present —
+        the same enrichment the full-materialise path applies."""
+        if self._eig_loaded:
+            return
+        self._eig_loaded = True
+        lis = self.path.parent / "SESTRA.LIS"
+        if not lis.exists():
+            return
+        try:
+            from ada.fem.formats.sesam.results._results import get_eigen_data
+
+            self._eig = get_eigen_data(lis)
+        except Exception:
+            self._eig = None
+
+    def _plain_labels(self) -> list[float]:
         return [float(s) for s in self._steps]
+
+    def _nodal_labels(self) -> list[float]:
+        """Step labels for nodal fields: eigen frequency per step from
+        SESTRA.LIS, falling back to the IRES step index. Matches the full path,
+        which sets ``NodalFieldData.eigen_freq`` from LIS so the adapter's
+        ``step_values`` become frequencies for nodal fields only."""
+        self._ensure_lis()
+        if self._eig is None:
+            return self._plain_labels()
+        out = []
+        for s in self._steps:
+            em = self._eig.get_eigenmode(int(s))
+            out.append(float(em.f_hz) if em is not None and em.f_hz is not None else float(s))
+        return out
+
+    def _labels_for(self, support: str) -> list[float]:
+        # Only nodal fields are LIS-enriched (mirrors the convert loop, which
+        # skips non-NodalFieldData); element/gauss fields keep the step index.
+        return self._nodal_labels() if support == "nodal" else self._plain_labels()
 
     def _with_global_steps(self, specs):
         import dataclasses
 
-        labels = self._step_values()
-        return [dataclasses.replace(s, n_steps=len(labels), step_values=labels) for s in specs]
+        out = []
+        for s in specs:
+            labels = self._labels_for(s.support)
+            out.append(dataclasses.replace(s, n_steps=len(labels), step_values=labels))
+        return out
 
     # ── FEAStreamReader protocol ──────────────────────────────────────
     def read_mesh_geometry(self):
@@ -210,7 +250,7 @@ class SifStreamReader:
     def iter_field_steps(self, field_name: str):
         import dataclasses
 
-        labels = self._step_values()
+        labels = self._nodal_labels()
         # A nodal field's name is its RV card (RVNODDIS) — read only that block.
         card = field_name if field_name in _RV_ORDER else None
         for i in range(len(self._steps)):
@@ -228,7 +268,7 @@ class SifStreamReader:
     def iter_element_field_steps(self, spec):
         import dataclasses
 
-        labels = self._step_values()
+        labels = self._plain_labels()  # element fields aren't LIS-enriched
         card = _ELEM_FIELD_TO_CARD.get(spec.name)
         for i in range(len(self._steps)):
             ad = self._field_adapter(i, card)

@@ -77,34 +77,71 @@ def test_stream_reader_element_values_match_adapter(fem_files):
             assert np.allclose(x.values, y.values)
 
 
-def test_make_sif_reader_gate_defaults_off(fem_files, monkeypatch):
+def test_make_sif_reader_defaults_to_streaming(fem_files, monkeypatch):
     sif = fem_files / _EIGEN
     monkeypatch.delenv("ADA_FEA_SIF_STREAMER", raising=False)
     with make_stream_reader(sif) as r:
-        assert isinstance(r, FEAResultStreamAdapter)
+        assert isinstance(r, SifStreamReader)  # streaming is the default now
 
-    monkeypatch.setenv("ADA_FEA_SIF_STREAMER", "1")
+    monkeypatch.setenv("ADA_FEA_SIF_STREAMER", "off")
     with make_stream_reader(sif) as r:
-        assert isinstance(r, SifStreamReader)
+        assert isinstance(r, FEAResultStreamAdapter)  # explicit opt-out
 
 
-def test_bake_blobs_identical_streaming_vs_default(tmp_path, fem_files, monkeypatch):
-    # End-to-end: the bake's field blobs must be byte-identical with the
-    # streamer on vs off — the streamer only changes memory, not output.
+def test_stream_reader_nodal_labels_lis_enriched(fem_files):
+    # The eigen fixture ships a sibling SESTRA.LIS; the streamer must reproduce
+    # the full path's eigen-frequency step labels for nodal fields (not the
+    # bare mode index), and leave element fields on the step index.
+    sif = fem_files / _EIGEN
+    ref = FEAResultStreamAdapter(read_sif_file(sif))
+    strm = SifStreamReader(sif)
+
+    ref_n = {s.name: s.step_values for s in ref.field_specs() if s.support == "nodal"}
+    strm_n = {s.name: s.step_values for s in strm.field_specs() if s.support == "nodal"}
+    assert ref_n and ref_n.keys() == strm_n.keys()
+    for name in ref_n:
+        assert np.allclose(ref_n[name], strm_n[name])
+    # LIS was actually applied: the labels are frequencies, not 1..20.
+    assert not np.allclose(strm_n["RVNODDIS"], np.arange(1, 21, dtype=float))
+
+    ref_e = {(s.name, s.elem_type): s.step_values for s in ref.element_field_specs()}
+    strm_e = {(s.name, s.elem_type): s.step_values for s in strm.element_field_specs()}
+    for key in ref_e:
+        assert np.allclose(ref_e[key], strm_e[key])
+
+
+def test_bake_blobs_identical_streaming_vs_full(tmp_path, fem_files, monkeypatch):
+    # End-to-end: the bake's field blobs AND the manifest field step_values
+    # (LIS-enriched) must match between the streamer and the full-materialise
+    # adapter — the streamer only changes memory, not output.
+    import json
+
     sif = fem_files / _EIGEN
 
-    monkeypatch.delenv("ADA_FEA_SIF_STREAMER", raising=False)
-    bake_def = bake_fea_artefacts_from_source(sif, tmp_path / "default", src_key=sif.stem)
+    monkeypatch.setenv("ADA_FEA_SIF_STREAMER", "off")  # force full-materialise
+    bake_full = bake_fea_artefacts_from_source(sif, tmp_path / "full", src_key=sif.stem)
 
-    monkeypatch.setenv("ADA_FEA_SIF_STREAMER", "1")
+    monkeypatch.delenv("ADA_FEA_SIF_STREAMER", raising=False)  # default = streaming
     bake_strm = bake_fea_artefacts_from_source(sif, tmp_path / "stream", src_key=sif.stem)
 
     def blobs(d):
         return sorted(p.name for p in d.iterdir() if p.suffix == ".bin")
 
-    names = blobs(bake_def.out_dir)
+    names = blobs(bake_full.out_dir)
     assert names and names == blobs(bake_strm.out_dir)
     for name in names:
-        a = (bake_def.out_dir / name).read_bytes()
+        a = (bake_full.out_dir / name).read_bytes()
         b = (bake_strm.out_dir / name).read_bytes()
-        assert a == b, f"blob {name} differs between default and streaming bake"
+        assert a == b, f"blob {name} differs between full and streaming bake"
+
+    def field_steps(bake):
+        m = json.loads(bake.manifest_path.read_text())
+        return {f["name_canonical"]: [s["value"] for s in f["steps"]] for f in m["fields"]}
+
+    full_steps, strm_steps = field_steps(bake_full), field_steps(bake_strm)
+    assert full_steps and full_steps.keys() == strm_steps.keys()
+    for name in full_steps:
+        assert np.allclose(full_steps[name], strm_steps[name]), f"step values differ for {name}"
+    # The nodal field carries LIS eigen-frequencies, not the bare 1..20 index.
+    nodal = next(v for k, v in strm_steps.items() if not np.allclose(v, np.arange(1, 21)))
+    assert nodal[0] > 1.5
