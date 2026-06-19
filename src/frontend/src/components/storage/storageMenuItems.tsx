@@ -24,6 +24,8 @@ export interface FileMenuContext {
     onLoadStreamer?: () => void;
     /** REST mode only. */
     onDownload?: () => void;
+    /** Copy the file's storage path (the key shown in the menu header). */
+    onCopyPath?: () => void;
     onRename?: () => void;
     onMoveToFolder?: () => void;
     onDelete?: () => void;
@@ -57,6 +59,14 @@ export function buildFileMenuItems(
             key: "download",
             label: "Download",
             onClick: ctx.onDownload,
+        });
+    }
+    if (ctx.onCopyPath) {
+        items.push({
+            key: "copy-path",
+            label: "Copy as path",
+            title: "Copy this file's storage path to the clipboard.",
+            onClick: ctx.onCopyPath,
         });
     }
     if (ctx.canMutate && ctx.onRename) {
