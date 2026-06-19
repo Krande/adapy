@@ -90,3 +90,22 @@ def test_batch_tessellate_solids_matches_per_object():
         assert np.array_equal(np.asarray(a.indices), np.asarray(b.indices))
         assert a.material == b.material
         assert b.normal is not None and len(b.normal) == len(b.position)
+
+
+def test_tessellate_empty_compound_does_not_abort():
+    """An empty body (void bbox) used to SIGABRT the process: ShapeTesselator
+    derives a *relative* deflection from the bbox, so a void box gives
+    deflection 0 and OCC raises a std::invalid_argument that escapes pythonocc's
+    exception translation. Empty STEP compounds turn up from FEM round-trips
+    that drop geometry; tessellate_shape must return an empty mesh, not crash."""
+    from OCC.Core.BRep import BRep_Builder
+    from OCC.Core.TopoDS import TopoDS_Compound
+
+    from ada.occ.tessellating import tessellate_shape
+
+    comp = TopoDS_Compound()
+    BRep_Builder().MakeCompound(comp)
+
+    tm = tessellate_shape(comp)  # must not abort the interpreter
+    assert len(tm.faces) == 0
+    assert len(tm.positions) == 0

@@ -176,6 +176,45 @@ def _drop_runaway_triangles(shape, np_vertices, np_normals):
     return np_vertices, np_normals
 
 
+def _empty_triangle_mesh() -> TriangleMesh:
+    e = np.empty(0, dtype="float32")
+    return TriangleMesh(e, np.empty(0, dtype="uint32"), None, e)
+
+
+def _has_meshable_extent(shape: TopoDS_Shape) -> bool:
+    """False when ``shape`` has nothing to triangulate — an empty body or a
+    void / zero-extent bounding box.
+
+    ``ShapeTesselator.Compute`` derives a *relative* linear deflection from the
+    shape's bounding box, so a void/zero-extent box yields deflection 0 and OCC
+    raises ``std::invalid_argument("The deviation must be greater than 0")``.
+    That's a plain C++ exception (not a ``Standard_Failure``), so pythonocc
+    doesn't translate it to a Python ``RuntimeError`` — it escapes the
+    try/except in :func:`tessellate_shape` and ``std::terminate``\\s the whole
+    process. Empty bodies turn up from round-trips that drop geometry (e.g. a
+    FEM deck whose elements don't convert exports an empty STEP compound), so
+    guard rather than crash."""
+    from OCC.Core.Bnd import Bnd_Box
+
+    try:
+        from OCC.Core.BRepBndLib import brepbndlib
+
+        _add = brepbndlib.Add
+    except (ImportError, AttributeError):
+        from OCC.Core.BRepBndLib import brepbndlib_Add as _add
+
+    box = Bnd_Box()
+    try:
+        _add(shape, box)
+    except Exception:
+        return False
+    if box.IsVoid():
+        return False
+    xmin, ymin, zmin, xmax, ymax, zmax = box.Get()
+    diag2 = (xmax - xmin) ** 2 + (ymax - ymin) ** 2 + (zmax - zmin) ** 2
+    return diag2 > 1e-18  # ~1 nm extent floor
+
+
 def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, parallel=True) -> TriangleMesh:
     # Backend dispatch: a pythonocc TopoDS uses the rich ShapeTesselator
     # (normals + edges). Any other handle (e.g. an adacpp ShapeHandle) is
@@ -188,6 +227,11 @@ def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, paral
         positions = np.ascontiguousarray(mesh.positions, dtype="float32")
         faces = np.ascontiguousarray(mesh.indices, dtype="uint32")
         return TriangleMesh(positions, faces, None, _vertex_normals(positions, faces))
+
+    # Nothing to mesh (empty body / void bbox) → return empty rather than let
+    # OCC SIGABRT on a zero relative deflection. See _has_meshable_extent.
+    if not _has_meshable_extent(shape):
+        return _empty_triangle_mesh()
 
     from OCC.Core.Tesselator import ShapeTesselator
 
