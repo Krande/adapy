@@ -984,7 +984,12 @@ def _via_fea_result(
     else:
         from ada.fem.formats.sesam.results.read_sif import read_sif_file
 
-        result = read_sif_file(str(src_path))
+        # Bound peak RSS to one step the way the SIN path does: load only the
+        # requested step (or the first step in the file when the caller didn't
+        # pick one) instead of materialising every step's RV* records. The GLB
+        # render only colours one (step, field); a 20-mode eigen SIF that used
+        # to hit multi-GB now stays at one step's footprint.
+        result = read_sif_file(str(src_path), step=(int(step) if step is not None else "first"))
 
     on_progress("selecting-field", 0.50)
     if step is None or field is None:
