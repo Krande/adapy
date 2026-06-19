@@ -1088,7 +1088,7 @@ async def _process_one(
             return
 
         # Map the isolated result back to the existing audit/error flow.
-        if iresult.exit_code != 0 or iresult.out_bytes is None:
+        if iresult.exit_code != 0 or iresult.out_path is None:
             err_msg = iresult.error or "convert subprocess produced no output"
             trace = iresult.traceback
             # Recognize BundleError by name in the error message rather
@@ -1124,15 +1124,18 @@ async def _process_one(
             )
             return
 
-        out_bytes = iresult.out_bytes
-
         await queue.update(job_id, stage="uploading", progress=0.95)
         # Gzip text-format outputs (IFC, Genie XML); GLB is binary geometry
         # that doesn't compress meaningfully and is what the in-browser
         # viewer fetches on the hot path.
         derived_encoding = "gzip" if job.target_format in {"ifc", "xml"} else None
         try:
-            await storage.put_bytes(scope, job.derived_key, out_bytes, content_encoding=derived_encoding)
+            # Stream the output file straight to object storage (multipart) —
+            # never reading it into a parent-side bytes buffer. cleanup_output()
+            # drops the tmpfile + work dir once the upload settles either way.
+            await storage.put_path(
+                scope, job.derived_key, iresult.out_path, content_encoding=derived_encoding
+            )
         except Exception as exc:
             logger.exception("worker: upload failed for %s", job.derived_key)
             trace = tb_module.format_exc()
@@ -1149,6 +1152,8 @@ async def _process_one(
                 metrics=metrics,
             )
             return
+        finally:
+            iresult.cleanup_output()
 
         # Conversion + upload succeeded — collect metrics and (optionally)
         # the cProfile dump from the child.

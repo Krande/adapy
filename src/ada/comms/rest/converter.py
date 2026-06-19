@@ -628,8 +628,15 @@ def _export_with_ada(
     source_ext: str | None = None,
     merge_fem_objects: bool | None = None,
     reconstruct_surfaces: bool | None = None,
-) -> bytes:
-    """Run the matching ada exporter and read back the produced bytes.
+) -> bytes | pathlib.Path:
+    """Run the matching ada exporter; return the output as bytes or a path.
+
+    GLB tessellates into a ``BytesIO`` and is returned as bytes. The
+    disk-writing targets (IFC, Genie XML) return ``out_path`` itself —
+    ownership transfers to the caller, which streams the file straight to
+    object storage rather than reading it back into a RAM buffer (the
+    streaming writers already keep peak memory bounded; reading the whole
+    result back would undo that).
 
     ``merge_meshes`` is the per-job override for the ada-loadable →
     GLB pipeline. ``True`` (default) merges every geometry into one
@@ -690,7 +697,7 @@ def _export_with_ada(
     else:
         raise UnsupportedFormat(f"unknown target format: {target_format!r}")
     on_progress("ready", 1.0)
-    return out_path.read_bytes()
+    return out_path
 
 
 # A STEP file on disk above this size loads into one OCC compound that OOM-kills
@@ -759,6 +766,7 @@ def _via_ada(
     """
     suffix = ".glb" if target_format == "glb" else f".{target_format}"
     out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
+    result: bytes | pathlib.Path = b""
     try:
         if source_ext in {".step", ".stp"} and target_format == "glb" and _should_stream_step(src_path, step_streamer):
             # Stream solid-by-solid: bounded memory, no whole-model OCC load.
@@ -767,12 +775,13 @@ def _via_ada(
             on_progress("streaming-step", 0.1)
             stream_step_to_glb(src_path, out_path, tolerant=True, on_progress=on_progress)
             on_progress("ready", 1.0)
-            return out_path.read_bytes()
+            result = out_path
+            return result
 
         on_progress("parsing", 0.15)
         model = _load_with_ada(src_path, source_ext)
         _apply_fem_to_objects(model, source_ext, target_format, fem_to_objects, merge_fem_objects, reconstruct_surfaces)
-        return _export_with_ada(
+        result = _export_with_ada(
             model,
             target_format,
             out_path,
@@ -782,11 +791,17 @@ def _via_ada(
             merge_fem_objects=merge_fem_objects,
             reconstruct_surfaces=reconstruct_surfaces,
         )
+        return result
     finally:
-        try:
-            out_path.unlink()
-        except OSError:
-            pass
+        # When we hand back the path itself, ownership transfers to the
+        # caller (the subprocess child moves it into the result slot), so we
+        # must NOT delete it here. Bytes results — and the empty temp file
+        # GLB never writes (it tessellates into a BytesIO) — get cleaned up.
+        if not isinstance(result, pathlib.Path):
+            try:
+                out_path.unlink()
+            except OSError:
+                pass
 
 
 def _via_bundle(
@@ -834,8 +849,9 @@ def _via_bundle(
         )
         suffix = ".glb" if target_format == "glb" else f".{target_format}"
         out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
+        result: bytes | pathlib.Path = b""
         try:
-            return _export_with_ada(
+            result = _export_with_ada(
                 model,
                 target_format,
                 out_path,
@@ -845,11 +861,15 @@ def _via_bundle(
                 merge_fem_objects=opts.get("merge_fem_objects"),
                 reconstruct_surfaces=opts.get("reconstruct_surfaces"),
             )
+            return result
         finally:
-            try:
-                out_path.unlink()
-            except OSError:
-                pass
+            # Path result → ownership transfers to the caller; only clean up
+            # when the bytes are already in hand (see _via_ada).
+            if not isinstance(result, pathlib.Path):
+                try:
+                    out_path.unlink()
+                except OSError:
+                    pass
     finally:
         tmp.cleanup()
 
@@ -1094,7 +1114,7 @@ def _via_ada_to_step(
     fem_to_objects: bool | None = None,
     merge_fem_objects: bool | None = None,
     reconstruct_surfaces: bool | None = None,
-) -> bytes:
+) -> pathlib.Path:
     """Ada-loadable source → STEP via the OCC writer.
 
     Primary use is the IFC → STEP interop case (no STEP writer in
@@ -1114,6 +1134,7 @@ def _via_ada_to_step(
         _apply_fem_to_objects(model, source_ext, "step", fem_to_objects, merge_fem_objects, reconstruct_surfaces)
     on_progress("writing-step", 0.55)
     out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
+    returned_path = False
     try:
         if is_fem:
             # A FEM mesh rebuilds into extruded plates/straight beams, which the
@@ -1140,12 +1161,16 @@ def _via_ada_to_step(
         else:
             model.to_stp(str(out_path))
         on_progress("ready", 1.0)
-        return out_path.read_bytes()
+        returned_path = True
+        return out_path
     finally:
-        try:
-            out_path.unlink()
-        except OSError:
-            pass
+        # Ownership of the STEP file transfers to the caller on success; only
+        # remove it if we bailed before returning the path.
+        if not returned_path:
+            try:
+                out_path.unlink()
+            except OSError:
+                pass
 
 
 # NOTE: _INCLUDE_RE / _inline_abaqus_includes / _find_writer_output /
@@ -1334,7 +1359,7 @@ def convert(
     step: int | None = None,
     field: str | None = None,
     options: dict | None = None,
-) -> bytes:
+) -> bytes | pathlib.Path:
     """Convert a local source file to the requested target format.
 
     Dispatches via :class:`ConverterRegistry` — every viable (from,
@@ -1345,8 +1370,14 @@ def convert(
 
     The worker streams the source from object storage into a tempfile
     and passes its path here, so we never round-trip the full payload
-    through a `bytes` buffer in memory. Output is still returned as
-    bytes — the worker uploads it via `Storage.put_bytes`.
+    through a `bytes` buffer in memory. Output is returned as **bytes or
+    a path**: GLB / mesh / FEA-result handlers build their output in RAM
+    and return bytes; the disk-writing exporters (IFC, Genie XML, STEP)
+    return the ``pathlib.Path`` of the file they wrote, transferring
+    ownership to the caller, which streams it to object storage via
+    `Storage.put_path` instead of reading it back into a buffer. Direct
+    callers that want bytes should read the path themselves (see the
+    `ada audit` repro path / `result_bytes` helper).
 
     ``step`` / ``field`` only apply to FEA result sources (.sif /
     .sin). When unset the FEA handler picks the first available pair,
@@ -1386,6 +1417,21 @@ def convert(
         )
     opts = options or {}
     return handler(src_path, progress, step=step, field=field, **opts)
+
+
+def result_bytes(result: bytes | pathlib.Path) -> bytes:
+    """Materialise a :func:`convert` result as bytes.
+
+    ``convert`` returns bytes for in-RAM handlers and a ``pathlib.Path`` for
+    the disk-writing exporters (so the worker can stream the file straight to
+    storage). Direct callers that genuinely need the bytes — the ``ada audit``
+    repro CLI, unit tests — funnel through here. Reading a large path back into
+    RAM is exactly what the worker avoids, so reserve this for the
+    small/diagnostic callers, not the hot upload path.
+    """
+    if isinstance(result, pathlib.Path):
+        return result.read_bytes()
+    return bytes(result)
 
 
 def supported_extensions() -> Iterable[str]:

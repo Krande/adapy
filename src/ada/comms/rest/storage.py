@@ -44,6 +44,21 @@ from .scope import Scope
 _GZIP_MAGIC = b"\x1f\x8b"
 
 
+def _gzip_file(src: pathlib.Path, dst: pathlib.Path, *, chunk_size: int = 1 << 20) -> None:
+    """Stream-gzip ``src`` into ``dst`` a chunk at a time.
+
+    Used by :meth:`Storage.put_path` so a text output (IFC / Genie XML) can
+    be compressed without holding either the plain or the gzipped payload
+    whole in RAM — the opposite of ``gzip.compress(data)`` which needs both.
+    """
+    with open(src, "rb") as fi, gzip.open(dst, "wb") as fo:
+        while True:
+            block = fi.read(chunk_size)
+            if not block:
+                break
+            fo.write(block)
+
+
 @dataclass(frozen=True)
 class FileEntry:
     """Bucket-level file entry. ``key`` is scope-relative — the
@@ -250,6 +265,86 @@ class Storage:
                 return
 
         await obs.put_async(self._store, full, data)
+
+    async def put_path(
+        self,
+        scope: Scope,
+        key: str,
+        src_path: pathlib.Path,
+        *,
+        content_encoding: str | None = None,
+        pre_compressed: bool = False,
+    ) -> None:
+        """Stream a local file to object storage without buffering it whole.
+
+        The mirror of :meth:`put_bytes` for output that already lives on
+        disk (a conversion writer's tempfile). obstore reads the file and
+        uploads via multipart, so peak RSS stays at the chunk size rather
+        than the full payload — the whole point of this method is to NOT
+        hand a multi-hundred-MB ``bytes`` object to the upload. Used by the
+        worker for large derived outputs (STEP / IFC / GLB) that otherwise
+        get materialised in RAM twice (child read-back + parent buffer).
+
+        ``content_encoding="gzip"``:
+
+        * ``pre_compressed=True`` — the file at ``src_path`` is already
+          gzipped; we just attach the Content-Encoding attribute and stream
+          it up as-is.
+        * ``pre_compressed=False`` — we stream-gzip ``src_path`` into a
+          sibling temp file first (chunked, never the whole payload in RAM),
+          upload that, then delete it. Costs one extra bounded disk pass but
+          keeps the ergonomics identical to ``put_bytes``.
+        """
+        if content_encoding is not None and content_encoding != "gzip":
+            raise ValueError(f"unsupported content_encoding: {content_encoding!r}")
+
+        full = self._full_key(scope, key)
+        src_path = pathlib.Path(src_path)
+
+        if content_encoding == "gzip" and not pre_compressed:
+            gz_path = src_path.with_name(src_path.name + ".gz")
+            try:
+                _gzip_file(src_path, gz_path)
+                await self._put_file_stream(full, gz_path, content_encoding="gzip")
+            finally:
+                try:
+                    gz_path.unlink()
+                except OSError:
+                    pass
+            return
+
+        await self._put_file_stream(full, src_path, content_encoding=content_encoding)
+
+    async def _put_file_stream(
+        self,
+        full: str,
+        path: pathlib.Path,
+        *,
+        content_encoding: str | None = None,
+    ) -> None:
+        """Multipart-upload a local file at ``full`` (already scope-prefixed).
+
+        Opens the file fresh for each attempt so the LocalStore
+        attribute-unsupported retry doesn't replay a consumed cursor.
+        """
+        if content_encoding is not None:
+            try:
+                with open(path, "rb") as fh:
+                    await obs.put_async(
+                        self._store,
+                        full,
+                        fh,
+                        use_multipart=True,
+                        attributes={"Content-Encoding": content_encoding},
+                    )
+                return
+            except NotImplementedError:
+                # LocalStore has no attribute slot — fall through and write
+                # the bytes plain. The gzip magic header still lets the read
+                # path recognise compressed content.
+                pass
+        with open(path, "rb") as fh:
+            await obs.put_async(self._store, full, fh, use_multipart=True)
 
     async def get_range(self, scope: Scope, key: str, start: int, length: int) -> bytes:
         """Read ``[start, start+length)`` raw bytes of an object — no gzip
