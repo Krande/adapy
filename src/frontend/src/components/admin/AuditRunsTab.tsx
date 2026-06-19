@@ -1,5 +1,5 @@
-import React, {useCallback, useEffect, useMemo, useState} from "react";
-import {viewerApi, AuditRun, AuditRunJob, Corpus} from "@/services/viewerApi";
+import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {viewerApi, AuditRun, AuditRunJob, AuditCellHistoryRow, Corpus} from "@/services/viewerApi";
 import {runWasmAuditSweep, WasmSweepProgress} from "@/services/audit/wasmSweep";
 
 // Synthetic worker-pool value routing a run to the in-browser WASM engine.
@@ -153,8 +153,42 @@ const METRIC_COLOR_BUCKETS: {cls: string}[] = [
 const RunGrid: React.FC<{
     jobs: AuditRunJob[];
     metric: MetricKey;
-}> = ({jobs, metric}) => {
+    onCellHistory: (file: string, target: string) => void;
+}> = ({jobs, metric, onCellHistory}) => {
     const grid = useMemo(() => buildGrid(jobs), [jobs]);
+
+    // Right-click (desktop) / long-press (touch) context menu for a cell.
+    const [menu, setMenu] = useState<{x: number; y: number; file: string; target: string} | null>(null);
+    const longPress = useRef<number | null>(null);
+    const openMenu = (x: number, y: number, file: string, target: string) =>
+        setMenu({x, y, file, target});
+    const cancelLongPress = () => {
+        if (longPress.current != null) {
+            window.clearTimeout(longPress.current);
+            longPress.current = null;
+        }
+    };
+    const onTouchStart = (e: React.TouchEvent, file: string, target: string) => {
+        const t = e.touches[0];
+        const x = t.clientX;
+        const y = t.clientY;
+        cancelLongPress();
+        longPress.current = window.setTimeout(() => openMenu(x, y, file, target), 500);
+    };
+    // Close on any outside click / scroll / Escape while the menu is open.
+    useEffect(() => {
+        if (!menu) return;
+        const close = () => setMenu(null);
+        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenu(null); };
+        window.addEventListener("click", close);
+        window.addEventListener("scroll", close, true);
+        window.addEventListener("keydown", onKey);
+        return () => {
+            window.removeEventListener("click", close);
+            window.removeEventListener("scroll", close, true);
+            window.removeEventListener("keydown", onKey);
+        };
+    }, [menu]);
 
     // Per-source cross-format parity result (the dispatcher emits one
     // ``parity`` cell per source). The "Validation" metric colours every cell
@@ -279,8 +313,16 @@ const RunGrid: React.FC<{
                                 return (
                                     <td
                                         key={target}
-                                        className={`px-2 py-1 border ${cls} text-center min-w-[60px] cursor-help`}
+                                        className={`px-2 py-1 border ${cls} text-center min-w-[60px] cursor-context-menu`}
                                         title={cellTooltip(job)}
+                                        onContextMenu={(e) => {
+                                            e.preventDefault();
+                                            openMenu(e.clientX, e.clientY, file, target);
+                                        }}
+                                        onTouchStart={(e) => onTouchStart(e, file, target)}
+                                        onTouchEnd={cancelLongPress}
+                                        onTouchMove={cancelLongPress}
+                                        onTouchCancel={cancelLongPress}
                                     >
                                         {label || "—"}
                                     </td>
@@ -290,6 +332,29 @@ const RunGrid: React.FC<{
                     ))}
                 </tbody>
             </table>
+            {menu && (
+                <div
+                    className="fixed z-50 min-w-[160px] rounded-sm border border-gray-600 bg-gray-900 shadow-lg py-1 text-xs"
+                    style={{left: menu.x, top: menu.y}}
+                    // Keep clicks inside the menu from bubbling to the window
+                    // close-listener before the item handler runs.
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="px-3 py-1 text-[10px] text-gray-500 font-mono truncate max-w-[240px]">
+                        {menu.file} · .{menu.target}
+                    </div>
+                    <button
+                        type="button"
+                        className="w-full text-left px-3 py-1 text-gray-200 hover:bg-gray-700"
+                        onClick={() => {
+                            onCellHistory(menu.file, menu.target);
+                            setMenu(null);
+                        }}
+                    >
+                        Show history
+                    </button>
+                </div>
+            )}
         </div>
     );
 };
@@ -299,6 +364,9 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
     const [workerPool, setWorkerPool] = useState("");
     const [note, setNote] = useState("");
     const [forceRebuild, setForceRebuild] = useState(false);
+    // When on, the run auto-fires a follow-up validate_only parity pass once it
+    // finishes (replaces the old standalone "Run validation" button).
+    const [autoValidate, setAutoValidate] = useState(false);
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
     // In-browser sweep progress (WASM pool only); null when idle.
@@ -348,7 +416,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
         return () => { cancelled = true; };
     }, []);
 
-    const createRun = useCallback(async (validateOnly: boolean) => {
+    const createRun = useCallback(async () => {
         setBusy(true);
         setErr(null);
         setSweepErr(null);
@@ -358,7 +426,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                 worker_pool: workerPool.trim() || null,
                 note: note.trim() || null,
                 force_rebuild: forceRebuild,
-                validate_only: validateOnly,
+                auto_validate: autoValidate,
             });
             setNote("");
             onCreated();
@@ -366,7 +434,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
             // browser drives its cells here. Fire-and-forget: the runs list
             // polls and reflects progress from the audit rows the sweep
             // writes; we also surface a local progress line.
-            if (isWasmPool && !validateOnly) {
+            if (isWasmPool) {
                 setSweep({total: 0, completed: 0, current: null});
                 void runWasmAuditSweep(scope, run.id, (p) => setSweep(p))
                     .then(() => onCreated())
@@ -378,11 +446,11 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
         } finally {
             setBusy(false);
         }
-    }, [scope, workerPool, note, forceRebuild, onCreated, isWasmPool]);
+    }, [scope, workerPool, note, forceRebuild, autoValidate, onCreated, isWasmPool]);
 
     const onSubmit = useCallback((e: React.FormEvent) => {
         e.preventDefault();
-        void createRun(false);
+        void createRun();
     }, [createRun]);
 
     return (
@@ -456,21 +524,30 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                 />
                 <span>Force rebuild</span>
             </label>
+            <label
+                className="text-xs text-gray-300 flex items-center gap-1 h-[30px] mt-auto select-none"
+                title={
+                    isWasmPool
+                        ? "Auto-validate runs on the worker pool only; ignored for in-browser (WASM) sweeps."
+                        : "After this run finishes, automatically start a validation pass " +
+                          "(cross-format visual-parity per source) for the same scope."
+                }
+            >
+                <input
+                    type="checkbox"
+                    checked={autoValidate}
+                    disabled={isWasmPool}
+                    onChange={(e) => setAutoValidate(e.target.checked)}
+                    className="accent-teal-600 disabled:opacity-40"
+                />
+                <span className={isWasmPool ? "opacity-40" : undefined}>Validate after</span>
+            </label>
             <button
                 type="submit"
                 disabled={busy}
                 className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
             >
                 {busy ? "Starting…" : "Run audit"}
-            </button>
-            <button
-                type="button"
-                onClick={() => void createRun(true)}
-                disabled={busy}
-                title="Validation-only run: cross-format visual-parity per source, no conversions."
-                className="bg-teal-700 hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
-            >
-                {busy ? "Starting…" : "Run validation"}
             </button>
             {err && (
                 <div className="w-full text-xs text-red-400" role="alert">{err}</div>
@@ -530,6 +607,149 @@ const CancelRunButton: React.FC<{
                 {busy ? "Aborting…" : "Cancel run"}
             </button>
             {err && <span className="text-[11px] text-red-400" role="alert">{err}</span>}
+        </div>
+    );
+};
+
+const ReDispatchButton: React.FC<{
+    run: AuditRun;
+    onDispatched: () => void;
+}> = ({run, onDispatched}) => {
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+    const onClick = async () => {
+        if (!window.confirm(
+            `Re-run this audit against "${run.scope}"? A new run is created with the same scope, pool and settings.`,
+        )) {
+            return;
+        }
+        setBusy(true);
+        setErr(null);
+        try {
+            await viewerApi.adminAuditRunReDispatch(run.id);
+            onDispatched();
+        } catch (e) {
+            setErr((e as Error).message || "re-run failed");
+        } finally {
+            setBusy(false);
+        }
+    };
+    return (
+        <div className="flex items-center gap-2">
+            <button
+                type="button"
+                onClick={onClick}
+                disabled={busy}
+                className="text-xs px-2 py-1 border border-blue-700 text-blue-300 hover:bg-blue-900/30 rounded-sm disabled:opacity-50"
+                title="Create a new audit run with this run's scope / pool / settings."
+            >
+                {busy ? "Starting…" : "Re-run audit"}
+            </button>
+            {err && <span className="text-[11px] text-red-400" role="alert">{err}</span>}
+        </div>
+    );
+};
+
+// Cross-run history for one grid cell (source × target), opened from the
+// cell context menu. Newest result first, so a run-to-run regression in
+// duration / peak RSS / status is visible at a glance.
+const CellHistoryModal: React.FC<{
+    cell: {key: string; target: string};
+    onClose: () => void;
+}> = ({cell, onClose}) => {
+    const [rows, setRows] = useState<AuditCellHistoryRow[] | null>(null);
+    const [err, setErr] = useState<string | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        setRows(null);
+        setErr(null);
+        (async () => {
+            try {
+                const r = await viewerApi.adminAuditCellHistory(cell.key, cell.target);
+                if (!cancelled) setRows(r.history);
+            } catch (e) {
+                if (!cancelled) setErr((e as Error).message || "history load failed");
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [cell.key, cell.target]);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [onClose]);
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+            <div
+                className="bg-gray-900 border border-gray-700 rounded-sm max-w-3xl w-full max-h-[80vh] flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800">
+                    <div className="text-sm text-gray-200 font-mono truncate" title={`${cell.key} .${cell.target}`}>
+                        {cell.key} · .{cell.target}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="text-gray-400 hover:text-gray-200 text-lg leading-none px-2"
+                        aria-label="Close"
+                    >
+                        ×
+                    </button>
+                </div>
+                <div className="overflow-auto p-2">
+                    {err && <div className="text-xs text-red-400 px-2 py-2" role="alert">{err}</div>}
+                    {!rows && !err && <div className="text-xs text-gray-400 px-2 py-4">Loading…</div>}
+                    {rows && rows.length === 0 && (
+                        <div className="text-xs text-gray-400 px-2 py-4">No historic results for this cell.</div>
+                    )}
+                    {rows && rows.length > 0 && (
+                        <table className="text-xs border-collapse w-full">
+                            <thead className="text-gray-400">
+                                <tr>
+                                    <th className="text-left px-2 py-1 border-b border-gray-700">when</th>
+                                    <th className="text-left px-2 py-1 border-b border-gray-700">status</th>
+                                    <th className="text-right px-2 py-1 border-b border-gray-700">dur</th>
+                                    <th className="text-right px-2 py-1 border-b border-gray-700">peak RSS</th>
+                                    <th className="text-left px-2 py-1 border-b border-gray-700">worker</th>
+                                    <th className="text-left px-2 py-1 border-b border-gray-700">error</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows.map((h) => (
+                                    <tr key={h.id} className="hover:bg-gray-800/40">
+                                        <td className="px-2 py-1 border-b border-gray-800 text-gray-300 whitespace-nowrap">
+                                            {h.ts ? new Date(h.ts).toLocaleString() : "—"}
+                                        </td>
+                                        <td className="px-2 py-1 border-b border-gray-800 text-gray-200">{h.status}</td>
+                                        <td className="px-2 py-1 border-b border-gray-800 text-right text-gray-300">
+                                            {h.duration_ms != null ? `${(h.duration_ms / 1000).toFixed(1)}s` : "—"}
+                                        </td>
+                                        <td className="px-2 py-1 border-b border-gray-800 text-right text-gray-300">
+                                            {h.peak_rss_kb != null ? `${Math.round(h.peak_rss_kb / 1024)}MB` : "—"}
+                                        </td>
+                                        <td
+                                            className="px-2 py-1 border-b border-gray-800 text-gray-400 font-mono truncate max-w-[120px]"
+                                            title={h.worker_image_tag || ""}
+                                        >
+                                            {h.worker_image_tag || "—"}
+                                        </td>
+                                        <td
+                                            className="px-2 py-1 border-b border-gray-800 text-red-300 truncate max-w-[220px]"
+                                            title={h.error || ""}
+                                        >
+                                            {h.error || ""}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };
@@ -602,6 +822,8 @@ const AuditRunsTab: React.FC = () => {
     const [metric, setMetric] = useState<MetricKey>("status");
     const [listError, setListError] = useState<string | null>(null);
     const [detailError, setDetailError] = useState<string | null>(null);
+    // Cell whose cross-run history modal is open (from the grid context menu).
+    const [historyCell, setHistoryCell] = useState<{key: string; target: string} | null>(null);
 
     const loadRuns = useCallback(async () => {
         try {
@@ -782,13 +1004,18 @@ const AuditRunsTab: React.FC = () => {
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
-                                    {selectedRun.status === "running" && (
+                                    {selectedRun.status === "running" ? (
                                         <CancelRunButton
                                             run={selectedRun}
                                             onCancelled={() => {
                                                 void loadRuns();
                                                 if (selectedId) void loadDetail(selectedId);
                                             }}
+                                        />
+                                    ) : (
+                                        <ReDispatchButton
+                                            run={selectedRun}
+                                            onDispatched={() => { void loadRuns(); }}
                                         />
                                     )}
                                     <label className="text-xs text-gray-300 flex items-center gap-2">
@@ -810,12 +1037,19 @@ const AuditRunsTab: React.FC = () => {
                                 <div className="text-xs text-red-400 px-3 py-2">{detailError}</div>
                             )}
                             <div className="flex-1 min-h-0 overflow-hidden">
-                                <RunGrid jobs={selectedJobs} metric={metric}/>
+                                <RunGrid
+                                    jobs={selectedJobs}
+                                    metric={metric}
+                                    onCellHistory={(file, target) => setHistoryCell({key: file, target})}
+                                />
                             </div>
                         </>
                     )}
                 </div>
             </div>
+            {historyCell && (
+                <CellHistoryModal cell={historyCell} onClose={() => setHistoryCell(null)}/>
+            )}
         </div>
     );
 };

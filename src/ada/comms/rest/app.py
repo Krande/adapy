@@ -3154,6 +3154,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             summary["commented"],
         )
 
+    async def _dispatch_auto_validation(pool, parent: dict) -> None:
+        """Fire a ``validate_only`` parity run for a finished ``auto_validate``
+        conversion run. The claim already stamped the parent so this runs once;
+        any failure here is logged but never breaks the poller tick."""
+        try:
+            s = _parse_scope(parent["scope"], _SystemUser())
+            s = await _resolve_project_scope(pool, s)
+        except Exception:
+            logger.exception("auto-validate: scope resolution failed for run %s", parent["id"])
+            return
+        try:
+            vrun = await db_module.create_audit_run(
+                pool,
+                scope=parent["scope"],
+                worker_pool=parent["worker_pool"],
+                trigger="auto-validate",
+                note=f"auto-validation of {parent['id'][:8]}",
+                created_by="system",
+                parent_run_id=parent["id"],
+            )
+        except Exception:
+            logger.exception("auto-validate: create_audit_run failed for %s", parent["id"])
+            return
+        asyncio.create_task(
+            _audit_dispatch(vrun["id"], s, parent["worker_pool"], "system", pool, False, True),
+            name=f"audit-validate-{vrun['id']}",
+        )
+        logger.info("auto-validate: dispatched validation run %s for %s", vrun["id"], parent["id"])
+
     async def _issue_bot_loop(pool) -> None:
         """Background task: drain (1) finished audit runs + (2)
         failed user-driven conversions per tick. Defensive —
@@ -3189,6 +3218,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         if conv is None:
                             break
                         await _run_issue_bot_for_conversion(pool, conv)
+                    # Auto-validate: each finished auto_validate conversion run
+                    # gets a follow-up validate_only parity run, dispatched once
+                    # (the claim stamps auto_validate_dispatched_at).
+                    while True:
+                        parent = await db_module.claim_audit_run_for_auto_validate(pool)
+                        if parent is None:
+                            break
+                        await _dispatch_auto_validation(pool, parent)
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -3482,6 +3519,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # cross-format parity cells, skipping the conversion grid. The parity job
         # re-derives from source, so it needs no prior conversion outputs.
         validate_only = bool(body.get("validate_only") or False)
+        # auto_validate: once this conversion run finishes, the finished-run
+        # poller fires a follow-up validate_only run for the same scope. Only
+        # meaningful for a worker-pool conversion run (a validation run / a
+        # browser run has nothing to chain).
+        auto_validate = bool(body.get("auto_validate") or False) and not validate_only and not is_wasm
 
         s = _parse_scope(scope_str, user)
         s = await _resolve_project_scope(pool, s)
@@ -3496,6 +3538,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             note=note,
             created_by=user.sub,
             force_rebuild=force_rebuild,
+            auto_validate=auto_validate,
         )
         if is_wasm:
             # Parity cells are a worker-only concern (no browser parity
@@ -3588,6 +3631,77 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="audit run not found or not in running state",
             )
         return JSONResponse(run)
+
+    @admin.post("/audit/runs/{run_id}/re-dispatch")
+    async def admin_audit_run_re_dispatch(
+        run_id: str,
+        request: Request,
+        background_tasks: BackgroundTasks,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Re-run a prior audit against the same scope / pool / settings.
+
+        Creates a fresh run that mirrors the prior one's ``scope``,
+        ``worker_pool``, ``force_rebuild`` and ``auto_validate`` (linked via
+        ``parent_run_id``), then dispatches it the same way the original was
+        (NATS workers, or the browser WASM engine for a ``wasm`` pool). The
+        cell set is re-enumerated from the scope at dispatch time, so a
+        re-dispatch reflects the scope's current files — not a frozen copy."""
+        pool = _require_pool(request)
+        prior = await db_module.get_audit_run(pool, run_id)
+        if prior is None:
+            raise HTTPException(status_code=404, detail="audit run not found")
+
+        scope_str = prior["scope"]
+        worker_pool = prior["worker_pool"]
+        is_wasm = isinstance(worker_pool, str) and worker_pool.strip().lower() == _WASM_POOL
+        if not is_wasm and not queue.enabled:
+            raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
+
+        s = _parse_scope(scope_str, user)
+        s = await _resolve_project_scope(pool, s)
+        if not await scope_can_access(user, s, pool):
+            raise HTTPException(status_code=403, detail="forbidden")
+
+        run = await db_module.create_audit_run(
+            pool,
+            scope=scope_str,
+            worker_pool=worker_pool,
+            trigger="re-dispatch",
+            note=f"re-run of {run_id[:8]}",
+            created_by=user.sub,
+            force_rebuild=prior["force_rebuild"],
+            auto_validate=prior["auto_validate"],
+            parent_run_id=run_id,
+        )
+        if is_wasm:
+            background_tasks.add_task(_audit_dispatch_wasm, run["id"], s, pool)
+        else:
+            background_tasks.add_task(
+                _audit_dispatch,
+                run["id"],
+                s,
+                worker_pool,
+                user.sub,
+                pool,
+                prior["force_rebuild"],
+                False,
+            )
+        return JSONResponse(run, status_code=202)
+
+    @admin.get("/audit/cell-history")
+    async def admin_audit_cell_history(
+        request: Request,
+        key: str,
+        target: str,
+        limit: int = 50,
+    ) -> JSONResponse:
+        """Historic results for one ``(source key, target_format)`` cell across
+        every run — newest first. Drives the grid's right-click 'show history'
+        table so an operator can see how one conversion has trended."""
+        pool = _require_pool(request)
+        rows = await db_module.audit_log_history_for_cell(pool, key, target, limit=limit)
+        return JSONResponse({"key": key, "target_format": target, "history": rows})
 
     @admin.get("/audit/runs/{run_id}/cells")
     async def admin_audit_run_cells(

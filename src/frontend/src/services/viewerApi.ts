@@ -594,11 +594,30 @@ export interface AuditRun {
     // short-circuit. Useful as a UI badge so an unexpected slow
     // run is recognisable as a perf measurement vs a regression.
     force_rebuild: boolean;
+    // When true, the finished-run poller auto-fires a follow-up
+    // validate_only parity run for the same scope once this run finishes.
+    auto_validate?: boolean;
+    // Set on a derived run (the auto-validation child, or a re-dispatched
+    // copy) to the run it was created from.
+    parent_run_id?: string | null;
     // M5: issue-bot sync status. NULL until the bot has touched the
     // run; 'syncing' while in flight; terminal 'done'/'skipped'/'failed'.
     issue_bot_status: string | null;
     issue_bot_last_error: string | null;
     issue_bot_synced_at: string | null;
+}
+
+// One historic result for a (source key, target_format) cell — newest
+// first — backing the grid's right-click "show history" table.
+export interface AuditCellHistoryRow {
+    id: number;
+    ts: string | null;
+    status: string;
+    error: string | null;
+    duration_ms: number | null;
+    peak_rss_kb: number | null;
+    worker_image_tag: string | null;
+    audit_run_id: string | null;
 }
 
 // Per-deployment configuration for the audit-failure → issue tracker
@@ -1600,6 +1619,7 @@ export const viewerApi = {
             note?: string | null;
             force_rebuild?: boolean;
             validate_only?: boolean;
+            auto_validate?: boolean;
         },
     ): Promise<AuditRun> {
         const r = await authedFetch(`${runtime.apiBase()}/admin/audit/runs`, {
@@ -1608,6 +1628,31 @@ export const viewerApi = {
             body: JSON.stringify(body),
         });
         return jsonOrThrow(r, "adminAuditRunCreate");
+    },
+
+    /** Admin: re-run a prior audit against the same scope / pool / settings.
+     * The cells are re-enumerated from the scope at dispatch time, so the
+     * re-run reflects the scope's current files. Returns the new run. */
+    async adminAuditRunReDispatch(runId: string): Promise<AuditRun> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}/re-dispatch`,
+            {method: "POST"},
+        );
+        return jsonOrThrow(r, `adminAuditRunReDispatch(${runId})`);
+    },
+
+    /** Admin: historic results for one (source key, target_format) cell across
+     * every run, newest first. Backs the grid's right-click "show history". */
+    async adminAuditCellHistory(
+        key: string,
+        target: string,
+        limit = 50,
+    ): Promise<{key: string; target_format: string; history: AuditCellHistoryRow[]}> {
+        const params = new URLSearchParams({key, target, limit: String(limit)});
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/cell-history?${params.toString()}`,
+        );
+        return jsonOrThrow(r, "adminAuditCellHistory");
     },
 
     /** Cell matrix for an audit run — drives the in-browser (WASM) sweep
