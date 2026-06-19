@@ -1768,6 +1768,7 @@ def build_manifest(
     lineage: dict | None = None,
     fem_concepts: dict | None = None,
     groups: list[dict] | None = None,
+    capacity: dict | None = None,
     legacy_glb_url_template: str | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs.
@@ -2008,6 +2009,8 @@ def build_manifest(
     # no ADA_EXT, so the frontend feeds these into useSceneInfoStore directly).
     if groups:
         manifest["groups"] = groups
+    if capacity:
+        manifest["capacity"] = capacity
     if legacy_glb_url_template is not None:
         manifest["legacy_glb"] = {"url_template": legacy_glb_url_template}
     return manifest
@@ -2312,6 +2315,7 @@ def bake_artefacts(
     legacy_glb_url_template: str | None = None,
     nodal_only: bool = True,
     include_element_fields: bool = True,
+    capacity: dict | None = None,
     on_artefact: Callable[[pathlib.Path], None] | None = None,
 ) -> BakeResult:
     """Drive the streaming bake end-to-end.
@@ -2504,6 +2508,7 @@ def bake_artefacts(
         lineage=lineage,
         fem_concepts=fem_concepts,
         groups=groups,
+        capacity=capacity,
         legacy_glb_url_template=legacy_glb_url_template,
     )
     manifest_path = out_dir / "fea.manifest.json"

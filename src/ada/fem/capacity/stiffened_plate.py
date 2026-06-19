@@ -14,7 +14,13 @@ import numpy as np
 
 from ada.config import logger
 from ada.fem.capacity import extract
-from ada.fem.capacity.model import CapacityModel, CapMaterial, CapPlate, CapSection, CapStiffener
+from ada.fem.capacity.model import (
+    CapacityModel,
+    CapMaterial,
+    CapPlate,
+    CapSection,
+    CapStiffener,
+)
 from ada.fem.capacity.sources import PanelGroupSpec
 from ada.fem.results.common import Mesh
 
@@ -34,8 +40,7 @@ class CapacityModelBuilder(ABC):
     """Turns a panel-group membership spec into a :class:`CapacityModel`."""
 
     @abstractmethod
-    def build(self, mesh: Mesh, aux: extract.AuxRecords, group: PanelGroupSpec) -> CapacityModel:
-        ...
+    def build(self, mesh: Mesh, aux: extract.AuxRecords, group: PanelGroupSpec) -> CapacityModel: ...
 
 
 class StiffenedPlateBuilder(CapacityModelBuilder):

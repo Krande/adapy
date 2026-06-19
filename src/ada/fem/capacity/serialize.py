@@ -63,9 +63,7 @@ def to_genie_dict(models: list[CapacityModel]) -> dict:
             }
             for j, s in enumerate(m.stiffeners, start=1)
         ]
-        buckling_models.append(
-            {"Id": i, "Name": m.name, "Type": 1, "Plates": plates, "Stiffeners": stiffeners}
-        )
+        buckling_models.append({"Id": i, "Name": m.name, "Type": 1, "Plates": plates, "Stiffeners": stiffeners})
     return {"BucklingModels": buckling_models}
 
 

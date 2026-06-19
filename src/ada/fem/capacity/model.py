@@ -127,6 +127,4 @@ def to_neutral_dict(models: list[CapacityModel], cases: list[ResolvedCase]) -> d
 
 
 def write_neutral_json(path: str | pathlib.Path, models: list[CapacityModel], cases: list[ResolvedCase]) -> None:
-    pathlib.Path(path).write_text(
-        json.dumps(to_neutral_dict(models, cases), indent=2), encoding="utf-8"
-    )
+    pathlib.Path(path).write_text(json.dumps(to_neutral_dict(models, cases), indent=2), encoding="utf-8")

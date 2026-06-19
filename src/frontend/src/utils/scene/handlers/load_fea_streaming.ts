@@ -12,12 +12,14 @@ import {fetchBeamSolidsWarp, ParsedBeamSolidsWarp} from "@/services/feaBeamSolid
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
 import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batch_mesh";
-import {FeaManifest, FeaManifestField, viewerApi} from "@/services/viewerApi";
+import {CapacityManifest, FeaManifest, FeaManifestField, ScopeUrl, viewerApi} from "@/services/viewerApi";
 import {sceneRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {useCapacityResultsStore} from "@/state/capacityResultsStore";
+import type {CapacityResults} from "@/state/capacityResultsStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {usePerfStore} from "@/state/perfStore";
 import {applyFieldToMesh} from "../fea/applyField";
@@ -62,6 +64,14 @@ interface ActiveFeaStreaming {
      *  attributes are linked to the beam-solid mesh after the first
      *  apply seeds the morph attribute. */
     beamSolidEdges?: THREE.LineSegments;
+    /** Capacity-model boundary overlay built from AFEM element draw ranges. */
+    capacityBoundaryOverlay?: THREE.LineSegments;
+    /** Red boundary overlay for the selected capacity model. */
+    capacitySelectedBoundaryOverlay?: THREE.LineSegments;
+    /** Non-pickable non-indexed overlay used for hard-edged capacity colors. */
+    capacityColorOverlay?: THREE.Mesh;
+    /** Capacity color overlay for optional beam-solid geometry. */
+    beamSolidCapacityColorOverlay?: THREE.Mesh;
 }
 
 let active: ActiveFeaStreaming | null = null;
@@ -95,6 +105,7 @@ export function setBeamSolidsVisible(visible: boolean): void {
 export function clearActiveFeaStreaming(): void {
     active = null;
     useFeaAnimationStore.getState().reset();
+    useCapacityResultsStore.getState().clear();
     resetFeaAnimationPhase();
     // Drop any "go to node" marker + active-row state. The marker
     // mesh would otherwise survive into the next loaded model and
@@ -471,6 +482,475 @@ function snapshotBasePositions(geometry: THREE.BufferGeometry): Float32Array {
     return new Float32Array(attr.array as Float32Array);
 }
 
+async function loadCapacityResultsIfPresent(
+    fetcher: FeaFetcher,
+    scope: ScopeUrl,
+    sourceName: string,
+    manifest: FeaManifest,
+): Promise<void> {
+    const capacity = await resolveCapacityManifest(fetcher, scope, sourceName, manifest);
+    const store = useCapacityResultsStore.getState();
+    if (!capacity?.results_url) {
+        store.clear();
+        return;
+    }
+    if (
+        store.source?.sourceName === sourceName
+        && store.source.resultsUrl === capacity.results_url
+        && store.results
+    ) {
+        return;
+    }
+
+    store.setLoading(true);
+    try {
+        const buf = await fetchCapacityBuffer(fetcher, scope, capacity.results_url);
+        const text = new TextDecoder("utf-8").decode(buf);
+        const results = JSON.parse(text) as CapacityResults;
+        validateCapacityResults(results);
+        useCapacityResultsStore.getState().setCapacityData(
+            capacity,
+            {sourceName, resultsUrl: capacity.results_url},
+            results,
+        );
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        useCapacityResultsStore.getState().setError(message);
+        // eslint-disable-next-line no-console
+        console.warn("[fea-streaming] failed to load capacity results:", err);
+    }
+}
+
+async function resolveCapacityManifest(
+    fetcher: FeaFetcher,
+    scope: ScopeUrl,
+    sourceName: string,
+    manifest: FeaManifest,
+): Promise<CapacityManifest | null> {
+    if (manifest.capacity?.results_url) return manifest.capacity;
+
+    const sourcePath = sourceName.replace(/^\/+/, "");
+    const slash = sourcePath.lastIndexOf("/");
+    const dir = slash >= 0 ? sourcePath.slice(0, slash + 1) : "";
+    const filename = slash >= 0 ? sourcePath.slice(slash + 1) : sourcePath;
+    const stem = filename.replace(/\.[^.]+$/, "");
+
+    for (const candidate of ["capacity.results.json"]) {
+        try {
+            await fetcher(candidate);
+            return {version: 1, results_url: candidate, field_strategy: "json-auto"};
+        } catch {
+            // Missing auto-discovery candidates are expected.
+        }
+    }
+
+    for (const candidate of [
+        `${dir}${stem}.c201.json`,
+        `${dir}${stem}.capacity.json`,
+        `${dir}capacity.results.json`,
+    ]) {
+        try {
+            await viewerApi.getBlob(scope, candidate);
+            return {version: 1, results_url: `scope://${candidate}`, field_strategy: "json-auto"};
+        } catch {
+            // Missing auto-discovery candidates are expected.
+        }
+    }
+    return null;
+}
+
+function fetchCapacityBuffer(
+    fetcher: FeaFetcher,
+    scope: ScopeUrl,
+    resultsUrl: string,
+): Promise<ArrayBuffer> {
+    if (resultsUrl.startsWith("scope://")) {
+        return viewerApi.getBlob(scope, resultsUrl.slice("scope://".length));
+    }
+    return fetcher(resultsUrl);
+}
+
+function validateCapacityResults(results: CapacityResults): void {
+    if (results.format !== "dnv-rp-c201-capacity-results") {
+        throw new Error(`unsupported capacity results format ${String(results.format)}`);
+    }
+    if (results.version !== 1) {
+        throw new Error(`unsupported capacity results version ${String(results.version)}`);
+    }
+    if (!Array.isArray(results.runs) || results.runs.length === 0) {
+        throw new Error("capacity results contain no runs");
+    }
+}
+
+export function applyCapacityVisualField(
+    metricId?: string,
+    caseId?: string,
+): boolean {
+    if (!active?.mesh) return false;
+    const store = useCapacityResultsStore.getState();
+    const results = store.results;
+    if (!results) return false;
+    const run = results.runs.find((r) => r.id === store.activeRunId) ?? results.runs[0];
+    if (!run) return false;
+    const fieldId = metricId ?? store.activeMetricId;
+    const activeCaseId =
+        caseId ?? store.activeCaseId ?? run.result_cases?.[0]?.id ?? run.case_results?.[0]?.case_id;
+    if (!activeCaseId) return false;
+    const field = run.visual_fields.find((f) => f.id === fieldId);
+    const fieldCase = field?.cases.find((c) => c.case_id === activeCaseId);
+    if (!field || !fieldCase || field.storage !== "json") return false;
+
+    paintCapacityEntries(active.mesh, fieldCase.values);
+    if (active.beamSolidMesh) {
+        paintCapacityEntries(active.beamSolidMesh, fieldCase.values);
+    }
+    applyCapacitySelectionHighlight();
+    return true;
+}
+
+export function applyCapacityDefinitionView(): boolean {
+    if (!active?.mesh) return false;
+    const store = useCapacityResultsStore.getState();
+    const results = store.results;
+    if (!results) return false;
+    const run = results.runs.find((r) => r.id === store.activeRunId) ?? results.runs[0];
+    if (!run) return false;
+
+    rebuildCapacityBoundaryOverlay(
+        run.capacity_models.map((model) => ({
+            id: model.id,
+            panel_group: model.panel_group,
+            element_ids: model.element_ids,
+        })),
+    );
+    applyCapacitySelectionHighlight();
+    return true;
+}
+
+export function clearCapacityDefinitionView(): void {
+    disposeCapacityBoundaryOverlay();
+}
+
+export function clearCapacityVisualField(): void {
+    if (!active) return;
+    disposeCapacityColorOverlay("main");
+    disposeCapacityColorOverlay("beam");
+}
+
+export function applyCapacitySelectionHighlight(): void {
+    if (!active?.mesh) return;
+    const store = useCapacityResultsStore.getState();
+    const results = store.results;
+    if (!results) return;
+    const run = results.runs.find((r) => r.id === store.activeRunId) ?? results.runs[0];
+    if (!run) return;
+    updateCapacitySelectionOverlay(run, store.selectedModelId);
+}
+
+function paintCapacityEntries(
+    mesh: THREE.Mesh,
+    values: Array<{element_id: number; value: number | null; capacity_model_id?: string}>,
+): boolean {
+    const drawRanges = (mesh as unknown as {
+        drawRanges?: Map<string, [number, number]>;
+    }).drawRanges;
+    if (!drawRanges) return false;
+
+    const overlay = capacityColorOverlayFor(mesh);
+    if (!overlay) return false;
+    const colorAttr = overlay.geometry.getAttribute("color") as THREE.BufferAttribute | undefined;
+    if (!colorAttr) return false;
+    const colors = colorAttr.array as Float32Array;
+    seedNeutralColors(colors, 0.42);
+    const tmp = new Float32Array(3);
+
+    for (const entry of values) {
+        if (entry.value == null || !isFinite(entry.value)) continue;
+        const dr = drawRanges.get(`E${entry.element_id}`);
+        if (!dr) continue;
+        capacityUfColor(entry.value, tmp);
+        const [vStart, vCount] = dr;
+        for (let i = vStart; i < vStart + vCount; i++) {
+            const off = i * 3;
+            colors[off + 0] = tmp[0];
+            colors[off + 1] = tmp[1];
+            colors[off + 2] = tmp[2];
+        }
+    }
+
+    colorAttr.needsUpdate = true;
+    return true;
+}
+
+function capacityColorOverlayFor(mesh: THREE.Mesh): THREE.Mesh | null {
+    if (!active) return null;
+    const isBeam = active.beamSolidMesh === mesh;
+    const existing = isBeam ? active.beamSolidCapacityColorOverlay : active.capacityColorOverlay;
+    if (existing) return existing;
+
+    const overlay = buildCapacityColorOverlay(mesh);
+    if (!overlay) return null;
+    mesh.add(overlay);
+    if (isBeam) active.beamSolidCapacityColorOverlay = overlay;
+    else active.capacityColorOverlay = overlay;
+    return overlay;
+}
+
+function buildCapacityColorOverlay(mesh: THREE.Mesh): THREE.Mesh | null {
+    const src = mesh.geometry;
+    const indexAttr = src.getIndex();
+    const posAttr = src.getAttribute("position") as THREE.BufferAttribute | undefined;
+    if (!indexAttr || !posAttr || posAttr.itemSize !== 3) return null;
+
+    const indexArr = indexAttr.array as Uint16Array | Uint32Array;
+    const positions = new Float32Array(indexArr.length * 3);
+    const colors = new Float32Array(indexArr.length * 3);
+    seedNeutralColors(colors, 0.42);
+    for (let i = 0; i < indexArr.length; i++) {
+        const srcIdx = indexArr[i];
+        const out = i * 3;
+        positions[out + 0] = posAttr.getX(srcIdx);
+        positions[out + 1] = posAttr.getY(srcIdx);
+        positions[out + 2] = posAttr.getZ(srcIdx);
+    }
+
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    duplicateMorphPositions(src, geom, indexArr);
+
+    const mat = new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.96,
+        depthTest: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+    });
+    const overlay = new THREE.Mesh(geom, mat);
+    overlay.name = "capacity-color-overlay";
+    overlay.renderOrder = 2;
+    overlay.layers.mask = mesh.layers.mask;
+    overlay.raycast = () => undefined;
+    overlay.morphTargetInfluences = mesh.morphTargetInfluences;
+    overlay.morphTargetDictionary = mesh.morphTargetDictionary;
+    return overlay;
+}
+
+function duplicateMorphPositions(
+    source: THREE.BufferGeometry,
+    target: THREE.BufferGeometry,
+    indexArr: Uint16Array | Uint32Array,
+): void {
+    const morphPositions = source.morphAttributes.position as THREE.BufferAttribute[] | undefined;
+    if (!morphPositions?.length) return;
+    target.morphAttributes.position = morphPositions.map((attr) => {
+        const out = new Float32Array(indexArr.length * 3);
+        for (let i = 0; i < indexArr.length; i++) {
+            const srcIdx = indexArr[i];
+            const dst = i * 3;
+            out[dst + 0] = attr.getX(srcIdx);
+            out[dst + 1] = attr.getY(srcIdx);
+            out[dst + 2] = attr.getZ(srcIdx);
+        }
+        return new THREE.BufferAttribute(out, 3);
+    });
+    target.morphTargetsRelative = source.morphTargetsRelative === true;
+}
+
+function updateCapacitySelectionOverlay(
+    run: {capacity_models: Array<{id: string; panel_group: string; element_ids: {all?: number[]}}>},
+    selectedModelId: string | null,
+): void {
+    disposeCapacitySelectedBoundaryOverlay();
+    const rangeIds = selectedModelId
+        ? run.capacity_models
+            .find((model) => model.id === selectedModelId)
+            ?.element_ids.all
+            ?.map((id) => `E${id}`) ?? []
+        : [];
+
+    // Keep capacity selection visually edge-based. The default mesh face
+    // selection color is too close to result colors and can obscure UF plots.
+    applySelectionOverlay(active?.mesh, []);
+    applySelectionOverlay(active?.beamSolidMesh, []);
+
+    if (!selectedModelId || rangeIds.length === 0) return;
+    const selectedModel = run.capacity_models.find((model) => model.id === selectedModelId);
+    if (!selectedModel) return;
+    const overlay = buildCapacityBoundaryOverlay(
+        [selectedModel],
+        0xff1f3d,
+        "capacity-selected-model-boundary",
+        false,
+    );
+    if (overlay && active?.mesh) {
+        active.mesh.add(overlay);
+        active.capacitySelectedBoundaryOverlay = overlay;
+        linkLineMorphToMesh(active.mesh);
+    }
+}
+
+function applySelectionOverlay(mesh: THREE.Mesh | undefined, rangeIds: string[]): void {
+    const maybeSelectable = mesh as unknown as {
+        updateSelectionGroups?: (rangeIds: string[]) => void;
+    } | undefined;
+    maybeSelectable?.updateSelectionGroups?.(rangeIds);
+}
+
+function rebuildCapacityBoundaryOverlay(
+    models: Array<{id: string; panel_group: string; element_ids: {all?: number[]}}>,
+): void {
+    disposeCapacityBoundaryOverlay();
+    const overlay = buildCapacityBoundaryOverlay(
+        models,
+        0xf8fafc,
+        "capacity-model-boundaries",
+        true,
+    );
+    if (overlay && active?.mesh) {
+        active.mesh.add(overlay);
+        active.capacityBoundaryOverlay = overlay;
+        linkLineMorphToMesh(active.mesh);
+    }
+}
+
+function buildCapacityBoundaryOverlay(
+    models: Array<{id: string; panel_group: string; element_ids: {all?: number[]}}>,
+    color: number,
+    name: string,
+    depthTest: boolean,
+): THREE.LineSegments | null {
+    if (!active?.mesh) return null;
+    const mesh = active.mesh;
+    const geometry = mesh.geometry;
+    const indexAttr = geometry.getIndex();
+    const drawRanges = (mesh as unknown as {
+        drawRanges?: Map<string, [number, number]>;
+    }).drawRanges;
+    if (!indexAttr || !drawRanges) return null;
+    const indexArr = indexAttr.array as Uint16Array | Uint32Array;
+    const edgeIndices: number[] = [];
+
+    for (const model of models) {
+        const edgeCounts = new Map<string, [number, number, number]>();
+        for (const elementId of model.element_ids.all ?? []) {
+            const dr = drawRanges.get(`E${elementId}`);
+            if (!dr) continue;
+            const [vStart, vCount] = dr;
+            for (let i = vStart; i + 2 < vStart + vCount; i += 3) {
+                addBoundaryEdge(edgeCounts, indexArr[i], indexArr[i + 1]);
+                addBoundaryEdge(edgeCounts, indexArr[i + 1], indexArr[i + 2]);
+                addBoundaryEdge(edgeCounts, indexArr[i + 2], indexArr[i]);
+            }
+        }
+        for (const [, [a, b, count]] of edgeCounts) {
+            if (count === 1) edgeIndices.push(a, b);
+        }
+    }
+    if (edgeIndices.length === 0) return null;
+
+    const lineGeom = new THREE.BufferGeometry();
+    lineGeom.setAttribute("position", geometry.attributes.position);
+    lineGeom.setIndex(new THREE.BufferAttribute(new Uint32Array(edgeIndices), 1));
+    const lineMat = new THREE.LineBasicMaterial({
+        color,
+        depthTest,
+        depthWrite: false,
+        transparent: true,
+        opacity: depthTest ? 0.92 : 1.0,
+    });
+    const overlay = new THREE.LineSegments(lineGeom, lineMat);
+    overlay.name = name;
+    overlay.layers.mask = mesh.layers.mask;
+    overlay.renderOrder = depthTest ? 3 : 6;
+    return overlay;
+}
+
+function disposeCapacityBoundaryOverlay(): void {
+    if (!active?.capacityBoundaryOverlay) return;
+    active.capacityBoundaryOverlay.removeFromParent();
+    active.capacityBoundaryOverlay.geometry.dispose();
+    const material = active.capacityBoundaryOverlay.material;
+    if (Array.isArray(material)) material.forEach((m) => m.dispose());
+    else material.dispose();
+    active.capacityBoundaryOverlay = undefined;
+}
+
+function disposeCapacitySelectedBoundaryOverlay(): void {
+    if (!active?.capacitySelectedBoundaryOverlay) return;
+    active.capacitySelectedBoundaryOverlay.removeFromParent();
+    active.capacitySelectedBoundaryOverlay.geometry.dispose();
+    const material = active.capacitySelectedBoundaryOverlay.material;
+    if (Array.isArray(material)) material.forEach((m) => m.dispose());
+    else material.dispose();
+    active.capacitySelectedBoundaryOverlay = undefined;
+}
+
+function disposeCapacityColorOverlay(which: "main" | "beam"): void {
+    if (!active) return;
+    const overlay = which === "main" ? active.capacityColorOverlay : active.beamSolidCapacityColorOverlay;
+    if (!overlay) return;
+    overlay.removeFromParent();
+    overlay.geometry.dispose();
+    const material = overlay.material;
+    if (Array.isArray(material)) material.forEach((m) => m.dispose());
+    else material.dispose();
+    if (which === "main") active.capacityColorOverlay = undefined;
+    else active.beamSolidCapacityColorOverlay = undefined;
+}
+
+function addBoundaryEdge(
+    edgeCounts: Map<string, [number, number, number]>,
+    a: number,
+    b: number,
+): void {
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    const key = `${lo}:${hi}`;
+    const prev = edgeCounts.get(key);
+    if (prev) prev[2] += 1;
+    else edgeCounts.set(key, [lo, hi, 1]);
+}
+
+function seedNeutralColors(colors: Float32Array, value = 0.64): void {
+    for (let i = 0; i < colors.length; i += 3) {
+        colors[i + 0] = value;
+        colors[i + 1] = value;
+        colors[i + 2] = value;
+    }
+}
+
+function capacityUfColor(value: number, out: Float32Array): void {
+    if (value > 1.0) {
+        out[0] = 0.86;
+        out[1] = 0.10;
+        out[2] = 0.32;
+        return;
+    }
+    if (value <= 0.6) {
+        const t = Math.max(0, value) / 0.6;
+        out[0] = 0.12 + 0.12 * t;
+        out[1] = 0.36 + 0.34 * t;
+        out[2] = 0.78 - 0.26 * t;
+        return;
+    }
+    if (value <= 0.8) {
+        const t = (value - 0.6) / 0.2;
+        out[0] = 0.24 + 0.62 * t;
+        out[1] = 0.70 + 0.08 * t;
+        out[2] = 0.52 - 0.42 * t;
+        return;
+    }
+    const t = (value - 0.8) / 0.2;
+    out[0] = 0.86 + 0.06 * t;
+    out[1] = 0.78 - 0.54 * t;
+    out[2] = 0.10 - 0.02 * t;
+}
+
 /** Load the mesh GLB, fetch the chosen field's blob, and apply the
  * (component, step) selection. Subsequent calls for the same source
  * + field skip the network and just swap the step. */
@@ -540,6 +1020,7 @@ export async function load_fea_streaming(args: {
     // storage-agnostic so paradoc-embed can plug in its own fetcher
     // that hits paradoc-serve's REST endpoint instead.
     const {fetcher, rangeFetcher, cacheKey} = makeViewerApiFetcher(scope, sourceName);
+    await loadCapacityResultsIfPresent(fetcher, scope, sourceName, manifest);
 
     // (Re-)load the mesh into the scene if we don't already have it
     // for this source. Switching field-within-source keeps the same

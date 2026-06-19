@@ -23,8 +23,7 @@ import re
 import pytest
 
 _DEFAULT_REF = pathlib.Path(
-    r"C:\AibelProgs\projects\GitHub\dnv-rp-c201\.local\reference"
-    r"\example_mini_topside_codecheck\temp\Assembly"
+    r"C:\AibelProgs\projects\GitHub\dnv-rp-c201\.local\reference" r"\example_mini_topside_codecheck\temp\Assembly"
 )
 REF = pathlib.Path(os.environ.get("ADA_CAPACITY_REF", _DEFAULT_REF))
 SIN = REF / "Analysis_pm" / "20260617_122105_R1.SIN"
@@ -117,8 +116,7 @@ def test_sin_source_builds_mini_grid_x100_capacity_models_like_genie():
         ref = genie_models[name]
         native_stiffeners = sorted((s.name, tuple(int(e) for e in s.element_ids)) for s in model.stiffeners)
         genie_stiffeners = sorted(
-            (stiffener["Name"], tuple(int(e) for e in stiffener["FiniteElements"]))
-            for stiffener in ref["Stiffeners"]
+            (stiffener["Name"], tuple(int(e) for e in stiffener["FiniteElements"])) for stiffener in ref["Stiffeners"]
         )
         native_plates = sorted(tuple(int(e) for e in plate.element_ids) for plate in model.plates)
         genie_plates = sorted(tuple(int(e) for e in plate["FiniteElements"]) for plate in ref["Plates"])
@@ -138,6 +136,28 @@ def test_sin_source_scopes_area_set_to_capacity_grid_like_genie():
         "panelGroup(Mini_dbl_btm_f0_i4_j1)",
     }
     assert sum(len(model.stiffeners) for model in native) == 12
+
+
+def test_sin_source_filters_primary_girders_by_secondary_concept_profile():
+    from ada.fem.capacity import SinSource
+    from ada.fem.capacity.extract import AuxRecords, geono_of
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    mesh = read_sin_file(SIN).mesh
+    aux = AuxRecords.from_sin(SIN)
+
+    raw = SinSource(group="Mini_grid_x100", classify_secondary=False).groups(mesh, aux)
+    classified = SinSource(group="Mini_grid_x100").groups(mesh, aux)
+
+    raw_stiffeners = [s for model in raw for s in model.stiffeners]
+    kept_stiffeners = [s for model in classified for s in model.stiffeners]
+    raw_geonos = {geono_of(mesh, s.element_ids[0]) for s in raw_stiffeners}
+    kept_geonos = {geono_of(mesh, s.element_ids[0]) for s in kept_stiffeners}
+
+    assert 5 in raw_geonos  # TG600 primary girders are candidates before classification.
+    assert kept_geonos == {3}  # HP220 secondary stiffener profile.
+    assert len(kept_stiffeners) == 54
+    assert any("_gbm" in s.name for s in kept_stiffeners)
 
 
 def test_genie_mirror_roundtrips(manager, tmp_path):
@@ -251,18 +271,14 @@ def test_irregular_plate_field_sampling_matches_genie_tail(manager, genie_variab
     assert transformed.vectors["AverageTransverseMembraneStresses"][0] == pytest.approx(
         gvec["AverageTransverseMembraneStresses"][0], rel=5e-4
     )
-    assert transformed.vectors["AverageShearStresses"][2] == pytest.approx(
-        gvec["AverageShearStresses"][2], rel=5e-4
-    )
+    assert transformed.vectors["AverageShearStresses"][2] == pytest.approx(gvec["AverageShearStresses"][2], rel=5e-4)
 
     split_field = resolved[(10, "Stiffener_Mini_west_main_f0_i2_j2_sbm5")]
     _gv, gvec = genie_variables[(10, split_field.stiffener)]
     assert split_field.vectors["AverageTransverseMembraneStresses"][2] == pytest.approx(
         gvec["AverageTransverseMembraneStresses"][2], rel=5e-4
     )
-    assert split_field.vectors["AverageShearStresses"][2] == pytest.approx(
-        gvec["AverageShearStresses"][2], rel=5e-4
-    )
+    assert split_field.vectors["AverageShearStresses"][2] == pytest.approx(gvec["AverageShearStresses"][2], rel=5e-4)
 
 
 def test_axial_loads_preserve_section_5_positions(manager):
@@ -271,8 +287,7 @@ def test_axial_loads_preserve_section_5_positions(manager):
     non_uniform = [
         rc.vectors["AxialLoads"]
         for rc in resolved
-        if "AxialLoads" in rc.vectors
-        and max(rc.vectors["AxialLoads"]) - min(rc.vectors["AxialLoads"]) > 1e-6
+        if "AxialLoads" in rc.vectors and max(rc.vectors["AxialLoads"]) - min(rc.vectors["AxialLoads"]) > 1e-6
     ]
 
     assert non_uniform
@@ -309,3 +324,36 @@ def test_section_5_moment_components_are_resolved(manager, genie_variables):
     assert q_fe_nonzero > 0
     assert statistics.median(beam_moment_rel) < 1e-3
     assert statistics.median(plate_moment_rel) < 1e-3
+
+
+def test_shell_pressure_resolves_to_qdir_when_plate_field_is_loaded(manager, monkeypatch):
+    from ada.fem.capacity import stress_resolve
+
+    aux = manager.aux
+    models = manager.capacity_models()
+    aux.pressure_by_case_element = {
+        10: {int(element_id): 1200.0 for model in models for plate in model.plates for element_id in plate.element_ids}
+    }
+    monkeypatch.setattr(stress_resolve.extract.AuxRecords, "from_sin", staticmethod(lambda _path: aux))
+
+    resolved = manager.resolve_cases([10])
+
+    by_group = {model.name: model for model in models}
+    assert resolved
+    for rc in resolved:
+        width = by_group[rc.panel_group].plates[0].width
+        assert rc.variables["PSd"] == pytest.approx(1200.0)
+        assert rc.variables["Qdir"] == pytest.approx(1200.0 * width, rel=1e-5)
+
+
+def test_sin_pressure_records_do_not_load_unrelated_capacity_grid():
+    from ada.fem.capacity import CapacityManager, SinSource
+
+    manager = CapacityManager.from_sin(SIN, SinSource(group="Mini_grid_x100"))
+    assert manager.aux.pressure_by_case_element
+
+    resolved = manager.resolve_cases([2, 10])
+
+    assert resolved
+    assert all(rc.variables["PSd"] == pytest.approx(0.0) for rc in resolved)
+    assert all(rc.variables["Qdir"] == pytest.approx(0.0) for rc in resolved)

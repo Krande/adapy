@@ -169,6 +169,26 @@ def _area_weighted_element_mean(
     return np.average(np.array(values), axis=0, weights=np.array(weights))
 
 
+def _area_weighted_pressure(
+    mesh: Mesh,
+    aux: extract.AuxRecords,
+    result_case: int,
+    element_ids: list[int],
+) -> float:
+    """Mean signed shell pressure over the adjacent plate field."""
+    pressures = aux.pressure_by_case_element.get(result_case, {})
+    values = []
+    weights = []
+    for element_id in element_ids:
+        if element_id not in pressures:
+            continue
+        values.append(float(pressures[element_id]))
+        weights.append(_element_area(mesh, element_id))
+    if not values:
+        return 0.0
+    return float(np.average(np.array(values), weights=np.array(weights)))
+
+
 def _adjacent_plate_field_ids(model: CapacityModel, edge_plate_ids: list[int]) -> list[int]:
     """Expand edge-sharing plate elements to their full adjacent plate fields."""
     if not edge_plate_ids:
@@ -304,6 +324,7 @@ def _resolve_stiffener(
     aux: extract.AuxRecords,
     model: CapacityModel,
     stiff_name: str,
+    result_case: int,
     stress_blocks,
     force_blocks,
 ) -> ResolvedCase:
@@ -321,10 +342,7 @@ def _resolve_stiffener(
     # rather than only the shell sharing the stiffener nodes; this matches
     # Genie's Section-5 field integration on irregular triangular/quadrilateral
     # edge fields.
-    field_points_by_element = {
-        pe: _element_membrane_points(mesh, aux, stress_blocks, pe, axis)
-        for pe in field_trib
-    }
+    field_points_by_element = {pe: _element_membrane_points(mesh, aux, stress_blocks, pe, axis) for pe in field_trib}
     field_points = [point for points in field_points_by_element.values() for point in points]
     field_weighted = _area_weighted_element_mean(mesh, field_points_by_element)
     overall = -field_weighted if field_weighted is not None else np.zeros(3)
@@ -333,10 +351,7 @@ def _resolve_stiffener(
     # Longitudinal axial/moment resultants are edge quantities: sample the plate
     # elements that share the stiffener line, then use result points closest to
     # that line for the calibrated Section-5 axial reconstruction.
-    edge_points_by_element = {
-        pe: _element_membrane_points(mesh, aux, stress_blocks, pe, axis)
-        for pe in edge_trib
-    }
+    edge_points_by_element = {pe: _element_membrane_points(mesh, aux, stress_blocks, pe, axis) for pe in edge_trib}
     long_points = [point for points in edge_points_by_element.values() for point in points]
     long_weighted = _area_weighted_element_mean(mesh, edge_points_by_element)
     long_overall = -long_weighted if long_weighted is not None else overall
@@ -355,6 +370,8 @@ def _resolve_stiffener(
     plate = next((p for p in model.plates if any(e in edge_trib for e in p.element_ids)), None)
     t = plate.thickness if plate else 0.0
     s_spacing = plate.width if plate else 0.0
+    p_sd = _area_weighted_pressure(mesh, aux, result_case, field_trib)
+    q_dir = p_sd * s_spacing
     n_plate_positions = [float(x * t * s_spacing) for x in long_pos]
     n_beam_positions = _beam_axial_positions(force_blocks, st.element_ids)
     n_axial_positions = [float(n_plate + n_beam) for n_plate, n_beam in zip(n_plate_positions, n_beam_positions)]
@@ -382,7 +399,8 @@ def _resolve_stiffener(
         "SigmaY1Sd": float(max(trans_pos)),
         "SigmaY2Sd": float(min(trans_pos)),
         "TauSd": float(tau_pos[1]),
-        "Qdir": 0.0,
+        "PSd": float(p_sd),
+        "Qdir": float(q_dir),
         "QFE": float(q_fe),
         "Nsd": float(n_sd),
         "Naxial": float(n_axial),
@@ -431,7 +449,7 @@ def resolve_cases(
         force_blocks = [r for r in res.results if r.name == "FORCES"]
         for model in models:
             for st in model.stiffeners:
-                rc = _resolve_stiffener(mesh, aux, model, st.name, stress_blocks, force_blocks)
+                rc = _resolve_stiffener(mesh, aux, model, st.name, case, stress_blocks, force_blocks)
                 out.append(
                     ResolvedCase(
                         result_case=case,
@@ -483,6 +501,8 @@ def calibration_report(
             continue
         for v in variables:
             residuals.append(
-                VarResidual(int(g.result_case), g.stiffener, v, ours.variables.get(v, 0.0), float(g.variables.get(v, 0.0)))
+                VarResidual(
+                    int(g.result_case), g.stiffener, v, ours.variables.get(v, 0.0), float(g.variables.get(v, 0.0))
+                )
             )
     return residuals

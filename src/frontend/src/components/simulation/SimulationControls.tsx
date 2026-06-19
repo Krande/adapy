@@ -29,6 +29,7 @@ import PlayPauseIcon from "../icons/PlayPauseIcon";
 import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
 import FEMDataPanelIcon from "../icons/FEMDataPanelIcon";
+import CapacityControls from "../capacity/CapacityControls";
 
 const SimulationControls = () => {
     const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
@@ -58,6 +59,7 @@ const SimulationControls = () => {
                     <SimulationDataInfoPanel/>
                 </div>
             )}
+            {sessionActive && <CapacityControls/>}
         </div>
     );
 };

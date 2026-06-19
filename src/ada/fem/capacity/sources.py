@@ -1,17 +1,14 @@
 """Panel-group *grouping* sources.
 
 A capacity model is a panel group = a set of plate elements bound by a set of
-stiffener (beam) elements. Genie's Capacity Manager *identifies* these groups
-geometrically from the mesh. That identification is **not** reproduced here yet
-(deferred milestone); instead the grouping is supplied by a pluggable source
-behind the :class:`PanelGroupSource` interface, so a future ``SinConceptSource``
-(parsing the SIN ``SCONCEPT`` records) or ``GeometricSource`` can replace it
-without touching the model builder.
+stiffener (beam) elements. Genie's Capacity Manager identifies these groups from
+the concept model and mesh. ``SinSource`` uses the SIN concept records when
+available and falls back to mesh/profile geometry when they are not; the source
+stays pluggable behind the :class:`PanelGroupSource` interface.
 
-Milestone 1 ships :class:`ModelJsonSource`, which reads the element-id grouping
-(and the stiffener section parameters adapy cannot yet recover for bulb flats)
-from a Genie ``model.json``. This is what lets the whole pipeline be validated
-against the matched reference dataset.
+``ModelJsonSource`` reads the element-id grouping from a Genie ``model.json``.
+It remains useful as an oracle source for validating the SIN-native path against
+the matched reference dataset.
 """
 
 from __future__ import annotations
@@ -139,20 +136,21 @@ class ModelJsonSource(PanelGroupSource):
 class SinSource(PanelGroupSource):
     """Identify panel groups straight from the SIN mesh.
 
-    Each stiffener (a beam element) becomes a capacity model together with the
-    plate elements that border it (the shells sharing the beam's nodes). This
-    reproduces, per stiffener, the same tributary the Genie ``model.json``
-    grouping yields — so the stiffened-plate check runs without a Genie capacity
-    run. Section dimensions come from the raw section cards via
-    :class:`~ada.fem.capacity.extract.AuxRecords` (so bulb flats resolve too).
+    Beam candidates are taken from the scoped mesh/set, filtered to the
+    secondary-stiffener profile when primary girders are present, and grouped
+    with the plate elements that border them. With SIN concept names available
+    this reproduces Genie's panel-group names, stiffener names, and plate-field
+    element tuples, so the stiffened-plate check runs without a Genie capacity
+    run. Section dimensions come from the parsed mesh sections, with raw section
+    cards in :class:`~ada.fem.capacity.extract.AuxRecords` as fallback.
 
     ``group`` optionally restricts the stiffeners to a named Sesam set/group
     present in the SIN; bordering plates are always included. ``continuous``
     sets the support assumption ([6.10.2] vs [6.10.1]) for every stiffener.
 
-    Note: stiffener/plate names are synthesised from element ids (the SIN carries
-    no per-stiffener concept names); multi-element stiffener chains are treated
-    one beam element at a time.
+    When concept names are absent, stiffener/plate names are synthesised from
+    element ids and multi-element stiffener chains are treated one beam element
+    at a time.
     """
 
     group: str | None = None
@@ -185,12 +183,13 @@ class SinSource(PanelGroupSource):
                 continue  # a free beam (no bordering plate) is not a stiffener
             trib_by_beam[beam] = plate_els
 
+        concept_names = getattr(aux, "concept_name_by_element", {}) if aux is not None else {}
+
         if self.classify_secondary:
-            beam_ids = self._secondary_stiffener_ids(mesh, list(trib_by_beam))
+            beam_ids = self._secondary_stiffener_ids(mesh, list(trib_by_beam), concept_names)
         else:
             beam_ids = list(trib_by_beam)
 
-        concept_names = getattr(aux, "concept_name_by_element", {}) if aux is not None else {}
         if concept_names:
             return self._concept_groups(beam_ids, shell_ids, trib_by_beam, concept_names)
         return self._beam_groups(beam_ids, trib_by_beam)
@@ -227,8 +226,19 @@ class SinSource(PanelGroupSource):
         return members
 
     @staticmethod
-    def _secondary_stiffener_ids(mesh, beam_ids: list[int]) -> list[int]:
-        """Filter out primary girders when several beam profiles share a set."""
+    def _secondary_stiffener_ids(
+        mesh,
+        beam_ids: list[int],
+        concept_names: dict[int, str] | None = None,
+    ) -> list[int]:
+        """Filter out primary girders when several beam profiles share a set.
+
+        Prefer SIN concept intent when present: ``*_sbmN`` concepts identify the
+        secondary-stiffener profile, and Genie may also keep same-profile
+        ``*_gbmN`` beam segments as stiffeners in a combined panel group. When
+        concept names are absent, fall back to the geometric/profile rule used
+        originally: keep the shallowest beam profile in the scoped set.
+        """
         if not beam_ids:
             return []
 
@@ -239,6 +249,13 @@ class SinSource(PanelGroupSource):
             beams_by_geono.setdefault(geono_of(mesh, beam), []).append(beam)
         if len(beams_by_geono) == 1:
             return beam_ids
+
+        concept_names = concept_names or {}
+        secondary_geonos = {
+            geono_of(mesh, beam) for beam in beam_ids if _concept_role(concept_names.get(beam, "")) == "sbm"
+        }
+        if secondary_geonos:
+            return [beam for beam in beam_ids if geono_of(mesh, beam) in secondary_geonos]
 
         depths = {geono: SinSource._section_depth(mesh, geono) for geono in beams_by_geono}
         known = {geono: depth for geono, depth in depths.items() if depth > 0.0}
@@ -312,6 +329,12 @@ class SinSource(PanelGroupSource):
 
 _BEAM_SUFFIX_RE = re.compile(r"_[sgr]bm\d+$", re.IGNORECASE)
 _J_SUFFIX_RE = re.compile(r"_j\d+$", re.IGNORECASE)
+_CONCEPT_ROLE_RE = re.compile(r"_([sgr]bm)\d+$", re.IGNORECASE)
+
+
+def _concept_role(name: str) -> str:
+    match = _CONCEPT_ROLE_RE.search(name)
+    return match.group(1).lower() if match else ""
 
 
 def _concept_base(name: str) -> str:
