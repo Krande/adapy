@@ -194,18 +194,27 @@ class SinReader(SifReader):
                 self._static_results.append(rec)
         self._static_loaded = True
 
-    def load_step(self, step: int | None) -> None:
+    def load_step(self, step: int | None, cards: "set[str] | None" = None) -> None:
         """(Re)materialise just the per-step RV* result tables for
         ``step`` on top of the static blocks. ``step is None`` reads every
         step (the full-materialise path). Cheap to call repeatedly: the
-        mesh/section/RDPOINTS blocks are not touched."""
+        mesh/section/RDPOINTS blocks are not touched.
+
+        ``cards`` restricts which RV blocks are gathered — e.g. just
+        ``{"RVNODDIS"}`` when only the nodal field is being emitted. The bake
+        iterates one field at a time, so loading only that field's card avoids
+        re-gathering the other cards (and, on a range-backed byte source,
+        re-fetching their pages) once per field."""
         if not getattr(self, "_static_loaded", False):
             self._load_static()
         self.step = step
+        want = None if cards is None else set(cards)
         # Fresh per-step results = static (RDPOINTS …) + this step's RV*.
         self.results = list(self._static_results)
         for card in _RESULT_CARDS:
             if card.name not in _RV_TYPE_NAMES:
+                continue
+            if want is not None and card.name not in want:
                 continue
             rec = self._read_result_card(card, step=step)
             if rec is not None:
@@ -284,6 +293,11 @@ class SinMetadata:
 
 
 _RV_TYPE_NAMES = ("RVNODDIS", "RVSTRESS", "RVFORCES")
+
+# Element field name (as the adapter advertises it) → its RV card, so the
+# streaming reader gathers only that field's card per step instead of all of
+# them once per field. Nodal fields use their card name directly (RVNODDIS).
+_ELEM_FIELD_TO_CARD = {"STRESS": "RVSTRESS", "FORCES": "RVFORCES"}
 
 
 def read_sin_metadata(sin_file: str | pathlib.Path) -> SinMetadata:
@@ -409,16 +423,16 @@ class SinStreamReader:
     def _step_values(self) -> list[float]:
         return [float(s) for s in self._steps]
 
-    def _load_step(self, step: int):
+    def _load_step(self, step: int, cards: "set[str] | None" = None):
         """Materialise just one step's FEAResult from the shared SinFile.
 
         The mesh topology is step-invariant, so :meth:`Sif2Mesh.get_sif_mesh`
         — the dominant per-step cost (a pure-Python pass over every element:
         groupby, type resolution, node-order reconciliation) — is run **once**
         and the built ``Mesh`` reused for every subsequent step. Only the
-        per-step RV* field extraction (``get_sif_results``) re-runs. This is
-        what keeps the per-step bake from regressing badly on speed vs the
-        full-materialise path while staying memory-bounded. (No LIS/MLG
+        per-step RV* field extraction (``get_sif_results``) re-runs. ``cards``
+        restricts which RV blocks are gathered so a per-field bake pass reads
+        only that field's card, not every field's records. (No LIS/MLG
         enrichment here — same as before; the source is a bare SinFile.)"""
         from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
         from ada.fem.results.common import FEAResult, FEATypes
@@ -429,7 +443,7 @@ class SinStreamReader:
             self._reader = SinReader(sin=self.sin)
             self._reader._load_static()
         reader = self._reader
-        reader.load_step(int(step))
+        reader.load_step(int(step), cards=cards)
         s2m = Sif2Mesh(reader)
         if self._mesh is None:
             self._mesh = s2m.get_sif_mesh()
@@ -460,6 +474,20 @@ class SinStreamReader:
             return self._rep
         return FEAResultStreamAdapter(self._load_step(self._steps[idx]))
 
+    def _field_adapter(self, idx: int, card: str | None):
+        """Adapter over step ``idx`` loading only ``card``'s block (one field).
+
+        Reuses the cached step-0 representative when available; every other
+        step gathers just the one RV card instead of all three — so iterating a
+        field no longer re-reads (and, on a range source, re-fetches) the other
+        fields' records once per field."""
+        from ada.fem.results.artefacts import FEAResultStreamAdapter
+
+        if idx == 0 and self._rep is not None:
+            return self._rep
+        cards = {card} if card else None
+        return FEAResultStreamAdapter(self._load_step(self._steps[idx], cards=cards))
+
     def _with_global_steps(self, specs):
         import dataclasses
 
@@ -480,8 +508,10 @@ class SinStreamReader:
         import dataclasses
 
         labels = self._step_values()
+        # A nodal field's name is its RV card (RVNODDIS) — gather only that one.
+        card = field_name if field_name in _RV_TYPE_NAMES else None
         for i in range(len(self._steps)):
-            ad = self._adapter_for(i)
+            ad = self._field_adapter(i, card)
             emitted = 0
             for sv in ad.iter_field_steps(field_name):
                 yield dataclasses.replace(sv, step_index=i, step_value=labels[i])
@@ -496,8 +526,9 @@ class SinStreamReader:
         import dataclasses
 
         labels = self._step_values()
+        card = _ELEM_FIELD_TO_CARD.get(spec.name)
         for i in range(len(self._steps)):
-            ad = self._adapter_for(i)
+            ad = self._field_adapter(i, card)
             ad_spec = next(
                 (s for s in ad.element_field_specs() if s.name == spec.name and s.elem_type == spec.elem_type),
                 None,
