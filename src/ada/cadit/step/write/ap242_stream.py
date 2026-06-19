@@ -955,17 +955,20 @@ def _part_fuses_from_fem(p) -> bool:
     return fem is not None and (len(p.plates) + len(p.beams)) == 0 and len(fem.elements) > 0
 
 
-def _iter_stream_objects(part):
+def _iter_stream_objects(part, merge_strategy=None):
     """Yield physical objects to stream, fusing Beam/Plate straight from the FEM
     mesh (``Part.iter_objects_from_fem``, one at a time, detached) when they
     haven't been materialised — so the whole concept set is never resident (the
     same win as the IFC streaming writer). Built objects (CAD shapes, pipes, or
-    already-materialised beams/plates) come from the part as before."""
+    already-materialised beams/plates) come from the part as before.
+
+    ``merge_strategy`` folds shells into plates via the shared object-free face
+    engine (passed straight to ``iter_objects_from_fem``)."""
     from ada import Beam, Plate
 
     for p in part.get_all_parts_in_assembly(include_self=True):
         if _part_fuses_from_fem(p):
-            yield from p.iter_objects_from_fem(beams=True, plates=True, detached=True)
+            yield from p.iter_objects_from_fem(beams=True, plates=True, detached=True, merge_strategy=merge_strategy)
             for o in p.get_all_physical_objects(sub_elements_only=True, pipe_to_segments=True):
                 if not isinstance(o, (Beam, Plate)):  # shapes / pipes / masses still need emitting
                     yield o
@@ -991,6 +994,7 @@ def write_step_stream(
     assembly=True,
     progress_callback=None,
     fuse_fem=True,
+    merge_strategy=None,
 ):
     """Stream every supported physical object under ``part`` to a STEP file.
 
@@ -1002,9 +1006,12 @@ def write_step_stream(
     they haven't been materialised, so neither the concept objects nor the STEP
     entities are ever held whole — bounded memory. Set ``False`` to emit only the
     already-built objects (e.g. an explicit ``fem_to_objects=False`` job).
+
+    ``merge_strategy`` folds shells into plates via the shared object-free face
+    engine before emit (same source the IFC and Genie-XML streamers use).
     """
     if fuse_fem:
-        objects = _iter_stream_objects(part)
+        objects = _iter_stream_objects(part, merge_strategy=merge_strategy)
     else:
         objects = part.get_all_physical_objects(pipe_to_segments=True)
     total = _estimate_object_count(part)

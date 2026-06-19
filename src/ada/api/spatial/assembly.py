@@ -226,6 +226,7 @@ class Assembly(Part):
         progress_callback: Callable[[int, int], None] = None,
         geom_repr_override: dict[str, GeomRepr] = None,
         streaming=False,
+        merge_strategy=None,
     ) -> ifcopenshell.file:
         import ifcopenshell.validate
 
@@ -248,7 +249,13 @@ class Assembly(Part):
             if not self.ifc_store.f.by_type("IfcProduct"):
                 from ada.cadit.ifc.write.stream_ifc import stream_assembly_to_ifc
 
-                stream_assembly_to_ifc(self, destination, include_fem=include_fem, progress_callback=progress_callback)
+                stream_assembly_to_ifc(
+                    self,
+                    destination,
+                    include_fem=include_fem,
+                    progress_callback=progress_callback,
+                    merge_strategy=merge_strategy,
+                )
                 if validate:
                     ifcopenshell.validate.validate(destination, logger)
                 logger.info("IFC file creation complete (streaming)")

@@ -85,3 +85,39 @@ def test_surface_and_panel_not_yet_implemented(fem_files):
     for strat in (MergeStrategy.SURFACE, MergeStrategy.PANEL):
         with pytest.raises(NotImplementedError):
             list(iter_faces(a, strat))
+
+
+def _part_with_fem(fem_files):
+    a = ada.from_fem(fem_files / "sesam/beamMassT1.FEM")
+    return a.get_all_parts_in_assembly(include_self=True)[0]
+
+
+def test_iter_objects_from_fem_strategy_merges_plates(fem_files):
+    # The merge strategy lives on the generator: every streaming consumer (Genie
+    # XML, IFC, STEP) folds shells the same way through iter_objects_from_fem.
+    raw = list(_part_with_fem(fem_files).iter_objects_from_fem(beams=False, plates=True, merge_strategy=None))
+    merged = list(_part_with_fem(fem_files).iter_objects_from_fem(beams=False, plates=True, merge_strategy="coplanar"))
+
+    assert all(isinstance(p, ada.Plate) for p in raw + merged)
+    assert len(raw) == 4
+    assert len(merged) == 1  # 4 coplanar shells fold to one plate object
+
+    def total(plates):
+        s = 0.0
+        for pl in plates:
+            ap = pl.placement.get_absolute_placement(include_rotations=True)
+            ident = ada.Placement()
+            glob = [
+                ap.transform_array_from_other_place(np.asarray([pt], dtype=float), ident, ignore_translation=False)[0]
+                for pt in pl.poly.points3d
+            ]
+            s += _poly_area(glob)
+        return s
+
+    assert total(merged) == pytest.approx(total(raw), rel=1e-6)
+
+
+def test_iter_objects_from_fem_default_unchanged(fem_files):
+    # merge_strategy=None must keep the legacy 1:1 element->plate behaviour.
+    plates = list(_part_with_fem(fem_files).iter_objects_from_fem(beams=False, plates=True))
+    assert len(plates) == 4

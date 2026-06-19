@@ -269,30 +269,37 @@ def _block_primitives(blk: _ShellBlock) -> _Primitives:
 # ── strategies ──────────────────────────────────────────────────────────────
 
 
+def faces_from_fem(fem, strategy=MergeStrategy.COPLANAR, ndigits: int = 6) -> Iterator[FaceData]:
+    """Yield merged CAD faces for a single ``FEM`` mesh (one part).
+
+    The per-FEM core; :func:`iter_faces` walks an assembly and calls this for
+    each part. ``Part.iter_objects_from_fem`` also delegates here so the object
+    and object-free streams share one strategy-aware source."""
+    strategy = MergeStrategy.from_value(strategy)
+    if strategy in (MergeStrategy.SURFACE, MergeStrategy.PANEL):
+        raise NotImplementedError(f"merge strategy {strategy.value!r} not yet wired into the vectorized face source")
+    if fem is None or len(fem.elements) == 0:
+        return
+    for blk in _shell_blocks(fem):
+        prims = _block_primitives(blk)
+        if len(prims) == 0:
+            continue
+        if strategy == MergeStrategy.NONE:
+            for j in range(len(prims)):
+                yield prims.face(j)
+        else:
+            yield from _coplanar_block(prims, ndigits)
+
+
 def iter_faces(part, strategy=MergeStrategy.COPLANAR, ndigits: int = 6) -> Iterator[FaceData]:
     """Yield merged CAD faces for every FEM mesh under ``part`` (Part or Assembly).
 
     Object-free: walks each sub-part's array-backed shell mesh, never building
     Plate/Elem objects.
     """
-    strategy = MergeStrategy.from_value(strategy)
-    if strategy in (MergeStrategy.SURFACE, MergeStrategy.PANEL):
-        raise NotImplementedError(f"merge strategy {strategy.value!r} not yet wired into the vectorized face source")
-
     parts = part.get_all_parts_in_assembly(include_self=True) if hasattr(part, "get_all_parts_in_assembly") else [part]
     for p in parts:
-        fem = getattr(p, "fem", None)
-        if fem is None or len(fem.elements) == 0:
-            continue
-        for blk in _shell_blocks(fem):
-            prims = _block_primitives(blk)
-            if len(prims) == 0:
-                continue
-            if strategy == MergeStrategy.NONE:
-                for j in range(len(prims)):
-                    yield prims.face(j)
-            else:
-                yield from _coplanar_block(prims, ndigits)
+        yield from faces_from_fem(getattr(p, "fem", None), strategy, ndigits)
 
 
 def _coplanar_block(prims: _Primitives, ndigits: int) -> Iterator[FaceData]:

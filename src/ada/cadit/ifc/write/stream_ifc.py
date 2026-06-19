@@ -175,8 +175,14 @@ def stream_assembly_to_ifc(
     destination: str | os.PathLike,
     include_fem: bool = False,
     progress_callback: Callable[[int, int], None] | None = None,
+    merge_strategy=None,
 ) -> None:
-    """Write ``assembly`` to ``destination`` with bounded peak memory."""
+    """Write ``assembly`` to ``destination`` with bounded peak memory.
+
+    ``merge_strategy`` (None | "coplanar" | ...) folds FEM shells into plates via
+    the shared object-free face engine before emit — passed straight through to
+    ``Part.iter_objects_from_fem`` so streamed IFC plates merge the same way the
+    Genie-XML and STEP streamers do."""
     from ada import Beam, Pipe, Plate
     from ada.base.types import GeomRepr
     from ada.cadit.ifc.utils import create_guid, write_elem_property_sets
@@ -327,7 +333,9 @@ def stream_assembly_to_ifc(
         # and free as soon as _emit drops them, so peak memory stays bounded.
         for part, n_shells in fused:
             cnt = 0
-            for pl in part.iter_objects_from_fem(beams=False, plates=True, detached=True, mat_cache=mat_cache):
+            for pl in part.iter_objects_from_fem(
+                beams=False, plates=True, detached=True, mat_cache=mat_cache, merge_strategy=merge_strategy
+            ):
                 _emit(pl)
                 cnt += 1
                 if cnt % 2000 == 0:

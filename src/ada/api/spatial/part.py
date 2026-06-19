@@ -791,7 +791,12 @@ class Part(BackendGeom):
         logger.info("Conversion complete")
 
     def iter_objects_from_fem(
-        self, beams: bool = True, plates: bool = True, detached: bool = True, mat_cache: dict | None = None
+        self,
+        beams: bool = True,
+        plates: bool = True,
+        detached: bool = True,
+        mat_cache: dict | None = None,
+        merge_strategy=None,
     ) -> Iterable[Beam | Plate]:
         """Lazily build concept objects from this part's FEM mesh.
 
@@ -802,9 +807,16 @@ class Part(BackendGeom):
         are yielded before plates.
 
         ``detached`` (default) yields transient plates carrying no material
-        back-reference, so each frees as soon as the consumer drops it. Unlike
-        ``create_objects_from_fem`` there is no coplanar/colinear merge —
-        merging needs the whole set resident.
+        back-reference, so each frees as soon as the consumer drops it.
+
+        ``merge_strategy`` selects how shells fold into plates: ``None`` (default)
+        keeps the legacy 1:1 element→plate mapping; any strategy value
+        (``"coplanar"``/...) sources plates from the object-free vectorized face
+        engine (:func:`ada.fem.formats.mesh_faces.faces_from_fem`) and wraps each
+        merged face in a single transient :class:`Plate`. This is the one place
+        the merge strategy lives, so every streaming consumer (Genie XML, IFC,
+        STEP) folds shells the same way. Beams are unaffected (they fold via the
+        colinear pass on the object create path; the strategy is shell-only).
 
         ``mat_cache`` (name → :class:`Material`) lets the caller pin which
         material objects the plates reference — pass the already-consolidated
@@ -821,10 +833,38 @@ class Part(BackendGeom):
         if beams:
             for elem in self.fem.elements.lines:
                 yield line_elem_to_beam(elem, self)
-        if plates:
+        if not plates:
+            return
+        if merge_strategy is None:
             mat_dict: dict = {} if mat_cache is None else mat_cache
             for elem in self.fem.elements.shell:
                 yield from convert_shell_elem_to_plates(elem, self, mat_dict, detached=detached)
+        else:
+            yield from self._iter_merged_plates_from_fem(merge_strategy, detached, mat_cache)
+
+    def _iter_merged_plates_from_fem(self, merge_strategy, detached: bool, mat_cache: dict | None):
+        """Wrap each object-free merged :class:`FaceData` in one transient Plate.
+
+        Bounded: builds and yields a single Plate at a time. Tri/quad faces take
+        the fast ``Plate.from_fem_shell`` path; merged N-gons use the general
+        ``from_3d_points``."""
+        from ada import Plate
+        from ada.fem.formats.mesh_faces import faces_from_fem
+
+        # name -> Material, resolved once from this part's shell sections so the
+        # wrapped plates reference the real material object (faces carry names).
+        mats: dict = dict(mat_cache) if mat_cache else {}
+        for sec in self.fem.sections.shells:
+            mat = getattr(sec, "material", None)
+            if mat is not None and mat.name not in mats:
+                mats[mat.name] = mat
+
+        for face in faces_from_fem(self.fem, merge_strategy):
+            mat = mats.get(face.material, face.material)
+            if len(face.outline) <= 4:
+                yield Plate.from_fem_shell(face.name, face.outline, face.thickness, mat=mat, parent=self, detached=detached)
+            else:
+                yield Plate.from_3d_points(face.name, face.outline, face.thickness, mat=mat, parent=self)
 
     def get_part(self, name: str, search_all_parts_in_assembly=False) -> Part | None:
         """Get part by name."""
@@ -1433,6 +1473,7 @@ class Part(BackendGeom):
         writer: str = "occ",
         schema: str = "AP242",
         fuse_fem: bool = True,
+        merge_strategy=None,
     ):
         # The "stream" writer authors AP242 B-rep text directly from parametric
         # geometry without building any OCC/adacpp shapes — constant memory, so
@@ -1440,12 +1481,18 @@ class Part(BackendGeom):
         # covers extruded solids only (plates, straight beams, straight pipe
         # segments); other geometry is skipped. ``fuse_fem`` streams Beam/Plate
         # straight from the FEM mesh when they aren't built (no concept-object
-        # peak). See cadit.step.write.ap242_stream.
+        # peak); ``merge_strategy`` folds shells via the shared object-free face
+        # engine. See cadit.step.write.ap242_stream.
         if writer == "stream":
             from ada.cadit.step.write.ap242_stream import write_step_stream
 
             return write_step_stream(
-                self, destination_file, schema=schema, progress_callback=progress_callback, fuse_fem=fuse_fem
+                self,
+                destination_file,
+                schema=schema,
+                progress_callback=progress_callback,
+                fuse_fem=fuse_fem,
+                merge_strategy=merge_strategy,
             )
         if writer != "occ":
             raise ValueError(f"unknown writer {writer!r}; expected 'occ' or 'stream'")
