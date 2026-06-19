@@ -90,7 +90,7 @@ def _put(client: TestClient, key: str, data: bytes) -> None:
                 break
         client.app.state._test_storage = storage
 
-    asyncio.get_event_loop().run_until_complete(storage.put_bytes(Scope.shared(), key, data))
+    asyncio.run(storage.put_bytes(Scope.shared(), key, data))
 
 
 def test_move_to_folder_renames_source_and_derived_siblings(
