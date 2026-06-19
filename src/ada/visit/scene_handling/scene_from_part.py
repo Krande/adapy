@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
 def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: SceneConverter) -> trimesh.Scene:
     import ada.extension.design_extension_schema as design_ext
-    from ada import Assembly, Beam, Plate
-    from ada.comms.msg_handling.object_metadata import beam_metadata, plate_metadata
+    from ada import Assembly, Beam, Plate, PlateCurved
+    from ada.comms.msg_handling.object_metadata import beam_metadata, curved_plate_metadata, plate_metadata
     from ada.config import logger
     from ada.occ.tessellating import BatchTessellator
 
@@ -73,6 +73,8 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
         if object_metadata is not None and obj.name:
             if isinstance(obj, Beam):
                 object_metadata[obj.name] = beam_metadata(obj.name, obj.section, obj.material)
+            elif isinstance(obj, PlateCurved):
+                object_metadata[obj.name] = curved_plate_metadata(obj.name, obj.t, obj.material)
             elif isinstance(obj, Plate):
                 object_metadata[obj.name] = plate_metadata(obj.name, obj.t, obj.material)
 
