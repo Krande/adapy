@@ -37,32 +37,48 @@ from dataclasses import dataclass
 _RV_CARDS = frozenset({"RVNODDIS", "RVSTRESS", "RVFORCES"})
 
 # Index format version — bump if the build logic changes meaning so a stale
-# sidecar is rejected rather than silently misread.
-INDEX_VERSION = 1
+# sidecar is rejected rather than silently misread. v2 tags each span with its
+# RV card so the streaming reader can read one (card, step) at a time.
+INDEX_VERSION = 2
 
 
 @dataclass
 class SifStepIndex:
     """Byte-span index of a SIF deck's per-step RV* records.
 
-    ``step_spans`` is a flat list of ``(ires, start, end)`` byte ranges, one
-    per contiguous same-step run inside an RV* block. Everything *not* covered
-    by a span (control rows, mesh, RDPOINTS, gaps) is step-invariant and always
-    kept. Offsets are into the *uncompressed* file, so range reads only work
-    against identity-stored objects.
+    ``step_spans`` is a flat list of ``(card, ires, start, end)`` byte ranges,
+    one per contiguous same-step run inside an RV* block. Everything *not*
+    covered by a span (control rows, mesh, RDPOINTS, gaps) is step-invariant and
+    always kept. Offsets are into the *uncompressed* file, so range reads only
+    work against identity-stored objects.
     """
 
     version: int
     size: int
     steps: list[int]
     fields: list[str]
-    step_spans: list[tuple[int, int, int]]
+    step_spans: list[tuple[str, int, int, int]]
 
     def include_ranges(self, step: int) -> list[tuple[int, int]]:
         """Byte ranges to read for ``step`` — the file minus every other
         step's spans. Adjacent/abutting kept regions are merged so the caller
         issues as few range requests as possible."""
-        exclude = sorted((s, e) for (ires, s, e) in self.step_spans if ires != step)
+        return self._invert((s, e) for (_card, ires, s, e) in self.step_spans if ires != step)
+
+    def header_ranges(self) -> list[tuple[int, int]]:
+        """Byte ranges of the step-invariant deck — the file minus *every*
+        step's RV data (control rows, mesh, sections, RDPOINTS and gaps are
+        kept). The streaming reader parses this once, then reads each step's RV
+        bytes on demand."""
+        return self._invert((s, e) for (_card, _ires, s, e) in self.step_spans)
+
+    def step_spans_for(self, card: str, step: int) -> list[tuple[int, int]]:
+        """Byte ranges of ``card``'s records for ``step`` (data rows only — the
+        control row stays in the header)."""
+        return [(s, e) for (c, ires, s, e) in self.step_spans if c == card and ires == step]
+
+    def _invert(self, exclude_iter) -> list[tuple[int, int]]:
+        exclude = sorted(exclude_iter)
         include: list[tuple[int, int]] = []
         cur = 0
         for s, e in exclude:
@@ -86,8 +102,8 @@ class SifStepIndex:
                 "size": self.size,
                 "steps": self.steps,
                 "fields": self.fields,
-                # JSON has no tuples; store as flat triples.
-                "step_spans": [[i, s, e] for (i, s, e) in self.step_spans],
+                # JSON has no tuples; store as flat [card, ires, start, end].
+                "step_spans": [[c, i, s, e] for (c, i, s, e) in self.step_spans],
             }
         ).encode("utf-8")
 
@@ -101,7 +117,7 @@ class SifStepIndex:
             size=int(d["size"]),
             steps=[int(x) for x in d["steps"]],
             fields=[str(x) for x in d["fields"]],
-            step_spans=[(int(i), int(s), int(e)) for (i, s, e) in d["step_spans"]],
+            step_spans=[(str(c), int(i), int(s), int(e)) for (c, i, s, e) in d["step_spans"]],
         )
 
 
@@ -116,7 +132,7 @@ def build_sif_index(path: str | pathlib.Path) -> SifStepIndex:
     path = pathlib.Path(path)
     size = path.stat().st_size
 
-    spans: list[tuple[int, int, int]] = []
+    spans: list[tuple[str, int, int, int]] = []
     steps: set[int] = set()
     fields: set[str] = set()
 
@@ -125,9 +141,9 @@ def build_sif_index(path: str | pathlib.Path) -> SifStepIndex:
     span_start = 0
 
     def close_span(end: int) -> None:
-        nonlocal cur_ires, span_start
-        if cur_ires is not None:
-            spans.append((cur_ires, span_start, end))
+        nonlocal cur_ires
+        if cur_ires is not None and cur_card is not None:
+            spans.append((cur_card, cur_ires, span_start, end))
             cur_ires = None
 
     off = 0

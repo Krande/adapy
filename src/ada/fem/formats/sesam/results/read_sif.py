@@ -821,7 +821,14 @@ class Sif2Mesh:
         return {key: tdresref[value[1]][-1] for key, value in rdresref.items()}
 
     def get_nodal_data(self) -> list[NodalFieldData]:
-        return get_nodal_results(self.sif.get_result(cards.RVNODDIS.name)[0][1])
+        # Guard the no-RVNODDIS case symmetric to get_field_data's RVSTRESS /
+        # RVFORCES checks. The streaming reader loads one RV card at a time, so
+        # a STRESS/FORCES-only pass has no RVNODDIS block — return no nodal data
+        # rather than IndexError on an empty get_result.
+        res = self.sif.get_result(cards.RVNODDIS.name)
+        if not res:
+            return []
+        return get_nodal_results(res[0][1])
 
     def get_field_data(self) -> list[ElementFieldData | NodalFieldData]:
         sif = self.sif

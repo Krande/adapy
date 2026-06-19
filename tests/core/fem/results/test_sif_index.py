@@ -57,7 +57,7 @@ def test_include_ranges_excludes_other_steps(fem_files):
     def covered(a, b):
         return any(s <= a and b <= e for s, e in ranges)
 
-    for ires, s, e in idx.step_spans:
+    for _card, ires, s, e in idx.step_spans:
         if ires == 3:
             assert covered(s, e), f"step-3 span {s},{e} not kept"
         else:

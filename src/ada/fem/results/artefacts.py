@@ -2115,6 +2115,21 @@ def _make_rmed_reader(path: pathlib.Path) -> "FEAStreamReader":
 
 
 def _make_sif_reader(path: pathlib.Path) -> "FEAStreamReader":
+    # Default: the full-materialise adapter — fastest, and it enriches step
+    # labels from SESTRA.LIS eigen-frequencies. ADA_FEA_SIF_STREAMER opts into
+    # the per-step SifStreamReader instead: peak RSS stays flat in step count
+    # (one step resident at a time, via the byte-offset index) for many-mode
+    # decks whose full result would OOM the worker. Memory-for-time trade — the
+    # bake re-reads each step's RV bytes once per field — so it is off by
+    # default and turned on only for decks that need it. On the streamer path
+    # step labels are the IRES mode index (no LIS enrichment), mirroring SIN.
+    import os
+
+    if os.environ.get("ADA_FEA_SIF_STREAMER", "").strip().lower() in {"1", "true", "yes", "on"}:
+        from ada.fem.formats.sesam.results.sif_stream import SifStreamReader
+
+        return SifStreamReader(path)
+
     from ada.fem.formats.sesam.results.read_sif import read_sif_file
 
     return FEAResultStreamAdapter(read_sif_file(path))
