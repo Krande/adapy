@@ -1157,6 +1157,10 @@ def _audit_run_row(r) -> dict:
         "failed": r["failed"],
         "skipped": r["skipped"],
         "created_by": r["created_by"],
+        "seq": _opt("seq"),
+        # Idle time excluded from the run's active duration (gap before a later
+        # validation pass). The UI shows (finished_at - started_at) - idle_ms.
+        "idle_ms": _opt("idle_ms") or 0,
         "force_rebuild": _opt("force_rebuild") or False,
         "auto_validate": _opt("auto_validate") or False,
         "parent_run_id": str(parent_run_id) if parent_run_id else None,
@@ -1248,6 +1252,13 @@ async def extend_audit_run_total(pool: asyncpg.Pool, run_id: str, delta: int) ->
         """
         UPDATE audit_runs
         SET total = total + $2,
+            -- Fold the idle gap (since this run last finished) into idle_ms so
+            -- the displayed duration stays block-active time, not wall clock.
+            -- RHS reads the pre-update finished_at / status.
+            idle_ms = idle_ms + CASE
+                WHEN status <> 'aborted' AND finished_at IS NOT NULL
+                THEN GREATEST(0, (EXTRACT(EPOCH FROM (NOW() - finished_at)) * 1000)::bigint)
+                ELSE 0 END,
             status = CASE WHEN status = 'aborted' THEN 'aborted' ELSE 'running' END,
             finished_at = CASE WHEN status = 'aborted' THEN finished_at ELSE NULL END
         WHERE id = $1
@@ -1255,6 +1266,19 @@ async def extend_audit_run_total(pool: asyncpg.Pool, run_id: str, delta: int) ->
         run_id,
         delta,
     )
+
+
+async def delete_audit_run(pool: asyncpg.Pool, run_id: str) -> bool:
+    """Delete an audit run and its audit_log rows. ``audit_parity`` rows cascade
+    on the run delete; ``audit_log`` is ON DELETE SET NULL, so we remove those
+    rows explicitly rather than orphaning them as run-less audit entries.
+    Returns True if a run was deleted, False if it didn't exist."""
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("DELETE FROM audit_log WHERE audit_run_id = $1", run_id)
+            res = await conn.execute("DELETE FROM audit_runs WHERE id = $1", run_id)
+    # asyncpg returns a command tag like "DELETE 1".
+    return res.split()[-1] != "0"
 
 
 async def list_audit_runs(
@@ -1274,8 +1298,8 @@ async def list_audit_runs(
     args.append(min(max(limit, 1), 200))
     rows = await pool.fetch(
         f"""
-        SELECT id, scope, worker_pool, trigger, started_at, finished_at,
-               status, note, total, ok, failed, skipped, created_by,
+        SELECT id, seq, scope, worker_pool, trigger, started_at, finished_at,
+               status, note, total, ok, failed, skipped, created_by, idle_ms,
                force_rebuild, auto_validate, parent_run_id, auto_validate_dispatched_at,
                issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         FROM audit_runs
@@ -1291,8 +1315,8 @@ async def list_audit_runs(
 async def get_audit_run(pool: asyncpg.Pool, run_id: str) -> dict | None:
     row = await pool.fetchrow(
         """
-        SELECT id, scope, worker_pool, trigger, started_at, finished_at,
-               status, note, total, ok, failed, skipped, created_by,
+        SELECT id, seq, scope, worker_pool, trigger, started_at, finished_at,
+               status, note, total, ok, failed, skipped, created_by, idle_ms,
                force_rebuild, auto_validate, parent_run_id, auto_validate_dispatched_at,
                issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         FROM audit_runs WHERE id = $1

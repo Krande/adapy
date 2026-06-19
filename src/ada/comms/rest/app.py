@@ -3743,6 +3743,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse(claimed, status_code=202)
 
+    @admin.delete("/audit/runs/{run_id}")
+    async def admin_audit_run_delete(
+        run_id: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Delete an audit run and its audit_log rows (parity rows cascade).
+        Refuses a still-running run — cancel it first — so an in-flight sweep
+        can't be deleted out from under its workers."""
+        pool = _require_pool(request)
+        run = await db_module.get_audit_run(pool, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="audit run not found")
+        if run["status"] == "running":
+            raise HTTPException(status_code=409, detail="cancel the run before deleting it")
+        deleted = await db_module.delete_audit_run(pool, run_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="audit run not found")
+        return JSONResponse({"deleted": run_id})
+
     @admin.get("/audit/cell-history")
     async def admin_audit_cell_history(
         request: Request,

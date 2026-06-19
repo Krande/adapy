@@ -60,7 +60,9 @@ function fmtRunDuration(run: AuditRun): string {
     if (!run.started_at) return "—";
     const start = new Date(run.started_at).getTime();
     const end = run.finished_at ? new Date(run.finished_at).getTime() : Date.now();
-    const ms = Math.max(0, end - start);
+    // Subtract idle time (the gap before a validation pass appended hours
+    // later) so the duration is active-block time, not wall clock.
+    const ms = Math.max(0, end - start - (run.idle_ms ?? 0));
     if (ms < 60_000) return `${(ms / 1000).toFixed(0)}s`;
     if (ms < 3600_000) return `${(ms / 60_000).toFixed(0)}m`;
     return `${(ms / 3600_000).toFixed(1)}h`;
@@ -154,7 +156,8 @@ const RunGrid: React.FC<{
     jobs: AuditRunJob[];
     metric: MetricKey;
     onCellHistory: (file: string, target: string) => void;
-}> = ({jobs, metric, onCellHistory}) => {
+    onCellDetails: (file: string, target: string) => void;
+}> = ({jobs, metric, onCellHistory, onCellDetails}) => {
     const grid = useMemo(() => buildGrid(jobs), [jobs]);
 
     // Right-click (desktop) / long-press (touch) context menu for a cell.
@@ -343,6 +346,16 @@ const RunGrid: React.FC<{
                     <div className="px-3 py-1 text-[10px] text-gray-500 font-mono truncate max-w-[240px]">
                         {menu.file} · .{menu.target}
                     </div>
+                    <button
+                        type="button"
+                        className="w-full text-left px-3 py-1 text-gray-200 hover:bg-gray-700"
+                        onClick={() => {
+                            onCellDetails(menu.file, menu.target);
+                            setMenu(null);
+                        }}
+                    >
+                        Show details
+                    </button>
                     <button
                         type="button"
                         className="w-full text-left px-3 py-1 text-gray-200 hover:bg-gray-700"
@@ -698,6 +711,47 @@ const ValidateRunButton: React.FC<{
     );
 };
 
+// Delete a finished/aborted run and its audit_log rows (parity cascades).
+const DeleteRunButton: React.FC<{
+    run: AuditRun;
+    onDeleted: () => void;
+}> = ({run, onDeleted}) => {
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+    const label = run.seq != null ? `#${run.seq}` : run.scope;
+    const onClick = async () => {
+        if (!window.confirm(
+            `Delete audit run ${label} ("${run.scope}")? Its results are removed permanently.`,
+        )) {
+            return;
+        }
+        setBusy(true);
+        setErr(null);
+        try {
+            await viewerApi.adminAuditRunDelete(run.id);
+            onDeleted();
+        } catch (e) {
+            setErr((e as Error).message || "delete failed");
+        } finally {
+            setBusy(false);
+        }
+    };
+    return (
+        <div className="flex items-center gap-2">
+            <button
+                type="button"
+                onClick={onClick}
+                disabled={busy}
+                className="text-xs px-2 py-1 border border-red-800 text-red-300 hover:bg-red-900/30 rounded-sm disabled:opacity-50"
+                title="Delete this run and its results."
+            >
+                {busy ? "Deleting…" : "Delete"}
+            </button>
+            {err && <span className="text-[11px] text-red-400" role="alert">{err}</span>}
+        </div>
+    );
+};
+
 // Cross-run history for one grid cell (source × target), opened from the
 // cell context menu. Newest result first, so a run-to-run regression in
 // duration / peak RSS / status is visible at a glance.
@@ -802,6 +856,88 @@ const CellHistoryModal: React.FC<{
     );
 };
 
+// Full info for one grid cell — status, metrics and the error — plus the run
+// it belongs to. Opened from the cell context menu so the detail is reachable
+// on touch (no hover tooltip) and gives the whole error on desktop too.
+const CellDetailsModal: React.FC<{
+    run: AuditRun;
+    file: string;
+    target: string;
+    job: AuditRunJob | undefined;
+    onClose: () => void;
+}> = ({run, file, target, job, onClose}) => {
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [onClose]);
+
+    const rows: Array<[string, string]> = [];
+    rows.push(["Run", run.seq != null ? `#${run.seq}` : run.id]);
+    rows.push(["Scope", run.scope]);
+    if (run.trigger) rows.push(["Trigger", run.trigger]);
+    rows.push(["Source", file]);
+    rows.push(["Target", `.${target}`]);
+    if (job) {
+        if (job.status) rows.push(["Status", job.status]);
+        if (job.ts) rows.push(["When", new Date(job.ts).toLocaleString()]);
+        if (job.duration_ms != null) rows.push(["Elapsed", fmtMs(job.duration_ms)]);
+        if (job.peak_rss_kb != null) rows.push(["Peak RSS", fmtBytes(job.peak_rss_kb * 1024)]);
+        if (job.cpu_user_ms != null) rows.push(["CPU user", fmtMs(job.cpu_user_ms)]);
+        if (job.cpu_sys_ms != null) rows.push(["CPU sys", fmtMs(job.cpu_sys_ms)]);
+        if (job.read_bytes != null) rows.push(["Read", fmtBytes(job.read_bytes)]);
+        if (job.write_bytes != null) rows.push(["Write", fmtBytes(job.write_bytes)]);
+        if (job.worker_image_tag) rows.push(["Worker", job.worker_image_tag]);
+        if (job.job_id) rows.push(["Job id", job.job_id]);
+    }
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+            <div
+                className="bg-gray-900 border border-gray-700 rounded-sm max-w-2xl w-full max-h-[80vh] flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800">
+                    <div className="text-sm text-gray-200 font-mono truncate" title={`${file} .${target}`}>
+                        {file} · .{target}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="text-gray-400 hover:text-gray-200 text-lg leading-none px-2"
+                        aria-label="Close"
+                    >
+                        ×
+                    </button>
+                </div>
+                <div className="overflow-auto p-3 space-y-3">
+                    {!job && (
+                        <div className="text-xs text-gray-400">No result recorded for this cell yet.</div>
+                    )}
+                    <table className="text-xs">
+                        <tbody>
+                            {rows.map(([k, v]) => (
+                                <tr key={k}>
+                                    <td className="text-gray-400 pr-3 py-0.5 align-top whitespace-nowrap">{k}</td>
+                                    <td className="text-gray-200 font-mono break-all py-0.5">{v}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    {job?.error && (
+                        <div>
+                            <div className="text-xs text-gray-400 mb-1">Error</div>
+                            <pre className="text-xs text-red-300 whitespace-pre-wrap bg-gray-950 border border-gray-800 rounded-sm p-2 overflow-auto max-h-60">
+                                {job.error}
+                            </pre>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const ISSUE_BOT_BADGE: Record<string, {cls: string; label: string}> = {
     done:     {cls: "bg-emerald-900/40 border-emerald-700 text-emerald-200", label: "issues synced"},
     skipped:  {cls: "bg-gray-800 border-gray-600 text-gray-400",             label: "issues skipped"},
@@ -872,6 +1008,8 @@ const AuditRunsTab: React.FC = () => {
     const [detailError, setDetailError] = useState<string | null>(null);
     // Cell whose cross-run history modal is open (from the grid context menu).
     const [historyCell, setHistoryCell] = useState<{key: string; target: string} | null>(null);
+    // Cell whose full-detail modal is open (status/metrics/error).
+    const [detailsCell, setDetailsCell] = useState<{file: string; target: string} | null>(null);
 
     const loadRuns = useCallback(async () => {
         try {
@@ -972,6 +1110,9 @@ const AuditRunsTab: React.FC = () => {
                                 >
                                     <div className="flex justify-between items-baseline">
                                         <span className="font-mono text-gray-200 truncate">
+                                            {run.seq != null && (
+                                                <span className="text-gray-500 mr-1">#{run.seq}</span>
+                                            )}
                                             {run.scope}
                                         </span>
                                         <span className={
@@ -1040,7 +1181,12 @@ const AuditRunsTab: React.FC = () => {
                                         ← list
                                     </button>
                                     <div className="text-xs text-gray-300 min-w-0">
-                                        <div className="font-mono truncate">{selectedRun.scope}</div>
+                                        <div className="font-mono truncate">
+                                            {selectedRun.seq != null && (
+                                                <span className="text-gray-500 mr-1">#{selectedRun.seq}</span>
+                                            )}
+                                            {selectedRun.scope}
+                                        </div>
                                         <div className="text-gray-500">
                                             ok {selectedRun.ok} · failed {selectedRun.failed} ·
                                             skipped {selectedRun.skipped} · total {selectedRun.total}
@@ -1073,6 +1219,14 @@ const AuditRunsTab: React.FC = () => {
                                                 run={selectedRun}
                                                 onDispatched={() => { void loadRuns(); }}
                                             />
+                                            <DeleteRunButton
+                                                run={selectedRun}
+                                                onDeleted={() => {
+                                                    setSelectedId(null);
+                                                    setSelectedRun(null);
+                                                    void loadRuns();
+                                                }}
+                                            />
                                         </>
                                     )}
                                     <label className="text-xs text-gray-300 flex items-center gap-2">
@@ -1098,6 +1252,7 @@ const AuditRunsTab: React.FC = () => {
                                     jobs={selectedJobs}
                                     metric={metric}
                                     onCellHistory={(file, target) => setHistoryCell({key: file, target})}
+                                    onCellDetails={(file, target) => setDetailsCell({file, target})}
                                 />
                             </div>
                         </>
@@ -1106,6 +1261,17 @@ const AuditRunsTab: React.FC = () => {
             </div>
             {historyCell && (
                 <CellHistoryModal cell={historyCell} onClose={() => setHistoryCell(null)}/>
+            )}
+            {detailsCell && selectedRun && (
+                <CellDetailsModal
+                    run={selectedRun}
+                    file={detailsCell.file}
+                    target={detailsCell.target}
+                    job={selectedJobs.find(
+                        (j) => j.key === detailsCell.file && j.target_format === detailsCell.target,
+                    )}
+                    onClose={() => setDetailsCell(null)}
+                />
             )}
         </div>
     );

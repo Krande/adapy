@@ -578,6 +578,12 @@ export interface AuditEntry {
 // sum equals total.
 export interface AuditRun {
     id: string;
+    // Short, human-referrable monotonic run number ("Run #42"); the UUID id
+    // stays canonical. May be absent on rows from before the seq migration.
+    seq?: number | null;
+    // Idle time (ms) excluded from the active duration — the gap before a
+    // later validation pass folded into the run. UI subtracts it.
+    idle_ms?: number | null;
     scope: string;
     worker_pool: string | null;
     trigger: string;
@@ -1654,6 +1660,18 @@ export const viewerApi = {
             {method: "POST"},
         );
         return jsonOrThrow(r, `adminAuditRunValidate(${runId})`);
+    },
+
+    /** Admin: delete an audit run and its audit_log rows (parity cascades).
+     * 409 if the run is still running — cancel it first. */
+    async adminAuditRunDelete(runId: string): Promise<void> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}`,
+            {method: "DELETE"},
+        );
+        if (!r.ok) {
+            throw new ApiError(`adminAuditRunDelete(${runId})`, r.status, await readDetail(r));
+        }
     },
 
     /** Admin: historic results for one (source key, target_format) cell across
