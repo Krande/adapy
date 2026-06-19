@@ -1235,6 +1235,26 @@ async def set_audit_run_total(
     )
 
 
+async def extend_audit_run_total(pool: asyncpg.Pool, run_id: str, delta: int) -> None:
+    """Grow a finished run's ``total`` by ``delta`` and reopen it to
+    ``running`` (clearing ``finished_at``). Used to append cells — an
+    auto-validation parity pass — to an existing run instead of spawning a
+    separate one: once the appended cells land, the normal counter-bump
+    re-finishes the same run. Aborted runs are left aborted. Caller guards
+    ``delta > 0``."""
+    await pool.execute(
+        """
+        UPDATE audit_runs
+        SET total = total + $2,
+            status = CASE WHEN status = 'aborted' THEN 'aborted' ELSE 'running' END,
+            finished_at = CASE WHEN status = 'aborted' THEN finished_at ELSE NULL END
+        WHERE id = $1
+        """,
+        run_id,
+        delta,
+    )
+
+
 async def list_audit_runs(
     pool: asyncpg.Pool,
     *,

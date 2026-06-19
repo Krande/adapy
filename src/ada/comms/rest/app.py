@@ -3155,33 +3155,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     async def _dispatch_auto_validation(pool, parent: dict) -> None:
-        """Fire a ``validate_only`` parity run for a finished ``auto_validate``
-        conversion run. The claim already stamped the parent so this runs once;
-        any failure here is logged but never breaks the poller tick."""
+        """Append a validation (cross-format parity) pass to a finished
+        ``auto_validate`` conversion run — *into the same run*, not a new one.
+        The run's total grows by the parity cell count and it reopens to
+        ``running`` until those cells land (then it re-finishes). The claim
+        already stamped the parent so this runs once; failures are logged but
+        never break the poller tick."""
         try:
             s = _parse_scope(parent["scope"], _SystemUser())
             s = await _resolve_project_scope(pool, s)
         except Exception:
             logger.exception("auto-validate: scope resolution failed for run %s", parent["id"])
             return
+        # Awaited (not fire-and-forget) so the run is reopened with its parity
+        # cells before the issue-bot drain in the same tick can claim it.
         try:
-            vrun = await db_module.create_audit_run(
-                pool,
-                scope=parent["scope"],
-                worker_pool=parent["worker_pool"],
-                trigger="auto-validate",
-                note=f"auto-validation of {parent['id'][:8]}",
-                created_by="system",
-                parent_run_id=parent["id"],
+            await _audit_dispatch(
+                parent["id"], s, parent["worker_pool"], "system", pool,
+                False, validate_only=True, extend=True,
             )
+            logger.info("auto-validate: appended validation cells to run %s", parent["id"])
         except Exception:
-            logger.exception("auto-validate: create_audit_run failed for %s", parent["id"])
-            return
-        asyncio.create_task(
-            _audit_dispatch(vrun["id"], s, parent["worker_pool"], "system", pool, False, True),
-            name=f"audit-validate-{vrun['id']}",
-        )
-        logger.info("auto-validate: dispatched validation run %s for %s", vrun["id"], parent["id"])
+            logger.exception("auto-validate: dispatch failed for run %s", parent["id"])
 
     async def _issue_bot_loop(pool) -> None:
         """Background task: drain (1) finished audit runs + (2)
@@ -3204,7 +3199,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             while True:
                 try:
-                    # Drain audit runs first (each represents many
+                    # Auto-validate first: a finished auto_validate run gets its
+                    # parity cells appended (reopening it to 'running'), so the
+                    # issue-bot below only claims a run once it's *truly* done —
+                    # conversions and validation together. Claimed once (the
+                    # claim stamps auto_validate_dispatched_at).
+                    while True:
+                        parent = await db_module.claim_audit_run_for_auto_validate(pool)
+                        if parent is None:
+                            break
+                        await _dispatch_auto_validation(pool, parent)
+                    # Drain finished audit runs (each represents many
                     # failures batched into one sync, more valuable
                     # to keep current).
                     while True:
@@ -3218,14 +3223,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         if conv is None:
                             break
                         await _run_issue_bot_for_conversion(pool, conv)
-                    # Auto-validate: each finished auto_validate conversion run
-                    # gets a follow-up validate_only parity run, dispatched once
-                    # (the claim stamps auto_validate_dispatched_at).
-                    while True:
-                        parent = await db_module.claim_audit_run_for_auto_validate(pool)
-                        if parent is None:
-                            break
-                        await _dispatch_auto_validation(pool, parent)
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -3277,6 +3274,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         pool,
         force_rebuild: bool = False,
         validate_only: bool = False,
+        extend: bool = False,
     ) -> None:
         """Enumerate the scope's files × the converter matrix and
         enqueue one regular convert job per cell. Cached cells
@@ -3288,6 +3286,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         every cell is re-converted from source. Used for perf
         measurement runs where a 4-hour audit re-run mustn't
         short-circuit 80% of cells against prior outputs.
+
+        ``extend`` *appends* the enumerated cells to an already-finished run
+        (growing its total + reopening it) instead of setting the total from
+        scratch — the auto-validation pass uses this to fold its parity cells
+        into the conversion run rather than spawning a separate run. With
+        ``extend`` an empty cell set is a no-op (the finished run is left as
+        is) rather than a zero-total finish.
 
         Errors during enumeration / enqueue surface as a ``failed``
         audit row on the cell that tripped them — the run still
@@ -3304,12 +3309,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cells = await _audit_run_list_cells(scope_obj, validate_only)
         except Exception:
             logger.exception("audit run %s: scope listing failed", run_id)
-            await db_module.set_audit_run_total(pool, run_id, 0)
+            if not extend:
+                await db_module.set_audit_run_total(pool, run_id, 0)
             return
 
-        await db_module.set_audit_run_total(pool, run_id, len(cells))
-        if not cells:
-            return
+        if extend:
+            if not cells:
+                return  # nothing to append; leave the finished run untouched
+            await db_module.extend_audit_run_total(pool, run_id, len(cells))
+        else:
+            await db_module.set_audit_run_total(pool, run_id, len(cells))
+            if not cells:
+                return
 
         for source_key, target_format in cells:
             # Parity cells produce no derived blob, so there is nothing to cache
