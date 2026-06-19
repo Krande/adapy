@@ -663,7 +663,16 @@ def _export_with_ada(
         import os
 
         streaming = os.environ.get("ADA_IFC_STREAMING", "").strip().lower() not in _FALSE
-        model.to_ifc(destination=str(out_path), streaming=streaming)
+        # On the streaming path, fold FEM shells via the shared object-free face
+        # engine instead of emitting one plate per element (matches the Genie-XML
+        # and STEP streamers). merge_fem_objects -> coplanar/none; falls back to
+        # 1:1 for non-FEM sources or curved-plate reconstruction.
+        ms = None
+        recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
+        if streaming and source_ext is not None and source_ext.lower() in _FEM_SOURCE_EXTS and not recon:
+            merge = True if merge_fem_objects is None else bool(merge_fem_objects)
+            ms = "coplanar" if merge else "none"
+        model.to_ifc(destination=str(out_path), streaming=streaming, merge_strategy=ms)
     elif target_format == "xml":
         on_progress("writing-xml", 0.55)
         recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
@@ -1114,7 +1123,17 @@ def _via_ada_to_step(
             # worker on large jackets/ships — the writer fuses Beam/Plate straight
             # from the mesh. The OCC XCAF writer would instead accumulate every
             # solid plus a full entity-graph copy. fem_to_objects=False opts out.
-            stats = model.to_stp(str(out_path), writer="stream", fuse_fem=(fem_to_objects is not False))
+            # Fold FEM shells via the shared object-free face engine (matches the
+            # Genie-XML and IFC streamers) unless curved-plate reconstruction is
+            # requested. merge_fem_objects -> coplanar/none.
+            recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
+            ms = None
+            if not recon:
+                merge = True if merge_fem_objects is None else bool(merge_fem_objects)
+                ms = "coplanar" if merge else "none"
+            stats = model.to_stp(
+                str(out_path), writer="stream", fuse_fem=(fem_to_objects is not False), merge_strategy=ms
+            )
             skipped = (stats or {}).get("skipped", 0)
             if skipped:
                 logger.warning(f"streaming STEP writer skipped {skipped} non-extrudable object(s)")
