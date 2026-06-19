@@ -176,14 +176,20 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
                     pcurve_geom = create_pcurve_2d_from_sat_record(pcurve_record)
                     if pcurve_geom is not None:
                         # Pcurve sense: chunks[7] is forward/reversed.
-                        # Reverse strategy is tunable via env var while
-                        # we sort out the right composition; "auto" uses
-                        # the conservative rule "reverse iff pcurve sense
-                        # disagrees with (edge.sense XOR coedge.sense)".
-                        # Set ADA_PCURVE_REVERSE=never|always|auto|pcurve_only.
+                        #
+                        # ACIS authors the per-coedge pcurve already running in
+                        # the coedge's direction, so it should be attached as-is
+                        # — "never" reverse. The old "auto" heuristic (reverse
+                        # iff the OCC edge direction disagrees with the pcurve
+                        # sense) was a WIP guess and is actually wrong: on the
+                        # OP1 hull-skin it flipped the UV trim on 380/4529 curved
+                        # plates, collapsing them to negative- or zero-area faces
+                        # (rendered as holes). With "never" all 4529 build clean
+                        # with areas matching their 3D boundary. Kept as a tunable
+                        # escape hatch: ADA_PCURVE_REVERSE=never|always|auto|pcurve_only.
                         import os as _os
 
-                        mode = (_os.environ.get("ADA_PCURVE_REVERSE") or "auto").strip().lower()
+                        mode = (_os.environ.get("ADA_PCURVE_REVERSE") or "never").strip().lower()
                         pcurve_sense = "forward"
                         if len(pcurve_record.chunks) > 7 and pcurve_record.chunks[7] in ("forward", "reversed"):
                             pcurve_sense = pcurve_record.chunks[7]
