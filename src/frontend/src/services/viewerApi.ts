@@ -597,6 +597,10 @@ export interface AuditRun {
     // When true, the finished-run poller auto-fires a follow-up
     // validate_only parity run for the same scope once this run finishes.
     auto_validate?: boolean;
+    // Set once a validation pass has been dispatched for this run (via the
+    // toggle or the manual button) — used to gate the "Validate" button so a
+    // run is validated at most once.
+    auto_validate_dispatched_at?: string | null;
     // Set on a derived run (the auto-validation child, or a re-dispatched
     // copy) to the run it was created from.
     parent_run_id?: string | null;
@@ -1639,6 +1643,17 @@ export const viewerApi = {
             {method: "POST"},
         );
         return jsonOrThrow(r, `adminAuditRunReDispatch(${runId})`);
+    },
+
+    /** Admin: append a validation (cross-format parity) pass to a finished
+     * run — folded into the same run, not a new one. 409 if the run isn't
+     * finished or has already been validated. Returns the (reopened) run. */
+    async adminAuditRunValidate(runId: string): Promise<AuditRun> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}/validate`,
+            {method: "POST"},
+        );
+        return jsonOrThrow(r, `adminAuditRunValidate(${runId})`);
     },
 
     /** Admin: historic results for one (source key, target_format) cell across

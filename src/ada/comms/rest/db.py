@@ -1142,6 +1142,7 @@ def _audit_run_row(r) -> dict:
 
     issue_bot_synced_at = _opt("issue_bot_synced_at")
     parent_run_id = _opt("parent_run_id")
+    av_dispatched = _opt("auto_validate_dispatched_at")
     return {
         "id": str(r["id"]),
         "scope": r["scope"],
@@ -1159,6 +1160,7 @@ def _audit_run_row(r) -> dict:
         "force_rebuild": _opt("force_rebuild") or False,
         "auto_validate": _opt("auto_validate") or False,
         "parent_run_id": str(parent_run_id) if parent_run_id else None,
+        "auto_validate_dispatched_at": (av_dispatched.isoformat() if av_dispatched else None),
         "issue_bot_status": _opt("issue_bot_status"),
         "issue_bot_last_error": _opt("issue_bot_last_error"),
         "issue_bot_synced_at": (issue_bot_synced_at.isoformat() if issue_bot_synced_at else None),
@@ -1274,7 +1276,7 @@ async def list_audit_runs(
         f"""
         SELECT id, scope, worker_pool, trigger, started_at, finished_at,
                status, note, total, ok, failed, skipped, created_by,
-               force_rebuild, auto_validate, parent_run_id,
+               force_rebuild, auto_validate, parent_run_id, auto_validate_dispatched_at,
                issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         FROM audit_runs
         {where}
@@ -1291,7 +1293,7 @@ async def get_audit_run(pool: asyncpg.Pool, run_id: str) -> dict | None:
         """
         SELECT id, scope, worker_pool, trigger, started_at, finished_at,
                status, note, total, ok, failed, skipped, created_by,
-               force_rebuild, auto_validate, parent_run_id,
+               force_rebuild, auto_validate, parent_run_id, auto_validate_dispatched_at,
                issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         FROM audit_runs WHERE id = $1
         """,
@@ -1704,6 +1706,29 @@ async def claim_audit_run_for_auto_validate(pool: asyncpg.Pool):
                   force_rebuild, auto_validate, parent_run_id,
                   issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         """,
+    )
+    return _audit_run_row(row) if row else None
+
+
+async def claim_run_for_validation(pool: asyncpg.Pool, run_id: str):
+    """Atomically mark one *specific* finished run as having its validation
+    pass dispatched (the manual 'Validate' button). Returns the run if newly
+    claimed, or ``None`` when it's already been validated, isn't finished, or
+    doesn't exist — so a validation is appended at most once per run, whether
+    via the auto-validate toggle or the button."""
+    row = await pool.fetchrow(
+        """
+        UPDATE audit_runs
+        SET auto_validate_dispatched_at = NOW()
+        WHERE id = $1
+          AND status = 'finished'
+          AND auto_validate_dispatched_at IS NULL
+        RETURNING id, scope, worker_pool, trigger, started_at, finished_at,
+                  status, note, total, ok, failed, skipped, created_by,
+                  force_rebuild, auto_validate, parent_run_id, auto_validate_dispatched_at,
+                  issue_bot_status, issue_bot_last_error, issue_bot_synced_at
+        """,
+        run_id,
     )
     return _audit_run_row(row) if row else None
 

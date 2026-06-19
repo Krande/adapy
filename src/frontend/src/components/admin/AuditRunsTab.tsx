@@ -650,6 +650,54 @@ const ReDispatchButton: React.FC<{
     );
 };
 
+// Kick off a cross-format parity validation pass on a finished run. The cells
+// are appended to *this* run (it reopens to 'running' until they land), not a
+// new run. Dispatched at most once per run — the button disables once a
+// validation has already run (via the toggle or a prior click).
+const ValidateRunButton: React.FC<{
+    run: AuditRun;
+    onValidated: () => void;
+}> = ({run, onValidated}) => {
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+    const alreadyValidated = !!run.auto_validate_dispatched_at;
+    const onClick = async () => {
+        if (!window.confirm(
+            `Run validation on "${run.scope}"? Cross-format parity cells are appended to this run.`,
+        )) {
+            return;
+        }
+        setBusy(true);
+        setErr(null);
+        try {
+            await viewerApi.adminAuditRunValidate(run.id);
+            onValidated();
+        } catch (e) {
+            setErr((e as Error).message || "validation failed");
+        } finally {
+            setBusy(false);
+        }
+    };
+    return (
+        <div className="flex items-center gap-2">
+            <button
+                type="button"
+                onClick={onClick}
+                disabled={busy || alreadyValidated}
+                className="text-xs px-2 py-1 border border-teal-700 text-teal-300 hover:bg-teal-900/30 rounded-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                title={
+                    alreadyValidated
+                        ? "Validation already dispatched for this run."
+                        : "Append a cross-format parity validation pass to this run."
+                }
+            >
+                {busy ? "Starting…" : alreadyValidated ? "Validated" : "Validate"}
+            </button>
+            {err && <span className="text-[11px] text-red-400" role="alert">{err}</span>}
+        </div>
+    );
+};
+
 // Cross-run history for one grid cell (source × target), opened from the
 // cell context menu. Newest result first, so a run-to-run regression in
 // duration / peak RSS / status is visible at a glance.
@@ -1013,10 +1061,19 @@ const AuditRunsTab: React.FC = () => {
                                             }}
                                         />
                                     ) : (
-                                        <ReDispatchButton
-                                            run={selectedRun}
-                                            onDispatched={() => { void loadRuns(); }}
-                                        />
+                                        <>
+                                            <ValidateRunButton
+                                                run={selectedRun}
+                                                onValidated={() => {
+                                                    void loadRuns();
+                                                    if (selectedId) void loadDetail(selectedId);
+                                                }}
+                                            />
+                                            <ReDispatchButton
+                                                run={selectedRun}
+                                                onDispatched={() => { void loadRuns(); }}
+                                            />
+                                        </>
                                     )}
                                     <label className="text-xs text-gray-300 flex items-center gap-2">
                                         <span className="hidden sm:inline">Color cells by:</span>

@@ -3700,6 +3700,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         return JSONResponse(run, status_code=202)
 
+    @admin.post("/audit/runs/{run_id}/validate")
+    async def admin_audit_run_validate(
+        run_id: str,
+        request: Request,
+        background_tasks: BackgroundTasks,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Append a validation (cross-format parity) pass to a finished run —
+        the manual counterpart to the auto-validate toggle. Grows the run's
+        total + reopens it, then enqueues the parity cells under the same run
+        id. 409 if the run isn't finished or has already been validated (the
+        pass runs at most once per run; re-run the audit for a fresh one)."""
+        pool = _require_pool(request)
+        run = await db_module.get_audit_run(pool, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="audit run not found")
+
+        s = _parse_scope(run["scope"], user)
+        s = await _resolve_project_scope(pool, s)
+        if not await scope_can_access(user, s, pool):
+            raise HTTPException(status_code=403, detail="forbidden")
+        if not queue.enabled and run["worker_pool"] != _WASM_POOL:
+            raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
+
+        claimed = await db_module.claim_run_for_validation(pool, run_id)
+        if claimed is None:
+            raise HTTPException(
+                status_code=409,
+                detail="run is not finished, or its validation pass has already been dispatched",
+            )
+        background_tasks.add_task(
+            _audit_dispatch,
+            run_id,
+            s,
+            run["worker_pool"],
+            user.sub,
+            pool,
+            False,  # force_rebuild
+            True,  # validate_only
+            True,  # extend — append into the existing run
+        )
+        return JSONResponse(claimed, status_code=202)
+
     @admin.get("/audit/cell-history")
     async def admin_audit_cell_history(
         request: Request,
