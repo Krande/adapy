@@ -47,42 +47,44 @@ def add_plate_sat(plate: Plate, thck_name: str, structures_elem, sw: SatWriter):
     ET.SubElement(sat_reference, "face", {"face_ref": sw.face_map.get(plate.guid)})
 
 
-def add_plate_polygon(plate: Plate, thck_name: str, structures_elem: ET.Element):
+def add_plate_polygon_data(
+    name: str, outline_global, normal, thck_name: str, material_name: str, structures_elem: ET.Element
+):
+    """Emit a ``<flat_plate>`` polygon from raw data (no Plate object).
+
+    The object-free FEM-shell face source (:mod:`ada.fem.formats.mesh_faces`)
+    yields global outlines + normal + refs directly, so the streaming writer can
+    emit plates without ever materialising a :class:`Plate`. Produces the same
+    element shape as :func:`add_plate_polygon` (whose object path round-trips its
+    local poly back to these same global positions)."""
     structure = ET.SubElement(structures_elem, "structure")
     flat_plate = ET.SubElement(
-        structure, "flat_plate", {"name": plate.name, "thickness_ref": thck_name, "material_ref": plate.material.name}
+        structure, "flat_plate", {"name": name, "thickness_ref": thck_name, "material_ref": material_name}
     )
     local_sys = ET.SubElement(flat_plate, "local_system")
     ET.SubElement(
-        local_sys,
-        "vector",
-        {"x": str(plate.poly.normal[0]), "y": str(plate.poly.normal[1]), "z": str(plate.poly.normal[2]), "dir": "z"},
+        local_sys, "vector", {"x": str(normal[0]), "y": str(normal[1]), "z": str(normal[2]), "dir": "z"}
     )
     ET.SubElement(flat_plate, "front")
     ET.SubElement(flat_plate, "back")
     ET.SubElement(flat_plate, "segmentation")
 
-    # Add polygon geometry
     geometry = ET.SubElement(flat_plate, "geometry")
     sheet = ET.SubElement(geometry, "sheet")
     polygons = ET.SubElement(sheet, "polygons")
     polygon = ET.SubElement(polygons, "polygon")
+    for pt in outline_global:
+        ET.SubElement(polygon, "position", {"x": str(pt[0]), "y": str(pt[1]), "z": str(pt[2])})
 
-    # abs_place = plate.placement.get_absolute_placement()
-    # origin = abs_place.origin
-    # for pt in plate.poly.points3d:
-    #    p_tra = origin + pt.copy()
-    #    ET.SubElement(polygon, "position", {"x": str(p_tra[0]), "y": str(p_tra[1]), "z": str(p_tra[2])})
 
+def add_plate_polygon(plate: Plate, thck_name: str, structures_elem: ET.Element):
     abs_place = plate.placement.get_absolute_placement(include_rotations=True)
     ident = Placement()  # identity place
-
-    for pt in plate.poly.points3d:
-        # pt is local in plate coords -> transform to global with rotation+translation
-        p_global = abs_place.transform_array_from_other_place(
-            np.asarray([pt], dtype=float), ident, ignore_translation=False
-        )[0]
-        ET.SubElement(polygon, "position", {"x": str(p_global[0]), "y": str(p_global[1]), "z": str(p_global[2])})
+    outline_global = [
+        abs_place.transform_array_from_other_place(np.asarray([pt], dtype=float), ident, ignore_translation=False)[0]
+        for pt in plate.poly.points3d
+    ]
+    add_plate_polygon_data(plate.name, outline_global, plate.poly.normal, thck_name, plate.material.name, structures_elem)
 
 
 def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):

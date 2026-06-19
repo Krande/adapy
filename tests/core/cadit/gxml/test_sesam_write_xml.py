@@ -1,7 +1,18 @@
 import xml.etree.ElementTree as ET
 
+import numpy as np
+import pytest
+
 import ada
 from ada.api.spatial.eq_types import EquipRepr
+
+
+def _poly_area(outline) -> float:
+    p = np.asarray(outline, dtype=float)
+    n = np.zeros(3)
+    for i in range(len(p)):
+        n += np.cross(p[i], p[(i + 1) % len(p)])
+    return 0.5 * float(np.linalg.norm(n))
 
 
 def test_roundtrip_xml(fem_files, tmp_path):
@@ -45,6 +56,37 @@ def test_streaming_xml_byte_identical_to_dom(tmp_path):
     build().to_genie_xml(stream, streaming=True)
 
     assert dom.read_bytes() == stream.read_bytes()
+
+
+def test_streaming_xml_face_source_object_free(fem_files, tmp_path):
+    # merge_strategy sources plates from the vectorized object-free FEM-shell
+    # face engine: no Plate objects are materialised, and the output is
+    # geometrically equivalent (same covered area) to the object merge.
+    from ada.cadit.gxml.store import GxmlStore
+
+    ref = ada.from_fem(fem_files / "sesam/beamMassT1.FEM")
+    ref.create_objects_from_fem(merge=True)
+    ref_area = 0.0
+    for pl in ref.get_all_physical_objects(by_type=ada.Plate):
+        ap = pl.placement.get_absolute_placement(include_rotations=True)
+        ident = ada.Placement()
+        glob = [
+            ap.transform_array_from_other_place(np.asarray([pt], dtype=float), ident, ignore_translation=False)[0]
+            for pt in pl.poly.points3d
+        ]
+        ref_area += _poly_area(glob)
+
+    a = ada.from_fem(fem_files / "sesam/beamMassT1.FEM")
+    a.create_objects_from_fem(skip_plates=True, merge=True)  # beams only
+    dest = tmp_path / "faces.xml"
+    a.to_genie_xml(dest, streaming=True, merge_strategy="coplanar")
+
+    # object-free: the part never materialised any Plate
+    assert len(list(a.get_all_physical_objects(by_type=ada.Plate))) == 0
+
+    plates = list(GxmlStore(dest).iter_plates_from_xml())
+    assert len(plates) >= 1
+    assert sum(_poly_area(p.nodes) for p in plates) == pytest.approx(ref_area, rel=1e-4)
 
 
 def test_streaming_xml_from_fem_byte_identical(fem_files, tmp_path):

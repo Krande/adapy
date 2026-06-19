@@ -32,7 +32,7 @@ from .write_hinges import add_hinges
 from .write_load_case import add_loads
 from .write_masses import add_masses
 from .write_materials import add_materials
-from .write_plates import add_plate_polygon, thickness_name
+from .write_plates import add_plate_polygon, add_plate_polygon_data, thickness_name
 from .write_sections import add_sections
 from .write_sets import add_sets
 from .write_xml import _XML_TEMPLATE
@@ -43,11 +43,31 @@ from .write_xml import _XML_TEMPLATE
 _MARKER = "ADA__STREAMED_STRUCTURES__"
 
 
-def write_xml_stream(part, xml_file, writer_postprocessor: Callable[[ET.Element, "object"], None] = None) -> None:
+def write_xml_stream(
+    part,
+    xml_file,
+    writer_postprocessor: Callable[[ET.Element, "object"], None] = None,
+    merge_strategy=None,
+) -> None:
+    """Stream a Genie XML.
+
+    ``merge_strategy`` (None | "none" | "coplanar" | ...) switches the *plate*
+    source. ``None`` (default) streams the part's already-built ``Plate`` objects
+    (the legacy concept path). Any strategy value sources plates from the
+    object-free vectorized FEM-shell face engine
+    (:func:`ada.fem.formats.mesh_faces.iter_faces`) instead — no Plate objects
+    are ever materialised. Beams still come from the part's (bounded) beam set.
+    """
     from ada import Beam, BeamTapered, Plate
 
     if not isinstance(xml_file, pathlib.Path):
         xml_file = pathlib.Path(xml_file)
+
+    use_faces = merge_strategy is not None
+    if use_faces:
+        # plate materials live on the FEM shell sections; register them so
+        # add_materials emits them and the streamed face material_refs resolve.
+        _register_shell_materials(part)
 
     part.consolidate_sections()
     part.consolidate_materials()
@@ -64,16 +84,17 @@ def write_xml_stream(part, xml_file, writer_postprocessor: Callable[[ET.Element,
     add_hinges(properties, part)
 
     # The thickness table lives in <properties>, ahead of the streamed plates,
-    # so build it up front from the (already-merged) plate set. Distinct
-    # thicknesses are few; this does not materialise geometry.
+    # so build it up front. Distinct thicknesses are few; this does not
+    # materialise geometry (face path reads them straight off the FEM sections).
     thickness_map: dict[float, str] = {}
     thicknesses_elem = ET.SubElement(properties, "thicknesses")
-    for plate in part.get_all_physical_objects(by_type=Plate):
-        if plate.t not in thickness_map:
-            name = thickness_name(plate.t)
-            thickness_map[plate.t] = name
+    distinct_thicknesses = _shell_thicknesses(part) if use_faces else [p.t for p in part.get_all_physical_objects(by_type=Plate)]
+    for t in distinct_thicknesses:
+        if t not in thickness_map:
+            name = thickness_name(t)
+            thickness_map[t] = name
             tck = ET.Element("thickness", {"name": name, "default": "true"})
-            tck.append(ET.Element("constant_thickness", {"th": str(plate.t)}))
+            tck.append(ET.Element("constant_thickness", {"th": str(t)}))
             thicknesses_elem.append(tck)
 
     # ── marker, then the remaining bounded structure-domain content ─────────
@@ -100,16 +121,51 @@ def write_xml_stream(part, xml_file, writer_postprocessor: Callable[[ET.Element,
         # Match the DOM writer byte-for-byte: tree.write(encoding="utf-8")
         # suppresses the XML declaration, so we emit none either.
         fh.write(head)
-        _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate)
+        _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_strategy)
         fh.write(tail)
 
 
-def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate) -> None:
+def _shell_thicknesses(part) -> list:
+    """Distinct shell-section thicknesses across every FEM under ``part``."""
+    out: list = []
+    seen = set()
+    for p in part.get_all_parts_in_assembly(include_self=True):
+        fem = getattr(p, "fem", None)
+        if fem is None:
+            continue
+        for sec in fem.sections.shells:
+            t = getattr(sec, "thickness", None)
+            if t is not None and t not in seen:
+                seen.add(t)
+                out.append(t)
+    return out
+
+
+def _register_shell_materials(part) -> None:
+    """Add every FEM shell-section material to its part's material container so
+    add_materials emits them and the streamed face ``material_ref`` resolves."""
+    for p in part.get_all_parts_in_assembly(include_self=True):
+        fem = getattr(p, "fem", None)
+        if fem is None:
+            continue
+        for sec in fem.sections.shells:
+            mat = getattr(sec, "material", None)
+            if mat is None:
+                continue
+            if mat.name not in p.materials.name_map:
+                mat.parent = p
+                p.materials.add(mat)
+
+
+def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_strategy) -> None:
     """Serialise one ``<structure>`` subtree at a time and write it out.
 
     Beams precede plates, matching the add_beams → add_plates order of the DOM
     writer. Each object's subtree is built on a throwaway parent, serialised,
     written, and dropped, so peak memory is one object's element tree.
+
+    Plates come from the part's Plate objects (``merge_strategy is None``) or,
+    for any strategy value, from the object-free vectorized face source.
     """
     import itertools
 
@@ -132,8 +188,19 @@ def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate) -> Non
         for child in list(tmp):
             fh.write(ET.tostring(child, encoding="unicode"))
 
-    for plate in part.get_all_physical_objects(by_type=Plate):
-        tmp = ET.Element("structures")
-        add_plate_polygon(plate, thickness_map[plate.t], tmp)
-        for child in list(tmp):
-            fh.write(ET.tostring(child, encoding="unicode"))
+    if merge_strategy is None:
+        for plate in part.get_all_physical_objects(by_type=Plate):
+            tmp = ET.Element("structures")
+            add_plate_polygon(plate, thickness_map[plate.t], tmp)
+            for child in list(tmp):
+                fh.write(ET.tostring(child, encoding="unicode"))
+    else:
+        from ada.fem.formats.mesh_faces import iter_faces
+
+        for face in iter_faces(part, merge_strategy):
+            tmp = ET.Element("structures")
+            add_plate_polygon_data(
+                face.name, face.outline, face.normal, thickness_map[face.thickness], face.material, tmp
+            )
+            for child in list(tmp):
+                fh.write(ET.tostring(child, encoding="unicode"))
