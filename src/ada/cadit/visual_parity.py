@@ -100,7 +100,24 @@ def load_assembly_auto(path: str | Path) -> "Assembly":
     if ext == ".xml":
         return ada.from_genie_xml(p)
     if ext in (".fem", ".inp", ".sif", ".sin"):
-        return ada.from_fem(p)
+        asm = ada.from_fem(p)
+        # Mirror the FEM->CAD converter (_apply_fem_to_objects): it rebuilds
+        # Beam/Plate concept objects from the mesh before any structure-
+        # preserving export, because those writers emit *concepts*, not the raw
+        # mesh. Without this the parity round-trip exports an objectless
+        # assembly and every format reads back empty — a false "dropped all
+        # geometry", when the converter never exports a bare mesh.
+        asm.create_objects_from_fem(merge=True)
+        # Drop the mesh so the baseline counts the exported concept geometry,
+        # not the auxiliary FEM-mesh viz (mass/spring elements with no concept
+        # representation) that no structure-preserving format carries — else the
+        # source over-counts against every format.
+        from ada.fem import FEM
+
+        for part in asm.get_all_parts_in_assembly(include_self=True):
+            if part.fem is not None and len(part.fem.elements) > 0:
+                part.fem = FEM(part.fem.name, parent=part)
+        return asm
     raise ValueError(f"visual_parity: no loader for source suffix {ext!r}")
 
 

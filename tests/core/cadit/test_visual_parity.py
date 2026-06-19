@@ -87,3 +87,16 @@ def test_visualized_element_count_excludes_placeholder():
     scene.add_geometry(trimesh.PointCloud([[0, 0, 0]]), node_name="empty")
 
     assert visualized_element_count(scene) == 1
+
+
+def test_parity_fem_source_rebuilds_objects(fem_files):
+    """A FEM source must rebuild Beam/Plate concept objects (as the converter
+    does) before the round-trip; the writers emit concepts, not the raw mesh.
+    Previously parity exported an objectless assembly and read every format back
+    empty (a false "all geometry dropped"). After the fix the source and every
+    format agree."""
+    r = visual_parity.parity_for_source_file(fem_files / "sesam/beamMassT1.FEM", ("ifc", "xml", "step"))
+    assert r.expected > 0
+    assert r.counts["ifc"] == r.counts["xml"] == r.counts["step"] == r.expected
+    assert r.errors == {}
+    assert r.consistent is True
