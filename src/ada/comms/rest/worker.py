@@ -662,6 +662,98 @@ async def _run_utility_job(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+async def _try_reduced_sif_source(
+    storage: Storage,
+    scope: Scope,
+    source_key: str,
+    step: int | None,
+    src_path: pathlib.Path,
+) -> bool:
+    """Range-fetch just one result step of a SIF deck instead of the whole file.
+
+    When a byte-offset index sidecar exists (built by a prior conversion), the
+    bytes of every *other* step are skipped: only the target step's RV records
+    plus the step-invariant mesh / RDPOINTS / control rows are fetched and
+    concatenated into ``src_path`` — a smaller, still-valid SIF the normal
+    reader parses. A 969 MB deck becomes a ~340 MB read, and re-picking a mode
+    in the viewer stops re-downloading the whole file.
+
+    Returns True on success; False (with ``src_path`` untouched) to fall back
+    to the full streaming download. Skipped when the source is gzip-stored —
+    range offsets address the *uncompressed* file.
+    """
+    from ada.fem.formats.sesam.results.sif_index import SifStepIndex
+
+    from .converter import sif_index_key_for
+
+    index_key = sif_index_key_for(source_key)
+    try:
+        idx_bytes = await storage.get_bytes(scope, index_key)
+    except FileNotFoundError:
+        return False
+    except Exception:
+        logger.exception("worker: reading SIF index %s failed (non-fatal)", index_key)
+        return False
+
+    try:
+        idx = SifStepIndex.from_json(idx_bytes)
+    except Exception:
+        logger.warning("worker: SIF index %s unreadable; full download", index_key)
+        return False
+
+    try:
+        if await storage.is_gzip_stored(scope, source_key):
+            return False
+    except Exception:
+        return False
+
+    target = step if step is not None else idx.default_step()
+    if target not in idx.steps:
+        return False
+
+    ranges = idx.include_ranges(target)
+    try:
+        with open(src_path, "wb") as fo:
+            for s, e in ranges:
+                fo.write(await storage.get_range(scope, source_key, s, e - s))
+    except Exception:
+        logger.exception("worker: SIF range-fetch for %s failed; full download", source_key)
+        return False
+
+    fetched = sum(e - s for s, e in ranges)
+    logger.info(
+        "worker: SIF reduced read %s step %s — %d/%d bytes (%.0f%%)",
+        source_key,
+        target,
+        fetched,
+        idx.size,
+        100.0 * fetched / max(idx.size, 1),
+    )
+    return True
+
+
+async def _ensure_sif_index(storage: Storage, scope: Scope, source_key: str, src_path: pathlib.Path) -> None:
+    """Build + upload the SIF byte-offset index sidecar if absent.
+
+    One-time cheap byte scan (no float parsing) of the full local deck so later
+    picks of other steps range-fetch a reduced file. Best-effort: a failure
+    here never fails the job — it just means the next pick scans the whole file
+    again."""
+    from ada.fem.formats.sesam.results.sif_index import build_sif_index
+
+    from .converter import sif_index_key_for
+
+    index_key = sif_index_key_for(source_key)
+    try:
+        if await storage.exists(scope, index_key):
+            return
+        idx = await asyncio.to_thread(build_sif_index, src_path)
+        await storage.put_bytes(scope, index_key, idx.to_json())
+        logger.info("worker: built SIF index for %s (%d steps)", source_key, len(idx.steps))
+    except Exception:
+        logger.exception("worker: building SIF index for %s failed (non-fatal)", source_key)
+
+
 async def _process_one(
     job_id: str,
     queue: JobQueue,
@@ -763,9 +855,17 @@ async def _process_one(
     src_fd, src_name = tempfile.mkstemp(suffix=src_suffix)
     os.close(src_fd)
     src_path = pathlib.Path(src_name)
+    # A SIF deck with a cached byte-offset index range-fetches only the target
+    # step (reduced, still-valid SIF) instead of the whole ~1 GB file. Falls
+    # back to the full stream when there's no index / it's gzip-stored / fetch
+    # fails. ``sif_reduced`` gates the post-convert index build below.
+    sif_reduced = False
     try:
         try:
-            await storage.stream_to_path(scope, job.source_key, src_path)
+            if src_suffix.lower() == ".sif":
+                sif_reduced = await _try_reduced_sif_source(storage, scope, job.source_key, job.step, src_path)
+            if not sif_reduced:
+                await storage.stream_to_path(scope, job.source_key, src_path)
         except FileNotFoundError as exc:
             logger.warning("worker: source %s missing for job %s", job.source_key, job_id)
             await queue.update(job_id, status=JOB_STATUS_ERROR, stage="loading", error=str(exc))
@@ -1162,6 +1262,13 @@ async def _process_one(
 
         await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
         await _audit_done(db_pool, job_id, "done", None, started_at, metrics=metrics)
+
+        # First full conversion of a SIF deck: build + cache the byte-offset
+        # index so subsequent step/field picks range-fetch one step instead of
+        # the whole file. Skipped when we already read a reduced file (the
+        # index existed) or the source isn't a SIF. Best-effort.
+        if src_suffix.lower() == ".sif" and not sif_reduced:
+            await _ensure_sif_index(storage, scope, job.source_key, src_path)
     finally:
         try:
             src_path.unlink()

@@ -464,6 +464,17 @@ def fea_meta_key_for(source_key: str) -> str:
     return f"_derived/{src}{_FEA_META_SUFFIX}"
 
 
+# Suffix for the SIF byte-offset index sidecar (see
+# ada.fem.formats.sesam.results.sif_index). Built once per SIF deck; lets the
+# worker range-fetch only one result step's bytes instead of the whole file.
+_SIF_INDEX_SUFFIX = ".sifindex.json"
+
+
+def sif_index_key_for(source_key: str) -> str:
+    src = source_key.strip("/")
+    return f"_derived/{src}{_SIF_INDEX_SUFFIX}"
+
+
 def is_derived_key(key: str) -> bool:
     return key.lstrip("/").startswith("_derived/")
 

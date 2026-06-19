@@ -122,11 +122,6 @@ RESULT_CARDS = [
 # block, no steps) and are always kept in full.
 _RV_STEP_CARDS = frozenset({cards.RVNODDIS.name, cards.RVSTRESS.name, cards.RVFORCES.name})
 
-# Column index of ``ires`` in a parsed RV* row. Rows drop the card name on
-# parse (``split()[1:]``), so the components list ``["nfield", "ires", ...]``
-# maps to row positions ``0, 1, ...`` → ``ires`` is at index 1.
-_RV_IRES_COL = 1
-
 
 @dataclass
 class SifReader:
@@ -200,32 +195,57 @@ class SifReader:
         for data in self._read_multi_line_statements(result_variable, first_line):
             yield data
 
-    def _read_results_for_step(self, result_variable: str, first_line: str, step: int | str):
-        """Like :meth:`read_results` but yields only the block's control record
-        plus the rows whose ``ires`` matches ``step``.
+    def _read_results_for_step(self, startswith: str, first_line: str, step: int | str):
+        """Single-pass RV* reader that float-parses only the control row and
+        the rows whose ``ires`` matches ``step``.
 
         ``step`` is an int (keep that step) or the sentinel ``"first"`` (lock
-        onto the ``ires`` of the first data row). The underlying generator is
-        always drained to completion so the file cursor still lands past the
-        whole card block; non-matching rows are dropped as we go, capping
-        resident rows at one step rather than the whole multi-step deck.
-        """
-        rows = self.read_results(result_variable, first_line)
-        # Row 0 is the block's control record — every consumer skips it via
-        # ``[1:]``. Always keep it so that contract still holds post-filter.
-        try:
-            control = next(rows)
-        except StopIteration:
-            return
-        yield control
+        onto the ``ires`` of the first data row). This mirrors the boundary
+        logic of :meth:`_read_multi_line_statements` line-for-line, but a row
+        whose step doesn't match is walked only far enough to find the next
+        row boundary — its tokens are never ``float()``-converted or
+        accumulated. On a 9-step deck that skips ~8/9 of the per-token float
+        work (the parse hotspot), on top of the memory saved by not keeping
+        the other steps' rows.
 
+        The block's first record is the control row (every consumer skips it
+        via ``[1:]``), so it is always kept; ``ires`` lives at raw token index
+        2 (card name + ``nfield`` precede it).
+        """
         target = None if step == "first" else int(step)
-        for row in rows:
-            ires = int(row[_RV_IRES_COL]) if len(row) > _RV_IRES_COL else None
-            if target is None:
-                target = ires  # "first": lock onto the first data row's step
-            if ires == target:
-                yield row
+
+        # Row 0 is the control record — always materialised so the [1:]
+        # contract downstream still holds.
+        curr = [float(x) for x in first_line.split()[1:]]
+        keep = True
+
+        while True:
+            stripped = next(self.file).strip()
+
+            # End of the card block: a line that's neither a new card record
+            # nor a numeric continuation. Identical predicate to
+            # _read_multi_line_statements.
+            if stripped.startswith(startswith) is False and stripped[0].isnumeric() is False and stripped[0] != "-":
+                self._last_line = stripped
+                if keep:
+                    yield curr
+                break
+
+            if stripped.startswith(startswith):
+                # New record: flush the previous one (if kept), then decide
+                # whether this one matches the target step from its ires alone.
+                if keep:
+                    yield curr
+                parts = stripped.split()
+                ires = int(float(parts[2])) if len(parts) > 2 else None
+                if target is None:
+                    target = ires  # "first": lock onto the first data row
+                keep = ires == target
+                curr = [float(x) for x in parts[1:]] if keep else None
+            else:
+                # Continuation line — only pay the float cost when keeping.
+                if keep:
+                    curr += [float(x) for x in stripped.split()]
 
     def get_sections(self) -> dict[int, Section]:
         import math
