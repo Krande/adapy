@@ -584,15 +584,38 @@ def _apply_fem_to_objects(
     recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
     # The IFC streaming writer fuses shell elements into plates one at a time
     # (Part.iter_objects_from_fem), so leave plates unbuilt — build beams only —
-    # and let the writer stream them, keeping peak memory bounded. Curved-plate
-    # reconstruction (advanced faces) isn't handled by the text emitter, so it
-    # still takes the full build.
+    # and let the writer stream them, keeping peak memory bounded. The Genie-XML
+    # streaming writer does the same via the object-free vectorized face source
+    # (mesh_faces). Curved-plate reconstruction (advanced faces) isn't handled by
+    # either text emitter, so it still takes the full build.
     skip_plates = False
     if target_format == "ifc" and not recon:
         import os
 
         skip_plates = os.environ.get("ADA_IFC_STREAMING", "").strip().lower() not in _FALSE
+    elif _gxml_face_streaming(source_ext, target_format, recon):
+        skip_plates = True
     model.create_objects_from_fem(merge=merge, reconstruct_surfaces=recon, skip_plates=skip_plates)
+
+
+def _gxml_face_streaming(source_ext: str, target_format: str, reconstruct_surfaces: bool) -> bool:
+    """Whether FEM→Genie-XML streams plates from the object-free vectorized face
+    source instead of materialising Plate objects.
+
+    Gated by ``ADA_GXML_STREAMING`` (default on; only an explicit falsy value
+    reverts to the full object build + DOM writer). Not used for curved-plate
+    reconstruction (the parametric face emitter can't express advanced faces).
+    Shared by ``_apply_fem_to_objects`` (skip the plate build) and
+    ``_export_with_ada`` (use the streaming writer) so they stay consistent."""
+    if target_format != "xml":
+        return False
+    if source_ext.lower() not in _FEM_SOURCE_EXTS:
+        return False
+    if reconstruct_surfaces:
+        return False
+    import os
+
+    return os.environ.get("ADA_GXML_STREAMING", "").strip().lower() not in _FALSE
 
 
 def _export_with_ada(
@@ -602,6 +625,9 @@ def _export_with_ada(
     on_progress: ProgressFn,
     *,
     merge_meshes: bool | None = None,
+    source_ext: str | None = None,
+    merge_fem_objects: bool | None = None,
+    reconstruct_surfaces: bool | None = None,
 ) -> bytes:
     """Run the matching ada exporter and read back the produced bytes.
 
@@ -640,7 +666,18 @@ def _export_with_ada(
         model.to_ifc(destination=str(out_path), streaming=streaming)
     elif target_format == "xml":
         on_progress("writing-xml", 0.55)
-        model.to_genie_xml(destination_xml=str(out_path))
+        recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
+        if source_ext is not None and _gxml_face_streaming(source_ext, target_format, recon):
+            # Object-free path: plates stream from the vectorized FEM-shell face
+            # source (no Plate objects, no DOM). merge_fem_objects -> strategy.
+            merge = True if merge_fem_objects is None else bool(merge_fem_objects)
+            model.to_genie_xml(
+                destination_xml=str(out_path),
+                streaming=True,
+                merge_strategy=("coplanar" if merge else "none"),
+            )
+        else:
+            model.to_genie_xml(destination_xml=str(out_path))
     else:
         raise UnsupportedFormat(f"unknown target format: {target_format!r}")
     on_progress("ready", 1.0)
@@ -732,6 +769,9 @@ def _via_ada(
             out_path,
             on_progress,
             merge_meshes=merge_meshes,
+            source_ext=source_ext,
+            merge_fem_objects=merge_fem_objects,
+            reconstruct_surfaces=reconstruct_surfaces,
         )
     finally:
         try:
@@ -792,6 +832,9 @@ def _via_bundle(
                 out_path,
                 on_progress,
                 merge_meshes=opts.get("merge_meshes"),
+                source_ext=entry_ext,
+                merge_fem_objects=opts.get("merge_fem_objects"),
+                reconstruct_surfaces=opts.get("reconstruct_surfaces"),
             )
         finally:
             try:
