@@ -751,6 +751,31 @@ def _should_stream_step(src_path: pathlib.Path, step_streamer: bool | None) -> b
         return False
 
 
+_STEP_GLB_PIPELINE_OCC = "occ-builtin"
+_STEP_GLB_PIPELINE_STEP2GLB = "step2glb"
+_STEP_GLB_PIPELINES = (_STEP_GLB_PIPELINE_OCC, _STEP_GLB_PIPELINE_STEP2GLB)
+
+
+def _resolve_step_glb_pipeline(step_glb_pipeline: str | None) -> str:
+    """Pick the STEP→GLB engine.
+
+    Precedence mirrors ``_should_stream_step``: an explicit per-job choice
+    (``step_glb_pipeline`` kwarg, set by the worker from the job option) wins;
+    otherwise the global ``ADAPY_STEP_GLB_PIPELINE`` env (same convention as
+    ``ADAPY_CAD_BACKEND``); default ``occ-builtin`` keeps today's behaviour
+    byte-for-byte. ``step2glb`` routes through the bounded step2glb binary.
+    """
+    import os
+
+    from ada.config import logger
+
+    choice = (step_glb_pipeline or os.environ.get("ADAPY_STEP_GLB_PIPELINE", "") or _STEP_GLB_PIPELINE_OCC).strip().lower()
+    if choice not in _STEP_GLB_PIPELINES:
+        logger.warning("unknown ADAPY_STEP_GLB_PIPELINE %r; falling back to %s", choice, _STEP_GLB_PIPELINE_OCC)
+        return _STEP_GLB_PIPELINE_OCC
+    return choice
+
+
 def _via_ada(
     src_path: pathlib.Path,
     source_ext: str,
@@ -762,6 +787,7 @@ def _via_ada(
     merge_fem_objects: bool | None = None,
     reconstruct_surfaces: bool | None = None,
     step_streamer: bool | None = None,
+    step_glb_pipeline: str | None = None,
 ) -> bytes:
     """Heavy path: load with ada, export to target format. Used for any
     non-trivial source/target combination that needs the full ada-py
@@ -779,6 +805,23 @@ def _via_ada(
     out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
     result: bytes | pathlib.Path = b""
     try:
+        if (
+            source_ext in {".step", ".stp"}
+            and target_format == "glb"
+            and _resolve_step_glb_pipeline(step_glb_pipeline) == _STEP_GLB_PIPELINE_STEP2GLB
+        ):
+            # step2glb engine: renders curved surfaces the stream reader drops
+            # (B-spline/sphere/cone/torus). Bounded RAM via on-disk spill; the
+            # GLB is post-processed in Python to carry the viewer picking/tree
+            # contract, so no frontend change is needed.
+            from ada.cadit.step.step2glb_to_glb import convert_step_to_glb
+
+            on_progress("step2glb", 0.1)
+            convert_step_to_glb(src_path, out_path)
+            on_progress("ready", 1.0)
+            result = out_path
+            return result
+
         if source_ext in {".step", ".stp"} and target_format == "glb" and _should_stream_step(src_path, step_streamer):
             # Stream solid-by-solid: bounded memory, no whole-model OCC load.
             from ada.cadit.step.stream_to_glb import stream_step_to_glb
@@ -1405,7 +1448,7 @@ def convert(
     handler's adapter (registered by ``@converter``) unpacks the
     options it understands and ignores the rest, so passing unknown
     keys is harmless. Legacy env-var-driven options (use_sat_pcurves
-    / pcurve_drive_edge / skip_shapefix) still flow through env vars
+    / skip_shapefix) still flow through env vars
     set on the worker subprocess; they're not in the registry schema
     today because the consuming code is in deep OCC paths
     (ada/occ/geom/surfaces.py) that don't yet accept these as
@@ -1529,6 +1572,24 @@ def _register_ada_loadable() -> None:
         ),
     }
 
+    # STEP→GLB only: choose the tessellation engine. ``step2glb`` is a
+    # self-contained engine that renders curved surfaces (B-spline/sphere/cone/
+    # torus) the streaming reader drops; bounded RAM, GLB post-processed in
+    # Python to carry the viewer picking/tree metadata.
+    step_glb_pipeline_option = {
+        "name": "step_glb_pipeline",
+        "type": "enum",
+        "default": _STEP_GLB_PIPELINE_OCC,
+        "enum": list(_STEP_GLB_PIPELINES),
+        "description": (
+            "STEP→GLB engine. 'occ-builtin' is the OpenCASCADE path (whole-model "
+            "or streaming). 'step2glb' uses a self-contained engine that renders "
+            "curved surfaces (rational B-spline / spherical / conical / toroidal) "
+            "the streaming reader silently drops — use for assemblies that render "
+            "with missing/wrong curved geometry."
+        ),
+    }
+
     # Schema for FEM-source → CAD-target pairs. ``fem_to_objects`` rebuilds
     # concept Beam/Plate objects from the mesh before export — without it a
     # FEM → IFC/XML conversion is near-empty (the writers only emit concept
@@ -1584,6 +1645,7 @@ def _register_ada_loadable() -> None:
                 merge_fem_objects=None,
                 reconstruct_surfaces=None,
                 step_streamer=None,
+                step_glb_pipeline=None,
                 **_kw,
             ):
                 return _via_ada(
@@ -1596,11 +1658,15 @@ def _register_ada_loadable() -> None:
                     merge_fem_objects=merge_fem_objects,
                     reconstruct_surfaces=reconstruct_surfaces,
                     step_streamer=step_streamer,
+                    step_glb_pipeline=step_glb_pipeline,
                 )
 
             if tgt == "glb":
-                # The streaming toggle only applies to STEP sources.
-                row_options = glb_options + [step_streamer_option] if ext in {".step", ".stp"} else glb_options
+                # The streaming toggle + engine choice only apply to STEP sources.
+                if ext in {".step", ".stp"}:
+                    row_options = glb_options + [step_streamer_option, step_glb_pipeline_option]
+                else:
+                    row_options = glb_options
             elif tgt in ("ifc", "xml") and ext in _FEM_SOURCE_EXTS:
                 row_options = fem_to_objects_options
             else:
