@@ -206,17 +206,67 @@ def matno_of(mesh: Mesh, element_id: int) -> int:
     return int(row[0][1])
 
 
+@dataclass
+class _NodeIndex:
+    """One-pass connectivity index for a mesh, cached on the mesh.
+
+    Element/node lookups via :func:`element_node_ids` / ``element_node_coords``
+    and the tributary search used to scan every block (``np.where`` per call,
+    O(n_elements) each), making panel reconstruction O(n^2) — ~23 h on a 128k-
+    element topside. This builds the maps once (O(n_elements)) so every lookup
+    is O(1) and tributary is O(node degree).
+    """
+
+    elem_nodes: dict[int, tuple[int, ...]]
+    node_coord: dict[int, np.ndarray]
+    node_elems: dict[int, list[int]]
+
+
+def _ensure_index(mesh: Mesh) -> _NodeIndex:
+    idx = getattr(mesh, "_cap_node_index", None)
+    if idx is not None:
+        return idx
+    from collections import defaultdict
+
+    elem_nodes: dict[int, tuple[int, ...]] = {}
+    node_coord: dict[int, np.ndarray] = {}
+    node_elems: dict[int, list[int]] = defaultdict(list)
+    for block in mesh.elements:
+        ids = [int(x) for x in block.identifiers]
+        refs = block.node_refs
+        if block.node_refs_are_indices:
+            flat = sorted({int(r) for row in refs for r in row})
+            nodes = mesh.nodes.get_node_by_index(flat)
+            id_by_ref = {ref: int(n.id) for ref, n in zip(flat, nodes)}
+            coord_by_ref = {ref: np.asarray(n.p, dtype=float) for ref, n in zip(flat, nodes)}
+            rows = [[id_by_ref[int(r)] for r in row] for row in refs]
+            for row_refs, row_ids in zip(refs, rows):
+                for ref, nid in zip(row_refs, row_ids):
+                    node_coord[nid] = coord_by_ref[int(ref)]
+        else:
+            flat = sorted({int(r) for row in refs for r in row})
+            coord_by_id = {int(n.id): np.asarray(n.p, dtype=float) for n in mesh.nodes.get_node_by_id(flat)}
+            rows = [[int(r) for r in row] for row in refs]
+            node_coord.update(coord_by_id)
+        for element_id, row in zip(ids, rows):
+            elem_nodes[element_id] = tuple(row)
+            for nid in row:
+                node_elems[nid].append(element_id)
+    idx = _NodeIndex(elem_nodes=elem_nodes, node_coord=node_coord, node_elems=dict(node_elems))
+    try:
+        mesh._cap_node_index = idx  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    return idx
+
+
 def element_node_ids(mesh: Mesh, element_id: int) -> list[int]:
     """Node ids of an element, in connectivity order."""
-    for block in mesh.elements:
-        hit = np.where(block.identifiers == element_id)[0]
-        if hit.size == 0:
-            continue
-        refs = block.node_refs[hit[0]]
-        if block.node_refs_are_indices:
-            return [int(n.id) for n in mesh.nodes.get_node_by_index([int(r) for r in refs])]
-        return [int(r) for r in refs]
-    raise KeyError(f"element {element_id} not in mesh")
+    idx = _ensure_index(mesh)
+    nodes = idx.elem_nodes.get(element_id)
+    if nodes is None:
+        raise KeyError(f"element {element_id} not in mesh")
+    return list(nodes)
 
 
 def tributary_plate_ids(mesh: Mesh, beam_element_ids: tuple[int, ...], candidate_plate_ids: list[int]) -> list[int]:
@@ -225,29 +275,28 @@ def tributary_plate_ids(mesh: Mesh, beam_element_ids: tuple[int, ...], candidate
     A stiffener beam edge is shared by the (up to two) adjacent plate elements;
     those plates carry the stiffener's tributary membrane stresses.
     """
+    idx = _ensure_index(mesh)
     beam_nodes: set[int] = set()
     for be in beam_element_ids:
-        beam_nodes.update(element_node_ids(mesh, be))
-    out = []
-    for pe in candidate_plate_ids:
-        if beam_nodes.issubset(set(element_node_ids(mesh, pe))):
-            out.append(pe)
-    return out
+        beam_nodes.update(idx.elem_nodes.get(be, ()))
+    if not beam_nodes:
+        return []
+    # Candidate plates are those sharing at least one of the beam's nodes; a
+    # node→element map makes this O(degree) instead of scanning every plate.
+    candidates: set[int] = set()
+    for nid in beam_nodes:
+        candidates.update(idx.node_elems.get(nid, ()))
+    allowed = candidates.intersection(candidate_plate_ids)
+    return [pe for pe in candidate_plate_ids if pe in allowed and beam_nodes.issubset(idx.elem_nodes.get(pe, ()))]
 
 
 def element_node_coords(mesh: Mesh, element_id: int) -> np.ndarray:
     """(n_nodes, 3) node coordinates of an element, in connectivity order."""
-    for block in mesh.elements:
-        hit = np.where(block.identifiers == element_id)[0]
-        if hit.size == 0:
-            continue
-        refs = block.node_refs[hit[0]]
-        if block.node_refs_are_indices:
-            nodes = mesh.nodes.get_node_by_index([int(r) for r in refs])
-        else:
-            nodes = mesh.nodes.get_node_by_id([int(r) for r in refs])
-        return np.array([n.p for n in nodes], dtype=float)
-    raise KeyError(f"element {element_id} not in mesh")
+    idx = _ensure_index(mesh)
+    nodes = idx.elem_nodes.get(element_id)
+    if nodes is None:
+        raise KeyError(f"element {element_id} not in mesh")
+    return np.array([idx.node_coord[n] for n in nodes], dtype=float)
 
 
 def beam_axis_and_span(mesh: Mesh, element_ids: tuple[int, ...]) -> tuple[np.ndarray, float]:

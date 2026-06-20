@@ -190,7 +190,14 @@ class SinSource(PanelGroupSource):
 
         if self.group is not None:
             members = self._scoped_set_members(mesh, self.group)
-            beam_ids = [b for b in beam_ids if b in members]
+            scoped = [b for b in beam_ids if b in members]
+            # A scope may be a plate set (e.g. ``Pl_T100`` — plates only, no
+            # stiffener beams). Pull in the stiffeners that border those plates
+            # so a plate set still produces its stiffened panels.
+            plate_members = members.intersection(shell_ids)
+            if plate_members:
+                scoped = sorted(set(scoped) | _beams_bordering_plates(mesh, beam_ids, plate_members))
+            beam_ids = scoped
 
         from ada.fem.capacity.extract import tributary_plate_ids
 
@@ -275,8 +282,11 @@ class SinSource(PanelGroupSource):
         Prefer SIN concept intent when present: ``*_sbmN`` concepts identify the
         secondary-stiffener profile, and Genie may also keep same-profile
         ``*_gbmN`` beam segments as stiffeners in a combined panel group. When
-        concept names are absent, fall back to the geometric/profile rule used
-        originally: keep the shallowest beam profile in the scoped set.
+        concept names carry no role suffix, fall back to the *dominant*
+        plate-bordering profile — the most frequent one (plus profiles of the
+        same depth). The previous "shallowest profile" rule mis-fired on real
+        models that contain a few tiny stub members shallower than the actual
+        stiffeners.
         """
         if not beam_ids:
             return []
@@ -296,13 +306,18 @@ class SinSource(PanelGroupSource):
         if secondary_geonos:
             return [beam for beam in beam_ids if geono_of(mesh, beam) in secondary_geonos]
 
-        depths = {geono: SinSource._section_depth(mesh, geono) for geono in beams_by_geono}
-        known = {geono: depth for geono, depth in depths.items() if depth > 0.0}
-        if not known:
+        # Dominant plate-bordering profile = the secondary stiffener (there are
+        # far more stiffeners than girders or stub members). Keep it and any
+        # profile of essentially the same section depth.
+        dominant = max(beams_by_geono, key=lambda g: len(beams_by_geono[g]))
+        dominant_depth = SinSource._section_depth(mesh, dominant)
+        if dominant_depth <= 0.0:
             return beam_ids
-
-        min_depth = min(known.values())
-        keep_geonos = {geono for geono, depth in known.items() if depth <= min_depth * 1.05}
+        keep_geonos = {
+            geono
+            for geono in beams_by_geono
+            if abs(SinSource._section_depth(mesh, geono) - dominant_depth) <= 0.05 * dominant_depth
+        }
         return [beam for beam in beam_ids if geono_of(mesh, beam) in keep_geonos]
 
     @staticmethod
@@ -593,6 +608,30 @@ def _polygon_area_2d(xy: np.ndarray) -> float:
     x = xy[:, 0]
     y = xy[:, 1]
     return 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
+
+
+def _beams_bordering_plates(mesh, beam_ids: list[int], plate_members: set[int]) -> set[int]:
+    """Stiffener beams sharing an edge (>=2 nodes) with one of ``plate_members``.
+
+    Lets a plate-only scope (e.g. ``Pl_T100``) pull in the stiffeners that border
+    its plates so the capacity models for that region can still be built. Uses the
+    cached node index, so it is O(plate nodes), not a per-beam scan.
+    """
+    from ada.fem.capacity.extract import _ensure_index
+
+    idx = _ensure_index(mesh)
+    beam_set = set(beam_ids)
+    out: set[int] = set()
+    for plate in plate_members:
+        plate_nodes = idx.elem_nodes.get(plate)
+        if not plate_nodes:
+            continue
+        plate_node_set = set(plate_nodes)
+        for nid in plate_nodes:
+            for elem in idx.node_elems.get(nid, ()):
+                if elem in beam_set and elem not in out and len(plate_node_set.intersection(idx.elem_nodes.get(elem, ()))) >= 2:
+                    out.add(elem)
+    return out
 
 
 # --------------------------------------------------------------------------- #
