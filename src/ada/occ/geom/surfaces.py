@@ -1088,14 +1088,33 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
 
     if is_bspline_surface:
         builder = BRep_Builder()
-        outer_wire, n_updated, n_total = _build_bspline_wire(advanced_face.bounds[0], builder)
-        if n_updated < n_total:
-            # Any failed p-curve update on a BSpline-surface wire is a
-            # crash trigger downstream — bail rather than feed the
-            # half-attached wire into MakeFace/ShapeFix.
-            raise UnableToCreateTesselationFromSolidOCCGeom(
-                f"p-curve update incomplete ({n_updated}/{n_total}); skipping degenerate BSpline face."
-            )
+        try:
+            outer_wire, n_updated, n_total = _build_bspline_wire(advanced_face.bounds[0], builder)
+            if n_updated < n_total:
+                # Any failed p-curve update on a BSpline-surface wire is a
+                # crash trigger downstream — bail rather than feed the
+                # half-attached wire into MakeFace/ShapeFix.
+                raise UnableToCreateTesselationFromSolidOCCGeom(
+                    f"p-curve update incomplete ({n_updated}/{n_total}); skipping degenerate BSpline face."
+                )
+        except UnableToCreateTesselationFromSolidOCCGeom as ex:
+            # The trim wire couldn't be built from the bound edges (disconnected
+            # or un-closeable even at relaxed tolerance — a frequent failure on
+            # imported curved plates). Rather than drop the whole curved face and
+            # lose most of the part's surface, build it from the surface's NATURAL
+            # UV bounds. A B-spline is inherently bounded by its knot range, and a
+            # plate's top/bottom B-spline spans the plate, so the untrimmed patch
+            # recovers essentially the same surface (a genuinely-trimmed face
+            # over-covers slightly — still far better than a missing face, which
+            # is what dropped ~99% of some plates' area vs an external mesher).
+            nat = BRepBuilderAPI_MakeFace(face_surface, 1e-6)
+            if not nat.IsDone():
+                raise
+            PARAM_REBUILD_STATS["bspline_natural_bound"] += 1
+            logger.debug("BSpline face wire build failed (%s); used natural surface bounds", ex)
+            face = nat.Face()
+            builder.UpdateFace(face, 1e-3)
+            return face
 
         if is_wire_cw(outer_wire, face_surface):
             logger.info("Reversing CW wire to CCW for B-Spline surface")
