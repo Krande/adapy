@@ -470,6 +470,16 @@ class BatchTessellator:
                         ms_curved = self.tessellate_occ_geom(shape, node_ref, obj.color)
                     except UnableToCreateTesselationFromSolidOCCGeom as e:
                         logger.error(e)
+                    except Exception as e:
+                        # A backend that can't build this curved face's wire
+                        # (e.g. adacpp ``build_advanced_face: wire build failed``)
+                        # must not crash the whole model render — fall through to
+                        # the flat-fallback path below for this one plate.
+                        logger.warning(
+                            "PlateCurved %r: solid build failed (%s); using flat representation",
+                            getattr(ada_obj, "name", "?"),
+                            e,
+                        )
                     if ms_curved is not None:
                         pos = getattr(ms_curved, "position", None)
                         idx = getattr(ms_curved, "indices", None)

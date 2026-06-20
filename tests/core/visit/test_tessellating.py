@@ -98,6 +98,9 @@ def test_tessellate_empty_compound_does_not_abort():
     deflection 0 and OCC raises a std::invalid_argument that escapes pythonocc's
     exception translation. Empty STEP compounds turn up from FEM round-trips
     that drop geometry; tessellate_shape must return an empty mesh, not crash."""
+    import pytest
+
+    pytest.importorskip("OCC", reason="unit test of the pythonocc empty-shape tessellation guard")
     from OCC.Core.BRep import BRep_Builder
     from OCC.Core.TopoDS import TopoDS_Compound
 
