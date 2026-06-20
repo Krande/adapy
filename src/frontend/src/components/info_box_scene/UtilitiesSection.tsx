@@ -102,21 +102,33 @@ function RefField({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [commit, builds.length]);
 
-    if (!builds.length) {
-        return <div className="text-xs italic">(no published builds)</div>;
-    }
+    // Published builds (if any) drive the branch/commit + artefact dropdowns; the
+    // free-text field below always lets the user point at ANY uploaded file key
+    // (e.g. debug/other.glb), so two arbitrary models can be compared — not only
+    // CI builds.
     return (
         <div className="space-y-1">
-            <select className={common} value={commit} onChange={(e) => setCommit(e.target.value)}>
-                {builds.map((b) => (
-                    <option key={b.commit} value={b.commit}>{b.label}</option>
-                ))}
-            </select>
-            <select className={common} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
-                {(build?.artefacts || []).map((a) => (
-                    <option key={a.key} value={a.key}>{a.name}</option>
-                ))}
-            </select>
+            {builds.length > 0 && (
+                <>
+                    <select className={common} value={commit} onChange={(e) => setCommit(e.target.value)}>
+                        {builds.map((b) => (
+                            <option key={b.commit} value={b.commit}>{b.label}</option>
+                        ))}
+                    </select>
+                    <select className={common} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
+                        {(build?.artefacts || []).map((a) => (
+                            <option key={a.key} value={a.key}>{a.name}</option>
+                        ))}
+                    </select>
+                </>
+            )}
+            <input
+                type="text"
+                className={common}
+                placeholder="or a file key, e.g. debug/other.glb"
+                value={String(value ?? "")}
+                onChange={(e) => onChange(e.target.value)}
+            />
         </div>
     );
 }

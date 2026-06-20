@@ -172,19 +172,35 @@ def parse_elements(glb_bytes: bytes) -> dict[str, Element]:
 # Compare-ref resolution                                                       #
 # --------------------------------------------------------------------------- #
 def resolve_ref_glb(storage, compare_ref: str) -> bytes:
-    """Resolve ``compare_ref`` to a published build GLB's bytes.
+    """Resolve ``compare_ref`` to the comparison GLB's bytes.
 
-    Builds land at ``versions/<branch>/<commit>/<artefact>.glb`` (ada build
-    upload). ``compare_ref`` may be:
+    ``compare_ref`` may be:
 
-    * a **full blob key** ``versions/<branch>/<commit>/<artefact>.glb`` — used
-      verbatim (the frontend's artefact picker sends this so the diff compares
-      like-for-like against the chosen GLB), or
+    * an **arbitrary blob key** ending in ``.glb`` (e.g. ``debug/other.glb``,
+      ``uploads/x.glb``) — fetched verbatim from the current scope, so the diff
+      can compare any two uploaded models, not only published builds, or
+    * a **full build key** ``versions/<branch>/<commit>/<artefact>.glb`` — used
+      verbatim (the frontend's artefact picker sends this), or
     * a **branch name** or **commit SHA** — matched against the ``<branch>`` or
-      ``<commit>`` path segment, picking the first ``.glb`` lexicographically
-      (back-compat / CLI use).
+      ``<commit>`` path segment under ``versions/``, picking the first ``.glb``
+      lexicographically (back-compat / CLI use).
     """
     ref = compare_ref.strip()
+
+    # Arbitrary uploaded file: any .glb key in the scope that isn't a versions/
+    # build path. Fetch it directly so two arbitrary models can be compared.
+    if ref.endswith(".glb") and not ref.startswith("versions/"):
+        dest = tempfile.mkstemp(suffix=".glb")[1]
+        try:
+            storage.fetch_to_path(ref, dest)
+            with open(dest, "rb") as fh:
+                data = fh.read()
+        except Exception as exc:  # noqa: BLE001 - fall through to build resolution
+            raise ValueError(f"compare file not found in scope: {ref!r} ({exc})") from exc
+        if not data:
+            raise ValueError(f"compare file is empty: {ref!r}")
+        return data
+
     keys = [k for k in storage.list_keys("versions/") if k.endswith(".glb")]
 
     if ref.startswith("versions/") and ref.endswith(".glb"):
@@ -420,7 +436,10 @@ def build_removed_overlay_glb(ref_glb: bytes, removed_names: list[str]) -> bytes
             "name": "compare_ref",
             "type": "ref",
             "default": "",
-            "description": "Published build (branch/commit) to compare against.",
+            "description": (
+                "What to compare against: an uploaded file key (e.g. debug/other.glb), "
+                "a published build key, or a branch/commit ref."
+            ),
         },
         {
             "name": "diff_type",
