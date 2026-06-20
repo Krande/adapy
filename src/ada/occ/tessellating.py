@@ -457,6 +457,50 @@ class BatchTessellator:
                                             float(limit[worst]),
                                         )
                                         mesh_ok = False
+
+                                    # Under-coverage guard. Some trimmed B-spline
+                                    # faces defeat BRepMesh: it emits a degenerate
+                                    # centre-fan (a handful of slivers) covering
+                                    # only ~half the surface, regardless of the
+                                    # deflection — the "missing triangles" you see
+                                    # on a few hull-skin plates. The mesh extent is
+                                    # right, so the bbox check above passes it. But
+                                    # a correct *prism* of a (curved or flat) plate
+                                    # has top+bottom faces each at least the flat
+                                    # footprint area, so its mesh area is always
+                                    # >= ~2x the footprint plus the side walls. A
+                                    # ratio well under 2 means the curved faces
+                                    # under-meshed — fall back to the clean flat
+                                    # quad (these plates are near-flat, so it's
+                                    # visually faithful). Healthy plates measure
+                                    # ~2.05; the broken ones ~1.55.
+                                    if mesh_ok and idx_n >= 3:
+                                        tris = verts[_np.asarray(idx, dtype=_np.int64).reshape(-1, 3)]
+                                        mesh_area = float(
+                                            _np.sum(
+                                                0.5
+                                                * _np.linalg.norm(
+                                                    _np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]),
+                                                    axis=1,
+                                                )
+                                            )
+                                        )
+                                        # Newell area of the (planar) flat-footprint loop.
+                                        nrm = _np.zeros(3)
+                                        for _i in range(len(flat_arr)):
+                                            nrm = nrm + _np.cross(flat_arr[_i], flat_arr[(_i + 1) % len(flat_arr)])
+                                        flat_area = 0.5 * float(_np.linalg.norm(nrm))
+                                        if flat_area > 1e-6 and mesh_area < 1.85 * flat_area:
+                                            logger.warning(
+                                                "PlateCurved %r: curved mesh area %.2f m^2 vs %.2f expected "
+                                                "(< 1.85x flat footprint %.2f) — degenerate tessellation, "
+                                                "using flat representation",
+                                                getattr(ada_obj, "name", "?"),
+                                                mesh_area,
+                                                2.0 * flat_area,
+                                                flat_area,
+                                            )
+                                            mesh_ok = False
                                 except Exception:
                                     pass
                             if mesh_ok:
