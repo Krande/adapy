@@ -2,6 +2,15 @@
 
 
 
+## v0.25.0 (2026-06-20)
+
+### Feature
+
+* feat: streaming conversion + FEA bake, leaner concept objects, audit-panel and curved-plate/SAT fixes (#228)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`a3b50e7`](https://github.com/Krande/adapy/commit/a3b50e70361de42a31bffad960f3bb35eb5153cb))
+
+
 ## v0.24.0 (2026-06-18)
 
 ### Feature
