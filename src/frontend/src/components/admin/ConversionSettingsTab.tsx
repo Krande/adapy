@@ -28,15 +28,6 @@ const ROWS: SettingRow[] = [
         codeDefault: true,
     },
     {
-        key: "pcurve_drive_edge",
-        label: "Drive edge from pcurve",
-        description:
-            "Build each OCC edge from the (pcurve, surface) pair instead of from the " +
-            "3D BSpline curve, so the edge's 3D parametrization is forced consistent " +
-            "with the surface. Fixes stretched-face artifacts seen on large SAT hull models.",
-        codeDefault: true,
-    },
-    {
         key: "skip_shapefix",
         label: "Skip ShapeFix",
         description:

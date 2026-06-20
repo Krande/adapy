@@ -247,9 +247,6 @@ def update_edges_4corners(edges, builder, face_surface):
         builder.UpdateEdge(edge, c2d_edges[i], face_surface, identity_location, 1e-6)
 
 
-_pcurve_probe_count = 0
-
-
 def _build_geom2d_bspline(pcurve_geom):
     """Construct a Geom2d_BSplineCurve from a Pcurve2dBSpline dataclass.
 
@@ -382,179 +379,6 @@ def _make_edge_from_pcurve(pcurve_geom, face_surface, edge_start=None, edge_end=
         return None
 
 
-def _attach_supplied_pcurve(builder, edge, pcurve_geom, face_surface, identity_location) -> bool:
-    """Attach a SAT-supplied 2D BSpline pcurve to ``edge`` on ``face_surface``.
-
-    Returns True on success, False on any structural problem (in which
-    case the caller should fall back to the regenerative path).
-
-    KNOWN BUG — pcurve trim, not affine remap (2026-05-03):
-    The current code AFFINELY REMAPS the pcurve's knot range onto the
-    OCC edge's 3D parameter range. That's wrong when the SAT pcurve
-    covers more of its 2D curve than the edge actually uses (which is
-    common — multi-edge wires on a single UV side share the underlying
-    UV trajectory, with each edge picking a sub-range).
-
-    Symptom: face has 0 m² area, BRepMesh produces 2-3 degenerate
-    triangles, plate appears as a hole. Reproduced on plate-shaped
-    faces with a 6-edge wire — two short (0.4 m) and two long (2.7 m)
-    vertical segments along the plate's right and left UV sides. The
-    vertical pcurves all carry CPs at the surface's full v-extent
-    (-3.1, 0) even when their edge only spans 0.4 m or 2.7 m of it.
-    Affine remap stretches the FULL pcurve onto each edge's parameter
-    range, so all four vertical edges trace the entire UV side — the
-    resulting wire self-intersects in UV and encloses zero area.
-
-    Per ACIS SAT v4.0 spec (Chapter 6 "pcurve type", page 6-61):
-    "a parameter-space curve must always have the same parameter range
-    as its associated object-space curve, and its internal
-    parameterization must be similar". The fix is to TRIM the pcurve to
-    the edge's t-range (not remap), with the trim points found by
-    mapping the SAT edge's parameters into the pcurve's parameter
-    space. ``OrientedEdge.t_start`` / ``t_end`` (threaded in 57b9ad48)
-    carry the SAT-recorded edge parameters; the pcurve's knot range is
-    its native [s_min, s_max]. Some pcurves additionally run in the
-    OPPOSITE direction to the 3D curve — detectable by evaluating each
-    pcurve endpoint through the surface and comparing to the 3D curve's
-    endpoints, then reversing the trim if they disagree.
-
-    Implementation outline for the next session:
-      1. Compute t→s mapping (forward or reversed) by checking which
-         pcurve endpoint matches which 3D-curve endpoint (via
-         surface(pcurve(s_first)) ≈ 3D-curve(t_first)).
-      2. Map [edge.t_start, edge.t_end] → [s_a, s_b] in pcurve space.
-      3. Build ``Geom2d_TrimmedCurve(c2d, min(s_a, s_b), max(s_a, s_b),
-         sense=...)`` and use that as the attached pcurve, OR
-         re-knot/re-CP a fresh ``Geom2d_BSplineCurve`` covering exactly
-         that sub-range.
-      4. Optionally use ``BRepBuilderAPI_MakeEdge(c2d, surface, t1, t2)``
-         to build the OCC edge directly from the trimmed pcurve so the
-         3D parameterisation is derived as ``surface(c2d(t))`` and is
-         guaranteed-consistent.
-
-    Affected env knobs: ``ADA_USE_SAT_PCURVES`` (skip pcurves entirely
-    — falls back to OCC's reproject-and-fit, which on this dataset
-    produces NEGATIVE surface area, so the issue isn't purely the
-    affine remap — the wire 3D-projection itself has a direction
-    problem that ``ADA_PCURVE_REVERSE`` may also need to address).
-    """
-    # Debug: print UV bounds for the first few attaches so we can spot
-    # ACIS↔OCCT domain mismatches. Toggle via ADA_PCURVE_PROBE=N.
-    import os as _os
-
-    global _pcurve_probe_count
-    probe_n = int(_os.environ.get("ADA_PCURVE_PROBE") or 0)
-    cps = pcurve_geom.control_points_2d
-    knots = pcurve_geom.knots
-    mults = pcurve_geom.knot_multiplicities
-    if not cps or not knots or len(knots) != len(mults):
-        return False
-
-    # OCCT requires the 2D pcurve parameter range to match the OCC
-    # edge's 3D parameter range (the SameRange / SameParameter flags
-    # default to True after BRepBuilderAPI_MakeEdge). ACIS pcurves
-    # carry their own knot range, totally unrelated to whatever range
-    # OCCT picked for the 3D edge — we *must* affinely remap our knots
-    # to the edge's [first, last] before the attach, otherwise OCCT
-    # silently evaluates the 2D curve at the wrong parameters and the
-    # face lands somewhere else on the surface.
-    try:
-        edge_curve_handle, edge_first, edge_last = BRep_Tool.Curve(edge)
-    except Exception:
-        edge_curve_handle = None
-        edge_first = edge_last = 0.0
-    pcurve_first = float(knots[0])
-    pcurve_last = float(knots[-1])
-    pcurve_span = pcurve_last - pcurve_first
-    edge_span = float(edge_last) - float(edge_first)
-    reparam_applied = False
-    if (
-        edge_curve_handle is not None
-        and pcurve_span > 0.0
-        and edge_span > 0.0
-        and (abs(pcurve_first - edge_first) > 1e-9 or abs(pcurve_last - edge_last) > 1e-9)
-    ):
-        scale = edge_span / pcurve_span
-        knots = [float(edge_first) + (float(k) - pcurve_first) * scale for k in knots]
-        reparam_applied = True
-    if probe_n > 0 and _pcurve_probe_count < probe_n:
-        logger.warning(
-            "[pcurve probe %d edge_param] edge=[%.4f,%.4f] pcurve=[%.4f,%.4f] reparam=%s",
-            _pcurve_probe_count,
-            float(edge_first),
-            float(edge_last),
-            pcurve_first,
-            pcurve_last,
-            reparam_applied,
-        )
-
-    n_poles = len(cps)
-    poles = TColgp_Array1OfPnt2d(1, n_poles)
-    for i, cp in enumerate(cps, start=1):
-        poles.SetValue(i, gp_Pnt2d(float(cp[0]), float(cp[1])))
-    knots_arr = TColStd_Array1OfReal(1, len(knots))
-    mults_arr = TColStd_Array1OfInteger(1, len(mults))
-    for i, (k, m) in enumerate(zip(knots, mults), start=1):
-        knots_arr.SetValue(i, float(k))
-        mults_arr.SetValue(i, int(m))
-    try:
-        if pcurve_geom.weights:
-            weights_arr = TColStd_Array1OfReal(1, len(pcurve_geom.weights))
-            for i, w in enumerate(pcurve_geom.weights, start=1):
-                weights_arr.SetValue(i, float(w))
-            c2d = Geom2d_BSplineCurve(
-                poles, weights_arr, knots_arr, mults_arr, int(pcurve_geom.degree), bool(pcurve_geom.closed)
-            )
-        else:
-            c2d = Geom2d_BSplineCurve(poles, knots_arr, mults_arr, int(pcurve_geom.degree), bool(pcurve_geom.closed))
-    except Exception as ex:
-        logger.warning(f"supplied SAT pcurve failed Geom2d_BSplineCurve construction: {ex}")
-        return False
-    # Sanity-check the constructed curve at endpoints — same defence the
-    # regenerative path uses.
-    try:
-        first_p = c2d.Value(c2d.FirstParameter())
-        last_p = c2d.Value(c2d.LastParameter())
-    except Exception:
-        return False
-    for s in (first_p, last_p):
-        if not (math.isfinite(s.X()) and math.isfinite(s.Y())):
-            return False
-    if probe_n > 0 and _pcurve_probe_count < probe_n:
-        try:
-            u0, u1, v0, v1 = face_surface.Bounds()
-        except Exception:
-            u0 = u1 = v0 = v1 = float("nan")
-        first_param = c2d.FirstParameter()
-        last_param = c2d.LastParameter()
-        # Sample 3 pcurve points; print 2D and corresponding 3D via
-        # face_surface.Value(u, v).
-        samples = []
-        for t in (first_param, (first_param + last_param) * 0.5, last_param):
-            try:
-                p2 = c2d.Value(t)
-                p3 = face_surface.Value(p2.X(), p2.Y())
-                samples.append((t, (p2.X(), p2.Y()), (p3.X(), p3.Y(), p3.Z())))
-            except Exception:
-                samples.append((t, None, None))
-        logger.warning(
-            "[pcurve probe %d] surface_uv=[%.4f,%.4f]x[%.4f,%.4f] pcurve_param=[%.4f,%.4f] cp_uv_first=%s cp_uv_last=%s samples=%s",
-            _pcurve_probe_count,
-            u0,
-            u1,
-            v0,
-            v1,
-            first_param,
-            last_param,
-            tuple(cps[0]),
-            tuple(cps[-1]),
-            samples,
-        )
-        _pcurve_probe_count += 1
-    builder.UpdateEdge(edge, c2d, face_surface, identity_location, 1e-6)
-    return True
-
-
 def update_edges_uv_gen(edges, builder, face_surface, supplied_pcurves=None) -> tuple[int, int]:
     """Attach UV-space (p-curve) BSpline curves to each edge of a wire
     on a Geom_BSplineSurface. Returns (n_updated, n_total).
@@ -590,14 +414,11 @@ def update_edges_uv_gen(edges, builder, face_surface, supplied_pcurves=None) -> 
             if supplied_pcurves[idx] is None:
                 continue
         n_total += 1
-        # Fast path: the file already gave us the UV curve for this coedge.
-        if supplied_pcurves is not None and idx < len(supplied_pcurves):
-            supplied = supplied_pcurves[idx]
-            if supplied is not None:
-                if _attach_supplied_pcurve(builder, edge, supplied, face_surface, identity_location):
-                    n_updated += 1
-                    continue
-                # If the supplied pcurve was structurally bad, fall through to regen.
+        # A supplied pcurve reaching here means the drive-edge path could not
+        # build this coedge from it, so reproject the 3D curve onto the surface
+        # (regen path below). The old "attach the raw UV curve via affine knot
+        # remap" fast path was removed: it mis-stretched shared pcurves onto each
+        # coedge's range and produced self-intersecting wires / zero-area faces.
         try:
             # Get the 3D curve of the edge
             edge_curve_handle, first, last = BRep_Tool.Curve(edge)
@@ -1181,12 +1002,12 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
         # take naturally) produces ~96% byte-for-byte agreement with the
         # regen baseline at ~5x the speed.
         #
-        # Override knobs (default both ON):
+        # Override knob:
         #   ADA_USE_SAT_PCURVES=false    skip SAT pcurves entirely → regen
-        #   ADA_PCURVE_DRIVE_EDGE=false  attach pcurve via UpdateEdge
-        #                                instead of building edge from it
-        #                                (the older, broken approach;
-        #                                left for diagnostics)
+        # (The older "attach pcurve via UpdateEdge with an affine knot remap"
+        # path and its ADA_PCURVE_DRIVE_EDGE toggle were removed — the remap
+        # mis-stretched shared pcurves into zero-area faces; the edge is now
+        # always built directly from the pcurve, with shared pcurves trimmed.)
         import os as _os
 
         def _env_truthy(name: str, default: bool) -> bool:
@@ -1198,14 +1019,17 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
             return default
 
         use_pcurves = _env_truthy("ADA_USE_SAT_PCURVES", True)
-        drive_edge_from_pcurve = _env_truthy("ADA_PCURVE_DRIVE_EDGE", True)
         edge_list = getattr(face_bound.bound, "edge_list", None) or []
         occ_edges: list = []
         pcurves: list = []
         for oe in edge_list:
             supplied_pc = getattr(oe, "pcurve", None) if use_pcurves else None
             occ_edge = None
-            if drive_edge_from_pcurve and supplied_pc is not None:
+            # Build the edge directly from the SAT pcurve (3D derived as
+            # surface(pcurve(t)) => 2D/3D consistent, shared pcurves trimmed to
+            # the coedge). Edges this can't build fall to make_edge_from_edge +
+            # the reproject path in update_edges_uv_gen.
+            if supplied_pc is not None:
                 occ_edge = _make_edge_from_pcurve(
                     supplied_pc,
                     face_surface,

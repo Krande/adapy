@@ -1592,7 +1592,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # old-client mix degrades to "global setting wins".
         _LEGACY_ENV_OPTS = {
             "use_sat_pcurves",
-            "pcurve_drive_edge",
             "skip_shapefix",
             "profile_conversions",
         }

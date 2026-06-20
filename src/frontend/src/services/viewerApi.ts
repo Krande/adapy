@@ -1399,8 +1399,8 @@ export const viewerApi = {
             // Per-job knobs. Keys come from the conversion matrix's
             // ``options[<target>]`` schema (declared at the worker
             // ``@converter(options=...)`` site) plus the legacy
-            // hardcoded set (use_sat_pcurves / pcurve_drive_edge /
-            // skip_shapefix / profile_conversions) that still ride
+            // hardcoded set (use_sat_pcurves / skip_shapefix /
+            // profile_conversions) that still ride
             // the env-var rail. Values are tri-state native:
             // ``null`` clears any global override; otherwise the
             // type matches the option's declared ``type``.

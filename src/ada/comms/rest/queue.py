@@ -62,7 +62,7 @@ class Job:
     step: int | None = None
     field: str | None = None
     # Per-conversion overrides for the global app_settings knobs
-    # (use_sat_pcurves / pcurve_drive_edge / skip_shapefix /
+    # (use_sat_pcurves / skip_shapefix /
     # merge_meshes / profile_conversions). Worker merges these on
     # top of the global settings before forking. Stored as plain
     # str/bool/None so the JSON round-trip through KV stays stable.

@@ -1020,7 +1020,6 @@ async def _process_one(
             # cases (e.g. "yes" / "no").
             _env_map = {
                 "use_sat_pcurves": "ADA_USE_SAT_PCURVES",
-                "pcurve_drive_edge": "ADA_PCURVE_DRIVE_EDGE",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
                 # STEP→GLB streaming defaults (large-file OOM guard).
@@ -1045,7 +1044,6 @@ async def _process_one(
         if per_job:
             _env_map_full = {
                 "use_sat_pcurves": "ADA_USE_SAT_PCURVES",
-                "pcurve_drive_edge": "ADA_PCURVE_DRIVE_EDGE",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
                 "step_streamer": "ADA_STEP_STREAMER",
@@ -1199,7 +1197,7 @@ async def _process_one(
         # ignored harmlessly.
         #
         # Legacy env-var-driven options (use_sat_pcurves /
-        # pcurve_drive_edge / skip_shapefix) still flow via env vars
+        # skip_shapefix) still flow via env vars
         # on the child fork (see ``env_overrides`` below) because
         # their consuming code lives in deep OCC paths that haven't
         # been migrated to take these as function parameters yet.
