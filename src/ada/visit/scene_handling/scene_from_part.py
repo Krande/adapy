@@ -14,7 +14,11 @@ if TYPE_CHECKING:
 def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: SceneConverter) -> trimesh.Scene:
     import ada.extension.design_extension_schema as design_ext
     from ada import Assembly, Beam, Plate, PlateCurved
-    from ada.comms.msg_handling.object_metadata import beam_metadata, curved_plate_metadata, plate_metadata
+    from ada.comms.msg_handling.object_metadata import (
+        beam_metadata,
+        curved_plate_metadata,
+        plate_metadata,
+    )
     from ada.config import logger
     from ada.occ.tessellating import BatchTessellator
 

@@ -88,7 +88,9 @@ def write_xml_stream(
     # materialise geometry (face path reads them straight off the FEM sections).
     thickness_map: dict[float, str] = {}
     thicknesses_elem = ET.SubElement(properties, "thicknesses")
-    distinct_thicknesses = _shell_thicknesses(part) if use_faces else [p.t for p in part.get_all_physical_objects(by_type=Plate)]
+    distinct_thicknesses = (
+        _shell_thicknesses(part) if use_faces else [p.t for p in part.get_all_physical_objects(by_type=Plate)]
+    )
     for t in distinct_thicknesses:
         if t not in thickness_map:
             name = thickness_name(t)

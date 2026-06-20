@@ -23,8 +23,12 @@ import copy
 import io
 import pathlib
 
-from ada.fem.formats.sesam.results.read_sif import SifReader, Sif2Mesh, _RV_STEP_CARDS
-from ada.fem.formats.sesam.results.sif_index import SifStepIndex, assemble_reduced_local, build_sif_index
+from ada.fem.formats.sesam.results.read_sif import _RV_STEP_CARDS, Sif2Mesh, SifReader
+from ada.fem.formats.sesam.results.sif_index import (
+    SifStepIndex,
+    assemble_reduced_local,
+    build_sif_index,
+)
 
 # Read RV cards in a stable order so each step's block is rebuilt the same way.
 _RV_ORDER = ("RVNODDIS", "RVSTRESS", "RVFORCES")

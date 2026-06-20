@@ -10,10 +10,7 @@ the flag off vs on). The gate (`ADA_FEA_SIF_STREAMER`) defaults off.
 
 from __future__ import annotations
 
-import pathlib
-
 import numpy as np
-import pytest
 
 from ada.fem.formats.sesam.results.read_sif import read_sif_file
 from ada.fem.formats.sesam.results.sif_stream import SifStreamReader

@@ -10,7 +10,6 @@ maps an edge's 3D endpoints back to the correct pcurve sub-range.
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 occ = pytest.importorskip("OCC.Core.Geom2d")
@@ -47,9 +46,7 @@ def test_trim_picks_subrange_for_split_edge():
     c2d = _line_pcurve((0.0, 0.0), (0.0, 10.0))
     # This coedge only covers the upper half (3D y: 5 -> 10); its t-range
     # (length 5) is half the pcurve's mapped length (10) -> trim required.
-    lo, hi = _pcurve_trim_range(
-        c2d, surf, edge_start=(0.0, 5.0, 0.0), edge_end=(0.0, 10.0, 0.0)
-    )
+    lo, hi = _pcurve_trim_range(c2d, surf, edge_start=(0.0, 5.0, 0.0), edge_end=(0.0, 10.0, 0.0))
     # native param s: 0..1 maps to v 0..10, so y in [5,10] -> s in [0.5, 1.0].
     assert lo == pytest.approx(0.5, abs=0.02)
     assert hi == pytest.approx(1.0, abs=0.02)
@@ -59,12 +56,7 @@ def test_no_trim_when_edge_uses_full_pcurve():
     surf = _xy_plane()
     c2d = _line_pcurve((0.0, 0.0), (0.0, 10.0))
     # Edge length (10) == pcurve mapped length -> not a split edge -> no trim.
-    assert (
-        _pcurve_trim_range(
-            c2d, surf, edge_start=(0.0, 0.0, 0.0), edge_end=(0.0, 10.0, 0.0)
-        )
-        is None
-    )
+    assert _pcurve_trim_range(c2d, surf, edge_start=(0.0, 0.0, 0.0), edge_end=(0.0, 10.0, 0.0)) is None
 
 
 def test_no_trim_without_endpoints():

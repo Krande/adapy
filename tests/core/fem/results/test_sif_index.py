@@ -10,8 +10,6 @@ file reads byte-identical to a full single-step read.
 
 from __future__ import annotations
 
-import pathlib
-
 import numpy as np
 import pytest
 
@@ -53,6 +51,7 @@ def test_build_index_steps_and_fields(fem_files):
 def test_include_ranges_excludes_other_steps(fem_files):
     idx = build_sif_index(fem_files / _EIGEN)
     ranges = idx.include_ranges(3)
+
     # Every step-3 span is fully covered; no step-≠3 span overlaps the ranges.
     def covered(a, b):
         return any(s <= a and b <= e for s, e in ranges)

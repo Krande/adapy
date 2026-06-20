@@ -152,27 +152,6 @@ def _canonical_sign(normals: np.ndarray, tol: float) -> np.ndarray:
 # ── strategies ──────────────────────────────────────────────────────────────
 
 
-def iter_faces(part, strategy=MergeStrategy.COPLANAR, ndigits: int = 6) -> Iterator[FaceData]:
-    """Yield merged CAD faces for every FEM mesh under ``part`` (Part or Assembly).
-
-    Object-free: walks each sub-part's array-backed shell mesh, never building
-    Plate/Elem objects.
-    """
-    strategy = MergeStrategy.from_value(strategy)
-    if strategy in (MergeStrategy.SURFACE, MergeStrategy.PANEL):
-        raise NotImplementedError(f"merge strategy {strategy.value!r} not yet wired into the vectorized face source")
-
-    parts = part.get_all_parts_in_assembly(include_self=True) if hasattr(part, "get_all_parts_in_assembly") else [part]
-    for p in parts:
-        fem = getattr(p, "fem", None)
-        if fem is None or len(fem.elements) == 0:
-            continue
-        if strategy == MergeStrategy.NONE:
-            yield from _none_faces(fem)
-        else:
-            yield from _coplanar_faces(fem, ndigits=ndigits)
-
-
 def _is_coplanar_quad(pts: np.ndarray) -> np.ndarray:
     """(M,) bool: vectorized, bit-for-bit replica of ``vector_utils.is_coplanar``
     for a batch of quads ``pts`` (M,4,3).
@@ -391,5 +370,3 @@ def _merge_component(prims: _Primitives, cj: list[int], ndigits: int) -> Iterato
     # best-effort contract: merge only when it collapses cleanly, else keep all.
     for j in cj:
         yield prims.face(j)
-
-

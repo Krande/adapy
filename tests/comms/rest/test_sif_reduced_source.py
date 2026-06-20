@@ -11,10 +11,8 @@ identically to a full single-step read.
 from __future__ import annotations
 
 import asyncio
-import pathlib
 
 import numpy as np
-import pytest
 from obstore.store import LocalStore
 
 from ada.comms.rest import worker as worker_mod

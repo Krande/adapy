@@ -1312,9 +1312,7 @@ async def _process_one(
             # Stream the output file straight to object storage (multipart) —
             # never reading it into a parent-side bytes buffer. cleanup_output()
             # drops the tmpfile + work dir once the upload settles either way.
-            await storage.put_path(
-                scope, job.derived_key, iresult.out_path, content_encoding=derived_encoding
-            )
+            await storage.put_path(scope, job.derived_key, iresult.out_path, content_encoding=derived_encoding)
         except Exception as exc:
             logger.exception("worker: upload failed for %s", job.derived_key)
             trace = tb_module.format_exc()

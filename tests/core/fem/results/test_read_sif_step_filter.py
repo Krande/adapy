@@ -11,11 +11,9 @@ pin the filter's correctness (values identical to the full read), the
 
 from __future__ import annotations
 
-import pathlib
 import tracemalloc
 
 import numpy as np
-import pytest
 
 from ada.fem.formats.sesam.results.read_sif import read_sif_file
 

@@ -62,9 +62,7 @@ def add_plate_polygon_data(
         structure, "flat_plate", {"name": name, "thickness_ref": thck_name, "material_ref": material_name}
     )
     local_sys = ET.SubElement(flat_plate, "local_system")
-    ET.SubElement(
-        local_sys, "vector", {"x": str(normal[0]), "y": str(normal[1]), "z": str(normal[2]), "dir": "z"}
-    )
+    ET.SubElement(local_sys, "vector", {"x": str(normal[0]), "y": str(normal[1]), "z": str(normal[2]), "dir": "z"})
     ET.SubElement(flat_plate, "front")
     ET.SubElement(flat_plate, "back")
     ET.SubElement(flat_plate, "segmentation")
@@ -84,7 +82,9 @@ def add_plate_polygon(plate: Plate, thck_name: str, structures_elem: ET.Element)
         abs_place.transform_array_from_other_place(np.asarray([pt], dtype=float), ident, ignore_translation=False)[0]
         for pt in plate.poly.points3d
     ]
-    add_plate_polygon_data(plate.name, outline_global, plate.poly.normal, thck_name, plate.material.name, structures_elem)
+    add_plate_polygon_data(
+        plate.name, outline_global, plate.poly.normal, thck_name, plate.material.name, structures_elem
+    )
 
 
 def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):

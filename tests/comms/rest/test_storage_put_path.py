@@ -18,8 +18,8 @@ import pathlib
 import pytest
 from obstore.store import LocalStore
 
-from ada.comms.rest.storage import Storage, _gzip_file
 from ada.comms.rest.scope import Scope
+from ada.comms.rest.storage import Storage, _gzip_file
 
 
 def _storage(tmp_path: pathlib.Path) -> Storage:
@@ -75,9 +75,7 @@ def test_put_path_pre_compressed_uploads_as_is(tmp_path):
     gz = tmp_path / "blob.ifc.gz"
     gz.write_bytes(gzip.compress(payload))
 
-    asyncio.run(
-        storage.put_path(scope, "derived/blob.ifc", gz, content_encoding="gzip", pre_compressed=True)
-    )
+    asyncio.run(storage.put_path(scope, "derived/blob.ifc", gz, content_encoding="gzip", pre_compressed=True))
 
     assert asyncio.run(storage.get_range(scope, "derived/blob.ifc", 0, 2)) == b"\x1f\x8b"
     assert asyncio.run(storage.get_bytes(scope, "derived/blob.ifc")) == payload

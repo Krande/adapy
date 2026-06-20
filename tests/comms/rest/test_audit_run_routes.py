@@ -54,9 +54,7 @@ def _settings(tmp_path: pathlib.Path) -> Settings:
         port=0,
         static_path="",
         queue=QueueConfig(url=None, stream="ada", subject="s", kv_bucket="kv", durable="d"),
-        auth=AuthConfig(
-            enabled=False, issuer="", client_id="", audience="", admin_group="", cli_token_secret=""
-        ),
+        auth=AuthConfig(enabled=False, issuer="", client_id="", audience="", admin_group="", cli_token_secret=""),
         database_url=POSTGRES_URL,
     )
 
@@ -94,9 +92,7 @@ def _storage(client: TestClient):
 
 async def _finish_run(p, *, scope="shared", worker_pool=None, auto_validate=False, n=1):
     """Create a run, set its total, and close ``n`` cells so it finishes."""
-    run = await db_module.create_audit_run(
-        p, scope=scope, worker_pool=worker_pool, auto_validate=auto_validate
-    )
+    run = await db_module.create_audit_run(p, scope=scope, worker_pool=worker_pool, auto_validate=auto_validate)
     await db_module.set_audit_run_total(p, run["id"], n)
     for i in range(n):
         await db_module.insert_audit(
@@ -186,16 +182,35 @@ def test_cell_history_newest_first(db):
     r1 = run(db_module.create_audit_run(pool, scope="shared", worker_pool=None))
     r2 = run(db_module.create_audit_run(pool, scope="shared", worker_pool=None))
     for rr, status, dur in ((r1, "done", 11), (r2, "error", 22)):
-        run(db_module.insert_audit(
-            pool, user_sub=None, scope_kind="shared", scope_id=None, action="convert",
-            key="models/a.step", target_format="ifc", status=status, duration_ms=dur,
-            error=("boom" if status == "error" else None), audit_run_id=rr["id"],
-        ))
+        run(
+            db_module.insert_audit(
+                pool,
+                user_sub=None,
+                scope_kind="shared",
+                scope_id=None,
+                action="convert",
+                key="models/a.step",
+                target_format="ifc",
+                status=status,
+                duration_ms=dur,
+                error=("boom" if status == "error" else None),
+                audit_run_id=rr["id"],
+            )
+        )
     # A different target must not leak into the history.
-    run(db_module.insert_audit(
-        pool, user_sub=None, scope_kind="shared", scope_id=None, action="convert",
-        key="models/a.step", target_format="xml", status="done", audit_run_id=r1["id"],
-    ))
+    run(
+        db_module.insert_audit(
+            pool,
+            user_sub=None,
+            scope_kind="shared",
+            scope_id=None,
+            action="convert",
+            key="models/a.step",
+            target_format="xml",
+            status="done",
+            audit_run_id=r1["id"],
+        )
+    )
     hist = run(db_module.audit_log_history_for_cell(pool, "models/a.step", "ifc"))
     assert [h["status"] for h in hist] == ["error", "done"]  # newest first
     assert hist[0]["error"] == "boom" and hist[0]["duration_ms"] == 22
@@ -265,10 +280,20 @@ def test_route_redispatch_links_parent(tmp_path, db):
 def test_route_cell_history(tmp_path, db):
     pool, run = db
     r = run(db_module.create_audit_run(pool, scope="shared", worker_pool="wasm"))
-    run(db_module.insert_audit(
-        pool, user_sub=None, scope_kind="shared", scope_id=None, action="convert",
-        key="models/h.step", target_format="ifc", status="done", duration_ms=7, audit_run_id=r["id"],
-    ))
+    run(
+        db_module.insert_audit(
+            pool,
+            user_sub=None,
+            scope_kind="shared",
+            scope_id=None,
+            action="convert",
+            key="models/h.step",
+            target_format="ifc",
+            status="done",
+            duration_ms=7,
+            audit_run_id=r["id"],
+        )
+    )
     with TestClient(create_app(_settings(tmp_path))) as client:
         resp = client.get("/api/admin/audit/cell-history", params={"key": "models/h.step", "target": "ifc"})
         assert resp.status_code == 200, resp.text

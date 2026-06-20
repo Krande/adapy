@@ -862,7 +862,9 @@ class Part(BackendGeom):
         for face in faces_from_fem(self.fem, merge_strategy):
             mat = mats.get(face.material, face.material)
             if len(face.outline) <= 4:
-                yield Plate.from_fem_shell(face.name, face.outline, face.thickness, mat=mat, parent=self, detached=detached)
+                yield Plate.from_fem_shell(
+                    face.name, face.outline, face.thickness, mat=mat, parent=self, detached=detached
+                )
             else:
                 yield Plate.from_3d_points(face.name, face.outline, face.thickness, mat=mat, parent=self)
 

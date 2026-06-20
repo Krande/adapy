@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import pathlib
 
-import pytest
 from obstore.store import LocalStore
 
 from ada.comms.rest.converter import convert, result_bytes
@@ -77,9 +76,7 @@ def test_full_chain_fork_to_put_path(tmp_path, fem_files):
         assert iresult.exit_code == 0
         assert iresult.out_path is not None and iresult.out_path.exists()
         try:
-            await storage.put_path(
-                scope, "_derived/beam.xml", iresult.out_path, content_encoding="gzip"
-            )
+            await storage.put_path(scope, "_derived/beam.xml", iresult.out_path, content_encoding="gzip")
         finally:
             iresult.cleanup_output()
         # The work dir + output file are gone once cleanup_output ran.
@@ -98,9 +95,7 @@ def test_full_chain_glb_bytes_path(tmp_path, fem_files):
     scope = Scope.shared()
 
     async def drive() -> bytes:
-        iresult = await run_isolated_convert(
-            convert, src_path=src, source_key=str(src), target_format="glb"
-        )
+        iresult = await run_isolated_convert(convert, src_path=src, source_key=str(src), target_format="glb")
         assert iresult.exit_code == 0
         assert iresult.out_path is not None
         try:

@@ -284,7 +284,9 @@ def test_sin_load_step_card_filter():
 
     reader = SinStreamReader(open_sin(SIN_PATH))
     try:
-        names = lambda res: {getattr(x, "name", None) for x in res.results}
+
+        def names(res):
+            return {getattr(x, "name", None) for x in res.results}
 
         all_cards = names(reader._load_step(1))
         assert "RVNODDIS" in all_cards  # nodal present in the full load

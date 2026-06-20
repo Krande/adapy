@@ -3171,8 +3171,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # cells before the issue-bot drain in the same tick can claim it.
         try:
             await _audit_dispatch(
-                parent["id"], s, parent["worker_pool"], "system", pool,
-                False, validate_only=True, extend=True,
+                parent["id"],
+                s,
+                parent["worker_pool"],
+                "system",
+                pool,
+                False,
+                validate_only=True,
+                extend=True,
             )
             logger.info("auto-validate: appended validation cells to run %s", parent["id"])
         except Exception:
