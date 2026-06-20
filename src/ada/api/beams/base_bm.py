@@ -394,6 +394,8 @@ class Beam(BackendGeom):
     @section.setter
     def section(self, value: Section):
         old = self._section
+        if value is old:
+            return
         self._section = value
         self._section.refs.append(self)
         old.refs.remove(self)

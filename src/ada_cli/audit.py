@@ -380,19 +380,29 @@ def cmd_repro(args: argparse.Namespace) -> int:
     print(f"original status={meta.get('status')} error={_short(meta.get('error'), 160)!r}")
 
     # Lazy import — keeps the rest of `ada audit` free of the FEM/CAD stack.
-    from ada.comms.rest.converter import convert
+    from ada.comms.rest.converter import convert, result_bytes
 
     def on_progress(stage: str, frac: float) -> None:
         print(f"  [{frac:5.1%}] {stage}")
 
     try:
-        out = convert(src, str(src), target, on_progress)
+        result = convert(src, str(src), target, on_progress)
+        # convert() returns a path for the disk-writing exporters; the repro
+        # CLI wants the bytes on hand to write its .out copy.
+        out = result_bytes(result)
     except Exception:
         import traceback
 
         sys.stderr.write("\n--- repro raised ---\n")
         traceback.print_exc()
         return 1
+    finally:
+        # Drop the converter's tempfile if it handed us a path.
+        if isinstance(locals().get("result"), pathlib.Path):
+            try:
+                result.unlink()
+            except OSError:
+                pass
 
     out_path = src.with_suffix(f".out.{target.lstrip('.')}")
     out_path.write_bytes(out)

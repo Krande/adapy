@@ -1141,6 +1141,8 @@ def _audit_run_row(r) -> dict:
             return None
 
     issue_bot_synced_at = _opt("issue_bot_synced_at")
+    parent_run_id = _opt("parent_run_id")
+    av_dispatched = _opt("auto_validate_dispatched_at")
     return {
         "id": str(r["id"]),
         "scope": r["scope"],
@@ -1155,7 +1157,14 @@ def _audit_run_row(r) -> dict:
         "failed": r["failed"],
         "skipped": r["skipped"],
         "created_by": r["created_by"],
+        "seq": _opt("seq"),
+        # Idle time excluded from the run's active duration (gap before a later
+        # validation pass). The UI shows (finished_at - started_at) - idle_ms.
+        "idle_ms": _opt("idle_ms") or 0,
         "force_rebuild": _opt("force_rebuild") or False,
+        "auto_validate": _opt("auto_validate") or False,
+        "parent_run_id": str(parent_run_id) if parent_run_id else None,
+        "auto_validate_dispatched_at": (av_dispatched.isoformat() if av_dispatched else None),
         "issue_bot_status": _opt("issue_bot_status"),
         "issue_bot_last_error": _opt("issue_bot_last_error"),
         "issue_bot_synced_at": (issue_bot_synced_at.isoformat() if issue_bot_synced_at else None),
@@ -1171,6 +1180,8 @@ async def create_audit_run(
     note: str | None = None,
     created_by: str | None = None,
     force_rebuild: bool = False,
+    auto_validate: bool = False,
+    parent_run_id: str | None = None,
 ) -> dict:
     """Open a new audit_runs row in ``status='running'``. Returns the
     fresh row (including its server-generated UUID + started_at) so
@@ -1182,11 +1193,18 @@ async def create_audit_run(
     short-circuit so every viable cell actually re-converts.
     Persisted on the row so the admin UI can show "this was a
     force-rebuild" badge.
+
+    ``auto_validate`` asks the finished-run poller to fire a follow-up
+    ``validate_only`` parity run once this run finishes. ``parent_run_id``
+    links a derived run (the validation child, or a re-dispatched copy)
+    back to its source.
     """
     row = await pool.fetchrow(
         """
-        INSERT INTO audit_runs (scope, worker_pool, trigger, note, created_by, force_rebuild)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO audit_runs
+            (scope, worker_pool, trigger, note, created_by, force_rebuild,
+             auto_validate, parent_run_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
         """,
         scope,
@@ -1195,6 +1213,8 @@ async def create_audit_run(
         note,
         created_by,
         force_rebuild,
+        auto_validate,
+        parent_run_id,
     )
     return _audit_run_row(row)
 
@@ -1221,6 +1241,46 @@ async def set_audit_run_total(
     )
 
 
+async def extend_audit_run_total(pool: asyncpg.Pool, run_id: str, delta: int) -> None:
+    """Grow a finished run's ``total`` by ``delta`` and reopen it to
+    ``running`` (clearing ``finished_at``). Used to append cells — an
+    auto-validation parity pass — to an existing run instead of spawning a
+    separate one: once the appended cells land, the normal counter-bump
+    re-finishes the same run. Aborted runs are left aborted. Caller guards
+    ``delta > 0``."""
+    await pool.execute(
+        """
+        UPDATE audit_runs
+        SET total = total + $2,
+            -- Fold the idle gap (since this run last finished) into idle_ms so
+            -- the displayed duration stays block-active time, not wall clock.
+            -- RHS reads the pre-update finished_at / status.
+            idle_ms = idle_ms + CASE
+                WHEN status <> 'aborted' AND finished_at IS NOT NULL
+                THEN GREATEST(0, (EXTRACT(EPOCH FROM (NOW() - finished_at)) * 1000)::bigint)
+                ELSE 0 END,
+            status = CASE WHEN status = 'aborted' THEN 'aborted' ELSE 'running' END,
+            finished_at = CASE WHEN status = 'aborted' THEN finished_at ELSE NULL END
+        WHERE id = $1
+        """,
+        run_id,
+        delta,
+    )
+
+
+async def delete_audit_run(pool: asyncpg.Pool, run_id: str) -> bool:
+    """Delete an audit run and its audit_log rows. ``audit_parity`` rows cascade
+    on the run delete; ``audit_log`` is ON DELETE SET NULL, so we remove those
+    rows explicitly rather than orphaning them as run-less audit entries.
+    Returns True if a run was deleted, False if it didn't exist."""
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("DELETE FROM audit_log WHERE audit_run_id = $1", run_id)
+            res = await conn.execute("DELETE FROM audit_runs WHERE id = $1", run_id)
+    # asyncpg returns a command tag like "DELETE 1".
+    return res.split()[-1] != "0"
+
+
 async def list_audit_runs(
     pool: asyncpg.Pool,
     *,
@@ -1238,9 +1298,9 @@ async def list_audit_runs(
     args.append(min(max(limit, 1), 200))
     rows = await pool.fetch(
         f"""
-        SELECT id, scope, worker_pool, trigger, started_at, finished_at,
-               status, note, total, ok, failed, skipped, created_by,
-               force_rebuild,
+        SELECT id, seq, scope, worker_pool, trigger, started_at, finished_at,
+               status, note, total, ok, failed, skipped, created_by, idle_ms,
+               force_rebuild, auto_validate, parent_run_id, auto_validate_dispatched_at,
                issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         FROM audit_runs
         {where}
@@ -1255,9 +1315,9 @@ async def list_audit_runs(
 async def get_audit_run(pool: asyncpg.Pool, run_id: str) -> dict | None:
     row = await pool.fetchrow(
         """
-        SELECT id, scope, worker_pool, trigger, started_at, finished_at,
-               status, note, total, ok, failed, skipped, created_by,
-               force_rebuild,
+        SELECT id, seq, scope, worker_pool, trigger, started_at, finished_at,
+               status, note, total, ok, failed, skipped, created_by, idle_ms,
+               force_rebuild, auto_validate, parent_run_id, auto_validate_dispatched_at,
                issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         FROM audit_runs WHERE id = $1
         """,
@@ -1645,6 +1705,94 @@ async def claim_audit_run_for_issue_bot(
         """,
     )
     return _audit_run_row(row) if row else None
+
+
+async def claim_audit_run_for_auto_validate(pool: asyncpg.Pool):
+    """Atomically claim the oldest finished ``auto_validate`` run whose
+    validation pass hasn't been dispatched yet. Stamps
+    ``auto_validate_dispatched_at`` in the same statement so a concurrent tick
+    / replica can't double-fire. Returns the claimed run row or ``None``."""
+    row = await pool.fetchrow(
+        """
+        UPDATE audit_runs
+        SET auto_validate_dispatched_at = NOW()
+        WHERE id = (
+            SELECT id FROM audit_runs
+            WHERE status = 'finished'
+              AND auto_validate = TRUE
+              AND auto_validate_dispatched_at IS NULL
+            ORDER BY finished_at ASC NULLS LAST
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING id, scope, worker_pool, trigger, started_at, finished_at,
+                  status, note, total, ok, failed, skipped, created_by,
+                  force_rebuild, auto_validate, parent_run_id,
+                  issue_bot_status, issue_bot_last_error, issue_bot_synced_at
+        """,
+    )
+    return _audit_run_row(row) if row else None
+
+
+async def claim_run_for_validation(pool: asyncpg.Pool, run_id: str):
+    """Atomically mark one *specific* finished run as having its validation
+    pass dispatched (the manual 'Validate' button). Returns the run if newly
+    claimed, or ``None`` when it's already been validated, isn't finished, or
+    doesn't exist — so a validation is appended at most once per run, whether
+    via the auto-validate toggle or the button."""
+    row = await pool.fetchrow(
+        """
+        UPDATE audit_runs
+        SET auto_validate_dispatched_at = NOW()
+        WHERE id = $1
+          AND status = 'finished'
+          AND auto_validate_dispatched_at IS NULL
+        RETURNING id, scope, worker_pool, trigger, started_at, finished_at,
+                  status, note, total, ok, failed, skipped, created_by,
+                  force_rebuild, auto_validate, parent_run_id, auto_validate_dispatched_at,
+                  issue_bot_status, issue_bot_last_error, issue_bot_synced_at
+        """,
+        run_id,
+    )
+    return _audit_run_row(row) if row else None
+
+
+async def audit_log_history_for_cell(
+    pool: asyncpg.Pool,
+    key: str,
+    target_format: str,
+    *,
+    limit: int = 50,
+) -> list[dict]:
+    """Historic ``audit_log`` results for one ``(source key, target_format)``
+    cell across every run — newest first. Powers the per-cell 'show history'
+    table so an operator can spot run-to-run regressions for one conversion."""
+    rows = await pool.fetch(
+        """
+        SELECT id, ts, status, error, duration_ms, peak_rss_kb,
+               worker_image_tag, audit_run_id
+        FROM audit_log
+        WHERE key = $1 AND target_format = $2
+        ORDER BY id DESC
+        LIMIT $3
+        """,
+        key,
+        target_format,
+        min(max(limit, 1), 500),
+    )
+    return [
+        {
+            "id": r["id"],
+            "ts": r["ts"].isoformat() if r["ts"] else None,
+            "status": r["status"],
+            "error": r["error"],
+            "duration_ms": r["duration_ms"],
+            "peak_rss_kb": r["peak_rss_kb"],
+            "worker_image_tag": r["worker_image_tag"],
+            "audit_run_id": str(r["audit_run_id"]) if r["audit_run_id"] else None,
+        }
+        for r in rows
+    ]
 
 
 async def mark_audit_run_issue_bot(

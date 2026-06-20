@@ -529,6 +529,15 @@ def create_bspline_curve_from_sat(spline_record: AcisRecord) -> geo_cu.BSplineCu
         return create_bspline_curve_from_lawintcur(data_lines)
     elif spl_type == "exactcur":
         return create_bspline_curve_from_exactcur(data_lines)
+    elif spl_type == "parcur":
+        # A parameter-space curve. SESAM exports embed the 3D space curve
+        # directly — ``parcur full nurbs <deg> open …`` then knots, then 3D
+        # rational control points, then a ``0`` and the surface block the
+        # exactcur parser stops before — so the layout past the type token is
+        # identical to exactcur. Reuse it rather than evaluating the 2D UV
+        # curve on the surface. Without this, curved hull-skin plates fall back
+        # to a flat polygon (rendered flat instead of curved).
+        return create_bspline_curve_from_exactcur(data_lines)
     elif spl_type == "exppc":
         return create_pcurve_from_exppc(sub_type)
     else:

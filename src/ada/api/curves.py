@@ -155,17 +155,32 @@ class CurveOpen2d:
         self._parent = parent
         self._orientation = Placement(origin, xdir=xdir, zdir=normal) if orientation is None else orientation
         self._placement = Placement()
+        # Derived structures (3D points, 2D/3D segments, indexed lists, nodes)
+        # are the bulk of a curve's footprint + build time. Keep only the cheap
+        # inputs (2D points + orientation) eager; build the rest lazily on first
+        # access via ``_ensure_built`` so instantiating large numbers of plates
+        # is cheap and resident memory stays small until geometry is read.
         self._segments = None
+        self._segments3d = None
         self._seg_index = None
         self._seg_global_points = None
         self._nodes = None
+        self._points3d = None
 
         points = self._points_fix(points)
 
         self._radiis = {i: x[-1] for i, x in enumerate(points) if len(x) == 3}
         self._points2d = [Point(p[:2]) for p in points]
+        self._raw_points = points  # retained for the deferred segment build
+
+    def _ensure_built(self):
+        """Realise the deferred derived structures (idempotent). Called by the
+        ``points3d`` / ``segments`` / ``nodes`` / ``seg_*`` getters on first
+        access; the result is byte-identical to the historical eager build."""
+        if self._segments is not None:
+            return
         self._points3d = [Point(x) for x in self._orientation.transform_local_points_back_to_global(self._points2d)]
-        self._points_to_segments(points, tol)
+        self._points_to_segments(self._raw_points, self._tol)
 
     def _points_fix(self, points):
         # Check to see if the points are clockwise
@@ -238,6 +253,8 @@ class CurveOpen2d:
 
     @property
     def seg_global_points(self):
+        if self._seg_global_points is None:
+            self._ensure_built()
         return self._seg_global_points
 
     @property
@@ -250,10 +267,14 @@ class CurveOpen2d:
 
     @property
     def points3d(self) -> list[Point[float, float, float]]:
+        if self._points3d is None:
+            self._ensure_built()
         return self._points3d
 
     @property
     def nodes(self) -> list[Node]:
+        if self._nodes is None:
+            self._ensure_built()
         return self._nodes
 
     @property
@@ -305,14 +326,20 @@ class CurveOpen2d:
 
     @property
     def seg_index(self):
+        if self._seg_index is None:
+            self._ensure_built()
         return self._seg_index
 
     @property
     def segments(self) -> list[LineSegment | ArcSegment]:
+        if self._segments is None:
+            self._ensure_built()
         return self._segments
 
     @property
     def segments3d(self) -> list[LineSegment | ArcSegment]:
+        if self._segments3d is None:
+            self._ensure_built()
         return self._segments3d
 
     @property

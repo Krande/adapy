@@ -102,6 +102,23 @@ def beam_metadata(
     }
 
 
+def curved_plate_metadata(
+    name: str,
+    thickness: float | None,
+    material: Material | None,
+) -> dict:
+    """Info-panel metadata for a ``PlateCurved``. Mirrors :func:`plate_metadata`
+    (thickness + material) so a curved plate surfaces the same properties a flat
+    plate does; only the ``type`` discriminator differs so the panel can label
+    it ``Curved Plate``."""
+    return {
+        "type": "PlateCurved",
+        "name": name,
+        "thickness": _maybe_float(thickness),
+        "material": material_to_dict(material),
+    }
+
+
 def plate_metadata(
     name: str,
     thickness: float | None,
@@ -139,6 +156,18 @@ def _register_plate(scene: SceneBackend, file_name: str, plate) -> None:
     )
 
 
+def _register_curved_plate(scene: SceneBackend, file_name: str, plate) -> None:
+    name = getattr(plate, "name", None)
+    if not name:
+        return
+    file_meta = scene.object_meta.setdefault(file_name, {})
+    file_meta[name] = curved_plate_metadata(
+        name=name,
+        thickness=getattr(plate, "t", None),
+        material=getattr(plate, "material", None),
+    )
+
+
 def build_object_meta_from_assembly(
     scene: SceneBackend,
     file_name: str,
@@ -167,14 +196,18 @@ def build_object_meta_from_assembly(
 
 
 def _build_cad_index(scene: SceneBackend, file_name: str, assembly: Assembly) -> None:
-    from ada import Beam, Plate
+    from ada import Beam, Plate, PlateCurved
 
     # ``get_all_physical_objects`` already walks every subpart, so we
     # don't iterate ``parts`` ourselves — that would visit each Beam /
-    # Plate N times for an N-part assembly.
+    # Plate N times for an N-part assembly. PlateCurved is a sibling of
+    # Plate (not a subclass), so it needs its own branch or it'd get no
+    # Info-panel metadata.
     for obj in assembly.get_all_physical_objects():
         if isinstance(obj, Beam):
             _register_beam(scene, file_name, obj)
+        elif isinstance(obj, PlateCurved):
+            _register_curved_plate(scene, file_name, obj)
         elif isinstance(obj, Plate):
             _register_plate(scene, file_name, obj)
 

@@ -350,25 +350,42 @@ def create_right_hand_vectors_xv_yv_from_zv(z_vector: Iterable) -> tuple[Directi
         x_vector = np.array([1, 0, 0])
 
     # Calculate the y_vector using the cross product
-    y_vector = np.cross(z_vector, x_vector)
+    y_vector = fast_cross(z_vector, x_vector)
     y_vector = y_vector / np.linalg.norm(y_vector)  # normalize y_vector
 
     # Adjust x_vector by recalculating the cross product of y_vector and z_vector for right-handedness
-    x_vector = np.cross(y_vector, z_vector)
+    x_vector = fast_cross(y_vector, z_vector)
     x_vector = x_vector / np.linalg.norm(x_vector)  # normalize x_vector
 
     return Direction(*x_vector), Direction(*y_vector)
 
 
+def fast_cross(a, b) -> np.ndarray:
+    """Cross product of two length-3 vectors without ``np.cross`` overhead.
+
+    ``np.cross`` spends most of its time in ``moveaxis`` / ``normalize_axis_tuple``
+    bookkeeping that is pure waste for fixed length-3 inputs. Authoring the three
+    components by hand is several times faster and is the dominant per-object cost
+    in the Genie/SAT plate-read placement path.
+    """
+    return np.array(
+        (
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        )
+    )
+
+
 def calc_xvec(y_vec, z_vec) -> np.ndarray:
-    return np.cross(y_vec, z_vec)
+    return fast_cross(y_vec, z_vec)
 
 
 def calc_yvec(x_vec, z_vec=None) -> np.ndarray:
     if z_vec is None:
         calc_zvec(x_vec)
 
-    return np.cross(z_vec, x_vec)
+    return fast_cross(z_vec, x_vec)
 
 
 def calc_zvec(x_vec, y_vec=None) -> np.ndarray:
@@ -382,7 +399,7 @@ def calc_zvec(x_vec, y_vec=None) -> np.ndarray:
             z_vec = np.array(Y)
         return z_vec
     else:
-        return np.cross(x_vec, y_vec)
+        return fast_cross(x_vec, y_vec)
 
 
 def get_centroid(points) -> Point:

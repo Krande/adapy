@@ -28,7 +28,11 @@ def _captured_writer(monkeypatch, source_ext: str) -> str:
     monkeypatch.setattr(Part, "to_stp", fake_to_stp)
 
     out = conv._via_ada_to_step(pathlib.Path(f"dummy{source_ext}"), source_ext, lambda *a, **k: None)
-    assert out  # bytes returned
+    # _via_ada_to_step now returns the path of the STEP file it wrote (ownership
+    # transfers to the caller); the streaming-upload contract.
+    assert isinstance(out, pathlib.Path)
+    assert out.read_bytes()  # the fake writer wrote a non-empty deck
+    out.unlink()
     return recorded["writer"]
 
 

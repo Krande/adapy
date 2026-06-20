@@ -90,3 +90,23 @@ def test_batch_tessellate_solids_matches_per_object():
         assert np.array_equal(np.asarray(a.indices), np.asarray(b.indices))
         assert a.material == b.material
         assert b.normal is not None and len(b.normal) == len(b.position)
+
+
+def test_tessellate_empty_shape_does_not_abort():
+    """An empty body (void bbox) used to crash the process on *both* backends:
+    OCC's ShapeTesselator derives a relative deflection from the bbox (0 →
+    std::invalid_argument that escapes pythonocc), and adacpp's native
+    tessellator throws an untranslatable nanobind exception. Empty bodies turn
+    up from round-trips that drop geometry; ``tessellate_shape`` must return an
+    empty mesh, not crash. Built through ``active_backend()`` (a box cut by
+    itself → geometry-less shape) so it covers whichever backend is active."""
+    from ada.cad import active_backend
+    from ada.geom.booleans import BoolOpEnum
+    from ada.occ.tessellating import tessellate_shape
+
+    be = active_backend()
+    empty = be.boolean(BoolOpEnum.DIFFERENCE, be.make_box(1.0, 1.0, 1.0), be.make_box(1.0, 1.0, 1.0))
+
+    tm = tessellate_shape(empty)  # must not abort the interpreter
+    assert len(tm.faces) == 0
+    assert len(tm.positions) == 0

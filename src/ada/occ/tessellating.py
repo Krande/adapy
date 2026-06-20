@@ -42,6 +42,66 @@ def _is_topods_shape(shape) -> bool:
     return isinstance(shape, TopoDS_Shape)
 
 
+def _mesh_store_area(ms) -> float:
+    """Total triangle area of a tessellated ``MeshStore`` (position soup +
+    indices). Used to gauge whether a curved-plate prism actually covered its
+    surface vs under-meshed it."""
+    pos = getattr(ms, "position", None)
+    idx = getattr(ms, "indices", None)
+    if pos is None or idx is None:
+        return 0.0
+    verts = np.asarray(pos, dtype=float).reshape(-1, 3)
+    faces = np.asarray(idx, dtype=np.int64).reshape(-1, 3)
+    if len(faces) == 0 or len(verts) == 0:
+        return 0.0
+    tris = verts[faces]
+    return float(np.sum(0.5 * np.linalg.norm(np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]), axis=1)))
+
+
+def _natural_bound_curved_solid(ada_obj):
+    """Rebuild a PlateCurved's solid from its surface over the face's *natural*
+    UV bounds, discarding the trim wire.
+
+    A handful of imported B-spline plate faces carry malformed pcurves (the
+    wire backtracks / duplicates an edge in UV), so BRepMesh grids only ~half
+    the face — the "missing triangles". The underlying surface is sound and its
+    UV box equals the plate's (rectangular) boundary, so a face built straight
+    from the surface over ``UVBounds`` re-meshes fully. Returns an OCC solid
+    (prism by thickness ``t`` along the surface normal), or the bare face when
+    ``t == 0``, or ``None`` if the rebuild can't be done."""
+    face_fn = getattr(ada_obj, "_face_occ", None)
+    if not callable(face_fn):
+        return None
+    try:
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism
+        from OCC.Core.BRepTools import breptools
+        from OCC.Core.GeomLProp import GeomLProp_SLProps
+        from OCC.Core.gp import gp_Vec
+
+        face = face_fn()
+        if not _is_topods_shape(face):
+            return None
+        surf = BRep_Tool.Surface(face)
+        umin, umax, vmin, vmax = breptools.UVBounds(face)
+        mf = BRepBuilderAPI_MakeFace(surf, umin, umax, vmin, vmax, 1e-6)
+        if not mf.IsDone():
+            return None
+        nb = mf.Face()
+        t = getattr(ada_obj, "t", None) or 0.0
+        if not t:
+            return nb
+        props = GeomLProp_SLProps(surf, (umin + umax) / 2.0, (vmin + vmax) / 2.0, 1, 1e-6)
+        if not props.IsNormalDefined():
+            return nb
+        n = props.Normal()
+        return BRepPrimAPI_MakePrism(nb, gp_Vec(n.X(), n.Y(), n.Z()).Multiplied(t)).Shape()
+    except Exception as e:  # OCC missing / pathological surface
+        logger.debug("natural-bound curved rebuild failed: %s", e)
+        return None
+
+
 def _shapefix_for_mesh(occ_geom):
     """Run ``ShapeFix_Shape`` on an OCC body so faces that lack p-curves become meshable,
     returning the fixed shape (or ``None`` if pythonocc is absent / the fix fails or no-ops).
@@ -176,18 +236,82 @@ def _drop_runaway_triangles(shape, np_vertices, np_normals):
     return np_vertices, np_normals
 
 
+def _empty_triangle_mesh() -> TriangleMesh:
+    e = np.empty(0, dtype="float32")
+    return TriangleMesh(e, np.empty(0, dtype="uint32"), None, e)
+
+
+def _has_meshable_extent(shape: TopoDS_Shape) -> bool:
+    """False when ``shape`` has nothing to triangulate — an empty body or a
+    void / zero-extent bounding box.
+
+    ``ShapeTesselator.Compute`` derives a *relative* linear deflection from the
+    shape's bounding box, so a void/zero-extent box yields deflection 0 and OCC
+    raises ``std::invalid_argument("The deviation must be greater than 0")``.
+    That's a plain C++ exception (not a ``Standard_Failure``), so pythonocc
+    doesn't translate it to a Python ``RuntimeError`` — it escapes the
+    try/except in :func:`tessellate_shape` and ``std::terminate``\\s the whole
+    process. Empty bodies turn up from round-trips that drop geometry (e.g. a
+    FEM deck whose elements don't convert exports an empty STEP compound), so
+    guard rather than crash."""
+    from OCC.Core.Bnd import Bnd_Box
+
+    try:
+        from OCC.Core.BRepBndLib import brepbndlib
+
+        _add = brepbndlib.Add
+    except (ImportError, AttributeError):
+        from OCC.Core.BRepBndLib import brepbndlib_Add as _add
+
+    box = Bnd_Box()
+    try:
+        _add(shape, box)
+    except Exception:
+        return False
+    if box.IsVoid():
+        return False
+    xmin, ymin, zmin, xmax, ymax, zmax = box.Get()
+    diag2 = (xmax - xmin) ** 2 + (ymax - ymin) ** 2 + (zmax - zmin) ** 2
+    return diag2 > 1e-18  # ~1 nm extent floor
+
+
+def _backend_has_meshable_extent(shape) -> bool:
+    """Backend-agnostic mirror of :func:`_has_meshable_extent` for a non-OCC
+    handle. An empty body crashes adacpp's native tessellator the same way it
+    crashes OCC's (the C++ exception can't cross nanobind), so probe the
+    backend's bbox first — it raises / reports a void box for a geometry-less
+    shape."""
+    from ada.cad import active_backend
+
+    try:
+        xmin, ymin, zmin, xmax, ymax, zmax = active_backend().bbox(shape)
+    except Exception:
+        return False  # "empty bounding box (shape has no geometry)" etc.
+    diag2 = (xmax - xmin) ** 2 + (ymax - ymin) ** 2 + (zmax - zmin) ** 2
+    return diag2 > 1e-18  # ~1 nm extent floor
+
+
 def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, parallel=True) -> TriangleMesh:
     # Backend dispatch: a pythonocc TopoDS uses the rich ShapeTesselator
     # (normals + edges). Any other handle (e.g. an adacpp ShapeHandle) is
     # tessellated through the active backend's tessellate verb (adacpp's native
     # ShapeTesselator port) and adapted to a TriangleMesh with computed normals.
     if not _is_topods_shape(shape):
+        # Empty / void-bbox shape: adacpp's native tessellate crashes on it the
+        # same way OCC's does, so guard here too (see _has_meshable_extent).
+        if not _backend_has_meshable_extent(shape):
+            return _empty_triangle_mesh()
         from ada.cad import active_backend
 
         mesh = active_backend().tessellate(shape)
         positions = np.ascontiguousarray(mesh.positions, dtype="float32")
         faces = np.ascontiguousarray(mesh.indices, dtype="uint32")
         return TriangleMesh(positions, faces, None, _vertex_normals(positions, faces))
+
+    # Nothing to mesh (empty body / void bbox) → return empty rather than let
+    # OCC SIGABRT on a zero relative deflection. See _has_meshable_extent.
+    if not _has_meshable_extent(shape):
+        return _empty_triangle_mesh()
 
     from OCC.Core.Tesselator import ShapeTesselator
 
@@ -366,6 +490,16 @@ class BatchTessellator:
                         ms_curved = self.tessellate_occ_geom(shape, node_ref, obj.color)
                     except UnableToCreateTesselationFromSolidOCCGeom as e:
                         logger.error(e)
+                    except Exception as e:
+                        # A backend that can't build this curved face's wire
+                        # (e.g. adacpp ``build_advanced_face: wire build failed``)
+                        # must not crash the whole model render — fall through to
+                        # the flat-fallback path below for this one plate.
+                        logger.warning(
+                            "PlateCurved %r: solid build failed (%s); using flat representation",
+                            getattr(ada_obj, "name", "?"),
+                            e,
+                        )
                     if ms_curved is not None:
                         pos = getattr(ms_curved, "position", None)
                         idx = getattr(ms_curved, "indices", None)
@@ -413,6 +547,62 @@ class BatchTessellator:
                                             float(limit[worst]),
                                         )
                                         mesh_ok = False
+
+                                    # Under-coverage guard. Some trimmed B-spline
+                                    # faces defeat BRepMesh: a malformed trim wire
+                                    # (pcurves that backtrack/duplicate in UV) makes
+                                    # it grid only ~half the face, regardless of the
+                                    # deflection — the "missing triangles" on a few
+                                    # hull-skin plates. The mesh extent is right, so
+                                    # the bbox check above passes it. But a correct
+                                    # *prism* of a (curved or flat) plate has
+                                    # top+bottom faces each at least the flat
+                                    # footprint area, so its mesh area is always
+                                    # >= ~2x the footprint plus the side walls.
+                                    # Healthy plates measure ~2.05x; the broken ones
+                                    # ~1.55x. When under-covered, first try a
+                                    # natural-bound rebuild (keeps the curve — the
+                                    # surface is sound, only the wire is bad); fall
+                                    # back to the flat quad only if that fails too.
+                                    if mesh_ok and idx_n >= 3:
+                                        mesh_area = _mesh_store_area(ms_curved)
+                                        # Newell area of the (planar) flat-footprint loop.
+                                        nrm = _np.zeros(3)
+                                        for _i in range(len(flat_arr)):
+                                            nrm = nrm + _np.cross(flat_arr[_i], flat_arr[(_i + 1) % len(flat_arr)])
+                                        flat_area = 0.5 * float(_np.linalg.norm(nrm))
+                                        if flat_area > 1e-6 and mesh_area < 1.85 * flat_area:
+                                            mesh_ok = False
+                                            rebuilt = _natural_bound_curved_solid(ada_obj)
+                                            if rebuilt is not None:
+                                                ms_rb = self.tessellate_occ_geom(rebuilt, node_ref, obj.color)
+                                                rb_area = _mesh_store_area(ms_rb)
+                                                # Accept the repaired curve when it now
+                                                # covers (>=1.85x) without overshooting
+                                                # the trim (<=3.5x rules out a surface
+                                                # whose natural box exceeds the real
+                                                # plate — those keep the flat fallback).
+                                                if 1.85 * flat_area <= rb_area <= 3.5 * flat_area:
+                                                    logger.warning(
+                                                        "PlateCurved %r: trim-wire tessellation under-covered "
+                                                        "(%.2f m^2 < %.2f); rebuilt from surface natural bounds "
+                                                        "(%.2f m^2)",
+                                                        getattr(ada_obj, "name", "?"),
+                                                        mesh_area,
+                                                        2.0 * flat_area,
+                                                        rb_area,
+                                                    )
+                                                    yield ms_rb
+                                                    continue
+                                            logger.warning(
+                                                "PlateCurved %r: curved mesh area %.2f m^2 vs %.2f expected "
+                                                "(< 1.85x flat footprint %.2f) — degenerate tessellation, "
+                                                "using flat representation",
+                                                getattr(ada_obj, "name", "?"),
+                                                mesh_area,
+                                                2.0 * flat_area,
+                                                flat_area,
+                                            )
                                 except Exception:
                                     pass
                             if mesh_ok:

@@ -35,6 +35,9 @@ def _is_parallel_tuples(a_tup: tuple[float, ...], b_tup: tuple[float, ...], angl
 
 
 class Direction(np.ndarray, ImmutableNDArrayMixin):
+    # Slots for the two lazy caches drop the ~304 B per-instance __dict__; a
+    # plate/beam holds several Directions, so this is the dominant saving.
+    __slots__ = ("_normalized", "_length")
     __array_priority__ = 10.0
     precision: int | None = None
     _cache: weakref.WeakValueDictionary[tuple[float, ...], Direction] = weakref.WeakValueDictionary()
@@ -68,23 +71,23 @@ class Direction(np.ndarray, ImmutableNDArrayMixin):
         return float(self[2])
 
     def get_normalized(self) -> Direction:
-        cached = self.__dict__.get("_normalized")
+        cached = getattr(self, "_normalized", None)
         if cached is None:
             length = np.linalg.norm(self)
             if length == 0.0:
                 raise ValueError("Cannot normalize a zero‐length vector")
             unit = (self / length).view(Direction)
             unit.flags.writeable = False
-            self.__dict__["_normalized"] = unit
+            self._normalized = unit
             return unit
         return cached
 
     def get_length(self) -> float:
-        length = self.__dict__.get("_length")
+        length = getattr(self, "_length", None)
         if length is None:
             tup = (float(self[0]), float(self[1]), float(self[2]))
             length = _length_cached(tup)  # your existing cached helper
-            self.__dict__["_length"] = length
+            self._length = length
         return length
 
     def get_angle(self, other: Direction, as_degrees=False) -> float:

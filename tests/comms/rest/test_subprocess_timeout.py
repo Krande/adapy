@@ -65,7 +65,7 @@ async def test_watchdog_kills_long_running_convert(tmp_path: pathlib.Path):
     assert result.signal_name == "TIMEOUT", (
         f"expected signal_name='TIMEOUT', got {result.signal_name!r} " f"(exit_code={result.exit_code})"
     )
-    assert result.out_bytes is None
+    assert result.out_path is None
     assert result.error is not None
     assert "timeout" in result.error.lower()
     # Watchdog gives 30 s grace before SIGKILL. The synthetic sleeper
@@ -101,7 +101,7 @@ async def test_watchdog_cancels_running_convert(tmp_path: pathlib.Path):
     elapsed = time.monotonic() - started
 
     assert result.signal_name == "CANCELLED", f"got {result.signal_name!r} (exit_code={result.exit_code})"
-    assert result.out_bytes is None
+    assert result.out_path is None
     # First poll fires ~3 s in; SIGTERM reaps the sleeper immediately (5 s grace cap).
     assert elapsed < 12.0, f"cancellation reap too slow: {elapsed:.1f}s"
 
@@ -140,7 +140,7 @@ async def test_memory_watchdog_kills_oom_convert(tmp_path: pathlib.Path, monkeyp
     elapsed = time.monotonic() - started
 
     assert result.signal_name == "OOM", f"expected signal_name='OOM', got {result.signal_name!r} ({result.exit_code})"
-    assert result.out_bytes is None
+    assert result.out_path is None
     assert result.error is not None and "memory" in result.error.lower()
     assert elapsed < 10.0, f"memory watchdog reap too slow: {elapsed:.1f}s"
 
@@ -167,4 +167,8 @@ async def test_no_timeout_lets_short_convert_finish(tmp_path: pathlib.Path):
     )
     assert result.signal_name is None
     assert result.exit_code == 0
-    assert result.out_bytes == b"ok"
+    # Success hands back the output as a path the caller streams + cleans up.
+    assert result.out_path is not None
+    assert result.out_path.read_bytes() == b"ok"
+    result.cleanup_output()
+    assert result.out_path is None

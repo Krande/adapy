@@ -146,22 +146,35 @@ class Sections(NumericMapped):
         # quick lookup by name
         if section.name in self._name_map:
             existing = self._name_map[section.name]
-            # dedupe refs using a set
-            existing_refs = set(existing.refs)
+            # ``consolidate_sections`` funnels one add() per source section into
+            # the same ``existing`` — tens of thousands of calls for a large FEM.
+            # Two things must stay amortised-O(N), not O(N²) (this was the
+            # dominant Genie-XML write cost, mirroring the Materials.add fix):
+            #   * membership via an id()-keyed set cached on the section, instead
+            #     of rebuilding ``set(existing.refs)`` (O(N)) on every call.
+            #   * the pointer flip writes ``ref._section`` / ``ref._taper``
+            #     DIRECTLY. The Beam.section setter does an O(N)
+            #     ``old.refs.remove(self)`` (guid __eq__ scan) against the
+            #     growing target list; FemSection/BeamTapered setters are plain
+            #     assignments, so bypassing the property is safe and refs are
+            #     rebuilt here via the id-set.
+            existing_refs = existing.refs
+            ref_ids = getattr(existing, "_ref_id_set", None)
+            if ref_ids is None or len(ref_ids) != len(existing_refs):
+                ref_ids = {id(r) for r in existing_refs}
+                existing._ref_id_set = ref_ids
             for ref in section.refs:
-                # redirect the ref to the existing section
                 if isinstance(ref, BeamTapered):
                     if existing.equal_props(ref.section):
-                        ref.section = existing
+                        ref._section = existing
                     elif existing.equal_props(ref.taper):
-                        ref.taper = existing
-                else:
-                    if existing.equal_props(ref.section):
-                        ref.section = existing
-                # append only new refs
-                if ref not in existing_refs:
-                    existing.refs.append(ref)
-                    existing_refs.add(ref)
+                        ref._taper = existing
+                elif existing.equal_props(ref.section):
+                    ref._section = existing
+                rid = id(ref)
+                if rid not in ref_ids:
+                    existing_refs.append(ref)
+                    ref_ids.add(rid)
             return existing
 
         # assign a fresh unique id

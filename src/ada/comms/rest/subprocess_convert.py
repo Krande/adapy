@@ -41,6 +41,7 @@ import logging
 import os
 import pathlib
 import resource as _resource_mod  # noqa: F401 — imported for posterity
+import shutil
 import signal
 import sys
 import tempfile
@@ -49,6 +50,23 @@ import traceback
 from typing import Any, Awaitable, Callable, Optional
 
 logger = logging.getLogger("ada")
+
+
+def _move_into_result(src: str, dst: pathlib.Path) -> None:
+    """Move the handler's output file into the result slot.
+
+    ``os.replace`` is an atomic rename when ``src`` and ``dst`` share a
+    filesystem (they normally do — both under ``$TMPDIR``), so the
+    multi-hundred-MB output never gets copied. Cross-device falls back to a
+    chunked copy + unlink so a split ``/tmp`` mount still works."""
+    try:
+        os.replace(src, dst)
+    except OSError:
+        shutil.copyfile(src, dst)
+        try:
+            os.unlink(src)
+        except OSError:
+            pass
 
 
 @dataclasses.dataclass
@@ -65,7 +83,11 @@ class ConvertSample:
 
 @dataclasses.dataclass
 class IsolatedConvertResult:
-    out_bytes: Optional[bytes]
+    # Path to the conversion output on disk (in a per-job work dir), or None
+    # on failure. The caller streams it to storage (Storage.put_path) without
+    # reading it into RAM, then calls cleanup_output(). Carrying a path rather
+    # than bytes is what keeps a multi-hundred-MB output off the parent heap.
+    out_path: Optional[pathlib.Path]
     error: Optional[str]  # exception message from child, when present
     traceback: Optional[str]  # python traceback string from child
     exit_code: int  # 0 success; >0 clean error; <0 = -signal
@@ -73,6 +95,22 @@ class IsolatedConvertResult:
     samples: list[ConvertSample]
     final_metrics: dict  # {cpu_user_ms, cpu_sys_ms, peak_rss_kb, read_bytes, write_bytes}
     profile_bytes: Optional[bytes] = None  # cProfile dump from child, when enabled
+
+    def cleanup_output(self) -> None:
+        """Remove the on-disk output file and its work dir. Idempotent and
+        safe when ``out_path`` is None — the caller invokes it in a finally
+        once the upload (or its failure handling) is done."""
+        if self.out_path is None:
+            return
+        try:
+            self.out_path.unlink()
+        except OSError:
+            pass
+        try:
+            self.out_path.parent.rmdir()
+        except OSError:
+            pass
+        self.out_path = None
 
 
 def _proc_stats(pid: int, started_at: float) -> Optional[ConvertSample]:
@@ -199,7 +237,7 @@ def _signal_child(pid: int, sig: int) -> None:
 
 
 async def run_isolated_convert(
-    convert_fn: Callable[..., bytes],
+    convert_fn: Callable[..., "bytes | pathlib.Path"],
     src_path: pathlib.Path,
     source_key: str,
     target_format: str,
@@ -314,9 +352,15 @@ async def run_isolated_convert(
                             pass
                 if out is None:
                     out = b""
-                if not isinstance(out, (bytes, bytearray, memoryview)):
-                    raise TypeError(f"convert returned {type(out).__name__}, expected bytes")
-                result_path.write_bytes(bytes(out))
+                if isinstance(out, (bytes, bytearray, memoryview)):
+                    result_path.write_bytes(bytes(out))
+                elif isinstance(out, (str, os.PathLike)):
+                    # Handler wrote its output to disk and handed back the
+                    # path; move it into the result slot rather than reading
+                    # it into RAM here (the big-STEP child-copy we're killing).
+                    _move_into_result(os.fspath(out), result_path)
+                else:
+                    raise TypeError(f"convert returned {type(out).__name__}, expected bytes or a path")
                 os._exit(0)
             except BaseException as exc:  # noqa: BLE001 — propagate verbatim
                 # Even on failure, dump whatever profile data was
@@ -528,13 +572,17 @@ async def run_isolated_convert(
             # treated as an error.
             exit_code = -signal.SIGTERM
 
-    out_bytes: Optional[bytes] = None
+    out_path: Optional[pathlib.Path] = None
     error_msg: Optional[str] = None
     error_tb: Optional[str] = None
     profile_bytes: Optional[bytes] = None
+    success = exit_code == 0 and result_path.exists()
     try:
-        if exit_code == 0 and result_path.exists():
-            out_bytes = result_path.read_bytes()
+        if success:
+            # Hand the output back as a path; the caller streams it to storage
+            # and calls cleanup_output() afterwards. We deliberately do NOT
+            # read it into RAM here — that buffer was the parent-side peak.
+            out_path = result_path
         if exit_code != 0 and err_path.exists():
             try:
                 d = json.loads(err_path.read_text())
@@ -548,16 +596,25 @@ async def run_isolated_convert(
             except OSError:
                 pass
     finally:
-        for p in (result_path, err_path, profile_path):
+        # Small sidecars are always reclaimed. The result file + its work dir
+        # survive on success (ownership passes to the caller); on any failure
+        # we drop them too so a crashed/oomed job leaves no tmp residue.
+        for p in (err_path, profile_path):
             try:
                 if p.exists():
                     p.unlink()
             except OSError:
                 pass
-        try:
-            work_dir.rmdir()
-        except OSError:
-            pass
+        if not success:
+            try:
+                if result_path.exists():
+                    result_path.unlink()
+            except OSError:
+                pass
+            try:
+                work_dir.rmdir()
+            except OSError:
+                pass
 
     if exit_code < 0 and error_msg is None:
         if oomed:
@@ -594,7 +651,7 @@ async def run_isolated_convert(
         final_metrics.setdefault("peak_rss_kb", max(s.peak_rss_kb for s in samples))
 
     return IsolatedConvertResult(
-        out_bytes=out_bytes,
+        out_path=out_path,
         error=error_msg,
         traceback=error_tb,
         exit_code=exit_code,

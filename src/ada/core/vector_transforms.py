@@ -223,8 +223,16 @@ def normal_to_points_in_plane(points_) -> Direction:
             if is_parallel(v1, v2) is False:
                 break
 
-    # the cross product is a vector normal to the plane
-    return Direction(np.cross(v1, v2)).get_normalized()
+    # the cross product is a vector normal to the plane. ``np.cross`` carries
+    # heavy per-call overhead (moveaxis / normalize_axis_tuple) that dominates
+    # for these length-3 vectors, so author the cross product by hand — this is
+    # the single largest cost in the Genie/SAT plate-read path.
+    normal = (
+        v1[1] * v2[2] - v1[2] * v2[1],
+        v1[2] * v2[0] - v1[0] * v2[2],
+        v1[0] * v2[1] - v1[1] * v2[0],
+    )
+    return Direction(normal).get_normalized()
 
 
 def linear_2dtransform_rotate(origin, point, degrees) -> np.ndarray:

@@ -115,10 +115,25 @@ RESULT_CARDS = [
     cards.RDFORCES,
 ]
 
+# Per-step result cards whose rows carry an ``ires`` (result/step id) field.
+# These are the multi-step, high-row-count cards the single-step filter
+# targets — RVNODDIS/RVSTRESS/RVFORCES each hold every step's records in one
+# contiguous block. The RD* metadata cards in RESULT_CARDS are per-deck (one
+# block, no steps) and are always kept in full.
+_RV_STEP_CARDS = frozenset({cards.RVNODDIS.name, cards.RVSTRESS.name, cards.RVFORCES.name})
+
 
 @dataclass
 class SifReader:
     file: Iterator
+
+    # Result-step filter. ``None`` loads every step (full back-compat). An int
+    # keeps only that step's RV* records; the sentinel ``"first"`` locks onto
+    # the ``ires`` of the first data row encountered. Filtering at parse time
+    # caps peak RSS at one step instead of materialising every step's records
+    # at once — the SIF analogue of ``read_sin_file(step=...)``. Only RV* cards
+    # (see ``_RV_STEP_CARDS``) are filtered; RD* metadata cards stay whole.
+    step: int | str | None = None
 
     nodes: np.ndarray = None
     node_ids: np.ndarray = None
@@ -179,6 +194,58 @@ class SifReader:
     def read_results(self, result_variable: str, first_line: str) -> tuple:
         for data in self._read_multi_line_statements(result_variable, first_line):
             yield data
+
+    def _read_results_for_step(self, startswith: str, first_line: str, step: int | str):
+        """Single-pass RV* reader that float-parses only the control row and
+        the rows whose ``ires`` matches ``step``.
+
+        ``step`` is an int (keep that step) or the sentinel ``"first"`` (lock
+        onto the ``ires`` of the first data row). This mirrors the boundary
+        logic of :meth:`_read_multi_line_statements` line-for-line, but a row
+        whose step doesn't match is walked only far enough to find the next
+        row boundary — its tokens are never ``float()``-converted or
+        accumulated. On a 9-step deck that skips ~8/9 of the per-token float
+        work (the parse hotspot), on top of the memory saved by not keeping
+        the other steps' rows.
+
+        The block's first record is the control row (every consumer skips it
+        via ``[1:]``), so it is always kept; ``ires`` lives at raw token index
+        2 (card name + ``nfield`` precede it).
+        """
+        target = None if step == "first" else int(step)
+
+        # Row 0 is the control record — always materialised so the [1:]
+        # contract downstream still holds.
+        curr = [float(x) for x in first_line.split()[1:]]
+        keep = True
+
+        while True:
+            stripped = next(self.file).strip()
+
+            # End of the card block: a line that's neither a new card record
+            # nor a numeric continuation. Identical predicate to
+            # _read_multi_line_statements.
+            if stripped.startswith(startswith) is False and stripped[0].isnumeric() is False and stripped[0] != "-":
+                self._last_line = stripped
+                if keep:
+                    yield curr
+                break
+
+            if stripped.startswith(startswith):
+                # New record: flush the previous one (if kept), then decide
+                # whether this one matches the target step from its ires alone.
+                if keep:
+                    yield curr
+                parts = stripped.split()
+                ires = int(float(parts[2])) if len(parts) > 2 else None
+                if target is None:
+                    target = ires  # "first": lock onto the first data row
+                keep = ires == target
+                curr = [float(x) for x in parts[1:]] if keep else None
+            else:
+                # Continuation line — only pay the float cost when keeping.
+                if keep:
+                    curr += [float(x) for x in stripped.split()]
 
     def get_sections(self) -> dict[int, Section]:
         import math
@@ -413,7 +480,12 @@ class SifReader:
 
         res_card = self._result_map.get(token)
         if res_card is not None:
-            rows = list(self.read_results(token, stripped))
+            if self.step is not None and token in _RV_STEP_CARDS:
+                # Single-step mode: keep only the requested step's RV* rows so
+                # an N-step deck costs ~1/N the RAM (see SifReader.step).
+                rows = list(self._read_results_for_step(token, stripped, self.step))
+            else:
+                rows = list(self.read_results(token, stripped))
             # SIF result cards (RVNODDIS / RVSTRESS / RVFORCES / etc.)
             # commonly hold 100k–10M rows. Each row as a Python
             # ``list[float]`` carries ~136 bytes of list overhead +
@@ -552,14 +624,24 @@ class SifReader:
         return {int(x[1]): x for x in res}
 
 
-def read_sif_file(sif_file: str | pathlib.Path) -> FEAResult:
+def read_sif_file(sif_file: str | pathlib.Path, *, step: int | str | None = None) -> FEAResult:
+    """Parse a Sesam SIF result deck into a :class:`FEAResult`.
+
+    ``step`` bounds memory the way :func:`read_sin_file` does: ``None`` loads
+    every result step (full fidelity — used by the picker/metadata path and
+    every existing caller); an int loads only that step; the sentinel
+    ``"first"`` loads the first step in the file. A GLB render only colours one
+    (step, field), so the converter passes a single step and keeps peak RSS to
+    one step's RV* records instead of the whole multi-step deck (a 20-mode
+    eigen deck drops ~20×).
+    """
     # Sif2Mesh.convert() calls sif_file.parent to find sibling
     # SESTRA.MLG / SESTRA.LIS files; coerce here so callers passing a
     # plain string (e.g. the legacy converter pipeline's
     # `read_sif_file(str(src_path))`) don't trip an AttributeError.
     sif_file = pathlib.Path(sif_file)
     with open(sif_file, "r") as f:
-        sif = SifReader(f)
+        sif = SifReader(f, step=step)
         sif.load()
 
     s2m = Sif2Mesh(sif)
@@ -739,7 +821,14 @@ class Sif2Mesh:
         return {key: tdresref[value[1]][-1] for key, value in rdresref.items()}
 
     def get_nodal_data(self) -> list[NodalFieldData]:
-        return get_nodal_results(self.sif.get_result(cards.RVNODDIS.name)[0][1])
+        # Guard the no-RVNODDIS case symmetric to get_field_data's RVSTRESS /
+        # RVFORCES checks. The streaming reader loads one RV card at a time, so
+        # a STRESS/FORCES-only pass has no RVNODDIS block — return no nodal data
+        # rather than IndexError on an empty get_result.
+        res = self.sif.get_result(cards.RVNODDIS.name)
+        if not res:
+            return []
+        return get_nodal_results(res[0][1])
 
     def get_field_data(self) -> list[ElementFieldData | NodalFieldData]:
         sif = self.sif

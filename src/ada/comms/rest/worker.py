@@ -386,6 +386,35 @@ async def _run_fea_meta_compute(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+def _parity_child(src_path, source_key, target_format, on_progress, *, formats=()):
+    """``convert_fn``-shaped wrapper that runs the cross-format parity check and
+    returns its result as JSON bytes.
+
+    Parity re-derives the source to ifc/xml/step and reloads each — easily a
+    multi-GB peak on a large model. Running it through ``run_isolated_convert``
+    (this function in the forked child) instead of a worker threadpool means an
+    OOM is SIGKILLed by the per-job memory watchdog and fails the cell, rather
+    than taking the whole worker pod down."""
+    import json as _json
+    import pathlib as _pl
+
+    from ada.cadit.visual_parity import parity_for_source_file
+
+    on_progress("parity", 0.2)
+    res = parity_for_source_file(_pl.Path(src_path), tuple(formats))
+    on_progress("ready", 1.0)
+    return _json.dumps(
+        {
+            "counts": res.counts,
+            "expected": res.expected,
+            "consistent": res.consistent,
+            "mismatches": res.mismatches,
+            "errors": res.errors,
+            "summary": res.summary(),
+        }
+    ).encode("utf-8")
+
+
 async def _run_parity_validation(
     *,
     job: Job,
@@ -395,6 +424,7 @@ async def _run_parity_validation(
     db_pool: "asyncpg.Pool | None",
     started_at: float,
     _on_progress: Callable[[str, float], Awaitable[None]],
+    timeout_s: float | None = None,
 ) -> None:
     """Cross-format visual-parity validation for one source (target_format=='parity').
 
@@ -404,28 +434,76 @@ async def _run_parity_validation(
     table and the cell is audited done/error (a mismatch maps to ``error`` so it
     surfaces in the run's failed cells). Never raises.
 
-    Re-deriving (rather than reading the stored GLB) is deliberate: the stored GLB
-    is mesh-merged, so its scene-entry count is not the object count — the parity
-    check must reload with merging off, which ``parity_for_source_file`` does.
+    Runs in the same memory-capped forked child the convert path uses
+    (``run_isolated_convert``): re-deriving + reloading several formats can spike
+    RAM, and a blow-up must die in isolation (cell fails as OOM) rather than
+    OOM-killing the worker pod. Re-deriving (rather than reading the stored GLB)
+    is deliberate: the stored GLB is mesh-merged, so its scene-entry count isn't
+    the object count — the check reloads with merging off.
     """
+    import json
+
     job_id = job.job_id
     suffix = pathlib.PurePosixPath(job.source_key).suffix.lower()
     formats = tuple(t for t in ("ifc", "xml", "step") if t in ConverterRegistry.targets_for(suffix))
 
-    # Lazy import keeps the FEM/CAD stack out of the worker import path until
-    # a parity job actually runs (same pattern as _run_fea_meta_compute).
-    from ada.cadit.visual_parity import parity_for_source_file
+    async def _cancel_check() -> bool:
+        if db_pool is None:
+            return False
+        try:
+            return await db_module.audit_is_cancelled(db_pool, job_id)
+        except Exception:
+            return False
 
-    await _on_progress("parity", 0.20)
-    loop = asyncio.get_running_loop()
     try:
-        result = await loop.run_in_executor(None, functools.partial(parity_for_source_file, src_path, formats))
+        iresult: IsolatedConvertResult = await run_isolated_convert(
+            _parity_child,
+            src_path,
+            job.source_key,
+            "parity",
+            convert_kwargs={"formats": list(formats)},
+            on_progress=_on_progress,
+            timeout_s=timeout_s,
+            cancel_check=_cancel_check,
+        )
     except Exception as exc:
-        logger.exception("worker: parity validation failed for %s", job.source_key)
-        trace = tb_module.format_exc()
+        logger.exception("worker: parity subprocess wrapper failed for %s", job.source_key)
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="parity", error=str(exc))
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
         return
+
+    metrics = dict(iresult.final_metrics)
+
+    # User cancellation: the watchdog reaped the child; the row is already
+    # 'cancelled' (set by the cancel endpoint) — don't flip it to error.
+    if iresult.signal_name == "CANCELLED":
+        try:
+            await queue.update(job_id, status="cancelled", stage="parity", error="cancelled by user")
+        except Exception:
+            pass
+        iresult.cleanup_output()
+        return
+
+    # OOM / timeout / crash / no-output: the child died (memory watchdog
+    # SIGKILL, timeout, SIGSEGV) — surface as an error cell, pod intact.
+    if iresult.exit_code != 0 or iresult.out_path is None:
+        err = iresult.error or "parity subprocess produced no output"
+        if iresult.signal_name:
+            logger.warning("worker: parity child for %s ended via %s", job.source_key, iresult.signal_name)
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="parity", error=err)
+        await _audit_done(db_pool, job_id, "error", err, started_at, traceback=iresult.traceback, metrics=metrics)
+        iresult.cleanup_output()
+        return
+
+    try:
+        payload = json.loads(iresult.out_path.read_text())
+    except Exception as exc:
+        logger.exception("worker: parity result decode failed for %s", job.source_key)
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="parity", error=str(exc))
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, metrics=metrics)
+        iresult.cleanup_output()
+        return
+    iresult.cleanup_output()
 
     if db_pool is not None:
         try:
@@ -433,22 +511,22 @@ async def _run_parity_validation(
                 db_pool,
                 job_id=job_id,
                 source_key=job.source_key,
-                baseline=result.expected,
-                counts=result.counts,
-                consistent=result.consistent,
-                mismatches=result.mismatches,
-                errors=result.errors,
+                baseline=payload["expected"],
+                counts=payload["counts"],
+                consistent=payload["consistent"],
+                mismatches=payload["mismatches"],
+                errors=payload["errors"],
             )
         except Exception:
             logger.exception("worker: insert_audit_parity failed for %s", job.source_key)
 
-    if result.consistent:
+    if payload["consistent"]:
         await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
-        await _audit_done(db_pool, job_id, "done", None, started_at)
+        await _audit_done(db_pool, job_id, "done", None, started_at, metrics=metrics)
     else:
-        msg = result.summary()
+        msg = payload.get("summary") or "parity mismatch"
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="ready", progress=1.0, error=msg)
-        await _audit_done(db_pool, job_id, "error", msg, started_at)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, metrics=metrics)
 
 
 async def _run_component_build(
@@ -662,6 +740,98 @@ async def _run_utility_job(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+async def _try_reduced_sif_source(
+    storage: Storage,
+    scope: Scope,
+    source_key: str,
+    step: int | None,
+    src_path: pathlib.Path,
+) -> bool:
+    """Range-fetch just one result step of a SIF deck instead of the whole file.
+
+    When a byte-offset index sidecar exists (built by a prior conversion), the
+    bytes of every *other* step are skipped: only the target step's RV records
+    plus the step-invariant mesh / RDPOINTS / control rows are fetched and
+    concatenated into ``src_path`` — a smaller, still-valid SIF the normal
+    reader parses. A 969 MB deck becomes a ~340 MB read, and re-picking a mode
+    in the viewer stops re-downloading the whole file.
+
+    Returns True on success; False (with ``src_path`` untouched) to fall back
+    to the full streaming download. Skipped when the source is gzip-stored —
+    range offsets address the *uncompressed* file.
+    """
+    from ada.fem.formats.sesam.results.sif_index import SifStepIndex
+
+    from .converter import sif_index_key_for
+
+    index_key = sif_index_key_for(source_key)
+    try:
+        idx_bytes = await storage.get_bytes(scope, index_key)
+    except FileNotFoundError:
+        return False
+    except Exception:
+        logger.exception("worker: reading SIF index %s failed (non-fatal)", index_key)
+        return False
+
+    try:
+        idx = SifStepIndex.from_json(idx_bytes)
+    except Exception:
+        logger.warning("worker: SIF index %s unreadable; full download", index_key)
+        return False
+
+    try:
+        if await storage.is_gzip_stored(scope, source_key):
+            return False
+    except Exception:
+        return False
+
+    target = step if step is not None else idx.default_step()
+    if target not in idx.steps:
+        return False
+
+    ranges = idx.include_ranges(target)
+    try:
+        with open(src_path, "wb") as fo:
+            for s, e in ranges:
+                fo.write(await storage.get_range(scope, source_key, s, e - s))
+    except Exception:
+        logger.exception("worker: SIF range-fetch for %s failed; full download", source_key)
+        return False
+
+    fetched = sum(e - s for s, e in ranges)
+    logger.info(
+        "worker: SIF reduced read %s step %s — %d/%d bytes (%.0f%%)",
+        source_key,
+        target,
+        fetched,
+        idx.size,
+        100.0 * fetched / max(idx.size, 1),
+    )
+    return True
+
+
+async def _ensure_sif_index(storage: Storage, scope: Scope, source_key: str, src_path: pathlib.Path) -> None:
+    """Build + upload the SIF byte-offset index sidecar if absent.
+
+    One-time cheap byte scan (no float parsing) of the full local deck so later
+    picks of other steps range-fetch a reduced file. Best-effort: a failure
+    here never fails the job — it just means the next pick scans the whole file
+    again."""
+    from ada.fem.formats.sesam.results.sif_index import build_sif_index
+
+    from .converter import sif_index_key_for
+
+    index_key = sif_index_key_for(source_key)
+    try:
+        if await storage.exists(scope, index_key):
+            return
+        idx = await asyncio.to_thread(build_sif_index, src_path)
+        await storage.put_bytes(scope, index_key, idx.to_json())
+        logger.info("worker: built SIF index for %s (%d steps)", source_key, len(idx.steps))
+    except Exception:
+        logger.exception("worker: building SIF index for %s failed (non-fatal)", source_key)
+
+
 async def _process_one(
     job_id: str,
     queue: JobQueue,
@@ -763,9 +933,17 @@ async def _process_one(
     src_fd, src_name = tempfile.mkstemp(suffix=src_suffix)
     os.close(src_fd)
     src_path = pathlib.Path(src_name)
+    # A SIF deck with a cached byte-offset index range-fetches only the target
+    # step (reduced, still-valid SIF) instead of the whole ~1 GB file. Falls
+    # back to the full stream when there's no index / it's gzip-stored / fetch
+    # fails. ``sif_reduced`` gates the post-convert index build below.
+    sif_reduced = False
     try:
         try:
-            await storage.stream_to_path(scope, job.source_key, src_path)
+            if src_suffix.lower() == ".sif":
+                sif_reduced = await _try_reduced_sif_source(storage, scope, job.source_key, job.step, src_path)
+            if not sif_reduced:
+                await storage.stream_to_path(scope, job.source_key, src_path)
         except FileNotFoundError as exc:
             logger.warning("worker: source %s missing for job %s", job.source_key, job_id)
             await queue.update(job_id, status=JOB_STATUS_ERROR, stage="loading", error=str(exc))
@@ -1007,6 +1185,7 @@ async def _process_one(
                 db_pool=db_pool,
                 started_at=started_at,
                 _on_progress=_on_progress,
+                timeout_s=timeout_s,
             )
             return
 
@@ -1088,7 +1267,7 @@ async def _process_one(
             return
 
         # Map the isolated result back to the existing audit/error flow.
-        if iresult.exit_code != 0 or iresult.out_bytes is None:
+        if iresult.exit_code != 0 or iresult.out_path is None:
             err_msg = iresult.error or "convert subprocess produced no output"
             trace = iresult.traceback
             # Recognize BundleError by name in the error message rather
@@ -1124,15 +1303,16 @@ async def _process_one(
             )
             return
 
-        out_bytes = iresult.out_bytes
-
         await queue.update(job_id, stage="uploading", progress=0.95)
         # Gzip text-format outputs (IFC, Genie XML); GLB is binary geometry
         # that doesn't compress meaningfully and is what the in-browser
         # viewer fetches on the hot path.
         derived_encoding = "gzip" if job.target_format in {"ifc", "xml"} else None
         try:
-            await storage.put_bytes(scope, job.derived_key, out_bytes, content_encoding=derived_encoding)
+            # Stream the output file straight to object storage (multipart) —
+            # never reading it into a parent-side bytes buffer. cleanup_output()
+            # drops the tmpfile + work dir once the upload settles either way.
+            await storage.put_path(scope, job.derived_key, iresult.out_path, content_encoding=derived_encoding)
         except Exception as exc:
             logger.exception("worker: upload failed for %s", job.derived_key)
             trace = tb_module.format_exc()
@@ -1149,6 +1329,8 @@ async def _process_one(
                 metrics=metrics,
             )
             return
+        finally:
+            iresult.cleanup_output()
 
         # Conversion + upload succeeded — collect metrics and (optionally)
         # the cProfile dump from the child.
@@ -1157,6 +1339,13 @@ async def _process_one(
 
         await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
         await _audit_done(db_pool, job_id, "done", None, started_at, metrics=metrics)
+
+        # First full conversion of a SIF deck: build + cache the byte-offset
+        # index so subsequent step/field picks range-fetch one step instead of
+        # the whole file. Skipped when we already read a reduced file (the
+        # index existed) or the source isn't a SIF. Best-effort.
+        if src_suffix.lower() == ".sif" and not sif_reduced:
+            await _ensure_sif_index(storage, scope, job.source_key, src_path)
     finally:
         try:
             src_path.unlink()

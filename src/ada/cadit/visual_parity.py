@@ -74,12 +74,18 @@ class ParityResult:
     errors: dict[str, str] = field(
         default_factory=dict
     )  # format -> error message when that format failed to round-trip
+    # format -> reason a format was deliberately not compared (it structurally
+    # can't represent this source's geometry, so a 0-count isn't a converter
+    # fault). Excluded from the consistency verdict.
+    skipped: dict[str, str] = field(default_factory=dict)
 
     def summary(self) -> str:
         status = "OK" if self.consistent and not self.errors else "MISMATCH"
         parts = [f"{k}={v}" for k, v in self.counts.items()]
         if self.errors:
             parts += [f"{k}=ERR" for k in self.errors]
+        if self.skipped:
+            parts += [f"{k}=SKIP" for k in self.skipped]
         return f"[{status}] expected={self.expected} " + " ".join(parts)
 
 
@@ -100,7 +106,24 @@ def load_assembly_auto(path: str | Path) -> "Assembly":
     if ext == ".xml":
         return ada.from_genie_xml(p)
     if ext in (".fem", ".inp", ".sif", ".sin"):
-        return ada.from_fem(p)
+        asm = ada.from_fem(p)
+        # Mirror the FEM->CAD converter (_apply_fem_to_objects): it rebuilds
+        # Beam/Plate concept objects from the mesh before any structure-
+        # preserving export, because those writers emit *concepts*, not the raw
+        # mesh. Without this the parity round-trip exports an objectless
+        # assembly and every format reads back empty — a false "dropped all
+        # geometry", when the converter never exports a bare mesh.
+        asm.create_objects_from_fem(merge=True)
+        # Drop the mesh so the baseline counts the exported concept geometry,
+        # not the auxiliary FEM-mesh viz (mass/spring elements with no concept
+        # representation) that no structure-preserving format carries — else the
+        # source over-counts against every format.
+        from ada.fem import FEM
+
+        for part in asm.get_all_parts_in_assembly(include_self=True):
+            if part.fem is not None and len(part.fem.elements) > 0:
+                part.fem = FEM(part.fem.name, parent=part)
+        return asm
     raise ValueError(f"visual_parity: no loader for source suffix {ext!r}")
 
 
@@ -133,6 +156,7 @@ def cross_format_parity(
     baseline = assembly_element_count(assembly)
     counts: dict[str, int] = {"source": baseline}
     errors: dict[str, str] = {}
+    skipped: dict[str, str] = {}
 
     tmp_ctx = None
     if work_dir is None:
@@ -145,6 +169,13 @@ def cross_format_parity(
             io = _FORMAT_IO.get(fmt)
             if io is None:
                 errors[fmt] = f"unknown format {fmt!r}"
+                continue
+            reason = _unrepresentable_reason(fmt, assembly)
+            if reason is not None:
+                # The format structurally can't carry this source's geometry, so
+                # a 0-count is the format's limit, not a converter fault — record
+                # and exclude from the verdict instead of flagging a mismatch.
+                skipped[fmt] = reason
                 continue
             writer, reader, suffix = io
             out = work_dir / f"parity{suffix}"
@@ -160,4 +191,29 @@ def cross_format_parity(
 
     mismatches = {k: v for k, v in counts.items() if k != "source" and v != baseline}
     consistent = not mismatches and not errors
-    return ParityResult(counts=counts, expected=baseline, consistent=consistent, mismatches=mismatches, errors=errors)
+    return ParityResult(
+        counts=counts,
+        expected=baseline,
+        consistent=consistent,
+        mismatches=mismatches,
+        errors=errors,
+        skipped=skipped,
+    )
+
+
+def _unrepresentable_reason(fmt: str, assembly: "Assembly") -> str | None:
+    """Why ``fmt`` can't carry ``assembly``'s geometry at all, or None if it can.
+
+    Genie XML is a structural-concept format — it only writes Beam / Plate
+    (Section) elements, not arbitrary B-rep solids. A source made entirely of
+    imported generic ``Shape`` bodies (e.g. a CAD ``.ifc`` / ``.stp`` / ``.sat``)
+    therefore round-trips to an empty XML, which is the format's limit rather
+    than a converter dropping geometry — so we skip it instead of flagging a
+    permanent mismatch. IFC and STEP carry solids, so they're never skipped."""
+    if fmt != "xml":
+        return None
+    from ada import Beam, Plate
+
+    if any(isinstance(o, (Beam, Plate)) for o in assembly.get_all_physical_objects()):
+        return None
+    return "Genie XML carries only Beam/Plate concepts, not generic solids"

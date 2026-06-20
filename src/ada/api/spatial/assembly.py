@@ -226,6 +226,7 @@ class Assembly(Part):
         progress_callback: Callable[[int, int], None] = None,
         geom_repr_override: dict[str, GeomRepr] = None,
         streaming=False,
+        merge_strategy=None,
     ) -> ifcopenshell.file:
         import ifcopenshell.validate
 
@@ -248,7 +249,13 @@ class Assembly(Part):
             if not self.ifc_store.f.by_type("IfcProduct"):
                 from ada.cadit.ifc.write.stream_ifc import stream_assembly_to_ifc
 
-                stream_assembly_to_ifc(self, destination, include_fem=include_fem, progress_callback=progress_callback)
+                stream_assembly_to_ifc(
+                    self,
+                    destination,
+                    include_fem=include_fem,
+                    progress_callback=progress_callback,
+                    merge_strategy=merge_strategy,
+                )
                 if validate:
                     ifcopenshell.validate.validate(destination, logger)
                 logger.info("IFC file creation complete (streaming)")
@@ -275,11 +282,32 @@ class Assembly(Part):
         return self.ifc_store.f
 
     def to_genie_xml(
-        self, destination_xml, writer_postprocessor: Callable[[ET.Element, Part], None] = None, embed_sat=False
+        self,
+        destination_xml,
+        writer_postprocessor: Callable[[ET.Element, Part], None] = None,
+        embed_sat=False,
+        streaming=False,
+        merge_strategy=None,
     ):
-        from ada.cadit.gxml.write.write_xml import write_xml
+        # ``streaming`` emits the per-object <structure> entries straight to the
+        # file instead of building the whole ElementTree DOM, cutting peak RSS on
+        # large FEM-derived models. Geometry-identical to the DOM writer. Not
+        # available with embed_sat (the SAT path shares one whole-model CDATA
+        # body), so fall back there.
+        #
+        # ``merge_strategy`` (None | "none" | "coplanar" | ...) sources plates
+        # from the object-free vectorized FEM-shell face engine instead of
+        # materialising Plate objects — only honoured on the streaming path.
+        if streaming and not embed_sat:
+            from ada.cadit.gxml.write.stream_xml import write_xml_stream
 
-        write_xml(self, destination_xml, writer_postprocessor=writer_postprocessor, embed_sat=embed_sat)
+            write_xml_stream(
+                self, destination_xml, writer_postprocessor=writer_postprocessor, merge_strategy=merge_strategy
+            )
+        else:
+            from ada.cadit.gxml.write.write_xml import write_xml
+
+            write_xml(self, destination_xml, writer_postprocessor=writer_postprocessor, embed_sat=embed_sat)
         logger.info(f'Genie XML file "{destination_xml}" created')
 
         return destination_xml

@@ -294,13 +294,71 @@ def _build_geom2d_bspline(pcurve_geom):
         return None
 
 
-def _make_edge_from_pcurve(pcurve_geom, face_surface):
+def _pcurve_trim_range(c2d, face_surface, edge_start, edge_end):
+    """Sub-range ``[s_a, s_b]`` of the pcurve whose 3D image spans the edge.
+
+    A single SAT pcurve is often *shared* by several coedges along one UV side
+    of a face — each coedge is a different sub-segment, but the explicit pcurve
+    carries the whole side's UV trajectory. The edge's own ``[t_start, t_end]``
+    is in the 3D-curve's parameter space, which is offset/reversed relative to
+    the pcurve's, so we can't slice the pcurve by it directly. Instead, map the
+    edge's *3D endpoints* into pcurve space: sample the pcurve, push each sample
+    through the surface, and pick the parameters whose 3D images are nearest the
+    edge's two endpoints. Returns ``None`` when the pcurve already matches the
+    edge's length (no trim needed) or the endpoints aren't usable."""
+    if edge_start is None or edge_end is None:
+        return None
+    s0 = float(c2d.FirstParameter())
+    s1 = float(c2d.LastParameter())
+    if abs(s1 - s0) <= 1e-9:
+        return None
+    import numpy as _np
+
+    a = _np.asarray(list(edge_start)[:3], dtype=float)
+    b = _np.asarray(list(edge_end)[:3], dtype=float)
+    edge_len = float(_np.linalg.norm(b - a))
+    if edge_len <= 1e-9:
+        return None
+    tol = 0.05 * edge_len  # endpoints "coincide" within 5% of the edge length
+
+    def _surf3d(s):
+        uv = c2d.Value(s)
+        p = face_surface.Value(uv.X(), uv.Y())
+        return _np.array([p.X(), p.Y(), p.Z()])
+
+    # Cheap common-case test: when the pcurve's own ends already land on the
+    # edge's endpoints (either order), the edge uses the whole pcurve — no trim,
+    # so skip the 200-sample scan. Only a *shared* pcurve (longer than the edge)
+    # extends past the endpoints and needs trimming.
+    e0, e1 = _surf3d(s0), _surf3d(s1)
+    ends_match = (_np.linalg.norm(e0 - a) <= tol and _np.linalg.norm(e1 - b) <= tol) or (
+        _np.linalg.norm(e0 - b) <= tol and _np.linalg.norm(e1 - a) <= tol
+    )
+    if ends_match:
+        return None
+
+    ss = _np.linspace(s0, s1, 200)
+    pts = _np.array([_surf3d(s) for s in ss])
+    s_a = float(ss[int(_np.argmin(_np.linalg.norm(pts - a, axis=1)))])
+    s_b = float(ss[int(_np.argmin(_np.linalg.norm(pts - b, axis=1)))])
+    lo, hi = (s_a, s_b) if s_a <= s_b else (s_b, s_a)
+    if hi - lo <= 1e-9:
+        return None
+    return lo, hi
+
+
+def _make_edge_from_pcurve(pcurve_geom, face_surface, edge_start=None, edge_end=None):
     """Build an OCC edge from a 2D BSpline pcurve + the face's surface.
 
     The 3D parametrization is derived implicitly by OCCT from
     surface(pcurve(t)), so 2D and 3D are guaranteed-consistent.
-    Returns None on any failure so the caller falls back to building
-    from the SAT-supplied 3D BSpline + reparam.
+
+    ``edge_start`` / ``edge_end`` (the coedge's 3D endpoints) let us trim a
+    *shared* pcurve to this coedge's sub-segment — without the trim, a
+    split-edge wire traces the whole UV side twice, self-intersects, and
+    BRepMesh grids only half the face (the hull-skin "missing triangles").
+    Returns None on any failure so the caller falls back to building from the
+    SAT-supplied 3D BSpline + reparam.
     """
     c2d = _build_geom2d_bspline(pcurve_geom)
     if c2d is None:
@@ -308,6 +366,13 @@ def _make_edge_from_pcurve(pcurve_geom, face_surface):
     try:
         first = float(c2d.FirstParameter())
         last = float(c2d.LastParameter())
+        try:
+            trim = _pcurve_trim_range(c2d, face_surface, edge_start, edge_end)
+        except Exception as ex:
+            logger.debug("pcurve trim probe failed, using full range: %s", ex)
+            trim = None
+        if trim is not None:
+            first, last = trim
         maker = BRepBuilderAPI_MakeEdge(c2d, face_surface, first, last)
         if not maker.IsDone():
             return None
@@ -1141,7 +1206,12 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
             supplied_pc = getattr(oe, "pcurve", None) if use_pcurves else None
             occ_edge = None
             if drive_edge_from_pcurve and supplied_pc is not None:
-                occ_edge = _make_edge_from_pcurve(supplied_pc, face_surface)
+                occ_edge = _make_edge_from_pcurve(
+                    supplied_pc,
+                    face_surface,
+                    edge_start=getattr(oe, "start", None),
+                    edge_end=getattr(oe, "end", None),
+                )
                 if occ_edge is not None:
                     # Edge already carries a consistent 2D pcurve from
                     # the constructor; no UpdateEdge needed.

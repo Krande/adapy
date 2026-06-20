@@ -6,6 +6,34 @@ from ada.geom import Geometry
 from ada.geom.surfaces import AdvancedFace
 
 
+def test_parcur_curve_parses_as_rational_3d_nurbs():
+    """A SESAM ``parcur`` (parameter-space) edge curve embeds the 3D space
+    curve directly, in the same layout as ``exactcur``: header, knot line, 3D
+    rational control points, then a ``0`` and the surface block. The reader must
+    parse the 3D rational NURBS (not fall back to a flat polygon). Control points
+    are a rational quadratic — an arc — straight off a curved hull-skin plate."""
+    from ada.cadit.sat.read.bsplinecurves import create_bspline_curve_from_exactcur
+    from ada.geom.curves import RationalBSplineCurveWithKnots
+
+    data_lines = [
+        "parcur full nurbs 2 open 2",
+        "1.1780972450961715 2 1.5707963267948966 2",
+        "48.845150584360894 31.478354290456362 90.5 1",
+        "48.750000000000007 31.248640459224561 90.499999999999972 0.98078528040306567",
+        "48.75 31 90.5 1",
+        "0",
+        "spline forward { exactsur full nurbs 2 3 both open open none none 2 2 }",
+    ]
+    curve = create_bspline_curve_from_exactcur(data_lines)
+    assert isinstance(curve, RationalBSplineCurveWithKnots)
+    assert curve.degree == 2
+    assert len(curve.control_points_list) == 3
+    # Rational (weights present) → the middle weight (0.9807…) is what gives the
+    # edge its curvature; if it were dropped the plate would render flat.
+    assert len(curve.weights_data) == 3
+    assert curve.weights_data[1] == pytest.approx(0.98078528, abs=1e-6)
+
+
 @pytest.mark.skip(reason="Not yet implemented")
 def test_read_b_spline_surf_w_knots_2_sat(example_files, tmp_path, monkeypatch):
     # OCC-only SAT/STEP read + validity check (lazy-imported so the module

@@ -2115,9 +2115,23 @@ def _make_rmed_reader(path: pathlib.Path) -> "FEAStreamReader":
 
 
 def _make_sif_reader(path: pathlib.Path) -> "FEAStreamReader":
-    from ada.fem.formats.sesam.results.read_sif import read_sif_file
+    # Default: the per-step SifStreamReader — peak result RSS stays flat in step
+    # count (one step resident at a time, via the byte-offset index), so a
+    # many-mode deck can't OOM the bake. It streams per *field* (each RV card is
+    # one contiguous block), so it's a single pass, ~+11% wall vs the full
+    # materialise, and it enriches nodal step labels from SESTRA.LIS just like
+    # the adapter. ADA_FEA_SIF_STREAMER=0/false/off forces the full-materialise
+    # adapter (e.g. to rule the streamer out when triaging).
+    import os
 
-    return FEAResultStreamAdapter(read_sif_file(path))
+    if os.environ.get("ADA_FEA_SIF_STREAMER", "").strip().lower() in {"0", "false", "no", "off"}:
+        from ada.fem.formats.sesam.results.read_sif import read_sif_file
+
+        return FEAResultStreamAdapter(read_sif_file(path))
+
+    from ada.fem.formats.sesam.results.sif_stream import SifStreamReader
+
+    return SifStreamReader(path)
 
 
 def _make_sin_reader(path: pathlib.Path) -> "FEAStreamReader":
