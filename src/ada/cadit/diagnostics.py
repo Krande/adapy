@@ -337,3 +337,237 @@ def diagnose_part(part: "Part", *, linear_deflection: float = -1.0, include_ok: 
         if include_ok or not d.ok:
             report.diagnostics.append(d)
     return report
+
+
+
+
+# --------------------------------------------------------------------------- #
+# GLB-vs-GLB geometry comparison (e.g. adapy tess path vs step2glb)
+# --------------------------------------------------------------------------- #
+# Both adapy's GLB writer and the step2glb pipeline emit the same viewer
+# contract (scenes[0].extras.id_hierarchy + draw_ranges_node<matid>), so ONE
+# extraction path splits either GLB into the same per-part records. Parts are
+# matched by LOCATION, not name: step2glb keeps the STEP product names while
+# adapy's stream reader emits generic solid_<n>, and instance counts differ —
+# so name matching is unreliable, but the same solid tessellated by either
+# engine has a near-identical centroid. Both sides are welded and measured the
+# same way (never a welded mesh vs a parse-success count — the mistake that
+# produced a false non-manifold "bug" earlier), so a divergence is real.
+
+_GLB_MAGIC = 0x46546C67
+_CHUNK_JSON = 0x4E4F534A
+_COMPONENT_DTYPE = {5121: np.uint8, 5123: np.uint16, 5125: np.uint32, 5126: np.float32}
+_TYPE_NCOMP = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
+
+
+def _read_glb(glb: "bytes | str") -> tuple[dict, bytes]:
+    """Return (gltf_json, bin_chunk) from a GLB given as bytes or a path."""
+    import json
+    import struct
+    from pathlib import Path
+
+    raw = glb if isinstance(glb, (bytes, bytearray)) else Path(glb).read_bytes()
+    raw = bytes(raw)
+    magic, _ver, _total = struct.unpack_from("<III", raw, 0)
+    if magic != _GLB_MAGIC:
+        raise ValueError("not a GLB (bad magic)")
+    jlen, jtype = struct.unpack_from("<II", raw, 12)
+    if jtype != _CHUNK_JSON:
+        raise ValueError("first GLB chunk is not JSON")
+    tree = json.loads(raw[20 : 20 + jlen])
+    bin_chunk = b""
+    off = 20 + jlen
+    if off + 8 <= len(raw):
+        blen, _btype = struct.unpack_from("<II", raw, off)
+        bin_chunk = raw[off + 8 : off + 8 + blen]
+    return tree, bin_chunk
+
+
+def _accessor_array(tree: dict, bin_chunk: bytes, acc_idx: int) -> np.ndarray:
+    acc = tree["accessors"][acc_idx]
+    bv = tree["bufferViews"][acc["bufferView"]]
+    dtype = _COMPONENT_DTYPE[acc["componentType"]]
+    ncomp = _TYPE_NCOMP[acc["type"]]
+    start = bv.get("byteOffset", 0) + acc.get("byteOffset", 0)
+    count = acc["count"] * ncomp
+    arr = np.frombuffer(bin_chunk, dtype=dtype, count=count, offset=start)
+    return arr.reshape(-1, ncomp) if ncomp > 1 else arr
+
+
+@dataclass
+class PartRecord:
+    """One selectable part of a GLB, measured for comparison."""
+
+    name: str
+    area: float
+    n_tris: int
+    degenerate_tris: int
+    centroid: "np.ndarray"  # (3,)
+    diag: float  # bbox diagonal (part size)
+
+
+def glb_parts(glb: "bytes | str") -> list[PartRecord]:
+    """Split a GLB into per-part records (one per draw-range, instances kept
+    separate), measuring each with the same welded mesh health used everywhere.
+
+    Works on any GLB carrying the adapy viewer contract — adapy's own or
+    step2glb's. Falls back to one record per glTF mesh node when extras absent.
+    """
+    tree, bin_chunk = _read_glb(glb)
+    scenes = tree.get("scenes") or [{}]
+    extras = scenes[0].get("extras") or {}
+    id_hier = extras.get("id_hierarchy") or {}
+    nodes = tree.get("nodes", [])
+    meshes = tree.get("meshes", [])
+    out: list[PartRecord] = []
+
+    def _record(name: str, verts: np.ndarray, flat_idx: np.ndarray):
+        if not len(flat_idx):
+            return
+        used, inv = np.unique(flat_idx, return_inverse=True)
+        v = verts[used]
+        faces = inv.reshape(-1, 3)
+        h = mesh_health(v.reshape(-1), faces.reshape(-1))
+        lo, hi = v.min(0), v.max(0)
+        out.append(
+            PartRecord(
+                name=str(name),
+                area=float(h.get("area", 0.0)),
+                n_tris=int(h.get("n_tris", 0)),
+                degenerate_tris=int(h.get("degenerate_tris", 0)),
+                centroid=(lo + hi) * 0.5,
+                diag=float(np.linalg.norm(hi - lo)),
+            )
+        )
+
+    for node in nodes:
+        if "mesh" not in node:
+            continue
+        name = node.get("name", "")
+        dr = extras.get(f"draw_ranges_{name}")
+        prim = meshes[node["mesh"]]["primitives"][0]
+        pos = _accessor_array(tree, bin_chunk, prim["attributes"]["POSITION"])
+        idx = _accessor_array(tree, bin_chunk, prim["indices"]).reshape(-1).astype(np.int64)
+        if dr:
+            for part_id, (s0, ln) in dr.items():
+                pname = (id_hier.get(part_id) or [part_id])[0]
+                _record(pname, pos, idx[s0 : s0 + ln])
+        else:
+            _record(name or f"mesh{node['mesh']}", pos, idx)
+    return out
+
+
+def _match_by_centroid(parts_a: list[PartRecord], parts_b: list[PartRecord]) -> list[tuple[int, int]]:
+    """Greedy nearest-centroid match between two part lists, gated so only the
+    same physical solid pairs up: centroids within half the smaller part's size
+    and areas within 3x. O(n) via a grid hash (no scipy). Returns (i, j) pairs."""
+    if not parts_a or not parts_b:
+        return []
+    ca = np.array([p.centroid for p in parts_a])
+    cb = np.array([p.centroid for p in parts_b])
+    allc = np.vstack([ca, cb])
+    diag = float(np.linalg.norm(allc.max(0) - allc.min(0))) or 1.0
+    cell = diag / 256.0
+    grid: dict = {}
+    for i, c in enumerate(ca):
+        key = tuple((c / cell).astype(np.int64))
+        grid.setdefault(key, []).append(i)
+    claimed = set()
+    pairs: list[tuple[int, int]] = []
+    for j, c in enumerate(cb):
+        base = (c / cell).astype(np.int64)
+        best_i, best_d = -1, np.inf
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    for i in grid.get((base[0] + dx, base[1] + dy, base[2] + dz), ()):
+                        if i in claimed:
+                            continue
+                        d = float(np.linalg.norm(ca[i] - c))
+                        if d < best_d:
+                            best_d, best_i = d, i
+        if best_i < 0:
+            continue
+        pa, pb = parts_a[best_i], parts_b[j]
+        tol = 0.5 * min(pa.diag, pb.diag) + cell
+        amax = max(pa.area, pb.area)
+        area_ok = amax <= 0 or (min(pa.area, pb.area) / amax) >= (1.0 / 3.0)
+        if best_d <= tol and area_ok:
+            claimed.add(best_i)
+            pairs.append((best_i, j))
+    return pairs
+
+
+@dataclass
+class GlbComparison:
+    """Result of comparing two GLBs' geometry part-by-part (A vs B, by location)."""
+
+    parts_a: int
+    parts_b: int
+    matched: int
+    only_in_a: list[PartRecord]
+    only_in_b: list[PartRecord]
+    diverged: list[dict]
+    totals: dict
+
+    def text_report(self, limit: int = 15) -> str:
+        t = self.totals
+        lines = [
+            f"GLB geometry comparison — A:{self.parts_a} parts B:{self.parts_b} parts, matched {self.matched}",
+            f"  total area  A={t['area_a']:.5g}  B={t['area_b']:.5g}  (A/B={t['area_ratio']:.4f})",
+            f"  total tris  A={t['tris_a']}  B={t['tris_b']}",
+        ]
+        if self.only_in_b:
+            area = sum(p.area for p in self.only_in_b)
+            lines.append(f"  MISSING in A (present in B): {len(self.only_in_b)} parts, area={area:.5g} "
+                         f"e.g. {[p.name for p in self.only_in_b[:8]]}")
+        if self.only_in_a:
+            area = sum(p.area for p in self.only_in_a)
+            lines.append(f"  EXTRA in A (absent in B): {len(self.only_in_a)} parts, area={area:.5g} "
+                         f"e.g. {[p.name for p in self.only_in_a[:8]]}")
+        if self.diverged:
+            lines.append(f"  DIVERGED area ({len(self.diverged)} matched parts, worst first):")
+            for d in self.diverged[:limit]:
+                lines.append(f"    A:{d['name_a']} / B:{d['name_b']}: area A={d['area_a']:.4g} "
+                             f"B={d['area_b']:.4g} ratio={d['ratio']:.3f}")
+        return "\n".join(lines)
+
+
+def compare_glb_geometry(glb_a: "bytes | str", glb_b: "bytes | str", *, area_rel_tol: float = 0.1) -> GlbComparison:
+    """Compare two GLBs part-by-part by location (A = adapy tess path, B = step2glb).
+
+    A part in B with no spatial match in A is geometry adapy's tess path dropped
+    (e.g. curved solids the kernel-free stream reader skips). Matched parts whose
+    welded areas differ by more than ``area_rel_tol`` land in ``diverged``. Both
+    sides welded + measured identically, so differences are real.
+    """
+    pa = glb_parts(glb_a)
+    pb = glb_parts(glb_b)
+    pairs = _match_by_centroid(pa, pb)
+    matched_a = {i for i, _ in pairs}
+    matched_b = {j for _, j in pairs}
+    diverged = []
+    for i, j in pairs:
+        aa, bb = pa[i].area, pb[j].area
+        hi = max(aa, bb)
+        ratio = (min(aa, bb) / hi) if hi > 0 else 1.0
+        if hi > 0 and ratio < (1.0 - area_rel_tol):
+            diverged.append({"name_a": pa[i].name, "name_b": pb[j].name, "area_a": aa, "area_b": bb, "ratio": ratio})
+    diverged.sort(key=lambda d: d["ratio"])
+    area_a = sum(p.area for p in pa)
+    area_b = sum(p.area for p in pb)
+    return GlbComparison(
+        parts_a=len(pa),
+        parts_b=len(pb),
+        matched=len(pairs),
+        only_in_a=[pa[i] for i in range(len(pa)) if i not in matched_a],
+        only_in_b=[pb[j] for j in range(len(pb)) if j not in matched_b],
+        diverged=diverged,
+        totals={
+            "area_a": area_a,
+            "area_b": area_b,
+            "area_ratio": (area_a / area_b) if area_b else float("inf"),
+            "tris_a": sum(p.n_tris for p in pa),
+            "tris_b": sum(p.n_tris for p in pb),
+        },
+    )
