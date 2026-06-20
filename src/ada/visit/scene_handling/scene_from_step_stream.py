@@ -394,7 +394,13 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
             r = t[:3, :3]
             pos = np.ascontiguousarray((pos.reshape(-1, 3) @ r.T + t[:3, 3]).ravel(), dtype=np.float32)
             if nrm is not None:
-                nrm = np.ascontiguousarray((nrm.reshape(-1, 3) @ r.T).ravel(), dtype=np.float32)
+                n = nrm.reshape(-1, 3) @ r.T
+                # r may carry a uniform unit-scale (mixed-unit parts), which would
+                # de-normalize the rotated normals — renormalize so they stay unit
+                # (a no-op for a pure rotation).
+                ln = np.linalg.norm(n, axis=1, keepdims=True)
+                np.divide(n, ln, out=n, where=ln > 1e-12)
+                nrm = np.ascontiguousarray(n.ravel(), dtype=np.float32)
         if unit_scale != 1.0:
             # Placement translations and positions are both in file units, so scaling
             # once AFTER the transform keeps them consistent. Normals are unaffected

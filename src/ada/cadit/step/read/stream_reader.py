@@ -337,16 +337,38 @@ def _build_product_name_map(pool_get, sdr_ids):
     return name_of_rep
 
 
-def _build_transform_map(pool_get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_ids=()):
+def _build_transform_map(pool_get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_ids=(), global_scale=1.0):
     """Map each root solid id -> (matrices, paths): one world 4x4 matrix per placed
     instance, plus the matching assembly path — a root-first tuple of
     ``(rep_id, product_name)`` levels — so the scene graph can group instances the way
     the STEP product tree does.
 
+    ``global_scale`` is the file's global length scale to metres (what the GLB writer
+    multiplies positions by). When a representation declares its OWN length unit that
+    differs (mixed mm/cm/metre files), its geometry and placement translations are
+    brought into the global unit frame here — the per-instance matrix's rotation block
+    is multiplied by the solid's ``rep_scale/global_scale`` (uniform scale commutes
+    with rotation, so this scales the local geometry), and each placement translation
+    is scaled by the factor of the rep it was authored in. Without this, parts
+    authored in a non-global unit are mis-sized (e.g. metre-context fasteners in an
+    mm file shrink 1000x and tessellate to near-zero-area slivers).
+
     Resilient: any unresolved entity simply leaves a solid with the identity ([None]
     handled by the caller); never raises.
     """
     import numpy as np
+
+    _factor_cache: dict[int, float] = {}
+
+    def _rep_factor(rep_id) -> float:
+        if rep_id is None:
+            return 1.0
+        f = _factor_cache.get(rep_id)
+        if f is None:
+            s = _representation_length_scale(pool_get, rep_id)
+            f = (s / global_scale) if (s is not None and abs(global_scale) > 1e-300) else 1.0
+            _factor_cache[rep_id] = f
+        return f
 
     # geom_rep id -> solid id (from each ABSR's item list)
     geomrep_of_solid: dict[int, int] = {}
@@ -418,6 +440,11 @@ def _build_transform_map(pool_get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_id
         for rep_2, i1, i2 in out_edges:
             m_child = _placement_matrix(pool_get, i1)
             m_parent = _placement_matrix(pool_get, i2)
+            # Placement points are authored in their own rep's unit; bring each
+            # translation into the global unit frame before composing so a
+            # mixed-unit child/parent pair maps consistently.
+            m_child[:3, 3] *= _rep_factor(rep_id)
+            m_parent[:3, 3] *= _rep_factor(rep_2)
             try:
                 t_edge = np.linalg.inv(m_child) @ m_parent
             except np.linalg.LinAlgError:
@@ -441,6 +468,15 @@ def _build_transform_map(pool_get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_id
         except Exception:  # noqa: BLE001 - never crash a read over a placement chain
             pairs = [(np.eye(4), None)]
         mats = [m for m, _p in pairs]
+        # Bake the solid's own length-unit factor into each instance's rotation block
+        # (uniform scale commutes with rotation), scaling its local geometry into the
+        # global unit frame. An identity-placement solid in a non-global unit thus
+        # gains a pure-scale transform, so mixed-unit parts come out the right size
+        # rather than collapsing to near-zero-area slivers.
+        factor = _rep_factor(geom_rep)
+        if abs(factor - 1.0) > 1e-12:
+            for m in mats:
+                m[:3, :3] *= factor
         # Drop pure-identity lists to a no-op (single instance, transform=None).
         nontrivial = [m for m in mats if not np.allclose(m, np.eye(4), atol=1e-12)]
         if not nontrivial and len(mats) <= 1:
@@ -534,6 +570,77 @@ def detect_step_length_unit_scale(filepath) -> float:
             return scale
     logger.warning("detect_step_length_unit_scale: unrecognised LENGTH_UNIT record %r — assuming metres", stmt[:120])
     return 1.0
+
+
+def _si_unit_length_scale(args) -> float | None:
+    """Length scale to metres of an ``SI_UNIT(prefix, .METRE.)`` arg list, or None."""
+    if not args or len(args) < 2:
+        return None
+    if _enum_name(args[-1]).strip(".").upper() != "METRE":
+        return None
+    prefix = args[0]
+    if not isinstance(prefix, _Enum):  # ``$`` (no prefix) -> base metre
+        return 1.0
+    return _SI_PREFIX_SCALE.get(prefix.name.strip("."), 1.0)
+
+
+def _unit_length_scale(pool_get, unit_id: int) -> float | None:
+    """Scale to metres of a unit entity, or None if it isn't a length unit. Handles
+    a plain ``SI_UNIT`` and the common complex
+    ``( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) )`` / inch-foot
+    ``CONVERSION_BASED_UNIT`` forms."""
+    rec = pool_get(unit_id)
+    if rec is None:
+        return None
+    if rec.type == _COMPLEX and isinstance(rec.args, dict):
+        si = rec.args.get("SI_UNIT")
+        if si is not None:
+            s = _si_unit_length_scale(si)
+            if s is not None:
+                return s
+        if rec.args.get("LENGTH_UNIT") is not None:
+            cbu = rec.args.get("CONVERSION_BASED_UNIT")
+            if cbu and isinstance(cbu[0], str):
+                return _CONV_UNIT_SCALE.get(cbu[0].strip().upper())
+        return None
+    if rec.type == "SI_UNIT":
+        return _si_unit_length_scale(rec.args)
+    return None
+
+
+def _representation_length_scale(pool_get, rep_id: int) -> float | None:
+    """Length-unit scale (to metres) of a SHAPE_REPRESENTATION's own context, via its
+    ``GLOBAL_UNIT_ASSIGNED_CONTEXT`` unit list. None when the rep carries no length
+    unit. Some CAD systems mix mm/cm/metre contexts in one file, so geometry must be
+    scaled per representation rather than by a single global unit."""
+    rec = pool_get(rep_id)
+    if rec is None or not isinstance(rec.args, list):
+        return None
+    ctx_id = None  # the context is the last _Ref arg (after the items list)
+    for v in reversed(rec.args):
+        if isinstance(v, _Ref):
+            ctx_id = v.id
+            break
+    if ctx_id is None:
+        return None
+    ctx = pool_get(ctx_id)
+    if ctx is None:
+        return None
+    units = None
+    if ctx.type == _COMPLEX and isinstance(ctx.args, dict):
+        gua = ctx.args.get("GLOBAL_UNIT_ASSIGNED_CONTEXT")
+        if gua and isinstance(gua[0], (list, tuple)):
+            units = gua[0]
+    elif ctx.type == "GLOBAL_UNIT_ASSIGNED_CONTEXT" and ctx.args and isinstance(ctx.args[0], (list, tuple)):
+        units = ctx.args[0]
+    if not units:
+        return None
+    for u in units:
+        if isinstance(u, _Ref):
+            s = _unit_length_scale(pool_get, u.id)
+            if s is not None:
+                return s
+    return None
 
 
 _HEADER_RE = re.compile(r"^\s*#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(", re.S)
@@ -1187,7 +1294,9 @@ def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped, on_total=Non
                 sdr_ids.append(inst_id)
 
     colour_map = _build_colour_map(pool.get, styled_ids)
-    tmap, prod_names = _build_transform_map(pool.get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_ids)
+    tmap, prod_names = _build_transform_map(
+        pool.get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_ids, global_scale=detect_step_length_unit_scale(filepath)
+    )
     if on_total is not None:
         on_total(len(root_ids))
     resolver = _Resolver(pool)
@@ -1349,7 +1458,9 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=Non
             ids_mm, offs_mm = ids_sorted, offs_sorted
         pool = _OffsetPool(mm, ids_mm, offs_mm)
         colour_map = _build_colour_map(pool.get, styled)
-        tmap, prod_names = _build_transform_map(pool.get, roots, cdsr, srr, absr, sdr)
+        tmap, prod_names = _build_transform_map(
+            pool.get, roots, cdsr, srr, absr, sdr, global_scale=detect_step_length_unit_scale(filepath)
+        )
         if on_total is not None:
             on_total(len(roots))
         resolver = _Resolver(pool)
