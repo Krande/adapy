@@ -43,9 +43,6 @@ SLOT_VALUE_OFFSET = 4  # high 4 bytes of each 8-byte slot hold the value
 # path caused 15 GiB heap allocations on a 5 GB SIN and froze the
 # host machine.
 _MAX_RECORDS_PER_BLOCK = 50_000_000
-# Hard cap on individual dim values for the same reason. A single dim
-# > 10^8 is almost certainly a junk u32 read.
-_MAX_DIM_VALUE = 100_000_000
 # Upper bound on a single record's byte size. Real SIF records are
 # NFIELD words wide; even outliers like GELMNT1 with 20 node-ids cap
 # out at < 200 bytes. 4 KiB gives generous padding for variable-NFIELD
@@ -445,20 +442,19 @@ def _decode_type_block(source: ByteSource, preamble_off: int, next_preamble: int
         caps.append(_read_u32_slot(source, payload + (4 + 2 * d) * SLOT_STRIDE))
         dims.append(_read_u32_slot(source, payload + (4 + 2 * d + 1) * SLOT_STRIDE))
 
-    # Reject obvious-garbage dims before they balloon the pointer table.
-    # A junk u32 read can put 2^31 in a dim slot; allocating a list of
-    # 2 billion Python ints is what froze the host machine.
-    if any(d > _MAX_DIM_VALUE for d in dims):
-        raise ValueError(f"dim value > {_MAX_DIM_VALUE} in block {name!r}: {dims} — likely junk header")
-
     total_records = 1
     for d in dims:
         total_records *= d
-    if total_records > _MAX_RECORDS_PER_BLOCK:
-        raise ValueError(
-            f"block {name!r} dims {dims} → {total_records} records "
-            f"exceeds {_MAX_RECORDS_PER_BLOCK} cap — likely junk header"
-        )
+
+    # A dim slot can hold a junk / uninitialised value (e.g. a GSETMEMB ``cap``
+    # field of ~1e8 in some exports). Do NOT drop the block over that — the
+    # pointer table is authoritative: ``_read_pointer_table`` clamps the read to
+    # the file size and truncates at the first invalid pointer, so it finds the
+    # real record count regardless of the dim. Only cap the *requested* slot
+    # count so a 2-billion dim can't balloon the request before that clamp.
+    read_cap = total_records + 1
+    if read_cap <= 0 or read_cap > _MAX_RECORDS_PER_BLOCK:
+        read_cap = _MAX_RECORDS_PER_BLOCK
 
     # Stream the pointer table (each slot is 8 bytes, the value half in
     # the +4 word), validating + truncating at the real cutoff as it
@@ -476,7 +472,7 @@ def _decode_type_block(source: ByteSource, preamble_off: int, next_preamble: int
     # records live at slots[1..N]. dims=(N,) therefore needs N+1 slots,
     # otherwise the last record (id N) falls off the end — multi-super-
     # element files would lose one node/element per SE.
-    pointer_table = _read_pointer_table(source, pointer_table_offset, total_records + 1)
+    pointer_table = _read_pointer_table(source, pointer_table_offset, read_cap)
     total_records = int(pointer_table.size)
 
     records_start = pointer_table_offset + total_records * SLOT_STRIDE

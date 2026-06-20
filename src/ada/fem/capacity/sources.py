@@ -232,7 +232,13 @@ class SinSource(PanelGroupSource):
         sets = mesh.sets or {}
         fs = sets.get(group)
         if fs is None:
-            available = ", ".join(sorted(sets)) or "(none)"
+            if not sets:
+                raise KeyError(
+                    f"set/group {group!r} cannot be scoped: this SIN carries no set membership "
+                    "(GSETMEMB) records - it is a concept-model export with set names only. "
+                    "Run without a group to check the whole model."
+                )
+            available = ", ".join(sorted(sets))
             raise KeyError(f"set/group {group!r} not found in SIN. Available: {available}")
         ids = getattr(fs, "_member_ids", None)
         if ids:
