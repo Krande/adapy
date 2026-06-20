@@ -92,23 +92,21 @@ def test_batch_tessellate_solids_matches_per_object():
         assert b.normal is not None and len(b.normal) == len(b.position)
 
 
-def test_tessellate_empty_compound_does_not_abort():
-    """An empty body (void bbox) used to SIGABRT the process: ShapeTesselator
-    derives a *relative* deflection from the bbox, so a void box gives
-    deflection 0 and OCC raises a std::invalid_argument that escapes pythonocc's
-    exception translation. Empty STEP compounds turn up from FEM round-trips
-    that drop geometry; tessellate_shape must return an empty mesh, not crash."""
-    import pytest
-
-    pytest.importorskip("OCC", reason="unit test of the pythonocc empty-shape tessellation guard")
-    from OCC.Core.BRep import BRep_Builder
-    from OCC.Core.TopoDS import TopoDS_Compound
-
+def test_tessellate_empty_shape_does_not_abort():
+    """An empty body (void bbox) used to crash the process on *both* backends:
+    OCC's ShapeTesselator derives a relative deflection from the bbox (0 →
+    std::invalid_argument that escapes pythonocc), and adacpp's native
+    tessellator throws an untranslatable nanobind exception. Empty bodies turn
+    up from round-trips that drop geometry; ``tessellate_shape`` must return an
+    empty mesh, not crash. Built through ``active_backend()`` (a box cut by
+    itself → geometry-less shape) so it covers whichever backend is active."""
+    from ada.cad import active_backend
+    from ada.geom.booleans import BoolOpEnum
     from ada.occ.tessellating import tessellate_shape
 
-    comp = TopoDS_Compound()
-    BRep_Builder().MakeCompound(comp)
+    be = active_backend()
+    empty = be.boolean(BoolOpEnum.DIFFERENCE, be.make_box(1.0, 1.0, 1.0), be.make_box(1.0, 1.0, 1.0))
 
-    tm = tessellate_shape(comp)  # must not abort the interpreter
+    tm = tessellate_shape(empty)  # must not abort the interpreter
     assert len(tm.faces) == 0
     assert len(tm.positions) == 0

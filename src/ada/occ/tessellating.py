@@ -275,12 +275,32 @@ def _has_meshable_extent(shape: TopoDS_Shape) -> bool:
     return diag2 > 1e-18  # ~1 nm extent floor
 
 
+def _backend_has_meshable_extent(shape) -> bool:
+    """Backend-agnostic mirror of :func:`_has_meshable_extent` for a non-OCC
+    handle. An empty body crashes adacpp's native tessellator the same way it
+    crashes OCC's (the C++ exception can't cross nanobind), so probe the
+    backend's bbox first — it raises / reports a void box for a geometry-less
+    shape."""
+    from ada.cad import active_backend
+
+    try:
+        xmin, ymin, zmin, xmax, ymax, zmax = active_backend().bbox(shape)
+    except Exception:
+        return False  # "empty bounding box (shape has no geometry)" etc.
+    diag2 = (xmax - xmin) ** 2 + (ymax - ymin) ** 2 + (zmax - zmin) ** 2
+    return diag2 > 1e-18  # ~1 nm extent floor
+
+
 def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, parallel=True) -> TriangleMesh:
     # Backend dispatch: a pythonocc TopoDS uses the rich ShapeTesselator
     # (normals + edges). Any other handle (e.g. an adacpp ShapeHandle) is
     # tessellated through the active backend's tessellate verb (adacpp's native
     # ShapeTesselator port) and adapted to a TriangleMesh with computed normals.
     if not _is_topods_shape(shape):
+        # Empty / void-bbox shape: adacpp's native tessellate crashes on it the
+        # same way OCC's does, so guard here too (see _has_meshable_extent).
+        if not _backend_has_meshable_extent(shape):
+            return _empty_triangle_mesh()
         from ada.cad import active_backend
 
         mesh = active_backend().tessellate(shape)
