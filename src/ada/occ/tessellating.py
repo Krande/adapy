@@ -42,6 +42,66 @@ def _is_topods_shape(shape) -> bool:
     return isinstance(shape, TopoDS_Shape)
 
 
+def _mesh_store_area(ms) -> float:
+    """Total triangle area of a tessellated ``MeshStore`` (position soup +
+    indices). Used to gauge whether a curved-plate prism actually covered its
+    surface vs under-meshed it."""
+    pos = getattr(ms, "position", None)
+    idx = getattr(ms, "indices", None)
+    if pos is None or idx is None:
+        return 0.0
+    verts = np.asarray(pos, dtype=float).reshape(-1, 3)
+    faces = np.asarray(idx, dtype=np.int64).reshape(-1, 3)
+    if len(faces) == 0 or len(verts) == 0:
+        return 0.0
+    tris = verts[faces]
+    return float(np.sum(0.5 * np.linalg.norm(np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]), axis=1)))
+
+
+def _natural_bound_curved_solid(ada_obj):
+    """Rebuild a PlateCurved's solid from its surface over the face's *natural*
+    UV bounds, discarding the trim wire.
+
+    A handful of imported B-spline plate faces carry malformed pcurves (the
+    wire backtracks / duplicates an edge in UV), so BRepMesh grids only ~half
+    the face — the "missing triangles". The underlying surface is sound and its
+    UV box equals the plate's (rectangular) boundary, so a face built straight
+    from the surface over ``UVBounds`` re-meshes fully. Returns an OCC solid
+    (prism by thickness ``t`` along the surface normal), or the bare face when
+    ``t == 0``, or ``None`` if the rebuild can't be done."""
+    face_fn = getattr(ada_obj, "_face_occ", None)
+    if not callable(face_fn):
+        return None
+    try:
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism
+        from OCC.Core.BRepTools import breptools
+        from OCC.Core.GeomLProp import GeomLProp_SLProps
+        from OCC.Core.gp import gp_Vec
+
+        face = face_fn()
+        if not _is_topods_shape(face):
+            return None
+        surf = BRep_Tool.Surface(face)
+        umin, umax, vmin, vmax = breptools.UVBounds(face)
+        mf = BRepBuilderAPI_MakeFace(surf, umin, umax, vmin, vmax, 1e-6)
+        if not mf.IsDone():
+            return None
+        nb = mf.Face()
+        t = getattr(ada_obj, "t", None) or 0.0
+        if not t:
+            return nb
+        props = GeomLProp_SLProps(surf, (umin + umax) / 2.0, (vmin + vmax) / 2.0, 1, 1e-6)
+        if not props.IsNormalDefined():
+            return nb
+        n = props.Normal()
+        return BRepPrimAPI_MakePrism(nb, gp_Vec(n.X(), n.Y(), n.Z()).Multiplied(t)).Shape()
+    except Exception as e:  # OCC missing / pathological surface
+        logger.debug("natural-bound curved rebuild failed: %s", e)
+        return None
+
+
 def _shapefix_for_mesh(occ_geom):
     """Run ``ShapeFix_Shape`` on an OCC body so faces that lack p-curves become meshable,
     returning the fixed shape (or ``None`` if pythonocc is absent / the fix fails or no-ops).
@@ -459,38 +519,51 @@ class BatchTessellator:
                                         mesh_ok = False
 
                                     # Under-coverage guard. Some trimmed B-spline
-                                    # faces defeat BRepMesh: it emits a degenerate
-                                    # centre-fan (a handful of slivers) covering
-                                    # only ~half the surface, regardless of the
-                                    # deflection — the "missing triangles" you see
-                                    # on a few hull-skin plates. The mesh extent is
-                                    # right, so the bbox check above passes it. But
-                                    # a correct *prism* of a (curved or flat) plate
-                                    # has top+bottom faces each at least the flat
+                                    # faces defeat BRepMesh: a malformed trim wire
+                                    # (pcurves that backtrack/duplicate in UV) makes
+                                    # it grid only ~half the face, regardless of the
+                                    # deflection — the "missing triangles" on a few
+                                    # hull-skin plates. The mesh extent is right, so
+                                    # the bbox check above passes it. But a correct
+                                    # *prism* of a (curved or flat) plate has
+                                    # top+bottom faces each at least the flat
                                     # footprint area, so its mesh area is always
-                                    # >= ~2x the footprint plus the side walls. A
-                                    # ratio well under 2 means the curved faces
-                                    # under-meshed — fall back to the clean flat
-                                    # quad (these plates are near-flat, so it's
-                                    # visually faithful). Healthy plates measure
-                                    # ~2.05; the broken ones ~1.55.
+                                    # >= ~2x the footprint plus the side walls.
+                                    # Healthy plates measure ~2.05x; the broken ones
+                                    # ~1.55x. When under-covered, first try a
+                                    # natural-bound rebuild (keeps the curve — the
+                                    # surface is sound, only the wire is bad); fall
+                                    # back to the flat quad only if that fails too.
                                     if mesh_ok and idx_n >= 3:
-                                        tris = verts[_np.asarray(idx, dtype=_np.int64).reshape(-1, 3)]
-                                        mesh_area = float(
-                                            _np.sum(
-                                                0.5
-                                                * _np.linalg.norm(
-                                                    _np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]),
-                                                    axis=1,
-                                                )
-                                            )
-                                        )
+                                        mesh_area = _mesh_store_area(ms_curved)
                                         # Newell area of the (planar) flat-footprint loop.
                                         nrm = _np.zeros(3)
                                         for _i in range(len(flat_arr)):
                                             nrm = nrm + _np.cross(flat_arr[_i], flat_arr[(_i + 1) % len(flat_arr)])
                                         flat_area = 0.5 * float(_np.linalg.norm(nrm))
                                         if flat_area > 1e-6 and mesh_area < 1.85 * flat_area:
+                                            mesh_ok = False
+                                            rebuilt = _natural_bound_curved_solid(ada_obj)
+                                            if rebuilt is not None:
+                                                ms_rb = self.tessellate_occ_geom(rebuilt, node_ref, obj.color)
+                                                rb_area = _mesh_store_area(ms_rb)
+                                                # Accept the repaired curve when it now
+                                                # covers (>=1.85x) without overshooting
+                                                # the trim (<=3.5x rules out a surface
+                                                # whose natural box exceeds the real
+                                                # plate — those keep the flat fallback).
+                                                if 1.85 * flat_area <= rb_area <= 3.5 * flat_area:
+                                                    logger.warning(
+                                                        "PlateCurved %r: trim-wire tessellation under-covered "
+                                                        "(%.2f m^2 < %.2f); rebuilt from surface natural bounds "
+                                                        "(%.2f m^2)",
+                                                        getattr(ada_obj, "name", "?"),
+                                                        mesh_area,
+                                                        2.0 * flat_area,
+                                                        rb_area,
+                                                    )
+                                                    yield ms_rb
+                                                    continue
                                             logger.warning(
                                                 "PlateCurved %r: curved mesh area %.2f m^2 vs %.2f expected "
                                                 "(< 1.85x flat footprint %.2f) — degenerate tessellation, "
@@ -500,7 +573,6 @@ class BatchTessellator:
                                                 2.0 * flat_area,
                                                 flat_area,
                                             )
-                                            mesh_ok = False
                                 except Exception:
                                     pass
                             if mesh_ok:
