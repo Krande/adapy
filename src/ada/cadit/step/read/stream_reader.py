@@ -446,7 +446,15 @@ def _build_transform_map(pool_get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_id
         if not nontrivial and len(mats) <= 1:
             continue
         tmap[sid] = (mats, [p for _m, p in pairs])
-    return tmap
+    # solid id -> owning product name (independent of placement, so flat files
+    # without an assembly transform chain still get real part names).
+    name_of_solid = {}
+    for sid in root_ids:
+        gr = geomrep_of_solid.get(sid)
+        nm = name_of_rep.get(gr) if gr is not None else None
+        if nm:
+            name_of_solid[sid] = nm
+    return tmap, name_of_solid
 
 
 # SI prefix -> factor relative to the unprefixed unit (we only resolve METRE).
@@ -1057,8 +1065,11 @@ def _parse_complex(s: str, i: int) -> dict:
     return subs
 
 
-def _solid_name(args: list, n_solids: int) -> str:
-    return args[0] if args and isinstance(args[0], str) and args[0] else f"solid_{n_solids + 1}"
+def _solid_name(args: list, n_solids: int, product: str | None = None) -> str:
+    # Prefer the solid's own name; else the owning STEP PRODUCT's name (what
+    # step2glb uses, resolved via the geom rep); else a generic ordinal.
+    own = args[0] if args and isinstance(args[0], str) and args[0] else None
+    return own or product or f"solid_{n_solids + 1}"
 
 
 def _yield_instances(name: str, geom, color, tmap_entry):
@@ -1169,14 +1180,14 @@ def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped, on_total=Non
                 sdr_ids.append(inst_id)
 
     colour_map = _build_colour_map(pool.get, styled_ids)
-    tmap = _build_transform_map(pool.get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_ids)
+    tmap, prod_names = _build_transform_map(pool.get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_ids)
     if on_total is not None:
         on_total(len(root_ids))
     resolver = _Resolver(pool)
     n_solids = 0
     for rid in root_ids:
         rec = pool[rid]
-        name = _solid_name(rec.args, n_solids)
+        name = _solid_name(rec.args, n_solids, prod_names.get(rid))
         resolver.reset_cache()
         geom = _try_resolve_root(resolver, name, _ROOT_BUILDERS[rec.type], rec.args, tolerant=tolerant, skipped=skipped)
         if geom is None:
@@ -1331,7 +1342,7 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=Non
             ids_mm, offs_mm = ids_sorted, offs_sorted
         pool = _OffsetPool(mm, ids_mm, offs_mm)
         colour_map = _build_colour_map(pool.get, styled)
-        tmap = _build_transform_map(pool.get, roots, cdsr, srr, absr, sdr)
+        tmap, prod_names = _build_transform_map(pool.get, roots, cdsr, srr, absr, sdr)
         if on_total is not None:
             on_total(len(roots))
         resolver = _Resolver(pool)
@@ -1340,7 +1351,7 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=Non
             rec = pool.get(rid)
             if rec is None:
                 continue
-            name = _solid_name(rec.args, n_solids)
+            name = _solid_name(rec.args, n_solids, prod_names.get(rid))
             resolver.reset_cache()
             geom = _try_resolve_root(
                 resolver, name, _ROOT_BUILDERS[rec.type], rec.args, tolerant=tolerant, skipped=skipped

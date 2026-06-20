@@ -294,6 +294,21 @@ def _stream_workers() -> int:
     return max(1, min(n - 1, 8))
 
 
+def _leaf_product_name(paths) -> str | None:
+    """The STEP product name of a solid's own (deepest) assembly level.
+
+    Each path is a root-first tuple of ``(rep_id, product_name)`` levels from the
+    stream reader; the last is the solid's leaf product. Returns the first real
+    product name found (ignoring ``asm_<id>`` placeholders for unnamed reps), or
+    None when no path carries one."""
+    for path in paths or ():
+        if path:
+            name = path[-1][1]
+            if isinstance(name, str) and name and not name.startswith("asm_"):
+                return name
+    return None
+
+
 def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     """Shared streaming tessellation loop used by both the trimesh-scene path
     (:func:`scene_from_step_stream`) and the disk-spilled GLB path
@@ -370,7 +385,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     # The parent owns the material store (so colours map to consistent ids across worker
     # processes), creates the graph node from each worker's raw mesh arrays, and hands
     # the result to the caller's sink. Workers (subprocesses) only build + tessellate.
-    def _build(gid, color, pos, idx, nrm, transform=None, path=None) -> None:
+    def _build(gid, color, pos, idx, nrm, transform=None, path=None, collapse_leaf=False) -> None:
         # Apply this instance's world placement to the local mesh (rigid: rotation +
         # translation on positions, rotation on normals). pos/nrm stay FLAT (N*3,) — the
         # MeshStore/spill path needs flat buffers — so reshape only for the matmul.
@@ -388,7 +403,11 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
         # Resolve (and lazily create) the group chain BEFORE asking for the next node
         # id — next_node_id() is len(nodes), so the reverse order would hand the leaf
         # an id that the first new group node then claims, silently evicting it.
-        parent = _group_parent(path)
+        # When the solid was named after its own leaf product (collapse_leaf), the
+        # deepest path level IS this solid — so group under path[:-1], making the
+        # solid node the product node (matches step2glb) instead of nesting it under
+        # a redundant same-named group.
+        parent = _group_parent(path[:-1] if collapse_leaf and path else path)
         node = graph.add_node(GraphNode(gid, graph.next_node_id(), hash=create_guid(), parent=parent))
         mat_id = bt.material_store.get(color, None)
         if mat_id is None:
@@ -404,13 +423,21 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
         i = n_total
         n_total += 1
         gid = gid or f"solid_{i}"
+        # The stream reader names a solid after its owning STEP product, which is
+        # also the deepest assembly path level. For a SINGLE-instance solid that
+        # level would be a redundant same-named group above the solid, so collapse
+        # it (the solid node becomes the product node, matching step2glb). For a
+        # multi-instance solid the product group meaningfully holds its instances,
+        # so keep it.
+        n_inst = len(transforms) if transforms else 1
+        collapse_leaf = n_inst == 1 and bool(gid) and _leaf_product_name(paths) == gid
         if status == "ok":
             # One mesh, N instances: tessellated once, placed per assembly matrix.
             tfs = transforms if transforms else [None]
             paths = paths if paths and len(paths) == len(tfs) else [None] * len(tfs)
             for k, (tf, path) in enumerate(zip(tfs, paths)):
                 inst_gid = gid if k == 0 else f"{gid}/{k + 1}"
-                _build(inst_gid, color, pos, idx, nrm, tf, path)
+                _build(inst_gid, color, pos, idx, nrm, tf, path, collapse_leaf=collapse_leaf)
         elif status == "degenerate":
             _skip(gid, "degenerate (zero-extent solid)")
         elif status == "empty":

@@ -65,6 +65,17 @@ def test_glb_parts_extracts_one_record_per_solid(tmp_path):
     assert all(p.area > 0 and p.n_tris > 0 for p in parts)
 
 
+def test_stream_reader_carries_step_product_names(tmp_path):
+    # The stream reader labels each solid by its owning STEP product (what
+    # step2glb uses), not a generic solid_<n>, so the parts are name-comparable.
+    glb = _stream_glb(tmp_path, [
+        ada.PrimBox("widget_a", (0, 0, 0), (1, 1, 1)),
+        ada.PrimCyl("widget_b", (3, 0, 0), (3, 0, 1), 0.4),
+    ])
+    names = sorted(p.name for p in glb_parts(glb))
+    assert names == ["widget_a", "widget_b"]
+
+
 def test_compare_self_is_zero_divergence(tmp_path):
     # Fairness guard: a GLB vs itself must match every part with no divergence.
     glb = _stream_glb(tmp_path, [
