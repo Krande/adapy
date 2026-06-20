@@ -34,6 +34,21 @@ pytestmark = pytest.mark.skipif(
     reason=f"Mini-topside capacity reference not found under {REF}",
 )
 
+# A second, richer reference: the (partially completed) codecheck2 Genie run
+# covers the full double bottom — girders in two directions — where Genie merges
+# the per-cell concept fields into full-width stiffened panels. It exercises the
+# geometric merge that the small codecheck1 reference does not.
+_DEFAULT_REF2 = pathlib.Path(
+    r"C:\AibelProgs\projects\GitHub\dnv-rp-c201\.local\reference" r"\example_mini_topside_codecheck2\temp\Assembly"
+)
+REF2 = pathlib.Path(os.environ.get("ADA_CAPACITY_REF2", _DEFAULT_REF2))
+SIN2 = REF2 / "Analysis_pm" / "20260620_150626_R1.SIN"
+MODEL_JSON2 = REF2 / "Cc2.run1" / "model.json"
+ref2 = pytest.mark.skipif(
+    not (SIN2.exists() and MODEL_JSON2.exists()),
+    reason=f"Mini-topside capacity reference (codecheck2) not found under {REF2}",
+)
+
 _STIFF_RE = re.compile(r"Stiffener \(Name/Id\): \(([^/]+?) / \d+\)")
 
 
@@ -136,6 +151,62 @@ def test_sin_source_scopes_area_set_to_capacity_grid_like_genie():
         "panelGroup(Mini_dbl_btm_f0_i4_j1)",
     }
     assert sum(len(model.stiffeners) for model in native) == 12
+
+
+def test_mini_group_scopes_the_whole_model():
+    """The top-level ``Mini`` set spans the whole model, so scoping to it must
+    match the unscoped run.
+
+    Regression for the SIN set reader: a large/mixed set is written as several
+    ``GSETMEMB`` records sharing one set id (and may mix node + element records).
+    Keying by set id alone kept only the last record, so ``Mini`` resolved to a
+    fraction of its elements and the check covered only part of the structure.
+    """
+    from ada.fem.capacity import CapacityManager, SinSource
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    mesh = read_sin_file(SIN, step=1).mesh
+    mini_members = SinSource._set_members(mesh, "Mini")
+    n_elements = sum(len(block.identifiers) for block in mesh.elements)
+    assert len(mini_members) == n_elements  # every element, not just the last record's chunk
+
+    whole = {m.name for m in CapacityManager.from_sin(SIN, SinSource()).capacity_models()}
+    scoped = {m.name for m in CapacityManager.from_sin(SIN, SinSource(group="Mini")).capacity_models()}
+    assert scoped == whole
+    assert len(whole) > 50  # the full Mini model, not a partial scope
+
+
+def test_sin_source_full_mini_models_are_unique_rectangular_panels():
+    import numpy as np
+
+    from ada.fem.capacity import CapacityManager, SinSource
+
+    manager = CapacityManager.from_sin(SIN, SinSource())
+    models = manager.capacity_models()
+
+    owners: dict[int, str] = {}
+    for model in models:
+        for plate in model.plates:
+            for element_id in plate.element_ids:
+                assert element_id not in owners, (
+                    f"shell element {element_id} belongs to both {owners[element_id]} and {model.name}"
+                )
+                owners[element_id] = model.name
+
+    # The geometric merge fuses the per-cell concept fields into maximal
+    # rectangular stiffened panels (Genie-style), so there are far fewer, larger
+    # panels than the ~153 atomic cells — without dropping any stiffener and
+    # while every panel stays a unique, rectangular plate field.
+    unmerged = CapacityManager.from_sin(SIN, SinSource(merge_panels=False)).capacity_models()
+    assert len(models) < len(unmerged)
+    assert 50 <= len(models) < 100
+    assert sum(len(model.stiffeners) for model in models) == sum(len(model.stiffeners) for model in unmerged)
+    assert sum(len(model.stiffeners) for model in models) >= 650
+    assert owners
+    for model in models:
+        plate_ids = [element_id for plate in model.plates for element_id in plate.element_ids]
+        beam_ids = [element_id for stiffener in model.stiffeners for element_id in stiffener.element_ids]
+        assert _plate_field_area_ratio(manager.mesh, plate_ids, beam_ids, np) >= 0.95
 
 
 def test_sin_source_filters_primary_girders_by_secondary_concept_profile():
@@ -357,3 +428,133 @@ def test_sin_pressure_records_do_not_load_unrelated_capacity_grid():
     assert resolved
     assert all(rc.variables["PSd"] == pytest.approx(0.0) for rc in resolved)
     assert all(rc.variables["Qdir"] == pytest.approx(0.0) for rc in resolved)
+
+
+def _plate_field_area_ratio(mesh, plate_ids, beam_ids, np):
+    from ada.fem.capacity.extract import beam_axis_and_span, element_node_coords
+
+    axis, _span = beam_axis_and_span(mesh, (beam_ids[0],))
+    first = element_node_coords(mesh, plate_ids[0])
+    normal = np.cross(first[1] - first[0], first[2] - first[0])
+    normal = normal / (np.linalg.norm(normal) or 1.0)
+    perp = np.cross(normal, axis)
+    perp = perp / (np.linalg.norm(perp) or 1.0)
+    points = np.vstack([element_node_coords(mesh, element_id) for element_id in plate_ids])
+    origin = points.mean(axis=0)
+
+    area = 0.0
+    xy_blocks = []
+    for element_id in plate_ids:
+        coords = element_node_coords(mesh, element_id) - origin
+        xy = np.column_stack((coords @ axis, coords @ perp))
+        xy_blocks.append(xy)
+        x = xy[:, 0]
+        y = xy[:, 1]
+        area += 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
+    xy_all = np.vstack(xy_blocks)
+    bbox_area = float(np.ptp(xy_all[:, 0]) * np.ptp(xy_all[:, 1]))
+    return area / bbox_area if bbox_area else 0.0
+
+
+# --------------------------------------------------------------------------- #
+# codecheck2 — double bottom with girders in two directions (geometric merge)
+# --------------------------------------------------------------------------- #
+def _genie_plate_sets(model_json: pathlib.Path) -> set[frozenset]:
+    bms = json.loads(model_json.read_text())["BucklingModels"]
+    return {frozenset(int(e) for p in bm["Plates"] for e in p["FiniteElements"]) for bm in bms}
+
+
+def _stiffened_plate_sets(models) -> set[frozenset]:
+    return {frozenset(e for p in m.plates for e in p.element_ids) for m in models if m.stiffeners}
+
+
+@ref2
+def test_merge_reproduces_genie_double_bottom_panels():
+    """The geometric merge rebuilds Genie's merged double-bottom panels exactly.
+
+    Genie splits the girders-in-two-directions double bottom into a grid of cells
+    and merges them back into full-width stiffened panels. The lateral merge
+    reproduces a solid majority of those panels element-for-element (the residual
+    is Genie's irregular opening/triangular cells, intentionally left split).
+    """
+    from ada.fem.capacity import CapacityManager, SinSource
+
+    native = CapacityManager.from_sin(SIN2, SinSource()).capacity_models()
+    ours = _stiffened_plate_sets(native)
+    genie = _genie_plate_sets(MODEL_JSON2)
+
+    assert len(genie & ours) >= 45  # of 72 Genie panels; was ~30 before merging
+
+    # A specific full-width merged bay of the double bottom (six i-cells merged
+    # across the longitudinal girders into one panel) is reproduced exactly.
+    bms = json.loads(MODEL_JSON2.read_text())["BucklingModels"]
+    target = next(bm for bm in bms if bm["Name"].startswith("panelGroup(Mini_dbl_btm_f13_i1_j3"))
+    assert len(target["Plates"]) == 24  # 24 plate fields …
+    target_set = frozenset(int(e) for p in target["Plates"] for e in p["FiniteElements"])
+    assert len(target_set) >= 24  # … spanning ≥ 24 shell elements, full width across the bay
+    assert target_set in ours
+
+
+@ref2
+def test_merge_collapses_overrun_double_bottom_cells():
+    from ada.fem.capacity import CapacityManager, SinSource
+
+    merged = CapacityManager.from_sin(SIN2, SinSource()).capacity_models()
+    unmerged = CapacityManager.from_sin(SIN2, SinSource(merge_panels=False)).capacity_models()
+
+    assert len(merged) < len(unmerged)
+    # No stiffener is lost in the merge — only the grouping changes.
+    assert sum(len(m.stiffeners) for m in merged) == sum(len(m.stiffeners) for m in unmerged)
+    # Every merged panel is still a single rectangular plate field with unique ownership.
+    owners: dict[int, str] = {}
+    for m in merged:
+        for p in m.plates:
+            for e in p.element_ids:
+                assert e not in owners
+                owners[e] = m.name
+
+
+@ref2
+def test_plate_fields_match_genie_subdivision_on_y_grid():
+    """Plate fields are split per stiffener bay, matching Genie field-for-field.
+
+    The ``Mini_grid_y100`` cut (a vertical plane) exposed that the old element-id
+    run heuristic mis-counted fields (``nP == nS`` instead of ``nS + 1``). The
+    geometric per-bay split reproduces Genie's field decomposition exactly for
+    every regular panel, on this orientation as well as the x grid.
+    """
+    from ada.fem.capacity import CapacityManager, SinSource
+
+    ours = {m.name: m for m in CapacityManager.from_sin(SIN2, SinSource(group="Mini_grid_y100")).capacity_models()}
+    genie = {m["Name"]: m for m in json.loads(MODEL_JSON2.read_text())["BucklingModels"]}
+
+    checked = 0
+    for name, model in ours.items():
+        if name not in genie:
+            continue  # Genie's opening-split cells (trailing-integer names) are not reproduced
+        our_fields = sorted(tuple(sorted(int(e) for e in p.element_ids)) for p in model.plates)
+        genie_fields = sorted(tuple(sorted(int(e) for e in p["FiniteElements"])) for p in genie[name]["Plates"])
+        assert our_fields == genie_fields, f"{name}: plate field decomposition differs from Genie"
+        assert len(model.plates) == len(model.stiffeners) + 1  # one field per inter-stiffener strip + 2 edges
+        checked += 1
+    assert checked >= 6
+
+
+@ref2
+def test_unstiffened_panels_are_disjoint_rectangular_fields():
+    from ada.fem.capacity import CapacityManager, SinSource
+
+    models = CapacityManager.from_sin(SIN2, SinSource(include_unstiffened=True)).capacity_models()
+    unstiffened = [m for m in models if not m.stiffeners]
+    stiffened_plates = {e for m in models if m.stiffeners for p in m.plates for e in p.element_ids}
+
+    assert unstiffened  # the double bottom has plate fields carrying no secondary stiffener
+    assert all(m.name.startswith("unstiffenedPanel(") for m in unstiffened)
+
+    seen: set[int] = set()
+    for m in unstiffened:
+        for p in m.plates:
+            for e in p.element_ids:
+                assert e not in stiffened_plates  # unstiffened fields never overlap a stiffened panel
+                assert e not in seen  # and are mutually disjoint
+                seen.add(e)

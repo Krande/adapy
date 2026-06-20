@@ -7,6 +7,7 @@ import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 import {cacheAndBuildTree} from "@/state/model_worker/cacheModelUtils";
 import {fetchElemFieldStep} from "@/services/feaElemFieldBlob";
 import {fetchFieldStep, makeViewerApiFetcher} from "@/services/feaFieldBlob";
+import {validateCapacityResults} from "@/services/capacityResults";
 import type {FeaFetcher, FeaRangeFetcher} from "@/services/fea/feaFetcher";
 import {fetchBeamSolidsWarp, ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
@@ -507,7 +508,7 @@ async function loadCapacityResultsIfPresent(
         const buf = await fetchCapacityBuffer(fetcher, scope, capacity.results_url);
         const text = new TextDecoder("utf-8").decode(buf);
         const results = JSON.parse(text) as CapacityResults;
-        validateCapacityResults(results);
+        validateCapacityResults(results, {manifest});
         useCapacityResultsStore.getState().setCapacityData(
             capacity,
             {sourceName, resultsUrl: capacity.results_url},
@@ -570,18 +571,6 @@ function fetchCapacityBuffer(
     return fetcher(resultsUrl);
 }
 
-function validateCapacityResults(results: CapacityResults): void {
-    if (results.format !== "dnv-rp-c201-capacity-results") {
-        throw new Error(`unsupported capacity results format ${String(results.format)}`);
-    }
-    if (results.version !== 1) {
-        throw new Error(`unsupported capacity results version ${String(results.version)}`);
-    }
-    if (!Array.isArray(results.runs) || results.runs.length === 0) {
-        throw new Error("capacity results contain no runs");
-    }
-}
-
 export function applyCapacityVisualField(
     metricId?: string,
     caseId?: string,
@@ -629,6 +618,7 @@ export function applyCapacityDefinitionView(): boolean {
 
 export function clearCapacityDefinitionView(): void {
     disposeCapacityBoundaryOverlay();
+    clearCapacitySelectionHighlight();
 }
 
 export function clearCapacityVisualField(): void {
@@ -644,7 +634,17 @@ export function applyCapacitySelectionHighlight(): void {
     if (!results) return;
     const run = results.runs.find((r) => r.id === store.activeRunId) ?? results.runs[0];
     if (!run) return;
+    if (!store.showDefinitions) {
+        updateCapacitySelectionOverlay(run, null);
+        return;
+    }
     updateCapacitySelectionOverlay(run, store.selectedModelId);
+}
+
+function clearCapacitySelectionHighlight(): void {
+    disposeCapacitySelectedBoundaryOverlay();
+    applySelectionOverlay(active?.mesh, []);
+    applySelectionOverlay(active?.beamSolidMesh, []);
 }
 
 function paintCapacityEntries(
@@ -1020,7 +1020,6 @@ export async function load_fea_streaming(args: {
     // storage-agnostic so paradoc-embed can plug in its own fetcher
     // that hits paradoc-serve's REST endpoint instead.
     const {fetcher, rangeFetcher, cacheKey} = makeViewerApiFetcher(scope, sourceName);
-    await loadCapacityResultsIfPresent(fetcher, scope, sourceName, manifest);
 
     // (Re-)load the mesh into the scene if we don't already have it
     // for this source. Switching field-within-source keeps the same
@@ -1335,6 +1334,12 @@ export async function load_fea_streaming(args: {
 
     stage("loading field data", 0.55);
     throwIfAborted();
+
+    // Load capacity results after any model replacement. replace_model()
+    // clears the active FEA session, including the capacity store; loading
+    // the sidecar before that would make the Capacity panel disappear even
+    // though the sidecar request succeeded.
+    await loadCapacityResultsIfPresent(fetcher, scope, sourceName, manifest);
 
     // Resolve the warp source. The picked field drives colour
     // regardless; warp depends on category:

@@ -46,12 +46,19 @@ class CapacityModelBuilder(ABC):
 class StiffenedPlateBuilder(CapacityModelBuilder):
     def build(self, mesh: Mesh, aux: extract.AuxRecords, group: PanelGroupSpec) -> CapacityModel:
         # Stiffener axis (used to orient plate length vs width). Use the first
-        # stiffener with mesh elements; fall back to global z.
+        # stiffener with mesh elements; for an unstiffened field there is no
+        # stiffener, so take an in-plane edge of the first plate instead (length
+        # and width then become the two in-plane extents of the field); fall back
+        # to global z.
         axis = np.array([0.0, 0.0, 1.0])
         for st in group.stiffeners:
             if st.element_ids:
                 axis, _ = extract.beam_axis_and_span(mesh, st.element_ids)
                 break
+        else:
+            inplane = _plate_inplane_axis(mesh, group)
+            if inplane is not None:
+                axis = inplane
 
         plates: list[CapPlate] = []
         for p in group.plates:
@@ -92,6 +99,27 @@ class StiffenedPlateBuilder(CapacityModelBuilder):
             )
 
         return CapacityModel(name=group.name, plates=tuple(plates), stiffeners=tuple(stiffeners))
+
+
+def _plate_inplane_axis(mesh: Mesh, group: PanelGroupSpec) -> np.ndarray | None:
+    """In-plane edge direction of a group's first plate (for unstiffened fields)."""
+    for plate in group.plates:
+        if not plate.element_ids:
+            continue
+        coords = extract.element_node_coords(mesh, plate.element_ids[0])
+        if len(coords) < 3:
+            continue
+        normal = np.cross(coords[1] - coords[0], coords[2] - coords[0])
+        norm = np.linalg.norm(normal)
+        if norm <= 0.0:
+            continue
+        normal = normal / norm
+        axis = coords[1] - coords[0]
+        axis = axis - (axis @ normal) * normal
+        an = np.linalg.norm(axis)
+        if an > 0.0:
+            return axis / an
+    return None
 
 
 def _section_of(mesh: Mesh, aux: extract.AuxRecords, element_id: int) -> CapSection:

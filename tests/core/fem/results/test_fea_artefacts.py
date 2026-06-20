@@ -1001,6 +1001,23 @@ def test_build_manifest_omits_history_when_empty(monkeypatch):
     assert "history" not in manifest
 
 
+def test_build_manifest_includes_optional_source_hash():
+    from ada.fem.results.artefacts import MeshGeometry, build_manifest
+
+    geom = MeshGeometry(
+        points=np.zeros((1, 3), dtype=np.float64),
+        cell_blocks=[],
+    )
+    manifest = build_manifest(
+        src="dummy.SIN",
+        source_sha256="abc123",
+        mesh_geom=geom,
+        mesh_glb_filename="fea.mesh.glb",
+        field_metas=[],
+    )
+    assert manifest["source_sha256"] == "abc123"
+
+
 def test_classify_field_by_name():
     """Spot-check the name-based fallback so unfamiliar solvers get a
     sensible category. The bake-level test asserts the manifest

@@ -263,13 +263,16 @@ class SifReader:
         if member_map is None:
             return None
         set_map = self.get_tdsetnam_map()
-        istype_i, isorig_i = cards.GSETMEMB.get_indices_from_names(["ISTYPE", "ISORIG"])
         sets = dict()
-        for set_id, props in member_map.items():
-            eltype = props[istype_i]
-            set_type = "nset" if eltype == 1 else "elset"
+        for set_id, members_by_type in member_map.items():
             set_name = set_map[set_id][-1]
-            members = props[isorig_i:]
+            # A set may carry both node (ISTYPE 1) and element (ISTYPE 2) records;
+            # prefer the element membership (what element scoping needs) and fall
+            # back to nodes for a pure node set.
+            if members_by_type["elset"]:
+                set_type, members = "elset", members_by_type["elset"]
+            else:
+                set_type, members = "nset", members_by_type["nset"]
             sets[set_name] = FemSet(set_name, members, set_type=set_type)
         return sets
 
@@ -537,7 +540,20 @@ class SifReader:
         res = self._other.get(cards.GSETMEMB.name)
         if res is None:
             return None
-        return {int(x[1]): [int(i) for i in x] for x in res}
+        # A Sesam set with many members is written as several GSETMEMB records
+        # that share the same set id (ISREF) but continue the member list, and a
+        # single set may mix node records (ISTYPE 1) with element records
+        # (ISTYPE 2). Concatenate the member chunks per set and per type — keying
+        # by ISREF alone (last record wins) silently dropped most members. ISORIG
+        # is a header field, not a member; the members are the fields after it.
+        isref_i, istype_i, isorig_i = cards.GSETMEMB.get_indices_from_names(["ISREF", "ISTYPE", "ISORIG"])
+        merged: dict[int, dict[str, list[int]]] = {}
+        for x in res:
+            rec = [int(i) for i in x]
+            entry = merged.setdefault(rec[isref_i], {"nset": [], "elset": []})
+            key = "nset" if rec[istype_i] == 1 else "elset"
+            entry[key].extend(rec[isorig_i + 1 :])
+        return merged
 
     def get_rdresref(self):
         res = self.get_result(cards.RDRESREF.name)[0][1]

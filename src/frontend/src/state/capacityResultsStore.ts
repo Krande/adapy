@@ -31,6 +31,7 @@ export interface CapacityCheckCatalogEntry {
 }
 
 export interface CapacityCaseResult {
+    id?: string;
     case_id: string;
     case_label?: string;
     capacity_model_id: string;
@@ -117,6 +118,7 @@ export interface CapacityResultsState {
     showResults: boolean;
     activeMetricId: string;
     selectedModelId: string | null;
+    selectedResultId: string | null;
     failedOnly: boolean;
     loading: boolean;
     error: string | null;
@@ -135,6 +137,7 @@ export interface CapacityResultsState {
     setShowResults: (showResults: boolean) => void;
     setActiveMetricId: (metricId: string) => void;
     setSelectedModelId: (modelId: string | null) => void;
+    setSelectedCapacityResult: (modelId: string | null, resultId: string | null) => void;
     setFailedOnly: (failedOnly: boolean) => void;
 }
 
@@ -151,6 +154,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
     showResults: true,
     activeMetricId: DEFAULT_METRIC,
     selectedModelId: null,
+    selectedResultId: null,
     failedOnly: false,
     loading: false,
     error: null,
@@ -169,6 +173,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
             showResults: true,
             activeMetricId: DEFAULT_METRIC,
             selectedModelId: null,
+            selectedResultId: null,
             loading: false,
             error: null,
         });
@@ -184,17 +189,19 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
         showResults: true,
         activeMetricId: DEFAULT_METRIC,
         selectedModelId: null,
+        selectedResultId: null,
         failedOnly: false,
         loading: false,
         error: null,
     }),
-    setActiveRunId: (activeRunId) => set({activeRunId, selectedModelId: null}),
-    setActiveCaseId: (activeCaseId) => set({activeCaseId, selectedModelId: null}),
+    setActiveRunId: (activeRunId) => set({activeRunId, selectedModelId: null, selectedResultId: null}),
+    setActiveCaseId: (activeCaseId) => set({activeCaseId, selectedModelId: null, selectedResultId: null}),
     setActiveMode: (activeMode) => set({activeMode}),
     setShowDefinitions: (showDefinitions) => set({showDefinitions}),
     setShowResults: (showResults) => set({showResults}),
     setActiveMetricId: (activeMetricId) => set({activeMetricId}),
-    setSelectedModelId: (selectedModelId) => set({selectedModelId}),
+    setSelectedModelId: (selectedModelId) => set({selectedModelId, selectedResultId: null}),
+    setSelectedCapacityResult: (selectedModelId, selectedResultId) => set({selectedModelId, selectedResultId}),
     setFailedOnly: (failedOnly) => set({failedOnly}),
 }));
 

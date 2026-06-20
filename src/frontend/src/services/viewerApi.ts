@@ -309,6 +309,9 @@ export interface FeaManifestField {
 export interface FeaManifest {
     version: number;
     src: string;
+    /** Optional SHA-256 of the original FEA source. Used to reject stale
+     *  capacity-result sidecars when both sides provide the hash. */
+    source_sha256?: string | null;
     mesh: {
         url: string;
         n_points: number;

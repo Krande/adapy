@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo} from "react";
+import React, {useEffect, useMemo, useRef} from "react";
 
 import {useCapacityResultsStore} from "@/state/capacityResultsStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
@@ -19,6 +19,7 @@ const CapacityControls: React.FC = () => {
         showResults,
         activeMetricId,
         selectedModelId,
+        selectedResultId,
         failedOnly,
         loading,
         error,
@@ -28,9 +29,13 @@ const CapacityControls: React.FC = () => {
         setShowResults,
         setActiveMetricId,
         setSelectedModelId,
+        setSelectedCapacityResult,
         setFailedOnly,
     } = useCapacityResultsStore();
     const pickedName = useObjectInfoStore((s) => s.name);
+    const pickedFaceIndex = useObjectInfoStore((s) => s.faceIndex);
+    const pickedFileName = useObjectInfoStore((s) => s.fileName);
+    const lastHandledPickKeyRef = useRef<string | null>(null);
 
     const run = useMemo(() => {
         if (!results?.runs?.length) return null;
@@ -47,11 +52,17 @@ const CapacityControls: React.FC = () => {
     }, [run, activeCaseId, failedOnly]);
 
     const selectedRow = useMemo(() => {
-        if (!run || !selectedModelId || !activeCaseId) return null;
-        return run.case_results.find(
-            (row) => row.capacity_model_id === selectedModelId && row.case_id === activeCaseId,
-        ) ?? null;
-    }, [run, selectedModelId, activeCaseId]);
+        if (!run || !activeCaseId) return null;
+        const activeRows = run.case_results.filter((row) => row.case_id === activeCaseId);
+        if (selectedResultId) {
+            const resultMatch = activeRows.find((row) => caseResultKey(row) === selectedResultId);
+            if (resultMatch) return resultMatch;
+        }
+        if (!selectedModelId) return null;
+        return activeRows
+            .filter((row) => row.capacity_model_id === selectedModelId)
+            .sort((a, b) => (b.governing_usage ?? -1) - (a.governing_usage ?? -1))[0] ?? null;
+    }, [run, selectedModelId, selectedResultId, activeCaseId]);
 
     useEffect(() => {
         if (!run) return;
@@ -69,20 +80,32 @@ const CapacityControls: React.FC = () => {
     }, [run, activeCaseId, activeMetricId, showDefinitions, showResults, selectedModelId]);
 
     useEffect(() => {
-        if (!run || !pickedName) return;
+        const pickKey = pickedName ? `${pickedFileName ?? ""}:${pickedName}:${pickedFaceIndex ?? ""}` : null;
+        if (!pickKey) {
+            lastHandledPickKeyRef.current = null;
+            return;
+        }
+        if (lastHandledPickKeyRef.current === pickKey) return;
+        lastHandledPickKeyRef.current = pickKey;
+        if (!run || !pickedName || !showDefinitions) return;
         const elementId = elementIdFromName(pickedName);
         if (elementId == null) return;
+        const {
+            activeCaseId: currentCaseId,
+            activeMetricId: currentMetricId,
+            selectedModelId: currentSelectedModelId,
+        } = useCapacityResultsStore.getState();
         const match = pickCapacityModelForElement(
             run,
             elementId,
-            activeCaseId,
-            activeMetricId,
-            selectedModelId,
+            currentCaseId,
+            currentMetricId,
+            currentSelectedModelId,
         );
-        if (match && match.id !== selectedModelId) {
+        if (match && match.id !== currentSelectedModelId) {
             setSelectedModelId(match.id);
         }
-    }, [run, pickedName, activeCaseId, activeMetricId, selectedModelId, setSelectedModelId]);
+    }, [run, pickedName, pickedFaceIndex, pickedFileName, showDefinitions, setSelectedModelId]);
 
     if (!results && !loading && !error) return null;
 
@@ -173,26 +196,30 @@ const CapacityControls: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {rows.map((row) => (
-                                    <tr
-                                        key={row.capacity_model_id}
-                                        className={
-                                            "cursor-pointer border-t border-gray-800 hover:bg-gray-800 " +
-                                            (selectedModelId === row.capacity_model_id ? "bg-gray-800" : "")
-                                        }
-                                        onClick={() => setSelectedModelId(row.capacity_model_id)}
-                                    >
-                                        <td className="px-2 py-1 truncate" title={row.stiffener ?? row.panel_group}>
-                                            {shortName(row.stiffener ?? row.panel_group)}
-                                        </td>
-                                        <td className={ufClass(row.governing_usage)}>
-                                            {formatUf(row.governing_usage)}
-                                        </td>
-                                        <td className="px-2 py-1 truncate" title={row.governing_check ?? ""}>
-                                            {row.governing_check ?? ""}
-                                        </td>
-                                    </tr>
-                                ))}
+                                {rows.map((row) => {
+                                    const rowKey = caseResultKey(row);
+                                    const selected = selectedRow ? caseResultKey(selectedRow) === rowKey : false;
+                                    return (
+                                        <tr
+                                            key={rowKey}
+                                            className={
+                                                "cursor-pointer border-t border-gray-800 hover:bg-gray-800 " +
+                                                (selected ? "bg-gray-800" : "")
+                                            }
+                                            onClick={() => setSelectedCapacityResult(row.capacity_model_id, rowKey)}
+                                        >
+                                            <td className="px-2 py-1 truncate" title={row.stiffener ?? row.panel_group}>
+                                                {shortName(row.stiffener ?? row.panel_group)}
+                                            </td>
+                                            <td className={ufClass(row.governing_usage)}>
+                                                {formatUf(row.governing_usage)}
+                                            </td>
+                                            <td className="px-2 py-1 truncate" title={row.governing_check ?? ""}>
+                                                {row.governing_check ?? ""}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -233,17 +260,12 @@ const CapacityControls: React.FC = () => {
 
 const CapacityLegend: React.FC = () => (
     <div className="space-y-1">
-        <div className="h-2 rounded-sm overflow-hidden grid grid-cols-4">
-            <div className="bg-[#1f5cc7]" />
-            <div className="bg-[#3db376]" />
-            <div className="bg-[#dbbd1a]" />
-            <div className="bg-[#dc1a52]" />
-        </div>
-        <div className="grid grid-cols-4 text-[10px] text-gray-400">
-            <span>0.0</span>
-            <span>0.6</span>
-            <span>0.8</span>
-            <span>1.0+</span>
+        <div className="h-2 rounded-sm capacity-uf-gradient" />
+        <div className="relative h-3 text-[10px] text-gray-400">
+            <span className="absolute left-0">0.0</span>
+            <span className="absolute left-1/2 -translate-x-1/2">0.6</span>
+            <span className="absolute left-[66.6667%] -translate-x-1/2">0.8</span>
+            <span className="absolute left-[83.3333%] -translate-x-1/2">1.0+</span>
         </div>
     </div>
 );
@@ -278,7 +300,12 @@ function shortName(name: string): string {
 }
 
 type CapacityRunLike = NonNullable<ReturnType<typeof useCapacityResultsStore.getState>["results"]>["runs"][number];
+type CapacityCaseResultLike = CapacityRunLike["case_results"][number];
 type CapacityVisualFieldLike = CapacityRunLike["visual_fields"][number];
+
+function caseResultKey(row: CapacityCaseResultLike): string {
+    return row.id ?? `${row.case_id}::${row.capacity_model_id}::${row.stiffener ?? row.panel_group}`;
+}
 
 function metricLabel(run: CapacityRunLike, field: CapacityVisualFieldLike): string {
     const ref = metricReference(run, field);
@@ -343,7 +370,10 @@ function activeMetricScores(
 
     for (const row of run.case_results) {
         if (row.case_id === caseId && row.governing_usage != null) {
-            out.set(row.capacity_model_id, row.governing_usage);
+            const previous = out.get(row.capacity_model_id);
+            if (previous == null || row.governing_usage > previous) {
+                out.set(row.capacity_model_id, row.governing_usage);
+            }
         }
     }
     return out;

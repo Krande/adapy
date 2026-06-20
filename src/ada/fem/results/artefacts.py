@@ -1750,6 +1750,7 @@ def build_manifest(
     mesh_glb_filename: str,
     field_metas: list[FieldArtefactMeta],
     *,
+    source_sha256: str | None = None,
     elem_field_metas: list[ElementFieldArtefactMeta] | None = None,
     mesh_edges_filename: str | None = None,
     n_edges: int = 0,
@@ -1995,6 +1996,8 @@ def build_manifest(
         "mesh": mesh_meta,
         "fields": fields_payload,
     }
+    if source_sha256:
+        manifest["source_sha256"] = str(source_sha256)
     if history is not None and (history.regions or history.variables or history.series):
         manifest["history"] = build_history_payload(history)
     if lineage is not None and (lineage.get("assembly_guid") or lineage.get("groups")):
@@ -2280,6 +2283,7 @@ def bake_fea_artefacts_from_source(
     out_dir: os.PathLike,
     *,
     src_key: str = "",
+    source_sha256: str | None = None,
     legacy_glb_url_template: str | None = None,
 ) -> "BakeResult":
     """End-to-end bake from a source file path. Picks the right
@@ -2295,6 +2299,7 @@ def bake_fea_artefacts_from_source(
             reader,
             out_dir,
             src=src,
+            source_sha256=source_sha256,
             legacy_glb_url_template=legacy_glb_url_template,
         )
 
@@ -2312,6 +2317,7 @@ def bake_artefacts(
     out_dir: os.PathLike,
     *,
     src: str = "",
+    source_sha256: str | None = None,
     legacy_glb_url_template: str | None = None,
     nodal_only: bool = True,
     include_element_fields: bool = True,
@@ -2487,6 +2493,7 @@ def bake_artefacts(
 
     manifest = build_manifest(
         src=src,
+        source_sha256=source_sha256,
         mesh_geom=geom,
         mesh_glb_filename=mesh_glb_path.name,
         field_metas=field_metas,
