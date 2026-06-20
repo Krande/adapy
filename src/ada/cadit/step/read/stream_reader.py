@@ -1062,11 +1062,17 @@ _BUILDERS = {
 
 
 # Top-level renderable geometry roots — one yielded Geometry per record. A solid
-# (MANIFOLD_SOLID_BREP -> its ClosedShell) and a pure surface shell
-# (SHELL_BASED_SURFACE_MODEL -> ShellBasedSurfaceModel). Shells nested inside
-# these are reached by reference, never yielded on their own, so no double-count.
+# (MANIFOLD_SOLID_BREP -> its ClosedShell), a solid with internal cavities
+# (BREP_WITH_VOIDS, a subtype of MANIFOLD_SOLID_BREP: same first arg = the OUTER
+# CLOSED_SHELL; the void shells in arg 2 are internal cavities, invisible from
+# outside, so rendering the outer shell shows the part correctly), and a pure
+# surface shell (SHELL_BASED_SURFACE_MODEL -> ShellBasedSurfaceModel). Shells
+# nested inside these are reached by reference, never yielded on their own, so no
+# double-count. Without the BREP_WITH_VOIDS entry these solids were silently
+# dropped (38 of them in one CAD assembly), leaving holes in the model.
 _ROOT_BUILDERS = {
     "MANIFOLD_SOLID_BREP": lambda r, a: r.deref(a[1]),
+    "BREP_WITH_VOIDS": lambda r, a: r.deref(a[1]),
     "SHELL_BASED_SURFACE_MODEL": _b_shell_based_surface_model,
 }
 
