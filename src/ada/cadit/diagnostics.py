@@ -533,41 +533,104 @@ class GlbComparison:
         return "\n".join(lines)
 
 
-def compare_glb_geometry(glb_a: "bytes | str", glb_b: "bytes | str", *, area_rel_tol: float = 0.1) -> GlbComparison:
-    """Compare two GLBs part-by-part by location (A = adapy tess path, B = step2glb).
+@dataclass
+class _Agg:
+    """A name's geometry summed over its parts/instances (for name matching)."""
 
-    A part in B with no spatial match in A is geometry adapy's tess path dropped
-    (e.g. curved solids the kernel-free stream reader skips). Matched parts whose
-    welded areas differ by more than ``area_rel_tol`` land in ``diverged``. Both
-    sides welded + measured identically, so differences are real.
+    name: str
+    area: float
+    n_tris: int
+    n_parts: int
+
+
+import re as _re
+
+# adapy labels extra instances of a part ``<name>/<k>``; step2glb bakes each
+# instance under the bare product name. Strip the suffix so a product's instances
+# aggregate together on both sides.
+_INSTANCE_SUFFIX = _re.compile(r"/\d+$")
+
+
+def _aggregate_by_name(parts: list[PartRecord]) -> dict[str, _Agg]:
+    agg: dict[str, _Agg] = {}
+    for p in parts:
+        name = _INSTANCE_SUFFIX.sub("", p.name)
+        a = agg.get(name)
+        if a is None:
+            agg[name] = _Agg(name, p.area, p.n_tris, 1)
+        else:
+            a.area += p.area
+            a.n_tris += p.n_tris
+            a.n_parts += 1
+    return agg
+
+
+def compare_glb_geometry(
+    glb_a: "bytes | str", glb_b: "bytes | str", *, area_rel_tol: float = 0.1, match: str = "auto"
+) -> GlbComparison:
+    """Compare two GLBs (A = adapy tess path, B = step2glb).
+
+    ``match``:
+      * ``"name"`` — aggregate parts by hierarchy name and compare per name. Robust
+        to instance count / granularity differences; use when both sides carry the
+        same product names (adapy's stream reader and step2glb both do).
+      * ``"spatial"`` — pair individual parts by nearest centroid. Use when names
+        don't align.
+      * ``"auto"`` (default) — name matching when the two share >50% of names,
+        else spatial.
+
+    A name/part in B with no match in A is geometry adapy's tess path lacks; matched
+    entries whose welded areas differ by more than ``area_rel_tol`` land in
+    ``diverged``. Both sides are welded and measured identically, so differences are
+    real (not a welded mesh vs a parse-success count).
     """
     pa = glb_parts(glb_a)
     pb = glb_parts(glb_b)
+    totals = {
+        "area_a": sum(p.area for p in pa),
+        "area_b": sum(p.area for p in pb),
+        "tris_a": sum(p.n_tris for p in pa),
+        "tris_b": sum(p.n_tris for p in pb),
+    }
+    totals["area_ratio"] = (totals["area_a"] / totals["area_b"]) if totals["area_b"] else float("inf")
+
+    if match == "auto":
+        na, nb = {p.name for p in pa}, {p.name for p in pb}
+        overlap = len(na & nb) / max(min(len(na), len(nb)), 1)
+        match = "name" if overlap > 0.5 else "spatial"
+
+    if match == "name":
+        aa, bb = _aggregate_by_name(pa), _aggregate_by_name(pb)
+        shared = set(aa) & set(bb)
+        diverged = []
+        for name in shared:
+            x, y = aa[name].area, bb[name].area
+            hi = max(x, y)
+            ratio = (min(x, y) / hi) if hi > 0 else 1.0
+            if hi > 0 and ratio < (1.0 - area_rel_tol):
+                diverged.append({"name_a": name, "name_b": name, "area_a": x, "area_b": y, "ratio": ratio})
+        diverged.sort(key=lambda d: d["ratio"])
+        return GlbComparison(
+            parts_a=len(pa), parts_b=len(pb), matched=len(shared),
+            only_in_a=[aa[n] for n in (set(aa) - set(bb))],
+            only_in_b=[bb[n] for n in (set(bb) - set(aa))],
+            diverged=diverged, totals=totals,
+        )
+
     pairs = _match_by_centroid(pa, pb)
     matched_a = {i for i, _ in pairs}
     matched_b = {j for _, j in pairs}
     diverged = []
     for i, j in pairs:
-        aa, bb = pa[i].area, pb[j].area
-        hi = max(aa, bb)
-        ratio = (min(aa, bb) / hi) if hi > 0 else 1.0
+        x, y = pa[i].area, pb[j].area
+        hi = max(x, y)
+        ratio = (min(x, y) / hi) if hi > 0 else 1.0
         if hi > 0 and ratio < (1.0 - area_rel_tol):
-            diverged.append({"name_a": pa[i].name, "name_b": pb[j].name, "area_a": aa, "area_b": bb, "ratio": ratio})
+            diverged.append({"name_a": pa[i].name, "name_b": pb[j].name, "area_a": x, "area_b": y, "ratio": ratio})
     diverged.sort(key=lambda d: d["ratio"])
-    area_a = sum(p.area for p in pa)
-    area_b = sum(p.area for p in pb)
     return GlbComparison(
-        parts_a=len(pa),
-        parts_b=len(pb),
-        matched=len(pairs),
+        parts_a=len(pa), parts_b=len(pb), matched=len(pairs),
         only_in_a=[pa[i] for i in range(len(pa)) if i not in matched_a],
         only_in_b=[pb[j] for j in range(len(pb)) if j not in matched_b],
-        diverged=diverged,
-        totals={
-            "area_a": area_a,
-            "area_b": area_b,
-            "area_ratio": (area_a / area_b) if area_b else float("inf"),
-            "tris_a": sum(p.n_tris for p in pa),
-            "tris_b": sum(p.n_tris for p in pb),
-        },
+        diverged=diverged, totals=totals,
     )

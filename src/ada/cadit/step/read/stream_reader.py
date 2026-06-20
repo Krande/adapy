@@ -446,12 +446,18 @@ def _build_transform_map(pool_get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_id
         if not nontrivial and len(mats) <= 1:
             continue
         tmap[sid] = (mats, [p for _m, p in pairs])
-    # solid id -> owning product name (independent of placement, so flat files
-    # without an assembly transform chain still get real part names).
+    # solid id -> owning product name. The PRODUCT may be linked (via its SDR) to
+    # either the solid's geom rep (ABSR; flat files) or, when the solid is placed
+    # through a SHAPE_REPRESENTATION_RELATIONSHIP, to the placement rep — so try the
+    # placement rep first, then the ABSR. Independent of any transform chain, so
+    # both flat and deeply-placed solids get the real part name.
     name_of_solid = {}
     for sid in root_ids:
         gr = geomrep_of_solid.get(sid)
-        nm = name_of_rep.get(gr) if gr is not None else None
+        if gr is None:
+            continue
+        place = place_rep_of_geom.get(gr, gr)
+        nm = name_of_rep.get(place) or name_of_rep.get(gr)
         if nm:
             name_of_solid[sid] = nm
     return tmap, name_of_solid
@@ -1066,10 +1072,11 @@ def _parse_complex(s: str, i: int) -> dict:
 
 
 def _solid_name(args: list, n_solids: int, product: str | None = None) -> str:
-    # Prefer the solid's own name; else the owning STEP PRODUCT's name (what
-    # step2glb uses, resolved via the geom rep); else a generic ordinal.
+    # The owning STEP PRODUCT name always wins (this is the meaningful part tag
+    # and what step2glb uses, so the two engines' parts line up by name); fall
+    # back to the solid's own MANIFOLD_SOLID_BREP name, then a generic ordinal.
     own = args[0] if args and isinstance(args[0], str) and args[0] else None
-    return own or product or f"solid_{n_solids + 1}"
+    return product or own or f"solid_{n_solids + 1}"
 
 
 def _yield_instances(name: str, geom, color, tmap_entry):
