@@ -444,8 +444,16 @@ def resolve_cases(
     """
     from ada.fem.formats.sesam.results.read_sin import read_sin_file, read_sin_metadata
 
+    available = read_sin_metadata(sin_path).steps
     if result_cases is None:
-        result_cases = read_sin_metadata(sin_path).steps
+        result_cases = available
+    else:
+        missing = [c for c in result_cases if c not in set(available)]
+        if missing:
+            raise ValueError(
+                f"requested result case(s) {missing} are not in the SIN. "
+                f"Available result cases: {available}"
+            )
 
     aux = extract.AuxRecords.from_sin(sin_path)
     mesh = read_sin_file(sin_path, step=result_cases[0]).mesh if result_cases else None
