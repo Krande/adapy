@@ -1063,6 +1063,11 @@ _BUILDERS = {
     "ADVANCED_FACE": _b_advanced_face,
     "CLOSED_SHELL": _b_closed_shell,
     "OPEN_SHELL": _b_open_shell,
+    # ORIENTED_CLOSED_SHELL('', #base_closed_shell, orientation): a CLOSED_SHELL reused
+    # with an orientation flag (e.g. the void shells of a BREP_WITH_VOIDS). Resolve to
+    # its base shell; the orientation only flips face normals, which tessellation treats
+    # as double-sided. No geometry left behind.
+    "ORIENTED_CLOSED_SHELL": lambda r, a: r.deref(a[1]),
     "SHELL_BASED_SURFACE_MODEL": _b_shell_based_surface_model,
 }
 
