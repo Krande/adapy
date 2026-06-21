@@ -495,7 +495,11 @@ def make_wire_from_edge_loop(edge_loop: geo_cu.EdgeLoop) -> TopoDS_Wire:
             sfw.FixConnected()
             sfw.FixClosed()
             fixed = sfw.Wire()
-            if fixed is not None and not fixed.IsNull() and fixed.Closed():
+            # Reorder reconnects the FULL edge set, so it is at least as complete as the
+            # sequential wire (which silently drops non-chaining edges). Prefer any
+            # non-null reordered wire — even if OCC's Closed() flag stays false, the
+            # downstream BRepBuilderAPI_MakeFace tolerates the residual sub-tolerance gap.
+            if fixed is not None and not fixed.IsNull():
                 logger.debug("Wire rebuilt via ShapeFix_Wire reorder (sequential build gave open/failed wire)")
                 return fixed
         except Exception as ex:  # noqa: BLE001 - fall through to the original behaviour

@@ -804,6 +804,35 @@ def consume_face_coverage_stats() -> dict[str, int]:
     return out
 
 
+def _maybe_capture_dropped_face(cfs_face, ex) -> None:
+    """When ``ADA_CAPTURE_DROPPED_FACES=<dir>`` is set, pickle a dropped face (the
+    minimal failing ``ada.geom`` unit) so it can be replayed as a fast regression
+    fixture without re-running a whole-file conversion. No-op by default; never raises
+    (a capture failure must not change the build outcome). The captured objects are
+    pure geometry — use them to author synthetic committed fixtures, not to commit
+    source-derived data."""
+    import os as _os_cap
+
+    out_dir = _os_cap.environ.get("ADA_CAPTURE_DROPPED_FACES")
+    if not out_dir:
+        return
+    try:
+        import hashlib
+        import pickle
+
+        surf = type(getattr(cfs_face, "face_surface", None)).__name__
+        reason = str(ex)[:60]
+        blob = pickle.dumps(cfs_face)
+        tag = hashlib.sha1(blob).hexdigest()[:12]
+        _os_cap.makedirs(out_dir, exist_ok=True)
+        with open(_os_cap.path.join(out_dir, f"{surf}_{tag}.pkl"), "wb") as fh:
+            fh.write(blob)
+        FACE_COVERAGE_STATS[f"captured_{surf}"] += 1
+        logger.debug("captured dropped %s face (%s) -> %s", surf, reason, tag)
+    except Exception as cap_ex:  # noqa: BLE001 - capture is best-effort diagnostics
+        logger.debug("dropped-face capture failed: %s", cap_ex)
+
+
 # A rebuilt face whose area exceeds this multiple of (boundary-sample bbox diagonal)^2
 # is over-covering its own boundary evidence and gets dropped instead. Legitimate
 # closed revolution faces stay far below: a full cylinder's worst area/diag^2 ratio is
@@ -1524,6 +1553,7 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
             except Exception as ex:
                 n_dropped += 1
                 logger.warning("Skipping AdvancedFace (%s surface): %s", type(cfs_face.face_surface).__name__, ex)
+                _maybe_capture_dropped_face(cfs_face, ex)
                 continue
 
         # Handle plain Face with PolyLoop bounds (faceted-brep polygons)
