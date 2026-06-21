@@ -220,6 +220,25 @@ class OffsetSurface:
 
 
 @dataclass
+class PointOnSurface:
+    """STEP AP242 t_point_on_surface — a point at (u, v) on a basis surface."""
+
+    basis_surface: "SURFACE_GEOM_TYPES"
+    u: float
+    v: float
+
+
+@dataclass
+class RectangularCompositeSurface:
+    """STEP AP242 t_rectangular_composite_surface — a grid of surface patches.
+
+    ``segments`` is a row-major grid of basis surfaces (surface_patch.parent_surface).
+    """
+
+    segments: list
+
+
+@dataclass
 class IShapeProfileDef(ProfileDef):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcIShapeProfileDef.htm)
@@ -461,5 +480,7 @@ SURFACE_GEOM_TYPES = Union[
     SurfaceOfRevolution,
     RectangularTrimmedSurface,
     OffsetSurface,
+    PointOnSurface,
+    RectangularCompositeSurface,
     ClosedShell,
 ]

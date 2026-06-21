@@ -52,9 +52,11 @@ from ada.geom.curves import (
     Hyperbola,
     KnotType,
     Line,
+    OffsetCurve3D,
     OrientedEdge,
     Parabola,
     PCurve,
+    PointOnCurve,
     PolyLine,
     PolyLoop,
     RationalBSplineCurveWithKnots,
@@ -86,7 +88,9 @@ from ada.geom.surfaces import (
     OffsetSurface,
     OpenShell,
     Plane,
+    PointOnSurface,
     RationalBSplineSurfaceWithKnots,
+    RectangularCompositeSurface,
     RectangularTrimmedSurface,
     ShellBasedSurfaceModel,
     SphericalSurface,
@@ -1055,6 +1059,54 @@ def _b_offset_surface(r: _Resolver, a: list) -> OffsetSurface:
     return OffsetSurface(basis_surface=r.deref(a[1]), distance=float(a[2]), self_intersect=_enum_true(a[3]))
 
 
+# -- placements / point-on / replicas / offsets ----------------------------- #
+def _b_axis2_placement_2d(r: _Resolver, a: list) -> Axis2Placement3D:
+    # AXIS2_PLACEMENT_2D('', #location, #ref_direction) — promote to a 3D placement.
+    kwargs = {"location": r.deref(a[1])}
+    if len(a) > 2 and isinstance(a[2], _Ref):
+        kwargs["ref_direction"] = r.deref(a[2])
+    return Axis2Placement3D(**kwargs)
+
+
+def _b_point_on_curve(r: _Resolver, a: list) -> PointOnCurve:
+    # POINT_ON_CURVE('', #basis_curve, parameter)
+    return PointOnCurve(basis_curve=r.deref(a[1]), parameter=float(a[2]))
+
+
+def _b_point_on_surface(r: _Resolver, a: list) -> PointOnSurface:
+    # POINT_ON_SURFACE('', #basis_surface, u, v)
+    return PointOnSurface(basis_surface=r.deref(a[1]), u=float(a[2]), v=float(a[3]))
+
+
+def _b_offset_curve_3d(r: _Resolver, a: list) -> OffsetCurve3D:
+    # OFFSET_CURVE_3D('', #basis_curve, distance, self_intersect, #ref_direction)
+    ref = r.deref(a[4]) if len(a) > 4 and isinstance(a[4], _Ref) else None
+    return OffsetCurve3D(
+        basis_curve=r.deref(a[1]), distance=float(a[2]), self_intersect=_enum_true(a[3]), ref_direction=ref
+    )
+
+
+def _b_replica(r: _Resolver, a: list):
+    # CURVE_REPLICA / SURFACE_REPLICA('', #parent, #transformation): import the parent
+    # geom natively (the rigid transform is recorded upstream, not applied here).
+    return r.deref(a[1])
+
+
+def _b_surface_patch(r: _Resolver, a: list):
+    # SURFACE_PATCH('', #parent_surface, u_transition, v_transition, u_sense, v_sense)
+    return r.deref(a[1])
+
+
+def _b_rectangular_composite_surface(r: _Resolver, a: list) -> RectangularCompositeSurface:
+    # RECTANGULAR_COMPOSITE_SURFACE('', ((#surface_patch, ...), ...))
+    grid = []
+    for row in a[1]:
+        for patch in row:
+            p = r.deref(patch)
+            grid.append(getattr(p, "parent_surface", p))
+    return RectangularCompositeSurface(segments=grid)
+
+
 # -- solids / models -------------------------------------------------------- #
 def _as_axis2(p):
     """Coerce an Axis1Placement (location + axis, no ref dir) into Axis2Placement3D so
@@ -1402,6 +1454,15 @@ _BUILDERS = {
     "VECTOR": _b_vector,
     "VERTEX_POINT": _b_vertex_point,
     "AXIS2_PLACEMENT_3D": _b_axis2_placement_3d,
+    "AXIS2_PLACEMENT_2D": _b_axis2_placement_2d,
+    "POINT_ON_CURVE": _b_point_on_curve,
+    "POINT_ON_SURFACE": _b_point_on_surface,
+    "OFFSET_CURVE_3D": _b_offset_curve_3d,
+    "INTERSECTION_CURVE": _b_surface_curve,
+    "CURVE_REPLICA": _b_replica,
+    "SURFACE_REPLICA": _b_replica,
+    "SURFACE_PATCH": _b_surface_patch,
+    "RECTANGULAR_COMPOSITE_SURFACE": _b_rectangular_composite_surface,
     "LINE": _b_line,
     "CIRCLE": _b_circle,
     "ELLIPSE": _b_ellipse,

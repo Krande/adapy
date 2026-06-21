@@ -30,6 +30,8 @@ CURVE_GEOM_TYPES = Union[
     "TrimmedCurve",
     "CompositeCurve",
     "PCurve",
+    "PointOnCurve",
+    "OffsetCurve3D",
     "GeometricCurveSet",
 ]
 
@@ -240,6 +242,24 @@ class Parabola:
 
     position: Axis2Placement3D
     focal_dist: float
+
+
+@dataclass
+class PointOnCurve:
+    """STEP AP242 t_point_on_curve — a point located at ``parameter`` on a basis curve."""
+
+    basis_curve: "CURVE_GEOM_TYPES"
+    parameter: float
+
+
+@dataclass
+class OffsetCurve3D:
+    """STEP AP242 t_offset_curve_3d — a curve offset from a basis curve by ``distance``."""
+
+    basis_curve: "CURVE_GEOM_TYPES"
+    distance: float
+    self_intersect: bool = False
+    ref_direction: "Direction | None" = None
 
 
 @dataclass
