@@ -116,6 +116,7 @@ export interface CapacityResultsState {
     activeMode: "definition" | "results";
     showDefinitions: boolean;
     showResults: boolean;
+    isolateDefinitions: boolean;
     activeMetricId: string;
     selectedModelId: string | null;
     selectedResultId: string | null;
@@ -135,6 +136,7 @@ export interface CapacityResultsState {
     setActiveMode: (mode: "definition" | "results") => void;
     setShowDefinitions: (showDefinitions: boolean) => void;
     setShowResults: (showResults: boolean) => void;
+    setIsolateDefinitions: (isolateDefinitions: boolean) => void;
     setActiveMetricId: (metricId: string) => void;
     setSelectedModelId: (modelId: string | null) => void;
     setSelectedCapacityResult: (modelId: string | null, resultId: string | null) => void;
@@ -152,6 +154,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
     activeMode: "results",
     showDefinitions: true,
     showResults: true,
+    isolateDefinitions: false,
     activeMetricId: DEFAULT_METRIC,
     selectedModelId: null,
     selectedResultId: null,
@@ -171,6 +174,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
             activeCaseId: caseId,
             showDefinitions: true,
             showResults: true,
+            isolateDefinitions: false,
             activeMetricId: DEFAULT_METRIC,
             selectedModelId: null,
             selectedResultId: null,
@@ -187,6 +191,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
         activeMode: "results",
         showDefinitions: true,
         showResults: true,
+        isolateDefinitions: false,
         activeMetricId: DEFAULT_METRIC,
         selectedModelId: null,
         selectedResultId: null,
@@ -199,6 +204,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
     setActiveMode: (activeMode) => set({activeMode}),
     setShowDefinitions: (showDefinitions) => set({showDefinitions}),
     setShowResults: (showResults) => set({showResults}),
+    setIsolateDefinitions: (isolateDefinitions) => set({isolateDefinitions}),
     setActiveMetricId: (activeMetricId) => set({activeMetricId}),
     setSelectedModelId: (selectedModelId) => set({selectedModelId, selectedResultId: null}),
     setSelectedCapacityResult: (selectedModelId, selectedResultId) => set({selectedModelId, selectedResultId}),

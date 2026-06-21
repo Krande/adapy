@@ -4,9 +4,11 @@ import {useCapacityResultsStore} from "@/state/capacityResultsStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {
     applyCapacityDefinitionView,
+    applyCapacityIsolation,
     applyCapacitySelectionHighlight,
     applyCapacityVisualField,
     clearCapacityDefinitionView,
+    clearCapacityIsolation,
     clearCapacityVisualField,
 } from "@/utils/scene/handlers/load_fea_streaming";
 
@@ -17,6 +19,7 @@ const CapacityControls: React.FC = () => {
         activeCaseId,
         showDefinitions,
         showResults,
+        isolateDefinitions,
         activeMetricId,
         selectedModelId,
         selectedResultId,
@@ -27,6 +30,7 @@ const CapacityControls: React.FC = () => {
         setActiveCaseId,
         setShowDefinitions,
         setShowResults,
+        setIsolateDefinitions,
         setActiveMetricId,
         setSelectedModelId,
         setSelectedCapacityResult,
@@ -78,6 +82,15 @@ const CapacityControls: React.FC = () => {
         }
         applyCapacitySelectionHighlight();
     }, [run, activeCaseId, activeMetricId, showDefinitions, showResults, selectedModelId]);
+
+    useEffect(() => {
+        if (!run) return;
+        if (isolateDefinitions) {
+            applyCapacityIsolation();
+        } else {
+            clearCapacityIsolation();
+        }
+    }, [run, isolateDefinitions]);
 
     useEffect(() => {
         const pickKey = pickedName ? `${pickedFileName ?? ""}:${pickedName}:${pickedFaceIndex ?? ""}` : null;
@@ -157,6 +170,13 @@ const CapacityControls: React.FC = () => {
                             onClick={() => setShowResults(!showResults)}
                         >
                             Results
+                        </button>
+                        <button
+                            className={modeButton(isolateDefinitions)}
+                            onClick={() => setIsolateDefinitions(!isolateDefinitions)}
+                            title="Hide everything except the capacity models"
+                        >
+                            Only definitions
                         </button>
                     </div>
 

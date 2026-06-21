@@ -13,6 +13,7 @@ import {fetchBeamSolidsWarp, ParsedBeamSolidsWarp} from "@/services/feaBeamSolid
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
 import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batch_mesh";
+import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {CapacityManifest, FeaManifest, FeaManifestField, ScopeUrl, viewerApi} from "@/services/viewerApi";
 import {sceneRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
@@ -22,7 +23,7 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useCapacityResultsStore} from "@/state/capacityResultsStore";
 import type {CapacityResults} from "@/state/capacityResultsStore";
 import {useConversionStore} from "@/state/conversionStore";
-import {usePerfStore} from "@/state/perfStore";
+import {usePerfStore, requestRender} from "@/state/perfStore";
 import {applyFieldToMesh} from "../fea/applyField";
 import {applyElemFieldToMesh} from "../fea/applyElemField";
 import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
@@ -73,6 +74,10 @@ interface ActiveFeaStreaming {
     capacityColorOverlay?: THREE.Mesh;
     /** Capacity color overlay for optional beam-solid geometry. */
     beamSolidCapacityColorOverlay?: THREE.Mesh;
+    /** Pre-isolation hidden-range snapshot per mesh, so "show only
+     *  definitions" can restore exactly what was visible when it was
+     *  switched on. Present only while isolation is active. */
+    capacityIsolationSaved?: {main?: Set<string>; beam?: Set<string>};
 }
 
 let active: ActiveFeaStreaming | null = null;
@@ -625,6 +630,64 @@ export function clearCapacityVisualField(): void {
     if (!active) return;
     disposeCapacityColorOverlay("main");
     disposeCapacityColorOverlay("beam");
+}
+
+/** "Show only definitions" — hide every FEA draw range that is not part of a
+ *  capacity model, leaving just the capacity panels (their faces, plus the
+ *  boundary/colour overlays when those are on). The pre-isolation hidden set is
+ *  snapshotted so {@link clearCapacityIsolation} restores exactly what the user
+ *  had visible. Idempotent: re-applies cleanly when the run/models change. */
+export function applyCapacityIsolation(): boolean {
+    if (!active?.mesh) return false;
+    const store = useCapacityResultsStore.getState();
+    const results = store.results;
+    if (!results) return false;
+    const run = results.runs.find((r) => r.id === store.activeRunId) ?? results.runs[0];
+    if (!run) return false;
+
+    const keep = new Set<string>();
+    for (const model of run.capacity_models) {
+        for (const elementId of model.element_ids.all ?? []) keep.add(`E${elementId}`);
+    }
+
+    active.capacityIsolationSaved = active.capacityIsolationSaved ?? {};
+    isolateMeshToRanges(active.mesh, keep, "main");
+    if (active.beamSolidMesh) isolateMeshToRanges(active.beamSolidMesh, keep, "beam");
+    requestRender();
+    return true;
+}
+
+function isolateMeshToRanges(mesh: THREE.Mesh, keep: Set<string>, slot: "main" | "beam"): void {
+    if (!(mesh instanceof CustomBatchedMesh) || !active?.capacityIsolationSaved) return;
+    const saved = active.capacityIsolationSaved;
+    // Snapshot the user's pre-isolation hidden ranges once, so toggling off
+    // restores them rather than blindly un-hiding everything.
+    if (saved[slot] === undefined) saved[slot] = new Set(mesh.getHiddenRanges());
+    const baseline = saved[slot]!;
+
+    // Reset to the snapshot baseline, then hide everything outside `keep`.
+    mesh.unhideAllDrawRanges();
+    const toHide: string[] = [];
+    for (const id of mesh.drawRanges.keys()) {
+        if (!keep.has(id) || baseline.has(id)) toHide.push(id);
+    }
+    if (toHide.length) mesh.hideBatchDrawRange(toHide);
+}
+
+/** Undo {@link applyCapacityIsolation}: restore the snapshotted hidden set. */
+export function clearCapacityIsolation(): void {
+    if (!active?.capacityIsolationSaved) return;
+    const saved = active.capacityIsolationSaved;
+    restoreMeshHidden(active.mesh, saved.main);
+    if (active.beamSolidMesh) restoreMeshHidden(active.beamSolidMesh, saved.beam);
+    active.capacityIsolationSaved = undefined;
+    requestRender();
+}
+
+function restoreMeshHidden(mesh: THREE.Mesh | undefined, savedHidden: Set<string> | undefined): void {
+    if (!(mesh instanceof CustomBatchedMesh)) return;
+    mesh.unhideAllDrawRanges();
+    if (savedHidden && savedHidden.size) mesh.hideBatchDrawRange(savedHidden);
 }
 
 export function applyCapacitySelectionHighlight(): void {
