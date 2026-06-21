@@ -1018,6 +1018,70 @@ def _b_bspline_surface_with_knots(r: _Resolver, a: list):
     return _make_bspline_surface(r, a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11], a[12])
 
 
+def _implicit_bspline_knots(knot_type: str, degree: int, n_cps: int):
+    """Knots + multiplicities for a B-spline subtype that omits explicit knots
+    (BEZIER / UNIFORM / QUASI_UNIFORM), derived from degree + control-point count per
+    ISO 10303-42. Lets these map onto the existing (Rational)BSplineCurve/Surface geom."""
+    d = int(degree)
+    n = int(n_cps)
+    if knot_type == "PIECEWISE_BEZIER_KNOTS":
+        segs = max(1, (n - 1) // d) if d else 1  # piecewise-Bezier segment count
+        knots = [float(i) for i in range(segs + 1)]
+        mults = [d + 1] + [d] * (segs - 1) + [d + 1]
+    elif knot_type == "QUASI_UNIFORM_KNOTS":
+        n_interior = max(0, n - d - 1)  # clamped ends, uniform mult-1 interior
+        knots = [float(i) for i in range(n_interior + 2)]
+        mults = [d + 1] + [1] * n_interior + [d + 1]
+    else:  # UNIFORM_KNOTS — open uniform, every knot mult 1
+        n_knots = n + d + 1
+        knots = [float(i) for i in range(n_knots)]
+        mults = [1] * n_knots
+    return knots, mults
+
+
+def _b_bezier_curve(r: _Resolver, a: list):
+    # BEZIER_CURVE / UNIFORM_CURVE / QUASI_UNIFORM_CURVE inherit B_SPLINE_CURVE's args
+    # ('', degree, (cps), form, closed, si) and imply their knots from degree+#cps.
+    k, m = _implicit_bspline_knots("PIECEWISE_BEZIER_KNOTS", a[1], len(a[2]))
+    return _make_bspline_curve(r, a[1], a[2], a[3], a[4], a[5], m, k, "PIECEWISE_BEZIER_KNOTS")
+
+
+def _b_uniform_curve(r: _Resolver, a: list):
+    k, m = _implicit_bspline_knots("UNIFORM_KNOTS", a[1], len(a[2]))
+    return _make_bspline_curve(r, a[1], a[2], a[3], a[4], a[5], m, k, "UNIFORM_KNOTS")
+
+
+def _b_quasi_uniform_curve(r: _Resolver, a: list):
+    k, m = _implicit_bspline_knots("QUASI_UNIFORM_KNOTS", a[1], len(a[2]))
+    return _make_bspline_curve(r, a[1], a[2], a[3], a[4], a[5], m, k, "QUASI_UNIFORM_KNOTS")
+
+
+def _b_bezier_surface(r: _Resolver, a: list):
+    # BEZIER/UNIFORM/QUASI_UNIFORM_SURFACE inherit B_SPLINE_SURFACE's args
+    # ('', u_deg, v_deg, (cp grid), form, u_closed, v_closed, si); knots implied per dir.
+    n_u = len(a[3])
+    n_v = len(a[3][0]) if a[3] else 0
+    uk, um = _implicit_bspline_knots("PIECEWISE_BEZIER_KNOTS", a[1], n_u)
+    vk, vm = _implicit_bspline_knots("PIECEWISE_BEZIER_KNOTS", a[2], n_v)
+    return _make_bspline_surface(r, a[1], a[2], a[3], a[4], a[5], a[6], a[7], um, vm, uk, vk, "PIECEWISE_BEZIER_KNOTS")
+
+
+def _b_uniform_surface(r: _Resolver, a: list):
+    n_u = len(a[3])
+    n_v = len(a[3][0]) if a[3] else 0
+    uk, um = _implicit_bspline_knots("UNIFORM_KNOTS", a[1], n_u)
+    vk, vm = _implicit_bspline_knots("UNIFORM_KNOTS", a[2], n_v)
+    return _make_bspline_surface(r, a[1], a[2], a[3], a[4], a[5], a[6], a[7], um, vm, uk, vk, "UNIFORM_KNOTS")
+
+
+def _b_quasi_uniform_surface(r: _Resolver, a: list):
+    n_u = len(a[3])
+    n_v = len(a[3][0]) if a[3] else 0
+    uk, um = _implicit_bspline_knots("QUASI_UNIFORM_KNOTS", a[1], n_u)
+    vk, vm = _implicit_bspline_knots("QUASI_UNIFORM_KNOTS", a[2], n_v)
+    return _make_bspline_surface(r, a[1], a[2], a[3], a[4], a[5], a[6], a[7], um, vm, uk, vk, "QUASI_UNIFORM_KNOTS")
+
+
 def _build_complex(r: _Resolver, subs: dict):
     """Build a rational/non-rational B-spline from a complex record's sub-entities.
     Note: complex sub-entity args have NO leading '' name, so they are 0-indexed."""
@@ -1047,6 +1111,12 @@ _BUILDERS = {
     "ELLIPSE": _b_ellipse,
     "B_SPLINE_CURVE_WITH_KNOTS": _b_bspline_curve_with_knots,
     "B_SPLINE_SURFACE_WITH_KNOTS": _b_bspline_surface_with_knots,
+    "BEZIER_CURVE": _b_bezier_curve,
+    "UNIFORM_CURVE": _b_uniform_curve,
+    "QUASI_UNIFORM_CURVE": _b_quasi_uniform_curve,
+    "BEZIER_SURFACE": _b_bezier_surface,
+    "UNIFORM_SURFACE": _b_uniform_surface,
+    "QUASI_UNIFORM_SURFACE": _b_quasi_uniform_surface,
     "SURFACE_CURVE": _b_surface_curve,
     "SEAM_CURVE": _b_surface_curve,
     "EDGE_CURVE": _b_edge_curve,
