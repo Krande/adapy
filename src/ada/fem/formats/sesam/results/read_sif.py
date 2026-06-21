@@ -774,20 +774,23 @@ class Sif2Mesh:
         nsp_i, eltyp_i = cards.RDPOINTS.get_indices_from_names(["nsp", "ieltyp"])
 
         rdpoints_map = self.sif.get_rdpoints_map()
-        # No element result-point geometry → no per-element force
-        # visualisation we can construct. Some eigen decks ship
-        # RDPOINTS as an empty type-block in every super-element;
-        # the nodal field path still works and is the primary bake
-        # output.
-        if not rdpoints_map:
-            return []
+        # RDPOINTS supplies the element type and result-point count, but it is
+        # only needed by the *shell* (stress) path. Some SINs (e.g. SESTRA
+        # "smart load combination" / force-only runs) ship no RDPOINTS at all
+        # yet still carry beam/line forces in RVFORCES. For line elements both
+        # pieces are recoverable without it — the element type from the mesh and
+        # the result-point count from the record length — so don't bail here.
+        rdforces_map = self.sif.get_rdforces_map()
+        elem_type_by_id = self._element_source_type_map() if not rdpoints_map else {}
 
         def keyfunc(x):
-            iielno = x[ielno_i]
-            rdpoints_res = rdpoints_map[iielno]
-            _nsp = int(rdpoints_res[nsp_i])
-            _elem_type = int(rdpoints_res[eltyp_i])
-            return x[ires_i], _nsp, _elem_type, x[irforc_i]
+            iielno = int(x[ielno_i])
+            rdpoints_res = rdpoints_map.get(iielno)
+            if rdpoints_res is not None:
+                return x[ires_i], int(rdpoints_res[nsp_i]), int(rdpoints_res[eltyp_i]), x[irforc_i]
+            ncomp = len(rdforces_map.get(int(x[irforc_i]), ())) or 1
+            nsp = (len(x) - (irforc_i + 1)) // ncomp
+            return x[ires_i], nsp, elem_type_by_id.get(iielno, -1), x[irforc_i]
 
         field_results = []
 
@@ -801,6 +804,20 @@ class Sif2Mesh:
             field_results.append(field_data)
 
         return field_results
+
+    def _element_source_type_map(self) -> dict[int, int]:
+        """Map element id → Sesam source element type, from the converted mesh.
+
+        Fallback for the element type when RDPOINTS is absent (line-force path).
+        """
+        out: dict[int, int] = {}
+        if self.mesh is None:
+            return out
+        for block in self.mesh.elements:
+            source_type = int(block.elem_info.source_type)
+            for eid in block.identifiers:
+                out[int(eid)] = source_type
+        return out
 
     def _get_line_field_data(self, rv_forces, ires, irforc, elem_type, nsp) -> ElementFieldData:
         from ada.fem.results.common import ElementFieldData
