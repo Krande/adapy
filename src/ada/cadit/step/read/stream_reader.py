@@ -93,6 +93,7 @@ from ada.geom.surfaces import (
     SurfaceOfLinearExtrusion,
     SurfaceOfRevolution,
     ToroidalSurface,
+    TriangulatedFaceSet,
 )
 
 __all__ = ["stream_read_step", "StepStreamUnsupported"]
@@ -1122,6 +1123,51 @@ def _b_geometric_set(r: _Resolver, a: list) -> GeometricCurveSet:
     return GeometricCurveSet(elements=[r.deref(x) for x in a[1]])
 
 
+# -- AP242 tessellated geometry --------------------------------------------- #
+def _b_coordinates_list(r: _Resolver, a: list):
+    # COORDINATES_LIST('', npoints, ((x,y,z), ...)) — an inline point table.
+    pts = a[2] if len(a) > 2 and isinstance(a[2], (list, tuple)) else a[-1]
+    return [Point(*[float(c) for c in p]) for p in pts]
+
+
+def _b_triangulated_face_set(r: _Resolver, a: list) -> TriangulatedFaceSet:
+    # *_TRIANGULATED_FACE_SET / TRIANGULATED_SURFACE_SET: coordinates first; the rest
+    # carry triangle index triples (ints, kept 1-based to match the IFC convention) and
+    # optional per-vertex normals (reals). Argument order varies by exporter, so classify.
+    coords = []
+    first = r.deref(a[1]) if isinstance(a[1], _Ref) else None
+    if isinstance(first, list) and first and isinstance(first[0], Point):
+        coords = first
+    normals: list = []
+    tris: list = []
+    for arg in a[2:]:
+        if isinstance(arg, (list, tuple)) and arg and isinstance(arg[0], (list, tuple)) and len(arg[0]) == 3:
+            if all(isinstance(x, int) for x in arg[0]):
+                tris = arg
+            elif all(isinstance(x, (int, float)) for x in arg[0]):
+                normals = [Direction(*[float(c) for c in n]) for n in arg]
+    indices = [int(i) for tri in tris for i in tri]  # flattened, 1-based
+    return TriangulatedFaceSet(coordinates=coords, normals=normals, indices=indices)
+
+
+def _b_tessellated_shell(r: _Resolver, a: list):
+    # TESSELLATED_SHELL / TESSELLATED_SOLID('', (#items), ...) — wraps tessellated face
+    # set(s). Return the single item; merge coords+indices (offsetting) for several.
+    items = [r.deref(x) for x in a[1]] if isinstance(a[1], (list, tuple)) else [r.deref(a[1])]
+    items = [it for it in items if isinstance(it, TriangulatedFaceSet)]
+    if len(items) == 1:
+        return items[0]
+    coords: list = []
+    indices: list = []
+    normals: list = []
+    for it in items:
+        off = len(coords)
+        coords.extend(it.coordinates)
+        normals.extend(it.normals)
+        indices.extend(i + off for i in it.indices)  # indices are 1-based; offset by prior count
+    return TriangulatedFaceSet(coordinates=coords, normals=normals, indices=indices)
+
+
 def _b_manifold_surface_shape_rep(r: _Resolver, a: list):
     # MANIFOLD_SURFACE_SHAPE_REPRESENTATION('', (#items), #context): a shape rep whose
     # items are shells / surface models. Return the single item directly, else wrap the
@@ -1421,6 +1467,13 @@ _BUILDERS = {
     "GEOMETRIC_CURVE_SET": _b_geometric_set,
     "GEOMETRIC_SET": _b_geometric_set,
     "MANIFOLD_SURFACE_SHAPE_REPRESENTATION": _b_manifold_surface_shape_rep,
+    # AP242 tessellated geometry
+    "COORDINATES_LIST": _b_coordinates_list,
+    "TRIANGULATED_FACE_SET": _b_triangulated_face_set,
+    "TRIANGULATED_SURFACE_SET": _b_triangulated_face_set,
+    "COMPLEX_TRIANGULATED_FACE_SET": _b_triangulated_face_set,
+    "TESSELLATED_SHELL": _b_tessellated_shell,
+    "TESSELLATED_SOLID": _b_tessellated_shell,
 }
 
 
@@ -1447,6 +1500,11 @@ _ROOT_BUILDERS = {
     "EXTRUDED_AREA_SOLID": _b_extruded_area_solid,
     "REVOLVED_AREA_SOLID": _b_revolved_area_solid,
     "CSG_SOLID": _b_csg_solid,
+    "TRIANGULATED_FACE_SET": _b_triangulated_face_set,
+    "TRIANGULATED_SURFACE_SET": _b_triangulated_face_set,
+    "COMPLEX_TRIANGULATED_FACE_SET": _b_triangulated_face_set,
+    "TESSELLATED_SHELL": _b_tessellated_shell,
+    "TESSELLATED_SOLID": _b_tessellated_shell,
 }
 
 
