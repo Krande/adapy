@@ -430,6 +430,35 @@ def _resolve_stiffener(
     )
 
 
+def _recovered_stress_blocks(mesh, aux, res, case, material_by_element, *, log: bool):
+    """Synthesize STRESS blocks from nodal displacements for a stress-less SIN.
+
+    Returns an empty list when there are no displacements / no plate materials to
+    recover from (the caller then resolves to zero, as before).
+    """
+    from ada.config import logger
+    from ada.fem.capacity.stress_recovery import build_recovered_stress, displacements_by_node
+
+    disp_blocks = [r for r in res.results if r.name == "RVNODDIS"]
+    if not disp_blocks or not material_by_element:
+        return []
+    if log:
+        logger.info(
+            "SIN has no element stresses (SESTRA ISEL4=-1); recovering membrane "
+            "stresses for %d plate elements from nodal displacements",
+            len(material_by_element),
+        )
+    disp = displacements_by_node(disp_blocks[0])
+    block, coords_by_element = build_recovered_stress(
+        mesh, disp, material_by_element, case, aux.element_transform_by_element
+    )
+    # The resolver reads result-point coords from aux; the recovered corner
+    # points are geometry (case-invariant), so merging once is enough.
+    for element_id, cmap in coords_by_element.items():
+        aux.result_point_coords_by_element.setdefault(element_id, cmap)
+    return [block] if block.values.size else []
+
+
 def resolve_cases(
     sin_path: str | pathlib.Path,
     models: list[CapacityModel],
@@ -458,11 +487,21 @@ def resolve_cases(
     aux = extract.AuxRecords.from_sin(sin_path)
     mesh = read_sin_file(sin_path, step=result_cases[0]).mesh if result_cases else None
     total = len(result_cases)
+    # Plate element -> (E, poisson), used to recover membrane stresses from nodal
+    # displacements when the SIN carries no element stresses (SESTRA ISEL4=-1).
+    material_by_element: dict[int, tuple[float, float]] = {
+        e: (p.material.E, p.material.poisson)
+        for model in models
+        for p in model.plates
+        for e in p.element_ids
+    }
     out: list[ResolvedCase] = []
     for index, case in enumerate(result_cases, start=1):
         res = read_sin_file(sin_path, step=case)
         stress_blocks = [r for r in res.results if r.name == "STRESS"]
         force_blocks = [r for r in res.results if r.name == "FORCES"]
+        if not stress_blocks:
+            stress_blocks = _recovered_stress_blocks(mesh, aux, res, case, material_by_element, log=index == 1)
         for model in models:
             for st in model.stiffeners:
                 rc = _resolve_stiffener(mesh, aux, model, st.name, case, stress_blocks, force_blocks)
