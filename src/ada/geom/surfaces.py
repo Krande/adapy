@@ -192,6 +192,34 @@ class SurfaceOfRevolution:
 
 
 @dataclass
+class RectangularTrimmedSurface:
+    """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_rectangular_trimmed_surface.html
+
+    A basis surface trimmed to a rectangular region of its (u, v) parameter space.
+    """
+
+    basis_surface: "SURFACE_GEOM_TYPES"
+    u1: float
+    u2: float
+    v1: float
+    v2: float
+    usense: bool = True
+    vsense: bool = True
+
+
+@dataclass
+class OffsetSurface:
+    """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_offset_surface.html
+
+    A surface offset from ``basis_surface`` by ``distance`` along its normal.
+    """
+
+    basis_surface: "SURFACE_GEOM_TYPES"
+    distance: float
+    self_intersect: bool = False
+
+
+@dataclass
 class IShapeProfileDef(ProfileDef):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcIShapeProfileDef.htm)
@@ -431,5 +459,7 @@ SURFACE_GEOM_TYPES = Union[
     RationalBSplineSurfaceWithKnots,
     SurfaceOfLinearExtrusion,
     SurfaceOfRevolution,
+    RectangularTrimmedSurface,
+    OffsetSurface,
     ClosedShell,
 ]

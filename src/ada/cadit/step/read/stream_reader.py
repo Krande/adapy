@@ -59,7 +59,7 @@ from ada.geom.curves import (
     TrimmedCurve,
 )
 from ada.geom.direction import Direction
-from ada.geom.placement import Axis2Placement3D
+from ada.geom.placement import Axis1Placement, Axis2Placement3D
 from ada.geom.points import Point
 from ada.geom.surfaces import (
     AdvancedFace,
@@ -69,11 +69,16 @@ from ada.geom.surfaces import (
     ConicalSurface,
     CylindricalSurface,
     FaceBound,
+    CurveBoundedPlane,
+    OffsetSurface,
     OpenShell,
     Plane,
     RationalBSplineSurfaceWithKnots,
+    RectangularTrimmedSurface,
     ShellBasedSurfaceModel,
     SphericalSurface,
+    SurfaceOfLinearExtrusion,
+    SurfaceOfRevolution,
     ToroidalSurface,
 )
 
@@ -985,6 +990,57 @@ def _b_toroidal_surface(r: _Resolver, a: list) -> ToroidalSurface:
     return ToroidalSurface(position=r.deref(a[1]), major_radius=float(a[2]), minor_radius=float(a[3]))
 
 
+def _b_axis1_placement(r: _Resolver, a: list) -> Axis1Placement:
+    # AXIS1_PLACEMENT('', #location, #axis)
+    axis = r.deref(a[2]) if len(a) > 2 and isinstance(a[2], _Ref) else Direction(0.0, 0.0, 1.0)
+    return Axis1Placement(location=r.deref(a[1]), axis=axis)
+
+
+def _b_surface_of_revolution(r: _Resolver, a: list) -> SurfaceOfRevolution:
+    # SURFACE_OF_REVOLUTION('', #swept_curve, #axis_position(AXIS1_PLACEMENT))
+    return SurfaceOfRevolution(swept_curve=r.deref(a[1]), axis_position=r.deref(a[2]))
+
+
+def _b_surface_of_linear_extrusion(r: _Resolver, a: list) -> SurfaceOfLinearExtrusion:
+    # SURFACE_OF_LINEAR_EXTRUSION('', #swept_curve, #extrusion_axis(VECTOR))
+    vec_rec = r._pool.get(a[2].id) if isinstance(a[2], _Ref) else None
+    direction = r.deref(a[2])  # _b_vector returns the (unit) Direction
+    depth = 1.0
+    if vec_rec is not None and vec_rec.type == "VECTOR":
+        try:
+            depth = float(vec_rec.args[2])  # VECTOR('', #orientation, magnitude)
+        except (IndexError, TypeError, ValueError):
+            depth = 1.0
+    return SurfaceOfLinearExtrusion(
+        swept_curve=r.deref(a[1]), position=None, extrusion_direction=direction, depth=depth
+    )
+
+
+def _b_rectangular_trimmed_surface(r: _Resolver, a: list) -> RectangularTrimmedSurface:
+    # RECTANGULAR_TRIMMED_SURFACE('', #basis, u1, u2, v1, v2, usense, vsense)
+    return RectangularTrimmedSurface(
+        basis_surface=r.deref(a[1]),
+        u1=float(a[2]), u2=float(a[3]), v1=float(a[4]), v2=float(a[5]),
+        usense=_enum_true(a[6]), vsense=_enum_true(a[7]),
+    )
+
+
+def _b_curve_bounded_surface(r: _Resolver, a: list):
+    # CURVE_BOUNDED_SURFACE('', #basis_surface, (#boundaries), implicit_outer). Modelled
+    # as CurveBoundedPlane when the basis is a Plane (the common case); otherwise keep
+    # the basis surface so the region still imports + tessellates from its bounds.
+    basis = r.deref(a[1])
+    bounds = [r.deref(b) for b in a[2]] if len(a) > 2 and a[2] else []
+    if isinstance(basis, Plane) and bounds:
+        return CurveBoundedPlane(basis_surface=basis, outer_boundary=bounds[0], inner_boundaries=bounds[1:])
+    return basis
+
+
+def _b_offset_surface(r: _Resolver, a: list) -> OffsetSurface:
+    # OFFSET_SURFACE('', #basis_surface, distance, self_intersect)
+    return OffsetSurface(basis_surface=r.deref(a[1]), distance=float(a[2]), self_intersect=_enum_true(a[3]))
+
+
 def _b_advanced_face(r: _Resolver, a: list) -> AdvancedFace:
     # ADVANCED_FACE('', (#bounds), #face_surface, same_sense)
     # Drop degenerate vertex-loop bounds (pole/apex of a closed surface) — they
@@ -1201,11 +1257,17 @@ _BUILDERS = {
     "VERTEX_LOOP": _b_vertex_loop,
     "FACE_BOUND": _b_face_bound,
     "FACE_OUTER_BOUND": _b_face_bound,
+    "AXIS1_PLACEMENT": _b_axis1_placement,
     "PLANE": _b_plane,
     "CYLINDRICAL_SURFACE": _b_cylindrical_surface,
     "CONICAL_SURFACE": _b_conical_surface,
     "SPHERICAL_SURFACE": _b_spherical_surface,
     "TOROIDAL_SURFACE": _b_toroidal_surface,
+    "SURFACE_OF_REVOLUTION": _b_surface_of_revolution,
+    "SURFACE_OF_LINEAR_EXTRUSION": _b_surface_of_linear_extrusion,
+    "RECTANGULAR_TRIMMED_SURFACE": _b_rectangular_trimmed_surface,
+    "CURVE_BOUNDED_SURFACE": _b_curve_bounded_surface,
+    "OFFSET_SURFACE": _b_offset_surface,
     "ADVANCED_FACE": _b_advanced_face,
     "CLOSED_SHELL": _b_closed_shell,
     "OPEN_SHELL": _b_open_shell,
