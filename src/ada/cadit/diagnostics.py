@@ -339,6 +339,130 @@ def diagnose_part(part: "Part", *, linear_deflection: float = -1.0, include_ok: 
     return report
 
 
+# --------------------------------------------------------------------------- #
+# Face-level tessellation coverage (the OCC build + mesh path)
+# --------------------------------------------------------------------------- #
+# "Did every face of this solid survive BUILD and MESH?"  total = ada.geom faces;
+# built = faces that became OCC faces in the shell; meshed = built faces BRepMesh
+# produced triangles for. The gaps — dropped (total-built) and unmeshed
+# (built-meshed) — are exactly the residual a coverage-complete kernel must recover.
+# This is the baseline metric + regression gate for the coverage work.
+
+_GEOM_SURF_LABEL = {
+    "Plane": "plane",
+    "CurveBoundedPlane": "plane",
+    "CylindricalSurface": "cylinder",
+    "ConicalSurface": "cone",
+    "SphericalSurface": "sphere",
+    "ToroidalSurface": "torus",
+    "BSplineSurfaceWithKnots": "bspline",
+    "RationalBSplineSurfaceWithKnots": "bspline",
+}
+
+
+def _geom_face_label(cfs_face) -> str:
+    surf = getattr(cfs_face, "face_surface", None)
+    if surf is None:
+        return "polyloop"  # plain faceted Face (no analytic surface)
+    return _GEOM_SURF_LABEL.get(type(surf).__name__, "other")
+
+
+_CANON_LABELS = {"plane", "cylinder", "cone", "sphere", "torus", "bspline", "polyloop"}
+
+
+def _normalize_label(lbl: str) -> str:
+    """Collapse a backend's ``face_surface_type`` string to the canonical set used by
+    ``_geom_face_label`` so geom-total and built/meshed counts line up by type."""
+    if lbl in _CANON_LABELS:
+        return lbl
+    if lbl == "bezier":
+        return "bspline"
+    return "other"
+
+
+@dataclass
+class FaceCoverage:
+    """Per-face build+mesh coverage of a solid's faces, by surface type."""
+
+    total: int = 0
+    built: int = 0
+    meshed: int = 0
+    by_type: dict = field(default_factory=dict)  # label -> [meshed, built, total]
+
+    @property
+    def pct(self) -> float:
+        return 100.0 * self.meshed / self.total if self.total else 100.0
+
+    def add(self, other: "FaceCoverage") -> None:
+        self.total += other.total
+        self.built += other.built
+        self.meshed += other.meshed
+        for k, v in other.by_type.items():
+            cur = self.by_type.setdefault(k, [0, 0, 0])
+            for i in range(3):
+                cur[i] += v[i]
+
+    def text(self) -> str:
+        lines = [
+            f"face coverage: {self.meshed}/{self.total} meshed ({self.pct:.1f}%); "
+            f"dropped {self.total - self.built}, unmeshed {self.built - self.meshed}"
+        ]
+        for k in sorted(self.by_type):
+            m, b, t = self.by_type[k]
+            lines.append(f"  {k:9s} meshed {m}/{t} (dropped {t - b}, unmeshed {b - m})")
+        return "\n".join(lines)
+
+
+def face_coverage(geom, *, linear_deflection: float = -1.0) -> FaceCoverage:
+    """Build ``geom`` on the active backend, then per-face check how many of its
+    faces survive to a non-empty triangulation, broken down by surface type —
+    routed entirely through ``CadBackend`` verbs (``build`` / ``faces`` /
+    ``face_surface_type`` / ``tessellate``) so it describes OCC *and* adacpp.
+
+    ``geom`` is an :class:`ada.geom.Geometry` (its ``.geometry`` is the shell/solid
+    carrying ``cfs_faces``). For B-rep imports the explicit ``cfs_faces`` list is the
+    intended face count, so build-dropped faces show as ``total>built``; procedural
+    primitives have no such list, so ``total`` is taken from the built faces."""
+    from ada.cad import active_backend
+
+    cov = FaceCoverage()
+    shell = getattr(geom, "geometry", geom)
+    for f in list(getattr(shell, "cfs_faces", []) or []):
+        cov.total += 1
+        cov.by_type.setdefault(_geom_face_label(f), [0, 0, 0])[2] += 1
+    had_geom_faces = cov.total > 0
+
+    backend = active_backend()
+    try:
+        shape = backend.build(geom)
+        face_handles = backend.faces(shape)
+    except Exception as ex:  # noqa: BLE001 - whole-solid build/decompose failure → 0 built
+        logger.debug("face_coverage: build/faces failed: %s", ex)
+        return cov
+
+    for face in face_handles:
+        try:
+            lbl = _normalize_label(backend.face_surface_type(face))
+        except Exception:  # noqa: BLE001 - unknown surface type
+            lbl = "other"
+        rec = cov.by_type.setdefault(lbl, [0, 0, 0])
+        cov.built += 1
+        rec[1] += 1
+        try:
+            pos, idx = _mesh_buffers(backend.tessellate(face, linear_deflection))
+            n_tris = 0 if idx is None else len(idx)
+        except Exception:  # noqa: BLE001 - face that won't mesh (the unmeshed signal)
+            n_tris = 0
+        if n_tris > 0:
+            cov.meshed += 1
+            rec[0] += 1
+
+    if not had_geom_faces:
+        # primitive geom: the build is the source of truth for "total"
+        cov.total = cov.built
+        for rec in cov.by_type.values():
+            rec[2] = rec[1]
+    return cov
 
 
 # --------------------------------------------------------------------------- #

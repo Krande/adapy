@@ -79,10 +79,14 @@ def _rebuild_stats():
     re-added/dropped holes, area-gate drops), or None on backends without the module
     (adacpp-only installs have no ada.occ)."""
     try:
-        from ada.occ.geom.surfaces import consume_param_rebuild_stats
+        from ada.occ.geom.surfaces import consume_face_coverage_stats, consume_param_rebuild_stats
     except ImportError:
         return None
     stats = consume_param_rebuild_stats()
+    # Fold the per-face build coverage (total/built/dropped) in under faces_* keys so
+    # it aggregates into the run summary's face_coverage without a second build.
+    for k, v in consume_face_coverage_stats().items():
+        stats[f"faces_{k}"] = stats.get(f"faces_{k}", 0) + v
     return stats or None
 
 
@@ -706,6 +710,14 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
         n_total,
         len(bt.material_store),
     )
+    f_total = rebuild_totals.get("faces_total", 0)
+    f_built = rebuild_totals.get("faces_built", 0)
+    face_coverage = {
+        "total": f_total,
+        "built": f_built,
+        "dropped": rebuild_totals.get("faces_dropped", 0),
+        "pct": round(100.0 * f_built / f_total, 2) if f_total else 100.0,
+    }
     return {
         "meshed": n_total - n_skipped,
         "total": n_total,
@@ -713,6 +725,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
         "materials": len(bt.material_store),
         "reasons": dict(reasons),
         "rebuilds": dict(rebuild_totals),
+        "face_coverage": face_coverage,
         "pool": dict(pool_events),
     }
 

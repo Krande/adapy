@@ -755,6 +755,21 @@ def consume_param_rebuild_stats() -> dict[str, int]:
     return out
 
 
+# Per-face build coverage: how many connected-face-set faces were attempted vs how
+# many actually built into the OCC shell (the rest are holes — dropped faces). The
+# mesh-stage coverage (built-but-unmeshed) is measured separately by
+# ``ada.cadit.diagnostics.face_coverage``; this counter feeds the streaming summary
+# cheaply without a second build. Keys: "total", "built", "dropped".
+FACE_COVERAGE_STATS: Counter = Counter()
+
+
+def consume_face_coverage_stats() -> dict[str, int]:
+    """Return and reset the per-process face-build coverage counters."""
+    out = dict(FACE_COVERAGE_STATS)
+    FACE_COVERAGE_STATS.clear()
+    return out
+
+
 # A rebuilt face whose area exceeds this multiple of (boundary-sample bbox diagonal)^2
 # is over-covering its own boundary evidence and gets dropped instead. Legitimate
 # closed revolution faces stay far below: a full cylinder's worst area/diag^2 ratio is
@@ -1516,6 +1531,10 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                 f"Face type {type(cfs_face)} is not implemented (supported: AdvancedFace, FaceSurface)"
             )
 
+    FACE_COVERAGE_STATS["total"] += n_faces
+    FACE_COVERAGE_STATS["built"] += n_faces - n_dropped
+    FACE_COVERAGE_STATS["dropped"] += n_dropped
+
     if n_dropped:
         # A dropped face is a hole in the solid — surface it so conversions never
         # silently lose geometry.
@@ -1697,7 +1716,29 @@ def make_face_from_wire_filled(wff: geo_su.WireFilledFace) -> TopoDS_Face:
     # edges individually with GeomAbs_C0 lets MakeFilling solve the
     # least-squares system that minimises bending under the boundary
     # constraints.
-    fill = BRepOffsetAPI_MakeFilling()
+    #
+    # Bound the GeomPlate cost. With OCC's defaults (NbPtsOnCur=15,
+    # NbIter=2, MaxDeg=8, MaxSegments=9) a pathological boundary makes the
+    # plate's curve-on-surface projection (ProjLib_CompProjectedCurve ->
+    # math_NewtonFunctionSetRoot) grind for minutes on a single face — long
+    # enough to blow the per-solid stream timeout and get the whole solid
+    # *skipped*. This face is already a fallback (the exact ACIS/STEP
+    # parameterisation is gone), so a coarse low-degree plate is plenty: it
+    # only ever gets tessellated. Fewer projection points and a lower-degree
+    # surface cut the dominant cost while still spanning the boundary; the
+    # 120 s stream timeout remains the backstop for the rare residual hang.
+    fill = BRepOffsetAPI_MakeFilling(
+        2,  # Degree (default 3)
+        6,  # NbPtsOnCur — points projected per constraint edge (default 15)
+        1,  # NbIter — outer iterations (default 2)
+        False,  # Anisotropie
+        1.0e-4,  # Tol2d (default 1e-5)
+        1.0e-3,  # Tol3d (default 1e-4)
+        1.0e-2,  # TolAng
+        1.0e-1,  # TolCurv
+        3,  # MaxDeg — cap fitted-surface degree (default 8)
+        4,  # MaxSegments — cap surface segments (default 9)
+    )
     for e in occ_edges:
         fill.Add(e, GeomAbs_C0)
     try:
