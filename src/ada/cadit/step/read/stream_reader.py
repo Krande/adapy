@@ -55,6 +55,7 @@ from ada.geom.curves import (
     Parabola,
     PCurve,
     PolyLine,
+    PolyLoop,
     RationalBSplineCurveWithKnots,
     TrimmedCurve,
 )
@@ -1058,6 +1059,37 @@ def _b_open_shell(r: _Resolver, a: list) -> OpenShell:
     return OpenShell(cfs_faces=[r.deref(x) for x in a[1]])
 
 
+def _b_poly_loop(r: _Resolver, a: list) -> PolyLoop:
+    # POLY_LOOP('', (#points)) — a faceted-brep polygon boundary.
+    return PolyLoop(polygon=[r.deref(p) for p in a[1]])
+
+
+def _b_connected_face_set(r: _Resolver, a: list) -> OpenShell:
+    # CONNECTED_FACE_SET('', (#faces)) — the supertype of CLOSED/OPEN_SHELL. Import as an
+    # OpenShell so it both maps to a native shell type and tessellates from its faces.
+    return OpenShell(cfs_faces=[r.deref(x) for x in a[1]])
+
+
+def _b_subface(r: _Resolver, a: list):
+    # SUBFACE('', (#bounds), #parent_face): a region of a parent face. The sub-region has
+    # no own surface — reuse the parent's geometry with the sub-bounds so it imports +
+    # builds (rare; over-covers only if the sub-bounds are ignored).
+    parent = r.deref(a[2])
+    bounds = [fb for fb in (r.deref(x) for x in a[1]) if not isinstance(fb.bound, _DegenerateLoop)]
+    fs = getattr(parent, "face_surface", None)
+    if fs is not None:
+        return AdvancedFace(bounds=bounds or parent.bounds, face_surface=fs, same_sense=True)
+    return parent
+
+
+def _b_subedge(r: _Resolver, a: list):
+    # SUBEDGE('', #start, #end, #parent_edge): a segment of a parent edge. Reuse the
+    # parent's 3D curve with the sub start/end vertices.
+    parent = r.deref(a[3])
+    geom = getattr(parent, "edge_geometry", parent)
+    return EdgeCurve(start=r.deref(a[1]), end=r.deref(a[2]), edge_geometry=geom, same_sense=True)
+
+
 def _b_shell_based_surface_model(r: _Resolver, a: list) -> ShellBasedSurfaceModel:
     # SHELL_BASED_SURFACE_MODEL('', (#shells)) — how a surface (no-thickness) shape
     # is wrapped, e.g. a curved B-spline plate exported as an open shell.
@@ -1269,6 +1301,11 @@ _BUILDERS = {
     "CURVE_BOUNDED_SURFACE": _b_curve_bounded_surface,
     "OFFSET_SURFACE": _b_offset_surface,
     "ADVANCED_FACE": _b_advanced_face,
+    "FACE_SURFACE": _b_advanced_face,
+    "SUBFACE": _b_subface,
+    "SUBEDGE": _b_subedge,
+    "POLY_LOOP": _b_poly_loop,
+    "CONNECTED_FACE_SET": _b_connected_face_set,
     "CLOSED_SHELL": _b_closed_shell,
     "OPEN_SHELL": _b_open_shell,
     # ORIENTED_CLOSED_SHELL('', #base_closed_shell, orientation): a CLOSED_SHELL reused
