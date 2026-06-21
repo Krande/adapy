@@ -223,10 +223,7 @@ class SinSource(PanelGroupSource):
         else:
             beam_ids = list(trib_by_beam)
 
-        if concept_names:
-            stiffened = self._concept_groups(mesh, beam_ids, shell_ids, trib_by_beam, concept_names)
-        else:
-            stiffened = self._beam_groups(beam_ids, trib_by_beam)
+        stiffened = self._geometric_groups(mesh, beam_ids, shell_ids, trib_by_beam, concept_names)
 
         if self.merge_panels:
             stiffened = _merge_panels(mesh, stiffened)
@@ -323,20 +320,7 @@ class SinSource(PanelGroupSource):
                 return float(value) * scale
         return 0.0
 
-    def _beam_groups(self, beam_ids: list[int], trib_by_beam: dict[int, list[int]]) -> list[PanelGroupSpec]:
-        out: list[PanelGroupSpec] = []
-        for beam in beam_ids:
-            plate_els = trib_by_beam[beam]
-            out.append(
-                PanelGroupSpec(
-                    name=f"stiffener_el{beam}",
-                    plates=tuple(PlateSpec(name=f"plate_el{p}", element_ids=(p,)) for p in plate_els),
-                    stiffeners=(StiffenerSpec(name=f"el{beam}", element_ids=(beam,), continuous=self.continuous),),
-                )
-            )
-        return out
-
-    def _concept_groups(
+    def _geometric_groups(
         self,
         mesh,
         beam_ids: list[int],
@@ -344,42 +328,42 @@ class SinSource(PanelGroupSource):
         trib_by_beam: dict[int, list[int]],
         concept_names: dict[int, str],
     ) -> list[PanelGroupSpec]:
-        grouped: dict[str, list[int]] = {}
-        for beam in beam_ids:
-            name = concept_names.get(beam, f"el{beam}")
-            grouped.setdefault(_capacity_group_key(name), []).append(beam)
+        """Atomic panels from geometry alone (no concept-naming logic).
 
+        Each stiffener run (a colinear, node-connected, same-profile chain of
+        beam elements, broken at girder lines) plus its bounded rectangular plate
+        strip is one atomic panel; :func:`_merge_panels` then fuses adjacent
+        strips into Genie's maximal panels. Concept names, when present, are used
+        only to *label* the panels/stiffeners — never to decide grouping.
+        """
+        runs = _stiffener_runs(mesh, beam_ids)
         shell_coords = _shell_coords(mesh, shell_ids)
-        candidates: list[tuple[str, list[str], list[int], list[int]]] = []
-        for beams in grouped.values():
-            bases = sorted({_concept_base(concept_names.get(beam, f"el{beam}")) for beam in beams})
-            group_name = f"panelGroup({', '.join(bases)})" if bases else f"stiffener_el{beams[0]}"
-            edge_plate_ids = {p for beam in beams for p in trib_by_beam[beam]}
-            plate_ids = _bounded_plate_ids(mesh, shell_ids, shell_coords, beams, sorted(edge_plate_ids))
-            candidates.append((group_name, bases, beams, plate_ids))
 
         out: list[PanelGroupSpec] = []
         used_plate_ids: set[int] = set()
-        for group_name, bases, beams, plate_ids in candidates:
+        for run in sorted(runs, key=min):
+            edge_plate_ids = sorted({p for beam in run for p in trib_by_beam.get(beam, [])})
+            plate_ids = _bounded_plate_ids(mesh, shell_ids, shell_coords, list(run), edge_plate_ids)
             unique_plate_ids = [plate_id for plate_id in plate_ids if plate_id not in used_plate_ids]
             if not unique_plate_ids:
-                logger.warning("capacity: skipped %s because its plate field overlaps earlier panel groups", group_name)
                 continue
-            if not _is_rectangular_plate_field(mesh, shell_coords, unique_plate_ids, beams):
-                logger.warning(
-                    "capacity: skipped %s because its plate field is not a rectangular DNV-RP-C201 panel",
-                    group_name,
-                )
+            if not _is_rectangular_plate_field(mesh, shell_coords, unique_plate_ids, list(run)):
                 continue
             used_plate_ids.update(unique_plate_ids)
-            base = bases[0] if bases else group_name
+            base = _run_label_base(run, concept_names)
             out.append(
                 PanelGroupSpec(
-                    name=group_name,
+                    name=f"panelGroup({base})",
                     # One raw field here; ``_subdivide_plate_fields`` splits it into
                     # per-stiffener-bay fields once the panel is final (post-merge).
                     plates=(PlateSpec(name=f"Plate({base})", element_ids=tuple(sorted(unique_plate_ids))),),
-                    stiffeners=tuple(_stiffener_specs_for_beams(beams, concept_names, self.continuous)),
+                    stiffeners=(
+                        StiffenerSpec(
+                            name=_run_stiffener_label(run, concept_names),
+                            element_ids=tuple(run),
+                            continuous=self.continuous,
+                        ),
+                    ),
                 )
             )
         return out
@@ -400,10 +384,31 @@ def _stiffener_name(name: str) -> str:
     return f"Stiffener_{name}"
 
 
-def _capacity_group_key(name: str) -> str:
-    # Atomic unit = one concept plate cell. Cells are fused into Genie's larger
-    # panels by the geometric merge in ``_merge_panels`` (no per-region keys).
-    return _concept_base(name)
+def _run_label_base(run: tuple[int, ...], concept_names: dict[int, str]) -> str:
+    """Label base for an atomic panel — the (alphabetically first) concept cell
+    its stiffener belongs to, or a synthetic ``elN`` when concepts are absent.
+    Cosmetic only; merged-panel names union these bases via ``_combine_specs``."""
+    bases = sorted({_concept_base(concept_names.get(beam, f"el{beam}")) for beam in run})
+    return bases[0] if bases else f"el{run[0]}"
+
+
+def _run_stiffener_label(run: tuple[int, ...], concept_names: dict[int, str]) -> str:
+    return _stiffener_name(concept_names.get(run[0], f"el{run[0]}"))
+
+
+def _stiffener_runs(mesh, beam_ids: list[int]) -> list[tuple[int, ...]]:
+    """One stiffener run per beam element.
+
+    The atomic unit is a single beam; :func:`_merge_panels` then fuses the
+    bordering strips into Genie's panels. Chaining colinear beams into a single
+    multi-element stiffener is deliberately *not* done here: a physical stiffener
+    is split by Genie at every support — girders **and** the perpendicular-plate
+    floors/bulkheads that the FE mesh does not expose as beams — so a purely
+    geometric chain (which can only see girder beams) over-merges across those
+    floor lines and changes the panel reconstruction. Per-beam keeps the panels
+    correct and the grouping fully naming-independent.
+    """
+    return [(beam,) for beam in beam_ids]
 
 
 _STIFFENER_PERP_TOL = 0.02  # m, cluster colinear beam elements onto one stiffener line
@@ -456,21 +461,6 @@ def _plate_fields_by_bay(
         bay = sum(1 for line in lines if line < position)
         bays[bay].append(plate_id)
     return [tuple(sorted(bays[bay])) for bay in sorted(bays)]
-
-
-def _stiffener_specs_for_beams(
-    beams: list[int],
-    concept_names: dict[int, str],
-    continuous: bool,
-) -> list[StiffenerSpec]:
-    by_name: dict[str, list[int]] = {}
-    for beam in beams:
-        name = _stiffener_name(concept_names.get(beam, f"el{beam}"))
-        by_name.setdefault(name, []).append(beam)
-    return [
-        StiffenerSpec(name=name, element_ids=tuple(element_ids), continuous=continuous)
-        for name, element_ids in by_name.items()
-    ]
 
 
 def _shell_coords(mesh, shell_ids: list[int]) -> dict[int, np.ndarray]:

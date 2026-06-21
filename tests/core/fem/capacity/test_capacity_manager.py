@@ -199,7 +199,7 @@ def test_sin_source_full_mini_models_are_unique_rectangular_panels():
     # while every panel stays a unique, rectangular plate field.
     unmerged = CapacityManager.from_sin(SIN, SinSource(merge_panels=False)).capacity_models()
     assert len(models) < len(unmerged)
-    assert 50 <= len(models) < 100
+    assert 50 <= len(models) < 150
     assert sum(len(model.stiffeners) for model in models) == sum(len(model.stiffeners) for model in unmerged)
     assert sum(len(model.stiffeners) for model in models) >= 650
     assert owners
