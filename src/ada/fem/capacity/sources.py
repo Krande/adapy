@@ -169,7 +169,7 @@ class SinSource(PanelGroupSource):
     future unstiffened-plate check.
     """
 
-    group: str | None = None
+    group: str | list[str] | None = None  # a SIN set name, or several (their union)
     continuous: bool = True
     classify_secondary: bool = True
     merge_panels: bool = True
@@ -258,7 +258,12 @@ class SinSource(PanelGroupSource):
         return {int(getattr(m, "id", m)) for m in getattr(fs, "members", []) or []}
 
     @staticmethod
-    def _scoped_set_members(mesh, group: str) -> set[int]:
+    def _scoped_set_members(mesh, group: str | list[str]) -> set[int]:
+        if not isinstance(group, str):
+            out: set[int] = set()
+            for one in group:
+                out |= SinSource._scoped_set_members(mesh, one)
+            return out
         members = SinSource._set_members(mesh, group)
         prefix, _, area = group.partition("_area_")
         if not area:

@@ -835,9 +835,13 @@ class Sif2Mesh:
 
         field_results = []
 
-        for (ires, nsp, elem_type, irstrs), rv_stresses in groupby(
-            sorted(sif.get_result(cards.RVSTRESS.name)[0][1][1:], key=keyfunc), key=keyfunc
-        ):
+        # Skip stress records whose element has no RDPOINTS entry — without the
+        # result-point definition there is no integration-point field to build.
+        # Real models occasionally carry such RVSTRESS rows; dropping them is
+        # safer than failing the whole read.
+        rv_rows = [x for x in sif.get_result(cards.RVSTRESS.name)[0][1][1:] if x[iielno_i] in rdpoints_map]
+
+        for (ires, nsp, elem_type, irstrs), rv_stresses in groupby(sorted(rv_rows, key=keyfunc), key=keyfunc):
             if elem_type not in (25, 24):
                 continue
 
