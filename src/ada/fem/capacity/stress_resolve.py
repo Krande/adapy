@@ -41,14 +41,44 @@ from ada.fem.capacity.model import CapacityModel, CapSection, ResolvedCase
 from ada.fem.results.common import Mesh
 
 
+def _block_elem_index(block) -> dict[int, np.ndarray]:
+    """Cache + return ``{element_id: rows}`` for a field block (column 0 = id).
+
+    ``ElementFieldData.get_by_element_id`` scans the whole block, so calling it
+    once per element across a model is quadratic. Resolving a multi-hundred-model
+    SIN that way dominates the runtime; index each block's rows by element id
+    once (cached on the block — blocks are rebuilt per step, so it stays fresh).
+    """
+    cached = getattr(block, "_cap_elem_index", None)
+    if cached is not None:
+        return cached
+    vals = block.values
+    built: dict[int, np.ndarray] = {}
+    if vals.size:
+        elem_col = vals[:, 0].astype(np.int64)
+        order = np.argsort(elem_col, kind="stable")
+        sorted_ids = elem_col[order]
+        uniq, starts = np.unique(sorted_ids, return_index=True)
+        bounds = np.append(starts, len(sorted_ids))
+        for k, eid in enumerate(uniq):
+            built[int(eid)] = vals[order[bounds[k] : bounds[k + 1]]]
+    block._cap_elem_index = built
+    return built
+
+
+def _rows_for_element(blocks, element_id: int) -> list[np.ndarray]:
+    out = []
+    for b in blocks:
+        sub = _block_elem_index(b).get(element_id)
+        if sub is not None and sub.size:
+            out.append(sub)
+    return out
+
+
 def _element_membrane_tensor(stress_blocks, element_id: int) -> np.ndarray | None:
     """Mean membrane (SIGXX, SIGYY, TAUXY) of an element over its result points,
     in the *element* coordinate frame."""
-    rows = []
-    for b in stress_blocks:
-        sub = b.get_by_element_id([element_id])
-        if sub.values.size:
-            rows.append(sub.values[:, 2:5])  # SIGXX, SIGYY, TAUXY
+    rows = [sub[:, 2:5] for sub in _rows_for_element(stress_blocks, element_id)]  # SIGXX, SIGYY, TAUXY
     if not rows:
         return None
     return np.vstack(rows).mean(axis=0)
@@ -57,11 +87,8 @@ def _element_membrane_tensor(stress_blocks, element_id: int) -> np.ndarray | Non
 def _element_stress_rows(stress_blocks, element_id: int) -> dict[int, np.ndarray]:
     """Element stress tensor rows keyed by 1-based result-point id."""
     rows: dict[int, list[np.ndarray]] = {}
-    for b in stress_blocks:
-        sub = b.get_by_element_id([element_id])
-        if not sub.values.size:
-            continue
-        for row in sub.values:
+    for sub in _rows_for_element(stress_blocks, element_id):
+        for row in sub:
             rows.setdefault(int(row[1]), []).append(np.asarray(row[2:5], dtype=float))
     return {point_id: np.vstack(values).mean(axis=0) for point_id, values in rows.items()}
 
@@ -264,11 +291,8 @@ def _beam_component_positions(
     """Mean beam force component at Section-5 positions 1/2/3."""
     by_pos: dict[int, list[float]] = {1: [], 2: [], 3: []}
     for el in element_ids:
-        for b in force_blocks:
-            sub = b.get_by_element_id([el])
-            if not sub.values.size:
-                continue
-            for row in sub.values:
+        for sub in _rows_for_element(force_blocks, el):
+            for row in sub:
                 pos = int(row[1])
                 if pos in by_pos:
                     by_pos[pos].append(float(row[2 + component]) * sign)
