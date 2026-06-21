@@ -385,13 +385,9 @@ class SinSource(PanelGroupSource):
         return out
 
 
+# Stiffener beam-segment suffix. Used ONLY to derive human-readable panel/
+# stiffener *labels* from concept names — never for a grouping decision.
 _BEAM_SUFFIX_RE = re.compile(r"_[sgr]bm\d+$", re.IGNORECASE)
-_CONCEPT_ROLE_RE = re.compile(r"_([sgr]bm)\d+$", re.IGNORECASE)
-
-
-def _concept_role(name: str) -> str:
-    match = _CONCEPT_ROLE_RE.search(name)
-    return match.group(1).lower() if match else ""
 
 
 def _concept_base(name: str) -> str:
