@@ -782,16 +782,22 @@ function buildCapacityColorOverlay(mesh: THREE.Mesh): THREE.Mesh | null {
     geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     duplicateMorphPositions(src, geom, indexArr);
 
+    // Opaque, double-sided, unlit: the UF colour must read identically on both
+    // faces of a shell. With <1 opacity the lit base mesh bleeds through and the
+    // two sides look subtly different; a too-small polygon offset also lets the
+    // coplanar base z-fight through on large models (large coordinates → coarse
+    // depth precision), which shows as colour appearing on only one side. Keep
+    // depthWrite off so the white capacity-boundary lines still layer on top.
     const mat = new THREE.MeshBasicMaterial({
         vertexColors: true,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.96,
+        opacity: 1.0,
         depthTest: true,
         depthWrite: false,
         polygonOffset: true,
-        polygonOffsetFactor: -2,
-        polygonOffsetUnits: -2,
+        polygonOffsetFactor: -4,
+        polygonOffsetUnits: -16,
     });
     const overlay = new THREE.Mesh(geom, mat);
     overlay.name = "capacity-color-overlay";
