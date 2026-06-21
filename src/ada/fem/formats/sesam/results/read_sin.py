@@ -356,6 +356,22 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "
     return s2m.convert(name_path)
 
 
+def iter_sin_step_results(sin_file: str | pathlib.Path, steps):
+    """Yield ``(step, FEAResult)`` reading the SIN once and reusing the mesh.
+
+    On large multi-step SINs this is dramatically faster than calling
+    :func:`read_sin_file` per step: the file is opened and its type blocks
+    decoded **once**, the step-invariant static blocks and the mesh are read
+    **once**, and only each step's RV* tables are re-read. Each yielded
+    ``FEAResult`` shares the same cached :class:`~ada.fem.results.common.Mesh`
+    instance. No LIS/MLG enrichment (not needed for value extraction).
+    """
+    sin = open_sin(sin_file)
+    with SinStreamReader(sin) as reader:
+        for step in steps:
+            yield int(step), reader._load_step(int(step))
+
+
 class SinStreamReader:
     """Memory-bounded ``FEAStreamReader`` for Sesam SIN.
 

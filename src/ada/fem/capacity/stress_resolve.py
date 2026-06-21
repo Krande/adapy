@@ -471,7 +471,7 @@ def resolve_cases(
     ``on_progress(completed, total)`` is called once per result case (the
     expensive per-step SIN read), so callers can drive a progress bar.
     """
-    from ada.fem.formats.sesam.results.read_sin import read_sin_file, read_sin_metadata
+    from ada.fem.formats.sesam.results.read_sin import iter_sin_step_results, read_sin_metadata
 
     available = read_sin_metadata(sin_path).steps
     if result_cases is None:
@@ -485,7 +485,6 @@ def resolve_cases(
             )
 
     aux = extract.AuxRecords.from_sin(sin_path)
-    mesh = read_sin_file(sin_path, step=result_cases[0]).mesh if result_cases else None
     total = len(result_cases)
     # Plate element -> (E, poisson), used to recover membrane stresses from nodal
     # displacements when the SIN carries no element stresses (SESTRA ISEL4=-1).
@@ -496,8 +495,12 @@ def resolve_cases(
         for e in p.element_ids
     }
     out: list[ResolvedCase] = []
-    for index, case in enumerate(result_cases, start=1):
-        res = read_sin_file(sin_path, step=case)
+    # Read the SIN once and reuse the (step-invariant) mesh across cases — on a
+    # multi-hundred-MB SIN re-opening + rebuilding the mesh per case dominates.
+    mesh = None
+    for index, (case, res) in enumerate(iter_sin_step_results(sin_path, result_cases), start=1):
+        if mesh is None:
+            mesh = res.mesh
         stress_blocks = [r for r in res.results if r.name == "STRESS"]
         force_blocks = [r for r in res.results if r.name == "FORCES"]
         if not stress_blocks:
