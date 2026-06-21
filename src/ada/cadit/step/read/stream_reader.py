@@ -48,6 +48,7 @@ from ada.geom.curves import (
     EdgeCurve,
     EdgeLoop,
     Ellipse,
+    GeometricCurveSet,
     Hyperbola,
     KnotType,
     Line,
@@ -59,8 +60,19 @@ from ada.geom.curves import (
     RationalBSplineCurveWithKnots,
     TrimmedCurve,
 )
+from ada.geom.booleans import BooleanResult, BoolOpEnum
 from ada.geom.direction import Direction
 from ada.geom.placement import Axis1Placement, Axis2Placement3D
+from ada.geom.solids import (
+    Box,
+    Cone,
+    Cylinder,
+    ExtrudedAreaSolid,
+    FacetedBrep,
+    RevolvedAreaSolid,
+    Sphere,
+    Torus,
+)
 from ada.geom.points import Point
 from ada.geom.surfaces import (
     AdvancedFace,
@@ -1042,6 +1054,87 @@ def _b_offset_surface(r: _Resolver, a: list) -> OffsetSurface:
     return OffsetSurface(basis_surface=r.deref(a[1]), distance=float(a[2]), self_intersect=_enum_true(a[3]))
 
 
+# -- solids / models -------------------------------------------------------- #
+def _as_axis2(p):
+    """Coerce an Axis1Placement (location + axis, no ref dir) into Axis2Placement3D so
+    CSG-primitive geom (which expects a full placement) imports + builds."""
+    if isinstance(p, Axis1Placement):
+        return Axis2Placement3D(location=p.location, axis=p.axis)
+    return p
+
+
+def _b_faceted_brep(r: _Resolver, a: list) -> FacetedBrep:
+    # FACETED_BREP('', #outer_closed_shell)  (planar-faced manifold solid)
+    return FacetedBrep(outer=r.deref(a[1]))
+
+
+def _b_block(r: _Resolver, a: list) -> Box:
+    # BLOCK('', #position, x, y, z)
+    return Box(position=_as_axis2(r.deref(a[1])), x_length=float(a[2]), y_length=float(a[3]), z_length=float(a[4]))
+
+
+def _b_right_circular_cylinder(r: _Resolver, a: list) -> Cylinder:
+    # RIGHT_CIRCULAR_CYLINDER('', #position, height, radius)
+    return Cylinder(position=_as_axis2(r.deref(a[1])), radius=float(a[3]), height=float(a[2]))
+
+
+def _b_right_circular_cone(r: _Resolver, a: list) -> Cone:
+    # RIGHT_CIRCULAR_CONE('', #position, height, radius, semi_angle)
+    return Cone(position=_as_axis2(r.deref(a[1])), bottom_radius=float(a[3]), height=float(a[2]))
+
+
+def _b_sphere(r: _Resolver, a: list) -> Sphere:
+    # SPHERE('', radius, #centre)
+    return Sphere(center=r.deref(a[2]), radius=float(a[1]))
+
+
+def _b_torus(r: _Resolver, a: list) -> Torus:
+    # TORUS('', #position, major_radius, minor_radius)
+    return Torus(position=r.deref(a[1]), major_radius=float(a[2]), minor_radius=float(a[3]))
+
+
+def _b_extruded_area_solid(r: _Resolver, a: list) -> ExtrudedAreaSolid:
+    # EXTRUDED_AREA_SOLID('', #swept_area, #position, #extruded_direction, depth)
+    return ExtrudedAreaSolid(
+        swept_area=r.deref(a[1]), position=r.deref(a[2]), extruded_direction=r.deref(a[3]), depth=float(a[4])
+    )
+
+
+def _b_revolved_area_solid(r: _Resolver, a: list) -> RevolvedAreaSolid:
+    # REVOLVED_AREA_SOLID('', #swept_area, #axis(AXIS1_PLACEMENT), angle)
+    return RevolvedAreaSolid(swept_area=r.deref(a[1]), position=None, axis=r.deref(a[2]), angle=float(a[3]))
+
+
+def _b_boolean_result(r: _Resolver, a: list) -> BooleanResult:
+    # BOOLEAN_RESULT(operator, #first_operand, #second_operand)
+    return BooleanResult(
+        operator=BoolOpEnum.from_str(_enum_name(a[0])), first_operand=r.deref(a[1]), second_operand=r.deref(a[2])
+    )
+
+
+def _b_csg_solid(r: _Resolver, a: list):
+    # CSG_SOLID('', #tree_root_expression) — unwrap to its boolean tree / primitive.
+    return r.deref(a[1])
+
+
+def _b_geometric_set(r: _Resolver, a: list) -> GeometricCurveSet:
+    # GEOMETRIC_SET / GEOMETRIC_CURVE_SET('', (#elements)) — loose points/curves/surfaces.
+    return GeometricCurveSet(elements=[r.deref(x) for x in a[1]])
+
+
+def _b_manifold_surface_shape_rep(r: _Resolver, a: list):
+    # MANIFOLD_SURFACE_SHAPE_REPRESENTATION('', (#items), #context): a shape rep whose
+    # items are shells / surface models. Return the single item directly, else wrap the
+    # shells' faces in one OpenShell so the representation imports + renders.
+    items = [r.deref(x) for x in a[1]]
+    if len(items) == 1:
+        return items[0]
+    faces = []
+    for it in items:
+        faces.extend(getattr(it, "cfs_faces", None) or getattr(it, "sbsm_boundary", None) or [])
+    return OpenShell(cfs_faces=faces) if faces else (items[0] if items else None)
+
+
 def _b_advanced_face(r: _Resolver, a: list) -> AdvancedFace:
     # ADVANCED_FACE('', (#bounds), #face_surface, same_sense)
     # Drop degenerate vertex-loop bounds (pole/apex of a closed surface) — they
@@ -1314,6 +1407,20 @@ _BUILDERS = {
     # as double-sided. No geometry left behind.
     "ORIENTED_CLOSED_SHELL": lambda r, a: r.deref(a[1]),
     "SHELL_BASED_SURFACE_MODEL": _b_shell_based_surface_model,
+    # solids / models
+    "FACETED_BREP": _b_faceted_brep,
+    "BLOCK": _b_block,
+    "RIGHT_CIRCULAR_CYLINDER": _b_right_circular_cylinder,
+    "RIGHT_CIRCULAR_CONE": _b_right_circular_cone,
+    "SPHERE": _b_sphere,
+    "TORUS": _b_torus,
+    "EXTRUDED_AREA_SOLID": _b_extruded_area_solid,
+    "REVOLVED_AREA_SOLID": _b_revolved_area_solid,
+    "BOOLEAN_RESULT": _b_boolean_result,
+    "CSG_SOLID": _b_csg_solid,
+    "GEOMETRIC_CURVE_SET": _b_geometric_set,
+    "GEOMETRIC_SET": _b_geometric_set,
+    "MANIFOLD_SURFACE_SHAPE_REPRESENTATION": _b_manifold_surface_shape_rep,
 }
 
 
@@ -1330,6 +1437,16 @@ _ROOT_BUILDERS = {
     "MANIFOLD_SOLID_BREP": lambda r, a: r.deref(a[1]),
     "BREP_WITH_VOIDS": lambda r, a: r.deref(a[1]),
     "SHELL_BASED_SURFACE_MODEL": _b_shell_based_surface_model,
+    # additional renderable roots (CSG primitives, swept + faceted solids, boolean trees)
+    "FACETED_BREP": _b_faceted_brep,
+    "BLOCK": _b_block,
+    "RIGHT_CIRCULAR_CYLINDER": _b_right_circular_cylinder,
+    "RIGHT_CIRCULAR_CONE": _b_right_circular_cone,
+    "SPHERE": _b_sphere,
+    "TORUS": _b_torus,
+    "EXTRUDED_AREA_SOLID": _b_extruded_area_solid,
+    "REVOLVED_AREA_SOLID": _b_revolved_area_solid,
+    "CSG_SOLID": _b_csg_solid,
 }
 
 
