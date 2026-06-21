@@ -658,26 +658,64 @@ def _has_full_circle_edge(advanced_face: geo_su.AdvancedFace) -> bool:
 
 
 def _sample_curve_edge_occ(oe, n: int = 12) -> list[tuple]:
-    """Interior 3D samples of an arbitrary curved edge via its OCC 3D curve.
+    """Interior 3D samples *along the edge's own arc* via its OCC 3D curve.
 
     Endpoint-only sampling underestimates a curved edge's extent: a B-spline or
     elliptic edge that bulges in one direction between two endpoints sharing a
     coordinate reads as zero-extent there, which made genuine curved cylinder/cone
-    faces (boundary = circle + B-spline) collapse to a degenerate parameter range
-    and get dropped. Building the OCC edge and walking its curve recovers the real
-    swept set for any curve type. Returns [] when the edge can't be built/sampled
-    (the caller still has the endpoints)."""
+    faces (boundary = circle + B-spline) collapse to a degenerate parameter range and
+    get dropped. Walking the 3D curve recovers the real swept set.
+
+    Crucially, sample only the segment between the oriented edge's *actual* endpoints:
+    ``make_edge_from_edge`` can yield an untrimmed full curve (a partial elliptic arc
+    builds the whole ellipse), and walking its whole parameter range would sweep the
+    entire surface — over-covering the boundary so the param-extent rebuild spans far
+    too much and the face is rejected as a runaway. Endpoint parameters are recovered
+    by projection; a genuinely closed edge (start == end) is walked over its full
+    range. Returns [] when the edge can't be built/sampled (caller keeps endpoints)."""
     try:
-        from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnCurve
+        from OCC.Core.gp import gp_Pnt
 
         occ_edge = make_edge_from_edge(oe)
-        ca = BRepAdaptor_Curve(occ_edge)
-        a, b = ca.FirstParameter(), ca.LastParameter()
-        if not (math.isfinite(a) and math.isfinite(b)) or abs(b - a) < 1e-12:
+        res = BRep_Tool.Curve(occ_edge)
+        curve = res[0]
+        if curve is None:
+            return []
+        f, l = float(res[1]), float(res[2])
+
+        if _points_close(oe.start, oe.end):
+            # genuinely closed edge: walk the full curve
+            t0, t1 = f, l
+        else:
+            def _param(pt):
+                proj = GeomAPI_ProjectPointOnCurve(gp_Pnt(*[float(x) for x in pt]), curve)
+                return proj.LowerDistanceParameter() if proj.NbPoints() > 0 else None
+
+            t0 = _param(oe.start)
+            t1 = _param(oe.end)
+            if t0 is None or t1 is None:
+                t0, t1 = f, l
+            elif curve.IsPeriodic():
+                # Take the SHORTEST arc between the endpoints. These samples only
+                # estimate the boundary's parameter extent, and a face's boundary arc
+                # lies on the near side; the long way around would sweep off the face
+                # (the over-cover that rejected the rebuild). Direction-agnostic, so it
+                # doesn't depend on whether make_edge_from_edge aligned the curve sense.
+                per = curve.Period()
+                d = (t1 - t0) % per
+                if d > per / 2.0:
+                    d -= per
+                t1 = t0 + d
+            elif t1 < t0:
+                t0, t1 = t1, t0
+
+        if not (math.isfinite(t0) and math.isfinite(t1)) or abs(t1 - t0) < 1e-12:
             return []
         out = []
         for k in range(n + 1):
-            p = ca.Value(a + (b - a) * k / n)
+            p = curve.Value(t0 + (t1 - t0) * k / n)
             out.append((p.X(), p.Y(), p.Z()))
         return out
     except Exception:  # noqa: BLE001 - fall back to endpoints
@@ -821,11 +859,21 @@ def _maybe_capture_dropped_face(cfs_face, ex) -> None:
         import pickle
 
         surf = type(getattr(cfs_face, "face_surface", None)).__name__
-        reason = str(ex)[:60]
+        reason = str(ex)
+        # short reason slug for the filename so a specific failure mode can be isolated
+        slug = "other"
+        if "corrupt trim" in reason:
+            slug = "runaway"
+        elif "unbounded face after wire trim" in reason:
+            slug = "overrun"
+        elif "Failed to build wire" in reason:
+            slug = "wirefail"
+        elif "no face" in reason or "did not complete" in reason:
+            slug = "noface"
         blob = pickle.dumps(cfs_face)
         tag = hashlib.sha1(blob).hexdigest()[:12]
         _os_cap.makedirs(out_dir, exist_ok=True)
-        with open(_os_cap.path.join(out_dir, f"{surf}_{tag}.pkl"), "wb") as fh:
+        with open(_os_cap.path.join(out_dir, f"{surf}_{slug}_{tag}.pkl"), "wb") as fh:
             fh.write(blob)
         FACE_COVERAGE_STATS[f"captured_{surf}"] += 1
         logger.debug("captured dropped %s face (%s) -> %s", surf, reason, tag)
