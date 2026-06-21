@@ -220,6 +220,29 @@ class _NodeIndex:
     elem_nodes: dict[int, tuple[int, ...]]
     node_coord: dict[int, np.ndarray]
     node_elems: dict[int, list[int]]
+    area: dict[int, float] = field(default_factory=dict)
+
+
+def element_area(mesh: Mesh, element_id: int) -> float:
+    """Planar polygon area of a shell element (cached).
+
+    Frame-invariant, so the rectangularity test can sum cached areas instead of
+    re-projecting and shoelacing every plate on every merge attempt.
+    """
+    idx = _ensure_index(mesh)
+    cached = idx.area.get(element_id)
+    if cached is not None:
+        return cached
+    coords = element_node_coords(mesh, element_id)
+    if len(coords) < 3:
+        a = 0.0
+    else:
+        normal_sum = np.zeros(3)
+        for i in range(1, len(coords) - 1):
+            normal_sum = normal_sum + np.cross(coords[i] - coords[0], coords[i + 1] - coords[0])
+        a = 0.5 * float(np.linalg.norm(normal_sum))
+    idx.area[element_id] = a
+    return a
 
 
 def _ensure_index(mesh: Mesh) -> _NodeIndex:

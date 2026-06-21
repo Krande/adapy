@@ -208,10 +208,18 @@ class SinSource(PanelGroupSource):
                 continue  # a free beam (no bordering plate) is not a stiffener
             trib_by_beam[beam] = plate_els
 
+        if self.group is not None:
+            # Restrict the plate side to the scoped region (its plate members plus
+            # the stiffeners' tributary plates). The plate-field bounding and the
+            # merge then work over the scope, not every shell in the model.
+            relevant = members.intersection(shell_ids)
+            relevant.update(p for plates in trib_by_beam.values() for p in plates)
+            shell_ids = sorted(relevant)
+
         concept_names = getattr(aux, "concept_name_by_element", {}) if aux is not None else {}
 
         if self.classify_secondary:
-            beam_ids = self._secondary_stiffener_ids(mesh, list(trib_by_beam), concept_names)
+            beam_ids = self._secondary_stiffener_ids(mesh, list(trib_by_beam))
         else:
             beam_ids = list(trib_by_beam)
 
@@ -272,21 +280,16 @@ class SinSource(PanelGroupSource):
         return members
 
     @staticmethod
-    def _secondary_stiffener_ids(
-        mesh,
-        beam_ids: list[int],
-        concept_names: dict[int, str] | None = None,
-    ) -> list[int]:
+    def _secondary_stiffener_ids(mesh, beam_ids: list[int]) -> list[int]:
         """Filter out primary girders when several beam profiles share a set.
 
-        Prefer SIN concept intent when present: ``*_sbmN`` concepts identify the
-        secondary-stiffener profile, and Genie may also keep same-profile
-        ``*_gbmN`` beam segments as stiffeners in a combined panel group. When
-        concept names carry no role suffix, fall back to the *dominant*
-        plate-bordering profile — the most frequent one (plus profiles of the
-        same depth). The previous "shallowest profile" rule mis-fired on real
-        models that contain a few tiny stub members shallower than the actual
-        stiffeners.
+        Purely geometric — independent of any concept-naming convention. The
+        secondary stiffener is the *dominant* plate-bordering profile: there are
+        far more stiffeners than girders or stub members, so the most frequent
+        section (plus any of essentially the same depth) is the stiffener. This
+        replaces the old ``*_sbmN`` concept-role test and the "shallowest
+        profile" rule (which mis-fired on models with tiny stub beams below the
+        real stiffeners).
         """
         if not beam_ids:
             return []
@@ -299,16 +302,6 @@ class SinSource(PanelGroupSource):
         if len(beams_by_geono) == 1:
             return beam_ids
 
-        concept_names = concept_names or {}
-        secondary_geonos = {
-            geono_of(mesh, beam) for beam in beam_ids if _concept_role(concept_names.get(beam, "")) == "sbm"
-        }
-        if secondary_geonos:
-            return [beam for beam in beam_ids if geono_of(mesh, beam) in secondary_geonos]
-
-        # Dominant plate-bordering profile = the secondary stiffener (there are
-        # far more stiffeners than girders or stub members). Keep it and any
-        # profile of essentially the same section depth.
         dominant = max(beams_by_geono, key=lambda g: len(beams_by_geono[g]))
         dominant_depth = SinSource._section_depth(mesh, dominant)
         if dominant_depth <= 0.0:
@@ -546,22 +539,21 @@ def _is_rectangular_plate_field(
 ) -> bool:
     if not plate_ids or not beams:
         return False
+    from ada.fem.capacity.extract import element_area
+
     axes = _plate_field_axes(mesh, shell_coords, plate_ids, beams)
     if axes is None:
         return False
     origin, axis, perp, _normal = axes
 
-    area = 0.0
-    xy_blocks: list[np.ndarray] = []
-    for element_id in plate_ids:
-        coords = shell_coords[element_id]
-        rel = coords - origin
-        xy = np.column_stack((rel @ axis, rel @ perp))
-        xy_blocks.append(xy)
-        area += _polygon_area_2d(xy)
-
-    xy_all = np.vstack(xy_blocks)
-    bbox_area = float(np.ptp(xy_all[:, 0]) * np.ptp(xy_all[:, 1]))
+    # Plate area is frame-invariant → sum the cached per-plate areas instead of
+    # re-shoelacing every plate on every merge attempt. Only the bbox needs the
+    # in-plane projection.
+    area = sum(element_area(mesh, element_id) for element_id in plate_ids)
+    rel = np.vstack([shell_coords[element_id] for element_id in plate_ids]) - origin
+    # Elementwise dot (not ``@``) — the local pixi env's threaded BLAS faults
+    # (0xc06d007f) on batched matmuls of this shape.
+    bbox_area = float(np.ptp((rel * axis).sum(axis=1)) * np.ptp((rel * perp).sum(axis=1)))
     if bbox_area <= 0.0:
         return False
     return area / bbox_area >= min_area_ratio
@@ -658,6 +650,16 @@ _PLANE_NORMAL_DECIMALS = 2
 _PLANE_OFFSET_DECIMALS = 2
 _WINDOW_TOL = 0.05  # m, span-window coincidence → strips share a bay
 _GAP_RATIO = 1.6  # a lateral gap above this × the regular spacing = a girder line / edge
+_BBOX_GAP = 1.0  # m, bbox-adjacency slack for the merge spatial prune
+
+
+def _bbox_adjacent(a: tuple[np.ndarray, np.ndarray], b: tuple[np.ndarray, np.ndarray]) -> bool:
+    """Do two plate bounding boxes overlap or touch within ``_BBOX_GAP`` on every axis?
+
+    A necessary (cheap) condition for two panels to be mergeable into one
+    rectangle; lets the merge skip the expensive geometry test on far pairs.
+    """
+    return bool(np.all(a[0] - _BBOX_GAP <= b[1]) and np.all(b[0] - _BBOX_GAP <= a[1]))
 
 
 def _merge_panels(mesh, specs: list[PanelGroupSpec]) -> list[PanelGroupSpec]:
@@ -693,6 +695,14 @@ def _merge_panels(mesh, specs: list[PanelGroupSpec]) -> list[PanelGroupSpec]:
             round(offset, _PLANE_OFFSET_DECIMALS),
         )
 
+    # Plate bounding box per spec (global coords) — a merge only ever joins
+    # spatially adjacent panels, so a cheap bbox-adjacency test prunes the vast
+    # majority of pairs before the expensive rectangularity / spacing checks.
+    pbbox: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    for i in bucket_of:
+        pts = np.vstack([coords[e] for e in _spec_plate_ids(specs[i])])
+        pbbox[i] = (pts.min(axis=0), pts.max(axis=0))
+
     parent = list(range(len(specs)))
 
     def find(x: int) -> int:
@@ -713,15 +723,28 @@ def _merge_panels(mesh, specs: list[PanelGroupSpec]) -> list[PanelGroupSpec]:
             for i in members:
                 by_root[find(i)].append(i)
             roots = list(by_root)
+            group_bbox = {
+                r: (
+                    np.min([pbbox[i][0] for i in by_root[r]], axis=0),
+                    np.max([pbbox[i][1] for i in by_root[r]], axis=0),
+                )
+                for r in roots
+            }
             for ra, rb in itertools.combinations(roots, 2):
                 a, b = find(ra), find(rb)
                 if a == b:
+                    continue
+                if not _bbox_adjacent(group_bbox[a], group_bbox[b]):
                     continue
                 if _can_merge(
                     mesh, coords, axis_by_spec[a], _union_ids(specs, by_root[a]), _union_ids(specs, by_root[b])
                 ):
                     parent[a] = b
                     by_root[b] = by_root.pop(a) + by_root[b]
+                    group_bbox[b] = (
+                        np.minimum(group_bbox[a][0], group_bbox[b][0]),
+                        np.maximum(group_bbox[a][1], group_bbox[b][1]),
+                    )
                     changed = True
 
     by_root = defaultdict(list)
