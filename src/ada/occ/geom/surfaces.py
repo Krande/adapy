@@ -1372,6 +1372,31 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
 
         face = fixer.Face()
 
+    # A rational B-spline face built from a 3D boundary wire (no authored 2D p-curves —
+    # the common STEP/SAT case) frequently carries no p-curves on its surface, so
+    # BRepMesh produces ZERO triangles ("built but unmeshed") — the face is valid but
+    # renders blank. ShapeFix_Shape's cascade computes the missing p-curves
+    # (BuildCurves3d + SameParameter + FixAddPCurve), making the face meshable. Gated to
+    # *rational* B-spline faces to keep the cost off the common path (analytic and
+    # non-rational B-spline faces mesh as-is); the face is bounded by its knot range, so
+    # this avoids the unbounded-surface ShapeFix segfault. Verified: recovers curved
+    # plates that otherwise tessellate to nothing.
+    if isinstance(face_surface, Geom_BSplineSurface) and (
+        face_surface.IsURational() or face_surface.IsVRational()
+    ):
+        try:
+            from OCC.Core.ShapeFix import ShapeFix_Shape
+            from OCC.Core.TopoDS import topods
+
+            sfs = ShapeFix_Shape(face)
+            sfs.Perform()
+            he = TopExp_Explorer(sfs.Shape(), TopAbs_FACE)
+            if he.More():
+                face = topods.Face(he.Current())
+                PARAM_REBUILD_STATS["rational_bspline_healed"] += 1
+        except Exception as ex:  # noqa: BLE001 - healing is best-effort
+            logger.debug("rational B-spline p-curve heal failed: %s", ex)
+
     # Update the face tolerance
     builder = BRep_Builder()
     builder.UpdateFace(face, 1e-3)

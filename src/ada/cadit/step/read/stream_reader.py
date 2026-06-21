@@ -64,6 +64,7 @@ from ada.geom.surfaces import (
     FaceBound,
     OpenShell,
     Plane,
+    RationalBSplineSurfaceWithKnots,
     ShellBasedSurfaceModel,
     SphericalSurface,
     ToroidalSurface,
@@ -976,13 +977,6 @@ def _make_bspline_surface(
     knot_spec,
     weights=None,
 ):
-    if weights is not None:
-        # A rational B-spline face's boundary edges only trim correctly when their
-        # 2D p-curves are supplied; kernel-free 3D->UV reprojection collapses the
-        # face to zero area (empty mesh). Signal unsupported so reader="auto" falls
-        # back to OCC (renders correctly). Non-rational surfaces reproject fine.
-        # Follow-up: parse SURFACE_CURVE/PCURVE p-curves and attach them per edge.
-        raise StepStreamUnsupported("rational B-spline surface needs p-curve trimming (not yet); OCC reader handles it")
     cps = [[r.deref(ref) for ref in row] for row in cp_grid]
     common = dict(
         u_degree=int(u_deg),
@@ -998,6 +992,18 @@ def _make_bspline_surface(
         v_knots=[float(x) for x in v_knots],
         knot_spec=KnotType.from_str(_enum_name(knot_spec)),
     )
+    if weights is not None:
+        # Rational B-spline surface: carry the weight grid into the native geom. The OCC
+        # backend builds a rational Geom_BSplineSurface from it and trims the face from
+        # the 3D boundary wire (OCC computes the p-curves), so these solids tessellate
+        # natively instead of being skipped. (Earlier this raised on the theory that
+        # 3D->UV reprojection collapses the face; in practice OCC's MakeFace handles the
+        # rational surface from the 3D wire — verified building all faces of the skipped
+        # solids. Authored 2D p-curves, when a file supplies them, still take the
+        # SURFACE_CURVE/pcurve path and override this.)
+        return RationalBSplineSurfaceWithKnots(
+            **common, weights_data=[[float(w) for w in row] for row in weights]
+        )
     return BSplineSurfaceWithKnots(**common)
 
 
