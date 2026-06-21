@@ -657,10 +657,39 @@ def _has_full_circle_edge(advanced_face: geo_su.AdvancedFace) -> bool:
     return False
 
 
+def _sample_curve_edge_occ(oe, n: int = 12) -> list[tuple]:
+    """Interior 3D samples of an arbitrary curved edge via its OCC 3D curve.
+
+    Endpoint-only sampling underestimates a curved edge's extent: a B-spline or
+    elliptic edge that bulges in one direction between two endpoints sharing a
+    coordinate reads as zero-extent there, which made genuine curved cylinder/cone
+    faces (boundary = circle + B-spline) collapse to a degenerate parameter range
+    and get dropped. Building the OCC edge and walking its curve recovers the real
+    swept set for any curve type. Returns [] when the edge can't be built/sampled
+    (the caller still has the endpoints)."""
+    try:
+        from OCC.Core.BRepAdaptor import BRepAdaptor_Curve
+
+        occ_edge = make_edge_from_edge(oe)
+        ca = BRepAdaptor_Curve(occ_edge)
+        a, b = ca.FirstParameter(), ca.LastParameter()
+        if not (math.isfinite(a) and math.isfinite(b)) or abs(b - a) < 1e-12:
+            return []
+        out = []
+        for k in range(n + 1):
+            p = ca.Value(a + (b - a) * k / n)
+            out.append((p.X(), p.Y(), p.Z()))
+        return out
+    except Exception:  # noqa: BLE001 - fall back to endpoints
+        return []
+
+
 def _sample_edge_points(oe):
     """World-space sample points along one oriented edge. A circular edge is sampled
-    along its arc (the full period for a closed circle) so the projected parameter
-    range captures the swept direction; other edges contribute their endpoints."""
+    analytically along its arc (the full period for a closed circle); other *curved*
+    edges (B-spline, ellipse) are walked along their OCC 3D curve so the projected
+    parameter range captures their real swept extent; straight edges contribute their
+    endpoints (a line's extent is fully described by its ends)."""
     import math
 
     pts = [
@@ -716,6 +745,11 @@ def _sample_edge_points(oe):
                     c[2] + r * (ca * xd[2] + sa * yd[2]),
                 )
             )
+    elif isinstance(g, (geo_cu.BSplineCurveWithKnots, geo_cu.Ellipse)):
+        # Curved non-circular edge: endpoints miss the interior bulge, so walk the
+        # real 3D curve. This is what recovers cylinder/cone faces whose boundary is
+        # a circle + a B-spline that sweeps the axial direction.
+        pts.extend(_sample_curve_edge_occ(oe))
     return pts
 
 
@@ -837,16 +871,19 @@ def _make_face_from_param_extent(advanced_face: geo_su.AdvancedFace, face_surfac
                     vs.append(v)
                     sample_pts.append(p)
     if len(us) < 3:
+        PARAM_REBUILD_STATS["rebuild_none_fewpts"] += 1
         return None
 
     two_pi = 2.0 * math.pi
     umin, umax = _param_extent(us, bool(face_surface.IsUPeriodic()), two_pi)
     vmin, vmax = _param_extent(vs, bool(face_surface.IsVPeriodic()), two_pi)
     if (umax - umin) < 1e-9 or (vmax - vmin) < 1e-9:
+        PARAM_REBUILD_STATS["rebuild_none_degenerate"] += 1
         return None
 
     mk = BRepBuilderAPI_MakeFace(face_surface, umin, umax, vmin, vmax, 1e-6)
     if not mk.IsDone():
+        PARAM_REBUILD_STATS["rebuild_none_makeface"] += 1
         return None
     face = mk.Face()
 
@@ -1222,7 +1259,13 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
         wire_diag = _shape_diag(outer_wire)
         if _face_overruns_wire(face, wire_diag):
             rebuilt = _make_face_from_param_extent(advanced_face, face_surface)
-            if rebuilt is None or _face_overruns_wire(rebuilt, wire_diag):
+            if rebuilt is None:
+                PARAM_REBUILD_STATS["rebuild_failed_none"] += 1
+                raise UnableToCreateTesselationFromSolidOCCGeom(
+                    f"unbounded face after wire trim on {type(advanced_face.face_surface).__name__}; skipping"
+                )
+            if _face_overruns_wire(rebuilt, wire_diag):
+                PARAM_REBUILD_STATS["rebuild_still_overruns"] += 1
                 raise UnableToCreateTesselationFromSolidOCCGeom(
                     f"unbounded face after wire trim on {type(advanced_face.face_surface).__name__}; skipping"
                 )
