@@ -10,6 +10,7 @@ neutral :class:`~ada.fem.capacity.model.CapacityModel` objects with a
 from __future__ import annotations
 
 import pathlib
+from collections.abc import Callable
 
 from ada.fem.capacity import serialize
 from ada.fem.capacity.extract import AuxRecords
@@ -60,18 +61,45 @@ class CapacityManager:
         return self._aux
 
     # ── capacity models ───────────────────────────────────────────────
-    def capacity_models(self) -> list[CapacityModel]:
+    def capacity_models(
+        self,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> list[CapacityModel]:
+        """Build (and cache) the capacity models.
+
+        ``on_progress(completed, total)`` is called once per built model so a
+        caller can drive a progress bar without this package depending on it.
+        """
         if self._models is None:
-            self._models = [
-                self.builder.build(self.mesh, self.aux, group) for group in self.source.groups(self.mesh, self.aux)
-            ]
+            groups = list(self.source.groups(self.mesh, self.aux))
+            total = len(groups)
+            models: list[CapacityModel] = []
+            for index, group in enumerate(groups, start=1):
+                models.append(self.builder.build(self.mesh, self.aux, group))
+                if on_progress is not None:
+                    on_progress(index, total)
+            self._models = models
+        elif on_progress is not None:
+            count = len(self._models)
+            on_progress(count, count)
         return self._models
 
     # ── resolved design variables (Phase 3) ───────────────────────────
-    def resolve_cases(self, result_cases: list[int] | None = None) -> list[ResolvedCase]:
+    def resolve_cases(
+        self,
+        result_cases: list[int] | None = None,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> list[ResolvedCase]:
         from ada.fem.capacity.stress_resolve import resolve_cases
 
-        return resolve_cases(self.sin_path, self.capacity_models(), result_cases=result_cases)
+        return resolve_cases(
+            self.sin_path,
+            self.capacity_models(),
+            result_cases=result_cases,
+            on_progress=on_progress,
+        )
 
     # ── serialization ─────────────────────────────────────────────────
     def to_genie_json(self, path: str | pathlib.Path) -> None:

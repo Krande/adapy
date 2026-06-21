@@ -31,6 +31,7 @@ convention.
 from __future__ import annotations
 
 import pathlib
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -433,8 +434,14 @@ def resolve_cases(
     sin_path: str | pathlib.Path,
     models: list[CapacityModel],
     result_cases: list[int] | None = None,
+    *,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> list[ResolvedCase]:
-    """Resolve design variables for every (result case, stiffener)."""
+    """Resolve design variables for every (result case, stiffener).
+
+    ``on_progress(completed, total)`` is called once per result case (the
+    expensive per-step SIN read), so callers can drive a progress bar.
+    """
     from ada.fem.formats.sesam.results.read_sin import read_sin_file, read_sin_metadata
 
     if result_cases is None:
@@ -442,8 +449,9 @@ def resolve_cases(
 
     aux = extract.AuxRecords.from_sin(sin_path)
     mesh = read_sin_file(sin_path, step=result_cases[0]).mesh if result_cases else None
+    total = len(result_cases)
     out: list[ResolvedCase] = []
-    for case in result_cases:
+    for index, case in enumerate(result_cases, start=1):
         res = read_sin_file(sin_path, step=case)
         stress_blocks = [r for r in res.results if r.name == "STRESS"]
         force_blocks = [r for r in res.results if r.name == "FORCES"]
@@ -460,6 +468,8 @@ def resolve_cases(
                         vectors=rc.vectors,
                     )
                 )
+        if on_progress is not None:
+            on_progress(index, total)
     return out
 
 
