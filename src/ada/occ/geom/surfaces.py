@@ -954,6 +954,41 @@ def _face_overruns_wire(face, wire_diag: float) -> bool:
     return fd > _FACE_OVERRUN_FACTOR * max(wire_diag, 1e-6)
 
 
+# A built face whose extent dwarfs the WHOLE SOLID's topological vertices means a
+# bad edge/pcurve evaluated the surface far from those vertices — a corrupt trim
+# that BRepMesh then meshes into a runaway face (observed: a 15 cm solid whose face
+# built out to 18 m, ratio ~126x; it renders as a giant flat "disk"). No single
+# face can legitimately exceed its solid's overall vertex extent by much — even a
+# closed cylinder/cone/torus face is bounded by the solid's radius — so this factor
+# catches gross corruption with wide margin while leaving legit geometry untouched.
+# Compared to the SOLID's vertices (not a single face's wire/bound, which a runaway
+# edge inflates too, and which is degenerate for closed-revolution seam faces).
+_FACE_VS_VERTEX_FACTOR = 8.0
+
+
+def _cfs_vertex_diag(cfs_faces) -> float:
+    """Bounding-box diagonal of the topological edge endpoints across a whole set of
+    connected faces (i.e. the solid's vertex extent). 0.0 when no usable points."""
+    pts: list = []
+    for cf in cfs_faces or []:
+        for fb in getattr(cf, "bounds", None) or []:
+            el = getattr(getattr(fb, "bound", None), "edge_list", None) or []
+            for oe in el:
+                for p in (getattr(oe, "start", None), getattr(oe, "end", None)):
+                    if p is None:
+                        continue
+                    try:
+                        pts.append([float(z) for z in list(p)[:3]])
+                    except Exception:  # noqa: BLE001 - non-point edge endpoint, ignore
+                        pass
+    if len(pts) < 2:
+        return 0.0
+    import numpy as _np
+
+    a = _np.asarray(pts)
+    return float(_np.linalg.norm(a.max(axis=0) - a.min(axis=0)))
+
+
 def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     """Create an OCC face from an AdvancedFace with arbitrary supported surface types and bounds.
 
@@ -1376,6 +1411,13 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
     """Build each connected-face-set face (AdvancedFace / FaceSurface) and add it to
     ``occ_shell``. Shared by the closed-shell, open-shell and shell-based-surface-model
     builders — a face that can't be built is logged and skipped rather than aborting."""
+    # The solid's overall vertex extent — used to catch a corrupt face that BRepMesh
+    # would blow up into a runaway "disk" far larger than the solid itself (see
+    # _FACE_VS_VERTEX_FACTOR). cfs_faces may be a one-shot iterator, so materialise it.
+    cfs_faces = list(cfs_faces)
+    solid_vdiag = _cfs_vertex_diag(cfs_faces)
+    runaway_limit = _FACE_VS_VERTEX_FACTOR * solid_vdiag if solid_vdiag > 1e-9 else math.inf
+
     n_faces = 0
     n_dropped = 0
     for cfs_face in cfs_faces:
@@ -1390,6 +1432,17 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                 face = make_face_from_geom(cfs_face)
                 if face is None or face.IsNull():
                     raise UnableToCreateTesselationFromSolidOCCGeom("make_face_from_geom produced no face")
+
+                # Drop a face whose built extent dwarfs the whole solid — a corrupt
+                # trim that meshes into a metres-wide phantom. A missing small face
+                # beats a runaway disk that wrecks the model's bounding box.
+                fdiag = _shape_diag(face)
+                if not math.isfinite(fdiag) or fdiag > runaway_limit:
+                    PARAM_REBUILD_STATS["runaway_face_dropped"] += 1
+                    raise UnableToCreateTesselationFromSolidOCCGeom(
+                        f"face extent {fdiag:.1f} >> solid vertices {solid_vdiag:.3f} "
+                        f"({type(cfs_face.face_surface).__name__}); corrupt trim, dropping face"
+                    )
 
                 # A trimmed surface can collapse to zero area even when MakeFace reports
                 # "done" — e.g. a planar SAT plate whose boundary mixes a b-spline edge that
