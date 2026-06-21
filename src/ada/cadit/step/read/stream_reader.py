@@ -43,13 +43,20 @@ from ada.geom.curves import (
     BSplineCurveFormEnum,
     BSplineCurveWithKnots,
     Circle,
+    CompositeCurve,
+    CompositeCurveSegment,
     EdgeCurve,
     EdgeLoop,
     Ellipse,
+    Hyperbola,
     KnotType,
     Line,
     OrientedEdge,
+    Parabola,
+    PCurve,
+    PolyLine,
     RationalBSplineCurveWithKnots,
+    TrimmedCurve,
 )
 from ada.geom.direction import Direction
 from ada.geom.placement import Axis2Placement3D
@@ -840,6 +847,68 @@ def _b_ellipse(r: _Resolver, a: list) -> Ellipse:
     return Ellipse(position=r.deref(a[1]), semi_axis1=float(a[2]), semi_axis2=float(a[3]))
 
 
+def _b_parabola(r: _Resolver, a: list) -> Parabola:
+    # PARABOLA('', #position, focal_dist)
+    return Parabola(position=r.deref(a[1]), focal_dist=float(a[2]))
+
+
+def _b_hyperbola(r: _Resolver, a: list) -> Hyperbola:
+    # HYPERBOLA('', #position, semi_axis, semi_imag_axis)
+    return Hyperbola(position=r.deref(a[1]), semi_axis=float(a[2]), semi_imag_axis=float(a[3]))
+
+
+def _b_polyline(r: _Resolver, a: list) -> PolyLine:
+    # POLYLINE('', (#points))
+    return PolyLine(points=[r.deref(p) for p in a[1]])
+
+
+def _trim_value(r: _Resolver, item):
+    """One trimming-select of a TRIMMED_CURVE: either a CARTESIAN_POINT ref (-> Point)
+    or a PARAMETER_VALUE (-> float). The parser hands typed reals through as floats."""
+    if isinstance(item, _Ref):
+        return r.deref(item)
+    try:
+        return float(item)
+    except (TypeError, ValueError):
+        return r.deref(item)
+
+
+def _b_trimmed_curve(r: _Resolver, a: list) -> TrimmedCurve:
+    # TRIMMED_CURVE('', #basis_curve, (trim_1), (trim_2), sense_agreement, master_repr)
+    t1 = a[2][0] if a[2] else 0.0
+    t2 = a[3][0] if a[3] else 1.0
+    return TrimmedCurve(
+        basis_curve=r.deref(a[1]),
+        trim1=_trim_value(r, t1),
+        trim2=_trim_value(r, t2),
+        sense_agreement=_enum_true(a[4]),
+        master_representation=_enum_name(a[5]) if len(a) > 5 else "PARAMETER",
+    )
+
+
+def _b_composite_curve_segment(r: _Resolver, a: list) -> CompositeCurveSegment:
+    # COMPOSITE_CURVE_SEGMENT(transition, same_sense, #parent_curve)
+    return CompositeCurveSegment(
+        parent_curve=r.deref(a[2]), same_sense=_enum_true(a[1]), transition=_enum_name(a[0])
+    )
+
+
+def _b_composite_curve(r: _Resolver, a: list) -> CompositeCurve:
+    # COMPOSITE_CURVE('', (#segments), self_intersect)
+    return CompositeCurve(segments=[r.deref(s) for s in a[1]])
+
+
+def _b_pcurve(r: _Resolver, a: list) -> PCurve:
+    # PCURVE('', #basis_surface, #reference_to_curve) — the 2D curve lives in a
+    # DEFINITIONAL_REPRESENTATION; keep the basis surface and the (best-effort) ref so
+    # the p-curve imports natively. Tessellation uses the 3D edge curve, not this.
+    try:
+        ref = r.deref(a[2])
+    except Exception:  # noqa: BLE001 - representation wrapper not modelled; keep surface
+        ref = None
+    return PCurve(basis_surface=r.deref(a[1]), reference_curve=ref)
+
+
 def _b_surface_curve(r: _Resolver, a: list):
     # SURFACE_CURVE / SEAM_CURVE('', #curve_3d, (#associated_geometry...), master)
     # The first arg is the 3D curve (LINE/CIRCLE/ELLIPSE/B-spline) — the edge geometry
@@ -1109,6 +1178,13 @@ _BUILDERS = {
     "LINE": _b_line,
     "CIRCLE": _b_circle,
     "ELLIPSE": _b_ellipse,
+    "PARABOLA": _b_parabola,
+    "HYPERBOLA": _b_hyperbola,
+    "POLYLINE": _b_polyline,
+    "TRIMMED_CURVE": _b_trimmed_curve,
+    "COMPOSITE_CURVE": _b_composite_curve,
+    "COMPOSITE_CURVE_SEGMENT": _b_composite_curve_segment,
+    "PCURVE": _b_pcurve,
     "B_SPLINE_CURVE_WITH_KNOTS": _b_bspline_curve_with_knots,
     "B_SPLINE_SURFACE_WITH_KNOTS": _b_bspline_surface_with_knots,
     "BEZIER_CURVE": _b_bezier_curve,

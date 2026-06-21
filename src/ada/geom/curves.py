@@ -21,11 +21,15 @@ CURVE_GEOM_TYPES = Union[
     "ArcLine",
     "Circle",
     "Ellipse",
+    "Parabola",
+    "Hyperbola",
     "BSplineCurveWithKnots",
+    "RationalBSplineCurveWithKnots",
     "IndexedPolyCurve",
     "PolyLine",
     "TrimmedCurve",
     "CompositeCurve",
+    "PCurve",
     "GeometricCurveSet",
 ]
 
@@ -225,6 +229,29 @@ class Ellipse:
     position: Axis2Placement3D
     semi_axis1: float
     semi_axis2: float
+
+
+@dataclass
+class Parabola:
+    """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_parabola.html
+
+    A conic: ``focal_dist`` is the distance from vertex to focus. (No IFC equivalent.)
+    """
+
+    position: Axis2Placement3D
+    focal_dist: float
+
+
+@dataclass
+class Hyperbola:
+    """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_hyperbola.html
+
+    A conic with real (``semi_axis``) and imaginary (``semi_imag_axis``) semi-axes.
+    """
+
+    position: Axis2Placement3D
+    semi_axis: float
+    semi_imag_axis: float
 
 
 class BSplineCurveFormEnum(Enum):
