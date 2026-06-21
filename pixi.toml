@@ -154,6 +154,10 @@ test-all = { cmd = "pytest tests --ignore=tests/comms/rest --ignore=tests/fem/vi
 python = "3.12.*"
 bcf-client = "*"
 numpy = "*"
+# Force the OpenBLAS BLAS/LAPACK backend. The MKL 2026 preview that the
+# solver otherwise picks (mkl_avx10.3) SEH-crashes (0xc06d007f) on np.linalg
+# (svd/gemm) on Windows here, taking down the FEA bake and any svd path.
+libblas = { version = "*", build = "*openblas" }
 hdf5 = "*"
 h5py = "*"
 ifcopenshell = "*"
