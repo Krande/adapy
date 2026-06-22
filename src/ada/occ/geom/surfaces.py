@@ -1450,6 +1450,7 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
         isinstance(face_surface, Geom_BSplineSurface)
         and (face_surface.IsURational() or face_surface.IsVRational())
         and not recovered_via_param_extent  # param-extent already produced a meshable face
+        and not _face_meshes_ok(face)  # only heal faces that would otherwise render blank
     ):
         try:
             from OCC.Core.ShapeFix import ShapeFix_Shape
@@ -1469,6 +1470,25 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     builder.UpdateFace(face, 1e-3)
 
     return face
+
+
+def _face_meshes_ok(face) -> bool:
+    """True when BRepMesh already produces triangles for ``face`` at a coarse deflection —
+    i.e. it has valid p-curves and needs no healing. The rational B-spline ShapeFix heal
+    re-derives p-curves (SameParameter / FixAddPCurve) and slightly perturbs a face that
+    already meshes — which TWISTS SAT curved plates that carry authored p-curves so they
+    no longer fit their neighbours. Gate the heal on this so it only runs on faces that
+    would otherwise render blank (the STEP-stream rational case)."""
+    try:
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+        from OCC.Core.TopLoc import TopLoc_Location
+
+        BRepMesh_IncrementalMesh(face, 0.1, True, 0.5, False)
+        tri = BRep_Tool.Triangulation(face, TopLoc_Location())
+        return tri is not None and tri.NbTriangles() > 0
+    except Exception:  # noqa: BLE001 - an unmeshable face is treated as needing the heal
+        return False
 
 
 def make_plane_from_geom(plane: geo_su.Plane) -> gp_Pln:
