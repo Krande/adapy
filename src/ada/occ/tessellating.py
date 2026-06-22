@@ -160,6 +160,48 @@ def tessellate_edges(shape: TopoDS_Edge, deflection=0.01) -> LineMesh:
     return LineMesh(np_edge_vertices, np_edge_indices)
 
 
+def _tessellate_brepmesh(shape, linear_deflection: float, angular_deflection: float, relative: bool) -> "TriangleMesh":
+    """Tessellate via BRepMesh with an EXPLICIT linear + angular deflection and extract
+    the per-face triangles (unwelded, 3 verts/tri, with area-weighted vertex normals).
+
+    Unlike ShapeTesselator — which only exposes a single relative ``mesh_quality`` and no
+    angular control — this gives curvature-adaptive smoothness: the angular deflection
+    sets a minimum facet count around any curve regardless of size, and an *absolute*
+    linear deflection adds facets in proportion to a curve's radius (matching step2glb's
+    1 mm + 25° model). Used when ADA_TESS_LINEAR_DEFLECTION is configured."""
+    import math as _math  # noqa: F401  (kept local; callers pass radians already)
+
+    from OCC.Core.BRep import BRep_Tool
+    from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+    from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
+    from OCC.Core.TopExp import TopExp_Explorer
+    from OCC.Core.TopLoc import TopLoc_Location
+    from OCC.Core.TopoDS import topods
+
+    BRepMesh_IncrementalMesh(shape, linear_deflection, relative, angular_deflection, True)
+    verts: list = []
+    exp = TopExp_Explorer(shape, TopAbs_FACE)
+    while exp.More():
+        face = topods.Face(exp.Current())
+        loc = TopLoc_Location()
+        tri = BRep_Tool.Triangulation(face, loc)
+        if tri is not None:
+            trsf = loc.Transformation()
+            rev = face.Orientation() == TopAbs_REVERSED
+            for i in range(1, tri.NbTriangles() + 1):
+                a, b, c = tri.Triangle(i).Get()
+                if rev:
+                    a, c = c, a
+                for ni in (a, b, c):
+                    p = tri.Node(ni).Transformed(trsf)
+                    verts.extend((p.X(), p.Y(), p.Z()))
+        exp.Next()
+    positions = np.asarray(verts, dtype="float32")
+    faces = np.arange(positions.size // 3, dtype="uint32")
+    normals = _vertex_normals(positions, faces) if positions.size else positions
+    return TriangleMesh(positions, faces, None, normals)
+
+
 def tessellate_advanced_face(face: TopoDS_Shape, linear_deflection=0.1, angular_deflection=0.1, relative=True) -> None:
     from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 
@@ -312,6 +354,25 @@ def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, paral
     # OCC SIGABRT on a zero relative deflection. See _has_meshable_extent.
     if not _has_meshable_extent(shape):
         return _empty_triangle_mesh()
+
+    # Configurable quality: when ADA_TESS_LINEAR_DEFLECTION is set, tessellate with an
+    # explicit absolute (or relative) linear deflection + angular deflection via BRepMesh
+    # — curvature-adaptive smoothness, à la step2glb (1 mm + ~25°). Default (unset) keeps
+    # the lean ShapeTesselator(quality) path so production GLB size / mobile perf are
+    # unchanged unless a caller opts in.
+    import math as _math
+    import os as _os_tess
+
+    _ld = _os_tess.environ.get("ADA_TESS_LINEAR_DEFLECTION")
+    if _ld:
+        try:
+            ld = float(_ld)
+            ang = _math.radians(float(_os_tess.environ.get("ADA_TESS_ANGULAR_DEG", "20")))
+            relative = (_os_tess.environ.get("ADA_TESS_RELATIVE") or "").strip().lower() in {"1", "true", "yes", "on"}
+            if ld > 0:
+                return _tessellate_brepmesh(shape, ld, ang, relative)
+        except ValueError:
+            pass
 
     from OCC.Core.Tesselator import ShapeTesselator
 
