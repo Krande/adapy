@@ -1397,7 +1397,8 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     # (the real patch), unlike the flat MakeFilling. Torus is bounded so it never hits
     # the overrun branch above; this 0-area branch is its recovery path.
     if isinstance(
-        face_surface, (Geom_ToroidalSurface, Geom_CylindricalSurface, Geom_ConicalSurface)
+        face_surface,
+        (Geom_ToroidalSurface, Geom_CylindricalSurface, Geom_ConicalSurface, Geom_BSplineSurface),
     ) and _face_area(face) <= 1e-9:
         rebuilt = _make_face_from_param_extent(advanced_face, face_surface)
         if rebuilt is not None and _face_area(rebuilt) > 1e-9:
