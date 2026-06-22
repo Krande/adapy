@@ -1810,7 +1810,11 @@ def _recover_runaway_face(cfs_face, built_face):
             wire_diag = _shape_diag(make_wire_from_face_bound(cfs_face.bounds[0]))
         except Exception:  # noqa: BLE001
             return None
-        if not _face_overruns_wire(rebuilt, wire_diag):
+        # _face_overruns_wire uses brepbndlib, which over-estimates seam-crossing arc
+        # faces; confirm a flagged overrun with a reliable mesh extent before rejecting.
+        if not _face_overruns_wire(rebuilt, wire_diag) or _reliable_face_diag(rebuilt) <= _FACE_OVERRUN_FACTOR * max(
+            wire_diag, 1e-6
+        ):
             PARAM_REBUILD_STATS["curved_runaway_recovered"] += 1
             return rebuilt
     return None
