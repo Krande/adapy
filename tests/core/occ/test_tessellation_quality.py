@@ -1,4 +1,4 @@
-"""Configurable tessellation quality (ADA_TESS_LINEAR_DEFLECTION + angular).
+"""Configurable tessellation quality (ADA_OCC_TESS_LINEAR_DEFLECTION + angular).
 
 The default path (ShapeTesselator, relative mesh_quality) is unchanged; setting an
 absolute linear deflection switches to a BRepMesh path with explicit angular deflection
@@ -36,17 +36,17 @@ def _area_tris(mesh):
 
 
 def test_default_quality_unchanged(monkeypatch):
-    monkeypatch.delenv("ADA_TESS_LINEAR_DEFLECTION", raising=False)
+    monkeypatch.delenv("ADA_OCC_TESS_LINEAR_DEFLECTION", raising=False)
     _, tris = _area_tris(tessellate_shape(_fresh_cyl(), quality=1.0))
     assert tris == 100  # the established ShapeTesselator default for this cylinder
 
 
 def test_absolute_deflection_refines_curves(monkeypatch):
     analytic = 2 * math.pi * 0.5 * 1.0 + 2 * math.pi * 0.5**2
-    monkeypatch.delenv("ADA_TESS_LINEAR_DEFLECTION", raising=False)
+    monkeypatch.delenv("ADA_OCC_TESS_LINEAR_DEFLECTION", raising=False)
     _, default_tris = _area_tris(tessellate_shape(_fresh_cyl(), quality=1.0))
-    monkeypatch.setenv("ADA_TESS_LINEAR_DEFLECTION", "0.001")
-    monkeypatch.setenv("ADA_TESS_ANGULAR_DEG", "25")
+    monkeypatch.setenv("ADA_OCC_TESS_LINEAR_DEFLECTION", "0.001")
+    monkeypatch.setenv("ADA_OCC_TESS_ANGULAR_DEG", "25")
     area, tris = _area_tris(tessellate_shape(_fresh_cyl(), quality=1.0))
     assert tris > default_tris  # finer than the relative default
     assert area > 0.999 * analytic  # closer to the true curved-surface area
@@ -57,9 +57,9 @@ def test_absolute_deflection_refines_curves(monkeypatch):
 
 def test_angular_deflection_refines_doubly_curved(monkeypatch):
     # a sphere is doubly curved → the ANGULAR deflection drives its facet count
-    monkeypatch.setenv("ADA_TESS_LINEAR_DEFLECTION", "10.0")
-    monkeypatch.setenv("ADA_TESS_ANGULAR_DEG", "40")
+    monkeypatch.setenv("ADA_OCC_TESS_LINEAR_DEFLECTION", "10.0")
+    monkeypatch.setenv("ADA_OCC_TESS_ANGULAR_DEG", "40")
     _, coarse = _area_tris(tessellate_shape(_fresh_sphere(), quality=1.0))
-    monkeypatch.setenv("ADA_TESS_ANGULAR_DEG", "5")
+    monkeypatch.setenv("ADA_OCC_TESS_ANGULAR_DEG", "5")
     _, fine = _area_tris(tessellate_shape(_fresh_sphere(), quality=1.0))
     assert fine > coarse

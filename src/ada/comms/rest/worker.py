@@ -1031,6 +1031,10 @@ async def _process_one(
                 # FEM→IFC memory-bounded writer. Default on (converter treats
                 # unset as on); set falsy to revert to the in-memory writer.
                 "ifc_streaming": "ADA_IFC_STREAMING",
+                # Curved-surface tessellation quality (0 = lean relative default).
+                "tess_linear_deflection": "ADA_OCC_TESS_LINEAR_DEFLECTION",
+                "tess_angular_deg": "ADA_OCC_TESS_ANGULAR_DEG",
+                "tess_relative": "ADA_OCC_TESS_RELATIVE",
             }
             for skey, env_name in _env_map.items():
                 raw = await _read_bool_setting(skey)
@@ -1048,6 +1052,9 @@ async def _process_one(
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
                 "step_streamer": "ADA_STEP_STREAMER",
                 "ifc_streaming": "ADA_IFC_STREAMING",
+                "tess_linear_deflection": "ADA_OCC_TESS_LINEAR_DEFLECTION",
+                "tess_angular_deg": "ADA_OCC_TESS_ANGULAR_DEG",
+                "tess_relative": "ADA_OCC_TESS_RELATIVE",
             }
             for k, v in per_job.items():
                 env_name = _env_map_full.get(k)

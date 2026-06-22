@@ -355,23 +355,42 @@ def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, paral
     if not _has_meshable_extent(shape):
         return _empty_triangle_mesh()
 
-    # Configurable quality: when ADA_TESS_LINEAR_DEFLECTION is set, tessellate with an
-    # explicit absolute (or relative) linear deflection + angular deflection via BRepMesh
-    # — curvature-adaptive smoothness, à la step2glb (1 mm + ~25°). Default (unset) keeps
-    # the lean ShapeTesselator(quality) path so production GLB size / mobile perf are
-    # unchanged unless a caller opts in.
+    # Configurable quality (Config ``occ_tess`` section / env ADA_OCC_TESS_*): when
+    # linear_deflection > 0, tessellate with an explicit chordal + angular deflection via
+    # BRepMesh — curvature-adaptive smoothness, à la step2glb (1 mm + ~25°). Default
+    # (0) keeps the lean ShapeTesselator(quality) path so production GLB size / mobile
+    # perf are unchanged unless a caller opts in. Read fresh from the singleton so a
+    # spawned tessellation worker honours the per-job env the orchestrator set.
     import math as _math
     import os as _os_tess
 
-    _ld = _os_tess.environ.get("ADA_TESS_LINEAR_DEFLECTION")
-    if _ld:
+    from ada.config import Config as _Config
+
+    # Per-job env (set by the worker / orchestrator, inherited by spawned workers) wins;
+    # the Config singleton supplies the startup/config-file default.
+    _cfg = _Config()
+
+    def _opt(env_name, attr, cast):
+        raw = _os_tess.environ.get(env_name)
+        if raw is not None and raw.strip() != "":
+            return cast(raw)
+        return cast(getattr(_cfg, attr, None))
+
+    try:
+        ld = float(_opt("ADA_OCC_TESS_LINEAR_DEFLECTION", "occ_tess_linear_deflection", float) or 0.0)
+    except (ValueError, TypeError):
+        ld = 0.0
+    if ld > 0:
         try:
-            ld = float(_ld)
-            ang = _math.radians(float(_os_tess.environ.get("ADA_TESS_ANGULAR_DEG", "20")))
-            relative = (_os_tess.environ.get("ADA_TESS_RELATIVE") or "").strip().lower() in {"1", "true", "yes", "on"}
-            if ld > 0:
-                return _tessellate_brepmesh(shape, ld, ang, relative)
-        except ValueError:
+            ang = _math.radians(float(_opt("ADA_OCC_TESS_ANGULAR_DEG", "occ_tess_angular_deg", float)))
+            rel_raw = _os_tess.environ.get("ADA_OCC_TESS_RELATIVE")
+            relative = (
+                rel_raw.strip().lower() in {"1", "true", "yes", "on"}
+                if rel_raw is not None and rel_raw.strip() != ""
+                else bool(getattr(_cfg, "occ_tess_relative", False))
+            )
+            return _tessellate_brepmesh(shape, ld, ang, relative)
+        except (ValueError, TypeError):
             pass
 
     from OCC.Core.Tesselator import ShapeTesselator

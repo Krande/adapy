@@ -1556,6 +1556,36 @@ def _register_ada_loadable() -> None:
                 "by Plate / Beam / Face name."
             ),
         },
+        {
+            "name": "tess_linear_deflection",
+            "type": "number",
+            "default": 0.0,
+            "description": (
+                "Curved-surface tessellation quality. 0 (default) uses the lean relative "
+                "mesher — smallest GLB, mobile-friendly. A positive value (in model "
+                "units, e.g. mm) switches to an explicit chordal deflection: smaller = "
+                "smoother curves but more triangles / larger GLB (step2glb uses ~1 mm)."
+            ),
+        },
+        {
+            "name": "tess_angular_deg",
+            "type": "number",
+            "default": 20.0,
+            "description": (
+                "Angular deflection (degrees) for the explicit-deflection mesher (only "
+                "when tess_linear_deflection > 0). Drives facet count on doubly-curved "
+                "surfaces (spheres / tori / B-splines); smaller = smoother."
+            ),
+        },
+        {
+            "name": "tess_relative",
+            "type": "bool",
+            "default": False,
+            "description": (
+                "Treat tess_linear_deflection as a fraction of each shape's bbox instead "
+                "of absolute model units (only when tess_linear_deflection > 0)."
+            ),
+        },
     ]
 
     # STEP→GLB only: route the conversion through the memory-bounded streaming
