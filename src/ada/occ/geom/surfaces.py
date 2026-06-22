@@ -1740,6 +1740,51 @@ def _face_area(shape) -> float:
         return 0.0
 
 
+def _recover_runaway_face(cfs_face, built_face):
+    """Recover a face the solid-extent runaway guard flagged, instead of dropping it.
+
+    The guard (``_shape_diag`` vs ``solid_vdiag``) over-drops because brepbndlib
+    over-estimates curved-edge faces and ``solid_vdiag`` can be small. Recover from the
+    boundary, which is reliable: a PLANE's true area is exactly its boundary polygon (keep
+    the built face when it matches, else rebuild from the polygon); a CYLINDER / CONE /
+    TORUS / SPHERE rebuilds from its boundary's projected parameter extent. Returns a
+    non-phantom face, or ``None`` when the face is a genuine runaway that can't be rebuilt."""
+    surf_geom = getattr(cfs_face, "face_surface", None)
+    try:
+        occ_surface = make_surface_from_geom(surf_geom)
+    except Exception:  # noqa: BLE001
+        return None
+
+    if isinstance(occ_surface, gp_Pln):
+        poly = _planar_boundary_polygon(cfs_face, occ_surface)
+        if poly is None or poly[3] <= 1e-9:
+            return None
+        if _face_area(built_face) <= 1.5 * poly[3]:
+            PARAM_REBUILD_STATS["planar_runaway_kept"] += 1
+            return built_face  # built face already matches its polygon — not a phantom
+        rebuilt = _planar_face_from_polygon(poly[0], poly[1], poly[2])
+        if rebuilt is not None and not rebuilt.IsNull() and _face_area(rebuilt) > 1e-9:
+            PARAM_REBUILD_STATS["planar_runaway_recovered"] += 1
+            return rebuilt
+        return None
+
+    if isinstance(occ_surface, (Geom_CylindricalSurface, Geom_ConicalSurface, Geom_ToroidalSurface, Geom_SphericalSurface)):
+        try:
+            rebuilt = _make_face_from_param_extent(cfs_face, occ_surface)
+        except Exception:  # noqa: BLE001
+            return None
+        if rebuilt is None or _face_area(rebuilt) <= 1e-9:
+            return None
+        try:
+            wire_diag = _shape_diag(make_wire_from_face_bound(cfs_face.bounds[0]))
+        except Exception:  # noqa: BLE001
+            return None
+        if not _face_overruns_wire(rebuilt, wire_diag):
+            PARAM_REBUILD_STATS["curved_runaway_recovered"] += 1
+            return rebuilt
+    return None
+
+
 def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_faces) -> None:
     """Build each connected-face-set face (AdvancedFace / FaceSurface) and add it to
     ``occ_shell``. Shared by the closed-shell, open-shell and shell-based-surface-model
@@ -1773,23 +1818,17 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                 if not math.isfinite(fdiag) or fdiag > runaway_limit:
                     # _shape_diag uses brepbndlib, which over-estimates faces with curved
                     # boundary edges (control-polygon bound) — and solid_vdiag can be small
-                    # — so this guard FALSE-trips on planar faces that are actually fine. A
-                    # plane's true area is exactly its boundary polygon, so keep it when the
-                    # area matches (it cannot be a phantom); otherwise drop as before.
-                    keep_planar = False
-                    if isinstance(cfs_face.face_surface, geo_su.Plane):
-                        try:
-                            poly = _planar_boundary_polygon(cfs_face, make_surface_from_geom(cfs_face.face_surface))
-                            keep_planar = poly is not None and poly[3] > 1e-9 and _face_area(face) <= 1.5 * poly[3]
-                        except Exception:  # noqa: BLE001 - fall through to the drop
-                            keep_planar = False
-                    if not keep_planar:
+                    # — so this guard FALSE-trips on faces that are actually fine. Try to
+                    # recover the face from its boundary before dropping; only a face that
+                    # cannot be recovered into a non-phantom is a genuine runaway.
+                    recovered = _recover_runaway_face(cfs_face, face)
+                    if recovered is None:
                         PARAM_REBUILD_STATS["runaway_face_dropped"] += 1
                         raise UnableToCreateTesselationFromSolidOCCGeom(
                             f"face extent {fdiag:.1f} >> solid vertices {solid_vdiag:.3f} "
                             f"({type(cfs_face.face_surface).__name__}); corrupt trim, dropping face"
                         )
-                    PARAM_REBUILD_STATS["planar_runaway_kept"] += 1
+                    face = recovered
 
                 # A trimmed surface can collapse to zero area even when MakeFace reports
                 # "done" — e.g. a planar SAT plate whose boundary mixes a b-spline edge that

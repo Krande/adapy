@@ -80,10 +80,10 @@ def test_guard_drops_genuine_runaway(tmp_path, monkeypatch):
     out = tmp_path / "box.step"
     (ada.Assembly("m") / (ada.Part("p") / ada.PrimBox("bx", (0, 0, 0), (1, 1, 1)))).to_stp(out)
 
-    # A GENUINE runaway: the built face extent AND area both dwarf the boundary polygon,
-    # so the intrinsic exemption cannot rescue it and the guard must drop every face.
+    # A GENUINE runaway: extent trips the guard AND the face cannot be recovered from its
+    # boundary (recovery yields nothing) — so the guard must drop every face.
     monkeypatch.setattr(S, "_shape_diag", lambda shape: 1.0e9)
-    monkeypatch.setattr(S, "_face_area", lambda face: 1.0e12)
+    monkeypatch.setattr(S, "_recover_runaway_face", lambda cfs_face, built_face: None)
     before = S.PARAM_REBUILD_STATS["runaway_face_dropped"]
     for g in stream_read_step(out, local_pool=False, tolerant=True):
         S.make_closed_shell_from_geom(g.geometry)
