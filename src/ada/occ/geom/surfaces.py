@@ -1148,6 +1148,71 @@ def _cfs_vertex_diag(cfs_faces) -> float:
     return float(_np.linalg.norm(a.max(axis=0) - a.min(axis=0)))
 
 
+def _planar_boundary_polygon(advanced_face: geo_su.AdvancedFace, pln: "gp_Pln"):
+    """Sample the face's boundary loops and project them onto the plane (cheap — no OCC
+    face build). Returns ``(pln, loops, outer_idx, true_area)`` where ``loops`` is a list
+    of ``(points_3d, signed_2d_area)`` and ``true_area`` is the polygon's net area
+    (outer minus holes) — the plane's exact area. Returns ``None`` if no usable loop."""
+    import numpy as np
+
+    ax = pln.Position()
+    origin = np.array([ax.Location().X(), ax.Location().Y(), ax.Location().Z()])
+    xdir = np.array([ax.XDirection().X(), ax.XDirection().Y(), ax.XDirection().Z()])
+    ydir = np.array([ax.YDirection().X(), ax.YDirection().Y(), ax.YDirection().Z()])
+
+    loops: list = []  # (points_3d, signed_2d_area)
+    for fb in advanced_face.bounds:
+        edge_list = getattr(fb.bound, "edge_list", None) or []
+        pts: list = []
+        for oe in edge_list:
+            try:
+                for p in _sample_edge_points(oe):
+                    p = (float(p[0]), float(p[1]), float(p[2]))
+                    if not pts or abs(p[0] - pts[-1][0]) + abs(p[1] - pts[-1][1]) + abs(p[2] - pts[-1][2]) > 1e-9:
+                        pts.append(p)
+            except Exception:  # noqa: BLE001 - a single bad edge must not void the loop
+                continue
+        if len(pts) >= 3:
+            arr = np.array(pts)
+            uv = np.c_[(arr - origin) @ xdir, (arr - origin) @ ydir]
+            area2d = 0.5 * float(np.sum(uv[:, 0] * np.roll(uv[:, 1], -1) - np.roll(uv[:, 0], -1) * uv[:, 1]))
+            loops.append((arr, area2d))
+    if not loops:
+        return None
+
+    outer = max(range(len(loops)), key=lambda i: abs(loops[i][1]))
+    true_area = abs(loops[outer][1]) - sum(abs(a) for i, (_, a) in enumerate(loops) if i != outer)
+    return pln, loops, outer, true_area
+
+
+def _planar_face_from_polygon(pln, loops, outer):
+    """Build a planar ``TopoDS_Face`` from sampled boundary loops (the Tier-2 wire
+    recovery for planes). A planar face overruns when the boundary winding is reversed —
+    ``MakeFace`` then bounds the huge complementary region. Sidestep the trim: build
+    polygon wires with winding fixed by 2-D signed area (outer CCW, holes CW) and
+    ``MakeFace`` from them. Returns a face or ``None``."""
+
+    def _wire(points_3d, area2d, want_ccw: bool):
+        seq = points_3d if (area2d > 0) == want_ccw else points_3d[::-1]
+        poly = BRepBuilderAPI_MakePolygon()
+        for p in seq:
+            poly.Add(gp_Pnt(float(p[0]), float(p[1]), float(p[2])))
+        poly.Close()
+        return poly.Wire() if poly.IsDone() else None
+
+    outer_wire = _wire(loops[outer][0], loops[outer][1], True)
+    if outer_wire is None:
+        return None
+    face_maker = BRepBuilderAPI_MakeFace(pln, outer_wire, True)
+    for i, (pts3d, area2d) in enumerate(loops):
+        if i == outer:
+            continue
+        inner = _wire(pts3d, area2d, False)
+        if inner is not None:
+            face_maker.Add(inner)
+    return face_maker.Face() if face_maker.IsDone() else None
+
+
 def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     """Create an OCC face from an AdvancedFace with arbitrary supported surface types and bounds.
 
@@ -1388,6 +1453,27 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
                 )
             PARAM_REBUILD_STATS["unbounded_rebuilt"] += 1
             face = rebuilt
+
+    # A PLANAR face can also overrun its wire — not because the plane is infinite after
+    # trim (it UV-projects exactly) but because the boundary's winding is reversed, so
+    # MakeFace bounded the huge complementary region. The plane's true area is exactly its
+    # boundary polygon, so compare the built area against it (cheap — sampling only) and,
+    # when the build ran away, rebuild from the polygon (winding fixed by signed area).
+    # This is the dominant runaway-drop bucket on real models and the recovery is exact.
+    if isinstance(face_surface, gp_Pln):
+        poly = _planar_boundary_polygon(advanced_face, face_surface)
+        if poly is not None and poly[3] > 1e-9 and _face_area(face) > 1.5 * poly[3]:
+            rebuilt = _planar_face_from_polygon(poly[0], poly[1], poly[2])
+            if rebuilt is not None and not rebuilt.IsNull() and _face_area(rebuilt) > 1e-9:
+                # _planar_face_from_polygon builds the outer loop CCW → face normal = +plane
+                # normal. Honour the source same_sense so the recovered normal matches the
+                # face's intended side (the runaway face's own orientation is unreliable).
+                if not advanced_face.same_sense:
+                    from OCC.Core.TopoDS import topods
+
+                    rebuilt = topods.Face(rebuilt.Reversed())
+                PARAM_REBUILD_STATS["planar_runaway_recovered"] += 1
+                face = rebuilt
 
     # A toroidal / cylindrical / conical face whose boundary wire fails to trim the
     # surface can collapse to ~zero area (instead of overrunning) — it then meshes to
