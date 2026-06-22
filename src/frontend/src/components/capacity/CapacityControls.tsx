@@ -7,11 +7,17 @@ import {
     applyCapacityDefinitionView,
     applyCapacityIsolation,
     applyCapacitySelectionHighlight,
+    applyCapacityStations,
     applyCapacityVisualField,
     clearCapacityDefinitionView,
     clearCapacityIsolation,
+    clearCapacityStations,
     clearCapacityVisualField,
 } from "@/utils/scene/handlers/load_fea_streaming";
+
+// Per-position marker colours (positions 1/2/3). Keep in sync with
+// load_fea_streaming CAPACITY_STATION_COLORS.
+const STATION_COLORS = ["#38bdf8", "#fbbf24", "#fb7185"];
 
 const CapacityControls: React.FC = () => {
     const {
@@ -42,6 +48,7 @@ const CapacityControls: React.FC = () => {
     const pickedFileName = useObjectInfoStore((s) => s.fileName);
     const lastHandledPickKeyRef = useRef<string | null>(null);
     const [showInputs, setShowInputs] = useState(false);
+    const [showStations, setShowStations] = useState(false);
 
     const run = useMemo(() => {
         if (!results?.runs?.length) return null;
@@ -93,6 +100,17 @@ const CapacityControls: React.FC = () => {
             clearCapacityIsolation();
         }
     }, [run, isolateDefinitions]);
+
+    useEffect(() => {
+        if (showInputs && showStations && selectedRow) {
+            const model = run?.capacity_models.find((m) => m.id === selectedRow.capacity_model_id);
+            const stiffeners = (model?.stiffeners ?? []) as Array<Record<string, unknown>>;
+            const stiff = stiffeners.find((s) => s.name === selectedRow.stiffener);
+            applyCapacityStations((stiff?.stations as number[][] | undefined) ?? null);
+        } else {
+            clearCapacityStations();
+        }
+    }, [run, selectedRow, showInputs, showStations]);
 
     useEffect(() => {
         const pickKey = pickedName ? `${pickedFileName ?? ""}:${pickedName}:${pickedFaceIndex ?? ""}` : null;
@@ -285,7 +303,16 @@ const CapacityControls: React.FC = () => {
                     )}
 
                     {showInputs && selectedRow && createPortal(
-                        <FloatingInputPanel run={run} row={selectedRow} onClose={() => setShowInputs(false)} />,
+                        <FloatingInputPanel
+                            run={run}
+                            row={selectedRow}
+                            showStations={showStations}
+                            onToggleStations={() => setShowStations((v) => !v)}
+                            onClose={() => {
+                                setShowInputs(false);
+                                setShowStations(false);
+                            }}
+                        />,
                         document.body,
                     )}
                 </div>
@@ -297,20 +324,31 @@ const CapacityControls: React.FC = () => {
 const FloatingInputPanel: React.FC<{
     run: CapacityRunLike;
     row: CapacityCaseResultLike;
+    showStations: boolean;
+    onToggleStations: () => void;
     onClose: () => void;
-}> = ({run, row, onClose}) => (
+}> = ({run, row, showStations, onToggleStations, onClose}) => (
     <div className="fixed top-16 right-4 z-[1000] flex max-h-[80vh] w-72 flex-col rounded-sm border border-gray-700 bg-gray-900/95 text-gray-100 text-xs shadow-lg">
         <div className="flex items-center justify-between gap-2 border-b border-gray-700 px-3 py-2">
             <div className="font-semibold truncate" title={row.capacity_model_id}>
                 {shortName(row.stiffener ?? row.panel_group)} — input
             </div>
-            <button
-                className="shrink-0 text-gray-400 hover:text-gray-100"
-                onClick={onClose}
-                title="Close"
-            >
-                ✕
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+                <button
+                    className={modeButton(showStations) + " text-[11px]"}
+                    onClick={onToggleStations}
+                    title="Mark positions 1/2/3 on the model in the 3D view"
+                >
+                    Points
+                </button>
+                <button
+                    className="text-gray-400 hover:text-gray-100"
+                    onClick={onClose}
+                    title="Close"
+                >
+                    ✕
+                </button>
+            </div>
         </div>
         <div className="overflow-y-auto p-3">
             <CapacityInputDetails run={run} row={row} />
@@ -335,6 +373,7 @@ interface InputField {
     label: string;
     value: number | string | null;
     unit?: string;
+    pos?: number; // 1/2/3 → colour-coded to the 3D station marker
 }
 
 interface InputGroup {
@@ -352,7 +391,12 @@ const CapacityInputDetails: React.FC<{run: CapacityRunLike; row: CapacityCaseRes
                     <div className="grid grid-cols-[auto_1fr_auto] gap-x-2 gap-y-0.5">
                         {g.fields.map((f, i) => (
                             <React.Fragment key={i}>
-                                <span className="font-mono text-gray-500">{f.symbol ?? ""}</span>
+                                <span className="font-mono text-gray-500 whitespace-nowrap">
+                                    {f.pos != null && (
+                                        <span style={{color: STATION_COLORS[f.pos - 1] ?? "#94a3b8"}}>● </span>
+                                    )}
+                                    {f.symbol ?? ""}
+                                </span>
                                 <span className="text-gray-400 truncate" title={f.label}>{f.label}</span>
                                 <span className="font-mono text-right text-gray-100 whitespace-nowrap">
                                     {fmtInputField(f)}
@@ -394,8 +438,13 @@ function buildInputGroups(run: CapacityRunLike, row: CapacityCaseResultLike): In
     const mat = (stiff.material ?? plate.material ?? {}) as Record<string, unknown>;
     const loads = (row.loads ?? {}) as Record<string, unknown>;
     const rv = (row.resolved_variables ?? {}) as Record<string, unknown>;
-    const f = (symbol: string, label: string, value: number | string | null, unit?: string): InputField =>
-        ({symbol, label, value, unit});
+    const f = (
+        symbol: string,
+        label: string,
+        value: number | string | null,
+        unit?: string,
+        pos?: number,
+    ): InputField => ({symbol, label, value, unit, pos});
     return [
         {title: "Geometry", fields: [
             f("t", "Plate thickness", scaled(plate.thickness, 1e3), "mm"),
@@ -416,19 +465,19 @@ function buildInputGroups(run: CapacityRunLike, row: CapacityCaseResultLike): In
             f("ν", "Poisson", asNum(mat.poisson), "-"),
             f("γ_M", "Material factor", asNum(mat.gamma_m), "-"),
         ]},
-        {title: "Design loads", fields: [
-            f("σ_y1", "Transverse stress @1", scaled(loads.sigma_y1, 1e-6), "MPa"),
-            f("σ_y2", "Transverse stress @2", scaled(loads.sigma_y2, 1e-6), "MPa"),
-            f("σ_y3", "Transverse stress @3", scaled(loads.sigma_y3, 1e-6), "MPa"),
-            f("τ_1", "Shear @1", scaled(loads.tau_1, 1e-6), "MPa"),
-            f("τ_2", "Shear @2", scaled(loads.tau_2, 1e-6), "MPa"),
-            f("τ_3", "Shear @3", scaled(loads.tau_3, 1e-6), "MPa"),
-            f("N_1", "Axial @1", scaled(loads.N_1, 1e-3), "kN"),
-            f("N_2", "Axial @2", scaled(loads.N_2, 1e-3), "kN"),
-            f("N_3", "Axial @3", scaled(loads.N_3, 1e-3), "kN"),
-            f("M_1", "Moment @1", scaled(loads.M_1, 1e-3), "kN·m"),
-            f("M_2", "Moment @2", scaled(loads.M_2, 1e-3), "kN·m"),
-            f("M_3", "Moment @3", scaled(loads.M_3, 1e-3), "kN·m"),
+        {title: "Design loads (positions ● 1 / ● 2 / ● 3)", fields: [
+            f("σ_y1", "Transverse stress @1", scaled(loads.sigma_y1, 1e-6), "MPa", 1),
+            f("σ_y2", "Transverse stress @2", scaled(loads.sigma_y2, 1e-6), "MPa", 2),
+            f("σ_y3", "Transverse stress @3", scaled(loads.sigma_y3, 1e-6), "MPa", 3),
+            f("τ_1", "Shear @1", scaled(loads.tau_1, 1e-6), "MPa", 1),
+            f("τ_2", "Shear @2", scaled(loads.tau_2, 1e-6), "MPa", 2),
+            f("τ_3", "Shear @3", scaled(loads.tau_3, 1e-6), "MPa", 3),
+            f("N_1", "Axial @1", scaled(loads.N_1, 1e-3), "kN", 1),
+            f("N_2", "Axial @2", scaled(loads.N_2, 1e-3), "kN", 2),
+            f("N_3", "Axial @3", scaled(loads.N_3, 1e-3), "kN", 3),
+            f("M_1", "Moment @1", scaled(loads.M_1, 1e-3), "kN·m", 1),
+            f("M_2", "Moment @2", scaled(loads.M_2, 1e-3), "kN·m", 2),
+            f("M_3", "Moment @3", scaled(loads.M_3, 1e-3), "kN·m", 3),
             f("p_Sd", "Lateral pressure", scaled(loads.p_Sd, 1e-3), "kPa"),
         ]},
         {title: "Resolved design (Section 6)", fields: [

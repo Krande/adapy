@@ -338,6 +338,24 @@ def beam_axis_and_span(mesh: Mesh, element_ids: tuple[int, ...]) -> tuple[np.nda
     return axis, span
 
 
+def stiffener_stations(mesh: Mesh, element_ids: tuple[int, ...]) -> list[list[float]]:
+    """The 3 Section-5 stations [start, mid, end] along a stiffener span.
+
+    These are the points where the resolved design stresses/forces are sampled
+    (positions 1/2/3): ``start`` = the first node of the chain, ``end`` = the
+    last node, ``mid`` = their midpoint. Returns ``[]`` for an empty chain.
+    Pure indexing/averaging — no BLAS, so it stays crash-safe on any backend.
+    """
+    ids = tuple(int(e) for e in element_ids)
+    if not ids:
+        return []
+    coords = [element_node_coords(mesh, e) for e in ids]
+    start = np.asarray(coords[0][0], dtype=float)
+    end = np.asarray(coords[-1][-1], dtype=float)
+    mid = (start + end) / 2.0
+    return [start.tolist(), mid.tolist(), end.tolist()]
+
+
 def plate_dimensions(mesh: Mesh, element_ids: tuple[int, ...], stiffener_axis: np.ndarray) -> tuple[float, float]:
     """(length, width) of a plate field, oriented by the stiffener axis.
 

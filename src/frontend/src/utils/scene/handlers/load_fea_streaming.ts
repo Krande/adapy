@@ -78,7 +78,14 @@ interface ActiveFeaStreaming {
      *  definitions" can restore exactly what was visible when it was
      *  switched on. Present only while isolation is active. */
     capacityIsolationSaved?: {main?: Set<string>; beam?: Set<string>};
+    /** Numbered marker sprites at the 3 Section-5 stations of the selected
+     *  stiffener (positions 1/2/3 of the resolved design stresses). */
+    capacityStationsGroup?: THREE.Group;
 }
+
+// Per-position marker colours (positions 1/2/3). Keep in sync with the capacity
+// side panel (CapacityControls STATION_COLORS) so the dots match the markers.
+const CAPACITY_STATION_COLORS = ["#38bdf8", "#fbbf24", "#fb7185"];
 
 let active: ActiveFeaStreaming | null = null;
 
@@ -672,6 +679,75 @@ function isolateMeshToRanges(mesh: THREE.Mesh, keep: Set<string>, slot: "main" |
         if (!keep.has(id) || baseline.has(id)) toHide.push(id);
     }
     if (toHide.length) mesh.hideBatchDrawRange(toHide);
+}
+
+/** Show numbered markers (1/2/3) at the stiffener's Section-5 stations.
+ *  ``points`` are [start, mid, end] coordinates in the mesh (SIN) frame; the
+ *  sprites are added as children of the FEA mesh so they share its transform. */
+export function applyCapacityStations(points: number[][] | null | undefined): boolean {
+    clearCapacityStations();
+    if (!active?.mesh || !points || points.length === 0) return false;
+    const group = new THREE.Group();
+    group.name = "capacity-stations";
+    points.slice(0, 3).forEach((p, i) => {
+        if (!p || p.length < 3) return;
+        const sprite = makeStationSprite(String(i + 1), CAPACITY_STATION_COLORS[i] ?? "#38bdf8");
+        sprite.position.set(p[0], p[1], p[2]);
+        sprite.raycast = () => undefined;
+        group.add(sprite);
+    });
+    if (group.children.length === 0) return false;
+    active.mesh.add(group);
+    active.capacityStationsGroup = group;
+    requestRender();
+    return true;
+}
+
+export function clearCapacityStations(): void {
+    if (!active?.capacityStationsGroup) return;
+    const group = active.capacityStationsGroup;
+    group.removeFromParent();
+    group.traverse((obj) => {
+        if (obj instanceof THREE.Sprite) {
+            obj.material.map?.dispose();
+            obj.material.dispose();
+        }
+    });
+    active.capacityStationsGroup = undefined;
+    requestRender();
+}
+
+function makeStationSprite(label: string, color: string): THREE.Sprite {
+    const size = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2 - 5, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = "#0f172a";
+    ctx.stroke();
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "bold 40px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, size / 2, size / 2 + 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    const material = new THREE.SpriteMaterial({
+        map: texture,
+        sizeAttenuation: false,
+        depthTest: false,
+        depthWrite: false,
+        transparent: true,
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(0.03, 0.03, 1);
+    sprite.renderOrder = 12;
+    return sprite;
 }
 
 /** Undo {@link applyCapacityIsolation}: restore the snapshotted hidden set. */
