@@ -927,6 +927,36 @@ def _is_closure_bound(fb, face_surface) -> bool:
     return True
 
 
+def _is_full_sphere_seam(advanced_face: geo_su.AdvancedFace, face_surface) -> bool:
+    """True when a spherical face's boundary is only the closure seam of a *complete*
+    sphere — i.e. every boundary edge is a great circle (radius == the sphere radius,
+    centred on the sphere centre). Such a face covers the whole sphere; its wire is
+    degenerate and won't mesh, so it must be built from natural bounds. A genuine
+    spherical *patch* has a smaller trimming circle (radius < sphere radius) and fails
+    this test, so it keeps the normal wire path."""
+    try:
+        sph = face_surface.Sphere()
+        c = sph.Location()
+        r = sph.Radius()
+    except Exception:  # noqa: BLE001
+        return False
+    cx, cy, cz = c.X(), c.Y(), c.Z()
+    n_circ = 0
+    for fb in advanced_face.bounds:
+        for oe in getattr(getattr(fb, "bound", None), "edge_list", None) or []:
+            ec = getattr(oe, "edge_element", oe)
+            g = getattr(ec, "edge_geometry", None)
+            if not isinstance(g, geo_cu.Circle):
+                return False  # any non-circular boundary edge => a real trim, not a seam
+            ctr = [float(x) for x in g.position.location]
+            if abs(float(g.radius) - r) > 1e-4 * max(r, 1.0):
+                return False  # not a great circle => a trimming circle (a cap)
+            if (ctr[0] - cx) ** 2 + (ctr[1] - cy) ** 2 + (ctr[2] - cz) ** 2 > (1e-4 * max(r, 1.0)) ** 2:
+                return False  # not centred on the sphere => not a seam
+            n_circ += 1
+    return n_circ > 0
+
+
 def _make_face_from_param_extent(advanced_face: geo_su.AdvancedFace, face_surface):
     """Build a face directly from the projected parameter extent of its boundary
     samples — for faces whose boundary wire cannot trim the surface (closed
@@ -1283,6 +1313,16 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
         if is_wire_cw(outer_wire, face_surface):
             logger.info("Reversing CW wire to CCW for B-Spline surface")
             outer_wire = outer_wire.Reversed()
+    elif isinstance(face_surface, Geom_SphericalSurface) and _is_full_sphere_seam(advanced_face, face_surface):
+        # A complete sphere is bounded only by a seam (great-circle arcs through the two
+        # poles). Building a face from that degenerate wire yields a face BRepMesh can't
+        # mesh (0 triangles — the whole ball renders blank). Build from the surface's
+        # natural bounds instead; OCC generates the seam + poles and meshes it cleanly.
+        nat = BRepBuilderAPI_MakeFace(face_surface, 1e-6)
+        if nat.IsDone():
+            PARAM_REBUILD_STATS["full_sphere_natural_bound"] += 1
+            return nat.Face()
+        outer_wire = make_wire_from_face_bound(advanced_face.bounds[0])
     else:
         # A closed cylinder/cone face (full circle in u) can't be built from a wire
         # of full-circle edges + a doubled seam — build it from the surface's

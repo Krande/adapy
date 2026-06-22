@@ -90,6 +90,28 @@ def _rebuild_stats():
     return stats or None
 
 
+def _maybe_capture_empty_solid(geom) -> None:
+    """When ADA_CAPTURE_EMPTY_SOLIDS=<dir> is set, pickle a solid that built but
+    tessellated to zero triangles (built-but-unmeshed) for offline diagnosis. No-op by
+    default; never raises. Source-derived — keep captures local, drive synthetic fixtures."""
+    import os
+
+    out_dir = os.environ.get("ADA_CAPTURE_EMPTY_SOLIDS")
+    if not out_dir:
+        return
+    try:
+        import hashlib
+        import pickle
+
+        blob = pickle.dumps(geom)
+        tag = hashlib.sha1(blob).hexdigest()[:12]
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, f"empty_{tag}.pkl"), "wb") as fh:
+            fh.write(blob)
+    except Exception:  # noqa: BLE001 - capture is best-effort
+        pass
+
+
 def _tessellate_geom_worker(geom):
     """Pool subprocess entry: build + tessellate ONE solid and return raw mesh arrays
     plus the solid's colour — the parent assigns a consistent material id (each
@@ -140,6 +162,7 @@ def _tessellate_geom_worker(geom):
             idx = getattr(mesh, "faces", None)
         pos = getattr(mesh, "positions", None)
         if pos is None or idx is None or len(idx) == 0:
+            _maybe_capture_empty_solid(geom)
             return ("empty", gid, geom.color, None, None, None, None, None, _rebuild_stats())
         nrm = getattr(mesh, "normals", None)
         # ascontiguousarray(+dtype) COPIES, so pos/idx/nrm no longer reference any OCC
