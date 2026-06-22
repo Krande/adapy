@@ -356,6 +356,29 @@ def stiffener_stations(mesh: Mesh, element_ids: tuple[int, ...]) -> list[list[fl
     return [start.tolist(), mid.tolist(), end.tolist()]
 
 
+def stiffener_discretization(mesh: Mesh, element_ids: tuple[int, ...]) -> dict[str, int | bool]:
+    """Mesh discretization of a stiffener vs DNV-RP-C201 [6.4.3] (SCM2).
+
+    [6.4.3] requires a minimum of four (4) elements along the stiffener length for
+    first-order elements, and a minimum of one (1) for second-order elements.
+    Element order is inferred from the node count of the line elements (2 nodes →
+    first order, 3 nodes → second order LINE3). Returns
+    ``{elements_along, element_order, min_required, ok}``.
+    """
+    ids = tuple(int(e) for e in element_ids)
+    n = len(ids)
+    order = 1
+    if ids:
+        order = 2 if len(element_node_ids(mesh, ids[0])) >= 3 else 1
+    min_required = 4 if order == 1 else 1
+    return {
+        "elements_along": n,
+        "element_order": order,
+        "min_required": min_required,
+        "ok": n >= min_required,
+    }
+
+
 def plate_dimensions(mesh: Mesh, element_ids: tuple[int, ...], stiffener_axis: np.ndarray) -> tuple[float, float]:
     """(length, width) of a plate field, oriented by the stiffener axis.
 

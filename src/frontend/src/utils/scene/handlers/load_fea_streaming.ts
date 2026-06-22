@@ -609,6 +609,20 @@ export function applyCapacityVisualField(
     return true;
 }
 
+/** Colour the given elements by a single UF value (the rest neutral) — used for
+ *  the "individual" per-stiffener view, where the selected panel shows the
+ *  selected stiffener's own UF instead of the panel-governing maximum. */
+export function applyCapacitySelectedStiffenerField(elementIds: number[], uf: number): boolean {
+    if (!active?.mesh) return false;
+    const values = elementIds.map((id) => ({element_id: id, value: uf}));
+    paintCapacityEntries(active.mesh, values);
+    if (active.beamSolidMesh) {
+        paintCapacityEntries(active.beamSolidMesh, values);
+    }
+    applyCapacitySelectionHighlight();
+    return true;
+}
+
 export function applyCapacityDefinitionView(): boolean {
     if (!active?.mesh) return false;
     const store = useCapacityResultsStore.getState();

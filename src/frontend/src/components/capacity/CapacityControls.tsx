@@ -6,6 +6,7 @@ import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {
     applyCapacityDefinitionView,
     applyCapacityIsolation,
+    applyCapacitySelectedStiffenerField,
     applyCapacitySelectionHighlight,
     applyCapacityStations,
     applyCapacityVisualField,
@@ -49,6 +50,7 @@ const CapacityControls: React.FC = () => {
     const lastHandledPickKeyRef = useRef<string | null>(null);
     const [showInputs, setShowInputs] = useState(false);
     const [showStations, setShowStations] = useState(false);
+    const [individualUf, setIndividualUf] = useState(false);
 
     const run = useMemo(() => {
         if (!results?.runs?.length) return null;
@@ -77,6 +79,19 @@ const CapacityControls: React.FC = () => {
             .sort((a, b) => (b.governing_usage ?? -1) - (a.governing_usage ?? -1))[0] ?? null;
     }, [run, selectedModelId, selectedResultId, activeCaseId]);
 
+    const meshWarningCount = useMemo(() => {
+        if (!run) return 0;
+        let bad = 0;
+        for (const model of run.capacity_models) {
+            const stiffeners = (model.stiffeners ?? []) as Array<Record<string, unknown>>;
+            const violates = stiffeners.some(
+                (s) => (s.discretization as {ok?: boolean} | undefined)?.ok === false,
+            );
+            if (violates) bad += 1;
+        }
+        return bad;
+    }, [run]);
+
     useEffect(() => {
         if (!run) return;
         if (showDefinitions) {
@@ -85,12 +100,18 @@ const CapacityControls: React.FC = () => {
             clearCapacityDefinitionView();
         }
         if (showResults && activeCaseId) {
-            applyCapacityVisualField(activeMetricId, activeCaseId);
+            if (individualUf && selectedRow) {
+                const model = run.capacity_models.find((m) => m.id === selectedRow.capacity_model_id);
+                const ids = model?.element_ids.all ?? [];
+                applyCapacitySelectedStiffenerField(ids, selectedRow.governing_usage ?? 0);
+            } else {
+                applyCapacityVisualField(activeMetricId, activeCaseId);
+            }
         } else {
             clearCapacityVisualField();
         }
         applyCapacitySelectionHighlight();
-    }, [run, activeCaseId, activeMetricId, showDefinitions, showResults, selectedModelId]);
+    }, [run, activeCaseId, activeMetricId, showDefinitions, showResults, selectedModelId, individualUf, selectedRow]);
 
     useEffect(() => {
         if (!run) return;
@@ -178,6 +199,13 @@ const CapacityControls: React.FC = () => {
                         </label>
                     </div>
 
+                    {meshWarningCount > 0 && (
+                        <div className="rounded-sm border border-amber-700/60 bg-amber-900/30 px-2 py-1 text-amber-200 text-[11px]">
+                            ⚠ {meshWarningCount} model(s) under-meshed for SCM2 [6.4.3] — fewer than 4
+                            elements along the stiffener (first-order). Resolved stresses may be unreliable.
+                        </div>
+                    )}
+
                     <div className="flex items-center gap-1">
                         <button
                             className={modeButton(showDefinitions)}
@@ -197,6 +225,14 @@ const CapacityControls: React.FC = () => {
                             title="Hide everything except the capacity models"
                         >
                             Only definitions
+                        </button>
+                        <button
+                            className={modeButton(individualUf)}
+                            onClick={() => setIndividualUf(!individualUf)}
+                            disabled={!showResults}
+                            title="Colour the selected panel by the selected stiffener's UF instead of the panel maximum"
+                        >
+                            Individual UF
                         </button>
                     </div>
 
@@ -374,6 +410,7 @@ interface InputField {
     value: number | string | null;
     unit?: string;
     pos?: number; // 1/2/3 → colour-coded to the 3D station marker
+    ref?: string; // DNV-RP-C201 equation/clause tag, e.g. "(6.17)"
 }
 
 interface InputGroup {
@@ -397,7 +434,10 @@ const CapacityInputDetails: React.FC<{run: CapacityRunLike; row: CapacityCaseRes
                                     )}
                                     {f.symbol ?? ""}
                                 </span>
-                                <span className="text-gray-400 truncate" title={f.label}>{f.label}</span>
+                                <span className="text-gray-400 truncate" title={f.label}>
+                                    {f.label}
+                                    {f.ref && <span className="text-gray-600"> {f.ref}</span>}
+                                </span>
                                 <span className="font-mono text-right text-gray-100 whitespace-nowrap">
                                     {fmtInputField(f)}
                                 </span>
@@ -435,16 +475,20 @@ function buildInputGroups(run: CapacityRunLike, row: CapacityCaseResultLike): In
     const stiffeners = (model?.stiffeners ?? []) as Array<Record<string, unknown>>;
     const stiff = stiffeners.find((s) => s.name === row.stiffener) ?? stiffeners[0] ?? {};
     const section = (stiff.section ?? {}) as Record<string, unknown>;
+    const disc = (stiff.discretization ?? {}) as Record<string, unknown>;
     const mat = (stiff.material ?? plate.material ?? {}) as Record<string, unknown>;
     const loads = (row.loads ?? {}) as Record<string, unknown>;
     const rv = (row.resolved_variables ?? {}) as Record<string, unknown>;
+    const vec = (row.resolved_vectors ?? {}) as Record<string, unknown>;
+    const sigmaX = (vec.AverageLongitudinalMembraneStresses ?? []) as unknown[];
     const f = (
         symbol: string,
         label: string,
         value: number | string | null,
         unit?: string,
         pos?: number,
-    ): InputField => ({symbol, label, value, unit, pos});
+        ref?: string,
+    ): InputField => ({symbol, label, value, unit, pos, ref});
     return [
         {title: "Geometry", fields: [
             f("t", "Plate thickness", scaled(plate.thickness, 1e3), "mm"),
@@ -466,28 +510,34 @@ function buildInputGroups(run: CapacityRunLike, row: CapacityCaseResultLike): In
             f("γ_M", "Material factor", asNum(mat.gamma_m), "-"),
         ]},
         {title: "Design loads (positions ● 1 / ● 2 / ● 3)", fields: [
-            f("σ_y1", "Transverse stress @1", scaled(loads.sigma_y1, 1e-6), "MPa", 1),
+            f("σ_x1", "Axial membrane stress @1", scaled(sigmaX[0], 1e-6), "MPa", 1, "[5.3.2]"),
+            f("σ_x2", "Axial membrane stress @2", scaled(sigmaX[1], 1e-6), "MPa", 2),
+            f("σ_x3", "Axial membrane stress @3", scaled(sigmaX[2], 1e-6), "MPa", 3),
+            f("σ_y1", "Transverse stress @1", scaled(loads.sigma_y1, 1e-6), "MPa", 1, "[5.3.4]"),
             f("σ_y2", "Transverse stress @2", scaled(loads.sigma_y2, 1e-6), "MPa", 2),
             f("σ_y3", "Transverse stress @3", scaled(loads.sigma_y3, 1e-6), "MPa", 3),
-            f("τ_1", "Shear @1", scaled(loads.tau_1, 1e-6), "MPa", 1),
+            f("τ_1", "Shear @1", scaled(loads.tau_1, 1e-6), "MPa", 1, "[5.3.5]"),
             f("τ_2", "Shear @2", scaled(loads.tau_2, 1e-6), "MPa", 2),
             f("τ_3", "Shear @3", scaled(loads.tau_3, 1e-6), "MPa", 3),
-            f("N_1", "Axial @1", scaled(loads.N_1, 1e-3), "kN", 1),
-            f("N_2", "Axial @2", scaled(loads.N_2, 1e-3), "kN", 2),
-            f("N_3", "Axial @3", scaled(loads.N_3, 1e-3), "kN", 3),
-            f("M_1", "Moment @1", scaled(loads.M_1, 1e-3), "kN·m", 1),
+            f("M_1", "Moment @1", scaled(loads.M_1, 1e-3), "kN·m", 1, "[5.3.3]"),
             f("M_2", "Moment @2", scaled(loads.M_2, 1e-3), "kN·m", 2),
             f("M_3", "Moment @3", scaled(loads.M_3, 1e-3), "kN·m", 3),
             f("p_Sd", "Lateral pressure", scaled(loads.p_Sd, 1e-3), "kPa"),
         ]},
         {title: "Resolved design (Section 6)", fields: [
-            f("σ_ySd", "Transverse design stress", scaled(rv.SigmaYSd, 1e-6), "MPa"),
-            f("τ_Sd", "Shear design stress", scaled(rv.TauSd, 1e-6), "MPa"),
-            f("N_Sd", "Axial design force", scaled(rv.Nsd, 1e-3), "kN"),
+            f("σ_ySd", "Transverse design stress", scaled(rv.SigmaYSd, 1e-6), "MPa", undefined, "(6.17)"),
+            f("τ_Sd", "Shear design stress", scaled(rv.TauSd, 1e-6), "MPa", undefined, "(6.16)"),
+            f("N_Sd", "Axial design force", scaled(rv.Nsd, 1e-3), "kN", undefined, "(6.2)"),
         ]},
         {title: "Options", fields: [
             f("", "Continuous", stiff.continuous === false ? "no" : "yes"),
             f("", "Tension field", (loads.tension_field as string) ?? "none"),
+        ]},
+        {title: "Modelling [6.4.3]", fields: [
+            f("", "Elements along stiffener", asNum(disc.elements_along)),
+            f("", "Element order", disc.element_order === 2 ? "2nd order" : "1st order"),
+            f("", "Min. required", asNum(disc.min_required)),
+            f("", "Status", disc.ok === false ? "⚠ under-meshed" : "OK", undefined, undefined, "[6.4.3]"),
         ]},
     ];
 }

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
     CAPACITY_RESULTS_FORMAT,
+    CAPACITY_RESULTS_VERSION,
     validateCapacityResults,
 } from "../../services/capacityResults";
 import type {CapacityResults} from "../../state/capacityResultsStore";
@@ -11,7 +12,7 @@ import type {FeaManifest} from "../../services/viewerApi";
 function payload(overrides: Partial<CapacityResults> = {}): CapacityResults {
     return {
         format: CAPACITY_RESULTS_FORMAT,
-        version: 2,
+        version: CAPACITY_RESULTS_VERSION,
         source: {
             sin_name: "model.SIN",
             sin_sha256: "abc123",
@@ -37,7 +38,7 @@ function payload(overrides: Partial<CapacityResults> = {}): CapacityResults {
 }
 
 describe("validateCapacityResults", () => {
-    it("accepts a v2 capacity sidecar", () => {
+    it("accepts the current capacity sidecar version", () => {
         assert.doesNotThrow(() => validateCapacityResults(payload()));
     });
 
