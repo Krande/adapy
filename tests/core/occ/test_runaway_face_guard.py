@@ -54,16 +54,36 @@ def test_clean_box_drops_no_faces(tmp_path):
     assert PARAM_REBUILD_STATS["runaway_face_dropped"] == before
 
 
-def test_guard_drops_oversized_faces(tmp_path, monkeypatch):
+def test_guard_keeps_fine_planes_despite_extent(tmp_path, monkeypatch):
     pytest.importorskip("OCC.Core.BRepBuilderAPI")
     import ada.occ.geom.surfaces as S
 
     out = tmp_path / "box.step"
     (ada.Assembly("m") / (ada.Part("p") / ada.PrimBox("bx", (0, 0, 0), (1, 1, 1)))).to_stp(out)
 
-    # Force every built face to report a runaway extent; the solid's vertex extent
-    # (from _cfs_vertex_diag) stays small, so the guard must drop them.
+    # Force every built face to report a runaway extent (as a brepbndlib over-estimate on
+    # curved boundary edges would). A box's faces are planes whose built area matches their
+    # boundary polygon, so the intrinsic exemption must KEEP them — not drop a real face.
     monkeypatch.setattr(S, "_shape_diag", lambda shape: 1.0e9)
+    dropped0 = S.PARAM_REBUILD_STATS["runaway_face_dropped"]
+    kept0 = S.PARAM_REBUILD_STATS["planar_runaway_kept"]
+    for g in stream_read_step(out, local_pool=False, tolerant=True):
+        S.make_closed_shell_from_geom(g.geometry)
+    assert S.PARAM_REBUILD_STATS["runaway_face_dropped"] == dropped0  # none dropped
+    assert S.PARAM_REBUILD_STATS["planar_runaway_kept"] >= kept0 + 6  # 6 box faces kept
+
+
+def test_guard_drops_genuine_runaway(tmp_path, monkeypatch):
+    pytest.importorskip("OCC.Core.BRepBuilderAPI")
+    import ada.occ.geom.surfaces as S
+
+    out = tmp_path / "box.step"
+    (ada.Assembly("m") / (ada.Part("p") / ada.PrimBox("bx", (0, 0, 0), (1, 1, 1)))).to_stp(out)
+
+    # A GENUINE runaway: the built face extent AND area both dwarf the boundary polygon,
+    # so the intrinsic exemption cannot rescue it and the guard must drop every face.
+    monkeypatch.setattr(S, "_shape_diag", lambda shape: 1.0e9)
+    monkeypatch.setattr(S, "_face_area", lambda face: 1.0e12)
     before = S.PARAM_REBUILD_STATS["runaway_face_dropped"]
     for g in stream_read_step(out, local_pool=False, tolerant=True):
         S.make_closed_shell_from_geom(g.geometry)

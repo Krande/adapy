@@ -1771,11 +1771,25 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                 # beats a runaway disk that wrecks the model's bounding box.
                 fdiag = _shape_diag(face)
                 if not math.isfinite(fdiag) or fdiag > runaway_limit:
-                    PARAM_REBUILD_STATS["runaway_face_dropped"] += 1
-                    raise UnableToCreateTesselationFromSolidOCCGeom(
-                        f"face extent {fdiag:.1f} >> solid vertices {solid_vdiag:.3f} "
-                        f"({type(cfs_face.face_surface).__name__}); corrupt trim, dropping face"
-                    )
+                    # _shape_diag uses brepbndlib, which over-estimates faces with curved
+                    # boundary edges (control-polygon bound) — and solid_vdiag can be small
+                    # — so this guard FALSE-trips on planar faces that are actually fine. A
+                    # plane's true area is exactly its boundary polygon, so keep it when the
+                    # area matches (it cannot be a phantom); otherwise drop as before.
+                    keep_planar = False
+                    if isinstance(cfs_face.face_surface, geo_su.Plane):
+                        try:
+                            poly = _planar_boundary_polygon(cfs_face, make_surface_from_geom(cfs_face.face_surface))
+                            keep_planar = poly is not None and poly[3] > 1e-9 and _face_area(face) <= 1.5 * poly[3]
+                        except Exception:  # noqa: BLE001 - fall through to the drop
+                            keep_planar = False
+                    if not keep_planar:
+                        PARAM_REBUILD_STATS["runaway_face_dropped"] += 1
+                        raise UnableToCreateTesselationFromSolidOCCGeom(
+                            f"face extent {fdiag:.1f} >> solid vertices {solid_vdiag:.3f} "
+                            f"({type(cfs_face.face_surface).__name__}); corrupt trim, dropping face"
+                        )
+                    PARAM_REBUILD_STATS["planar_runaway_kept"] += 1
 
                 # A trimmed surface can collapse to zero area even when MakeFace reports
                 # "done" — e.g. a planar SAT plate whose boundary mixes a b-spline edge that
