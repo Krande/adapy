@@ -1113,6 +1113,33 @@ def _face_overruns_wire(face, wire_diag: float) -> bool:
     return fd > _FACE_OVERRUN_FACTOR * max(wire_diag, 1e-6)
 
 
+def _reliable_face_diag(face) -> float:
+    """Mesh-based bounding-box diagonal — reliable where ``_shape_diag`` (brepbndlib on the
+    geometry) over-estimates: a trimmed B-spline / seam-crossing arc face's control-polygon
+    bound can span far beyond the actual trimmed patch (e.g. a thin arc on a large cylinder
+    that straddles the u=0 seam reads as the whole ring). Coarse-mesh the face and take its
+    node bbox. Returns ``inf`` if it can't mesh. Meshes, so use only on the rare recovery
+    path (to confirm a brepbndlib-flagged overrun before discarding a good face)."""
+    try:
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+        from OCC.Core.TopLoc import TopLoc_Location
+
+        BRepMesh_IncrementalMesh(face, 0.5, True, 0.5, False)
+        loc = TopLoc_Location()
+        tri = BRep_Tool.Triangulation(face, loc)
+        if tri is None or tri.NbNodes() == 0:
+            return math.inf
+        trsf = loc.Transformation()
+        pts = [tri.Node(i).Transformed(trsf) for i in range(1, tri.NbNodes() + 1)]
+        xs = [p.X() for p in pts]
+        ys = [p.Y() for p in pts]
+        zs = [p.Z() for p in pts]
+        return math.sqrt((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2 + (max(zs) - min(zs)) ** 2)
+    except Exception:  # noqa: BLE001
+        return math.inf
+
+
 # A built face whose extent dwarfs the WHOLE SOLID's topological vertices means a
 # bad edge/pcurve evaluated the surface far from those vertices — a corrupt trim
 # that BRepMesh then meshes into a runaway face (observed: a 15 cm solid whose face
@@ -1446,7 +1473,11 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
                 raise UnableToCreateTesselationFromSolidOCCGeom(
                     f"unbounded face after wire trim on {type(advanced_face.face_surface).__name__}; skipping"
                 )
-            if _face_overruns_wire(rebuilt, wire_diag):
+            if _face_overruns_wire(rebuilt, wire_diag) and _reliable_face_diag(rebuilt) > _FACE_OVERRUN_FACTOR * max(
+                wire_diag, 1e-6
+            ):
+                # brepbndlib over-estimates seam-crossing arc faces; only give up when a
+                # reliable mesh extent confirms the rebuild really does overrun.
                 PARAM_REBUILD_STATS["rebuild_still_overruns"] += 1
                 raise UnableToCreateTesselationFromSolidOCCGeom(
                     f"unbounded face after wire trim on {type(advanced_face.face_surface).__name__}; skipping"
