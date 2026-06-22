@@ -169,14 +169,35 @@ def _tessellate_brepmesh(shape, linear_deflection: float, angular_deflection: fl
     sets a minimum facet count around any curve regardless of size, and an *absolute*
     linear deflection adds facets in proportion to a curve's radius (matching step2glb's
     1 mm + 25° model). Used when ADA_TESS_LINEAR_DEFLECTION is configured."""
-    import math as _math  # noqa: F401  (kept local; callers pass radians already)
-
+    from OCC.Core.Bnd import Bnd_Box
     from OCC.Core.BRep import BRep_Tool
+    from OCC.Core.BRepBndLib import brepbndlib
     from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
     from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
     from OCC.Core.TopExp import TopExp_Explorer
     from OCC.Core.TopLoc import TopLoc_Location
     from OCC.Core.TopoDS import topods
+
+    # Runaway clip reference: the shape's TIGHT geometric bbox, taken BEFORE meshing (the
+    # shape arrives unmeshed; useTriangulation=True then yields the true extent). At a fine
+    # absolute deflection an over-covered B-spline face — a param-extent / natural-bound
+    # rebuild that spans more UV than its true trim — meshes well outside the real solid
+    # and "explodes" the part. Triangle vertices on a healthy face sit on the surface, so
+    # they cannot leave the tight bbox by more than a small margin; anything past 10% of
+    # the diagonal is a phantom and is dropped. NB: must use the tight bbox, not an edge
+    # hull — brepbndlib over-estimates B-spline EDGE bounds 5-6x (control polygon), which
+    # silently defeats any edge-based guard.
+    ref = Bnd_Box()
+    try:
+        brepbndlib.Add(shape, ref, True)
+    except Exception:  # noqa: BLE001
+        pass
+    clip_lo = clip_hi = None
+    if not ref.IsVoid():
+        rx0, ry0, rz0, rx1, ry1, rz1 = ref.Get()
+        pad = 0.1 * ((rx1 - rx0) ** 2 + (ry1 - ry0) ** 2 + (rz1 - rz0) ** 2) ** 0.5 + 1e-6
+        clip_lo = (rx0 - pad, ry0 - pad, rz0 - pad)
+        clip_hi = (rx1 + pad, ry1 + pad, rz1 + pad)
 
     BRepMesh_IncrementalMesh(shape, linear_deflection, relative, angular_deflection, True)
     verts: list = []
@@ -192,13 +213,22 @@ def _tessellate_brepmesh(shape, linear_deflection: float, angular_deflection: fl
                 a, b, c = tri.Triangle(i).Get()
                 if rev:
                     a, c = c, a
-                for ni in (a, b, c):
-                    p = tri.Node(ni).Transformed(trsf)
+                pts = [tri.Node(ni).Transformed(trsf) for ni in (a, b, c)]
+                if clip_lo is not None and any(
+                    p.X() < clip_lo[0] or p.X() > clip_hi[0]
+                    or p.Y() < clip_lo[1] or p.Y() > clip_hi[1]
+                    or p.Z() < clip_lo[2] or p.Z() > clip_hi[2]
+                    for p in pts
+                ):
+                    continue  # phantom triangle outside the real solid — drop it
+                for p in pts:
                     verts.extend((p.X(), p.Y(), p.Z()))
         exp.Next()
     positions = np.asarray(verts, dtype="float32")
+    if not positions.size:
+        return TriangleMesh(positions, np.arange(0, dtype="uint32"), None, positions)
     faces = np.arange(positions.size // 3, dtype="uint32")
-    normals = _vertex_normals(positions, faces) if positions.size else positions
+    normals = _vertex_normals(positions, faces)
     return TriangleMesh(positions, faces, None, normals)
 
 

@@ -63,3 +63,22 @@ def test_angular_deflection_refines_doubly_curved(monkeypatch):
     monkeypatch.setenv("ADA_OCC_TESS_ANGULAR_DEG", "5")
     _, fine = _area_tris(tessellate_shape(_fresh_sphere(), quality=1.0))
     assert fine > coarse
+
+
+def test_brepmesh_path_stays_within_solid_bounds(monkeypatch):
+    # The BRepMesh path clips phantom triangles to the solid's tight bbox (+10%): an
+    # over-covered B-spline face must not "explode" the part, yet a healthy curved face
+    # must not be over-clipped (area preserved). A clean sphere exercises both: every
+    # vertex on its surface, no phantom, full analytic area.
+    monkeypatch.setenv("ADA_OCC_TESS_LINEAR_DEFLECTION", "1.0")
+    monkeypatch.setenv("ADA_OCC_TESS_ANGULAR_DEG", "15")
+    r = 50.0
+    shape = _fresh_sphere(r)
+    bb = active_backend().bbox(shape)
+    bb_diag = float(np.linalg.norm(np.array(bb[3:]) - np.array(bb[:3])))
+    mesh = tessellate_shape(shape, quality=1.0)
+    pos = np.asarray(mesh.positions, dtype=float).reshape(-1, 3)
+    diag = float(np.linalg.norm(pos.max(0) - pos.min(0)))
+    assert diag < bb_diag * 1.25  # within the tight bbox + clip pad — no runaway explosion
+    area, _ = _area_tris(mesh)
+    assert area > 0.99 * 4 * math.pi * r**2  # not over-clipped — full sphere area
