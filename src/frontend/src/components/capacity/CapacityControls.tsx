@@ -6,7 +6,7 @@ import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {
     applyCapacityDefinitionView,
     applyCapacityIsolation,
-    applyCapacitySelectedStiffenerField,
+    applyCapacityIndividualField,
     applyCapacitySelectionHighlight,
     applyCapacityStations,
     applyCapacityVisualField,
@@ -100,10 +100,8 @@ const CapacityControls: React.FC = () => {
             clearCapacityDefinitionView();
         }
         if (showResults && activeCaseId) {
-            if (individualUf && selectedRow) {
-                const model = run.capacity_models.find((m) => m.id === selectedRow.capacity_model_id);
-                const ids = model?.element_ids.all ?? [];
-                applyCapacitySelectedStiffenerField(ids, selectedRow.governing_usage ?? 0);
+            if (individualUf) {
+                applyCapacityIndividualField(buildIndividualUfValues(run, activeCaseId));
             } else {
                 applyCapacityVisualField(activeMetricId, activeCaseId);
             }
@@ -230,7 +228,7 @@ const CapacityControls: React.FC = () => {
                             className={modeButton(individualUf)}
                             onClick={() => setIndividualUf(!individualUf)}
                             disabled={!showResults}
-                            title="Colour the selected panel by the selected stiffener's UF instead of the panel maximum"
+                            title="Colour each stiffener's tributary strip by its own UF (within-panel variation) instead of the panel maximum"
                         >
                             Individual UF
                         </button>
@@ -449,6 +447,41 @@ const CapacityInputDetails: React.FC<{run: CapacityRunLike; row: CapacityCaseRes
         </div>
     );
 };
+
+/** Per-element UF values for the "individual UF" view: each stiffener's own line
+ *  + tributary plate strip carries that stiffener's UF (max where strips overlap),
+ *  so within a panel you see each stiffener's UF rather than the panel maximum. */
+function buildIndividualUfValues(
+    run: CapacityRunLike,
+    caseId: string,
+): Array<{element_id: number; value: number | null}> {
+    const byElement = new Map<number, number>();
+    const modelById = new Map(run.capacity_models.map((m) => [m.id, m]));
+    const stiffMaps = new Map<string, Map<string, Record<string, unknown>>>();
+    for (const r of run.case_results) {
+        if (r.case_id !== caseId) continue;
+        const model = modelById.get(r.capacity_model_id);
+        if (!model) continue;
+        let byName = stiffMaps.get(model.id);
+        if (!byName) {
+            const stiffeners = (model.stiffeners ?? []) as Array<Record<string, unknown>>;
+            byName = new Map(stiffeners.map((s) => [String(s.name), s]));
+            stiffMaps.set(model.id, byName);
+        }
+        const stiff = byName.get(String(r.stiffener));
+        if (!stiff) continue;
+        const uf = r.governing_usage ?? 0;
+        const ids = [
+            ...((stiff.element_ids as number[] | undefined) ?? []),
+            ...((stiff.tributary_plate_ids as number[] | undefined) ?? []),
+        ];
+        for (const id of ids) {
+            const prev = byElement.get(id);
+            if (prev == null || uf > prev) byElement.set(id, uf);
+        }
+    }
+    return [...byElement].map(([element_id, value]) => ({element_id, value}));
+}
 
 function asNum(v: unknown): number | null {
     const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;

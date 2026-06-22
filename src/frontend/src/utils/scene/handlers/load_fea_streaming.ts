@@ -609,12 +609,14 @@ export function applyCapacityVisualField(
     return true;
 }
 
-/** Colour the given elements by a single UF value (the rest neutral) — used for
- *  the "individual" per-stiffener view, where the selected panel shows the
- *  selected stiffener's own UF instead of the panel-governing maximum. */
-export function applyCapacitySelectedStiffenerField(elementIds: number[], uf: number): boolean {
+/** Colour elements by explicit per-element UF values (rest neutral) — used for
+ *  the "individual UF" view, where each stiffener's own line + tributary plate
+ *  strip is coloured by that stiffener's UF, revealing the within-panel
+ *  variation instead of the panel-governing maximum. */
+export function applyCapacityIndividualField(
+    values: Array<{element_id: number; value: number | null}>,
+): boolean {
     if (!active?.mesh) return false;
-    const values = elementIds.map((id) => ({element_id: id, value: uf}));
     paintCapacityEntries(active.mesh, values);
     if (active.beamSolidMesh) {
         paintCapacityEntries(active.beamSolidMesh, values);
