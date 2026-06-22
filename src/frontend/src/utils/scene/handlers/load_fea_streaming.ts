@@ -745,7 +745,8 @@ function makeStationSprite(label: string, color: string): THREE.Sprite {
         transparent: true,
     });
     const sprite = new THREE.Sprite(material);
-    sprite.scale.set(0.03, 0.03, 1);
+    // sizeAttenuation:false → constant screen size; ~5% of viewport height.
+    sprite.scale.set(0.05, 0.05, 1);
     sprite.renderOrder = 12;
     return sprite;
 }

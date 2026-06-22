@@ -2,7 +2,8 @@ import type {CapacityResults} from "@/state/capacityResultsStore";
 import type {FeaManifest} from "@/services/viewerApi";
 
 export const CAPACITY_RESULTS_FORMAT = "dnv-rp-c201-capacity-results";
-export const CAPACITY_RESULTS_VERSION = 1;
+// v2 adds per-stiffener Section-5 station coordinates (positions 1/2/3).
+export const CAPACITY_RESULTS_VERSION = 2;
 
 export interface CapacityValidationContext {
     manifest?: Pick<FeaManifest, "source_sha256"> | null;

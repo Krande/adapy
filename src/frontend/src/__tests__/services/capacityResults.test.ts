@@ -11,7 +11,7 @@ import type {FeaManifest} from "../../services/viewerApi";
 function payload(overrides: Partial<CapacityResults> = {}): CapacityResults {
     return {
         format: CAPACITY_RESULTS_FORMAT,
-        version: 1,
+        version: 2,
         source: {
             sin_name: "model.SIN",
             sin_sha256: "abc123",
@@ -37,14 +37,14 @@ function payload(overrides: Partial<CapacityResults> = {}): CapacityResults {
 }
 
 describe("validateCapacityResults", () => {
-    it("accepts a v1 capacity sidecar", () => {
+    it("accepts a v2 capacity sidecar", () => {
         assert.doesNotThrow(() => validateCapacityResults(payload()));
     });
 
     it("rejects unsupported versions", () => {
         assert.throws(
-            () => validateCapacityResults(payload({version: 2})),
-            /unsupported capacity results version 2/,
+            () => validateCapacityResults(payload({version: 1})),
+            /unsupported capacity results version 1/,
         );
     });
 
