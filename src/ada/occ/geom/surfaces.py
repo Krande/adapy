@@ -1389,6 +1389,21 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
             PARAM_REBUILD_STATS["unbounded_rebuilt"] += 1
             face = rebuilt
 
+    # A toroidal / cylindrical / conical face whose boundary wire fails to trim the
+    # surface can collapse to ~zero area (instead of overrunning) — it then meshes to
+    # nothing AND triggers the expensive MakeFilling wire-fill fallback downstream
+    # (~seconds per face, blowing the per-solid timeout on pipe/elbow-heavy solids).
+    # Recover it from the boundary's projected parameter extent: fast (ms) and correct
+    # (the real patch), unlike the flat MakeFilling. Torus is bounded so it never hits
+    # the overrun branch above; this 0-area branch is its recovery path.
+    if isinstance(
+        face_surface, (Geom_ToroidalSurface, Geom_CylindricalSurface, Geom_ConicalSurface)
+    ) and _face_area(face) <= 1e-9:
+        rebuilt = _make_face_from_param_extent(advanced_face, face_surface)
+        if rebuilt is not None and _face_area(rebuilt) > 1e-9:
+            PARAM_REBUILD_STATS["zero_area_rebuilt"] += 1
+            face = rebuilt
+
     # ShapeFix runs only on the regenerative-pcurve path — the
     # SAT-pcurve path produces clean topology and ShapeFix would
     # otherwise rebuild our authored p-curves to match its own
@@ -1649,8 +1664,14 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                 # yields no valid p-curve on the plane, so the face has no interior and
                 # BRepMesh grids nothing. Fall back to filling the boundary wire directly
                 # (the WireFilledFace path), which reconstructs a real surface from the same
-                # closed wire.
-                if _face_area(face) <= 1e-9:
+                # closed wire. GATED TO PLANES: that's the only case this recovers, and on a
+                # *curved* surface the fill runs GeomPlate (BRepOffsetAPI_MakeFilling) which
+                # can grind for tens of seconds *per face* in an uninterruptible C++ loop
+                # (blowing the per-solid timeout on pipe/elbow/spline-heavy solids). Curved
+                # 0-area faces already have fast recovery in make_face_from_geom
+                # (param-extent rebuild / natural bounds); if those didn't recover it, a
+                # dropped face beats a multi-second flat MakeFilling that is wrong anyway.
+                if _face_area(face) <= 1e-9 and isinstance(cfs_face.face_surface, geo_su.Plane):
                     try:
                         filled = make_face_from_wire_filled(geo_su.WireFilledFace(bounds=cfs_face.bounds))
                         if _face_area(filled) > 1e-9:

@@ -112,6 +112,28 @@ def _maybe_capture_empty_solid(geom) -> None:
         pass
 
 
+def _maybe_capture_timeout_solid(geom) -> None:
+    """When ADA_CAPTURE_TIMEOUT_SOLIDS=<dir> is set, pickle a solid whose worker
+    overran the per-solid timeout (slow OCC build/tessellation) for offline diagnosis.
+    No-op by default; never raises. Source-derived — keep captures local."""
+    import os
+
+    out_dir = os.environ.get("ADA_CAPTURE_TIMEOUT_SOLIDS")
+    if not out_dir or geom is None:
+        return
+    try:
+        import hashlib
+        import pickle
+
+        blob = pickle.dumps(geom)
+        tag = hashlib.sha1(blob).hexdigest()[:12]
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, f"timeout_{tag}.pkl"), "wb") as fh:
+            fh.write(blob)
+    except Exception:  # noqa: BLE001 - capture is best-effort
+        pass
+
+
 def _tessellate_geom_worker(geom):
     """Pool subprocess entry: build + tessellate ONE solid and return raw mesh arrays
     plus the solid's colour — the parent assigns a consistent material id (each
@@ -684,6 +706,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                             continue
                         if slot["since"] and (now - slot["since"]) > timeout_s:
                             gid = slot["gid"]
+                            _maybe_capture_timeout_solid(slot["geom"])
                             slot["proc"].kill()
                             slot["proc"].join(timeout=2)
                             busy -= 1
