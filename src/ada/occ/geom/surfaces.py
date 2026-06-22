@@ -1396,14 +1396,23 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     # Recover it from the boundary's projected parameter extent: fast (ms) and correct
     # (the real patch), unlike the flat MakeFilling. Torus is bounded so it never hits
     # the overrun branch above; this 0-area branch is its recovery path.
-    if isinstance(
-        face_surface,
-        (Geom_ToroidalSurface, Geom_CylindricalSurface, Geom_ConicalSurface, Geom_BSplineSurface),
-    ) and _face_area(face) <= 1e-9:
+    # NON-rational B-spline 0-area faces recover well + cheaply via param-extent;
+    # *rational* B-spline faces are left to the ShapeFix p-curve heal below (param-extent
+    # on a rational face with a complex boundary is much slower — it blew the per-solid
+    # timeout on 10k-face rational solids).
+    _is_nonrational_bspline = isinstance(face_surface, Geom_BSplineSurface) and not (
+        face_surface.IsURational() or face_surface.IsVRational()
+    )
+    recovered_via_param_extent = False
+    if _face_area(face) <= 1e-9 and (
+        isinstance(face_surface, (Geom_ToroidalSurface, Geom_CylindricalSurface, Geom_ConicalSurface))
+        or _is_nonrational_bspline
+    ):
         rebuilt = _make_face_from_param_extent(advanced_face, face_surface)
         if rebuilt is not None and _face_area(rebuilt) > 1e-9:
             PARAM_REBUILD_STATS["zero_area_rebuilt"] += 1
             face = rebuilt
+            recovered_via_param_extent = True
 
     # ShapeFix runs only on the regenerative-pcurve path — the
     # SAT-pcurve path produces clean topology and ShapeFix would
@@ -1437,8 +1446,10 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     # non-rational B-spline faces mesh as-is); the face is bounded by its knot range, so
     # this avoids the unbounded-surface ShapeFix segfault. Verified: recovers curved
     # plates that otherwise tessellate to nothing.
-    if isinstance(face_surface, Geom_BSplineSurface) and (
-        face_surface.IsURational() or face_surface.IsVRational()
+    if (
+        isinstance(face_surface, Geom_BSplineSurface)
+        and (face_surface.IsURational() or face_surface.IsVRational())
+        and not recovered_via_param_extent  # param-extent already produced a meshable face
     ):
         try:
             from OCC.Core.ShapeFix import ShapeFix_Shape
