@@ -34,6 +34,20 @@ from ada.fem.results.common import Mesh
 # QUAD4 corner natural coordinates, CCW (matches the connectivity node order).
 _QUAD_CORNERS = ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0))
 
+# NB: this module deliberately avoids ``@`` / ``np.dot`` / ``np.linalg.*``. Those
+# dispatch to native BLAS/LAPACK, which crashes (Windows SEH 0xC06D007F) on some
+# Sesam-env BLAS backends when called per element across a large model. All the
+# operands here are tiny (2x2 Jacobian, 3-vectors), so closed-form scalar /
+# elementwise arithmetic is both crash-safe and faster.
+
+
+def _norm(v: np.ndarray) -> float:
+    return float(np.sqrt((v * v).sum()))
+
+
+def _dot1(a: np.ndarray, b: np.ndarray) -> float:
+    return float((a * b).sum())
+
 
 def _element_frame(coords: np.ndarray, transform: np.ndarray | None) -> tuple[np.ndarray, np.ndarray]:
     """Return orthonormal (ex, ey) of the element membrane plane.
@@ -46,24 +60,26 @@ def _element_frame(coords: np.ndarray, transform: np.ndarray | None) -> tuple[np
         basis = np.asarray(transform, dtype=float)
         ex = basis[0]
         ez = basis[2]
-        if np.linalg.norm(ex) > 0 and np.linalg.norm(ez) > 0:
-            ex = ex / np.linalg.norm(ex)
-            ez = ez / np.linalg.norm(ez)
+        if _norm(ex) > 0 and _norm(ez) > 0:
+            ex = ex / _norm(ex)
+            ez = ez / _norm(ez)
             ey = np.cross(ez, ex)
-            ny = np.linalg.norm(ey)
+            ny = _norm(ey)
             if ny > 0:
                 return ex, ey / ny
     ex = coords[1] - coords[0]
     ez = np.cross(coords[1] - coords[0], coords[2] - coords[0])
-    ex = ex / (np.linalg.norm(ex) or 1.0)
-    ez = ez / (np.linalg.norm(ez) or 1.0)
+    ex = ex / (_norm(ex) or 1.0)
+    ez = ez / (_norm(ez) or 1.0)
     ey = np.cross(ez, ex)
-    return ex, ey / (np.linalg.norm(ey) or 1.0)
+    return ex, ey / (_norm(ey) or 1.0)
 
 
-def _plane_stress_matrix(E: float, nu: float) -> np.ndarray:
+def _plane_stress(eps: np.ndarray, E: float, nu: float) -> np.ndarray:
+    """Plane-stress membrane stress (sxx, syy, txy) from strain (exx, eyy, gxy)."""
     f = E / (1.0 - nu * nu)
-    return f * np.array([[1.0, nu, 0.0], [nu, 1.0, 0.0], [0.0, 0.0, (1.0 - nu) / 2.0]])
+    exx, eyy, gxy = float(eps[0]), float(eps[1]), float(eps[2])
+    return np.array([f * (exx + nu * eyy), f * (nu * exx + eyy), f * (1.0 - nu) / 2.0 * gxy])
 
 
 def _tri_strain(xy: np.ndarray, uv: np.ndarray) -> np.ndarray | None:
@@ -76,21 +92,27 @@ def _tri_strain(xy: np.ndarray, uv: np.ndarray) -> np.ndarray | None:
     c = np.array([x3 - x2, x1 - x3, x2 - x1]) / two_a
     u = uv[:, 0]
     v = uv[:, 1]
-    return np.array([float(b @ u), float(c @ v), float(c @ u + b @ v)])
+    return np.array([_dot1(b, u), _dot1(c, v), _dot1(c, u) + _dot1(b, v)])
 
 
 def _quad_strain_at(xy: np.ndarray, uv: np.ndarray, xi: float, eta: float) -> np.ndarray | None:
     """Bilinear quad membrane strain at natural coords (xi, eta). ``xy``/``uv`` (4, 2)."""
     dn_dxi = np.array([-(1 - eta), (1 - eta), (1 + eta), -(1 + eta)]) / 4.0
     dn_deta = np.array([-(1 - xi), -(1 + xi), (1 + xi), (1 - xi)]) / 4.0
-    jac = np.array([[dn_dxi @ xy[:, 0], dn_dxi @ xy[:, 1]], [dn_deta @ xy[:, 0], dn_deta @ xy[:, 1]]])
-    det = np.linalg.det(jac)
+    # 2x2 Jacobian, closed-form determinant + inverse (no LAPACK).
+    j11 = _dot1(dn_dxi, xy[:, 0])
+    j12 = _dot1(dn_dxi, xy[:, 1])
+    j21 = _dot1(dn_deta, xy[:, 0])
+    j22 = _dot1(dn_deta, xy[:, 1])
+    det = j11 * j22 - j12 * j21
     if abs(det) < 1e-20:
         return None
-    dn = np.linalg.inv(jac) @ np.vstack([dn_dxi, dn_deta])  # (2, 4): d/dx, d/dy
+    # inv(J) = 1/det [[j22, -j12], [-j21, j11]]  ->  d/dx, d/dy rows
+    dn_dx = (j22 * dn_dxi - j12 * dn_deta) / det
+    dn_dy = (-j21 * dn_dxi + j11 * dn_deta) / det
     u = uv[:, 0]
     v = uv[:, 1]
-    return np.array([float(dn[0] @ u), float(dn[1] @ v), float(dn[1] @ u + dn[0] @ v)])
+    return np.array([_dot1(dn_dx, u), _dot1(dn_dy, v), _dot1(dn_dy, u) + _dot1(dn_dx, v)])
 
 
 def recover_membrane_corner_points(
@@ -119,22 +141,24 @@ def recover_membrane_corner_points(
 
     ex, ey = _element_frame(coords, transform)
     origin = coords[0]
-    xy = np.column_stack([(coords - origin) @ ex, (coords - origin) @ ey])
-    uv = np.column_stack([disp @ ex, disp @ ey])
-    D = _plane_stress_matrix(E, nu)
+    rel = coords - origin
+    # Project node positions and displacements onto (ex, ey) via elementwise
+    # reductions (no @ / BLAS): xy[:,0] = sum(rel * ex, axis=1), etc.
+    xy = np.column_stack([(rel * ex).sum(axis=1), (rel * ey).sum(axis=1)])
+    uv = np.column_stack([(disp * ex).sum(axis=1), (disp * ey).sum(axis=1)])
 
     out: list[tuple[np.ndarray, np.ndarray]] = []
     if len(node_ids) == 3:
         strain = _tri_strain(xy, uv)
         if strain is None:
             return []
-        tensor = D @ strain  # constant over a CST
+        tensor = _plane_stress(strain, E, nu)  # constant over a CST
         return [(coords[i], tensor) for i in range(3)]
     for i, (xi, eta) in enumerate(_QUAD_CORNERS):
         strain = _quad_strain_at(xy, uv, xi, eta)
         if strain is None:
             return []
-        out.append((coords[i], D @ strain))
+        out.append((coords[i], _plane_stress(strain, E, nu)))
     return out
 
 
