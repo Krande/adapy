@@ -1,4 +1,5 @@
 import React, {useEffect, useMemo, useRef, useState} from "react";
+import {createPortal} from "react-dom";
 
 import {useCapacityResultsStore} from "@/state/capacityResultsStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
@@ -280,14 +281,42 @@ const CapacityControls: React.FC = () => {
                                     </div>
                                 ))}
                             </div>
-                            {showInputs && <CapacityInputDetails run={run} row={selectedRow} />}
                         </div>
+                    )}
+
+                    {showInputs && selectedRow && createPortal(
+                        <FloatingInputPanel run={run} row={selectedRow} onClose={() => setShowInputs(false)} />,
+                        document.body,
                     )}
                 </div>
             )}
         </div>
     );
 };
+
+const FloatingInputPanel: React.FC<{
+    run: CapacityRunLike;
+    row: CapacityCaseResultLike;
+    onClose: () => void;
+}> = ({run, row, onClose}) => (
+    <div className="fixed top-16 right-4 z-[1000] flex max-h-[80vh] w-72 flex-col rounded-sm border border-gray-700 bg-gray-900/95 text-gray-100 text-xs shadow-lg">
+        <div className="flex items-center justify-between gap-2 border-b border-gray-700 px-3 py-2">
+            <div className="font-semibold truncate" title={row.capacity_model_id}>
+                {shortName(row.stiffener ?? row.panel_group)} — input
+            </div>
+            <button
+                className="shrink-0 text-gray-400 hover:text-gray-100"
+                onClick={onClose}
+                title="Close"
+            >
+                ✕
+            </button>
+        </div>
+        <div className="overflow-y-auto p-3">
+            <CapacityInputDetails run={run} row={row} />
+        </div>
+    </div>
+);
 
 const CapacityLegend: React.FC = () => (
     <div className="space-y-1">
@@ -316,7 +345,7 @@ interface InputGroup {
 const CapacityInputDetails: React.FC<{run: CapacityRunLike; row: CapacityCaseResultLike}> = ({run, row}) => {
     const groups = useMemo(() => buildInputGroups(run, row), [run, row]);
     return (
-        <div className="border-t border-gray-700 pt-2 mt-1 space-y-2">
+        <div className="space-y-2">
             {groups.map((g) => (
                 <div key={g.title}>
                     <div className="text-[11px] font-semibold text-gray-300">{g.title}</div>
