@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef} from "react";
+import React, {useEffect, useMemo, useRef, useState} from "react";
 
 import {useCapacityResultsStore} from "@/state/capacityResultsStore";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
@@ -40,6 +40,7 @@ const CapacityControls: React.FC = () => {
     const pickedFaceIndex = useObjectInfoStore((s) => s.faceIndex);
     const pickedFileName = useObjectInfoStore((s) => s.fileName);
     const lastHandledPickKeyRef = useRef<string | null>(null);
+    const [showInputs, setShowInputs] = useState(false);
 
     const run = useMemo(() => {
         if (!results?.runs?.length) return null;
@@ -246,8 +247,17 @@ const CapacityControls: React.FC = () => {
 
                     {selectedRow && (
                         <div className="border border-gray-700 rounded-sm p-2 space-y-1">
-                            <div className="font-semibold truncate" title={selectedRow.capacity_model_id}>
-                                {shortName(selectedRow.stiffener ?? selectedRow.panel_group)}
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="font-semibold truncate" title={selectedRow.capacity_model_id}>
+                                    {shortName(selectedRow.stiffener ?? selectedRow.panel_group)}
+                                </div>
+                                <button
+                                    className={modeButton(showInputs) + " shrink-0 text-[11px]"}
+                                    onClick={() => setShowInputs(!showInputs)}
+                                    title="Show the structured input used for this check"
+                                >
+                                    Input
+                                </button>
                             </div>
                             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-gray-300">
                                 <div>UF</div>
@@ -270,6 +280,7 @@ const CapacityControls: React.FC = () => {
                                     </div>
                                 ))}
                             </div>
+                            {showInputs && <CapacityInputDetails run={run} row={selectedRow} />}
                         </div>
                     )}
                 </div>
@@ -289,6 +300,119 @@ const CapacityLegend: React.FC = () => (
         </div>
     </div>
 );
+
+interface InputField {
+    symbol?: string;
+    label: string;
+    value: number | string | null;
+    unit?: string;
+}
+
+interface InputGroup {
+    title: string;
+    fields: InputField[];
+}
+
+const CapacityInputDetails: React.FC<{run: CapacityRunLike; row: CapacityCaseResultLike}> = ({run, row}) => {
+    const groups = useMemo(() => buildInputGroups(run, row), [run, row]);
+    return (
+        <div className="border-t border-gray-700 pt-2 mt-1 space-y-2">
+            {groups.map((g) => (
+                <div key={g.title}>
+                    <div className="text-[11px] font-semibold text-gray-300">{g.title}</div>
+                    <div className="grid grid-cols-[auto_1fr_auto] gap-x-2 gap-y-0.5">
+                        {g.fields.map((f, i) => (
+                            <React.Fragment key={i}>
+                                <span className="font-mono text-gray-500">{f.symbol ?? ""}</span>
+                                <span className="text-gray-400 truncate" title={f.label}>{f.label}</span>
+                                <span className="font-mono text-right text-gray-100 whitespace-nowrap">
+                                    {fmtInputField(f)}
+                                </span>
+                            </React.Fragment>
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+function asNum(v: unknown): number | null {
+    const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+    return Number.isFinite(n) ? n : null;
+}
+
+function scaled(v: unknown, factor: number): number | null {
+    const n = asNum(v);
+    return n == null ? null : n * factor;
+}
+
+function fmtInputField(f: InputField): string {
+    if (typeof f.value === "string") return f.value;
+    if (f.value == null || !Number.isFinite(f.value)) return "-";
+    const v = f.value;
+    const a = Math.abs(v);
+    const s = a >= 100 ? v.toFixed(1) : a >= 1 || a === 0 ? v.toFixed(2) : v.toPrecision(3);
+    return f.unit && f.unit !== "-" ? `${s} ${f.unit}` : s;
+}
+
+function buildInputGroups(run: CapacityRunLike, row: CapacityCaseResultLike): InputGroup[] {
+    const model = run.capacity_models.find((m) => m.id === row.capacity_model_id);
+    const plate = (model?.plates?.[0] ?? {}) as Record<string, unknown>;
+    const stiffeners = (model?.stiffeners ?? []) as Array<Record<string, unknown>>;
+    const stiff = stiffeners.find((s) => s.name === row.stiffener) ?? stiffeners[0] ?? {};
+    const section = (stiff.section ?? {}) as Record<string, unknown>;
+    const mat = (stiff.material ?? plate.material ?? {}) as Record<string, unknown>;
+    const loads = (row.loads ?? {}) as Record<string, unknown>;
+    const rv = (row.resolved_variables ?? {}) as Record<string, unknown>;
+    const f = (symbol: string, label: string, value: number | string | null, unit?: string): InputField =>
+        ({symbol, label, value, unit});
+    return [
+        {title: "Geometry", fields: [
+            f("t", "Plate thickness", scaled(plate.thickness, 1e3), "mm"),
+            f("s", "Stiffener spacing", scaled(plate.width, 1e3), "mm"),
+            f("l", "Span", scaled(stiff.span ?? plate.length, 1e3), "mm"),
+            f("z_w", "Eccentricity", scaled(stiff.eccentricity, 1e3), "mm"),
+        ]},
+        {title: "Stiffener section", fields: [
+            f("", "Profile", (section.name as string) ?? "—"),
+            f("h_w", "Web height", scaled(section.height, 1e3), "mm"),
+            f("t_w", "Web thickness", scaled(section.web_thickness, 1e3), "mm"),
+            f("b_f", "Flange width", scaled(section.flange_width, 1e3), "mm"),
+            f("t_f", "Flange thickness", scaled(section.flange_thickness, 1e3), "mm"),
+        ]},
+        {title: "Material", fields: [
+            f("f_y", "Yield strength", scaled(mat.fy, 1e-6), "MPa"),
+            f("E", "Young's modulus", scaled(mat.E, 1e-6), "MPa"),
+            f("ν", "Poisson", asNum(mat.poisson), "-"),
+            f("γ_M", "Material factor", asNum(mat.gamma_m), "-"),
+        ]},
+        {title: "Design loads", fields: [
+            f("σ_y1", "Transverse stress @1", scaled(loads.sigma_y1, 1e-6), "MPa"),
+            f("σ_y2", "Transverse stress @2", scaled(loads.sigma_y2, 1e-6), "MPa"),
+            f("σ_y3", "Transverse stress @3", scaled(loads.sigma_y3, 1e-6), "MPa"),
+            f("τ_1", "Shear @1", scaled(loads.tau_1, 1e-6), "MPa"),
+            f("τ_2", "Shear @2", scaled(loads.tau_2, 1e-6), "MPa"),
+            f("τ_3", "Shear @3", scaled(loads.tau_3, 1e-6), "MPa"),
+            f("N_1", "Axial @1", scaled(loads.N_1, 1e-3), "kN"),
+            f("N_2", "Axial @2", scaled(loads.N_2, 1e-3), "kN"),
+            f("N_3", "Axial @3", scaled(loads.N_3, 1e-3), "kN"),
+            f("M_1", "Moment @1", scaled(loads.M_1, 1e-3), "kN·m"),
+            f("M_2", "Moment @2", scaled(loads.M_2, 1e-3), "kN·m"),
+            f("M_3", "Moment @3", scaled(loads.M_3, 1e-3), "kN·m"),
+            f("p_Sd", "Lateral pressure", scaled(loads.p_Sd, 1e-3), "kPa"),
+        ]},
+        {title: "Resolved design (Section 6)", fields: [
+            f("σ_ySd", "Transverse design stress", scaled(rv.SigmaYSd, 1e-6), "MPa"),
+            f("τ_Sd", "Shear design stress", scaled(rv.TauSd, 1e-6), "MPa"),
+            f("N_Sd", "Axial design force", scaled(rv.Nsd, 1e-3), "kN"),
+        ]},
+        {title: "Options", fields: [
+            f("", "Continuous", stiff.continuous === false ? "no" : "yes"),
+            f("", "Tension field", (loads.tension_field as string) ?? "none"),
+        ]},
+    ];
+}
 
 function modeButton(active: boolean): string {
     return (
