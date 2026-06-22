@@ -752,6 +752,44 @@ class AdacppBackend:
             normals=nrm if nrm.size else None,
         )
 
+    def tessellate_stream(
+        self,
+        items: "list[tuple[str, object]]",
+        pipeline: str = "libtess2",
+        deflection: float = 0.0,
+        angular_deg: float = 20.0,
+    ) -> "BatchMesh":
+        """Tessellate a stream of ``(id, ada.geom geometry)`` via adacpp's NGEOM pipeline.
+
+        Serializes the geometry to the NGEOM buffer (the neutral-schema contract — no
+        per-object ``build``/ShapeHandle round-trip) and tessellates it in one C++ call,
+        returning a combined ``BatchMesh`` with a group per input id (``node_id`` = the
+        item's position). ``pipeline``: ``libtess2`` (OCC-free) | ``occ`` | ``cgal``
+        (ifcopenshell taxonomy kernels). ``geometry`` is an ``ada.geom`` ``FaceSurface`` or
+        ``ConnectedFaceSet`` (unmappable items are skipped by the serializer)."""
+        fn = getattr(self._cad, "tessellate_stream", None)
+        if fn is None:
+            raise NotImplementedError(
+                "this adacpp build has no tessellate_stream — rebuild adacpp (feat/libtess2-tessellator)"
+            )
+        import numpy as np
+
+        from ada.cadit.ngeom import serialize_geometries
+
+        buffer = serialize_geometries(items)
+        mesh = fn(buffer, pipeline, deflection, angular_deg)
+        groups = [
+            MeshGroup(node_id=g.node_id, start=g.start, length=g.length, vstart=g.vstart, vlength=g.vlength)
+            for g in mesh.groups
+        ]
+        nrm = np.asarray(mesh.normals)
+        return BatchMesh(
+            positions=np.asarray(mesh.positions),
+            indices=np.asarray(mesh.indices),
+            groups=groups,
+            normals=nrm if nrm.size else None,
+        )
+
     def bbox(
         self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
     ) -> tuple[float, float, float, float, float, float]:
