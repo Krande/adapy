@@ -264,6 +264,9 @@ audit-repro = { cmd = "python scripts/audit_repro.py", env = { "PYTHONPATH" = "$
 viewer-upload = { cmd = "python scripts/viewer_upload.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 glb-face-classify = { cmd = "python scripts/glb_face_classify.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
+[feature.viewer-api.pypi-dependencies]
+meshoptimizer = ">=0.2.30a0, <0.3"
+
 [feature.frontend.dependencies]
 nodejs = "24.*"
 flatbuffers = "==25.2.10"

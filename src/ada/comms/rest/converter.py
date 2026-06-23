@@ -1590,15 +1590,14 @@ def _register_ada_loadable() -> None:
             "name": "glb_compression",
             "type": "enum",
             "default": "off",
-            "enum": ["off", "quantize", "meshopt"],
+            "enum": ["off", "meshopt"],
             "description": (
-                "Post-process the GLB with gltfpack. 'quantize' = KHR_mesh_quantization "
-                "(int16/int8 attributes) — shrinks the file AND the GPU upload / VRAM, no "
-                "client decoder needed. 'meshopt' = EXT_meshopt_compression + quantization "
-                "— smallest download (decoded client-side). Off by default. Requires "
-                "gltfpack in the worker image; a safe no-op when absent. Note: gltfpack may "
-                "drop unknown extensions (ADA_EXT_data) / merge nodes — validate picking + "
-                "hierarchy before enabling for ada-authored GLBs."
+                "'meshopt' applies EXT_meshopt_compression to the GLB buffers "
+                "(~2.5-3x smaller download, decoded client-side). Structure-preserving: "
+                "re-encodes only the vertex/index bytes losslessly and leaves the glTF JSON "
+                "byte-identical, so node names, draw_ranges, id_hierarchy and ADA_EXT_data "
+                "are kept and picking/hierarchy still work. Off by default; a safe no-op if "
+                "meshoptimizer isn't installed in the worker."
             ),
         },
     ]
