@@ -169,6 +169,47 @@ def _tessellate_geom_worker(geom):
 
         be = active_backend()
         gid = str(geom.id) if geom.id not in (None, "") else None
+
+        # OCC-free libtess2 path (ADA_STREAM_TESS_PIPELINE=libtess2|occ|cgal|hybrid): serialize the
+        # ada.geom to the NGEOM buffer and tessellate in one adacpp call — no per-solid OCC
+        # build/ShapeHandle round-trip. The rest of the streaming export (spill + merge-by-colour +
+        # ADA_EXT_data + picking) is unchanged, so it stays memory-bounded and contract-compliant.
+        _pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE")
+        if _pipeline and hasattr(be, "tessellate_stream"):
+            defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
+            ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+            gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
+            bm = be.tessellate_stream([(gid or "0", gi)], pipeline=_pipeline, deflection=defl,
+                                      angular_deg=ang)
+            _pos = getattr(bm, "positions", None)
+            _idx = getattr(bm, "indices", None)
+            if _pos is None or _idx is None or len(_idx) == 0:
+                _maybe_capture_empty_solid(geom)
+                return ("empty", gid, geom.color, None, None, None, None, None, _rebuild_stats())
+            pos = np.ascontiguousarray(_pos, dtype=np.float32)
+            idx = np.ascontiguousarray(_idx, dtype=np.uint32)
+            # Optional step2glb merge cleanup (ADA_STREAM_SIMPLIFY=1): meshopt_simplify each unique
+            # mesh once, border-locked, lossless at target-error 0 (coplanar collapse).
+            if os.environ.get("ADA_STREAM_SIMPLIFY") and len(idx) >= 3:
+                try:
+                    import adacpp.cad as _cad
+
+                    sp, si = _cad.meshopt_simplify_mesh(
+                        pos.reshape(-1), idx.reshape(-1),
+                        float(os.environ.get("ADA_STREAM_SIMPLIFY_THRESHOLD", "0.75")),
+                        float(os.environ.get("ADA_STREAM_SIMPLIFY_TARGET_ERROR", "0.0")))
+                    pos = np.ascontiguousarray(sp, dtype=np.float32)
+                    idx = np.ascontiguousarray(si, dtype=np.uint32)
+                except Exception:  # noqa: BLE001 - cleanup is best-effort; keep the raw mesh
+                    pass
+            if len(idx) == 0:
+                _maybe_capture_empty_solid(geom)
+                return ("empty", gid, geom.color, None, None, None, None, None, _rebuild_stats())
+            # libtess2 emits no per-vertex normals (viewer flat-shades / computes its own) — matches
+            # step2glb's normal-free merged output and keeps the GLB lean.
+            return ("ok", gid, geom.color, pos, idx, None, geom.transforms, geom.instance_paths,
+                    _rebuild_stats())
+
         occ = be.build(geom)
         # Zero-extent solid -> OCC's relative mesher throws an uncatchable terminate.
         try:
