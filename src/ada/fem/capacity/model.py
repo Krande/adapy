@@ -87,6 +87,7 @@ class CapacityModel:
     name: str
     plates: tuple[CapPlate, ...] = ()
     stiffeners: tuple[CapStiffener, ...] = ()
+    id: str = ""
 
     def stiffener(self, name: str) -> CapStiffener:
         for s in self.stiffeners:
@@ -109,6 +110,7 @@ class ResolvedCase:
     result_case: int
     stiffener: str
     panel_group: str = ""
+    capacity_model_id: str = ""
     continuous: bool = True
     variables: dict[str, float] = field(default_factory=dict)
     vectors: dict[str, list[float]] = field(default_factory=dict)

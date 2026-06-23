@@ -188,6 +188,12 @@ class SinSource(PanelGroupSource):
             elif isinstance(etype, ShellShapes):
                 shell_ids.extend(ids)
 
+        # Full, model-wide element sets — kept before any scoping so the support
+        # split can see transverse girders/frames and bulkhead plates that lie
+        # outside the scoped plate set but still terminate a stiffener's span.
+        all_line_ids = set(beam_ids)
+        all_shell_ids = set(shell_ids)
+
         if self.group is not None:
             members = self._scoped_set_members(mesh, self.group)
             scoped = [b for b in beam_ids if b in members]
@@ -223,7 +229,9 @@ class SinSource(PanelGroupSource):
         else:
             beam_ids = list(trib_by_beam)
 
-        stiffened = self._geometric_groups(mesh, beam_ids, shell_ids, trib_by_beam, concept_names)
+        stiffened = self._geometric_groups(
+            mesh, beam_ids, shell_ids, trib_by_beam, concept_names, all_line_ids, all_shell_ids
+        )
 
         if self.merge_panels:
             stiffened = _merge_panels(mesh, stiffened)
@@ -308,16 +316,26 @@ class SinSource(PanelGroupSource):
         dominant_depth = SinSource._section_depth(mesh, dominant)
         if dominant_depth <= 0.0:
             return beam_ids
+        min_count = max(2, int(0.02 * len(beams_by_geono[dominant])))
         keep_geonos = {
             geono
-            for geono in beams_by_geono
-            if abs(SinSource._section_depth(mesh, geono) - dominant_depth) <= 0.05 * dominant_depth
+            for geono, beams in beams_by_geono.items()
+            if (
+                abs(SinSource._section_depth(mesh, geono) - dominant_depth) <= 0.05 * dominant_depth
+                or (
+                    len(beams) >= min_count
+                    and 0.25 * dominant_depth <= SinSource._section_depth(mesh, geono) <= 1.25 * dominant_depth
+                )
+            )
         }
         return [beam for beam in beam_ids if geono_of(mesh, beam) in keep_geonos]
 
     @staticmethod
     def _section_depth(mesh, geono: int) -> float:
         sec = mesh.sections.get(geono)
+        name_depth = _flatbar_depth_from_name(str(getattr(sec, "name", "")))
+        if name_depth is not None:
+            return name_depth
         for attr in ("h", "r", "w_top", "w_btn"):
             value = getattr(sec, attr, None)
             if value:
@@ -332,8 +350,10 @@ class SinSource(PanelGroupSource):
         shell_ids: list[int],
         trib_by_beam: dict[int, list[int]],
         concept_names: dict[int, str],
+        all_line_ids: set[int] | None = None,
+        all_shell_ids: set[int] | None = None,
     ) -> list[PanelGroupSpec]:
-        """Atomic panels from geometry alone (no concept-naming logic).
+        """Atomic panels from geometry plus optional SIN concept-run identity.
 
         Each stiffener run (a colinear, node-connected, same-profile chain of
         beam elements, broken at girder lines) plus its bounded rectangular plate
@@ -341,7 +361,15 @@ class SinSource(PanelGroupSource):
         strips into Genie's maximal panels. Concept names, when present, are used
         only to *label* the panels/stiffeners — never to decide grouping.
         """
-        runs = _stiffener_runs(mesh, beam_ids)
+        # Concept names, when present, define support-aware multi-element
+        # stiffener runs; unnamed meshes keep a one-beam fallback.
+        runs = _stiffener_runs(mesh, beam_ids, concept_names)
+        # A SIN concept name spans the *whole physical stiffener*, crossing every
+        # transverse girder/frame/bulkhead it passes. The DNV-RP-C201 span is the
+        # bay between those supports, so split each named run there: a stiffener
+        # carried over a 19.5 m deck by five frames is six ~3.9 m spans, not one
+        # 19.5 m girder-scale span. Without it the check sees girder spans.
+        runs = _split_runs_at_supports(mesh, runs, set(beam_ids), all_line_ids, all_shell_ids)
         shell_coords = _shell_coords(mesh, shell_ids)
 
         out: list[PanelGroupSpec] = []
@@ -401,8 +429,12 @@ def _run_stiffener_label(run: tuple[int, ...], concept_names: dict[int, str]) ->
     return _stiffener_name(concept_names.get(run[0], f"el{run[0]}"))
 
 
-def _stiffener_runs(mesh, beam_ids: list[int]) -> list[tuple[int, ...]]:
-    """One stiffener run per beam element.
+def _stiffener_runs(
+    mesh,
+    beam_ids: list[int],
+    concept_names: dict[int, str] | None = None,
+) -> list[tuple[int, ...]]:
+    """Return support-aware stiffener runs when concept names are available.
 
     The atomic unit is a single beam; :func:`_merge_panels` then fuses the
     bordering strips into Genie's panels. Chaining colinear beams into a single
@@ -413,7 +445,215 @@ def _stiffener_runs(mesh, beam_ids: list[int]) -> list[tuple[int, ...]]:
     floor lines and changes the panel reconstruction. Per-beam keeps the panels
     correct and the grouping fully naming-independent.
     """
-    return [(beam,) for beam in beam_ids]
+    # The paragraph above documents the fallback. Named SIN beams carry a better
+    # support-aware identity, so group connected colinear segments by exact name.
+    if not concept_names:
+        return [(beam,) for beam in beam_ids]
+
+    by_name: dict[str, list[int]] = defaultdict(list)
+    unnamed: list[int] = []
+    for beam in beam_ids:
+        name = concept_names.get(beam)
+        if name:
+            by_name[name].append(beam)
+        else:
+            unnamed.append(beam)
+
+    runs: list[tuple[int, ...]] = []
+    for beams in by_name.values():
+        runs.extend(_connected_colinear_runs(mesh, beams))
+    runs.extend((beam,) for beam in unnamed)
+    return sorted(runs, key=lambda run: min(run))
+
+
+_FLATBAR_NAME_RE = re.compile(r"^(?:fbar|fb)(\d+(?:[._]\d+)?)x(\d+(?:[._]\d+)?)$", re.IGNORECASE)
+
+
+def _flatbar_depth_from_name(name: str) -> float | None:
+    match = _FLATBAR_NAME_RE.match(name.strip())
+    if match is None:
+        return None
+    return float(match.group(1).replace("_", ".")) / 1000.0
+
+
+def _connected_colinear_runs(mesh, beam_ids: list[int]) -> list[tuple[int, ...]]:
+    if len(beam_ids) <= 1:
+        return [tuple(beam_ids)] if beam_ids else []
+
+    from ada.fem.capacity.extract import _ensure_index, element_node_coords, geono_of
+
+    idx = _ensure_index(mesh)
+    axes: dict[int, np.ndarray] = {}
+    endpoints: dict[int, tuple[int, int]] = {}
+    by_node: dict[int, list[int]] = defaultdict(list)
+    geono: dict[int, int] = {}
+    for beam in beam_ids:
+        coords = element_node_coords(mesh, beam)
+        axis = coords[-1] - coords[0]
+        norm = np.linalg.norm(axis)
+        if norm <= 0.0:
+            continue
+        axes[beam] = axis / norm
+        nodes = idx.elem_nodes.get(beam)
+        if not nodes:
+            continue
+        endpoints[beam] = (nodes[0], nodes[-1])
+        by_node[nodes[0]].append(beam)
+        by_node[nodes[-1]].append(beam)
+        geono[beam] = geono_of(mesh, beam)
+
+    adjacent: dict[int, set[int]] = defaultdict(set)
+    for beam, nodes in endpoints.items():
+        for node in nodes:
+            for other in by_node[node]:
+                if other == beam:
+                    continue
+                if geono.get(other) != geono[beam]:
+                    continue
+                if abs(float(axes[beam] @ axes[other])) < _COLINEAR_TOL:
+                    continue
+                adjacent[beam].add(other)
+                adjacent[other].add(beam)
+
+    seen: set[int] = set()
+    out: list[tuple[int, ...]] = []
+    for beam in sorted(endpoints):
+        if beam in seen:
+            continue
+        stack = [beam]
+        seen.add(beam)
+        component: list[int] = []
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            for other in adjacent[current]:
+                if other not in seen:
+                    seen.add(other)
+                    stack.append(other)
+        out.append(_order_colinear_run(mesh, component))
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Support split — cut a named stiffener run into its per-bay spans
+# --------------------------------------------------------------------------- #
+# A Sesam concept name labels the *whole physical stiffener*, so a name-grouped,
+# colinear run runs the full length of the member and crosses every transverse
+# support it passes (girders, frames, and the floors/bulkheads the FE mesh
+# carries as perpendicular plates rather than beams). The DNV-RP-C201 stiffened-
+# plate span ``l`` is the distance between those supports, not the full member
+# length, so each run is cut at its interior support nodes. This works whether a
+# region has girders in one direction, in two, or terminates at a bulkhead — the
+# rule is geometric (a perpendicular member at the node), not naming-based.
+
+
+def _split_runs_at_supports(
+    mesh,
+    runs: list[tuple[int, ...]],
+    secondary_ids: set[int],
+    all_line_ids: set[int] | None,
+    all_shell_ids: set[int] | None,
+) -> list[tuple[int, ...]]:
+    if not all_line_ids and not all_shell_ids:
+        return runs
+    line_ids = all_line_ids or set()
+    shell_ids = all_shell_ids or set()
+    out: list[tuple[int, ...]] = []
+    for run in runs:
+        out.extend(_split_run_at_supports(mesh, run, secondary_ids, line_ids, shell_ids))
+    return sorted(out, key=min)
+
+
+def _split_run_at_supports(
+    mesh,
+    run: tuple[int, ...],
+    secondary_ids: set[int],
+    line_ids: set[int],
+    shell_ids: set[int],
+) -> list[tuple[int, ...]]:
+    if len(run) <= 1:
+        return [run]
+    from ada.fem.capacity.extract import _ensure_index, element_node_coords
+
+    idx = _ensure_index(mesh)
+    beams = list(_order_colinear_run(mesh, list(run)))
+    start = element_node_coords(mesh, beams[0])[0]
+    end = element_node_coords(mesh, beams[-1])[-1]
+    axis = end - start
+    norm = np.linalg.norm(axis)
+    if norm <= 0.0:
+        return [run]
+    axis = axis / norm
+
+    subs: list[tuple[int, ...]] = []
+    current: list[int] = [beams[0]]
+    for prev, beam in zip(beams, beams[1:]):
+        shared = set(idx.elem_nodes.get(prev, ())) & set(idx.elem_nodes.get(beam, ()))
+        node = next(iter(shared), None)
+        if node is not None and _is_support_node(mesh, node, axis, secondary_ids, line_ids, shell_ids):
+            subs.append(tuple(current))
+            current = [beam]
+        else:
+            current.append(beam)
+    subs.append(tuple(current))
+    return subs
+
+
+def _is_support_node(
+    mesh,
+    node: int,
+    run_axis: np.ndarray,
+    secondary_ids: set[int],
+    line_ids: set[int],
+    shell_ids: set[int],
+) -> bool:
+    """Does a transverse support terminate the stiffener span at this node?
+
+    A support is either a perpendicular *girder/frame* (a line element that is
+    not itself a secondary stiffener, crossing the run roughly at right angles)
+    or a perpendicular *plate junction* — a floor/bulkhead the mesh exposes as
+    shells in a second plane meeting the panel plate here.
+    """
+    from ada.fem.capacity.extract import _ensure_index, element_node_coords
+
+    idx = _ensure_index(mesh)
+    attached = idx.node_elems.get(node, ())
+
+    for elem in attached:
+        if elem in line_ids and elem not in secondary_ids:
+            coords = element_node_coords(mesh, elem)
+            vec = coords[-1] - coords[0]
+            n = np.linalg.norm(vec)
+            if n > 0.0 and abs(float((vec / n) @ run_axis)) < _COLINEAR_TOL:
+                return True
+
+    normals: set[tuple] = set()
+    for elem in attached:
+        if elem in shell_ids:
+            normal = _plane_normal(element_node_coords(mesh, elem))
+            if normal is not None:
+                normals.add(tuple(np.round(normal, 1)))
+                if len(normals) > 1:
+                    return True
+    return False
+
+
+def _order_colinear_run(mesh, beam_ids: list[int]) -> tuple[int, ...]:
+    if len(beam_ids) <= 1:
+        return tuple(beam_ids)
+
+    from ada.fem.capacity.extract import element_node_coords
+
+    first = element_node_coords(mesh, beam_ids[0])
+    axis = first[-1] - first[0]
+    axis = axis / (np.linalg.norm(axis) or 1.0)
+    origin = first[0]
+
+    def key(beam: int) -> float:
+        coords = element_node_coords(mesh, beam)
+        return float(np.min((coords - origin) @ axis))
+
+    return tuple(sorted(beam_ids, key=key))
 
 
 _STIFFENER_PERP_TOL = 0.02  # m, cluster colinear beam elements onto one stiffener line

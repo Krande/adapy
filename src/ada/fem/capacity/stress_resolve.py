@@ -359,7 +359,13 @@ def _resolve_stiffener(
     axis, _ = extract.beam_axis_and_span(mesh, st.element_ids)
 
     candidate_plates = [e for p in model.plates for e in p.element_ids]
-    edge_trib = extract.tributary_plate_ids(mesh, st.element_ids, candidate_plates)
+    # Tributary = the plates bordering the stiffener edge. ``tributary_plate_ids``
+    # matches plates that contain *all* the given beam's nodes, which is the right
+    # test for a single FE edge but never holds for a multi-element stiffener
+    # chain (no 4-node plate spans every node of a 6-element run). Union the
+    # per-element edge plates so a finely-meshed/multi-bay stiffener still gets
+    # its bordering plate field — otherwise its plate stresses resolve to zero.
+    edge_trib = sorted({pe for be in st.element_ids for pe in extract.tributary_plate_ids(mesh, (be,), candidate_plates)})
     field_trib = _adjacent_plate_field_ids(model, edge_trib)
 
     # Field transverse/shear membrane in the stiffener frame: each adjacent
@@ -450,6 +456,7 @@ def _resolve_stiffener(
         result_case=0,
         stiffener=stiff_name,
         panel_group=model.name,
+        capacity_model_id=model.id or model.name,
         continuous=st.continuous,
         variables=variables,
         vectors=vectors,
@@ -463,7 +470,10 @@ def _recovered_stress_blocks(mesh, aux, res, case, material_by_element, *, log: 
     recover from (the caller then resolves to zero, as before).
     """
     from ada.config import logger
-    from ada.fem.capacity.stress_recovery import build_recovered_stress, displacements_by_node
+    from ada.fem.capacity.stress_recovery import (
+        build_recovered_stress,
+        displacements_by_node,
+    )
 
     disp_blocks = [r for r in res.results if r.name == "RVNODDIS"]
     if not disp_blocks or not material_by_element:
@@ -581,6 +591,7 @@ def _resolve_step(
                     result_case=case,
                     stiffener=rc.stiffener,
                     panel_group=rc.panel_group,
+                    capacity_model_id=rc.capacity_model_id,
                     continuous=rc.continuous,
                     variables=rc.variables,
                     vectors=rc.vectors,
@@ -607,7 +618,10 @@ def resolve_cases(
     ``on_progress(completed, total)`` is called once per resolved case so callers
     can drive a progress bar.
     """
-    from ada.fem.formats.sesam.results.read_sin import iter_sin_step_results, read_sin_metadata
+    from ada.fem.formats.sesam.results.read_sin import (
+        iter_sin_step_results,
+        read_sin_metadata,
+    )
 
     meta = read_sin_metadata(sin_path)
     available = set(meta.steps)
@@ -650,10 +664,7 @@ def resolve_cases(
     # Plate element -> (E, poisson), used to recover membrane stresses from nodal
     # displacements when the SIN carries no element stresses (SESTRA ISEL4=-1).
     material_by_element: dict[int, tuple[float, float]] = {
-        e: (p.material.E, p.material.poisson)
-        for model in models
-        for p in model.plates
-        for e in p.element_ids
+        e: (p.material.E, p.material.poisson) for model in models for p in model.plates for e in p.element_ids
     }
 
     out: list[ResolvedCase] = []

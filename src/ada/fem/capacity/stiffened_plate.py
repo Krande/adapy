@@ -8,6 +8,9 @@ without touching the grouping or extraction layers.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -98,7 +101,12 @@ class StiffenedPlateBuilder(CapacityModelBuilder):
                 )
             )
 
-        return CapacityModel(name=group.name, plates=tuple(plates), stiffeners=tuple(stiffeners))
+        return CapacityModel(
+            name=group.name,
+            plates=tuple(plates),
+            stiffeners=tuple(stiffeners),
+            id=_capacity_model_id(group.name, plates, stiffeners),
+        )
 
 
 def _plate_inplane_axis(mesh: Mesh, group: PanelGroupSpec) -> np.ndarray | None:
@@ -122,6 +130,16 @@ def _plate_inplane_axis(mesh: Mesh, group: PanelGroupSpec) -> np.ndarray | None:
     return None
 
 
+def _capacity_model_id(name: str, plates: list[CapPlate], stiffeners: list[CapStiffener]) -> str:
+    plate_ids = sorted({int(element_id) for plate in plates for element_id in plate.element_ids})
+    stiffener_ids = sorted({int(element_id) for stiffener in stiffeners for element_id in stiffener.element_ids})
+    if not plate_ids and not stiffener_ids:
+        return name
+    payload = json.dumps({"p": plate_ids, "s": stiffener_ids}, separators=(",", ":"))
+    digest = hashlib.blake2s(payload.encode("ascii"), digest_size=6).hexdigest()
+    return f"{name}#{digest}"
+
+
 def _section_of(mesh: Mesh, aux: extract.AuxRecords, element_id: int) -> CapSection:
     """CapSection for a stiffener from adapy's parsed Section, with raw-card fallback."""
     section = _section_from_mesh(mesh, element_id)
@@ -137,6 +155,17 @@ def _section_from_mesh(mesh: Mesh, element_id: int) -> CapSection:
     """Best-effort CapSection from adapy's parsed Section."""
     sec = mesh.sections.get(extract.geono_of(mesh, element_id))
     name = getattr(sec, "name", "")
+    flatbar = _flatbar_from_name(str(name))
+    if flatbar is not None:
+        height, thickness = flatbar
+        return CapSection(
+            name=name or "",
+            section_type=0,
+            height=height,
+            web_thickness=thickness,
+            flange_width=0.0,
+            flange_thickness=0.0,
+        )
     h = getattr(sec, "h", None)
     t_w = getattr(sec, "t_w", None)
     w_top = getattr(sec, "w_top", None)
@@ -150,3 +179,15 @@ def _section_from_mesh(mesh: Mesh, element_id: int) -> CapSection:
         flange_width=float(w_top) if w_top else 0.0,
         flange_thickness=float(t_ftop) if t_ftop else 0.0,
     )
+
+
+_FLATBAR_NAME_RE = re.compile(r"^(?:fbar|fb)(\d+(?:[._]\d+)?)x(\d+(?:[._]\d+)?)$", re.IGNORECASE)
+
+
+def _flatbar_from_name(name: str) -> tuple[float, float] | None:
+    match = _FLATBAR_NAME_RE.match(name.strip())
+    if match is None:
+        return None
+    height = float(match.group(1).replace("_", ".")) / 1000.0
+    thickness = float(match.group(2).replace("_", ".")) / 1000.0
+    return height, thickness
