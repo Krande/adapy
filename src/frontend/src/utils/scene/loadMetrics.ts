@@ -33,6 +33,7 @@ import * as THREE from "three";
 import {rendererRef} from "@/state/refs";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
+import {CallProfiler, type ProfileFrame} from "@/utils/scene/callProfiler";
 
 export type LoadTransport = "presigned" | "relayed" | "blob" | "unknown";
 
@@ -41,19 +42,6 @@ interface LoadMeta {
     key: string;
     sourceName: string;
     transport: LoadTransport;
-}
-
-// Minimal shape of the JS Self-Profiling API (not in the TS DOM lib yet).
-interface ProfilerTrace {
-    frames: {name?: string; resourceId?: number; line?: number; column?: number}[];
-    resources: string[];
-    stacks: {frameId: number; parentId?: number}[];
-    samples: {stackId?: number; timestamp: number}[];
-}
-interface ProfilerCtor {
-    new (opts: {sampleInterval: number; maxBufferSize: number}): {
-        stop(): Promise<ProfilerTrace>;
-    };
 }
 
 function gpuRenderer(): string | undefined {
@@ -88,66 +76,12 @@ function payloadCounts(root: THREE.Object3D): {triangles: number; vertices: numb
     return {triangles: Math.round(triangles), vertices};
 }
 
-/** Top-N self-time frames from a JS Self-Profiling trace. Self time = a
- * frame is the leaf of the sampled stack; total = it appears anywhere in
- * the stack. WASM frames keep their ``wasm-function[...]`` / name-section
- * names so pyodide/adacpp hotspots are visible. */
-function summarizeProfile(
-    trace: ProfilerTrace,
-    sampleIntervalMs: number,
-    topN = 40,
-): {fn: string; self_ms: number; total_ms: number}[] {
-    try {
-        const self = new Map<number, number>();
-        const total = new Map<number, number>();
-        for (const s of trace.samples) {
-            if (s.stackId == null) continue;
-            // Walk the stack chain: the first frame is the leaf (self).
-            let node: {frameId: number; parentId?: number} | undefined = trace.stacks[s.stackId];
-            let isLeaf = true;
-            const seen = new Set<number>();
-            while (node) {
-                const fid = node.frameId;
-                if (isLeaf) self.set(fid, (self.get(fid) || 0) + 1);
-                if (!seen.has(fid)) {
-                    total.set(fid, (total.get(fid) || 0) + 1);
-                    seen.add(fid);
-                }
-                isLeaf = false;
-                node = node.parentId != null ? trace.stacks[node.parentId] : undefined;
-            }
-        }
-        const nameOf = (fid: number): string => {
-            const f = trace.frames[fid];
-            if (!f) return "(anonymous)";
-            const res = f.resourceId != null ? trace.resources[f.resourceId] : undefined;
-            const base = f.name && f.name.length > 0 ? f.name : "(anonymous)";
-            if (res) {
-                const file = res.split("/").pop()?.split("?")[0] || res;
-                return f.line != null ? `${base} (${file}:${f.line})` : `${base} (${file})`;
-            }
-            return base;
-        };
-        return [...self.entries()]
-            .map(([fid, count]) => ({
-                fn: nameOf(fid),
-                self_ms: Math.round(count * sampleIntervalMs * 10) / 10,
-                total_ms: Math.round((total.get(fid) || 0) * sampleIntervalMs * 10) / 10,
-            }))
-            .sort((a, b) => b.self_ms - a.self_ms)
-            .slice(0, topN);
-    } catch {
-        return [];
-    }
-}
-
 export class LoadMetricsRecorder {
     private meta: LoadMeta;
     private t0: number;
     private marks: Record<string, number> = {};
     private url: string | null = null;
-    private profiler: {stop(): Promise<ProfilerTrace>} | null = null;
-    private readonly sampleIntervalMs = 10;
+    private callProfiler = new CallProfiler();
     private longTaskObserver: PerformanceObserver | null = null;
     private longTasks = 0;
     private longTaskMs = 0;
@@ -172,17 +106,8 @@ export class LoadMetricsRecorder {
             this.longTaskObserver = null;
         }
         // JS Self-Profiling — Chromium-only, needs Document-Policy:
-        // js-profiling. Construction throws if the policy isn't served.
-        if (wantProfile) {
-            try {
-                const Ctor = (window as unknown as {Profiler?: ProfilerCtor}).Profiler;
-                if (Ctor) {
-                    this.profiler = new Ctor({sampleInterval: this.sampleIntervalMs, maxBufferSize: 100000});
-                }
-            } catch {
-                this.profiler = null;
-            }
-        }
+        // js-profiling. Guarded start() is a no-op otherwise.
+        if (wantProfile) this.callProfiler.start();
     }
 
     private mark(name: string): void {
@@ -310,15 +235,7 @@ export class LoadMetricsRecorder {
         } catch {
             /* ignore */
         }
-        let profileFrames: {fn: string; self_ms: number; total_ms: number}[] = [];
-        if (this.profiler) {
-            try {
-                const trace = await this.profiler.stop();
-                profileFrames = summarizeProfile(trace, this.sampleIntervalMs);
-            } catch {
-                profileFrames = [];
-            }
-        }
+        const profileFrames: ProfileFrame[] = await this.callProfiler.stop();
 
         const m = this.marks;
         const dur = (a: string, b: string) =>

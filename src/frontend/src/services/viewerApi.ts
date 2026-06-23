@@ -2049,7 +2049,7 @@ export const viewerApi = {
 
     /** Admin: function-level hotspots (summed JS Self-Profiling self-time
      * per TS/WASM frame) across browser loads, optionally one ``key``. */
-    async adminFrontendLoadHotspots(opts: {key?: string; since?: number; limit?: number}): Promise<{
+    async adminFrontendLoadHotspots(opts: {key?: string; since?: number; limit?: number; kind?: "view" | "render"}): Promise<{
         functions: Array<{
             fn: string;
             samples: number;
@@ -2060,12 +2060,14 @@ export const viewerApi = {
         }>;
         loads_in_window: number;
         key: string | null;
+        kind: string;
         since_days: number;
     }> {
         const params = new URLSearchParams();
         if (opts.key) params.set("key", opts.key);
         if (opts.since != null) params.set("since", String(opts.since));
         if (opts.limit != null) params.set("limit", String(opts.limit));
+        if (opts.kind) params.set("kind", opts.kind);
         const qs = params.toString();
         const r = await authedFetch(
             `${runtime.apiBase()}/admin/audit/frontend-loads/hotspots${qs ? `?${qs}` : ""}`,

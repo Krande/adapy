@@ -92,33 +92,35 @@ const BoundChip: React.FC<{bound: string}> = ({bound}) => (
     </span>
 );
 
-const HotspotsPanel: React.FC<{keyName: string; since: number}> = ({keyName, since}) => {
+const HotspotsPanel: React.FC<{keyName: string; since: number; kind?: "view" | "render"}> = ({keyName, since, kind = "view"}) => {
     const [data, setData] = useState<Awaited<ReturnType<typeof viewerApi.adminFrontendLoadHotspots>> | null>(null);
     const [err, setErr] = useState<string | null>(null);
     useEffect(() => {
         let alive = true;
         viewerApi
-            .adminFrontendLoadHotspots({key: keyName, since, limit: 40})
+            .adminFrontendLoadHotspots({key: keyName, since, limit: 40, kind})
             .then((d) => alive && setData(d))
             .catch((e) => alive && setErr((e as Error).message));
         return () => {
             alive = false;
         };
-    }, [keyName, since]);
+    }, [keyName, since, kind]);
     if (err) return <div className="text-xs text-red-400 px-3 py-2">hotspots: {err}</div>;
     if (!data) return <div className="text-xs text-gray-400 px-3 py-2">loading hotspots…</div>;
     if (data.loads_in_window === 0)
         return (
             <div className="text-xs text-gray-400 px-3 py-2">
-                No profiled loads in window. Enable "Profile calls during load" in Performance options,
-                and serve the <code className="text-gray-300">Document-Policy: js-profiling</code> header
-                (Chromium only).
+                No profiled {kind === "render" ? "render windows" : "loads"} in window. Enable "Profile calls"
+                in Performance options, and serve the{" "}
+                <code className="text-gray-300">Document-Policy: js-profiling</code> header (Chromium only).
+                {kind === "render" && " These are main-thread (CPU) frames; GPU-bound cost shows in the GPU column, not here."}
             </div>
         );
     return (
         <div className="px-3 py-2 bg-gray-900/60">
             <div className="text-[11px] text-gray-400 mb-1">
-                Top self-time frames across {data.loads_in_window} profiled load(s) — TS + WASM
+                Top self-time frames across {data.loads_in_window} profiled {kind === "render" ? "render window(s)" : "load(s)"} — TS + WASM
+                {kind === "render" && " · main-thread only (GPU-bound shows in gpu_ms)"}
             </div>
             <table className="text-xs w-full">
                 <thead className="text-gray-400">
@@ -245,6 +247,7 @@ const RenderView: React.FC<{days: number}> = ({days}) => {
     const [cells, setCells] = useState<Cell[]>([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState<string | null>(null);
+    const [expanded, setExpanded] = useState<string | null>(null);
 
     useEffect(() => {
         let alive = true;
@@ -287,21 +290,40 @@ const RenderView: React.FC<{days: number}> = ({days}) => {
                 </tr>
             </thead>
             <tbody>
-                {cells.map((c) => (
-                    <tr key={String(c.key)} className="border-b border-gray-800 hover:bg-gray-800/50">
-                        <td className="px-2 py-1 font-mono truncate max-w-xs" title={String(c.key)}>{shortKey(String(c.key))}</td>
-                        <td className="px-2"><BoundChip bound={String(c.dominant_bound || "unknown")}/></td>
-                        <td className="px-2 text-right">{num(c.fps_p50, 1)}</td>
-                        <td className="px-2 text-right">{num(c.fps_min, 1)}</td>
-                        <td className="px-2 text-right">{ms(c.frame_ms_p50)} / {ms(c.frame_ms_p95)}</td>
-                        <td className="px-2 text-right">{ms(c.gpu_ms_p50)} / {ms(c.gpu_ms_p95)}</td>
-                        <td className="px-2 text-right">{num(c.draw_calls_p50)}</td>
-                        <td className="px-2 text-right">{num(c.triangles_p50)}</td>
-                        <td className="px-2 text-right">{num(c.programs_max)}</td>
-                        <td className="px-2 text-right">{num(c.long_frames_sum)}</td>
-                        <td className="px-2 text-right">{c.window_count}</td>
-                    </tr>
-                ))}
+                {cells.map((c) => {
+                    const key = String(c.key);
+                    const isOpen = expanded === key;
+                    return (
+                        <React.Fragment key={key}>
+                            <tr
+                                className="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer"
+                                onClick={() => setExpanded(isOpen ? null : key)}
+                            >
+                                <td className="px-2 py-1 font-mono truncate max-w-xs" title={key}>
+                                    <span className="text-gray-500 mr-1">{isOpen ? "▼" : "▶"}</span>
+                                    {shortKey(key)}
+                                </td>
+                                <td className="px-2"><BoundChip bound={String(c.dominant_bound || "unknown")}/></td>
+                                <td className="px-2 text-right">{num(c.fps_p50, 1)}</td>
+                                <td className="px-2 text-right">{num(c.fps_min, 1)}</td>
+                                <td className="px-2 text-right">{ms(c.frame_ms_p50)} / {ms(c.frame_ms_p95)}</td>
+                                <td className="px-2 text-right">{ms(c.gpu_ms_p50)} / {ms(c.gpu_ms_p95)}</td>
+                                <td className="px-2 text-right">{num(c.draw_calls_p50)}</td>
+                                <td className="px-2 text-right">{num(c.triangles_p50)}</td>
+                                <td className="px-2 text-right">{num(c.programs_max)}</td>
+                                <td className="px-2 text-right">{num(c.long_frames_sum)}</td>
+                                <td className="px-2 text-right">{c.window_count}</td>
+                            </tr>
+                            {isOpen && (
+                                <tr>
+                                    <td colSpan={11}>
+                                        <HotspotsPanel keyName={key} since={days} kind="render"/>
+                                    </td>
+                                </tr>
+                            )}
+                        </React.Fragment>
+                    );
+                })}
             </tbody>
         </table>
     );

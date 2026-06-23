@@ -4465,19 +4465,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         key: str | None = None,
         since: int = 30,
         limit: int = 100,
+        kind: str = "view",
     ) -> JSONResponse:
-        """Function-level hotspots across browser loads — summed JS
-        Self-Profiling self-time per TS/WASM frame. Optionally scoped to
-        one ``key`` (GLB file). Empty ``functions`` with
-        ``loads_in_window=0`` means no profiled loads (self-profiling
-        unsupported/disabled or ``Document-Policy: js-profiling`` not
-        served)."""
+        """Function-level hotspots across browser ``view`` loads or
+        ``render`` windows (``kind``) — summed JS Self-Profiling self-time
+        per TS/WASM frame. Optionally scoped to one ``key`` (GLB file).
+        Empty ``functions`` with ``loads_in_window=0`` means no profiled
+        rows (self-profiling unsupported/disabled or
+        ``Document-Policy: js-profiling`` not served)."""
         pool = _require_pool(request)
         key_arg = (key or "").strip() or None
+        action = "render" if (kind or "").strip().lower() == "render" else "view"
         out = await db_module.aggregate_view_load_hotspots(
-            pool, key=key_arg, since_days=since, limit=limit
+            pool, action=action, key=key_arg, since_days=since, limit=limit
         )
-        return JSONResponse({**out, "key": key_arg, "since_days": max(1, min(365, since))})
+        return JSONResponse({**out, "key": key_arg, "kind": action, "since_days": max(1, min(365, since))})
 
     @admin.get("/audit/render")
     async def admin_audit_render(

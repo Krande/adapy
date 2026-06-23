@@ -18,6 +18,7 @@
 import {rendererRef} from "@/state/refs";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
+import {CallProfiler} from "@/utils/scene/callProfiler";
 
 const WINDOW_MS = 8000; // flush cadence
 const MIN_FRAMES = 30; // don't post a window with too few samples
@@ -29,6 +30,8 @@ interface GpuQuery {
 
 class RenderProfiler {
     private enabled = false;
+    private profileCalls = false;
+    private callProfiler: CallProfiler | null = null;
     private lastEnabledCheck = 0;
     private windowStart = 0;
     private lastFrameTs = 0;
@@ -55,7 +58,10 @@ class RenderProfiler {
             this.lastEnabledCheck = nowTs;
             let on = false;
             try {
-                on = useViewMetricsStore.getState().collectRenderMetrics && useMeStore.getState().isAdmin;
+                const st = useViewMetricsStore.getState();
+                on = st.collectRenderMetrics && useMeStore.getState().isAdmin;
+                // Reuse the same "Profile calls" sub-toggle as the load path.
+                this.profileCalls = on && st.profileCalls;
             } catch {
                 on = false;
             }
@@ -76,6 +82,16 @@ class RenderProfiler {
         this.geometries = 0;
         this.textures = 0;
         this.longFrames = 0;
+        // Start a fresh per-window call profiler when "Profile calls" is on.
+        // 16ms interval (~one sample/frame) keeps the sampling overhead — and
+        // its observer effect on the frame times we're measuring — modest.
+        // flush() hands the previous one to post() to stop + summarize.
+        this.callProfiler = null;
+        if (this.profileCalls) {
+            const p = new CallProfiler(16);
+            p.start();
+            if (p.active) this.callProfiler = p;
+        }
     }
 
     private resolveGl(): void {
@@ -189,6 +205,10 @@ class RenderProfiler {
             this.reset(nowTs);
             return;
         }
+        // Hand the window's call profiler to post() to stop + summarize;
+        // reset() below then starts a fresh one for the next window.
+        const prof = this.callProfiler;
+        this.callProfiler = null;
         const pct = (arr: number[], p: number): number | null => {
             if (arr.length === 0) return null;
             const s = [...arr].sort((a, b) => a - b);
@@ -214,12 +234,18 @@ class RenderProfiler {
             long_frames: this.longFrames,
             dpr: window.devicePixelRatio || 1,
         };
-        this.post(cm).catch(() => {});
+        this.post(cm, prof).catch(() => {});
         this.reset(nowTs);
     }
 
-    private async post(cm: Record<string, unknown>): Promise<void> {
+    private async post(cm: Record<string, unknown>, prof: CallProfiler | null): Promise<void> {
         try {
+            // Per-window main-thread call hotspots (TS + WASM). Identifies a
+            // CPU-bound render; GPU-bound shows in gpu_ms, not here.
+            if (prof) {
+                const frames = await prof.stop();
+                if (frames.length > 0) cm["profile_frames"] = frames;
+            }
             const {useModelState} = await import("@/state/modelState");
             const {useScopeStore, scopeUrlPart} = await import("@/state/scopeStore");
             const key = useModelState.getState().loadedSourceName;

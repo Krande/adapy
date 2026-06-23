@@ -2264,43 +2264,47 @@ async def aggregate_view_load_metrics(
 async def aggregate_view_load_hotspots(
     pool: asyncpg.Pool,
     *,
+    action: str = "view",
     key: str | None = None,
     since_days: int = 30,
     limit: int = 100,
 ) -> dict:
-    """Function-level hotspots across browser model loads — the load-side
-    analogue of ``aggregate_profile_hotspots`` for conversions.
+    """Function-level hotspots across browser ``view`` loads or ``render``
+    windows — the client-side analogue of ``aggregate_profile_hotspots``
+    for conversions.
 
     The viewer's opt-in instrumentation runs the JS Self-Profiling API
-    during a load and stores the top self-time frames (TypeScript *and*
-    WASM — pyodide/adacpp frames surface as ``wasm-function[...]`` or
-    their name-section names) under ``client_metrics->'profile_frames'``
-    as ``[{"fn", "self_ms", "total_ms"}, ...]``. This unnests them across
-    every load (optionally one ``key``) and sums self-time per function
-    so the slowest TS/WASM calls float to the top.
+    (during a load, or per render window when ``action='render'``) and
+    stores the top self-time frames (TypeScript *and* WASM — pyodide/
+    adacpp frames surface as ``wasm-function[...]`` or their name-section
+    names) under ``client_metrics->'profile_frames'`` as
+    ``[{"fn", "self_ms", "total_ms"}, ...]``. This unnests them across
+    every matching row (optionally one ``key``) and sums self-time per
+    function so the slowest TS/WASM calls float to the top.
 
     Returns ``{functions: [...], loads_in_window: N}``; an empty
-    ``functions`` with ``loads_in_window=0`` means no profiled loads in
+    ``functions`` with ``loads_in_window=0`` means no profiled rows in
     the window (self-profiling unsupported/disabled, or the
     ``Document-Policy: js-profiling`` header isn't being served).
     """
     days = max(1, min(365, since_days))
     lim = max(1, min(1000, limit))
-    args: list = [days]
+    act = action if action in ("view", "render") else "view"
+    args: list = [act, days]
     key_filter = ""
     if key:
         args.append(key)
         key_filter = f" AND key = ${len(args)}"
 
-    # Count profiled loads in the window first (so the UI can distinguish
+    # Count profiled rows in the window first (so the UI can distinguish
     # "no data" from "no hotspots").
     loads_in_window = await pool.fetchval(
         f"""
         SELECT COUNT(*) FROM audit_log
-        WHERE action = 'view'
+        WHERE action = $1
           AND client_metrics ? 'profile_frames'
           AND jsonb_array_length(client_metrics->'profile_frames') > 0
-          AND ts > NOW() - ($1 * INTERVAL '1 day')
+          AND ts > NOW() - ($2 * INTERVAL '1 day')
           {key_filter}
         """,
         *args,
@@ -2315,9 +2319,9 @@ async def aggregate_view_load_hotspots(
                    NULLIF(f->>'total_ms', '')::numeric AS total_ms
             FROM audit_log,
                  LATERAL jsonb_array_elements(client_metrics->'profile_frames') AS f
-            WHERE action = 'view'
+            WHERE action = $1
               AND client_metrics ? 'profile_frames'
-              AND ts > NOW() - ($1 * INTERVAL '1 day')
+              AND ts > NOW() - ($2 * INTERVAL '1 day')
               {key_filter}
         )
         SELECT fn,
