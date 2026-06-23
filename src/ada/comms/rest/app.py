@@ -1302,7 +1302,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cm = None
         else:
             # Defensive cap: keep the JSONB small and bounded regardless
-            # of what a client sends (drop nested/oversized values).
+            # of what a client sends. Scalars pass through; the one allowed
+            # nested value is ``profile_frames`` (the JS Self-Profiling top-N
+            # self-time table) — bounded to a sane length with scalar-only
+            # fields. Any other nested/oversized value is dropped.
             cleaned: dict = {}
             for k, v in list(cm.items())[:64]:
                 if not isinstance(k, str):
@@ -1311,6 +1314,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     cleaned[k[:64]] = v
                 elif isinstance(v, str):
                     cleaned[k[:64]] = v[:512]
+                elif k == "profile_frames" and isinstance(v, list):
+                    frames: list = []
+                    for f in v[:80]:
+                        if not isinstance(f, dict):
+                            continue
+                        fn = f.get("fn")
+                        if not isinstance(fn, str):
+                            continue
+                        frame: dict = {"fn": fn[:200]}
+                        for fk in ("self_ms", "total_ms"):
+                            fv = f.get(fk)
+                            if isinstance(fv, (int, float)) and not isinstance(fv, bool):
+                                frame[fk] = fv
+                        frames.append(frame)
+                    if frames:
+                        cleaned["profile_frames"] = frames
             cm = cleaned or None
 
         # Steady-state render-window rows post to the same endpoint but
