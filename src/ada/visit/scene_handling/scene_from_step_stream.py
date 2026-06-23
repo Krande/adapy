@@ -27,6 +27,11 @@ class StepStreamSource:
     path: str | Path
     tolerant: bool = True
     on_progress: Callable[[str, float], None] | None = None
+    # Collapse sibling solids that share both a parent assembly level AND a product name
+    # into a single graph node / pickable object (their triangles are reordered to one
+    # contiguous draw-range). Default-on; set False (or env ADA_MERGE_SAME_NAME_SIBLINGS=0)
+    # to revert to one node per solid — byte-identical to the pre-merge output.
+    merge_same_name_siblings: bool = True
 
 
 # Below this solid count the ~1 s process-pool spawn overhead outweighs the
@@ -399,6 +404,17 @@ def _leaf_product_name(paths) -> str | None:
     return None
 
 
+def _merge_siblings_enabled(source: "StepStreamSource") -> bool:
+    """Whether same-name sibling solids are merged into one node/object. The source flag
+    is the default (True); ``ADA_MERGE_SAME_NAME_SIBLINGS=0`` is a process-wide kill-switch
+    (so a conversion worker can revert without code changes)."""
+    import os
+
+    return bool(getattr(source, "merge_same_name_siblings", True)) and (
+        os.environ.get("ADA_MERGE_SAME_NAME_SIBLINGS", "1") != "0"
+    )
+
+
 def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     """Shared streaming tessellation loop used by both the trimesh-scene path
     (:func:`scene_from_step_stream`) and the disk-spilled GLB path
@@ -458,6 +474,12 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     # sub-assemblies instead of scrolling a flat list of thousands of solids.
     asm_nodes: dict[tuple, object] = {}
 
+    # Same-name sibling merge: solids that share a parent assembly level AND a product
+    # name collapse onto one graph node (keyed (parent.node_id, name)). Disabled -> one
+    # node per solid, exactly as before.
+    merge_siblings = _merge_siblings_enabled(source)
+    merged_leaves: dict[tuple, object] = {}
+
     def _group_parent(path) -> object:
         parent = root
         if not path:
@@ -475,7 +497,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     # The parent owns the material store (so colours map to consistent ids across worker
     # processes), creates the graph node from each worker's raw mesh arrays, and hands
     # the result to the caller's sink. Workers (subprocesses) only build + tessellate.
-    def _build(gid, color, pos, idx, nrm, transform=None, path=None, collapse_leaf=False) -> None:
+    def _build(gid, color, pos, idx, nrm, transform=None, path=None, collapse_leaf=False, merge_name=None) -> None:
         # Apply this instance's world placement to the local mesh (rigid: rotation +
         # translation on positions, rotation on normals). pos/nrm stay FLAT (N*3,) — the
         # MeshStore/spill path needs flat buffers — so reshape only for the matmul.
@@ -504,7 +526,18 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
         # solid node the product node (matches step2glb) instead of nesting it under
         # a redundant same-named group.
         parent = _group_parent(path[:-1] if collapse_leaf and path else path)
-        node = graph.add_node(GraphNode(gid, graph.next_node_id(), hash=create_guid(), parent=parent))
+        # Same-name siblings under one parent reuse a single node (one pickable object);
+        # their meshes are reordered to a contiguous draw-range at merge time. Falls back
+        # to a fresh node per solid when merging is off or no product name is available.
+        node = None
+        if merge_siblings and merge_name:
+            mkey = (parent.node_id, merge_name)
+            node = merged_leaves.get(mkey)
+            if node is None:
+                node = graph.add_node(GraphNode(merge_name, graph.next_node_id(), hash=create_guid(), parent=parent))
+                merged_leaves[mkey] = node
+        if node is None:
+            node = graph.add_node(GraphNode(gid, graph.next_node_id(), hash=create_guid(), parent=parent))
         mat_id = bt.material_store.get(color, None)
         if mat_id is None:
             mat_id = len(bt.material_store)
@@ -533,7 +566,9 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
             paths = paths if paths and len(paths) == len(tfs) else [None] * len(tfs)
             for k, (tf, path) in enumerate(zip(tfs, paths)):
                 inst_gid = gid if k == 0 else f"{gid}/{k + 1}"
-                _build(inst_gid, color, pos, idx, nrm, tf, path, collapse_leaf=collapse_leaf)
+                # merge_name = the base product name (no instance suffix) so all instances
+                # AND all same-named sibling solids collapse onto one node when merging.
+                _build(inst_gid, color, pos, idx, nrm, tf, path, collapse_leaf=collapse_leaf, merge_name=gid)
         elif status == "degenerate":
             _skip(gid, "degenerate (zero-extent solid)")
         elif status == "empty":
@@ -850,10 +885,17 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
     # One merged mesh (glTF node) per material/colour — the default GLB shape.
     if source.on_progress is not None:
         source.on_progress("merging", 0.92)
+    coalesce = _merge_siblings_enabled(source)
     for mat_id, stores in by_material.items():
         merged = concatenate_stores(stores, graph)
         if merged is None:
             continue
+        if coalesce:
+            # Reorder this colour's index buffer so a merged node's siblings form one
+            # contiguous draw-range (positions untouched -> identical triangles).
+            from ada.visit.gltf.optimize import coalesce_groups_by_node
+
+            merged.indices, merged.groups = coalesce_groups_by_node(merged.indices, merged.groups)
         merged_mesh_to_trimesh_scene(
             scene, merged, bt.get_mat_by_id(mat_id), mat_id, graph, apply_transform=params.apply_transform
         )
@@ -894,6 +936,12 @@ def convert_step_stream_to_glb(source: StepStreamSource, glb_path: str | Path) -
 
         if source.on_progress is not None:
             source.on_progress("merging", 0.92)
+
+        # Merge same-name siblings: reorder each material's index buffer so a merged
+        # node's ranges are contiguous (one pickable draw-range per node). Must run
+        # BEFORE the groups are read into the picking metadata + the GLB is written.
+        if _merge_siblings_enabled(source):
+            spill.coalesce_by_node()
 
         # Register each material's picking ranges so ``to_json_hierarchy`` emits the
         # ``draw_ranges_node{mat_id}`` sequences. ``create_id_sequence`` only reads

@@ -34,6 +34,7 @@ def stream_step_to_glb(
     tolerant: bool = True,
     on_progress=None,
     cad_config: "CadConfig | None" = None,
+    merge_same_name_siblings: bool = True,
 ) -> dict:
     """Stream-convert a STEP file to a GLB without holding the whole model in memory.
 
@@ -48,6 +49,10 @@ def stream_step_to_glb(
     ``cad_config`` (``ada.cad.CadConfig``) selects the tessellation path (e.g.
     ``TessellationPath.ADACPP_LIBTESS2``) + tolerances; its env vars are applied for the
     conversion (and inherited by the tessellation subprocess pool) and restored afterwards.
+
+    ``merge_same_name_siblings`` (default on) collapses sibling solids that share a parent
+    assembly level and a product name into one node / pickable object; set False (or env
+    ``ADA_MERGE_SAME_NAME_SIBLINGS=0``) for one node per solid (pre-merge output).
 
     Returns ``{"meshed", "total", "skipped", "materials", "reasons"}``.
     """
@@ -65,7 +70,9 @@ def stream_step_to_glb(
         _saved = {k: os.environ.get(k) for k in _env}
         os.environ.update(_env)
 
-    source = StepStreamSource(step_path, tolerant=tolerant, on_progress=on_progress)
+    source = StepStreamSource(
+        step_path, tolerant=tolerant, on_progress=on_progress, merge_same_name_siblings=merge_same_name_siblings
+    )
     # Spills the per-material merge to disk and streams the GLB straight to ``glb_path``
     # (no in-RAM scene / GLB bytes), so peak memory stays a few hundred MB on assemblies
     # that OOM'd the 2-3x in-memory ``scene.export`` path.

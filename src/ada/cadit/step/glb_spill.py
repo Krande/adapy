@@ -124,6 +124,27 @@ class GlbSpillStore:
         stable and reproducible."""
         return [self._mats[k] for k in sorted(self._mats)]
 
+    def coalesce_by_node(self) -> None:
+        """Reorder each material's index file so every range sharing a ``node_ref`` is
+        contiguous, collapsing ``groups`` to one :class:`GroupReference` per node — so the
+        same-name siblings merged onto one graph node become a single pickable draw-range.
+
+        Positions are NOT rewritten (indices are absolute vertex refs), and the per-material
+        counts/bbox/idx_max are unchanged (same triangle set), so the GLB accessors stay
+        valid. No-op for materials whose groups already each have a unique node."""
+        import numpy as np
+
+        from ada.visit.gltf.optimize import coalesce_groups_by_node
+
+        self.close_writers()  # flush append handles before we read the .idx files back
+        for m in self._mats.values():
+            if len({g.node_ref for g in m.groups}) == len(m.groups):
+                continue
+            idx = np.fromfile(m.idx_path, dtype="<u4")
+            new_idx, new_groups = coalesce_groups_by_node(idx, m.groups)
+            new_idx.astype("<u4", copy=False).tofile(m.idx_path)
+            m.groups = new_groups
+
     def close_writers(self) -> None:
         for m in self._mats.values():
             for fh in (m.pos_fh, m.idx_fh):
