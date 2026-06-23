@@ -19,11 +19,22 @@ shared ``SceneConverter`` via a ``StepStreamSource`` so there is no second code 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ada.config import logger
 
+if TYPE_CHECKING:
+    from ada.cad import CadConfig
 
-def stream_step_to_glb(step_path: str | Path, glb_path: str | Path, *, tolerant: bool = True, on_progress=None) -> dict:
+
+def stream_step_to_glb(
+    step_path: str | Path,
+    glb_path: str | Path,
+    *,
+    tolerant: bool = True,
+    on_progress=None,
+    cad_config: "CadConfig | None" = None,
+) -> dict:
     """Stream-convert a STEP file to a GLB without holding the whole model in memory.
 
     With ``tolerant`` (default) a solid using an unsupported surface (spherical /
@@ -34,18 +45,39 @@ def stream_step_to_glb(step_path: str | Path, glb_path: str | Path, *, tolerant:
     ``on_progress(stage, frac)`` is reported through the per-solid tessellation phase
     (the slow part) so a caller can show real progress.
 
+    ``cad_config`` (``ada.cad.CadConfig``) selects the tessellation path (e.g.
+    ``TessellationPath.ADACPP_LIBTESS2``) + tolerances; its env vars are applied for the
+    conversion (and inherited by the tessellation subprocess pool) and restored afterwards.
+
     Returns ``{"meshed", "total", "skipped", "materials", "reasons"}``.
     """
+    import os
+
     from ada.visit.scene_handling.scene_from_step_stream import (
         StepStreamSource,
         convert_step_stream_to_glb,
     )
 
+    _saved: dict | None = None
+    if cad_config is not None:
+        cad_config.validate()
+        _env = cad_config.env()
+        _saved = {k: os.environ.get(k) for k in _env}
+        os.environ.update(_env)
+
     source = StepStreamSource(step_path, tolerant=tolerant, on_progress=on_progress)
     # Spills the per-material merge to disk and streams the GLB straight to ``glb_path``
     # (no in-RAM scene / GLB bytes), so peak memory stays a few hundred MB on assemblies
     # that OOM'd the 2-3x in-memory ``scene.export`` path.
-    stats = convert_step_stream_to_glb(source, glb_path)
+    try:
+        stats = convert_step_stream_to_glb(source, glb_path)
+    finally:
+        if _saved is not None:
+            for _k, _v in _saved.items():
+                if _v is None:
+                    os.environ.pop(_k, None)
+                else:
+                    os.environ[_k] = _v
 
     if stats.get("meshed", 0) == 0:
         raise ValueError(f"stream_step_to_glb: no solids tessellated from {step_path} (all skipped)")

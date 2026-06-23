@@ -26,6 +26,15 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from ada.cad.registry import (  # noqa: E402 - registry is stdlib-only, no ada.cad cycle
+    CadBackendName,
+    CadConfig,
+    TessellationPath,
+    available_backends,
+    available_paths,
+    backend_available,
+)
+
 if TYPE_CHECKING:
     import numpy as np
 
@@ -1198,4 +1207,11 @@ __all__ = [
     "is_shape_handle",
     "reset_active_backend",
     "select_backend",
+    # registry / config
+    "CadBackendName",
+    "CadConfig",
+    "TessellationPath",
+    "available_backends",
+    "available_paths",
+    "backend_available",
 ]

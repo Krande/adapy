@@ -50,3 +50,34 @@ def test_meshopt_simplify_lossless_drops_degenerate():
     out = np.asarray(p2, np.float32).reshape(-1, 3)
     assert np.allclose(pos.min(axis=0), out.min(axis=0), atol=1e-5)  # shape (bbox) preserved
     assert np.allclose(pos.max(axis=0), out.max(axis=0), atol=1e-5)
+
+
+def test_libtess2_tessellation_parity_gate(tmp_path):
+    """Golden triangle counts (libtess2, deflection 2.0 / max-angle 20) on plain primitives — a
+    guard against silent drift from the verified ~0.99x step2glb parity. Counts are deterministic
+    (max-angle-driven). The sphere's 324 matches step2glb exactly; the cylinder's 120 is within
+    tolerance of step2glb's count for the same primitive. A regression like the pre-fix B-spline
+    chord-collapse (~0.5x) or slant-v cone over-sampling (~1.3x) breaks the +-10% band."""
+    ada = pytest.importorskip("ada")
+    pytest.importorskip("adacpp")
+    from ada.cad import AdacppBackend
+    from ada.cadit.step.read.stream_reader import stream_read_step
+
+    be = AdacppBackend()
+
+    def total_tris(shape, fname: str) -> int:
+        src = tmp_path / fname
+        (ada.Assembly("a") / (ada.Part("p") / shape)).to_stp(src)
+        t = 0
+        for g in stream_read_step(src, local_pool=False, tolerant=True):
+            gi = g.geometry.geometry if hasattr(g.geometry, "geometry") else g.geometry
+            t += len(be.tessellate_stream([(str(g.id), gi)], pipeline="libtess2", deflection=2.0).indices) // 3
+        return t
+
+    golden = {"cylinder": 120, "sphere": 324}
+    got = {
+        "cylinder": total_tris(ada.PrimCyl("c", (0, 0, 0), (0, 0, 20), 5.0), "cyl.step"),
+        "sphere": total_tris(ada.PrimSphere("s", (0, 0, 0), 10.0), "sph.step"),
+    }
+    for k, g in golden.items():
+        assert abs(got[k] - g) <= 0.10 * g, f"{k} tessellation density drifted: {got[k]} vs golden {g}"

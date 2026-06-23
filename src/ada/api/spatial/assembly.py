@@ -49,6 +49,7 @@ class Assembly(Part):
         metadata=None,
         units: Units | str = Units.M,
         ifc_class: SpatialTypes = SpatialTypes.IfcSite,
+        cad_config=None,
     ):
         metadata = dict() if metadata is None else metadata
         metadata["project"] = project
@@ -58,12 +59,30 @@ class Assembly(Part):
         user.parent = self
         self._user = user
 
+        self._cad_config = cad_config  # ada.cad.CadConfig | None (lazy default on first access)
         self._ifc_class = ifc_class
         self._ifc_store = None
         self._ifc_file = None
         self._ifc_sections = None
         self._ifc_materials = None
         self._source_ifc_files = dict()
+
+    @property
+    def cad_config(self):
+        """CAD backend + tessellation-path config (:class:`ada.cad.CadConfig`).
+
+        Defaults lazily to the best path available in the environment — libtess2 when adacpp is
+        installed (OCC-free, step2glb-parity), else OCC. Set it to pick a path explicitly; pass
+        it on to factory functions, e.g. ``stream_step_to_glb(..., cad_config=asm.cad_config)``."""
+        if self._cad_config is None:
+            from ada.cad import CadConfig
+
+            self._cad_config = CadConfig.default()
+        return self._cad_config
+
+    @cad_config.setter
+    def cad_config(self, value):
+        self._cad_config = value
 
     def __getstate__(self):
         # ifcopenshell.file and ifcopenshell.geom.settings are C-bound and

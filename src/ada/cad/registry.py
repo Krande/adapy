@@ -1,0 +1,119 @@
+"""CAD backend + tessellation-path registry and config.
+
+Lets a user discover which CAD backends and tessellation paths are available in the current
+environment (adacpp present => its extra paths are listed) and select one ergonomically:
+
+    from ada.cad import CadConfig, TessellationPath, available_paths
+
+    available_paths()                 # [OCC, ADACPP_LIBTESS2, ADACPP_OCC, ...] for this env
+    cfg = CadConfig(path=TessellationPath.ADACPP_LIBTESS2, deflection=2.0)
+    asm.cad_config = cfg              # attach to an Assembly
+    stream_step_to_glb(step, glb, cad_config=cfg)   # or pass to a factory function
+
+Availability is import-driven: ``occ`` needs pythonocc-core, the ``adacpp:*`` paths need the
+``adacpp`` extension. ``CadConfig.default()`` prefers libtess2 when adacpp is installed (OCC-free,
+step2glb-parity tessellation) and falls back to OCC otherwise.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import os
+from dataclasses import dataclass
+from enum import Enum
+from functools import lru_cache
+
+
+class CadBackendName(str, Enum):
+    OCC = "occ"  # pythonocc-core (native BRepMesh)
+    ADACPP = "adacpp"  # the adacpp extension (NGEOM / libtess2 + linked OCCT/CGAL/ifc kernels)
+
+
+class TessellationPath(str, Enum):
+    """A selectable (backend, tessellation-algorithm) pair.
+
+    ``OCC`` is pythonocc's BRepMesh; the ``ADACPP_*`` paths map to adacpp ``tessellate_stream``
+    pipelines (``libtess2`` is the OCC-free boundary CDT; ``occ``/``cgal``/``hybrid`` use adacpp's
+    linked OCCT / ifcopenshell-taxonomy kernels)."""
+
+    OCC = "occ"
+    ADACPP_LIBTESS2 = "adacpp:libtess2"
+    ADACPP_OCC = "adacpp:occ"
+    ADACPP_CGAL = "adacpp:cgal"
+    ADACPP_HYBRID = "adacpp:hybrid"
+
+    @property
+    def backend(self) -> CadBackendName:
+        return CadBackendName.OCC if self is TessellationPath.OCC else CadBackendName.ADACPP
+
+    @property
+    def pipeline(self) -> str | None:
+        """The adacpp ``tessellate_stream`` pipeline arg, or ``None`` for the OCC BRepMesh path."""
+        return None if self is TessellationPath.OCC else self.value.split(":", 1)[1]
+
+
+@lru_cache(maxsize=None)
+def _module_available(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def backend_available(backend: CadBackendName) -> bool:
+    if backend is CadBackendName.ADACPP:
+        return _module_available("adacpp")
+    return _module_available("OCC")  # pythonocc-core package
+
+
+def available_backends() -> list[CadBackendName]:
+    """CAD backends importable in this environment."""
+    return [b for b in CadBackendName if backend_available(b)]
+
+
+def available_paths() -> list[TessellationPath]:
+    """Tessellation paths usable in this environment (a path is listed when its backend imports;
+    adacpp present => all of libtess2/occ/cgal/hybrid are listed)."""
+    return [p for p in TessellationPath if backend_available(p.backend)]
+
+
+@dataclass
+class CadConfig:
+    """Selects the tessellation path + tolerances. Attach to ``Assembly.cad_config`` or pass to a
+    factory function (e.g. ``stream_step_to_glb(..., cad_config=cfg)``)."""
+
+    path: TessellationPath = TessellationPath.OCC
+    deflection: float = 2.0
+    angular_deg: float = 20.0
+    simplify: bool = False  # meshopt cleanup (step2glb merge parity); adacpp paths only
+
+    @classmethod
+    def default(cls) -> "CadConfig":
+        """Prefer libtess2 when adacpp is installed (OCC-free, step2glb parity), else OCC."""
+        paths = available_paths()
+        if TessellationPath.ADACPP_LIBTESS2 in paths:
+            return cls(path=TessellationPath.ADACPP_LIBTESS2)
+        return cls(path=TessellationPath.OCC)
+
+    def validate(self) -> None:
+        if self.path not in available_paths():
+            raise ValueError(
+                f"tessellation path {self.path.value!r} is not available in this environment; "
+                f"available: {[p.value for p in available_paths()]}"
+            )
+
+    def env(self) -> dict[str, str]:
+        """The streaming-export env vars this config maps to (read by the conversion worker)."""
+        e = {"ADAPY_CAD_BACKEND": self.path.backend.value}
+        if self.path.pipeline is not None:
+            e["ADA_STREAM_TESS_PIPELINE"] = self.path.pipeline
+            e["ADA_STREAM_TESS_DEFLECTION"] = repr(self.deflection)
+            e["ADA_STREAM_TESS_ANGULAR"] = repr(self.angular_deg)
+            if self.simplify:
+                e["ADA_STREAM_SIMPLIFY"] = "1"
+        return e
+
+    def apply_env(self) -> None:
+        """Set this config's env vars on ``os.environ`` (inherited by the conversion subprocess
+        pool). Returns nothing; pair with a try/finally or use ``stream_step_to_glb(cad_config=)``."""
+        os.environ.update(self.env())
