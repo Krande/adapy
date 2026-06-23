@@ -34,7 +34,7 @@ def stream_step_to_glb(
     tolerant: bool = True,
     on_progress=None,
     cad_config: "CadConfig | None" = None,
-    merge_same_name_siblings: bool = True,
+    merge_same_name_siblings: bool = False,
 ) -> dict:
     """Stream-convert a STEP file to a GLB without holding the whole model in memory.
 
@@ -50,9 +50,10 @@ def stream_step_to_glb(
     ``TessellationPath.ADACPP_LIBTESS2``) + tolerances; its env vars are applied for the
     conversion (and inherited by the tessellation subprocess pool) and restored afterwards.
 
-    ``merge_same_name_siblings`` (default on) collapses sibling solids that share a parent
-    assembly level and a product name into one node / pickable object; set False (or env
-    ``ADA_MERGE_SAME_NAME_SIBLINGS=0``) for one node per solid (pre-merge output).
+    ``merge_same_name_siblings`` (default OFF) merges a product's redundant same-name
+    nesting (a product instanced N times, or a lone solid under a same-named group) into one
+    node / pickable object. Opt in here or via env ``ADA_MERGE_SAME_NAME_SIBLINGS=1``; left
+    off the output is one node per solid (pre-merge behaviour).
 
     Returns ``{"meshed", "total", "skipped", "materials", "reasons"}``.
     """

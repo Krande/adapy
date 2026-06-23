@@ -27,11 +27,11 @@ class StepStreamSource:
     path: str | Path
     tolerant: bool = True
     on_progress: Callable[[str, float], None] | None = None
-    # Collapse sibling solids that share both a parent assembly level AND a product name
-    # into a single graph node / pickable object (their triangles are reordered to one
-    # contiguous draw-range). Default-on; set False (or env ADA_MERGE_SAME_NAME_SIBLINGS=0)
-    # to revert to one node per solid — byte-identical to the pre-merge output.
-    merge_same_name_siblings: bool = True
+    # Merge a product's redundant same-name nesting (a product instanced N times, or a lone
+    # solid under a same-named group) into one node / pickable object (triangles reordered
+    # to one contiguous draw-range). Default OFF — one node per solid, byte-identical to the
+    # pre-merge output. Opt in here or via env ADA_MERGE_SAME_NAME_SIBLINGS=1.
+    merge_same_name_siblings: bool = False
 
 
 # Below this solid count the ~1 s process-pool spawn overhead outweighs the
@@ -405,14 +405,18 @@ def _leaf_product_name(paths) -> str | None:
 
 
 def _merge_siblings_enabled(source: "StepStreamSource") -> bool:
-    """Whether same-name sibling solids are merged into one node/object. The source flag
-    is the default (True); ``ADA_MERGE_SAME_NAME_SIBLINGS=0`` is a process-wide kill-switch
-    (so a conversion worker can revert without code changes)."""
+    """Whether redundant same-name product nesting is merged into one node/object.
+
+    Default OFF (one node per solid, pre-merge behaviour). Opt in via the source flag or
+    the ``ADA_MERGE_SAME_NAME_SIBLINGS`` env var, which OVERRIDES the source flag when set
+    (``1``/``true`` on, ``0``/``false`` off) so a conversion worker can toggle it without
+    code changes."""
     import os
 
-    return bool(getattr(source, "merge_same_name_siblings", True)) and (
-        os.environ.get("ADA_MERGE_SAME_NAME_SIBLINGS", "1") != "0"
-    )
+    env = os.environ.get("ADA_MERGE_SAME_NAME_SIBLINGS")
+    if env is not None and env != "":
+        return env.lower() not in ("0", "false", "no")
+    return bool(getattr(source, "merge_same_name_siblings", False))
 
 
 def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
@@ -474,11 +478,11 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     # sub-assemblies instead of scrolling a flat list of thousands of solids.
     asm_nodes: dict[tuple, object] = {}
 
-    # Same-name sibling merge: solids that share a parent assembly level AND a product
-    # name collapse onto one graph node (keyed (parent.node_id, name)). Disabled -> one
-    # node per solid, exactly as before.
+    # Same-name nesting merge: when a solid's product reaches a group node named after the
+    # product itself (a product instanced N times, or a lone solid under a same-named
+    # group), the mesh attaches to that group node so the redundant gid/k child leaves
+    # collapse into one pickable mesh. Disabled -> one node per solid, exactly as before.
     merge_siblings = _merge_siblings_enabled(source)
-    merged_leaves: dict[tuple, object] = {}
 
     def _group_parent(path) -> object:
         parent = root
@@ -525,18 +529,21 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
         # deepest path level IS this solid — so group under path[:-1], making the
         # solid node the product node (matches step2glb) instead of nesting it under
         # a redundant same-named group.
-        parent = _group_parent(path[:-1] if collapse_leaf and path else path)
-        # Same-name siblings under one parent reuse a single node (one pickable object);
-        # their meshes are reordered to a contiguous draw-range at merge time. Falls back
-        # to a fresh node per solid when merging is off or no product name is available.
-        node = None
         if merge_siblings and merge_name:
-            mkey = (parent.node_id, merge_name)
-            node = merged_leaves.get(mkey)
-            if node is None:
-                node = graph.add_node(GraphNode(merge_name, graph.next_node_id(), hash=create_guid(), parent=parent))
-                merged_leaves[mkey] = node
-        if node is None:
+            # Merge ONLY the redundant same-name nesting: when a solid's product reaches a
+            # group node named after the product itself (a product instanced N times, or a
+            # lone solid under a same-named group), attach the mesh to that group node
+            # instead of adding a gid/k child — so the group becomes one merged, pickable
+            # mesh. Distinct products that merely share a name get distinct group reps, so
+            # they are NOT merged; same-prefix instances already share the group node
+            # (asm_nodes), so this fuses them automatically.
+            parent = _group_parent(path)
+            if parent is not root and getattr(parent, "name", None) == merge_name:
+                node = parent
+            else:
+                node = graph.add_node(GraphNode(gid, graph.next_node_id(), hash=create_guid(), parent=parent))
+        else:
+            parent = _group_parent(path[:-1] if collapse_leaf and path else path)
             node = graph.add_node(GraphNode(gid, graph.next_node_id(), hash=create_guid(), parent=parent))
         mat_id = bt.material_store.get(color, None)
         if mat_id is None:
@@ -566,8 +573,9 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
             paths = paths if paths and len(paths) == len(tfs) else [None] * len(tfs)
             for k, (tf, path) in enumerate(zip(tfs, paths)):
                 inst_gid = gid if k == 0 else f"{gid}/{k + 1}"
-                # merge_name = the base product name (no instance suffix) so all instances
-                # AND all same-named sibling solids collapse onto one node when merging.
+                # merge_name = the base product name (no /k suffix); when merging is on and
+                # the instance's group node is named after the product, the mesh attaches to
+                # that group node (the redundant gid/k leaves collapse into one mesh).
                 _build(inst_gid, color, pos, idx, nrm, tf, path, collapse_leaf=collapse_leaf, merge_name=gid)
         elif status == "degenerate":
             _skip(gid, "degenerate (zero-extent solid)")
