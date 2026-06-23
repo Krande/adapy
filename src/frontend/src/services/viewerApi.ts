@@ -1973,6 +1973,119 @@ export const viewerApi = {
         return jsonOrThrow(r, "adminPerfHotspots");
     },
 
+    /** Record one browser model-load (``action='view'``) — the viewer's
+     * opt-in load instrumentation posts this once a GLB is in the scene.
+     * Best-effort: never throws into the load path. ``client_metrics`` is
+     * the per-phase IO/network/CPU/GPU + payload + device breakdown. */
+    async recordViewLoad(
+        scope: ScopeUrl,
+        body: {
+            key: string;
+            status?: "ok" | "error";
+            duration_ms?: number | null;
+            read_bytes?: number | null;
+            write_bytes?: number | null;
+            peak_rss_kb?: number | null;
+            error?: string | null;
+            client_metrics?: Record<string, unknown> | null;
+        },
+    ): Promise<void> {
+        try {
+            await authedFetch(
+                `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/audit/view`,
+                {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify(body),
+                },
+            );
+        } catch (e) {
+            // Metrics must never disrupt the session.
+            console.debug("recordViewLoad failed (ignored)", e);
+        }
+    },
+
+    /** Record one steady-state render-performance window
+     * (``action='render'``). Same best-effort contract as
+     * ``recordViewLoad``. */
+    async recordRenderProfile(
+        scope: ScopeUrl,
+        body: {
+            key: string;
+            duration_ms?: number | null;
+            client_metrics?: Record<string, unknown> | null;
+        },
+    ): Promise<void> {
+        try {
+            await authedFetch(
+                `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/audit/view`,
+                {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    // The ingest endpoint stores any action via client_metrics;
+                    // render rows are marked by client_metrics.kind === "render"
+                    // and the backend routes them to action='render'.
+                    body: JSON.stringify(body),
+                },
+            );
+        } catch (e) {
+            console.debug("recordRenderProfile failed (ignored)", e);
+        }
+    },
+
+    /** Admin: per-file browser model-load perf snapshot. One cell per
+     * GLB with p50/p95 of every load phase + a dominant-bottleneck
+     * label (io / network / cpu / gpu). */
+    async adminFrontendLoads(since = 30): Promise<{
+        cells: Array<Record<string, number | string | null>>;
+        since_days: number;
+        generated_at: string;
+    }> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/frontend-loads?since=${since}`,
+        );
+        return jsonOrThrow(r, "adminFrontendLoads");
+    },
+
+    /** Admin: function-level hotspots (summed JS Self-Profiling self-time
+     * per TS/WASM frame) across browser loads, optionally one ``key``. */
+    async adminFrontendLoadHotspots(opts: {key?: string; since?: number; limit?: number}): Promise<{
+        functions: Array<{
+            fn: string;
+            samples: number;
+            self_ms_sum: number | null;
+            self_ms_avg: number | null;
+            total_ms_max: number | null;
+            is_wasm: boolean;
+        }>;
+        loads_in_window: number;
+        key: string | null;
+        since_days: number;
+    }> {
+        const params = new URLSearchParams();
+        if (opts.key) params.set("key", opts.key);
+        if (opts.since != null) params.set("since", String(opts.since));
+        if (opts.limit != null) params.set("limit", String(opts.limit));
+        const qs = params.toString();
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/frontend-loads/hotspots${qs ? `?${qs}` : ""}`,
+        );
+        return jsonOrThrow(r, "adminFrontendLoadHotspots");
+    },
+
+    /** Admin: per-file steady-state render-performance snapshot
+     * (``action='render'``). */
+    async adminRenderProfiles(since = 30): Promise<{
+        cells: Array<Record<string, number | string | null>>;
+        since_days: number;
+        generated_at: string;
+    }> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/render?since=${since}`,
+        );
+        return jsonOrThrow(r, "adminRenderProfiles");
+    },
+
     /** Admin: kick off a background sweep that scans the scope for
      * gzip-compressible source files (.ifc / .step / .sif / etc.)
      * whose stored bytes aren't gzipped, and rewrites each with

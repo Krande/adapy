@@ -1,6 +1,7 @@
 // state/sceneHelpers/asyncModelLoader.ts
 import {GLTF, GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 import {useConversionStore} from "@/state/conversionStore";
+import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
 
 // All model loads share one row in the unified in-progress toast so the user gets
 // download (then processing) feedback instead of a seemingly-stuck viewer on large
@@ -17,11 +18,15 @@ export function loadGLTF(
   // natively), the loader's FileLoader needs the bearer header. Omitted for blob: URLs
   // and presigned S3 URLs (already signed).
   requestHeaders?: Record<string, string>,
+  // Optional admin load-metrics recorder — receives download/parse phase
+  // marks so the network vs CPU split can be measured. No-op when absent.
+  metrics?: LoadMetricsRecorder | null,
 ): Promise<GLTF> {
   const loader = new GLTFLoader();
   if (requestHeaders && Object.keys(requestHeaders).length > 0) {
     loader.setRequestHeader(requestHeaders);
   }
+  metrics?.setUrl(modelUrl);
   const name = label || modelUrl.split("/").pop()?.split("?")[0] || "model";
   const startedAt = Date.now();
   const set = (status: "running" | "error", progress: number, stage: string, error: string | null = null) =>
@@ -42,6 +47,10 @@ export function loadGLTF(
     loader.load(
       modelUrl,
       (gltf) => {
+        // Download finished + GLB parsed by now. (markDownloadDone may
+        // already have fired at the 100%-progress edge below.)
+        metrics?.markDownloadDone();
+        metrics?.markParseDone();
         useConversionStore.getState().clearJob(LOAD_KEY);
         resolve(gltf);
       },
@@ -51,6 +60,7 @@ export function loadGLTF(
         const mb = (evt.loaded / 1e6).toFixed(0);
         // Progress events arrive during download; once it reaches 100% the loader is
         // parsing the GLB (no further events), so surface a "Processing" stage there.
+        if (frac >= 1) metrics?.markDownloadDone();
         const stage =
           frac >= 1
             ? `Processing ${name}…`

@@ -12,6 +12,7 @@ import {mapAnimationTargets} from "@/utils/scene/animations/mapAnimationTargets"
 import {loadGLTF} from "./asyncModelLoader";
 import {AnimationController} from "@/utils/scene/animations/AnimationController";
 import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
+import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
 
 /** Optional hook to mutate the freshly-loaded gltf scene (typically
  * to inject ``userData["draw_ranges_<meshName>"]`` and
@@ -29,6 +30,8 @@ export async function setupModelLoaderAsync(
     sourceName?: string,
     // Auth headers for loading directly from the authed REST streaming GET (REST-mode view).
     requestHeaders?: Record<string, string>,
+    // Optional admin load-metrics recorder (REST view path). No-op when absent.
+    metrics?: LoadMetricsRecorder | null,
 ): Promise<THREE.Group> {
     if (sceneRef.current == null) {
         console.error("Scene reference is null");
@@ -42,7 +45,7 @@ export async function setupModelLoaderAsync(
     if (!modelUrl) return modelGroup;
 
     // 1) load the GLTF
-    const gltf = await loadGLTF(modelUrl, undefined, requestHeaders);
+    const gltf = await loadGLTF(modelUrl, undefined, requestHeaders, metrics);
 
     const gltf_scene = gltf.scene;
     const animations = gltf.animations;
@@ -138,6 +141,11 @@ export async function setupModelLoaderAsync(
     modelGroup.add(gltf_scene);
 
     main_scene.add(modelGroup);
+    // Mesh/material/tree build is done; the model is now in the scene.
+    // finalize() captures GPU/first-render via a post-add rAF, gathers
+    // payload + device + profile, and posts the load-metrics row.
+    metrics?.markPrepareDone();
+    metrics?.finalize(modelGroup, gltf as unknown as {parser?: {json?: any}});
     // The render loop only fires on OrbitControls 'change' events
     // or explicit ``requestRender()`` calls (ThreeCanvas.tsx:158).
     // Without this kick the freshly-added model only paints once the

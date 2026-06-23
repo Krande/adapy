@@ -72,17 +72,30 @@ async function load_glb_by_url_rest(scope: string, glbKey: string, sourceName: s
     const {viewerApi} = await import("@/services/viewerApi");
     const {getAccessToken} = await import("@/services/auth/oidc");
     const {replace_model} = await import("./update_scene_from_message");
+    const {beginLoadMetrics} = await import("@/utils/scene/loadMetrics");
+
+    // Admin-only opt-in: time this load phase-by-phase (no-op / null when
+    // collection is off or the user isn't an admin → zero extra cost).
+    const metrics = beginLoadMetrics({scope, key: glbKey, sourceName, transport: "unknown"});
 
     let group: Awaited<ReturnType<typeof replace_model>> | undefined;
     try {
-        const presigned = await viewerApi.requestDownloadUrl(scope as any, glbKey);
-        group = await replace_model(presigned.url, undefined, sourceName, false);
+        try {
+            const presigned = await viewerApi.requestDownloadUrl(scope as any, glbKey);
+            metrics?.setTransport("presigned");
+            group = await replace_model(presigned.url, undefined, sourceName, false, undefined, metrics);
+        } catch (e) {
+            console.warn("view: presigned GLB load failed, falling back to authed streaming GET", e);
+            const url = viewerApi.blobUrl(scope as any, glbKey);
+            const token = getAccessToken();
+            const headers = token ? {Authorization: `Bearer ${token}`} : undefined;
+            metrics?.setTransport("relayed");
+            group = await replace_model(url, undefined, sourceName, false, headers, metrics);
+        }
     } catch (e) {
-        console.warn("view: presigned GLB load failed, falling back to authed streaming GET", e);
-        const url = viewerApi.blobUrl(scope as any, glbKey);
-        const token = getAccessToken();
-        const headers = token ? {Authorization: `Bearer ${token}`} : undefined;
-        group = await replace_model(url, undefined, sourceName, false, headers);
+        // Record the failed load too, then re-throw to the caller's handler.
+        metrics?.fail(e instanceof Error ? e.message : String(e));
+        throw e;
     }
     if (group && sourceName) {
         useModelState.getState().registerLoadedSource(sourceName, group);

@@ -33,6 +33,8 @@ export async function replace_model(
     translate: boolean = false,
     // Auth headers when ``url`` is an authed REST streaming GET (REST-mode view-by-URL).
     requestHeaders?: Record<string, string>,
+    // Optional admin load-metrics recorder (REST view path). No-op when absent.
+    metrics?: import("@/utils/scene/loadMetrics").LoadMetricsRecorder | null,
 ) {
         // Clear animation state first
     const animationStore = useAnimationStore.getState();
@@ -75,7 +77,7 @@ export async function replace_model(
 
         }
     }
-    return await setupModelLoaderAsync(url, translate, prepareHook, sourceName, requestHeaders);
+    return await setupModelLoaderAsync(url, translate, prepareHook, sourceName, requestHeaders, metrics);
 }
 
 export async function update_scene_from_message(message: Message) {
