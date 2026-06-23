@@ -4774,6 +4774,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         samples = row.get("metrics_samples") or []
         return JSONResponse({"audit_id": audit_id, "samples": samples})
 
+    @admin.get("/audit/{audit_id}/client-metrics")
+    async def admin_audit_client_metrics(
+        audit_id: int,
+        request: Request,
+    ) -> JSONResponse:
+        """Return the ``client_metrics`` payload for one browser
+        view/render audit row — the per-phase IO/network/CPU/GPU split,
+        payload + device context, and (when profiling was on) the
+        per-function self-time frames. Backs the audit-log detail view's
+        Client tab so a single load/render event can be inspected.
+        ``null`` when the row isn't a browser-instrumented one."""
+        pool = _require_pool(request)
+        cm = await db_module.get_audit_client_metrics(pool, audit_id)
+        return JSONResponse({"audit_id": audit_id, "client_metrics": cm})
+
     @admin.get("/audit/{audit_id}/profile/stats")
     async def admin_audit_profile_stats(
         audit_id: int,

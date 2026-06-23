@@ -2464,6 +2464,27 @@ async def aggregate_render_metrics(
     return cells
 
 
+async def get_audit_client_metrics(pool: asyncpg.Pool, audit_id: int) -> dict | None:
+    """Return the ``client_metrics`` JSONB for one audit_log row (the
+    browser view/render instrumentation payload), or None. Backs the
+    admin audit-log detail view so a single load/render event can be
+    inspected phase-by-phase."""
+    row = await pool.fetchrow("SELECT client_metrics FROM audit_log WHERE id = $1", audit_id)
+    if row is None:
+        return None
+    cm = row["client_metrics"]
+    if cm is None:
+        return None
+    # JSONB comes back as text (no codec set); parse defensively, mirroring
+    # the metrics_samples / counts read paths.
+    if isinstance(cm, str):
+        try:
+            cm = json.loads(cm)
+        except Exception:
+            return None
+    return cm if isinstance(cm, dict) else None
+
+
 # ── Profile hotspots (M7 perf dashboard) ────────────────────────────
 
 

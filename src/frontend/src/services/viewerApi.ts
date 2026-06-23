@@ -2075,6 +2075,17 @@ export const viewerApi = {
         return jsonOrThrow(r, "adminFrontendLoadHotspots");
     },
 
+    /** Admin: the client_metrics payload for one browser view/render
+     * audit row — per-phase split + device + per-function frames. Backs
+     * the audit-log detail "Client" tab. */
+    async adminAuditClientMetrics(id: number): Promise<{
+        audit_id: number;
+        client_metrics: Record<string, unknown> | null;
+    }> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/${id}/client-metrics`);
+        return jsonOrThrow(r, "adminAuditClientMetrics");
+    },
+
     /** Admin: per-file steady-state render-performance snapshot
      * (``action='render'``). */
     async adminRenderProfiles(since = 30): Promise<{
