@@ -86,32 +86,42 @@ export async function overlay_file_in_scene(
         glbKey = derivedKeyForGlb(sourceName);
     }
     // Admin-only opt-in load metrics (null when off / non-admin). This is
-    // the StorageBrowser load path, so it's where most loads happen. The
-    // GLB is pulled via the same-origin /blobs GET (getBlob) then handed to
-    // the loader as an in-memory blob: URL — so point the recorder at the
-    // real blobUrl for the network/IO split (Resource Timing has it), and
-    // mark download-complete right after getBlob (the loader's blob: parse
-    // is then the CPU phase).
-    const metrics = beginLoadMetrics({scope, key: glbKey, sourceName, transport: "relayed"});
-    metrics?.setUrl(viewerApi.blobUrl(scope, glbKey));
+    // the StorageBrowser load path, so it's where most loads happen.
+    const metrics = beginLoadMetrics({scope, key: glbKey, sourceName, transport: "unknown"});
 
+    // Stream the GLB straight from storage into GLTFLoader rather than
+    // buffering the whole file in memory first. The old path was getBlob
+    // (full ArrayBuffer) → new Blob([...]) (a second copy) → object URL →
+    // GLTFLoader reads it back into a third ArrayBuffer: ~3x the file size
+    // held transiently, plus a giant contiguous allocation that can
+    // fragment/fail on big models. Streaming peaks at ~1x file + parsed
+    // buffers. Presigned-direct when available; fall back to the authed
+    // same-origin /blobs GET (server streams it with Content-Encoding:
+    // gzip). Either way the browser decodes — no main-thread pako, no
+    // duplicate buffers.
+    //
+    // translate=true: reuse the first-loaded model's cached
+    // modelStore.translation so the overlay lands in the same recentered
+    // frame (translate=false would re-derive from this model's bbox and
+    // offset it). If nothing is cached yet (overlay is the first load) the
+    // loader computes one as usual — same as a normal first load.
     let group;
     try {
-        const blob = await viewerApi.getBlob(scope, glbKey);
-        metrics?.markDownloadDone();
-        const url = URL.createObjectURL(new Blob([blob], {type: "model/gltf-binary"}));
-
-        // translate=true: pick up the cached modelStore.translation set
-        // by the first-loaded model so the overlay lands in the same
-        // recentered frame. With translate=false the loader treats this
-        // as a "fresh start" and re-derives translation from this
-        // model's bbox — which makes the overlay appear offset from
-        // whatever was already on screen.
-        //
-        // If no translation is cached yet (overlay is the first thing
-        // loaded), the loader's else branch computes one as usual; same
-        // outcome as a normal first load.
-        group = await setupModelLoaderAsync(url, true, undefined, sourceName, undefined, metrics);
+        try {
+            const presigned = await viewerApi.requestDownloadUrl(scope as any, glbKey);
+            metrics?.setTransport("presigned");
+            metrics?.setUrl(presigned.url);
+            group = await setupModelLoaderAsync(presigned.url, true, undefined, sourceName, undefined, metrics);
+        } catch (e) {
+            console.warn("overlay: presigned GLB load failed, falling back to authed streaming GET", e);
+            const {getAccessToken} = await import("@/services/auth/oidc");
+            const url = viewerApi.blobUrl(scope as any, glbKey);
+            const token = getAccessToken();
+            const headers = token ? {Authorization: `Bearer ${token}`} : undefined;
+            metrics?.setTransport("relayed");
+            metrics?.setUrl(url);
+            group = await setupModelLoaderAsync(url, true, undefined, sourceName, headers, metrics);
+        }
     } catch (e) {
         metrics?.fail(e instanceof Error ? e.message : String(e));
         throw e;
