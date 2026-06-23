@@ -207,6 +207,9 @@ async def insert_audit(
     traceback: str | None = None,
     audit_run_id: str | None = None,
     worker_image_tag: str | None = None,
+    read_bytes: int | None = None,
+    write_bytes: int | None = None,
+    peak_rss_kb: int | None = None,
     client_metrics: dict | None = None,
 ) -> None:
     """Insert one audit_log row.
@@ -236,8 +239,10 @@ async def insert_audit(
             INSERT INTO audit_log
                 (user_sub, scope_kind, scope_id, action, key,
                  target_format, status, error, duration_ms, job_id,
-                 traceback, audit_run_id, worker_image_tag, client_metrics)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
+                 traceback, audit_run_id, worker_image_tag,
+                 read_bytes, write_bytes, peak_rss_kb, client_metrics)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                    $14, $15, $16, $17::jsonb)
             """,
             user_sub,
             scope_kind,
@@ -252,6 +257,9 @@ async def insert_audit(
             traceback,
             audit_run_id,
             worker_image_tag,
+            read_bytes,
+            write_bytes,
+            peak_rss_kb,
             json.dumps(client_metrics) if client_metrics is not None else None,
         )
         return
@@ -266,8 +274,10 @@ async def insert_audit(
                 INSERT INTO audit_log
                     (user_sub, scope_kind, scope_id, action, key,
                      target_format, status, error, duration_ms, job_id,
-                     traceback, audit_run_id, worker_image_tag, client_metrics)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
+                     traceback, audit_run_id, worker_image_tag,
+                     read_bytes, write_bytes, peak_rss_kb, client_metrics)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                        $14, $15, $16, $17::jsonb)
                 """,
                 user_sub,
                 scope_kind,
@@ -282,6 +292,9 @@ async def insert_audit(
                 traceback,
                 audit_run_id,
                 worker_image_tag,
+                read_bytes,
+                write_bytes,
+                peak_rss_kb,
                 json.dumps(client_metrics) if client_metrics is not None else None,
             )
             await _bump_audit_run_counter(conn, audit_run_id, status)
