@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from ada.cad.registry import (  # noqa: E402 - registry is stdlib-only, no ada.cad cycle
     CadBackendName,
     CadConfig,
+    StepReader,
     TessellationPath,
     available_backends,
     available_paths,
@@ -1210,6 +1211,7 @@ __all__ = [
     # registry / config
     "CadBackendName",
     "CadConfig",
+    "StepReader",
     "TessellationPath",
     "available_backends",
     "available_paths",

@@ -44,7 +44,13 @@ def from_ifc(
 def from_step(
     step_file: str | pathlib.Path, source_units=Units.M, cad_config: "CadConfig | None" = None, **kwargs
 ) -> Assembly:
-    """Create an Assembly object from a STEP file."""
+    """Create an Assembly object from a STEP file.
+
+    The read path defaults to ``cad_config.step_reader`` (``StepReader.AUTO`` out of the box:
+    constant-memory streaming with an OCC fallback for out-of-scope files — the most
+    memory-efficient + robust choice). Pass a ``cad_config`` with a different ``step_reader`` to
+    override, or pass ``reader=`` directly via ``**kwargs`` to force one for this call.
+    """
     a = Assembly(cad_config=cad_config)
     a.read_step_file(step_file, source_units=source_units, **kwargs)
     return a

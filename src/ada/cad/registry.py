@@ -77,15 +77,38 @@ def available_paths() -> list[TessellationPath]:
     return [p for p in TessellationPath if backend_available(p.backend)]
 
 
+class StepReader(str, Enum):
+    """The STEP read path a factory (``ada.from_step`` / ``Part.read_step_file``) uses to turn a
+    ``.stp`` file into adapy geometry.
+
+    ``AUTO`` is the default: it parses with the kernel-free streaming reader (constant memory, no
+    whole-model OCC materialisation) and falls back to the OCC OCAF reader only for files that use
+    an entity outside the streaming reader's scope — so it is both the most memory-efficient path
+    for the common case and as robust/complete as OCC for the rest (no geometry skipped). ``STREAM``
+    is streaming-only (raises on out-of-scope entities). ``TOLERANT`` streams and *skips* the
+    unsupported solids (never OOMs, but drops geometry — avoid as a default). ``OCC`` forces the
+    whole-file OCC reader (needed for scale/transform/rotate-on-import)."""
+
+    AUTO = "auto"
+    STREAM = "stream"
+    TOLERANT = "tolerant"
+    OCC = "occ"
+
+
 @dataclass
 class CadConfig:
-    """Selects the tessellation path + tolerances. Attach to ``Assembly.cad_config`` or pass to a
-    factory function (e.g. ``stream_step_to_glb(..., cad_config=cfg)``)."""
+    """Selects the CAD read path + tessellation path + tolerances. Attach to ``Assembly.cad_config``
+    or pass to a factory function (e.g. ``stream_step_to_glb(..., cad_config=cfg)`` or
+    ``ada.from_step(..., cad_config=cfg)``)."""
 
     path: TessellationPath = TessellationPath.OCC
     deflection: float = 2.0
     angular_deg: float = 20.0
     simplify: bool = False  # meshopt cleanup (step2glb merge parity); adacpp paths only
+    # The STEP read path the factories default to. AUTO = constant-memory streaming with an OCC
+    # fallback for out-of-scope files — the most memory-efficient + robust default. Override per
+    # config to force a specific reader.
+    step_reader: StepReader = StepReader.AUTO
 
     @classmethod
     def default(cls) -> "CadConfig":
@@ -101,6 +124,8 @@ class CadConfig:
                 f"tessellation path {self.path.value!r} is not available in this environment; "
                 f"available: {[p.value for p in available_paths()]}"
             )
+        # Accept a bare string for ergonomics, but it must be a known reader.
+        StepReader(self.step_reader)
 
     def env(self) -> dict[str, str]:
         """The streaming-export env vars this config maps to (read by the conversion worker)."""
