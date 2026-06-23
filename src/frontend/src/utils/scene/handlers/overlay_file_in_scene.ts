@@ -19,6 +19,7 @@ import {useModelState} from "@/state/modelState";
 import {setupModelLoaderAsync} from "@/components/viewer/sceneHelpers/setupModelLoader";
 import {ensureConvertedGlb} from "@/services/conversion";
 import {runtime} from "@/runtime/config";
+import {beginLoadMetrics} from "@/utils/scene/loadMetrics";
 
 export function derivedKeyForGlb(sourceKey: string): string {
     // Mirrors the server-side derived_key_for(target='glb') convention.
@@ -84,20 +85,37 @@ export async function overlay_file_in_scene(
         }
         glbKey = derivedKeyForGlb(sourceName);
     }
-    const blob = await viewerApi.getBlob(scope, glbKey);
-    const url = URL.createObjectURL(new Blob([blob], {type: "model/gltf-binary"}));
+    // Admin-only opt-in load metrics (null when off / non-admin). This is
+    // the StorageBrowser load path, so it's where most loads happen. The
+    // GLB is pulled via the same-origin /blobs GET (getBlob) then handed to
+    // the loader as an in-memory blob: URL — so point the recorder at the
+    // real blobUrl for the network/IO split (Resource Timing has it), and
+    // mark download-complete right after getBlob (the loader's blob: parse
+    // is then the CPU phase).
+    const metrics = beginLoadMetrics({scope, key: glbKey, sourceName, transport: "relayed"});
+    metrics?.setUrl(viewerApi.blobUrl(scope, glbKey));
 
-    // translate=true: pick up the cached modelStore.translation set
-    // by the first-loaded model so the overlay lands in the same
-    // recentered frame. With translate=false the loader treats this
-    // as a "fresh start" and re-derives translation from this
-    // model's bbox — which makes the overlay appear offset from
-    // whatever was already on screen.
-    //
-    // If no translation is cached yet (overlay is the first thing
-    // loaded), the loader's else branch computes one as usual; same
-    // outcome as a normal first load.
-    const group = await setupModelLoaderAsync(url, true, undefined, sourceName);
+    let group;
+    try {
+        const blob = await viewerApi.getBlob(scope, glbKey);
+        metrics?.markDownloadDone();
+        const url = URL.createObjectURL(new Blob([blob], {type: "model/gltf-binary"}));
+
+        // translate=true: pick up the cached modelStore.translation set
+        // by the first-loaded model so the overlay lands in the same
+        // recentered frame. With translate=false the loader treats this
+        // as a "fresh start" and re-derives translation from this
+        // model's bbox — which makes the overlay appear offset from
+        // whatever was already on screen.
+        //
+        // If no translation is cached yet (overlay is the first thing
+        // loaded), the loader's else branch computes one as usual; same
+        // outcome as a normal first load.
+        group = await setupModelLoaderAsync(url, true, undefined, sourceName, undefined, metrics);
+    } catch (e) {
+        metrics?.fail(e instanceof Error ? e.message : String(e));
+        throw e;
+    }
 
     // Register the source → group mapping so we can later remove
     // just this overlay without nuking the rest of the scene.

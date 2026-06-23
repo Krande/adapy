@@ -193,7 +193,12 @@ export class LoadMetricsRecorder {
         this.meta.transport = t;
     }
     setUrl(u: string): void {
-        this.url = u;
+        // First-wins: the overlay path sets the real same-origin /blobs
+        // URL (for Resource Timing) before loadGLTF later sets the in-memory
+        // ``blob:`` object URL — which carries no network timing. Keep the
+        // first, meaningful URL. On the streaming view path nothing sets it
+        // before loadGLTF, so the presigned/relayed URL still wins there.
+        if (!this.url) this.url = u;
     }
     markDownloadDone(): void {
         if (!this.marks["download_done"]) this.mark("download_done");
