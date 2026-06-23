@@ -313,6 +313,57 @@ def tributary_plate_ids(mesh: Mesh, beam_element_ids: tuple[int, ...], candidate
     return [pe for pe in candidate_plate_ids if pe in allowed and beam_nodes.issubset(idx.elem_nodes.get(pe, ()))]
 
 
+def _point_segment_dist2(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
+    """Squared distance from point ``p`` to segment ``a``-``b`` (no BLAS)."""
+    ab = b - a
+    ab2 = float((ab * ab).sum())
+    if ab2 <= 1e-20:
+        d = p - a
+        return float((d * d).sum())
+    t = float(((p - a) * ab).sum()) / ab2
+    t = 0.0 if t < 0.0 else 1.0 if t > 1.0 else t
+    d = p - (a + t * ab)
+    return float((d * d).sum())
+
+
+def partition_plates_by_nearest_stiffener(
+    mesh: Mesh,
+    stiffener_lines: list[tuple[str, tuple[int, ...]]],
+    plate_ids: list[int],
+) -> dict[str, list[int]]:
+    """Assign every plate element to its nearest stiffener (full-coverage tributary).
+
+    Unlike :func:`tributary_plate_ids` (only the plates sharing a stiffener's full
+    edge), this partitions *all* the panel's plate elements — quads and triangles
+    alike — among the stiffeners by centroid distance to each stiffener segment,
+    so no element is left uncoloured in the per-stiffener ("individual UF") view.
+    Pure indexing/elementwise maths — crash-safe on any BLAS backend.
+    """
+    segments: list[tuple[str, np.ndarray, np.ndarray]] = []
+    for name, eids in stiffener_lines:
+        ids = tuple(int(e) for e in eids)
+        if not ids:
+            continue
+        first = element_node_coords(mesh, ids[0])
+        last = element_node_coords(mesh, ids[-1])
+        segments.append((name, np.asarray(first[0], float), np.asarray(last[-1], float)))
+
+    out: dict[str, list[int]] = {name: [] for name, _ in stiffener_lines}
+    if not segments:
+        return out
+    for pe in plate_ids:
+        centroid = element_node_coords(mesh, int(pe)).mean(axis=0)
+        best_name = segments[0][0]
+        best_d2 = _point_segment_dist2(centroid, segments[0][1], segments[0][2])
+        for name, a, b in segments[1:]:
+            d2 = _point_segment_dist2(centroid, a, b)
+            if d2 < best_d2:
+                best_d2 = d2
+                best_name = name
+        out.setdefault(best_name, []).append(int(pe))
+    return out
+
+
 def element_node_coords(mesh: Mesh, element_id: int) -> np.ndarray:
     """(n_nodes, 3) node coordinates of an element, in connectivity order."""
     idx = _ensure_index(mesh)

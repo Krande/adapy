@@ -2,8 +2,8 @@ import type {CapacityResults} from "@/state/capacityResultsStore";
 import type {FeaManifest} from "@/services/viewerApi";
 
 export const CAPACITY_RESULTS_FORMAT = "dnv-rp-c201-capacity-results";
-// v2: stations. v3: [6.4.3] discretization. v4: per-stiffener tributary plates.
-export const CAPACITY_RESULTS_VERSION = 4;
+// v2: stations. v3: [6.4.3] discretization. v4/v5: per-stiffener tributary plates.
+export const CAPACITY_RESULTS_VERSION = 5;
 
 export interface CapacityValidationContext {
     manifest?: Pick<FeaManifest, "source_sha256"> | null;
