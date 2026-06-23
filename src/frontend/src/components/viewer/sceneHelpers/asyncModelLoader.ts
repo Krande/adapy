@@ -1,5 +1,6 @@
 // state/sceneHelpers/asyncModelLoader.ts
 import {GLTF, GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
+import {MeshoptDecoder} from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import {useConversionStore} from "@/state/conversionStore";
 import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
 
@@ -23,6 +24,12 @@ export function loadGLTF(
   metrics?: LoadMetricsRecorder | null,
 ): Promise<GLTF> {
   const loader = new GLTFLoader();
+  // EXT_meshopt_compression support. Harmless for uncompressed GLBs (the
+  // decoder is only invoked when the file declares the extension), so it's
+  // always registered — the backend "glb_compression" toggle decides
+  // whether a given GLB uses it. KHR_mesh_quantization (the upload/VRAM
+  // win) needs no decoder — three.js core dequantizes on read.
+  loader.setMeshoptDecoder(MeshoptDecoder);
   if (requestHeaders && Object.keys(requestHeaders).length > 0) {
     loader.setRequestHeader(requestHeaders);
   }

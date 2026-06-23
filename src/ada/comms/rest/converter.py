@@ -1586,6 +1586,21 @@ def _register_ada_loadable() -> None:
                 "of absolute model units (only when tess_linear_deflection > 0)."
             ),
         },
+        {
+            "name": "glb_compression",
+            "type": "enum",
+            "default": "off",
+            "enum": ["off", "quantize", "meshopt"],
+            "description": (
+                "Post-process the GLB with gltfpack. 'quantize' = KHR_mesh_quantization "
+                "(int16/int8 attributes) — shrinks the file AND the GPU upload / VRAM, no "
+                "client decoder needed. 'meshopt' = EXT_meshopt_compression + quantization "
+                "— smallest download (decoded client-side). Off by default. Requires "
+                "gltfpack in the worker image; a safe no-op when absent. Note: gltfpack may "
+                "drop unknown extensions (ADA_EXT_data) / merge nodes — validate picking + "
+                "hierarchy before enabling for ada-authored GLBs."
+            ),
+        },
     ]
 
     # STEP→GLB only: route the conversion through the memory-bounded streaming

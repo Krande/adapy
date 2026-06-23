@@ -1313,11 +1313,33 @@ async def _process_one(
         # that doesn't compress meaningfully and is what the in-browser
         # viewer fetches on the hot path.
         derived_encoding = "gzip" if job.target_format in {"ifc", "xml"} else None
+        # Optional GLB compression (gltfpack / meshopt + quantization), gated
+        # by the per-job glb_compression option (or the ADA_GLB_COMPRESSION
+        # global default). Post-process step so it covers every GLB-producing
+        # path from one place; fully guarded — any failure / missing binary
+        # uploads the original GLB unchanged. The compressed file is a
+        # separate path we unlink after upload.
+        upload_path = iresult.out_path
+        compressed_path = None
+        if job.target_format == "glb":
+            _opts = getattr(job, "conversion_options", None) or {}
+            _mode = _opts.get("glb_compression") or os.environ.get("ADA_GLB_COMPRESSION")
+            if _mode and str(_mode).lower() != "off":
+                try:
+                    from ada.visit.gltf.compress import compress_glb
+
+                    packed = compress_glb(iresult.out_path, str(_mode))
+                    if str(packed) != str(iresult.out_path):
+                        compressed_path = str(packed)
+                        upload_path = compressed_path
+                except Exception:
+                    logger.exception("worker: glb compression failed; uploading uncompressed")
+                    upload_path = iresult.out_path
         try:
             # Stream the output file straight to object storage (multipart) —
             # never reading it into a parent-side bytes buffer. cleanup_output()
             # drops the tmpfile + work dir once the upload settles either way.
-            await storage.put_path(scope, job.derived_key, iresult.out_path, content_encoding=derived_encoding)
+            await storage.put_path(scope, job.derived_key, upload_path, content_encoding=derived_encoding)
         except Exception as exc:
             logger.exception("worker: upload failed for %s", job.derived_key)
             trace = tb_module.format_exc()
@@ -1335,6 +1357,13 @@ async def _process_one(
             )
             return
         finally:
+            # Drop the compressed sibling first — cleanup_output() rmdir's the
+            # work dir, which fails (and leaks) if our *.pack.glb is still in it.
+            if compressed_path:
+                try:
+                    os.unlink(compressed_path)
+                except OSError:
+                    pass
             iresult.cleanup_output()
 
         # Conversion + upload succeeded — collect metrics and (optionally)
