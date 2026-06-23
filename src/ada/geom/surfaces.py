@@ -124,7 +124,8 @@ class FaceSurface(Face):
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFaceSurface.htm)
     """
 
-    face_surface: Union[Plane]
+    # IfcFaceSurface.FaceSurface / STEP face_surface is any IfcSurface — not just Plane.
+    face_surface: "SURFACE_GEOM_TYPES"
     same_sense: bool = True
 
 
@@ -134,7 +135,8 @@ class ConnectedFaceSet:
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcConnectedFaceSet.htm)
     """
 
-    cfs_faces: list[FaceBound]
+    # IfcConnectedFaceSet.CfsFaces is a SET OF IfcFace (faces, not face-bounds).
+    cfs_faces: list["Face | FaceSurface"]
 
 
 @dataclass

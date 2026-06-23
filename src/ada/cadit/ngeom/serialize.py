@@ -9,15 +9,60 @@ from __future__ import annotations
 import struct
 from typing import Iterable
 
+import numpy as np
+
 import ada.geom.curves as cu
 import ada.geom.surfaces as su
 
 NGEOM_VERSION = 1
 
+
+def _sample_arc(start, mid, end, n: int = 24) -> list:
+    """Sample a 3-point circular arc (IFC ArcLine) into an ordered polyline start->mid->end.
+    Falls back to the 3 raw points if the points are (near-)collinear."""
+    p0, p1, p2 = np.asarray(start, float), np.asarray(mid, float), np.asarray(end, float)
+    a, b = p1 - p0, p2 - p0
+    n_vec = np.cross(a, b)
+    nn = np.linalg.norm(n_vec)
+    if nn < 1e-12:
+        return [start, mid, end]  # collinear -> straight
+    # circumcenter (in 3D, via the perpendicular-bisector formula)
+    a2, b2 = a @ a, b @ b
+    center = p0 + (np.cross((a2 * b - b2 * a), n_vec)) / (2.0 * nn * nn)
+    nhat = n_vec / nn
+    u = p0 - center
+    r = np.linalg.norm(u)
+    if r < 1e-12:
+        return [start, mid, end]
+    uhat = u / r
+    vhat = np.cross(nhat, uhat)
+
+    def ang(p):
+        d = np.asarray(p, float) - center
+        return np.arctan2(d @ vhat, d @ uhat)
+
+    t0, tm, t1 = ang(p0), ang(p1), ang(p2)
+    tau = 2.0 * np.pi
+    # choose the sweep direction that passes through the midpoint
+    t1f = t1 + (tau if t1 < t0 else 0.0)
+    tmf = tm + (tau if tm < t0 else 0.0)
+    if not (t0 <= tmf <= t1f):  # mid not on the CCW side -> go clockwise
+        t1f = t1 - (tau if t1 > t0 else 0.0)
+    pts = []
+    for i in range(n + 1):
+        t = t0 + (t1f - t0) * i / n
+        pts.append(center + r * (np.cos(t) * uhat + np.sin(t) * vhat))
+    pts[0], pts[-1] = np.asarray(start, float), np.asarray(end, float)
+    return pts
+
 # tag catalog (spec §3)
 _PLACEMENT3 = 1
 _PLACEMENT1 = 2
 _LINE = 10
+_POLYLINE = 11
+_HYPERBOLA = 12
+_PARABOLA = 13
+_COMPOSITE_CURVE = 14
 _CIRCLE = 20
 _ELLIPSE = 21
 _BSPLINE_CURVE = 22
@@ -99,6 +144,27 @@ class _Encoder:
             idx = self._bspline_curve(c)
         elif isinstance(c, cu.TrimmedCurve):
             idx = self._trimmed_curve(c)
+        elif isinstance(c, cu.PolyLine):
+            pts = list(c.points)
+            idx = self._add(_POLYLINE, self.i32(len(pts)) + b"".join(self.v3(p) for p in pts))
+        elif isinstance(c, cu.Hyperbola):
+            pl = self.placement3(c.position)
+            idx = self._add(_HYPERBOLA, self.i32(pl) + self.f64(c.semi_axis) + self.f64(c.semi_imag_axis))
+        elif isinstance(c, cu.Parabola):
+            pl = self.placement3(c.position)
+            idx = self._add(_PARABOLA, self.i32(pl) + self.f64(c.focal_dist))
+        elif isinstance(c, cu.CompositeCurve):
+            segs = list(c.segments)
+            body = self.i32(len(segs))
+            for s in segs:
+                body += self.i32(self.curve(s.parent_curve)) + self.i32(1 if s.same_sense else 0)
+            idx = self._add(_COMPOSITE_CURVE, body)
+        elif isinstance(c, cu.ArcLine):
+            # 3-point arc (no STEP entity): sample to a polyline through start->mid->end
+            pts = _sample_arc(c.start, c.midpoint, c.end)
+            idx = self._add(_POLYLINE, self.i32(len(pts)) + b"".join(self.v3(p) for p in pts))
+        elif isinstance(c, cu.OffsetCurve3D):
+            idx = self.curve(c.basis_curve)  # offset approximated by its basis (step2glb has no offset arm)
         else:
             raise _Unsupported(f"curve {type(c).__name__}")
         self._memo[key] = idx
@@ -155,6 +221,12 @@ class _Encoder:
             sc = self.curve(s.swept_curve)
             ax = self.placement1(s.axis_position)
             idx = self._add(_SURF_REVOLUTION, self.i32(sc) + self.i32(ax) + self.i32(-1))
+        elif isinstance(s, su.RectangularTrimmedSurface):
+            idx = self.surface(s.basis_surface)  # rectangular trim lives in UV; face bounds trim it
+        elif isinstance(s, su.OffsetSurface):
+            idx = self.surface(s.basis_surface)  # offset approximated by its basis surface
+        elif isinstance(s, su.CurveBoundedPlane):
+            idx = self.surface(s.basis_surface)  # the bounding curves come through the face bounds
         else:
             raise _Unsupported(f"surface {type(s).__name__}")
         self._memo[key] = idx
@@ -224,8 +296,15 @@ class _Encoder:
         body += b"".join(self.i32(b) for b in bounds)
         return self._add(_FACE_SURFACE, body)
 
-    def connected_face_set(self, cfs: su.ConnectedFaceSet) -> int:
-        faces = [self.face_surface(f) for f in cfs.cfs_faces]
+    def connected_face_set(self, cfs) -> int:
+        # ConnectedFaceSet / ClosedShell / OpenShell all expose ``cfs_faces`` (FaceSurface or
+        # the structurally-identical AdvancedFace). Skip any face that can't be mapped.
+        faces = []
+        for f in cfs.cfs_faces:
+            try:
+                faces.append(self.face_surface(f))
+            except Exception:  # noqa: BLE001 - skip any face that can't be mapped (robustness)
+                continue
         return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + b"".join(self.i32(f) for f in faces))
 
     # --- root + finish -----------------------------------------------------------------
@@ -233,7 +312,7 @@ class _Encoder:
         """Serialize a top-level geometry instance, returning its record index."""
         if isinstance(geom, su.FaceSurface):
             return self.face_surface(geom)
-        if isinstance(geom, su.ConnectedFaceSet):
+        if isinstance(geom, (su.ConnectedFaceSet, su.ClosedShell, su.OpenShell)):
             return self.connected_face_set(geom)
         raise _Unsupported(f"root geometry {type(geom).__name__}")
 
