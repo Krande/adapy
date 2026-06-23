@@ -13,6 +13,7 @@ import {loadGLTF} from "./asyncModelLoader";
 import {AnimationController} from "@/utils/scene/animations/AnimationController";
 import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
 import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
+import {fastSceneBox} from "@/utils/scene/boundsFast";
 
 /** Optional hook to mutate the freshly-loaded gltf scene (typically
  * to inject ``userData["draw_ranges_<meshName>"]`` and
@@ -116,7 +117,10 @@ export async function setupModelLoaderAsync(
         console.log("Model already translated");
         gltf_scene.position.add(modelStore.translation);
     } else {
-        const boundingBox = new THREE.Box3().setFromObject(gltf_scene);
+        // Union of per-geometry boundingBoxes (set cheaply in
+        // prepareLoadedModel via fastComputeBounds) — avoids setFromObject's
+        // per-vertex iteration on large models.
+        const boundingBox = fastSceneBox(gltf_scene);
         modelStore.setBoundingBox(boundingBox);
 
         if (!optionsStore.lockTranslation) {

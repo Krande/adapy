@@ -12,6 +12,7 @@ import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions
 import {applySphericalImpostor} from "@/utils/scene/pointsImpostor";
 import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
 import {gpuPointPicker} from "@/utils/mesh_select/GpuPointPicker";
+import {fastComputeBounds} from "@/utils/scene/boundsFast";
 
 interface PrepareLoadedModelParams {
     gltf_scene: THREE.Object3D;
@@ -108,6 +109,13 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
 
     for (const {original, parent} of meshesToReplace) {
         const meshName = original.name;
+
+        // Set geometry bounds up front via a tight typed-array loop so the
+        // recenter (setFromObject) and the renderer's first-frame frustum
+        // culling both reuse them instead of iterating ~70M vertices through
+        // three.js's per-vertex getX/getY/getZ path (the dominant load
+        // hotspot). Same result, several times faster.
+        fastComputeBounds(original.geometry as THREE.BufferGeometry);
 
         let drawRangesData = gltf_scene.userData[`draw_ranges_${meshName}`] as Record<string, [number, number]>;
         const node_id = original.userData?.node_id
