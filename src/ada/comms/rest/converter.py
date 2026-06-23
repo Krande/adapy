@@ -1589,7 +1589,7 @@ def _register_ada_loadable() -> None:
         {
             "name": "glb_compression",
             "type": "enum",
-            "default": "off",
+            "default": "meshopt",
             "enum": ["off", "meshopt"],
             "description": (
                 "'meshopt' applies EXT_meshopt_compression to the GLB buffers "

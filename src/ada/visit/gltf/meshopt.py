@@ -43,6 +43,12 @@ _CHUNK_BIN = 0x004E4942
 _COMP_BYTES = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}
 _TYPE_COMPONENTS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT2": 4, "MAT3": 9, "MAT4": 16}
 
+# Below this size, meshopt is skipped: the download saving is marginal while
+# the per-bufferView/fallback-buffer overhead + server encode+verify cost
+# isn't worth it (and tiny buffers can even compress net-neutral). Render /
+# VRAM / picking are unaffected at any size — only the on-wire bytes change.
+DEFAULT_MIN_BYTES = 1_000_000
+
 
 def _align4(n: int) -> int:
     return (n + 3) & ~3
@@ -69,12 +75,20 @@ def _read_glb(path: Path):
     return js, binc
 
 
-def meshopt_compress_glb(in_path: str | Path, out_path: str | Path) -> Path:
+def meshopt_compress_glb(
+    in_path: str | Path, out_path: str | Path, *, min_bytes: int = DEFAULT_MIN_BYTES
+) -> Path:
     """Pack ``in_path`` → ``out_path`` with EXT_meshopt_compression. Returns
     ``out_path`` on success, or ``in_path`` (unchanged) on any failure /
-    missing dependency."""
+    missing dependency / input below ``min_bytes``."""
     in_path = Path(in_path)
     out_path = Path(out_path)
+    try:
+        if in_path.stat().st_size < min_bytes:
+            logger.info("meshopt: %s below %d bytes; left uncompressed", in_path.name, min_bytes)
+            return in_path
+    except OSError:
+        pass
     try:
         import numpy as np
         import meshoptimizer as mo

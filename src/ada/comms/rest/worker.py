@@ -1323,7 +1323,11 @@ async def _process_one(
         compressed_path = None
         if job.target_format == "glb":
             _opts = getattr(job, "conversion_options", None) or {}
-            _mode = _opts.get("glb_compression") or os.environ.get("ADA_GLB_COMPRESSION")
+            # Default-on: a job that doesn't set glb_compression still gets
+            # meshopt (the registry default isn't injected into
+            # conversion_options). Per-job value wins; ADA_GLB_COMPRESSION is
+            # the global override / kill switch (set to "off" to disable).
+            _mode = _opts.get("glb_compression") or os.environ.get("ADA_GLB_COMPRESSION") or "meshopt"
             if _mode and str(_mode).lower() != "off":
                 try:
                     from ada.visit.gltf.compress import compress_glb
