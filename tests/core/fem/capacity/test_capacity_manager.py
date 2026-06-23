@@ -558,3 +558,76 @@ def test_unstiffened_panels_are_disjoint_rectangular_fields():
                 assert e not in stiffened_plates  # unstiffened fields never overlap a stiffened panel
                 assert e not in seen  # and are mutually disjoint
                 seen.add(e)
+
+
+# --------------------------------------------------------------------------- #
+# Load-case combinations (RDRESCMB) → field superposition
+# --------------------------------------------------------------------------- #
+def test_metadata_exposes_named_load_combinations():
+    """The Mini SIN's two RDRESCMB combinations surface with names + factors."""
+    from ada.fem.formats.sesam.results.read_sin import read_sin_metadata
+
+    meta = read_sin_metadata(SIN)
+    assert meta.combination_ids == [9, 10]
+    assert meta.result_names[9] == "lcc1"
+    assert meta.result_names[10] == "lcc2"
+    # lcc1 = 1.2·c1 + 1.1·c2 + 1.0·c5 + 2.0·c6 + 1.3·c8 (zero-factor cases dropped).
+    lcc1 = meta.combinations[9]
+    assert set(lcc1) == {1, 2, 5, 6, 8}
+    assert lcc1[1] == pytest.approx(1.2, rel=1e-6)
+    assert lcc1[6] == pytest.approx(2.0, rel=1e-6)
+    # Combinations are selectable cases even though only basic steps are RV*-stored.
+    assert set(meta.selectable_cases) >= {9, 10}
+
+
+def test_combination_superposition_reproduces_stored_combination(manager):
+    """Resolving a combination by superposing its basic cases reproduces the
+    field SESTRA happened to also store for it (Mini stores lcc1/lcc2 as RV*
+    steps 9/10), to float32 precision for every resolved design variable.
+
+    This is the load-combination path the Ruben "case 14" blocker needs: there
+    the combination is *not* stored, so superposition is the only route — Mini
+    just happens to also carry the stored field, giving an exact oracle.
+    """
+    from ada.fem.capacity import extract
+    from ada.fem.capacity.stress_resolve import _resolve_step
+    from ada.fem.formats.sesam.results.read_sin import iter_sin_step_results
+
+    models = manager.capacity_models()
+    superposed = {(c.result_case, c.stiffener): c for c in manager.resolve_cases([9, 10])}
+
+    aux = extract.AuxRecords.from_sin(SIN)
+    material = {e: (p.material.E, p.material.poisson) for m in models for p in m.plates for e in p.element_ids}
+    stored: dict[tuple[int, str], object] = {}
+    mesh = None
+    for step, res in iter_sin_step_results(SIN, [9, 10]):
+        mesh = mesh or res.mesh
+        for rc in _resolve_step(mesh, aux, models, step, res.results, material, log=False):
+            stored[(rc.result_case, rc.stiffener)] = rc
+
+    keys = set(superposed) & set(stored)
+    assert len(keys) > 50  # both paths resolve every (case, stiffener) pair
+
+    # Per-variable scale (max |stored| over all pairs) normalises the tolerance so
+    # near-zero quantities (e.g. QFE on a flat moment field) aren't judged on noise.
+    scale: dict[str, float] = {}
+    for k in keys:
+        for var, val in stored[k].variables.items():
+            scale[var] = max(scale.get(var, 0.0), abs(val))
+    worst = 0.0
+    for k in keys:
+        a, b = superposed[k], stored[k]
+        for var, av in a.variables.items():
+            worst = max(worst, abs(av - b.variables.get(var, 0.0)) / max(scale[var], 1e-9))
+    assert worst < 1e-4  # float32 superposition noise floor
+
+
+def test_resolve_rejects_unknown_case_but_accepts_combinations(manager):
+    from ada.fem.formats.sesam.results.read_sin import read_sin_metadata
+
+    meta = read_sin_metadata(SIN)
+    with pytest.raises(ValueError, match="not in the SIN"):
+        manager.resolve_cases([999])
+    # A combination id is accepted (resolved by superposition), not rejected.
+    resolved = manager.resolve_cases([meta.combination_ids[0]])
+    assert resolved and {rc.result_case for rc in resolved} == {meta.combination_ids[0]}

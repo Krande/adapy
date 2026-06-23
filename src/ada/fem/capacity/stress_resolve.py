@@ -30,9 +30,11 @@ convention.
 
 from __future__ import annotations
 
+import dataclasses
 import pathlib
 from collections.abc import Callable
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -483,6 +485,110 @@ def _recovered_stress_blocks(mesh, aux, res, case, material_by_element, *, log: 
     return [block] if block.values.size else []
 
 
+# FE field blocks that participate in load-combination superposition: the plate
+# membrane stresses, the beam/line force resultants, and (for stress-less SINs)
+# the nodal displacements the recovery fallback reads. Resolution is linear in
+# these fields up to the per-station min/max, so a combination must superpose the
+# *fields* (Σ fᵢ·blockᵢ) and resolve once — not linearly combine resolved scalars.
+_SUPERPOSE_BLOCKS = ("STRESS", "FORCES", "RVNODDIS")
+
+
+def _superpose_into(accum: dict, results, factor: float) -> None:
+    """Add ``factor`` × each superposable block in ``results`` into ``accum``.
+
+    ``accum`` maps ``(name, index) -> [template_block, values_ndarray, n_id_cols]``.
+    The basic steps of one SIN share a single mesh / RDPOINTS layout, so each
+    block's rows align 1:1 across steps by their leading id columns (``elem,
+    point`` for element fields; ``node`` for nodal) — the fast path just adds the
+    scaled value columns. A key-based merge covers any row-order drift.
+    """
+    by_name: dict[str, list] = {}
+    for blk in results:
+        if blk.name in _SUPERPOSE_BLOCKS:
+            by_name.setdefault(blk.name, []).append(blk)
+    for name, blocks in by_name.items():
+        for idx, blk in enumerate(blocks):
+            key = (name, idx)
+            n_id = len(blk.COLS)
+            slot = accum.get(key)
+            if slot is None:
+                arr = np.array(blk.values, dtype=float)
+                if arr.size:
+                    arr[:, n_id:] *= factor
+                accum[key] = [blk, arr, n_id]
+                continue
+            _, arr, n_id = slot
+            src = np.asarray(blk.values, dtype=float)
+            if src.shape == arr.shape and np.array_equal(src[:, :n_id], arr[:, :n_id]):
+                if src.size:
+                    arr[:, n_id:] += factor * src[:, n_id:]
+            else:
+                _key_superpose(arr, src, n_id, factor)
+
+
+def _key_superpose(dst: np.ndarray, src: np.ndarray, n_id: int, factor: float) -> None:
+    """Row-order-independent fallback for :func:`_superpose_into`.
+
+    Adds ``factor`` × ``src`` value columns onto ``dst`` rows matched by their
+    integer id columns. ``dst`` is seeded from the first contributing step, so any
+    ``src`` key absent from it (impossible for a shared mesh) is simply dropped.
+    """
+    if not dst.size or not src.size:
+        return
+    index = {tuple(int(round(v)) for v in row[:n_id]): i for i, row in enumerate(dst)}
+    for row in src:
+        i = index.get(tuple(int(round(v)) for v in row[:n_id]))
+        if i is not None:
+            dst[i, n_id:] += factor * row[n_id:]
+
+
+def _accum_blocks(accum: dict) -> list:
+    """Materialise superposed blocks as fresh field-data objects (id columns from
+    the template, value columns from the accumulator)."""
+    out = []
+    for (_name, _idx), (template, arr, _n_id) in sorted(accum.items(), key=lambda kv: kv[0]):
+        out.append(dataclasses.replace(template, values=arr))
+    return out
+
+
+def _resolve_step(
+    mesh: Mesh,
+    aux: extract.AuxRecords,
+    models: list[CapacityModel],
+    case: int,
+    results,
+    material_by_element: dict[int, tuple[float, float]],
+    *,
+    log: bool,
+) -> list[ResolvedCase]:
+    """Resolve every (model, stiffener) for one case from its field blocks.
+
+    ``results`` is a step's ``FEAResult.results`` list (a basic case) or the
+    superposed block list of a combination — both expose ``STRESS`` / ``FORCES``
+    (and ``RVNODDIS`` for the stress-less recovery fallback) by ``name``.
+    """
+    stress_blocks = [r for r in results if r.name == "STRESS"]
+    force_blocks = [r for r in results if r.name == "FORCES"]
+    if not stress_blocks:
+        shim = SimpleNamespace(results=list(results))
+        stress_blocks = _recovered_stress_blocks(mesh, aux, shim, case, material_by_element, log=log)
+    out: list[ResolvedCase] = []
+    for model in models:
+        for st in model.stiffeners:
+            rc = _resolve_stiffener(mesh, aux, model, st.name, case, stress_blocks, force_blocks)
+            out.append(
+                ResolvedCase(
+                    result_case=case,
+                    stiffener=rc.stiffener,
+                    panel_group=rc.panel_group,
+                    continuous=rc.continuous,
+                    variables=rc.variables,
+                    vectors=rc.vectors,
+                )
+            )
+    return out
+
+
 def resolve_cases(
     sin_path: str | pathlib.Path,
     models: list[CapacityModel],
@@ -492,24 +598,55 @@ def resolve_cases(
 ) -> list[ResolvedCase]:
     """Resolve design variables for every (result case, stiffener).
 
-    ``on_progress(completed, total)`` is called once per result case (the
-    expensive per-step SIN read), so callers can drive a progress bar.
+    ``result_cases`` may list basic result cases (stored RV* steps) and/or
+    load-case *combinations* (defined in the SIN's RDRESCMB records but, for
+    SESTRA "smart" combinations, not themselves stored). A combination is
+    resolved by superposing its basic cases' FE fields (Σ fᵢ·blockᵢ) before the
+    Section-6 resolve, which is exact because resolution is linear in the field.
+
+    ``on_progress(completed, total)`` is called once per resolved case so callers
+    can drive a progress bar.
     """
     from ada.fem.formats.sesam.results.read_sin import iter_sin_step_results, read_sin_metadata
 
-    available = read_sin_metadata(sin_path).steps
+    meta = read_sin_metadata(sin_path)
+    available = set(meta.steps)
+    combinations = meta.combinations
     if result_cases is None:
-        result_cases = available
-    else:
-        missing = [c for c in result_cases if c not in set(available)]
-        if missing:
+        result_cases = meta.steps
+
+    # Split requests into directly-stored basic cases and combinations to
+    # superpose. Basic cases are resolved as they stream past (memory-bounded);
+    # only the few combination accumulators are held across the read.
+    direct: list[int] = []
+    combo_plan: dict[int, dict[int, float]] = {}
+    for c in result_cases:
+        ci = int(c)
+        if ci in combinations:
+            comps = combinations[ci]
+            if not comps:
+                raise ValueError(f"result combination {ci} ({meta.result_names.get(ci, '?')!r}) lists no basic cases")
+            combo_plan[ci] = comps
+        elif ci in available:
+            direct.append(ci)
+        else:
             raise ValueError(
-                f"requested result case(s) {missing} are not in the SIN. "
-                f"Available result cases: {available}"
+                f"requested result case {ci} is not in the SIN. "
+                f"Available basic cases: {sorted(available)}; "
+                f"available combinations: {sorted(combinations)}"
             )
 
+    needed_combo_steps = {s for comps in combo_plan.values() for s in comps}
+    missing = sorted(needed_combo_steps - available)
+    if missing:
+        raise ValueError(
+            f"result combination(s) reference basic case(s) {missing} that are not "
+            f"stored in the SIN. Available basic cases: {sorted(available)}"
+        )
+    direct_set = set(direct)
+    needed_steps = sorted(direct_set | needed_combo_steps)
+
     aux = extract.AuxRecords.from_sin(sin_path)
-    total = len(result_cases)
     # Plate element -> (E, poisson), used to recover membrane stresses from nodal
     # displacements when the SIN carries no element stresses (SESTRA ISEL4=-1).
     material_by_element: dict[int, tuple[float, float]] = {
@@ -518,32 +655,35 @@ def resolve_cases(
         for p in model.plates
         for e in p.element_ids
     }
+
     out: list[ResolvedCase] = []
+    total = len(direct) + len(combo_plan)
+    done = 0
+    accums: dict[int, dict] = {case: {} for case in combo_plan}
     # Read the SIN once and reuse the (step-invariant) mesh across cases — on a
     # multi-hundred-MB SIN re-opening + rebuilding the mesh per case dominates.
     mesh = None
-    for index, (case, res) in enumerate(iter_sin_step_results(sin_path, result_cases), start=1):
+    for step, res in iter_sin_step_results(sin_path, needed_steps):
         if mesh is None:
             mesh = res.mesh
-        stress_blocks = [r for r in res.results if r.name == "STRESS"]
-        force_blocks = [r for r in res.results if r.name == "FORCES"]
-        if not stress_blocks:
-            stress_blocks = _recovered_stress_blocks(mesh, aux, res, case, material_by_element, log=index == 1)
-        for model in models:
-            for st in model.stiffeners:
-                rc = _resolve_stiffener(mesh, aux, model, st.name, case, stress_blocks, force_blocks)
-                out.append(
-                    ResolvedCase(
-                        result_case=case,
-                        stiffener=rc.stiffener,
-                        panel_group=rc.panel_group,
-                        continuous=rc.continuous,
-                        variables=rc.variables,
-                        vectors=rc.vectors,
-                    )
-                )
+        # Accumulate this step into every combination that references it (before
+        # the direct resolve below caches per-block element indices on res).
+        for case, comps in combo_plan.items():
+            factor = comps.get(step)
+            if factor:
+                _superpose_into(accums[case], res.results, float(factor))
+        if step in direct_set:
+            out.extend(_resolve_step(mesh, aux, models, step, res.results, material_by_element, log=done == 0))
+            done += 1
+            if on_progress is not None:
+                on_progress(done, total)
+
+    for case, comps in combo_plan.items():
+        combined = _accum_blocks(accums[case])
+        out.extend(_resolve_step(mesh, aux, models, case, combined, material_by_element, log=done == 0))
+        done += 1
         if on_progress is not None:
-            on_progress(index, total)
+            on_progress(done, total)
     return out
 
 

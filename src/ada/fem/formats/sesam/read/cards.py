@@ -275,6 +275,10 @@ re_rvnodrea = get_ff_regex(
     "RVNODREA", "nfield", "ires", "inod", "irrea|", "irboc|", "itrans|", "F1|", "F2|", "F3|", "F4|", "F5|", "F6|"
 )
 
+# Result-case combination definitions. ``bulk`` is ``nres`` triplets of
+# ``(component IRES, real factor, imag factor)`` — the combined result IRES
+# (``ires``) is a *factored superposition* of the listed basic result cases.
+RDRESCMB = DataCard("RDRESCMB", ["nfield", "ires", "complx", "nres", "bulk"])
 re_rdrescmb = get_ff_regex("RDRESCMB", "nfield", "ires", "complx", "nres", "bulk")
 
 TDRESREF = DataCard("TDRESREF", ("nfield", "ires", "codnam", "codtxt", "name"))

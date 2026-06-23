@@ -263,12 +263,27 @@ class SinMetadata:
     ``"RVSTRESS"``, ``"RVFORCES"``) — the GLB/picker layer maps them
     to display names. Values are sorted unique IRES (step / result-
     reference id) values seen in that type's records.
+
+    ``combinations`` maps a combination result IRES → ``{basic IRES:
+    factor}`` (read from RDRESCMB); ``result_names`` maps any result
+    IRES → its label (from TDRESREF). A combination IRES may *or may
+    not* also appear in ``field_steps`` — SESTRA "smart load
+    combinations" usually store only the basic cases, so combination
+    results must be reconstructed by superposing the basic fields.
     """
 
     types: list[str]
     node_count: int
     element_count: int
     field_steps: dict[str, list[int]]
+    combinations: dict[int, dict[int, float]] = None
+    result_names: dict[int, str] = None
+
+    def __post_init__(self) -> None:
+        if self.combinations is None:
+            self.combinations = {}
+        if self.result_names is None:
+            self.result_names = {}
 
     @property
     def steps(self) -> list[int]:
@@ -281,6 +296,62 @@ class SinMetadata:
     @property
     def fields(self) -> list[str]:
         return list(self.field_steps.keys())
+
+    @property
+    def combination_ids(self) -> list[int]:
+        """All defined combination result IRES, sorted."""
+        return sorted(self.combinations)
+
+    @property
+    def selectable_cases(self) -> list[int]:
+        """Every result case a check can request: basic RV* steps plus any
+        defined combinations (which superpose those basic steps)."""
+        return sorted(set(self.steps) | set(self.combinations))
+
+
+def read_result_combinations(sin: SinFile) -> dict[int, dict[int, float]]:
+    """Read result-case combination definitions from a SIN.
+
+    Returns ``{combination IRES: {basic IRES: factor}}``. Each RDRESCMB
+    record is ``[ires, complx, nres, *triplets]`` where ``triplets`` is
+    ``nres`` groups of ``(component IRES, real factor, imag factor)``. The
+    imaginary factor is ignored (real-valued static combinations); zero
+    factors are dropped (the basic case contributes nothing and need not be
+    read). Component IRES reference basic result cases whose first RV* data
+    word (``ires``) equals them, so they double as the streaming step id.
+    """
+    if "RDRESCMB" not in sin.type_blocks:
+        return {}
+    out: dict[int, dict[int, float]] = {}
+    for rec in sin.iter_records("RDRESCMB"):
+        if len(rec) < 3:
+            continue
+        ires = int(round(rec[0]))
+        nres = int(round(rec[2]))
+        triplets = rec[3:]
+        comps: dict[int, float] = {}
+        for i in range(nres):
+            base = 3 * i
+            if base + 1 >= len(triplets):
+                break
+            basic = int(round(triplets[base]))
+            factor = float(triplets[base + 1])
+            if factor != 0.0:
+                comps[basic] = comps.get(basic, 0.0) + factor
+        out[ires] = comps
+    return out
+
+
+def read_result_names(sin: SinFile) -> dict[int, str]:
+    """Map result IRES → label from the SIN's TDRESREF text records."""
+    if "TDRESREF" not in sin.type_blocks:
+        return {}
+    out: dict[int, str] = {}
+    for prefix, text in sin.iter_text_records("TDRESREF"):
+        if not prefix or not text:
+            continue
+        out[int(round(prefix[0]))] = text
+    return out
 
 
 _RV_TYPE_NAMES = ("RVNODDIS", "RVSTRESS", "RVFORCES")
@@ -322,6 +393,8 @@ def read_sin_metadata(sin_file: str | pathlib.Path) -> SinMetadata:
             node_count=node_count,
             element_count=element_count,
             field_steps=field_steps,
+            combinations=read_result_combinations(sin),
+            result_names=read_result_names(sin),
         )
     finally:
         sin.close()
@@ -540,4 +613,12 @@ class SinStreamReader:
         return None
 
 
-__all__ = ["SinMetadata", "SinReader", "SinStreamReader", "read_sin_file", "read_sin_metadata"]
+__all__ = [
+    "SinMetadata",
+    "SinReader",
+    "SinStreamReader",
+    "read_result_combinations",
+    "read_result_names",
+    "read_sin_file",
+    "read_sin_metadata",
+]
