@@ -1508,11 +1508,14 @@ _BUILDERS = {
     "CONNECTED_FACE_SET": _b_connected_face_set,
     "CLOSED_SHELL": _b_closed_shell,
     "OPEN_SHELL": _b_open_shell,
-    # ORIENTED_CLOSED_SHELL('', #base_closed_shell, orientation): a CLOSED_SHELL reused
-    # with an orientation flag (e.g. the void shells of a BREP_WITH_VOIDS). Resolve to
-    # its base shell; the orientation only flips face normals, which tessellation treats
-    # as double-sided. No geometry left behind.
-    "ORIENTED_CLOSED_SHELL": lambda r, a: r.deref(a[1]),
+    # ORIENTED_CLOSED_SHELL('', *, #base_closed_shell, orientation): a CLOSED_SHELL reused
+    # with an orientation flag (e.g. the void shells of a BREP_WITH_VOIDS). The supertype's
+    # cfs_faces field (arg 1) is DERIVED in the oriented subtype -> emitted as ``*`` (the
+    # _STAR sentinel); the real base shell is arg 2, the orientation arg 3. Resolve arg 2 —
+    # dereffing arg 1 yields the bare ``*`` sentinel (0 faces), which silently dropped every
+    # void shell. The orientation only flips face normals, which tessellation treats as
+    # double-sided. No geometry left behind.
+    "ORIENTED_CLOSED_SHELL": lambda r, a: r.deref(a[2]),
     "SHELL_BASED_SURFACE_MODEL": _b_shell_based_surface_model,
     # solids / models
     "FACETED_BREP": _b_faceted_brep,
@@ -1539,17 +1542,38 @@ _BUILDERS = {
 
 
 # Top-level renderable geometry roots — one yielded Geometry per record. A solid
+def _b_brep_with_voids(r: _Resolver, a: list) -> ClosedShell:
+    """BREP_WITH_VOIDS('name', outer_shell, (void_shells)) — a solid with internal cavities.
+
+    The void shells (arg 2, each an ORIENTED_CLOSED_SHELL -> CLOSED_SHELL) are the cavity
+    boundaries. They are invisible from outside, but step2glb (the parity reference)
+    tessellates every ADVANCED_FACE including the voids, so we render them too: drop them and
+    the face count falls short of the file's (e.g. 2450 faces across 38 voided solids in one
+    assembly). Each void face keeps its own ``same_sense`` (cavity normals point inward, as in
+    the file) — we do not reorient, matching step2glb's straight per-face tessellation.
+    """
+    outer = r.deref(a[1])
+    voids = a[2] if len(a) > 2 else None
+    outer_faces = getattr(outer, "cfs_faces", None)
+    if not voids or outer_faces is None:
+        return outer
+    merged = list(outer_faces)
+    for v in voids:
+        shell = r.deref(v)
+        v_faces = getattr(shell, "cfs_faces", None)
+        if v_faces:
+            merged.extend(v_faces)
+    return ClosedShell(cfs_faces=merged)
+
+
 # (MANIFOLD_SOLID_BREP -> its ClosedShell), a solid with internal cavities
-# (BREP_WITH_VOIDS, a subtype of MANIFOLD_SOLID_BREP: same first arg = the OUTER
-# CLOSED_SHELL; the void shells in arg 2 are internal cavities, invisible from
-# outside, so rendering the outer shell shows the part correctly), and a pure
-# surface shell (SHELL_BASED_SURFACE_MODEL -> ShellBasedSurfaceModel). Shells
-# nested inside these are reached by reference, never yielded on their own, so no
-# double-count. Without the BREP_WITH_VOIDS entry these solids were silently
-# dropped (38 of them in one CAD assembly), leaving holes in the model.
+# (BREP_WITH_VOIDS -> outer shell + void shells, all faces, for step2glb parity), and a pure
+# surface shell (SHELL_BASED_SURFACE_MODEL -> ShellBasedSurfaceModel). Shells nested inside
+# these are reached by reference, never yielded on their own, so no double-count. Without the
+# BREP_WITH_VOIDS entry these solids were silently dropped (38 of them in one CAD assembly).
 _ROOT_BUILDERS = {
     "MANIFOLD_SOLID_BREP": lambda r, a: r.deref(a[1]),
-    "BREP_WITH_VOIDS": lambda r, a: r.deref(a[1]),
+    "BREP_WITH_VOIDS": _b_brep_with_voids,
     "SHELL_BASED_SURFACE_MODEL": _b_shell_based_surface_model,
     # additional renderable roots (CSG primitives, swept + faceted solids, boolean trees)
     "FACETED_BREP": _b_faceted_brep,
