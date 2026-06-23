@@ -17,9 +17,9 @@
 // (TS + WASM) self-time so the slowest call surfaces — the load-side
 // analogue of the conversion cProfile hotspots.
 //
-// NOTE on cross-origin: a presigned S3 (Garage) URL is cross-origin, so
-// its PerformanceResourceTiming exposes only ``duration`` unless Garage
-// returns ``Timing-Allow-Origin``. The same-origin ``/blobs`` relay path
+// NOTE on cross-origin: a presigned S3 URL is cross-origin, so its
+// PerformanceResourceTiming exposes only ``duration`` unless the object
+// store returns ``Timing-Allow-Origin``. The same-origin ``/blobs`` relay path
 // gives the full DNS/TCP/TLS/TTFB + byte-size split. Wall-clock total /
 // parse / prepare always work. To get the full network breakdown on the
 // presigned path, set ``Timing-Allow-Origin: *`` (or the viewer origin)

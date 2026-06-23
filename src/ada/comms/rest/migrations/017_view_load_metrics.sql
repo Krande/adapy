@@ -19,7 +19,7 @@
 --
 -- Shape (all keys optional; absent when the browser/transport can't measure
 -- them — e.g. cross-origin presigned S3 suppresses the Resource Timing split
--- unless Garage sets Timing-Allow-Origin):
+-- unless the object store sets Timing-Allow-Origin):
 --   {
 --     -- IO / backend
 --     "transport": "presigned" | "relayed",
