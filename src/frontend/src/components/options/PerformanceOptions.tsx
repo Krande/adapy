@@ -46,6 +46,7 @@ const PerformanceOptions: React.FC = () => {
         hideBeamSolids, setHideBeamSolids,
         hideElementEdges, setHideElementEdges,
         useFlatPicker, setUseFlatPicker,
+        timeSlicedLoad, setTimeSlicedLoad,
     } = usePerfStore();
 
     // Most toggles re-affect on next mesh load (material / content) or
@@ -152,6 +153,13 @@ const PerformanceOptions: React.FC = () => {
                 onChange={() => setOnDemandRender(!onDemandRender)}
                 title="On-demand render"
                 blurb="Only renders on controls/animation activity. Big idle win; if a step-change appears stale, nudge the view."
+            />
+
+            <Row
+                checked={timeSlicedLoad}
+                onChange={() => setTimeSlicedLoad(!timeSlicedLoad)}
+                title="Time-sliced (non-blocking) load"
+                blurb="Process the model in small per-frame batches during load, yielding to the browser between them. The viewer stays interactive and geometry streams in instead of freezing in one long stall. Total load time is about the same. Takes effect on next model load."
             />
 
             <hr className="border-gray-600 my-1"/>

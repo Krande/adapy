@@ -44,6 +44,14 @@ export interface PerfState {
     // built with.
     useFlatPicker: boolean;
 
+    // Loading ---------------------------------------------------------------
+    // Time-slice the per-mesh model-prepare loop: process a few-ms budget of
+    // meshes per animation frame, yielding to the browser between batches so
+    // the main thread never blocks in one long stall. The model streams into
+    // the scene progressively and the viewer stays interactive during load
+    // (no freeze). Total work is unchanged; only its scheduling.
+    timeSlicedLoad: boolean;
+
     // Setters ----------------------------------------------------------------
     setMaterialMode: (v: MaterialMode) => void;
     setSolidsBackfaceCull: (v: boolean) => void;
@@ -56,6 +64,7 @@ export interface PerfState {
     setHideBeamSolids: (v: boolean) => void;
     setHideElementEdges: (v: boolean) => void;
     setUseFlatPicker: (v: boolean) => void;
+    setTimeSlicedLoad: (v: boolean) => void;
 }
 
 export const usePerfStore = create<PerfState>()(
@@ -76,6 +85,8 @@ export const usePerfStore = create<PerfState>()(
 
             useFlatPicker: false,
 
+            timeSlicedLoad: false,
+
             setMaterialMode: (v) => set({materialMode: v}),
             setSolidsBackfaceCull: (v) => set({solidsBackfaceCull: v}),
             setSolidsSmoothShading: (v) => set({solidsSmoothShading: v}),
@@ -87,6 +98,7 @@ export const usePerfStore = create<PerfState>()(
             setHideBeamSolids: (v) => set({hideBeamSolids: v}),
             setHideElementEdges: (v) => set({hideElementEdges: v}),
             setUseFlatPicker: (v) => set({useFlatPicker: v}),
+            setTimeSlicedLoad: (v) => set({timeSlicedLoad: v}),
         }),
         {name: "ada-perf"},
     ),
