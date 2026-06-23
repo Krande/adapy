@@ -220,13 +220,24 @@ def write_glb_from_spill(
                 ],
             }
         )
-        materials_json.append(
-            {
-                "name": f"mat{m.mat_id}",
-                "pbrMetallicRoughness": {"baseColorFactor": _base_color_factor(color_by_mat.get(m.mat_id))},
-                "doubleSided": True,
-            }
-        )
+        base = _base_color_factor(color_by_mat.get(m.mat_id))
+        mat_json = {
+            "name": f"mat{m.mat_id}",
+            # metallic/roughness match step2glb's lightly-glossy dielectric look. The glTF
+            # default metallicFactor=1.0 renders dark/dull without an environment map (the
+            # "colours look dim" symptom).
+            "pbrMetallicRoughness": {
+                "baseColorFactor": base,
+                "metallicFactor": 0.1,
+                "roughnessFactor": 0.7,
+            },
+            "doubleSided": True,
+        }
+        # Without alphaMode the renderer ignores baseColorFactor's alpha (treats it OPAQUE);
+        # flag BLEND so a transparent STEP style actually shows through (step2glb parity).
+        if base[3] < 1.0:
+            mat_json["alphaMode"] = "BLEND"
+        materials_json.append(mat_json)
 
     bin_len = bin_offset
 

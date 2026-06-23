@@ -165,32 +165,52 @@ def _iter_refs(args):
 
 
 def _find_colour(pool_get, ref_id: int, depth: int = 0, seen: set | None = None):
-    """Walk an entity's reference tree until a COLOUR_RGB / pre-defined colour is hit;
-    return (r, g, b) in 0..1, or None."""
-    if depth > 12:
+    """Walk an entity's style reference tree collecting the first colour (``COLOUR_RGB`` or a
+    pre-defined colour name) and the first ``SURFACE_STYLE_TRANSPARENT`` transparency. Returns
+    ``(r, g, b, a)`` in 0..1 (a = 1 − transparency, default 1.0 = opaque), or ``None`` when no
+    colour is found. BFS so a colour and its sibling transparency are both reached (mirrors
+    step2glb's styles.rs find_color)."""
+    from collections import deque
+
+    queue: deque[tuple[int, int]] = deque([(ref_id, 0)])
+    seen = set()
+    rgb = None
+    transparency = None
+    while queue:
+        rid, d = queue.popleft()
+        if d > 12 or rid in seen:
+            continue
+        seen.add(rid)
+        rec = pool_get(rid)
+        if rec is None:
+            continue
+        t = rec.type
+        if t == "COLOUR_RGB" and rgb is None:
+            a = rec.args
+            try:
+                rgb = (float(a[1]), float(a[2]), float(a[3]))
+            except Exception:  # noqa: BLE001
+                rgb = None
+        elif t in ("DRAUGHTING_PRE_DEFINED_COLOUR", "PRE_DEFINED_COLOUR") and rgb is None:
+            name = rec.args[0] if rec.args and isinstance(rec.args[0], str) else ""
+            rgb = _PREDEFINED_COLOURS.get(name.strip().lower())
+        elif t == "SURFACE_STYLE_TRANSPARENT" and transparency is None:
+            for v in rec.args:
+                try:
+                    transparency = float(v)
+                    break
+                except (TypeError, ValueError):
+                    continue
+        else:
+            for cid in _iter_refs(rec.args):
+                queue.append((cid, d + 1))
+        if rgb is not None and transparency is not None:
+            break
+    if rgb is None:
         return None
-    if seen is None:
-        seen = set()
-    if ref_id in seen:
-        return None
-    seen.add(ref_id)
-    rec = pool_get(ref_id)
-    if rec is None:
-        return None
-    if rec.type == "COLOUR_RGB":
-        a = rec.args
-        try:
-            return (float(a[1]), float(a[2]), float(a[3]))
-        except Exception:  # noqa: BLE001
-            return None
-    if rec.type == "DRAUGHTING_PRE_DEFINED_COLOUR":
-        name = rec.args[0] if rec.args and isinstance(rec.args[0], str) else ""
-        return _PREDEFINED_COLOURS.get(name.strip().lower())
-    for rid in _iter_refs(rec.args):
-        c = _find_colour(pool_get, rid, depth + 1, seen)
-        if c is not None:
-            return c
-    return None
+    # ISO 10303-46: transparency 0 = opaque, 1 = fully transparent.
+    alpha = 1.0 if transparency is None else max(0.0, min(1.0, 1.0 - transparency))
+    return (rgb[0], rgb[1], rgb[2], alpha)
 
 
 def _build_colour_map(pool_get, styled_ids: list[int]) -> dict[int, tuple]:

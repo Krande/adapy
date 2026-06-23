@@ -27,9 +27,20 @@ def merged_mesh_to_trimesh_scene(
         mesh = trimesh.Trimesh(vertices=vertices, faces=indices, process=False)
         if isinstance(pbr_mat, Color):
             if pbr_mat.hex == "#000000":
-                pbr_mat = Color(*color_dict["light-gray"])
+                pbr_mat = Color(*color_dict["light-gray"], opacity=pbr_mat.opacity)
             pbr_mat = trimesh.visual.material.PBRMaterial(
-                f"mat{buffer_id}", baseColorFactor=(*pbr_mat.rgb255, pbr_mat.opacity), doubleSided=True
+                f"mat{buffer_id}",
+                # glTF baseColorFactor is normalized 0..1, NOT 0..255. Passing rgb255 made
+                # trimesh.to_rgba reinterpret the tuple: any alpha <= 1 flipped it to float
+                # mode and clamped the 0..255 channels to 1.0 -> every solid rendered white.
+                baseColorFactor=(pbr_mat.red, pbr_mat.green, pbr_mat.blue, pbr_mat.opacity),
+                # Match step2glb's lightly-glossy dielectric look. The glTF default
+                # metallicFactor=1.0 renders dark/dull without an environment map (the
+                # "colours look dim" symptom); 0.1/0.7 gives bright, slightly-glossy surfaces.
+                metallicFactor=0.1,
+                roughnessFactor=0.7,
+                alphaMode="BLEND" if pbr_mat.opacity < 1.0 else "OPAQUE",
+                doubleSided=True,
             )
         mesh.visual = trimesh.visual.TextureVisuals(material=pbr_mat)
         mesh.visual.uv = np.zeros((len(mesh.vertices), 2))
