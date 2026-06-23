@@ -10,6 +10,10 @@ machinery on pure ada.geom fixtures (no STEP parse).
 
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("ada.occ.geom.surfaces")  # OCC-backend internals; skip where OCC isn't installed
+
 import ada.geom.curves as geo_cu
 import ada.geom.surfaces as geo_su
 from ada.geom.placement import Axis2Placement3D, Direction, Point

@@ -324,11 +324,15 @@ def test_stream_reader_rational_bspline_native(example_files):
     geoms = list(stream_read_step(out, local_pool=False))  # no raise
     assert len(geoms) >= 1
 
+    from ada.cadit.diagnostics import _mesh_buffers
+
     b = active_backend()
     tris = 0
     for g in geoms:
         mesh = b.tessellate(b.build(g), -1.0)
-        tris += len(np.asarray(mesh.faces).reshape(-1, 3))
+        # portable mesh access: OccBackend names it `.faces`, adacpp `.indices`
+        _, idx = _mesh_buffers(mesh)
+        tris += len(np.asarray(idx).reshape(-1, 3))
     assert tris > 0, "rational B-spline plate must tessellate, not render blank"
 
 

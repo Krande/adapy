@@ -8,6 +8,10 @@ gated on a trial mesh: a plate that already tessellates is left untouched.
 
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("ada.occ.geom.surfaces")  # OCC-backend internals; skip where OCC isn't installed
+
 import glob
 
 import numpy as np
