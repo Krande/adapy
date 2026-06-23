@@ -1,6 +1,13 @@
 # CHANGELOG
 
 
+## Unreleased
+
+### Feature
+
+* feat: add collapsible DNV capacity results sidecar to the viewer
+
+
 
 ## v0.23.0 (2026-06-17)
 

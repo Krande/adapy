@@ -12,7 +12,7 @@
     "build:serve": "vite build --config vite.config.serve.ts --emptyOutDir",
     "build:embed": "vite build --config vite.config.embed.ts",
     "dev": "vite --force",
-    "test": "node --import tsx --test src/__tests__/services/wasmSupport.test.ts src/__tests__/services/feaManifestPoll.test.ts src/__tests__/services/feaFieldBlob.test.ts src/__tests__/services/feaElemFieldBlob.test.ts src/__tests__/services/feaMeshEdges.test.ts src/__tests__/services/feaMeshElements.test.ts src/__tests__/services/feaBeamSolidsWarp.test.ts src/__tests__/services/capacityResults.test.ts src/__tests__/state/capacityResultsStore.test.ts src/__tests__/utils/edgeShaderHelper.test.ts src/__tests__/utils/rangeIndex.test.ts src/__tests__/utils/customBatchedMeshHighlight.test.ts"
+    "test": "node --import tsx --test src/__tests__/services/wasmSupport.test.ts src/__tests__/services/feaManifestPoll.test.ts src/__tests__/services/feaFieldBlob.test.ts src/__tests__/services/feaElemFieldBlob.test.ts src/__tests__/services/feaMeshEdges.test.ts src/__tests__/services/feaMeshElements.test.ts src/__tests__/services/feaBeamSolidsWarp.test.ts src/__tests__/services/capacityResults.test.ts src/__tests__/state/capacityResultsStore.test.ts src/__tests__/components/capacityResultsPanel.test.ts src/__tests__/utils/edgeShaderHelper.test.ts src/__tests__/utils/rangeIndex.test.ts src/__tests__/utils/customBatchedMeshHighlight.test.ts"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.0",
