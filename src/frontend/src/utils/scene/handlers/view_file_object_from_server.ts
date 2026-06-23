@@ -60,33 +60,63 @@ async function send_view_request(name: string) {
     await comms.sendCommand(builder.asUint8Array());
 }
 
+/** REST-mode GLB load: fetch the model from its object-store URL and stream it into the
+ * scene, instead of round-tripping the bytes through a VIEW_FILE_OBJECT /rpc response.
+ *
+ * Tries a presigned, server-relay-free, Range-capable URL first; on any failure (local
+ * backends 503 the presign, or the object lacks the Content-Encoding metadata the browser
+ * needs to auto-decompress) it falls back to the authed streaming ``/blobs/{key}`` GET,
+ * where the server reliably forwards ``Content-Encoding: gzip``. Either way GLTFLoader
+ * streams + the browser decompresses natively — no whole-file server buffer, no pako. */
+async function load_glb_by_url_rest(scope: string, glbKey: string, sourceName: string) {
+    const {viewerApi} = await import("@/services/viewerApi");
+    const {getAccessToken} = await import("@/services/auth/oidc");
+    const {replace_model} = await import("./update_scene_from_message");
+
+    let group: Awaited<ReturnType<typeof replace_model>> | undefined;
+    try {
+        const presigned = await viewerApi.requestDownloadUrl(scope as any, glbKey);
+        group = await replace_model(presigned.url, undefined, sourceName, false);
+    } catch (e) {
+        console.warn("view: presigned GLB load failed, falling back to authed streaming GET", e);
+        const url = viewerApi.blobUrl(scope as any, glbKey);
+        const token = getAccessToken();
+        const headers = token ? {Authorization: `Bearer ${token}`} : undefined;
+        group = await replace_model(url, undefined, sourceName, false, headers);
+    }
+    if (group && sourceName) {
+        useModelState.getState().registerLoadedSource(sourceName, group);
+    }
+    useModelState.getState().setLoadedSourceName(sourceName);
+}
+
 export async function view_file_object_from_server(fileobject: FileObject) {
     const sourceName = fileobject.name() || "";
     console.log("get_file_object_from_server" + sourceName);
 
-    // REST (hosted) mode: anything that isn't already GLB goes through
-    // the server-side conversion pipeline. The backend serves the
-    // derived blob via VIEW_FILE_OBJECT once /api/convert reports done.
+    // REST (hosted) mode: load the GLB straight from its object-store URL instead of
+    // embedding the bytes in the VIEW_FILE_OBJECT /rpc response. This streams from storage
+    // (presigned-direct when available), lets the browser decompress Content-Encoding: gzip
+    // natively (no main-thread pako), and never buffers the whole model server-side.
+    // Non-GLB sources are converted server-side first (the derived blob lands at
+    // derivedKeyForGlb(source)).
     if (runtime.isRestMode()) {
+        const {scopeUrlPart, useScopeStore} = await import("@/state/scopeStore");
+        const {derivedKeyForGlb} = await import("./overlay_file_in_scene");
+        const scope = scopeUrlPart(useScopeStore.getState().current);
         const isGlb = sourceName.toLowerCase().endsWith(".glb");
-        if (isGlb) {
-            await send_view_request(sourceName);
-            useModelState.getState().setLoadedSourceName(sourceName);
-            return;
-        }
-        if (!runtime.convertEnabled()) {
-            console.warn("non-GLB file but conversion is disabled on this deployment");
-            return;
-        }
         try {
-            const {ensureConvertedGlb} = await import("@/services/conversion");
-            const {scopeUrlPart, useScopeStore} = await import("@/state/scopeStore");
-            const scope = scopeUrlPart(useScopeStore.getState().current);
-            await ensureConvertedGlb(scope, sourceName);
-            await send_view_request(sourceName);
-            useModelState.getState().setLoadedSourceName(sourceName);
+            if (!isGlb) {
+                if (!runtime.convertEnabled()) {
+                    console.warn("non-GLB file but conversion is disabled on this deployment");
+                    return;
+                }
+                const {ensureConvertedGlb} = await import("@/services/conversion");
+                await ensureConvertedGlb(scope, sourceName);
+            }
+            await load_glb_by_url_rest(scope, derivedKeyForGlb(sourceName), sourceName);
         } catch (err) {
-            console.error("conversion failed", err);
+            console.error("conversion/load failed", err);
             const {useConversionStore} = await import("../../../state/conversionStore");
             useConversionStore.getState().setJob(`${sourceName}::glb`, {
                 sourceKey: `${sourceName}::glb`,

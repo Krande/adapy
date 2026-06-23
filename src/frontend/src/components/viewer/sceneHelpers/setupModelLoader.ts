@@ -27,6 +27,8 @@ export async function setupModelLoaderAsync(
     translate: boolean = true,
     prepareHook?: SetupModelPrepareHook,
     sourceName?: string,
+    // Auth headers for loading directly from the authed REST streaming GET (REST-mode view).
+    requestHeaders?: Record<string, string>,
 ): Promise<THREE.Group> {
     if (sceneRef.current == null) {
         console.error("Scene reference is null");
@@ -40,7 +42,7 @@ export async function setupModelLoaderAsync(
     if (!modelUrl) return modelGroup;
 
     // 1) load the GLTF
-    const gltf = await loadGLTF(modelUrl);
+    const gltf = await loadGLTF(modelUrl, undefined, requestHeaders);
 
     const gltf_scene = gltf.scene;
     const animations = gltf.animations;

@@ -381,6 +381,30 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this._usesVertexColorsFlag = usesVC || !!this._baseColors;
     }
 
+    /** Free every GPU resource this mesh owns (geometry + all cloned materials + the edge
+     * picker mesh/material + any selection overlay). three.js only releases VRAM on an
+     * explicit dispose() — detaching from the scene graph (Object3D.clear()/remove()) does
+     * NOT — so this must run when a model is cleared/replaced or the geometry/texture memory
+     * never falls. Idempotent; only disposes per-instance clones, never shared singletons. */
+    dispose(): void {
+        this._disposeSelectionOverlay();
+        if (this.edgeMesh) {
+            (this.edgeMesh.geometry as THREE.BufferGeometry | undefined)?.dispose();
+            this.edgeMesh = undefined;
+        }
+        this.edgeMaterial?.dispose();
+        this.edgeMaterial = undefined;
+        const mats = Array.isArray(this.material) ? this.material : [this.material];
+        for (const m of mats) (m as THREE.Material | undefined)?.dispose();
+        this.originalMaterial?.dispose();
+        this._matSelected?.dispose();
+        this._matInvisible?.dispose();
+        this._matSelected = undefined;
+        this._matInvisible = undefined;
+        // this.geometry IS originalGeometry (shared at construction, not cloned).
+        this.geometry?.dispose();
+    }
+
     private _disposeSelectionOverlay(): void {
         if (this._selectionOverlay) {
             // Remove from scene graph

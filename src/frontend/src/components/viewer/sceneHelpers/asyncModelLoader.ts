@@ -9,8 +9,19 @@ const LOAD_KEY = "__model_load__";
 
 // returns a Promise that resolves with the loaded GLTF, while reporting download
 // progress into the conversion store (rendered by the unified ConversionProgress toast).
-export function loadGLTF(modelUrl: string, label?: string): Promise<GLTF> {
+export function loadGLTF(
+  modelUrl: string,
+  label?: string,
+  // When the model is loaded straight from an authed REST endpoint (the streaming
+  // /blobs/{key} GET, which forwards Content-Encoding: gzip so the browser decompresses
+  // natively), the loader's FileLoader needs the bearer header. Omitted for blob: URLs
+  // and presigned S3 URLs (already signed).
+  requestHeaders?: Record<string, string>,
+): Promise<GLTF> {
   const loader = new GLTFLoader();
+  if (requestHeaders && Object.keys(requestHeaders).length > 0) {
+    loader.setRequestHeader(requestHeaders);
+  }
   const name = label || modelUrl.split("/").pop()?.split("?")[0] || "model";
   const startedAt = Date.now();
   const set = (status: "running" | "error", progress: number, stage: string, error: string | null = null) =>

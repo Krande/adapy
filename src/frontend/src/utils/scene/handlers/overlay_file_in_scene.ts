@@ -20,7 +20,7 @@ import {setupModelLoaderAsync} from "@/components/viewer/sceneHelpers/setupModel
 import {ensureConvertedGlb} from "@/services/conversion";
 import {runtime} from "@/runtime/config";
 
-function derivedKeyForGlb(sourceKey: string): string {
+export function derivedKeyForGlb(sourceKey: string): string {
     // Mirrors the server-side derived_key_for(target='glb') convention.
     // GLB-already files have no derivation; everything else is
     // _derived/<sourceKey>.glb. Importantly the SOURCE-IS-GLB case
