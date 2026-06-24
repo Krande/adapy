@@ -449,6 +449,51 @@ const ConversionSettingsTab: React.FC = () => {
                         </div>
                     </div>
                 )}
+                {!loading && (
+                    <NumberSetting
+                        settingKey="step_stream_workers"
+                        label="STEP stream worker count"
+                        unit="workers"
+                        placeholder="auto (min(cpu-1, 3))"
+                        min={1}
+                        onError={setError}
+                        description={
+                            "Tessellation worker processes for STEP→GLB streaming. Peak conversion RSS " +
+                            "scales ~linearly with this (each worker holds a chunk of mesh in flight). " +
+                            "Empty = code default min(cpu-1, 3). Raise on a roomier pod to trade RAM for speed."
+                        }
+                    />
+                )}
+                {!loading && (
+                    <NumberSetting
+                        settingKey="step_stream_worker_soft_mem_mb"
+                        label="STEP stream worker soft memory cap"
+                        unit="MB"
+                        placeholder="800"
+                        min={0}
+                        onError={setError}
+                        description={
+                            "A streaming tessellation worker still above this BETWEEN solids (after gc + " +
+                            "malloc_trim) exits cleanly and respawns fresh — nothing lost, pending solids go " +
+                            "to the next worker. Bounds native-heap fragmentation. Empty = code default 800 MB; 0 disables."
+                        }
+                    />
+                )}
+                {!loading && (
+                    <NumberSetting
+                        settingKey="step_stream_worker_hard_mem_mb"
+                        label="STEP stream worker hard memory cap"
+                        unit="MB"
+                        placeholder="1600"
+                        min={0}
+                        onError={setError}
+                        description={
+                            "A worker crossing this MID-solid is killed and the in-flight solid requeued once; " +
+                            "if it overruns again the solid itself needs that much memory and is skipped with a " +
+                            "'memory' reason (lost geometry). Keep comfortably above the soft cap. Empty = code default 1600 MB; 0 disables."
+                        }
+                    />
+                )}
                 {loading ? (
                     <div className="px-3 sm:px-4 py-4 text-sm text-gray-300">Loading settings…</div>
                 ) : (
@@ -486,6 +531,90 @@ const ConversionSettingsTab: React.FC = () => {
                     </table>
                 )}
             </div>
+        </div>
+    );
+};
+
+// Self-contained numeric app_setting row (loads + saves its own key). Used for the
+// STEP-stream memory knobs; empty = adapy's code default.
+const NumberSetting: React.FC<{
+    settingKey: string;
+    label: string;
+    unit: string;
+    placeholder: string;
+    description: React.ReactNode;
+    min?: number;
+    onError: (msg: string | null) => void;
+}> = ({settingKey, label, unit, placeholder, description, min = 0, onError}) => {
+    const [value, setValue] = useState("");
+    const [saving, setSaving] = useState(false);
+    const [savedAt, setSavedAt] = useState<number | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const v = await viewerApi.adminGetSetting(settingKey);
+                if (!cancelled) setValue((v || "").trim());
+            } catch {
+                /* surfaced by the tab's batch load */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [settingKey]);
+    const save = async () => {
+        const raw = value.trim();
+        if (raw !== "") {
+            const n = Number(raw);
+            if (Number.isNaN(n) || n < min) {
+                onError(`${label} must be a number ≥ ${min} (got "${raw}")`);
+                return;
+            }
+        }
+        setSaving(true);
+        onError(null);
+        try {
+            await viewerApi.adminSetSetting(settingKey, raw);
+            setSavedAt(Date.now());
+        } catch (e) {
+            onError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setSaving(false);
+        }
+    };
+    return (
+        <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+            <div>
+                <div className="font-medium text-sm">{label}</div>
+                <div className="text-[11px] text-gray-400 font-mono">{settingKey}</div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+                <input
+                    type="number"
+                    min={min}
+                    step="1"
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    placeholder={placeholder}
+                    className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm w-32 text-gray-100"
+                />
+                <span className="text-xs text-gray-400">{unit}</span>
+                <button
+                    type="button"
+                    onClick={save}
+                    disabled={saving}
+                    className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                >
+                    {saving ? "Saving…" : "Save"}
+                </button>
+                {savedAt && (
+                    <span className="text-[11px] text-emerald-400">
+                        saved {Math.floor((Date.now() - savedAt) / 1000)}s ago
+                    </span>
+                )}
+            </div>
+            <div className="text-xs text-gray-400 max-w-2xl">{description}</div>
         </div>
     );
 };

@@ -1033,6 +1033,12 @@ async def _process_one(
                 # Per-solid tessellation budget; a solid that overruns it (OCC hang) is
                 # killed and skipped so one bad solid can't freeze the whole conversion.
                 "step_stream_solid_timeout_s": "ADA_STEP_STREAM_SOLID_TIMEOUT_S",
+                # STEP→GLB tessellation pool memory bound: worker count cap + per-worker
+                # soft/hard RSS caps (a worker over soft respawns between solids; over hard
+                # mid-solid is killed + the solid requeued once). Sizes peak conversion RSS.
+                "step_stream_workers": "ADA_STEP_STREAM_WORKERS",
+                "step_stream_worker_soft_mem_mb": "ADA_STEP_STREAM_WORKER_SOFT_MEM_MB",
+                "step_stream_worker_hard_mem_mb": "ADA_STEP_STREAM_WORKER_HARD_MEM_MB",
                 # FEM→IFC memory-bounded writer. Default on (converter treats
                 # unset as on); set falsy to revert to the in-memory writer.
                 "ifc_streaming": "ADA_IFC_STREAMING",
