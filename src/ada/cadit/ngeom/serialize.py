@@ -77,6 +77,7 @@ _SURF_LIN_EXTRUSION = 46
 _SURF_REVOLUTION = 47
 # solids (50-59) — swept/CSG solids mapped to ifcopenshell taxonomy items
 _EXTRUDED_AREA_SOLID = 50
+_REVOLVED_AREA_SOLID = 51
 _EDGE_CURVE = 60
 _ORIENTED_EDGE = 61
 _EDGE_LOOP = 62
@@ -332,34 +333,112 @@ class _Encoder:
         loop = self._add(_POLY_LOOP, self.i32(len(pts)) + b"".join(self.v3(p) for p in pts))
         return self._add(_FACE_BOUND, self.i32(loop) + self.i32(1 if outer else 0))
 
-    def extruded_area_solid(self, eas) -> int:
-        """ExtrudedAreaSolid -> a planar profile FACE (local XY, z=0) + extrude
-        direction + depth + placement. Decoded on the adacpp side into an
-        ifcopenshell ``taxonomy::extrusion`` (matrix=position, basis=profile
-        face, direction, depth). Profile must be an ArbitraryProfileDef whose
-        boundary curves resolve to ordered points (polyline profiles)."""
+    def _planar_face(self, bounds: list[int]) -> int:
+        """A planar FACE_SURFACE in the local XY plane (z=0) from boundary refs."""
         from ada.geom.placement import Axis2Placement3D
 
-        profile = eas.swept_area
-        outer = getattr(profile, "outer_curve", None)
-        if outer is None:
-            raise _Unsupported(f"extrusion profile {type(profile).__name__}")
-        bounds = [self._poly_face_bound(outer, True)]
-        for ic in getattr(profile, "inner_curves", None) or []:
-            bounds.append(self._poly_face_bound(ic, False))
-        # planar basis in the local profile frame (z = 0 plane)
         plane = self._add(_PLANE, self.i32(self.placement3(Axis2Placement3D())))
-        face = self._add(
+        return self._add(
             _FACE_SURFACE,
             self.i32(plane) + self.i32(1) + self.i32(len(bounds)) + b"".join(self.i32(b) for b in bounds),
         )
+
+    def _profile_face(self, profile) -> int:
+        """Planar profile FACE (local XY) from an ArbitraryProfileDef's outer +
+        inner boundary loops (polyline profiles)."""
+        outer = getattr(profile, "outer_curve", None)
+        if outer is None:
+            raise _Unsupported(f"profile {type(profile).__name__}")
+        bounds = [self._poly_face_bound(outer, True)]
+        for ic in getattr(profile, "inner_curves", None) or []:
+            bounds.append(self._poly_face_bound(ic, False))
+        return self._planar_face(bounds)
+
+    def extruded_area_solid(self, eas) -> int:
+        """ExtrudedAreaSolid -> profile FACE + extrude direction + depth +
+        placement. Decoded by adacpp into an ifcopenshell taxonomy::extrusion."""
+        face = self._profile_face(eas.swept_area)
         body = (
-            self.i32(face)
-            + self.i32(self.placement3(eas.position))
-            + self.v3(eas.extruded_direction)
-            + self.f64(eas.depth)
+            self.i32(face) + self.i32(self.placement3(eas.position)) + self.v3(eas.extruded_direction) + self.f64(eas.depth)
         )
         return self._add(_EXTRUDED_AREA_SOLID, body)
+
+    def box_solid(self, box) -> int:
+        """Box -> an x*y rectangle profile extruded by z_length (reuses the
+        EXTRUDED_AREA_SOLID record; no taxonomy box primitive exists)."""
+        x, y = float(box.x_length), float(box.y_length)
+        pts = [(0.0, 0.0, 0.0), (x, 0.0, 0.0), (x, y, 0.0), (0.0, y, 0.0)]
+        loop = self._add(_POLY_LOOP, self.i32(4) + b"".join(self.v3(p) for p in pts))
+        bound = self._add(_FACE_BOUND, self.i32(loop) + self.i32(1))
+        face = self._planar_face([bound])
+        body = self.i32(face) + self.i32(self.placement3(box.position)) + self.v3((0.0, 0.0, 1.0)) + self.f64(box.z_length)
+        return self._add(_EXTRUDED_AREA_SOLID, body)
+
+    def revolved_area_solid(self, ras) -> int:
+        """RevolvedAreaSolid -> profile FACE + revolution axis (placement1) +
+        angle + placement. Decoded by adacpp into a BRepPrimAPI_MakeRevol."""
+        face = self._profile_face(ras.swept_area)
+        body = (
+            self.i32(face)
+            + self.i32(self.placement3(ras.position))
+            + self.i32(self.placement1(ras.axis))
+            + self.f64(ras.angle)
+        )
+        return self._add(_REVOLVED_AREA_SOLID, body)
+
+    def _planar_face_from_loop(self, bound) -> int:
+        """Synthesize a planar FACE_SURFACE from a closed 3D loop (a fitted plane
+        through its points). Beam.shell_geom puts bare FaceBound/PolyLoops in its
+        ConnectedFaceSet (no surface), so we plane-fit them here."""
+        import numpy as np
+
+        poly = getattr(bound, "polygon", None)
+        raw = poly if poly is not None else (bound.get_points() if hasattr(bound, "get_points") else getattr(bound, "points", None))
+        if raw is None:
+            raise _Unsupported(f"loop {type(bound).__name__}")
+        pts = []
+        for p in raw:
+            p = list(p)
+            pts.append((float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 0.0))
+        if len(pts) > 1 and pts[0] == pts[-1]:
+            pts.pop()
+        if len(pts) < 3:
+            raise _Unsupported("degenerate loop")
+        a, b, c = np.array(pts[0]), np.array(pts[1]), np.array(pts[2])
+        n = np.cross(b - a, c - a)
+        nn = float(np.linalg.norm(n))
+        rxn = float(np.linalg.norm(b - a))
+        if nn < 1e-12 or rxn < 1e-12:
+            raise _Unsupported("collinear loop")
+        n = n / nn
+        rx = (b - a) / rxn
+        place = self._add(_PLACEMENT3, self.v3(a) + self.v3(n) + self.v3(rx))
+        plane = self._add(_PLANE, self.i32(place))
+        loop = self._add(_POLY_LOOP, self.i32(len(pts)) + b"".join(self.v3(p) for p in pts))
+        bnd = self._add(_FACE_BOUND, self.i32(loop) + self.i32(1))
+        return self._add(_FACE_SURFACE, self.i32(plane) + self.i32(1) + self.i32(1) + self.i32(bnd))
+
+    def _any_face(self, f) -> int:
+        # FaceSurface / AdvancedFace -> normal path; bare FaceBound (planar loop,
+        # no surface — Beam.shell_geom) -> synthesize a planar face.
+        if hasattr(f, "face_surface") and hasattr(f, "bounds"):
+            return self.face_surface(f)
+        bound = getattr(f, "bound", None)
+        if bound is not None:
+            return self._planar_face_from_loop(bound)
+        raise _Unsupported(f"face {type(f).__name__}")
+
+    def face_based_surface_model(self, fbsm) -> int:
+        """FaceBasedSurfaceModel -> flatten its ConnectedFaceSets' faces into one
+        CONNECTED_FACE_SET (so face-based shell reps tessellate via NGEOM)."""
+        faces = []
+        for cfs in fbsm.fbsm_faces:
+            for f in getattr(cfs, "cfs_faces", []):
+                try:
+                    faces.append(self._any_face(f))
+                except Exception:  # noqa: BLE001
+                    continue
+        return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + b"".join(self.i32(f) for f in faces))
 
     # --- root + finish -----------------------------------------------------------------
     def root(self, geom) -> int:
@@ -368,6 +447,12 @@ class _Encoder:
 
         if isinstance(geom, _so.ExtrudedAreaSolid) and not isinstance(geom, _so.ExtrudedAreaSolidTapered):
             return self.extruded_area_solid(geom)
+        if isinstance(geom, _so.RevolvedAreaSolid):
+            return self.revolved_area_solid(geom)
+        if isinstance(geom, _so.Box):
+            return self.box_solid(geom)
+        if isinstance(geom, su.FaceBasedSurfaceModel):
+            return self.face_based_surface_model(geom)
         if isinstance(geom, su.FaceSurface):
             return self.face_surface(geom)
         if isinstance(geom, (su.ConnectedFaceSet, su.ClosedShell, su.OpenShell)):
