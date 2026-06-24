@@ -3,6 +3,7 @@ import {ensureBakedFeaManifest, ensureConvertedGlb} from "@/services/conversion"
 import {runtime} from "@/runtime/config";
 import {viewerApi, ScopeUrl} from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
+import {useOptionsStore} from "@/state/optionsStore";
 
 // Mirror the server's _DIRECT_UPLOAD_THRESHOLD_BYTES. The server is
 // authoritative — it 413s above this — but knowing it client-side lets
@@ -197,7 +198,10 @@ export async function uploadFile(
     }
     await request_list_of_files_from_server();
 
-    const autoConvert = opts?.autoConvert !== false;
+    // Default OFF: an upload no longer auto-spawns a GLB conversion. An explicit
+    // opts.autoConvert wins; otherwise honour the "Auto-convert uploads" toggle in
+    // the options panel (default false).
+    const autoConvert = opts?.autoConvert ?? useOptionsStore.getState().autoConvertOnUpload;
     const convertEnabled = runtime.convertEnabled();
     if (autoConvert && convertEnabled && ext !== ".glb") {
         // Two pipelines, picked by extension:

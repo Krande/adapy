@@ -21,6 +21,7 @@ const DisplayOptions: React.FC = () => {
         lockTranslation, setLockTranslation,
         enableNodeEditor, setEnableNodeEditor,
         enableWebsocket, setEnableWebsocket,
+        autoConvertOnUpload, setAutoConvertOnUpload,
     } = useOptionsStore();
     const {showLegend, setShowLegend} = useColorStore();
     const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelState();
@@ -53,6 +54,22 @@ const DisplayOptions: React.FC = () => {
                     </span>
                 </label>
             )}
+            <label className="flex items-start space-x-2">
+                <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={autoConvertOnUpload}
+                    onChange={() => setAutoConvertOnUpload(!autoConvertOnUpload)}
+                />
+                <span className="leading-tight">
+                    Auto-convert uploads to GLB
+                    <span className="block text-xs text-gray-400">
+                        When on, uploading a source file (STEP/IFC/FEM…) immediately
+                        queues a GLB conversion. Off (default) — upload only; convert
+                        on demand from the file row.
+                    </span>
+                </span>
+            </label>
             <Toggle checked={lockTranslation} onChange={() => setLockTranslation(!lockTranslation)}>Lock Translation</Toggle>
             <Toggle checked={enableNodeEditor} onChange={() => setEnableNodeEditor(!enableNodeEditor)}>Enable Node Editor</Toggle>
             <Toggle checked={enableWebsocket} onChange={() => setEnableWebsocket(!enableWebsocket)}>Enable Websocket</Toggle>
