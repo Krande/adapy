@@ -334,6 +334,40 @@ class _Encoder:
         loop = self._add(_POLY_LOOP, self.i32(len(pts)) + b"".join(self.v3(p) for p in pts))
         return self._add(_FACE_BOUND, self.i32(loop) + self.i32(1 if outer else 0))
 
+    def _conic_edge_loop(self, curve) -> int:
+        """EDGE_LOOP with one full conic (circle/ellipse) edge, parameter [0, 2pi].
+        Lets round profiles (pipes, circular columns) tessellate at the requested
+        deflection instead of being dropped to a polyline."""
+        import math
+
+        import numpy as np
+
+        cref = self.curve(curve)  # CIRCLE/ELLIPSE record carries the curve's own position
+        pos = curve.position
+        loc = np.asarray(pos.location, dtype=float)
+        ref = np.asarray(pos.ref_direction, dtype=float)
+        r = float(getattr(curve, "radius", 0.0) or getattr(curve, "semi_axis1", 0.0))
+        start = loc + ref * r  # point at parameter 0
+        s = (float(start[0]), float(start[1]), float(start[2]))
+        edge = self._add(_EDGE_CURVE, self.v3(s) + self.v3(s) + self.i32(cref) + self.i32(1))
+        oedge = self._add(
+            _ORIENTED_EDGE,
+            self.i32(edge) + self.i32(1) + self.i32(0) + self.i32(1) + self.f64(0.0) + self.f64(2 * math.pi),
+        )
+        return self._add(_EDGE_LOOP, self.i32(1) + self.i32(oedge))
+
+    def _curve_face_bound(self, curve, outer: bool) -> int:
+        """FACE_BOUND for one profile boundary curve: Circle/Ellipse -> a conic edge
+        loop; polyline / IndexedPolyCurve -> a POLY_LOOP. The hole (inner) bound is
+        emitted with orientation=0 so the decoder reverses it into a proper hole."""
+        import ada.geom.curves as _cu
+
+        conic = tuple(t for t in (getattr(_cu, "Circle", None), getattr(_cu, "Ellipse", None)) if t is not None)
+        if conic and isinstance(curve, conic):
+            loop = self._conic_edge_loop(curve)
+            return self._add(_FACE_BOUND, self.i32(loop) + self.i32(1 if outer else 0))
+        return self._poly_face_bound(curve, outer)
+
     def _planar_face(self, bounds: list[int]) -> int:
         """A planar FACE_SURFACE in the local XY plane (z=0) from boundary refs."""
         from ada.geom.placement import Axis2Placement3D
@@ -350,9 +384,9 @@ class _Encoder:
         outer = getattr(profile, "outer_curve", None)
         if outer is None:
             raise _Unsupported(f"profile {type(profile).__name__}")
-        bounds = [self._poly_face_bound(outer, True)]
+        bounds = [self._curve_face_bound(outer, True)]
         for ic in getattr(profile, "inner_curves", None) or []:
-            bounds.append(self._poly_face_bound(ic, False))
+            bounds.append(self._curve_face_bound(ic, False))
         return self._planar_face(bounds)
 
     def extruded_area_solid(self, eas) -> int:

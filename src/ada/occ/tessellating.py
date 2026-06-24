@@ -577,25 +577,41 @@ class BatchTessellator:
 
         return self.tessellate_occ_geom(occ_geom, node_ref, geom.color, mesh_type)
 
-    def _tessellate_geom_via_stream(self, geom: Geometry, node_ref) -> MeshStore | None:
-        import os
+    @staticmethod
+    def _log_tess_fallback(node_ref, pipeline: str, reason: str, geom: Geometry | None = None) -> None:
+        """Audit a silent NGEOM->OCC tessellation fallback. Normally DEBUG; set
+        ADA_TESS_FALLBACK_DEBUG=1 to surface every fallback as a WARNING (so a
+        coarse/odd object that quietly dropped off the selected kernel is caught)."""
+        gt = "?"
+        if geom is not None:
+            inner = getattr(geom, "geometry", geom)
+            gt = type(getattr(inner, "geometry", inner)).__name__
+        msg = f"NGEOM pipeline {pipeline!r} fell back to OCC for {node_ref!r} (geom={gt}): {reason}"
+        if os.environ.get("ADA_TESS_FALLBACK_DEBUG"):
+            logger.warning(msg)
+        else:
+            logger.debug(msg)
 
+    def _tessellate_geom_via_stream(self, geom: Geometry, node_ref) -> MeshStore | None:
         pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE")
         if not pipeline:
             return None
         be = active_backend()
         if not hasattr(be, "tessellate_stream"):
+            self._log_tess_fallback(node_ref, pipeline, "active backend has no tessellate_stream", geom)
             return None
         gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
         defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
         ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
         try:
             bm = be.tessellate_stream([(str(node_ref), gi)], pipeline=pipeline, deflection=defl, angular_deg=ang)
-        except Exception:  # noqa: BLE001 - fall back to the OCC build path on any stream failure
+        except Exception as e:  # noqa: BLE001 - fall back to the OCC build path on any stream failure
+            self._log_tess_fallback(node_ref, pipeline, f"tessellate_stream raised {type(e).__name__}: {e}", geom)
             return None
         pos = getattr(bm, "positions", None)
         idx = getattr(bm, "indices", None)
         if pos is None or idx is None or len(idx) == 0:
+            self._log_tess_fallback(node_ref, pipeline, "empty mesh (geom type not NGEOM-serializable)", geom)
             return None
         pos = np.ascontiguousarray(pos, dtype=np.float32)
         idx = np.ascontiguousarray(idx, dtype=np.uint32)
