@@ -543,6 +543,20 @@ class BatchTessellator:
         graph_store: GraphStore = None,
         mesh_type: MeshType = MeshType.TRIANGLES,
     ) -> MeshStore:
+        if graph_store is not None:
+            node_ref = graph_store.hash_map.get(obj.guid)
+        else:
+            node_ref = getattr(obj, "guid", geom.id)
+
+        # NGEOM stream path (opt-in via ADA_STREAM_TESS_PIPELINE=libtess2|occ|cgal|hybrid):
+        # serialize ada.geom + tessellate in one adacpp call instead of the OCC build +
+        # BRepMesh below. Returns None when the env is unset or the active backend has no
+        # tessellate_stream, so the default path runs UNCHANGED.
+        if mesh_type != MeshType.LINES:
+            stream_ms = self._tessellate_geom_via_stream(geom, node_ref)
+            if stream_ms is not None:
+                return stream_ms
+
         try:
             # Construction seam: build through the active CAD backend rather
             # than calling geom_to_occ_geom directly (= OccBackend.build under
@@ -560,12 +574,37 @@ class BatchTessellator:
             )
             raise
 
-        if graph_store is not None:
-            node_ref = graph_store.hash_map.get(obj.guid)
-        else:
-            node_ref = getattr(obj, "guid", geom.id)
-
         return self.tessellate_occ_geom(occ_geom, node_ref, geom.color, mesh_type)
+
+    def _tessellate_geom_via_stream(self, geom: Geometry, node_ref) -> MeshStore | None:
+        import os
+
+        pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE")
+        if not pipeline:
+            return None
+        be = active_backend()
+        if not hasattr(be, "tessellate_stream"):
+            return None
+        gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
+        defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
+        ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+        try:
+            bm = be.tessellate_stream([(str(node_ref), gi)], pipeline=pipeline, deflection=defl, angular_deg=ang)
+        except Exception:  # noqa: BLE001 - fall back to the OCC build path on any stream failure
+            return None
+        pos = getattr(bm, "positions", None)
+        idx = getattr(bm, "indices", None)
+        if pos is None or idx is None or len(idx) == 0:
+            return None
+        pos = np.ascontiguousarray(pos, dtype=np.float32)
+        idx = np.ascontiguousarray(idx, dtype=np.uint32)
+        nrm = getattr(bm, "normals", None)
+        nrm = np.ascontiguousarray(nrm, dtype=np.float32) if nrm is not None and len(nrm) else None
+        mat_id = self.material_store.get(geom.color, None)
+        if mat_id is None:
+            mat_id = len(self.material_store)
+            self.material_store[geom.color] = mat_id
+        return MeshStore(node_ref, None, pos, idx, nrm, mat_id, MeshType.TRIANGLES, node_ref)
 
     def batch_tessellate(
         self,
