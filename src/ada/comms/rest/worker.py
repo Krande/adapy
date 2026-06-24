@@ -174,6 +174,43 @@ def _convert_meta_for(job: "Job", env_overrides: dict | None) -> dict | None:
     return meta or None
 
 
+def _capture_worker_packages() -> list[dict]:
+    """Snapshot the worker env's installed packages — the conda-meta manifest
+    (authoritative for occt / pythonocc-core / ada-cpp / ifcopenshell / numpy …)
+    plus any pip-only dists. Best-effort; a parse failure just drops that entry."""
+    import glob
+    import importlib.metadata as _im
+    import json as _json
+    import sys
+
+    pkgs: dict[str, dict] = {}
+    try:
+        for f in glob.glob(os.path.join(sys.prefix, "conda-meta", "*.json")):
+            try:
+                with open(f) as fh:
+                    d = _json.load(fh)
+                name = d.get("name")
+                if name:
+                    pkgs[name.lower()] = {
+                        "name": name,
+                        "version": d.get("version"),
+                        "build": d.get("build"),
+                        "channel": d.get("channel"),
+                    }
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        for dist in _im.distributions():
+            name = (dist.metadata.get("Name") or "").strip()
+            if name and name.lower() not in pkgs:
+                pkgs[name.lower()] = {"name": name, "version": dist.version, "build": None, "channel": "pypi"}
+    except Exception:
+        pass
+    return sorted(pkgs.values(), key=lambda p: (p.get("name") or "").lower())
+
+
 async def _run_fea_artefact_bake(
     *,
     job: Job,
@@ -1611,6 +1648,18 @@ async def _run() -> None:
                 max_inactive_connection_lifetime=600.0,
             )
             logger.info("worker: db pool ready")
+            # Capture this worker image's package manifest once at startup so
+            # convert audit rows (stamped with worker_image_tag) can link to the
+            # exact toolchain that produced their output.
+            if _WORKER_IMAGE_TAG:
+                try:
+                    await db_module.upsert_worker_packages(
+                        db_pool,
+                        worker_image_tag=_WORKER_IMAGE_TAG,
+                        packages=_capture_worker_packages(),
+                    )
+                except Exception:
+                    logger.exception("worker: package manifest capture failed")
         except Exception:
             logger.exception("worker: db connect failed; running without audit updates")
 

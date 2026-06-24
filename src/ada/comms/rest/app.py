@@ -4934,6 +4934,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         next_before = rows[-1]["id"] if len(rows) >= max(1, min(limit, 500)) else None
         return JSONResponse({"entries": rows, "next_before_id": next_before})
 
+    @admin.get("/worker-packages/{image_tag:path}")
+    async def admin_worker_packages(image_tag: str, request: Request) -> JSONResponse:
+        """The captured package manifest ("pixi list") for a worker image tag —
+        linked from a convert audit row via its worker_image_tag."""
+        pool = _require_pool(request)
+        manifest = await db_module.get_worker_packages(pool, image_tag)
+        if manifest is None:
+            raise HTTPException(status_code=404, detail=f"no package manifest for worker {image_tag!r}")
+        return JSONResponse(manifest)
+
     @admin.get("/projects")
     async def admin_projects_list(request: Request) -> JSONResponse:
         pool = _require_pool(request)

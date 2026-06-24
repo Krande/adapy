@@ -642,6 +642,76 @@ const ConvertEngine: React.FC<{meta: import("@/services/viewerApi").ConvertMeta}
     );
 };
 
+// Worker package manifest ("pixi list") for the row's worker image — lazily
+// fetched on expand, filterable. Links a conversion to the exact toolchain
+// (occt / pythonocc-core / ada-cpp / …) that produced it.
+const WorkerPackages: React.FC<{imageTag: string}> = ({imageTag}) => {
+    const [open, setOpen] = useState(false);
+    const [pkgs, setPkgs] = useState<import("@/services/viewerApi").WorkerPackage[] | null>(null);
+    const [err, setErr] = useState<string | null>(null);
+    const [filter, setFilter] = useState("");
+    const toggle = async () => {
+        if (pkgs || err) {
+            setOpen((v) => !v);
+            return;
+        }
+        setOpen(true);
+        try {
+            const r = await viewerApi.adminWorkerPackages(imageTag);
+            setPkgs(r.packages);
+        } catch (e) {
+            setErr(e instanceof Error ? e.message : String(e));
+        }
+    };
+    const f = filter.trim().toLowerCase();
+    const shown = (pkgs || []).filter((p) => !f || p.name.toLowerCase().includes(f));
+    return (
+        <div className="pt-2 border-t border-gray-800 space-y-1">
+            <button
+                type="button"
+                onClick={toggle}
+                className="text-[11px] text-blue-300 hover:text-blue-200 flex items-center gap-1.5"
+                title="Captured conda package manifest for this worker image"
+            >
+                <span>{open ? "▾" : "▸"}</span>
+                <span>Worker packages</span>
+                <span className="font-mono text-gray-500 break-all">{imageTag}</span>
+            </button>
+            {open && (
+                <div className="space-y-1 pl-3">
+                    {err && <div className="text-[11px] text-red-400">{err}</div>}
+                    {!err && !pkgs && <div className="text-[11px] text-gray-400">Loading…</div>}
+                    {pkgs && (
+                        <>
+                            <input
+                                value={filter}
+                                onChange={(e) => setFilter(e.target.value)}
+                                placeholder="filter (occt, ada-cpp…)"
+                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-0.5 text-[11px] text-gray-100 w-48"
+                            />
+                            <div className="max-h-64 overflow-auto">
+                                <dl className="grid grid-cols-[1fr_max-content] gap-x-3 gap-y-0.5 font-mono text-[11px]">
+                                    {shown.map((p) => (
+                                        <React.Fragment key={p.name}>
+                                            <dt className="text-gray-300 break-all">{p.name}</dt>
+                                            <dd className="text-gray-400 text-right whitespace-nowrap">
+                                                {p.version}{p.build ? ` (${p.build})` : ""}
+                                            </dd>
+                                        </React.Fragment>
+                                    ))}
+                                </dl>
+                            </div>
+                            <div className="text-[10px] text-gray-500">
+                                {shown.length} / {pkgs.length} packages
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const MetricsTab: React.FC<{
     entry: AuditEntry;
     onDownloadProfile: () => void;
@@ -671,6 +741,7 @@ const MetricsTab: React.FC<{
                 <MetricRow label="Write"    value={formatBytes(entry.write_bytes)}/>
             </dl>
             {entry.convert_meta && <ConvertEngine meta={entry.convert_meta}/>}
+            {entry.worker_image_tag && <WorkerPackages imageTag={entry.worker_image_tag}/>}
             <MetricsHistoryChart auditId={entry.id}/>
             {entry.profile_key ? (
                 <div className="pt-2 border-t border-gray-800 space-y-3">

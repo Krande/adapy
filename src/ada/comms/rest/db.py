@@ -787,13 +787,42 @@ async def list_audit(
 
 def _loads_jsonb(v):
     """asyncpg may hand JSONB back as a str (no codec registered) or already
-    parsed. Normalize to a dict/None; never raise on a malformed row."""
-    if v is None or isinstance(v, dict):
+    parsed. Normalize to a dict/list/None; never raise on a malformed row."""
+    if v is None or isinstance(v, (dict, list)):
         return v
     try:
         return json.loads(v)
     except (TypeError, ValueError):
         return None
+
+
+async def upsert_worker_packages(pool: asyncpg.Pool, *, worker_image_tag: str, packages: list) -> None:
+    """Record a worker image's package manifest (idempotent per image tag)."""
+    await pool.execute(
+        """
+        INSERT INTO worker_packages (worker_image_tag, packages, captured_at)
+        VALUES ($1, $2, now())
+        ON CONFLICT (worker_image_tag) DO UPDATE
+          SET packages = EXCLUDED.packages, captured_at = now()
+        """,
+        worker_image_tag,
+        json.dumps(packages),
+    )
+
+
+async def get_worker_packages(pool: asyncpg.Pool, worker_image_tag: str) -> dict | None:
+    """The captured package manifest for a worker image tag (or None)."""
+    row = await pool.fetchrow(
+        "SELECT worker_image_tag, packages, captured_at FROM worker_packages WHERE worker_image_tag = $1",
+        worker_image_tag,
+    )
+    if row is None:
+        return None
+    return {
+        "worker_image_tag": row["worker_image_tag"],
+        "packages": _loads_jsonb(row["packages"]) or [],
+        "captured_at": row["captured_at"].isoformat() if row["captured_at"] else None,
+    }
 
 
 async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:

@@ -572,6 +572,8 @@ export interface AuditEntry {
     // Stable per-device id (from client_metrics) — distinguishes view/render
     // audit logs by device (e.g. phone vs desktop). Null for server-side rows.
     device_id: string | null;
+    // The worker image that processed a convert row; links to its package manifest.
+    worker_image_tag: string | null;
     // Conversion engine + effective toggles for a convert row (which tessellator
     // actually ran, incl. an adacpp→occ-builtin fallback, + the options used).
     convert_meta: ConvertMeta | null;
@@ -583,6 +585,13 @@ export interface ConvertMeta {
     glb_compression?: string;
     stream_workers?: string | number | null;
     options?: Record<string, string>;
+}
+
+export interface WorkerPackage {
+    name: string;
+    version: string | null;
+    build: string | null;
+    channel: string | null;
 }
 
 // One audit-sweep record. Returned by /admin/audit/runs endpoints.
@@ -1594,6 +1603,16 @@ export const viewerApi = {
         const url = `${runtime.apiBase()}/admin/audit${qs ? `?${qs}` : ""}`;
         const r = await authedFetch(url);
         return jsonOrThrow(r, "adminAudit");
+    },
+
+    /** Admin: the captured package manifest ("pixi list") for a worker image
+     * tag — linked from a convert audit row via its worker_image_tag. */
+    async adminWorkerPackages(
+        imageTag: string,
+    ): Promise<{worker_image_tag: string; packages: WorkerPackage[]; captured_at: string | null}> {
+        const url = `${runtime.apiBase()}/admin/worker-packages/${encodeURIComponent(imageTag)}`;
+        const r = await authedFetch(url);
+        return jsonOrThrow(r, "adminWorkerPackages");
     },
 
     /** Admin: list live regression corpora (admin-curated proprietary
