@@ -4,8 +4,7 @@ import {useCompressionStore} from "@/state/compressionStore";
 import {useMeStore} from "@/state/meStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {viewerApi} from "@/services/viewerApi";
-import {useLoadQueueStore} from "@/state/loadQueueStore";
-import LoadQueueToast from "./LoadQueueToast";
+import {useLoadQueueStore, type LoadTask} from "@/state/loadQueueStore";
 
 // Shared dismiss button. Hit area is 28×28 (Apple HIG min is 44 but
 // the toast is dense; 28 still beats the 24 we shipped with and stays
@@ -369,11 +368,12 @@ const JobRow: React.FC<{
     );
 };
 
-// Unified in-progress toast. ONE toast for any number of running /
-// queued conversions, plus a separate toast per error (errors are
-// individually actionable so they stay split out). Click the count
-// pill to expand the queued list.
-const InProgressToast: React.FC<{
+const basename = (key: string) => key.split("/").pop() ?? key;
+
+// Conversion rows WITHOUT an outer box — the top (newest) job plus a "+N"
+// expansion for the rest. Composed inside UnifiedToast so conversion and
+// scene-load share one toast box.
+const ConversionRows: React.FC<{
     jobs: ConversionJob[];
     onClearJob: (sourceKey: string) => void;
 }> = ({jobs, onClearJob}) => {
@@ -387,7 +387,7 @@ const InProgressToast: React.FC<{
     const total = jobs.length;
 
     return (
-        <div className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700 space-y-1">
+        <div className="space-y-1">
             <JobRow
                 job={top}
                 onCancel={() => onClearJob(top.sourceKey)}
@@ -428,6 +428,125 @@ const InProgressToast: React.FC<{
                     )}
                 </div>
             )}
+        </div>
+    );
+};
+
+// Scene-load row WITHOUT an outer box — the *continuation* of one model's
+// lifecycle after queue→convert→upload: the same toast now reads "Loading".
+// While the load is still waiting on its conversion/bake job we surface that
+// job's % + stage (the bar keeps moving); once that's done the GLB
+// download/parse has no server-side counter, so an indeterminate bar.
+const LoadRow: React.FC<{name: string; job?: ConversionJob}> = ({name, job}) => {
+    const pct = job ? Math.round((job.progress || 0) * 100) : null;
+    const stage = stageText(job?.stage);
+    return (
+        <div className="space-y-1 min-w-0">
+            <div className="flex justify-between items-center gap-2 min-w-0">
+                <span className="truncate min-w-0 flex-1 text-gray-100" title={name}>
+                    {basename(name)}
+                </span>
+                <span className="ml-2 text-gray-400 shrink-0">
+                    Loading{pct !== null ? ` ${pct}%` : "…"}
+                </span>
+            </div>
+            {stage && (
+                <div className="text-[11px] text-gray-400 truncate" title={stage}>
+                    {stage}
+                </div>
+            )}
+            <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
+                {pct !== null ? (
+                    <div
+                        className="h-full bg-blue-500 transition-all"
+                        style={{width: `${Math.max(pct, 4)}%`}}
+                    />
+                ) : (
+                    <div className="h-full w-1/3 bg-blue-500 animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// Unified activity toast — ONE box for a model's whole lifecycle
+// (queue → conversion → upload → load). The scene-load row sits at the top
+// as the furthest-along stage; conversion-in-progress rows follow, then the
+// load queue and any load errors. Folding the load in here (rather than a
+// second LoadQueueToast box) makes the "Loading" counter replace the
+// conversion counter in place instead of popping a separate toast.
+const UnifiedToast: React.FC<{
+    conversionJobs: ConversionJob[];
+    onClearJob: (sourceKey: string) => void;
+    loadCurrent: LoadTask | null;
+    loadJob?: ConversionJob;
+    loadQueued: LoadTask[];
+    loadErrors: Array<{name: string; message: string}>;
+    onRemoveQueued: (name: string) => void;
+    onClearLoadError: (name: string) => void;
+}> = ({
+    conversionJobs, onClearJob, loadCurrent, loadJob,
+    loadQueued, loadErrors, onRemoveQueued, onClearLoadError,
+}) => {
+    if (
+        !loadCurrent && conversionJobs.length === 0 &&
+        loadQueued.length === 0 && loadErrors.length === 0
+    ) {
+        return null;
+    }
+    return (
+        <div className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700 space-y-1">
+            {loadCurrent && <LoadRow name={loadCurrent.name} job={loadJob}/>}
+            {conversionJobs.length > 0 && (
+                <div className={loadCurrent ? "pt-1 border-t border-gray-700/60" : ""}>
+                    <ConversionRows jobs={conversionJobs} onClearJob={onClearJob}/>
+                </div>
+            )}
+            {loadQueued.length > 0 && (
+                <div className="pt-1 border-t border-gray-700/60">
+                    <div className="text-[11px] text-gray-400 mb-0.5">
+                        Queued ({loadQueued.length})
+                    </div>
+                    <ul className="space-y-0.5 max-h-40 overflow-auto">
+                        {loadQueued.map((t) => (
+                            <li key={t.name} className="flex items-center gap-2 min-w-0">
+                                <span className="truncate flex-1 min-w-0" title={t.name}>
+                                    {basename(t.name)}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => onRemoveQueued(t.name)}
+                                    className="shrink-0 px-1 rounded-sm text-gray-400 hover:text-red-300 hover:bg-gray-700 cursor-pointer"
+                                    title="Remove from load queue"
+                                    aria-label={`Remove ${basename(t.name)} from load queue`}
+                                >
+                                    ×
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+            {loadErrors.map((e) => (
+                <div
+                    key={e.name}
+                    className="flex items-start justify-between gap-2 pt-1 border-t border-gray-700/60"
+                >
+                    <div className="min-w-0">
+                        <div className="truncate" title={e.name}>{basename(e.name)}</div>
+                        <div className="text-[11px] text-red-400 break-all">{e.message}</div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => onClearLoadError(e.name)}
+                        className="shrink-0 px-1 rounded-sm text-gray-400 hover:text-white hover:bg-gray-700 cursor-pointer"
+                        title="Dismiss"
+                        aria-label={`Dismiss error for ${basename(e.name)}`}
+                    >
+                        ×
+                    </button>
+                </div>
+            ))}
         </div>
     );
 };
@@ -539,20 +658,30 @@ const ConversionProgress = () => {
     const clearJob = useConversionStore((s) => s.clearJob);
     const sweeps = useCompressionStore((s) => s.sweeps);
     const clearSweep = useCompressionStore((s) => s.clearSweep);
-    const loadCurrentName = useLoadQueueStore((s) => s.current?.name ?? null);
-    const loadQueueActive = useLoadQueueStore(
-        (s) => s.current !== null || s.queued.length > 0 || s.errors.length > 0,
-    );
+    const loadCurrent = useLoadQueueStore((s) => s.current);
+    const loadQueued = useLoadQueueStore((s) => s.queued);
+    const loadErrors = useLoadQueueStore((s) => s.errors);
+    const removeQueued = useLoadQueueStore((s) => s.removeQueued);
+    const clearError = useLoadQueueStore((s) => s.clearError);
+    const loadCurrentName = loadCurrent?.name ?? null;
+    const loadQueueActive =
+        loadCurrent !== null || loadQueued.length > 0 || loadErrors.length > 0;
 
     // In-progress jobs collapse into one toast; errors stay split so
     // each one's traceback + copy button is reachable. The job driving
-    // the current scene load is hidden here — LoadQueueToast already
-    // shows its progress, and two bars for one model reads as two jobs.
+    // the current scene load is hidden from the conversion rows — the
+    // unified toast's load row already shows it as the "Loading" stage,
+    // and two bars for one model reads as two jobs.
     const inProgress = Object.entries(jobs)
         .filter(([k, j]) =>
             (j.status === "queued" || j.status === "running") &&
             !(loadCurrentName && k.startsWith(loadCurrentName + "::")))
         .map(([, j]) => j);
+    // The conversion/bake job still driving the current scene load (if any),
+    // so the load row can surface its % + stage until it finishes.
+    const loadJob = loadCurrentName
+        ? Object.entries(jobs).find(([k]) => k.startsWith(loadCurrentName + "::"))?.[1]
+        : undefined;
     const errored = Object.values(jobs).filter((j) => j.status === "error");
     const allVisible = [...inProgress, ...errored];
     const visibleSweeps = Object.entries(sweeps);
@@ -580,7 +709,6 @@ const ConversionProgress = () => {
         // ``max-w-sm`` (24rem).
         <div className="absolute bottom-4 left-4 right-4 sm:left-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto">
             <AuditActivityBadge/>
-            <LoadQueueToast/>
             {visibleSweeps.map(([scopeLabel, state]) => (
                 <CompressionToast
                     key={`compress:${scopeLabel}`}
@@ -589,9 +717,16 @@ const ConversionProgress = () => {
                     onDismiss={() => clearSweep(scopeLabel)}
                 />
             ))}
-            {inProgress.length > 0 && (
-                <InProgressToast jobs={inProgress} onClearJob={clearJob}/>
-            )}
+            <UnifiedToast
+                conversionJobs={inProgress}
+                onClearJob={clearJob}
+                loadCurrent={loadCurrent}
+                loadJob={loadJob}
+                loadQueued={loadQueued}
+                loadErrors={loadErrors}
+                onRemoveQueued={removeQueued}
+                onClearLoadError={clearError}
+            />
             {errored.map((job) => (
                 <div
                     key={job.sourceKey}
