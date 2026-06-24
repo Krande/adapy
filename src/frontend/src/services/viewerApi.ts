@@ -584,6 +584,11 @@ export interface ConvertMeta {
     step_glb_pipeline?: string;
     glb_compression?: string;
     stream_workers?: string | number | null;
+    // Wall-clock split of the recorded duration: the conversion proper vs the
+    // GLB-compression (meshopt) post-step, so compression cost isn't mistaken
+    // for a slower conversion.
+    convert_ms?: number | null;
+    compress_ms?: number | null;
     options?: Record<string, string>;
 }
 

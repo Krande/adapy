@@ -1435,6 +1435,12 @@ async def _process_one(
         # separate path we unlink after upload.
         upload_path = iresult.out_path
         compressed_path = None
+        # The audit's duration_ms is whole-job wall-clock (started_at → done), so a
+        # meshopt encode reads as a slower *conversion*. Split it: convert_ms is the
+        # time up to here (conversion proper), compress_ms is just the GLB-compression
+        # post-step. Both land on convert_meta so the audit can show the breakdown.
+        if isinstance(convert_meta, dict):
+            convert_meta["convert_ms"] = round((time.monotonic() - started_at) * 1000)
         if job.target_format == "glb":
             _opts = getattr(job, "conversion_options", None) or {}
             # Default-on: a job that doesn't set glb_compression still gets
@@ -1446,7 +1452,10 @@ async def _process_one(
                 try:
                     from ada.visit.gltf.compress import compress_glb
 
+                    _compress_t0 = time.monotonic()
                     packed = compress_glb(iresult.out_path, str(_mode))
+                    if isinstance(convert_meta, dict):
+                        convert_meta["compress_ms"] = round((time.monotonic() - _compress_t0) * 1000)
                     if str(packed) != str(iresult.out_path):
                         compressed_path = str(packed)
                         upload_path = compressed_path

@@ -624,6 +624,20 @@ const ConvertEngine: React.FC<{meta: import("@/services/viewerApi").ConvertMeta}
                 {meta.stream_workers != null && meta.stream_workers !== "" && (
                     <><dt className="text-gray-400">Workers</dt><dd>{String(meta.stream_workers)}</dd></>
                 )}
+                {meta.convert_ms != null && (
+                    <><dt className="text-gray-400">Convert</dt><dd>{meta.convert_ms} ms</dd></>
+                )}
+                {meta.compress_ms != null && (
+                    <>
+                        <dt className="text-gray-400">Compress</dt>
+                        <dd className="text-sky-300">
+                            {meta.compress_ms} ms
+                            {meta.convert_ms != null && meta.convert_ms > 0
+                                ? ` (+${Math.round((meta.compress_ms / meta.convert_ms) * 100)}%)`
+                                : ""}
+                        </dd>
+                    </>
+                )}
             </dl>
             {optKeys.length > 0 && (
                 <div className="pt-1">
