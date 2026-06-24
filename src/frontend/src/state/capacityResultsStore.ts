@@ -85,7 +85,24 @@ export interface CapacityVisualField {
   kind: string;
   storage: "json" | "afel" | string;
   range?: [number, number];
-  cases: CapacityVisualFieldCase[];
+  /** Legacy ``storage: "json"`` only — inline per-(case, element) values. v6
+   *  ``storage: "afel"`` fields omit this and carry the blob pointer below. */
+  cases?: CapacityVisualFieldCase[];
+  /** v6 AFEL colour blob (``storage: "afel"``). The element axis and case-step
+   *  axis are shared across all fields and live on the run
+   *  (``element_axis`` / ``field_case_steps``). One blob holds every case
+   *  (step); the viewer Range-fetches a single (field, case) step. */
+  blob_url?: string;
+  header_bytes?: number;
+  stride_bytes?: number;
+  dtype?: string;
+  byte_order?: "little" | "big" | string;
+}
+
+export interface CapacityCaseDetailPointer {
+  strategy: string;
+  /** Filename template with a ``{case}`` placeholder, manifest-relative. */
+  url_template: string;
 }
 
 export interface CapacityRun {
@@ -97,8 +114,16 @@ export interface CapacityRun {
   result_cases: Array<{ id: string; label?: string }>;
   capacity_models: CapacityModel[];
   check_catalog?: CapacityCheckCatalogEntry[];
+  /** v6: empty in the spine; per-case rows are lazy-loaded into the store's
+   *  ``caseDetail`` map. Legacy sidecars (<=v5) inline the full array here. */
   case_results: CapacityCaseResult[];
   visual_fields: CapacityVisualField[];
+  /** v6: shared element axis for the AFEL colour blobs (payload-row order). */
+  element_axis?: number[];
+  /** v6: shared case-step axis for the AFEL colour blobs (step order). */
+  field_case_steps?: string[];
+  /** v6: pointer to the per-case detail files. */
+  case_detail?: CapacityCaseDetailPointer;
 }
 
 export interface CapacityResults {
@@ -124,6 +149,11 @@ export interface CapacityResultsState {
   failedOnly: boolean;
   loading: boolean;
   error: string | null;
+  /** v6 lazy per-case detail: ``case_id -> rows``, fetched on demand when a
+   *  case becomes active. Legacy (<=v5) sidecars never populate this; controls
+   *  fall back to the inline ``run.case_results``. */
+  caseDetail: Record<string, CapacityCaseResult[]>;
+  caseDetailLoading: Record<string, boolean>;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setCapacityData: (
@@ -131,6 +161,8 @@ export interface CapacityResultsState {
     source: CapacitySource,
     results: CapacityResults,
   ) => void;
+  setCaseDetail: (caseId: string, rows: CapacityCaseResult[]) => void;
+  setCaseDetailLoading: (caseId: string, loading: boolean) => void;
   clear: () => void;
   setActiveRunId: (runId: string | null) => void;
   setActiveCaseId: (caseId: string | null) => void;
@@ -165,6 +197,8 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   failedOnly: false,
   loading: false,
   error: null,
+  caseDetail: {},
+  caseDetailLoading: {},
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error, loading: false }),
   setCapacityData: (manifest, source, results) => {
@@ -183,10 +217,21 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       activeMetricId: DEFAULT_METRIC,
       selectedModelId: null,
       selectedResultId: null,
+      caseDetail: {},
+      caseDetailLoading: {},
       loading: false,
       error: null,
     });
   },
+  setCaseDetail: (caseId, rows) =>
+    set((state) => ({
+      caseDetail: { ...state.caseDetail, [caseId]: rows },
+      caseDetailLoading: { ...state.caseDetailLoading, [caseId]: false },
+    })),
+  setCaseDetailLoading: (caseId, loading) =>
+    set((state) => ({
+      caseDetailLoading: { ...state.caseDetailLoading, [caseId]: loading },
+    })),
   clear: () =>
     set({
       manifest: null,
@@ -202,6 +247,8 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       selectedModelId: null,
       selectedResultId: null,
       failedOnly: false,
+      caseDetail: {},
+      caseDetailLoading: {},
       loading: false,
       error: null,
     }),

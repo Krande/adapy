@@ -28,6 +28,7 @@ import {
   clearCapacityIsolation,
   clearCapacityStations,
   clearCapacityVisualField,
+  loadCapacityCaseDetail,
 } from "@/utils/scene/handlers/load_fea_streaming";
 
 // Per-position marker colours (positions 1/2/3). Keep in sync with
@@ -48,6 +49,8 @@ const CapacityControls: React.FC = () => {
     failedOnly,
     loading,
     error,
+    caseDetail,
+    caseDetailLoading,
     setActiveRunId,
     setActiveCaseId,
     setShowDefinitions,
@@ -72,20 +75,33 @@ const CapacityControls: React.FC = () => {
     return results.runs.find((r) => r.id === activeRunId) ?? results.runs[0];
   }, [results, activeRunId]);
 
-  const rows = useMemo(() => {
+  // v6: the active case's verbose rows are lazy-loaded into caseDetail; legacy
+  // (<=v5) sidecars inline them on the run, so fall back to that.
+  const activeRows = useMemo(() => {
     if (!run || !activeCaseId) return [];
-    const base = run.case_results
-      .filter((row) => row.case_id === activeCaseId)
+    return (
+      caseDetail[activeCaseId] ??
+      run.case_results.filter((row) => row.case_id === activeCaseId)
+    );
+  }, [run, activeCaseId, caseDetail]);
+
+  // Fetch the active case's detail on demand (v6 per-case files).
+  useEffect(() => {
+    if (!run?.case_detail || !activeCaseId) return;
+    if (caseDetail[activeCaseId] || caseDetailLoading[activeCaseId]) return;
+    void loadCapacityCaseDetail(activeCaseId);
+  }, [run, activeCaseId, caseDetail, caseDetailLoading]);
+
+  const rows = useMemo(() => {
+    if (!activeCaseId) return [];
+    return activeRows
       .filter((row) => !failedOnly || !row.passed)
+      .slice()
       .sort((a, b) => (b.governing_usage ?? -1) - (a.governing_usage ?? -1));
-    return base;
-  }, [run, activeCaseId, failedOnly]);
+  }, [activeRows, activeCaseId, failedOnly]);
 
   const selectedRow = useMemo(() => {
     if (!run || !activeCaseId) return null;
-    const activeRows = run.case_results.filter(
-      (row) => row.case_id === activeCaseId,
-    );
     if (selectedResultId) {
       const resultMatch = activeRows.find(
         (row) => caseResultKey(row) === selectedResultId,
@@ -100,7 +116,7 @@ const CapacityControls: React.FC = () => {
           (a, b) => (b.governing_usage ?? -1) - (a.governing_usage ?? -1),
         )[0] ?? null
     );
-  }, [run, selectedModelId, selectedResultId, activeCaseId]);
+  }, [run, activeRows, selectedModelId, selectedResultId, activeCaseId]);
 
   const meshWarningCount = useMemo(() => {
     if (!run) return 0;
@@ -126,11 +142,9 @@ const CapacityControls: React.FC = () => {
     }
     if (showResults && activeCaseId) {
       if (individualUf) {
-        applyCapacityIndividualField(
-          buildIndividualUfValues(run, activeCaseId),
-        );
+        applyCapacityIndividualField(buildIndividualUfValues(activeRows, run));
       } else {
-        applyCapacityVisualField(activeMetricId, activeCaseId);
+        void applyCapacityVisualField(activeMetricId, activeCaseId);
       }
     } else {
       clearCapacityVisualField();
@@ -138,6 +152,7 @@ const CapacityControls: React.FC = () => {
     applyCapacitySelectionHighlight();
   }, [
     run,
+    activeRows,
     activeCaseId,
     activeMetricId,
     showDefinitions,
@@ -596,14 +611,13 @@ const CapacityInputDetails: React.FC<{
  *  + tributary plate strip carries that stiffener's UF (max where strips overlap),
  *  so within a panel you see each stiffener's UF rather than the panel maximum. */
 function buildIndividualUfValues(
+  rows: CapacityCaseResultLike[],
   run: CapacityRunLike,
-  caseId: string,
 ): Array<{ element_id: number; value: number | null }> {
   const byElement = new Map<number, number>();
   const modelById = new Map(run.capacity_models.map((m) => [m.id, m]));
   const stiffMaps = new Map<string, Map<string, Record<string, unknown>>>();
-  for (const r of run.case_results) {
-    if (r.case_id !== caseId) continue;
+  for (const r of rows) {
     const model = modelById.get(r.capacity_model_id);
     if (!model) continue;
     let byName = stiffMaps.get(model.id);
@@ -891,11 +905,12 @@ function activeMetricScores(
 ): Map<string, number> {
   const out = new Map<string, number>();
   const caseId =
-    activeCaseId ?? run.result_cases[0]?.id ?? run.case_results[0]?.case_id;
+    activeCaseId ?? run.result_cases[0]?.id ?? run.field_case_steps?.[0];
   if (!caseId) return out;
 
+  // Legacy (<=v5) inline json field path.
   const field = run.visual_fields.find((f) => f.id === activeMetricId);
-  const fieldCase = field?.cases.find((c) => c.case_id === caseId);
+  const fieldCase = field?.cases?.find((c) => c.case_id === caseId);
   if (fieldCase) {
     for (const value of fieldCase.values) {
       if (
@@ -911,12 +926,26 @@ function activeMetricScores(
     return out;
   }
 
-  for (const row of run.case_results) {
-    if (row.case_id === caseId && row.governing_usage != null) {
-      const previous = out.get(row.capacity_model_id);
-      if (previous == null || row.governing_usage > previous) {
-        out.set(row.capacity_model_id, row.governing_usage);
-      }
+  // v6: per-model score from the active case's loaded detail rows. This is a
+  // tie-breaker for picking (which model an element belongs to), so missing
+  // (not-yet-loaded) detail just falls back to element-count ordering.
+  const store = useCapacityResultsStore.getState();
+  const rows =
+    store.caseDetail[caseId] ??
+    run.case_results.filter((r) => r.case_id === caseId);
+  const checkId =
+    activeMetricId.startsWith("capacity.uf.") &&
+    activeMetricId !== "capacity.uf.governing"
+      ? activeMetricId.slice("capacity.uf.".length)
+      : null;
+  for (const row of rows) {
+    const score = checkId
+      ? row.checks?.find((c) => c.id === checkId)?.usage ?? null
+      : row.governing_usage;
+    if (score == null || !isFinite(score)) continue;
+    const previous = out.get(row.capacity_model_id);
+    if (previous == null || score > previous) {
+      out.set(row.capacity_model_id, score);
     }
   }
   return out;

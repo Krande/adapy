@@ -14,7 +14,14 @@ import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
 import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batch_mesh";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
-import {CapacityManifest, FeaManifest, FeaManifestField, ScopeUrl, viewerApi} from "@/services/viewerApi";
+import {
+    CapacityManifest,
+    FeaManifest,
+    FeaManifestField,
+    FeaManifestFieldPerType,
+    ScopeUrl,
+    viewerApi,
+} from "@/services/viewerApi";
 import {sceneRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
@@ -81,6 +88,15 @@ interface ActiveFeaStreaming {
     /** Numbered marker sprites at the 3 Section-5 stations of the selected
      *  stiffener (positions 1/2/3 of the resolved design stresses). */
     capacityStationsGroup?: THREE.Group;
+    /** Fetchers retained so the capacity overlay can Range-fetch AFEL colour
+     *  blobs and lazy-load per-case detail after the initial load, using the
+     *  same manifest-relative resolver as the FEA artefacts (capacity files are
+     *  co-located in the artefact dir). */
+    capacityFetch?: {
+        fetcher: FeaFetcher;
+        rangeFetcher: FeaRangeFetcher;
+        cacheKey: string;
+    };
 }
 
 // Per-position marker colours (positions 1/2/3). Keep in sync with the capacity
@@ -117,6 +133,7 @@ export function setBeamSolidsVisible(visible: boolean): void {
 
 export function clearActiveFeaStreaming(): void {
     active = null;
+    clearCapacityStepCache();
     useFeaAnimationStore.getState().reset();
     useCapacityResultsStore.getState().clear();
     resetFeaAnimationPhase();
@@ -583,10 +600,10 @@ function fetchCapacityBuffer(
     return fetcher(resultsUrl);
 }
 
-export function applyCapacityVisualField(
+export async function applyCapacityVisualField(
     metricId?: string,
     caseId?: string,
-): boolean {
+): Promise<boolean> {
     if (!active?.mesh) return false;
     const store = useCapacityResultsStore.getState();
     const results = store.results;
@@ -595,18 +612,130 @@ export function applyCapacityVisualField(
     if (!run) return false;
     const fieldId = metricId ?? store.activeMetricId;
     const activeCaseId =
-        caseId ?? store.activeCaseId ?? run.result_cases?.[0]?.id ?? run.case_results?.[0]?.case_id;
+        caseId
+        ?? store.activeCaseId
+        ?? run.result_cases?.[0]?.id
+        ?? run.field_case_steps?.[0]
+        ?? run.case_results?.[0]?.case_id;
     if (!activeCaseId) return false;
     const field = run.visual_fields.find((f) => f.id === fieldId);
-    const fieldCase = field?.cases.find((c) => c.case_id === activeCaseId);
-    if (!field || !fieldCase || field.storage !== "json") return false;
+    if (!field) return false;
 
-    paintCapacityEntries(active.mesh, fieldCase.values);
+    let values: Array<{element_id: number; value: number | null}> | null = null;
+    if (field.storage === "afel") {
+        values = await fetchAfelCapacityValues(run, field, activeCaseId);
+    } else if (field.storage === "json") {
+        // Legacy (<=v5) inline values.
+        values = field.cases?.find((c) => c.case_id === activeCaseId)?.values ?? null;
+    }
+    if (!values) return false;
+    // The store may have moved on while we awaited the Range fetch (user clicked
+    // a different case/metric). Both call sites paint the *active* selection, so
+    // drop the paint if it no longer matches what is selected now.
+    if (!active?.mesh) return false;
+    const now = useCapacityResultsStore.getState();
+    if (now.activeCaseId !== activeCaseId || now.activeMetricId !== fieldId) {
+        return false;
+    }
+
+    paintCapacityEntries(active.mesh, values);
     if (active.beamSolidMesh) {
-        paintCapacityEntries(active.beamSolidMesh, fieldCase.values);
+        paintCapacityEntries(active.beamSolidMesh, values);
     }
     applyCapacitySelectionHighlight();
+    requestRender();
     return true;
+}
+
+// Cache decoded AFEL (field, case) steps so re-selecting a case repaints
+// instantly. Keyed by source + blob url + step. Cleared on scene swap via the
+// underlying ELEM_*_CACHE in feaElemFieldBlob (whole-blob) plus this map.
+const CAPACITY_STEP_CACHE = new Map<string, Array<{element_id: number; value: number | null}>>();
+
+function clearCapacityStepCache(): void {
+    CAPACITY_STEP_CACHE.clear();
+}
+
+/** Range-fetch one (field, case) step of an AFEL capacity colour blob and map it
+ *  to ``{element_id, value}`` paint entries via the run's shared element axis.
+ *  Returns ``null`` when the fetch context, axis, or step is unavailable. */
+async function fetchAfelCapacityValues(
+    run: CapacityResults["runs"][number],
+    field: CapacityResults["runs"][number]["visual_fields"][number],
+    caseId: string,
+): Promise<Array<{element_id: number; value: number | null}> | null> {
+    const ctx = active?.capacityFetch;
+    const labels = run.element_axis;
+    const steps = run.field_case_steps ?? run.result_cases.map((c) => c.id);
+    if (!ctx || !labels?.length || !field.blob_url) return null;
+    const stepIndex = steps.indexOf(caseId);
+    if (stepIndex < 0) return null;
+
+    const cacheKey = `${active?.sourceName ?? ""}::${field.blob_url}::${stepIndex}`;
+    const cached = CAPACITY_STEP_CACHE.get(cacheKey);
+    if (cached) return cached;
+
+    // Reuse the AFEL single-step Range fetch the simulation element-field path
+    // uses. n_ips = n_components = 1, so a step is one float per element.
+    const bucket: FeaManifestFieldPerType = {
+        elem_type: "capacity",
+        n_elements: labels.length,
+        n_ips: 1,
+        ip_layout: [],
+        element_labels: labels,
+        blob: {
+            url: field.blob_url,
+            header_bytes: field.header_bytes ?? 1024,
+            stride_bytes: field.stride_bytes ?? labels.length * 4,
+            dtype: field.dtype ?? "float32",
+            byte_order: (field.byte_order as "little" | "big") ?? "little",
+        },
+        scalar_range: {},
+    };
+    let step: Float32Array;
+    try {
+        step = await fetchElemFieldStep(ctx.rangeFetcher, ctx.fetcher, bucket, stepIndex, ctx.cacheKey);
+    } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(`[capacity] failed to fetch AFEL step for ${field.blob_url}:`, err);
+        return null;
+    }
+    const out: Array<{element_id: number; value: number | null}> = [];
+    for (let i = 0; i < labels.length; i++) {
+        const v = step[i];
+        if (Number.isFinite(v)) out.push({element_id: labels[i], value: v});
+    }
+    CAPACITY_STEP_CACHE.set(cacheKey, out);
+    return out;
+}
+
+/** Lazy-load one result case's verbose detail rows into the capacity store.
+ *  Idempotent: a no-op when the case is already loaded or in flight. Resolves
+ *  the per-case file via the run's ``case_detail.url_template``. */
+export async function loadCapacityCaseDetail(caseId: string): Promise<void> {
+    const ctx = active?.capacityFetch;
+    if (!ctx) return;
+    const store = useCapacityResultsStore.getState();
+    const results = store.results;
+    if (!results) return;
+    const run = results.runs.find((r) => r.id === store.activeRunId) ?? results.runs[0];
+    const template = run?.case_detail?.url_template;
+    if (!run || !template) return;
+    if (store.caseDetail[caseId] || store.caseDetailLoading[caseId]) return;
+
+    store.setCaseDetailLoading(caseId, true);
+    try {
+        const url = template.replace("{case}", encodeURIComponent(caseId));
+        const buf = await ctx.fetcher(url);
+        const payload = JSON.parse(new TextDecoder("utf-8").decode(buf)) as {
+            case_results?: CapacityResults["runs"][number]["case_results"];
+        };
+        useCapacityResultsStore.getState().setCaseDetail(caseId, payload.case_results ?? []);
+    } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(`[capacity] failed to load case detail for ${caseId}:`, err);
+        useCapacityResultsStore.getState().setCaseDetail(caseId, []);
+    }
 }
 
 /** Colour elements by explicit per-element UF values (rest neutral) — used for
@@ -1339,7 +1468,13 @@ export async function load_fea_streaming(args: {
         if (!mesh) throw new Error("loaded GLB has no mesh");
         const basePositions = snapshotBasePositions(mesh.geometry);
 
-        active = {sourceName, manifest, mesh, basePositions};
+        active = {
+            sourceName,
+            manifest,
+            mesh,
+            basePositions,
+            capacityFetch: {fetcher, rangeFetcher, cacheKey},
+        };
         // Material flags (vertexColors + morphTargets) are flipped on
         // inside applyFieldToMesh so they cover both the array-typed
         // material that prepareLoadedModel installs on
