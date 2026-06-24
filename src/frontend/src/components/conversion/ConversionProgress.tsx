@@ -478,27 +478,27 @@ const LoadRow: React.FC<{name: string; job?: ConversionJob}> = ({name, job}) => 
 const UnifiedToast: React.FC<{
     conversionJobs: ConversionJob[];
     onClearJob: (sourceKey: string) => void;
-    loadCurrent: LoadTask | null;
+    loadName: string | null;
     loadJob?: ConversionJob;
     loadQueued: LoadTask[];
     loadErrors: Array<{name: string; message: string}>;
     onRemoveQueued: (name: string) => void;
     onClearLoadError: (name: string) => void;
 }> = ({
-    conversionJobs, onClearJob, loadCurrent, loadJob,
+    conversionJobs, onClearJob, loadName, loadJob,
     loadQueued, loadErrors, onRemoveQueued, onClearLoadError,
 }) => {
     if (
-        !loadCurrent && conversionJobs.length === 0 &&
+        !loadName && conversionJobs.length === 0 &&
         loadQueued.length === 0 && loadErrors.length === 0
     ) {
         return null;
     }
     return (
         <div className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700 space-y-1">
-            {loadCurrent && <LoadRow name={loadCurrent.name} job={loadJob}/>}
+            {loadName && <LoadRow name={loadName} job={loadJob}/>}
             {conversionJobs.length > 0 && (
-                <div className={loadCurrent ? "pt-1 border-t border-gray-700/60" : ""}>
+                <div className={loadName ? "pt-1 border-t border-gray-700/60" : ""}>
                     <ConversionRows jobs={conversionJobs} onClearJob={onClearJob}/>
                 </div>
             )}
@@ -664,25 +664,39 @@ const ConversionProgress = () => {
     const removeQueued = useLoadQueueStore((s) => s.removeQueued);
     const clearError = useLoadQueueStore((s) => s.clearError);
     const loadCurrentName = loadCurrent?.name ?? null;
-    const loadQueueActive =
-        loadCurrent !== null || loadQueued.length > 0 || loadErrors.length > 0;
 
-    // In-progress jobs collapse into one toast; errors stay split so
-    // each one's traceback + copy button is reachable. The job driving
-    // the current scene load is hidden from the conversion rows — the
-    // unified toast's load row already shows it as the "Loading" stage,
-    // and two bars for one model reads as two jobs.
+    // The in-scene GLB download/parse is tracked as a conversionStore job under a
+    // sentinel key (asyncModelLoader's LOAD_KEY). It's the SAME activity as the
+    // scene load, so it must feed the single load row — not show as its own
+    // conversion row (that's the "two toasts for one load" the merge was meant
+    // to kill). Direct loadGLTF calls (no load-queue entry) set it without a
+    // loadCurrent, so the load row falls back to this job's own name.
+    const MODEL_LOAD_KEY = "__model_load__";
+    const modelLoadJob = jobs[MODEL_LOAD_KEY];
+    const modelLoadActive =
+        !!modelLoadJob && (modelLoadJob.status === "queued" || modelLoadJob.status === "running");
+
+    const loadName = loadCurrentName ?? (modelLoadActive ? modelLoadJob.derivedKey || "model" : null);
+    const loadQueueActive =
+        loadName !== null || loadQueued.length > 0 || loadErrors.length > 0;
+
+    // In-progress jobs collapse into one toast; errors stay split so each one's
+    // traceback + copy button is reachable. Excluded from the conversion rows:
+    // (a) the conversion/bake job driving the current scene load, and (b) the
+    // __model_load__ GLB-download job — both surface on the single load row.
     const inProgress = Object.entries(jobs)
         .filter(([k, j]) =>
             (j.status === "queued" || j.status === "running") &&
+            k !== MODEL_LOAD_KEY &&
             !(loadCurrentName && k.startsWith(loadCurrentName + "::")))
         .map(([, j]) => j);
-    // The conversion/bake job still driving the current scene load (if any),
-    // so the load row can surface its % + stage until it finishes.
-    const loadJob = loadCurrentName
-        ? Object.entries(jobs).find(([k]) => k.startsWith(loadCurrentName + "::"))?.[1]
-        : undefined;
-    const errored = Object.values(jobs).filter((j) => j.status === "error");
+    // Load-row progress: the conversion/bake job still feeding the load if one is
+    // running, else the GLB download job — so the bar runs queue→convert→upload→load.
+    const loadJob =
+        (loadCurrentName
+            ? Object.entries(jobs).find(([k]) => k.startsWith(loadCurrentName + "::"))?.[1]
+            : undefined) ?? (modelLoadActive ? modelLoadJob : undefined);
+    const errored = Object.values(jobs).filter((j) => j.status === "error" && j.sourceKey !== MODEL_LOAD_KEY);
     const allVisible = [...inProgress, ...errored];
     const visibleSweeps = Object.entries(sweeps);
 
@@ -720,7 +734,7 @@ const ConversionProgress = () => {
             <UnifiedToast
                 conversionJobs={inProgress}
                 onClearJob={clearJob}
-                loadCurrent={loadCurrent}
+                loadName={loadName}
                 loadJob={loadJob}
                 loadQueued={loadQueued}
                 loadErrors={loadErrors}
