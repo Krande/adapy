@@ -240,6 +240,18 @@ export class OrientationGizmo extends HTMLElement {
     }
 
     update() {
+        // The gizmo is a 2D canvas (drawImage/fillText/fillRect). Redrawing it on
+        // every animation frame pegs the main thread on low-core mobile (Samsung
+        // S21 etc.) and competes with model loading. Skip the redraw unless the
+        // camera orientation or the hover position actually changed.
+        const q = this.camera.quaternion;
+        const m = this.mouse;
+        const sig =
+            q.x.toFixed(4) + "," + q.y.toFixed(4) + "," + q.z.toFixed(4) + "," + q.w.toFixed(4) +
+            "|" + (m ? Math.round(m.x) + "," + Math.round(m.y) : "-");
+        if (sig === this._drawSig) return;
+        this._drawSig = sig;
+
         this.clear();
 
         // Calculate the rotation matrix from the camera
