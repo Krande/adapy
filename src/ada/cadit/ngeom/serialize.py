@@ -386,6 +386,35 @@ class _Encoder:
         )
         return self._add(_REVOLVED_AREA_SOLID, body)
 
+    def _xz_planar_face(self, pts3d) -> int:
+        """Planar FACE_SURFACE in the local XZ plane (y=0; normal=+Y, ref=+X)."""
+        place = self._add(_PLACEMENT3, self.v3((0.0, 0.0, 0.0)) + self.v3((0.0, 1.0, 0.0)) + self.v3((1.0, 0.0, 0.0)))
+        plane = self._add(_PLANE, self.i32(place))
+        loop = self._add(_POLY_LOOP, self.i32(len(pts3d)) + b"".join(self.v3(p) for p in pts3d))
+        bound = self._add(_FACE_BOUND, self.i32(loop) + self.i32(1))
+        return self._add(_FACE_SURFACE, self.i32(plane) + self.i32(1) + self.i32(1) + self.i32(bound))
+
+    def _revolve_z(self, face: int, position) -> int:
+        """Emit a REVOLVED_AREA_SOLID: ``face`` revolved 360deg about local Z,
+        placed by ``position``."""
+        import math
+
+        axis = self._add(_PLACEMENT1, self.v3((0.0, 0.0, 0.0)) + self.v3((0.0, 0.0, 1.0)))
+        body = self.i32(face) + self.i32(self.placement3(position)) + self.i32(axis) + self.f64(2 * math.pi)
+        return self._add(_REVOLVED_AREA_SOLID, body)
+
+    def cylinder_solid(self, cyl) -> int:
+        """Cylinder -> a radius x height rectangle (XZ plane) revolved about Z."""
+        r, h = float(cyl.radius), float(cyl.height)
+        face = self._xz_planar_face([(0.0, 0.0, 0.0), (r, 0.0, 0.0), (r, 0.0, h), (0.0, 0.0, h)])
+        return self._revolve_z(face, cyl.position)
+
+    def cone_solid(self, cone) -> int:
+        """Cone -> a base-radius/height triangle (XZ plane) revolved about Z."""
+        r, h = float(cone.bottom_radius), float(cone.height)
+        face = self._xz_planar_face([(0.0, 0.0, 0.0), (r, 0.0, 0.0), (0.0, 0.0, h)])
+        return self._revolve_z(face, cone.position)
+
     def _planar_face_from_loop(self, bound) -> int:
         """Synthesize a planar FACE_SURFACE from a closed 3D loop (a fitted plane
         through its points). Beam.shell_geom puts bare FaceBound/PolyLoops in its
@@ -451,6 +480,10 @@ class _Encoder:
             return self.revolved_area_solid(geom)
         if isinstance(geom, _so.Box):
             return self.box_solid(geom)
+        if isinstance(geom, _so.Cylinder):
+            return self.cylinder_solid(geom)
+        if isinstance(geom, _so.Cone):
+            return self.cone_solid(geom)
         if isinstance(geom, su.FaceBasedSurfaceModel):
             return self.face_based_surface_model(geom)
         if isinstance(geom, su.FaceSurface):
