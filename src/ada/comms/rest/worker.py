@@ -1024,6 +1024,9 @@ async def _process_one(
                 "use_sat_pcurves": "ADA_USE_SAT_PCURVES",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
+                # STEP→GLB tessellation engine (libtess2 / occ-builtin / step2glb /
+                # adacpp-{occ,cgal,hybrid}); enum string, read by _resolve_step_glb_pipeline.
+                "step_glb_pipeline": "ADAPY_STEP_GLB_PIPELINE",
                 # STEP→GLB streaming defaults (large-file OOM guard).
                 "step_streamer_auto": "ADA_STEP_STREAMER_AUTO",
                 "step_streamer_threshold_mb": "ADA_STEP_STREAMER_THRESHOLD_MB",
@@ -1052,6 +1055,7 @@ async def _process_one(
                 "use_sat_pcurves": "ADA_USE_SAT_PCURVES",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
+                "step_glb_pipeline": "ADAPY_STEP_GLB_PIPELINE",
                 "step_streamer": "ADA_STEP_STREAMER",
                 "ifc_streaming": "ADA_IFC_STREAMING",
                 "tess_linear_deflection": "ADA_OCC_TESS_LINEAR_DEFLECTION",

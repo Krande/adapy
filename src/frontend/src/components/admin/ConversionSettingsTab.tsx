@@ -108,6 +108,20 @@ function triToString(tri: TriState): string {
 
 const TIMEOUT_KEY = "conversion_timeout_minutes";
 
+// STEP→GLB tessellation engine. Empty = adapy's code default (libtess2). Maps to
+// the ADAPY_STEP_GLB_PIPELINE env the worker applies per job; per-job convert-dialog
+// overrides win over this global default.
+const STEP_GLB_PIPELINE_KEY = "step_glb_pipeline";
+const PIPELINE_OPTIONS: {value: string; label: string}[] = [
+    {value: "", label: "Unset — adapy default (libtess2)"},
+    {value: "libtess2", label: "libtess2 — adacpp OCC-free (full curved geometry)"},
+    {value: "occ-builtin", label: "occ-builtin — OpenCASCADE (drops some curved surfaces)"},
+    {value: "step2glb", label: "step2glb — external binary"},
+    {value: "adacpp-occ", label: "adacpp-occ — taxonomy / OCCT kernel"},
+    {value: "adacpp-cgal", label: "adacpp-cgal — taxonomy / CGAL kernel"},
+    {value: "adacpp-hybrid", label: "adacpp-hybrid — taxonomy / hybrid kernel"},
+];
+
 const ConversionSettingsTab: React.FC = () => {
     const [values, setValues] = useState<Record<string, TriState>>(() =>
         Object.fromEntries(ROWS.map((r) => [r.key, "unset"])),
@@ -121,6 +135,9 @@ const ConversionSettingsTab: React.FC = () => {
     const [solidTimeout, setSolidTimeout] = useState("");
     const [solidTimeoutSaving, setSolidTimeoutSaving] = useState(false);
     const [solidTimeoutSavedAt, setSolidTimeoutSavedAt] = useState<number | null>(null);
+    const [pipeline, setPipeline] = useState("");
+    const [pipelineSaving, setPipelineSaving] = useState(false);
+    const [pipelineSavedAt, setPipelineSavedAt] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState<Record<string, boolean>>({});
     const [error, setError] = useState<string | null>(null);
@@ -141,6 +158,8 @@ const ConversionSettingsTab: React.FC = () => {
                 if (!cancelled) setStreamerThreshold((thr || "").trim());
                 const sto = await viewerApi.adminGetSetting(SOLID_TIMEOUT_KEY);
                 if (!cancelled) setSolidTimeout((sto || "").trim());
+                const pp = await viewerApi.adminGetSetting(STEP_GLB_PIPELINE_KEY);
+                if (!cancelled) setPipeline((pp || "").trim());
                 if (!cancelled) setValues(next);
             } catch (e) {
                 if (!cancelled) setError(e instanceof ApiError ? e.detail || e.message : String(e));
@@ -232,6 +251,20 @@ const ConversionSettingsTab: React.FC = () => {
         }
     };
 
+    const onPipelineChange = async (next: string) => {
+        setPipelineSaving(true);
+        setError(null);
+        try {
+            await viewerApi.adminSetSetting(STEP_GLB_PIPELINE_KEY, next);
+            setPipeline(next);
+            setPipelineSavedAt(Date.now());
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setPipelineSaving(false);
+        }
+    };
+
     const anySaving = useMemo(() => Object.values(saving).some(Boolean), [saving]);
 
     return (
@@ -248,6 +281,44 @@ const ConversionSettingsTab: React.FC = () => {
                 </div>
             )}
             <div className="flex-1 min-h-0 overflow-auto">
+                {!loading && (
+                    <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+                        <div>
+                            <div className="font-medium text-sm">STEP→GLB tessellator</div>
+                            <div className="text-[11px] text-gray-400 font-mono">
+                                {STEP_GLB_PIPELINE_KEY}
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <select
+                                value={pipeline}
+                                onChange={(e) => onPipelineChange(e.target.value)}
+                                disabled={pipelineSaving}
+                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm text-gray-100 max-w-full"
+                            >
+                                {PIPELINE_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                ))}
+                            </select>
+                            {pipelineSaving && <span className="text-[11px] text-gray-400">saving…</span>}
+                            {pipelineSavedAt && !pipelineSaving && (
+                                <span className="text-[11px] text-emerald-400">
+                                    saved {Math.floor((Date.now() - pipelineSavedAt) / 1000)}s ago
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-xs text-gray-400 max-w-2xl">
+                            Engine for STEP→GLB tessellation. <span className="font-mono">libtess2</span>{" "}
+                            (the code default when Unset) is adacpp's OCC-free boundary tessellator — it
+                            renders the curved surfaces (rational B-spline / spherical / conical / toroidal)
+                            the OpenCASCADE streaming reader silently drops.{" "}
+                            <span className="font-mono">occ-builtin</span> is the prior OpenCASCADE path;
+                            <span className="font-mono"> adacpp-occ/cgal/hybrid</span> use adacpp's taxonomy
+                            kernels; <span className="font-mono">step2glb</span> runs the external binary.
+                            Per-job overrides on the convert dialog win over this.
+                        </div>
+                    </div>
+                )}
                 {!loading && (
                     <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
                         <div>

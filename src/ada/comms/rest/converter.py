@@ -751,9 +751,26 @@ def _should_stream_step(src_path: pathlib.Path, step_streamer: bool | None) -> b
         return False
 
 
+# STEP→GLB engines. ``libtess2`` (adacpp's OCC-free boundary CDT, step2glb-parity
+# geometry incl. curved surfaces the OCC stream reader drops) is the default; the
+# ``occ-builtin`` OCC streaming reader is the prior default, kept as the fallback.
+# ``adacpp-{occ,cgal,hybrid}`` route through adacpp's linked OCCT / ifcopenshell-
+# taxonomy kernels (extra options). ``step2glb`` runs the bounded external binary.
+_STEP_GLB_PIPELINE_LIBTESS2 = "libtess2"
 _STEP_GLB_PIPELINE_OCC = "occ-builtin"
 _STEP_GLB_PIPELINE_STEP2GLB = "step2glb"
-_STEP_GLB_PIPELINES = (_STEP_GLB_PIPELINE_OCC, _STEP_GLB_PIPELINE_STEP2GLB)
+_STEP_GLB_PIPELINE_ADACPP_OCC = "adacpp-occ"
+_STEP_GLB_PIPELINE_ADACPP_CGAL = "adacpp-cgal"
+_STEP_GLB_PIPELINE_ADACPP_HYBRID = "adacpp-hybrid"
+_STEP_GLB_PIPELINES = (
+    _STEP_GLB_PIPELINE_LIBTESS2,
+    _STEP_GLB_PIPELINE_OCC,
+    _STEP_GLB_PIPELINE_STEP2GLB,
+    _STEP_GLB_PIPELINE_ADACPP_OCC,
+    _STEP_GLB_PIPELINE_ADACPP_CGAL,
+    _STEP_GLB_PIPELINE_ADACPP_HYBRID,
+)
+_STEP_GLB_PIPELINE_DEFAULT = _STEP_GLB_PIPELINE_LIBTESS2
 
 
 def _resolve_step_glb_pipeline(step_glb_pipeline: str | None) -> str:
@@ -762,20 +779,43 @@ def _resolve_step_glb_pipeline(step_glb_pipeline: str | None) -> str:
     Precedence mirrors ``_should_stream_step``: an explicit per-job choice
     (``step_glb_pipeline`` kwarg, set by the worker from the job option) wins;
     otherwise the global ``ADAPY_STEP_GLB_PIPELINE`` env (same convention as
-    ``ADAPY_CAD_BACKEND``); default ``occ-builtin`` keeps today's behaviour
-    byte-for-byte. ``step2glb`` routes through the bounded step2glb binary.
+    ``ADAPY_CAD_BACKEND``); default ``libtess2``. An adacpp pipeline requested
+    where adacpp isn't installed degrades to ``occ-builtin`` (see
+    ``_cad_config_for_pipeline``), so a libtess2 default is safe everywhere.
     """
     import os
 
     from ada.config import logger
 
     choice = (
-        (step_glb_pipeline or os.environ.get("ADAPY_STEP_GLB_PIPELINE", "") or _STEP_GLB_PIPELINE_OCC).strip().lower()
-    )
+        step_glb_pipeline or os.environ.get("ADAPY_STEP_GLB_PIPELINE", "") or _STEP_GLB_PIPELINE_DEFAULT
+    ).strip().lower()
     if choice not in _STEP_GLB_PIPELINES:
-        logger.warning("unknown ADAPY_STEP_GLB_PIPELINE %r; falling back to %s", choice, _STEP_GLB_PIPELINE_OCC)
-        return _STEP_GLB_PIPELINE_OCC
+        logger.warning("unknown ADAPY_STEP_GLB_PIPELINE %r; falling back to %s", choice, _STEP_GLB_PIPELINE_DEFAULT)
+        return _STEP_GLB_PIPELINE_DEFAULT
     return choice
+
+
+def _cad_config_for_pipeline(pipe: str):
+    """Map a STEP→GLB pipeline to a ``CadConfig`` for the streaming converter, or
+    ``None`` for the OCC-builtin path (and as a graceful fallback when the requested
+    adacpp tessellation path isn't available in this environment)."""
+    from ada.cad.registry import CadConfig, TessellationPath, available_paths
+    from ada.config import logger
+
+    mapping = {
+        _STEP_GLB_PIPELINE_LIBTESS2: TessellationPath.ADACPP_LIBTESS2,
+        _STEP_GLB_PIPELINE_ADACPP_OCC: TessellationPath.ADACPP_OCC,
+        _STEP_GLB_PIPELINE_ADACPP_CGAL: TessellationPath.ADACPP_CGAL,
+        _STEP_GLB_PIPELINE_ADACPP_HYBRID: TessellationPath.ADACPP_HYBRID,
+    }
+    tp = mapping.get(pipe)
+    if tp is None:
+        return None  # occ-builtin → OCC streaming default
+    if tp not in available_paths():
+        logger.warning("step-glb pipeline %r unavailable (adacpp missing); using occ-builtin", pipe)
+        return None
+    return CadConfig(path=tp)
 
 
 def _via_ada(
@@ -807,32 +847,45 @@ def _via_ada(
     out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
     result: bytes | pathlib.Path = b""
     try:
-        if (
-            source_ext in {".step", ".stp"}
-            and target_format == "glb"
-            and _resolve_step_glb_pipeline(step_glb_pipeline) == _STEP_GLB_PIPELINE_STEP2GLB
-        ):
-            # step2glb engine: renders curved surfaces the stream reader drops
-            # (B-spline/sphere/cone/torus). Bounded RAM via on-disk spill; the
-            # GLB is post-processed in Python to carry the viewer picking/tree
-            # contract, so no frontend change is needed.
-            from ada.cadit.step.step2glb_to_glb import convert_step_to_glb
+        if source_ext in {".step", ".stp"} and target_format == "glb":
+            pipe = _resolve_step_glb_pipeline(step_glb_pipeline)
 
-            on_progress("step2glb", 0.1)
-            convert_step_to_glb(src_path, out_path)
-            on_progress("ready", 1.0)
-            result = out_path
-            return result
+            if pipe == _STEP_GLB_PIPELINE_STEP2GLB:
+                # step2glb engine: renders curved surfaces the stream reader drops
+                # (B-spline/sphere/cone/torus). Bounded RAM via on-disk spill; the
+                # GLB is post-processed in Python to carry the viewer picking/tree
+                # contract, so no frontend change is needed.
+                from ada.cadit.step.step2glb_to_glb import convert_step_to_glb
 
-        if source_ext in {".step", ".stp"} and target_format == "glb" and _should_stream_step(src_path, step_streamer):
-            # Stream solid-by-solid: bounded memory, no whole-model OCC load.
-            from ada.cadit.step.stream_to_glb import stream_step_to_glb
+                on_progress("step2glb", 0.1)
+                convert_step_to_glb(src_path, out_path)
+                on_progress("ready", 1.0)
+                result = out_path
+                return result
 
-            on_progress("streaming-step", 0.1)
-            stream_step_to_glb(src_path, out_path, tolerant=True, on_progress=on_progress)
-            on_progress("ready", 1.0)
-            result = out_path
-            return result
+            cad_cfg = _cad_config_for_pipeline(pipe)
+            if cad_cfg is not None:
+                # Default path: adacpp tessellation (libtess2 / occ / cgal / hybrid) through the
+                # memory-bounded streaming pipeline + its worker pool. libtess2 carries the curved
+                # surfaces the OCC stream reader drops, at step2glb-parity geometry.
+                from ada.cadit.step.stream_to_glb import stream_step_to_glb
+
+                on_progress(pipe, 0.1)
+                stream_step_to_glb(src_path, out_path, tolerant=True, on_progress=on_progress, cad_config=cad_cfg)
+                on_progress("ready", 1.0)
+                result = out_path
+                return result
+
+            if _should_stream_step(src_path, step_streamer):
+                # occ-builtin, large file: stream solid-by-solid (bounded memory, no whole-model
+                # OCC load) via pythonocc BRepMesh. Small files fall through to the full OCC load.
+                from ada.cadit.step.stream_to_glb import stream_step_to_glb
+
+                on_progress("streaming-step", 0.1)
+                stream_step_to_glb(src_path, out_path, tolerant=True, on_progress=on_progress)
+                on_progress("ready", 1.0)
+                result = out_path
+                return result
 
         on_progress("parsing", 0.15)
         model = _load_with_ada(src_path, source_ext)
@@ -1598,8 +1651,8 @@ def _register_ada_loadable() -> None:
                 "(~2.5-3x smaller download, decoded client-side). Structure-preserving: "
                 "re-encodes only the vertex/index bytes losslessly and leaves the glTF JSON "
                 "byte-identical, so node names, draw_ranges, id_hierarchy and ADA_EXT_data "
-                "are kept and picking/hierarchy still work. Off by default; a safe no-op if "
-                "meshoptimizer isn't installed in the worker."
+                "are kept and picking/hierarchy still work. On by default (gzip-at-rest applies "
+                "on top); a safe no-op if meshoptimizer/adacpp isn't installed in the worker."
             ),
         },
     ]
@@ -1618,21 +1671,23 @@ def _register_ada_loadable() -> None:
         ),
     }
 
-    # STEP→GLB only: choose the tessellation engine. ``step2glb`` is a
-    # self-contained engine that renders curved surfaces (B-spline/sphere/cone/
-    # torus) the streaming reader drops; bounded RAM, GLB post-processed in
-    # Python to carry the viewer picking/tree metadata.
+    # STEP→GLB only: choose the tessellation engine. ``libtess2`` (default) is
+    # adacpp's OCC-free boundary tessellator with step2glb-parity geometry incl.
+    # the curved surfaces the OCC stream reader drops; ``occ-builtin`` is the prior
+    # OpenCASCADE path; ``adacpp-{occ,cgal,hybrid}`` use adacpp's taxonomy kernels;
+    # ``step2glb`` runs the external binary.
     step_glb_pipeline_option = {
         "name": "step_glb_pipeline",
         "type": "enum",
-        "default": _STEP_GLB_PIPELINE_OCC,
+        "default": _STEP_GLB_PIPELINE_DEFAULT,
         "enum": list(_STEP_GLB_PIPELINES),
         "description": (
-            "STEP→GLB engine. 'occ-builtin' is the OpenCASCADE path (whole-model "
-            "or streaming). 'step2glb' uses a self-contained engine that renders "
-            "curved surfaces (rational B-spline / spherical / conical / toroidal) "
-            "the streaming reader silently drops — use for assemblies that render "
-            "with missing/wrong curved geometry."
+            "STEP→GLB tessellation engine. 'libtess2' (default) is adacpp's OCC-free "
+            "boundary tessellator and renders the curved surfaces (rational B-spline / "
+            "spherical / conical / toroidal) the OCC streaming reader silently drops. "
+            "'occ-builtin' is the OpenCASCADE path (whole-model or streaming). "
+            "'adacpp-occ' / 'adacpp-cgal' / 'adacpp-hybrid' use adacpp's taxonomy "
+            "kernels. 'step2glb' runs the self-contained external binary."
         ),
     }
 

@@ -363,7 +363,13 @@ def _cgroup_cpu_quota() -> int | None:
 def _stream_workers() -> int:
     """Number of tessellation worker processes. ``ADA_STEP_STREAM_WORKERS`` overrides
     (verbatim); otherwise the pod's cgroup CPU limit (falling back to schedulable CPUs)
-    MINUS one, capped at 8.
+    MINUS one, capped at 3.
+
+    The cap is a *memory* bound, not a throughput one: each worker holds a chunk of the
+    model's tessellated mesh in flight back to the parent, so peak RSS scales ~linearly
+    with worker count. On the crane (26 M tris) 8 workers peaked ~6.2 GB and 4 ~4.7 GB;
+    3 keeps it near a ~4 GB pod ceiling (the spill-bounded parent alone is ~2.1 GB). Bump
+    ``ADA_STEP_STREAM_WORKERS`` on a roomier pod to trade RAM for speed.
 
     The ``- 1`` is load-bearing, not just polite: when this runs inside the conversion
     worker, the parent process must keep its asyncio event loop responsive to refresh
@@ -386,7 +392,7 @@ def _stream_workers() -> int:
             n = len(os.sched_getaffinity(0))
         except (AttributeError, OSError):
             n = os.cpu_count() or 1
-    return max(1, min(n - 1, 8))
+    return max(1, min(n - 1, 3))
 
 
 def _leaf_product_name(paths) -> str | None:
