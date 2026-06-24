@@ -6,9 +6,10 @@ export const CAPACITY_RESULTS_FORMAT = "dnv-rp-c201-capacity-results";
 // v6: scalable bundle — the spine keeps only models/catalog/result cases/field
 // metadata; per-element UF values move to AFEL colour blobs (Range-fetched one
 // (field, case) step at a time) and per-(case, model, stiffener) rows move to
-// per-case detail files (capacity.detail/<case>.json, fetched on demand). Kept in
-// lockstep with viewer_export.py CAPACITY_RESULTS_VERSION.
-export const CAPACITY_RESULTS_VERSION = 6;
+// per-case detail files (capacity.detail/<case>.json, fetched on demand).
+// v7: add the worst-over-cases summary (capacity.summary.json) + trim detail
+// resolved_vectors. Kept in lockstep with viewer_export.py CAPACITY_RESULTS_VERSION.
+export const CAPACITY_RESULTS_VERSION = 7;
 
 export interface CapacityValidationContext {
     manifest?: Pick<FeaManifest, "source_sha256"> | null;

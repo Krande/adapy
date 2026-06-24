@@ -27,8 +27,8 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
-import {useCapacityResultsStore} from "@/state/capacityResultsStore";
-import type {CapacityResults} from "@/state/capacityResultsStore";
+import {useCapacityResultsStore, WORST_CASE_ID} from "@/state/capacityResultsStore";
+import type {CapacityResults, CapacityWorstSummary} from "@/state/capacityResultsStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {usePerfStore, requestRender} from "@/state/perfStore";
 import {applyFieldToMesh} from "../fea/applyField";
@@ -73,6 +73,10 @@ interface ActiveFeaStreaming {
      *  attributes are linked to the beam-solid mesh after the first
      *  apply seeds the morph attribute. */
     beamSolidEdges?: THREE.LineSegments;
+    /** Whole-model element-edge wireframe (AFEG). Retained so the capacity
+     *  "Only definitions" view can hide it (and the "Show rest as wireframe"
+     *  toggle can bring it back) without disturbing the face meshes. */
+    feaEdges?: THREE.LineSegments;
     /** Capacity-model boundary overlay built from AFEM element draw ranges. */
     capacityBoundaryOverlay?: THREE.LineSegments;
     /** Red boundary overlay for the selected capacity model. */
@@ -622,7 +626,12 @@ export async function applyCapacityVisualField(
     if (!field) return false;
 
     let values: Array<{element_id: number; value: number | null}> | null = null;
-    if (field.storage === "afel") {
+    if (activeCaseId === WORST_CASE_ID) {
+        // Worst over the user-selected case subset (max UF per element).
+        if (field.storage === "afel") {
+            values = await fetchAfelWorstValues(run, field, selectedWorstCaseIds(run));
+        }
+    } else if (field.storage === "afel") {
         values = await fetchAfelCapacityValues(run, field, activeCaseId);
     } else if (field.storage === "json") {
         // Legacy (<=v5) inline values.
@@ -707,6 +716,68 @@ async function fetchAfelCapacityValues(
     }
     CAPACITY_STEP_CACHE.set(cacheKey, out);
     return out;
+}
+
+/** The worst-view case subset, intersected with the run's actual cases. An
+ *  empty selection means "no cases" (the user unchecked them all). */
+function selectedWorstCaseIds(run: CapacityResults["runs"][number]): string[] {
+    const all = new Set(run.field_case_steps ?? run.result_cases.map((c) => c.id));
+    const selected = useCapacityResultsStore.getState().worstCaseIds ?? [];
+    return selected.filter((id) => all.has(id));
+}
+
+/** Per-element worst (max) UF over a set of cases for one AFEL field. Fetches
+ *  each case's step (Range, ~34 KB, cached) and reduces element-wise. */
+async function fetchAfelWorstValues(
+    run: CapacityResults["runs"][number],
+    field: CapacityResults["runs"][number]["visual_fields"][number],
+    caseIds: string[],
+): Promise<Array<{element_id: number; value: number | null}> | null> {
+    if (caseIds.length === 0) return [];
+    const labels = run.element_axis;
+    if (!labels?.length) return null;
+    const rowOf = new Map<number, number>();
+    for (let i = 0; i < labels.length; i++) rowOf.set(labels[i], i);
+
+    const best = new Float32Array(labels.length).fill(Number.NEGATIVE_INFINITY);
+    for (const caseId of caseIds) {
+        const perCase = await fetchAfelCapacityValues(run, field, caseId);
+        if (!perCase) continue;
+        for (const entry of perCase) {
+            if (entry.value == null) continue;
+            const row = rowOf.get(entry.element_id);
+            if (row !== undefined && entry.value > best[row]) best[row] = entry.value;
+        }
+    }
+    const out: Array<{element_id: number; value: number | null}> = [];
+    for (let i = 0; i < labels.length; i++) {
+        if (Number.isFinite(best[i])) out.push({element_id: labels[i], value: best[i]});
+    }
+    return out;
+}
+
+/** Lazy-load the compact worst-over-cases summary into the capacity store. */
+export async function loadCapacityWorstSummary(): Promise<void> {
+    const ctx = active?.capacityFetch;
+    if (!ctx) return;
+    const store = useCapacityResultsStore.getState();
+    const results = store.results;
+    if (!results) return;
+    const run = results.runs.find((r) => r.id === store.activeRunId) ?? results.runs[0];
+    const url = run?.worst_summary_url;
+    if (!url) return;
+    if (store.worstSummary || store.worstSummaryLoading) return;
+
+    store.setWorstSummaryLoading(true);
+    try {
+        const buf = await ctx.fetcher(url);
+        const summary = JSON.parse(new TextDecoder("utf-8").decode(buf)) as CapacityWorstSummary;
+        useCapacityResultsStore.getState().setWorstSummary(summary);
+    } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("[capacity] failed to load worst summary:", err);
+        useCapacityResultsStore.getState().setWorstSummary(null);
+    }
 }
 
 /** Lazy-load one result case's verbose detail rows into the capacity store.
@@ -967,21 +1038,58 @@ function paintCapacityEntries(
     return true;
 }
 
+/** Show or hide the whole-model element-edge wireframe. Used by the capacity
+ *  "Only definitions" view: with isolation on (and "show rest as wireframe"
+ *  off) the wireframe of the non-capacity model would otherwise still draw
+ *  over an otherwise-isolated scene. */
+export function setFeaWireframeVisible(visible: boolean): void {
+    if (active?.feaEdges) {
+        active.feaEdges.visible = visible;
+        requestRender();
+    }
+}
+
+/** Element ids that belong to a capacity model in the active run — the set the
+ *  "Only definitions" view keeps visible. */
+function capacityKeepElementIds(): Set<number> | null {
+    const store = useCapacityResultsStore.getState();
+    if (!store.isolateDefinitions) return null;
+    const results = store.results;
+    const run = results?.runs.find((r) => r.id === store.activeRunId) ?? results?.runs[0];
+    if (!run) return null;
+    const keep = new Set<number>();
+    for (const model of run.capacity_models) {
+        for (const id of model.element_ids.all ?? []) keep.add(id);
+    }
+    return keep;
+}
+
 function capacityColorOverlayFor(mesh: THREE.Mesh): THREE.Mesh | null {
     if (!active) return null;
     const isBeam = active.beamSolidMesh === mesh;
+    const keep = capacityKeepElementIds();
+    const wantIsolated = keep !== null;
     const existing = isBeam ? active.beamSolidCapacityColorOverlay : active.capacityColorOverlay;
-    if (existing) return existing;
+    // Rebuild when the isolation state changed: an isolated overlay collapses
+    // non-capacity faces to zero area, a non-isolated one greys them. Comparing
+    // here (rather than disposing from the isolation toggle) keeps it correct
+    // regardless of React effect ordering.
+    if (existing && existing.userData.capacityIsolated === wantIsolated) return existing;
+    if (existing) disposeCapacityColorOverlay(isBeam ? "beam" : "main");
 
-    const overlay = buildCapacityColorOverlay(mesh);
+    const overlay = buildCapacityColorOverlay(mesh, keep);
     if (!overlay) return null;
+    overlay.userData.capacityIsolated = wantIsolated;
     mesh.add(overlay);
     if (isBeam) active.beamSolidCapacityColorOverlay = overlay;
     else active.capacityColorOverlay = overlay;
     return overlay;
 }
 
-function buildCapacityColorOverlay(mesh: THREE.Mesh): THREE.Mesh | null {
+function buildCapacityColorOverlay(
+    mesh: THREE.Mesh,
+    keepElementIds: Set<number> | null,
+): THREE.Mesh | null {
     const src = mesh.geometry;
     const indexAttr = src.getIndex();
     const posAttr = src.getAttribute("position") as THREE.BufferAttribute | undefined;
@@ -1003,6 +1111,13 @@ function buildCapacityColorOverlay(mesh: THREE.Mesh): THREE.Mesh | null {
     geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     duplicateMorphPositions(src, geom, indexArr);
+
+    // "Only definitions": collapse every triangle that is not part of a capacity
+    // model to zero area (all three verts coincident, base + morph) so the rest
+    // of the model contributes no grey faces while the capacity panels stay lit.
+    if (keepElementIds) {
+        collapseNonCapacityTriangles(mesh, geom, indexArr, keepElementIds);
+    }
 
     // Opaque, double-sided, unlit: the UF colour must read identically on both
     // faces of a shell. With <1 opacity the lit base mesh bleeds through and the
@@ -1050,6 +1165,49 @@ function duplicateMorphPositions(
         return new THREE.BufferAttribute(out, 3);
     });
     target.morphTargetsRelative = source.morphTargetsRelative === true;
+}
+
+/** Collapse every overlay triangle whose element is not in ``keepElementIds``
+ *  to zero area, in both the base and morph position buffers, so the "Only
+ *  definitions" view draws no grey faces for the rest of the model while the
+ *  capacity panels keep their UF colours and deform in lockstep. */
+function collapseNonCapacityTriangles(
+    mesh: THREE.Mesh,
+    geom: THREE.BufferGeometry,
+    indexArr: Uint16Array | Uint32Array,
+    keepElementIds: Set<number>,
+): void {
+    const drawRanges = (mesh as unknown as {
+        drawRanges?: Map<string, [number, number]>;
+    }).drawRanges;
+    if (!drawRanges) return;
+
+    // Mark overlay index positions that belong to a kept (capacity) element.
+    const keepIdx = new Uint8Array(indexArr.length);
+    for (const [key, [vStart, vCount]] of drawRanges) {
+        const m = /^E(\d+)$/.exec(key);
+        if (!m || !keepElementIds.has(Number(m[1]))) continue;
+        for (let i = vStart; i < vStart + vCount && i < keepIdx.length; i++) keepIdx[i] = 1;
+    }
+
+    const posAttr = geom.getAttribute("position") as THREE.BufferAttribute;
+    const morphs = (geom.morphAttributes.position ?? []) as THREE.BufferAttribute[];
+    const collapse = (attr: THREE.BufferAttribute, k: number): void => {
+        const x = attr.getX(k);
+        const y = attr.getY(k);
+        const z = attr.getZ(k);
+        attr.setXYZ(k + 1, x, y, z);
+        attr.setXYZ(k + 2, x, y, z);
+    };
+    // Draw ranges are triangle-aligned, so the first vertex of each triangle
+    // tells us whether the whole triangle is kept.
+    for (let k = 0; k + 2 < indexArr.length; k += 3) {
+        if (keepIdx[k]) continue;
+        collapse(posAttr, k);
+        for (const morph of morphs) collapse(morph, k);
+    }
+    posAttr.needsUpdate = true;
+    for (const morph of morphs) morph.needsUpdate = true;
 }
 
 function updateCapacitySelectionOverlay(
@@ -1619,6 +1777,7 @@ export async function load_fea_streaming(args: {
                     // first applyFieldToMesh call below seeds the
                     // morph attribute — see linkLineMorphToMesh.
                     mesh.add(segments);
+                    if (active) active.feaEdges = segments;
                 }
             } catch (err) {
                 // Wireframe overlay is decorative — log and continue

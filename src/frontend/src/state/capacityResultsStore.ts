@@ -105,6 +105,35 @@ export interface CapacityCaseDetailPointer {
   url_template: string;
 }
 
+/** Synthetic "case" id for the worst-over-selected-cases view. */
+export const WORST_CASE_ID = "__worst__";
+
+/** One compact row in the worst-over-cases summary (no heavy check detail). */
+export interface CapacityWorstRow {
+  /** Unique per (case, model, stiffener). */
+  k: string;
+  /** capacity_model_id. */
+  m: string;
+  /** stiffener name. */
+  s?: string | null;
+  /** panel_group. */
+  pg: string;
+  /** governing usage factor. */
+  u: number | null;
+  /** passed. */
+  p: boolean;
+  /** governing check id. */
+  c?: string | null;
+  /** governing clause. */
+  cl?: string | null;
+}
+
+export interface CapacityWorstSummary {
+  format: string;
+  version: number;
+  cases: Record<string, { label?: string; rows: CapacityWorstRow[] }>;
+}
+
 export interface CapacityRun {
   id: string;
   label?: string;
@@ -124,6 +153,8 @@ export interface CapacityRun {
   field_case_steps?: string[];
   /** v6: pointer to the per-case detail files. */
   case_detail?: CapacityCaseDetailPointer;
+  /** v6: manifest-relative URL of the compact worst-over-cases summary. */
+  worst_summary_url?: string;
 }
 
 export interface CapacityResults {
@@ -143,6 +174,10 @@ export interface CapacityResultsState {
   showDefinitions: boolean;
   showResults: boolean;
   isolateDefinitions: boolean;
+  /** With "Only definitions" (isolateDefinitions) on, optionally still draw the
+   *  rest of the model as a wireframe for context. Default off — isolation
+   *  shows only the capacity models. */
+  showRestWireframe: boolean;
   activeMetricId: string;
   selectedModelId: string | null;
   selectedResultId: string | null;
@@ -154,6 +189,10 @@ export interface CapacityResultsState {
    *  fall back to the inline ``run.case_results``. */
   caseDetail: Record<string, CapacityCaseResult[]>;
   caseDetailLoading: Record<string, boolean>;
+  /** Worst-over-cases: which result cases are included (default all). */
+  worstCaseIds: string[];
+  worstSummary: CapacityWorstSummary | null;
+  worstSummaryLoading: boolean;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setCapacityData: (
@@ -163,6 +202,10 @@ export interface CapacityResultsState {
   ) => void;
   setCaseDetail: (caseId: string, rows: CapacityCaseResult[]) => void;
   setCaseDetailLoading: (caseId: string, loading: boolean) => void;
+  setWorstCaseIds: (caseIds: string[]) => void;
+  toggleWorstCase: (caseId: string) => void;
+  setWorstSummary: (summary: CapacityWorstSummary | null) => void;
+  setWorstSummaryLoading: (loading: boolean) => void;
   clear: () => void;
   setActiveRunId: (runId: string | null) => void;
   setActiveCaseId: (caseId: string | null) => void;
@@ -170,6 +213,7 @@ export interface CapacityResultsState {
   setShowDefinitions: (showDefinitions: boolean) => void;
   setShowResults: (showResults: boolean) => void;
   setIsolateDefinitions: (isolateDefinitions: boolean) => void;
+  setShowRestWireframe: (showRestWireframe: boolean) => void;
   setActiveMetricId: (metricId: string) => void;
   setSelectedModelId: (modelId: string | null) => void;
   setSelectedCapacityResult: (
@@ -191,6 +235,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   showDefinitions: true,
   showResults: true,
   isolateDefinitions: false,
+  showRestWireframe: false,
   activeMetricId: DEFAULT_METRIC,
   selectedModelId: null,
   selectedResultId: null,
@@ -199,6 +244,9 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   error: null,
   caseDetail: {},
   caseDetailLoading: {},
+  worstCaseIds: [],
+  worstSummary: null,
+  worstSummaryLoading: false,
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error, loading: false }),
   setCapacityData: (manifest, source, results) => {
@@ -214,11 +262,15 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       showDefinitions: true,
       showResults: true,
       isolateDefinitions: false,
+      showRestWireframe: false,
       activeMetricId: DEFAULT_METRIC,
       selectedModelId: null,
       selectedResultId: null,
       caseDetail: {},
       caseDetailLoading: {},
+      worstCaseIds: run?.result_cases?.map((c) => c.id) ?? [],
+      worstSummary: null,
+      worstSummaryLoading: false,
       loading: false,
       error: null,
     });
@@ -232,6 +284,18 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
     set((state) => ({
       caseDetailLoading: { ...state.caseDetailLoading, [caseId]: loading },
     })),
+  setWorstCaseIds: (worstCaseIds) => set({ worstCaseIds }),
+  toggleWorstCase: (caseId) =>
+    set((state) => {
+      const has = state.worstCaseIds.includes(caseId);
+      return {
+        worstCaseIds: has
+          ? state.worstCaseIds.filter((id) => id !== caseId)
+          : [...state.worstCaseIds, caseId],
+      };
+    }),
+  setWorstSummary: (worstSummary) => set({ worstSummary, worstSummaryLoading: false }),
+  setWorstSummaryLoading: (worstSummaryLoading) => set({ worstSummaryLoading }),
   clear: () =>
     set({
       manifest: null,
@@ -243,12 +307,16 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       showDefinitions: true,
       showResults: true,
       isolateDefinitions: false,
+      showRestWireframe: false,
       activeMetricId: DEFAULT_METRIC,
       selectedModelId: null,
       selectedResultId: null,
       failedOnly: false,
       caseDetail: {},
       caseDetailLoading: {},
+      worstCaseIds: [],
+      worstSummary: null,
+      worstSummaryLoading: false,
       loading: false,
       error: null,
     }),
@@ -260,6 +328,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   setShowDefinitions: (showDefinitions) => set({ showDefinitions }),
   setShowResults: (showResults) => set({ showResults }),
   setIsolateDefinitions: (isolateDefinitions) => set({ isolateDefinitions }),
+  setShowRestWireframe: (showRestWireframe) => set({ showRestWireframe }),
   setActiveMetricId: (activeMetricId) => set({ activeMetricId }),
   setSelectedModelId: (selectedModelId) =>
     set({ selectedModelId, selectedResultId: null }),

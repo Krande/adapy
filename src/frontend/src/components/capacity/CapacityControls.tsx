@@ -15,7 +15,10 @@ import {
   type CapacityRunLike,
   type CapacityVisualFieldLike,
 } from "@/components/capacity/capacityFormat";
-import { useCapacityResultsStore } from "@/state/capacityResultsStore";
+import {
+  useCapacityResultsStore,
+  WORST_CASE_ID,
+} from "@/state/capacityResultsStore";
 import { useObjectInfoStore } from "@/state/objectInfoStore";
 import {
   applyCapacityDefinitionView,
@@ -29,6 +32,8 @@ import {
   clearCapacityStations,
   clearCapacityVisualField,
   loadCapacityCaseDetail,
+  loadCapacityWorstSummary,
+  setFeaWireframeVisible,
 } from "@/utils/scene/handlers/load_fea_streaming";
 
 // Per-position marker colours (positions 1/2/3). Keep in sync with
@@ -43,6 +48,7 @@ const CapacityControls: React.FC = () => {
     showDefinitions,
     showResults,
     isolateDefinitions,
+    showRestWireframe,
     activeMetricId,
     selectedModelId,
     selectedResultId,
@@ -51,11 +57,17 @@ const CapacityControls: React.FC = () => {
     error,
     caseDetail,
     caseDetailLoading,
+    worstCaseIds,
+    worstSummary,
+    worstSummaryLoading,
+    toggleWorstCase,
+    setWorstCaseIds,
     setActiveRunId,
     setActiveCaseId,
     setShowDefinitions,
     setShowResults,
     setIsolateDefinitions,
+    setShowRestWireframe,
     setActiveMetricId,
     setSelectedModelId,
     setSelectedCapacityResult,
@@ -88,17 +100,64 @@ const CapacityControls: React.FC = () => {
   // Fetch the active case's detail on demand (v6 per-case files).
   useEffect(() => {
     if (!run?.case_detail || !activeCaseId) return;
+    if (activeCaseId === WORST_CASE_ID) return; // not a real case file
     if (caseDetail[activeCaseId] || caseDetailLoading[activeCaseId]) return;
     void loadCapacityCaseDetail(activeCaseId);
   }, [run, activeCaseId, caseDetail, caseDetailLoading]);
 
+  const isWorst = activeCaseId === WORST_CASE_ID;
+
+  // Load the compact worst summary when the worst view is first opened.
+  useEffect(() => {
+    if (!isWorst || !run?.worst_summary_url) return;
+    if (worstSummary || worstSummaryLoading) return;
+    void loadCapacityWorstSummary();
+  }, [isWorst, run, worstSummary, worstSummaryLoading]);
+
+  // Worst over the selected case subset: per (model, stiffener), the max UF and
+  // the case it came from. Shaped like a normal row so the table reuses it.
+  const worstRows = useMemo(() => {
+    if (!run || !isWorst || !worstSummary) return [];
+    const selected = worstCaseIds;
+    const best = new Map<string, CapacityCaseResultLike & { worstCaseLabel: string }>();
+    for (const caseId of selected) {
+      const bucket = worstSummary.cases[caseId];
+      if (!bucket) continue;
+      for (const lr of bucket.rows) {
+        const key = `${lr.m}::${lr.s ?? lr.pg}`;
+        const prev = best.get(key);
+        if (!prev || (lr.u ?? -Infinity) > (prev.governing_usage ?? -Infinity)) {
+          best.set(key, {
+            id: key,
+            case_id: caseId,
+            capacity_model_id: lr.m,
+            panel_group: lr.pg,
+            stiffener: lr.s ?? undefined,
+            governing_usage: lr.u,
+            passed: lr.p,
+            governing_check: lr.c ?? null,
+            governing_clause: lr.cl ?? null,
+            checks: [],
+            worstCaseLabel: bucket.label ?? caseId,
+          });
+        }
+      }
+    }
+    let arr = [...best.values()];
+    if (failedOnly) arr = arr.filter((r) => !r.passed);
+    return arr.sort(
+      (a, b) => (b.governing_usage ?? -1) - (a.governing_usage ?? -1),
+    );
+  }, [run, isWorst, worstSummary, worstCaseIds, failedOnly]);
+
   const rows = useMemo(() => {
+    if (isWorst) return worstRows;
     if (!activeCaseId) return [];
     return activeRows
       .filter((row) => !failedOnly || !row.passed)
       .slice()
       .sort((a, b) => (b.governing_usage ?? -1) - (a.governing_usage ?? -1));
-  }, [activeRows, activeCaseId, failedOnly]);
+  }, [isWorst, worstRows, activeRows, activeCaseId, failedOnly]);
 
   const selectedRow = useMemo(() => {
     if (!run || !activeCaseId) return null;
@@ -141,7 +200,7 @@ const CapacityControls: React.FC = () => {
       clearCapacityDefinitionView();
     }
     if (showResults && activeCaseId) {
-      if (individualUf) {
+      if (individualUf && !isWorst) {
         applyCapacityIndividualField(buildIndividualUfValues(activeRows, run));
       } else {
         void applyCapacityVisualField(activeMetricId, activeCaseId);
@@ -160,6 +219,12 @@ const CapacityControls: React.FC = () => {
     selectedModelId,
     individualUf,
     selectedRow,
+    // Re-run so the colour overlay rebuilds (collapsing / restoring the
+    // non-capacity faces) when "Only definitions" toggles.
+    isolateDefinitions,
+    // Recolour the worst view when the selected case subset changes.
+    isWorst,
+    worstCaseIds,
   ]);
 
   useEffect(() => {
@@ -170,6 +235,13 @@ const CapacityControls: React.FC = () => {
       clearCapacityIsolation();
     }
   }, [run, isolateDefinitions]);
+
+  // The whole-model wireframe is shown normally, but "Only definitions" hides it
+  // (so only the capacity models remain) unless the user opts back in via
+  // "Show rest as wireframe".
+  useEffect(() => {
+    setFeaWireframeVisible(!isolateDefinitions || showRestWireframe);
+  }, [run, isolateDefinitions, showRestWireframe]);
 
   useEffect(() => {
     if (showInputs && showStations && selectedRow) {
@@ -266,6 +338,9 @@ const CapacityControls: React.FC = () => {
                 value={activeCaseId ?? ""}
                 onChange={(e) => setActiveCaseId(e.target.value)}
               >
+                <option value={WORST_CASE_ID}>
+                  Worst (over selected cases)
+                </option>
                 {run.result_cases.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.label ?? c.id}
@@ -304,6 +379,17 @@ const CapacityControls: React.FC = () => {
               Only definitions
             </button>
             <button
+              className={
+                modeButton(showRestWireframe) +
+                (!isolateDefinitions ? " cursor-not-allowed opacity-50" : "")
+              }
+              onClick={() => setShowRestWireframe(!showRestWireframe)}
+              disabled={!isolateDefinitions}
+              title="While 'Only definitions' is on, also draw the rest of the model as a wireframe for context"
+            >
+              Show rest as wireframe
+            </button>
+            <button
               className={modeButton(individualUf)}
               onClick={() => setIndividualUf(!individualUf)}
               disabled={!showResults}
@@ -330,7 +416,7 @@ const CapacityControls: React.FC = () => {
 
           <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
             <label className="flex flex-col gap-1">
-              <span className="text-gray-400">Metric</span>
+              <span className="text-gray-400">Check</span>
               <select
                 className="bg-gray-800 border border-gray-600 rounded-sm px-2 py-1"
                 value={activeMetricId}
@@ -354,15 +440,64 @@ const CapacityControls: React.FC = () => {
             </label>
           </div>
 
+          {isWorst && (
+            <div className="border border-gray-700 rounded-sm p-2 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] uppercase text-gray-500">
+                  Cases in worst ({worstCaseIds.length}/{run.result_cases.length})
+                </span>
+                <div className="flex gap-1">
+                  <button
+                    className="rounded-sm border border-gray-600 px-2 text-[11px] text-gray-300 hover:bg-gray-700"
+                    onClick={() =>
+                      setWorstCaseIds(run.result_cases.map((c) => c.id))
+                    }
+                  >
+                    All
+                  </button>
+                  <button
+                    className="rounded-sm border border-gray-600 px-2 text-[11px] text-gray-300 hover:bg-gray-700"
+                    onClick={() => setWorstCaseIds([])}
+                  >
+                    None
+                  </button>
+                </div>
+              </div>
+              <div className="grid max-h-28 grid-cols-2 gap-x-2 overflow-y-auto">
+                {run.result_cases.map((c) => (
+                  <label
+                    key={c.id}
+                    className="inline-flex items-center gap-1 text-[11px] text-gray-300"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={worstCaseIds.includes(c.id)}
+                      onChange={() => toggleWorstCase(c.id)}
+                    />
+                    <span className="truncate" title={c.label ?? c.id}>
+                      {c.label ?? c.id}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {worstSummaryLoading && (
+                <div className="text-[11px] text-gray-500">
+                  Loading worst summary…
+                </div>
+              )}
+            </div>
+          )}
+
           {showResults && <CapacityLegend />}
 
           <div className="max-h-64 overflow-y-auto border border-gray-700 rounded-sm">
             <table className="w-full table-fixed text-left">
               <thead className="sticky top-0 bg-gray-800 text-gray-300">
                 <tr>
-                  <th className="px-2 py-1 w-[48%]">Model</th>
-                  <th className="px-2 py-1 w-[22%]">UF</th>
+                  <th className="px-2 py-1 w-[40%]">Model</th>
+                  <th className="px-2 py-1 w-[18%]">UF</th>
                   <th className="px-2 py-1">Check</th>
+                  {isWorst && <th className="px-2 py-1 w-[20%]">Case</th>}
                 </tr>
               </thead>
               <tbody>
@@ -371,6 +506,9 @@ const CapacityControls: React.FC = () => {
                   const selected = selectedRow
                     ? caseResultKey(selectedRow) === rowKey
                     : false;
+                  const worstCaseLabel = (
+                    row as { worstCaseLabel?: string }
+                  ).worstCaseLabel;
                   return (
                     <tr
                       key={rowKey}
@@ -378,9 +516,18 @@ const CapacityControls: React.FC = () => {
                         "cursor-pointer border-t border-gray-800 hover:bg-gray-800 " +
                         (selected ? "bg-gray-800" : "")
                       }
-                      onClick={() =>
-                        setSelectedCapacityResult(row.capacity_model_id, rowKey)
-                      }
+                      onClick={() => {
+                        if (isWorst) {
+                          // Drill into the case that produced this worst UF.
+                          setActiveCaseId(row.case_id);
+                          setSelectedModelId(row.capacity_model_id);
+                        } else {
+                          setSelectedCapacityResult(
+                            row.capacity_model_id,
+                            rowKey,
+                          );
+                        }
+                      }}
                     >
                       <td
                         className="px-2 py-1 truncate"
@@ -397,6 +544,14 @@ const CapacityControls: React.FC = () => {
                       >
                         {row.governing_check ?? ""}
                       </td>
+                      {isWorst && (
+                        <td
+                          className="px-2 py-1 truncate text-gray-300"
+                          title={worstCaseLabel ?? row.case_id}
+                        >
+                          {worstCaseLabel ?? row.case_id}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
