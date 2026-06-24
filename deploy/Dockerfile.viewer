@@ -74,7 +74,7 @@ ENV PATH="/env/bin:$PATH"
 # prefix (/work/.pixi/envs/viewer-api-slim/ssl), which no longer exists
 # after the env is COPY'd to /env. urllib (used by PyJWKClient for the
 # JWKS fetch) honours OpenSSL's default path, so without this it can't
-# verify TLS to authentik.krande.no and every token check 401s — while
+# verify TLS to the configured Authentik (OIDC) host and every token check 401s — while
 # httpx-based discovery still works via certifi, hence callback-OK but
 # /api/me-401. Point OpenSSL/urllib at the CA bundle in its new location.
 ENV SSL_CERT_FILE=/env/ssl/cert.pem \
