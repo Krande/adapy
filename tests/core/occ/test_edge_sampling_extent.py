@@ -46,9 +46,7 @@ def test_line_edge_uses_endpoints_only():
     from ada.occ.geom.surfaces import _sample_edge_points
 
     start, end = (0.0, 0.0, 0.0), (1.0, 2.0, 3.0)
-    ec = geo_cu.EdgeCurve(
-        start=start, end=end, edge_geometry=geo_cu.Line(start, [1.0, 2.0, 3.0]), same_sense=True
-    )
+    ec = geo_cu.EdgeCurve(start=start, end=end, edge_geometry=geo_cu.Line(start, [1.0, 2.0, 3.0]), same_sense=True)
     oe = geo_cu.OrientedEdge(start=start, end=end, edge_element=ec, orientation=True)
     pts = _sample_edge_points(oe)
     # a straight edge is fully described by its endpoints — no need to walk it

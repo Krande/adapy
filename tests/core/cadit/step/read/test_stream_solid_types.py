@@ -69,8 +69,19 @@ def test_geometric_set_imports():
 
 
 def test_solid_types_registered():
-    for t in ("FACETED_BREP", "BLOCK", "RIGHT_CIRCULAR_CYLINDER", "RIGHT_CIRCULAR_CONE",
-              "SPHERE", "TORUS", "EXTRUDED_AREA_SOLID", "REVOLVED_AREA_SOLID", "CSG_SOLID",
-              "BOOLEAN_RESULT", "GEOMETRIC_CURVE_SET", "GEOMETRIC_SET",
-              "MANIFOLD_SURFACE_SHAPE_REPRESENTATION"):
+    for t in (
+        "FACETED_BREP",
+        "BLOCK",
+        "RIGHT_CIRCULAR_CYLINDER",
+        "RIGHT_CIRCULAR_CONE",
+        "SPHERE",
+        "TORUS",
+        "EXTRUDED_AREA_SOLID",
+        "REVOLVED_AREA_SOLID",
+        "CSG_SOLID",
+        "BOOLEAN_RESULT",
+        "GEOMETRIC_CURVE_SET",
+        "GEOMETRIC_SET",
+        "MANIFOLD_SURFACE_SHAPE_REPRESENTATION",
+    ):
         assert t in sr._BUILDERS

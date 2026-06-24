@@ -55,6 +55,13 @@ def test_pcurve_imports():
 
 
 def test_curve_types_registered():
-    for t in ("PARABOLA", "HYPERBOLA", "POLYLINE", "TRIMMED_CURVE", "COMPOSITE_CURVE",
-              "COMPOSITE_CURVE_SEGMENT", "PCURVE"):
+    for t in (
+        "PARABOLA",
+        "HYPERBOLA",
+        "POLYLINE",
+        "TRIMMED_CURVE",
+        "COMPOSITE_CURVE",
+        "COMPOSITE_CURVE_SEGMENT",
+        "PCURVE",
+    ):
         assert t in sr._BUILDERS

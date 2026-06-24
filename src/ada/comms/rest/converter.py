@@ -769,7 +769,9 @@ def _resolve_step_glb_pipeline(step_glb_pipeline: str | None) -> str:
 
     from ada.config import logger
 
-    choice = (step_glb_pipeline or os.environ.get("ADAPY_STEP_GLB_PIPELINE", "") or _STEP_GLB_PIPELINE_OCC).strip().lower()
+    choice = (
+        (step_glb_pipeline or os.environ.get("ADAPY_STEP_GLB_PIPELINE", "") or _STEP_GLB_PIPELINE_OCC).strip().lower()
+    )
     if choice not in _STEP_GLB_PIPELINES:
         logger.warning("unknown ADAPY_STEP_GLB_PIPELINE %r; falling back to %s", choice, _STEP_GLB_PIPELINE_OCC)
         return _STEP_GLB_PIPELINE_OCC

@@ -689,6 +689,7 @@ def _sample_curve_edge_occ(oe, n: int = 12) -> list[tuple]:
             # genuinely closed edge: walk the full curve
             t0, t1 = f, l
         else:
+
             def _param(pt):
                 proj = GeomAPI_ProjectPointOnCurve(gp_Pnt(*[float(x) for x in pt]), curve)
                 return proj.LowerDistanceParameter() if proj.NbPoints() > 0 else None
@@ -1799,7 +1800,9 @@ def _recover_runaway_face(cfs_face, built_face):
             return rebuilt
         return None
 
-    if isinstance(occ_surface, (Geom_CylindricalSurface, Geom_ConicalSurface, Geom_ToroidalSurface, Geom_SphericalSurface)):
+    if isinstance(
+        occ_surface, (Geom_CylindricalSurface, Geom_ConicalSurface, Geom_ToroidalSurface, Geom_SphericalSurface)
+    ):
         try:
             rebuilt = _make_face_from_param_extent(cfs_face, occ_surface)
         except Exception:  # noqa: BLE001

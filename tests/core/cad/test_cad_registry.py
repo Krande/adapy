@@ -63,7 +63,7 @@ def test_cadconfig_validate_rejects_unavailable_path():
 
 def test_assembly_cad_config_attaches():
     import ada
-    from ada.cad import CadConfig, TessellationPath, available_paths
+    from ada.cad import CadConfig, available_paths
 
     a = ada.Assembly("a")
     assert a.cad_config.path in available_paths()  # lazy default is something usable

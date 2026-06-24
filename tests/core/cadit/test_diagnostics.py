@@ -56,10 +56,13 @@ def _stream_glb(tmp_path, objs, name="m"):
 
 
 def test_glb_parts_extracts_one_record_per_solid(tmp_path):
-    glb = _stream_glb(tmp_path, [
-        Beam("b1", (0, 0, 0), (3, 0, 0), Section("IPE300", from_str="IPE300")),
-        Beam("b2", (0, 2, 0), (3, 2, 0), Section("IPE300", from_str="IPE300")),
-    ])
+    glb = _stream_glb(
+        tmp_path,
+        [
+            Beam("b1", (0, 0, 0), (3, 0, 0), Section("IPE300", from_str="IPE300")),
+            Beam("b2", (0, 2, 0), (3, 2, 0), Section("IPE300", from_str="IPE300")),
+        ],
+    )
     parts = glb_parts(glb)
     assert len(parts) == 2
     assert all(p.area > 0 and p.n_tris > 0 for p in parts)
@@ -68,20 +71,26 @@ def test_glb_parts_extracts_one_record_per_solid(tmp_path):
 def test_stream_reader_carries_step_product_names(tmp_path):
     # The stream reader labels each solid by its owning STEP product (what
     # step2glb uses), not a generic solid_<n>, so the parts are name-comparable.
-    glb = _stream_glb(tmp_path, [
-        ada.PrimBox("widget_a", (0, 0, 0), (1, 1, 1)),
-        ada.PrimCyl("widget_b", (3, 0, 0), (3, 0, 1), 0.4),
-    ])
+    glb = _stream_glb(
+        tmp_path,
+        [
+            ada.PrimBox("widget_a", (0, 0, 0), (1, 1, 1)),
+            ada.PrimCyl("widget_b", (3, 0, 0), (3, 0, 1), 0.4),
+        ],
+    )
     names = sorted(p.name for p in glb_parts(glb))
     assert names == ["widget_a", "widget_b"]
 
 
 def test_compare_self_is_zero_divergence(tmp_path):
     # Fairness guard: a GLB vs itself must match every part with no divergence.
-    glb = _stream_glb(tmp_path, [
-        ada.PrimBox("bx", (0, 0, 0), (1, 1, 1)),
-        ada.PrimCyl("cy", (3, 0, 0), (3, 0, 1), 0.4),
-    ])
+    glb = _stream_glb(
+        tmp_path,
+        [
+            ada.PrimBox("bx", (0, 0, 0), (1, 1, 1)),
+            ada.PrimCyl("cy", (3, 0, 0), (3, 0, 1), 0.4),
+        ],
+    )
     cmp = compare_glb_geometry(glb, glb)
     assert cmp.matched == cmp.parts_a == cmp.parts_b == 2
     assert cmp.only_in_a == [] and cmp.only_in_b == []
@@ -92,13 +101,21 @@ def test_compare_self_is_zero_divergence(tmp_path):
 def test_compare_detects_missing_part(tmp_path):
     # B has a solid A lacks (same coordinates) -> reported as MISSING in A,
     # matched purely by location even though names are solid_<n> on both sides.
-    full = _stream_glb(tmp_path, [
-        ada.PrimBox("bx", (0, 0, 0), (1, 1, 1)),
-        ada.PrimBox("by", (5, 0, 0), (6, 1, 1)),
-    ], name="full")
-    partial = _stream_glb(tmp_path, [
-        ada.PrimBox("bx", (0, 0, 0), (1, 1, 1)),
-    ], name="partial")
+    full = _stream_glb(
+        tmp_path,
+        [
+            ada.PrimBox("bx", (0, 0, 0), (1, 1, 1)),
+            ada.PrimBox("by", (5, 0, 0), (6, 1, 1)),
+        ],
+        name="full",
+    )
+    partial = _stream_glb(
+        tmp_path,
+        [
+            ada.PrimBox("bx", (0, 0, 0), (1, 1, 1)),
+        ],
+        name="partial",
+    )
     cmp = compare_glb_geometry(partial, full)  # A=partial, B=full
     assert cmp.matched == 1
     assert len(cmp.only_in_b) == 1  # the second box, present only in B

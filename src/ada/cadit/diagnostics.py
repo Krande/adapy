@@ -25,6 +25,7 @@ pipeline so a bad profile or tessellation defect is caught at the source
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -304,7 +305,9 @@ class DiagnosticReport:
         return out
 
     def text_report(self) -> str:
-        lines = [f"geometry diagnostics — backend={self.backend} objects={len(self.diagnostics)} failures={len(self.failures)}"]
+        lines = [
+            f"geometry diagnostics — backend={self.backend} objects={len(self.diagnostics)} failures={len(self.failures)}"
+        ]
         if self.parse:
             lines.append(f"  parse: {self.parse}")
         if self.failures:
@@ -643,17 +646,23 @@ class GlbComparison:
         ]
         if self.only_in_b:
             area = sum(p.area for p in self.only_in_b)
-            lines.append(f"  MISSING in A (present in B): {len(self.only_in_b)} parts, area={area:.5g} "
-                         f"e.g. {[p.name for p in self.only_in_b[:8]]}")
+            lines.append(
+                f"  MISSING in A (present in B): {len(self.only_in_b)} parts, area={area:.5g} "
+                f"e.g. {[p.name for p in self.only_in_b[:8]]}"
+            )
         if self.only_in_a:
             area = sum(p.area for p in self.only_in_a)
-            lines.append(f"  EXTRA in A (absent in B): {len(self.only_in_a)} parts, area={area:.5g} "
-                         f"e.g. {[p.name for p in self.only_in_a[:8]]}")
+            lines.append(
+                f"  EXTRA in A (absent in B): {len(self.only_in_a)} parts, area={area:.5g} "
+                f"e.g. {[p.name for p in self.only_in_a[:8]]}"
+            )
         if self.diverged:
             lines.append(f"  DIVERGED area ({len(self.diverged)} matched parts, worst first):")
             for d in self.diverged[:limit]:
-                lines.append(f"    A:{d['name_a']} / B:{d['name_b']}: area A={d['area_a']:.4g} "
-                             f"B={d['area_b']:.4g} ratio={d['ratio']:.3f}")
+                lines.append(
+                    f"    A:{d['name_a']} / B:{d['name_b']}: area A={d['area_a']:.4g} "
+                    f"B={d['area_b']:.4g} ratio={d['ratio']:.3f}"
+                )
         return "\n".join(lines)
 
 
@@ -667,12 +676,10 @@ class _Agg:
     n_parts: int
 
 
-import re as _re
-
-# adapy labels extra instances of a part ``<name>/<k>``; step2glb bakes each
-# instance under the bare product name. Strip the suffix so a product's instances
+# adapy labels extra instances of a part ``<name>/<k>``; the streamed emitter bakes
+# each instance under the bare product name. Strip the suffix so a product's instances
 # aggregate together on both sides.
-_INSTANCE_SUFFIX = _re.compile(r"/\d+$")
+_INSTANCE_SUFFIX = re.compile(r"/\d+$")
 
 
 def _aggregate_by_name(parts: list[PartRecord]) -> dict[str, _Agg]:
@@ -735,10 +742,13 @@ def compare_glb_geometry(
                 diverged.append({"name_a": name, "name_b": name, "area_a": x, "area_b": y, "ratio": ratio})
         diverged.sort(key=lambda d: d["ratio"])
         return GlbComparison(
-            parts_a=len(pa), parts_b=len(pb), matched=len(shared),
+            parts_a=len(pa),
+            parts_b=len(pb),
+            matched=len(shared),
             only_in_a=[aa[n] for n in (set(aa) - set(bb))],
             only_in_b=[bb[n] for n in (set(bb) - set(aa))],
-            diverged=diverged, totals=totals,
+            diverged=diverged,
+            totals=totals,
         )
 
     pairs = _match_by_centroid(pa, pb)
@@ -753,8 +763,11 @@ def compare_glb_geometry(
             diverged.append({"name_a": pa[i].name, "name_b": pb[j].name, "area_a": x, "area_b": y, "ratio": ratio})
     diverged.sort(key=lambda d: d["ratio"])
     return GlbComparison(
-        parts_a=len(pa), parts_b=len(pb), matched=len(pairs),
+        parts_a=len(pa),
+        parts_b=len(pb),
+        matched=len(pairs),
         only_in_a=[pa[i] for i in range(len(pa)) if i not in matched_a],
         only_in_b=[pb[j] for j in range(len(pb)) if j not in matched_b],
-        diverged=diverged, totals=totals,
+        diverged=diverged,
+        totals=totals,
     )

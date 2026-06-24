@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from ada.config import logger
+
 from ada.cad.registry import (  # noqa: E402 - registry is stdlib-only, no ada.cad cycle
     CadBackendName,
     CadConfig,

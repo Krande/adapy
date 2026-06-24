@@ -53,6 +53,12 @@ def test_tessellated_shell_single_item_passthrough():
 
 
 def test_tessellated_types_registered():
-    for t in ("COORDINATES_LIST", "TRIANGULATED_FACE_SET", "TRIANGULATED_SURFACE_SET",
-              "COMPLEX_TRIANGULATED_FACE_SET", "TESSELLATED_SHELL", "TESSELLATED_SOLID"):
+    for t in (
+        "COORDINATES_LIST",
+        "TRIANGULATED_FACE_SET",
+        "TRIANGULATED_SURFACE_SET",
+        "COMPLEX_TRIANGULATED_FACE_SET",
+        "TESSELLATED_SHELL",
+        "TESSELLATED_SOLID",
+    ):
         assert t in sr._BUILDERS

@@ -84,6 +84,6 @@ def test_step2glb_up_axis_matches_adapy_z_up(tmp_path):
     convert_step_to_glb(src, glb)
 
     scene = trimesh.load(glb)
-    dx, dy, dz = (scene.bounds[1] - scene.bounds[0])
+    dx, dy, dz = scene.bounds[1] - scene.bounds[0]
     assert dz > 5.5, f"height landed off Z (span x={dx:.2f} y={dy:.2f} z={dz:.2f}) — up-axis wrong"
     assert dz > dy and dz > dx

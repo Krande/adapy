@@ -7,7 +7,6 @@ seam through the poles. Building a face from that degenerate wire yields 0 trian
 
 from __future__ import annotations
 
-import math
 
 import ada.geom.curves as gc
 import ada.geom.surfaces as gs

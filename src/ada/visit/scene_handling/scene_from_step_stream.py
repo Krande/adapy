@@ -184,8 +184,7 @@ def _tessellate_geom_worker(geom):
             defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
             ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
             gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
-            bm = be.tessellate_stream([(gid or "0", gi)], pipeline=_pipeline, deflection=defl,
-                                      angular_deg=ang)
+            bm = be.tessellate_stream([(gid or "0", gi)], pipeline=_pipeline, deflection=defl, angular_deg=ang)
             _pos = getattr(bm, "positions", None)
             _idx = getattr(bm, "indices", None)
             if _pos is None or _idx is None or len(_idx) == 0:
@@ -200,9 +199,11 @@ def _tessellate_geom_worker(geom):
                     import adacpp.cad as _cad
 
                     sp, si = _cad.meshopt_simplify_mesh(
-                        pos.reshape(-1), idx.reshape(-1),
+                        pos.reshape(-1),
+                        idx.reshape(-1),
                         float(os.environ.get("ADA_STREAM_SIMPLIFY_THRESHOLD", "0.75")),
-                        float(os.environ.get("ADA_STREAM_SIMPLIFY_TARGET_ERROR", "0.0")))
+                        float(os.environ.get("ADA_STREAM_SIMPLIFY_TARGET_ERROR", "0.0")),
+                    )
                     pos = np.ascontiguousarray(sp, dtype=np.float32)
                     idx = np.ascontiguousarray(si, dtype=np.uint32)
                 except Exception:  # noqa: BLE001 - cleanup is best-effort; keep the raw mesh
@@ -212,8 +213,7 @@ def _tessellate_geom_worker(geom):
                 return ("empty", gid, geom.color, None, None, None, None, None, _rebuild_stats())
             # libtess2 emits no per-vertex normals (viewer flat-shades / computes its own) — matches
             # step2glb's normal-free merged output and keeps the GLB lean.
-            return ("ok", gid, geom.color, pos, idx, None, geom.transforms, geom.instance_paths,
-                    _rebuild_stats())
+            return ("ok", gid, geom.color, pos, idx, None, geom.transforms, geom.instance_paths, _rebuild_stats())
 
         occ = be.build(geom)
         # Zero-extent solid -> OCC's relative mesher throws an uncatchable terminate.

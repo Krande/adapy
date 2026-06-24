@@ -931,9 +931,7 @@ def _b_trimmed_curve(r: _Resolver, a: list) -> TrimmedCurve:
 
 def _b_composite_curve_segment(r: _Resolver, a: list) -> CompositeCurveSegment:
     # COMPOSITE_CURVE_SEGMENT(transition, same_sense, #parent_curve)
-    return CompositeCurveSegment(
-        parent_curve=r.deref(a[2]), same_sense=_enum_true(a[1]), transition=_enum_name(a[0])
-    )
+    return CompositeCurveSegment(parent_curve=r.deref(a[2]), same_sense=_enum_true(a[1]), transition=_enum_name(a[0]))
 
 
 def _b_composite_curve(r: _Resolver, a: list) -> CompositeCurve:
@@ -1058,8 +1056,12 @@ def _b_rectangular_trimmed_surface(r: _Resolver, a: list) -> RectangularTrimmedS
     # RECTANGULAR_TRIMMED_SURFACE('', #basis, u1, u2, v1, v2, usense, vsense)
     return RectangularTrimmedSurface(
         basis_surface=r.deref(a[1]),
-        u1=float(a[2]), u2=float(a[3]), v1=float(a[4]), v2=float(a[5]),
-        usense=_enum_true(a[6]), vsense=_enum_true(a[7]),
+        u1=float(a[2]),
+        u2=float(a[3]),
+        v1=float(a[4]),
+        v2=float(a[5]),
+        usense=_enum_true(a[6]),
+        vsense=_enum_true(a[7]),
     )
 
 
@@ -1369,9 +1371,7 @@ def _make_bspline_surface(
         # rational surface from the 3D wire — verified building all faces of the skipped
         # solids. Authored 2D p-curves, when a file supplies them, still take the
         # SURFACE_CURVE/pcurve path and override this.)
-        return RationalBSplineSurfaceWithKnots(
-            **common, weights_data=[[float(w) for w in row] for row in weights]
-        )
+        return RationalBSplineSurfaceWithKnots(**common, weights_data=[[float(w) for w in row] for row in weights])
     return BSplineSurfaceWithKnots(**common)
 
 

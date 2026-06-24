@@ -55,6 +55,7 @@ def _sample_arc(start, mid, end, n: int = 24) -> list:
     pts[0], pts[-1] = np.asarray(start, float), np.asarray(end, float)
     return pts
 
+
 # tag catalog (spec §3)
 _PLACEMENT3 = 1
 _PLACEMENT1 = 2
@@ -205,9 +206,7 @@ class _Encoder:
         elif isinstance(s, su.CylindricalSurface):
             idx = self._add(_CYLINDER, self.i32(self.placement3(s.position)) + self.f64(s.radius))
         elif isinstance(s, su.ConicalSurface):
-            idx = self._add(
-                _CONE, self.i32(self.placement3(s.position)) + self.f64(s.radius) + self.f64(s.semi_angle)
-            )
+            idx = self._add(_CONE, self.i32(self.placement3(s.position)) + self.f64(s.radius) + self.f64(s.semi_angle))
         elif isinstance(s, su.SphericalSurface):
             idx = self._add(_SPHERE, self.i32(self.placement3(s.position)) + self.f64(s.radius))
         elif isinstance(s, su.ToroidalSurface):
@@ -220,7 +219,10 @@ class _Encoder:
             sc = self.curve(s.swept_curve)
             idx = self._add(
                 _SURF_LIN_EXTRUSION,
-                self.i32(sc) + self.i32(self.placement3(s.position)) + self.v3(s.extrusion_direction) + self.f64(s.depth),
+                self.i32(sc)
+                + self.i32(self.placement3(s.position))
+                + self.v3(s.extrusion_direction)
+                + self.f64(s.depth),
             )
         elif isinstance(s, su.SurfaceOfRevolution):
             sc = self.curve(s.swept_curve)
@@ -242,7 +244,9 @@ class _Encoder:
         nu, nv = len(rows), len(rows[0])
         weights = getattr(s, "weights_data", None)
         body = self.i32(s.u_degree) + self.i32(s.v_degree)
-        body += self.i32(1 if s.u_closed else 0) + self.i32(1 if s.v_closed else 0) + self.i32(1 if s.self_intersect else 0)
+        body += (
+            self.i32(1 if s.u_closed else 0) + self.i32(1 if s.v_closed else 0) + self.i32(1 if s.self_intersect else 0)
+        )
         body += self.i32(nu) + self.i32(nv)
         for row in rows:  # row-major: u outer, v inner
             for p in row:
@@ -395,7 +399,10 @@ class _Encoder:
         placement. Decoded by adacpp into an ifcopenshell taxonomy::extrusion."""
         face = self._profile_face(eas.swept_area)
         body = (
-            self.i32(face) + self.i32(self.placement3(eas.position)) + self.v3(eas.extruded_direction) + self.f64(eas.depth)
+            self.i32(face)
+            + self.i32(self.placement3(eas.position))
+            + self.v3(eas.extruded_direction)
+            + self.f64(eas.depth)
         )
         return self._add(_EXTRUDED_AREA_SOLID, body)
 
@@ -407,7 +414,9 @@ class _Encoder:
         loop = self._add(_POLY_LOOP, self.i32(4) + b"".join(self.v3(p) for p in pts))
         bound = self._add(_FACE_BOUND, self.i32(loop) + self.i32(1))
         face = self._planar_face([bound])
-        body = self.i32(face) + self.i32(self.placement3(box.position)) + self.v3((0.0, 0.0, 1.0)) + self.f64(box.z_length)
+        body = (
+            self.i32(face) + self.i32(self.placement3(box.position)) + self.v3((0.0, 0.0, 1.0)) + self.f64(box.z_length)
+        )
         return self._add(_EXTRUDED_AREA_SOLID, body)
 
     def revolved_area_solid(self, ras) -> int:
@@ -485,7 +494,11 @@ class _Encoder:
         import numpy as np
 
         poly = getattr(bound, "polygon", None)
-        raw = poly if poly is not None else (bound.get_points() if hasattr(bound, "get_points") else getattr(bound, "points", None))
+        raw = (
+            poly
+            if poly is not None
+            else (bound.get_points() if hasattr(bound, "get_points") else getattr(bound, "points", None))
+        )
         if raw is None:
             raise _Unsupported(f"loop {type(bound).__name__}")
         pts = []

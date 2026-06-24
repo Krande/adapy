@@ -216,9 +216,12 @@ def _tessellate_brepmesh(shape, linear_deflection: float, angular_deflection: fl
                     a, c = c, a
                 pts = [tri.Node(ni).Transformed(trsf) for ni in (a, b, c)]
                 if clip_lo is not None and any(
-                    p.X() < clip_lo[0] or p.X() > clip_hi[0]
-                    or p.Y() < clip_lo[1] or p.Y() > clip_hi[1]
-                    or p.Z() < clip_lo[2] or p.Z() > clip_hi[2]
+                    p.X() < clip_lo[0]
+                    or p.X() > clip_hi[0]
+                    or p.Y() < clip_lo[1]
+                    or p.Y() > clip_hi[1]
+                    or p.Z() < clip_lo[2]
+                    or p.Z() > clip_hi[2]
                     for p in pts
                 ):
                     continue  # phantom triangle outside the real solid — drop it

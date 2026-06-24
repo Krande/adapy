@@ -75,9 +75,7 @@ def _read_glb(path: Path):
     return js, binc
 
 
-def meshopt_compress_glb(
-    in_path: str | Path, out_path: str | Path, *, min_bytes: int = DEFAULT_MIN_BYTES
-) -> Path:
+def meshopt_compress_glb(in_path: str | Path, out_path: str | Path, *, min_bytes: int = DEFAULT_MIN_BYTES) -> Path:
     """Pack ``in_path`` → ``out_path`` with EXT_meshopt_compression. Returns
     ``out_path`` on success, or ``in_path`` (unchanged) on any failure /
     missing dependency / input below ``min_bytes``."""
@@ -90,9 +88,8 @@ def meshopt_compress_glb(
     except OSError:
         pass
     try:
-        import numpy as np
-
         import adacpp.cad as mo  # EXT_meshopt_compression codecs (vendored meshoptimizer in adacpp)
+        import numpy as np
     except Exception:
         logger.warning("meshopt compression skipped: adacpp/numpy not available")
         return in_path
@@ -167,7 +164,13 @@ def meshopt_compress_glb(
             if pad:
                 parts.append(b"\x00" * pad)
                 off0 += pad
-            comp_meta[c["i"]] = {"byteOffset": o, "byteLength": len(c["bytes"]), "stride": c["stride"], "mode": c["mode"], "count": c["count"]}
+            comp_meta[c["i"]] = {
+                "byteOffset": o,
+                "byteLength": len(c["bytes"]),
+                "stride": c["stride"],
+                "mode": c["mode"],
+                "count": c["count"],
+            }
         for r in raw:
             o = off0
             parts.append(r["bytes"])

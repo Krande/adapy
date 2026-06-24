@@ -155,9 +155,7 @@ def convert_step_to_glb(
         logger.info("step2glb: %s", " ".join(cmd))
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
-            raise RuntimeError(
-                f"step2glb failed (rc={proc.returncode}): {proc.stderr.strip() or proc.stdout.strip()}"
-            )
+            raise RuntimeError(f"step2glb failed (rc={proc.returncode}): {proc.stderr.strip() or proc.stdout.strip()}")
         if not raw.exists():
             raise RuntimeError("step2glb reported success but produced no GLB")
         _assert_viewer_contract(raw)

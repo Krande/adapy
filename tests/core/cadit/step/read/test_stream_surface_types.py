@@ -56,6 +56,12 @@ def test_offset_surface_imports():
 
 
 def test_surface_types_registered():
-    for t in ("AXIS1_PLACEMENT", "SURFACE_OF_REVOLUTION", "SURFACE_OF_LINEAR_EXTRUSION",
-              "RECTANGULAR_TRIMMED_SURFACE", "CURVE_BOUNDED_SURFACE", "OFFSET_SURFACE"):
+    for t in (
+        "AXIS1_PLACEMENT",
+        "SURFACE_OF_REVOLUTION",
+        "SURFACE_OF_LINEAR_EXTRUSION",
+        "RECTANGULAR_TRIMMED_SURFACE",
+        "CURVE_BOUNDED_SURFACE",
+        "OFFSET_SURFACE",
+    ):
         assert t in sr._BUILDERS

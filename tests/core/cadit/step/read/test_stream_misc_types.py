@@ -49,6 +49,14 @@ def test_rectangular_composite_surface():
 
 
 def test_misc_types_registered():
-    for t in ("AXIS2_PLACEMENT_2D", "POINT_ON_CURVE", "POINT_ON_SURFACE", "OFFSET_CURVE_3D",
-              "INTERSECTION_CURVE", "CURVE_REPLICA", "SURFACE_REPLICA", "RECTANGULAR_COMPOSITE_SURFACE"):
+    for t in (
+        "AXIS2_PLACEMENT_2D",
+        "POINT_ON_CURVE",
+        "POINT_ON_SURFACE",
+        "OFFSET_CURVE_3D",
+        "INTERSECTION_CURVE",
+        "CURVE_REPLICA",
+        "SURFACE_REPLICA",
+        "RECTANGULAR_COMPOSITE_SURFACE",
+    ):
         assert t in sr._BUILDERS

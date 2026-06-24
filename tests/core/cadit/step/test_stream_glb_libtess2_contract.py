@@ -36,6 +36,6 @@ def test_libtess2_stream_glb_keeps_adapy_contract(tmp_path, monkeypatch):
     # contract: at least one node references a mesh (not orphaned geometry)
     assert any(n.mesh is not None for n in g.nodes)
     # contract: scene extras carry the id hierarchy + per-material picking draw-ranges
-    extras = (g.scenes[g.scene or 0].extras or {})
+    extras = g.scenes[g.scene or 0].extras or {}
     assert "id_hierarchy" in extras
     assert any(k.startswith("draw_ranges_node") for k in extras)
