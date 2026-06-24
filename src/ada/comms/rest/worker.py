@@ -607,7 +607,9 @@ async def _run_component_build(
 
     try:
         await queue.update(job_id, stage="upload", progress=0.90)
-        await storage.put_bytes(scope, job.derived_key, glb_bytes)
+        # gzip-at-rest (see the conversion path) so the presigned GET serves it
+        # Content-Encoding: gzip and the browser decompresses on the fly.
+        await storage.put_bytes(scope, job.derived_key, glb_bytes, content_encoding="gzip")
     except Exception as exc:
         logger.exception("worker: component_build upload failed for %s", spec_name)
         trace = tb_module.format_exc()
@@ -1312,7 +1314,14 @@ async def _process_one(
         # Gzip text-format outputs (IFC, Genie XML); GLB is binary geometry
         # that doesn't compress meaningfully and is what the in-browser
         # viewer fetches on the hot path.
-        derived_encoding = "gzip" if job.target_format in {"ifc", "xml"} else None
+        # gzip-at-rest so the object carries Content-Encoding: gzip and the
+        # browser auto-decompresses. GLBs are included: since the viewer switched
+        # to a presigned GET straight from object storage (no API relay), the
+        # stored bytes go over the wire as-is — a raw float32 GLB is ~2-3x larger
+        # than its gzip, which is brutal on mobile/cellular. (The on-disk GLB is
+        # still uncompressed; this is transport compression, transparent to the
+        # GLTF loader. Whole-file load only — gzip-at-rest is not Range-safe.)
+        derived_encoding = "gzip" if job.target_format in {"ifc", "xml", "glb", "gltf"} else None
         # Optional GLB compression (gltfpack / meshopt + quantization), gated
         # by the per-job glb_compression option (or the ADA_GLB_COMPRESSION
         # global default). Post-process step so it covers every GLB-producing
