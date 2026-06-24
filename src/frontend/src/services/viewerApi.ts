@@ -824,6 +824,8 @@ export interface AuditFilters {
     scope_kind?: string;
     scope_id?: string;
     action?: string;
+    /** Case-insensitive substring filter on the source filepath/filename. */
+    key?: string;
     before_id?: number;
     limit?: number;
 }

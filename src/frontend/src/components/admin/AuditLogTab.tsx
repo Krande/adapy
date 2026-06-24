@@ -198,6 +198,11 @@ const AuditLogTab: React.FC = () => {
                         onChange={(v) => onFilter({action: v || undefined})}
                         placeholder="any action"
                     />
+                    <FilterInput
+                        placeholder="filename / path…"
+                        value={filters.key || ""}
+                        onChange={(v) => onFilter({key: v || undefined})}
+                    />
                     <button
                         className="hidden sm:inline-block ml-auto bg-blue-700 hover:bg-blue-600 px-2 py-1 rounded-sm"
                         onClick={() => reload(filters)}
@@ -1291,6 +1296,7 @@ function countActive(f: AuditFilters): number {
     if (f.scope_kind) n++;
     if (f.scope_id) n++;
     if (f.action) n++;
+    if (f.key) n++;
     return n;
 }
 

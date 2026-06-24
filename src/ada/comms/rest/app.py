@@ -4911,16 +4911,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_kind: str | None = None,
         scope_id: str | None = None,
         action: str | None = None,
+        key: str | None = None,
         before_id: int | None = None,
         limit: int = 100,
     ) -> JSONResponse:
         pool = _require_pool(request)
+        # ``key`` is a case-insensitive substring filter on the source filepath/
+        # filename so the audit log can be narrowed to one file or folder.
+        key_like = (key or "").strip() or None
         rows = await db_module.list_audit(
             pool,
             user_sub=user_sub,
             scope_kind=scope_kind,
             scope_id=scope_id,
             action=action,
+            key_like=key_like,
             limit=limit,
             before_id=before_id,
         )

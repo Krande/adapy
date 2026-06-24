@@ -684,11 +684,16 @@ async def list_audit(
     scope_id: str | None = None,
     action: str | None = None,
     statuses: list[str] | None = None,
+    key_like: str | None = None,
     limit: int = 100,
     before_id: int | None = None,
     exclude_audit_dispatched: bool = False,
 ) -> list[dict]:
     """Reverse-chronological audit_log scan, optionally filtered.
+
+    ``key_like`` is a case-insensitive substring filter on the source ``key``
+    (the filepath/filename), so the admin audit log can be narrowed to one file
+    or folder (``%term%`` ILIKE).
 
     Pagination is keyset-style on ``id`` (the BIGSERIAL primary key) —
     pass the smallest id from the previous page as ``before_id``. id
@@ -722,6 +727,9 @@ async def list_audit(
     if statuses:
         args.append(statuses)
         where.append(f"status = ANY(${len(args)})")
+    if key_like:
+        args.append(f"%{key_like}%")
+        where.append(f"key ILIKE ${len(args)}")
     if before_id is not None:
         args.append(before_id)
         where.append(f"id < ${len(args)}")
