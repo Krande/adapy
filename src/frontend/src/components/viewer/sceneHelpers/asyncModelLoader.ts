@@ -11,7 +11,7 @@ import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
 // All model loads share one row in the unified in-progress toast so the user gets
 // download (then processing) feedback instead of a seemingly-stuck viewer on large
 // models. Keyed constant => one row; the model name is shown as the row label.
-const LOAD_KEY = "__model_load__";
+const LOAD_KEY = "model-load";
 
 // returns a Promise that resolves with the loaded GLTF, while reporting download
 // progress into the conversion store (rendered by the unified ConversionProgress toast).

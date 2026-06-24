@@ -671,7 +671,7 @@ const ConversionProgress = () => {
     // conversion row (that's the "two toasts for one load" the merge was meant
     // to kill). Direct loadGLTF calls (no load-queue entry) set it without a
     // loadCurrent, so the load row falls back to this job's own name.
-    const MODEL_LOAD_KEY = "__model_load__";
+    const MODEL_LOAD_KEY = "model-load";
     const modelLoadJob = jobs[MODEL_LOAD_KEY];
     const modelLoadActive =
         !!modelLoadJob && (modelLoadJob.status === "queued" || modelLoadJob.status === "running");
@@ -683,7 +683,7 @@ const ConversionProgress = () => {
     // In-progress jobs collapse into one toast; errors stay split so each one's
     // traceback + copy button is reachable. Excluded from the conversion rows:
     // (a) the conversion/bake job driving the current scene load, and (b) the
-    // __model_load__ GLB-download job — both surface on the single load row.
+    // model-load GLB-download job — both surface on the single load row.
     const inProgress = Object.entries(jobs)
         .filter(([k, j]) =>
             (j.status === "queued" || j.status === "running") &&
