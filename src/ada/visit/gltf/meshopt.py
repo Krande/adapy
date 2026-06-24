@@ -91,9 +91,10 @@ def meshopt_compress_glb(
         pass
     try:
         import numpy as np
-        import meshoptimizer as mo
+
+        import adacpp.cad as mo  # EXT_meshopt_compression codecs (vendored meshoptimizer in adacpp)
     except Exception:
-        logger.warning("meshopt compression skipped: meshoptimizer/numpy not available")
+        logger.warning("meshopt compression skipped: adacpp/numpy not available")
         return in_path
 
     try:
@@ -128,9 +129,8 @@ def meshopt_compress_glb(
                 a = attr_bv[i]
                 stride = bv.get("byteStride") or (_TYPE_COMPONENTS[a["type"]] * _COMP_BYTES[a["componentType"]])
                 count = bv["byteLength"] // stride
-                arr = np.frombuffer(src, dtype=np.uint8)
-                enc = bytes(mo.encode_vertex_buffer(arr, count, stride))
-                back = bytes(mo.decode_vertex_buffer(count, stride, np.frombuffer(enc, dtype=np.uint8)))
+                enc = bytes(mo.meshopt_encode_vertex_buffer(bytes(src), count, stride))
+                back = bytes(mo.meshopt_decode_vertex_buffer(enc, count, stride))
                 mode = "ATTRIBUTES"
             elif i in idx_bv:
                 a = idx_bv[i]
@@ -139,8 +139,8 @@ def meshopt_compress_glb(
                 idtype = np.uint16 if stride == 2 else np.uint32
                 idx = np.frombuffer(src, dtype=idtype).astype(np.uint32)
                 vcount = int(idx.max()) + 1 if count else 1
-                enc = bytes(mo.encode_index_sequence(idx, count, vcount))
-                back = bytes(mo.decode_index_sequence(count, stride, np.frombuffer(enc, dtype=np.uint8)))
+                enc = bytes(mo.meshopt_encode_index_sequence(idx.tobytes(), count, vcount))
+                back = bytes(mo.meshopt_decode_index_sequence(enc, count, stride))
                 mode = "INDICES"
             else:
                 raw.append({"i": i, "bytes": bytes(src)})
