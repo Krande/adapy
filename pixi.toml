@@ -100,7 +100,7 @@ fem-deps = { features = ["fem-deps", "prod", "pyocc", "tests-core"], no-default-
 # only under tests/full/frontend and need the `tests` feature's playwright).
 fem = { features = ["fem", "tests", "prod", "pyocc", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
 docs = { features = ["docs", "prod", "pyocc", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
-viewer-api = { features = ["viewer-api", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
+viewer-api = { features = ["viewer-api", "prod", "pyocc", "adacpp-runtime"], solve-group = "prod", no-default-feature = true }
 # Slim runtime for the Dockerfile.viewer image — no `prod` so the
 # occt/pythonocc/numpy closure stays out.
 viewer-api-slim = { features = ["viewer-api", "viewer-slim"], no-default-feature = true }
@@ -127,6 +127,14 @@ meshio = "*"
 [feature.pyocc.dependencies]
 pythonocc-core = { version = "7.9.3.*", build = "novtk_*" }
 occt = { version = "7.9.3.*", build = "novtk_*" }
+
+# ada-cpp as a *runtime library alongside pyocc* — no ADAPY_CAD_BACKEND flip (unlike
+# the `adacpp` feature). The conversion worker (viewer-api env) needs ada-cpp present
+# so the default libtess2 STEP→GLB pipeline can run; pyocc stays the default backend
+# for every other path (IFC/XML/FEM, occ-builtin fallback). Shares occt 7.9.3 with
+# pyocc (see above) so both coexist in one env.
+[feature.adacpp-runtime.dependencies]
+ada-cpp = "0.10.0.*"
 
 # ada-cpp CAD backend (AdacppBackend) — native CPython build of the
 # wasm-capable kernel. Brings its own occt 7.9.3 + gmsh + ifcopenshell,
