@@ -633,7 +633,7 @@ async def abort_audit_run(
                     error = COALESCE(error, 'audit run aborted')
                 WHERE audit_run_id = $1
                   AND status IN ('queued', 'running')
-                RETURNING id
+                RETURNING id, job_id
                 """,
                 run_id,
             )
@@ -648,7 +648,11 @@ async def abort_audit_run(
                     run_id,
                     n_cancel,
                 )
-    return _audit_run_row(run)
+    result = _audit_run_row(run)
+    # job_ids of the cells we just cancelled — the caller purges their still-queued
+    # JetStream messages so the worker never pulls/processes a doomed cell.
+    result["cancelled_job_ids"] = [r["job_id"] for r in cancelled_rows if r["job_id"]]
+    return result
 
 
 async def append_metrics_sample_by_job(
@@ -1338,17 +1342,25 @@ async def extend_audit_run_total(pool: asyncpg.Pool, run_id: str, delta: int) ->
     )
 
 
-async def delete_audit_run(pool: asyncpg.Pool, run_id: str) -> bool:
+async def delete_audit_run(pool: asyncpg.Pool, run_id: str) -> tuple[bool, list[str]]:
     """Delete an audit run and its audit_log rows. ``audit_parity`` rows cascade
     on the run delete; ``audit_log`` is ON DELETE SET NULL, so we remove those
     rows explicitly rather than orphaning them as run-less audit entries.
-    Returns True if a run was deleted, False if it didn't exist."""
+
+    Returns ``(deleted, queued_job_ids)``: ``deleted`` is True if a run row was
+    removed; ``queued_job_ids`` are the still-queued cells' job_ids captured BEFORE
+    the delete, so the caller can purge their JetStream messages (deleting the rows
+    would otherwise make a cancelled cell invisible to the worker's cancel check)."""
     async with pool.acquire() as conn:
         async with conn.transaction():
+            queued = await conn.fetch(
+                "SELECT job_id FROM audit_log WHERE audit_run_id = $1 AND status IN ('queued', 'running')",
+                run_id,
+            )
             await conn.execute("DELETE FROM audit_log WHERE audit_run_id = $1", run_id)
             res = await conn.execute("DELETE FROM audit_runs WHERE id = $1", run_id)
     # asyncpg returns a command tag like "DELETE 1".
-    return res.split()[-1] != "0"
+    return res.split()[-1] != "0", [r["job_id"] for r in queued if r["job_id"]]
 
 
 async def list_audit_runs(

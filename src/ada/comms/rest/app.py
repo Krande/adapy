@@ -3760,6 +3760,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=404,
                 detail="audit run not found or not in running state",
             )
+        # Deep-clean the cancelled cells' still-queued JetStream messages so the
+        # worker never pulls a doomed conversion (wasted download/convert/hang).
+        purge_ids = run.pop("cancelled_job_ids", []) or []
+        if purge_ids and queue is not None:
+            try:
+                await queue.purge_jobs(purge_ids)
+            except Exception:
+                logger.exception("audit cancel: queue purge failed for run %s", run_id)
         return JSONResponse(run)
 
     @admin.post("/audit/runs/{run_id}/re-dispatch")
@@ -3877,9 +3885,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="audit run not found")
         if run["status"] == "running":
             raise HTTPException(status_code=409, detail="cancel the run before deleting it")
-        deleted = await db_module.delete_audit_run(pool, run_id)
+        deleted, queued_job_ids = await db_module.delete_audit_run(pool, run_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="audit run not found")
+        # The rows are gone, so the worker's cancel check can't catch these — purge
+        # their still-queued JetStream messages so they aren't pulled + processed.
+        if queued_job_ids and queue is not None:
+            try:
+                await queue.purge_jobs(queued_job_ids)
+            except Exception:
+                logger.exception("audit delete: queue purge failed for run %s", run_id)
         return JSONResponse({"deleted": run_id})
 
     @admin.get("/audit/cell-history")

@@ -931,6 +931,20 @@ async def _process_one(
 
     scope = _scope_of(job)
 
+    # Pre-download cancel skip: a cell whose (audit) run was cancelled is acked +
+    # skipped here, BEFORE any source download or convert — so a cancelled run's
+    # queued backlog costs ~nothing and can't wedge the worker on a doomed job.
+    # (A *deleted* run's rows are gone, so audit_is_cancelled can't catch those —
+    # the run cancel/delete endpoints purge those messages from the stream up front.)
+    if db_pool is not None:
+        try:
+            if await db_module.audit_is_cancelled(db_pool, job_id):
+                logger.info("worker: job %s cancelled; skipping before download", job_id)
+                await queue.update(job_id, status="cancelled", stage="cancelled", progress=1.0, error=None)
+                return
+        except Exception:
+            logger.exception("worker: pre-download cancel check failed for job %s", job_id)
+
     # Poison-pill guard: if NATS has redelivered this message past
     # the cap, the previous attempts crashed the worker before they
     # could ack. Stop trying — record the error, ack the message,

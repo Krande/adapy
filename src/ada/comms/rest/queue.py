@@ -28,6 +28,8 @@ import nats
 from nats.js.api import ConsumerConfig, RetentionPolicy, StreamConfig
 from nats.js.errors import BadRequestError, BucketNotFoundError, KeyNotFoundError
 
+from ada.config import logger
+
 from .config import QueueConfig
 from .converter import derived_key_for
 
@@ -196,6 +198,44 @@ class JobQueue:
             self._nc = None
             self._js = None
             self._kv = None
+
+    async def purge_jobs(self, job_ids) -> int:
+        """Delete still-queued work-queue messages whose body (a job_id) is in
+        ``job_ids``. WORK_QUEUE retention removes a message on ack, so the stream
+        only holds the un-processed backlog — the scan is over the pending jobs,
+        not all history. Used to deep-clean a cancelled/deleted audit run's cells
+        so the worker never pulls and (partially) processes a doomed conversion.
+        Best-effort; returns the count purged."""
+        ids = {j for j in (job_ids or []) if j}
+        if not ids or self._js is None:
+            return 0
+        try:
+            info = await self._js.stream_info(self._cfg.stream)
+        except Exception:
+            logger.exception("queue: stream_info failed during purge")
+            return 0
+        first = info.state.first_seq or 1
+        last = info.state.last_seq or 0
+        purged = 0
+        for seq in range(first, last + 1):
+            try:
+                msg = await self._js.get_msg(self._cfg.stream, seq)
+            except Exception:
+                continue  # already acked/deleted — gap in the sequence
+            data = getattr(msg, "data", b"") or b""
+            try:
+                jid = data.decode("utf-8") if isinstance(data, (bytes, bytearray)) else str(data)
+            except Exception:
+                continue
+            if jid in ids:
+                try:
+                    await self._js.delete_msg(self._cfg.stream, seq)
+                    purged += 1
+                except Exception:
+                    logger.debug("queue: delete_msg failed for seq %s", seq)
+        if purged:
+            logger.info("queue: purged %d cancelled job message(s) from the stream", purged)
+        return purged
 
     # --- producer side (called from API) -----------------------------
 
