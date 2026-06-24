@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from itertools import groupby
 from typing import TYPE_CHECKING, Iterable
@@ -821,6 +822,22 @@ class BatchTessellator:
                     except (NotImplementedError, AttributeError):
                         raw = None
                 if geom_repr == GeomRepr.SOLID and is_shape_handle(raw):
+                    # NGEOM pipeline requested: prefer serializing the object's ada.geom +
+                    # streaming it through the selected kernel — the raw OCC body (_occ_cache,
+                    # set by primitives + raw-OCC imports) alone can't drive a non-OCC kernel.
+                    # Objects with no parametric solid_geom (raw-OCC imports) fall back to the
+                    # direct OCC tessellation below.
+                    if os.environ.get("ADA_STREAM_TESS_PIPELINE"):
+                        ng = None
+                        try:
+                            ng = obj.solid_geom()
+                        except Exception:  # noqa: BLE001 - no parametric geom -> OCC fast path
+                            ng = None
+                        if ng is not None:
+                            ms_ng = self._tessellate_geom_via_stream(ng, node_ref)
+                            if ms_ng is not None:
+                                yield ms_ng
+                                continue
                     try:
                         yield self.tessellate_occ_geom(raw, node_ref, obj.color, MeshType.TRIANGLES)
                     except UnableToCreateTesselationFromSolidOCCGeom as e:
