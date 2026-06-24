@@ -762,12 +762,21 @@ class AdacppBackend:
             normals=nrm if nrm.size else None,
         )
 
+    def ifc_taxonomy_settings(self) -> "list[dict]":
+        """Enumerate the ifcopenshell taxonomy ConversionSettings exposed by
+        adacpp as ``[{name, type, default}, ...]`` — for tuning the occ/cgal/
+        hybrid kernels (and for the frontend to render dynamically). Empty when
+        the adacpp build predates the settings interface."""
+        fn = getattr(self._cad, "ifc_taxonomy_settings", None)
+        return list(fn()) if fn is not None else []
+
     def tessellate_stream(
         self,
         items: "list[tuple[str, object]]",
         pipeline: str = "libtess2",
         deflection: float = 0.0,
         angular_deg: float = 20.0,
+        settings: "dict | None" = None,
     ) -> "BatchMesh":
         """Tessellate a stream of ``(id, ada.geom geometry)`` via adacpp's NGEOM pipeline.
 
@@ -787,7 +796,18 @@ class AdacppBackend:
         from ada.cadit.ngeom import serialize_geometries
 
         buffer = serialize_geometries(items)
-        mesh = fn(buffer, pipeline, deflection, angular_deg)
+        # ``settings`` overrides the ifcopenshell ConversionSettings for the
+        # taxonomy paths (occ/cgal/hybrid); ignored by libtess2. Backward-
+        # compatible: adacpp builds predating the settings param raise
+        # TypeError, in which case we retry without it.
+        if settings:
+            try:
+                mesh = fn(buffer, pipeline, deflection, angular_deg, dict(settings))
+            except TypeError:
+                logger.warning("adacpp build has no taxonomy settings param; ignoring %r", settings)
+                mesh = fn(buffer, pipeline, deflection, angular_deg)
+        else:
+            mesh = fn(buffer, pipeline, deflection, angular_deg)
         groups = [
             MeshGroup(node_id=g.node_id, start=g.start, length=g.length, vstart=g.vstart, vlength=g.vlength)
             for g in mesh.groups
