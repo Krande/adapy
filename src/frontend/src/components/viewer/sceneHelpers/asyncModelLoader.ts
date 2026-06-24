@@ -1,6 +1,10 @@
 // state/sceneHelpers/asyncModelLoader.ts
 import {GLTF, GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
-import {MeshoptDecoder} from "three/examples/jsm/libs/meshopt_decoder.module.js";
+// Use the meshoptimizer npm decoder (1.1.x), NOT three's bundled meshopt_decoder
+// (built from meshoptimizer 0.18, vertex-codec v0 only). adacpp's encoder
+// (vendored meshoptimizer 1.1) emits the v1 vertex codec by default, which the
+// 0.18 decoder rejects with "malformed buffer". The 1.1 decoder reads both v0/v1.
+import {MeshoptDecoder} from "meshoptimizer";
 import {useConversionStore} from "@/state/conversionStore";
 import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
 
