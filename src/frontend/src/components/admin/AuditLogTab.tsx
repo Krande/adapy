@@ -598,6 +598,50 @@ const ErrorTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
     );
 };
 
+// Conversion engine + effective toggles (the convert_meta JSONB). Highlights the
+// tessellator that actually ran — an "occ-builtin (fallback …)" value means adacpp
+// wasn't present in the worker so libtess2 silently degraded.
+const ConvertEngine: React.FC<{meta: import("@/services/viewerApi").ConvertMeta}> = ({meta}) => {
+    const fellBack = (meta.tessellator || "").includes("fallback");
+    const opts = meta.options || {};
+    const optKeys = Object.keys(opts).sort();
+    return (
+        <div className="pt-2 border-t border-gray-800 space-y-1">
+            <div className="text-[11px] uppercase tracking-wide text-gray-400">Conversion engine</div>
+            <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 font-mono">
+                {meta.tessellator && (
+                    <>
+                        <dt className="text-gray-400">Tessellator</dt>
+                        <dd className={fellBack ? "text-amber-300" : "text-emerald-300"}>{meta.tessellator}</dd>
+                    </>
+                )}
+                {meta.step_glb_pipeline && (
+                    <><dt className="text-gray-400">Requested</dt><dd>{meta.step_glb_pipeline}</dd></>
+                )}
+                {meta.glb_compression && (
+                    <><dt className="text-gray-400">Compression</dt><dd>{meta.glb_compression}</dd></>
+                )}
+                {meta.stream_workers != null && meta.stream_workers !== "" && (
+                    <><dt className="text-gray-400">Workers</dt><dd>{String(meta.stream_workers)}</dd></>
+                )}
+            </dl>
+            {optKeys.length > 0 && (
+                <div className="pt-1">
+                    <div className="text-[11px] text-gray-400 mb-0.5">Effective options</div>
+                    <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono text-[11px]">
+                        {optKeys.map((k) => (
+                            <React.Fragment key={k}>
+                                <dt className="text-gray-500 break-all">{k}</dt>
+                                <dd className="text-gray-300 break-all">{opts[k]}</dd>
+                            </React.Fragment>
+                        ))}
+                    </dl>
+                </div>
+            )}
+        </div>
+    );
+};
+
 const MetricsTab: React.FC<{
     entry: AuditEntry;
     onDownloadProfile: () => void;
@@ -626,6 +670,7 @@ const MetricsTab: React.FC<{
                 <MetricRow label="Read"     value={formatBytes(entry.read_bytes)}/>
                 <MetricRow label="Write"    value={formatBytes(entry.write_bytes)}/>
             </dl>
+            {entry.convert_meta && <ConvertEngine meta={entry.convert_meta}/>}
             <MetricsHistoryChart auditId={entry.id}/>
             {entry.profile_key ? (
                 <div className="pt-2 border-t border-gray-800 space-y-3">

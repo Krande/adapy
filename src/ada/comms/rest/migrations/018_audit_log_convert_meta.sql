@@ -1,0 +1,19 @@
+-- 018_audit_log_convert_meta.sql — per-conversion engine + options provenance.
+--
+-- A convert audit_log row records WHICH tessellator/engine actually ran and the
+-- effective toggle options it used, so a conversion's output (e.g. libtess2's
+-- 62 M triangles vs the occ-builtin fallback's ~15 M + degenerate geometry) can
+-- be attributed to the engine + settings rather than guessed. Mirrors the
+-- view/render ``client_metrics`` pattern: one JSONB column, written once at job
+-- completion, read as "this row's detail".
+--
+-- Shape (all keys optional):
+--   {
+--     "tessellator": "adacpp:libtess2" | "occ-builtin" | "occ-builtin (fallback)"
+--                    | "step2glb" | "adacpp:occ" | "adacpp:cgal" | "adacpp:hybrid",
+--     "step_glb_pipeline": "<requested pipeline>",   -- before fallback
+--     "glb_compression": "meshopt" | "off",
+--     "stream_workers": <num>,
+--     "options": { "<ADA_* env var>": "<value>", ... }  -- effective non-default toggles
+--   }
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS convert_meta JSONB;

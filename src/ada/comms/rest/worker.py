@@ -130,9 +130,48 @@ async def _audit_done(
             write_bytes=metrics.get("write_bytes"),
             profile_key=metrics.get("profile_key"),
             worker_image_tag=_WORKER_IMAGE_TAG,
+            convert_meta=metrics.get("convert_meta"),
         )
     except Exception:
         logger.exception("worker: audit update failed for job %s", job_id)
+
+
+def _convert_meta_for(job: "Job", env_overrides: dict | None) -> dict | None:
+    """Provenance for a conversion's audit row: which tessellator/engine actually
+    ran (resolved here the same way the convert subprocess resolves it — adacpp
+    availability is identical in this shared env — so a libtess2→occ-builtin
+    fallback is recorded accurately) plus the effective toggle options."""
+    suffix = pathlib.PurePosixPath(job.source_key).suffix.lower()
+    meta: dict = {}
+    # The effective non-default toggles applied to the child (settings + per-job).
+    if env_overrides:
+        meta["options"] = dict(env_overrides)
+    if job.target_format == "glb" and suffix in {".step", ".stp"}:
+        try:
+            from ada.comms.rest.converter import (
+                _STEP_GLB_PIPELINE_OCC,
+                _STEP_GLB_PIPELINE_STEP2GLB,
+                _cad_config_for_pipeline,
+                _resolve_step_glb_pipeline,
+            )
+
+            requested = _resolve_step_glb_pipeline((env_overrides or {}).get("ADAPY_STEP_GLB_PIPELINE"))
+            meta["step_glb_pipeline"] = requested
+            if requested == _STEP_GLB_PIPELINE_STEP2GLB:
+                meta["tessellator"] = "step2glb"
+            else:
+                cfg = _cad_config_for_pipeline(requested)
+                if cfg is not None:
+                    meta["tessellator"] = cfg.path.value  # e.g. "adacpp:libtess2"
+                elif requested != _STEP_GLB_PIPELINE_OCC:
+                    meta["tessellator"] = f"occ-builtin (fallback from {requested})"
+                else:
+                    meta["tessellator"] = "occ-builtin"
+            meta["glb_compression"] = (env_overrides or {}).get("ADA_GLB_COMPRESSION") or "meshopt"
+            meta["stream_workers"] = (env_overrides or {}).get("ADA_STEP_STREAM_WORKERS")
+        except Exception:
+            logger.exception("worker: convert_meta tessellator resolution failed for %s", job.source_key)
+    return meta or None
 
 
 async def _run_fea_artefact_bake(
@@ -1232,6 +1271,10 @@ async def _process_one(
                     continue  # tri-state "clear"; nothing to forward
                 convert_options[k] = v
 
+        # Engine + options provenance for the audit row (which tessellator ran,
+        # incl. an adacpp→occ-builtin fallback, and the effective toggles).
+        convert_meta = _convert_meta_for(job, env_overrides)
+
         # Poll the audit_log (cancel endpoint's source of truth) so a user
         # cancellation actually reaps the running conversion subprocess.
         async def _cancel_check() -> bool:
@@ -1309,6 +1352,7 @@ async def _process_one(
             )
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
+            metrics["convert_meta"] = convert_meta
             await _audit_done(
                 db_pool,
                 job_id,
@@ -1369,6 +1413,7 @@ async def _process_one(
             await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
+            metrics["convert_meta"] = convert_meta
             await _audit_done(
                 db_pool,
                 job_id,
@@ -1393,6 +1438,7 @@ async def _process_one(
         # the cProfile dump from the child.
         metrics = dict(iresult.final_metrics)
         metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
+        metrics["convert_meta"] = convert_meta
 
         await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
         await _audit_done(db_pool, job_id, "done", None, started_at, metrics=metrics)

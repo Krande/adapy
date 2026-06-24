@@ -572,6 +572,17 @@ export interface AuditEntry {
     // Stable per-device id (from client_metrics) — distinguishes view/render
     // audit logs by device (e.g. phone vs desktop). Null for server-side rows.
     device_id: string | null;
+    // Conversion engine + effective toggles for a convert row (which tessellator
+    // actually ran, incl. an adacpp→occ-builtin fallback, + the options used).
+    convert_meta: ConvertMeta | null;
+}
+
+export interface ConvertMeta {
+    tessellator?: string;
+    step_glb_pipeline?: string;
+    glb_compression?: string;
+    stream_workers?: string | number | null;
+    options?: Record<string, string>;
 }
 
 // One audit-sweep record. Returned by /admin/audit/runs endpoints.
