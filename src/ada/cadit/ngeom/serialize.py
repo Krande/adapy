@@ -79,6 +79,7 @@ _SURF_REVOLUTION = 47
 _EXTRUDED_AREA_SOLID = 50
 _REVOLVED_AREA_SOLID = 51
 _BOOLEAN_RESULT = 52
+_SPHERE_SOLID = 53
 _EDGE_CURVE = 60
 _ORIENTED_EDGE = 61
 _EDGE_LOOP = 62
@@ -460,6 +461,17 @@ class _Encoder:
         body = self.i32(face) + self.i32(self.placement3(cyl.position)) + self.v3((0.0, 0.0, 1.0)) + self.f64(h)
         return self._add(_EXTRUDED_AREA_SOLID, body)
 
+    def sphere_solid(self, sphere) -> int:
+        """Sphere -> a SPHERE_SOLID record (centre placement + radius). Decoded
+        by adacpp into an analytic UV sphere (libtess2) / BRepPrimAPI_MakeSphere
+        (occ/cgal); taxonomy has no sphere solid (only a spherical surface)."""
+        from ada.geom.placement import Axis2Placement3D, Point
+
+        c = sphere.center
+        pos = Axis2Placement3D(location=Point(float(c[0]), float(c[1]), float(c[2])))
+        body = self.i32(self.placement3(pos)) + self.f64(float(sphere.radius))
+        return self._add(_SPHERE_SOLID, body)
+
     def cone_solid(self, cone) -> int:
         """Cone -> a base-radius/height triangle (XZ plane) revolved about Z."""
         r, h = float(cone.bottom_radius), float(cone.height)
@@ -549,6 +561,8 @@ class _Encoder:
             return self.cylinder_solid(geom)
         if isinstance(geom, _so.Cone):
             return self.cone_solid(geom)
+        if isinstance(geom, _so.Sphere):
+            return self.sphere_solid(geom)
         if isinstance(geom, su.FaceBasedSurfaceModel):
             return self.face_based_surface_model(geom)
         if isinstance(geom, su.FaceSurface):
