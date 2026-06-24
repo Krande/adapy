@@ -100,11 +100,11 @@ fem-deps = { features = ["fem-deps", "prod", "pyocc", "tests-core"], no-default-
 # only under tests/full/frontend and need the `tests` feature's playwright).
 fem = { features = ["fem", "tests", "prod", "pyocc", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
 docs = { features = ["docs", "prod", "pyocc", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
-viewer-api = { features = ["viewer-api", "viewer-worker", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
+viewer-api = { features = ["viewer-api", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
 # Slim runtime for the Dockerfile.viewer image — no `prod` so the
 # occt/pythonocc/numpy closure stays out.
 viewer-api-slim = { features = ["viewer-api"], no-default-feature = true }
-viewer-api-tests = { features = ["viewer-api", "viewer-worker", "tests-core", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
+viewer-api-tests = { features = ["viewer-api", "tests-core", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
 meshio-bridge = { features = ["meshio-bridge", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 
@@ -264,12 +264,11 @@ audit-repro = { cmd = "python scripts/audit_repro.py", env = { "PYTHONPATH" = "$
 viewer-upload = { cmd = "python scripts/viewer_upload.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 glb-face-classify = { cmd = "python scripts/glb_face_classify.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
-# meshoptimizer (a C-extension) is only used by the conversion worker's optional
-# meshopt GLB compression (ada.visit.gltf.meshopt, imported lazily). Keep it in a
-# worker-only feature so the slim API env (viewer-api-slim) — which never runs the
-# worker — doesn't try to build it (it has no python pin / compiler -> build fails).
-[feature.viewer-worker.pypi-dependencies]
-meshoptimizer = ">=0.2.30a0, <0.3"
+# NOTE: meshopt GLB compression (ada.visit.gltf.meshopt) no longer pulls the PyPI
+# `meshoptimizer` package — it is sdist-only (no wheels) so every viewer/worker image
+# tried to compile it from source and failed (no g++). The EXT_meshopt_compression
+# encoders now live in adacpp (vendored meshoptimizer C source, cad.meshopt_encode_*);
+# the compress path uses them when adacpp is present and gracefully skips otherwise.
 
 [feature.frontend.dependencies]
 nodejs = "24.*"
