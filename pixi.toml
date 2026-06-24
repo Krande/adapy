@@ -103,7 +103,7 @@ docs = { features = ["docs", "prod", "pyocc", "desktop", "fem-deps", "tests-core
 viewer-api = { features = ["viewer-api", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
 # Slim runtime for the Dockerfile.viewer image — no `prod` so the
 # occt/pythonocc/numpy closure stays out.
-viewer-api-slim = { features = ["viewer-api"], no-default-feature = true }
+viewer-api-slim = { features = ["viewer-api", "viewer-slim"], no-default-feature = true }
 viewer-api-tests = { features = ["viewer-api", "tests-core", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
 meshio-bridge = { features = ["meshio-bridge", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
@@ -253,6 +253,13 @@ httpx = "*"
 asyncpg = "*"
 psutil = "*"
 croniter = "*"
+
+# Pin the slim API image's python (it has no `prod`, so it would otherwise float to
+# the newest cpython). Pinned to what it currently resolves to (3.14) for a
+# reproducible image; kept separate from the full env's prod-pinned 3.12 to avoid a
+# cross-feature python conflict.
+[feature.viewer-slim.dependencies]
+python = "3.14.*"
 
 [feature.viewer-api.tasks]
 viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
