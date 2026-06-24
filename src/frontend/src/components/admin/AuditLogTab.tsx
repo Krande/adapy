@@ -694,6 +694,11 @@ const ClientMetricsTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
     const scalars = Object.entries(cm)
         .filter(([k, v]) => k !== "profile_frames" && (typeof v === "number" || typeof v === "string" || typeof v === "boolean"))
         .sort(([a], [b]) => a.localeCompare(b));
+    // Performance toggles active when this load/render was captured.
+    const perfOptions =
+        cm.perf_options && typeof cm.perf_options === "object" && !Array.isArray(cm.perf_options)
+            ? (cm.perf_options as Record<string, unknown>)
+            : null;
     const fmt = (k: string, v: unknown): string => {
         if (typeof v === "number") {
             if (CM_MS_KEYS.has(k)) return formatDuration(v);
@@ -713,6 +718,21 @@ const ClientMetricsTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
                     </React.Fragment>
                 ))}
             </dl>
+            {perfOptions ? (
+                <div className="pt-2 border-t border-gray-800">
+                    <div className="text-[11px] text-gray-400 mb-1">Performance options (active at capture)</div>
+                    <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono">
+                        {Object.entries(perfOptions)
+                            .sort(([a], [b]) => a.localeCompare(b))
+                            .map(([k, v]) => (
+                                <React.Fragment key={k}>
+                                    <dt className="text-gray-400">{k}</dt>
+                                    <dd className="text-gray-100">{String(v)}</dd>
+                                </React.Fragment>
+                            ))}
+                    </dl>
+                </div>
+            ) : null}
             {frames.length > 0 ? (
                 <div className="pt-2 border-t border-gray-800">
                     <div className="text-[11px] text-gray-400 mb-1">

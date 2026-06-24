@@ -104,6 +104,19 @@ export const usePerfStore = create<PerfState>()(
     ),
 );
 
+// Snapshot of every performance option (the data fields of the store, setters
+// excluded) for the frontend load/render audit logs — so a metrics row records
+// exactly which perf toggles were active. Auto-collects new options, so adding a
+// field to PerfState includes it here without touching the audit code.
+export function perfOptionsSnapshot(): Record<string, unknown> {
+    const state = usePerfStore.getState() as unknown as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(state)) {
+        if (typeof value !== "function") out[key] = value; // skip the set* actions
+    }
+    return out;
+}
+
 // Imperative dirty-flag helper for on-demand render mode. Modules
 // that mutate scene state outside of OrbitControls / animation
 // drivers (e.g. field-apply, manifest swap) can call this to nudge

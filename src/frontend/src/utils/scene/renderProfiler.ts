@@ -20,6 +20,7 @@ import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
 import {CallProfiler} from "@/utils/scene/callProfiler";
 import {getDeviceId} from "@/utils/deviceId";
+import {perfOptionsSnapshot} from "@/state/perfStore";
 
 const WINDOW_MS = 8000; // flush cadence
 const MIN_FRAMES = 30; // don't post a window with too few samples
@@ -235,6 +236,7 @@ class RenderProfiler {
             long_frames: this.longFrames,
             dpr: window.devicePixelRatio || 1,
             device_id: getDeviceId(),
+            perf_options: perfOptionsSnapshot(), // which perf toggles were active
         };
         this.post(cm, prof).catch(() => {});
         this.reset(nowTs);

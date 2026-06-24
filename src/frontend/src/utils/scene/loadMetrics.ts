@@ -35,6 +35,7 @@ import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
 import {CallProfiler, type ProfileFrame} from "@/utils/scene/callProfiler";
 import {getDeviceId} from "@/utils/deviceId";
+import {perfOptionsSnapshot} from "@/state/perfStore";
 
 export type LoadTransport = "presigned" | "relayed" | "blob" | "unknown";
 
@@ -319,6 +320,7 @@ export class LoadMetricsRecorder {
             /* ignore */
         }
         if (profileFrames.length > 0) cm["profile_frames"] = profileFrames;
+        cm["perf_options"] = perfOptionsSnapshot(); // which perf toggles were active
 
         const js_heap_used_mb = cm["js_heap_used_mb"] as number | undefined;
 
