@@ -75,6 +75,8 @@ _TORUS = 44
 _BSPLINE_SURFACE = 45
 _SURF_LIN_EXTRUSION = 46
 _SURF_REVOLUTION = 47
+# solids (50-59) — swept/CSG solids mapped to ifcopenshell taxonomy items
+_EXTRUDED_AREA_SOLID = 50
 _EDGE_CURVE = 60
 _ORIENTED_EDGE = 61
 _EDGE_LOOP = 62
@@ -307,9 +309,65 @@ class _Encoder:
                 continue
         return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + b"".join(self.i32(f) for f in faces))
 
+    # --- solids ------------------------------------------------------------------------
+    @staticmethod
+    def _loop_points_3d(curve) -> list[tuple[float, float, float]]:
+        """Ordered boundary points of a closed profile curve, lifted to z=0
+        (the profile lives in its local XY plane). IndexedPolyCurve / Polyline
+        expose ``get_points()``; fall back to ``.points``."""
+        getp = getattr(curve, "get_points", None)
+        raw = getp() if callable(getp) else getattr(curve, "points", None)
+        if raw is None:
+            raise _Unsupported(f"profile curve {type(curve).__name__}")
+        pts: list[tuple[float, float, float]] = []
+        for p in raw:
+            p = list(p)
+            pts.append((float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 0.0))
+        if len(pts) > 1 and pts[0] == pts[-1]:  # POLY_LOOP closes implicitly
+            pts.pop()
+        return pts
+
+    def _poly_face_bound(self, curve, outer: bool) -> int:
+        pts = self._loop_points_3d(curve)
+        loop = self._add(_POLY_LOOP, self.i32(len(pts)) + b"".join(self.v3(p) for p in pts))
+        return self._add(_FACE_BOUND, self.i32(loop) + self.i32(1 if outer else 0))
+
+    def extruded_area_solid(self, eas) -> int:
+        """ExtrudedAreaSolid -> a planar profile FACE (local XY, z=0) + extrude
+        direction + depth + placement. Decoded on the adacpp side into an
+        ifcopenshell ``taxonomy::extrusion`` (matrix=position, basis=profile
+        face, direction, depth). Profile must be an ArbitraryProfileDef whose
+        boundary curves resolve to ordered points (polyline profiles)."""
+        from ada.geom.placement import Axis2Placement3D
+
+        profile = eas.swept_area
+        outer = getattr(profile, "outer_curve", None)
+        if outer is None:
+            raise _Unsupported(f"extrusion profile {type(profile).__name__}")
+        bounds = [self._poly_face_bound(outer, True)]
+        for ic in getattr(profile, "inner_curves", None) or []:
+            bounds.append(self._poly_face_bound(ic, False))
+        # planar basis in the local profile frame (z = 0 plane)
+        plane = self._add(_PLANE, self.i32(self.placement3(Axis2Placement3D())))
+        face = self._add(
+            _FACE_SURFACE,
+            self.i32(plane) + self.i32(1) + self.i32(len(bounds)) + b"".join(self.i32(b) for b in bounds),
+        )
+        body = (
+            self.i32(face)
+            + self.i32(self.placement3(eas.position))
+            + self.v3(eas.extruded_direction)
+            + self.f64(eas.depth)
+        )
+        return self._add(_EXTRUDED_AREA_SOLID, body)
+
     # --- root + finish -----------------------------------------------------------------
     def root(self, geom) -> int:
         """Serialize a top-level geometry instance, returning its record index."""
+        from ada.geom import solids as _so
+
+        if isinstance(geom, _so.ExtrudedAreaSolid) and not isinstance(geom, _so.ExtrudedAreaSolidTapered):
+            return self.extruded_area_solid(geom)
         if isinstance(geom, su.FaceSurface):
             return self.face_surface(geom)
         if isinstance(geom, (su.ConnectedFaceSet, su.ClosedShell, su.OpenShell)):
