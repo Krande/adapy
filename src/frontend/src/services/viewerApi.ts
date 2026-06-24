@@ -569,6 +569,9 @@ export interface AuditEntry {
     issue_bot_status: string | null;
     issue_bot_synced_at: string | null;
     issue_bot_last_error: string | null;
+    // Stable per-device id (from client_metrics) — distinguishes view/render
+    // audit logs by device (e.g. phone vs desktop). Null for server-side rows.
+    device_id: string | null;
 }
 
 // One audit-sweep record. Returned by /admin/audit/runs endpoints.

@@ -34,6 +34,7 @@ import {rendererRef} from "@/state/refs";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
 import {CallProfiler, type ProfileFrame} from "@/utils/scene/callProfiler";
+import {getDeviceId} from "@/utils/deviceId";
 
 export type LoadTransport = "presigned" | "relayed" | "blob" | "unknown";
 
@@ -178,6 +179,7 @@ export class LoadMetricsRecorder {
     private deviceContext(): Record<string, number | string> {
         const out: Record<string, number | string> = {};
         try {
+            out["device_id"] = getDeviceId();
             out["cores"] = navigator.hardwareConcurrency || 0;
             const dm = (navigator as any).deviceMemory;
             if (typeof dm === "number") out["device_memory_gb"] = dm;

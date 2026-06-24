@@ -278,6 +278,7 @@ const AuditLogTab: React.FC = () => {
                         <Th>User</Th>
                         <Th>Scope</Th>
                         <Th>Action</Th>
+                        <Th>Device</Th>
                         <Th>Key</Th>
                         <Th>Target</Th>
                         <Th>Status</Th>
@@ -296,6 +297,13 @@ const AuditLogTab: React.FC = () => {
                                 {e.scope_id ? `:${shortSub(e.scope_id)}` : ""}
                             </Td>
                             <Td>{e.action}</Td>
+                            <Td title={e.device_id || ""}>
+                                {e.device_id ? (
+                                    <span className="font-mono text-gray-400">{e.device_id.slice(0, 8)}</span>
+                                ) : (
+                                    <span className="text-gray-600">—</span>
+                                )}
+                            </Td>
                             <Td title={e.key || ""}>{e.key || ""}</Td>
                             <Td>
                                 {e.target_format || ""}

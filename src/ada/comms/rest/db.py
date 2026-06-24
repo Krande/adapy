@@ -733,7 +733,8 @@ async def list_audit(
         " target_format, status, error, duration_ms, traceback,"
         " cpu_user_ms, cpu_sys_ms, peak_rss_kb, read_bytes, write_bytes,"
         " profile_key, job_id, audit_run_id, worker_image_tag,"
-        " issue_bot_status, issue_bot_synced_at, issue_bot_last_error"
+        " issue_bot_status, issue_bot_synced_at, issue_bot_last_error,"
+        " client_metrics->>'device_id' AS device_id"
         " FROM audit_log"
     )
     if where:
@@ -766,6 +767,7 @@ async def list_audit(
             "issue_bot_status": r["issue_bot_status"],
             "issue_bot_synced_at": (r["issue_bot_synced_at"].isoformat() if r["issue_bot_synced_at"] else None),
             "issue_bot_last_error": r["issue_bot_last_error"],
+            "device_id": r["device_id"],
         }
         for r in rows
     ]

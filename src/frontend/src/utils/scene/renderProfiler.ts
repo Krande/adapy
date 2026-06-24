@@ -19,6 +19,7 @@ import {rendererRef} from "@/state/refs";
 import {useViewMetricsStore} from "@/state/viewMetricsStore";
 import {useMeStore} from "@/state/meStore";
 import {CallProfiler} from "@/utils/scene/callProfiler";
+import {getDeviceId} from "@/utils/deviceId";
 
 const WINDOW_MS = 8000; // flush cadence
 const MIN_FRAMES = 30; // don't post a window with too few samples
@@ -233,6 +234,7 @@ class RenderProfiler {
             textures: this.textures,
             long_frames: this.longFrames,
             dpr: window.devicePixelRatio || 1,
+            device_id: getDeviceId(),
         };
         this.post(cm, prof).catch(() => {});
         this.reset(nowTs);
