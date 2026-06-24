@@ -78,6 +78,7 @@ _SURF_REVOLUTION = 47
 # solids (50-59) — swept/CSG solids mapped to ifcopenshell taxonomy items
 _EXTRUDED_AREA_SOLID = 50
 _REVOLVED_AREA_SOLID = 51
+_BOOLEAN_RESULT = 52
 _EDGE_CURVE = 60
 _ORIENTED_EDGE = 61
 _EDGE_LOOP = 62
@@ -469,11 +470,25 @@ class _Encoder:
                     continue
         return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + b"".join(self.i32(f) for f in faces))
 
+    def boolean_result(self, br) -> int:
+        """BooleanResult -> operator + two operand records (recursively
+        serialized). adacpp builds each operand's TopoDS_Shape and applies
+        BRepAlgoAPI_Cut/Fuse/Common."""
+        op_name = getattr(br.operator, "value", br.operator)
+        op = {"DIFFERENCE": 0, "UNION": 1, "INTERSECTION": 2}.get(str(op_name).upper(), 0)
+        a = self._dispatch(br.first_operand)
+        b = self._dispatch(br.second_operand)
+        return self._add(_BOOLEAN_RESULT, self.i32(op) + self.i32(a) + self.i32(b))
+
     # --- root + finish -----------------------------------------------------------------
-    def root(self, geom) -> int:
-        """Serialize a top-level geometry instance, returning its record index."""
+    def _dispatch(self, geom) -> int:
+        """Serialize one geometry instance to its record index (used for both
+        roots and boolean operands)."""
+        from ada.geom import booleans as _bo
         from ada.geom import solids as _so
 
+        if isinstance(geom, _bo.BooleanResult):
+            return self.boolean_result(geom)
         if isinstance(geom, _so.ExtrudedAreaSolid) and not isinstance(geom, _so.ExtrudedAreaSolidTapered):
             return self.extruded_area_solid(geom)
         if isinstance(geom, _so.RevolvedAreaSolid):
@@ -490,7 +505,11 @@ class _Encoder:
             return self.face_surface(geom)
         if isinstance(geom, (su.ConnectedFaceSet, su.ClosedShell, su.OpenShell)):
             return self.connected_face_set(geom)
-        raise _Unsupported(f"root geometry {type(geom).__name__}")
+        raise _Unsupported(f"geometry {type(geom).__name__}")
+
+    def root(self, geom) -> int:
+        """Serialize a top-level geometry instance, returning its record index."""
+        return self._dispatch(geom)
 
     def finish(self, roots: list[tuple[int, str]]) -> bytes:
         out = bytearray(b"ADANGEOM")
