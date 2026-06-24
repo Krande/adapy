@@ -7546,7 +7546,7 @@ environments:
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.8.0-py312h29cc896_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.10.0-py312h29cc896_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.13.5-py312h5d8c7f2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16-hb03c661_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aom-3.9.1-hac33072_0.conda
@@ -8175,7 +8175,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/_openmp_mutex-4.5-7_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.8.0-py312h9b4feea_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.10.0-py312h9b4feea_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.13.5-py312h0b1c2f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aom-3.9.1-hf036a51_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/argon2-cffi-bindings-25.1.0-py312h80b0991_2.conda
@@ -8573,7 +8573,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.8.0-py312h710a262_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.10.0-py312h710a262_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.13.5-py312h6b91d65_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aom-3.9.1-he0c23c2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/argon2-cffi-bindings-25.1.0-py312he06e257_2.conda
@@ -10602,25 +10602,28 @@ packages:
   license_family: BSD
   size: 8244
   timestamp: 1764092331208
-- conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.8.0-py312h29cc896_0.conda
-  sha256: 52a03cae1c879ad9f711cb5632a59ec28e400700f42e08173655108b3e2c709a
-  md5: 769e3e1bb3e7942b8a52d7e872255359
+- conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.10.0-py312h29cc896_0.conda
+  sha256: 0208d00af2aa86fa6a084d1ccc85bc708054cb8fdcb2caa03d48f9934fc97500
+  md5: c00d013a26793a07d92c6f8136292de9
   depends:
   - python
   - gmsh >=4.15.2,<4.16.0a0
-  - libstdcxx >=14
-  - libgcc >=14
   - __glibc >=2.17,<3.0.a0
-  - occt >=7.9.3,<7.9.4.0a0
+  - libgcc >=14
+  - libstdcxx >=14
+  - libzlib >=1.3.2,<2.0a0
   - ifcopenshell >=0.8.5,<0.8.6.0a0
   - rocksdb >=10.6.2,<10.7.0a0
-  - libzlib >=1.3.2,<2.0a0
+  - occt >=7.9.3,<7.9.4.0a0
   - python_abi 3.12.* *_cp312
   license: GPL-3.0-or-later
   purls:
   - pkg:pypi/ada-cpp?source=compressed-mapping
-  size: 11566904
-  timestamp: 1781445607714
+  run_exports:
+    weak:
+    - ada-cpp >=0.10.0,<0.10.1.0a0
+  size: 14594664
+  timestamp: 1782311688022
 - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.13.5-py312h5d8c7f2_0.conda
   sha256: 52f4d07b10fe4a1ded570b0708594d2d9075223e1dd94d0c5988eb71f724a5f2
   md5: 68edaee7692efb8bbef5e95375090189
@@ -19812,24 +19815,27 @@ packages:
   purls: []
   size: 8328
   timestamp: 1764092562779
-- conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.8.0-py312h9b4feea_0.conda
-  sha256: 54857f5a2ab62dc8e3b7a4bdc1bfe5c35a564a8f7e0ba10cee99ef0ff57832ee
-  md5: 0fa4b590fca6ced510905d96d59c05f2
+- conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.10.0-py312h9b4feea_0.conda
+  sha256: 1bc6b856188233cc30207e5ec9d8defa8d6aedca6f1394c7fd1dbba6854a2e75
+  md5: a75a30bcf7c3a1b14fc52314c23772cd
   depends:
   - python
   - gmsh >=4.15.2,<4.16.0a0
-  - libcxx >=19
   - __osx >=11.0
-  - ifcopenshell >=0.8.5,<0.8.6.0a0
+  - libcxx >=19
+  - libzlib >=1.3.2,<2.0a0
+  - occt >=7.9.3,<7.9.4.0a0
   - rocksdb >=10.6.2,<10.7.0a0
   - python_abi 3.12.* *_cp312
-  - occt >=7.9.3,<7.9.4.0a0
-  - libzlib >=1.3.2,<2.0a0
+  - ifcopenshell >=0.8.5,<0.8.6.0a0
   license: GPL-3.0-or-later
   purls:
   - pkg:pypi/ada-cpp?source=compressed-mapping
-  size: 9780513
-  timestamp: 1781445644474
+  run_exports:
+    weak:
+    - ada-cpp >=0.10.0,<0.10.1.0a0
+  size: 12277907
+  timestamp: 1782311788854
 - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.13.5-py312h0b1c2f0_0.conda
   sha256: feec9338ff6d56c28c06ec8176b90019d545d902c45132a218ca2320133f5538
   md5: 88eef704008ae051b5a8c54119eab94e
@@ -23561,25 +23567,28 @@ packages:
   purls: []
   size: 52252
   timestamp: 1770943776666
-- conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.8.0-py312h710a262_0.conda
-  sha256: 007050249904527087f421463909fb57a57710c6a170e3ae25f8de245a68f4d4
-  md5: 9a3d24dc0af83c6848fe792026c30450
+- conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.10.0-py312h710a262_0.conda
+  sha256: aa86f243355e78d17cfe41c9d0e5c4bea85399b24844ff798412231d4b0fbe57
+  md5: dac2ef73b1136d91042516e0caa20155
   depends:
   - python
   - gmsh >=4.15.2,<4.16.0a0
   - vc >=14.3,<15
   - vc14_runtime >=14.44.35208
   - ucrt >=10.0.20348.0
-  - occt >=7.9.3,<7.9.4.0a0
   - ifcopenshell >=0.8.5,<0.8.6.0a0
   - rocksdb >=10.6.2,<10.7.0a0
-  - libzlib >=1.3.2,<2.0a0
   - python_abi 3.12.* *_cp312
+  - occt >=7.9.3,<7.9.4.0a0
+  - libzlib >=1.3.2,<2.0a0
   license: GPL-3.0-or-later
   purls:
   - pkg:pypi/ada-cpp?source=compressed-mapping
-  size: 4980557
-  timestamp: 1781445632194
+  run_exports:
+    weak:
+    - ada-cpp >=0.10.0,<0.10.1.0a0
+  size: 8860127
+  timestamp: 1782311714254
 - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.13.5-py312h6b91d65_0.conda
   sha256: 539e8fba2b4835ee4437fa8b51056be2cf033ac4155f64a19e87855c2ae2af94
   md5: f5474e6e952ff964319851b1c68b7301

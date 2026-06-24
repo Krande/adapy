@@ -134,8 +134,9 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # `adacpp` and without `pyocc` exercises adacpp as the sole CAD backend
 # (no pythonocc fallback by design).
 [feature.adacpp.dependencies]
-# 0.8.0 carries build_swept_disk_solid (IfcSweptDiskSolid parity); see adapy AdacppBackend.
-ada-cpp = "0.8.0.*"
+# 0.10.0 carries the NGEOM libtess2 tessellator + meshopt EXT-compression codecs
+# (cad.meshopt_encode_*) + ifc-taxonomy kernel; adapy's meshopt/NGEOM paths need it.
+ada-cpp = "0.10.0.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
