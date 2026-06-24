@@ -405,10 +405,26 @@ class _Encoder:
         return self._add(_REVOLVED_AREA_SOLID, body)
 
     def cylinder_solid(self, cyl) -> int:
-        """Cylinder -> a radius x height rectangle (XZ plane) revolved about Z."""
+        """Cylinder -> a circle profile (radius, local XY) extruded by height.
+        A pure taxonomy::extrusion (no raw OCC; taxonomy has no cylinder solid,
+        only a cylindrical *surface*)."""
+        import math
+
         r, h = float(cyl.radius), float(cyl.height)
-        face = self._xz_planar_face([(0.0, 0.0, 0.0), (r, 0.0, 0.0), (r, 0.0, h), (0.0, 0.0, h)])
-        return self._revolve_z(face, cyl.position)
+        circ_pl = self._add(_PLACEMENT3, self.v3((0.0, 0.0, 0.0)) + self.v3((0.0, 0.0, 1.0)) + self.v3((1.0, 0.0, 0.0)))
+        circle = self._add(_CIRCLE, self.i32(circ_pl) + self.f64(r))
+        start = (r, 0.0, 0.0)  # circle param t=0
+        edge = self._add(_EDGE_CURVE, self.v3(start) + self.v3(start) + self.i32(circle) + self.i32(1))
+        # full-circle oriented edge: orientation=1, has_pcurve=0, has_params=1, t in [0, 2pi]
+        oedge = self._add(
+            _ORIENTED_EDGE,
+            self.i32(edge) + self.i32(1) + self.i32(0) + self.i32(1) + self.f64(0.0) + self.f64(2 * math.pi),
+        )
+        loop = self._add(_EDGE_LOOP, self.i32(1) + self.i32(oedge))
+        bound = self._add(_FACE_BOUND, self.i32(loop) + self.i32(1))
+        face = self._planar_face([bound])
+        body = self.i32(face) + self.i32(self.placement3(cyl.position)) + self.v3((0.0, 0.0, 1.0)) + self.f64(h)
+        return self._add(_EXTRUDED_AREA_SOLID, body)
 
     def cone_solid(self, cone) -> int:
         """Cone -> a base-radius/height triangle (XZ plane) revolved about Z."""
