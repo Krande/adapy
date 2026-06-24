@@ -2022,6 +2022,7 @@ export const viewerApi = {
             write_bytes?: number | null;
             peak_rss_kb?: number | null;
             error?: string | null;
+            traceback?: string | null;
             client_metrics?: Record<string, unknown> | null;
         },
     ): Promise<void> {

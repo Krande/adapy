@@ -1348,6 +1348,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 target_format=None,
                 status=status,
                 error=(str(body["error"])[:2000] if body.get("error") is not None else None),
+                # Client-side load failures (e.g. a malformed GLB buffer) carry no
+                # Python traceback; stash the browser error's JS stack here so the
+                # audit Error panel has something actionable to show.
+                traceback=(str(body["traceback"])[:8000] if body.get("traceback") is not None else None),
                 duration_ms=_int_or_none(body.get("duration_ms")),
                 read_bytes=_int_or_none(body.get("read_bytes")),
                 write_bytes=_int_or_none(body.get("write_bytes")),

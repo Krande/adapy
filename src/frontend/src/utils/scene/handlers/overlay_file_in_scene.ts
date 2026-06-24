@@ -123,7 +123,10 @@ export async function overlay_file_in_scene(
             group = await setupModelLoaderAsync(url, true, undefined, sourceName, headers, metrics);
         }
     } catch (e) {
-        metrics?.fail(e instanceof Error ? e.message : String(e));
+        metrics?.fail(
+            e instanceof Error ? e.message : String(e),
+            e instanceof Error ? e.stack : undefined,
+        );
         throw e;
     }
 

@@ -222,16 +222,17 @@ export class LoadMetricsRecorder {
 
     /** Abandon the recorder on a load error — post a failure row so the
      * dashboard sees failed loads too. */
-    fail(error: string): void {
+    fail(error: string, stack?: string): void {
         if (this.done) return;
         this.done = true;
-        this.flush(null, null, error).catch(() => {});
+        this.flush(null, null, error, stack).catch(() => {});
     }
 
     private async flush(
         group: THREE.Object3D | null,
         gltf: {parser?: {json?: any}} | null,
         error?: string,
+        stack?: string,
     ): Promise<void> {
         try {
             this.longTaskObserver?.disconnect();
@@ -329,6 +330,9 @@ export class LoadMetricsRecorder {
             key: this.meta.key,
             status: error ? "error" : "ok",
             error: error ?? null,
+            // JS error stack for failed loads (e.g. malformed GLB) so the audit
+            // Error panel has detail beyond the one-line message.
+            traceback: stack ?? null,
             duration_ms: total_ms,
             read_bytes: (cm["transfer_bytes"] as number | undefined) ?? null,
             write_bytes: (cm["decoded_bytes"] as number | undefined) ?? null,
