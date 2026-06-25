@@ -887,9 +887,15 @@ class AdacppBackend:
     def bbox(
         self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
     ) -> tuple[float, float, float, float, float, float]:
-        # adacpp.cad.bbox is analytic only; the optimal/use_mesh OCC-accuracy
-        # knobs don't apply and are ignored.
-        return tuple(self._cad.bbox(shape))
+        # adacpp.cad.bbox honors `optimal` (optimal=False = fast loose Add box,
+        # skipping AddOptimal's per-face BSpline refinement — for rough-extent
+        # probes like the empty-body guard). use_mesh doesn't apply (analytic).
+        # Older adacpp builds without the `optimal` param fall back to their
+        # default (tight) box.
+        try:
+            return tuple(self._cad.bbox(shape, optimal=optimal))
+        except TypeError:
+            return tuple(self._cad.bbox(shape))
 
     def obb(self, shape: ShapeHandle) -> "tuple[tuple[float, float, float], tuple[float, float, float]]":
         fn = getattr(self._cad, "obb", None)

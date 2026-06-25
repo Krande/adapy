@@ -380,7 +380,11 @@ def _backend_has_meshable_extent(shape) -> bool:
     from ada.cad import active_backend
 
     try:
-        xmin, ymin, zmin, xmax, ymax, zmax = active_backend().bbox(shape)
+        # optimal=False: we only need "does it have non-zero extent", not a tight
+        # box. AddOptimal samples every BSpline/B-rep face (~ms each) — on a model
+        # with thousands of curved faces that empty-probe alone dominated the
+        # conversion (e.g. a hull skin: ~29s of bbox just to confirm non-empty).
+        xmin, ymin, zmin, xmax, ymax, zmax = active_backend().bbox(shape, optimal=False)
     except Exception:
         return False  # "empty bounding box (shape has no geometry)" etc.
     diag2 = (xmax - xmin) ** 2 + (ymax - ymin) ** 2 + (zmax - zmin) ** 2
