@@ -51,6 +51,20 @@ def _parse(buf):
     return version, records, roots
 
 
+def test_shell_based_surface_model_serializes():
+    """Regression: ShellBasedSurfaceModel was missing from the dispatch, so FEA/abaqus
+    plates (a shell of faces) were silently dropped (header-only buffer, 0 roots) and
+    libtess2 tessellated them to an empty mesh. It must now flatten to a CONNECTED_FACE_SET."""
+    shell = su.OpenShell(cfs_faces=[_square_face()])
+    sbsm = su.ShellBasedSurfaceModel(sbsm_boundary=[shell])
+    buf = serialize_geometries([("plate", sbsm)])
+    _version, records, roots = _parse(buf)
+    tags = [t for t, _ in records]
+    assert len(roots) == 1, "shell-based surface model must not be dropped"
+    assert 66 in tags  # CONNECTED_FACE_SET (flattened shell)
+    assert 65 in tags  # FACE_SURFACE (the shell's face survived)
+
+
 def test_buffer_is_spec_shaped():
     buf = serialize_geometries([("sq", _square_face())])
     version, records, roots = _parse(buf)

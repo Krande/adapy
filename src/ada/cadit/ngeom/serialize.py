@@ -545,6 +545,19 @@ class _Encoder:
                     continue
         return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + b"".join(self.i32(f) for f in faces))
 
+    def shell_based_surface_model(self, sbsm) -> int:
+        """ShellBasedSurfaceModel -> flatten its open/closed shells' faces into one
+        CONNECTED_FACE_SET (so shell-based reps — e.g. FEA/abaqus-exported flat & curved
+        plates, which were silently dropped → empty mesh — tessellate via NGEOM)."""
+        faces = []
+        for shell in sbsm.sbsm_boundary:
+            for f in getattr(shell, "cfs_faces", []):
+                try:
+                    faces.append(self._any_face(f))
+                except Exception:  # noqa: BLE001
+                    continue
+        return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + b"".join(self.i32(f) for f in faces))
+
     def boolean_result(self, br) -> int:
         """BooleanResult -> operator + two operand records (recursively
         serialized). adacpp builds each operand's TopoDS_Shape and applies
@@ -578,6 +591,8 @@ class _Encoder:
             return self.sphere_solid(geom)
         if isinstance(geom, su.FaceBasedSurfaceModel):
             return self.face_based_surface_model(geom)
+        if isinstance(geom, su.ShellBasedSurfaceModel):
+            return self.shell_based_surface_model(geom)
         if isinstance(geom, su.FaceSurface):
             return self.face_surface(geom)
         if isinstance(geom, (su.ConnectedFaceSet, su.ClosedShell, su.OpenShell)):
