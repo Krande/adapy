@@ -393,6 +393,16 @@ class _Encoder:
     def _profile_face(self, profile) -> int:
         """Planar profile FACE (local XY) from an ArbitraryProfileDef's outer +
         inner boundary loops (polyline profiles)."""
+        # Parametric sections (I/H/T/U/L/C/…) carry no outer_curve — only dims. Normalize them to
+        # an ArbitraryProfileDef outline (the same backend-neutral conversion the OCC build uses)
+        # so the stream kernel gets a real profile instead of an empty extrusion → 0 triangles.
+        if getattr(profile, "outer_curve", None) is None:
+            try:
+                from ada.api.beams.geom_beams import parametric_profile_to_arbitrary
+
+                profile = parametric_profile_to_arbitrary(profile)
+            except Exception:  # noqa: BLE001 - unconvertible profile → reported as unsupported below
+                pass
         outer = getattr(profile, "outer_curve", None)
         if outer is None:
             raise _Unsupported(f"profile {type(profile).__name__}")
