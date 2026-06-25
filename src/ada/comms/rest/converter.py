@@ -847,17 +847,16 @@ def _should_stream_step(src_path: pathlib.Path, step_streamer: bool | None) -> b
 # geometry incl. curved surfaces the OCC stream reader drops) is the default; the
 # ``occ-builtin`` OCC streaming reader is the prior default, kept as the fallback.
 # ``adacpp-{occ,cgal,hybrid}`` route through adacpp's linked OCCT / ifcopenshell-
-# taxonomy kernels (extra options). ``step2glb`` runs the bounded external binary.
+# taxonomy kernels (extra options). (The external ``step2glb`` binary engine was removed —
+# libtess2 reaches the same geometry in-process, so the unprovisioned binary path is gone.)
 _STEP_GLB_PIPELINE_LIBTESS2 = "libtess2"
 _STEP_GLB_PIPELINE_OCC = "occ-builtin"
-_STEP_GLB_PIPELINE_STEP2GLB = "step2glb"
 _STEP_GLB_PIPELINE_ADACPP_OCC = "adacpp-occ"
 _STEP_GLB_PIPELINE_ADACPP_CGAL = "adacpp-cgal"
 _STEP_GLB_PIPELINE_ADACPP_HYBRID = "adacpp-hybrid"
 _STEP_GLB_PIPELINES = (
     _STEP_GLB_PIPELINE_LIBTESS2,
     _STEP_GLB_PIPELINE_OCC,
-    _STEP_GLB_PIPELINE_STEP2GLB,
     _STEP_GLB_PIPELINE_ADACPP_OCC,
     _STEP_GLB_PIPELINE_ADACPP_CGAL,
     _STEP_GLB_PIPELINE_ADACPP_HYBRID,
@@ -867,9 +866,9 @@ _STEP_GLB_PIPELINE_DEFAULT = _STEP_GLB_PIPELINE_LIBTESS2
 # Non-STEP →GLB engine toggle (xml / ifc / sat / fem / obj / stl → glb via to_gltf's
 # BatchTessellator). Reuses the STEP option's names so the admin panel reads consistently,
 # but maps to the BatchTessellator stream selector (ADA_STREAM_TESS_PIPELINE = libtess2|occ|
-# cgal|hybrid); "occ-builtin" = the default OCC BatchTessellator (no stream override). The
-# step2glb external binary and the OCC *streaming* reader are STEP-source-specific, so they
-# aren't offered here. Default stays OCC (libtess2 is opt-in).
+# cgal|hybrid); "occ-builtin" = the default OCC BatchTessellator (no stream override). The OCC
+# *streaming* reader is STEP-source-specific, so it isn't offered here. Default stays OCC
+# (libtess2 is opt-in).
 _GLB_TESS_ENGINES = (
     _STEP_GLB_PIPELINE_OCC,  # "occ-builtin" — default
     _STEP_GLB_PIPELINE_LIBTESS2,
@@ -989,19 +988,6 @@ def _via_ada(
     try:
         if source_ext in {".step", ".stp"} and target_format == "glb":
             pipe = _resolve_step_glb_pipeline(step_glb_pipeline)
-
-            if pipe == _STEP_GLB_PIPELINE_STEP2GLB:
-                # step2glb engine: renders curved surfaces the stream reader drops
-                # (B-spline/sphere/cone/torus). Bounded RAM via on-disk spill; the
-                # GLB is post-processed in Python to carry the viewer picking/tree
-                # contract, so no frontend change is needed.
-                from ada.cadit.step.step2glb_to_glb import convert_step_to_glb
-
-                on_progress("step2glb", 0.1)
-                convert_step_to_glb(src_path, out_path)
-                on_progress("ready", 1.0)
-                result = out_path
-                return result
 
             cad_cfg = _cad_config_for_pipeline(pipe)
             if cad_cfg is not None:
@@ -1851,8 +1837,7 @@ def _register_ada_loadable() -> None:
     # STEP→GLB only: choose the tessellation engine. ``libtess2`` (default) is
     # adacpp's OCC-free boundary tessellator with step2glb-parity geometry incl.
     # the curved surfaces the OCC stream reader drops; ``occ-builtin`` is the prior
-    # OpenCASCADE path; ``adacpp-{occ,cgal,hybrid}`` use adacpp's taxonomy kernels;
-    # ``step2glb`` runs the external binary.
+    # OpenCASCADE path; ``adacpp-{occ,cgal,hybrid}`` use adacpp's taxonomy kernels.
     step_glb_pipeline_option = {
         "name": "step_glb_pipeline",
         "type": "enum",
@@ -1863,8 +1848,7 @@ def _register_ada_loadable() -> None:
             "boundary tessellator and renders the curved surfaces (rational B-spline / "
             "spherical / conical / toroidal) the OCC streaming reader silently drops. "
             "'occ-builtin' is the OpenCASCADE path (whole-model or streaming). "
-            "'adacpp-occ' / 'adacpp-cgal' / 'adacpp-hybrid' use adacpp's taxonomy "
-            "kernels. 'step2glb' runs the self-contained external binary."
+            "'adacpp-occ' / 'adacpp-cgal' / 'adacpp-hybrid' use adacpp's taxonomy kernels."
         ),
     }
 
@@ -1976,8 +1960,8 @@ def _register_ada_loadable() -> None:
                 )
 
             if tgt == "glb":
-                # STEP sources: streaming toggle + the STEP engine selector (incl. step2glb /
-                # OCC streaming reader). Other →glb sources: the BatchTessellator engine toggle.
+                # STEP sources: streaming toggle + the STEP engine selector (incl. the OCC
+                # streaming reader). Other →glb sources: the BatchTessellator engine toggle.
                 # strict_tess (fail-on-OCC-fallback) applies to the non-STEP BatchTessellator path.
                 if ext in {".step", ".stp"}:
                     row_options = glb_options + [step_streamer_option, step_glb_pipeline_option, strict_tess_option]
