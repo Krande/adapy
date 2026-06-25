@@ -152,6 +152,42 @@ def _vertex_normals(positions: np.ndarray, faces: np.ndarray) -> np.ndarray:
     return (normals / lengths).reshape(-1).astype("float32")
 
 
+def _thicken_face_mesh(positions: np.ndarray, faces: np.ndarray, thickness: float):
+    """Extrude an open face mesh into a closed thin solid along a single vector — the
+    area-weighted average surface normal × ``thickness`` — matching OCC's
+    ``extrude_face_along_normal`` (``BRepPrimAPI_MakePrism`` by the centre-normal vector). The
+    OCC-free libtess2 path tessellates only the bare curved face (a shell); this gives a
+    PlateCurved its thickness so it matches the OCC solid. Returns flat (positions, indices) for
+    the top face + translated bottom (reversed winding) + boundary side walls. Falls back to the
+    input shell on a degenerate normal / empty mesh."""
+    P = positions.reshape(-1, 3).astype(np.float64)
+    F = faces.reshape(-1, 3).astype(np.int64)
+    if len(F) == 0:
+        return positions, faces
+    fn = np.cross(P[F[:, 1]] - P[F[:, 0]], P[F[:, 2]] - P[F[:, 0]])  # len ∝ 2*area
+    nsum = fn.sum(axis=0)
+    nlen = float(np.linalg.norm(nsum))
+    if nlen < 1e-12:
+        return positions, faces  # no consistent normal (e.g. a closed/degenerate mesh)
+    V = (nsum / nlen) * float(thickness)
+    n = len(P)
+    bottom_P = P + V
+    bottom_F = F[:, ::-1] + n  # reversed winding → back face points the other way
+    # Boundary = undirected edges used by exactly one triangle; keep them directed (the winding
+    # from the top triangles) so the side walls face outward.
+    e = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]], axis=0)
+    key = np.minimum(e[:, 0], e[:, 1]) * (n + 1) + np.maximum(e[:, 0], e[:, 1])
+    _uniq, inv, counts = np.unique(key, return_inverse=True, return_counts=True)
+    be = e[counts[inv] == 1]
+    a, b = be[:, 0], be[:, 1]
+    side = np.empty((len(be) * 2, 3), dtype=np.int64)
+    side[0::2] = np.stack([a, b, b + n], axis=1)
+    side[1::2] = np.stack([a, b + n, a + n], axis=1)
+    pos2 = np.concatenate([P, bottom_P], axis=0).reshape(-1).astype("float32")
+    idx2 = np.concatenate([F, bottom_F, side], axis=0).reshape(-1).astype("uint32")
+    return pos2, idx2
+
+
 def tessellate_edges(shape: TopoDS_Edge, deflection=0.01) -> LineMesh:
     """Discretize an edge / wire (or any shape's edges) into a GL_LINES mesh.
 
@@ -744,6 +780,22 @@ class BatchTessellator:
                         if cng is not None:
                             ms_cs = self._tessellate_geom_via_stream(cng, node_ref)
                             if ms_cs is not None:
+                                # The stream tessellates only the bare curved face (a shell);
+                                # give it the plate thickness so it matches the OCC prism solid
+                                # (extrude_face_along_normal). t=0 (SurfaceCurved) stays a shell.
+                                t = getattr(obj, "t", None)
+                                if t:
+                                    pos2, idx2 = _thicken_face_mesh(ms_cs.position, ms_cs.indices, float(t))
+                                    ms_cs = MeshStore(
+                                        ms_cs.index,
+                                        ms_cs.matrix,
+                                        pos2,
+                                        idx2,
+                                        _vertex_normals(pos2, idx2),
+                                        ms_cs.material,
+                                        ms_cs.type,
+                                        ms_cs.node_ref,
+                                    )
                                 yield ms_cs
                                 continue
                         else:
