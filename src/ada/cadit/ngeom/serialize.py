@@ -593,7 +593,11 @@ class _Encoder:
             return self.face_based_surface_model(geom)
         if isinstance(geom, su.ShellBasedSurfaceModel):
             return self.shell_based_surface_model(geom)
-        if isinstance(geom, su.FaceSurface):
+        # AdvancedFace is structurally identical to FaceSurface (same face_surface / bounds /
+        # same_sense) but NOT a subclass, so it needs its own root check — without it a bare
+        # AdvancedFace (e.g. PlateCurved.solid_geom()) is rejected and the curved plate silently
+        # falls back to OCC. face_surface() handles both (the cfs path already mixes them).
+        if isinstance(geom, (su.FaceSurface, su.AdvancedFace)):
             return self.face_surface(geom)
         if isinstance(geom, (su.ConnectedFaceSet, su.ClosedShell, su.OpenShell)):
             return self.connected_face_set(geom)
