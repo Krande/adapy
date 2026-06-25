@@ -225,6 +225,17 @@ class Beam(BackendGeom):
     def get_mass(self) -> float:
         return self.get_volume() * self.material.model.rho
 
+    def get_cog_and_mass(self) -> tuple[Point, float]:
+        """COG and mass from a single curve-offset solve.
+
+        Equivalent to (get_cog(), get_mass()) but resolves the beam's curve
+        offsets / absolute placement once instead of twice — Part.calculate_cog
+        needs both per beam.
+        """
+        cog, length = self.offset_helper.get_cog_and_length()
+        mass = self.section.properties.Ax * length * self.material.model.rho
+        return cog, mass
+
     def is_point_on_beam(self, point: Union[np.ndarray, Node]) -> bool:
         if isinstance(point, Node):
             point = point.p

@@ -82,6 +82,14 @@ class Section(Root):
             self.__dict__.update(sec.__dict__)
 
         self._genprops = None
+        # Tracks whether `_genprops` has been passed through
+        # normalize_general_properties yet. Normalization fills missing
+        # centroid fields and for several section types recomputes the full
+        # general properties, so it must run exactly once. Previously the
+        # `properties` getter re-normalized on every access, which made
+        # COG/mass loops recompute section properties per beam (see #174/#182
+        # routing beam COG through section.properties).
+        self._genprops_normalized = False
         self._refs = refs if refs is not None else []
         if genprops is not None:
             genprops.parent = self
@@ -228,10 +236,16 @@ class Section(Root):
             self._genprops = calculate_general_properties(self)
             if self._genprops is not None:
                 self._genprops = normalize_general_properties(self, self._genprops)
-        else:
+            self._genprops_normalized = True
+        elif not self._genprops_normalized:
+            # `_genprops` was supplied externally (e.g. read from a Sesam
+            # GBEAMG record) and not yet normalized. Normalize once, then
+            # cache — repeating it per access recomputes full section
+            # properties for I/BOX/channel/angular types for no gain.
             from .properties import normalize_general_properties
 
             self._genprops = normalize_general_properties(self, self._genprops)
+            self._genprops_normalized = True
 
         return self._genprops
 
