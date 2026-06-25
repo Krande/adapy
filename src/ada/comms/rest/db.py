@@ -693,6 +693,7 @@ async def list_audit(
     scope_kind: str | None = None,
     scope_id: str | None = None,
     action: str | None = None,
+    target_format: str | None = None,
     statuses: list[str] | None = None,
     key_like: str | None = None,
     limit: int = 100,
@@ -734,6 +735,9 @@ async def list_audit(
     if action:
         args.append(action)
         where.append(f"action = ${len(args)}")
+    if target_format:
+        args.append(target_format)
+        where.append(f"target_format = ${len(args)}")
     if statuses:
         args.append(statuses)
         where.append(f"status = ANY(${len(args)})")

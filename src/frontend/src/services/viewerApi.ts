@@ -851,6 +851,8 @@ export interface AuditFilters {
     scope_kind?: string;
     scope_id?: string;
     action?: string;
+    /** Conversion target format (glb / ifc / step / …). */
+    target?: string;
     /** Case-insensitive substring filter on the source filepath/filename. */
     key?: string;
     before_id?: number;

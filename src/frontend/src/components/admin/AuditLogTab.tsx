@@ -19,6 +19,7 @@ import {
 
 const ACTIONS = ["", "upload", "download", "convert", "view", "render"];
 const KINDS = ["", "shared", "project", "user"];
+const TARGETS = ["", "glb", "ifc", "xml", "step", "stl", "obj", "sat"];
 
 const PROFILE_SETTING_KEY = "profile_conversions";
 
@@ -197,6 +198,12 @@ const AuditLogTab: React.FC = () => {
                         value={filters.action || ""}
                         onChange={(v) => onFilter({action: v || undefined})}
                         placeholder="any action"
+                    />
+                    <FilterSelect
+                        options={TARGETS}
+                        value={filters.target || ""}
+                        onChange={(v) => onFilter({target: v || undefined})}
+                        placeholder="any target"
                     />
                     <FilterInput
                         placeholder="filename / path…"
