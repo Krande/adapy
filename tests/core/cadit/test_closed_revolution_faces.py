@@ -76,9 +76,26 @@ def closed_torus_face(major=3.0, minor=1.0):
     return su.AdvancedFace(bounds=[su.FaceBound(bound=loop, orientation=True)], face_surface=tor, same_sense=True)
 
 
-@pytest.mark.parametrize("name,builder", [("cylinder", closed_cylinder_face), ("torus", closed_torus_face)])
-def test_closed_revolution_face_builds(name, builder):
-    # Pre-fix this raised "build_advanced_face_{cylindrical,toroidal}: wire build failed".
+def near_planar_quad(out_of_plane=1e-4):
+    """A flat plate whose boundary is only NEAR-planar (one vertex nudged out of the declared
+    z=0 plane by more than Precision::Confusion). MakeFace(wire) alone runs FindPlane and fails
+    ("build_advanced_face_planar: MakeFace failed", ~27 audit failures); building on the declared
+    plane trims it fine."""
+    pl = su.Plane(position=Axis2Placement3D(Point(0, 0, 0), Direction(0, 0, 1), Direction(1, 0, 0)))
+    p = [Point(0, 0, 0), Point(1, 0, 0), Point(1, 1, out_of_plane), Point(0, 1, 0)]
+    loop = cu.EdgeLoop(edge_list=[
+        _oe(p[i], p[(i + 1) % 4], cu.Line(p[i], Direction(*(p[(i + 1) % 4][k] - p[i][k] for k in range(3)))))
+        for i in range(4)
+    ])
+    return su.AdvancedFace(bounds=[su.FaceBound(bound=loop, orientation=True)], face_surface=pl, same_sense=True)
+
+
+@pytest.mark.parametrize(
+    "name,builder",
+    [("cylinder", closed_cylinder_face), ("torus", closed_torus_face), ("near_planar", near_planar_quad)],
+)
+def test_advanced_face_builds(name, builder):
+    # Pre-fix: cylinder/torus raised "wire build failed"; near_planar raised "MakeFace failed".
     backend = _adacpp_backend()
     shape = backend.build(Geometry(name, builder()))
     assert shape is not None
