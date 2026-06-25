@@ -724,8 +724,7 @@ class Part(BackendGeom):
                 shapes_tot_cogs.append(np.array(obj.cog_abs) * obj.mass)
                 shapes_tot_mass += obj.mass
             elif isinstance(obj, Beam):
-                mass = obj.get_mass()
-                cog = obj.get_cog()
+                cog, mass = obj.get_cog_and_mass()
                 cogs.append(cog * mass)
                 tot_mass += mass
                 # beams only

@@ -8,7 +8,7 @@ import numpy as np
 from ada.sections.categories import BaseTypes
 
 if TYPE_CHECKING:
-    from ada import Beam, Direction, Point
+    from ada import Beam, Direction, Placement, Point
 
 
 class Justification(Enum):
@@ -126,10 +126,14 @@ class OffsetHelper:
     def __init__(self, beam: Beam):
         self.beam = beam
 
-    def _local_axes_in_absolute(self):
+    def _local_axes_in_absolute(self, place_abs: "Placement" = None):
         """
         Returns (xvec, yvec, up) expressed in the absolute/global system,
         respecting self.placement rotations (same logic as exporter).
+
+        ``place_abs`` optionally supplies the beam's precomputed absolute
+        placement so callers that already resolved it (the shared COG/length
+        path) don't walk the ancestry again.
         """
         from ada import Placement
 
@@ -139,7 +143,8 @@ class OffsetHelper:
 
         if self.beam.placement is not None:
             ident_place = Placement()
-            place_abs = self.beam.placement.get_absolute_placement(include_rotations=True)
+            if place_abs is None:
+                place_abs = self.beam.placement.get_absolute_placement(include_rotations=True)
 
             # Only transform if rotation differs
             if not np.allclose(place_abs.rot_matrix, ident_place.rot_matrix):
@@ -152,10 +157,13 @@ class OffsetHelper:
 
         return xvec, yvec, up
 
-    def _point_to_absolute(self, p: np.ndarray) -> np.ndarray:
+    def _point_to_absolute(self, p: np.ndarray, place_abs: "Placement" = None) -> np.ndarray:
         """
         Transforms a point p from the beam's local system into absolute/global,
         using self.placement. If identity, returns p unchanged.
+
+        ``place_abs`` optionally supplies the beam's precomputed absolute
+        placement (see _local_axes_in_absolute).
         """
         from ada import Placement
 
@@ -163,12 +171,13 @@ class OffsetHelper:
             return p
 
         ident_place = Placement()
-        place_abs = self.beam.placement.get_absolute_placement(include_rotations=True)
+        if place_abs is None:
+            place_abs = self.beam.placement.get_absolute_placement(include_rotations=True)
 
         # include translation
         return place_abs.transform_array_from_other_place(np.asarray([p]), ident_place, ignore_translation=False)[0]
 
-    def curve_offset_local(self) -> CurveOffsetResult:
+    def curve_offset_local(self, axes=None) -> CurveOffsetResult:
         """
         Compute local (x,y,z) curve offsets for Genie / COG, at end1 and end2.
 
@@ -181,10 +190,15 @@ class OffsetHelper:
         Notes:
         - Uses geometric centroid Cgy/Cgz.
         - Uses sign convention: local offsets start from -e.
+        - ``axes`` optionally supplies the precomputed (x,y,up) absolute basis
+          from _local_axes_in_absolute so the shared COG/length path doesn't
+          recompute it here.
         """
 
         # Absolute axes for the beam's local basis (x, y, up) expressed in global coords
-        x_abs, y_abs, up_abs = self._local_axes_in_absolute()
+        if axes is None:
+            axes = self._local_axes_in_absolute()
+        x_abs, y_abs, up_abs = axes
         x_abs = np.asarray(x_abs, dtype=float)
         y_abs = np.asarray(y_abs, dtype=float)
         up_abs = np.asarray(up_abs, dtype=float)
@@ -309,89 +323,75 @@ class OffsetHelper:
             is_varying=bool(is_varying),
         )
 
-    def get_cog(self) -> "Point":
+    def _offset_endpoints_abs(self) -> tuple[np.ndarray, np.ndarray]:
+        """Absolute, offset-adjusted beam endpoints ``(start, end)``.
+
+        The endpoints are the beam-line nodes transformed to global coords and
+        shifted by the end1/end2 curve offsets:
+
+            start = p1_abs + off1_abs
+            end   = p2_abs + off2_abs
+
+        get_cog (their midpoint) and get_effective_length (their distance) are
+        both derived from these, so sharing this resolves the curve offsets,
+        the absolute basis and the endpoint transforms only once per beam. The
+        beam's absolute placement is resolved a single time here and threaded
+        into the helpers rather than re-walking the ancestry in each.
         """
-        Beam COG in global coordinates, accounting for end-specific offsets.
+        place_abs = None
+        if self.beam.placement is not None:
+            place_abs = self.beam.placement.get_absolute_placement(include_rotations=True)
 
-        This computes the centroid of a straight prismatic beam whose reference line endpoints
-        are shifted by curve offsets at end1 and end2:
+        # Endpoints of the *beam line* in absolute/global coordinates
+        p1_abs = np.asarray(self._point_to_absolute(self.beam.n1.p.copy(), place_abs=place_abs), dtype=float)
+        p2_abs = np.asarray(self._point_to_absolute(self.beam.n2.p.copy(), place_abs=place_abs), dtype=float)
 
-            start_abs = p1_abs + off1_abs
-            end_abs   = p2_abs + off2_abs
-            cog_abs   = 0.5 * (start_abs + end_abs)
+        # Local beam basis expressed in absolute/global coords (placement rotation applied)
+        axes = self._local_axes_in_absolute(place_abs=place_abs)
+        x_abs = np.asarray(axes[0], dtype=float)
+        y_abs = np.asarray(axes[1], dtype=float)
+        up_abs = np.asarray(axes[2], dtype=float)
 
-        This correctly handles:
-          - different axial (local x) offsets at each end (beam appears longer/shorter)
-          - varying y/z offsets (centroid uses the average via endpoint midpoint)
-          - placement rotation/translation (via _local_axes_in_absolute and _point_to_absolute)
-        """
-        from ada import Point
-
-        # Endpoints of the *beam line* in absolute/global coordinates (placement applied)
-        p1_abs = self._point_to_absolute(self.beam.n1.p.copy())
-        p2_abs = self._point_to_absolute(self.beam.n2.p.copy())
-
-        # Get curve offsets at BOTH ends (local components in beam basis)
-        data = self.curve_offset_local()
+        # Curve offsets at BOTH ends (local components in beam basis)
+        data = self.curve_offset_local(axes=axes)
         ox1, oy1, oz1 = data.end1
         ox2, oy2, oz2 = data.end2
 
-        # Local beam basis expressed in absolute/global coords (placement rotation applied)
-        x_abs, y_abs, up_abs = self._local_axes_in_absolute()
-        x_abs = np.asarray(x_abs, dtype=float)
-        y_abs = np.asarray(y_abs, dtype=float)
-        up_abs = np.asarray(up_abs, dtype=float)
-
-        # Convert local offset components -> absolute vectors
         off1_abs = float(ox1) * x_abs + float(oy1) * y_abs + float(oz1) * up_abs
         off2_abs = float(ox2) * x_abs + float(oy2) * y_abs + float(oz2) * up_abs
 
-        # Offset endpoints and midpoint
-        start_abs = np.asarray(p1_abs, dtype=float) + off1_abs
-        end_abs = np.asarray(p2_abs, dtype=float) + off2_abs
-        cog_abs = 0.5 * (start_abs + end_abs)
+        return p1_abs + off1_abs, p2_abs + off2_abs
 
-        ## Optional: warn when varying offsets exist (kept from your earlier intent)
-        # if data.get("is_varying", False):
-        #    logger.warning(
-        #        "Beam '%s': curve offset varies between ends; COG computed from offset endpoints.",
-        #        self.beam.name,
-        #    )
-        #
-        # logger.warning(
-        #    "Beam '%s': varying curve offsets detected end1=%s end2=%s. COG computed from offset endpoints.",
-        #    self.beam.name,
-        #    data["end1"],
-        #    data["end2"],
-        # )
+    def get_cog(self) -> "Point":
+        """
+        Beam COG in global coordinates: the midpoint of the offset-adjusted
+        absolute endpoints. Correctly handles per-end axial/transverse offsets
+        and placement rotation/translation (see _offset_endpoints_abs).
+        """
+        from ada import Point
 
-        return Point(cog_abs)
+        start_abs, end_abs = self._offset_endpoints_abs()
+        return Point(0.5 * (start_abs + end_abs))
 
     def get_effective_length(self) -> float:
         """
         Beam length after curve offsets (including axial components).
         """
-        p1 = self._point_to_absolute(self.beam.n1.p.copy())
-        p2 = self._point_to_absolute(self.beam.n2.p.copy())
+        start_abs, end_abs = self._offset_endpoints_abs()
+        return float(np.linalg.norm(end_abs - start_abs))
 
-        data = self.curve_offset_local()
+    def get_cog_and_length(self) -> tuple["Point", float]:
+        """COG (endpoint midpoint) and effective length from a single offset
+        solve. Part.calculate_cog needs both per beam; computing them together
+        halves the curve-offset / placement / transform work versus calling
+        get_cog and get_effective_length separately.
+        """
+        from ada import Point
 
-        ox1, oy1, oz1 = data.end1
-        ox2, oy2, oz2 = data.end2
-
-        x_abs, y_abs, up_abs = self._local_axes_in_absolute()
-
-        x_abs = np.asarray(x_abs, float)
-        y_abs = np.asarray(y_abs, float)
-        up_abs = np.asarray(up_abs, float)
-
-        off1 = ox1 * x_abs + oy1 * y_abs + oz1 * up_abs
-        off2 = ox2 * x_abs + oy2 * y_abs + oz2 * up_abs
-
-        p1 = np.asarray(p1, float) + off1
-        p2 = np.asarray(p2, float) + off2
-
-        return float(np.linalg.norm(p2 - p1))
+        start_abs, end_abs = self._offset_endpoints_abs()
+        cog = Point(0.5 * (start_abs + end_abs))
+        length = float(np.linalg.norm(end_abs - start_abs))
+        return cog, length
 
     def get_cog_line(self) -> Point:
         """
