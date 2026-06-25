@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from ada.extension.fem_concepts_builder import build_design_fem_concepts
@@ -42,8 +43,13 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
         )
         groups.append(g)
 
+    # The IFC-stream path tessellates via ifcopenshell's own geometry iterator (OCC), which
+    # never sees ada.geom — so it can't honour an NGEOM pipeline. When one is requested
+    # (ADA_STREAM_TESS_PIPELINE=libtess2|occ|cgal|hybrid) route through the ada.geom
+    # part-tessellation instead (BatchTessellator.tessellate_geom carries the NGEOM hook).
+    _ngeom_pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE")
     scene = None
-    if params.stream_from_ifc_store:
+    if params.stream_from_ifc_store and not _ngeom_pipeline:
         if isinstance(part_or_assembly, Assembly):
             scene = bt.ifc_to_trimesh_scene(
                 part_or_assembly.get_assembly().ifc_store, merge_meshes=params.merge_meshes, graph=graph

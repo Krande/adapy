@@ -124,7 +124,8 @@ class FaceSurface(Face):
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFaceSurface.htm)
     """
 
-    face_surface: Union[Plane]
+    # IfcFaceSurface.FaceSurface / STEP face_surface is any IfcSurface — not just Plane.
+    face_surface: "SURFACE_GEOM_TYPES"
     same_sense: bool = True
 
 
@@ -134,7 +135,8 @@ class ConnectedFaceSet:
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcConnectedFaceSet.htm)
     """
 
-    cfs_faces: list[FaceBound]
+    # IfcConnectedFaceSet.CfsFaces is a SET OF IfcFace (faces, not face-bounds).
+    cfs_faces: list["Face | FaceSurface"]
 
 
 @dataclass
@@ -189,6 +191,53 @@ class SurfaceOfRevolution:
     swept_curve: geo_cu.CURVE_GEOM_TYPES
     axis_position: Axis1Placement
     position: Axis2Placement3D = None
+
+
+@dataclass
+class RectangularTrimmedSurface:
+    """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_rectangular_trimmed_surface.html
+
+    A basis surface trimmed to a rectangular region of its (u, v) parameter space.
+    """
+
+    basis_surface: "SURFACE_GEOM_TYPES"
+    u1: float
+    u2: float
+    v1: float
+    v2: float
+    usense: bool = True
+    vsense: bool = True
+
+
+@dataclass
+class OffsetSurface:
+    """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_offset_surface.html
+
+    A surface offset from ``basis_surface`` by ``distance`` along its normal.
+    """
+
+    basis_surface: "SURFACE_GEOM_TYPES"
+    distance: float
+    self_intersect: bool = False
+
+
+@dataclass
+class PointOnSurface:
+    """STEP AP242 t_point_on_surface — a point at (u, v) on a basis surface."""
+
+    basis_surface: "SURFACE_GEOM_TYPES"
+    u: float
+    v: float
+
+
+@dataclass
+class RectangularCompositeSurface:
+    """STEP AP242 t_rectangular_composite_surface — a grid of surface patches.
+
+    ``segments`` is a row-major grid of basis surfaces (surface_patch.parent_surface).
+    """
+
+    segments: list
 
 
 @dataclass
@@ -431,5 +480,9 @@ SURFACE_GEOM_TYPES = Union[
     RationalBSplineSurfaceWithKnots,
     SurfaceOfLinearExtrusion,
     SurfaceOfRevolution,
+    RectangularTrimmedSurface,
+    OffsetSurface,
+    PointOnSurface,
+    RectangularCompositeSurface,
     ClosedShell,
 ]

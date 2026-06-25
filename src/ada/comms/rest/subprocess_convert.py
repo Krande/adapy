@@ -95,6 +95,7 @@ class IsolatedConvertResult:
     samples: list[ConvertSample]
     final_metrics: dict  # {cpu_user_ms, cpu_sys_ms, peak_rss_kb, read_bytes, write_bytes}
     profile_bytes: Optional[bytes] = None  # cProfile dump from child, when enabled
+    log_bytes: Optional[bytes] = None  # captured child stdout+stderr (Python logging + C++ libs)
 
     def cleanup_output(self) -> None:
         """Remove the on-disk output file and its work dir. Idempotent and
@@ -236,6 +237,18 @@ def _signal_child(pid: int, sig: int) -> None:
         pass
 
 
+def _flush_std() -> None:
+    """Flush Python's stdout/stderr buffers before the child os._exit()s — block-buffered
+    stdout (non-tty) is otherwise lost, so its lines never reach the captured log file."""
+    import sys as _sys
+
+    for s in (_sys.stdout, _sys.stderr):
+        try:
+            s.flush()
+        except Exception:
+            pass
+
+
 async def run_isolated_convert(
     convert_fn: Callable[..., "bytes | pathlib.Path"],
     src_path: pathlib.Path,
@@ -280,6 +293,7 @@ async def run_isolated_convert(
     result_path = work_dir / "out.bin"
     err_path = work_dir / "error.json"
     profile_path = work_dir / "profile.prof"
+    log_path = work_dir / "convert.log"
     progr_r, progr_w = os.pipe()
 
     started_at = time.monotonic()
@@ -318,6 +332,23 @@ async def run_isolated_convert(
                         os.environ.pop(k, None)
                     else:
                         os.environ[str(k)] = str(v)
+
+            # Capture everything the conversion emits — Python logging AND the adacpp/OCCT
+            # C++ libraries' stdout/stderr — to a per-job log file at the fd level, so a
+            # silently-swallowed library warning (e.g. "meshopt compression skipped") is
+            # recoverable through the audit log instead of vanishing. Progress uses its own
+            # pipe (progr_w), so redirecting fd 1/2 here doesn't disturb it.
+            try:
+                import sys as _sys
+
+                _sys.stdout.flush()
+                _sys.stderr.flush()
+                _logfd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+                os.dup2(_logfd, 1)
+                os.dup2(_logfd, 2)
+                os.close(_logfd)
+            except OSError:
+                pass
 
             def _child_progress(stage: str, frac: float) -> None:
                 try:
@@ -361,6 +392,7 @@ async def run_isolated_convert(
                     _move_into_result(os.fspath(out), result_path)
                 else:
                     raise TypeError(f"convert returned {type(out).__name__}, expected bytes or a path")
+                _flush_std()
                 os._exit(0)
             except BaseException as exc:  # noqa: BLE001 — propagate verbatim
                 # Even on failure, dump whatever profile data was
@@ -381,8 +413,10 @@ async def run_isolated_convert(
                         }
                     )
                 )
+                _flush_std()
                 os._exit(2)
         finally:
+            _flush_std()
             try:
                 os.close(progr_w)
             except OSError:
@@ -576,6 +610,7 @@ async def run_isolated_convert(
     error_msg: Optional[str] = None
     error_tb: Optional[str] = None
     profile_bytes: Optional[bytes] = None
+    log_bytes: Optional[bytes] = None
     success = exit_code == 0 and result_path.exists()
     try:
         if success:
@@ -595,11 +630,18 @@ async def run_isolated_convert(
                 profile_bytes = profile_path.read_bytes()
             except OSError:
                 pass
+        # Captured child stdout/stderr — kept on success AND failure (a silently-swallowed
+        # warning or a crash's last words are exactly what we want in the audit log).
+        if log_path.exists():
+            try:
+                log_bytes = log_path.read_bytes() or None
+            except OSError:
+                pass
     finally:
         # Small sidecars are always reclaimed. The result file + its work dir
         # survive on success (ownership passes to the caller); on any failure
         # we drop them too so a crashed/oomed job leaves no tmp residue.
-        for p in (err_path, profile_path):
+        for p in (err_path, profile_path, log_path):
             try:
                 if p.exists():
                     p.unlink()
@@ -659,4 +701,5 @@ async def run_isolated_convert(
         samples=samples,
         final_metrics=final_metrics,
         profile_bytes=profile_bytes,
+        log_bytes=log_bytes,
     )

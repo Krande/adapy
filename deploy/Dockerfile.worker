@@ -13,7 +13,36 @@ ARG PIXI_VERSION=0.68.0
 # viewer reads that to show the running worker tag in /api/config.
 # Defaults to "dev" for local builds.
 ARG IMAGE_TAG=dev
+# Optional: build a branch of the native adacpp CAD backend and overlay it over the
+# conda-pinned ada-cpp via PYTHONPATH, so a fix branch can be tested in the deployed worker
+# before a conda release. Empty (default) = no overlay, the pinned ada-cpp is used unchanged.
+# CI stages the branch source into ./adacpp-src (clone) or an empty dir, and passes the branch
+# name so the builder stage below knows whether to build. Built with adacpp's own pinned env
+# (occt ==7.9.3), which matches what the released ada-cpp links → ABI-compatible .so.
+ARG ADACPP_BRANCH=""
 
+# ---- optional adacpp-branch overlay (gated by ADACPP_BRANCH) -----------------------
+FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS adacpp-overlay
+ARG ADACPP_BRANCH
+WORKDIR /build
+# Always present in the build context (CI creates it empty when no branch is requested).
+COPY adacpp-src/ ./adacpp-src/
+RUN --mount=type=cache,target=/root/.cache/rattler <<'SH'
+set -eu
+mkdir -p /overlay
+if [ -z "${ADACPP_BRANCH}" ] || [ ! -f adacpp-src/pyproject.toml ]; then
+  echo "adacpp overlay: disabled (ADACPP_BRANCH empty / no source) — worker uses the pinned conda ada-cpp."
+  exit 0
+fi
+cd adacpp-src
+pixi install --environment test --locked
+pixi run --environment test install            # cmake build + install into the test env
+PKG=$(pixi run --environment test python -c "import adacpp, os; print(os.path.dirname(adacpp.__file__))")
+cp -r "$PKG" /overlay/adacpp
+echo "adacpp overlay: built from '${ADACPP_BRANCH}' -> /overlay/adacpp"
+SH
+
+# ---- worker ----------------------------------------------------------------------
 FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION}
 ARG IMAGE_TAG
 WORKDIR /app
@@ -26,6 +55,10 @@ RUN pixi install --environment viewer-api --locked
 # Source last so iterating on Python doesn't re-solve.
 COPY src/ ./src/
 
+# Branch-built adacpp (an empty dir when ADACPP_BRANCH is unset). On PYTHONPATH ahead of the
+# env, so when populated it shadows the conda-pinned ada-cpp; empty = no effect.
+COPY --from=adacpp-overlay /overlay /opt/adacpp-overlay
+
 # The deployment runs this container as a non-root uid (10001, via the chart's
 # securityContext, matching the viewer/API). /app and the pixi env are root-owned but
 # world-readable, so they run fine as non-root; the only thing the conversion stack
@@ -37,7 +70,7 @@ COPY src/ ./src/
 RUN mkdir -p /home/app/.cache && chown -R 10001:10001 /home/app
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/src \
+    PYTHONPATH=/opt/adacpp-overlay:/app/src \
     ADA_VIEWER_STORAGE_KIND=local \
     ADA_VIEWER_LOCAL_PATH=/data \
     ADA_IMAGE_TAG=${IMAGE_TAG} \

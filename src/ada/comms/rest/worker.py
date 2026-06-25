@@ -129,10 +129,87 @@ async def _audit_done(
             read_bytes=metrics.get("read_bytes"),
             write_bytes=metrics.get("write_bytes"),
             profile_key=metrics.get("profile_key"),
+            log_key=metrics.get("log_key"),
             worker_image_tag=_WORKER_IMAGE_TAG,
+            convert_meta=metrics.get("convert_meta"),
         )
     except Exception:
         logger.exception("worker: audit update failed for job %s", job_id)
+
+
+def _convert_meta_for(job: "Job", env_overrides: dict | None) -> dict | None:
+    """Provenance for a conversion's audit row: which tessellator/engine actually
+    ran (resolved here the same way the convert subprocess resolves it — adacpp
+    availability is identical in this shared env — so a libtess2→occ-builtin
+    fallback is recorded accurately) plus the effective toggle options."""
+    suffix = pathlib.PurePosixPath(job.source_key).suffix.lower()
+    meta: dict = {}
+    # The effective non-default toggles applied to the child (settings + per-job).
+    if env_overrides:
+        meta["options"] = dict(env_overrides)
+    if job.target_format == "glb" and suffix in {".step", ".stp"}:
+        try:
+            from ada.comms.rest.converter import (
+                _STEP_GLB_PIPELINE_OCC,
+                _STEP_GLB_PIPELINE_STEP2GLB,
+                _cad_config_for_pipeline,
+                _resolve_step_glb_pipeline,
+            )
+
+            requested = _resolve_step_glb_pipeline((env_overrides or {}).get("ADAPY_STEP_GLB_PIPELINE"))
+            meta["step_glb_pipeline"] = requested
+            if requested == _STEP_GLB_PIPELINE_STEP2GLB:
+                meta["tessellator"] = "step2glb"
+            else:
+                cfg = _cad_config_for_pipeline(requested)
+                if cfg is not None:
+                    meta["tessellator"] = cfg.path.value  # e.g. "adacpp:libtess2"
+                elif requested != _STEP_GLB_PIPELINE_OCC:
+                    meta["tessellator"] = f"occ-builtin (fallback from {requested})"
+                else:
+                    meta["tessellator"] = "occ-builtin"
+            meta["glb_compression"] = (env_overrides or {}).get("ADA_GLB_COMPRESSION") or "meshopt"
+            meta["stream_workers"] = (env_overrides or {}).get("ADA_STEP_STREAM_WORKERS")
+        except Exception:
+            logger.exception("worker: convert_meta tessellator resolution failed for %s", job.source_key)
+    return meta or None
+
+
+def _capture_worker_packages() -> list[dict]:
+    """Snapshot the worker env's installed packages — the conda-meta manifest
+    (authoritative for occt / pythonocc-core / ada-cpp / ifcopenshell / numpy …)
+    plus any pip-only dists. Best-effort; a parse failure just drops that entry."""
+    import glob
+    import importlib.metadata as _im
+    import json as _json
+    import sys
+
+    pkgs: dict[str, dict] = {}
+    try:
+        for f in glob.glob(os.path.join(sys.prefix, "conda-meta", "*.json")):
+            try:
+                with open(f) as fh:
+                    d = _json.load(fh)
+                name = d.get("name")
+                if name:
+                    pkgs[name.lower()] = {
+                        "name": name,
+                        "version": d.get("version"),
+                        "build": d.get("build"),
+                        "channel": d.get("channel"),
+                    }
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        for dist in _im.distributions():
+            name = (dist.metadata.get("Name") or "").strip()
+            if name and name.lower() not in pkgs:
+                pkgs[name.lower()] = {"name": name, "version": dist.version, "build": None, "channel": "pypi"}
+    except Exception:
+        pass
+    return sorted(pkgs.values(), key=lambda p: (p.get("name") or "").lower())
 
 
 async def _run_fea_artefact_bake(
@@ -607,7 +684,9 @@ async def _run_component_build(
 
     try:
         await queue.update(job_id, stage="upload", progress=0.90)
-        await storage.put_bytes(scope, job.derived_key, glb_bytes)
+        # gzip-at-rest (see the conversion path) so the presigned GET serves it
+        # Content-Encoding: gzip and the browser decompresses on the fly.
+        await storage.put_bytes(scope, job.derived_key, glb_bytes, content_encoding="gzip")
     except Exception as exc:
         logger.exception("worker: component_build upload failed for %s", spec_name)
         trace = tb_module.format_exc()
@@ -853,6 +932,20 @@ async def _process_one(
 
     scope = _scope_of(job)
 
+    # Pre-download cancel skip: a cell whose (audit) run was cancelled is acked +
+    # skipped here, BEFORE any source download or convert — so a cancelled run's
+    # queued backlog costs ~nothing and can't wedge the worker on a doomed job.
+    # (A *deleted* run's rows are gone, so audit_is_cancelled can't catch those —
+    # the run cancel/delete endpoints purge those messages from the stream up front.)
+    if db_pool is not None:
+        try:
+            if await db_module.audit_is_cancelled(db_pool, job_id):
+                logger.info("worker: job %s cancelled; skipping before download", job_id)
+                await queue.update(job_id, status="cancelled", stage="cancelled", progress=1.0, error=None)
+                return
+        except Exception:
+            logger.exception("worker: pre-download cancel check failed for job %s", job_id)
+
     # Poison-pill guard: if NATS has redelivered this message past
     # the cap, the previous attempts crashed the worker before they
     # could ack. Stop trying — record the error, ack the message,
@@ -1020,18 +1113,34 @@ async def _process_one(
             # cases (e.g. "yes" / "no").
             _env_map = {
                 "use_sat_pcurves": "ADA_USE_SAT_PCURVES",
-                "pcurve_drive_edge": "ADA_PCURVE_DRIVE_EDGE",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
+                # Reuse a parsed source across export targets: parse once, pickle (content-hashed,
+                # local), reuse for every other target instead of re-reading the file. Big win for
+                # audit runs (one source → many targets); harmless when a source converts once.
+                "assembly_cache": "ADA_ASSEMBLY_CACHE",
+                # STEP→GLB tessellation engine (libtess2 / occ-builtin / step2glb /
+                # adacpp-{occ,cgal,hybrid}); enum string, read by _resolve_step_glb_pipeline.
+                "step_glb_pipeline": "ADAPY_STEP_GLB_PIPELINE",
                 # STEP→GLB streaming defaults (large-file OOM guard).
                 "step_streamer_auto": "ADA_STEP_STREAMER_AUTO",
                 "step_streamer_threshold_mb": "ADA_STEP_STREAMER_THRESHOLD_MB",
                 # Per-solid tessellation budget; a solid that overruns it (OCC hang) is
                 # killed and skipped so one bad solid can't freeze the whole conversion.
                 "step_stream_solid_timeout_s": "ADA_STEP_STREAM_SOLID_TIMEOUT_S",
+                # STEP→GLB tessellation pool memory bound: worker count cap + per-worker
+                # soft/hard RSS caps (a worker over soft respawns between solids; over hard
+                # mid-solid is killed + the solid requeued once). Sizes peak conversion RSS.
+                "step_stream_workers": "ADA_STEP_STREAM_WORKERS",
+                "step_stream_worker_soft_mem_mb": "ADA_STEP_STREAM_WORKER_SOFT_MEM_MB",
+                "step_stream_worker_hard_mem_mb": "ADA_STEP_STREAM_WORKER_HARD_MEM_MB",
                 # FEM→IFC memory-bounded writer. Default on (converter treats
                 # unset as on); set falsy to revert to the in-memory writer.
                 "ifc_streaming": "ADA_IFC_STREAMING",
+                # Curved-surface tessellation quality (0 = lean relative default).
+                "tess_linear_deflection": "ADA_OCC_TESS_LINEAR_DEFLECTION",
+                "tess_angular_deg": "ADA_OCC_TESS_ANGULAR_DEG",
+                "tess_relative": "ADA_OCC_TESS_RELATIVE",
             }
             for skey, env_name in _env_map.items():
                 raw = await _read_bool_setting(skey)
@@ -1045,11 +1154,15 @@ async def _process_one(
         if per_job:
             _env_map_full = {
                 "use_sat_pcurves": "ADA_USE_SAT_PCURVES",
-                "pcurve_drive_edge": "ADA_PCURVE_DRIVE_EDGE",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
+                "assembly_cache": "ADA_ASSEMBLY_CACHE",
+                "step_glb_pipeline": "ADAPY_STEP_GLB_PIPELINE",
                 "step_streamer": "ADA_STEP_STREAMER",
                 "ifc_streaming": "ADA_IFC_STREAMING",
+                "tess_linear_deflection": "ADA_OCC_TESS_LINEAR_DEFLECTION",
+                "tess_angular_deg": "ADA_OCC_TESS_ANGULAR_DEG",
+                "tess_relative": "ADA_OCC_TESS_RELATIVE",
             }
             for k, v in per_job.items():
                 env_name = _env_map_full.get(k)
@@ -1116,6 +1229,19 @@ async def _process_one(
                 return profile_key
             except Exception:
                 logger.exception("worker: profile upload failed for job %s", job_id)
+                return None
+
+        async def _maybe_upload_log_bytes(log_bytes: bytes | None) -> str | None:
+            """Upload the captured child stdout/stderr so a conversion's output (incl. silently
+            swallowed library warnings) is recoverable via the audit log. Best-effort + gzip-at-rest."""
+            if not log_bytes:
+                return None
+            try:
+                log_key = f"_derived/{job.source_key}.{job_id}.log"
+                await storage.put_bytes(scope, log_key, log_bytes, content_encoding="gzip")
+                return log_key
+            except Exception:
+                logger.exception("worker: log upload failed for job %s", job_id)
                 return None
 
         # FEA streaming-viewer artefact bake — sibling code path to
@@ -1199,7 +1325,7 @@ async def _process_one(
         # ignored harmlessly.
         #
         # Legacy env-var-driven options (use_sat_pcurves /
-        # pcurve_drive_edge / skip_shapefix) still flow via env vars
+        # skip_shapefix) still flow via env vars
         # on the child fork (see ``env_overrides`` below) because
         # their consuming code lives in deep OCC paths that haven't
         # been migrated to take these as function parameters yet.
@@ -1214,6 +1340,10 @@ async def _process_one(
                 if v is None:
                     continue  # tri-state "clear"; nothing to forward
                 convert_options[k] = v
+
+        # Engine + options provenance for the audit row (which tessellator ran,
+        # incl. an adacpp→occ-builtin fallback, and the effective toggles).
+        convert_meta = _convert_meta_for(job, env_overrides)
 
         # Poll the audit_log (cancel endpoint's source of truth) so a user
         # cancellation actually reaps the running conversion subprocess.
@@ -1292,6 +1422,8 @@ async def _process_one(
             )
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
+            metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
+            metrics["convert_meta"] = convert_meta
             await _audit_done(
                 db_pool,
                 job_id,
@@ -1307,18 +1439,62 @@ async def _process_one(
         # Gzip text-format outputs (IFC, Genie XML); GLB is binary geometry
         # that doesn't compress meaningfully and is what the in-browser
         # viewer fetches on the hot path.
-        derived_encoding = "gzip" if job.target_format in {"ifc", "xml"} else None
+        # gzip-at-rest so the object carries Content-Encoding: gzip and the
+        # browser auto-decompresses. GLBs are included: since the viewer switched
+        # to a presigned GET straight from object storage (no API relay), the
+        # stored bytes go over the wire as-is — a raw float32 GLB is ~2-3x larger
+        # than its gzip, which is brutal on mobile/cellular. (The on-disk GLB is
+        # still uncompressed; this is transport compression, transparent to the
+        # GLTF loader. Whole-file load only — gzip-at-rest is not Range-safe.)
+        derived_encoding = "gzip" if job.target_format in {"ifc", "xml", "glb", "gltf"} else None
+        # Optional GLB compression (gltfpack / meshopt + quantization), gated
+        # by the per-job glb_compression option (or the ADA_GLB_COMPRESSION
+        # global default). Post-process step so it covers every GLB-producing
+        # path from one place; fully guarded — any failure / missing binary
+        # uploads the original GLB unchanged. The compressed file is a
+        # separate path we unlink after upload.
+        upload_path = iresult.out_path
+        compressed_path = None
+        # The audit's duration_ms is whole-job wall-clock (started_at → done), so a
+        # meshopt encode reads as a slower *conversion*. Split it: convert_ms is the
+        # time up to here (conversion proper), compress_ms is just the GLB-compression
+        # post-step. Both land on convert_meta so the audit can show the breakdown.
+        if isinstance(convert_meta, dict):
+            convert_meta["convert_ms"] = round((time.monotonic() - started_at) * 1000)
+        if job.target_format == "glb":
+            _opts = getattr(job, "conversion_options", None) or {}
+            # Default-on: a job that doesn't set glb_compression still gets
+            # meshopt (the registry default isn't injected into
+            # conversion_options). Per-job value wins; ADA_GLB_COMPRESSION is
+            # the global override / kill switch (set to "off" to disable).
+            _mode = _opts.get("glb_compression") or os.environ.get("ADA_GLB_COMPRESSION") or "meshopt"
+            if _mode and str(_mode).lower() != "off":
+                try:
+                    from ada.visit.gltf.compress import compress_glb
+
+                    _compress_t0 = time.monotonic()
+                    packed = compress_glb(iresult.out_path, str(_mode))
+                    if isinstance(convert_meta, dict):
+                        convert_meta["compress_ms"] = round((time.monotonic() - _compress_t0) * 1000)
+                    if str(packed) != str(iresult.out_path):
+                        compressed_path = str(packed)
+                        upload_path = compressed_path
+                except Exception:
+                    logger.exception("worker: glb compression failed; uploading uncompressed")
+                    upload_path = iresult.out_path
         try:
             # Stream the output file straight to object storage (multipart) —
             # never reading it into a parent-side bytes buffer. cleanup_output()
             # drops the tmpfile + work dir once the upload settles either way.
-            await storage.put_path(scope, job.derived_key, iresult.out_path, content_encoding=derived_encoding)
+            await storage.put_path(scope, job.derived_key, upload_path, content_encoding=derived_encoding)
         except Exception as exc:
             logger.exception("worker: upload failed for %s", job.derived_key)
             trace = tb_module.format_exc()
             await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
+            metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
+            metrics["convert_meta"] = convert_meta
             await _audit_done(
                 db_pool,
                 job_id,
@@ -1330,12 +1506,21 @@ async def _process_one(
             )
             return
         finally:
+            # Drop the compressed sibling first — cleanup_output() rmdir's the
+            # work dir, which fails (and leaks) if our *.pack.glb is still in it.
+            if compressed_path:
+                try:
+                    os.unlink(compressed_path)
+                except OSError:
+                    pass
             iresult.cleanup_output()
 
         # Conversion + upload succeeded — collect metrics and (optionally)
         # the cProfile dump from the child.
         metrics = dict(iresult.final_metrics)
         metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
+        metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
+        metrics["convert_meta"] = convert_meta
 
         await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
         await _audit_done(db_pool, job_id, "done", None, started_at, metrics=metrics)
@@ -1508,6 +1693,18 @@ async def _run() -> None:
                 max_inactive_connection_lifetime=600.0,
             )
             logger.info("worker: db pool ready")
+            # Capture this worker image's package manifest once at startup so
+            # convert audit rows (stamped with worker_image_tag) can link to the
+            # exact toolchain that produced their output.
+            if _WORKER_IMAGE_TAG:
+                try:
+                    await db_module.upsert_worker_packages(
+                        db_pool,
+                        worker_image_tag=_WORKER_IMAGE_TAG,
+                        packages=_capture_worker_packages(),
+                    )
+                except Exception:
+                    logger.exception("worker: package manifest capture failed")
         except Exception:
             logger.exception("worker: db connect failed; running without audit updates")
 

@@ -47,3 +47,12 @@ def test_inp_source_uses_stream_writer(monkeypatch):
 def test_non_fem_source_uses_occ_writer(monkeypatch):
     assert _captured_writer(monkeypatch, ".step") == "occ"
     assert _captured_writer(monkeypatch, ".ifc") == "occ"
+
+
+def test_glb_target_exposes_tessellation_quality_options():
+    """The configurable tessellation-quality knobs are surfaced on any → GLB pair and
+    map to the ADA_OCC_TESS_* env the worker / tessellator read."""
+    names = {o["name"] for o in conv.ConverterRegistry.options_for(".step", "glb")}
+    assert {"tess_linear_deflection", "tess_angular_deg", "tess_relative"} <= names
+    # and they are in the global allowlist used by the API validator
+    assert "tess_linear_deflection" in conv.ConverterRegistry.all_options()

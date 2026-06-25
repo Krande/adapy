@@ -34,6 +34,7 @@ from datetime import timedelta
 from typing import AsyncIterator
 
 import obstore as obs
+from obstore.exceptions import NotFoundError as _ObstoreNotFound
 from obstore.store import LocalStore, S3Store
 
 from .config import Settings
@@ -519,7 +520,13 @@ class Storage:
         in memory; chunks come off the network, get expanded, and go
         straight to disk.
         """
-        result = await self._store.get_async(self._full_key(scope, key))
+        try:
+            result = await self._store.get_async(self._full_key(scope, key))
+        except _ObstoreNotFound as exc:
+            # Missing key (moved/deleted before the worker fetched it). Surface a
+            # plain FileNotFoundError so callers (the conversion worker) report a
+            # clean "source not found" instead of the raw obstore retry dump.
+            raise FileNotFoundError(f"object not found: {key}") from exc
         chunk_iter = result.stream().__aiter__()
 
         try:
@@ -552,7 +559,10 @@ class Storage:
         compressed bytes are *not* expanded — the caller is expected to
         forward ``Content-Encoding: gzip`` so the browser does that.
         """
-        result = await self._store.get_async(self._full_key(scope, key))
+        try:
+            result = await self._store.get_async(self._full_key(scope, key))
+        except _ObstoreNotFound as exc:
+            raise FileNotFoundError(f"object not found: {key}") from exc
 
         # Some backends populate this from object metadata; treat it as
         # a hint, but fall back to magic-byte sniffing below either way.

@@ -15,6 +15,10 @@ export type OptionsState = {
     pointSize: number;
     pointSizeAbsolute: boolean;
     useGpuPointPicking: boolean;
+    // Auto-convert uploaded source files to GLB on upload. Default OFF — an
+    // upload shouldn't silently spend worker time / spawn a conversion the user
+    // didn't ask for; they trigger conversion explicitly from the file row.
+    autoConvertOnUpload: boolean;
 
     setIsOptionsVisible: (value: boolean) => void;
     setShowPerf: (value: boolean) => void;
@@ -26,6 +30,7 @@ export type OptionsState = {
     setPointSize: (value: number) => void;
     setPointSizeAbsolute: (value: boolean) => void;
     setUseGpuPointPicking: (value: boolean) => void;
+    setAutoConvertOnUpload: (value: boolean) => void;
 };
 
 export const useOptionsStore = create<OptionsState>((set) => ({
@@ -39,6 +44,7 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     pointSize: 0.01,
     pointSizeAbsolute: true,
     useGpuPointPicking: true,
+    autoConvertOnUpload: false,
 
     setIsOptionsVisible: (v) => set({isOptionsVisible: v}),
     setShowPerf: (v) => set({showPerf: v}),
@@ -50,4 +56,5 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     setPointSize: (v) => set({pointSize: v}),
     setPointSizeAbsolute: (v) => set({pointSizeAbsolute: v}),
     setUseGpuPointPicking: (v) => set({useGpuPointPicking: v}),
+    setAutoConvertOnUpload: (v) => set({autoConvertOnUpload: v}),
 }));

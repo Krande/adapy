@@ -12,6 +12,19 @@ import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions
 import {applySphericalImpostor} from "@/utils/scene/pointsImpostor";
 import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
 import {gpuPointPicker} from "@/utils/mesh_select/GpuPointPicker";
+import {fastComputeBounds} from "@/utils/scene/boundsFast";
+import {usePerfStore, requestRender} from "@/state/perfStore";
+
+// Yield to the browser so it can paint a frame + service input between
+// batches of mesh processing. requestAnimationFrame lets an actual paint
+// happen (so geometry streams in visibly); falls back to a macrotask when
+// rAF isn't available (e.g. background tab).
+function frameYield(): Promise<void> {
+    return new Promise<void>((resolve) => {
+        if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve());
+        else setTimeout(resolve, 0);
+    });
+}
 
 interface PrepareLoadedModelParams {
     gltf_scene: THREE.Object3D;
@@ -106,8 +119,23 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
     });
 
 
+    // Time-sliced (non-blocking) load: when enabled, process meshes in
+    // ~budget-ms batches and yield to the browser between them so the main
+    // thread never blocks in one long stall — the viewer stays interactive
+    // and meshes stream into the scene. Off → the original tight loop.
+    const timeSlice = usePerfStore.getState().timeSlicedLoad;
+    const SLICE_BUDGET_MS = 12;
+    let batchStart = performance.now();
+
     for (const {original, parent} of meshesToReplace) {
         const meshName = original.name;
+
+        // Set geometry bounds up front via a tight typed-array loop so the
+        // recenter (setFromObject) and the renderer's first-frame frustum
+        // culling both reuse them instead of iterating ~70M vertices through
+        // three.js's per-vertex getX/getY/getZ path (the dominant load
+        // hotspot). Same result, several times faster.
+        fastComputeBounds(original.geometry as THREE.BufferGeometry);
 
         let drawRangesData = gltf_scene.userData[`draw_ranges_${meshName}`] as Record<string, [number, number]>;
         const node_id = original.userData?.node_id
@@ -290,6 +318,16 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
         }
 
         parent.remove(original);
+
+        // Once this batch has used its frame budget, paint + yield so the
+        // viewer stays responsive and the just-added meshes show up before
+        // we continue. requestRender() covers on-demand mode (no controls
+        // event fires during load).
+        if (timeSlice && performance.now() - batchStart >= SLICE_BUDGET_MS) {
+            requestRender();
+            await frameYield();
+            batchStart = performance.now();
+        }
     }
 
     let meshCount = 0;

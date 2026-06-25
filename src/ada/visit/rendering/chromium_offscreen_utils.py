@@ -8,9 +8,9 @@ that in pygfx is fiddly and silently drifts (e.g. the `applyCameraPreset`
 margin-multiplier semantics aren't obvious from the field name alone).
 
 So instead we drive a headless Chromium through Playwright, mount the
-exact same `dist-embed/index.js` paradoc consumes, and screenshot the
-canvas. The output is then bit-identical to what `paradoc.krande.no`
-renders in the user's tab.
+exact same `dist-embed/index.js` the hosted viewer consumes, and
+screenshot the canvas. The output is then bit-identical to what the
+deployed embed renders in the user's tab.
 
 Usage::
 

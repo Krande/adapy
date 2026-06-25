@@ -39,34 +39,65 @@ from typing import Iterator
 
 from ada.config import logger
 from ada.geom import Geometry
+from ada.geom.booleans import BooleanResult, BoolOpEnum
 from ada.geom.curves import (
     BSplineCurveFormEnum,
     BSplineCurveWithKnots,
     Circle,
+    CompositeCurve,
+    CompositeCurveSegment,
     EdgeCurve,
     EdgeLoop,
     Ellipse,
+    GeometricCurveSet,
+    Hyperbola,
     KnotType,
     Line,
+    OffsetCurve3D,
     OrientedEdge,
+    Parabola,
+    PCurve,
+    PointOnCurve,
+    PolyLine,
+    PolyLoop,
     RationalBSplineCurveWithKnots,
+    TrimmedCurve,
 )
 from ada.geom.direction import Direction
-from ada.geom.placement import Axis2Placement3D
+from ada.geom.placement import Axis1Placement, Axis2Placement3D
 from ada.geom.points import Point
+from ada.geom.solids import (
+    Box,
+    Cone,
+    Cylinder,
+    ExtrudedAreaSolid,
+    FacetedBrep,
+    RevolvedAreaSolid,
+    Sphere,
+    Torus,
+)
 from ada.geom.surfaces import (
     AdvancedFace,
     BSplineSurfaceForm,
     BSplineSurfaceWithKnots,
     ClosedShell,
     ConicalSurface,
+    CurveBoundedPlane,
     CylindricalSurface,
     FaceBound,
+    OffsetSurface,
     OpenShell,
     Plane,
+    PointOnSurface,
+    RationalBSplineSurfaceWithKnots,
+    RectangularCompositeSurface,
+    RectangularTrimmedSurface,
     ShellBasedSurfaceModel,
     SphericalSurface,
+    SurfaceOfLinearExtrusion,
+    SurfaceOfRevolution,
     ToroidalSurface,
+    TriangulatedFaceSet,
 )
 
 __all__ = ["stream_read_step", "StepStreamUnsupported"]
@@ -134,32 +165,52 @@ def _iter_refs(args):
 
 
 def _find_colour(pool_get, ref_id: int, depth: int = 0, seen: set | None = None):
-    """Walk an entity's reference tree until a COLOUR_RGB / pre-defined colour is hit;
-    return (r, g, b) in 0..1, or None."""
-    if depth > 12:
+    """Walk an entity's style reference tree collecting the first colour (``COLOUR_RGB`` or a
+    pre-defined colour name) and the first ``SURFACE_STYLE_TRANSPARENT`` transparency. Returns
+    ``(r, g, b, a)`` in 0..1 (a = 1 − transparency, default 1.0 = opaque), or ``None`` when no
+    colour is found. BFS so a colour and its sibling transparency are both reached (mirrors
+    step2glb's styles.rs find_color)."""
+    from collections import deque
+
+    queue: deque[tuple[int, int]] = deque([(ref_id, 0)])
+    seen = set()
+    rgb = None
+    transparency = None
+    while queue:
+        rid, d = queue.popleft()
+        if d > 12 or rid in seen:
+            continue
+        seen.add(rid)
+        rec = pool_get(rid)
+        if rec is None:
+            continue
+        t = rec.type
+        if t == "COLOUR_RGB" and rgb is None:
+            a = rec.args
+            try:
+                rgb = (float(a[1]), float(a[2]), float(a[3]))
+            except Exception:  # noqa: BLE001
+                rgb = None
+        elif t in ("DRAUGHTING_PRE_DEFINED_COLOUR", "PRE_DEFINED_COLOUR") and rgb is None:
+            name = rec.args[0] if rec.args and isinstance(rec.args[0], str) else ""
+            rgb = _PREDEFINED_COLOURS.get(name.strip().lower())
+        elif t == "SURFACE_STYLE_TRANSPARENT" and transparency is None:
+            for v in rec.args:
+                try:
+                    transparency = float(v)
+                    break
+                except (TypeError, ValueError):
+                    continue
+        else:
+            for cid in _iter_refs(rec.args):
+                queue.append((cid, d + 1))
+        if rgb is not None and transparency is not None:
+            break
+    if rgb is None:
         return None
-    if seen is None:
-        seen = set()
-    if ref_id in seen:
-        return None
-    seen.add(ref_id)
-    rec = pool_get(ref_id)
-    if rec is None:
-        return None
-    if rec.type == "COLOUR_RGB":
-        a = rec.args
-        try:
-            return (float(a[1]), float(a[2]), float(a[3]))
-        except Exception:  # noqa: BLE001
-            return None
-    if rec.type == "DRAUGHTING_PRE_DEFINED_COLOUR":
-        name = rec.args[0] if rec.args and isinstance(rec.args[0], str) else ""
-        return _PREDEFINED_COLOURS.get(name.strip().lower())
-    for rid in _iter_refs(rec.args):
-        c = _find_colour(pool_get, rid, depth + 1, seen)
-        if c is not None:
-            return c
-    return None
+    # ISO 10303-46: transparency 0 = opaque, 1 = fully transparent.
+    alpha = 1.0 if transparency is None else max(0.0, min(1.0, 1.0 - transparency))
+    return (rgb[0], rgb[1], rgb[2], alpha)
 
 
 def _build_colour_map(pool_get, styled_ids: list[int]) -> dict[int, tuple]:
@@ -337,16 +388,38 @@ def _build_product_name_map(pool_get, sdr_ids):
     return name_of_rep
 
 
-def _build_transform_map(pool_get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_ids=()):
+def _build_transform_map(pool_get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_ids=(), global_scale=1.0):
     """Map each root solid id -> (matrices, paths): one world 4x4 matrix per placed
     instance, plus the matching assembly path — a root-first tuple of
     ``(rep_id, product_name)`` levels — so the scene graph can group instances the way
     the STEP product tree does.
 
+    ``global_scale`` is the file's global length scale to metres (what the GLB writer
+    multiplies positions by). When a representation declares its OWN length unit that
+    differs (mixed mm/cm/metre files), its geometry and placement translations are
+    brought into the global unit frame here — the per-instance matrix's rotation block
+    is multiplied by the solid's ``rep_scale/global_scale`` (uniform scale commutes
+    with rotation, so this scales the local geometry), and each placement translation
+    is scaled by the factor of the rep it was authored in. Without this, parts
+    authored in a non-global unit are mis-sized (e.g. metre-context fasteners in an
+    mm file shrink 1000x and tessellate to near-zero-area slivers).
+
     Resilient: any unresolved entity simply leaves a solid with the identity ([None]
     handled by the caller); never raises.
     """
     import numpy as np
+
+    _factor_cache: dict[int, float] = {}
+
+    def _rep_factor(rep_id) -> float:
+        if rep_id is None:
+            return 1.0
+        f = _factor_cache.get(rep_id)
+        if f is None:
+            s = _representation_length_scale(pool_get, rep_id)
+            f = (s / global_scale) if (s is not None and abs(global_scale) > 1e-300) else 1.0
+            _factor_cache[rep_id] = f
+        return f
 
     # geom_rep id -> solid id (from each ABSR's item list)
     geomrep_of_solid: dict[int, int] = {}
@@ -418,6 +491,11 @@ def _build_transform_map(pool_get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_id
         for rep_2, i1, i2 in out_edges:
             m_child = _placement_matrix(pool_get, i1)
             m_parent = _placement_matrix(pool_get, i2)
+            # Placement points are authored in their own rep's unit; bring each
+            # translation into the global unit frame before composing so a
+            # mixed-unit child/parent pair maps consistently.
+            m_child[:3, 3] *= _rep_factor(rep_id)
+            m_parent[:3, 3] *= _rep_factor(rep_2)
             try:
                 t_edge = np.linalg.inv(m_child) @ m_parent
             except np.linalg.LinAlgError:
@@ -441,12 +519,35 @@ def _build_transform_map(pool_get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_id
         except Exception:  # noqa: BLE001 - never crash a read over a placement chain
             pairs = [(np.eye(4), None)]
         mats = [m for m, _p in pairs]
+        # Bake the solid's own length-unit factor into each instance's rotation block
+        # (uniform scale commutes with rotation), scaling its local geometry into the
+        # global unit frame. An identity-placement solid in a non-global unit thus
+        # gains a pure-scale transform, so mixed-unit parts come out the right size
+        # rather than collapsing to near-zero-area slivers.
+        factor = _rep_factor(geom_rep)
+        if abs(factor - 1.0) > 1e-12:
+            for m in mats:
+                m[:3, :3] *= factor
         # Drop pure-identity lists to a no-op (single instance, transform=None).
         nontrivial = [m for m in mats if not np.allclose(m, np.eye(4), atol=1e-12)]
         if not nontrivial and len(mats) <= 1:
             continue
         tmap[sid] = (mats, [p for _m, p in pairs])
-    return tmap
+    # solid id -> owning product name. The PRODUCT may be linked (via its SDR) to
+    # either the solid's geom rep (ABSR; flat files) or, when the solid is placed
+    # through a SHAPE_REPRESENTATION_RELATIONSHIP, to the placement rep — so try the
+    # placement rep first, then the ABSR. Independent of any transform chain, so
+    # both flat and deeply-placed solids get the real part name.
+    name_of_solid = {}
+    for sid in root_ids:
+        gr = geomrep_of_solid.get(sid)
+        if gr is None:
+            continue
+        place = place_rep_of_geom.get(gr, gr)
+        nm = name_of_rep.get(place) or name_of_rep.get(gr)
+        if nm:
+            name_of_solid[sid] = nm
+    return tmap, name_of_solid
 
 
 # SI prefix -> factor relative to the unprefixed unit (we only resolve METRE).
@@ -520,6 +621,77 @@ def detect_step_length_unit_scale(filepath) -> float:
             return scale
     logger.warning("detect_step_length_unit_scale: unrecognised LENGTH_UNIT record %r — assuming metres", stmt[:120])
     return 1.0
+
+
+def _si_unit_length_scale(args) -> float | None:
+    """Length scale to metres of an ``SI_UNIT(prefix, .METRE.)`` arg list, or None."""
+    if not args or len(args) < 2:
+        return None
+    if _enum_name(args[-1]).strip(".").upper() != "METRE":
+        return None
+    prefix = args[0]
+    if not isinstance(prefix, _Enum):  # ``$`` (no prefix) -> base metre
+        return 1.0
+    return _SI_PREFIX_SCALE.get(prefix.name.strip("."), 1.0)
+
+
+def _unit_length_scale(pool_get, unit_id: int) -> float | None:
+    """Scale to metres of a unit entity, or None if it isn't a length unit. Handles
+    a plain ``SI_UNIT`` and the common complex
+    ``( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) )`` / inch-foot
+    ``CONVERSION_BASED_UNIT`` forms."""
+    rec = pool_get(unit_id)
+    if rec is None:
+        return None
+    if rec.type == _COMPLEX and isinstance(rec.args, dict):
+        si = rec.args.get("SI_UNIT")
+        if si is not None:
+            s = _si_unit_length_scale(si)
+            if s is not None:
+                return s
+        if rec.args.get("LENGTH_UNIT") is not None:
+            cbu = rec.args.get("CONVERSION_BASED_UNIT")
+            if cbu and isinstance(cbu[0], str):
+                return _CONV_UNIT_SCALE.get(cbu[0].strip().upper())
+        return None
+    if rec.type == "SI_UNIT":
+        return _si_unit_length_scale(rec.args)
+    return None
+
+
+def _representation_length_scale(pool_get, rep_id: int) -> float | None:
+    """Length-unit scale (to metres) of a SHAPE_REPRESENTATION's own context, via its
+    ``GLOBAL_UNIT_ASSIGNED_CONTEXT`` unit list. None when the rep carries no length
+    unit. Some CAD systems mix mm/cm/metre contexts in one file, so geometry must be
+    scaled per representation rather than by a single global unit."""
+    rec = pool_get(rep_id)
+    if rec is None or not isinstance(rec.args, list):
+        return None
+    ctx_id = None  # the context is the last _Ref arg (after the items list)
+    for v in reversed(rec.args):
+        if isinstance(v, _Ref):
+            ctx_id = v.id
+            break
+    if ctx_id is None:
+        return None
+    ctx = pool_get(ctx_id)
+    if ctx is None:
+        return None
+    units = None
+    if ctx.type == _COMPLEX and isinstance(ctx.args, dict):
+        gua = ctx.args.get("GLOBAL_UNIT_ASSIGNED_CONTEXT")
+        if gua and isinstance(gua[0], (list, tuple)):
+            units = gua[0]
+    elif ctx.type == "GLOBAL_UNIT_ASSIGNED_CONTEXT" and ctx.args and isinstance(ctx.args[0], (list, tuple)):
+        units = ctx.args[0]
+    if not units:
+        return None
+    for u in units:
+        if isinstance(u, _Ref):
+            s = _unit_length_scale(pool_get, u.id)
+            if s is not None:
+                return s
+    return None
 
 
 _HEADER_RE = re.compile(r"^\s*#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(", re.S)
@@ -718,6 +890,66 @@ def _b_ellipse(r: _Resolver, a: list) -> Ellipse:
     return Ellipse(position=r.deref(a[1]), semi_axis1=float(a[2]), semi_axis2=float(a[3]))
 
 
+def _b_parabola(r: _Resolver, a: list) -> Parabola:
+    # PARABOLA('', #position, focal_dist)
+    return Parabola(position=r.deref(a[1]), focal_dist=float(a[2]))
+
+
+def _b_hyperbola(r: _Resolver, a: list) -> Hyperbola:
+    # HYPERBOLA('', #position, semi_axis, semi_imag_axis)
+    return Hyperbola(position=r.deref(a[1]), semi_axis=float(a[2]), semi_imag_axis=float(a[3]))
+
+
+def _b_polyline(r: _Resolver, a: list) -> PolyLine:
+    # POLYLINE('', (#points))
+    return PolyLine(points=[r.deref(p) for p in a[1]])
+
+
+def _trim_value(r: _Resolver, item):
+    """One trimming-select of a TRIMMED_CURVE: either a CARTESIAN_POINT ref (-> Point)
+    or a PARAMETER_VALUE (-> float). The parser hands typed reals through as floats."""
+    if isinstance(item, _Ref):
+        return r.deref(item)
+    try:
+        return float(item)
+    except (TypeError, ValueError):
+        return r.deref(item)
+
+
+def _b_trimmed_curve(r: _Resolver, a: list) -> TrimmedCurve:
+    # TRIMMED_CURVE('', #basis_curve, (trim_1), (trim_2), sense_agreement, master_repr)
+    t1 = a[2][0] if a[2] else 0.0
+    t2 = a[3][0] if a[3] else 1.0
+    return TrimmedCurve(
+        basis_curve=r.deref(a[1]),
+        trim1=_trim_value(r, t1),
+        trim2=_trim_value(r, t2),
+        sense_agreement=_enum_true(a[4]),
+        master_representation=_enum_name(a[5]) if len(a) > 5 else "PARAMETER",
+    )
+
+
+def _b_composite_curve_segment(r: _Resolver, a: list) -> CompositeCurveSegment:
+    # COMPOSITE_CURVE_SEGMENT(transition, same_sense, #parent_curve)
+    return CompositeCurveSegment(parent_curve=r.deref(a[2]), same_sense=_enum_true(a[1]), transition=_enum_name(a[0]))
+
+
+def _b_composite_curve(r: _Resolver, a: list) -> CompositeCurve:
+    # COMPOSITE_CURVE('', (#segments), self_intersect)
+    return CompositeCurve(segments=[r.deref(s) for s in a[1]])
+
+
+def _b_pcurve(r: _Resolver, a: list) -> PCurve:
+    # PCURVE('', #basis_surface, #reference_to_curve) — the 2D curve lives in a
+    # DEFINITIONAL_REPRESENTATION; keep the basis surface and the (best-effort) ref so
+    # the p-curve imports natively. Tessellation uses the 3D edge curve, not this.
+    try:
+        ref = r.deref(a[2])
+    except Exception:  # noqa: BLE001 - representation wrapper not modelled; keep surface
+        ref = None
+    return PCurve(basis_surface=r.deref(a[1]), reference_curve=ref)
+
+
 def _b_surface_curve(r: _Resolver, a: list):
     # SURFACE_CURVE / SEAM_CURVE('', #curve_3d, (#associated_geometry...), master)
     # The first arg is the 3D curve (LINE/CIRCLE/ELLIPSE/B-spline) — the edge geometry
@@ -794,6 +1026,235 @@ def _b_toroidal_surface(r: _Resolver, a: list) -> ToroidalSurface:
     return ToroidalSurface(position=r.deref(a[1]), major_radius=float(a[2]), minor_radius=float(a[3]))
 
 
+def _b_axis1_placement(r: _Resolver, a: list) -> Axis1Placement:
+    # AXIS1_PLACEMENT('', #location, #axis)
+    axis = r.deref(a[2]) if len(a) > 2 and isinstance(a[2], _Ref) else Direction(0.0, 0.0, 1.0)
+    return Axis1Placement(location=r.deref(a[1]), axis=axis)
+
+
+def _b_surface_of_revolution(r: _Resolver, a: list) -> SurfaceOfRevolution:
+    # SURFACE_OF_REVOLUTION('', #swept_curve, #axis_position(AXIS1_PLACEMENT))
+    return SurfaceOfRevolution(swept_curve=r.deref(a[1]), axis_position=r.deref(a[2]))
+
+
+def _b_surface_of_linear_extrusion(r: _Resolver, a: list) -> SurfaceOfLinearExtrusion:
+    # SURFACE_OF_LINEAR_EXTRUSION('', #swept_curve, #extrusion_axis(VECTOR))
+    vec_rec = r._pool.get(a[2].id) if isinstance(a[2], _Ref) else None
+    direction = r.deref(a[2])  # _b_vector returns the (unit) Direction
+    depth = 1.0
+    if vec_rec is not None and vec_rec.type == "VECTOR":
+        try:
+            depth = float(vec_rec.args[2])  # VECTOR('', #orientation, magnitude)
+        except (IndexError, TypeError, ValueError):
+            depth = 1.0
+    return SurfaceOfLinearExtrusion(
+        swept_curve=r.deref(a[1]), position=None, extrusion_direction=direction, depth=depth
+    )
+
+
+def _b_rectangular_trimmed_surface(r: _Resolver, a: list) -> RectangularTrimmedSurface:
+    # RECTANGULAR_TRIMMED_SURFACE('', #basis, u1, u2, v1, v2, usense, vsense)
+    return RectangularTrimmedSurface(
+        basis_surface=r.deref(a[1]),
+        u1=float(a[2]),
+        u2=float(a[3]),
+        v1=float(a[4]),
+        v2=float(a[5]),
+        usense=_enum_true(a[6]),
+        vsense=_enum_true(a[7]),
+    )
+
+
+def _b_curve_bounded_surface(r: _Resolver, a: list):
+    # CURVE_BOUNDED_SURFACE('', #basis_surface, (#boundaries), implicit_outer). Modelled
+    # as CurveBoundedPlane when the basis is a Plane (the common case); otherwise keep
+    # the basis surface so the region still imports + tessellates from its bounds.
+    basis = r.deref(a[1])
+    bounds = [r.deref(b) for b in a[2]] if len(a) > 2 and a[2] else []
+    if isinstance(basis, Plane) and bounds:
+        return CurveBoundedPlane(basis_surface=basis, outer_boundary=bounds[0], inner_boundaries=bounds[1:])
+    return basis
+
+
+def _b_offset_surface(r: _Resolver, a: list) -> OffsetSurface:
+    # OFFSET_SURFACE('', #basis_surface, distance, self_intersect)
+    return OffsetSurface(basis_surface=r.deref(a[1]), distance=float(a[2]), self_intersect=_enum_true(a[3]))
+
+
+# -- placements / point-on / replicas / offsets ----------------------------- #
+def _b_axis2_placement_2d(r: _Resolver, a: list) -> Axis2Placement3D:
+    # AXIS2_PLACEMENT_2D('', #location, #ref_direction) — promote to a 3D placement.
+    kwargs = {"location": r.deref(a[1])}
+    if len(a) > 2 and isinstance(a[2], _Ref):
+        kwargs["ref_direction"] = r.deref(a[2])
+    return Axis2Placement3D(**kwargs)
+
+
+def _b_point_on_curve(r: _Resolver, a: list) -> PointOnCurve:
+    # POINT_ON_CURVE('', #basis_curve, parameter)
+    return PointOnCurve(basis_curve=r.deref(a[1]), parameter=float(a[2]))
+
+
+def _b_point_on_surface(r: _Resolver, a: list) -> PointOnSurface:
+    # POINT_ON_SURFACE('', #basis_surface, u, v)
+    return PointOnSurface(basis_surface=r.deref(a[1]), u=float(a[2]), v=float(a[3]))
+
+
+def _b_offset_curve_3d(r: _Resolver, a: list) -> OffsetCurve3D:
+    # OFFSET_CURVE_3D('', #basis_curve, distance, self_intersect, #ref_direction)
+    ref = r.deref(a[4]) if len(a) > 4 and isinstance(a[4], _Ref) else None
+    return OffsetCurve3D(
+        basis_curve=r.deref(a[1]), distance=float(a[2]), self_intersect=_enum_true(a[3]), ref_direction=ref
+    )
+
+
+def _b_replica(r: _Resolver, a: list):
+    # CURVE_REPLICA / SURFACE_REPLICA('', #parent, #transformation): import the parent
+    # geom natively (the rigid transform is recorded upstream, not applied here).
+    return r.deref(a[1])
+
+
+def _b_surface_patch(r: _Resolver, a: list):
+    # SURFACE_PATCH('', #parent_surface, u_transition, v_transition, u_sense, v_sense)
+    return r.deref(a[1])
+
+
+def _b_rectangular_composite_surface(r: _Resolver, a: list) -> RectangularCompositeSurface:
+    # RECTANGULAR_COMPOSITE_SURFACE('', ((#surface_patch, ...), ...))
+    grid = []
+    for row in a[1]:
+        for patch in row:
+            p = r.deref(patch)
+            grid.append(getattr(p, "parent_surface", p))
+    return RectangularCompositeSurface(segments=grid)
+
+
+# -- solids / models -------------------------------------------------------- #
+def _as_axis2(p):
+    """Coerce an Axis1Placement (location + axis, no ref dir) into Axis2Placement3D so
+    CSG-primitive geom (which expects a full placement) imports + builds."""
+    if isinstance(p, Axis1Placement):
+        return Axis2Placement3D(location=p.location, axis=p.axis)
+    return p
+
+
+def _b_faceted_brep(r: _Resolver, a: list) -> FacetedBrep:
+    # FACETED_BREP('', #outer_closed_shell)  (planar-faced manifold solid)
+    return FacetedBrep(outer=r.deref(a[1]))
+
+
+def _b_block(r: _Resolver, a: list) -> Box:
+    # BLOCK('', #position, x, y, z)
+    return Box(position=_as_axis2(r.deref(a[1])), x_length=float(a[2]), y_length=float(a[3]), z_length=float(a[4]))
+
+
+def _b_right_circular_cylinder(r: _Resolver, a: list) -> Cylinder:
+    # RIGHT_CIRCULAR_CYLINDER('', #position, height, radius)
+    return Cylinder(position=_as_axis2(r.deref(a[1])), radius=float(a[3]), height=float(a[2]))
+
+
+def _b_right_circular_cone(r: _Resolver, a: list) -> Cone:
+    # RIGHT_CIRCULAR_CONE('', #position, height, radius, semi_angle)
+    return Cone(position=_as_axis2(r.deref(a[1])), bottom_radius=float(a[3]), height=float(a[2]))
+
+
+def _b_sphere(r: _Resolver, a: list) -> Sphere:
+    # SPHERE('', radius, #centre)
+    return Sphere(center=r.deref(a[2]), radius=float(a[1]))
+
+
+def _b_torus(r: _Resolver, a: list) -> Torus:
+    # TORUS('', #position, major_radius, minor_radius)
+    return Torus(position=r.deref(a[1]), major_radius=float(a[2]), minor_radius=float(a[3]))
+
+
+def _b_extruded_area_solid(r: _Resolver, a: list) -> ExtrudedAreaSolid:
+    # EXTRUDED_AREA_SOLID('', #swept_area, #position, #extruded_direction, depth)
+    return ExtrudedAreaSolid(
+        swept_area=r.deref(a[1]), position=r.deref(a[2]), extruded_direction=r.deref(a[3]), depth=float(a[4])
+    )
+
+
+def _b_revolved_area_solid(r: _Resolver, a: list) -> RevolvedAreaSolid:
+    # REVOLVED_AREA_SOLID('', #swept_area, #axis(AXIS1_PLACEMENT), angle)
+    return RevolvedAreaSolid(swept_area=r.deref(a[1]), position=None, axis=r.deref(a[2]), angle=float(a[3]))
+
+
+def _b_boolean_result(r: _Resolver, a: list) -> BooleanResult:
+    # BOOLEAN_RESULT(operator, #first_operand, #second_operand)
+    return BooleanResult(
+        operator=BoolOpEnum.from_str(_enum_name(a[0])), first_operand=r.deref(a[1]), second_operand=r.deref(a[2])
+    )
+
+
+def _b_csg_solid(r: _Resolver, a: list):
+    # CSG_SOLID('', #tree_root_expression) — unwrap to its boolean tree / primitive.
+    return r.deref(a[1])
+
+
+def _b_geometric_set(r: _Resolver, a: list) -> GeometricCurveSet:
+    # GEOMETRIC_SET / GEOMETRIC_CURVE_SET('', (#elements)) — loose points/curves/surfaces.
+    return GeometricCurveSet(elements=[r.deref(x) for x in a[1]])
+
+
+# -- AP242 tessellated geometry --------------------------------------------- #
+def _b_coordinates_list(r: _Resolver, a: list):
+    # COORDINATES_LIST('', npoints, ((x,y,z), ...)) — an inline point table.
+    pts = a[2] if len(a) > 2 and isinstance(a[2], (list, tuple)) else a[-1]
+    return [Point(*[float(c) for c in p]) for p in pts]
+
+
+def _b_triangulated_face_set(r: _Resolver, a: list) -> TriangulatedFaceSet:
+    # *_TRIANGULATED_FACE_SET / TRIANGULATED_SURFACE_SET: coordinates first; the rest
+    # carry triangle index triples (ints, kept 1-based to match the IFC convention) and
+    # optional per-vertex normals (reals). Argument order varies by exporter, so classify.
+    coords = []
+    first = r.deref(a[1]) if isinstance(a[1], _Ref) else None
+    if isinstance(first, list) and first and isinstance(first[0], Point):
+        coords = first
+    normals: list = []
+    tris: list = []
+    for arg in a[2:]:
+        if isinstance(arg, (list, tuple)) and arg and isinstance(arg[0], (list, tuple)) and len(arg[0]) == 3:
+            if all(isinstance(x, int) for x in arg[0]):
+                tris = arg
+            elif all(isinstance(x, (int, float)) for x in arg[0]):
+                normals = [Direction(*[float(c) for c in n]) for n in arg]
+    indices = [int(i) for tri in tris for i in tri]  # flattened, 1-based
+    return TriangulatedFaceSet(coordinates=coords, normals=normals, indices=indices)
+
+
+def _b_tessellated_shell(r: _Resolver, a: list):
+    # TESSELLATED_SHELL / TESSELLATED_SOLID('', (#items), ...) — wraps tessellated face
+    # set(s). Return the single item; merge coords+indices (offsetting) for several.
+    items = [r.deref(x) for x in a[1]] if isinstance(a[1], (list, tuple)) else [r.deref(a[1])]
+    items = [it for it in items if isinstance(it, TriangulatedFaceSet)]
+    if len(items) == 1:
+        return items[0]
+    coords: list = []
+    indices: list = []
+    normals: list = []
+    for it in items:
+        off = len(coords)
+        coords.extend(it.coordinates)
+        normals.extend(it.normals)
+        indices.extend(i + off for i in it.indices)  # indices are 1-based; offset by prior count
+    return TriangulatedFaceSet(coordinates=coords, normals=normals, indices=indices)
+
+
+def _b_manifold_surface_shape_rep(r: _Resolver, a: list):
+    # MANIFOLD_SURFACE_SHAPE_REPRESENTATION('', (#items), #context): a shape rep whose
+    # items are shells / surface models. Return the single item directly, else wrap the
+    # shells' faces in one OpenShell so the representation imports + renders.
+    items = [r.deref(x) for x in a[1]]
+    if len(items) == 1:
+        return items[0]
+    faces = []
+    for it in items:
+        faces.extend(getattr(it, "cfs_faces", None) or getattr(it, "sbsm_boundary", None) or [])
+    return OpenShell(cfs_faces=faces) if faces else (items[0] if items else None)
+
+
 def _b_advanced_face(r: _Resolver, a: list) -> AdvancedFace:
     # ADVANCED_FACE('', (#bounds), #face_surface, same_sense)
     # Drop degenerate vertex-loop bounds (pole/apex of a closed surface) — they
@@ -809,6 +1270,37 @@ def _b_closed_shell(r: _Resolver, a: list) -> ClosedShell:
 def _b_open_shell(r: _Resolver, a: list) -> OpenShell:
     # OPEN_SHELL('', (#faces)) — a pure (thickness-less) surface shell.
     return OpenShell(cfs_faces=[r.deref(x) for x in a[1]])
+
+
+def _b_poly_loop(r: _Resolver, a: list) -> PolyLoop:
+    # POLY_LOOP('', (#points)) — a faceted-brep polygon boundary.
+    return PolyLoop(polygon=[r.deref(p) for p in a[1]])
+
+
+def _b_connected_face_set(r: _Resolver, a: list) -> OpenShell:
+    # CONNECTED_FACE_SET('', (#faces)) — the supertype of CLOSED/OPEN_SHELL. Import as an
+    # OpenShell so it both maps to a native shell type and tessellates from its faces.
+    return OpenShell(cfs_faces=[r.deref(x) for x in a[1]])
+
+
+def _b_subface(r: _Resolver, a: list):
+    # SUBFACE('', (#bounds), #parent_face): a region of a parent face. The sub-region has
+    # no own surface — reuse the parent's geometry with the sub-bounds so it imports +
+    # builds (rare; over-covers only if the sub-bounds are ignored).
+    parent = r.deref(a[2])
+    bounds = [fb for fb in (r.deref(x) for x in a[1]) if not isinstance(fb.bound, _DegenerateLoop)]
+    fs = getattr(parent, "face_surface", None)
+    if fs is not None:
+        return AdvancedFace(bounds=bounds or parent.bounds, face_surface=fs, same_sense=True)
+    return parent
+
+
+def _b_subedge(r: _Resolver, a: list):
+    # SUBEDGE('', #start, #end, #parent_edge): a segment of a parent edge. Reuse the
+    # parent's 3D curve with the sub start/end vertices.
+    parent = r.deref(a[3])
+    geom = getattr(parent, "edge_geometry", parent)
+    return EdgeCurve(start=r.deref(a[1]), end=r.deref(a[2]), edge_geometry=geom, same_sense=True)
 
 
 def _b_shell_based_surface_model(r: _Resolver, a: list) -> ShellBasedSurfaceModel:
@@ -855,13 +1347,6 @@ def _make_bspline_surface(
     knot_spec,
     weights=None,
 ):
-    if weights is not None:
-        # A rational B-spline face's boundary edges only trim correctly when their
-        # 2D p-curves are supplied; kernel-free 3D->UV reprojection collapses the
-        # face to zero area (empty mesh). Signal unsupported so reader="auto" falls
-        # back to OCC (renders correctly). Non-rational surfaces reproject fine.
-        # Follow-up: parse SURFACE_CURVE/PCURVE p-curves and attach them per edge.
-        raise StepStreamUnsupported("rational B-spline surface needs p-curve trimming (not yet); OCC reader handles it")
     cps = [[r.deref(ref) for ref in row] for row in cp_grid]
     common = dict(
         u_degree=int(u_deg),
@@ -877,6 +1362,16 @@ def _make_bspline_surface(
         v_knots=[float(x) for x in v_knots],
         knot_spec=KnotType.from_str(_enum_name(knot_spec)),
     )
+    if weights is not None:
+        # Rational B-spline surface: carry the weight grid into the native geom. The OCC
+        # backend builds a rational Geom_BSplineSurface from it and trims the face from
+        # the 3D boundary wire (OCC computes the p-curves), so these solids tessellate
+        # natively instead of being skipped. (Earlier this raised on the theory that
+        # 3D->UV reprojection collapses the face; in practice OCC's MakeFace handles the
+        # rational surface from the 3D wire — verified building all faces of the skipped
+        # solids. Authored 2D p-curves, when a file supplies them, still take the
+        # SURFACE_CURVE/pcurve path and override this.)
+        return RationalBSplineSurfaceWithKnots(**common, weights_data=[[float(w) for w in row] for row in weights])
     return BSplineSurfaceWithKnots(**common)
 
 
@@ -889,6 +1384,70 @@ def _b_bspline_surface_with_knots(r: _Resolver, a: list):
     # B_SPLINE_SURFACE_WITH_KNOTS('', u_deg, v_deg, (cp grid), form, .uc., .vc., .si.,
     #                             (u_mults), (v_mults), (u_knots), (v_knots), spec)
     return _make_bspline_surface(r, a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11], a[12])
+
+
+def _implicit_bspline_knots(knot_type: str, degree: int, n_cps: int):
+    """Knots + multiplicities for a B-spline subtype that omits explicit knots
+    (BEZIER / UNIFORM / QUASI_UNIFORM), derived from degree + control-point count per
+    ISO 10303-42. Lets these map onto the existing (Rational)BSplineCurve/Surface geom."""
+    d = int(degree)
+    n = int(n_cps)
+    if knot_type == "PIECEWISE_BEZIER_KNOTS":
+        segs = max(1, (n - 1) // d) if d else 1  # piecewise-Bezier segment count
+        knots = [float(i) for i in range(segs + 1)]
+        mults = [d + 1] + [d] * (segs - 1) + [d + 1]
+    elif knot_type == "QUASI_UNIFORM_KNOTS":
+        n_interior = max(0, n - d - 1)  # clamped ends, uniform mult-1 interior
+        knots = [float(i) for i in range(n_interior + 2)]
+        mults = [d + 1] + [1] * n_interior + [d + 1]
+    else:  # UNIFORM_KNOTS — open uniform, every knot mult 1
+        n_knots = n + d + 1
+        knots = [float(i) for i in range(n_knots)]
+        mults = [1] * n_knots
+    return knots, mults
+
+
+def _b_bezier_curve(r: _Resolver, a: list):
+    # BEZIER_CURVE / UNIFORM_CURVE / QUASI_UNIFORM_CURVE inherit B_SPLINE_CURVE's args
+    # ('', degree, (cps), form, closed, si) and imply their knots from degree+#cps.
+    k, m = _implicit_bspline_knots("PIECEWISE_BEZIER_KNOTS", a[1], len(a[2]))
+    return _make_bspline_curve(r, a[1], a[2], a[3], a[4], a[5], m, k, "PIECEWISE_BEZIER_KNOTS")
+
+
+def _b_uniform_curve(r: _Resolver, a: list):
+    k, m = _implicit_bspline_knots("UNIFORM_KNOTS", a[1], len(a[2]))
+    return _make_bspline_curve(r, a[1], a[2], a[3], a[4], a[5], m, k, "UNIFORM_KNOTS")
+
+
+def _b_quasi_uniform_curve(r: _Resolver, a: list):
+    k, m = _implicit_bspline_knots("QUASI_UNIFORM_KNOTS", a[1], len(a[2]))
+    return _make_bspline_curve(r, a[1], a[2], a[3], a[4], a[5], m, k, "QUASI_UNIFORM_KNOTS")
+
+
+def _b_bezier_surface(r: _Resolver, a: list):
+    # BEZIER/UNIFORM/QUASI_UNIFORM_SURFACE inherit B_SPLINE_SURFACE's args
+    # ('', u_deg, v_deg, (cp grid), form, u_closed, v_closed, si); knots implied per dir.
+    n_u = len(a[3])
+    n_v = len(a[3][0]) if a[3] else 0
+    uk, um = _implicit_bspline_knots("PIECEWISE_BEZIER_KNOTS", a[1], n_u)
+    vk, vm = _implicit_bspline_knots("PIECEWISE_BEZIER_KNOTS", a[2], n_v)
+    return _make_bspline_surface(r, a[1], a[2], a[3], a[4], a[5], a[6], a[7], um, vm, uk, vk, "PIECEWISE_BEZIER_KNOTS")
+
+
+def _b_uniform_surface(r: _Resolver, a: list):
+    n_u = len(a[3])
+    n_v = len(a[3][0]) if a[3] else 0
+    uk, um = _implicit_bspline_knots("UNIFORM_KNOTS", a[1], n_u)
+    vk, vm = _implicit_bspline_knots("UNIFORM_KNOTS", a[2], n_v)
+    return _make_bspline_surface(r, a[1], a[2], a[3], a[4], a[5], a[6], a[7], um, vm, uk, vk, "UNIFORM_KNOTS")
+
+
+def _b_quasi_uniform_surface(r: _Resolver, a: list):
+    n_u = len(a[3])
+    n_v = len(a[3][0]) if a[3] else 0
+    uk, um = _implicit_bspline_knots("QUASI_UNIFORM_KNOTS", a[1], n_u)
+    vk, vm = _implicit_bspline_knots("QUASI_UNIFORM_KNOTS", a[2], n_v)
+    return _make_bspline_surface(r, a[1], a[2], a[3], a[4], a[5], a[6], a[7], um, vm, uk, vk, "QUASI_UNIFORM_KNOTS")
 
 
 def _build_complex(r: _Resolver, subs: dict):
@@ -915,11 +1474,33 @@ _BUILDERS = {
     "VECTOR": _b_vector,
     "VERTEX_POINT": _b_vertex_point,
     "AXIS2_PLACEMENT_3D": _b_axis2_placement_3d,
+    "AXIS2_PLACEMENT_2D": _b_axis2_placement_2d,
+    "POINT_ON_CURVE": _b_point_on_curve,
+    "POINT_ON_SURFACE": _b_point_on_surface,
+    "OFFSET_CURVE_3D": _b_offset_curve_3d,
+    "INTERSECTION_CURVE": _b_surface_curve,
+    "CURVE_REPLICA": _b_replica,
+    "SURFACE_REPLICA": _b_replica,
+    "SURFACE_PATCH": _b_surface_patch,
+    "RECTANGULAR_COMPOSITE_SURFACE": _b_rectangular_composite_surface,
     "LINE": _b_line,
     "CIRCLE": _b_circle,
     "ELLIPSE": _b_ellipse,
+    "PARABOLA": _b_parabola,
+    "HYPERBOLA": _b_hyperbola,
+    "POLYLINE": _b_polyline,
+    "TRIMMED_CURVE": _b_trimmed_curve,
+    "COMPOSITE_CURVE": _b_composite_curve,
+    "COMPOSITE_CURVE_SEGMENT": _b_composite_curve_segment,
+    "PCURVE": _b_pcurve,
     "B_SPLINE_CURVE_WITH_KNOTS": _b_bspline_curve_with_knots,
     "B_SPLINE_SURFACE_WITH_KNOTS": _b_bspline_surface_with_knots,
+    "BEZIER_CURVE": _b_bezier_curve,
+    "UNIFORM_CURVE": _b_uniform_curve,
+    "QUASI_UNIFORM_CURVE": _b_quasi_uniform_curve,
+    "BEZIER_SURFACE": _b_bezier_surface,
+    "UNIFORM_SURFACE": _b_uniform_surface,
+    "QUASI_UNIFORM_SURFACE": _b_quasi_uniform_surface,
     "SURFACE_CURVE": _b_surface_curve,
     "SEAM_CURVE": _b_surface_curve,
     "EDGE_CURVE": _b_edge_curve,
@@ -928,25 +1509,107 @@ _BUILDERS = {
     "VERTEX_LOOP": _b_vertex_loop,
     "FACE_BOUND": _b_face_bound,
     "FACE_OUTER_BOUND": _b_face_bound,
+    "AXIS1_PLACEMENT": _b_axis1_placement,
     "PLANE": _b_plane,
     "CYLINDRICAL_SURFACE": _b_cylindrical_surface,
     "CONICAL_SURFACE": _b_conical_surface,
     "SPHERICAL_SURFACE": _b_spherical_surface,
     "TOROIDAL_SURFACE": _b_toroidal_surface,
+    "SURFACE_OF_REVOLUTION": _b_surface_of_revolution,
+    "SURFACE_OF_LINEAR_EXTRUSION": _b_surface_of_linear_extrusion,
+    "RECTANGULAR_TRIMMED_SURFACE": _b_rectangular_trimmed_surface,
+    "CURVE_BOUNDED_SURFACE": _b_curve_bounded_surface,
+    "OFFSET_SURFACE": _b_offset_surface,
     "ADVANCED_FACE": _b_advanced_face,
+    "FACE_SURFACE": _b_advanced_face,
+    "SUBFACE": _b_subface,
+    "SUBEDGE": _b_subedge,
+    "POLY_LOOP": _b_poly_loop,
+    "CONNECTED_FACE_SET": _b_connected_face_set,
     "CLOSED_SHELL": _b_closed_shell,
     "OPEN_SHELL": _b_open_shell,
+    # ORIENTED_CLOSED_SHELL('', *, #base_closed_shell, orientation): a CLOSED_SHELL reused
+    # with an orientation flag (e.g. the void shells of a BREP_WITH_VOIDS). The supertype's
+    # cfs_faces field (arg 1) is DERIVED in the oriented subtype -> emitted as ``*`` (the
+    # _STAR sentinel); the real base shell is arg 2, the orientation arg 3. Resolve arg 2 —
+    # dereffing arg 1 yields the bare ``*`` sentinel (0 faces), which silently dropped every
+    # void shell. The orientation only flips face normals, which tessellation treats as
+    # double-sided. No geometry left behind.
+    "ORIENTED_CLOSED_SHELL": lambda r, a: r.deref(a[2]),
     "SHELL_BASED_SURFACE_MODEL": _b_shell_based_surface_model,
+    # solids / models
+    "FACETED_BREP": _b_faceted_brep,
+    "BLOCK": _b_block,
+    "RIGHT_CIRCULAR_CYLINDER": _b_right_circular_cylinder,
+    "RIGHT_CIRCULAR_CONE": _b_right_circular_cone,
+    "SPHERE": _b_sphere,
+    "TORUS": _b_torus,
+    "EXTRUDED_AREA_SOLID": _b_extruded_area_solid,
+    "REVOLVED_AREA_SOLID": _b_revolved_area_solid,
+    "BOOLEAN_RESULT": _b_boolean_result,
+    "CSG_SOLID": _b_csg_solid,
+    "GEOMETRIC_CURVE_SET": _b_geometric_set,
+    "GEOMETRIC_SET": _b_geometric_set,
+    "MANIFOLD_SURFACE_SHAPE_REPRESENTATION": _b_manifold_surface_shape_rep,
+    # AP242 tessellated geometry
+    "COORDINATES_LIST": _b_coordinates_list,
+    "TRIANGULATED_FACE_SET": _b_triangulated_face_set,
+    "TRIANGULATED_SURFACE_SET": _b_triangulated_face_set,
+    "COMPLEX_TRIANGULATED_FACE_SET": _b_triangulated_face_set,
+    "TESSELLATED_SHELL": _b_tessellated_shell,
+    "TESSELLATED_SOLID": _b_tessellated_shell,
 }
 
 
 # Top-level renderable geometry roots — one yielded Geometry per record. A solid
-# (MANIFOLD_SOLID_BREP -> its ClosedShell) and a pure surface shell
-# (SHELL_BASED_SURFACE_MODEL -> ShellBasedSurfaceModel). Shells nested inside
-# these are reached by reference, never yielded on their own, so no double-count.
+def _b_brep_with_voids(r: _Resolver, a: list) -> ClosedShell:
+    """BREP_WITH_VOIDS('name', outer_shell, (void_shells)) — a solid with internal cavities.
+
+    The void shells (arg 2, each an ORIENTED_CLOSED_SHELL -> CLOSED_SHELL) are the cavity
+    boundaries. They are invisible from outside, but step2glb (the parity reference)
+    tessellates every ADVANCED_FACE including the voids, so we render them too: drop them and
+    the face count falls short of the file's (e.g. 2450 faces across 38 voided solids in one
+    assembly). Each void face keeps its own ``same_sense`` (cavity normals point inward, as in
+    the file) — we do not reorient, matching step2glb's straight per-face tessellation.
+    """
+    outer = r.deref(a[1])
+    voids = a[2] if len(a) > 2 else None
+    outer_faces = getattr(outer, "cfs_faces", None)
+    if not voids or outer_faces is None:
+        return outer
+    merged = list(outer_faces)
+    for v in voids:
+        shell = r.deref(v)
+        v_faces = getattr(shell, "cfs_faces", None)
+        if v_faces:
+            merged.extend(v_faces)
+    return ClosedShell(cfs_faces=merged)
+
+
+# (MANIFOLD_SOLID_BREP -> its ClosedShell), a solid with internal cavities
+# (BREP_WITH_VOIDS -> outer shell + void shells, all faces, for step2glb parity), and a pure
+# surface shell (SHELL_BASED_SURFACE_MODEL -> ShellBasedSurfaceModel). Shells nested inside
+# these are reached by reference, never yielded on their own, so no double-count. Without the
+# BREP_WITH_VOIDS entry these solids were silently dropped (38 of them in one CAD assembly).
 _ROOT_BUILDERS = {
     "MANIFOLD_SOLID_BREP": lambda r, a: r.deref(a[1]),
+    "BREP_WITH_VOIDS": _b_brep_with_voids,
     "SHELL_BASED_SURFACE_MODEL": _b_shell_based_surface_model,
+    # additional renderable roots (CSG primitives, swept + faceted solids, boolean trees)
+    "FACETED_BREP": _b_faceted_brep,
+    "BLOCK": _b_block,
+    "RIGHT_CIRCULAR_CYLINDER": _b_right_circular_cylinder,
+    "RIGHT_CIRCULAR_CONE": _b_right_circular_cone,
+    "SPHERE": _b_sphere,
+    "TORUS": _b_torus,
+    "EXTRUDED_AREA_SOLID": _b_extruded_area_solid,
+    "REVOLVED_AREA_SOLID": _b_revolved_area_solid,
+    "CSG_SOLID": _b_csg_solid,
+    "TRIANGULATED_FACE_SET": _b_triangulated_face_set,
+    "TRIANGULATED_SURFACE_SET": _b_triangulated_face_set,
+    "COMPLEX_TRIANGULATED_FACE_SET": _b_triangulated_face_set,
+    "TESSELLATED_SHELL": _b_tessellated_shell,
+    "TESSELLATED_SOLID": _b_tessellated_shell,
 }
 
 
@@ -1057,8 +1720,12 @@ def _parse_complex(s: str, i: int) -> dict:
     return subs
 
 
-def _solid_name(args: list, n_solids: int) -> str:
-    return args[0] if args and isinstance(args[0], str) and args[0] else f"solid_{n_solids + 1}"
+def _solid_name(args: list, n_solids: int, product: str | None = None) -> str:
+    # The owning STEP PRODUCT name always wins (this is the meaningful part tag
+    # and what step2glb uses, so the two engines' parts line up by name); fall
+    # back to the solid's own MANIFOLD_SOLID_BREP name, then a generic ordinal.
+    own = args[0] if args and isinstance(args[0], str) and args[0] else None
+    return product or own or f"solid_{n_solids + 1}"
 
 
 def _yield_instances(name: str, geom, color, tmap_entry):
@@ -1169,14 +1836,16 @@ def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped, on_total=Non
                 sdr_ids.append(inst_id)
 
     colour_map = _build_colour_map(pool.get, styled_ids)
-    tmap = _build_transform_map(pool.get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_ids)
+    tmap, prod_names = _build_transform_map(
+        pool.get, root_ids, cdsr_ids, srr_ids, absr_ids, sdr_ids, global_scale=detect_step_length_unit_scale(filepath)
+    )
     if on_total is not None:
         on_total(len(root_ids))
     resolver = _Resolver(pool)
     n_solids = 0
     for rid in root_ids:
         rec = pool[rid]
-        name = _solid_name(rec.args, n_solids)
+        name = _solid_name(rec.args, n_solids, prod_names.get(rid))
         resolver.reset_cache()
         geom = _try_resolve_root(resolver, name, _ROOT_BUILDERS[rec.type], rec.args, tolerant=tolerant, skipped=skipped)
         if geom is None:
@@ -1331,7 +2000,9 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=Non
             ids_mm, offs_mm = ids_sorted, offs_sorted
         pool = _OffsetPool(mm, ids_mm, offs_mm)
         colour_map = _build_colour_map(pool.get, styled)
-        tmap = _build_transform_map(pool.get, roots, cdsr, srr, absr, sdr)
+        tmap, prod_names = _build_transform_map(
+            pool.get, roots, cdsr, srr, absr, sdr, global_scale=detect_step_length_unit_scale(filepath)
+        )
         if on_total is not None:
             on_total(len(roots))
         resolver = _Resolver(pool)
@@ -1340,7 +2011,7 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=Non
             rec = pool.get(rid)
             if rec is None:
                 continue
-            name = _solid_name(rec.args, n_solids)
+            name = _solid_name(rec.args, n_solids, prod_names.get(rid))
             resolver.reset_cache()
             geom = _try_resolve_root(
                 resolver, name, _ROOT_BUILDERS[rec.type], rec.args, tolerant=tolerant, skipped=skipped

@@ -47,7 +47,7 @@ export async function ensureConverted(
         step?: number;
         field?: string;
         conversionOptions?: Partial<Record<
-            "use_sat_pcurves" | "pcurve_drive_edge" | "skip_shapefix" | "merge_meshes"
+            "use_sat_pcurves" | "skip_shapefix" | "merge_meshes"
             | "profile_conversions" | "step_streamer",
             boolean | null
         >>;

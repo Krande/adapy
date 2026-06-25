@@ -1249,6 +1249,120 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     logger.exception("audit/local: metrics sample append failed for %s", job_id)
         return JSONResponse({"ok": True})
 
+    @api.post("/scopes/{scope}/audit/view")
+    async def api_scope_audit_view(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Record one browser model-load (``action = 'view'``) or a
+        steady-state render window (``action = 'render'`` — selected by
+        ``client_metrics.kind == 'render'``).
+
+        Posted by the viewer's opt-in load/render instrumentation
+        (admin-only toggle in the Performance options) once a GLB has
+        finished loading into the scene, or per render-sample window.
+        Body (JSON):
+
+          ``{key, status, duration_ms?, read_bytes?, write_bytes?,
+             peak_rss_kb?, client_metrics?}``
+
+        ``client_metrics`` is the per-phase IO/network/CPU/GPU breakdown
+        (see migration 017). Best-effort: a metrics post must never break
+        the user's session, so a DB hiccup is logged and swallowed with a
+        200. Not admin-gated — any user with scope access may record their
+        own loads (the row is owned by ``user.sub``); the collection is
+        gated client-side so it only fires for admins.
+        """
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            # No DB on this deployment — quietly accept so the client
+            # doesn't error-toast on a metrics post.
+            return JSONResponse({"ok": False, "reason": "no-db"})
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="body must be a JSON object")
+
+        key = (str(body.get("key") or "")).strip().lstrip("/") or None
+        status = (str(body.get("status") or "ok")).strip().lower()
+        if status not in {"ok", "done", "error", "failed"}:
+            status = "ok"
+
+        def _int_or_none(v):
+            try:
+                return int(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        cm = body.get("client_metrics")
+        if not isinstance(cm, dict):
+            cm = None
+        else:
+            # Defensive cap: keep the JSONB small and bounded regardless
+            # of what a client sends. Scalars pass through; the one allowed
+            # nested value is ``profile_frames`` (the JS Self-Profiling top-N
+            # self-time table) — bounded to a sane length with scalar-only
+            # fields. Any other nested/oversized value is dropped.
+            cleaned: dict = {}
+            for k, v in list(cm.items())[:64]:
+                if not isinstance(k, str):
+                    continue
+                if isinstance(v, (int, float, bool)) or v is None:
+                    cleaned[k[:64]] = v
+                elif isinstance(v, str):
+                    cleaned[k[:64]] = v[:512]
+                elif k == "profile_frames" and isinstance(v, list):
+                    frames: list = []
+                    for f in v[:80]:
+                        if not isinstance(f, dict):
+                            continue
+                        fn = f.get("fn")
+                        if not isinstance(fn, str):
+                            continue
+                        frame: dict = {"fn": fn[:200]}
+                        for fk in ("self_ms", "total_ms"):
+                            fv = f.get(fk)
+                            if isinstance(fv, (int, float)) and not isinstance(fv, bool):
+                                frame[fk] = fv
+                        frames.append(frame)
+                    if frames:
+                        cleaned["profile_frames"] = frames
+            cm = cleaned or None
+
+        # Steady-state render-window rows post to the same endpoint but
+        # carry ``client_metrics.kind == "render"`` so they land under the
+        # 'render' action (the load-time rows use 'view').
+        action = "render" if (cm and cm.get("kind") == "render") else "view"
+
+        try:
+            await db_module.insert_audit(
+                pool,
+                user_sub=user.sub,
+                scope_kind=scope_obj.kind,
+                scope_id=scope_obj.id,
+                action=action,
+                key=key,
+                target_format=None,
+                status=status,
+                error=(str(body["error"])[:2000] if body.get("error") is not None else None),
+                # Client-side load failures (e.g. a malformed GLB buffer) carry no
+                # Python traceback; stash the browser error's JS stack here so the
+                # audit Error panel has something actionable to show.
+                traceback=(str(body["traceback"])[:8000] if body.get("traceback") is not None else None),
+                duration_ms=_int_or_none(body.get("duration_ms")),
+                read_bytes=_int_or_none(body.get("read_bytes")),
+                write_bytes=_int_or_none(body.get("write_bytes")),
+                peak_rss_kb=_int_or_none(body.get("peak_rss_kb")),
+                client_metrics=cm,
+            )
+        except Exception:
+            logger.exception("audit/view record failed")
+            return JSONResponse({"ok": False, "reason": "insert-failed"})
+        return JSONResponse({"ok": True}, status_code=201)
+
     @api.post("/scopes/{scope}/fea/artefacts")
     async def api_scope_fea_artefacts_upload(
         request: Request,
@@ -1592,7 +1706,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # old-client mix degrades to "global setting wins".
         _LEGACY_ENV_OPTS = {
             "use_sat_pcurves",
-            "pcurve_drive_edge",
             "skip_shapefix",
             "profile_conversions",
         }
@@ -3647,6 +3760,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=404,
                 detail="audit run not found or not in running state",
             )
+        # Deep-clean the cancelled cells' still-queued JetStream messages so the
+        # worker never pulls a doomed conversion (wasted download/convert/hang).
+        purge_ids = run.pop("cancelled_job_ids", []) or []
+        if purge_ids and queue is not None:
+            try:
+                await queue.purge_jobs(purge_ids)
+            except Exception:
+                logger.exception("audit cancel: queue purge failed for run %s", run_id)
         return JSONResponse(run)
 
     @admin.post("/audit/runs/{run_id}/re-dispatch")
@@ -3764,9 +3885,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="audit run not found")
         if run["status"] == "running":
             raise HTTPException(status_code=409, detail="cancel the run before deleting it")
-        deleted = await db_module.delete_audit_run(pool, run_id)
+        deleted, queued_job_ids = await db_module.delete_audit_run(pool, run_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="audit run not found")
+        # The rows are gone, so the worker's cancel check can't catch these — purge
+        # their still-queued JetStream messages so they aren't pulled + processed.
+        if queued_job_ids and queue is not None:
+            try:
+                await queue.purge_jobs(queued_job_ids)
+            except Exception:
+                logger.exception("audit delete: queue purge failed for run %s", run_id)
         return JSONResponse({"deleted": run_id})
 
     @admin.get("/audit/cell-history")
@@ -4345,6 +4473,73 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
         )
 
+    @admin.get("/audit/frontend-loads")
+    async def admin_audit_frontend_loads(
+        request: Request,
+        since: int = 30,
+    ) -> JSONResponse:
+        """Per-file browser model-load perf snapshot (``action = 'view'``).
+
+        One cell per GLB loaded, with p50/p95 of every load phase and a
+        ``dominant_bound`` label (io / network / cpu / gpu) so a slow
+        load is immediately attributable to a bottleneck class. ``since``
+        is days back from now. Drives the admin "Frontend Loads" tab.
+        """
+        from datetime import datetime, timezone
+
+        pool = _require_pool(request)
+        cells = await db_module.aggregate_view_load_metrics(pool, since_days=since)
+        return JSONResponse(
+            {
+                "cells": cells,
+                "since_days": max(1, min(365, since)),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    @admin.get("/audit/frontend-loads/hotspots")
+    async def admin_audit_frontend_loads_hotspots(
+        request: Request,
+        key: str | None = None,
+        since: int = 30,
+        limit: int = 100,
+        kind: str = "view",
+    ) -> JSONResponse:
+        """Function-level hotspots across browser ``view`` loads or
+        ``render`` windows (``kind``) — summed JS Self-Profiling self-time
+        per TS/WASM frame. Optionally scoped to one ``key`` (GLB file).
+        Empty ``functions`` with ``loads_in_window=0`` means no profiled
+        rows (self-profiling unsupported/disabled or
+        ``Document-Policy: js-profiling`` not served)."""
+        pool = _require_pool(request)
+        key_arg = (key or "").strip() or None
+        action = "render" if (kind or "").strip().lower() == "render" else "view"
+        out = await db_module.aggregate_view_load_hotspots(
+            pool, action=action, key=key_arg, since_days=since, limit=limit
+        )
+        return JSONResponse({**out, "key": key_arg, "kind": action, "since_days": max(1, min(365, since))})
+
+    @admin.get("/audit/render")
+    async def admin_audit_render(
+        request: Request,
+        since: int = 30,
+    ) -> JSONResponse:
+        """Per-file steady-state render-performance snapshot
+        (``action = 'render'``). One cell per GLB with median/worst FPS,
+        CPU vs GPU frame time, draw calls + triangles rendered, and a
+        ``dominant_bound`` (cpu / gpu) label."""
+        from datetime import datetime, timezone
+
+        pool = _require_pool(request)
+        cells = await db_module.aggregate_render_metrics(pool, since_days=since)
+        return JSONResponse(
+            {
+                "cells": cells,
+                "since_days": max(1, min(365, since)),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
     @admin.get("/audit/perf/workers")
     async def admin_audit_perf_workers(
         request: Request,
@@ -4575,6 +4770,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers["Content-Encoding"] = result.content_encoding
         return StreamingResponse(result.stream, media_type="application/octet-stream", headers=headers)
 
+    @admin.get("/audit/{audit_id}/log")
+    async def admin_audit_log_file(
+        audit_id: int,
+        request: Request,
+    ) -> StreamingResponse:
+        """Download the captured stdout/stderr log for a conversion (every conversion now ships
+        one). 404 when the row or its log_key is missing — i.e. a conversion that predates the
+        log-capture, not a silent gap."""
+        pool = _require_pool(request)
+        row = await db_module.get_audit_by_id(pool, audit_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"audit row {audit_id} not found")
+        log_key = row.get("log_key")
+        if not log_key:
+            raise HTTPException(status_code=404, detail="no log attached to this row")
+        scope = (
+            Scope.shared()
+            if row["scope_kind"] == "shared"
+            else Scope(kind=row["scope_kind"], id=row["scope_id"])  # type: ignore[arg-type]
+        )
+        try:
+            result = await storage.open_stream(scope, log_key)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        headers = {"Content-Disposition": f'attachment; filename="{log_key.rsplit("/", 1)[-1]}"'}
+        if result.content_encoding:
+            headers["Content-Encoding"] = result.content_encoding
+        return StreamingResponse(result.stream, media_type="text/plain; charset=utf-8", headers=headers)
+
     @admin.get("/audit/{audit_id}/metrics-history")
     async def admin_audit_metrics_history(
         audit_id: int,
@@ -4597,6 +4821,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"audit row {audit_id} not found")
         samples = row.get("metrics_samples") or []
         return JSONResponse({"audit_id": audit_id, "samples": samples})
+
+    @admin.get("/audit/{audit_id}/client-metrics")
+    async def admin_audit_client_metrics(
+        audit_id: int,
+        request: Request,
+    ) -> JSONResponse:
+        """Return the ``client_metrics`` payload for one browser
+        view/render audit row — the per-phase IO/network/CPU/GPU split,
+        payload + device context, and (when profiling was on) the
+        per-function self-time frames. Backs the audit-log detail view's
+        Client tab so a single load/render event can be inspected.
+        ``null`` when the row isn't a browser-instrumented one."""
+        pool = _require_pool(request)
+        cm = await db_module.get_audit_client_metrics(pool, audit_id)
+        return JSONResponse({"audit_id": audit_id, "client_metrics": cm})
 
     @admin.get("/audit/{audit_id}/profile/stats")
     async def admin_audit_profile_stats(
@@ -4720,16 +4959,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_kind: str | None = None,
         scope_id: str | None = None,
         action: str | None = None,
+        target: str | None = None,
+        key: str | None = None,
         before_id: int | None = None,
         limit: int = 100,
     ) -> JSONResponse:
         pool = _require_pool(request)
+        # ``key`` is a case-insensitive substring filter on the source filepath/
+        # filename so the audit log can be narrowed to one file or folder.
+        key_like = (key or "").strip() or None
+        # ``target`` filters by the conversion's target format (glb / ifc / step / …).
+        target_format = (target or "").strip().lstrip(".").lower() or None
         rows = await db_module.list_audit(
             pool,
             user_sub=user_sub,
             scope_kind=scope_kind,
             scope_id=scope_id,
             action=action,
+            target_format=target_format,
+            key_like=key_like,
             limit=limit,
             before_id=before_id,
         )
@@ -4737,6 +4985,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # as ``before_id`` to fetch the next older page.
         next_before = rows[-1]["id"] if len(rows) >= max(1, min(limit, 500)) else None
         return JSONResponse({"entries": rows, "next_before_id": next_before})
+
+    @admin.get("/worker-packages/{image_tag:path}")
+    async def admin_worker_packages(image_tag: str, request: Request) -> JSONResponse:
+        """The captured package manifest ("pixi list") for a worker image tag —
+        linked from a convert audit row via its worker_image_tag."""
+        pool = _require_pool(request)
+        manifest = await db_module.get_worker_packages(pool, image_tag)
+        if manifest is None:
+            raise HTTPException(status_code=404, detail=f"no package manifest for worker {image_tag!r}")
+        return JSONResponse(manifest)
 
     @admin.get("/projects")
     async def admin_projects_list(request: Request) -> JSONResponse:
@@ -5199,6 +5457,20 @@ def _wire_spa_fallback(app: FastAPI, static_dir: pathlib.Path) -> None:
     """
     static_root = static_dir.resolve()
 
+    def _index_response() -> FileResponse:
+        # Grant the JS Self-Profiling API on the SPA document. This is an
+        # inert *permission* — it costs nothing and starts no profiling on
+        # its own; the viewer only constructs a Profiler when an admin
+        # turns on "Profile calls during load" (Performance options). The
+        # policy can't be toggled at runtime (it's fixed for the document
+        # at load), but it doesn't need to be: with the toggle off, no
+        # profiling happens. Chromium-only; other browsers ignore it.
+        # Must be on the HTML *document* response, not the assets.
+        return FileResponse(
+            static_dir / "index.html",
+            headers={"Document-Policy": "js-profiling"},
+        )
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str) -> FileResponse:
         # Don't paper over API mistakes by returning the SPA shell.
@@ -5213,8 +5485,12 @@ def _wire_spa_fallback(app: FastAPI, static_dir: pathlib.Path) -> None:
             except ValueError:
                 raise HTTPException(status_code=404)
             if candidate.is_file():
+                # A direct hit on index.html is still the document — keep
+                # the profiling permission on it too.
+                if candidate.name == "index.html":
+                    return _index_response()
                 return FileResponse(candidate)
-        return FileResponse(static_dir / "index.html")
+        return _index_response()
 
 
 app = create_app()

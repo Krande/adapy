@@ -124,6 +124,27 @@ class GlbSpillStore:
         stable and reproducible."""
         return [self._mats[k] for k in sorted(self._mats)]
 
+    def coalesce_by_node(self) -> None:
+        """Reorder each material's index file so every range sharing a ``node_ref`` is
+        contiguous, collapsing ``groups`` to one :class:`GroupReference` per node — so the
+        same-name siblings merged onto one graph node become a single pickable draw-range.
+
+        Positions are NOT rewritten (indices are absolute vertex refs), and the per-material
+        counts/bbox/idx_max are unchanged (same triangle set), so the GLB accessors stay
+        valid. No-op for materials whose groups already each have a unique node."""
+        import numpy as np
+
+        from ada.visit.gltf.optimize import coalesce_groups_by_node
+
+        self.close_writers()  # flush append handles before we read the .idx files back
+        for m in self._mats.values():
+            if len({g.node_ref for g in m.groups}) == len(m.groups):
+                continue
+            idx = np.fromfile(m.idx_path, dtype="<u4")
+            new_idx, new_groups = coalesce_groups_by_node(idx, m.groups)
+            new_idx.astype("<u4", copy=False).tofile(m.idx_path)
+            m.groups = new_groups
+
     def close_writers(self) -> None:
         for m in self._mats.values():
             for fh in (m.pos_fh, m.idx_fh):
@@ -220,13 +241,24 @@ def write_glb_from_spill(
                 ],
             }
         )
-        materials_json.append(
-            {
-                "name": f"mat{m.mat_id}",
-                "pbrMetallicRoughness": {"baseColorFactor": _base_color_factor(color_by_mat.get(m.mat_id))},
-                "doubleSided": True,
-            }
-        )
+        base = _base_color_factor(color_by_mat.get(m.mat_id))
+        mat_json = {
+            "name": f"mat{m.mat_id}",
+            # metallic/roughness match step2glb's lightly-glossy dielectric look. The glTF
+            # default metallicFactor=1.0 renders dark/dull without an environment map (the
+            # "colours look dim" symptom).
+            "pbrMetallicRoughness": {
+                "baseColorFactor": base,
+                "metallicFactor": 0.1,
+                "roughnessFactor": 0.7,
+            },
+            "doubleSided": True,
+        }
+        # Without alphaMode the renderer ignores baseColorFactor's alpha (treats it OPAQUE);
+        # flag BLEND so a transparent STEP style actually shows through (step2glb parity).
+        if base[3] < 1.0:
+            mat_json["alphaMode"] = "BLEND"
+        materials_json.append(mat_json)
 
     bin_len = bin_offset
 

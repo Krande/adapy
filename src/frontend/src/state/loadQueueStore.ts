@@ -6,9 +6,10 @@ import {isStreamingFEAResult} from "@/utils/scene/fileKinds";
 // Sequential scene-load queue. overlay_file_in_scene shares loader
 // state, so concurrent loads corrupt the scene — but that's an
 // implementation constraint, not a UX one: the user can keep ticking
-// checkboxes and the queue drains one model at a time. The toast
-// (LoadQueueToast) renders current + queued + errors from this store;
-// the storage rows mark queued entries and let an un-tick remove them
+// checkboxes and the queue drains one model at a time. The unified
+// ConversionProgress toast renders current + queued + errors from this
+// store (as the "Loading" continuation of a model's convert→load
+// lifecycle); the storage rows mark queued entries and let an un-tick remove them
 // before their turn comes.
 
 export interface LoadTask {

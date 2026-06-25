@@ -562,7 +562,7 @@ class Part(BackendGeom):
         opacity=1.0,
         source_units=Units.M,
         include_shells=False,
-        reader: str = "occ",
+        reader: str | None = None,
     ):
         """
 
@@ -574,14 +574,26 @@ class Part(BackendGeom):
         :param colour: Assign a specific colour upon import
         :param opacity: Assign Opacity upon import
         :param source_units: Unit of the imported STEP file. Default is 'm'
-        :param reader: "occ" (default) reads via the OpenCASCADE STEPControl_Reader.
-            "stream" uses the kernel-free streaming reader (constant-memory parse,
-            yields adapy geometry directly — see ada.cadit.step.read.stream_reader);
-            "auto" tries the streaming reader first and falls back to OCC if the file
-            uses any entity outside its scope; "tolerant" reads every supported solid
-            kernel-free and *skips* the unsupported ones (no whole-file OCC fallback) —
-            best for large mixed CAD that would OOM the OCC reader.
+        :param reader: STEP read path. ``None`` (default) resolves from the active
+            ``CadConfig.step_reader`` (``"auto"`` out of the box). "occ" reads via the
+            OpenCASCADE STEPControl_Reader. "stream" uses the kernel-free streaming reader
+            (constant-memory parse, yields adapy geometry directly — see
+            ada.cadit.step.read.stream_reader); "auto" tries the streaming reader first and
+            falls back to OCC if the file uses any entity outside its scope; "tolerant"
+            reads every supported solid kernel-free and *skips* the unsupported ones (no
+            whole-file OCC fallback) — best for large mixed CAD that would OOM the OCC reader.
         """
+        if reader is None:
+            # Resolve the default read path from the active CAD config so it's configurable
+            # via CadConfig.step_reader (default "auto": constant-memory streaming + OCC
+            # fallback). The streaming readers can't apply scale/transform/rotate, so when
+            # those are requested fall back to the OCC reader regardless of the configured
+            # default.
+            if scale is not None or transform is not None or rotate is not None:
+                reader = "occ"
+            else:
+                reader = self._resolve_step_reader()
+
         if reader in ("stream", "auto", "tolerant"):
             if self._read_step_streaming(
                 step_path, name, scale, transform, rotate, colour, opacity, source_units, reader=reader
@@ -667,6 +679,19 @@ class Part(BackendGeom):
             self.add_shape(shp)
         return True
 
+    def _resolve_step_reader(self) -> str:
+        """The STEP read path to use when the caller didn't pass one explicitly.
+
+        Pulled from the owning assembly's ``CadConfig.step_reader`` so the default is
+        configurable through the CAD abstraction; falls back to ``"auto"`` (constant-memory
+        streaming with an OCC fallback) when there's no assembly/config in the ancestry.
+        """
+        cfg = getattr(self.get_assembly(), "cad_config", None)
+        reader = getattr(cfg, "step_reader", None)
+        if reader is None:
+            return "auto"
+        return reader.value if hasattr(reader, "value") else str(reader)
+
     def calculate_cog(self) -> COG:
         import numpy as np
 
@@ -699,8 +724,7 @@ class Part(BackendGeom):
                 shapes_tot_cogs.append(np.array(obj.cog_abs) * obj.mass)
                 shapes_tot_mass += obj.mass
             elif isinstance(obj, Beam):
-                mass = obj.get_mass()
-                cog = obj.get_cog()
+                cog, mass = obj.get_cog_and_mass()
                 cogs.append(cog * mass)
                 tot_mass += mass
                 # beams only

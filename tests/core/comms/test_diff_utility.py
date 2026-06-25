@@ -146,3 +146,40 @@ def test_diff_handler_end_to_end(tmp_path):
     overlay_ops = [o for o in payload["ops"] if o["op"] == "add_overlay_geometry"]
     assert len(overlay_ops) == 1
     assert overlay_ops[0]["blob_key"] in storage.put
+
+
+class _MockStorage:
+    """Scope-bound storage stub: keys -> GLB bytes (mirrors _SyncStorageFacade)."""
+
+    def __init__(self, files: dict):
+        self.files = files
+
+    def list_keys(self, prefix: str = "") -> list:
+        return [k for k in self.files if k.startswith(prefix)]
+
+    def fetch_to_path(self, key: str, dest):
+        if key not in self.files:
+            raise FileNotFoundError(key)
+        with open(dest, "wb") as fh:
+            fh.write(self.files[key])
+        return dest
+
+
+def test_resolve_ref_glb_accepts_arbitrary_file_key():
+    # Comparing two arbitrary uploaded files: a direct .glb key (not under
+    # versions/) is fetched verbatim from the scope.
+    glb = _scene()
+    other = _glb(ada.Beam("x", (0, 0, 0), (1, 0, 0), "IPE200"))
+    st = _MockStorage({"debug/other.glb": other, "versions/main/abc1234/m.glb": glb})
+
+    assert diffmod.resolve_ref_glb(st, "debug/other.glb") == other
+    # versions/ build keys still resolve as before
+    assert diffmod.resolve_ref_glb(st, "versions/main/abc1234/m.glb") == glb
+
+
+def test_resolve_ref_glb_missing_arbitrary_key_errors_clearly():
+    import pytest
+
+    st = _MockStorage({"debug/present.glb": _scene()})
+    with pytest.raises(ValueError, match="compare file not found"):
+        diffmod.resolve_ref_glb(st, "debug/missing.glb")

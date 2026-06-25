@@ -118,13 +118,17 @@ const HeaderBar: React.FC<{
 
 const InViewerPanelHost: React.FC = () => {
     const open = useViewerPanelStore((s) => s.open);
+    const adminTab = useViewerPanelStore((s) => s.adminTab);
     const closePanel = useViewerPanelStore((s) => s.closePanel);
     const isMobile = useIsMobile();
 
     if (open === null) return null;
 
     const openInNewTab = () => {
-        window.open(PANEL_PATH[open], "_blank", "noopener");
+        // Carry the embedded tab into the dedicated route so "open in new tab" lands on the
+        // same tab the floating panel was showing (the full-page admin reads it from the hash).
+        const hash = open === "admin" && adminTab ? `#${adminTab}` : "";
+        window.open(PANEL_PATH[open] + hash, "_blank", "noopener");
         closePanel();
     };
 
@@ -140,7 +144,7 @@ const InViewerPanelHost: React.FC = () => {
                 <Suspense fallback={
                     <div className="p-4 text-sm text-gray-400">Loading…</div>
                 }>
-                    {open === "admin" && <AdminPanel embedded/>}
+                    {open === "admin" && <AdminPanel embedded initialTab={adminTab ?? undefined}/>}
                     {open === "convert" && <ConvertPage/>}
                 </Suspense>
             </div>

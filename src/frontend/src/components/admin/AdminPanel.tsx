@@ -6,6 +6,7 @@ import AuditRunsTab from "./AuditRunsTab";
 import CliTokenButton from "./CliTokenButton";
 import ConversionSettingsTab from "./ConversionSettingsTab";
 import CorpusTab from "./CorpusTab";
+import FrontendLoadsTab from "./FrontendLoadsTab";
 import IssueTargetTab from "./IssueTargetTab";
 import PerformanceTab from "./PerformanceTab";
 import ProjectsTab from "./ProjectsTab";
@@ -28,7 +29,7 @@ import WorkersTab from "./WorkersTab";
 
 const VALID_TABS = new Set<AdminTab>([
     "audit", "audit_runs", "schedules", "issues", "performance",
-    "corpus", "projects", "storage", "workers", "conversion",
+    "frontend_loads", "corpus", "projects", "storage", "workers", "conversion",
 ]);
 
 function readTabFromHash(): AdminTab {
@@ -43,12 +44,14 @@ interface AdminPanelProps {
      * hides the "← viewer" link — the host's close button already
      * covers leaving the panel. */
     embedded?: boolean;
+    /** Tab to open on in embedded mode (no URL hash to read from). Defaults to "audit". */
+    initialTab?: AdminTab;
 }
 
-const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false}) => {
+const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) => {
     const syncHash = !embedded;
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const [tab, setTab] = useState<AdminTab>(() => (syncHash ? readTabFromHash() : "audit"));
+    const [tab, setTab] = useState<AdminTab>(() => (syncHash ? readTabFromHash() : (initialTab ?? "audit")));
 
     // Two-way bind ``tab`` to ``window.location.hash`` so reloads stay
     // on the selected tab AND back/forward navigation works inside
@@ -119,6 +122,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false}) => {
                     <TabButton active={tab === "performance"} onClick={() => setTab("performance")}>
                         Performance
                     </TabButton>
+                    <TabButton active={tab === "frontend_loads"} onClick={() => setTab("frontend_loads")}>
+                        Frontend Loads
+                    </TabButton>
                     <TabButton active={tab === "corpus"} onClick={() => setTab("corpus")}>
                         Corpus
                     </TabButton>
@@ -154,6 +160,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false}) => {
                 {tab === "schedules" && <SchedulesTab/>}
                 {tab === "issues" && <IssueTargetTab/>}
                 {tab === "performance" && <PerformanceTab/>}
+                {tab === "frontend_loads" && <FrontendLoadsTab/>}
                 {tab === "corpus" && <CorpusTab/>}
                 {tab === "projects" && <ProjectsTab/>}
                 {tab === "storage" && <StorageTab/>}

@@ -247,9 +247,6 @@ def update_edges_4corners(edges, builder, face_surface):
         builder.UpdateEdge(edge, c2d_edges[i], face_surface, identity_location, 1e-6)
 
 
-_pcurve_probe_count = 0
-
-
 def _build_geom2d_bspline(pcurve_geom):
     """Construct a Geom2d_BSplineCurve from a Pcurve2dBSpline dataclass.
 
@@ -382,179 +379,6 @@ def _make_edge_from_pcurve(pcurve_geom, face_surface, edge_start=None, edge_end=
         return None
 
 
-def _attach_supplied_pcurve(builder, edge, pcurve_geom, face_surface, identity_location) -> bool:
-    """Attach a SAT-supplied 2D BSpline pcurve to ``edge`` on ``face_surface``.
-
-    Returns True on success, False on any structural problem (in which
-    case the caller should fall back to the regenerative path).
-
-    KNOWN BUG — pcurve trim, not affine remap (2026-05-03):
-    The current code AFFINELY REMAPS the pcurve's knot range onto the
-    OCC edge's 3D parameter range. That's wrong when the SAT pcurve
-    covers more of its 2D curve than the edge actually uses (which is
-    common — multi-edge wires on a single UV side share the underlying
-    UV trajectory, with each edge picking a sub-range).
-
-    Symptom: face has 0 m² area, BRepMesh produces 2-3 degenerate
-    triangles, plate appears as a hole. Reproduced on plate-shaped
-    faces with a 6-edge wire — two short (0.4 m) and two long (2.7 m)
-    vertical segments along the plate's right and left UV sides. The
-    vertical pcurves all carry CPs at the surface's full v-extent
-    (-3.1, 0) even when their edge only spans 0.4 m or 2.7 m of it.
-    Affine remap stretches the FULL pcurve onto each edge's parameter
-    range, so all four vertical edges trace the entire UV side — the
-    resulting wire self-intersects in UV and encloses zero area.
-
-    Per ACIS SAT v4.0 spec (Chapter 6 "pcurve type", page 6-61):
-    "a parameter-space curve must always have the same parameter range
-    as its associated object-space curve, and its internal
-    parameterization must be similar". The fix is to TRIM the pcurve to
-    the edge's t-range (not remap), with the trim points found by
-    mapping the SAT edge's parameters into the pcurve's parameter
-    space. ``OrientedEdge.t_start`` / ``t_end`` (threaded in 57b9ad48)
-    carry the SAT-recorded edge parameters; the pcurve's knot range is
-    its native [s_min, s_max]. Some pcurves additionally run in the
-    OPPOSITE direction to the 3D curve — detectable by evaluating each
-    pcurve endpoint through the surface and comparing to the 3D curve's
-    endpoints, then reversing the trim if they disagree.
-
-    Implementation outline for the next session:
-      1. Compute t→s mapping (forward or reversed) by checking which
-         pcurve endpoint matches which 3D-curve endpoint (via
-         surface(pcurve(s_first)) ≈ 3D-curve(t_first)).
-      2. Map [edge.t_start, edge.t_end] → [s_a, s_b] in pcurve space.
-      3. Build ``Geom2d_TrimmedCurve(c2d, min(s_a, s_b), max(s_a, s_b),
-         sense=...)`` and use that as the attached pcurve, OR
-         re-knot/re-CP a fresh ``Geom2d_BSplineCurve`` covering exactly
-         that sub-range.
-      4. Optionally use ``BRepBuilderAPI_MakeEdge(c2d, surface, t1, t2)``
-         to build the OCC edge directly from the trimmed pcurve so the
-         3D parameterisation is derived as ``surface(c2d(t))`` and is
-         guaranteed-consistent.
-
-    Affected env knobs: ``ADA_USE_SAT_PCURVES`` (skip pcurves entirely
-    — falls back to OCC's reproject-and-fit, which on this dataset
-    produces NEGATIVE surface area, so the issue isn't purely the
-    affine remap — the wire 3D-projection itself has a direction
-    problem that ``ADA_PCURVE_REVERSE`` may also need to address).
-    """
-    # Debug: print UV bounds for the first few attaches so we can spot
-    # ACIS↔OCCT domain mismatches. Toggle via ADA_PCURVE_PROBE=N.
-    import os as _os
-
-    global _pcurve_probe_count
-    probe_n = int(_os.environ.get("ADA_PCURVE_PROBE") or 0)
-    cps = pcurve_geom.control_points_2d
-    knots = pcurve_geom.knots
-    mults = pcurve_geom.knot_multiplicities
-    if not cps or not knots or len(knots) != len(mults):
-        return False
-
-    # OCCT requires the 2D pcurve parameter range to match the OCC
-    # edge's 3D parameter range (the SameRange / SameParameter flags
-    # default to True after BRepBuilderAPI_MakeEdge). ACIS pcurves
-    # carry their own knot range, totally unrelated to whatever range
-    # OCCT picked for the 3D edge — we *must* affinely remap our knots
-    # to the edge's [first, last] before the attach, otherwise OCCT
-    # silently evaluates the 2D curve at the wrong parameters and the
-    # face lands somewhere else on the surface.
-    try:
-        edge_curve_handle, edge_first, edge_last = BRep_Tool.Curve(edge)
-    except Exception:
-        edge_curve_handle = None
-        edge_first = edge_last = 0.0
-    pcurve_first = float(knots[0])
-    pcurve_last = float(knots[-1])
-    pcurve_span = pcurve_last - pcurve_first
-    edge_span = float(edge_last) - float(edge_first)
-    reparam_applied = False
-    if (
-        edge_curve_handle is not None
-        and pcurve_span > 0.0
-        and edge_span > 0.0
-        and (abs(pcurve_first - edge_first) > 1e-9 or abs(pcurve_last - edge_last) > 1e-9)
-    ):
-        scale = edge_span / pcurve_span
-        knots = [float(edge_first) + (float(k) - pcurve_first) * scale for k in knots]
-        reparam_applied = True
-    if probe_n > 0 and _pcurve_probe_count < probe_n:
-        logger.warning(
-            "[pcurve probe %d edge_param] edge=[%.4f,%.4f] pcurve=[%.4f,%.4f] reparam=%s",
-            _pcurve_probe_count,
-            float(edge_first),
-            float(edge_last),
-            pcurve_first,
-            pcurve_last,
-            reparam_applied,
-        )
-
-    n_poles = len(cps)
-    poles = TColgp_Array1OfPnt2d(1, n_poles)
-    for i, cp in enumerate(cps, start=1):
-        poles.SetValue(i, gp_Pnt2d(float(cp[0]), float(cp[1])))
-    knots_arr = TColStd_Array1OfReal(1, len(knots))
-    mults_arr = TColStd_Array1OfInteger(1, len(mults))
-    for i, (k, m) in enumerate(zip(knots, mults), start=1):
-        knots_arr.SetValue(i, float(k))
-        mults_arr.SetValue(i, int(m))
-    try:
-        if pcurve_geom.weights:
-            weights_arr = TColStd_Array1OfReal(1, len(pcurve_geom.weights))
-            for i, w in enumerate(pcurve_geom.weights, start=1):
-                weights_arr.SetValue(i, float(w))
-            c2d = Geom2d_BSplineCurve(
-                poles, weights_arr, knots_arr, mults_arr, int(pcurve_geom.degree), bool(pcurve_geom.closed)
-            )
-        else:
-            c2d = Geom2d_BSplineCurve(poles, knots_arr, mults_arr, int(pcurve_geom.degree), bool(pcurve_geom.closed))
-    except Exception as ex:
-        logger.warning(f"supplied SAT pcurve failed Geom2d_BSplineCurve construction: {ex}")
-        return False
-    # Sanity-check the constructed curve at endpoints — same defence the
-    # regenerative path uses.
-    try:
-        first_p = c2d.Value(c2d.FirstParameter())
-        last_p = c2d.Value(c2d.LastParameter())
-    except Exception:
-        return False
-    for s in (first_p, last_p):
-        if not (math.isfinite(s.X()) and math.isfinite(s.Y())):
-            return False
-    if probe_n > 0 and _pcurve_probe_count < probe_n:
-        try:
-            u0, u1, v0, v1 = face_surface.Bounds()
-        except Exception:
-            u0 = u1 = v0 = v1 = float("nan")
-        first_param = c2d.FirstParameter()
-        last_param = c2d.LastParameter()
-        # Sample 3 pcurve points; print 2D and corresponding 3D via
-        # face_surface.Value(u, v).
-        samples = []
-        for t in (first_param, (first_param + last_param) * 0.5, last_param):
-            try:
-                p2 = c2d.Value(t)
-                p3 = face_surface.Value(p2.X(), p2.Y())
-                samples.append((t, (p2.X(), p2.Y()), (p3.X(), p3.Y(), p3.Z())))
-            except Exception:
-                samples.append((t, None, None))
-        logger.warning(
-            "[pcurve probe %d] surface_uv=[%.4f,%.4f]x[%.4f,%.4f] pcurve_param=[%.4f,%.4f] cp_uv_first=%s cp_uv_last=%s samples=%s",
-            _pcurve_probe_count,
-            u0,
-            u1,
-            v0,
-            v1,
-            first_param,
-            last_param,
-            tuple(cps[0]),
-            tuple(cps[-1]),
-            samples,
-        )
-        _pcurve_probe_count += 1
-    builder.UpdateEdge(edge, c2d, face_surface, identity_location, 1e-6)
-    return True
-
-
 def update_edges_uv_gen(edges, builder, face_surface, supplied_pcurves=None) -> tuple[int, int]:
     """Attach UV-space (p-curve) BSpline curves to each edge of a wire
     on a Geom_BSplineSurface. Returns (n_updated, n_total).
@@ -590,14 +414,11 @@ def update_edges_uv_gen(edges, builder, face_surface, supplied_pcurves=None) -> 
             if supplied_pcurves[idx] is None:
                 continue
         n_total += 1
-        # Fast path: the file already gave us the UV curve for this coedge.
-        if supplied_pcurves is not None and idx < len(supplied_pcurves):
-            supplied = supplied_pcurves[idx]
-            if supplied is not None:
-                if _attach_supplied_pcurve(builder, edge, supplied, face_surface, identity_location):
-                    n_updated += 1
-                    continue
-                # If the supplied pcurve was structurally bad, fall through to regen.
+        # A supplied pcurve reaching here means the drive-edge path could not
+        # build this coedge from it, so reproject the 3D curve onto the surface
+        # (regen path below). The old "attach the raw UV curve via affine knot
+        # remap" fast path was removed: it mis-stretched shared pcurves onto each
+        # coedge's range and produced self-intersecting wires / zero-area faces.
         try:
             # Get the 3D curve of the edge
             edge_curve_handle, first, last = BRep_Tool.Curve(edge)
@@ -836,10 +657,78 @@ def _has_full_circle_edge(advanced_face: geo_su.AdvancedFace) -> bool:
     return False
 
 
+def _sample_curve_edge_occ(oe, n: int = 12) -> list[tuple]:
+    """Interior 3D samples *along the edge's own arc* via its OCC 3D curve.
+
+    Endpoint-only sampling underestimates a curved edge's extent: a B-spline or
+    elliptic edge that bulges in one direction between two endpoints sharing a
+    coordinate reads as zero-extent there, which made genuine curved cylinder/cone
+    faces (boundary = circle + B-spline) collapse to a degenerate parameter range and
+    get dropped. Walking the 3D curve recovers the real swept set.
+
+    Crucially, sample only the segment between the oriented edge's *actual* endpoints:
+    ``make_edge_from_edge`` can yield an untrimmed full curve (a partial elliptic arc
+    builds the whole ellipse), and walking its whole parameter range would sweep the
+    entire surface — over-covering the boundary so the param-extent rebuild spans far
+    too much and the face is rejected as a runaway. Endpoint parameters are recovered
+    by projection; a genuinely closed edge (start == end) is walked over its full
+    range. Returns [] when the edge can't be built/sampled (caller keeps endpoints)."""
+    try:
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnCurve
+        from OCC.Core.gp import gp_Pnt
+
+        occ_edge = make_edge_from_edge(oe)
+        res = BRep_Tool.Curve(occ_edge)
+        curve = res[0]
+        if curve is None:
+            return []
+        f, l = float(res[1]), float(res[2])
+
+        if _points_close(oe.start, oe.end):
+            # genuinely closed edge: walk the full curve
+            t0, t1 = f, l
+        else:
+
+            def _param(pt):
+                proj = GeomAPI_ProjectPointOnCurve(gp_Pnt(*[float(x) for x in pt]), curve)
+                return proj.LowerDistanceParameter() if proj.NbPoints() > 0 else None
+
+            t0 = _param(oe.start)
+            t1 = _param(oe.end)
+            if t0 is None or t1 is None:
+                t0, t1 = f, l
+            elif curve.IsPeriodic():
+                # Take the SHORTEST arc between the endpoints. These samples only
+                # estimate the boundary's parameter extent, and a face's boundary arc
+                # lies on the near side; the long way around would sweep off the face
+                # (the over-cover that rejected the rebuild). Direction-agnostic, so it
+                # doesn't depend on whether make_edge_from_edge aligned the curve sense.
+                per = curve.Period()
+                d = (t1 - t0) % per
+                if d > per / 2.0:
+                    d -= per
+                t1 = t0 + d
+            elif t1 < t0:
+                t0, t1 = t1, t0
+
+        if not (math.isfinite(t0) and math.isfinite(t1)) or abs(t1 - t0) < 1e-12:
+            return []
+        out = []
+        for k in range(n + 1):
+            p = curve.Value(t0 + (t1 - t0) * k / n)
+            out.append((p.X(), p.Y(), p.Z()))
+        return out
+    except Exception:  # noqa: BLE001 - fall back to endpoints
+        return []
+
+
 def _sample_edge_points(oe):
     """World-space sample points along one oriented edge. A circular edge is sampled
-    along its arc (the full period for a closed circle) so the projected parameter
-    range captures the swept direction; other edges contribute their endpoints."""
+    analytically along its arc (the full period for a closed circle); other *curved*
+    edges (B-spline, ellipse) are walked along their OCC 3D curve so the projected
+    parameter range captures their real swept extent; straight edges contribute their
+    endpoints (a line's extent is fully described by its ends)."""
     import math
 
     pts = [
@@ -895,6 +784,11 @@ def _sample_edge_points(oe):
                     c[2] + r * (ca * xd[2] + sa * yd[2]),
                 )
             )
+    elif isinstance(g, (geo_cu.BSplineCurveWithKnots, geo_cu.Ellipse)):
+        # Curved non-circular edge: endpoints miss the interior bulge, so walk the
+        # real 3D curve. This is what recovers cylinder/cone faces whose boundary is
+        # a circle + a B-spline that sweeps the axial direction.
+        pts.extend(_sample_curve_edge_occ(oe))
     return pts
 
 
@@ -932,6 +826,60 @@ def consume_param_rebuild_stats() -> dict[str, int]:
     out = dict(PARAM_REBUILD_STATS)
     PARAM_REBUILD_STATS.clear()
     return out
+
+
+# Per-face build coverage: how many connected-face-set faces were attempted vs how
+# many actually built into the OCC shell (the rest are holes — dropped faces). The
+# mesh-stage coverage (built-but-unmeshed) is measured separately by
+# ``ada.cadit.diagnostics.face_coverage``; this counter feeds the streaming summary
+# cheaply without a second build. Keys: "total", "built", "dropped".
+FACE_COVERAGE_STATS: Counter = Counter()
+
+
+def consume_face_coverage_stats() -> dict[str, int]:
+    """Return and reset the per-process face-build coverage counters."""
+    out = dict(FACE_COVERAGE_STATS)
+    FACE_COVERAGE_STATS.clear()
+    return out
+
+
+def _maybe_capture_dropped_face(cfs_face, ex) -> None:
+    """When ``ADA_CAPTURE_DROPPED_FACES=<dir>`` is set, pickle a dropped face (the
+    minimal failing ``ada.geom`` unit) so it can be replayed as a fast regression
+    fixture without re-running a whole-file conversion. No-op by default; never raises
+    (a capture failure must not change the build outcome). The captured objects are
+    pure geometry — use them to author synthetic committed fixtures, not to commit
+    source-derived data."""
+    import os as _os_cap
+
+    out_dir = _os_cap.environ.get("ADA_CAPTURE_DROPPED_FACES")
+    if not out_dir:
+        return
+    try:
+        import hashlib
+        import pickle
+
+        surf = type(getattr(cfs_face, "face_surface", None)).__name__
+        reason = str(ex)
+        # short reason slug for the filename so a specific failure mode can be isolated
+        slug = "other"
+        if "corrupt trim" in reason:
+            slug = "runaway"
+        elif "unbounded face after wire trim" in reason:
+            slug = "overrun"
+        elif "Failed to build wire" in reason:
+            slug = "wirefail"
+        elif "no face" in reason or "did not complete" in reason:
+            slug = "noface"
+        blob = pickle.dumps(cfs_face)
+        tag = hashlib.sha1(blob).hexdigest()[:12]
+        _os_cap.makedirs(out_dir, exist_ok=True)
+        with open(_os_cap.path.join(out_dir, f"{surf}_{slug}_{tag}.pkl"), "wb") as fh:
+            fh.write(blob)
+        FACE_COVERAGE_STATS[f"captured_{surf}"] += 1
+        logger.debug("captured dropped %s face (%s) -> %s", surf, reason, tag)
+    except Exception as cap_ex:  # noqa: BLE001 - capture is best-effort diagnostics
+        logger.debug("dropped-face capture failed: %s", cap_ex)
 
 
 # A rebuilt face whose area exceeds this multiple of (boundary-sample bbox diagonal)^2
@@ -980,6 +928,36 @@ def _is_closure_bound(fb, face_surface) -> bool:
     return True
 
 
+def _is_full_sphere_seam(advanced_face: geo_su.AdvancedFace, face_surface) -> bool:
+    """True when a spherical face's boundary is only the closure seam of a *complete*
+    sphere — i.e. every boundary edge is a great circle (radius == the sphere radius,
+    centred on the sphere centre). Such a face covers the whole sphere; its wire is
+    degenerate and won't mesh, so it must be built from natural bounds. A genuine
+    spherical *patch* has a smaller trimming circle (radius < sphere radius) and fails
+    this test, so it keeps the normal wire path."""
+    try:
+        sph = face_surface.Sphere()
+        c = sph.Location()
+        r = sph.Radius()
+    except Exception:  # noqa: BLE001
+        return False
+    cx, cy, cz = c.X(), c.Y(), c.Z()
+    n_circ = 0
+    for fb in advanced_face.bounds:
+        for oe in getattr(getattr(fb, "bound", None), "edge_list", None) or []:
+            ec = getattr(oe, "edge_element", oe)
+            g = getattr(ec, "edge_geometry", None)
+            if not isinstance(g, geo_cu.Circle):
+                return False  # any non-circular boundary edge => a real trim, not a seam
+            ctr = [float(x) for x in g.position.location]
+            if abs(float(g.radius) - r) > 1e-4 * max(r, 1.0):
+                return False  # not a great circle => a trimming circle (a cap)
+            if (ctr[0] - cx) ** 2 + (ctr[1] - cy) ** 2 + (ctr[2] - cz) ** 2 > (1e-4 * max(r, 1.0)) ** 2:
+                return False  # not centred on the sphere => not a seam
+            n_circ += 1
+    return n_circ > 0
+
+
 def _make_face_from_param_extent(advanced_face: geo_su.AdvancedFace, face_surface):
     """Build a face directly from the projected parameter extent of its boundary
     samples — for faces whose boundary wire cannot trim the surface (closed
@@ -1001,16 +979,19 @@ def _make_face_from_param_extent(advanced_face: geo_su.AdvancedFace, face_surfac
                     vs.append(v)
                     sample_pts.append(p)
     if len(us) < 3:
+        PARAM_REBUILD_STATS["rebuild_none_fewpts"] += 1
         return None
 
     two_pi = 2.0 * math.pi
     umin, umax = _param_extent(us, bool(face_surface.IsUPeriodic()), two_pi)
     vmin, vmax = _param_extent(vs, bool(face_surface.IsVPeriodic()), two_pi)
     if (umax - umin) < 1e-9 or (vmax - vmin) < 1e-9:
+        PARAM_REBUILD_STATS["rebuild_none_degenerate"] += 1
         return None
 
     mk = BRepBuilderAPI_MakeFace(face_surface, umin, umax, vmin, vmax, 1e-6)
     if not mk.IsDone():
+        PARAM_REBUILD_STATS["rebuild_none_makeface"] += 1
         return None
     face = mk.Face()
 
@@ -1133,6 +1114,133 @@ def _face_overruns_wire(face, wire_diag: float) -> bool:
     return fd > _FACE_OVERRUN_FACTOR * max(wire_diag, 1e-6)
 
 
+def _reliable_face_diag(face) -> float:
+    """Mesh-based bounding-box diagonal — reliable where ``_shape_diag`` (brepbndlib on the
+    geometry) over-estimates: a trimmed B-spline / seam-crossing arc face's control-polygon
+    bound can span far beyond the actual trimmed patch (e.g. a thin arc on a large cylinder
+    that straddles the u=0 seam reads as the whole ring). Coarse-mesh the face and take its
+    node bbox. Returns ``inf`` if it can't mesh. Meshes, so use only on the rare recovery
+    path (to confirm a brepbndlib-flagged overrun before discarding a good face)."""
+    try:
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+        from OCC.Core.TopLoc import TopLoc_Location
+
+        BRepMesh_IncrementalMesh(face, 0.5, True, 0.5, False)
+        loc = TopLoc_Location()
+        tri = BRep_Tool.Triangulation(face, loc)
+        if tri is None or tri.NbNodes() == 0:
+            return math.inf
+        trsf = loc.Transformation()
+        pts = [tri.Node(i).Transformed(trsf) for i in range(1, tri.NbNodes() + 1)]
+        xs = [p.X() for p in pts]
+        ys = [p.Y() for p in pts]
+        zs = [p.Z() for p in pts]
+        return math.sqrt((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2 + (max(zs) - min(zs)) ** 2)
+    except Exception:  # noqa: BLE001
+        return math.inf
+
+
+# A built face whose extent dwarfs the WHOLE SOLID's topological vertices means a
+# bad edge/pcurve evaluated the surface far from those vertices — a corrupt trim
+# that BRepMesh then meshes into a runaway face (observed: a 15 cm solid whose face
+# built out to 18 m, ratio ~126x; it renders as a giant flat "disk"). No single
+# face can legitimately exceed its solid's overall vertex extent by much — even a
+# closed cylinder/cone/torus face is bounded by the solid's radius — so this factor
+# catches gross corruption with wide margin while leaving legit geometry untouched.
+# Compared to the SOLID's vertices (not a single face's wire/bound, which a runaway
+# edge inflates too, and which is degenerate for closed-revolution seam faces).
+_FACE_VS_VERTEX_FACTOR = 8.0
+
+
+def _cfs_vertex_diag(cfs_faces) -> float:
+    """Bounding-box diagonal of the topological edge endpoints across a whole set of
+    connected faces (i.e. the solid's vertex extent). 0.0 when no usable points."""
+    pts: list = []
+    for cf in cfs_faces or []:
+        for fb in getattr(cf, "bounds", None) or []:
+            el = getattr(getattr(fb, "bound", None), "edge_list", None) or []
+            for oe in el:
+                for p in (getattr(oe, "start", None), getattr(oe, "end", None)):
+                    if p is None:
+                        continue
+                    try:
+                        pts.append([float(z) for z in list(p)[:3]])
+                    except Exception:  # noqa: BLE001 - non-point edge endpoint, ignore
+                        pass
+    if len(pts) < 2:
+        return 0.0
+    import numpy as _np
+
+    a = _np.asarray(pts)
+    return float(_np.linalg.norm(a.max(axis=0) - a.min(axis=0)))
+
+
+def _planar_boundary_polygon(advanced_face: geo_su.AdvancedFace, pln: "gp_Pln"):
+    """Sample the face's boundary loops and project them onto the plane (cheap — no OCC
+    face build). Returns ``(pln, loops, outer_idx, true_area)`` where ``loops`` is a list
+    of ``(points_3d, signed_2d_area)`` and ``true_area`` is the polygon's net area
+    (outer minus holes) — the plane's exact area. Returns ``None`` if no usable loop."""
+    import numpy as np
+
+    ax = pln.Position()
+    origin = np.array([ax.Location().X(), ax.Location().Y(), ax.Location().Z()])
+    xdir = np.array([ax.XDirection().X(), ax.XDirection().Y(), ax.XDirection().Z()])
+    ydir = np.array([ax.YDirection().X(), ax.YDirection().Y(), ax.YDirection().Z()])
+
+    loops: list = []  # (points_3d, signed_2d_area)
+    for fb in advanced_face.bounds:
+        edge_list = getattr(fb.bound, "edge_list", None) or []
+        pts: list = []
+        for oe in edge_list:
+            try:
+                for p in _sample_edge_points(oe):
+                    p = (float(p[0]), float(p[1]), float(p[2]))
+                    if not pts or abs(p[0] - pts[-1][0]) + abs(p[1] - pts[-1][1]) + abs(p[2] - pts[-1][2]) > 1e-9:
+                        pts.append(p)
+            except Exception:  # noqa: BLE001 - a single bad edge must not void the loop
+                continue
+        if len(pts) >= 3:
+            arr = np.array(pts)
+            uv = np.c_[(arr - origin) @ xdir, (arr - origin) @ ydir]
+            area2d = 0.5 * float(np.sum(uv[:, 0] * np.roll(uv[:, 1], -1) - np.roll(uv[:, 0], -1) * uv[:, 1]))
+            loops.append((arr, area2d))
+    if not loops:
+        return None
+
+    outer = max(range(len(loops)), key=lambda i: abs(loops[i][1]))
+    true_area = abs(loops[outer][1]) - sum(abs(a) for i, (_, a) in enumerate(loops) if i != outer)
+    return pln, loops, outer, true_area
+
+
+def _planar_face_from_polygon(pln, loops, outer):
+    """Build a planar ``TopoDS_Face`` from sampled boundary loops (the Tier-2 wire
+    recovery for planes). A planar face overruns when the boundary winding is reversed —
+    ``MakeFace`` then bounds the huge complementary region. Sidestep the trim: build
+    polygon wires with winding fixed by 2-D signed area (outer CCW, holes CW) and
+    ``MakeFace`` from them. Returns a face or ``None``."""
+
+    def _wire(points_3d, area2d, want_ccw: bool):
+        seq = points_3d if (area2d > 0) == want_ccw else points_3d[::-1]
+        poly = BRepBuilderAPI_MakePolygon()
+        for p in seq:
+            poly.Add(gp_Pnt(float(p[0]), float(p[1]), float(p[2])))
+        poly.Close()
+        return poly.Wire() if poly.IsDone() else None
+
+    outer_wire = _wire(loops[outer][0], loops[outer][1], True)
+    if outer_wire is None:
+        return None
+    face_maker = BRepBuilderAPI_MakeFace(pln, outer_wire, True)
+    for i, (pts3d, area2d) in enumerate(loops):
+        if i == outer:
+            continue
+        inner = _wire(pts3d, area2d, False)
+        if inner is not None:
+            face_maker.Add(inner)
+    return face_maker.Face() if face_maker.IsDone() else None
+
+
 def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     """Create an OCC face from an AdvancedFace with arbitrary supported surface types and bounds.
 
@@ -1181,12 +1289,12 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
         # take naturally) produces ~96% byte-for-byte agreement with the
         # regen baseline at ~5x the speed.
         #
-        # Override knobs (default both ON):
+        # Override knob:
         #   ADA_USE_SAT_PCURVES=false    skip SAT pcurves entirely → regen
-        #   ADA_PCURVE_DRIVE_EDGE=false  attach pcurve via UpdateEdge
-        #                                instead of building edge from it
-        #                                (the older, broken approach;
-        #                                left for diagnostics)
+        # (The older "attach pcurve via UpdateEdge with an affine knot remap"
+        # path and its ADA_PCURVE_DRIVE_EDGE toggle were removed — the remap
+        # mis-stretched shared pcurves into zero-area faces; the edge is now
+        # always built directly from the pcurve, with shared pcurves trimmed.)
         import os as _os
 
         def _env_truthy(name: str, default: bool) -> bool:
@@ -1198,14 +1306,17 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
             return default
 
         use_pcurves = _env_truthy("ADA_USE_SAT_PCURVES", True)
-        drive_edge_from_pcurve = _env_truthy("ADA_PCURVE_DRIVE_EDGE", True)
         edge_list = getattr(face_bound.bound, "edge_list", None) or []
         occ_edges: list = []
         pcurves: list = []
         for oe in edge_list:
             supplied_pc = getattr(oe, "pcurve", None) if use_pcurves else None
             occ_edge = None
-            if drive_edge_from_pcurve and supplied_pc is not None:
+            # Build the edge directly from the SAT pcurve (3D derived as
+            # surface(pcurve(t)) => 2D/3D consistent, shared pcurves trimmed to
+            # the coedge). Edges this can't build fall to make_edge_from_edge +
+            # the reproject path in update_edges_uv_gen.
+            if supplied_pc is not None:
                 occ_edge = _make_edge_from_pcurve(
                     supplied_pc,
                     face_surface,
@@ -1264,18 +1375,47 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
 
     if is_bspline_surface:
         builder = BRep_Builder()
-        outer_wire, n_updated, n_total = _build_bspline_wire(advanced_face.bounds[0], builder)
-        if n_updated < n_total:
-            # Any failed p-curve update on a BSpline-surface wire is a
-            # crash trigger downstream — bail rather than feed the
-            # half-attached wire into MakeFace/ShapeFix.
-            raise UnableToCreateTesselationFromSolidOCCGeom(
-                f"p-curve update incomplete ({n_updated}/{n_total}); skipping degenerate BSpline face."
-            )
+        try:
+            outer_wire, n_updated, n_total = _build_bspline_wire(advanced_face.bounds[0], builder)
+            if n_updated < n_total:
+                # Any failed p-curve update on a BSpline-surface wire is a
+                # crash trigger downstream — bail rather than feed the
+                # half-attached wire into MakeFace/ShapeFix.
+                raise UnableToCreateTesselationFromSolidOCCGeom(
+                    f"p-curve update incomplete ({n_updated}/{n_total}); skipping degenerate BSpline face."
+                )
+        except UnableToCreateTesselationFromSolidOCCGeom as ex:
+            # The trim wire couldn't be built from the bound edges (disconnected
+            # or un-closeable even at relaxed tolerance — a frequent failure on
+            # imported curved plates). Rather than drop the whole curved face and
+            # lose most of the part's surface, build it from the surface's NATURAL
+            # UV bounds. A B-spline is inherently bounded by its knot range, and a
+            # plate's top/bottom B-spline spans the plate, so the untrimmed patch
+            # recovers essentially the same surface (a genuinely-trimmed face
+            # over-covers slightly — still far better than a missing face, which
+            # is what dropped ~99% of some plates' area vs an external mesher).
+            nat = BRepBuilderAPI_MakeFace(face_surface, 1e-6)
+            if not nat.IsDone():
+                raise
+            PARAM_REBUILD_STATS["bspline_natural_bound"] += 1
+            logger.debug("BSpline face wire build failed (%s); used natural surface bounds", ex)
+            face = nat.Face()
+            builder.UpdateFace(face, 1e-3)
+            return face
 
         if is_wire_cw(outer_wire, face_surface):
             logger.info("Reversing CW wire to CCW for B-Spline surface")
             outer_wire = outer_wire.Reversed()
+    elif isinstance(face_surface, Geom_SphericalSurface) and _is_full_sphere_seam(advanced_face, face_surface):
+        # A complete sphere is bounded only by a seam (great-circle arcs through the two
+        # poles). Building a face from that degenerate wire yields a face BRepMesh can't
+        # mesh (0 triangles — the whole ball renders blank). Build from the surface's
+        # natural bounds instead; OCC generates the seam + poles and meshes it cleanly.
+        nat = BRepBuilderAPI_MakeFace(face_surface, 1e-6)
+        if nat.IsDone():
+            PARAM_REBUILD_STATS["full_sphere_natural_bound"] += 1
+            return nat.Face()
+        outer_wire = make_wire_from_face_bound(advanced_face.bounds[0])
     else:
         # A closed cylinder/cone face (full circle in u) can't be built from a wire
         # of full-circle edges + a doubled seam — build it from the surface's
@@ -1329,12 +1469,68 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
         wire_diag = _shape_diag(outer_wire)
         if _face_overruns_wire(face, wire_diag):
             rebuilt = _make_face_from_param_extent(advanced_face, face_surface)
-            if rebuilt is None or _face_overruns_wire(rebuilt, wire_diag):
+            if rebuilt is None:
+                PARAM_REBUILD_STATS["rebuild_failed_none"] += 1
+                raise UnableToCreateTesselationFromSolidOCCGeom(
+                    f"unbounded face after wire trim on {type(advanced_face.face_surface).__name__}; skipping"
+                )
+            if _face_overruns_wire(rebuilt, wire_diag) and _reliable_face_diag(rebuilt) > _FACE_OVERRUN_FACTOR * max(
+                wire_diag, 1e-6
+            ):
+                # brepbndlib over-estimates seam-crossing arc faces; only give up when a
+                # reliable mesh extent confirms the rebuild really does overrun.
+                PARAM_REBUILD_STATS["rebuild_still_overruns"] += 1
                 raise UnableToCreateTesselationFromSolidOCCGeom(
                     f"unbounded face after wire trim on {type(advanced_face.face_surface).__name__}; skipping"
                 )
             PARAM_REBUILD_STATS["unbounded_rebuilt"] += 1
             face = rebuilt
+
+    # A PLANAR face can also overrun its wire — not because the plane is infinite after
+    # trim (it UV-projects exactly) but because the boundary's winding is reversed, so
+    # MakeFace bounded the huge complementary region. The plane's true area is exactly its
+    # boundary polygon, so compare the built area against it (cheap — sampling only) and,
+    # when the build ran away, rebuild from the polygon (winding fixed by signed area).
+    # This is the dominant runaway-drop bucket on real models and the recovery is exact.
+    if isinstance(face_surface, gp_Pln):
+        poly = _planar_boundary_polygon(advanced_face, face_surface)
+        if poly is not None and poly[3] > 1e-9 and _face_area(face) > 1.5 * poly[3]:
+            rebuilt = _planar_face_from_polygon(poly[0], poly[1], poly[2])
+            if rebuilt is not None and not rebuilt.IsNull() and _face_area(rebuilt) > 1e-9:
+                # _planar_face_from_polygon builds the outer loop CCW → face normal = +plane
+                # normal. Honour the source same_sense so the recovered normal matches the
+                # face's intended side (the runaway face's own orientation is unreliable).
+                if not advanced_face.same_sense:
+                    from OCC.Core.TopoDS import topods
+
+                    rebuilt = topods.Face(rebuilt.Reversed())
+                PARAM_REBUILD_STATS["planar_runaway_recovered"] += 1
+                face = rebuilt
+
+    # A toroidal / cylindrical / conical face whose boundary wire fails to trim the
+    # surface can collapse to ~zero area (instead of overrunning) — it then meshes to
+    # nothing AND triggers the expensive MakeFilling wire-fill fallback downstream
+    # (~seconds per face, blowing the per-solid timeout on pipe/elbow-heavy solids).
+    # Recover it from the boundary's projected parameter extent: fast (ms) and correct
+    # (the real patch), unlike the flat MakeFilling. Torus is bounded so it never hits
+    # the overrun branch above; this 0-area branch is its recovery path.
+    # NON-rational B-spline 0-area faces recover well + cheaply via param-extent;
+    # *rational* B-spline faces are left to the ShapeFix p-curve heal below (param-extent
+    # on a rational face with a complex boundary is much slower — it blew the per-solid
+    # timeout on 10k-face rational solids).
+    _is_nonrational_bspline = isinstance(face_surface, Geom_BSplineSurface) and not (
+        face_surface.IsURational() or face_surface.IsVRational()
+    )
+    recovered_via_param_extent = False
+    if _face_area(face) <= 1e-9 and (
+        isinstance(face_surface, (Geom_ToroidalSurface, Geom_CylindricalSurface, Geom_ConicalSurface))
+        or _is_nonrational_bspline
+    ):
+        rebuilt = _make_face_from_param_extent(advanced_face, face_surface)
+        if rebuilt is not None and _face_area(rebuilt) > 1e-9:
+            PARAM_REBUILD_STATS["zero_area_rebuilt"] += 1
+            face = rebuilt
+            recovered_via_param_extent = True
 
     # ShapeFix runs only on the regenerative-pcurve path — the
     # SAT-pcurve path produces clean topology and ShapeFix would
@@ -1359,11 +1555,58 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
 
         face = fixer.Face()
 
+    # A rational B-spline face built from a 3D boundary wire (no authored 2D p-curves —
+    # the common STEP/SAT case) frequently carries no p-curves on its surface, so
+    # BRepMesh produces ZERO triangles ("built but unmeshed") — the face is valid but
+    # renders blank. ShapeFix_Shape's cascade computes the missing p-curves
+    # (BuildCurves3d + SameParameter + FixAddPCurve), making the face meshable. Gated to
+    # *rational* B-spline faces to keep the cost off the common path (analytic and
+    # non-rational B-spline faces mesh as-is); the face is bounded by its knot range, so
+    # this avoids the unbounded-surface ShapeFix segfault. Verified: recovers curved
+    # plates that otherwise tessellate to nothing.
+    if (
+        isinstance(face_surface, Geom_BSplineSurface)
+        and (face_surface.IsURational() or face_surface.IsVRational())
+        and not recovered_via_param_extent  # param-extent already produced a meshable face
+        and not _face_meshes_ok(face)  # only heal faces that would otherwise render blank
+    ):
+        try:
+            from OCC.Core.ShapeFix import ShapeFix_Shape
+            from OCC.Core.TopoDS import topods
+
+            sfs = ShapeFix_Shape(face)
+            sfs.Perform()
+            he = TopExp_Explorer(sfs.Shape(), TopAbs_FACE)
+            if he.More():
+                face = topods.Face(he.Current())
+                PARAM_REBUILD_STATS["rational_bspline_healed"] += 1
+        except Exception as ex:  # noqa: BLE001 - healing is best-effort
+            logger.debug("rational B-spline p-curve heal failed: %s", ex)
+
     # Update the face tolerance
     builder = BRep_Builder()
     builder.UpdateFace(face, 1e-3)
 
     return face
+
+
+def _face_meshes_ok(face) -> bool:
+    """True when BRepMesh already produces triangles for ``face`` at a coarse deflection —
+    i.e. it has valid p-curves and needs no healing. The rational B-spline ShapeFix heal
+    re-derives p-curves (SameParameter / FixAddPCurve) and slightly perturbs a face that
+    already meshes — which TWISTS SAT curved plates that carry authored p-curves so they
+    no longer fit their neighbours. Gate the heal on this so it only runs on faces that
+    would otherwise render blank (the STEP-stream rational case)."""
+    try:
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+        from OCC.Core.TopLoc import TopLoc_Location
+
+        BRepMesh_IncrementalMesh(face, 0.1, True, 0.5, False)
+        tri = BRep_Tool.Triangulation(face, TopLoc_Location())
+        return tri is not None and tri.NbTriangles() > 0
+    except Exception:  # noqa: BLE001 - an unmeshable face is treated as needing the heal
+        return False
 
 
 def make_plane_from_geom(plane: geo_su.Plane) -> gp_Pln:
@@ -1529,10 +1772,68 @@ def _face_area(shape) -> float:
         return 0.0
 
 
+def _recover_runaway_face(cfs_face, built_face):
+    """Recover a face the solid-extent runaway guard flagged, instead of dropping it.
+
+    The guard (``_shape_diag`` vs ``solid_vdiag``) over-drops because brepbndlib
+    over-estimates curved-edge faces and ``solid_vdiag`` can be small. Recover from the
+    boundary, which is reliable: a PLANE's true area is exactly its boundary polygon (keep
+    the built face when it matches, else rebuild from the polygon); a CYLINDER / CONE /
+    TORUS / SPHERE rebuilds from its boundary's projected parameter extent. Returns a
+    non-phantom face, or ``None`` when the face is a genuine runaway that can't be rebuilt."""
+    surf_geom = getattr(cfs_face, "face_surface", None)
+    try:
+        occ_surface = make_surface_from_geom(surf_geom)
+    except Exception:  # noqa: BLE001
+        return None
+
+    if isinstance(occ_surface, gp_Pln):
+        poly = _planar_boundary_polygon(cfs_face, occ_surface)
+        if poly is None or poly[3] <= 1e-9:
+            return None
+        if _face_area(built_face) <= 1.5 * poly[3]:
+            PARAM_REBUILD_STATS["planar_runaway_kept"] += 1
+            return built_face  # built face already matches its polygon — not a phantom
+        rebuilt = _planar_face_from_polygon(poly[0], poly[1], poly[2])
+        if rebuilt is not None and not rebuilt.IsNull() and _face_area(rebuilt) > 1e-9:
+            PARAM_REBUILD_STATS["planar_runaway_recovered"] += 1
+            return rebuilt
+        return None
+
+    if isinstance(
+        occ_surface, (Geom_CylindricalSurface, Geom_ConicalSurface, Geom_ToroidalSurface, Geom_SphericalSurface)
+    ):
+        try:
+            rebuilt = _make_face_from_param_extent(cfs_face, occ_surface)
+        except Exception:  # noqa: BLE001
+            return None
+        if rebuilt is None or _face_area(rebuilt) <= 1e-9:
+            return None
+        try:
+            wire_diag = _shape_diag(make_wire_from_face_bound(cfs_face.bounds[0]))
+        except Exception:  # noqa: BLE001
+            return None
+        # _face_overruns_wire uses brepbndlib, which over-estimates seam-crossing arc
+        # faces; confirm a flagged overrun with a reliable mesh extent before rejecting.
+        if not _face_overruns_wire(rebuilt, wire_diag) or _reliable_face_diag(rebuilt) <= _FACE_OVERRUN_FACTOR * max(
+            wire_diag, 1e-6
+        ):
+            PARAM_REBUILD_STATS["curved_runaway_recovered"] += 1
+            return rebuilt
+    return None
+
+
 def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_faces) -> None:
     """Build each connected-face-set face (AdvancedFace / FaceSurface) and add it to
     ``occ_shell``. Shared by the closed-shell, open-shell and shell-based-surface-model
     builders — a face that can't be built is logged and skipped rather than aborting."""
+    # The solid's overall vertex extent — used to catch a corrupt face that BRepMesh
+    # would blow up into a runaway "disk" far larger than the solid itself (see
+    # _FACE_VS_VERTEX_FACTOR). cfs_faces may be a one-shot iterator, so materialise it.
+    cfs_faces = list(cfs_faces)
+    solid_vdiag = _cfs_vertex_diag(cfs_faces)
+    runaway_limit = _FACE_VS_VERTEX_FACTOR * solid_vdiag if solid_vdiag > 1e-9 else math.inf
+
     n_faces = 0
     n_dropped = 0
     for cfs_face in cfs_faces:
@@ -1548,13 +1849,38 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                 if face is None or face.IsNull():
                     raise UnableToCreateTesselationFromSolidOCCGeom("make_face_from_geom produced no face")
 
+                # Drop a face whose built extent dwarfs the whole solid — a corrupt
+                # trim that meshes into a metres-wide phantom. A missing small face
+                # beats a runaway disk that wrecks the model's bounding box.
+                fdiag = _shape_diag(face)
+                if not math.isfinite(fdiag) or fdiag > runaway_limit:
+                    # _shape_diag uses brepbndlib, which over-estimates faces with curved
+                    # boundary edges (control-polygon bound) — and solid_vdiag can be small
+                    # — so this guard FALSE-trips on faces that are actually fine. Try to
+                    # recover the face from its boundary before dropping; only a face that
+                    # cannot be recovered into a non-phantom is a genuine runaway.
+                    recovered = _recover_runaway_face(cfs_face, face)
+                    if recovered is None:
+                        PARAM_REBUILD_STATS["runaway_face_dropped"] += 1
+                        raise UnableToCreateTesselationFromSolidOCCGeom(
+                            f"face extent {fdiag:.1f} >> solid vertices {solid_vdiag:.3f} "
+                            f"({type(cfs_face.face_surface).__name__}); corrupt trim, dropping face"
+                        )
+                    face = recovered
+
                 # A trimmed surface can collapse to zero area even when MakeFace reports
                 # "done" — e.g. a planar SAT plate whose boundary mixes a b-spline edge that
                 # yields no valid p-curve on the plane, so the face has no interior and
                 # BRepMesh grids nothing. Fall back to filling the boundary wire directly
                 # (the WireFilledFace path), which reconstructs a real surface from the same
-                # closed wire.
-                if _face_area(face) <= 1e-9:
+                # closed wire. GATED TO PLANES: that's the only case this recovers, and on a
+                # *curved* surface the fill runs GeomPlate (BRepOffsetAPI_MakeFilling) which
+                # can grind for tens of seconds *per face* in an uninterruptible C++ loop
+                # (blowing the per-solid timeout on pipe/elbow/spline-heavy solids). Curved
+                # 0-area faces already have fast recovery in make_face_from_geom
+                # (param-extent rebuild / natural bounds); if those didn't recover it, a
+                # dropped face beats a multi-second flat MakeFilling that is wrong anyway.
+                if _face_area(face) <= 1e-9 and isinstance(cfs_face.face_surface, geo_su.Plane):
                     try:
                         filled = make_face_from_wire_filled(geo_su.WireFilledFace(bounds=cfs_face.bounds))
                         if _face_area(filled) > 1e-9:
@@ -1570,6 +1896,7 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
             except Exception as ex:
                 n_dropped += 1
                 logger.warning("Skipping AdvancedFace (%s surface): %s", type(cfs_face.face_surface).__name__, ex)
+                _maybe_capture_dropped_face(cfs_face, ex)
                 continue
 
         # Handle plain Face with PolyLoop bounds (faceted-brep polygons)
@@ -1619,6 +1946,10 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
             raise NotImplementedError(
                 f"Face type {type(cfs_face)} is not implemented (supported: AdvancedFace, FaceSurface)"
             )
+
+    FACE_COVERAGE_STATS["total"] += n_faces
+    FACE_COVERAGE_STATS["built"] += n_faces - n_dropped
+    FACE_COVERAGE_STATS["dropped"] += n_dropped
 
     if n_dropped:
         # A dropped face is a hole in the solid — surface it so conversions never
@@ -1801,7 +2132,29 @@ def make_face_from_wire_filled(wff: geo_su.WireFilledFace) -> TopoDS_Face:
     # edges individually with GeomAbs_C0 lets MakeFilling solve the
     # least-squares system that minimises bending under the boundary
     # constraints.
-    fill = BRepOffsetAPI_MakeFilling()
+    #
+    # Bound the GeomPlate cost. With OCC's defaults (NbPtsOnCur=15,
+    # NbIter=2, MaxDeg=8, MaxSegments=9) a pathological boundary makes the
+    # plate's curve-on-surface projection (ProjLib_CompProjectedCurve ->
+    # math_NewtonFunctionSetRoot) grind for minutes on a single face — long
+    # enough to blow the per-solid stream timeout and get the whole solid
+    # *skipped*. This face is already a fallback (the exact ACIS/STEP
+    # parameterisation is gone), so a coarse low-degree plate is plenty: it
+    # only ever gets tessellated. Fewer projection points and a lower-degree
+    # surface cut the dominant cost while still spanning the boundary; the
+    # 120 s stream timeout remains the backstop for the rare residual hang.
+    fill = BRepOffsetAPI_MakeFilling(
+        2,  # Degree (default 3)
+        6,  # NbPtsOnCur — points projected per constraint edge (default 15)
+        1,  # NbIter — outer iterations (default 2)
+        False,  # Anisotropie
+        1.0e-4,  # Tol2d (default 1e-5)
+        1.0e-3,  # Tol3d (default 1e-4)
+        1.0e-2,  # TolAng
+        1.0e-1,  # TolCurv
+        3,  # MaxDeg — cap fitted-surface degree (default 8)
+        4,  # MaxSegments — cap surface segments (default 9)
+    )
     for e in occ_edges:
         fill.Add(e, GeomAbs_C0)
     try:

@@ -161,6 +161,17 @@ class AcisLoop(AcisEntity):
     bounding_box: Optional[List[float]] = None
 
 
+class AcisWire(AcisEntity):
+    """ACIS wire entity - a connected chain of coedges not bounding a face (wireframe)."""
+
+    entity_type: str = "wire"
+    next_wire_ref: Optional[int] = None
+    attrib_ref: Optional[int] = None
+    coedge_ref: Optional[int] = None
+    body_ref: Optional[int] = None
+    bounding_box: Optional[List[float]] = None
+
+
 class AcisCoedge(AcisEntity):
     """ACIS coedge entity - oriented use of an edge."""
 
@@ -249,6 +260,14 @@ class AcisIntcurveCurve(AcisCurve):
     spline_data: Optional[AcisSplineCurveData] = None
 
 
+class AcisDegenerateCurve(AcisCurve):
+    """ACIS degenerate curve - a curve collapsed to a single point (e.g. a cone apex
+    or sphere pole seam). Carries the collapse position so the edge isn't lost."""
+
+    entity_type: str = "degenerate-curve"
+    position: List[float] = Field(default_factory=list, description="Collapse point [x, y, z]")
+
+
 class AcisSplineCurveData(BaseModel):
     """ACIS B-spline curve data."""
 
@@ -332,6 +351,16 @@ class AcisSplineSurface(AcisSurface):
     entity_type: str = "spline-surface"
     sense: SenseType = SenseType.FORWARD
     spline_data: Optional[AcisSplineSurfaceData] = None
+
+
+class AcisMeshSurface(AcisSurface):
+    """ACIS mesh surface - an explicitly faceted (polygon-mesh) surface. The node/facet
+    mesh is kept as the raw definition for downstream triangulation; typed so the surface
+    isn't dropped to an opaque generic entity."""
+
+    entity_type: str = "meshsurf-surface"
+    sense: SenseType = SenseType.FORWARD
+    raw_data: str = ""
 
 
 class AcisSplineSurfaceData(BaseModel):

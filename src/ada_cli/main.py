@@ -12,7 +12,7 @@ Subcommand layout:
     ada view IN [--renderer ...]      local web viewer
     ada build run|upload|run-and-upload
                                       build artefacts and push to viewer
-    ada files list|download|upload    list / transfer blobs in a scope
+    ada files list|download|upload|delete   list / transfer / remove blobs in a scope
     ada serve api|worker              run the REST API / worker process
 """
 
@@ -70,6 +70,12 @@ def _cmd_files_download(args: argparse.Namespace) -> int:
     from ada_cli.files import cmd_download
 
     return cmd_download(args)
+
+
+def _cmd_files_delete(args: argparse.Namespace) -> int:
+    from ada_cli.files import cmd_delete
+
+    return cmd_delete(args)
 
 
 def _cmd_serve_api(_args: argparse.Namespace) -> int:
@@ -194,6 +200,13 @@ def _add_files(sub: argparse._SubParsersAction) -> None:
         help="Force the API-tunneled PUT path (skip presigned URL; subject to the direct-upload size cap).",
     )
     up.set_defaults(func=_cmd_files_upload)
+
+    rm = files_sub.add_parser("delete", help="Delete one or more blobs in the scope.")
+    _add_remote_opts(rm)
+    rm.add_argument("keys", nargs="*", help="Blob key(s) to delete, e.g. debug/old.glb.")
+    rm.add_argument("--prefix", default=None, help="Also delete every key starting with this prefix.")
+    rm.add_argument("-y", "--yes", action="store_true", help="Skip the confirmation prompt.")
+    rm.set_defaults(func=_cmd_files_delete)
 
 
 def _add_audit(sub: argparse._SubParsersAction) -> None:

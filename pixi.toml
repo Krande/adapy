@@ -100,10 +100,10 @@ fem-deps = { features = ["fem-deps", "prod", "pyocc", "tests-core"], no-default-
 # only under tests/full/frontend and need the `tests` feature's playwright).
 fem = { features = ["fem", "tests", "prod", "pyocc", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
 docs = { features = ["docs", "prod", "pyocc", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
-viewer-api = { features = ["viewer-api", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
+viewer-api = { features = ["viewer-api", "prod", "pyocc", "adacpp-runtime"], solve-group = "prod", no-default-feature = true }
 # Slim runtime for the Dockerfile.viewer image — no `prod` so the
 # occt/pythonocc/numpy closure stays out.
-viewer-api-slim = { features = ["viewer-api"], no-default-feature = true }
+viewer-api-slim = { features = ["viewer-api", "viewer-slim"], no-default-feature = true }
 viewer-api-tests = { features = ["viewer-api", "tests-core", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
 meshio-bridge = { features = ["meshio-bridge", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
@@ -128,14 +128,25 @@ meshio = "*"
 pythonocc-core = { version = "7.9.3.*", build = "novtk_*" }
 occt = { version = "7.9.3.*", build = "novtk_*" }
 
+# ada-cpp as a *runtime library alongside pyocc* — no ADAPY_CAD_BACKEND flip (unlike
+# the `adacpp` feature). The conversion worker (viewer-api env) needs ada-cpp present
+# so the default libtess2 STEP→GLB pipeline can run; pyocc stays the default backend
+# for every other path (IFC/XML/FEM, occ-builtin fallback). Shares occt 7.9.3 with
+# pyocc (see above) so both coexist in one env.
+[feature.adacpp-runtime.dependencies]
+ada-cpp = "0.10.1.*"
+
 # ada-cpp CAD backend (AdacppBackend) — native CPython build of the
 # wasm-capable kernel. Brings its own occt 7.9.3 + gmsh + ifcopenshell,
 # and deliberately does NOT pull pythonocc-core, so an environment with
 # `adacpp` and without `pyocc` exercises adacpp as the sole CAD backend
 # (no pythonocc fallback by design).
 [feature.adacpp.dependencies]
-# 0.8.0 carries build_swept_disk_solid (IfcSweptDiskSolid parity); see adapy AdacppBackend.
-ada-cpp = "0.8.0.*"
+# 0.10.x carries the NGEOM libtess2 tessellator + meshopt EXT-compression codecs
+# (cad.meshopt_encode_*) + ifc-taxonomy kernel; adapy's meshopt/NGEOM paths need it. 0.10.1 adds
+# the circle ref/anchor + planar AdvancedFace builds, the degenerate-radius guard, the fast
+# (non-optimal) bbox, and the libtess2 curved-surface coverage (was the ADACPP_BRANCH overlay).
+ada-cpp = "0.10.1.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
@@ -254,6 +265,13 @@ asyncpg = "*"
 psutil = "*"
 croniter = "*"
 
+# Pin the slim API image's python (it has no `prod`, so it would otherwise float to
+# the newest cpython). Pinned to what it currently resolves to (3.14) for a
+# reproducible image; kept separate from the full env's prod-pinned 3.12 to avoid a
+# cross-feature python conflict.
+[feature.viewer-slim.dependencies]
+python = "3.14.*"
+
 [feature.viewer-api.tasks]
 viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 viewer-worker = { cmd = "python -m ada.comms.rest.worker", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
@@ -263,6 +281,12 @@ audit-fetch = { cmd = "python scripts/audit_fetch.py", env = { "PYTHONPATH" = "$
 audit-repro = { cmd = "python scripts/audit_repro.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 viewer-upload = { cmd = "python scripts/viewer_upload.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 glb-face-classify = { cmd = "python scripts/glb_face_classify.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
+# NOTE: meshopt GLB compression (ada.visit.gltf.meshopt) no longer pulls the PyPI
+# `meshoptimizer` package — it is sdist-only (no wheels) so every viewer/worker image
+# tried to compile it from source and failed (no g++). The EXT_meshopt_compression
+# encoders now live in adacpp (vendored meshoptimizer C source, cad.meshopt_encode_*);
+# the compress path uses them when adacpp is present and gracefully skips otherwise.
 
 [feature.frontend.dependencies]
 nodejs = "24.*"

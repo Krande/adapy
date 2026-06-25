@@ -149,6 +149,21 @@ class Config:
             ],
         ),
         ConfigSection(
+            "occ_tess",
+            [
+                # OCC tessellation quality. linear_deflection 0 → the default relative
+                # ShapeTesselator (mesh_quality) path (lean GLB / mobile-friendly). Set a
+                # positive value to switch to the BRepMesh path with an EXPLICIT chordal +
+                # angular deflection (curvature-adaptive smoothness, step2glb's 1 mm + 25°
+                # model): chordal drives cylinders/cones, angular drives spheres/tori/
+                # B-splines. ``relative`` makes linear_deflection a fraction of each
+                # shape's bbox instead of absolute model units. Env: ADA_OCC_TESS_*.
+                ConfigEntry("linear_deflection", float, 0.0),
+                ConfigEntry("angular_deg", float, 20.0),
+                ConfigEntry("relative", bool, False),
+            ],
+        ),
+        ConfigSection(
             "fea",
             [
                 ConfigEntry("execute_dir", str, None, False),

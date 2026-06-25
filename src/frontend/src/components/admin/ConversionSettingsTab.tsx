@@ -28,15 +28,6 @@ const ROWS: SettingRow[] = [
         codeDefault: true,
     },
     {
-        key: "pcurve_drive_edge",
-        label: "Drive edge from pcurve",
-        description:
-            "Build each OCC edge from the (pcurve, surface) pair instead of from the " +
-            "3D BSpline curve, so the edge's 3D parametrization is forced consistent " +
-            "with the surface. Fixes stretched-face artifacts seen on large SAT hull models.",
-        codeDefault: true,
-    },
-    {
         key: "skip_shapefix",
         label: "Skip ShapeFix",
         description:
@@ -117,6 +108,20 @@ function triToString(tri: TriState): string {
 
 const TIMEOUT_KEY = "conversion_timeout_minutes";
 
+// STEP→GLB tessellation engine. Empty = adapy's code default (libtess2). Maps to
+// the ADAPY_STEP_GLB_PIPELINE env the worker applies per job; per-job convert-dialog
+// overrides win over this global default.
+const STEP_GLB_PIPELINE_KEY = "step_glb_pipeline";
+const PIPELINE_OPTIONS: {value: string; label: string}[] = [
+    {value: "", label: "Unset — adapy default (libtess2)"},
+    {value: "libtess2", label: "libtess2 — adacpp OCC-free (full curved geometry)"},
+    {value: "occ-builtin", label: "occ-builtin — OpenCASCADE (drops some curved surfaces)"},
+    {value: "step2glb", label: "step2glb — external binary"},
+    {value: "adacpp-occ", label: "adacpp-occ — taxonomy / OCCT kernel"},
+    {value: "adacpp-cgal", label: "adacpp-cgal — taxonomy / CGAL kernel"},
+    {value: "adacpp-hybrid", label: "adacpp-hybrid — taxonomy / hybrid kernel"},
+];
+
 const ConversionSettingsTab: React.FC = () => {
     const [values, setValues] = useState<Record<string, TriState>>(() =>
         Object.fromEntries(ROWS.map((r) => [r.key, "unset"])),
@@ -130,6 +135,9 @@ const ConversionSettingsTab: React.FC = () => {
     const [solidTimeout, setSolidTimeout] = useState("");
     const [solidTimeoutSaving, setSolidTimeoutSaving] = useState(false);
     const [solidTimeoutSavedAt, setSolidTimeoutSavedAt] = useState<number | null>(null);
+    const [pipeline, setPipeline] = useState("");
+    const [pipelineSaving, setPipelineSaving] = useState(false);
+    const [pipelineSavedAt, setPipelineSavedAt] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState<Record<string, boolean>>({});
     const [error, setError] = useState<string | null>(null);
@@ -150,6 +158,8 @@ const ConversionSettingsTab: React.FC = () => {
                 if (!cancelled) setStreamerThreshold((thr || "").trim());
                 const sto = await viewerApi.adminGetSetting(SOLID_TIMEOUT_KEY);
                 if (!cancelled) setSolidTimeout((sto || "").trim());
+                const pp = await viewerApi.adminGetSetting(STEP_GLB_PIPELINE_KEY);
+                if (!cancelled) setPipeline((pp || "").trim());
                 if (!cancelled) setValues(next);
             } catch (e) {
                 if (!cancelled) setError(e instanceof ApiError ? e.detail || e.message : String(e));
@@ -241,6 +251,20 @@ const ConversionSettingsTab: React.FC = () => {
         }
     };
 
+    const onPipelineChange = async (next: string) => {
+        setPipelineSaving(true);
+        setError(null);
+        try {
+            await viewerApi.adminSetSetting(STEP_GLB_PIPELINE_KEY, next);
+            setPipeline(next);
+            setPipelineSavedAt(Date.now());
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setPipelineSaving(false);
+        }
+    };
+
     const anySaving = useMemo(() => Object.values(saving).some(Boolean), [saving]);
 
     return (
@@ -257,6 +281,44 @@ const ConversionSettingsTab: React.FC = () => {
                 </div>
             )}
             <div className="flex-1 min-h-0 overflow-auto">
+                {!loading && (
+                    <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+                        <div>
+                            <div className="font-medium text-sm">STEP→GLB tessellator</div>
+                            <div className="text-[11px] text-gray-400 font-mono">
+                                {STEP_GLB_PIPELINE_KEY}
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <select
+                                value={pipeline}
+                                onChange={(e) => onPipelineChange(e.target.value)}
+                                disabled={pipelineSaving}
+                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm text-gray-100 max-w-full"
+                            >
+                                {PIPELINE_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                ))}
+                            </select>
+                            {pipelineSaving && <span className="text-[11px] text-gray-400">saving…</span>}
+                            {pipelineSavedAt && !pipelineSaving && (
+                                <span className="text-[11px] text-emerald-400">
+                                    saved {Math.floor((Date.now() - pipelineSavedAt) / 1000)}s ago
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-xs text-gray-400 max-w-2xl">
+                            Engine for STEP→GLB tessellation. <span className="font-mono">libtess2</span>{" "}
+                            (the code default when Unset) is adacpp's OCC-free boundary tessellator — it
+                            renders the curved surfaces (rational B-spline / spherical / conical / toroidal)
+                            the OpenCASCADE streaming reader silently drops.{" "}
+                            <span className="font-mono">occ-builtin</span> is the prior OpenCASCADE path;
+                            <span className="font-mono"> adacpp-occ/cgal/hybrid</span> use adacpp's taxonomy
+                            kernels; <span className="font-mono">step2glb</span> runs the external binary.
+                            Per-job overrides on the convert dialog win over this.
+                        </div>
+                    </div>
+                )}
                 {!loading && (
                     <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
                         <div>
@@ -387,6 +449,51 @@ const ConversionSettingsTab: React.FC = () => {
                         </div>
                     </div>
                 )}
+                {!loading && (
+                    <NumberSetting
+                        settingKey="step_stream_workers"
+                        label="STEP stream worker count"
+                        unit="workers"
+                        placeholder="auto (min(cpu-1, 3))"
+                        min={1}
+                        onError={setError}
+                        description={
+                            "Tessellation worker processes for STEP→GLB streaming. Peak conversion RSS " +
+                            "scales ~linearly with this (each worker holds a chunk of mesh in flight). " +
+                            "Empty = code default min(cpu-1, 3). Raise on a roomier pod to trade RAM for speed."
+                        }
+                    />
+                )}
+                {!loading && (
+                    <NumberSetting
+                        settingKey="step_stream_worker_soft_mem_mb"
+                        label="STEP stream worker soft memory cap"
+                        unit="MB"
+                        placeholder="800"
+                        min={0}
+                        onError={setError}
+                        description={
+                            "A streaming tessellation worker still above this BETWEEN solids (after gc + " +
+                            "malloc_trim) exits cleanly and respawns fresh — nothing lost, pending solids go " +
+                            "to the next worker. Bounds native-heap fragmentation. Empty = code default 800 MB; 0 disables."
+                        }
+                    />
+                )}
+                {!loading && (
+                    <NumberSetting
+                        settingKey="step_stream_worker_hard_mem_mb"
+                        label="STEP stream worker hard memory cap"
+                        unit="MB"
+                        placeholder="1600"
+                        min={0}
+                        onError={setError}
+                        description={
+                            "A worker crossing this MID-solid is killed and the in-flight solid requeued once; " +
+                            "if it overruns again the solid itself needs that much memory and is skipped with a " +
+                            "'memory' reason (lost geometry). Keep comfortably above the soft cap. Empty = code default 1600 MB; 0 disables."
+                        }
+                    />
+                )}
                 {loading ? (
                     <div className="px-3 sm:px-4 py-4 text-sm text-gray-300">Loading settings…</div>
                 ) : (
@@ -424,6 +531,90 @@ const ConversionSettingsTab: React.FC = () => {
                     </table>
                 )}
             </div>
+        </div>
+    );
+};
+
+// Self-contained numeric app_setting row (loads + saves its own key). Used for the
+// STEP-stream memory knobs; empty = adapy's code default.
+const NumberSetting: React.FC<{
+    settingKey: string;
+    label: string;
+    unit: string;
+    placeholder: string;
+    description: React.ReactNode;
+    min?: number;
+    onError: (msg: string | null) => void;
+}> = ({settingKey, label, unit, placeholder, description, min = 0, onError}) => {
+    const [value, setValue] = useState("");
+    const [saving, setSaving] = useState(false);
+    const [savedAt, setSavedAt] = useState<number | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const v = await viewerApi.adminGetSetting(settingKey);
+                if (!cancelled) setValue((v || "").trim());
+            } catch {
+                /* surfaced by the tab's batch load */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [settingKey]);
+    const save = async () => {
+        const raw = value.trim();
+        if (raw !== "") {
+            const n = Number(raw);
+            if (Number.isNaN(n) || n < min) {
+                onError(`${label} must be a number ≥ ${min} (got "${raw}")`);
+                return;
+            }
+        }
+        setSaving(true);
+        onError(null);
+        try {
+            await viewerApi.adminSetSetting(settingKey, raw);
+            setSavedAt(Date.now());
+        } catch (e) {
+            onError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setSaving(false);
+        }
+    };
+    return (
+        <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+            <div>
+                <div className="font-medium text-sm">{label}</div>
+                <div className="text-[11px] text-gray-400 font-mono">{settingKey}</div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+                <input
+                    type="number"
+                    min={min}
+                    step="1"
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    placeholder={placeholder}
+                    className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm w-32 text-gray-100"
+                />
+                <span className="text-xs text-gray-400">{unit}</span>
+                <button
+                    type="button"
+                    onClick={save}
+                    disabled={saving}
+                    className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                >
+                    {saving ? "Saving…" : "Save"}
+                </button>
+                {savedAt && (
+                    <span className="text-[11px] text-emerald-400">
+                        saved {Math.floor((Date.now() - savedAt) / 1000)}s ago
+                    </span>
+                )}
+            </div>
+            <div className="text-xs text-gray-400 max-w-2xl">{description}</div>
         </div>
     );
 };

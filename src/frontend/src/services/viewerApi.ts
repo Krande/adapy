@@ -545,6 +545,8 @@ export interface AuditEntry {
     id: number;
     ts: string | null;
     user_sub: string | null;
+    user_email: string | null;
+    user_display_name: string | null;
     scope_kind: string;
     scope_id: string | null;
     action: string;
@@ -569,6 +571,34 @@ export interface AuditEntry {
     issue_bot_status: string | null;
     issue_bot_synced_at: string | null;
     issue_bot_last_error: string | null;
+    // Stable per-device id (from client_metrics) — distinguishes view/render
+    // audit logs by device (e.g. phone vs desktop). Null for server-side rows.
+    device_id: string | null;
+    // The worker image that processed a convert row; links to its package manifest.
+    worker_image_tag: string | null;
+    // Conversion engine + effective toggles for a convert row (which tessellator
+    // actually ran, incl. an adacpp→occ-builtin fallback, + the options used).
+    convert_meta: ConvertMeta | null;
+}
+
+export interface ConvertMeta {
+    tessellator?: string;
+    step_glb_pipeline?: string;
+    glb_compression?: string;
+    stream_workers?: string | number | null;
+    // Wall-clock split of the recorded duration: the conversion proper vs the
+    // GLB-compression (meshopt) post-step, so compression cost isn't mistaken
+    // for a slower conversion.
+    convert_ms?: number | null;
+    compress_ms?: number | null;
+    options?: Record<string, string>;
+}
+
+export interface WorkerPackage {
+    name: string;
+    version: string | null;
+    build: string | null;
+    channel: string | null;
 }
 
 // One audit-sweep record. Returned by /admin/audit/runs endpoints.
@@ -821,6 +851,10 @@ export interface AuditFilters {
     scope_kind?: string;
     scope_id?: string;
     action?: string;
+    /** Conversion target format (glb / ifc / step / …). */
+    target?: string;
+    /** Case-insensitive substring filter on the source filepath/filename. */
+    key?: string;
     before_id?: number;
     limit?: number;
 }
@@ -1399,8 +1433,8 @@ export const viewerApi = {
             // Per-job knobs. Keys come from the conversion matrix's
             // ``options[<target>]`` schema (declared at the worker
             // ``@converter(options=...)`` site) plus the legacy
-            // hardcoded set (use_sat_pcurves / pcurve_drive_edge /
-            // skip_shapefix / profile_conversions) that still ride
+            // hardcoded set (use_sat_pcurves / skip_shapefix /
+            // profile_conversions) that still ride
             // the env-var rail. Values are tri-state native:
             // ``null`` clears any global override; otherwise the
             // type matches the option's declared ``type``.
@@ -1578,6 +1612,16 @@ export const viewerApi = {
         const url = `${runtime.apiBase()}/admin/audit${qs ? `?${qs}` : ""}`;
         const r = await authedFetch(url);
         return jsonOrThrow(r, "adminAudit");
+    },
+
+    /** Admin: the captured package manifest ("pixi list") for a worker image
+     * tag — linked from a convert audit row via its worker_image_tag. */
+    async adminWorkerPackages(
+        imageTag: string,
+    ): Promise<{worker_image_tag: string; packages: WorkerPackage[]; captured_at: string | null}> {
+        const url = `${runtime.apiBase()}/admin/worker-packages/${encodeURIComponent(imageTag)}`;
+        const r = await authedFetch(url);
+        return jsonOrThrow(r, "adminWorkerPackages");
     },
 
     /** Admin: list live regression corpora (admin-curated proprietary
@@ -1971,6 +2015,133 @@ export const viewerApi = {
         const url = `${runtime.apiBase()}/admin/audit/perf/hotspots${qs ? `?${qs}` : ""}`;
         const r = await authedFetch(url);
         return jsonOrThrow(r, "adminPerfHotspots");
+    },
+
+    /** Record one browser model-load (``action='view'``) — the viewer's
+     * opt-in load instrumentation posts this once a GLB is in the scene.
+     * Best-effort: never throws into the load path. ``client_metrics`` is
+     * the per-phase IO/network/CPU/GPU + payload + device breakdown. */
+    async recordViewLoad(
+        scope: ScopeUrl,
+        body: {
+            key: string;
+            status?: "ok" | "error";
+            duration_ms?: number | null;
+            read_bytes?: number | null;
+            write_bytes?: number | null;
+            peak_rss_kb?: number | null;
+            error?: string | null;
+            traceback?: string | null;
+            client_metrics?: Record<string, unknown> | null;
+        },
+    ): Promise<void> {
+        try {
+            await authedFetch(
+                `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/audit/view`,
+                {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify(body),
+                },
+            );
+        } catch (e) {
+            // Metrics must never disrupt the session.
+            console.debug("recordViewLoad failed (ignored)", e);
+        }
+    },
+
+    /** Record one steady-state render-performance window
+     * (``action='render'``). Same best-effort contract as
+     * ``recordViewLoad``. */
+    async recordRenderProfile(
+        scope: ScopeUrl,
+        body: {
+            key: string;
+            duration_ms?: number | null;
+            client_metrics?: Record<string, unknown> | null;
+        },
+    ): Promise<void> {
+        try {
+            await authedFetch(
+                `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/audit/view`,
+                {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    // The ingest endpoint stores any action via client_metrics;
+                    // render rows are marked by client_metrics.kind === "render"
+                    // and the backend routes them to action='render'.
+                    body: JSON.stringify(body),
+                },
+            );
+        } catch (e) {
+            console.debug("recordRenderProfile failed (ignored)", e);
+        }
+    },
+
+    /** Admin: per-file browser model-load perf snapshot. One cell per
+     * GLB with p50/p95 of every load phase + a dominant-bottleneck
+     * label (io / network / cpu / gpu). */
+    async adminFrontendLoads(since = 30): Promise<{
+        cells: Array<Record<string, number | string | null>>;
+        since_days: number;
+        generated_at: string;
+    }> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/frontend-loads?since=${since}`,
+        );
+        return jsonOrThrow(r, "adminFrontendLoads");
+    },
+
+    /** Admin: function-level hotspots (summed JS Self-Profiling self-time
+     * per TS/WASM frame) across browser loads, optionally one ``key``. */
+    async adminFrontendLoadHotspots(opts: {key?: string; since?: number; limit?: number; kind?: "view" | "render"}): Promise<{
+        functions: Array<{
+            fn: string;
+            samples: number;
+            self_ms_sum: number | null;
+            self_ms_avg: number | null;
+            total_ms_max: number | null;
+            is_wasm: boolean;
+        }>;
+        loads_in_window: number;
+        key: string | null;
+        kind: string;
+        since_days: number;
+    }> {
+        const params = new URLSearchParams();
+        if (opts.key) params.set("key", opts.key);
+        if (opts.since != null) params.set("since", String(opts.since));
+        if (opts.limit != null) params.set("limit", String(opts.limit));
+        if (opts.kind) params.set("kind", opts.kind);
+        const qs = params.toString();
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/frontend-loads/hotspots${qs ? `?${qs}` : ""}`,
+        );
+        return jsonOrThrow(r, "adminFrontendLoadHotspots");
+    },
+
+    /** Admin: the client_metrics payload for one browser view/render
+     * audit row — per-phase split + device + per-function frames. Backs
+     * the audit-log detail "Client" tab. */
+    async adminAuditClientMetrics(id: number): Promise<{
+        audit_id: number;
+        client_metrics: Record<string, unknown> | null;
+    }> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/${id}/client-metrics`);
+        return jsonOrThrow(r, "adminAuditClientMetrics");
+    },
+
+    /** Admin: per-file steady-state render-performance snapshot
+     * (``action='render'``). */
+    async adminRenderProfiles(since = 30): Promise<{
+        cells: Array<Record<string, number | string | null>>;
+        since_days: number;
+        generated_at: string;
+    }> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/render?since=${since}`,
+        );
+        return jsonOrThrow(r, "adminRenderProfiles");
     },
 
     /** Admin: kick off a background sweep that scans the scope for

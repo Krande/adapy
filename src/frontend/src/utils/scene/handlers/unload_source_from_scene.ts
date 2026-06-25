@@ -9,6 +9,7 @@ import {useTreeViewStore} from "@/state/treeViewStore";
 import {modelKeyMapRef, sceneRef} from "@/state/refs";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {requestRender} from "@/state/perfStore";
+import {disposeObject3D} from "@/utils/scene/dispose_object";
 
 export function unload_source_from_scene(sourceName: string): void {
     const group = useModelState.getState().unregisterLoadedSource(sourceName);
@@ -60,9 +61,10 @@ export function unload_source_from_scene(sourceName: string): void {
         for (const id of rangeIds) sel.removeSelectedObject(mesh, id);
     });
 
-    // Mirror what clear_loaded_model does per-group: detach
-    // children + remove from the parent scene so threejs can
-    // free the GPU buffers on the next frame.
+    // Mirror what clear_loaded_model does per-group: explicitly dispose the GPU resources
+    // (three.js does NOT free them on detach — clear()/remove() only drop references), then
+    // detach the children + remove from the parent scene.
+    disposeObject3D(group);
     group.clear();
     sceneRef.current?.remove(group);
     // On-demand render loop won't tick until the next OrbitControls

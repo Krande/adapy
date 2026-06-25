@@ -316,7 +316,7 @@ const RunGrid: React.FC<{
                                 return (
                                     <td
                                         key={target}
-                                        className={`px-2 py-1 border ${cls} text-center min-w-[60px] cursor-context-menu`}
+                                        className={`px-2 py-1 border ${cls} text-center min-w-[60px] cursor-context-menu select-none`}
                                         title={cellTooltip(job)}
                                         onContextMenu={(e) => {
                                             e.preventDefault();

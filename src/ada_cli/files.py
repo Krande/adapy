@@ -72,6 +72,40 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_delete(args: argparse.Namespace) -> int:
+    import httpx
+
+    base_url, token, scope = _config(args)
+    keys = [k.strip().lstrip("/") for k in (args.keys or []) if k.strip()]
+    with httpx.Client(timeout=120) as client:
+        if args.prefix:
+            resp = client.get(f"{base_url}/api/scopes/{scope}/files", headers=_auth(token))
+            if resp.status_code >= 400:
+                print(f"list failed: {resp.status_code} {resp.text}", file=sys.stderr)
+                return 1
+            keys += [f["key"] for f in resp.json().get("files", []) if f["key"].startswith(args.prefix)]
+        keys = sorted(set(keys))
+        if not keys:
+            print("nothing to delete (give one or more keys and/or --prefix)", file=sys.stderr)
+            return 1
+        if not args.yes:
+            print(f"about to delete {len(keys)} blob(s) from scope {scope}:", file=sys.stderr)
+            for k in keys:
+                print(f"  {k}", file=sys.stderr)
+            if input("proceed? [y/N] ").strip().lower() not in ("y", "yes"):
+                print("aborted", file=sys.stderr)
+                return 1
+        rc = 0
+        for k in keys:
+            resp = client.delete(f"{base_url}/api/scopes/{scope}/blobs/{k}", headers=_auth(token))
+            if resp.status_code >= 400:
+                print(f"delete failed: {k}: {resp.status_code} {resp.text}", file=sys.stderr)
+                rc = 1
+            else:
+                print(f"deleted {k}")
+        return rc
+
+
 def cmd_download(args: argparse.Namespace) -> int:
     import httpx
 

@@ -27,6 +27,11 @@ class StepStreamSource:
     path: str | Path
     tolerant: bool = True
     on_progress: Callable[[str, float], None] | None = None
+    # Merge a product's redundant same-name nesting (a product instanced N times, or a lone
+    # solid under a same-named group) into one node / pickable object (triangles reordered
+    # to one contiguous draw-range). Default OFF — one node per solid, byte-identical to the
+    # pre-merge output. Opt in here or via env ADA_MERGE_SAME_NAME_SIBLINGS=1.
+    merge_same_name_siblings: bool = False
 
 
 # Below this solid count the ~1 s process-pool spawn overhead outweighs the
@@ -79,11 +84,62 @@ def _rebuild_stats():
     re-added/dropped holes, area-gate drops), or None on backends without the module
     (adacpp-only installs have no ada.occ)."""
     try:
-        from ada.occ.geom.surfaces import consume_param_rebuild_stats
+        from ada.occ.geom.surfaces import (
+            consume_face_coverage_stats,
+            consume_param_rebuild_stats,
+        )
     except ImportError:
         return None
     stats = consume_param_rebuild_stats()
+    # Fold the per-face build coverage (total/built/dropped) in under faces_* keys so
+    # it aggregates into the run summary's face_coverage without a second build.
+    for k, v in consume_face_coverage_stats().items():
+        stats[f"faces_{k}"] = stats.get(f"faces_{k}", 0) + v
     return stats or None
+
+
+def _maybe_capture_empty_solid(geom) -> None:
+    """When ADA_CAPTURE_EMPTY_SOLIDS=<dir> is set, pickle a solid that built but
+    tessellated to zero triangles (built-but-unmeshed) for offline diagnosis. No-op by
+    default; never raises. Source-derived — keep captures local, drive synthetic fixtures."""
+    import os
+
+    out_dir = os.environ.get("ADA_CAPTURE_EMPTY_SOLIDS")
+    if not out_dir:
+        return
+    try:
+        import hashlib
+        import pickle
+
+        blob = pickle.dumps(geom)
+        tag = hashlib.sha1(blob).hexdigest()[:12]
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, f"empty_{tag}.pkl"), "wb") as fh:
+            fh.write(blob)
+    except Exception:  # noqa: BLE001 - capture is best-effort
+        pass
+
+
+def _maybe_capture_timeout_solid(geom) -> None:
+    """When ADA_CAPTURE_TIMEOUT_SOLIDS=<dir> is set, pickle a solid whose worker
+    overran the per-solid timeout (slow OCC build/tessellation) for offline diagnosis.
+    No-op by default; never raises. Source-derived — keep captures local."""
+    import os
+
+    out_dir = os.environ.get("ADA_CAPTURE_TIMEOUT_SOLIDS")
+    if not out_dir or geom is None:
+        return
+    try:
+        import hashlib
+        import pickle
+
+        blob = pickle.dumps(geom)
+        tag = hashlib.sha1(blob).hexdigest()[:12]
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, f"timeout_{tag}.pkl"), "wb") as fh:
+            fh.write(blob)
+    except Exception:  # noqa: BLE001 - capture is best-effort
+        pass
 
 
 def _tessellate_geom_worker(geom):
@@ -121,6 +177,47 @@ def _tessellate_geom_worker(geom):
 
         be = active_backend()
         gid = str(geom.id) if geom.id not in (None, "") else None
+
+        # OCC-free libtess2 path (ADA_STREAM_TESS_PIPELINE=libtess2|occ|cgal|hybrid): serialize the
+        # ada.geom to the NGEOM buffer and tessellate in one adacpp call — no per-solid OCC
+        # build/ShapeHandle round-trip. The rest of the streaming export (spill + merge-by-colour +
+        # ADA_EXT_data + picking) is unchanged, so it stays memory-bounded and contract-compliant.
+        _pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE")
+        if _pipeline and hasattr(be, "tessellate_stream"):
+            defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
+            ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+            gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
+            bm = be.tessellate_stream([(gid or "0", gi)], pipeline=_pipeline, deflection=defl, angular_deg=ang)
+            _pos = getattr(bm, "positions", None)
+            _idx = getattr(bm, "indices", None)
+            if _pos is None or _idx is None or len(_idx) == 0:
+                _maybe_capture_empty_solid(geom)
+                return ("empty", gid, geom.color, None, None, None, None, None, _rebuild_stats())
+            pos = np.ascontiguousarray(_pos, dtype=np.float32)
+            idx = np.ascontiguousarray(_idx, dtype=np.uint32)
+            # Optional step2glb merge cleanup (ADA_STREAM_SIMPLIFY=1): meshopt_simplify each unique
+            # mesh once, border-locked, lossless at target-error 0 (coplanar collapse).
+            if os.environ.get("ADA_STREAM_SIMPLIFY") and len(idx) >= 3:
+                try:
+                    import adacpp.cad as _cad
+
+                    sp, si = _cad.meshopt_simplify_mesh(
+                        pos.reshape(-1),
+                        idx.reshape(-1),
+                        float(os.environ.get("ADA_STREAM_SIMPLIFY_THRESHOLD", "0.75")),
+                        float(os.environ.get("ADA_STREAM_SIMPLIFY_TARGET_ERROR", "0.0")),
+                    )
+                    pos = np.ascontiguousarray(sp, dtype=np.float32)
+                    idx = np.ascontiguousarray(si, dtype=np.uint32)
+                except Exception:  # noqa: BLE001 - cleanup is best-effort; keep the raw mesh
+                    pass
+            if len(idx) == 0:
+                _maybe_capture_empty_solid(geom)
+                return ("empty", gid, geom.color, None, None, None, None, None, _rebuild_stats())
+            # libtess2 emits no per-vertex normals (viewer flat-shades / computes its own) — matches
+            # step2glb's normal-free merged output and keeps the GLB lean.
+            return ("ok", gid, geom.color, pos, idx, None, geom.transforms, geom.instance_paths, _rebuild_stats())
+
         occ = be.build(geom)
         # Zero-extent solid -> OCC's relative mesher throws an uncatchable terminate.
         try:
@@ -136,6 +233,7 @@ def _tessellate_geom_worker(geom):
             idx = getattr(mesh, "faces", None)
         pos = getattr(mesh, "positions", None)
         if pos is None or idx is None or len(idx) == 0:
+            _maybe_capture_empty_solid(geom)
             return ("empty", gid, geom.color, None, None, None, None, None, _rebuild_stats())
         nrm = getattr(mesh, "normals", None)
         # ascontiguousarray(+dtype) COPIES, so pos/idx/nrm no longer reference any OCC
@@ -268,7 +366,13 @@ def _cgroup_cpu_quota() -> int | None:
 def _stream_workers() -> int:
     """Number of tessellation worker processes. ``ADA_STEP_STREAM_WORKERS`` overrides
     (verbatim); otherwise the pod's cgroup CPU limit (falling back to schedulable CPUs)
-    MINUS one, capped at 8.
+    MINUS one, capped at 3.
+
+    The cap is a *memory* bound, not a throughput one: each worker holds a chunk of the
+    model's tessellated mesh in flight back to the parent, so peak RSS scales ~linearly
+    with worker count. On the crane (26 M tris) 8 workers peaked ~6.2 GB and 4 ~4.7 GB;
+    3 keeps it near a ~4 GB pod ceiling (the spill-bounded parent alone is ~2.1 GB). Bump
+    ``ADA_STEP_STREAM_WORKERS`` on a roomier pod to trade RAM for speed.
 
     The ``- 1`` is load-bearing, not just polite: when this runs inside the conversion
     worker, the parent process must keep its asyncio event loop responsive to refresh
@@ -291,7 +395,37 @@ def _stream_workers() -> int:
             n = len(os.sched_getaffinity(0))
         except (AttributeError, OSError):
             n = os.cpu_count() or 1
-    return max(1, min(n - 1, 8))
+    return max(1, min(n - 1, 3))
+
+
+def _leaf_product_name(paths) -> str | None:
+    """The STEP product name of a solid's own (deepest) assembly level.
+
+    Each path is a root-first tuple of ``(rep_id, product_name)`` levels from the
+    stream reader; the last is the solid's leaf product. Returns the first real
+    product name found (ignoring ``asm_<id>`` placeholders for unnamed reps), or
+    None when no path carries one."""
+    for path in paths or ():
+        if path:
+            name = path[-1][1]
+            if isinstance(name, str) and name and not name.startswith("asm_"):
+                return name
+    return None
+
+
+def _merge_siblings_enabled(source: "StepStreamSource") -> bool:
+    """Whether redundant same-name product nesting is merged into one node/object.
+
+    Default OFF (one node per solid, pre-merge behaviour). Opt in via the source flag or
+    the ``ADA_MERGE_SAME_NAME_SIBLINGS`` env var, which OVERRIDES the source flag when set
+    (``1``/``true`` on, ``0``/``false`` off) so a conversion worker can toggle it without
+    code changes."""
+    import os
+
+    env = os.environ.get("ADA_MERGE_SAME_NAME_SIBLINGS")
+    if env is not None and env != "":
+        return env.lower() not in ("0", "false", "no")
+    return bool(getattr(source, "merge_same_name_siblings", False))
 
 
 def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
@@ -353,6 +487,12 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     # sub-assemblies instead of scrolling a flat list of thousands of solids.
     asm_nodes: dict[tuple, object] = {}
 
+    # Same-name nesting merge: when a solid's product reaches a group node named after the
+    # product itself (a product instanced N times, or a lone solid under a same-named
+    # group), the mesh attaches to that group node so the redundant gid/k child leaves
+    # collapse into one pickable mesh. Disabled -> one node per solid, exactly as before.
+    merge_siblings = _merge_siblings_enabled(source)
+
     def _group_parent(path) -> object:
         parent = root
         if not path:
@@ -370,7 +510,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     # The parent owns the material store (so colours map to consistent ids across worker
     # processes), creates the graph node from each worker's raw mesh arrays, and hands
     # the result to the caller's sink. Workers (subprocesses) only build + tessellate.
-    def _build(gid, color, pos, idx, nrm, transform=None, path=None) -> None:
+    def _build(gid, color, pos, idx, nrm, transform=None, path=None, collapse_leaf=False, merge_name=None) -> None:
         # Apply this instance's world placement to the local mesh (rigid: rotation +
         # translation on positions, rotation on normals). pos/nrm stay FLAT (N*3,) — the
         # MeshStore/spill path needs flat buffers — so reshape only for the matmul.
@@ -379,7 +519,13 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
             r = t[:3, :3]
             pos = np.ascontiguousarray((pos.reshape(-1, 3) @ r.T + t[:3, 3]).ravel(), dtype=np.float32)
             if nrm is not None:
-                nrm = np.ascontiguousarray((nrm.reshape(-1, 3) @ r.T).ravel(), dtype=np.float32)
+                n = nrm.reshape(-1, 3) @ r.T
+                # r may carry a uniform unit-scale (mixed-unit parts), which would
+                # de-normalize the rotated normals — renormalize so they stay unit
+                # (a no-op for a pure rotation).
+                ln = np.linalg.norm(n, axis=1, keepdims=True)
+                np.divide(n, ln, out=n, where=ln > 1e-12)
+                nrm = np.ascontiguousarray(n.ravel(), dtype=np.float32)
         if unit_scale != 1.0:
             # Placement translations and positions are both in file units, so scaling
             # once AFTER the transform keeps them consistent. Normals are unaffected
@@ -388,8 +534,26 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
         # Resolve (and lazily create) the group chain BEFORE asking for the next node
         # id — next_node_id() is len(nodes), so the reverse order would hand the leaf
         # an id that the first new group node then claims, silently evicting it.
-        parent = _group_parent(path)
-        node = graph.add_node(GraphNode(gid, graph.next_node_id(), hash=create_guid(), parent=parent))
+        # When the solid was named after its own leaf product (collapse_leaf), the
+        # deepest path level IS this solid — so group under path[:-1], making the
+        # solid node the product node (matches step2glb) instead of nesting it under
+        # a redundant same-named group.
+        if merge_siblings and merge_name:
+            # Merge ONLY the redundant same-name nesting: when a solid's product reaches a
+            # group node named after the product itself (a product instanced N times, or a
+            # lone solid under a same-named group), attach the mesh to that group node
+            # instead of adding a gid/k child — so the group becomes one merged, pickable
+            # mesh. Distinct products that merely share a name get distinct group reps, so
+            # they are NOT merged; same-prefix instances already share the group node
+            # (asm_nodes), so this fuses them automatically.
+            parent = _group_parent(path)
+            if parent is not root and getattr(parent, "name", None) == merge_name:
+                node = parent
+            else:
+                node = graph.add_node(GraphNode(gid, graph.next_node_id(), hash=create_guid(), parent=parent))
+        else:
+            parent = _group_parent(path[:-1] if collapse_leaf and path else path)
+            node = graph.add_node(GraphNode(gid, graph.next_node_id(), hash=create_guid(), parent=parent))
         mat_id = bt.material_store.get(color, None)
         if mat_id is None:
             mat_id = len(bt.material_store)
@@ -404,13 +568,24 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
         i = n_total
         n_total += 1
         gid = gid or f"solid_{i}"
+        # The stream reader names a solid after its owning STEP product, which is
+        # also the deepest assembly path level. For a SINGLE-instance solid that
+        # level would be a redundant same-named group above the solid, so collapse
+        # it (the solid node becomes the product node, matching step2glb). For a
+        # multi-instance solid the product group meaningfully holds its instances,
+        # so keep it.
+        n_inst = len(transforms) if transforms else 1
+        collapse_leaf = n_inst == 1 and bool(gid) and _leaf_product_name(paths) == gid
         if status == "ok":
             # One mesh, N instances: tessellated once, placed per assembly matrix.
             tfs = transforms if transforms else [None]
             paths = paths if paths and len(paths) == len(tfs) else [None] * len(tfs)
             for k, (tf, path) in enumerate(zip(tfs, paths)):
                 inst_gid = gid if k == 0 else f"{gid}/{k + 1}"
-                _build(inst_gid, color, pos, idx, nrm, tf, path)
+                # merge_name = the base product name (no /k suffix); when merging is on and
+                # the instance's group node is named after the product, the mesh attaches to
+                # that group node (the redundant gid/k leaves collapse into one mesh).
+                _build(inst_gid, color, pos, idx, nrm, tf, path, collapse_leaf=collapse_leaf, merge_name=gid)
         elif status == "degenerate":
             _skip(gid, "degenerate (zero-extent solid)")
         elif status == "empty":
@@ -624,6 +799,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                             continue
                         if slot["since"] and (now - slot["since"]) > timeout_s:
                             gid = slot["gid"]
+                            _maybe_capture_timeout_solid(slot["geom"])
                             slot["proc"].kill()
                             slot["proc"].join(timeout=2)
                             busy -= 1
@@ -673,6 +849,14 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
         n_total,
         len(bt.material_store),
     )
+    f_total = rebuild_totals.get("faces_total", 0)
+    f_built = rebuild_totals.get("faces_built", 0)
+    face_coverage = {
+        "total": f_total,
+        "built": f_built,
+        "dropped": rebuild_totals.get("faces_dropped", 0),
+        "pct": round(100.0 * f_built / f_total, 2) if f_total else 100.0,
+    }
     return {
         "meshed": n_total - n_skipped,
         "total": n_total,
@@ -680,6 +864,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
         "materials": len(bt.material_store),
         "reasons": dict(reasons),
         "rebuilds": dict(rebuild_totals),
+        "face_coverage": face_coverage,
         "pool": dict(pool_events),
     }
 
@@ -717,10 +902,17 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
     # One merged mesh (glTF node) per material/colour — the default GLB shape.
     if source.on_progress is not None:
         source.on_progress("merging", 0.92)
+    coalesce = _merge_siblings_enabled(source)
     for mat_id, stores in by_material.items():
         merged = concatenate_stores(stores, graph)
         if merged is None:
             continue
+        if coalesce:
+            # Reorder this colour's index buffer so a merged node's siblings form one
+            # contiguous draw-range (positions untouched -> identical triangles).
+            from ada.visit.gltf.optimize import coalesce_groups_by_node
+
+            merged.indices, merged.groups = coalesce_groups_by_node(merged.indices, merged.groups)
         merged_mesh_to_trimesh_scene(
             scene, merged, bt.get_mat_by_id(mat_id), mat_id, graph, apply_transform=params.apply_transform
         )
@@ -761,6 +953,12 @@ def convert_step_stream_to_glb(source: StepStreamSource, glb_path: str | Path) -
 
         if source.on_progress is not None:
             source.on_progress("merging", 0.92)
+
+        # Merge same-name siblings: reorder each material's index buffer so a merged
+        # node's ranges are contiguous (one pickable draw-range per node). Must run
+        # BEFORE the groups are read into the picking metadata + the GLB is written.
+        if _merge_siblings_enabled(source):
+            spill.coalesce_by_node()
 
         # Register each material's picking ranges so ``to_json_hierarchy`` emits the
         # ``draw_ranges_node{mat_id}`` sequences. ``create_id_sequence`` only reads

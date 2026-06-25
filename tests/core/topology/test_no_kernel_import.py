@@ -32,6 +32,7 @@ def test_topology_source_has_no_direct_kernel_imports():
 def test_importing_topology_pulls_in_no_kernel():
     # In a clean subprocess, importing ada.topology must not drag a CAD kernel
     # into sys.modules (lazy-import discipline for slim/wasm environments).
+    import os
     import subprocess
     import sys
 
@@ -40,7 +41,13 @@ def test_importing_topology_pulls_in_no_kernel():
         "loaded = [m for m in sys.modules if m == 'OCC' or m.startswith('OCC.') or m == 'adacpp' or m.startswith('adacpp.')]; "
         "print('LOADED:' + ','.join(sorted(loaded)))"
     )
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    # The subprocess does not inherit pytest's ``pythonpath=["src"]`` injection, so
+    # hand it a PYTHONPATH derived from the already-imported ada package. This makes
+    # the test pass whether adapy is pip-installed or run from the source tree; it
+    # changes only where ``ada`` is found, not which modules get imported.
+    src_dir = str(pathlib.Path(ada.topology.__file__).resolve().parent.parent.parent)
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(p for p in [src_dir, os.environ.get("PYTHONPATH", "")] if p)}
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
     assert out.returncode == 0, out.stderr
     assert "LOADED:" in out.stdout
     loaded = out.stdout.split("LOADED:")[1].strip()
