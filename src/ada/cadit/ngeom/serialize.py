@@ -91,7 +91,14 @@ _CONNECTED_FACE_SET = 66
 
 
 def _xyz(p) -> tuple[float, float, float]:
-    return (float(p[0]), float(p[1]), float(p[2]))
+    # IFC readers occasionally emit a 2D point — the z is dropped when it's 0, e.g. a polyline
+    # edge lying in the z=0 plane (one edge of a face whose other edges came through 3D). Treat
+    # the missing component as 0 (it was 0) instead of IndexError-crashing the whole serialize.
+    try:
+        z = float(p[2])
+    except IndexError:
+        z = 0.0
+    return (float(p[0]), float(p[1]), z)
 
 
 class _Encoder:
