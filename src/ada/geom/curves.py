@@ -450,3 +450,24 @@ class EdgeLoop:
     """
 
     edge_list: list[OrientedEdge]
+
+
+# Concrete tuple of bare-curve geometry classes (CURVE_GEOM_TYPES is a Union of forward-ref
+# strings, so it can't be used with isinstance). Used to detect a Geometry that carries a curve
+# rather than a surface/solid — e.g. a sectionless SAT wire body that must render as glTF line
+# geometry. Includes Edge (a bare topological edge) which CURVE_GEOM_TYPES omits.
+CURVE_GEOM_TUPLE = (
+    Line,
+    ArcLine,
+    Circle,
+    Ellipse,
+    Parabola,
+    Hyperbola,
+    BSplineCurveWithKnots,
+    RationalBSplineCurveWithKnots,
+    IndexedPolyCurve,
+    PolyLine,
+    TrimmedCurve,
+    CompositeCurve,
+    Edge,
+)

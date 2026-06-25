@@ -150,6 +150,16 @@ class Shape(BackendGeom):
 
         return get_solid_occ(self)
 
+    def line_geom(self) -> Geometry:
+        # A Shape can carry a bare curve geometry (a sectionless SAT wire body, an open
+        # wireframe) — no surface/solid to mesh. Hand the curve Geometry to the tessellator's
+        # LINE path (glTF line geometry). Surface/solid shapes have no line representation.
+        from ada.geom.curves import CURVE_GEOM_TUPLE
+
+        if self.geom is not None and isinstance(self.geom.geometry, CURVE_GEOM_TUPLE):
+            return self.geom
+        raise NotImplementedError(f"line_geom() not implemented for {self.__class__.__name__}")
+
     def solid_geom(self) -> Geometry:
         # ``_geom`` is now guaranteed to be an ``ada.geom.Geometry``
         # wrapper or ``None`` (the constructor routes OCC bodies to

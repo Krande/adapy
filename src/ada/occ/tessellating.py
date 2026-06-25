@@ -9,6 +9,7 @@ import numpy as np
 
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
+from ada.geom.curves import CURVE_GEOM_TUPLE as _CURVE_GEOM_TUPLE
 from ada.cad import active_backend, is_shape_handle
 from ada.config import logger
 from ada.geom import Geometry
@@ -152,13 +153,32 @@ def _vertex_normals(positions: np.ndarray, faces: np.ndarray) -> np.ndarray:
 
 
 def tessellate_edges(shape: TopoDS_Edge, deflection=0.01) -> LineMesh:
-    from OCC.Extend.TopologyUtils import discretize_edge
+    """Discretize an edge / wire (or any shape's edges) into a GL_LINES mesh.
 
-    points = discretize_edge(shape, deflection=deflection)
+    Indices are emitted as endpoint PAIRS (``i0,i1, i1,i2, ...``) — the glTF store reshapes
+    them to ``(n/2, 2)`` segments — not a sequential strip, so a wire of several edges renders
+    as one connected polyline rather than disjoint hops."""
+    from OCC.Core.TopAbs import TopAbs_EDGE
+    from OCC.Extend.TopologyUtils import TopologyExplorer, discretize_edge
 
-    np_edge_vertices = np.array(points, dtype=np.float32)
-    np_edge_indices = np.arange(np_edge_vertices.shape[0], dtype=np.uint32)
-    return LineMesh(np_edge_vertices, np_edge_indices)
+    if shape.ShapeType() == TopAbs_EDGE:
+        edges = [shape]
+    else:
+        edges = list(TopologyExplorer(shape).edges()) or [shape]
+
+    verts: list = []
+    indices: list = []
+    for edge in edges:
+        pts = discretize_edge(edge, deflection=deflection)
+        if len(pts) < 2:
+            continue
+        base = len(verts) // 3
+        verts.extend(c for p in pts for c in (float(p[0]), float(p[1]), float(p[2])))
+        for i in range(len(pts) - 1):
+            indices.append(base + i)
+            indices.append(base + i + 1)
+    # Flat xyz buffer (the gltf store does position.reshape(len/3, 3)).
+    return LineMesh(np.array(verts, dtype=np.float32), np.array(indices, dtype=np.uint32))
 
 
 def _tessellate_brepmesh(shape, linear_deflection: float, angular_deflection: float, relative: bool) -> "TriangleMesh":
@@ -540,6 +560,42 @@ class BatchTessellator:
             geom_ref,
         )
 
+    def _direct_line_meshstore(self, geom: Geometry, node_ref) -> MeshStore | None:
+        """Build a GL_LINES MeshStore straight from a straight polyline/edge curve geometry —
+        no OCC, no libtess2 (a straight segment is its two endpoints). Returns None for curved
+        edges (Circle/BSpline/etc.), which still need OCC discretization."""
+        import ada.geom.curves as cu
+
+        inner = geom.geometry
+        pts = None
+        # Strict type checks: only genuinely straight geometry takes the endpoint shortcut.
+        # A bare Edge (start/end) and PolyLine are straight; an EdgeCurve/ArcLine/Circle/BSpline —
+        # or an IndexedPolyCurve containing any arc segment — must be DISCRETIZED, so return None
+        # and let the OCC path (make_wire_from_curve + discretize_edge) sample the curve.
+        if type(inner) is cu.Edge:
+            pts = [inner.start, inner.end]
+        elif type(inner) is cu.PolyLine:
+            pts = list(inner.points)
+        elif type(inner) is cu.IndexedPolyCurve and inner.segments and all(
+            type(s) is cu.Edge for s in inner.segments
+        ):
+            pts = [inner.segments[0].start] + [s.end for s in inner.segments]
+        if not pts or len(pts) < 2:
+            return None
+
+        # Flat xyz buffer (the gltf store does position.reshape(len/3, 3)).
+        position = np.array([c for p in pts for c in (float(p[0]), float(p[1]), float(p[2]))], dtype=np.float32)
+        # GL_LINES endpoint pairs: (0,1),(1,2),... — connected polyline (the glTF store reshapes
+        # indices to (n/2, 2) segments).
+        idx: list = []
+        for i in range(len(pts) - 1):
+            idx.extend((i, i + 1))
+        mat_id = self.material_store.get(geom.color, None)
+        if mat_id is None:
+            mat_id = len(self.material_store)
+            self.material_store[geom.color] = mat_id
+        return MeshStore(node_ref, None, position, np.array(idx, dtype=np.uint32), None, mat_id, MeshType.LINES, node_ref)
+
     def tessellate_geom(
         self,
         geom: Geometry,
@@ -551,6 +607,15 @@ class BatchTessellator:
             node_ref = graph_store.hash_map.get(obj.guid)
         else:
             node_ref = getattr(obj, "guid", geom.id)
+
+        # OCC-free fast path: a straight polyline/edge is just its endpoints, so emit the
+        # GL_LINES mesh directly — no OCC build, no libtess2, no discretization. Also lets
+        # sectionless wire bodies render on wasm (no pythonocc there). Curved edges
+        # (Circle/BSpline) return None here and fall through to the OCC discretization below.
+        if mesh_type == MeshType.LINES:
+            direct = self._direct_line_meshstore(geom, node_ref)
+            if direct is not None:
+                return direct
 
         # NGEOM stream path (opt-in via ADA_STREAM_TESS_PIPELINE=libtess2|occ|cgal|hybrid):
         # serialize ada.geom + tessellate in one adacpp call instead of the OCC build +
@@ -639,6 +704,12 @@ class BatchTessellator:
             if isinstance(obj, BackendGeom):
                 ada_obj = obj
                 geom_repr = render_override.get(obj.guid, GeomRepr.SOLID)
+                # A Shape carrying a bare curve geometry (sectionless SAT wire body, open
+                # wireframe) has no solid/shell — render it as glTF line geometry.
+                if geom_repr == GeomRepr.SOLID:
+                    _g = getattr(obj, "geom", None)
+                    if _g is not None and isinstance(getattr(_g, "geometry", None), _CURVE_GEOM_TUPLE):
+                        geom_repr = GeomRepr.LINE
                 node_ref = graph_store.hash_map.get(obj.guid) if graph_store is not None else getattr(obj, "guid", None)
 
                 # PlateCurved: prism-extrude the BSpline face by

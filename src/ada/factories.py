@@ -156,6 +156,28 @@ def from_acis(
 
         a.add_part(part)
 
+    # Wire (sectionless) bodies — beam centerlines / construction wireframes ACIS stores with no
+    # bounding face. The face-based body loop above drops them (empty geometries → skipped), which
+    # left wire-only SAT files (e.g. a single Sesam beam) rendering as an empty scene. A wire has
+    # no surface and no section, so it is NOT a Beam — it is a Shape carrying a curve Geometry, which
+    # glTF renders as line geometry. No geometry left behind, nothing fabricated.
+    from ada.visit.colors import Color
+
+    n_wire = 0
+    for body_name, wire_geoms in converter.convert_all_wire_bodies():
+        part = a.parts.get(body_name)
+        if part is None:
+            part = Part(body_name)
+            a.add_part(part)
+        for i, geom in enumerate(wire_geoms):
+            # A colour is required for the glTF line material (the line store has no default); it
+            # must live on the Geometry — that's what the tessellator reads for the line material.
+            gray = Color.from_str("gray")
+            part.add_shape(Shape(f"wire{i}", Geometry(i, geom, color=gray), color=gray))
+            n_wire += 1
+    if n_wire:
+        logger.info(f"Imported {n_wire} wire/line shape(s) from sectionless bodies in ACIS SAT file")
+
     logger.info(f"Imported {len(bodies)} bodies from ACIS SAT file")
 
     return a
