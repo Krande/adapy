@@ -413,6 +413,7 @@ async def update_audit_by_job(
     read_bytes: int | None = None,
     write_bytes: int | None = None,
     profile_key: str | None = None,
+    log_key: str | None = None,
     worker_image_tag: str | None = None,
     convert_meta: dict | None = None,
 ) -> None:
@@ -448,7 +449,8 @@ async def update_audit_by_job(
                     write_bytes = COALESCE($10, write_bytes),
                     profile_key = COALESCE($11, profile_key),
                     worker_image_tag = COALESCE($12, worker_image_tag),
-                    convert_meta = COALESCE($13, convert_meta)
+                    convert_meta = COALESCE($13, convert_meta),
+                    log_key = COALESCE($14, log_key)
                 WHERE job_id = $1
                 RETURNING audit_run_id
                 """,
@@ -465,6 +467,7 @@ async def update_audit_by_job(
                 profile_key,
                 worker_image_tag,
                 json.dumps(convert_meta) if convert_meta is not None else None,
+                log_key,
             )
             if updated is None or updated["audit_run_id"] is None:
                 return
@@ -747,7 +750,7 @@ async def list_audit(
         "SELECT id, ts, user_sub, scope_kind, scope_id, action, key,"
         " target_format, status, error, duration_ms, traceback,"
         " cpu_user_ms, cpu_sys_ms, peak_rss_kb, read_bytes, write_bytes,"
-        " profile_key, job_id, audit_run_id, worker_image_tag, convert_meta,"
+        " profile_key, log_key, job_id, audit_run_id, worker_image_tag, convert_meta,"
         " issue_bot_status, issue_bot_synced_at, issue_bot_last_error,"
         " client_metrics->>'device_id' AS device_id"
         " FROM audit_log"
@@ -776,6 +779,7 @@ async def list_audit(
             "read_bytes": r["read_bytes"],
             "write_bytes": r["write_bytes"],
             "profile_key": r["profile_key"],
+            "log_key": r["log_key"],
             "job_id": r["job_id"],
             "audit_run_id": str(r["audit_run_id"]) if r["audit_run_id"] else None,
             "worker_image_tag": r["worker_image_tag"],
@@ -836,7 +840,7 @@ async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
     error context for a failed conversion."""
     row = await pool.fetchrow(
         """
-        SELECT id, ts, user_sub, scope_kind, scope_id, profile_key, key,
+        SELECT id, ts, user_sub, scope_kind, scope_id, profile_key, log_key, key,
                action, target_format, status, error, traceback,
                duration_ms, job_id, metrics_samples, audit_run_id,
                issue_bot_status, issue_bot_synced_at, issue_bot_last_error
@@ -862,6 +866,7 @@ async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
         "scope_kind": row["scope_kind"],
         "scope_id": row["scope_id"],
         "profile_key": row["profile_key"],
+        "log_key": row["log_key"],
         "key": row["key"],
         "action": row["action"],
         "target_format": row["target_format"],

@@ -4770,6 +4770,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers["Content-Encoding"] = result.content_encoding
         return StreamingResponse(result.stream, media_type="application/octet-stream", headers=headers)
 
+    @admin.get("/audit/{audit_id}/log")
+    async def admin_audit_log_file(
+        audit_id: int,
+        request: Request,
+    ) -> StreamingResponse:
+        """Download the captured stdout/stderr log for a conversion (every conversion now ships
+        one). 404 when the row or its log_key is missing — i.e. a conversion that predates the
+        log-capture, not a silent gap."""
+        pool = _require_pool(request)
+        row = await db_module.get_audit_by_id(pool, audit_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"audit row {audit_id} not found")
+        log_key = row.get("log_key")
+        if not log_key:
+            raise HTTPException(status_code=404, detail="no log attached to this row")
+        scope = (
+            Scope.shared()
+            if row["scope_kind"] == "shared"
+            else Scope(kind=row["scope_kind"], id=row["scope_id"])  # type: ignore[arg-type]
+        )
+        try:
+            result = await storage.open_stream(scope, log_key)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        headers = {"Content-Disposition": f'attachment; filename="{log_key.rsplit("/", 1)[-1]}"'}
+        if result.content_encoding:
+            headers["Content-Encoding"] = result.content_encoding
+        return StreamingResponse(result.stream, media_type="text/plain; charset=utf-8", headers=headers)
+
     @admin.get("/audit/{audit_id}/metrics-history")
     async def admin_audit_metrics_history(
         audit_id: int,

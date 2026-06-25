@@ -129,6 +129,7 @@ async def _audit_done(
             read_bytes=metrics.get("read_bytes"),
             write_bytes=metrics.get("write_bytes"),
             profile_key=metrics.get("profile_key"),
+            log_key=metrics.get("log_key"),
             worker_image_tag=_WORKER_IMAGE_TAG,
             convert_meta=metrics.get("convert_meta"),
         )
@@ -1230,6 +1231,19 @@ async def _process_one(
                 logger.exception("worker: profile upload failed for job %s", job_id)
                 return None
 
+        async def _maybe_upload_log_bytes(log_bytes: bytes | None) -> str | None:
+            """Upload the captured child stdout/stderr so a conversion's output (incl. silently
+            swallowed library warnings) is recoverable via the audit log. Best-effort + gzip-at-rest."""
+            if not log_bytes:
+                return None
+            try:
+                log_key = f"_derived/{job.source_key}.{job_id}.log"
+                await storage.put_bytes(scope, log_key, log_bytes, content_encoding="gzip")
+                return log_key
+            except Exception:
+                logger.exception("worker: log upload failed for job %s", job_id)
+                return None
+
         # FEA streaming-viewer artefact bake — sibling code path to
         # the convert pipeline. The bake produces multiple files (mesh
         # GLB + manifest + per-field blobs) under
@@ -1408,6 +1422,7 @@ async def _process_one(
             )
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
+            metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
             metrics["convert_meta"] = convert_meta
             await _audit_done(
                 db_pool,
@@ -1478,6 +1493,7 @@ async def _process_one(
             await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
+            metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
             metrics["convert_meta"] = convert_meta
             await _audit_done(
                 db_pool,
@@ -1503,6 +1519,7 @@ async def _process_one(
         # the cProfile dump from the child.
         metrics = dict(iresult.final_metrics)
         metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
+        metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
         metrics["convert_meta"] = convert_meta
 
         await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
