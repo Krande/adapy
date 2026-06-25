@@ -668,7 +668,23 @@ def _export_with_ada(
         # FEM beam (line) elements render as line geometry by default; the solid (swept-
         # profile) representation is delivered as a separate beam_solids sidecar the viewer
         # lazy-loads when the "show beams as solid" toggle is on (mirrors the FEA-results path).
-        model.to_gltf(buf, merge_meshes=merge_meshes)
+        try:
+            model.to_gltf(buf, merge_meshes=merge_meshes)
+        except ValueError as exc:
+            from ada.cadit.wasm_convert import _is_empty_scene
+
+            if not _is_empty_scene(exc):
+                raise
+            # The source parsed to zero renderable geometry (e.g. a SAT file holding only a
+            # wire/construction body, or an IFC with metadata only). Emit a valid seeded GLB so
+            # the conversion succeeds with an empty scene instead of erroring — same trick the
+            # step-stream and scene-based glb paths already use via _seed_empty_scene.
+            import trimesh
+
+            scene = trimesh.Scene()
+            _seed_empty_scene(scene)
+            buf = io.BytesIO()
+            scene.export(buf, file_type="glb")
         on_progress("ready", 1.0)
         return buf.getvalue()
     if target_format == "ifc":
