@@ -1010,21 +1010,38 @@ def _via_ada(
                 # surfaces the OCC stream reader drops, at step2glb-parity geometry.
                 from ada.config import logger
                 from ada.cadit.step.stream_to_glb import stream_step_to_glb
+                from ada.occ.tessellating import TessellationFallbackError
 
                 # No geometry left behind: try the requested adacpp pipeline, then adacpp's own
                 # OCC kernel (adacpp:occ) — staying in the adacpp ecosystem so this also works on
                 # wasm, where pythonocc isn't available. Only if every adacpp attempt yields nothing
                 # do we fall through to the pythonocc occ-builtin path below (native only).
-                for fb_pipe, fb_cfg in _step_glb_fallback_chain(pipe, cad_cfg):
+                #
+                # Strict coverage (strict_tess): enforce 100% on the requested non-OCC engine —
+                # drop the adacpp:occ / occ-builtin fallbacks, and fail if the run skipped any solid
+                # (stream_step_to_glb skips rather than OCC-falls-back per geom), instead of shipping
+                # a partial GLB or completing on OCC.
+                strict = bool(strict_tess)
+                chain = _step_glb_fallback_chain(pipe, cad_cfg)
+                if strict:
+                    chain = chain[:1]
+                for fb_pipe, fb_cfg in chain:
                     try:
                         on_progress(fb_pipe, 0.1)
-                        stream_step_to_glb(
+                        stats = stream_step_to_glb(
                             src_path, out_path, tolerant=True, on_progress=on_progress, cad_config=fb_cfg
                         )
+                        if strict and stats and stats.get("skipped"):
+                            raise TessellationFallbackError(
+                                f"strict tessellation: {fb_pipe} skipped {stats['skipped']}/"
+                                f"{stats.get('total', '?')} solids ({stats.get('reasons')})"
+                            )
                         on_progress("ready", 1.0)
                         result = out_path
                         return result
                     except Exception as exc:
+                        if strict:
+                            raise
                         logger.warning(
                             "step-glb %s produced no usable GLB for %s (%s); trying next fallback",
                             fb_pipe,
@@ -1963,7 +1980,7 @@ def _register_ada_loadable() -> None:
                 # OCC streaming reader). Other →glb sources: the BatchTessellator engine toggle.
                 # strict_tess (fail-on-OCC-fallback) applies to the non-STEP BatchTessellator path.
                 if ext in {".step", ".stp"}:
-                    row_options = glb_options + [step_streamer_option, step_glb_pipeline_option]
+                    row_options = glb_options + [step_streamer_option, step_glb_pipeline_option, strict_tess_option]
                 else:
                     row_options = glb_options + [glb_tess_engine_option, strict_tess_option]
             elif tgt in ("ifc", "xml") and ext in _FEM_SOURCE_EXTS:
