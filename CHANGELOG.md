@@ -2,6 +2,15 @@
 
 
 
+## v0.26.0 (2026-06-25)
+
+### Feature
+
+* feat: OCC-free libtess2 CAD→GLB tessellation pipeline + audit tooling (#230)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`956e8b0`](https://github.com/Krande/adapy/commit/956e8b0a676de9c8e145447ac72b28db2b00290b))
+
+
 ## v0.25.0 (2026-06-20)
 
 ### Feature
