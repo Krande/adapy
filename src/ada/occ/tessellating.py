@@ -730,6 +730,29 @@ class BatchTessellator:
                     and hasattr(obj, "extruded_solid_occ")
                     and callable(getattr(obj, "extruded_solid_occ"))
                 ):
+                    # Stream-first: a curved plate's solid_geom() can be serialized to NGEOM and
+                    # tessellated by the selected OCC-free kernel. Only if that yields nothing do we
+                    # use the OCC prism-extrude path below — routed through _log_tess_fallback so it
+                    # is logged and strict mode fails instead of silently completing on OCC. (This
+                    # path previously always used OCC, so curved plates never reached libtess2.)
+                    if os.environ.get("ADA_STREAM_TESS_PIPELINE"):
+                        cng = None
+                        try:
+                            cng = obj.solid_geom()
+                        except Exception:  # noqa: BLE001 - no parametric geom → OCC prism path
+                            cng = None
+                        if cng is not None:
+                            ms_cs = self._tessellate_geom_via_stream(cng, node_ref)
+                            if ms_cs is not None:
+                                yield ms_cs
+                                continue
+                        else:
+                            self._log_tess_fallback(
+                                node_ref,
+                                os.environ["ADA_STREAM_TESS_PIPELINE"],
+                                "PlateCurved has no parametric solid_geom for the stream kernel",
+                                None,
+                            )
                     ms_curved = None
                     try:
                         shape = obj.extruded_solid_occ()
@@ -934,6 +957,17 @@ class BatchTessellator:
                             if ms_ng is not None:
                                 yield ms_ng
                                 continue
+                        else:
+                            # Raw-OCC body with no parametric solid_geom (e.g. SAT/STEP import):
+                            # it can't be serialized to NGEOM, so it only renders via OCC. That IS a
+                            # stream→OCC fallback — route it through the choke point so it's logged
+                            # and strict mode fails instead of silently completing on OCC.
+                            self._log_tess_fallback(
+                                node_ref,
+                                os.environ["ADA_STREAM_TESS_PIPELINE"],
+                                "raw-OCC body has no parametric solid_geom for the stream kernel",
+                                None,
+                            )
                     try:
                         yield self.tessellate_occ_geom(raw, node_ref, obj.color, MeshType.TRIANGLES)
                     except UnableToCreateTesselationFromSolidOCCGeom as e:
