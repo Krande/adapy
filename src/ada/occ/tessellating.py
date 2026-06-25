@@ -499,6 +499,13 @@ def shape_to_tri_mesh(shape: TopoDS_Shape, rgba_color: Iterable[float, float, fl
     return mesh
 
 
+class TessellationFallbackError(RuntimeError):
+    """Raised in strict mode (``ADA_STREAM_TESS_STRICT``) when a geometry can't be tessellated
+    by the selected OCC-free stream pipeline (libtess2/adacpp-*) and would otherwise silently
+    fall back to OCC. Lets a conversion *enforce* 100% stream-kernel coverage — it fails loudly,
+    naming the geometry + reason, instead of completing on the OCC path."""
+
+
 @dataclass
 class BatchTessellator:
     quality: float = 1.0
@@ -649,6 +656,11 @@ class BatchTessellator:
             inner = getattr(geom, "geometry", geom)
             gt = type(getattr(inner, "geometry", inner)).__name__
         msg = f"NGEOM pipeline {pipeline!r} fell back to OCC for {node_ref!r} (geom={gt}): {reason}"
+        # Strict mode: a fall back to OCC is a hard failure, so a conversion can enforce/measure
+        # 100% stream-kernel (libtess2/adacpp-*) coverage rather than silently completing on OCC.
+        if os.environ.get("ADA_STREAM_TESS_STRICT", "").strip().lower() not in ("", "0", "false", "no", "off"):
+            logger.warning(msg)
+            raise TessellationFallbackError(msg)
         if os.environ.get("ADA_TESS_FALLBACK_DEBUG"):
             logger.warning(msg)
         else:

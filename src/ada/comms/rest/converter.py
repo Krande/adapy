@@ -685,6 +685,7 @@ def _export_with_ada(
     merge_fem_objects: bool | None = None,
     reconstruct_surfaces: bool | None = None,
     glb_tess_engine: str | None = None,
+    strict_tess: bool | None = None,
 ) -> bytes | pathlib.Path:
     """Run the matching ada exporter; return the output as bytes or a path.
 
@@ -727,6 +728,13 @@ def _export_with_ada(
             _os.environ["ADA_STREAM_TESS_PIPELINE"] = _stream
         else:
             _os.environ.pop("ADA_STREAM_TESS_PIPELINE", None)
+        # Strict coverage (only meaningful alongside a non-OCC engine): make a stream→OCC
+        # fallback a hard error. Set the flag for the duration of to_gltf, restored below.
+        _prev_strict = _os.environ.get("ADA_STREAM_TESS_STRICT")
+        if strict_tess and _stream:
+            _os.environ["ADA_STREAM_TESS_STRICT"] = "1"
+        else:
+            _os.environ.pop("ADA_STREAM_TESS_STRICT", None)
         try:
             model.to_gltf(buf, merge_meshes=merge_meshes)
         except ValueError as exc:
@@ -749,6 +757,10 @@ def _export_with_ada(
                 _os.environ.pop("ADA_STREAM_TESS_PIPELINE", None)
             else:
                 _os.environ["ADA_STREAM_TESS_PIPELINE"] = _prev_stream
+            if _prev_strict is None:
+                _os.environ.pop("ADA_STREAM_TESS_STRICT", None)
+            else:
+                _os.environ["ADA_STREAM_TESS_STRICT"] = _prev_strict
         on_progress("ready", 1.0)
         return buf.getvalue()
     if target_format == "ifc":
@@ -957,6 +969,7 @@ def _via_ada(
     step_streamer: bool | None = None,
     step_glb_pipeline: str | None = None,
     glb_tess_engine: str | None = None,
+    strict_tess: bool | None = None,
 ) -> bytes:
     """Heavy path: load with ada, export to target format. Used for any
     non-trivial source/target combination that needs the full ada-py
@@ -1043,6 +1056,7 @@ def _via_ada(
             merge_fem_objects=merge_fem_objects,
             reconstruct_surfaces=reconstruct_surfaces,
             glb_tess_engine=glb_tess_engine,
+            strict_tess=strict_tess,
         )
         return result
     finally:
@@ -1114,6 +1128,7 @@ def _via_bundle(
                 merge_fem_objects=opts.get("merge_fem_objects"),
                 reconstruct_surfaces=opts.get("reconstruct_surfaces"),
                 glb_tess_engine=opts.get("glb_tess_engine"),
+                strict_tess=opts.get("strict_tess"),
             )
             return result
         finally:
@@ -1853,6 +1868,21 @@ def _register_ada_loadable() -> None:
         ),
     }
 
+    # Strict coverage: fail the conversion if any geometry falls back from the selected OCC-free
+    # stream engine to OCC, instead of silently completing on OCC. Lets you enforce/measure 100%
+    # libtess2 (or adacpp-*) coverage. No effect when the engine is 'occ-builtin'.
+    strict_tess_option = {
+        "name": "strict_tess",
+        "type": "bool",
+        "default": False,
+        "description": (
+            "Fail if the selected (non-OCC) tessellation engine can't handle a geometry and would "
+            "fall back to OCC. Use to enforce/measure 100% libtess2/adacpp coverage — the "
+            "conversion errors out naming the offending geometry instead of silently completing on "
+            "the OCC path. No effect when the engine is 'occ-builtin'."
+        ),
+    }
+
     # Schema for FEM-source → CAD-target pairs. ``fem_to_objects`` rebuilds
     # concept Beam/Plate objects from the mesh before export — without it a
     # FEM → IFC/XML conversion is near-empty (the writers only emit concept
@@ -1910,6 +1940,7 @@ def _register_ada_loadable() -> None:
                 step_streamer=None,
                 step_glb_pipeline=None,
                 glb_tess_engine=None,
+                strict_tess=None,
                 **_kw,
             ):
                 return _via_ada(
@@ -1924,15 +1955,17 @@ def _register_ada_loadable() -> None:
                     step_streamer=step_streamer,
                     step_glb_pipeline=step_glb_pipeline,
                     glb_tess_engine=glb_tess_engine,
+                    strict_tess=strict_tess,
                 )
 
             if tgt == "glb":
                 # STEP sources: streaming toggle + the STEP engine selector (incl. step2glb /
                 # OCC streaming reader). Other →glb sources: the BatchTessellator engine toggle.
+                # strict_tess (fail-on-OCC-fallback) applies to the non-STEP BatchTessellator path.
                 if ext in {".step", ".stp"}:
                     row_options = glb_options + [step_streamer_option, step_glb_pipeline_option]
                 else:
-                    row_options = glb_options + [glb_tess_engine_option]
+                    row_options = glb_options + [glb_tess_engine_option, strict_tess_option]
             elif tgt in ("ifc", "xml") and ext in _FEM_SOURCE_EXTS:
                 row_options = fem_to_objects_options
             else:
