@@ -561,25 +561,15 @@ class BatchTessellator:
         )
 
     def _direct_line_meshstore(self, geom: Geometry, node_ref) -> MeshStore | None:
-        """Build a GL_LINES MeshStore straight from a straight polyline/edge curve geometry —
-        no OCC, no libtess2 (a straight segment is its two endpoints). Returns None for curved
-        edges (Circle/BSpline/etc.), which still need OCC discretization."""
-        import ada.geom.curves as cu
+        """Build a GL_LINES MeshStore from a curve geometry WITHOUT OCC or libtess2: straight
+        segments are their endpoints, arcs/circles are sampled by chord deflection (the native
+        ada.geom.curve_discretize sampler — parity-tested against OCC discretize_edge). Also lets
+        line geometry render on wasm (no pythonocc). Returns None for curve kinds with no native
+        sampler (e.g. B-spline), which fall through to the OCC discretization path."""
+        from ada.geom.curve_discretize import discretize_curve
 
-        inner = geom.geometry
-        pts = None
-        # Strict type checks: only genuinely straight geometry takes the endpoint shortcut.
-        # A bare Edge (start/end) and PolyLine are straight; an EdgeCurve/ArcLine/Circle/BSpline —
-        # or an IndexedPolyCurve containing any arc segment — must be DISCRETIZED, so return None
-        # and let the OCC path (make_wire_from_curve + discretize_edge) sample the curve.
-        if type(inner) is cu.Edge:
-            pts = [inner.start, inner.end]
-        elif type(inner) is cu.PolyLine:
-            pts = list(inner.points)
-        elif type(inner) is cu.IndexedPolyCurve and inner.segments and all(
-            type(s) is cu.Edge for s in inner.segments
-        ):
-            pts = [inner.segments[0].start] + [s.end for s in inner.segments]
+        deflection = float(os.environ.get("ADA_LINE_DEFLECTION", "0.01"))
+        pts = discretize_curve(geom.geometry, deflection=deflection)
         if not pts or len(pts) < 2:
             return None
 
@@ -608,10 +598,10 @@ class BatchTessellator:
         else:
             node_ref = getattr(obj, "guid", geom.id)
 
-        # OCC-free fast path: a straight polyline/edge is just its endpoints, so emit the
-        # GL_LINES mesh directly — no OCC build, no libtess2, no discretization. Also lets
-        # sectionless wire bodies render on wasm (no pythonocc there). Curved edges
-        # (Circle/BSpline) return None here and fall through to the OCC discretization below.
+        # OCC-free fast path: discretize the curve natively (straight = endpoints; arc/circle =
+        # chord-deflection sampling) and emit the GL_LINES mesh directly — no OCC build, no
+        # libtess2. Also lets line geometry render on wasm (no pythonocc). Only curve kinds
+        # without a native sampler (e.g. B-spline) return None and fall to the OCC path below.
         if mesh_type == MeshType.LINES:
             direct = self._direct_line_meshstore(geom, node_ref)
             if direct is not None:
