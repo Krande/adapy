@@ -56,6 +56,19 @@ export function caseResultKey(row: CapacityCaseResultLike): string {
   );
 }
 
+/** Human-readable case label for a result row. Worst-view rows carry the case
+ *  they came from in ``worstCaseLabel``; otherwise resolve via the run's
+ *  ``result_cases`` (falling back to the row's own label / id). */
+export function caseLabelForRow(
+  run: CapacityRunLike,
+  row: CapacityCaseResultLike,
+): string {
+  const worstLabel = (row as { worstCaseLabel?: string }).worstCaseLabel;
+  if (worstLabel) return worstLabel;
+  const match = run.result_cases.find((rc) => rc.id === row.case_id);
+  return match?.label ?? row.case_label ?? `Case ${row.case_id}`;
+}
+
 export function formulaReference(
   check: Pick<CapacityCheckResult, "clause" | "equations">,
 ): string {

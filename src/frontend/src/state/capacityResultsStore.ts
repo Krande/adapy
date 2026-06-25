@@ -134,6 +134,20 @@ export interface CapacityWorstSummary {
   cases: Record<string, { label?: string; rows: CapacityWorstRow[] }>;
 }
 
+/** One check that raised and was skipped (so it never reached the results). The
+ *  capacity model is still listed in ``capacity_models`` with its geometry, but
+ *  has no usage factor for this case. */
+export interface CapacityRunError {
+  id?: string;
+  case_id: string;
+  capacity_model_id: string;
+  panel_group: string;
+  stiffener?: string;
+  /** Exception text, usually prefixed with the offending clause, e.g.
+   *  "[6.21] Square root of negative value ...". */
+  message: string;
+}
+
 export interface CapacityRun {
   id: string;
   label?: string;
@@ -146,6 +160,9 @@ export interface CapacityRun {
   /** v6: empty in the spine; per-case rows are lazy-loaded into the store's
    *  ``caseDetail`` map. Legacy sidecars (<=v5) inline the full array here. */
   case_results: CapacityCaseResult[];
+  /** v7 (additive): checks that raised and were skipped. Absent/empty on a clean
+   *  run and on older sidecars. */
+  errors?: CapacityRunError[];
   visual_fields: CapacityVisualField[];
   /** v6: shared element axis for the AFEL colour blobs (payload-row order). */
   element_axis?: number[];
@@ -175,8 +192,8 @@ export interface CapacityResultsState {
   showResults: boolean;
   isolateDefinitions: boolean;
   /** With "Only definitions" (isolateDefinitions) on, optionally still draw the
-   *  rest of the model as a wireframe for context. Default off — isolation
-   *  shows only the capacity models. */
+   *  rest of the model as a wireframe for context. Default on — the capacity
+   *  models stand out while the rest stays visible as a faint wireframe. */
   showRestWireframe: boolean;
   activeMetricId: string;
   selectedModelId: string | null;
@@ -234,8 +251,8 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   activeMode: "results",
   showDefinitions: true,
   showResults: true,
-  isolateDefinitions: false,
-  showRestWireframe: false,
+  isolateDefinitions: true,
+  showRestWireframe: true,
   activeMetricId: DEFAULT_METRIC,
   selectedModelId: null,
   selectedResultId: null,
@@ -261,8 +278,8 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       activeCaseId: caseId,
       showDefinitions: true,
       showResults: true,
-      isolateDefinitions: false,
-      showRestWireframe: false,
+      isolateDefinitions: true,
+      showRestWireframe: true,
       activeMetricId: DEFAULT_METRIC,
       selectedModelId: null,
       selectedResultId: null,
@@ -306,8 +323,8 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       activeMode: "results",
       showDefinitions: true,
       showResults: true,
-      isolateDefinitions: false,
-      showRestWireframe: false,
+      isolateDefinitions: true,
+      showRestWireframe: true,
       activeMetricId: DEFAULT_METRIC,
       selectedModelId: null,
       selectedResultId: null,

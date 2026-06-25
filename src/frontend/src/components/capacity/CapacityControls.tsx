@@ -5,6 +5,7 @@ import CapacityResultsPanel from "@/components/capacity/CapacityResultsPanel";
 import {
   CAPACITY_FLOATING_PANEL_RIGHT_PX,
   CAPACITY_INPUT_RIGHT_WITH_RESULTS_PX,
+  caseLabelForRow,
   caseResultKey,
   formatUf,
   formulaReference,
@@ -200,8 +201,12 @@ const CapacityControls: React.FC = () => {
       clearCapacityDefinitionView();
     }
     if (showResults && activeCaseId) {
-      if (individualUf && !isWorst) {
-        applyCapacityIndividualField(buildIndividualUfValues(activeRows, run));
+      if (individualUf) {
+        // Worst view colours each stiffener strip by its worst-over-selected-cases
+        // UF; a specific case uses that case's rows.
+        applyCapacityIndividualField(
+          buildIndividualUfValues(isWorst ? worstRows : activeRows, run),
+        );
       } else {
         void applyCapacityVisualField(activeMetricId, activeCaseId);
       }
@@ -212,6 +217,7 @@ const CapacityControls: React.FC = () => {
   }, [
     run,
     activeRows,
+    worstRows,
     activeCaseId,
     activeMetricId,
     showDefinitions,
@@ -314,6 +320,27 @@ const CapacityControls: React.FC = () => {
           <div className="text-red-300 truncate max-w-[220px]">{error}</div>
         )}
       </div>
+      {run?.errors && run.errors.length > 0 && (
+        <details className="border-b border-red-600/70 bg-red-950/50 px-3 py-2 text-red-200">
+          <summary className="cursor-pointer font-semibold text-red-300">
+            {`⛔ ${run.errors.length} capacity check${
+              run.errors.length === 1 ? "" : "s"
+            } failed with an error — no result is shown for the affected model/case`}
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {run.errors.map((err, i) => (
+              <li key={err.id ?? `${err.capacity_model_id}:${err.case_id}:${i}`}>
+                <span className="font-mono text-red-100">
+                  {err.panel_group}
+                  {err.stiffener ? ` / ${err.stiffener}` : ""}
+                </span>
+                <span className="text-red-400">{` (case ${err.case_id})`}</span>
+                <div className="text-red-300/90">{err.message}</div>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {run && (
         <div className="p-3 space-y-3">
           <div className="grid grid-cols-2 gap-2">
@@ -358,7 +385,7 @@ const CapacityControls: React.FC = () => {
             </div>
           )}
 
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-stretch gap-1">
             <button
               className={modeButton(showDefinitions)}
               onClick={() => setShowDefinitions(!showDefinitions)}
@@ -393,7 +420,7 @@ const CapacityControls: React.FC = () => {
               className={modeButton(individualUf)}
               onClick={() => setIndividualUf(!individualUf)}
               disabled={!showResults}
-              title="Colour each stiffener's tributary strip by its own UF (within-panel variation) instead of the panel maximum"
+              title="Colour each stiffener's tributary strip by its own UF (within-panel variation) instead of the panel maximum — works for a specific case and for the worst-over-selected-cases view"
             >
               Individual UF
             </button>
@@ -668,32 +695,61 @@ const FloatingInputPanel: React.FC<{
     className="fixed top-16 z-[1000] flex max-h-[80vh] w-72 flex-col rounded-sm border border-gray-700 bg-gray-900/95 text-gray-100 text-xs shadow-lg"
     style={{ right: rightOffsetPx }}
   >
-    <div className="flex items-center justify-between gap-2 border-b border-gray-700 px-3 py-2">
-      <div className="font-semibold truncate" title={row.capacity_model_id}>
-        {shortName(row.stiffener ?? row.panel_group)} — input
+    <div className="border-b border-gray-700 px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-semibold">Input</div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            className={modeButton(false) + " text-[11px]"}
+            onClick={() => downloadUiCase(run, row)}
+            title="Export these inputs as a case file you can import into the aibel_dnv_rp_c201_ui app"
+          >
+            Export
+          </button>
+          <button
+            className={modeButton(showStations) + " text-[11px]"}
+            onClick={onToggleStations}
+            title="Mark positions 1/2/3 on the model in the 3D view"
+          >
+            Points
+          </button>
+          <button
+            className="text-gray-400 hover:text-gray-100"
+            onClick={onClose}
+            title="Close"
+          >
+            ✕
+          </button>
+        </div>
       </div>
-      <div className="flex items-center gap-1 shrink-0">
-        <button
-          className={modeButton(showStations) + " text-[11px]"}
-          onClick={onToggleStations}
-          title="Mark positions 1/2/3 on the model in the 3D view"
-        >
-          Points
-        </button>
-        <button
-          className="text-gray-400 hover:text-gray-100"
-          onClick={onClose}
-          title="Close"
-        >
-          ✕
-        </button>
-      </div>
+      <PanelSubtitle run={run} row={row} />
     </div>
     <div className="overflow-y-auto p-3">
       <CapacityInputDetails run={run} row={row} />
     </div>
   </div>
 );
+
+/** Two-line "Case / Model" subtitle shared by the Input and Results sidecars. */
+const PanelSubtitle: React.FC<{
+  run: CapacityRunLike;
+  row: CapacityCaseResultLike;
+}> = ({ run, row }) => {
+  const caseLabel = caseLabelForRow(run, row);
+  const modelName = shortName(row.stiffener ?? row.panel_group);
+  return (
+    <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 text-[11px] text-gray-400">
+      <span className="text-gray-500">Case</span>
+      <span className="truncate" title={caseLabel}>
+        {caseLabel}
+      </span>
+      <span className="text-gray-500">Model</span>
+      <span className="truncate" title={row.capacity_model_id}>
+        {modelName}
+      </span>
+    </div>
+  );
+};
 
 const CapacityLegend: React.FC = () => (
   <div className="space-y-1">
@@ -822,6 +878,112 @@ function fmtInputField(f: InputField): string {
   return f.unit && f.unit !== "-" ? `${s} ${f.unit}` : s;
 }
 
+/** Map a capacity-model section to the UI's stiffener_type choice. */
+function stiffenerTypeForExport(section: Record<string, unknown>): string {
+  const bf = asNum(section.flange_width);
+  if (bf == null || bf <= 0) return "flatbar";
+  // HP/bulb profiles are one-sided — the engine maps them to the angle type.
+  if (/^hp|bulb/i.test(String(section.name ?? ""))) return "angle";
+  return "tee";
+}
+
+/** Build the aibel_dnv_rp_c201_ui ``fe_stiffened`` value map from a result row.
+ *  Units match that check's fields (mm / MPa / kNm); stresses come from the same
+ *  resolved vectors / loads the Input panel displays. */
+function buildUiCaseValues(
+  run: CapacityRunLike,
+  row: CapacityCaseResultLike,
+): Record<string, number | string | boolean> {
+  const model = run.capacity_models.find((m) => m.id === row.capacity_model_id);
+  const plate = (model?.plates?.[0] ?? {}) as Record<string, unknown>;
+  const stiffeners = (model?.stiffeners ?? []) as Array<Record<string, unknown>>;
+  const stiff =
+    stiffeners.find((s) => s.name === row.stiffener) ?? stiffeners[0] ?? {};
+  const section = (stiff.section ?? {}) as Record<string, unknown>;
+  const mat = (stiff.material ?? plate.material ?? {}) as Record<string, unknown>;
+  const loads = (row.loads ?? {}) as Record<string, unknown>;
+  const vec = (row.resolved_vectors ?? {}) as Record<string, unknown>;
+  const sigmaX = (vec.AverageLongitudinalMembraneStresses ?? []) as unknown[];
+  const num = (v: unknown, factor: number, fallback = 0): number => {
+    const n = scaled(v, factor);
+    return n == null ? fallback : n;
+  };
+  // Uniform sigma_x is stored as a single station; fan it out to all three.
+  const sx1 = num(sigmaX[0], 1e-6);
+  const sx2 = sigmaX[1] != null ? num(sigmaX[1], 1e-6) : sx1;
+  const sx3 = sigmaX[2] != null ? num(sigmaX[2], 1e-6) : sx1;
+  return {
+    model: "general",
+    continuous: stiff.continuous !== false,
+    z_star: 0,
+    fy: num(mat.fy, 1e-6, 355),
+    E: num(mat.E, 1e-6, 210000),
+    gamma_M: num(mat.gamma_m, 1, 1.15),
+    stiffener_type: stiffenerTypeForExport(section),
+    hw: num(section.height, 1e3),
+    tw: num(section.web_thickness, 1e3),
+    bf: num(section.flange_width, 1e3),
+    tf: num(section.flange_thickness, 1e3),
+    s: num(plate.width, 1e3),
+    t: num(plate.thickness, 1e3),
+    span: num(stiff.span ?? plate.length, 1e3),
+    sigma_x_1: sx1,
+    sigma_x_2: sx2,
+    sigma_x_3: sx3,
+    tau_1: num(loads.tau_1, 1e-6),
+    tau_2: num(loads.tau_2, 1e-6),
+    tau_3: num(loads.tau_3, 1e-6),
+    sigma_y1: num(loads.sigma_y1, 1e-6),
+    sigma_y2: num(loads.sigma_y2, 1e-6),
+    sigma_y3: num(loads.sigma_y3, 1e-6),
+    M_1: num(loads.M_1, 1e-3),
+    M_2: num(loads.M_2, 1e-3),
+    M_3: num(loads.M_3, 1e-3),
+    lateral_pressure: num(loads.p_Sd, 1e-6),
+  };
+}
+
+function slugForFile(value: string): string {
+  return (
+    (value || "case").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+  );
+}
+
+/** Download the current input as an aibel_dnv_rp_c201_ui case file. The schema
+ *  (``aibel-dnv-c201-ui/case@1`` + ``check_id``/``values``) is exactly what that
+ *  app's "Import JSON…" expects. */
+function downloadUiCase(run: CapacityRunLike, row: CapacityCaseResultLike): void {
+  const name = `${shortName(row.stiffener ?? row.panel_group)} ${caseLabelForRow(
+    run,
+    row,
+  )}`.trim();
+  const payload = {
+    schema: "aibel-dnv-c201-ui/case@1",
+    name,
+    check_id: "fe_stiffened",
+    source: "adapy-capacity-viewer",
+    capacity_model_id: row.capacity_model_id,
+    case_id: row.case_id,
+    values: buildUiCaseValues(run, row),
+    saved_at: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slugForFile(name)}.case.json`;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 function buildInputGroups(
   run: CapacityRunLike,
   row: CapacityCaseResultLike,
@@ -886,58 +1048,40 @@ function buildInputGroups(
       ],
     },
     {
-      title: "Design loads (positions ● 1 / ● 2 / ● 3)",
+      title: "Axial membrane stress",
       fields: [
-        f(
-          "σ_x1",
-          "Axial membrane stress @1",
-          scaled(sigmaX[0], 1e-6),
-          "MPa",
-          1,
-          "[5.3.2]",
-        ),
-        f(
-          "σ_x2",
-          "Axial membrane stress @2",
-          scaled(sigmaX[1], 1e-6),
-          "MPa",
-          2,
-        ),
-        f(
-          "σ_x3",
-          "Axial membrane stress @3",
-          scaled(sigmaX[2], 1e-6),
-          "MPa",
-          3,
-        ),
-        f(
-          "σ_y1",
-          "Transverse stress @1",
-          scaled(loads.sigma_y1, 1e-6),
-          "MPa",
-          1,
-          "[5.3.4]",
-        ),
-        f(
-          "σ_y2",
-          "Transverse stress @2",
-          scaled(loads.sigma_y2, 1e-6),
-          "MPa",
-          2,
-        ),
-        f(
-          "σ_y3",
-          "Transverse stress @3",
-          scaled(loads.sigma_y3, 1e-6),
-          "MPa",
-          3,
-        ),
-        f("τ_1", "Shear @1", scaled(loads.tau_1, 1e-6), "MPa", 1, "[5.3.5]"),
-        f("τ_2", "Shear @2", scaled(loads.tau_2, 1e-6), "MPa", 2),
-        f("τ_3", "Shear @3", scaled(loads.tau_3, 1e-6), "MPa", 3),
-        f("M_1", "Moment @1", scaled(loads.M_1, 1e-3), "kN·m", 1, "[5.3.3]"),
-        f("M_2", "Moment @2", scaled(loads.M_2, 1e-3), "kN·m", 2),
-        f("M_3", "Moment @3", scaled(loads.M_3, 1e-3), "kN·m", 3),
+        f("σ_x1", "Position 1", scaled(sigmaX[0], 1e-6), "MPa", 1, "[5.3.2]"),
+        f("σ_x2", "Position 2", scaled(sigmaX[1], 1e-6), "MPa", 2),
+        f("σ_x3", "Position 3", scaled(sigmaX[2], 1e-6), "MPa", 3),
+      ],
+    },
+    {
+      title: "Transverse stress",
+      fields: [
+        f("σ_y1", "Position 1", scaled(loads.sigma_y1, 1e-6), "MPa", 1, "[5.3.4]"),
+        f("σ_y2", "Position 2", scaled(loads.sigma_y2, 1e-6), "MPa", 2),
+        f("σ_y3", "Position 3", scaled(loads.sigma_y3, 1e-6), "MPa", 3),
+      ],
+    },
+    {
+      title: "Shear",
+      fields: [
+        f("τ_1", "Position 1", scaled(loads.tau_1, 1e-6), "MPa", 1, "[5.3.5]"),
+        f("τ_2", "Position 2", scaled(loads.tau_2, 1e-6), "MPa", 2),
+        f("τ_3", "Position 3", scaled(loads.tau_3, 1e-6), "MPa", 3),
+      ],
+    },
+    {
+      title: "Moment",
+      fields: [
+        f("M_1", "Position 1", scaled(loads.M_1, 1e-3), "kN·m", 1, "[5.3.3]"),
+        f("M_2", "Position 2", scaled(loads.M_2, 1e-3), "kN·m", 2),
+        f("M_3", "Position 3", scaled(loads.M_3, 1e-3), "kN·m", 3),
+      ],
+    },
+    {
+      title: "Lateral load",
+      fields: [
         f("p_Sd", "Lateral pressure", scaled(loads.p_Sd, 1e-3), "kPa"),
       ],
     },

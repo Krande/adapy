@@ -3,6 +3,7 @@ import React, { useMemo } from "react";
 import {
   CAPACITY_FLOATING_PANEL_RIGHT_PX,
   CAPACITY_RESULTS_PANEL_WIDTH_PX,
+  caseLabelForRow,
   formulaReference,
   formatUf,
   shortName,
@@ -39,17 +40,27 @@ export const CapacityResultsPanel: React.FC<CapacityResultsPanelProps> = ({
         width: CAPACITY_RESULTS_PANEL_WIDTH_PX,
       }}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-gray-700 px-3 py-2">
-        <div className="font-semibold truncate" title={row.capacity_model_id}>
-          {shortName(row.stiffener ?? row.panel_group)} - results
+      <div className="border-b border-gray-700 px-3 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-semibold">Results</div>
+          <button
+            className="text-gray-400 hover:text-gray-100"
+            onClick={onClose}
+            title="Close"
+          >
+            x
+          </button>
         </div>
-        <button
-          className="text-gray-400 hover:text-gray-100"
-          onClick={onClose}
-          title="Close"
-        >
-          x
-        </button>
+        <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 text-[11px] text-gray-400">
+          <span className="text-gray-500">Case</span>
+          <span className="truncate" title={caseLabelForRow(run, row)}>
+            {caseLabelForRow(run, row)}
+          </span>
+          <span className="text-gray-500">Model</span>
+          <span className="truncate" title={row.capacity_model_id}>
+            {shortName(row.stiffener ?? row.panel_group)}
+          </span>
+        </div>
       </div>
 
       <div className="overflow-y-auto p-3 space-y-3">
