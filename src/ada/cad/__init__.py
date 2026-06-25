@@ -451,6 +451,33 @@ class AdacppBackend:
                     float(surf.minor_radius),
                     [self._encode_face_bound(fb) for fb in g.bounds],
                 )
+            elif (
+                isinstance(surf, su.SurfaceOfRevolution)
+                and g.bounds
+                and hasattr(self._cad, "build_advanced_face_surface_of_revolution")
+            ):
+                # Revolution AdvancedFace (e.g. Ventilator contoured surfaces): revolve the
+                # generatrix (B-spline meridian) about the axis, trim to bounds. libtess2 covers
+                # this OCC-free; this is the OCC build path for B-rep export (ifc/step).
+                ax = surf.axis_position
+                shape = self._cad.build_advanced_face_surface_of_revolution(
+                    self._xyz(ax.location),
+                    _axis(ax.axis, (0, 0, 1)),
+                    self._encode_generatrix(surf.swept_curve),
+                    [self._encode_face_bound(fb) for fb in g.bounds],
+                )
+            elif (
+                isinstance(surf, su.SurfaceOfLinearExtrusion)
+                and g.bounds
+                and hasattr(self._cad, "build_advanced_face_surface_of_linear_extrusion")
+            ):
+                # Linear-extrusion AdvancedFace: extrude the swept curve along the direction, trim
+                # to bounds. (OCC-free via libtess2's SURF_LIN_EXTRUSION; OCC path for B-rep export.)
+                shape = self._cad.build_advanced_face_surface_of_linear_extrusion(
+                    _axis(surf.extrusion_direction, (0, 0, 1)),
+                    self._encode_generatrix(surf.swept_curve),
+                    [self._encode_face_bound(fb) for fb in g.bounds],
+                )
             elif not isinstance(surf, su.BSplineSurfaceWithKnots):
                 raise NotImplementedError(
                     f"AdacppBackend.build: AdvancedFace surface {type(surf).__name__!r} "
@@ -623,6 +650,34 @@ class AdacppBackend:
             return edges
         raise NotImplementedError(
             f"AdacppBackend.build: profile curve {type(curve).__name__!r} not yet ported to adacpp."
+        )
+
+    def _encode_generatrix(self, curve) -> list[float]:
+        """Encode a bare generatrix/swept curve (the meridian of a SurfaceOfRevolution or
+        the swept curve of a SurfaceOfLinearExtrusion) as a single adacpp curve record
+        (geom_curve_from_record layout). Full/untrimmed — the face bounds trim the surface.
+        B-spline is the STEP case; circle handled too. Mirrors _encode_oriented_edge's curve arms."""
+        import ada.geom.curves as cu
+
+        if isinstance(curve, (cu.BSplineCurveWithKnots, cu.RationalBSplineCurveWithKnots)):
+            poles = [self._xyz(p) for p in curve.control_points_list]
+            knots = [float(k) for k in curve.knots]
+            mults = [float(m) for m in curve.knot_multiplicities]
+            rational = isinstance(curve, cu.RationalBSplineCurveWithKnots)
+            # [kind=3, degree, rational, trim=0, t0, t1, pstart(3), pend(3), n_poles, poles..., n_knots, knots, mults, weights?]
+            rec: list[float] = [3.0, float(curve.degree), 1.0 if rational else 0.0, 0.0, 0.0, 0.0,
+                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, float(len(poles))]
+            for p in poles:
+                rec += [float(p[0]), float(p[1]), float(p[2])]
+            rec += [float(len(knots))] + knots + mults
+            if rational:
+                rec += [float(w) for w in curve.weights_data]
+            return rec
+        if isinstance(curve, cu.Circle):
+            pos = curve.position
+            return [2.0, *self._xyz(pos.location), *self._xyz(pos.axis), float(curve.radius)]
+        raise NotImplementedError(
+            f"AdacppBackend: surface generatrix {type(curve).__name__!r} not yet ported to adacpp"
         )
 
     def _encode_oriented_edge(self, oe) -> list[float]:
