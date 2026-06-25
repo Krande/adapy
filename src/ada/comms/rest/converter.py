@@ -684,6 +684,7 @@ def _export_with_ada(
     source_ext: str | None = None,
     merge_fem_objects: bool | None = None,
     reconstruct_surfaces: bool | None = None,
+    glb_tess_engine: str | None = None,
 ) -> bytes | pathlib.Path:
     """Run the matching ada exporter; return the output as bytes or a path.
 
@@ -713,6 +714,19 @@ def _export_with_ada(
         # FEM beam (line) elements render as line geometry by default; the solid (swept-
         # profile) representation is delivered as a separate beam_solids sidecar the viewer
         # lazy-loads when the "show beams as solid" toggle is on (mirrors the FEA-results path).
+        #
+        # Tessellation-engine selection (glb_tess_engine row option): to_gltf's BatchTessellator
+        # reads ADA_STREAM_TESS_PIPELINE, so set it from the per-job engine for the duration of
+        # the call and restore after. None/occ-builtin → force the OCC default (clear any ambient
+        # override); libtess2/adacpp-* → the matching OCC-free stream pipeline.
+        import os as _os
+
+        _stream = _glb_engine_stream_value(glb_tess_engine)
+        _prev_stream = _os.environ.get("ADA_STREAM_TESS_PIPELINE")
+        if _stream:
+            _os.environ["ADA_STREAM_TESS_PIPELINE"] = _stream
+        else:
+            _os.environ.pop("ADA_STREAM_TESS_PIPELINE", None)
         try:
             model.to_gltf(buf, merge_meshes=merge_meshes)
         except ValueError as exc:
@@ -730,6 +744,11 @@ def _export_with_ada(
             _seed_empty_scene(scene)
             buf = io.BytesIO()
             scene.export(buf, file_type="glb")
+        finally:
+            if _prev_stream is None:
+                _os.environ.pop("ADA_STREAM_TESS_PIPELINE", None)
+            else:
+                _os.environ["ADA_STREAM_TESS_PIPELINE"] = _prev_stream
         on_progress("ready", 1.0)
         return buf.getvalue()
     if target_format == "ifc":
@@ -833,6 +852,38 @@ _STEP_GLB_PIPELINES = (
 )
 _STEP_GLB_PIPELINE_DEFAULT = _STEP_GLB_PIPELINE_LIBTESS2
 
+# Non-STEP →GLB engine toggle (xml / ifc / sat / fem / obj / stl → glb via to_gltf's
+# BatchTessellator). Reuses the STEP option's names so the admin panel reads consistently,
+# but maps to the BatchTessellator stream selector (ADA_STREAM_TESS_PIPELINE = libtess2|occ|
+# cgal|hybrid); "occ-builtin" = the default OCC BatchTessellator (no stream override). The
+# step2glb external binary and the OCC *streaming* reader are STEP-source-specific, so they
+# aren't offered here. Default stays OCC (libtess2 is opt-in).
+_GLB_TESS_ENGINES = (
+    _STEP_GLB_PIPELINE_OCC,  # "occ-builtin" — default
+    _STEP_GLB_PIPELINE_LIBTESS2,
+    _STEP_GLB_PIPELINE_ADACPP_OCC,
+    _STEP_GLB_PIPELINE_ADACPP_CGAL,
+    _STEP_GLB_PIPELINE_ADACPP_HYBRID,
+)
+_GLB_TESS_ENGINE_DEFAULT = _STEP_GLB_PIPELINE_OCC
+_GLB_ENGINE_TO_STREAM = {
+    _STEP_GLB_PIPELINE_LIBTESS2: "libtess2",
+    _STEP_GLB_PIPELINE_ADACPP_OCC: "occ",
+    _STEP_GLB_PIPELINE_ADACPP_CGAL: "cgal",
+    _STEP_GLB_PIPELINE_ADACPP_HYBRID: "hybrid",
+}
+
+
+def _glb_engine_stream_value(engine: str | None) -> str | None:
+    """Map the non-STEP →GLB engine option to a BatchTessellator stream pipeline value
+    (``ADA_STREAM_TESS_PIPELINE``), or ``None`` for the default OCC BatchTessellator
+    (``occ-builtin`` / unset / unknown). Per-job ``engine`` wins, else the global
+    ``ADAPY_GLB_TESS_ENGINE`` env, else the OCC default."""
+    import os
+
+    choice = (engine or os.environ.get("ADAPY_GLB_TESS_ENGINE", "") or _GLB_TESS_ENGINE_DEFAULT).strip().lower()
+    return _GLB_ENGINE_TO_STREAM.get(choice)
+
 
 def _resolve_step_glb_pipeline(step_glb_pipeline: str | None) -> str:
     """Pick the STEP→GLB engine.
@@ -905,6 +956,7 @@ def _via_ada(
     reconstruct_surfaces: bool | None = None,
     step_streamer: bool | None = None,
     step_glb_pipeline: str | None = None,
+    glb_tess_engine: str | None = None,
 ) -> bytes:
     """Heavy path: load with ada, export to target format. Used for any
     non-trivial source/target combination that needs the full ada-py
@@ -990,6 +1042,7 @@ def _via_ada(
             source_ext=source_ext,
             merge_fem_objects=merge_fem_objects,
             reconstruct_surfaces=reconstruct_surfaces,
+            glb_tess_engine=glb_tess_engine,
         )
         return result
     finally:
@@ -1060,6 +1113,7 @@ def _via_bundle(
                 source_ext=entry_ext,
                 merge_fem_objects=opts.get("merge_fem_objects"),
                 reconstruct_surfaces=opts.get("reconstruct_surfaces"),
+                glb_tess_engine=opts.get("glb_tess_engine"),
             )
             return result
         finally:
@@ -1782,6 +1836,23 @@ def _register_ada_loadable() -> None:
         ),
     }
 
+    # Non-STEP →GLB tessellation engine (xml / ifc / sat / fem / obj / stl → glb). Same engines
+    # as STEP but driving to_gltf's BatchTessellator stream selector; default OCC (libtess2 opt-in).
+    glb_tess_engine_option = {
+        "name": "glb_tess_engine",
+        "type": "enum",
+        "default": _GLB_TESS_ENGINE_DEFAULT,
+        "enum": list(_GLB_TESS_ENGINES),
+        "description": (
+            "→GLB tessellation engine. 'occ-builtin' (default) is the OpenCASCADE tessellator. "
+            "'libtess2' is adacpp's OCC-free boundary tessellator — renders curved surfaces OCC "
+            "drops and avoids the OCC optimal-bbox cost on curved-heavy models (per-geom fallback "
+            "to OCC when a geometry isn't yet NGEOM-serializable). 'adacpp-occ' / 'adacpp-cgal' / "
+            "'adacpp-hybrid' use adacpp's taxonomy kernels. Engines needing adacpp fall back to OCC "
+            "when it's unavailable."
+        ),
+    }
+
     # Schema for FEM-source → CAD-target pairs. ``fem_to_objects`` rebuilds
     # concept Beam/Plate objects from the mesh before export — without it a
     # FEM → IFC/XML conversion is near-empty (the writers only emit concept
@@ -1838,6 +1909,7 @@ def _register_ada_loadable() -> None:
                 reconstruct_surfaces=None,
                 step_streamer=None,
                 step_glb_pipeline=None,
+                glb_tess_engine=None,
                 **_kw,
             ):
                 return _via_ada(
@@ -1851,14 +1923,16 @@ def _register_ada_loadable() -> None:
                     reconstruct_surfaces=reconstruct_surfaces,
                     step_streamer=step_streamer,
                     step_glb_pipeline=step_glb_pipeline,
+                    glb_tess_engine=glb_tess_engine,
                 )
 
             if tgt == "glb":
-                # The streaming toggle + engine choice only apply to STEP sources.
+                # STEP sources: streaming toggle + the STEP engine selector (incl. step2glb /
+                # OCC streaming reader). Other →glb sources: the BatchTessellator engine toggle.
                 if ext in {".step", ".stp"}:
                     row_options = glb_options + [step_streamer_option, step_glb_pipeline_option]
                 else:
-                    row_options = glb_options
+                    row_options = glb_options + [glb_tess_engine_option]
             elif tgt in ("ifc", "xml") and ext in _FEM_SOURCE_EXTS:
                 row_options = fem_to_objects_options
             else:
