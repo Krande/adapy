@@ -698,12 +698,19 @@ class AdacppBackend:
         curve = ee.edge_geometry if isinstance(ee, cu.EdgeCurve) else None
 
         if isinstance(curve, cu.Circle):
-            loc, axis = self._xyz(curve.position.location), self._xyz(curve.position.axis)
+            pos = curve.position
+            loc, axis = self._xyz(pos.location), self._xyz(pos.axis)
+            # ref_direction is the circle's angular origin (param 0). It MUST be carried so the
+            # arc/closed-circle vertices land where the adjacent edges (e.g. a cylinder/torus
+            # seam line) attach — without it adacpp placed them at OCC's default x-axis and the
+            # boundary wire wouldn't close ("wire build failed"). Mirrors the Ellipse branch.
+            ref = self._xyz(pos.ref_direction) if pos.ref_direction is not None else [1.0, 0.0, 0.0]
             r = float(curve.radius)
             if closed:
-                return [2.0, *loc, *axis, r]
+                # Full circle: anchor the edge vertex at the start point so a seam connects there.
+                return [2.0, *loc, *axis, *ref, r, *start]
             if has_trim:
-                return [5.0, *loc, *axis, r, float(t_start), float(t_end)]
+                return [5.0, *loc, *axis, *ref, r, float(t_start), float(t_end)]
             return [0.0, *start, *end]  # no trim params recoverable → chord
         if isinstance(curve, cu.Ellipse):
             pos = curve.position
