@@ -1030,6 +1030,12 @@ function buildUiCaseValues(
     sigma_x_1: sx1,
     sigma_x_2: sx2,
     sigma_x_3: sx3,
+    // FE axial-force resultants (kN) the engine integrated (eq 5.1). These drive
+    // the beam-column checks and can differ several-fold from sigma_x·area, so
+    // the UI uses them directly (overriding the sigma_x-derived value).
+    N_1: num(loads.N_1, 1e-3),
+    N_2: num(loads.N_2, 1e-3),
+    N_3: num(loads.N_3, 1e-3),
     tau_1: num(loads.tau_1, 1e-6),
     tau_2: num(loads.tau_2, 1e-6),
     tau_3: num(loads.tau_3, 1e-6),
