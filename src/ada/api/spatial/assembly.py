@@ -236,6 +236,32 @@ class Assembly(Part):
 
         return postprocess(res_path, fem_format=fem_format)
 
+    def to_pickle(self, pickle_file: str | pathlib.Path) -> pathlib.Path:
+        """Serialize this Assembly to a pickle file (round-trips via :func:`ada.from_pickle`).
+
+        adapy objects are kept picklable on purpose — backend CAD bodies live in the transient
+        ``_occ_cache`` slot, not on the object — so the parametric model round-trips cleanly. Lets
+        a source parsed once be reused for many exports without re-reading/re-parsing it.
+        """
+        import pickle
+        import tempfile
+
+        pickle_file = pathlib.Path(pickle_file)
+        pickle_file.parent.mkdir(parents=True, exist_ok=True)
+        # atomic write so a concurrent reader never sees a half-written pickle
+        fd, tmp = tempfile.mkstemp(dir=str(pickle_file.parent), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(tmp, pickle_file)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        return pickle_file
+
     def to_ifc(
         self,
         destination=None,

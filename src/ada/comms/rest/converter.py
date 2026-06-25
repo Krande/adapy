@@ -536,20 +536,65 @@ def _via_gltf_to_glb(src_path: pathlib.Path, on_progress: ProgressFn) -> bytes:
     return _via_trimesh(src_path, ".gltf", on_progress)
 
 
+# Bumped when the pickled Assembly schema changes incompatibly, so stale cache entries from
+# older code are ignored rather than mis-loaded.
+_ASM_CACHE_VERSION = "1"
+
+
+def _asm_cache_path(src_path: pathlib.Path, ext: str) -> pathlib.Path | None:
+    """Local pickle-cache path for a parsed source, keyed by content hash — or None when the
+    cache is disabled (ADA_ASSEMBLY_CACHE unset/falsy). Same content → same key, so every export
+    target of one audit source reuses the first parse instead of re-reading the file."""
+    import os
+
+    if (os.environ.get("ADA_ASSEMBLY_CACHE") or "").strip().lower() in _FALSE | {""}:
+        return None
+    import hashlib
+
+    h = hashlib.sha1()  # noqa: S324 - cache key, not security
+    h.update(_ASM_CACHE_VERSION.encode())
+    h.update(ext.encode())
+    with open(src_path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    cache_dir = pathlib.Path(os.environ.get("ADA_ASSEMBLY_CACHE_DIR") or (tempfile.gettempdir() + "/ada_asm_cache"))
+    return cache_dir / f"{h.hexdigest()}.pkl"
+
+
 def _load_with_ada(src_path: pathlib.Path, ext: str):
     import ada
+    from ada.config import logger
 
-    if ext == ".ifc":
-        return ada.from_ifc(src_path)
-    if ext in {".step", ".stp"}:
-        return ada.from_step(src_path)
-    if ext == ".xml":
-        return ada.from_genie_xml(src_path)
-    if ext in {".inp", ".fem"}:
-        return ada.from_fem(src_path)
-    if ext in {".sat", ".acis"}:
-        return ada.from_acis(src_path)
-    raise UnsupportedFormat(f"ada path does not handle {ext!r}")
+    # Reuse a previously-parsed Assembly (read-once-export-many): the audit converts one source to
+    # several targets, and re-reading/re-parsing the same file per target is pure overhead. Each
+    # hit returns a fresh deep copy via from_pickle, so per-target mutation never cross-contaminates.
+    cache_path = _asm_cache_path(src_path, ext)
+    if cache_path is not None and cache_path.exists():
+        try:
+            return ada.from_pickle(cache_path)
+        except Exception as exc:  # noqa: BLE001 - corrupt / version-mismatched cache → re-parse
+            logger.debug("assembly cache miss (unreadable %s): %s", cache_path, exc)
+
+    def _read():
+        if ext == ".ifc":
+            return ada.from_ifc(src_path)
+        if ext in {".step", ".stp"}:
+            return ada.from_step(src_path)
+        if ext == ".xml":
+            return ada.from_genie_xml(src_path)
+        if ext in {".inp", ".fem"}:
+            return ada.from_fem(src_path)
+        if ext in {".sat", ".acis"}:
+            return ada.from_acis(src_path)
+        raise UnsupportedFormat(f"ada path does not handle {ext!r}")
+
+    model = _read()
+    if cache_path is not None:
+        try:
+            model.to_pickle(cache_path)
+        except Exception as exc:  # noqa: BLE001 - caching is best-effort; never fail the conversion
+            logger.debug("assembly cache store failed (%s): %s", cache_path, exc)
+    return model
 
 
 # FEM source extensions that carry a mesh (nodes + elements) rather than

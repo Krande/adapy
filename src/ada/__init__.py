@@ -84,6 +84,7 @@ from ada.factories import (  # noqa: E402 - imported after the API symbols the f
     from_fem_res,
     from_genie_xml,
     from_ifc,
+    from_pickle,
     from_sesam_cc,
     from_step,
 )
@@ -99,6 +100,7 @@ __all__ = [
     "from_step",
     "from_sesam_cc",
     "from_acis",
+    "from_pickle",
     "from_genie_xml",
     "from_fem_res",
     "logger",

@@ -1114,6 +1114,10 @@ async def _process_one(
                 "use_sat_pcurves": "ADA_USE_SAT_PCURVES",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
+                # Reuse a parsed source across export targets: parse once, pickle (content-hashed,
+                # local), reuse for every other target instead of re-reading the file. Big win for
+                # audit runs (one source → many targets); harmless when a source converts once.
+                "assembly_cache": "ADA_ASSEMBLY_CACHE",
                 # STEP→GLB tessellation engine (libtess2 / occ-builtin / step2glb /
                 # adacpp-{occ,cgal,hybrid}); enum string, read by _resolve_step_glb_pipeline.
                 "step_glb_pipeline": "ADAPY_STEP_GLB_PIPELINE",
@@ -1151,6 +1155,7 @@ async def _process_one(
                 "use_sat_pcurves": "ADA_USE_SAT_PCURVES",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
+                "assembly_cache": "ADA_ASSEMBLY_CACHE",
                 "step_glb_pipeline": "ADAPY_STEP_GLB_PIPELINE",
                 "step_streamer": "ADA_STEP_STREAMER",
                 "ifc_streaming": "ADA_IFC_STREAMING",

@@ -26,6 +26,21 @@ if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
 
 
+def from_pickle(pickle_file: str | os.PathLike) -> Assembly:
+    """Load an Assembly previously written with :meth:`Assembly.to_pickle`.
+
+    Round-trips the parametric model so a source parsed once can be reused for many exports
+    without re-reading/re-parsing it. Each call returns a fresh deep copy (downstream mutation
+    of one export can't leak into another)."""
+    import pickle
+
+    with open(pathlib.Path(pickle_file), "rb") as f:
+        obj = pickle.load(f)
+    if not isinstance(obj, Assembly):
+        raise TypeError(f"from_pickle: expected an Assembly, got {type(obj).__name__}")
+    return obj
+
+
 def from_ifc(
     ifc_file: os.PathLike | ifcopenshell.file, units=Units.M, name="Ada", cad_config: "CadConfig | None" = None
 ) -> Assembly:
