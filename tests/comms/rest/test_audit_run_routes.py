@@ -170,11 +170,14 @@ def test_claim_auto_validate_only_flagged_runs(db):
 def test_delete_audit_run_removes_log_rows(db):
     pool, run = db
     r = run(_finish_run(pool, n=2))
-    assert run(db_module.delete_audit_run(pool, r["id"])) is True
+    # delete_audit_run returns (deleted, queued_job_ids_to_clean).
+    deleted, _ = run(db_module.delete_audit_run(pool, r["id"]))
+    assert deleted is True
     assert run(db_module.get_audit_run(pool, r["id"])) is None
     left = run(pool.fetchval("SELECT count(*) FROM audit_log WHERE audit_run_id = $1", r["id"]))
     assert left == 0
-    assert run(db_module.delete_audit_run(pool, r["id"])) is False  # already gone
+    deleted_again, _ = run(db_module.delete_audit_run(pool, r["id"]))
+    assert deleted_again is False  # already gone
 
 
 def test_cell_history_newest_first(db):
