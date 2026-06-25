@@ -6658,5 +6658,116 @@
         "duration": 2.3113693250000003
       }
     ]
+  },
+  {
+    "commit": "956e8b0a676de9c8e145447ac72b28db2b00290b",
+    "commit_short": "956e8b0",
+    "message": "feat: OCC-free libtess2 CAD\u2192GLB tessellation pipeline + audit tooling (#230)",
+    "author": "Kristoffer Andersen",
+    "date": "2026-06-25T20:48:14+02:00",
+    "total_duration": 120.3148,
+    "total_calls": 737241,
+    "stats": [
+      {
+        "function": "<built-in method builtins.exec> (~:0)",
+        "calls": 2039,
+        "duration": 22.271200306
+      },
+      {
+        "function": "<module> (<string>:1)",
+        "calls": 1,
+        "duration": 22.271161022
+      },
+      {
+        "function": "test_build_big_ifc_pipe (tests/profiling/test_ifc_creation.py:48)",
+        "calls": 1,
+        "duration": 6.026215866
+      },
+      {
+        "function": "__truediv__ (src/ada/api/spatial/part.py:1799)",
+        "calls": 8,
+        "duration": 5.688770413
+      },
+      {
+        "function": "to_ifc (src/ada/api/spatial/assembly.py:265)",
+        "calls": 5,
+        "duration": 5.6381824620000005
+      },
+      {
+        "function": "sync (src/ada/cadit/ifc/store.py:158)",
+        "calls": 5,
+        "duration": 5.218023503
+      },
+      {
+        "function": "sync_added_physical_objects (src/ada/cadit/ifc/write/write_ifc.py:92)",
+        "calls": 5,
+        "duration": 5.161805742
+      },
+      {
+        "function": "add (src/ada/cadit/ifc/write/write_ifc.py:505)",
+        "calls": 2200,
+        "duration": 5.094346462000001
+      },
+      {
+        "function": "test_bench_batch_tessellate (tests/profiling/test_cad_backend_bench.py:63)",
+        "calls": 1,
+        "duration": 5.057980093
+      },
+      {
+        "function": "run (tests/profiling/test_cad_backend_bench.py:73)",
+        "calls": 6,
+        "duration": 4.835389137
+      },
+      {
+        "function": "batch_tessellate (src/ada/occ/tessellating.py:738)",
+        "calls": 1446,
+        "duration": 4.834286404
+      },
+      {
+        "function": "add_object (src/ada/api/spatial/part.py:309)",
+        "calls": 1201,
+        "duration": 3.9556465440000004
+      },
+      {
+        "function": "add_pipe (src/ada/api/spatial/part.py:164)",
+        "calls": 200,
+        "duration": 3.9381494170000004
+      },
+      {
+        "function": "add_section (src/ada/api/spatial/part.py:294)",
+        "calls": 801,
+        "duration": 3.359087956
+      },
+      {
+        "function": "add (src/ada/api/containers/sections.py:139)",
+        "calls": 805,
+        "duration": 3.357829558
+      },
+      {
+        "function": "tessellate_geom (src/ada/occ/tessellating.py:638)",
+        "calls": 1440,
+        "duration": 3.170181233
+      },
+      {
+        "function": "equal_props (src/ada/sections/concept.py:100)",
+        "calls": 241399,
+        "duration": 3.058430655
+      },
+      {
+        "function": "unique_props (src/ada/sections/concept.py:107)",
+        "calls": 482798,
+        "duration": 2.735203997
+      },
+      {
+        "function": "tessellate_occ_geom (src/ada/occ/tessellating.py:560)",
+        "calls": 1440,
+        "duration": 2.3316903620000002
+      },
+      {
+        "function": "tessellate_shape (src/ada/occ/tessellating.py:430)",
+        "calls": 1440,
+        "duration": 2.3112049270000004
+      }
+    ]
   }
 ]
