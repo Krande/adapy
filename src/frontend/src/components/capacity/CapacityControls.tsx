@@ -870,6 +870,18 @@ function scaled(v: unknown, factor: number): number | null {
   return n == null ? null : n * factor;
 }
 
+/** Round a value to the precision the input sidecar shows (see fmtInputField):
+ *  1 decimal for |v|>=100, 2 decimals for |v|>=1, else 3 significant figures.
+ *  Used so the exported numbers match what the user reads in the sidebar
+ *  (e.g. 180.0 rather than 180.00000715255737). */
+function displayRound(v: number): number {
+  if (!Number.isFinite(v)) return v;
+  const a = Math.abs(v);
+  if (a >= 100) return Number(v.toFixed(1));
+  if (a >= 1 || a === 0) return Number(v.toFixed(2));
+  return Number(v.toPrecision(3));
+}
+
 function fmtInputField(f: InputField): string {
   if (typeof f.value === "string") return f.value;
   if (f.value == null || !Number.isFinite(f.value)) return "-";
@@ -910,9 +922,11 @@ function buildUiCaseValues(
   const loads = (row.loads ?? {}) as Record<string, unknown>;
   const vec = (row.resolved_vectors ?? {}) as Record<string, unknown>;
   const sigmaX = (vec.AverageLongitudinalMembraneStresses ?? []) as unknown[];
+  // Round to the sidebar's display precision so the exported numbers match
+  // what the user reads (180.0, not 180.00000715255737).
   const num = (v: unknown, factor: number, fallback = 0): number => {
     const n = scaled(v, factor);
-    return n == null ? fallback : n;
+    return displayRound(n == null ? fallback : n);
   };
   // Uniform sigma_x is stored as a single station; fan it out to all three.
   const sx1 = num(sigmaX[0], 1e-6);
