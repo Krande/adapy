@@ -796,6 +796,20 @@ def _resolve_step_glb_pipeline(step_glb_pipeline: str | None) -> str:
     return choice
 
 
+def _step_glb_fallback_chain(pipe: str, cad_cfg):
+    """Ordered (pipeline, CadConfig) attempts for an adacpp STEP→GLB pipeline that yields
+    nothing. The requested pipeline first, then adacpp's own linked-OCCT kernel
+    (``adacpp:occ``) — the right fallback when we started on the OCC-free libtess2 path
+    (no pythonocc TopoDS to begin with) and on wasm, where pythonocc isn't available at all.
+    The pythonocc ``occ-builtin`` path is tried last (native only), by the caller falling
+    through. De-duplicated so we never retry the same pipeline."""
+    chain = [(pipe, cad_cfg)]
+    occ_cfg = _cad_config_for_pipeline(_STEP_GLB_PIPELINE_ADACPP_OCC)
+    if occ_cfg is not None and pipe != _STEP_GLB_PIPELINE_ADACPP_OCC:
+        chain.append((_STEP_GLB_PIPELINE_ADACPP_OCC, occ_cfg))
+    return chain
+
+
 def _cad_config_for_pipeline(pipe: str):
     """Map a STEP→GLB pipeline to a ``CadConfig`` for the streaming converter, or
     ``None`` for the OCC-builtin path (and as a graceful fallback when the requested
@@ -871,23 +885,26 @@ def _via_ada(
                 from ada.config import logger
                 from ada.cadit.step.stream_to_glb import stream_step_to_glb
 
-                on_progress(pipe, 0.1)
-                try:
-                    stream_step_to_glb(src_path, out_path, tolerant=True, on_progress=on_progress, cad_config=cad_cfg)
-                    on_progress("ready", 1.0)
-                    result = out_path
-                    return result
-                except Exception as exc:
-                    # No geometry left behind: the adacpp/NGEOM tessellate path doesn't yet cover
-                    # every representation (e.g. SHELL_BASED_SURFACE_MODEL tessellates to an empty
-                    # mesh), so a conversion that yields nothing falls through to the OCC path below
-                    # instead of erroring. Logged so the coverage gap stays visible in the audit.
-                    logger.warning(
-                        "step-glb %s pipeline produced no usable GLB for %s (%s); falling back to OCC",
-                        pipe,
-                        getattr(src_path, "name", src_path),
-                        exc,
-                    )
+                # No geometry left behind: try the requested adacpp pipeline, then adacpp's own
+                # OCC kernel (adacpp:occ) — staying in the adacpp ecosystem so this also works on
+                # wasm, where pythonocc isn't available. Only if every adacpp attempt yields nothing
+                # do we fall through to the pythonocc occ-builtin path below (native only).
+                for fb_pipe, fb_cfg in _step_glb_fallback_chain(pipe, cad_cfg):
+                    try:
+                        on_progress(fb_pipe, 0.1)
+                        stream_step_to_glb(
+                            src_path, out_path, tolerant=True, on_progress=on_progress, cad_config=fb_cfg
+                        )
+                        on_progress("ready", 1.0)
+                        result = out_path
+                        return result
+                    except Exception as exc:
+                        logger.warning(
+                            "step-glb %s produced no usable GLB for %s (%s); trying next fallback",
+                            fb_pipe,
+                            getattr(src_path, "name", src_path),
+                            exc,
+                        )
 
             if _should_stream_step(src_path, step_streamer):
                 # occ-builtin, large file: stream solid-by-solid (bounded memory, no whole-model

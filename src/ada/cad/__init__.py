@@ -1263,6 +1263,30 @@ def is_shape_handle(obj: Any) -> bool:
     return active_backend().is_handle(obj)
 
 
+def is_cad_body(obj: Any) -> bool:
+    """True if ``obj`` is a pre-built CAD body of ANY available backend, not just the
+    active one.
+
+    A STEP/IFC/SAT reader (the OCC OCAF loader) hands back a pythonocc ``TopoDS_Shape``
+    even when ``ADAPY_CAD_BACKEND=adacpp`` is active. Such a body must still be routed to
+    the transient OCC-body slot (``Shape._occ_cache``), never to ``_geom`` — which must
+    stay an ``ada.geom.Geometry`` / ``None`` (else ``solid_geom()`` does ``self.geom.geometry``
+    on a raw ``TopoDS_Compound`` → ``AttributeError``). ``is_shape_handle`` only checks the
+    active backend, so it misclassifies a cross-backend body; this checks every importable one.
+    """
+    from ada.cad.registry import CadBackendName, backend_available
+
+    for name in (CadBackendName.OCC, CadBackendName.ADACPP):
+        if not backend_available(name):
+            continue
+        try:
+            if select_backend(prefer=name.value).is_handle(obj):
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def __getattr__(name: str):
     # Back-compat: OccBackend moved to ada.occ.backend. Re-export it lazily on
     # attribute access so ``from ada.cad import OccBackend`` still works without

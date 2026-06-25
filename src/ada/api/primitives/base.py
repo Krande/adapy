@@ -67,11 +67,14 @@ class Shape(BackendGeom):
         if geom is not None:
             # A raw backend CAD body (the STEP/SAT read path passes one) goes to
             # the transient ``_occ_cache`` slot; ``_geom`` stays an
-            # ``ada.geom.Geometry`` or None. Detect via the active backend so an
-            # adacpp ShapeHandle is recognised the same as a pythonocc TopoDS.
-            from ada.cad import is_shape_handle
+            # ``ada.geom.Geometry`` or None. Detect via *any* available backend
+            # (not just the active one): the OCC OCAF reader hands back a pythonocc
+            # TopoDS even when ADAPY_CAD_BACKEND=adacpp, and it must still route to
+            # _occ_cache — else solid_geom() does self.geom.geometry on a raw
+            # TopoDS_Compound (AttributeError).
+            from ada.cad import is_cad_body
 
-            if is_shape_handle(geom):
+            if is_cad_body(geom):
                 self._occ_cache = geom
             else:
                 self._geom = geom
