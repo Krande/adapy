@@ -35,11 +35,17 @@ export function ufClass(value: number | null | undefined): string {
   return "px-2 py-1 font-mono " + ufTextClass(value);
 }
 
+// Genie "UfTot" discrete bands (thresholds 0.2/0.4/0.6/0.8/1.0), mapped to
+// readable text colours that track the genie_uf_color_scheme palette
+// (light-blue / cyan / green / yellow / orange / red). No fading between bands.
 export function ufTextClass(value: number | null | undefined): string {
   if (value == null || !isFinite(value)) return "text-gray-400";
-  if (value > 1.0) return "text-red-300";
-  if (value >= 0.8) return "text-yellow-200";
-  return "text-gray-100";
+  if (value >= 1.0) return "text-red-500";
+  if (value >= 0.8) return "text-orange-400";
+  if (value >= 0.6) return "text-yellow-300";
+  if (value >= 0.4) return "text-green-400";
+  if (value >= 0.2) return "text-cyan-300";
+  return "text-sky-300";
 }
 
 export function shortName(name: string): string {

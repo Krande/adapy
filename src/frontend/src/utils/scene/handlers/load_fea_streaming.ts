@@ -1435,31 +1435,24 @@ function seedNeutralColors(colors: Float32Array, value = 0.64): void {
     }
 }
 
+// Genie "UfTot" discrete colour bands (no gradient between them) — sampled from
+// .local/reference/genie_uf_color_scheme/genie_uf_color_scheme.png. Thresholds at
+// 0.2 / 0.4 / 0.6 / 0.8 / 1.0. RGB in 0..1.
+const CAPACITY_UF_BANDS: ReadonlyArray<readonly [number, readonly [number, number, number]]> = [
+    [1.0, [1.0, 0.0, 0.0]], // >= 1.0  #FF0000 red
+    [0.8, [1.0, 0.6431, 0.0]], // >= 0.8  #FFA400 orange
+    [0.6, [1.0, 1.0, 0.0]], // >= 0.6  #FFFF00 yellow
+    [0.4, [0.0, 0.498, 0.0]], // >= 0.4  #007F00 green
+    [0.2, [0.0, 1.0, 1.0]], // >= 0.2  #00FFFF cyan
+    [0.0, [0.0, 0.7451, 1.0]], // <  0.2  #00BEFF light blue
+];
+
 function capacityUfColor(value: number, out: Float32Array): void {
-    if (value > 1.0) {
-        out[0] = 0.86;
-        out[1] = 0.10;
-        out[2] = 0.32;
-        return;
-    }
-    if (value <= 0.6) {
-        const t = Math.max(0, value) / 0.6;
-        out[0] = 0.12 + 0.12 * t;
-        out[1] = 0.36 + 0.34 * t;
-        out[2] = 0.78 - 0.26 * t;
-        return;
-    }
-    if (value <= 0.8) {
-        const t = (value - 0.6) / 0.2;
-        out[0] = 0.24 + 0.62 * t;
-        out[1] = 0.70 + 0.08 * t;
-        out[2] = 0.52 - 0.42 * t;
-        return;
-    }
-    const t = (value - 0.8) / 0.2;
-    out[0] = 0.86 + 0.06 * t;
-    out[1] = 0.78 - 0.54 * t;
-    out[2] = 0.10 - 0.02 * t;
+    const band = CAPACITY_UF_BANDS.find(([threshold]) => value >= threshold);
+    const [r, g, b] = (band ?? CAPACITY_UF_BANDS[CAPACITY_UF_BANDS.length - 1])[1];
+    out[0] = r;
+    out[1] = g;
+    out[2] = b;
 }
 
 /** Load the mesh GLB, fetch the chosen field's blob, and apply the

@@ -12,9 +12,8 @@ export const CAPACITY_RESULTS_FORMAT = "dnv-rp-c201-capacity-results";
 // v8: per-case detail rows carry check_inputs — the exact geometry/material the
 // check consumed (mm/MPa), used by the input panel + Export so an exported case
 // reproduces the engine (esp. the stiffener span feeding sigma_y,R, eq. (4.6)).
-// v9: beam-column interaction UFs floored at 0 (no negative usage factors) and
-// the export now carries the FE axial-force resultants (loads.N_1..3) so the UI
-// reproduces the beam-column action. Kept in lockstep with viewer_export.py.
+// v9: beam-column interaction UFs floored at 0 (no negative usage factors).
+// Kept in lockstep with viewer_export.py.
 export const CAPACITY_RESULTS_VERSION = 9;
 
 export interface CapacityValidationContext {
