@@ -924,6 +924,7 @@ interface ResolvedGeometry {
   nu: number | null;
   gammaM: number | null;
   continuous: boolean;
+  optimizeZStar: boolean;
 }
 
 /** Resolve the geometry/material for a result row, preferring the v8
@@ -963,6 +964,7 @@ function resolveGeometry(
       nu: asNum(mat.poisson),
       gammaM: asNum(ci.material?.gamma_m),
       continuous: ci.continuous !== false,
+      optimizeZStar: ci.optimize_z_star === true,
     };
   }
   return {
@@ -981,6 +983,7 @@ function resolveGeometry(
     nu: asNum(mat.poisson),
     gammaM: asNum(mat.gamma_m),
     continuous: stiff.continuous !== false,
+    optimizeZStar: false,
   };
 }
 
@@ -1012,6 +1015,7 @@ function buildUiCaseValues(
     model: "general",
     continuous: g.continuous,
     z_star: 0,
+    optimize_z_star: g.optimizeZStar,
     fy: dr(g.fy, 355),
     E: dr(g.E, 210000),
     gamma_M: dr(g.gammaM, 1.15),
@@ -1099,6 +1103,14 @@ function buildInputGroups(
   // Show the geometry/material the check actually used (v8 check_inputs), so the
   // sidebar matches the result and the Export.
   const g = resolveGeometry(run, row);
+  // v8: DNV-RP-C201-correct Section-6 design values from the engine's own eqs
+  // (6.16/6.17/6.2). Fall back to the Genie resolved_variables for pre-v8
+  // bundles. (Genie's SigmaYSd is the mid-point value, not eq 6.17 — see the
+  // standard — so prefer the engine figures when present.)
+  const rd = (row.resolved_design ?? {}) as Record<string, unknown>;
+  const sigmaYSd = asNum(rd.sigma_y_Sd_mpa) ?? scaled(rv.SigmaYSd, 1e-6);
+  const tauSd = asNum(rd.tau_Sd_mpa) ?? scaled(rv.TauSd, 1e-6);
+  const nSd = asNum(rd.N_Sd_kn) ?? scaled(rv.Nsd, 1e-3);
   const f = (
     symbol: string,
     label: string,
@@ -1177,36 +1189,16 @@ function buildInputGroups(
     {
       title: "Resolved design (Section 6)",
       fields: [
-        f(
-          "σ_ySd",
-          "Transverse design stress",
-          scaled(rv.SigmaYSd, 1e-6),
-          "MPa",
-          undefined,
-          "(6.17)",
-        ),
-        f(
-          "τ_Sd",
-          "Shear design stress",
-          scaled(rv.TauSd, 1e-6),
-          "MPa",
-          undefined,
-          "(6.16)",
-        ),
-        f(
-          "N_Sd",
-          "Axial design force",
-          scaled(rv.Nsd, 1e-3),
-          "kN",
-          undefined,
-          "(6.2)",
-        ),
+        f("σ_ySd", "Transverse design stress", sigmaYSd, "MPa", undefined, "(6.17)"),
+        f("τ_Sd", "Shear design stress", tauSd, "MPa", undefined, "(6.16)"),
+        f("N_Sd", "Axial design force", nSd, "kN", undefined, "(6.2)"),
       ],
     },
     {
       title: "Options",
       fields: [
         f("", "Continuous", g.continuous ? "yes" : "no"),
+        f("", "Optimize z*", g.optimizeZStar ? "yes" : "no", undefined, undefined, "[6.10.2]"),
         f("", "Tension field", (loads.tension_field as string) ?? "none"),
       ],
     },

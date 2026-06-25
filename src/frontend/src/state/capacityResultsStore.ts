@@ -51,7 +51,18 @@ export interface CapacityCaseResult {
    *  an exported case reproduces the engine — notably the stiffener span that
    *  drives the transverse plate resistance sigma_y,R (eq. 4.6). */
   check_inputs?: CapacityCheckInputs;
+  /** v8: the Section-6 design values the engine derives from the three-position
+   *  loads via DNV-RP-C201 eqs (6.16/6.17/6.2). Shown in "Resolved design" so
+   *  the figures are standard-correct (not the Genie reference convention). */
+  resolved_design?: CapacityResolvedDesign;
   notes?: string[];
+}
+
+/** v8 resolved_design payload (see viewer_export._resolved_design_payload). */
+export interface CapacityResolvedDesign {
+  sigma_y_Sd_mpa?: number | null;
+  tau_Sd_mpa?: number | null;
+  N_Sd_kn?: number | null;
 }
 
 /** v8 check_inputs payload (see capacity_check._build_check_inputs). */
