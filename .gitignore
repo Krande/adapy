@@ -34,3 +34,6 @@ audit_repro_*/
 # pyodide adapy wheel build output
 dist_pyodide/
 src/frontend/public/wheels/
+
+# CI-staged adacpp branch overlay source (built by Dockerfile.worker)
+adacpp-src/
