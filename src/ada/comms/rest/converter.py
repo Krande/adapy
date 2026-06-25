@@ -868,13 +868,26 @@ def _via_ada(
                 # Default path: adacpp tessellation (libtess2 / occ / cgal / hybrid) through the
                 # memory-bounded streaming pipeline + its worker pool. libtess2 carries the curved
                 # surfaces the OCC stream reader drops, at step2glb-parity geometry.
+                from ada.config import logger
                 from ada.cadit.step.stream_to_glb import stream_step_to_glb
 
                 on_progress(pipe, 0.1)
-                stream_step_to_glb(src_path, out_path, tolerant=True, on_progress=on_progress, cad_config=cad_cfg)
-                on_progress("ready", 1.0)
-                result = out_path
-                return result
+                try:
+                    stream_step_to_glb(src_path, out_path, tolerant=True, on_progress=on_progress, cad_config=cad_cfg)
+                    on_progress("ready", 1.0)
+                    result = out_path
+                    return result
+                except Exception as exc:
+                    # No geometry left behind: the adacpp/NGEOM tessellate path doesn't yet cover
+                    # every representation (e.g. SHELL_BASED_SURFACE_MODEL tessellates to an empty
+                    # mesh), so a conversion that yields nothing falls through to the OCC path below
+                    # instead of erroring. Logged so the coverage gap stays visible in the audit.
+                    logger.warning(
+                        "step-glb %s pipeline produced no usable GLB for %s (%s); falling back to OCC",
+                        pipe,
+                        getattr(src_path, "name", src_path),
+                        exc,
+                    )
 
             if _should_stream_step(src_path, step_streamer):
                 # occ-builtin, large file: stream solid-by-solid (bounded memory, no whole-model
