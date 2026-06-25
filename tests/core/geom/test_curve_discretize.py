@@ -51,9 +51,7 @@ def _poly_hausdorff(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def _unit_circle():
-    return cu.Circle(
-        position=Axis2Placement3D(Point(0, 0, 0), Direction(0, 0, 1), Direction(1, 0, 0)), radius=1.0
-    )
+    return cu.Circle(position=Axis2Placement3D(Point(0, 0, 0), Direction(0, 0, 1), Direction(1, 0, 0)), radius=1.0)
 
 
 def _quarter_arc():
@@ -116,7 +114,9 @@ def test_speed_native_not_slower_than_occ():
         _occ_points(circle, 0.01)
     t_occ = time.perf_counter() - t0
 
-    print(f"\n[discretize {n}x unit circle @0.01]  native={t_native*1e3:.1f}ms  occ={t_occ*1e3:.1f}ms  speedup={t_occ/t_native:.1f}x")
+    print(
+        f"\n[discretize {n}x unit circle @0.01]  native={t_native*1e3:.1f}ms  occ={t_occ*1e3:.1f}ms  speedup={t_occ/t_native:.1f}x"
+    )
     # The point is parity + dropping the kernel dependency (wasm); native must at least be in the
     # same ballpark, not regress. (It avoids the per-curve OCC TopoDS build, so it tends faster.)
     assert t_native <= t_occ * 2.0

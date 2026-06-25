@@ -9,10 +9,10 @@ import numpy as np
 
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
-from ada.geom.curves import CURVE_GEOM_TUPLE as _CURVE_GEOM_TUPLE
 from ada.cad import active_backend, is_shape_handle
 from ada.config import logger
 from ada.geom import Geometry
+from ada.geom.curves import CURVE_GEOM_TUPLE as _CURVE_GEOM_TUPLE
 from ada.occ.exceptions import (
     UnableToCreateCurveOCCGeom,
     UnableToCreateTesselationFromSolidOCCGeom,
@@ -631,7 +631,9 @@ class BatchTessellator:
         if mat_id is None:
             mat_id = len(self.material_store)
             self.material_store[geom.color] = mat_id
-        return MeshStore(node_ref, None, position, np.array(idx, dtype=np.uint32), None, mat_id, MeshType.LINES, node_ref)
+        return MeshStore(
+            node_ref, None, position, np.array(idx, dtype=np.uint32), None, mat_id, MeshType.LINES, node_ref
+        )
 
     def tessellate_geom(
         self,

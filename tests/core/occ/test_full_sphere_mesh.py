@@ -7,7 +7,6 @@ seam through the poles. Building a face from that degenerate wire yields 0 trian
 
 from __future__ import annotations
 
-
 import ada.geom.curves as gc
 import ada.geom.surfaces as gs
 from ada.geom.placement import Axis2Placement3D
@@ -39,7 +38,10 @@ def _ntris(face) -> int:
 
 
 def test_full_sphere_seam_detected():
-    from ada.occ.geom.surfaces import _is_full_sphere_seam, make_spherical_surface_from_geom
+    from ada.occ.geom.surfaces import (
+        _is_full_sphere_seam,
+        make_spherical_surface_from_geom,
+    )
 
     af = _full_sphere_face(radius=2.0)
     surf = make_spherical_surface_from_geom(af.face_surface)
@@ -49,7 +51,10 @@ def test_full_sphere_seam_detected():
 def test_spherical_cap_is_not_a_seam():
     # a cap bounded by a smaller circle (radius < sphere radius) must NOT be treated as a
     # full-sphere seam — it keeps the normal wire path
-    from ada.occ.geom.surfaces import _is_full_sphere_seam, make_spherical_surface_from_geom
+    from ada.occ.geom.surfaces import (
+        _is_full_sphere_seam,
+        make_spherical_surface_from_geom,
+    )
 
     af = _full_sphere_face(radius=2.0)
     af.bounds[0].bound.edge_list[0].edge_element.edge_geometry.radius = 1.0  # smaller trim circle

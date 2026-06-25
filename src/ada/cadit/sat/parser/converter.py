@@ -795,7 +795,9 @@ class AcisToAdaConverter:
         results = []
         for body in self.parser.get_bodies():
             try:
-                curves = [c for c in (self._polyline_to_curve(pl) for pl in self._collect_body_wire_polylines(body)) if c]
+                curves = [
+                    c for c in (self._polyline_to_curve(pl) for pl in self._collect_body_wire_polylines(body)) if c
+                ]
                 if curves:
                     results.append((self._get_body_name(body), curves))
             except Exception as e:  # noqa: BLE001 - a malformed wire shouldn't abort the import

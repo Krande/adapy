@@ -39,6 +39,7 @@ from typing import Iterator
 
 from ada.config import logger
 from ada.geom import Geometry
+from ada.geom.booleans import BooleanResult, BoolOpEnum
 from ada.geom.curves import (
     BSplineCurveFormEnum,
     BSplineCurveWithKnots,
@@ -62,9 +63,9 @@ from ada.geom.curves import (
     RationalBSplineCurveWithKnots,
     TrimmedCurve,
 )
-from ada.geom.booleans import BooleanResult, BoolOpEnum
 from ada.geom.direction import Direction
 from ada.geom.placement import Axis1Placement, Axis2Placement3D
+from ada.geom.points import Point
 from ada.geom.solids import (
     Box,
     Cone,
@@ -75,16 +76,15 @@ from ada.geom.solids import (
     Sphere,
     Torus,
 )
-from ada.geom.points import Point
 from ada.geom.surfaces import (
     AdvancedFace,
     BSplineSurfaceForm,
     BSplineSurfaceWithKnots,
     ClosedShell,
     ConicalSurface,
+    CurveBoundedPlane,
     CylindricalSurface,
     FaceBound,
-    CurveBoundedPlane,
     OffsetSurface,
     OpenShell,
     Plane,

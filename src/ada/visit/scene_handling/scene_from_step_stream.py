@@ -84,7 +84,10 @@ def _rebuild_stats():
     re-added/dropped holes, area-gate drops), or None on backends without the module
     (adacpp-only installs have no ada.occ)."""
     try:
-        from ada.occ.geom.surfaces import consume_face_coverage_stats, consume_param_rebuild_stats
+        from ada.occ.geom.surfaces import (
+            consume_face_coverage_stats,
+            consume_param_rebuild_stats,
+        )
     except ImportError:
         return None
     stats = consume_param_rebuild_stats()

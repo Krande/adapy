@@ -911,8 +911,10 @@ def _resolve_step_glb_pipeline(step_glb_pipeline: str | None) -> str:
     from ada.config import logger
 
     choice = (
-        step_glb_pipeline or os.environ.get("ADAPY_STEP_GLB_PIPELINE", "") or _STEP_GLB_PIPELINE_DEFAULT
-    ).strip().lower()
+        (step_glb_pipeline or os.environ.get("ADAPY_STEP_GLB_PIPELINE", "") or _STEP_GLB_PIPELINE_DEFAULT)
+        .strip()
+        .lower()
+    )
     if choice not in _STEP_GLB_PIPELINES:
         logger.warning("unknown ADAPY_STEP_GLB_PIPELINE %r; falling back to %s", choice, _STEP_GLB_PIPELINE_DEFAULT)
         return _STEP_GLB_PIPELINE_DEFAULT
@@ -994,8 +996,8 @@ def _via_ada(
                 # Default path: adacpp tessellation (libtess2 / occ / cgal / hybrid) through the
                 # memory-bounded streaming pipeline + its worker pool. libtess2 carries the curved
                 # surfaces the OCC stream reader drops, at step2glb-parity geometry.
-                from ada.config import logger
                 from ada.cadit.step.stream_to_glb import stream_step_to_glb
+                from ada.config import logger
                 from ada.occ.tessellating import TessellationFallbackError
 
                 # No geometry left behind: try the requested adacpp pipeline, then adacpp's own

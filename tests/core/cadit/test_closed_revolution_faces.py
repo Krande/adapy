@@ -44,12 +44,14 @@ def closed_cylinder_face(r=1.0, h=2.0):
     pb, pt = Point(c, c, 0), Point(c, c, h)
     cb = cu.Circle(position=Axis2Placement3D(Point(0, 0, 0), Direction(0, 0, 1), Direction(1, 0, 0)), radius=r)
     ct = cu.Circle(position=Axis2Placement3D(Point(0, 0, h), Direction(0, 0, 1), Direction(1, 0, 0)), radius=r)
-    loop = cu.EdgeLoop(edge_list=[
-        _oe(pb, pb, cb),
-        _oe(pb, pt, cu.Line(pb, Direction(0, 0, 1))),
-        _oe(pt, pt, ct),
-        _oe(pt, pb, cu.Line(pt, Direction(0, 0, -1))),
-    ])
+    loop = cu.EdgeLoop(
+        edge_list=[
+            _oe(pb, pb, cb),
+            _oe(pb, pt, cu.Line(pb, Direction(0, 0, 1))),
+            _oe(pt, pt, ct),
+            _oe(pt, pb, cu.Line(pt, Direction(0, 0, -1))),
+        ]
+    )
     return su.AdvancedFace(bounds=[su.FaceBound(bound=loop, orientation=True)], face_surface=cyl, same_sense=True)
 
 
@@ -67,12 +69,14 @@ def closed_torus_face(major=3.0, minor=1.0):
     mc0 = cu.Circle(position=Axis2Placement3D(Point(R, 0, 0), Direction(0, 1, 0), Direction(1, 0, 0)), radius=r)
     mc1 = cu.Circle(position=Axis2Placement3D(Point(0, R, 0), Direction(-1, 0, 0), Direction(0, 1, 0)), radius=r)
     mid = Point((R + r) * math.cos(math.pi / 4), (R + r) * math.sin(math.pi / 4), 0)
-    loop = cu.EdgeLoop(edge_list=[
-        _oe(s0, s0, mc0),
-        _oe(s0, s1, cu.ArcLine(start=s0, midpoint=mid, end=s1)),
-        _oe(s1, s1, mc1),
-        _oe(s1, s0, cu.ArcLine(start=s1, midpoint=mid, end=s0)),
-    ])
+    loop = cu.EdgeLoop(
+        edge_list=[
+            _oe(s0, s0, mc0),
+            _oe(s0, s1, cu.ArcLine(start=s0, midpoint=mid, end=s1)),
+            _oe(s1, s1, mc1),
+            _oe(s1, s0, cu.ArcLine(start=s1, midpoint=mid, end=s0)),
+        ]
+    )
     return su.AdvancedFace(bounds=[su.FaceBound(bound=loop, orientation=True)], face_surface=tor, same_sense=True)
 
 
@@ -83,10 +87,12 @@ def near_planar_quad(out_of_plane=1e-4):
     plane trims it fine."""
     pl = su.Plane(position=Axis2Placement3D(Point(0, 0, 0), Direction(0, 0, 1), Direction(1, 0, 0)))
     p = [Point(0, 0, 0), Point(1, 0, 0), Point(1, 1, out_of_plane), Point(0, 1, 0)]
-    loop = cu.EdgeLoop(edge_list=[
-        _oe(p[i], p[(i + 1) % 4], cu.Line(p[i], Direction(*(p[(i + 1) % 4][k] - p[i][k] for k in range(3)))))
-        for i in range(4)
-    ])
+    loop = cu.EdgeLoop(
+        edge_list=[
+            _oe(p[i], p[(i + 1) % 4], cu.Line(p[i], Direction(*(p[(i + 1) % 4][k] - p[i][k] for k in range(3)))))
+            for i in range(4)
+        ]
+    )
     return su.AdvancedFace(bounds=[su.FaceBound(bound=loop, orientation=True)], face_surface=pl, same_sense=True)
 
 

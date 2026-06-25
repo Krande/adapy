@@ -26,8 +26,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from ada.config import logger
-
 from ada.cad.registry import (  # noqa: E402 - registry is stdlib-only, no ada.cad cycle
     CadBackendName,
     CadConfig,
@@ -37,6 +35,7 @@ from ada.cad.registry import (  # noqa: E402 - registry is stdlib-only, no ada.c
     available_paths,
     backend_available,
 )
+from ada.config import logger
 
 if TYPE_CHECKING:
     import numpy as np
@@ -665,8 +664,21 @@ class AdacppBackend:
             mults = [float(m) for m in curve.knot_multiplicities]
             rational = isinstance(curve, cu.RationalBSplineCurveWithKnots)
             # [kind=3, degree, rational, trim=0, t0, t1, pstart(3), pend(3), n_poles, poles..., n_knots, knots, mults, weights?]
-            rec: list[float] = [3.0, float(curve.degree), 1.0 if rational else 0.0, 0.0, 0.0, 0.0,
-                                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, float(len(poles))]
+            rec: list[float] = [
+                3.0,
+                float(curve.degree),
+                1.0 if rational else 0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                float(len(poles)),
+            ]
             for p in poles:
                 rec += [float(p[0]), float(p[1]), float(p[2])]
             rec += [float(len(knots))] + knots + mults

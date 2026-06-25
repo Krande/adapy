@@ -12,7 +12,12 @@ import pytest
 
 def test_registry_lists_adacpp_paths_when_installed():
     pytest.importorskip("adacpp")
-    from ada.cad import CadBackendName, TessellationPath, available_backends, available_paths
+    from ada.cad import (
+        CadBackendName,
+        TessellationPath,
+        available_backends,
+        available_paths,
+    )
 
     assert CadBackendName.ADACPP in available_backends()
     paths = available_paths()
