@@ -296,7 +296,7 @@ const AuditLogTab: React.FC = () => {
                                 <span className="font-mono text-gray-300">#{e.id}</span>
                             </Td>
                             <Td title={e.ts || ""}>{formatTs(e.ts)}</Td>
-                            <Td title={e.user_sub || ""}>{shortSub(e.user_sub)}</Td>
+                            <Td title={userTooltip(e)}>{e.user_display_name || shortSub(e.user_sub)}</Td>
                             <Td title={e.scope_id || ""}>
                                 {e.scope_kind}
                                 {e.scope_id ? `:${shortSub(e.scope_id)}` : ""}
@@ -360,8 +360,8 @@ const AuditLogTab: React.FC = () => {
                                 </div>
                             )}
                             {e.user_sub && (
-                                <div className="text-gray-500 mt-0.5" title={e.user_sub}>
-                                    by {shortSub(e.user_sub)}
+                                <div className="text-gray-500 mt-0.5" title={userTooltip(e)}>
+                                    by {e.user_display_name || shortSub(e.user_sub)}
                                 </div>
                             )}
                             {e.error && (
@@ -1322,6 +1322,16 @@ function shortSub(s: string | null): string {
     if (!s) return "";
     if (s.length <= 12) return s;
     return `${s.slice(0, 8)}…${s.slice(-4)}`;
+}
+
+// Hover tooltip for the user column: display name + email (resolved server-side from the users
+// table), falling back to the raw subject when a name/email isn't on file.
+function userTooltip(e: AuditEntry): string {
+    const lines: string[] = [];
+    if (e.user_display_name) lines.push(e.user_display_name);
+    if (e.user_email) lines.push(e.user_email);
+    if (e.user_sub) lines.push(e.user_sub);
+    return lines.join("\n");
 }
 
 function formatTs(ts: string | null): string {

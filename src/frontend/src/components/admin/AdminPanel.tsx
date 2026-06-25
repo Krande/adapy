@@ -44,12 +44,14 @@ interface AdminPanelProps {
      * hides the "← viewer" link — the host's close button already
      * covers leaving the panel. */
     embedded?: boolean;
+    /** Tab to open on in embedded mode (no URL hash to read from). Defaults to "audit". */
+    initialTab?: AdminTab;
 }
 
-const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false}) => {
+const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) => {
     const syncHash = !embedded;
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const [tab, setTab] = useState<AdminTab>(() => (syncHash ? readTabFromHash() : "audit"));
+    const [tab, setTab] = useState<AdminTab>(() => (syncHash ? readTabFromHash() : (initialTab ?? "audit")));
 
     // Two-way bind ``tab`` to ``window.location.hash`` so reloads stay
     // on the selected tab AND back/forward navigation works inside

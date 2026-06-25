@@ -752,8 +752,9 @@ async def list_audit(
         " cpu_user_ms, cpu_sys_ms, peak_rss_kb, read_bytes, write_bytes,"
         " profile_key, log_key, job_id, audit_run_id, worker_image_tag, convert_meta,"
         " issue_bot_status, issue_bot_synced_at, issue_bot_last_error,"
-        " client_metrics->>'device_id' AS device_id"
-        " FROM audit_log"
+        " client_metrics->>'device_id' AS device_id,"
+        " u.email AS user_email, u.display_name AS user_display_name"
+        " FROM audit_log LEFT JOIN users u ON u.sub = audit_log.user_sub"
     )
     if where:
         sql += " WHERE " + " AND ".join(where)
@@ -764,6 +765,8 @@ async def list_audit(
             "id": r["id"],
             "ts": r["ts"].isoformat() if r["ts"] is not None else None,
             "user_sub": r["user_sub"],
+            "user_email": r["user_email"],
+            "user_display_name": r["user_display_name"],
             "scope_kind": r["scope_kind"],
             "scope_id": r["scope_id"],
             "action": r["action"],

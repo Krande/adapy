@@ -2,6 +2,7 @@ import React, {useEffect, useState} from "react";
 import {useConversionStore} from "@/state/conversionStore";
 import {useCompressionStore} from "@/state/compressionStore";
 import {useMeStore} from "@/state/meStore";
+import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {viewerApi} from "@/services/viewerApi";
 import {useLoadQueueStore, type LoadTask} from "@/state/loadQueueStore";
@@ -578,6 +579,7 @@ function fmtCellElapsed(ms: number | null): string {
 
 const AuditActivityBadge: React.FC = () => {
     const isAdmin = useMeStore((s) => s.isAdmin);
+    const openPanel = useViewerPanelStore((s) => s.openPanel);
     const [summary, setSummary] = useState<AuditActiveSummary | null>(null);
 
     useEffect(() => {
@@ -611,16 +613,15 @@ const AuditActivityBadge: React.FC = () => {
     if (!isAdmin || !summary || summary.running_runs === 0) return null;
     const {running_runs, pending_cells, current_cell} = summary;
     return (
-        <a
-            href="/admin#audit_runs"
-            target="_blank"
-            rel="noopener"
+        <button
+            type="button"
+            onClick={() => openPanel("admin", "audit_runs")}
             className={
-                "block bg-blue-950/80 hover:bg-blue-900 border border-blue-700 " +
+                "block w-full text-left bg-blue-950/80 hover:bg-blue-900 border border-blue-700 " +
                 "text-blue-100 rounded-sm shadow-lg px-3 py-2 text-xs no-underline " +
-                "pointer-events-auto"
+                "pointer-events-auto cursor-pointer"
             }
-            title="Open Audit Runs admin tab"
+            title="Open Audit Runs in the panel"
         >
             <div className="flex items-center justify-between gap-2 min-w-0">
                 <span className="font-medium truncate">
@@ -649,7 +650,7 @@ const AuditActivityBadge: React.FC = () => {
                     )}
                 </div>
             )}
-        </a>
+        </button>
     );
 };
 

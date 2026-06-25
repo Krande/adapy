@@ -545,6 +545,8 @@ export interface AuditEntry {
     id: number;
     ts: string | null;
     user_sub: string | null;
+    user_email: string | null;
+    user_display_name: string | null;
     scope_kind: string;
     scope_id: string | null;
     action: string;
