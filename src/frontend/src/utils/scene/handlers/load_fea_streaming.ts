@@ -839,9 +839,35 @@ export function applyCapacityDefinitionView(): boolean {
             panel_group: model.panel_group,
             element_ids: model.element_ids,
         })),
+        capacityFailedModelIds(run, store),
     );
     applyCapacitySelectionHighlight();
     return true;
+}
+
+/** Capacity models whose check raised (and was skipped) in the current case
+ *  context — a specific case, or the union of the selected cases in the worst
+ *  view. Their definition edges are painted red so the failure is visible in
+ *  the 3D scene, matching the red error banner in the Capacity sidecar. */
+function capacityFailedModelIds(
+    run: {errors?: Array<{capacity_model_id: string; case_id: string}>},
+    store: {activeCaseId: string | null; worstCaseIds: string[]},
+): Set<string> {
+    const out = new Set<string>();
+    const errors = run.errors ?? [];
+    if (errors.length === 0) return out;
+    let cases: Set<string> | null;
+    if (store.activeCaseId === WORST_CASE_ID) {
+        cases = new Set(store.worstCaseIds);
+    } else if (store.activeCaseId) {
+        cases = new Set([store.activeCaseId]);
+    } else {
+        cases = null; // no case context → flag any error
+    }
+    for (const err of errors) {
+        if (cases === null || cases.has(err.case_id)) out.add(err.capacity_model_id);
+    }
+    return out;
 }
 
 export function clearCapacityDefinitionView(): void {
@@ -1250,8 +1276,12 @@ function applySelectionOverlay(mesh: THREE.Mesh | undefined, rangeIds: string[])
     maybeSelectable?.updateSelectionGroups?.(rangeIds);
 }
 
+// Failed-model definition edges (a check raised for this model/case).
+const CAPACITY_FAILED_EDGE_COLOR = 0xef4444;
+
 function rebuildCapacityBoundaryOverlay(
     models: Array<{id: string; panel_group: string; element_ids: {all?: number[]}}>,
+    failedModelIds?: Set<string>,
 ): void {
     disposeCapacityBoundaryOverlay();
     const overlay = buildCapacityBoundaryOverlay(
@@ -1259,6 +1289,7 @@ function rebuildCapacityBoundaryOverlay(
         0xf8fafc,
         "capacity-model-boundaries",
         true,
+        failedModelIds,
     );
     if (overlay && active?.mesh) {
         active.mesh.add(overlay);
@@ -1272,6 +1303,7 @@ function buildCapacityBoundaryOverlay(
     color: number,
     name: string,
     depthTest: boolean,
+    failedModelIds?: Set<string>,
 ): THREE.LineSegments | null {
     if (!active?.mesh) return null;
     const mesh = active.mesh;
@@ -1283,8 +1315,11 @@ function buildCapacityBoundaryOverlay(
     if (!indexAttr || !drawRanges) return null;
     const indexArr = indexAttr.array as Uint16Array | Uint32Array;
     const edgeIndices: number[] = [];
+    // Vertices that belong to a failed model's boundary — painted red.
+    const failedVerts = new Set<number>();
 
     for (const model of models) {
+        const isFailed = failedModelIds?.has(model.id) ?? false;
         const edgeCounts = new Map<string, [number, number, number]>();
         for (const elementId of model.element_ids.all ?? []) {
             const dr = drawRanges.get(`E${elementId}`);
@@ -1297,7 +1332,12 @@ function buildCapacityBoundaryOverlay(
             }
         }
         for (const [, [a, b, count]] of edgeCounts) {
-            if (count === 1) edgeIndices.push(a, b);
+            if (count !== 1) continue;
+            edgeIndices.push(a, b);
+            if (isFailed) {
+                failedVerts.add(a);
+                failedVerts.add(b);
+            }
         }
     }
     if (edgeIndices.length === 0) return null;
@@ -1305,13 +1345,35 @@ function buildCapacityBoundaryOverlay(
     const lineGeom = new THREE.BufferGeometry();
     lineGeom.setAttribute("position", geometry.attributes.position);
     lineGeom.setIndex(new THREE.BufferAttribute(new Uint32Array(edgeIndices), 1));
-    const lineMat = new THREE.LineBasicMaterial({
+    const matOpts: THREE.LineBasicMaterialParameters = {
         color,
         depthTest,
         depthWrite: false,
         transparent: true,
         opacity: depthTest ? 0.92 : 1.0,
-    });
+    };
+    if (failedVerts.size > 0) {
+        // Per-vertex colours so failed models read red while the rest stay the
+        // normal boundary colour, all within one morph-linked LineSegments.
+        const posCount = (geometry.attributes.position as THREE.BufferAttribute).count;
+        const colors = new Float32Array(posCount * 3);
+        const base = new THREE.Color(color);
+        for (let i = 0; i < posCount; i++) {
+            colors[i * 3 + 0] = base.r;
+            colors[i * 3 + 1] = base.g;
+            colors[i * 3 + 2] = base.b;
+        }
+        const red = new THREE.Color(CAPACITY_FAILED_EDGE_COLOR);
+        for (const v of failedVerts) {
+            colors[v * 3 + 0] = red.r;
+            colors[v * 3 + 1] = red.g;
+            colors[v * 3 + 2] = red.b;
+        }
+        lineGeom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+        matOpts.vertexColors = true;
+        matOpts.color = 0xffffff; // let the per-vertex colour show through
+    }
+    const lineMat = new THREE.LineBasicMaterial(matOpts);
     const overlay = new THREE.LineSegments(lineGeom, lineMat);
     overlay.name = name;
     overlay.layers.mask = mesh.layers.mask;
