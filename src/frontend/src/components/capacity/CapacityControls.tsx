@@ -905,13 +905,37 @@ function stiffenerTypeForExport(section: Record<string, unknown>): string {
   return "tee";
 }
 
-/** Build the aibel_dnv_rp_c201_ui ``fe_stiffened`` value map from a result row.
- *  Units match that check's fields (mm / MPa / kNm); stresses come from the same
- *  resolved vectors / loads the Input panel displays. */
-function buildUiCaseValues(
+/** Geometry/material a stiffener result was checked with, in mm / MPa.
+ *  ``profileName`` / ``eccentricityMm`` are display-only (not part of what the
+ *  engine consumes). */
+interface ResolvedGeometry {
+  span: number | null;
+  s: number | null;
+  t: number | null;
+  hw: number | null;
+  tw: number | null;
+  bf: number | null;
+  tf: number | null;
+  stiffenerType: string;
+  profileName: string;
+  eccentricityMm: number | null;
+  fy: number | null;
+  E: number | null;
+  nu: number | null;
+  gammaM: number | null;
+  continuous: boolean;
+}
+
+/** Resolve the geometry/material for a result row, preferring the v8
+ *  ``check_inputs`` (the exact values the engine consumed) over the display
+ *  ``capacity_model`` dict. The two can differ — notably the stiffener span,
+ *  which drives the transverse plate resistance sigma_y,R (eq. 4.6) — so using
+ *  ``check_inputs`` is what makes the Input panel and the Export reproduce the
+ *  engine result. Falls back to the display dict for pre-v8 bundles. */
+function resolveGeometry(
   run: CapacityRunLike,
   row: CapacityCaseResultLike,
-): Record<string, number | string | boolean> {
+): ResolvedGeometry {
   const model = run.capacity_models.find((m) => m.id === row.capacity_model_id);
   const plate = (model?.plates?.[0] ?? {}) as Record<string, unknown>;
   const stiffeners = (model?.stiffeners ?? []) as Array<Record<string, unknown>>;
@@ -919,6 +943,56 @@ function buildUiCaseValues(
     stiffeners.find((s) => s.name === row.stiffener) ?? stiffeners[0] ?? {};
   const section = (stiff.section ?? {}) as Record<string, unknown>;
   const mat = (stiff.material ?? plate.material ?? {}) as Record<string, unknown>;
+  const profileName = String(section.name ?? "—");
+  const eccentricityMm = scaled(stiff.eccentricity, 1e3);
+  const ci = row.check_inputs;
+  if (ci) {
+    return {
+      span: asNum(ci.span_mm),
+      s: asNum(ci.plate?.s_mm),
+      t: asNum(ci.plate?.t_mm),
+      hw: asNum(ci.stiffener?.hw_mm),
+      tw: asNum(ci.stiffener?.tw_mm),
+      bf: asNum(ci.stiffener?.bf_mm),
+      tf: asNum(ci.stiffener?.tf_mm),
+      stiffenerType: ci.stiffener?.type ?? stiffenerTypeForExport(section),
+      profileName,
+      eccentricityMm,
+      fy: asNum(ci.material?.fy_mpa),
+      E: asNum(ci.material?.E_mpa),
+      nu: asNum(mat.poisson),
+      gammaM: asNum(ci.material?.gamma_m),
+      continuous: ci.continuous !== false,
+    };
+  }
+  return {
+    span: scaled(stiff.span ?? plate.length, 1e3),
+    s: scaled(plate.width, 1e3),
+    t: scaled(plate.thickness, 1e3),
+    hw: scaled(section.height, 1e3),
+    tw: scaled(section.web_thickness, 1e3),
+    bf: scaled(section.flange_width, 1e3),
+    tf: scaled(section.flange_thickness, 1e3),
+    stiffenerType: stiffenerTypeForExport(section),
+    profileName,
+    eccentricityMm,
+    fy: scaled(mat.fy, 1e-6),
+    E: scaled(mat.E, 1e-6),
+    nu: asNum(mat.poisson),
+    gammaM: asNum(mat.gamma_m),
+    continuous: stiff.continuous !== false,
+  };
+}
+
+/** Build the aibel_dnv_rp_c201_ui ``fe_stiffened`` value map from a result row.
+ *  Units match that check's fields (mm / MPa / kNm). Geometry/material come from
+ *  the as-checked ``check_inputs`` (so an imported case reproduces the engine);
+ *  stresses come from the same resolved vectors / loads the Input panel shows. */
+function buildUiCaseValues(
+  run: CapacityRunLike,
+  row: CapacityCaseResultLike,
+): Record<string, number | string | boolean> {
+  const g = resolveGeometry(run, row);
   const loads = (row.loads ?? {}) as Record<string, unknown>;
   const vec = (row.resolved_vectors ?? {}) as Record<string, unknown>;
   const sigmaX = (vec.AverageLongitudinalMembraneStresses ?? []) as unknown[];
@@ -928,25 +1002,27 @@ function buildUiCaseValues(
     const n = scaled(v, factor);
     return displayRound(n == null ? fallback : n);
   };
+  const dr = (v: number | null, fallback: number): number =>
+    displayRound(v == null ? fallback : v);
   // Uniform sigma_x is stored as a single station; fan it out to all three.
   const sx1 = num(sigmaX[0], 1e-6);
   const sx2 = sigmaX[1] != null ? num(sigmaX[1], 1e-6) : sx1;
   const sx3 = sigmaX[2] != null ? num(sigmaX[2], 1e-6) : sx1;
   return {
     model: "general",
-    continuous: stiff.continuous !== false,
+    continuous: g.continuous,
     z_star: 0,
-    fy: num(mat.fy, 1e-6, 355),
-    E: num(mat.E, 1e-6, 210000),
-    gamma_M: num(mat.gamma_m, 1, 1.15),
-    stiffener_type: stiffenerTypeForExport(section),
-    hw: num(section.height, 1e3),
-    tw: num(section.web_thickness, 1e3),
-    bf: num(section.flange_width, 1e3),
-    tf: num(section.flange_thickness, 1e3),
-    s: num(plate.width, 1e3),
-    t: num(plate.thickness, 1e3),
-    span: num(stiff.span ?? plate.length, 1e3),
+    fy: dr(g.fy, 355),
+    E: dr(g.E, 210000),
+    gamma_M: dr(g.gammaM, 1.15),
+    stiffener_type: g.stiffenerType,
+    hw: dr(g.hw, 0),
+    tw: dr(g.tw, 0),
+    bf: dr(g.bf, 0),
+    tf: dr(g.tf, 0),
+    s: dr(g.s, 0),
+    t: dr(g.t, 0),
+    span: dr(g.span, 0),
     sigma_x_1: sx1,
     sigma_x_2: sx2,
     sigma_x_3: sx3,
@@ -1015,16 +1091,14 @@ function buildInputGroups(
   >;
   const stiff =
     stiffeners.find((s) => s.name === row.stiffener) ?? stiffeners[0] ?? {};
-  const section = (stiff.section ?? {}) as Record<string, unknown>;
   const disc = (stiff.discretization ?? {}) as Record<string, unknown>;
-  const mat = (stiff.material ?? plate.material ?? {}) as Record<
-    string,
-    unknown
-  >;
   const loads = (row.loads ?? {}) as Record<string, unknown>;
   const rv = (row.resolved_variables ?? {}) as Record<string, unknown>;
   const vec = (row.resolved_vectors ?? {}) as Record<string, unknown>;
   const sigmaX = (vec.AverageLongitudinalMembraneStresses ?? []) as unknown[];
+  // Show the geometry/material the check actually used (v8 check_inputs), so the
+  // sidebar matches the result and the Export.
+  const g = resolveGeometry(run, row);
   const f = (
     symbol: string,
     label: string,
@@ -1037,34 +1111,29 @@ function buildInputGroups(
     {
       title: "Geometry",
       fields: [
-        f("t", "Plate thickness", scaled(plate.thickness, 1e3), "mm"),
-        f("s", "Stiffener spacing", scaled(plate.width, 1e3), "mm"),
-        f("l", "Span", scaled(stiff.span ?? plate.length, 1e3), "mm"),
-        f("z_w", "Eccentricity", scaled(stiff.eccentricity, 1e3), "mm"),
+        f("t", "Plate thickness", g.t, "mm"),
+        f("s", "Stiffener spacing", g.s, "mm"),
+        f("l", "Span", g.span, "mm"),
+        f("z_w", "Eccentricity", g.eccentricityMm, "mm"),
       ],
     },
     {
       title: "Stiffener section",
       fields: [
-        f("", "Profile", (section.name as string) ?? "—"),
-        f("h_w", "Web height", scaled(section.height, 1e3), "mm"),
-        f("t_w", "Web thickness", scaled(section.web_thickness, 1e3), "mm"),
-        f("b_f", "Flange width", scaled(section.flange_width, 1e3), "mm"),
-        f(
-          "t_f",
-          "Flange thickness",
-          scaled(section.flange_thickness, 1e3),
-          "mm",
-        ),
+        f("", "Profile", g.profileName),
+        f("h_w", "Web height", g.hw, "mm"),
+        f("t_w", "Web thickness", g.tw, "mm"),
+        f("b_f", "Flange width", g.bf, "mm"),
+        f("t_f", "Flange thickness", g.tf, "mm"),
       ],
     },
     {
       title: "Material",
       fields: [
-        f("f_y", "Yield strength", scaled(mat.fy, 1e-6), "MPa"),
-        f("E", "Young's modulus", scaled(mat.E, 1e-6), "MPa"),
-        f("ν", "Poisson", asNum(mat.poisson), "-"),
-        f("γ_M", "Material factor", asNum(mat.gamma_m), "-"),
+        f("f_y", "Yield strength", g.fy, "MPa"),
+        f("E", "Young's modulus", g.E, "MPa"),
+        f("ν", "Poisson", g.nu, "-"),
+        f("γ_M", "Material factor", g.gammaM, "-"),
       ],
     },
     {
@@ -1137,7 +1206,7 @@ function buildInputGroups(
     {
       title: "Options",
       fields: [
-        f("", "Continuous", stiff.continuous === false ? "no" : "yes"),
+        f("", "Continuous", g.continuous ? "yes" : "no"),
         f("", "Tension field", (loads.tension_field as string) ?? "none"),
       ],
     },

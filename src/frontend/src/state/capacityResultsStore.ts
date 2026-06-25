@@ -46,7 +46,30 @@ export interface CapacityCaseResult {
   loads?: Record<string, unknown>;
   resolved_variables?: Record<string, unknown>;
   resolved_vectors?: Record<string, unknown>;
+  /** v8: the exact geometry/material/options the check consumed (mm/MPa). The
+   *  input panel and Export prefer this over the display capacity_model dict so
+   *  an exported case reproduces the engine — notably the stiffener span that
+   *  drives the transverse plate resistance sigma_y,R (eq. 4.6). */
+  check_inputs?: CapacityCheckInputs;
   notes?: string[];
+}
+
+/** v8 check_inputs payload (see capacity_check._build_check_inputs). */
+export interface CapacityCheckInputs {
+  span_mm?: number;
+  plate?: { s_mm?: number; t_mm?: number };
+  stiffener?: {
+    hw_mm?: number;
+    tw_mm?: number;
+    bf_mm?: number;
+    tf_mm?: number;
+    type?: string;
+  };
+  material?: { fy_mpa?: number; E_mpa?: number; gamma_m?: number };
+  continuous?: boolean;
+  welded?: boolean;
+  model_type?: string;
+  optimize_z_star?: boolean;
 }
 
 export interface CapacityModel {

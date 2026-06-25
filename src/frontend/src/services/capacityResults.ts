@@ -8,8 +8,12 @@ export const CAPACITY_RESULTS_FORMAT = "dnv-rp-c201-capacity-results";
 // (field, case) step at a time) and per-(case, model, stiffener) rows move to
 // per-case detail files (capacity.detail/<case>.json, fetched on demand).
 // v7: add the worst-over-cases summary (capacity.summary.json) + trim detail
-// resolved_vectors. Kept in lockstep with viewer_export.py CAPACITY_RESULTS_VERSION.
-export const CAPACITY_RESULTS_VERSION = 7;
+// resolved_vectors.
+// v8: per-case detail rows carry check_inputs — the exact geometry/material the
+// check consumed (mm/MPa), used by the input panel + Export so an exported case
+// reproduces the engine (esp. the stiffener span feeding sigma_y,R, eq. (4.6)).
+// Kept in lockstep with viewer_export.py CAPACITY_RESULTS_VERSION.
+export const CAPACITY_RESULTS_VERSION = 8;
 
 export interface CapacityValidationContext {
     manifest?: Pick<FeaManifest, "source_sha256"> | null;
