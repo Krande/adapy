@@ -40,15 +40,18 @@ def native_step_to_glb(
     deflection: float | None = None,
     angular_deg: float | None = None,
     num_threads: int = 0,
+    meshopt: bool = True,
     on_progress=None,
 ) -> dict:
     """Convert ``step_path`` to a GLB at ``glb_path`` with the native adacpp pipeline.
 
     ``deflection`` / ``angular_deg`` default to the ``ADA_STREAM_TESS_DEFLECTION`` (2.0) /
     ``ADA_STREAM_TESS_ANGULAR`` (20.0) env, matching the streaming path. ``num_threads`` 0 = auto
-    (hardware concurrency). Returns a stats dict ``{solids, total, skipped}`` for the converter's
-    coverage checks. Raises if adacpp is unavailable or the conversion fails (the converter then
-    falls back per its fallback chain).
+    (hardware concurrency). ``meshopt`` (default on) bakes ``EXT_meshopt_compression`` inline in the
+    C++ writer — no Python re-pack of the (potentially GB-scale) GLB, and the worker's compress_glb
+    detects the already-packed GLB and skips it (gzip-at-rest still applies on upload). Returns a
+    stats dict ``{solids, total, skipped}``. Raises if adacpp is unavailable or the conversion fails
+    (the converter then falls back per its fallback chain).
     """
     import adacpp
 
@@ -66,6 +69,7 @@ def native_step_to_glb(
         deflection=deflection,
         angular_deg=angular_deg,
         num_threads=num_threads,
+        meshopt=meshopt,
     )
     if n < 0:
         raise RuntimeError(f"adacpp native stream_step_to_glb failed for {step_path}")

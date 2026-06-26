@@ -115,6 +115,11 @@ def meshopt_compress_glb(in_path: str | Path, out_path: str | Path, *, min_bytes
                 raise ValueError("expected BIN chunk")
             bin_off = f.tell()  # file offset of the BIN data
             orig_bin_len = blen
+        if "EXT_meshopt_compression" in j.get("extensionsUsed", []):
+            # already meshopt-packed (e.g. the native adacpp writer did it inline) — re-encoding would
+            # slice the compressed buffer as if uncompressed and corrupt it. No-op.
+            logger.info("meshopt: %s already EXT_meshopt-packed; skipping", in_path.name)
+            return in_path
         bvs = j.get("bufferViews", [])
         accs = j.get("accessors", [])
 
