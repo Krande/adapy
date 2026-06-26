@@ -53,6 +53,18 @@ def test_native_step_to_glb_renders_merge_by_colour(tmp_path):
             assert "POSITION" in prim["attributes"]
             assert accessors[prim["indices"]]["count"] > 0
 
+    # picking contract: scenes[0].extras carries id_hierarchy + a draw_ranges_node* per material,
+    # and the ADA_EXT_data extension marks it a design model.
+    extras = gltf["scenes"][0]["extras"]
+    assert "id_hierarchy" in extras and len(extras["id_hierarchy"]) >= 2, "per-solid id_hierarchy"
+    dr_keys = [k for k in extras if k.startswith("draw_ranges_node")]
+    assert len(dr_keys) == 2, "one draw_ranges_node* per material"
+    # each draw range is [start, length] into that material's index buffer
+    for k in dr_keys:
+        for _nid, rng in extras[k].items():
+            assert len(rng) == 2 and rng[1] > 0
+    assert "ADA_EXT_data" in gltf.get("extensions", {}), "ADA_EXT_data extension present"
+
 
 def test_native_full_cylinder_renders(tmp_path):
     # No geometry left behind: a standalone full (360deg) cylinder must tessellate. Its edges are
