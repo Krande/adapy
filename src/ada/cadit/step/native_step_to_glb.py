@@ -11,9 +11,10 @@ On the crane (778 MB, 7291 solids, 26 M tris) this is ~2.9x faster than the Pyth
 ``ADA_STREAM_TESS_ANGULAR`` env as the streaming path so deflection options carry over.
 
 The native GLB carries the full viewer picking contract: merge-by-colour materials + per-material
-``draw_ranges_node<matidx>`` and a per-solid ``id_hierarchy`` in ``scenes[0].extras``, plus an
-``ADA_EXT_data`` extension. Each solid is individually pickable. The id_hierarchy is flat (every
-solid a root child) — the full STEP assembly tree (from the reader's instance paths) is a follow-up.
+``draw_ranges_node<matidx>`` and a per-instance, product-named ``id_hierarchy`` in
+``scenes[0].extras``, plus an ``ADA_EXT_data`` extension. Each placement is individually pickable and
+the assembly tree is reconstructed from the reader's instance paths — validated 1:1 with the Python
+streaming path on the crane (same products, placements, triangle counts, names, and full tree).
 """
 
 from __future__ import annotations

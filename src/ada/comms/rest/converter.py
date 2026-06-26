@@ -843,20 +843,23 @@ def _should_stream_step(src_path: pathlib.Path, step_streamer: bool | None) -> b
         return False
 
 
-# STEP→GLB engines. ``libtess2`` (adacpp's OCC-free boundary CDT, step2glb-parity
-# geometry incl. curved surfaces the OCC stream reader drops) is the default; the
-# ``occ-builtin`` OCC streaming reader is the prior default, kept as the fallback.
-# ``adacpp-{occ,cgal,hybrid}`` route through adacpp's linked OCCT / ifcopenshell-
-# taxonomy kernels (extra options). (The external ``step2glb`` binary engine was removed —
-# libtess2 reaches the same geometry in-process, so the unprovisioned binary path is gone.)
+# STEP→GLB engines. ``adacpp-native`` (the fully in-process C++ reader+tessellate+write, validated
+# 1:1 with the Python path) is the default; it falls back to ``libtess2`` (adacpp's OCC-free boundary
+# CDT, step2glb-parity geometry incl. curved surfaces the OCC stream reader drops) and then the
+# ``occ-builtin`` OCC streaming reader. ``adacpp-{occ,cgal,hybrid}`` route through adacpp's linked
+# OCCT / ifcopenshell-taxonomy kernels (extra options). (The external ``step2glb`` binary engine was
+# removed — libtess2 reaches the same geometry in-process, so the unprovisioned binary path is gone.)
 _STEP_GLB_PIPELINE_LIBTESS2 = "libtess2"
 _STEP_GLB_PIPELINE_OCC = "occ-builtin"
 _STEP_GLB_PIPELINE_ADACPP_OCC = "adacpp-occ"
 _STEP_GLB_PIPELINE_ADACPP_CGAL = "adacpp-cgal"
 _STEP_GLB_PIPELINE_ADACPP_HYBRID = "adacpp-hybrid"
 # Fully-native: adacpp does the whole STEP->GLB in-process (C++ reader + thread pool + GLB writer),
-# replacing the Python reader + multiprocess pool. Fastest + lowest memory; renders without the
-# ADA_EXT picking sidecar yet (see native_step_to_glb).
+# replacing the Python reader + multiprocess pool. Fastest + lowest memory, and now byte-faithful to
+# the Python path — geometry, product names, per-instance picking, and the full assembly tree are
+# validated 1:1 on the crane (see native_step_to_glb / validate_native_vs_python.py). This is the
+# default; it degrades gracefully to libtess2 if adacpp's native entry point is missing or the
+# conversion raises.
 _STEP_GLB_PIPELINE_ADACPP_NATIVE = "adacpp-native"
 _STEP_GLB_PIPELINES = (
     _STEP_GLB_PIPELINE_LIBTESS2,
@@ -866,7 +869,10 @@ _STEP_GLB_PIPELINES = (
     _STEP_GLB_PIPELINE_ADACPP_HYBRID,
     _STEP_GLB_PIPELINE_ADACPP_NATIVE,
 )
-_STEP_GLB_PIPELINE_DEFAULT = _STEP_GLB_PIPELINE_LIBTESS2
+_STEP_GLB_PIPELINE_DEFAULT = _STEP_GLB_PIPELINE_ADACPP_NATIVE
+# Where the native path degrades to when adacpp is absent or a conversion raises. Kept separate from
+# the default so the native branch's fallback is never circular.
+_STEP_GLB_PIPELINE_FALLBACK = _STEP_GLB_PIPELINE_LIBTESS2
 
 # Non-STEP →GLB engine toggle (xml / ifc / sat / fem / obj / stl → glb via to_gltf's
 # BatchTessellator). Reuses the STEP option's names so the admin panel reads consistently,
@@ -907,9 +913,9 @@ def _resolve_step_glb_pipeline(step_glb_pipeline: str | None) -> str:
     Precedence mirrors ``_should_stream_step``: an explicit per-job choice
     (``step_glb_pipeline`` kwarg, set by the worker from the job option) wins;
     otherwise the global ``ADAPY_STEP_GLB_PIPELINE`` env (same convention as
-    ``ADAPY_CAD_BACKEND``); default ``libtess2``. An adacpp pipeline requested
-    where adacpp isn't installed degrades to ``occ-builtin`` (see
-    ``_cad_config_for_pipeline``), so a libtess2 default is safe everywhere.
+    ``ADAPY_CAD_BACKEND``); default ``adacpp-native``. The native path degrades
+    to ``libtess2`` (then ``occ-builtin``) when adacpp is missing or a conversion
+    raises, so the native default is safe everywhere.
     """
     import os
 
@@ -1015,12 +1021,12 @@ def _via_ada(
                             "adacpp-native STEP->GLB failed for %s (%s); falling back to %s",
                             getattr(src_path, "name", src_path),
                             exc,
-                            _STEP_GLB_PIPELINE_DEFAULT,
+                            _STEP_GLB_PIPELINE_FALLBACK,
                         )
                 else:
                     logger.warning("adacpp-native requested but unavailable; falling back to %s",
-                                   _STEP_GLB_PIPELINE_DEFAULT)
-                pipe = _STEP_GLB_PIPELINE_DEFAULT
+                                   _STEP_GLB_PIPELINE_FALLBACK)
+                pipe = _STEP_GLB_PIPELINE_FALLBACK
 
             cad_cfg = _cad_config_for_pipeline(pipe)
             if cad_cfg is not None:
@@ -1877,13 +1883,14 @@ def _register_ada_loadable() -> None:
         "default": _STEP_GLB_PIPELINE_DEFAULT,
         "enum": list(_STEP_GLB_PIPELINES),
         "description": (
-            "STEP→GLB tessellation engine. 'libtess2' (default) is adacpp's OCC-free "
-            "boundary tessellator and renders the curved surfaces (rational B-spline / "
-            "spherical / conical / toroidal) the OCC streaming reader silently drops. "
-            "'occ-builtin' is the OpenCASCADE path (whole-model or streaming). "
-            "'adacpp-occ' / 'adacpp-cgal' / 'adacpp-hybrid' use adacpp's taxonomy kernels. "
-            "'adacpp-native' runs the whole STEP→GLB in adacpp C++ (reader + thread pool + GLB "
-            "writer), the fastest + lowest-memory path; renders without the picking sidecar yet."
+            "STEP→GLB tessellation engine. 'adacpp-native' (default) runs the whole STEP→GLB in "
+            "adacpp C++ (reader + thread pool + GLB writer) — fastest + lowest-memory, and 1:1 with "
+            "the Python path (geometry, product names, per-instance picking, full assembly tree); "
+            "falls back to 'libtess2' then 'occ-builtin'. 'libtess2' is adacpp's OCC-free boundary "
+            "tessellator (Python reader + worker pool) and renders the curved surfaces (rational "
+            "B-spline / spherical / conical / toroidal) the OCC streaming reader silently drops. "
+            "'occ-builtin' is the OpenCASCADE path. 'adacpp-occ' / 'adacpp-cgal' / 'adacpp-hybrid' "
+            "use adacpp's taxonomy kernels."
         ),
     }
 
