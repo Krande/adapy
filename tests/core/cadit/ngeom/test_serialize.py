@@ -8,6 +8,7 @@ test env, not here, to keep adapy free of an adacpp dependency.
 
 from __future__ import annotations
 
+import math
 import struct
 
 import ada.geom.curves as cu
@@ -90,3 +91,94 @@ def test_dependency_order_no_forward_refs():
     _, records, _ = _parse(buf)
     # FACE_SURFACE (tag 65) is last; PLANE/loops/edges precede it
     assert records[-1][0] == 65
+
+
+# --- vectorized bulk-array serialization (Tier 1.5) ------------------------------------
+# The serializer packs large geometry arrays with ``numpy.tobytes()`` instead of per-scalar
+# ``struct.pack``; the tests below build geometry that exercises every vectorized site (B-spline
+# control grids/knots/weights, polylines, poly-loops, edge-loop and face-set index lists) with
+# more than ``_BULK_MIN`` elements so the numpy path is actually taken.
+
+
+def _bspline_surface_face():
+    nu, nv = 4, 6  # 24 control points > _BULK_MIN
+    rows = [[Point(float(i), float(j), float(i * j) * 0.25) for j in range(nv)] for i in range(nu)]
+    surf = su.BSplineSurfaceWithKnots(
+        u_degree=3,
+        v_degree=3,
+        control_points_list=rows,
+        surface_form=su.BSplineSurfaceForm.PLANE_SURF,
+        u_closed=False,
+        v_closed=False,
+        self_intersect=False,
+        u_multiplicities=[1] * 20,
+        v_multiplicities=[2] * 20,
+        u_knots=[float(i) for i in range(20)],
+        v_knots=[float(i) * 0.5 for i in range(20)],
+        knot_spec=cu.KnotType.UNSPECIFIED,
+    )
+    surf.weights_data = [[1.0 + 0.01 * (i + j) for j in range(nv)] for i in range(nu)]  # >16 flat weights
+    poly = cu.PolyLoop(polygon=[Point(math.cos(0.3 * k), math.sin(0.3 * k), 0.1 * k) for k in range(20)])  # >16 pts
+    return su.FaceSurface(bounds=[su.FaceBound(bound=poly, orientation=True)], face_surface=surf, same_sense=True)
+
+
+def _bspline_curve_edge_face():
+    cps = [Point(float(i), float(i % 3), 0.0) for i in range(20)]  # >16 control points
+    bc = cu.BSplineCurveWithKnots(
+        degree=3,
+        control_points_list=cps,
+        curve_form=cu.BSplineCurveFormEnum.POLYLINE_FORM,
+        closed_curve=False,
+        self_intersect=False,
+        knot_multiplicities=[1] * 24,  # >16 multiplicities
+        knots=[float(i) for i in range(24)],  # >16 knots
+        knot_spec=cu.KnotType.UNSPECIFIED,
+    )
+    bc.weights_data = [1.0 + 0.001 * i for i in range(20)]  # >16 weights
+    s, t = (0.0, 0.0, 0.0), (19.0, 0.0, 0.0)
+    ec = cu.EdgeCurve(start=s, end=t, edge_geometry=bc, same_sense=True)
+    oe = cu.OrientedEdge(start=s, end=t, edge_element=ec, orientation=True)
+    loop = cu.EdgeLoop(edge_list=[oe])
+    plane = su.Plane(position=Axis2Placement3D(Point(0, 0, 0), Direction(0, 0, 1), Direction(1, 0, 0)))
+    return su.FaceSurface(bounds=[su.FaceBound(bound=loop, orientation=True)], face_surface=plane, same_sense=True)
+
+
+def _ngon_edge_face(n=20):
+    # EDGE_LOOP with >16 oriented edges -> exercises the vectorized edge-ref list
+    pts = [(math.cos(2 * math.pi * k / n), math.sin(2 * math.pi * k / n), 0.0) for k in range(n)]
+    loop = cu.EdgeLoop(edge_list=[_line_oe(pts[i], pts[(i + 1) % n]) for i in range(n)])
+    plane = su.Plane(position=Axis2Placement3D(Point(0, 0, 0), Direction(0, 0, 1), Direction(1, 0, 0)))
+    return su.FaceSurface(bounds=[su.FaceBound(bound=loop, orientation=True)], face_surface=plane, same_sense=True)
+
+
+def test_vectorized_serialize_byte_identical_to_scalar(monkeypatch):
+    """The numpy bulk path must be byte-for-byte identical to the per-scalar ``struct`` path.
+    Forcing ``_BULK_MIN`` above any array length makes every helper fall back to the exact
+    pre-vectorization code, so equal buffers prove the wire format is unchanged at every site."""
+    items = [
+        ("bsurf", _bspline_surface_face()),
+        ("bcurve", _bspline_curve_edge_face()),
+        ("ngon", _ngon_edge_face(20)),
+        ("shell", su.OpenShell(cfs_faces=[_square_face() for _ in range(20)])),  # >16 faces in the set
+    ]
+    fast = serialize_geometries(items)  # default: numpy for arrays >= _BULK_MIN
+
+    import ada.cadit.ngeom.serialize as ser
+
+    monkeypatch.setattr(ser, "_BULK_MIN", 10**9)  # force the per-scalar struct path everywhere
+    slow = serialize_geometries(items)
+
+    assert fast == slow
+    _, _, roots = _parse(fast)
+    assert [rid for _, rid in roots] == ["bsurf", "bcurve", "ngon", "shell"]
+
+
+def test_vectorized_buffer_decodes_spec_shaped():
+    # the vectorized buffer must still parse cleanly (framing/roots intact)
+    buf = serialize_geometries([("bsurf", _bspline_surface_face())])
+    version, records, roots = _parse(buf)
+    assert version == NGEOM_VERSION
+    tags = [t for t, _ in records]
+    assert 45 in tags  # BSPLINE_SURFACE
+    assert 63 in tags  # POLY_LOOP (the >16-pt bound)
+    assert len(roots) == 1

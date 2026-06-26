@@ -16,6 +16,10 @@ import ada.geom.surfaces as su
 
 NGEOM_VERSION = 1
 
+# Arrays shorter than this serialize via per-scalar ``struct.pack`` (faster than building a numpy
+# array); longer arrays go through ``numpy.tobytes()`` (the B-spline / polyline bulk path).
+_BULK_MIN = 16
+
 
 def _sample_arc(start, mid, end, n: int = 24) -> list:
     """Sample a 3-point circular arc (IFC ArcLine) into an ordered polyline start->mid->end.
@@ -126,11 +130,48 @@ class _Encoder:
 
     def f64s(self, xs: Iterable[float]) -> bytes:
         xs = list(xs)
-        return self.i32(len(xs)) + b"".join(self.f64(x) for x in xs)
+        return self.i32(len(xs)) + self._f64_raw(xs)
 
     def i32s(self, xs: Iterable[int]) -> bytes:
         xs = list(xs)
-        return self.i32(len(xs)) + b"".join(self.i32(x) for x in xs)
+        return self.i32(len(xs)) + self._i32_raw(xs)
+
+    # --- bulk array helpers ------------------------------------------------------------
+    # Vectorize the large geometry arrays (B-spline control grids, knots, polylines) with
+    # ``numpy.tobytes()`` instead of per-scalar ``struct.pack`` + ``b"".join`` (~600 calls for a
+    # 100-pt B-spline). Wire format is unchanged: numpy ``<f8``/``<i4`` little-endian bytes are
+    # byte-for-byte identical to ``struct.pack("<d"/"<i")``. Small arrays keep the per-scalar path
+    # (numpy array-creation overhead would regress the millions of tiny face/loop records).
+    @staticmethod
+    def _f64_raw(xs) -> bytes:
+        """Raw little-endian f64 bytes (no count prefix) for a 1-D float sequence."""
+        xs = xs if isinstance(xs, list) else list(xs)
+        if len(xs) < _BULK_MIN:
+            return b"".join(struct.pack("<d", float(x)) for x in xs)
+        return np.ascontiguousarray(np.asarray(xs, dtype="<f8")).tobytes()
+
+    @staticmethod
+    def _i32_raw(xs) -> bytes:
+        """Raw little-endian i32 bytes (no count prefix) for a 1-D int sequence."""
+        xs = xs if isinstance(xs, list) else list(xs)
+        if len(xs) < _BULK_MIN:
+            return b"".join(struct.pack("<i", int(x)) for x in xs)
+        return np.ascontiguousarray(np.asarray(xs, dtype="<i4")).tobytes()
+
+    def _v3_raw(self, pts) -> bytes:
+        """Raw little-endian f64 bytes for a sequence of 3D points, ``(n,3)`` row-major.
+        Falls back to the per-point ``v3`` path for small, ragged or 2D inputs (IFC sometimes
+        drops a zero z) — byte-for-byte identical to the old ``b"".join(v3(p) ...)``."""
+        pts = pts if isinstance(pts, list) else list(pts)
+        if len(pts) < _BULK_MIN:
+            return b"".join(self.v3(p) for p in pts)
+        try:
+            arr = np.asarray(pts, dtype=np.float64)
+        except (ValueError, TypeError):
+            arr = None
+        if arr is None or arr.ndim != 2 or arr.shape[1] != 3:
+            return b"".join(self.v3(p) for p in pts)  # ragged / 2D → exact old path
+        return np.ascontiguousarray(arr, dtype="<f8").tobytes()
 
     # --- placements --------------------------------------------------------------------
     def placement3(self, pos: su.Axis2Placement3D) -> int:
@@ -159,7 +200,7 @@ class _Encoder:
             idx = self._trimmed_curve(c)
         elif isinstance(c, cu.PolyLine):
             pts = list(c.points)
-            idx = self._add(_POLYLINE, self.i32(len(pts)) + b"".join(self.v3(p) for p in pts))
+            idx = self._add(_POLYLINE, self.i32(len(pts)) + self._v3_raw(pts))
         elif isinstance(c, cu.Hyperbola):
             pl = self.placement3(c.position)
             idx = self._add(_HYPERBOLA, self.i32(pl) + self.f64(c.semi_axis) + self.f64(c.semi_imag_axis))
@@ -175,7 +216,7 @@ class _Encoder:
         elif isinstance(c, cu.ArcLine):
             # 3-point arc (no STEP entity): sample to a polyline through start->mid->end
             pts = _sample_arc(c.start, c.midpoint, c.end)
-            idx = self._add(_POLYLINE, self.i32(len(pts)) + b"".join(self.v3(p) for p in pts))
+            idx = self._add(_POLYLINE, self.i32(len(pts)) + self._v3_raw(pts))
         elif isinstance(c, cu.OffsetCurve3D):
             idx = self.curve(c.basis_curve)  # offset approximated by its basis (step2glb has no offset arm)
         else:
@@ -187,11 +228,11 @@ class _Encoder:
         weights = list(getattr(c, "weights_data", None) or [])
         body = self.i32(c.degree) + self.i32(1 if c.closed_curve else 0) + self.i32(1 if c.self_intersect else 0)
         cps = list(c.control_points_list)
-        body += self.i32(len(cps)) + b"".join(self.v3(p) for p in cps)
-        body += self.f64s(c.knots) + b"".join(self.i32(m) for m in c.knot_multiplicities)
+        body += self.i32(len(cps)) + self._v3_raw(cps)
+        body += self.f64s(c.knots) + self._i32_raw(c.knot_multiplicities)
         body += self.i32(1 if weights else 0)
         if weights:
-            body += b"".join(self.f64(w) for w in weights)
+            body += self._f64_raw(weights)
         return self._add(_BSPLINE_CURVE, body)
 
     def _trimmed_curve(self, c: cu.TrimmedCurve) -> int:
@@ -255,18 +296,17 @@ class _Encoder:
             self.i32(1 if s.u_closed else 0) + self.i32(1 if s.v_closed else 0) + self.i32(1 if s.self_intersect else 0)
         )
         body += self.i32(nu) + self.i32(nv)
-        for row in rows:  # row-major: u outer, v inner
-            for p in row:
-                body += self.v3(p)
-        body += self.f64s(s.u_knots) + b"".join(self.i32(m) for m in s.u_multiplicities)
-        body += self.f64s(s.v_knots) + b"".join(self.i32(m) for m in s.v_multiplicities)
+        # row-major: u outer, v inner — flatten then bulk-serialize the control grid
+        body += self._v3_raw([p for row in rows for p in row])
+        body += self.f64s(s.u_knots) + self._i32_raw(s.u_multiplicities)
+        body += self.f64s(s.v_knots) + self._i32_raw(s.v_multiplicities)
         flat_w = []
         if weights:
             for row in weights:
                 flat_w.extend(row)
         body += self.i32(1 if flat_w else 0)
         if flat_w:
-            body += b"".join(self.f64(w) for w in flat_w)
+            body += self._f64_raw(flat_w)
         return self._add(_BSPLINE_SURFACE, body)
 
     # --- topology ----------------------------------------------------------------------
@@ -297,9 +337,10 @@ class _Encoder:
     def loop(self, lp) -> int:
         if isinstance(lp, cu.PolyLoop):
             pts = list(lp.polygon)
-            return self._add(_POLY_LOOP, self.i32(len(pts)) + b"".join(self.v3(p) for p in pts))
+            return self._add(_POLY_LOOP, self.i32(len(pts)) + self._v3_raw(pts))
         edges = list(lp.edge_list)
-        return self._add(_EDGE_LOOP, self.i32(len(edges)) + b"".join(self.i32(self.oriented_edge(e)) for e in edges))
+        refs = [self.oriented_edge(e) for e in edges]  # materialize first (each appends a record)
+        return self._add(_EDGE_LOOP, self.i32(len(edges)) + self._i32_raw(refs))
 
     def face_bound(self, fb: su.FaceBound) -> int:
         lp = self.loop(fb.bound)
@@ -309,7 +350,7 @@ class _Encoder:
         surf = self.surface(f.face_surface)
         bounds = [self.face_bound(b) for b in f.bounds]
         body = self.i32(surf) + self.i32(1 if f.same_sense else 0) + self.i32(len(bounds))
-        body += b"".join(self.i32(b) for b in bounds)
+        body += self._i32_raw(bounds)
         return self._add(_FACE_SURFACE, body)
 
     def connected_face_set(self, cfs) -> int:
@@ -321,7 +362,7 @@ class _Encoder:
                 faces.append(self.face_surface(f))
             except Exception:  # noqa: BLE001 - skip any face that can't be mapped (robustness)
                 continue
-        return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + b"".join(self.i32(f) for f in faces))
+        return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + self._i32_raw(faces))
 
     # --- solids ------------------------------------------------------------------------
     @staticmethod
@@ -343,7 +384,7 @@ class _Encoder:
 
     def _poly_face_bound(self, curve, outer: bool) -> int:
         pts = self._loop_points_3d(curve)
-        loop = self._add(_POLY_LOOP, self.i32(len(pts)) + b"".join(self.v3(p) for p in pts))
+        loop = self._add(_POLY_LOOP, self.i32(len(pts)) + self._v3_raw(pts))
         return self._add(_FACE_BOUND, self.i32(loop) + self.i32(1 if outer else 0))
 
     def _conic_edge_loop(self, curve) -> int:
@@ -387,7 +428,7 @@ class _Encoder:
         plane = self._add(_PLANE, self.i32(self.placement3(Axis2Placement3D())))
         return self._add(
             _FACE_SURFACE,
-            self.i32(plane) + self.i32(1) + self.i32(len(bounds)) + b"".join(self.i32(b) for b in bounds),
+            self.i32(plane) + self.i32(1) + self.i32(len(bounds)) + self._i32_raw(bounds),
         )
 
     def _profile_face(self, profile) -> int:
@@ -428,7 +469,7 @@ class _Encoder:
         EXTRUDED_AREA_SOLID record; no taxonomy box primitive exists)."""
         x, y = float(box.x_length), float(box.y_length)
         pts = [(0.0, 0.0, 0.0), (x, 0.0, 0.0), (x, y, 0.0), (0.0, y, 0.0)]
-        loop = self._add(_POLY_LOOP, self.i32(4) + b"".join(self.v3(p) for p in pts))
+        loop = self._add(_POLY_LOOP, self.i32(4) + self._v3_raw(pts))
         bound = self._add(_FACE_BOUND, self.i32(loop) + self.i32(1))
         face = self._planar_face([bound])
         body = (
@@ -452,7 +493,7 @@ class _Encoder:
         """Planar FACE_SURFACE in the local XZ plane (y=0; normal=+Y, ref=+X)."""
         place = self._add(_PLACEMENT3, self.v3((0.0, 0.0, 0.0)) + self.v3((0.0, 1.0, 0.0)) + self.v3((1.0, 0.0, 0.0)))
         plane = self._add(_PLANE, self.i32(place))
-        loop = self._add(_POLY_LOOP, self.i32(len(pts3d)) + b"".join(self.v3(p) for p in pts3d))
+        loop = self._add(_POLY_LOOP, self.i32(len(pts3d)) + self._v3_raw(pts3d))
         bound = self._add(_FACE_BOUND, self.i32(loop) + self.i32(1))
         return self._add(_FACE_SURFACE, self.i32(plane) + self.i32(1) + self.i32(1) + self.i32(bound))
 
@@ -536,7 +577,7 @@ class _Encoder:
         rx = (b - a) / rxn
         place = self._add(_PLACEMENT3, self.v3(a) + self.v3(n) + self.v3(rx))
         plane = self._add(_PLANE, self.i32(place))
-        loop = self._add(_POLY_LOOP, self.i32(len(pts)) + b"".join(self.v3(p) for p in pts))
+        loop = self._add(_POLY_LOOP, self.i32(len(pts)) + self._v3_raw(pts))
         bnd = self._add(_FACE_BOUND, self.i32(loop) + self.i32(1))
         return self._add(_FACE_SURFACE, self.i32(plane) + self.i32(1) + self.i32(1) + self.i32(bnd))
 
@@ -560,7 +601,7 @@ class _Encoder:
                     faces.append(self._any_face(f))
                 except Exception:  # noqa: BLE001
                     continue
-        return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + b"".join(self.i32(f) for f in faces))
+        return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + self._i32_raw(faces))
 
     def shell_based_surface_model(self, sbsm) -> int:
         """ShellBasedSurfaceModel -> flatten its open/closed shells' faces into one
@@ -573,7 +614,7 @@ class _Encoder:
                     faces.append(self._any_face(f))
                 except Exception:  # noqa: BLE001
                     continue
-        return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + b"".join(self.i32(f) for f in faces))
+        return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + self._i32_raw(faces))
 
     def boolean_result(self, br) -> int:
         """BooleanResult -> operator + two operand records (recursively
