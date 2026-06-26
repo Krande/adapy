@@ -94,6 +94,11 @@ tests = { features = ["tests", "tests-core", "prod", "pyocc", "desktop"], solve-
 # Own solve-group: ada-cpp's occt closure must not be forced onto the
 # pythonocc-pinned `prod` group. Run with: pixi run -e tests-adacpp test
 tests-adacpp = { features = ["adacpp", "tests", "tests-core", "prod", "desktop"], solve-group = "adacpp", no-default-feature = true }
+# Same as tests-adacpp but bridges a bleeding-edge adacpp via PYTHONPATH (../adacpp/build/dist)
+# instead of the conda-installed ada-cpp — see [feature.adacpp-dev.activation.env]. Assemble the
+# bridge first with `pixi run build-dist` in the adacpp repo. The adacpp-dev feature adds no
+# dependencies, so this reuses the adacpp solve-group (no extra solve).
+tests-adacpp-dev = { features = ["adacpp", "adacpp-dev", "tests", "tests-core", "prod", "desktop"], solve-group = "adacpp", no-default-feature = true }
 fem-deps = { features = ["fem-deps", "prod", "pyocc", "tests-core"], no-default-feature = true }
 # `tests` feature added so the pyocc side of `test-all` can run the whole
 # non-REST suite, including the playwright frontend e2e tests (which live
@@ -150,6 +155,14 @@ ada-cpp = "0.10.1.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
+
+# Bleeding-edge adacpp bridge: prepend ../adacpp/build/dist (the importable package assembled
+# by `pixi run build-dist` in the adacpp repo) so its freshly built native .so shadows the
+# conda-installed ada-cpp. Also keeps src/ on the path so `ada` resolves. Used by the
+# tests-adacpp-dev environment; only applies to commands that don't set PYTHONPATH inline
+# (run scripts directly, e.g. `pixi run -e tests-adacpp-dev python prototypes/...`).
+[feature.adacpp-dev.activation.env]
+PYTHONPATH = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../adacpp/build/dist"
 
 [feature.adacpp.tasks]
 # ada-cpp leg of `test-all`. Runs the whole non-REST suite against the native
