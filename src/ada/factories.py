@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import pathlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from ada.api.primitives import Shape
 from ada.api.spatial import Assembly, Part
@@ -57,17 +57,41 @@ def from_ifc(
 
 
 def from_step(
-    step_file: str | pathlib.Path, source_units=Units.M, cad_config: "CadConfig | None" = None, **kwargs
+    step_file: str | pathlib.Path,
+    source_units=Units.M,
+    cad_config: "CadConfig | None" = None,
+    name: str | None = None,
+    scale: float | None = None,
+    transform=None,
+    rotate=None,
+    colour=None,
+    opacity: float = 1.0,
+    include_shells: bool = False,
+    reader: Literal["occ", "stream", "auto", "tolerant"] | None = None,
+    product_tree: bool = False,
 ) -> Assembly:
     """Create an Assembly object from a STEP file.
 
     The read path defaults to ``cad_config.step_reader`` (``StepReader.AUTO`` out of the box:
     constant-memory streaming with an OCC fallback for out-of-scope files — the most
     memory-efficient + robust choice). Pass a ``cad_config`` with a different ``step_reader`` to
-    override, or pass ``reader=`` directly via ``**kwargs`` to force one for this call.
+    override, or set ``reader=`` to force one for this call. ``product_tree=True`` reconstructs the
+    STEP assembly tree as nested Parts (default: a flat list of Shapes).
     """
     a = Assembly(cad_config=cad_config)
-    a.read_step_file(step_file, source_units=source_units, **kwargs)
+    a.read_step_file(
+        step_file,
+        name=name,
+        scale=scale,
+        transform=transform,
+        rotate=rotate,
+        colour=colour,
+        opacity=opacity,
+        source_units=source_units,
+        include_shells=include_shells,
+        reader=reader,
+        product_tree=product_tree,
+    )
     return a
 
 

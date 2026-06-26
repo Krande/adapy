@@ -562,7 +562,7 @@ class Part(BackendGeom):
         opacity=1.0,
         source_units=Units.M,
         include_shells=False,
-        reader: str | None = None,
+        reader: Literal["occ", "stream", "auto", "tolerant"] | None = None,
         product_tree: bool = False,
     ):
         """
@@ -630,7 +630,17 @@ class Part(BackendGeom):
                 self.add_shape(ada_shape)
 
     def _read_step_streaming(
-        self, step_path, name, scale, transform, rotate, colour, opacity, source_units, reader: str, product_tree=False
+        self,
+        step_path,
+        name,
+        scale,
+        transform,
+        rotate,
+        colour,
+        opacity,
+        source_units,
+        reader: Literal["stream", "auto", "tolerant"],
+        product_tree=False,
     ) -> bool:
         """Read a STEP file via the kernel-free streaming reader, wrapping each
         yielded adapy ``Geometry`` in a ``Shape``. Returns True on success; False
