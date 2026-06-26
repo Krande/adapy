@@ -836,11 +836,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # would drown the log.
         if not is_derived_key(key):
             await _audit(request, user, scope_obj, "download", key=key, status="ok")
-        headers: dict[str, str] = {"Accept-Ranges": "bytes"}
+        headers: dict[str, str] = {}
         if result.content_encoding:
             # See storage.py: gzipped sources/derived round-trip via
-            # Content-Encoding so the browser auto-decompresses.
+            # Content-Encoding so the browser auto-decompresses. A gzip-at-rest
+            # object CANNOT be byte-ranged (a range would hand back compressed
+            # bytes — see _serve_blob_range), so advertise no-range honestly:
+            # otherwise a client/CDN trusts ``Accept-Ranges: bytes`` and a Range
+            # GET against the presigned S3 object returns corrupt partial gzip.
             headers["Content-Encoding"] = result.content_encoding
+            headers["Accept-Ranges"] = "none"
+        else:
+            headers["Accept-Ranges"] = "bytes"
         return StreamingResponse(result.stream, media_type="application/octet-stream", headers=headers)
 
     @api.put("/scopes/{scope}/blobs/{key:path}")
