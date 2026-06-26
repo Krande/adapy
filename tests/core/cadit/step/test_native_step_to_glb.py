@@ -63,7 +63,13 @@ def test_native_step_to_glb_renders_merge_by_colour(tmp_path):
     for k in dr_keys:
         for _nid, rng in extras[k].items():
             assert len(rng) == 2 and rng[1] > 0
-    assert "ADA_EXT_data" in gltf.get("extensions", {}), "ADA_EXT_data extension present"
+    # ADA_EXT_data must carry the fields the viewer reads (it accesses design_objects.length etc.) —
+    # a partial object crashes the viewer ("cannot read properties of undefined (reading 'length')").
+    ada_ext = gltf.get("extensions", {}).get("ADA_EXT_data")
+    assert ada_ext is not None, "ADA_EXT_data extension present"
+    assert isinstance(ada_ext.get("design_objects"), list), "design_objects is a list"
+    assert isinstance(ada_ext.get("simulation_objects"), list), "simulation_objects is a list"
+    assert "version" in ada_ext and "assembly_guid" in ada_ext, "version + assembly_guid present"
 
 
 def test_native_full_cylinder_renders(tmp_path):
