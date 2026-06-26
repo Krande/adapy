@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
 import struct
 from pathlib import Path
 
@@ -94,9 +96,25 @@ def meshopt_compress_glb(in_path: str | Path, out_path: str | Path, *, min_bytes
         logger.warning("meshopt compression skipped: adacpp/numpy not available")
         return in_path
 
+    tmp_bin = Path(out_path).with_suffix(".bintmp")
     try:
-        j, binc = _read_glb(in_path)
-        orig_bin_len = len(binc)
+        # Stream: read only the header + JSON chunk; locate the BIN data offset and pread each
+        # bufferView's source bytes from the file on demand. The whole BIN is never held in RAM (the
+        # old path read the 1.5GB file + a 1.5GB copy + all encoded buffers => ~4GB peak; this bounds
+        # memory to the largest single bufferView + the JSON).
+        with in_path.open("rb") as f:
+            magic, _ver, _len = struct.unpack("<III", f.read(12))
+            if magic != _GLB_MAGIC:
+                raise ValueError("not a GLB")
+            jlen, jtype = struct.unpack("<II", f.read(8))
+            if jtype != _CHUNK_JSON:
+                raise ValueError("expected JSON chunk first")
+            j = json.loads(f.read(jlen).decode("utf-8"))
+            blen, btype = struct.unpack("<II", f.read(8))
+            if btype != _CHUNK_BIN:
+                raise ValueError("expected BIN chunk")
+            bin_off = f.tell()  # file offset of the BIN data
+            orig_bin_len = blen
         bvs = j.get("bufferViews", [])
         accs = j.get("accessors", [])
 
@@ -116,75 +134,69 @@ def meshopt_compress_glb(in_path: str | Path, out_path: str | Path, *, min_bytes
                     if a.get("bufferView") is not None:
                         attr_bv.setdefault(a["bufferView"], a)
 
-        comp: list[dict] = []  # {i, bytes, mode, stride, count}
-        raw: list[dict] = []
-        for i, bv in enumerate(bvs):
-            start = bv.get("byteOffset", 0)
-            src = binc[start : start + bv["byteLength"]]
-            mode = stride = count = None
-            if i in attr_bv:
-                a = attr_bv[i]
-                stride = bv.get("byteStride") or (_TYPE_COMPONENTS[a["type"]] * _COMP_BYTES[a["componentType"]])
-                count = bv["byteLength"] // stride
-                enc = bytes(mo.meshopt_encode_vertex_buffer(bytes(src), count, stride))
-                back = bytes(mo.meshopt_decode_vertex_buffer(enc, count, stride))
-                mode = "ATTRIBUTES"
-            elif i in idx_bv:
-                a = idx_bv[i]
-                stride = _COMP_BYTES[a["componentType"]]  # 2 or 4
-                count = bv["byteLength"] // stride
-                idtype = np.uint16 if stride == 2 else np.uint32
-                idx = np.frombuffer(src, dtype=idtype).astype(np.uint32)
-                vcount = int(idx.max()) + 1 if count else 1
-                enc = bytes(mo.meshopt_encode_index_sequence(idx.tobytes(), count, vcount))
-                back = bytes(mo.meshopt_decode_index_sequence(enc, count, stride))
-                mode = "INDICES"
-            else:
-                raw.append({"i": i, "bytes": bytes(src)})
-                continue
-
-            if back != bytes(src):
-                raise ValueError(f"bufferView {i} ({mode}) failed round-trip — aborting")
-            comp.append({"i": i, "bytes": enc, "mode": mode, "stride": stride, "count": count})
-
-        if not comp:
+        if not (attr_bv or idx_bv):
             logger.info("meshopt: no compressible bufferViews in %s; leaving uncompressed", in_path.name)
             return in_path
 
-        # buffer 0 = [compressed regions][raw regions] (4-byte aligned).
-        parts: list[bytes] = []
-        off0 = 0
+        # buffer 0 = [compressed regions][raw regions] (4-byte aligned), built by streaming each
+        # bufferView's source from the file through the native encoder into a temp BIN file.
         comp_meta: dict[int, dict] = {}
         raw_meta: dict[int, int] = {}
-        for c in comp:
-            o = off0
-            parts.append(c["bytes"])
-            off0 += len(c["bytes"])
-            pad = _align4(off0) - off0
-            if pad:
-                parts.append(b"\x00" * pad)
-                off0 += pad
-            comp_meta[c["i"]] = {
-                "byteOffset": o,
-                "byteLength": len(c["bytes"]),
-                "stride": c["stride"],
-                "mode": c["mode"],
-                "count": c["count"],
-            }
-        for r in raw:
-            o = off0
-            parts.append(r["bytes"])
-            off0 += len(r["bytes"])
-            pad = _align4(off0) - off0
-            if pad:
-                parts.append(b"\x00" * pad)
-                off0 += pad
-            raw_meta[r["i"]] = o
-        new_bin = b"".join(parts)
+        with in_path.open("rb") as fin, tmp_bin.open("wb") as fout:
+
+            def _src(bv):
+                fin.seek(bin_off + bv.get("byteOffset", 0))
+                return fin.read(bv["byteLength"])
+
+            off0 = 0
+
+            def _emit(b):  # write + 4-align, return the start offset
+                nonlocal off0
+                o = off0
+                fout.write(b)
+                off0 += len(b)
+                pad = _align4(off0) - off0
+                if pad:
+                    fout.write(b"\x00" * pad)
+                    off0 += pad
+                return o
+
+            for i, bv in enumerate(bvs):  # compressed regions first
+                if i in attr_bv:
+                    a = attr_bv[i]
+                    stride = bv.get("byteStride") or (_TYPE_COMPONENTS[a["type"]] * _COMP_BYTES[a["componentType"]])
+                    count = bv["byteLength"] // stride
+                    src = _src(bv)
+                    enc = bytes(mo.meshopt_encode_vertex_buffer(src, count, stride))
+                    back = bytes(mo.meshopt_decode_vertex_buffer(enc, count, stride))
+                    mode = "ATTRIBUTES"
+                elif i in idx_bv:
+                    a = idx_bv[i]
+                    stride = _COMP_BYTES[a["componentType"]]  # 2 or 4
+                    count = bv["byteLength"] // stride
+                    src = _src(bv)
+                    idtype = np.uint16 if stride == 2 else np.uint32
+                    idx = np.frombuffer(src, dtype=idtype).astype(np.uint32)
+                    vcount = int(idx.max()) + 1 if count else 1
+                    enc = bytes(mo.meshopt_encode_index_sequence(idx.tobytes(), count, vcount))
+                    back = bytes(mo.meshopt_decode_index_sequence(enc, count, stride))
+                    mode = "INDICES"
+                else:
+                    continue
+                if back != src:
+                    raise ValueError(f"bufferView {i} ({mode}) failed round-trip — aborting")
+                o = _emit(enc)
+                comp_meta[i] = {"byteOffset": o, "byteLength": len(enc), "stride": stride, "mode": mode, "count": count}
+
+            for i, bv in enumerate(bvs):  # raw regions after
+                if i in attr_bv or i in idx_bv:
+                    continue
+                raw_meta[i] = _emit(_src(bv))
+            new_bin_len = off0
 
         fallback = 1 if len(j.get("buffers", [])) == 1 else len(j["buffers"])
         j["buffers"] = [
-            {"byteLength": len(new_bin)},
+            {"byteLength": new_bin_len},
             {"byteLength": orig_bin_len, "extensions": {"EXT_meshopt_compression": {"fallback": True}}},
         ]
         for i, bv in enumerate(bvs):
@@ -210,7 +222,7 @@ def meshopt_compress_glb(in_path: str | Path, out_path: str | Path, *, min_bytes
         req.add("EXT_meshopt_compression")
         j["extensionsRequired"] = sorted(req)
 
-        _write_glb(out_path, j, new_bin)
+        _write_glb_streaming(out_path, j, tmp_bin, new_bin_len)
         logger.info(
             "meshopt: %.1f MB -> %.1f MB (%.0f%%) %s",
             in_path.stat().st_size / 1e6,
@@ -222,20 +234,26 @@ def meshopt_compress_glb(in_path: str | Path, out_path: str | Path, *, min_bytes
     except Exception:
         logger.exception("meshopt compression failed; uploading uncompressed")
         return in_path
+    finally:
+        try:
+            os.remove(tmp_bin)
+        except OSError:
+            pass
 
 
-def _write_glb(out_path: Path, j: dict, binc: bytes) -> None:
+def _write_glb_streaming(out_path: Path, j: dict, bin_path: Path, bin_len: int) -> None:
+    """Write the GLB as header + JSON chunk + the already-assembled (4-aligned) temp BIN file,
+    copying the BIN through a bounded buffer so the full buffer is never held in RAM."""
     json_bytes = json.dumps(j, separators=(",", ":")).encode("utf-8")
     json_bytes += b" " * (_align4(len(json_bytes)) - len(json_bytes))
-    bin_pad = _align4(len(binc)) - len(binc)
-    bin_bytes = binc + (b"\x00" * bin_pad)
-    total = 12 + 8 + len(json_bytes) + 8 + len(bin_bytes)
+    total = 12 + 8 + len(json_bytes) + 8 + bin_len
     with out_path.open("wb") as f:
         f.write(struct.pack("<III", _GLB_MAGIC, 2, total))
         f.write(struct.pack("<II", len(json_bytes), _CHUNK_JSON))
         f.write(json_bytes)
-        f.write(struct.pack("<II", len(bin_bytes), _CHUNK_BIN))
-        f.write(bin_bytes)
+        f.write(struct.pack("<II", bin_len, _CHUNK_BIN))
+        with bin_path.open("rb") as bf:
+            shutil.copyfileobj(bf, f, 1024 * 1024)
 
 
 if __name__ == "__main__":
