@@ -12,6 +12,8 @@ json-code-gen-py = { cmd = [
     "--input-file-type", "jsonschema",
     "--output", "src/ada/extension",
     "--output-model-type", "pydantic_v2.BaseModel"], cwd = "./" }
+# Generate the adacpp C++ header for ADA_EXT_data from the same schema (sibling adacpp checkout).
+json-code-gen-cpp = { cmd = ["python", "scripts/codegen_ada_ext_cpp.py"], cwd = "./" }
 
 [feature.docs.tasks]
 docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto -d _build/doctrees . _build/html", depends-on = ["fea-doc"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
