@@ -137,11 +137,15 @@ class _Encoder:
         return self.i32(len(xs)) + self._i32_raw(xs)
 
     # --- bulk array helpers ------------------------------------------------------------
-    # Vectorize the large geometry arrays (B-spline control grids, knots, polylines) with
-    # ``numpy.tobytes()`` instead of per-scalar ``struct.pack`` + ``b"".join`` (~600 calls for a
-    # 100-pt B-spline). Wire format is unchanged: numpy ``<f8``/``<i4`` little-endian bytes are
-    # byte-for-byte identical to ``struct.pack("<d"/"<i")``. Small arrays keep the per-scalar path
-    # (numpy array-creation overhead would regress the millions of tiny face/loop records).
+    # Vectorize the large geometry arrays (B-spline control grids, knots, polylines, big
+    # connected-face-set lists) with ``numpy.tobytes()`` instead of per-scalar ``struct.pack`` +
+    # ``b"".join`` (~600 calls for a 100-pt B-spline). Wire format is unchanged: numpy ``<f8``/
+    # ``<i4`` little-endian bytes are byte-for-byte identical to ``struct.pack("<d"/"<i")``. Arrays
+    # below ``_BULK_MIN`` keep the per-scalar path. Crucially, the *per-face* tiny index lists
+    # (a face's 1-2 bounds, an edge-loop's handful of edge refs) are joined inline at the call site
+    # rather than via these helpers — on a B-rep model that path runs millions of times and the
+    # helper's call+guard overhead was measured to slightly *regress* the crane (the bulk win only
+    # materializes on genuinely large arrays / NURBS-heavy geometry).
     @staticmethod
     def _f64_raw(xs) -> bytes:
         """Raw little-endian f64 bytes (no count prefix) for a 1-D float sequence."""
@@ -339,8 +343,9 @@ class _Encoder:
             pts = list(lp.polygon)
             return self._add(_POLY_LOOP, self.i32(len(pts)) + self._v3_raw(pts))
         edges = list(lp.edge_list)
-        refs = [self.oriented_edge(e) for e in edges]  # materialize first (each appends a record)
-        return self._add(_EDGE_LOOP, self.i32(len(edges)) + self._i32_raw(refs))
+        # one inline join per face-loop (few edges, ~always < _BULK_MIN); the helper's guard
+        # overhead would dominate on B-rep models with millions of these tiny loops
+        return self._add(_EDGE_LOOP, self.i32(len(edges)) + b"".join(self.i32(self.oriented_edge(e)) for e in edges))
 
     def face_bound(self, fb: su.FaceBound) -> int:
         lp = self.loop(fb.bound)
@@ -350,7 +355,7 @@ class _Encoder:
         surf = self.surface(f.face_surface)
         bounds = [self.face_bound(b) for b in f.bounds]
         body = self.i32(surf) + self.i32(1 if f.same_sense else 0) + self.i32(len(bounds))
-        body += self._i32_raw(bounds)
+        body += b"".join(self.i32(b) for b in bounds)  # 1-2 bounds/face: inline (per-face hot path)
         return self._add(_FACE_SURFACE, body)
 
     def connected_face_set(self, cfs) -> int:
@@ -428,7 +433,7 @@ class _Encoder:
         plane = self._add(_PLANE, self.i32(self.placement3(Axis2Placement3D())))
         return self._add(
             _FACE_SURFACE,
-            self.i32(plane) + self.i32(1) + self.i32(len(bounds)) + self._i32_raw(bounds),
+            self.i32(plane) + self.i32(1) + self.i32(len(bounds)) + b"".join(self.i32(b) for b in bounds),
         )
 
     def _profile_face(self, profile) -> int:
