@@ -26,12 +26,12 @@ _TRANSFER_TIMEOUT_SECONDS = 30 * 60
 
 # Extensions worth gzipping at rest. The presigned PUT goes STRAIGHT to object storage, bypassing the
 # API's server-side gzip — so without a client-side pass these land uncompressed and every download
-# pays full size. Mirrors the server's source-gzip set plus GLB/glTF/JSON (a meshopt GLB still gzips
-# ~0.46x; JSON-heavy artefacts far more). Already-compressed containers (.glb is gzipped here too —
-# meshopt buffers still shrink ~2x) are included intentionally; truly-binary types are simply absent.
-_GZIP_UPLOAD_EXTS = frozenset(
-    {".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis", ".sif", ".glb", ".gltf", ".json"}
-)
+# pays full size. This MIRRORS the server's _GZIP_UPLOAD_EXTS (app.py) exactly — and deliberately
+# EXCLUDES .glb/.gltf: the viewer Range-loads geometry, and Garage cannot serve an HTTP Range on a
+# Content-Encoding: gzip object, so a gzipped GLB breaks the loader (download stalls at >100% then
+# retries, since the progress sees decompressed-vs-compressed sizes). GLBs must stay raw + Range-able
+# (same reason .bin field artefacts stay uncompressed — see the FEA field-blob range note).
+_GZIP_UPLOAD_EXTS = frozenset({".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis", ".sif"})
 
 
 def _should_gzip_upload(key: str) -> bool:
