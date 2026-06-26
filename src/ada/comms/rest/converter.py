@@ -854,12 +854,17 @@ _STEP_GLB_PIPELINE_OCC = "occ-builtin"
 _STEP_GLB_PIPELINE_ADACPP_OCC = "adacpp-occ"
 _STEP_GLB_PIPELINE_ADACPP_CGAL = "adacpp-cgal"
 _STEP_GLB_PIPELINE_ADACPP_HYBRID = "adacpp-hybrid"
+# Fully-native: adacpp does the whole STEP->GLB in-process (C++ reader + thread pool + GLB writer),
+# replacing the Python reader + multiprocess pool. Fastest + lowest memory; renders without the
+# ADA_EXT picking sidecar yet (see native_step_to_glb).
+_STEP_GLB_PIPELINE_ADACPP_NATIVE = "adacpp-native"
 _STEP_GLB_PIPELINES = (
     _STEP_GLB_PIPELINE_LIBTESS2,
     _STEP_GLB_PIPELINE_OCC,
     _STEP_GLB_PIPELINE_ADACPP_OCC,
     _STEP_GLB_PIPELINE_ADACPP_CGAL,
     _STEP_GLB_PIPELINE_ADACPP_HYBRID,
+    _STEP_GLB_PIPELINE_ADACPP_NATIVE,
 )
 _STEP_GLB_PIPELINE_DEFAULT = _STEP_GLB_PIPELINE_LIBTESS2
 
@@ -990,6 +995,32 @@ def _via_ada(
     try:
         if source_ext in {".step", ".stp"} and target_format == "glb":
             pipe = _resolve_step_glb_pipeline(step_glb_pipeline)
+
+            if pipe == _STEP_GLB_PIPELINE_ADACPP_NATIVE:
+                # Fully-native in-process path (C++ reader + thread pool + GLB writer). Falls through
+                # to the standard pipelines below if adacpp's native entry point isn't available, so a
+                # native request degrades gracefully rather than failing the job.
+                from ada.cadit.step.native_step_to_glb import native_adacpp_available, native_step_to_glb
+                from ada.config import logger
+
+                if native_adacpp_available():
+                    try:
+                        native_step_to_glb(src_path, out_path, on_progress=on_progress)
+                        result = out_path
+                        return result
+                    except Exception as exc:
+                        if bool(strict_tess):
+                            raise
+                        logger.warning(
+                            "adacpp-native STEP->GLB failed for %s (%s); falling back to %s",
+                            getattr(src_path, "name", src_path),
+                            exc,
+                            _STEP_GLB_PIPELINE_DEFAULT,
+                        )
+                else:
+                    logger.warning("adacpp-native requested but unavailable; falling back to %s",
+                                   _STEP_GLB_PIPELINE_DEFAULT)
+                pipe = _STEP_GLB_PIPELINE_DEFAULT
 
             cad_cfg = _cad_config_for_pipeline(pipe)
             if cad_cfg is not None:
@@ -1850,7 +1881,9 @@ def _register_ada_loadable() -> None:
             "boundary tessellator and renders the curved surfaces (rational B-spline / "
             "spherical / conical / toroidal) the OCC streaming reader silently drops. "
             "'occ-builtin' is the OpenCASCADE path (whole-model or streaming). "
-            "'adacpp-occ' / 'adacpp-cgal' / 'adacpp-hybrid' use adacpp's taxonomy kernels."
+            "'adacpp-occ' / 'adacpp-cgal' / 'adacpp-hybrid' use adacpp's taxonomy kernels. "
+            "'adacpp-native' runs the whole STEP→GLB in adacpp C++ (reader + thread pool + GLB "
+            "writer), the fastest + lowest-memory path; renders without the picking sidecar yet."
         ),
     }
 
