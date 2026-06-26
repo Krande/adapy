@@ -26,12 +26,14 @@ _TRANSFER_TIMEOUT_SECONDS = 30 * 60
 
 # Extensions worth gzipping at rest. The presigned PUT goes STRAIGHT to object storage, bypassing the
 # API's server-side gzip — so without a client-side pass these land uncompressed and every download
-# pays full size. This MIRRORS the server's _GZIP_UPLOAD_EXTS (app.py) exactly — and deliberately
-# EXCLUDES .glb/.gltf: the viewer Range-loads geometry, and Garage cannot serve an HTTP Range on a
-# Content-Encoding: gzip object, so a gzipped GLB breaks the loader (download stalls at >100% then
-# retries, since the progress sees decompressed-vs-compressed sizes). GLBs must stay raw + Range-able
-# (same reason .bin field artefacts stay uncompressed — see the FEA field-blob range note).
-_GZIP_UPLOAD_EXTS = frozenset({".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis", ".sif"})
+# pays full size. Includes .glb/.gltf to match the worker's gzip-at-rest for derived GLBs (a meshopt
+# crane GLB still gzips ~0.46x). Safe because the viewer loads geometry WHOLE-FILE (no Range) and the
+# browser decompresses transparently; the blob GET advertises `Accept-Ranges: none` for gzip objects so
+# nothing Range-fetches them, and the download-progress overshoot is capped viewer-side. (Field `.bin`
+# artefacts stay raw precisely because they ARE Range-fetched per step — see the FEA field-blob note.)
+_GZIP_UPLOAD_EXTS = frozenset(
+    {".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis", ".sif", ".glb", ".gltf"}
+)
 
 
 def _should_gzip_upload(key: str) -> bool:
