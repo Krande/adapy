@@ -254,34 +254,61 @@ def _tessellate_geom_worker(geom):
         del occ, mesh
 
 
-def _pool_worker_loop(worker_id, task_q, result_q) -> None:
-    """Long-lived pool worker: pull one geom at a time, tessellate it, and put
-    ``(worker_id, result)`` back. The worker_id lets the parent free the right slot and
-    — crucially — terminate THIS worker if it overruns the per-solid timeout (an OCC
-    tessellation can hang in an uninterruptible C call; only killing the process stops
-    it). ``None`` is the shutdown sentinel."""
-    n = 0
-    while True:
-        geom = task_q.get()
-        if geom is None:
-            return
-        result_q.put((worker_id, _tessellate_geom_worker(geom)))
-        n += 1
-        if n % _TRIM_EVERY == 0:  # return the per-solid OCC heap to the OS periodically
-            _maybe_trim()
+def _pool_worker_loop(worker_id, task_q, result_q, stream_index) -> None:
+    """Long-lived pool worker: open the per-process pread pool ONCE from the shared
+    (pickled) ``StreamIndex``, then for each ``(seq, rid)`` build the solid's ada.geom AND
+    tessellate it — the parse+build now happens HERE, in parallel, not serially in the
+    parent. Puts ``(worker_id, result)`` back. ``None`` is the shutdown sentinel.
+
+    A ``"__drop__"`` status means the reader couldn't build that root; the parent keeps it
+    out of the stats, exactly as the serial reader silently drops it. The worker_id lets
+    the parent free the right slot and — crucially — terminate THIS worker if it overruns
+    the per-solid timeout (a tessellation can hang in an uninterruptible C call)."""
+    import collections
+
+    from ada.cadit.step.read.stream_reader import build_one_solid
+
+    pool, resolver = stream_index.open_pool()
+    skipped: collections.Counter = collections.Counter()  # worker-local reader-skips (not reported)
+    _DROP = ("__drop__", None, None, None, None, None, None, None, None)
+    try:
+        n = 0
+        while True:
+            task = task_q.get()
+            if task is None:
+                return
+            seq, rid = task
+            geom = build_one_solid(stream_index, pool, resolver, rid, seq, skipped=skipped)
+            result_q.put((worker_id, _DROP if geom is None else _tessellate_geom_worker(geom)))
+            n += 1
+            if n % _TRIM_EVERY == 0:  # return the per-solid build+tess heap to the OS periodically
+                _maybe_trim()
+    finally:
+        pool.close()
 
 
 def _rss_mb(pid: int | None = None) -> float:
-    """Current RSS of ``pid`` (or this process) in MB via /proc; 0.0 where /proc
-    is unavailable (non-Linux) — which renders the memory caps inert there."""
+    """ANONYMOUS resident memory of ``pid`` (or this process) in MB via /proc; 0.0 where
+    /proc is unavailable (non-Linux) — which renders the memory caps inert there.
+
+    Reports ``RssAnon`` (the real, non-reclaimable heap: Python objects, numpy mesh
+    buffers, native-allocator fragmentation), NOT ``VmRSS``. Since the build moved into
+    the workers, each worker memmaps the shared id/offset index (file-backed, reclaimable,
+    counted once physically but in every worker's ``VmRSS``); bounding ``VmRSS`` would
+    recycle workers on that reclaimable baseline — which scales with FILE size — rather
+    than on real heap growth. ``RssAnon`` is what actually threatens a pod's OOM budget and
+    is file-size-independent. Falls back to ``VmRSS`` on kernels without ``RssAnon``."""
+    vmrss = None
     try:
         with open(f"/proc/{pid or 'self'}/status") as f:
             for line in f:
-                if line.startswith("VmRSS:"):
+                if line.startswith("RssAnon:"):
                     return int(line.split()[1]) / 1024.0
+                if line.startswith("VmRSS:"):
+                    vmrss = int(line.split()[1]) / 1024.0
     except (OSError, ValueError, IndexError):
         pass
-    return 0.0
+    return vmrss if vmrss is not None else 0.0
 
 
 def _env_mb(name: str, default: float) -> float:
@@ -438,11 +465,10 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     id, and hands ``(mat_id, node_ref, pos, idx, nrm)`` to ``sink``. Returns the stats
     dict ``{"meshed", "total", "skipped", "materials", "reasons"}``."""
     import collections
-    import itertools
 
     import numpy as np
 
-    from ada.cadit.step.read.stream_reader import stream_read_step
+    from ada.cadit.step.read.stream_reader import build_one_solid, prepare_stream_index
     from ada.config import logger
     from ada.core.guid import create_guid
     from ada.occ.geom.cache import clear_all
@@ -601,26 +627,29 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     if on_progress is not None:
         on_progress("tessellating", 0.2)
 
-    geom_iter = stream_read_step(source.path, local_pool=False, tolerant=source.tolerant, on_total=_on_total)
-
-    # Peek the first solid so the reader's scan runs and fires on_total with the solid
-    # count — we only spin up the worker pool when there's enough work to amortise the
-    # ~1 s process-spawn overhead (it makes small conversions SLOWER otherwise).
-    try:
-        _first = next(geom_iter)
-        geom_iter = itertools.chain((_first,), geom_iter)
-    except StopIteration:
-        geom_iter = iter(())
+    # One-time serial setup: scan the offset index + build the colour/transform/name maps
+    # (fires on_total). The per-solid parse+build is then PARALLELISED — each worker gets
+    # this picklable index ONCE at spawn and builds solids by id, so only a (seq, rid) int
+    # pair crosses the process boundary (no 273 KB ada.geom pickle per solid, and the
+    # ~31 ms/solid parse now overlaps across workers instead of running serially here).
+    idx = prepare_stream_index(source.path, tolerant=source.tolerant, on_total=_on_total)
     n_workers = _stream_workers()
     use_pool = n_workers > 1 and n_roots["total"] >= _POOL_MIN_SOLIDS
 
     if not use_pool:
-        _seq = 0
-        for geom in geom_iter:
-            _handle(_tessellate_geom_worker(geom))
-            _seq += 1
-            if _seq % _TRIM_EVERY == 0:  # sequential path tessellates in-process — trim here too
-                _maybe_trim()
+        pool, resolver = idx.open_pool()
+        skipped: collections.Counter = collections.Counter()
+        try:
+            for _seq, _rid in enumerate(idx.roots):
+                geom = build_one_solid(idx, pool, resolver, _rid, _seq, skipped=skipped)
+                if geom is None:
+                    continue
+                _handle(_tessellate_geom_worker(geom))
+                if (_seq + 1) % _TRIM_EVERY == 0:  # in-process build+tess — trim here too
+                    _maybe_trim()
+        finally:
+            pool.close()
+            idx.close()
     else:
         # Self-managed spawn pool (not ProcessPoolExecutor, which can't kill an
         # individual worker): one solid per worker at a time, so a worker that overruns
@@ -637,7 +666,9 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
 
         def _spawn(wid, result_q):
             task_q = ctx.Queue(maxsize=1)
-            proc = ctx.Process(target=_pool_worker_loop, args=(wid, task_q, result_q), daemon=True)
+            # The StreamIndex (maps + spilled-index paths) is pickled to the worker ONCE
+            # here at spawn; per-solid dispatch then ships only a (seq, rid) int pair.
+            proc = ctx.Process(target=_pool_worker_loop, args=(wid, task_q, result_q, idx), daemon=True)
             proc.start()
             return {
                 "proc": proc,
@@ -645,7 +676,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                 "busy": False,
                 "gid": None,
                 "since": None,
-                "geom": None,
+                "task": None,
                 "mem_retried": False,
             }
 
@@ -656,33 +687,66 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
             slots = None
 
         if slots is None:
-            _seq = 0
-            for geom in geom_iter:
-                _handle(_tessellate_geom_worker(geom))
-                _seq += 1
-                if _seq % _TRIM_EVERY == 0:
-                    _maybe_trim()
+            pool, resolver = idx.open_pool()
+            skipped = collections.Counter()
+            try:
+                for _seq, _rid in enumerate(idx.roots):
+                    geom = build_one_solid(idx, pool, resolver, _rid, _seq, skipped=skipped)
+                    if geom is None:
+                        continue
+                    _handle(_tessellate_geom_worker(geom))
+                    if (_seq + 1) % _TRIM_EVERY == 0:
+                        _maybe_trim()
+            finally:
+                pool.close()
+                idx.close()
         else:
             logger.info(
                 "scene_from_step_stream: tessellating with %d worker process(es), %.0fs/solid timeout",
                 n_workers,
                 timeout_s,
             )
+            # Dispatch order. Default: index order (arbitrary). With ADA_STEP_STREAM_LPT=1,
+            # longest-processing-time-first — sort solids heaviest (most shell faces) first
+            # so a few very slow solids (e.g. dense engine blocks, ~70 s each on the crane)
+            # overlap the bulk instead of being grabbed last while other workers idle. The
+            # weight is a cheap shell-face-count (~2 preads/solid, no full build); the
+            # original ``seq`` is preserved for stable solid_N naming regardless of order.
+            import os as _os
+
+            _ordered = list(enumerate(idx.roots))
+            if _os.environ.get("ADA_STEP_STREAM_LPT"):
+                from ada.cadit.step.read.stream_reader import root_face_count
+
+                _wpool, _ = idx.open_pool()
+                try:
+                    _ordered.sort(key=lambda _sr: root_face_count(_wpool, _sr[1]), reverse=True)
+                finally:
+                    _wpool.close()
+                logger.info("scene_from_step_stream: LPT scheduling on — heaviest solids dispatched first")
+            roots_iter = iter(_ordered)
             exhausted = False
             busy = 0
-            # Solids requeued by the hard memory cap: (geom, is_retry). Consumed
-            # before the main stream so a fresh worker retries them promptly.
+            # Roots requeued by the hard memory cap / crash retry: (seq, rid, is_retry).
             requeue: list = []
+            # Parent-loop profiling (ADA_STEP_STREAM_PROFILE=1): split the loop's wall time
+            # into result_q.get (idle-wait + IPC/unpickle) vs _handle (transform + per-
+            # material spill write = the serial funnel), + the result-queue backlog. avg
+            # backlog > ~1 ⇒ results pile up ⇒ the parent can't keep up (A/B would help);
+            # backlog ~0 + many idle timeouts ⇒ parent is starved (tail/prep-bound).
+            _prof_on = bool(_os.environ.get("ADA_STEP_STREAM_PROFILE"))
+            _prof = {"get_s": 0.0, "handle_s": 0.0, "empty": 0, "results": 0, "qmax": 0, "backlog_sum": 0}
+            _t_loop0 = _time.monotonic()
             try:
                 while True:
                     for i, slot in enumerate(slots):  # feed every idle worker
                         if slot["busy"] or (exhausted and not requeue):
                             continue
                         if requeue:
-                            geom, is_retry = requeue.pop()
+                            _seq, _rid, is_retry = requeue.pop()
                         else:
                             try:
-                                geom = next(geom_iter)
+                                _seq, _rid = next(roots_iter)
                             except StopIteration:
                                 exhausted = True
                                 break
@@ -692,38 +756,60 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                         if not slot["proc"].is_alive():
                             slots[i] = slot = _spawn(i, result_q)
                         slot["busy"] = True
-                        slot["gid"] = str(geom.id) if geom.id not in (None, "") else None
+                        # The product name (for logs / skip ids) without building the geom.
+                        slot["gid"] = idx.prod_names.get(_rid)
                         slot["since"] = _time.monotonic()
-                        slot["geom"] = geom
+                        slot["task"] = (_seq, _rid)
                         slot["mem_retried"] = is_retry
                         busy += 1
-                        slot["task_q"].put(geom)
+                        slot["task_q"].put((_seq, _rid))
                     if exhausted and busy == 0 and not requeue:
                         break
                     # Collect one result; the 1 s poll bounds how often we re-check timeouts.
+                    _t_get = _time.monotonic()
                     try:
                         wid, result = result_q.get(timeout=1.0)
+                        if _prof_on:
+                            _prof["get_s"] += _time.monotonic() - _t_get
+                            _prof["results"] += 1
+                            try:
+                                _q = result_q.qsize()
+                            except (NotImplementedError, OSError):
+                                _q = 0
+                            _prof["qmax"] = max(_prof["qmax"], _q)
+                            _prof["backlog_sum"] += _q
                         slot = slots[wid]
                         if slot["busy"]:
                             slot["busy"] = False
                             slot["gid"] = None
                             slot["since"] = None
-                            slot["geom"] = None
+                            slot["task"] = None
                             slot["mem_retried"] = False
                             busy -= 1
-                            _handle(result)
+                            # "__drop__" = the reader couldn't build this root; it never
+                            # reaches _handle, exactly as the serial reader drops it (so the
+                            # meshed/total/skipped accounting is identical to serial).
+                            if result[0] != "__drop__":
+                                if _prof_on:
+                                    _t_h = _time.monotonic()
+                                    _handle(result)
+                                    _prof["handle_s"] += _time.monotonic() - _t_h
+                                else:
+                                    _handle(result)
                             # Soft memory cap: the worker just went idle (its result is
                             # delivered, nothing in flight), so recycling it here is
                             # race-free and loses nothing. Bounds the native-heap
                             # fragmentation that per-solid trims can't fully return;
-                            # pending solids simply go to the fresh worker.
+                            # pending roots simply go to the fresh worker.
                             if soft_mb and _rss_mb(slot["proc"].pid) > soft_mb:
                                 slot["proc"].kill()
                                 slot["proc"].join(timeout=2)
                                 slots[wid] = _spawn(wid, result_q)
                                 pool_events["worker_recycles"] += 1
                     except _queue.Empty:
-                        pass
+                        if _prof_on:
+                            _prof["get_s"] += _time.monotonic() - _t_get
+                            _prof["empty"] += 1
                     now = _time.monotonic()
                     for i, slot in enumerate(slots):  # replace dead or over-budget workers
                         if not slot["busy"]:
@@ -734,18 +820,18 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                         # and a model with many such solids burns hours of wall clock.
                         if not slot["proc"].is_alive():
                             gid = slot["gid"]
-                            geom_inflight = slot["geom"]
+                            task_inflight = slot["task"]
                             was_retry = slot["mem_retried"]
                             slot["proc"].join(timeout=2)
                             busy -= 1
                             slots[i] = _spawn(i, result_q)
                             # One retry on a fresh worker: covers both the soft-cap
                             # recycle race (worker exited between delivering its result
-                            # and the parent's next dispatch — the solid is perfectly
+                            # and the parent's next dispatch — the root is perfectly
                             # healthy) and one-off native crashes. A second death on the
-                            # same solid is the solid's own doing -> skip it.
-                            if geom_inflight is not None and not was_retry:
-                                requeue.append((geom_inflight, True))
+                            # same root is the root's own doing -> skip it.
+                            if task_inflight is not None and not was_retry:
+                                requeue.append((task_inflight[0], task_inflight[1], True))
                             else:
                                 _handle(
                                     (
@@ -763,19 +849,19 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                             continue
                         # Hard memory cap: a worker ballooning MID-solid is killed
                         # before it can blow a memory-tight pod's per-job budget. The
-                        # in-flight solid is retried ONCE on a fresh worker (heap-
+                        # in-flight root is retried ONCE on a fresh worker (heap-
                         # fragmentation overruns succeed there); a second strike means
                         # the solid itself needs that memory -> skip it, like a timeout.
                         if hard_mb and _rss_mb(slot["proc"].pid) > hard_mb:
                             gid = slot["gid"]
-                            geom_inflight = slot["geom"]
+                            task_inflight = slot["task"]
                             was_retry = slot["mem_retried"]
                             slot["proc"].kill()
                             slot["proc"].join(timeout=2)
                             busy -= 1
                             slots[i] = _spawn(i, result_q)
                             pool_events["mem_kills"] += 1
-                            if was_retry or geom_inflight is None:
+                            if was_retry or task_inflight is None:
                                 _handle(
                                     (
                                         f"memory (>{hard_mb:.0f}MB; worker killed twice)",
@@ -795,11 +881,10 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                                     hard_mb,
                                     gid,
                                 )
-                                requeue.append((geom_inflight, True))
+                                requeue.append((task_inflight[0], task_inflight[1], True))
                             continue
                         if slot["since"] and (now - slot["since"]) > timeout_s:
                             gid = slot["gid"]
-                            _maybe_capture_timeout_solid(slot["geom"])
                             slot["proc"].kill()
                             slot["proc"].join(timeout=2)
                             busy -= 1
@@ -818,6 +903,23 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                                 )
                             )
             finally:
+                if _prof_on:
+                    _wall = _time.monotonic() - _t_loop0
+                    _avg_bl = _prof["backlog_sum"] / max(_prof["results"], 1)
+                    logger.warning(
+                        "[POOLPROF] loop_wall=%.0fs  result_q.get(wait+unpickle)=%.0fs  "
+                        "_handle(xform+spill)=%.0fs  idle_timeouts=%d(~%ds idle)  results=%d  "
+                        "avg_backlog=%.2f  qmax=%d  →  %s",
+                        _wall,
+                        _prof["get_s"],
+                        _prof["handle_s"],
+                        _prof["empty"],
+                        _prof["empty"],
+                        _prof["results"],
+                        _avg_bl,
+                        _prof["qmax"],
+                        "PARENT-bound (results pile up)" if _avg_bl > 1.0 else "WORKER/tail-bound (parent starved)",
+                    )
                 for slot in slots:
                     try:
                         slot["task_q"].put_nowait(None)
@@ -827,6 +929,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                         slot["proc"].kill()
                     except Exception:  # noqa: BLE001
                         pass
+                idx.close()
 
     n_skipped = sum(reasons.values())
     if n_skipped:

@@ -38,6 +38,117 @@ from pathlib import Path
 from typing import Iterator
 
 from ada.config import logger
+
+# ---------------------------------------------------------------------------
+# Stage 0 memory-attribution probe (env-gated; zero cost unless enabled).
+#
+# Set ``ADA_STEP_STREAM_MEM_PROBE=1`` to print a per-stage RSS breakdown of the
+# streaming reader's parent process: how much resident memory is the file mmap
+# (reclaimable, file-backed), the spilled id/offset index tmpfiles, anonymous
+# Python heap, plus a sizing of the ``colour_map`` / ``tmap`` dicts. This is the
+# measurement that decides where the ~2.1 GB parent peak actually lives before
+# we optimise (see dap plan: cut peak parent RSS of STEP->GLB).
+# ---------------------------------------------------------------------------
+import os as _os
+
+
+def _mem_probe_enabled() -> bool:
+    return _os.environ.get("ADA_STEP_STREAM_MEM_PROBE", "") not in ("", "0", "false", "no")
+
+
+def _deep_size(obj, _seen=None) -> int:
+    """Best-effort deep byte size of the nested dict/list/tuple/ndarray structures
+    the reader holds (``tmap``, ``colour_map``). Counts numpy buffers by ``nbytes``
+    and walks containers once (id-deduped). Not exact, but good enough to rank."""
+    import sys
+
+    if _seen is None:
+        _seen = set()
+    oid = id(obj)
+    if oid in _seen:
+        return 0
+    _seen.add(oid)
+    total = sys.getsizeof(obj, 0)
+    try:
+        import numpy as _np
+
+        if isinstance(obj, _np.ndarray):
+            return int(obj.nbytes) + sys.getsizeof(obj, 0)
+    except Exception:  # noqa: BLE001
+        pass
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            total += _deep_size(k, _seen) + _deep_size(v, _seen)
+    elif isinstance(obj, (list, tuple, set, frozenset)):
+        for it in obj:
+            total += _deep_size(it, _seen)
+    return total
+
+
+def _smaps_attribution(step_path=None, idx_paths=()):
+    """Return ``(file_mmap_kb, index_kb, anon_kb, rollup_rss_kb)`` by parsing
+    ``/proc/self/smaps`` (per-mapping ``Rss``) and ``/proc/self/smaps_rollup``
+    (process total). Linux-only; returns zeros where unavailable."""
+    file_mmap = index = anon = 0
+    step_real = None
+    try:
+        if step_path is not None:
+            step_real = _os.path.realpath(str(step_path))
+    except Exception:  # noqa: BLE001
+        step_real = str(step_path) if step_path is not None else None
+    idx_set = {str(p) for p in (idx_paths or ())}
+    _hdr = re.compile(r"^[0-9a-fA-F]+-[0-9a-fA-F]+ ")
+    try:
+        with open("/proc/self/smaps", "r") as fh:
+            cur = None  # current mapping's pathname
+            for line in fh:
+                if _hdr.match(line):
+                    # mapping header: "addr-addr perms off dev inode  pathname"
+                    parts = line.split()
+                    cur = parts[5] if len(parts) >= 6 else ""
+                elif line.startswith("Rss:"):
+                    kb = int(line.split()[1])
+                    if not kb:
+                        continue
+                    name = cur or ""
+                    if step_real is not None and (name == step_real or name.endswith(".stp") or name.endswith(".step")):
+                        file_mmap += kb
+                    elif name in idx_set or name.endswith(".ada_idx_ids") or name.endswith(".ada_idx_offs"):
+                        index += kb
+                    elif name == "" or name.startswith("[heap]") or name.startswith("[stack]") or name == "[anon]":
+                        anon += kb
+    except OSError:
+        pass
+    rollup = 0
+    try:
+        with open("/proc/self/smaps_rollup", "r") as fh:
+            for line in fh:
+                if line.startswith("Rss:"):
+                    rollup = int(line.split()[1])
+                    break
+    except OSError:
+        pass
+    return file_mmap, index, anon, rollup
+
+
+def _mem_probe(label: str, *, step_path=None, idx_paths=(), sized=None) -> None:
+    """Print a one-line RSS attribution for ``label`` when the probe env is set."""
+    if not _mem_probe_enabled():
+        return
+    file_mmap, index, anon, rollup = _smaps_attribution(step_path, idx_paths)
+    extra = ""
+    if sized:
+        sizes = {name: _deep_size(obj) for name, obj in sized.items() if obj is not None}
+        extra = "  " + "  ".join(f"{n}={v / 1e6:.1f}MB" for n, v in sizes.items())
+    logger.warning(
+        "[MEMPROBE] %-26s rss=%6.0fMB  file_mmap=%6.0fMB  index=%5.0fMB  anon=%6.0fMB%s",
+        label,
+        rollup / 1024.0,
+        file_mmap / 1024.0,
+        index / 1024.0,
+        anon / 1024.0,
+        extra,
+    )
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanResult, BoolOpEnum
 from ada.geom.curves import (
@@ -588,6 +699,11 @@ _SI_LEN_RE = re.compile(r"SI_UNIT\(\s*(?:(\.\w+\.|\$)\s*,\s*)?\.METRE\.\s*\)")
 _CONV_NAME_RE = re.compile(r"CONVERSION_BASED_UNIT\(\s*'([^']*)'")
 
 
+# Chunk size for the ``os.pread`` scan that locates the LENGTH_UNIT record. Module-level
+# so tests can shrink it to exercise needle-straddles-chunk-boundary stitching.
+_UNIT_SCAN_CHUNK = 1 << 20  # 1 MiB
+
+
 def detect_step_length_unit_scale(filepath) -> float:
     """Factor converting the file's declared length unit to METRES, read from the
     first ``LENGTH_UNIT`` record in the data section (e.g. the ubiquitous
@@ -596,18 +712,52 @@ def detect_step_length_unit_scale(filepath) -> float:
     glTF mandates metres, so the streaming GLB path multiplies positions by this;
     the OCC reader does the same conversion internally via ``xstep.cascade.unit``.
     Returns 1.0 when the file is already in metres or the unit is undetectable
-    (logged at warning in the latter case)."""
-    import mmap as _mmap
+    (logged at warning in the latter case).
 
+    Scanned with chunked ``os.pread`` rather than a whole-file mmap: ``LENGTH_UNIT``
+    routinely sits at the very END of the DATA section (e.g. ~99.7% into a 778 MB crane
+    assembly), so an ``mmap.find`` would fault the entire file into RSS — a ~700 MB+
+    transient spike right in the middle of the streaming reader's setup. pread keeps the
+    pages in the reclaimable OS page cache, off this process's VmRSS."""
+    import os
+
+    needle = b"LENGTH_UNIT"
+    overlap = len(needle) - 1
+    chunk = _UNIT_SCAN_CHUNK
     try:
-        with open(filepath, "rb") as fh, _mmap.mmap(fh.fileno(), 0, access=_mmap.ACCESS_READ) as mm:
-            i = mm.find(b"LENGTH_UNIT")
-            if i < 0:
-                return 1.0
-            start = mm.rfind(b";", 0, i) + 1
-            stmt = mm[start : _stmt_end(mm, start, len(mm))].decode("ascii", "replace")
+        fd = os.open(str(filepath), os.O_RDONLY)
+    except OSError:
+        return 1.0
+    try:
+        size = os.fstat(fd).st_size
+        pos = 0
+        tail = b""  # trailing bytes of the previous chunk, so a needle straddling a
+        hit = -1  # chunk boundary is still found
+        while pos < size:
+            buf = os.pread(fd, chunk, pos)
+            if not buf:
+                break
+            base = pos - len(tail)  # absolute file offset of window[0]
+            window = tail + buf
+            j = window.find(needle)
+            if j >= 0:
+                hit = base + j
+                break
+            tail = window[-overlap:] if len(window) >= overlap else window
+            pos += len(buf)
+        if hit < 0:
+            return 1.0
+        # Statement start = just past the prior ';'. Read a bounded window ending at the
+        # match, then the full statement forward via the shared pread helper.
+        bstart = max(0, hit - (1 << 16))
+        pre = os.pread(fd, hit - bstart, bstart)
+        k = pre.rfind(b";")
+        start = bstart + k + 1 if k >= 0 else bstart
+        stmt = _read_statement_pread(fd, start, size)
     except (OSError, ValueError):
         return 1.0
+    finally:
+        os.close(fd)
     m = _SI_LEN_RE.search(stmt)
     if m is not None:
         prefix = m.group(1)
@@ -1873,15 +2023,86 @@ def _read_statement_at(mm, start: int, n: int) -> str:
     return mm[start : _stmt_end(mm, start, n)].decode("utf-8", "replace")
 
 
+# Initial ``pread`` window for one entity statement. Most STEP entities are well under
+# this; the rare larger one (e.g. a B-spline surface with many poles) grows by doubling.
+_PREAD_CHUNK = 8192
+
+
+def _stmt_end_bytes(buf: bytes) -> int:
+    """Index of the terminating ';' in the chunk ``buf`` (a ';' inside a single-quoted
+    string doesn't count). ``buf`` starts AT the entity offset, mirroring ``_stmt_end``'s
+    ``mm[start:end]`` quote-parity check. Returns -1 when the terminator can't yet be
+    decided — no ';' at all, OR the scan ran out of bytes inside an open quote — so the
+    caller grows the window and retries."""
+    end = buf.find(b";")
+    if end < 0:
+        return -1
+    while buf.count(b"'", 0, end) & 1:  # the ';' fell inside an open string
+        nxt = buf.find(b";", end + 1)
+        if nxt < 0:
+            return -1  # open quote runs past the chunk -> need more bytes
+        end = nxt
+    return end
+
+
+def _read_statement_pread(fd: int, offset: int, file_size: int) -> str:
+    """Read the entity statement starting at ``offset`` via ``os.pread``, growing the
+    window until the terminating ';' is found or EOF. Unlike the mmap slice, the file
+    pages this touches stay in the reclaimable OS page cache and never enter the process
+    address space / VmRSS — which is what the worker memory caps measure."""
+    import os
+
+    chunk = _PREAD_CHUNK
+    while True:
+        buf = os.pread(fd, chunk, offset)
+        end = _stmt_end_bytes(buf)
+        if end >= 0:
+            return buf[:end].decode("utf-8", "replace")
+        # No terminator yet. If the read came up short, we are at EOF: return the rest
+        # (matches ``_stmt_end`` returning ``n`` for an unterminated final statement).
+        if len(buf) < chunk or offset + len(buf) >= file_size:
+            return buf.decode("utf-8", "replace")
+        chunk *= 2
+
+
 def _is_kw_byte(b: int) -> bool:
     return (0x41 <= b <= 0x5A) or (0x61 <= b <= 0x7A) or (0x30 <= b <= 0x39) or b == 0x5F
+
+
+# Free-behind tuning for the linear offset scan: every ``_SCAN_FREE_STEP`` bytes,
+# ``MADV_DONTNEED`` the pages already passed (keeping a ``_SCAN_FREE_MARGIN`` look-behind
+# so the statement currently being read is never dropped). Bounds the scan's file
+# residency to ~these few MB instead of the whole (700 MB+) file — the last big chunk of
+# the "parent at ~2.1 GB before tessellation" peak. Mirrors sin_reader's scan pattern.
+_SCAN_FREE_STEP = 32 << 20
+_SCAN_FREE_MARGIN = 1 << 20
 
 
 def _scan_offset_index(mm):
     """One linear pass: record (id -> byte offset) for every ``#id=…`` entity plus the
     ids of the geometry roots. Uses array.array (raw int64 — no per-int Python object
-    blow-up), so the index of an 11 M-entity file is ~170 MB, not gigabytes."""
+    blow-up), so the index of an 11 M-entity file is ~170 MB, not gigabytes.
+
+    This pass only *records* offsets — it never resolves a reference (entities may point
+    in any direction; that is handled later by random-access ``os.pread`` over the full
+    index). Because the byte walk itself is strictly left-to-right, pages already scanned
+    are dropped from RSS via ``MADV_DONTNEED`` as we go, so the whole file never stays
+    resident."""
     import array
+    import mmap as _mmap
+
+    page = _mmap.PAGESIZE
+    freed = 0
+
+    def _free_behind(upto: int) -> None:
+        nonlocal freed
+        target = ((upto - _SCAN_FREE_MARGIN) // page) * page
+        if target > freed:
+            try:
+                mm.madvise(_mmap.MADV_DONTNEED, freed, target - freed)
+            except (AttributeError, OSError, ValueError):
+                pass
+            freed = target
 
     ids = array.array("q")
     offs = array.array("q")
@@ -1935,20 +2156,41 @@ def _scan_offset_index(mm):
                         elif kw == "SHAPE_DEFINITION_REPRESENTATION":
                             sdr.append(rid)
         pos = end + 1
+        if pos - freed >= _SCAN_FREE_STEP:
+            _free_behind(pos)
     return ids, offs, roots, styled, cdsr, srr, absr, sdr
 
 
 class _OffsetPool:
-    """Drop-in for the entity dict: ``get(id)`` seeks to the entity's offset in the
-    mmap and parses it on demand. The _Resolver caches the BUILT object per solid, so
-    each entity is parsed about once; the file pages stay mmap-resident (reclaimable
-    by the OS), never copied onto the Python heap."""
+    """Drop-in for the entity dict: ``get(id)`` looks up the entity's byte offset (binary
+    search over the spilled, sorted id array) and parses the statement on demand. The
+    _Resolver caches the BUILT object per solid, so each entity is parsed about once.
 
-    def __init__(self, mm, ids_sorted, offs_sorted):
-        self._mm = mm
+    Two backends: ``fd`` mode reads each statement with ``os.pread`` so the 700 MB+ file
+    never enters the process address space (pages live in the reclaimable OS page cache,
+    off VmRSS — the default for the streaming reader); ``mm`` mode slices an open mmap
+    (kept for callers that already hold one)."""
+
+    def __init__(self, ids_sorted, offs_sorted, *, fd=None, file_size=0, mm=None, owns_fd=False):
         self._ids = ids_sorted
         self._offs = offs_sorted
-        self._n = len(mm)
+        self._fd = fd
+        self._owns_fd = owns_fd
+        self._file_size = file_size
+        self._mm = mm
+        self._n = len(mm) if mm is not None else file_size
+
+    def close(self) -> None:
+        """Close the pread fd when this pool opened it (``owns_fd``). The memmapped index
+        arrays drop with the pool; an mmap passed in by the caller is the caller's to close."""
+        import os
+
+        if self._owns_fd and self._fd is not None:
+            try:
+                os.close(self._fd)
+            except OSError:
+                pass
+        self._fd = None
 
     def get(self, rid):
         import numpy as np
@@ -1956,80 +2198,247 @@ class _OffsetPool:
         i = int(np.searchsorted(self._ids, rid))
         if i >= self._ids.shape[0] or self._ids[i] != rid:
             return None
-        stmt = _read_statement_at(self._mm, int(self._offs[i]), self._n)
+        off = int(self._offs[i])
+        if self._fd is not None:
+            stmt = _read_statement_pread(self._fd, off, self._file_size)
+        else:
+            stmt = _read_statement_at(self._mm, off, self._n)
         parsed = _parse_statement(stmt)
         if parsed is None:
             return None
         return _Rec(parsed[1], parsed[2])
 
 
-def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=None):
+class StreamIndex:
+    """The one-time, **picklable** result of indexing a large STEP file: the spilled
+    id→offset index (two memmappable tempfiles) + the per-solid colour / world-transform /
+    product-name maps + the ordered list of root ids.
+
+    ``open_pool()`` (re)binds an :class:`_OffsetPool` in ANY process — the parent for the
+    serial generator, or each worker for the parallel build — by reopening the STEP file
+    and memmapping the index tempfiles (shared OS page cache, so N workers don't multiply
+    RSS). ``build_one_solid(idx, pool, resolver, rid, seq)`` is then stateless across
+    solids, so workers can build solids by id in any order with no per-solid cross-process
+    geometry transfer (only a root id crosses the boundary).
+
+    Pickling carries the maps (one-time, ~tens of MB) to a spawn worker; only the creating
+    process OWNS the tempfiles — an unpickled copy never unlinks them (``_owns=False``)."""
+
+    __slots__ = (
+        "step_path",
+        "idx_ids_path",
+        "idx_offs_path",
+        "file_size",
+        "roots",
+        "colour_map",
+        "tmap",
+        "prod_names",
+        "tolerant",
+        "_owns",
+    )
+
+    def __init__(self, step_path, idx_ids_path, idx_offs_path, file_size, roots, colour_map, tmap, prod_names, tolerant):
+        self.step_path = str(step_path)
+        self.idx_ids_path = idx_ids_path
+        self.idx_offs_path = idx_offs_path
+        self.file_size = file_size
+        self.roots = roots
+        self.colour_map = colour_map
+        self.tmap = tmap
+        self.prod_names = prod_names
+        self.tolerant = tolerant
+        self._owns = True  # the creating process unlinks the tempfiles; pickled copies don't
+
+    def __getstate__(self):
+        return {k: getattr(self, k) for k in self.__slots__ if k != "_owns"}
+
+    def __setstate__(self, state):
+        for k, v in state.items():
+            setattr(self, k, v)
+        self._owns = False  # a worker's copy must NOT unlink the parent's tempfiles
+
+    def open_pool(self):
+        """Reopen the STEP fd (pread) + memmap the spilled index → ``(pool, resolver)``.
+        Call once per process; close the returned pool when done (``pool.close()``)."""
+        import os
+
+        import numpy as np
+
+        fd = os.open(self.step_path, os.O_RDONLY)
+        if self.idx_ids_path is not None:
+            ids_mm = np.memmap(self.idx_ids_path, dtype=np.int64, mode="r")
+            offs_mm = np.memmap(self.idx_offs_path, dtype=np.int64, mode="r")
+        else:  # empty file
+            ids_mm = np.empty(0, dtype=np.int64)
+            offs_mm = np.empty(0, dtype=np.int64)
+        pool = _OffsetPool(ids_mm, offs_mm, fd=fd, file_size=self.file_size, owns_fd=True)
+        return pool, _Resolver(pool)
+
+    def close(self):
+        """Unlink the spilled index tempfiles (creating process only)."""
+        import os
+
+        if not self._owns:
+            return
+        for p in (self.idx_ids_path, self.idx_offs_path):
+            if p:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+        self.idx_ids_path = self.idx_offs_path = None
+
+
+def prepare_stream_index(filepath, *, tolerant: bool, on_total=None) -> StreamIndex:
+    """Do the one-time, serial setup for a large STEP file and return a picklable
+    :class:`StreamIndex`: scan the offset index, spill it to disk, and build the
+    colour / world-transform / product-name maps. This is the only work the conversion
+    PARENT must do serially; the per-solid parse+build is then parallelised by handing the
+    StreamIndex to workers (each calls :meth:`StreamIndex.open_pool` + ``build_one_solid``).
+
+    The scan keeps the file off VmRSS (munmap right after the linear pass + free-behind);
+    entity reads go through ``os.pread``. The index tempfiles are NOT unlinked here —
+    ownership transfers to ``StreamIndex.close()`` after every consumer (parent + workers)
+    has finished, so a spawned worker can still memmap them."""
     import mmap
     import os
     import tempfile
 
     import numpy as np
 
-    fh = open(filepath, "rb")  # noqa: SIM115 - kept open for the generator's lifetime
-    mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
-    idx_tmp: list[str] = []  # sorted-index temp files, unlinked in finally
+    filepath = Path(filepath)
+    fh = open(filepath, "rb")  # noqa: SIM115 - closed in finally once the maps are built
+    fd = fh.fileno()
+    mm = mmap.mmap(fd, 0, access=mmap.ACCESS_READ)
+    file_size = mm.size()
+    # The scan is a single forward pass: hint the kernel to read ahead + drop pages behind.
+    try:
+        mm.madvise(mmap.MADV_SEQUENTIAL)
+    except (AttributeError, OSError):
+        pass
+    p_i = p_o = None
     try:
         ids_arr, offs_arr, roots, styled, cdsr, srr, absr, sdr = _scan_offset_index(mm)
+        _mem_probe("after scan (mmap live)", step_path=filepath)
+        # The scan is the only mmap consumer; drop the file mapping immediately (~700 MB+
+        # on a large assembly) so argsort/spill + every later read run off VmRSS via pread.
+        mm.close()
+        mm = None
+        _mem_probe("after scan munmap", step_path=filepath)
         ids_np = np.frombuffer(ids_arr, dtype=np.int64)
-        offs_np = np.frombuffer(offs_arr, dtype=np.int64)
         order = np.argsort(ids_np, kind="stable")
-        ids_sorted = np.ascontiguousarray(ids_np[order])
-        offs_sorted = np.ascontiguousarray(offs_np[order])
-        del ids_np, offs_np, order, ids_arr, offs_arr
-        # Spill the sorted id/offset arrays to disk and memmap them so the index (~170 MB
-        # on an 11 M-entity assembly, much larger on 100k-solid files) is OS-paged and
-        # reclaimable instead of pinned on the Python heap for the generator's lifetime.
-        # ``_OffsetPool.get`` does ``np.searchsorted`` + index — identical on a memmap.
-        if ids_sorted.size:
+        if ids_np.size:
             fd_i, p_i = tempfile.mkstemp(suffix=".ada_idx_ids")
             fd_o, p_o = tempfile.mkstemp(suffix=".ada_idx_offs")
             os.close(fd_i)
             os.close(fd_o)
-            ids_sorted.tofile(p_i)
-            offs_sorted.tofile(p_o)
-            del ids_sorted, offs_sorted
-            idx_tmp = [p_i, p_o]
+            # Reorder + spill one array at a time, freeing each before the next (~2x, not
+            # ~5x, the index transient).
+            ids_np[order].tofile(p_i)
+            del ids_np, ids_arr
+            offs_np = np.frombuffer(offs_arr, dtype=np.int64)
+            offs_np[order].tofile(p_o)
+            del offs_np, offs_arr, order
             ids_mm = np.memmap(p_i, dtype=np.int64, mode="r")
             offs_mm = np.memmap(p_o, dtype=np.int64, mode="r")
-        else:  # empty file -> np.memmap can't map 0 bytes; keep the empty arrays in RAM
-            ids_mm, offs_mm = ids_sorted, offs_sorted
-        pool = _OffsetPool(mm, ids_mm, offs_mm)
+        else:  # empty file
+            del ids_np, ids_arr, offs_arr, order
+            ids_mm = np.empty(0, dtype=np.int64)
+            offs_mm = np.empty(0, dtype=np.int64)
+        idx_paths = [p for p in (p_i, p_o) if p]
+        pool = _OffsetPool(ids_mm, offs_mm, fd=fd, file_size=file_size)
+        _mem_probe("after index spill+pread pool", step_path=filepath, idx_paths=idx_paths)
         colour_map = _build_colour_map(pool.get, styled)
+        _mem_probe("after colour_map", step_path=filepath, idx_paths=idx_paths, sized={"colour_map": colour_map})
         tmap, prod_names = _build_transform_map(
             pool.get, roots, cdsr, srr, absr, sdr, global_scale=detect_step_length_unit_scale(filepath)
         )
+        _mem_probe(
+            "after transform_map",
+            step_path=filepath,
+            idx_paths=idx_paths,
+            sized={"tmap": tmap, "colour_map": colour_map},
+        )
         if on_total is not None:
             on_total(len(roots))
-        resolver = _Resolver(pool)
-        n_solids = 0
-        for rid in roots:
-            rec = pool.get(rid)
-            if rec is None:
-                continue
-            name = _solid_name(rec.args, n_solids, prod_names.get(rid))
-            resolver.reset_cache()
-            geom = _try_resolve_root(
-                resolver, name, _ROOT_BUILDERS[rec.type], rec.args, tolerant=tolerant, skipped=skipped
-            )
-            if geom is None:
-                continue
-            n_solids += 1
-            color = _as_color(colour_map.get(rid))
-            yield from _yield_instances(name, geom, color, tmap.get(rid))
+        # Drop the prepare-local memmaps + pool; consumers rebind fresh ones via open_pool().
+        del ids_mm, offs_mm, pool
     finally:
-        # Unlink the memmap-backed index temp files. On Linux the inode (and its disk
-        # space) lives until the memmaps are GC'd with the generator's locals, so this is
-        # the standard unlink-while-open pattern — no leak, and the data stays valid for
-        # the loop above.
-        for _p in idx_tmp:
-            try:
-                os.unlink(_p)
-            except OSError:
-                pass
-        mm.close()
-        fh.close()
+        if mm is not None:  # early error before the post-scan munmap
+            mm.close()
+        fh.close()  # the prepare fd; consumers reopen the file in open_pool()
+    return StreamIndex(filepath, p_i, p_o, file_size, roots, colour_map, tmap, prod_names, tolerant)
+
+
+def build_one_solid(idx: StreamIndex, pool, resolver, rid: int, seq: int, *, skipped):
+    """Build the single ``ada.geom`` :class:`Geometry` for root ``rid`` (position ``seq`` in
+    ``idx.roots``), carrying its colour + per-instance world transforms — exactly what the
+    serial reader yields for that solid. Returns the Geometry or None (unresolved / dropped).
+
+    Stateless across solids (the only per-solid state is ``resolver``'s cache, reset here),
+    so a worker can call it for any ``rid`` in any order. ``seq`` is the deterministic
+    ordinal used only for the generic ``solid_N`` fallback name (named solids ignore it)."""
+    rec = pool.get(rid)
+    if rec is None:
+        return None
+    name = _solid_name(rec.args, seq, idx.prod_names.get(rid))
+    resolver.reset_cache()
+    geom = _try_resolve_root(resolver, name, _ROOT_BUILDERS[rec.type], rec.args, tolerant=idx.tolerant, skipped=skipped)
+    if geom is None:
+        return None
+    color = _as_color(idx.colour_map.get(rid))
+    # _yield_instances yields exactly one Geometry per solid (its instance transforms attached).
+    return next(iter(_yield_instances(name, geom, color, idx.tmap.get(rid))), None)
+
+
+def root_face_count(pool, rid: int) -> int:
+    """Cheap complexity proxy for a root solid: the number of faces in its shell(s), read
+    straight from the shell entity — ~1-2 ``pool.get`` (preads), NO full geometry build.
+
+    A solid's tessellation cost grows with its face count (and B-spline grid sizes, not
+    counted here — face count alone is a good first-order proxy for the many-faced dense
+    parts that dominate the long tail). Used by the optional LPT scheduler to dispatch the
+    heaviest solids first. Handles the common roots — MANIFOLD_SOLID_BREP / BREP_WITH_VOIDS
+    / FACETED_BREP (a single CLOSED_SHELL), SHELL_BASED_SURFACE_MODEL (a list of shells) —
+    by summing the faces of every shell referenced (directly or in a list) from the root.
+    Returns 1 on anything it can't read (a neutral weight)."""
+    rec = pool.get(rid)
+    if rec is None:
+        return 1
+
+    def _shell_faces(ref_id) -> int:
+        s = pool.get(ref_id)
+        if s is None:
+            return 0
+        if s.type in ("CLOSED_SHELL", "OPEN_SHELL") and len(s.args) >= 2 and isinstance(s.args[1], (list, tuple)):
+            return len(s.args[1])
+        return 0
+
+    total = 0
+    for a in rec.args:
+        if isinstance(a, _Ref):
+            total += _shell_faces(a.id)
+        elif isinstance(a, (list, tuple)):
+            for it in a:
+                if isinstance(it, _Ref):
+                    total += _shell_faces(it.id)
+    return max(total, 1)
+
+
+def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=None):
+    """Serial streaming read (import-to-Assembly path + the reference oracle): index once,
+    then build + yield one Geometry per root. The parallel GLB path reuses the SAME
+    ``prepare_stream_index`` / ``build_one_solid`` pieces across worker processes."""
+    idx = prepare_stream_index(filepath, tolerant=tolerant, on_total=on_total)
+    pool, resolver = idx.open_pool()
+    idx_paths = [p for p in (idx.idx_ids_path, idx.idx_offs_path) if p]
+    try:
+        for seq, rid in enumerate(idx.roots):
+            if seq == 0 or (seq + 1) % 1000 == 0:
+                _mem_probe(f"streaming solid #{seq + 1}", step_path=idx.step_path, idx_paths=idx_paths)
+            geom = build_one_solid(idx, pool, resolver, rid, seq, skipped=skipped)
+            if geom is not None:
+                yield geom
+    finally:
+        pool.close()
+        idx.close()

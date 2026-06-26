@@ -563,6 +563,7 @@ class Part(BackendGeom):
         source_units=Units.M,
         include_shells=False,
         reader: str | None = None,
+        product_tree: bool = False,
     ):
         """
 
@@ -596,7 +597,8 @@ class Part(BackendGeom):
 
         if reader in ("stream", "auto", "tolerant"):
             if self._read_step_streaming(
-                step_path, name, scale, transform, rotate, colour, opacity, source_units, reader=reader
+                step_path, name, scale, transform, rotate, colour, opacity, source_units, reader=reader,
+                product_tree=product_tree,
             ):
                 return
             # auto-fallback: the file is outside the streaming reader's scope.
@@ -628,7 +630,7 @@ class Part(BackendGeom):
                 self.add_shape(ada_shape)
 
     def _read_step_streaming(
-        self, step_path, name, scale, transform, rotate, colour, opacity, source_units, reader: str
+        self, step_path, name, scale, transform, rotate, colour, opacity, source_units, reader: str, product_tree=False
     ) -> bool:
         """Read a STEP file via the kernel-free streaming reader, wrapping each
         yielded adapy ``Geometry`` in a ``Shape``. Returns True on success; False
@@ -638,6 +640,13 @@ class Part(BackendGeom):
         The streaming parse touches no CAD kernel, so it avoids the whole-model
         materialisation that makes ``STEPControl_Reader`` OOM on large files; the
         per-object OCC body is built lazily only when an object is tessellated.
+
+        ``product_tree`` (default False = flat list of Shapes under this Part): when True,
+        reconstruct the STEP product/assembly tree as nested ``Part``s from each solid's
+        assembly path (``Geometry.instance_paths`` — root-first ``(rep_id, product_name)``
+        levels; the last level is the solid itself). Same-name products under a parent are
+        merged into one Part, so the result mirrors the product tree rather than every
+        placed instance.
         """
         from ada.cadit.step.read.stream_reader import (
             StepStreamUnsupported,
@@ -655,13 +664,36 @@ class Part(BackendGeom):
         tolerant = reader == "tolerant"
 
         ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
-        new_shapes = []
+        asm_parts: dict[tuple, Part] = {}  # name-path -> Part (merges same-name siblings)
+
+        def _tree_parent(paths) -> Part:
+            """The nested Part a solid belongs under, per its assembly path. The last path
+            level is the solid itself (excluded); intermediate levels become nested Parts,
+            reusing an existing same-name child rather than colliding. Falls back to this
+            Part when there is no real hierarchy."""
+            path = paths[0] if paths else None
+            if not path or len(path) <= 1:
+                return self
+            parent = self
+            name_path: tuple = ()
+            for level in path[:-1]:  # exclude the solid's own leaf level
+                pname = (level[1] if level[1] else f"asm_{level[0]}") if isinstance(level, (tuple, list)) else str(level)
+                name_path += (pname,)
+                p = asm_parts.get(name_path)
+                if p is None:
+                    existing = parent._parts.get(pname)
+                    p = existing if existing is not None else parent.add_part(Part(pname))
+                    asm_parts[name_path] = p
+                parent = p
+            return parent
+
+        new_shapes = []  # (parent_part, shape)
         try:
             for i, geometry in enumerate(stream_read_step(step_path, local_pool=local_pool, tolerant=tolerant)):
                 shp_name = str(geometry.id) if geometry.id not in (None, "") else f"{ada_name}_{i}"
-                new_shapes.append(
-                    Shape(shp_name, geom=geometry, color=colour or geometry.color, opacity=opacity, units=source_units)
-                )
+                shp = Shape(shp_name, geom=geometry, color=colour or geometry.color, opacity=opacity, units=source_units)
+                parent = _tree_parent(geometry.instance_paths) if product_tree else self
+                new_shapes.append((parent, shp))
         except StepStreamUnsupported:
             if reader != "auto":
                 raise
@@ -675,8 +707,8 @@ class Part(BackendGeom):
             logger.info("read_step_file: streaming reader produced no solids; falling back to OCC reader")
             return False
 
-        for shp in new_shapes:
-            self.add_shape(shp)
+        for parent, shp in new_shapes:
+            parent.add_shape(shp)
         return True
 
     def _resolve_step_reader(self) -> str:
