@@ -54,17 +54,19 @@ def test_native_step_to_glb_renders_merge_by_colour(tmp_path):
             assert accessors[prim["indices"]]["count"] > 0
 
 
-@pytest.mark.xfail(reason="native tessellator drops full/periodic (360deg) cylinder faces -> empty mesh", strict=True)
-def test_native_full_cylinder_not_yet_supported(tmp_path):
-    # KNOWN GAP (no geometry left behind): a standalone full cylinder produces 0 triangles natively,
-    # though the crane's *partial* cylindrical faces tessellate fine. Tracks the periodic-surface /
-    # full-circle-cap fix. xfail(strict) so it flips to a hard failure the moment it's fixed.
+def test_native_full_cylinder_renders(tmp_path):
+    # No geometry left behind: a standalone full (360deg) cylinder must tessellate. Its edges are
+    # SURFACE_CURVE / SEAM_CURVE wrappers (OCC export) around the CIRCLE / LINE 3D curves — the native
+    # reader unwraps them, so the side + both circular caps mesh (regression guard for that fix).
     cyl = ada.PrimCyl("cy", (0, 0, 0), (0, 0, 1), 0.4)
     src = tmp_path / "cyl.step"
     (ada.Assembly("m") / (ada.Part("p") / cyl)).to_stp(src)
     out = tmp_path / "cyl.glb"
     stats = native_step_to_glb(src, out, deflection=1.0)
     assert stats["solids"] == 1
+    gltf = _glb_json(out)
+    total_idx = sum(gltf["accessors"][p["indices"]]["count"] for m in gltf["meshes"] for p in m["primitives"])
+    assert total_idx > 0, "full cylinder must produce triangles (side + caps)"
 
 
 def test_native_step_to_glb_unit_cube(tmp_path):
