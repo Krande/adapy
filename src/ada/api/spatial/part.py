@@ -562,7 +562,7 @@ class Part(BackendGeom):
         opacity=1.0,
         source_units=Units.M,
         include_shells=False,
-        reader: Literal["occ", "stream", "auto", "tolerant"] | None = None,
+        reader: Literal["occ", "stream", "auto", "tolerant", "native"] | None = None,
         product_tree: bool = False,
     ):
         """
@@ -595,7 +595,7 @@ class Part(BackendGeom):
             else:
                 reader = self._resolve_step_reader()
 
-        if reader in ("stream", "auto", "tolerant"):
+        if reader in ("stream", "auto", "tolerant", "native"):
             if self._read_step_streaming(
                 step_path, name, scale, transform, rotate, colour, opacity, source_units, reader=reader,
                 product_tree=product_tree,
@@ -639,7 +639,7 @@ class Part(BackendGeom):
         colour,
         opacity,
         source_units,
-        reader: Literal["stream", "auto", "tolerant"],
+        reader: Literal["stream", "auto", "tolerant", "native"],
         product_tree=False,
     ) -> bool:
         """Read a STEP file via the kernel-free streaming reader, wrapping each
@@ -697,9 +697,20 @@ class Part(BackendGeom):
                 parent = p
             return parent
 
+        # "native": adacpp's C++ NGEOM parser hydrated to Geometry (no Python tokenizer); same yield
+        # contract, so the Shape-wrap + product-tree below is identical.
+        if reader == "native":
+            from ada.cadit.step.read.native_reader import native_adacpp_step_available, native_stream_read_step
+
+            if not native_adacpp_step_available():
+                raise StepStreamUnsupported("reader='native' requires the adacpp stream_step_to_ngeom entry point")
+            geom_iter = native_stream_read_step(step_path)
+        else:
+            geom_iter = stream_read_step(step_path, local_pool=local_pool, tolerant=tolerant)
+
         new_shapes = []  # (parent_part, shape)
         try:
-            for i, geometry in enumerate(stream_read_step(step_path, local_pool=local_pool, tolerant=tolerant)):
+            for i, geometry in enumerate(geom_iter):
                 shp_name = str(geometry.id) if geometry.id not in (None, "") else f"{ada_name}_{i}"
                 shp = Shape(shp_name, geom=geometry, color=colour or geometry.color, opacity=opacity, units=source_units)
                 parent = _tree_parent(geometry.instance_paths) if product_tree else self
