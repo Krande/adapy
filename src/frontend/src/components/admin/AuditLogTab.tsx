@@ -1072,14 +1072,14 @@ const MetricsHistoryChart: React.FC<{auditId: number; cores?: number; native?: b
                 ]}
             />
             {hasPerThread ? (
-                <ChartPanel
-                    title={`CPU per core (native, ${cores ?? nLanes} cores)`}
-                    yLabel={`each line = 1 core · peak ${peakLanes} saturated`}
-                    series={Array.from({length: nLanes}, (_, k) => ({
-                        color: laneColors[k],
-                        points: samples.map((s, i) => [s.elapsed_s / maxElapsed, Math.min(1, lanes[i][k])]),
-                        label: `core${k}`,
-                    }))}
+                <CpuPerCorePanel
+                    samples={samples}
+                    lanes={lanes}
+                    nLanes={nLanes}
+                    cores={cores && cores > 0 ? cores : nLanes}
+                    maxElapsed={maxElapsed}
+                    colors={laneColors}
+                    peakLanes={peakLanes}
                 />
             ) : (
                 <ChartPanel
@@ -1102,6 +1102,56 @@ const MetricsHistoryChart: React.FC<{auditId: number; cores?: number; native?: b
                     {color: "#fbbf24", points: samples.map((s) => [s.elapsed_s / maxElapsed, s.write_bytes / maxIo]), label: "write"},
                 ]}
             />
+        </div>
+    );
+};
+
+// Stacked per-core CPU utilization (native engine). Each band is one core, rank-sorted busiest →
+// least and stacked from the bottom; the y-axis ceiling is the pod's core count. So the FILLED
+// HEIGHT at any instant = "cores busy," and saturation reads directly off the chart: the stack
+// hugging the top across the whole width = all cores saturated for the whole conversion; a dip = an
+// idle stretch. 3 full bands reaching 3/4 (native reserves one core for the parent) is unmistakably
+// different from 4 half-height bands reaching 2/4 — which the aggregate % and overlaid lines blur.
+const CpuPerCorePanel: React.FC<{
+    samples: MetricsSample[];
+    lanes: number[][];
+    nLanes: number;
+    cores: number;
+    maxElapsed: number;
+    colors: string[];
+    peakLanes: number;
+}> = ({samples, lanes, nLanes, cores, maxElapsed, colors, peakLanes}) => {
+    const W = 320;
+    const H = 56;
+    const x = (i: number) => (samples[i].elapsed_s / maxElapsed) * W;
+    const yAt = (cumCores: number) => H - Math.min(1, cumCores / cores) * H;
+    const cum = (i: number, k: number) => {
+        let c = 0;
+        for (let j = 0; j < k; j++) c += lanes[i][j] ?? 0;
+        return c;
+    };
+    return (
+        <div>
+            <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                <div className="text-[10px] text-gray-400 font-mono">CPU per core (native)</div>
+                <div className="text-[10px] text-gray-500 font-mono">
+                    top = {cores} cores · peak {peakLanes} saturated
+                </div>
+            </div>
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14 bg-gray-900/60 border border-gray-800 rounded-sm">
+                {Array.from({length: nLanes}, (_, k) => {
+                    const top = samples.map(
+                        (_, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${yAt(cum(i, k + 1)).toFixed(1)}`,
+                    );
+                    const bot: string[] = [];
+                    for (let i = samples.length - 1; i >= 0; i--) {
+                        bot.push(`L${x(i).toFixed(1)},${yAt(cum(i, k)).toFixed(1)}`);
+                    }
+                    return (
+                        <path key={k} d={`${top.join(" ")} ${bot.join(" ")} Z`} fill={colors[k]} fillOpacity={0.85} stroke="none"/>
+                    );
+                })}
+            </svg>
         </div>
     );
 };
