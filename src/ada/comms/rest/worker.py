@@ -140,7 +140,10 @@ async def _audit_done(
 def _gate_advertised_engines(conversions: list[dict]) -> list[dict]:
     """Restrict each conversion's ``step_glb_pipeline`` enum (and its default) to the engines this
     worker can actually run, so the API's per-worker union + engine routing reflect real capability.
-    Deep-copies so the shared ConverterRegistry option dicts aren't mutated."""
+    Deep-copies so the shared ConverterRegistry option dicts aren't mutated.
+
+    The runnable set comes from ``available_step_glb_pipelines()``, which gates the adacpp engines on
+    find_spec presence (overlay-robust) rather than an import-based native probe — see the note there."""
     import copy
 
     from .converter import available_step_glb_pipelines
