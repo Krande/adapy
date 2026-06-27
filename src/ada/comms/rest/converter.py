@@ -874,6 +874,45 @@ _STEP_GLB_PIPELINE_DEFAULT = _STEP_GLB_PIPELINE_ADACPP_NATIVE
 # the default so the native branch's fallback is never circular.
 _STEP_GLB_PIPELINE_FALLBACK = _STEP_GLB_PIPELINE_LIBTESS2
 
+
+def available_step_glb_pipelines() -> tuple[str, ...]:
+    """The STEP→GLB engines THIS process can actually run — for per-worker capability advertisement.
+
+    A worker pool without adacpp won't advertise the adacpp engines; one without OCC won't advertise
+    occ-builtin. The API unions these across pools for the engine list, and routes a job requesting an
+    engine to a pool that advertises it. Detection is conservative: if nothing is detected (which
+    shouldn't happen in a real worker) it returns the full set rather than an empty one.
+    """
+    import importlib.util
+
+    def _have(mod: str) -> bool:
+        try:
+            return importlib.util.find_spec(mod) is not None
+        except Exception:
+            return False
+
+    runnable: set[str] = set()
+    if _have("adacpp"):
+        runnable.update(
+            {
+                _STEP_GLB_PIPELINE_LIBTESS2,
+                _STEP_GLB_PIPELINE_ADACPP_OCC,
+                _STEP_GLB_PIPELINE_ADACPP_CGAL,
+                _STEP_GLB_PIPELINE_ADACPP_HYBRID,
+            }
+        )
+        try:
+            from ada.cadit.step.native_step_to_glb import native_adacpp_available
+
+            if native_adacpp_available():
+                runnable.add(_STEP_GLB_PIPELINE_ADACPP_NATIVE)
+        except Exception:
+            pass
+    if _have("OCP") or _have("OCC"):
+        runnable.add(_STEP_GLB_PIPELINE_OCC)
+    avail = tuple(p for p in _STEP_GLB_PIPELINES if p in runnable)
+    return avail or _STEP_GLB_PIPELINES
+
 # Non-STEP →GLB engine toggle (xml / ifc / sat / fem / obj / stl → glb via to_gltf's
 # BatchTessellator). Reuses the STEP option's names so the admin panel reads consistently,
 # but maps to the BatchTessellator stream selector (ADA_STREAM_TESS_PIPELINE = libtess2|occ|

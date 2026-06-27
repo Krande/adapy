@@ -97,3 +97,38 @@ async def test_missing_heartbeat_is_offline(monkeypatch):
         [{"capabilities": ["abaqus"], "source_exts": [".odb"]}],
     )
     assert await q._capability_for_ext("x.odb") == q.DEFAULT_CAPABILITY
+
+
+def _step_pool(cap: str, engines: list[str]) -> dict:
+    """An online worker pool advertising STEP→GLB with a given (capability-gated) engine set."""
+    return {
+        "capabilities": [cap],
+        "source_exts": [".step", ".stp"],
+        "conversions": [
+            {
+                "from": ".step",
+                "to": ["glb"],
+                "options": {"glb": [{"name": "step_glb_pipeline", "type": "enum", "enum": engines}]},
+            }
+        ],
+        "last_heartbeat": time.time(),
+    }
+
+
+@pytest.mark.asyncio
+async def test_engine_pinned_routes_to_pool_that_advertises_it(monkeypatch):
+    q = _queue()
+    _with_workers(
+        monkeypatch,
+        q,
+        [
+            _step_pool("base", ["libtess2", "occ-builtin"]),  # no adacpp-native
+            _step_pool("adacpp", ["libtess2", "adacpp-native"]),  # has it
+        ],
+    )
+    # No engine pinned → first ext-capable pool wins (unchanged behaviour).
+    assert await q._capability_for_ext("u/x.step") == "base"
+    # Pinned to adacpp-native → the pool that actually advertises it.
+    assert await q._capability_for_ext("u/x.step", "adacpp-native") == "adacpp"
+    # Pinned to an engine no pool advertises → fall back to an ext-capable pool, not stranded.
+    assert await q._capability_for_ext("u/x.step", "no-such-engine") == "base"

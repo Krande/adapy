@@ -137,6 +137,27 @@ async def _audit_done(
         logger.exception("worker: audit update failed for job %s", job_id)
 
 
+def _gate_advertised_engines(conversions: list[dict]) -> list[dict]:
+    """Restrict each conversion's ``step_glb_pipeline`` enum (and its default) to the engines this
+    worker can actually run, so the API's per-worker union + engine routing reflect real capability.
+    Deep-copies so the shared ConverterRegistry option dicts aren't mutated."""
+    import copy
+
+    from .converter import available_step_glb_pipelines
+
+    avail = set(available_step_glb_pipelines())
+    gated = copy.deepcopy(conversions)
+    for row in gated:
+        for opts in (row.get("options") or {}).values():
+            for opt in opts:
+                if opt.get("name") != "step_glb_pipeline" or not isinstance(opt.get("enum"), list):
+                    continue
+                opt["enum"] = [e for e in opt["enum"] if e in avail]
+                if isinstance(opt.get("default"), str) and opt["default"] not in avail and opt["enum"]:
+                    opt["default"] = opt["enum"][0]
+    return gated
+
+
 def _convert_meta_for(job: "Job", env_overrides: dict | None) -> dict | None:
     """Provenance for a conversion's audit row: which tessellator/engine actually
     ran (resolved here the same way the convert subprocess resolves it — adacpp
@@ -1640,6 +1661,10 @@ async def _run() -> None:
         conversions = [m for m in full_matrix if m["from"] in ext_allow_set]
     else:
         conversions = full_matrix
+    # Truthful capability advertisement: restrict the STEP→GLB engine enum to the engines THIS pool
+    # can actually run (a slim/adacpp-less pod won't advertise adacpp-native, etc.). The API unions
+    # these across pools for the list and routes engine-pinned jobs to a pool that advertises them.
+    conversions = _gate_advertised_engines(conversions)
 
     # Utilities this worker advertises (every ``@utility`` registration adapy +
     # any preloaded plug-in produced). Importing the bundled utilities package
