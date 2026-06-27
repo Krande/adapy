@@ -108,15 +108,16 @@ function triToString(tri: TriState): string {
 
 const TIMEOUT_KEY = "conversion_timeout_minutes";
 
-// STEP→GLB tessellation engine. Empty = adapy's code default (libtess2). Maps to
+// STEP→GLB tessellation engine. Empty = adapy's code default (adacpp-native). Maps to
 // the ADAPY_STEP_GLB_PIPELINE env the worker applies per job; per-job convert-dialog
-// overrides win over this global default.
+// overrides win over this global default. Keep in sync with _STEP_GLB_PIPELINES in
+// ada/comms/rest/converter.py.
 const STEP_GLB_PIPELINE_KEY = "step_glb_pipeline";
 const PIPELINE_OPTIONS: {value: string; label: string}[] = [
-    {value: "", label: "Unset — adapy default (libtess2)"},
-    {value: "libtess2", label: "libtess2 — adacpp OCC-free (full curved geometry)"},
+    {value: "", label: "Unset — adapy default (adacpp-native)"},
+    {value: "adacpp-native", label: "adacpp-native — full C++ STEP→GLB (fastest, lowest memory)"},
+    {value: "libtess2", label: "libtess2 — adacpp OCC-free (Python reader + worker pool)"},
     {value: "occ-builtin", label: "occ-builtin — OpenCASCADE (drops some curved surfaces)"},
-    {value: "step2glb", label: "step2glb — external binary"},
     {value: "adacpp-occ", label: "adacpp-occ — taxonomy / OCCT kernel"},
     {value: "adacpp-cgal", label: "adacpp-cgal — taxonomy / CGAL kernel"},
     {value: "adacpp-hybrid", label: "adacpp-hybrid — taxonomy / hybrid kernel"},
