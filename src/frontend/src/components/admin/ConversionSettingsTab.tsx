@@ -117,6 +117,18 @@ const TIMEOUT_KEY = "conversion_timeout_minutes";
 // converter.py's _STEP_GLB_PIPELINES shows up here automatically with no frontend change. The map
 // below is only friendly labels; an unknown engine id falls back to showing the id verbatim.
 const STEP_GLB_PIPELINE_KEY = "step_glb_pipeline";
+
+// Verbosity of the captured conversion log (audit row Log tab). Empty = the worker's quiet WARNING
+// default; INFO surfaces per-stage progress + the native engine summary. Maps to ADA_CONVERT_LOG_LEVEL,
+// applied to the ``ada`` logger inside the convert subprocess.
+const CONVERT_LOG_LEVEL_KEY = "convert_log_level";
+const LOG_LEVEL_OPTIONS: {value: string; label: string}[] = [
+    {value: "", label: "Unset (WARNING)"},
+    {value: "DEBUG", label: "DEBUG — most verbose"},
+    {value: "INFO", label: "INFO — progress + summaries"},
+    {value: "WARNING", label: "WARNING — default"},
+    {value: "ERROR", label: "ERROR — errors only"},
+];
 const PIPELINE_LABELS: Record<string, string> = {
     "adacpp-native": "adacpp-native — full C++ STEP→GLB (fastest, lowest memory)",
     "libtess2": "libtess2 — adacpp OCC-free (Python reader + worker pool)",
@@ -154,6 +166,9 @@ const ConversionSettingsTab: React.FC = () => {
     const [pipeline, setPipeline] = useState("");
     const [pipelineSaving, setPipelineSaving] = useState(false);
     const [pipelineSavedAt, setPipelineSavedAt] = useState<number | null>(null);
+    const [logLevel, setLogLevel] = useState("");
+    const [logLevelSaving, setLogLevelSaving] = useState(false);
+    const [logLevelSavedAt, setLogLevelSavedAt] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState<Record<string, boolean>>({});
     const [error, setError] = useState<string | null>(null);
@@ -176,6 +191,8 @@ const ConversionSettingsTab: React.FC = () => {
                 if (!cancelled) setSolidTimeout((sto || "").trim());
                 const pp = await viewerApi.adminGetSetting(STEP_GLB_PIPELINE_KEY);
                 if (!cancelled) setPipeline((pp || "").trim());
+                const ll = await viewerApi.adminGetSetting(CONVERT_LOG_LEVEL_KEY);
+                if (!cancelled) setLogLevel((ll || "").trim().toUpperCase());
                 if (!cancelled) setValues(next);
             } catch (e) {
                 if (!cancelled) setError(e instanceof ApiError ? e.detail || e.message : String(e));
@@ -281,6 +298,20 @@ const ConversionSettingsTab: React.FC = () => {
         }
     };
 
+    const onLogLevelChange = async (next: string) => {
+        setLogLevelSaving(true);
+        setError(null);
+        try {
+            await viewerApi.adminSetSetting(CONVERT_LOG_LEVEL_KEY, next);
+            setLogLevel(next);
+            setLogLevelSavedAt(Date.now());
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setLogLevelSaving(false);
+        }
+    };
+
     const anySaving = useMemo(() => Object.values(saving).some(Boolean), [saving]);
 
     return (
@@ -332,6 +363,41 @@ const ConversionSettingsTab: React.FC = () => {
                             <span className="font-mono"> adacpp-occ/cgal/hybrid</span> use adacpp's taxonomy
                             kernels; <span className="font-mono">step2glb</span> runs the external binary.
                             Per-job overrides on the convert dialog win over this.
+                        </div>
+                    </div>
+                )}
+                {!loading && (
+                    <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+                        <div>
+                            <div className="font-medium text-sm">Conversion log level</div>
+                            <div className="text-[11px] text-gray-400 font-mono">
+                                {CONVERT_LOG_LEVEL_KEY}
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <select
+                                value={logLevel}
+                                onChange={(e) => onLogLevelChange(e.target.value)}
+                                disabled={logLevelSaving}
+                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm text-gray-100 max-w-full"
+                            >
+                                {LOG_LEVEL_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                ))}
+                            </select>
+                            {logLevelSaving && <span className="text-[11px] text-gray-400">saving…</span>}
+                            {logLevelSavedAt && !logLevelSaving && (
+                                <span className="text-[11px] text-emerald-400">
+                                    saved {Math.floor((Date.now() - logLevelSavedAt) / 1000)}s ago
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-xs text-gray-400 max-w-2xl">
+                            Verbosity of the captured conversion log (the audit row's Log tab).{" "}
+                            <span className="font-mono">WARNING</span> (default) keeps successful runs quiet;{" "}
+                            <span className="font-mono">INFO</span> surfaces per-stage progress and the native
+                            engine summary. Applied to the <span className="font-mono">ada</span> logger inside
+                            the convert subprocess.
                         </div>
                     </div>
                 )}

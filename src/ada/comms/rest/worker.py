@@ -1167,6 +1167,10 @@ async def _process_one(
                 "tess_linear_deflection": "ADA_OCC_TESS_LINEAR_DEFLECTION",
                 "tess_angular_deg": "ADA_OCC_TESS_ANGULAR_DEG",
                 "tess_relative": "ADA_OCC_TESS_RELATIVE",
+                # Conversion log verbosity (DEBUG/INFO/WARNING/ERROR), set from the admin Conversion
+                # panel. Unset keeps the quiet WARNING default; INFO surfaces per-stage progress + the
+                # native engine summary in the captured audit Log. Read by the convert subprocess.
+                "convert_log_level": "ADA_CONVERT_LOG_LEVEL",
             }
             for skey, env_name in _env_map.items():
                 raw = await _read_bool_setting(skey)

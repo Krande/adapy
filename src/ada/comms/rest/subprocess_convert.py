@@ -350,6 +350,26 @@ async def run_isolated_convert(
             except OSError:
                 pass
 
+            # Line-buffer the child's streams so each log line reaches the captured file immediately.
+            # Otherwise a block-buffered tail is lost when the RSS watchdog SIGKILLs the child mid-run
+            # (OOM rows came back with an empty log — the very reason you couldn't see why it died).
+            # ``reconfigure`` raises ValueError/AttributeError (not OSError), so it gets its own guard.
+            try:
+                _sys.stdout.reconfigure(line_buffering=True)
+                _sys.stderr.reconfigure(line_buffering=True)
+            except Exception:
+                pass
+
+            # Conversion log verbosity, set from the admin Conversion panel (app_settings
+            # ``convert_log_level`` → ADA_CONVERT_LOG_LEVEL). Unset keeps the quiet WARNING default;
+            # INFO/DEBUG surfaces per-stage progress + the native engine summary in the captured log.
+            _log_level = os.environ.get("ADA_CONVERT_LOG_LEVEL", "").strip().upper()
+            if _log_level:
+                try:
+                    logging.getLogger("ada").setLevel(_log_level)
+                except (ValueError, TypeError):
+                    pass
+
             def _child_progress(stage: str, frac: float) -> None:
                 try:
                     line = json.dumps({"stage": stage, "frac": float(frac)}) + "\n"

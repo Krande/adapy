@@ -91,6 +91,14 @@ def native_step_to_glb(
         raise RuntimeError(f"adacpp native stream_step_to_glb failed for {step_path}")
 
     logger.info("adacpp-native STEP->GLB: %s solids -> %s", n, glb_path)
+    # Always emit a one-line summary to stdout — captured at the fd level regardless of the ada log
+    # level — so a clean native run positively shows up in the audit Log tab instead of an empty
+    # capture (the worker adds wall-time + peak RSS to the row's metrics separately).
+    print(
+        f"[adacpp-native] {n} solids -> {glb_path} "
+        f"(threads={num_threads}, deflection={deflection}, angular={angular_deg}, meshopt={meshopt})",
+        flush=True,
+    )
     if on_progress is not None:
         on_progress("ready", 1.0)
     # Native coverage is 100% on the crane (all surface types + BREP_WITH_VOIDS resolved); the binding
