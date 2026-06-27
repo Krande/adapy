@@ -2190,6 +2190,16 @@ export const viewerApi = {
         return jsonOrThrow(r, "adminPruneWorkers");
     },
 
+    /** Admin: fetch a conversion's captured stdout/stderr log (the log_key blob) as text. Throws
+     * ApiError(404) when the row has no log attached (predates log capture, or no conversion ran). */
+    async adminGetAuditLog(auditId: number): Promise<string> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/${auditId}/log`);
+        if (!r.ok) {
+            throw new ApiError(`adminGetAuditLog(${auditId})`, r.status, await readDetail(r));
+        }
+        return r.text();
+    },
+
     /** Admin: read a key from app_settings. Value is null when unset. */
     async adminGetSetting(key: string): Promise<string | null> {
         const r = await authedFetch(

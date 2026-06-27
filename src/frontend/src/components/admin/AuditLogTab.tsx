@@ -422,13 +422,57 @@ const AuditLogTab: React.FC = () => {
     );
 };
 
+// Lazy-loaded conversion log (worker-captured stdout/stderr, stored at log_key). Fetched on first
+// view of the Log tab — surfaces what the structured fields don't, e.g. an "adacpp-native ...
+// falling back to libtess2" warning when a pipeline silently degrades inside the convert subprocess.
+const LogTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
+    const [text, setText] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState<string | null>(null);
+
+    useEffect(() => {
+        let alive = true;
+        setLoading(true);
+        setErr(null);
+        viewerApi
+            .adminGetAuditLog(entry.id)
+            .then((t) => {
+                if (alive) setText(t);
+            })
+            .catch((e) => {
+                if (!alive) return;
+                setErr(
+                    e instanceof ApiError
+                        ? e.status === 404
+                            ? "No log captured for this row."
+                            : e.detail || e.message
+                        : String(e),
+                );
+            })
+            .finally(() => {
+                if (alive) setLoading(false);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [entry.id]);
+
+    if (loading) return <div className="p-4 text-sm text-gray-400">Loading log…</div>;
+    if (err) return <div className="p-4 text-sm text-gray-400 italic">{err}</div>;
+    return (
+        <pre className="p-3 text-xs leading-relaxed whitespace-pre-wrap break-words text-gray-200 font-mono">
+            {text}
+        </pre>
+    );
+};
+
 // Tabbed details view: Error (or 'OK' summary) on one tab, Metrics
 // on the other. Both tabs render even when their data is partial so
 // the user gets a consistent layout regardless of job outcome — a
 // timed-out conversion and a clean success share the same shape.
 const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry, onClose}) => {
     const clientRow = isClientMetricsRow(entry);
-    const [tab, setTab] = useState<"error" | "metrics" | "client">(
+    const [tab, setTab] = useState<"error" | "metrics" | "client" | "log">(
         entry.error || entry.traceback ? "error" : clientRow ? "client" : "metrics",
     );
     const [copied, setCopied] = useState(false);
@@ -530,6 +574,11 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                             )}
                         </TabButton>
                     )}
+                    {!clientRow && (
+                        <TabButton active={tab === "log"} onClick={() => setTab("log")}>
+                            Log
+                        </TabButton>
+                    )}
                 </div>
                 <div className="flex-1 overflow-auto">
                     {tab === "error" && (
@@ -544,6 +593,7 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                         />
                     )}
                     {tab === "client" && <ClientMetricsTab entry={entry}/>}
+                    {tab === "log" && <LogTab entry={entry}/>}
                 </div>
             </div>
         </div>
