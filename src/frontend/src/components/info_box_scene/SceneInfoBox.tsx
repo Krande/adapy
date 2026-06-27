@@ -3,6 +3,7 @@ import React from "react";
 
 import CollapsibleSection from "@/components/common/CollapsibleSection";
 import LoadedModelsSection from "./LoadedModelsSection";
+import LocalStepLoader from "./LocalStepLoader";
 import StatsSection from "./StatsSection";
 import GroupsSection from "./GroupsSection";
 import UtilitiesSection from "./UtilitiesSection";
@@ -39,6 +40,11 @@ const SceneInfoBox = () => {
                 unloading never requires digging through prefix trees. */}
             <CollapsibleSection title="Loaded models" defaultOpen>
                 <LoadedModelsSection/>
+            </CollapsibleSection>
+            {/* In-browser STEP -> GLB (OCC-free adacpp wasm, OPFS-backed) — load a local STEP with no
+                server round-trip. Visible in every mode like the loaded-models list. */}
+            <CollapsibleSection title="Load STEP (in-browser)">
+                <LocalStepLoader/>
             </CollapsibleSection>
             {mode === "info" ? (
                 <>
