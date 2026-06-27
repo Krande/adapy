@@ -813,7 +813,7 @@ const MetricsTab: React.FC<{
             </dl>
             {entry.convert_meta && <ConvertEngine meta={entry.convert_meta}/>}
             {entry.worker_image_tag && <WorkerPackages imageTag={entry.worker_image_tag}/>}
-            <MetricsHistoryChart auditId={entry.id}/>
+            <MetricsHistoryChart auditId={entry.id} cores={entry.convert_meta?.cpu_cores ?? undefined}/>
             {entry.profile_key ? (
                 <div className="pt-2 border-t border-gray-800 space-y-3">
                     <div>
@@ -965,7 +965,7 @@ const ClientMetricsTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
     );
 };
 
-const MetricsHistoryChart: React.FC<{auditId: number}> = ({auditId}) => {
+const MetricsHistoryChart: React.FC<{auditId: number; cores?: number}> = ({auditId, cores}) => {
     const [samples, setSamples] = useState<MetricsSample[] | null>(null);
     const [err, setErr] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -1006,8 +1006,25 @@ const MetricsHistoryChart: React.FC<{auditId: number}> = ({auditId}) => {
 
     const maxElapsed = Math.max(...samples.map((s) => s.elapsed_s), 1);
     const maxRss = Math.max(...samples.map((s) => Math.max(s.rss_kb, s.peak_rss_kb)), 1);
-    const maxCpuMs = Math.max(...samples.map((s) => s.cpu_user_ms + s.cpu_sys_ms), 1);
     const maxIo = Math.max(...samples.map((s) => Math.max(s.read_bytes, s.write_bytes)), 1);
+
+    // cpu_user_ms/cpu_sys_ms are CUMULATIVE, so plotting them is just a monotonic ramp. Instead show
+    // utilization: Δ(user+sys) / Δwall between consecutive samples = CPU cores busy in that window.
+    // When the pod's core count is known (convert_meta.cpu_cores) render it as % of all cores (0–100%);
+    // otherwise as absolute cores busy.
+    const cpuCoresBusy: number[] = samples.map((s, i) => {
+        const prevCpu = i === 0 ? 0 : samples[i - 1].cpu_user_ms + samples[i - 1].cpu_sys_ms;
+        const prevT = i === 0 ? 0 : samples[i - 1].elapsed_s;
+        const dCpuMs = s.cpu_user_ms + s.cpu_sys_ms - prevCpu;
+        const dWallMs = (s.elapsed_s - prevT) * 1000;
+        return dWallMs > 0 ? Math.max(0, dCpuMs / dWallMs) : 0;
+    });
+    const maxCoresBusy = Math.max(...cpuCoresBusy, 0.01);
+    const cpuFullScale = cores && cores > 0 ? cores : Math.max(Math.ceil(maxCoresBusy), 1);
+    const cpuLabel =
+        cores && cores > 0
+            ? `${Math.round((maxCoresBusy / cores) * 100)}% of ${cores} cores`
+            : `${maxCoresBusy.toFixed(1)} cores`;
 
     return (
         <div className="space-y-2 pt-2 border-t border-gray-800">
@@ -1023,12 +1040,12 @@ const MetricsHistoryChart: React.FC<{auditId: number}> = ({auditId}) => {
                 ]}
             />
             <ChartPanel
-                title="CPU (user+sys)"
-                yLabel={formatDuration(maxCpuMs)}
+                title={cores ? "CPU util (% of cores)" : "CPU (cores busy)"}
+                yLabel={cpuLabel}
                 series={[
                     {
                         color: "#34d399",
-                        points: samples.map((s) => [s.elapsed_s / maxElapsed, (s.cpu_user_ms + s.cpu_sys_ms) / maxCpuMs]),
+                        points: samples.map((s, i) => [s.elapsed_s / maxElapsed, Math.min(1, cpuCoresBusy[i] / cpuFullScale)]),
                         label: "cpu",
                     },
                 ]}

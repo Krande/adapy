@@ -1375,6 +1375,18 @@ async def _process_one(
         # incl. an adacpp→occ-builtin fallback, and the effective toggles).
         convert_meta = _convert_meta_for(job, env_overrides)
 
+        # Record the pod's CPU allotment (cgroup quota, else host cores) so the metrics chart can
+        # render CPU as % utilization across all cores instead of the cumulative-time ramp.
+        try:
+            from ada.visit.scene_handling.scene_from_step_stream import _cgroup_cpu_quota
+
+            _cores = _cgroup_cpu_quota() or os.cpu_count()
+            if _cores:
+                convert_meta = dict(convert_meta or {})
+                convert_meta["cpu_cores"] = int(_cores)
+        except Exception:
+            logger.debug("convert_meta: cpu_cores detection failed", exc_info=True)
+
         # Poll the audit_log (cancel endpoint's source of truth) so a user
         # cancellation actually reaps the running conversion subprocess.
         async def _cancel_check() -> bool:

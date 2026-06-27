@@ -591,6 +591,9 @@ export interface ConvertMeta {
     // for a slower conversion.
     convert_ms?: number | null;
     compress_ms?: number | null;
+    // The pod's CPU allotment (cgroup quota) at conversion time, so the metrics chart can render CPU
+    // as % utilization across all cores rather than a cumulative ramp.
+    cpu_cores?: number | null;
     options?: Record<string, string>;
 }
 
