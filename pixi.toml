@@ -287,9 +287,15 @@ croniter = "*"
 [feature.viewer-slim.dependencies]
 python = "3.14.*"
 
+# PYTHONPATH must keep /opt/adacpp-overlay AHEAD of src so the deployed worker imports the
+# branch-built adacpp (with the native stream_step_to_glb) rather than the conda base adacpp. The
+# Dockerfile sets this env, but a task-level `env` REPLACES (not merges) it — so without the overlay
+# prefix here the worker silently imported base adacpp, native_adacpp_available() returned False, and
+# every adacpp-native STEP→GLB fell back to the slow libtess2 path. The path is absent in dev/CI and
+# in the (overlay-less) viewer image, where Python just ignores the missing sys.path entry.
 [feature.viewer-api.tasks]
-viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-viewer-worker = { cmd = "python -m ada.comms.rest.worker", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "/opt/adacpp-overlay:$PIXI_PROJECT_ROOT/src" } }
+viewer-worker = { cmd = "python -m ada.comms.rest.worker", env = { "PYTHONPATH" = "/opt/adacpp-overlay:$PIXI_PROJECT_ROOT/src" } }
 test-rest = { cmd = "pytest tests/comms/rest --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 ada = { cmd = "python -m ada_cli.main", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 audit-fetch = { cmd = "python scripts/audit_fetch.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
