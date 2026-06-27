@@ -2835,9 +2835,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ``WORKER_PRUNE_AFTER_S`` (2 days). Defensive — one failed tick is logged, not fatal; only
         ``asyncio.CancelledError`` exits cleanly (shutdown)."""
         PRUNE_INTERVAL_S = 3600.0
-        logger.info(
-            "worker prune: starting (every %ss, horizon %ss)", PRUNE_INTERVAL_S, q.WORKER_PRUNE_AFTER_S
-        )
+        logger.info("worker prune: starting (every %ss, horizon %ss)", PRUNE_INTERVAL_S, q.WORKER_PRUNE_AFTER_S)
         try:
             while True:
                 await asyncio.sleep(PRUNE_INTERVAL_S)

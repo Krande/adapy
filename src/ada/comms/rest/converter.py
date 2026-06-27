@@ -913,6 +913,7 @@ def available_step_glb_pipelines() -> tuple[str, ...]:
     avail = tuple(p for p in _STEP_GLB_PIPELINES if p in runnable)
     return avail or _STEP_GLB_PIPELINES
 
+
 # Non-STEP →GLB engine toggle (xml / ifc / sat / fem / obj / stl → glb via to_gltf's
 # BatchTessellator). Reuses the STEP option's names so the admin panel reads consistently,
 # but maps to the BatchTessellator stream selector (ADA_STREAM_TESS_PIPELINE = libtess2|occ|
@@ -1045,7 +1046,10 @@ def _via_ada(
                 # Fully-native in-process path (C++ reader + thread pool + GLB writer). Falls through
                 # to the standard pipelines below if adacpp's native entry point isn't available, so a
                 # native request degrades gracefully rather than failing the job.
-                from ada.cadit.step.native_step_to_glb import native_adacpp_available, native_step_to_glb
+                from ada.cadit.step.native_step_to_glb import (
+                    native_adacpp_available,
+                    native_step_to_glb,
+                )
                 from ada.config import logger
 
                 if native_adacpp_available():
@@ -1063,8 +1067,9 @@ def _via_ada(
                             _STEP_GLB_PIPELINE_FALLBACK,
                         )
                 else:
-                    logger.warning("adacpp-native requested but unavailable; falling back to %s",
-                                   _STEP_GLB_PIPELINE_FALLBACK)
+                    logger.warning(
+                        "adacpp-native requested but unavailable; falling back to %s", _STEP_GLB_PIPELINE_FALLBACK
+                    )
                 pipe = _STEP_GLB_PIPELINE_FALLBACK
 
             cad_cfg = _cad_config_for_pipeline(pipe)
