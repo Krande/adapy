@@ -47,6 +47,15 @@ RUN npm run build:serve
 COPY --from=adacpp-wheel /out/ /build/dist/wheels/
 COPY --from=adapy-wheel  /out/ /build/dist/wheels/
 
+# The no-pyodide STEP->GLB embind module (adacpp_step_glb.js + .wasm) ships in the same adacpp base
+# image under /out/wasm/, so the copy above lands it at dist/wheels/wasm/. Promote it to /wasm/ — where
+# the in-browser "Load STEP" converter (LocalStepLoader -> stepConverter.worker) fetches it. Guarded so
+# the build still works against older base images that predate the module.
+RUN mkdir -p /build/dist/wasm && \
+    if [ -d /build/dist/wheels/wasm ]; then \
+        mv /build/dist/wheels/wasm/* /build/dist/wasm/ && rmdir /build/dist/wheels/wasm; \
+    fi
+
 # Stage 2a: pixi env solver — installs the viewer-api-slim environment
 # from pixi.toml/pixi.lock so the runtime stack stays in lockstep with
 # what's solved locally. Replaces a hand-curated ``pip install`` list
