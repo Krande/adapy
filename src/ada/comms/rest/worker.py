@@ -174,24 +174,26 @@ def _convert_meta_for(job: "Job", env_overrides: dict | None) -> dict | None:
     if job.target_format == "glb" and suffix in {".step", ".stp"}:
         try:
             from ada.comms.rest.converter import (
+                _STEP_GLB_PIPELINE_ADACPP_NATIVE,
                 _STEP_GLB_PIPELINE_OCC,
-                _STEP_GLB_PIPELINE_STEP2GLB,
                 _cad_config_for_pipeline,
                 _resolve_step_glb_pipeline,
             )
 
             requested = _resolve_step_glb_pipeline((env_overrides or {}).get("ADAPY_STEP_GLB_PIPELINE"))
             meta["step_glb_pipeline"] = requested
-            if requested == _STEP_GLB_PIPELINE_STEP2GLB:
-                meta["tessellator"] = "step2glb"
+            if requested == _STEP_GLB_PIPELINE_ADACPP_NATIVE:
+                # Fully in-process C++ reader + tessellate + GLB writer — no CadBackend config, so
+                # _cad_config_for_pipeline() is None for it (don't mislabel that as an occ fallback).
+                meta["tessellator"] = "adacpp:native"
+            elif requested == _STEP_GLB_PIPELINE_OCC:
+                meta["tessellator"] = "occ-builtin"
             else:
                 cfg = _cad_config_for_pipeline(requested)
                 if cfg is not None:
                     meta["tessellator"] = cfg.path.value  # e.g. "adacpp:libtess2"
-                elif requested != _STEP_GLB_PIPELINE_OCC:
-                    meta["tessellator"] = f"occ-builtin (fallback from {requested})"
                 else:
-                    meta["tessellator"] = "occ-builtin"
+                    meta["tessellator"] = f"occ-builtin (fallback from {requested})"
             meta["glb_compression"] = (env_overrides or {}).get("ADA_GLB_COMPRESSION") or "meshopt"
             meta["stream_workers"] = (env_overrides or {}).get("ADA_STEP_STREAM_WORKERS")
         except Exception:
