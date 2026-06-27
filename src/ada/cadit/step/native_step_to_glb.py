@@ -61,6 +61,21 @@ def native_step_to_glb(
     if angular_deg is None:
         angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
 
+    if num_threads <= 0:
+        # ``num_threads=0`` lets the C++ pick std::thread::hardware_concurrency(), which reports the
+        # NODE's core count (e.g. 16) — NOT the pod's cgroup CPU quota. 16 threads on a 4-CPU /
+        # 3.2 GB-capped pod oversubscribes the CPUs AND bloats glibc's per-thread malloc arenas past
+        # the RSS watchdog (observed: 3.12 GB peak → reaped at 31 s). Bound it to the streaming path's
+        # cgroup-aware allotment (reads ADA_STEP_STREAM_WORKERS, else the cgroup cpu.max quota → cpu-1,
+        # capped at 3) — the same allotment libtess2 runs the crane under at ~1 GB. Falls back to the
+        # C++ auto-pick only if that helper can't be imported.
+        try:
+            from ada.visit.scene_handling.scene_from_step_stream import _stream_workers
+
+            num_threads = _stream_workers()
+        except Exception:
+            num_threads = 0
+
     if on_progress is not None:
         on_progress("adacpp-native", 0.1)
 
