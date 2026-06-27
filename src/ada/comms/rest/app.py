@@ -344,6 +344,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.exception("config: failed to read worker registry for matrix")
             return []
         merged: dict[str, set[str]] = {}
+        # from → target → option-name → option-dict. Per-job knob schemas are unioned across workers:
+        # for an enum option (e.g. step_glb_pipeline) the enum VALUES are unioned, so an engine that
+        # only some worker pool can run still appears in the list. (Pair with capability routing so the
+        # job lands on a pool that actually advertises that engine — see queue source-ext routing.)
+        merged_opts: dict[str, dict[str, dict[str, dict]]] = {}
         for w in workers:
             for entry in w.get("conversions") or []:
                 if not isinstance(entry, dict):
@@ -356,11 +361,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 tos = entry.get("to")
                 if not isinstance(tos, list):
                     continue
+                opts_by_target = entry.get("options") or {}
                 bucket = merged.setdefault(frm, set())
                 for t in tos:
-                    if isinstance(t, str) and t.strip():
-                        bucket.add(t.strip().lstrip(".").lower())
-        return [{"from": frm, "to": sorted(merged[frm])} for frm in sorted(merged)]
+                    if not (isinstance(t, str) and t.strip()):
+                        continue
+                    target = t.strip().lstrip(".").lower()
+                    bucket.add(target)
+                    for opt in opts_by_target.get(t) or opts_by_target.get(target) or []:
+                        if not isinstance(opt, dict) or not opt.get("name"):
+                            continue
+                        slot = merged_opts.setdefault(frm, {}).setdefault(target, {})
+                        cur = slot.get(opt["name"])
+                        if cur is None:
+                            slot[opt["name"]] = dict(opt)
+                        elif isinstance(opt.get("enum"), list) and isinstance(cur.get("enum"), list):
+                            cur["enum"] = cur["enum"] + [v for v in opt["enum"] if v not in cur["enum"]]
+        return [
+            {
+                "from": frm,
+                "to": sorted(merged[frm]),
+                "options": {tgt: list(by_name.values()) for tgt, by_name in merged_opts.get(frm, {}).items()},
+            }
+            for frm in sorted(merged)
+        ]
 
     async def _worker_advertised_utilities() -> list[dict]:
         """Merged utility specs across every currently-registered worker.
