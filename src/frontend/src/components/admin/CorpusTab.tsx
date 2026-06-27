@@ -1,5 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {Corpus, FileEntry, viewerApi} from "@/services/viewerApi";
+import {buildFileTree} from "@/utils/storage/fileTree";
+import FileTreeView from "./FileTreeView";
 
 // Admin tab — manage proprietary regression corpora (M3 of the audit
 // panel design in plan/v2/notes_admin_audit_panel.md).
@@ -21,6 +23,32 @@ function fmtBytes(n: number): string {
     if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
+
+// Flat-list ⇄ folder-tree representation switch. Storage is flat on the
+// server; tree mode just groups the keys' "/" segments. Shared by the
+// corpus file overview and the copy-from-scope modal.
+type ViewMode = "flat" | "tree";
+
+const ViewModeToggle: React.FC<{mode: ViewMode; onChange: (m: ViewMode) => void}> = ({mode, onChange}) => (
+    <div className="inline-flex rounded-sm overflow-hidden border border-gray-600 shrink-0">
+        {(["flat", "tree"] as const).map((m) => (
+            <button
+                key={m}
+                type="button"
+                onClick={() => onChange(m)}
+                className={
+                    "text-xs px-2 py-1 " +
+                    (mode === m
+                        ? "bg-blue-700 text-white"
+                        : "bg-gray-800 text-gray-300 hover:bg-gray-700")
+                }
+                title={m === "flat" ? "Flat list" : "Folder tree"}
+            >
+                {m === "flat" ? "Flat" : "Tree"}
+            </button>
+        ))}
+    </div>
+);
 
 const NewCorpusForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
     const [slug, setSlug] = useState("");
@@ -118,9 +146,26 @@ const CopyFromScopeModal: React.FC<{
     const [loadingFiles, setLoadingFiles] = useState(false);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [filter, setFilter] = useState("");
+    const [viewMode, setViewMode] = useState<ViewMode>("flat");
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
-    const [result, setResult] = useState<{copied: number; failed: {key: string; reason: string}[]} | null>(null);
+    const [result, setResult] = useState<{copied: number; skipped: number; failed: {key: string; reason: string}[]} | null>(null);
+    // Destination corpus keys, fetched once — files already in the corpus
+    // render greyed "in corpus" and can't be (re)selected; the backend also
+    // skips them, so this is purely a clearer-affordance pre-check.
+    const [existingKeys, setExistingKeys] = useState<ReadonlySet<string>>(new Set());
+
+    useEffect(() => {
+        void (async () => {
+            try {
+                const xs = await viewerApi.listFiles(dstScope);
+                setExistingKeys(new Set(xs.map((f) => f.key)));
+            } catch {
+                // Best-effort — without it nothing is greyed, but the copy
+                // still skips collisions server-side.
+            }
+        })();
+    }, [dstScope]);
 
     useEffect(() => {
         void (async () => {
@@ -170,6 +215,17 @@ const CopyFromScopeModal: React.FC<{
         if (next.has(key)) next.delete(key); else next.add(key);
         return next;
     });
+    // Batch select/deselect — folder checkbox in tree mode passes every
+    // descendant key at once (recursive select).
+    const setSelection = useCallback((keys: string[], select: boolean) => {
+        setSelected((prev) => {
+            const next = new Set(prev);
+            if (select) keys.forEach((k) => next.add(k));
+            else keys.forEach((k) => next.delete(k));
+            return next;
+        });
+    }, []);
+    const tree = useMemo(() => buildFileTree(shown, (f) => f.key), [shown]);
     const allShownSelected = shown.length > 0 && shown.every((f) => selected.has(f.key));
     const toggleAll = () => setSelected((prev) => {
         const next = new Set(prev);
@@ -184,7 +240,16 @@ const CopyFromScopeModal: React.FC<{
         setErr(null);
         try {
             const r = await viewerApi.adminCopyKeysFromScope(dstScope, srcScope, Array.from(selected));
-            setResult({copied: r.copied.length, failed: r.failed});
+            setResult({copied: r.copied.length, skipped: r.skipped.length, failed: r.failed});
+            // Copied keys are now "in corpus" — fold them in so a follow-up
+            // copy greys them out too without a modal reopen.
+            if (r.copied.length > 0) {
+                setExistingKeys((prev) => {
+                    const next = new Set(prev);
+                    r.copied.forEach((c) => next.add(c.key));
+                    return next;
+                });
+            }
             onCopied();
             if (r.failed.length === 0) setSelected(new Set());
         } catch (e) {
@@ -227,6 +292,9 @@ const CopyFromScopeModal: React.FC<{
                             className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 flex-1 min-w-[120px]"
                         />
                     )}
+                    {files.length > 0 && (
+                        <ViewModeToggle mode={viewMode} onChange={setViewMode}/>
+                    )}
                 </div>
                 <div className="flex-1 min-h-0 overflow-auto">
                     {loadingFiles && <div className="text-xs text-gray-500 px-4 py-4">Loading…</div>}
@@ -235,7 +303,7 @@ const CopyFromScopeModal: React.FC<{
                             No files{filter ? " match the filter" : " in this scope"}.
                         </div>
                     )}
-                    {shown.length > 0 && (
+                    {shown.length > 0 && viewMode === "flat" && (
                         <table className="w-full text-xs">
                             <thead className="sticky top-0 bg-gray-900">
                                 <tr>
@@ -264,14 +332,38 @@ const CopyFromScopeModal: React.FC<{
                             </tbody>
                         </table>
                     )}
+                    {shown.length > 0 && viewMode === "tree" && (
+                        <div className="px-1 py-1">
+                            <FileTreeView
+                                nodes={tree}
+                                getKey={(f) => f.key}
+                                namespace="corpus-copy"
+                                scope={srcScope}
+                                selection={{selected, onSelect: setSelection}}
+                                isDisabled={(f) => existingKeys.has(f.key)}
+                                renderFileTail={(f) => (
+                                    existingKeys.has(f.key) ? (
+                                        <span className="text-[10px] text-gray-500 uppercase tracking-wide">in corpus</span>
+                                    ) : (
+                                        <span className="text-gray-400 font-mono">{fmtBytes(f.size)}</span>
+                                    )
+                                )}
+                            />
+                        </div>
+                    )}
                 </div>
                 {err && <div className="text-xs text-red-400 px-4 py-2">{err}</div>}
                 {result && (
                     <div className="text-xs px-4 py-2 border-t border-gray-700">
-                        <span className="text-emerald-400">Copied {result.copied}</span>
+                        <span className="text-emerald-400">copied {result.copied}</span>
+                        {result.skipped > 0 && (
+                            <span className="text-gray-400">
+                                {" "}· skipped {result.skipped} (already in corpus)
+                            </span>
+                        )}
                         {result.failed.length > 0 && (
                             <span className="text-amber-400" title={result.failed.map((f) => `${f.key}: ${f.reason}`).join("\n")}>
-                                {" "}· {result.failed.length} skipped
+                                {" "}· failed {result.failed.length}
                             </span>
                         )}
                     </div>
@@ -299,6 +391,22 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
     const [uploading, setUploading] = useState<string | null>(null);
     const [progress, setProgress] = useState(0);
     const [copyOpen, setCopyOpen] = useState(false);
+    // Flat ⇄ tree representation, persisted per corpus so a chosen view
+    // sticks across reloads / corpus switches.
+    const [viewMode, setViewMode] = useState<ViewMode>(() => {
+        try {
+            return window.localStorage.getItem(`ada.corpus.viewMode.${corpus.slug}`) === "tree" ? "tree" : "flat";
+        } catch {
+            return "flat";
+        }
+    });
+    useEffect(() => {
+        try {
+            window.localStorage.setItem(`ada.corpus.viewMode.${corpus.slug}`, viewMode);
+        } catch {
+            // localStorage full / disabled — fall back to in-memory only.
+        }
+    }, [corpus.slug, viewMode]);
     const inputRef = useRef<HTMLInputElement>(null);
 
     const reload = useCallback(async () => {
@@ -364,6 +472,9 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
                     )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                    {files.length > 0 && (
+                        <ViewModeToggle mode={viewMode} onChange={setViewMode}/>
+                    )}
                     <input
                         ref={inputRef}
                         type="file"
@@ -411,7 +522,7 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
                         Audit Runs tab.
                     </div>
                 )}
-                {files.length > 0 && (
+                {files.length > 0 && viewMode === "flat" && (
                     <table className="w-full text-xs">
                         <thead className="sticky top-0 bg-gray-900">
                             <tr>
@@ -446,6 +557,28 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
                             ))}
                         </tbody>
                     </table>
+                )}
+                {files.length > 0 && viewMode === "tree" && (
+                    <div className="px-1 py-1">
+                        <FileTreeView
+                            nodes={buildFileTree(files, (f) => f.key)}
+                            getKey={(f) => f.key}
+                            namespace="corpus"
+                            scope={scope}
+                            renderFileTail={(f) => (
+                                <span className="flex items-center gap-3">
+                                    <span className="text-gray-400 font-mono">{fmtBytes(f.size)}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => onDelete(f.key)}
+                                        className="text-red-400 hover:text-red-300 text-xs"
+                                    >
+                                        delete
+                                    </button>
+                                </span>
+                            )}
+                        />
+                    </div>
                 )}
             </div>
         </div>
@@ -578,7 +711,7 @@ const CorpusTab: React.FC = () => {
                                     ← corpora
                                 </button>
                             </div>
-                            <CorpusFiles corpus={selected}/>
+                            <CorpusFiles key={selected.slug} corpus={selected}/>
                         </>
                     )}
                 </div>

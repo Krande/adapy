@@ -5404,8 +5404,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Body: ``{"src_scope": "user:me", "keys": [...]}``. Each key is copied
         (Garage / S3 CopyObject — no download/reupload) from ``src_scope`` to the
         same key in the path scope. The caller must be able to read ``src_scope``.
-        Per-key reporting: ``{copied, failed}`` — a collision (target exists),
-        missing source, or backend error doesn't abort the batch.
+        Per-key reporting: ``{copied, skipped, failed}`` — a key that already
+        exists in the destination is reported under ``skipped`` (a no-op, not an
+        error, so recursive folder copies tolerate partial overlap); a missing
+        source, derived-key reject, or backend error lands in ``failed``. Nothing
+        aborts the batch.
         """
         from .converter import is_derived_key
 
@@ -5439,13 +5442,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dst_keys = {f.key for f in await storage.list(scope_obj)}
 
         copied: list[dict] = []
+        skipped: list[dict] = []
         failed: list[dict] = []
         for key in keys:
             if is_derived_key(key):
                 failed.append({"key": key, "reason": "cannot copy derived blobs"})
                 continue
             if key in dst_keys:
-                failed.append({"key": key, "reason": "target already exists"})
+                skipped.append({"key": key, "reason": "already in corpus"})
                 continue
             try:
                 # overwrite=True for the same S3 reason as rename above (the safe
@@ -5460,7 +5464,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             copied.append({"key": key})
             await _audit(request, user, scope_obj, "copy", key=key, status="ok")
 
-        return JSONResponse({"copied": copied, "failed": failed})
+        return JSONResponse({"copied": copied, "skipped": skipped, "failed": failed})
 
     app.include_router(admin)
 

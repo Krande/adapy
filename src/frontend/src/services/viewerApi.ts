@@ -2472,6 +2472,7 @@ export const viewerApi = {
         keys: string[],
     ): Promise<{
         copied: Array<{key: string}>;
+        skipped: Array<{key: string; reason: string}>;
         failed: Array<{key: string; reason: string}>;
     }> {
         const r = await authedFetch(
