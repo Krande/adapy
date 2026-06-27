@@ -74,7 +74,7 @@ jobs:
       docs_full: ${{ steps.filter.outputs.docs_full }}
       run_start_epoch: ${{ steps.filter.outputs.run_start_epoch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: https://github.com/actions/checkout@v4
         with:
           # We diff against github.event.before; checkout depth must
           # cover that commit. fetch-depth: 0 fetches the full history
@@ -352,7 +352,7 @@ jobs:
     if: needs.detect.outputs.viewer == 'true'
     runs-on: docker-build
     steps:
-      - uses: actions/checkout@v4
+      - uses: https://github.com/actions/checkout@v4
 
       - name: Login to registry
         run: |
@@ -425,7 +425,7 @@ jobs:
     if: needs.detect.outputs.worker == 'true'
     runs-on: docker-build
     steps:
-      - uses: actions/checkout@v4
+      - uses: https://github.com/actions/checkout@v4
 
       - name: Login to registry
         run: |
@@ -530,7 +530,7 @@ jobs:
     if: needs.detect.outputs.docs == 'true'
     runs-on: docker-build
     steps:
-      - uses: actions/checkout@v4
+      - uses: https://github.com/actions/checkout@v4
         with:
           # docs/conf.py shells out to ``git describe`` to derive the
           # release string baked into the rendered footer. Default
