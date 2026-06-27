@@ -893,21 +893,21 @@ def available_step_glb_pipelines() -> tuple[str, ...]:
 
     runnable: set[str] = set()
     if _have("adacpp"):
+        # adacpp-native is gated with the rest of the adacpp engines (find_spec presence) rather than an
+        # import-based native_adacpp_available() check: under the deployed adacpp-overlay, import caching
+        # can resolve a base adacpp (without the native entrypoint) before the overlay path is active, so
+        # the import check spuriously reports False at worker-startup advert time. find_spec is resolved
+        # at call time against sys.path and isn't poisoned by an earlier import; the worker's runtime
+        # fallback (native → libtess2 → occ-builtin) still covers a pool that turns out not to run it.
         runnable.update(
             {
                 _STEP_GLB_PIPELINE_LIBTESS2,
                 _STEP_GLB_PIPELINE_ADACPP_OCC,
                 _STEP_GLB_PIPELINE_ADACPP_CGAL,
                 _STEP_GLB_PIPELINE_ADACPP_HYBRID,
+                _STEP_GLB_PIPELINE_ADACPP_NATIVE,
             }
         )
-        try:
-            from ada.cadit.step.native_step_to_glb import native_adacpp_available
-
-            if native_adacpp_available():
-                runnable.add(_STEP_GLB_PIPELINE_ADACPP_NATIVE)
-        except Exception:
-            pass
     if _have("OCP") or _have("OCC"):
         runnable.add(_STEP_GLB_PIPELINE_OCC)
     avail = tuple(p for p in _STEP_GLB_PIPELINES if p in runnable)

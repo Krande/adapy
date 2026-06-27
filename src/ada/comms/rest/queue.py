@@ -573,6 +573,30 @@ class JobQueue:
             workers.append(info)
         return workers
 
+    # Hard-prune horizon for dead worker entries — much longer than the ``WORKER_STALE_AFTER_S``
+    # online window used for routing/UI. A pod that crashes or scales down can leave its registry
+    # entry behind (``unregister_worker`` is best-effort); without pruning these accumulate and
+    # pollute the capability union, so we drop entries unseen for 2 days.
+    WORKER_PRUNE_AFTER_S = 2 * 24 * 3600
+
+    async def prune_stale_workers(self, max_age_s: float | None = None) -> int:
+        """Delete worker registry entries whose ``last_heartbeat`` is older than ``max_age_s`` (default
+        :data:`WORKER_PRUNE_AFTER_S`, 2 days). Entries with a missing/garbage heartbeat are pruned too
+        (they can never be online). Returns the number removed."""
+        if self._kv is None:
+            return 0
+        cutoff = time.time() - (max_age_s if max_age_s is not None else self.WORKER_PRUNE_AFTER_S)
+        pruned = 0
+        for w in await self.list_workers():
+            hb = w.get("last_heartbeat")
+            if isinstance(hb, (int, float)) and hb >= cutoff:
+                continue
+            wid = w.get("worker_id")
+            if wid:
+                await self.unregister_worker(wid)
+                pruned += 1
+        return pruned
+
     # --- consumer side (called from worker) --------------------------
 
     # ack_wait is the window after which JetStream redelivers an un-acked
