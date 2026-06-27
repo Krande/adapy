@@ -1378,7 +1378,9 @@ async def _process_one(
         # Record the pod's CPU allotment (cgroup quota, else host cores) so the metrics chart can
         # render CPU as % utilization across all cores instead of the cumulative-time ramp.
         try:
-            from ada.visit.scene_handling.scene_from_step_stream import _cgroup_cpu_quota
+            from ada.visit.scene_handling.scene_from_step_stream import (
+                _cgroup_cpu_quota,
+            )
 
             _cores = _cgroup_cpu_quota() or os.cpu_count()
             if _cores:
