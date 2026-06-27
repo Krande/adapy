@@ -813,7 +813,11 @@ const MetricsTab: React.FC<{
             </dl>
             {entry.convert_meta && <ConvertEngine meta={entry.convert_meta}/>}
             {entry.worker_image_tag && <WorkerPackages imageTag={entry.worker_image_tag}/>}
-            <MetricsHistoryChart auditId={entry.id} cores={entry.convert_meta?.cpu_cores ?? undefined}/>
+            <MetricsHistoryChart
+                auditId={entry.id}
+                cores={entry.convert_meta?.cpu_cores ?? undefined}
+                native={entry.convert_meta?.tessellator === "adacpp:native"}
+            />
             {entry.profile_key ? (
                 <div className="pt-2 border-t border-gray-800 space-y-3">
                     <div>
@@ -965,7 +969,11 @@ const ClientMetricsTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
     );
 };
 
-const MetricsHistoryChart: React.FC<{auditId: number; cores?: number}> = ({auditId, cores}) => {
+const MetricsHistoryChart: React.FC<{auditId: number; cores?: number; native?: boolean}> = ({
+    auditId,
+    cores,
+    native,
+}) => {
     const [samples, setSamples] = useState<MetricsSample[] | null>(null);
     const [err, setErr] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -1026,6 +1034,30 @@ const MetricsHistoryChart: React.FC<{auditId: number; cores?: number}> = ({audit
             ? `${Math.round((maxCoresBusy / cores) * 100)}% of ${cores} cores`
             : `${maxCoresBusy.toFixed(1)} cores`;
 
+    // Per-thread (≈ per-core) utilization envelope — only for the in-process native engine, where the
+    // C++ tessellation threads live in the sampled process. Match threads by tid across consecutive
+    // samples, take each thread's Δcpu/Δwall (1.0 = one core's worth), then SORT descending per sample
+    // so each plotted line is a "core rank": N lines pinned high = N cores saturated, vs all N at
+    // mid-height = N cores half-busy — the distinction the aggregate % can't make.
+    const hasPerThread =
+        !!native && samples.some((s) => s.per_thread_cpu_ms && Object.keys(s.per_thread_cpu_ms).length > 0);
+    const nLanes = hasPerThread ? Math.max(cores && cores > 0 ? cores : 1, 1) : 0;
+    const lanes: number[][] = hasPerThread
+        ? samples.map((s, i) => {
+              const cur = s.per_thread_cpu_ms || {};
+              const prev = i > 0 ? samples[i - 1].per_thread_cpu_ms || {} : {};
+              const dWallMs = (s.elapsed_s - (i > 0 ? samples[i - 1].elapsed_s : 0)) * 1000;
+              const busy = Object.keys(cur)
+                  .map((tid) => (dWallMs > 0 ? Math.max(0, (cur[tid] - (prev[tid] ?? 0)) / dWallMs) : 0))
+                  .sort((a, b) => b - a);
+              return Array.from({length: nLanes}, (_, k) => busy[k] ?? 0); // rank-ordered, padded to nLanes
+          })
+        : [];
+    const laneColors = Array.from({length: nLanes}, (_, k) => `hsl(152 ${72 - k * 6}% ${62 - k * 5}%)`);
+    const peakLanes = hasPerThread
+        ? Math.max(0, ...samples.map((_, i) => lanes[i].filter((v) => v >= 0.5).length))
+        : 0;
+
     return (
         <div className="space-y-2 pt-2 border-t border-gray-800">
             <div className="text-[10px] uppercase tracking-wide text-gray-500">
@@ -1039,17 +1071,29 @@ const MetricsHistoryChart: React.FC<{auditId: number; cores?: number}> = ({audit
                     {color: "#f87171", points: samples.map((s) => [s.elapsed_s / maxElapsed, s.peak_rss_kb / maxRss]), label: "peak"},
                 ]}
             />
-            <ChartPanel
-                title={cores ? "CPU util (% of cores)" : "CPU (cores busy)"}
-                yLabel={cpuLabel}
-                series={[
-                    {
-                        color: "#34d399",
-                        points: samples.map((s, i) => [s.elapsed_s / maxElapsed, Math.min(1, cpuCoresBusy[i] / cpuFullScale)]),
-                        label: "cpu",
-                    },
-                ]}
-            />
+            {hasPerThread ? (
+                <ChartPanel
+                    title={`CPU per core (native, ${cores ?? nLanes} cores)`}
+                    yLabel={`each line = 1 core · peak ${peakLanes} saturated`}
+                    series={Array.from({length: nLanes}, (_, k) => ({
+                        color: laneColors[k],
+                        points: samples.map((s, i) => [s.elapsed_s / maxElapsed, Math.min(1, lanes[i][k])]),
+                        label: `core${k}`,
+                    }))}
+                />
+            ) : (
+                <ChartPanel
+                    title={cores ? "CPU util (% of cores)" : "CPU (cores busy)"}
+                    yLabel={cpuLabel}
+                    series={[
+                        {
+                            color: "#34d399",
+                            points: samples.map((s, i) => [s.elapsed_s / maxElapsed, Math.min(1, cpuCoresBusy[i] / cpuFullScale)]),
+                            label: "cpu",
+                        },
+                    ]}
+                />
+            )}
             <ChartPanel
                 title="IO bytes"
                 yLabel={formatBytes(maxIo)}

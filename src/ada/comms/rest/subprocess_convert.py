@@ -79,6 +79,10 @@ class ConvertSample:
     peak_rss_kb: int  # high-water mark (VmHWM)
     read_bytes: int
     write_bytes: int
+    # Per-thread cumulative CPU (utime+stime, ms) keyed by tid. Drives the per-core utilization
+    # envelope for the in-process native engine (its C++ tessellation threads live in this process).
+    # None on older rows / when /proc/<pid>/task can't be read.
+    per_thread_cpu_ms: Optional[dict] = None
 
 
 @dataclasses.dataclass
@@ -112,6 +116,30 @@ class IsolatedConvertResult:
         except OSError:
             pass
         self.out_path = None
+
+
+def _per_thread_cpu_ms(pid: int, clock_ticks: int) -> Optional[dict]:
+    """Per-thread cumulative CPU (utime+stime, ms) for ``pid``, keyed by tid string.
+
+    Reads ``/proc/<pid>/task/<tid>/stat`` for each thread. Best-effort: a thread that exits between
+    the readdir and the open is skipped; returns None when the task dir can't be listed at all.
+    Cheap — a handful of small reads for the native engine's thread pool, once per ~2 s sample."""
+    try:
+        tids = os.listdir(f"/proc/{pid}/task")
+    except OSError:
+        return None
+    out: dict[str, int] = {}
+    for tid in tids:
+        try:
+            tstat = pathlib.Path(f"/proc/{pid}/task/{tid}/stat").read_text()
+        except OSError:
+            continue
+        rest = tstat[tstat.rfind(")") + 1 :].split()
+        try:
+            out[tid] = int((int(rest[11]) + int(rest[12])) * 1000 / clock_ticks)
+        except (IndexError, ValueError):
+            continue
+    return out or None
 
 
 def _proc_stats(pid: int, started_at: float) -> Optional[ConvertSample]:
@@ -166,6 +194,7 @@ def _proc_stats(pid: int, started_at: float) -> Optional[ConvertSample]:
         peak_rss_kb=peak_rss_kb,
         read_bytes=read_bytes,
         write_bytes=write_bytes,
+        per_thread_cpu_ms=_per_thread_cpu_ms(pid, clock_ticks),
     )
 
 

@@ -791,6 +791,9 @@ export interface MetricsSample {
     peak_rss_kb: number;
     read_bytes: number;
     write_bytes: number;
+    // Per-thread cumulative CPU (utime+stime, ms) keyed by tid — drives the per-core utilization
+    // envelope for the in-process native engine. Absent on older rows / non-native conversions.
+    per_thread_cpu_ms?: Record<string, number> | null;
 }
 
 export interface MetricsHistoryResp {

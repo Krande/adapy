@@ -1242,6 +1242,7 @@ async def _process_one(
                         "peak_rss_kb": sample.peak_rss_kb,
                         "read_bytes": sample.read_bytes,
                         "write_bytes": sample.write_bytes,
+                        "per_thread_cpu_ms": sample.per_thread_cpu_ms,
                     },
                 )
             except Exception:
