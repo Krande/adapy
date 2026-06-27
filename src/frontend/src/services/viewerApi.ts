@@ -2183,6 +2183,13 @@ export const viewerApi = {
         return jsonOrThrow(r, "adminListWorkers");
     },
 
+    /** Admin: drop every currently-offline worker registry entry (a live pod re-registers within a
+     * heartbeat). Returns the number pruned. */
+    async adminPruneWorkers(): Promise<{pruned: number}> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/workers/prune`, {method: "POST"});
+        return jsonOrThrow(r, "adminPruneWorkers");
+    },
+
     /** Admin: read a key from app_settings. Value is null when unset. */
     async adminGetSetting(key: string): Promise<string | null> {
         const r = await authedFetch(
