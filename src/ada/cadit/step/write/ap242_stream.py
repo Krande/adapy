@@ -883,7 +883,10 @@ class Ap242StreamWriter:
         g = ec.edge_geometry
         # The EDGE_CURVE is emitted once in ec.start->ec.end direction; the per-face
         # ORIENTED_EDGE flag is computed from the loop's traversal (oe.start->oe.end).
-        if isinstance(g, cu.Line):
+        # A None edge_geometry is a straight line: the NGEOM round-trip (and thus the
+        # native StepNgeomStream reader) drops the redundant Line for straight edges,
+        # storing only the endpoints — emit it as a LINE through ec.start->ec.end.
+        if g is None or isinstance(g, cu.Line):
 
             def emit(v0, p0, v1, p1):
                 return self._line_edge(v0, p0, v1, p1)
