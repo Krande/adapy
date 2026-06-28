@@ -12,6 +12,7 @@ import {
 } from "@/state/sceneInfoStore";
 import {applyViewerOps, clearViewerOps} from "@/utils/scene/apply_viewer_ops";
 import {flipToCompared, unflip, isFlipped} from "@/utils/scene/flip_geometry";
+import {wasmUtilityFor} from "@/utils/wasm/wasmUtilityRegistry";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -208,6 +209,9 @@ const UtilitiesSection = () => {
     // so the toggle reflects it; `flipBusy` guards the async load.
     const [flipped, setFlipped] = React.useState<boolean>(isFlipped());
     const [flipBusy, setFlipBusy] = React.useState<boolean>(false);
+    // Prefer the in-browser (wasm) implementation when one exists for the selected utility — no NATS
+    // job, no server memory. Falls back to the server path on failure (or when the toggle is off).
+    const [runInBrowser, setRunInBrowser] = React.useState<boolean>(true);
 
     // Fetch advertised utilities from /api/config once.
     React.useEffect(() => {
@@ -306,6 +310,20 @@ const UtilitiesSection = () => {
         setRunning(true);
         setLastResult(null);
         try {
+            // In-browser (wasm) fast path: compute the viewer-ops client-side, no server job.
+            const wasmUtil = runInBrowser ? wasmUtilityFor(spec.name) : undefined;
+            const wasmCtx = {scope, sourceKey, refKey: compareKey, kwargs};
+            if (wasmUtil && wasmUtil.canRun(wasmCtx)) {
+                try {
+                    const payload = await wasmUtil.run(wasmCtx);
+                    await applyViewerOps(payload, scope);
+                    setLastResult({legend: payload.legend, summary: payload.summary});
+                    return;
+                } catch (e) {
+                    // Surface, but still fall back to the proven server path so the user gets a result.
+                    console.warn("in-browser wasm utility failed; falling back to server:", e);
+                }
+            }
             const job = await viewerApi.runUtility(scope, sourceKey, spec.name, kwargs);
             let status = job;
             for (let i = 0; i < 600 && status.status !== "done" && status.status !== "error"; i++) {
@@ -370,6 +388,15 @@ const UtilitiesSection = () => {
                         onChange={toggleFlip}
                     />
                     <span>{flipBusy ? "Flipping…" : "Inspect compared geometry"}</span>
+                </label>
+            )}
+            {wasmUtilityFor(spec?.name) && (
+                <label
+                    className="flex items-center gap-2 mt-1 mb-1 text-xs"
+                    title="Run this utility entirely in your browser (WebAssembly) — no server job, instant. Falls back to the server automatically if it can't (e.g. byCoverage) or on error."
+                >
+                    <input type="checkbox" checked={runInBrowser} onChange={(e) => setRunInBrowser(e.target.checked)}/>
+                    <span>Run in browser (wasm)</span>
                 </label>
             )}
             <div className="flex gap-2 mt-2">
