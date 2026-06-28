@@ -13,8 +13,11 @@ export const CAPACITY_RESULTS_FORMAT = "dnv-rp-c201-capacity-results";
 // check consumed (mm/MPa), used by the input panel + Export so an exported case
 // reproduces the engine (esp. the stiffener span feeding sigma_y,R, eq. (4.6)).
 // v9: beam-column interaction UFs floored at 0 (no negative usage factors).
+// v10: capacity-model topology fix — thickness-gated panel merge, stiffener axial
+// force integrated over the panel's own tributary plate, models keyed by
+// (capacity_model_id, stiffener). Corrects over-reported axial forces/UFs.
 // Kept in lockstep with viewer_export.py.
-export const CAPACITY_RESULTS_VERSION = 9;
+export const CAPACITY_RESULTS_VERSION = 10;
 
 export interface CapacityValidationContext {
     manifest?: Pick<FeaManifest, "source_sha256"> | null;
