@@ -38,11 +38,14 @@ class Axis2Placement3D:
     ref_direction: Direction | Iterable = field(default_factory=XV)
 
     def __post_init__(self):
-        if isinstance(self.location, Iterable):
+        # Skip re-constructing already-typed Point/Direction (the NGEOM hydrate
+        # passes them straight in) — both are Iterable, so the cheap normalize-only
+        # guard avoids millions of interning-cache round-trips in B-rep export.
+        if not isinstance(self.location, Point) and isinstance(self.location, Iterable):
             self.location = Point(*self.location)
-        if isinstance(self.axis, Iterable):
+        if not isinstance(self.axis, Direction) and isinstance(self.axis, Iterable):
             self.axis = Direction(*self.axis)
-        if isinstance(self.ref_direction, Iterable):
+        if not isinstance(self.ref_direction, Direction) and isinstance(self.ref_direction, Iterable):
             self.ref_direction = Direction(*self.ref_direction)
 
     def get_pdir(self):

@@ -22,7 +22,7 @@ def _make_key_and_array(
     arr = np.asarray(coords, float)
     if precision is not None:
         arr = np.round(arr, precision)
-    key = tuple(float(x) for x in arr.tolist())
+    key = tuple(arr.tolist())  # tolist() already yields python floats (no per-element float())
     return key, arr
 
 
