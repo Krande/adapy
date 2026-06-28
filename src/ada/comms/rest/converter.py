@@ -1774,6 +1774,26 @@ def _via_step_stream_to_ifc(
     return out_path
 
 
+def _via_step_stream_to_xml(
+    src_path: pathlib.Path,
+    on_progress: ProgressFn,
+) -> pathlib.Path:
+    """STEP → Genie XML via the per-solid stream — **no OCC, no whole-model load**.
+
+    Raw CAD B-rep has no Genie-XML concept representation, so the XML is the empty
+    structural scaffold. We stream-parse the STEP to validate it reads (bounded,
+    native C++ parser, no ada.geom hydrate) rather than the full ``ada.from_step``
+    load that timed out the multi-GB assemblies for an empty output.
+    """
+    from ada.cadit.step.write.stream_step_to_xml import stream_step_to_xml
+    from ada.config import logger
+
+    out_path = pathlib.Path(tempfile.mkstemp(suffix=".xml")[1])
+    stats = stream_step_to_xml(src_path, out_path, on_progress=on_progress)
+    logger.info("stream STEP->XML: %s", stats)
+    return out_path
+
+
 def _via_step_stream_to_mesh(
     src_path: pathlib.Path,
     source_ext: str,
@@ -2240,6 +2260,11 @@ def _register_step_stream_exports() -> None:
             return _via_step_stream_to_ifc(src, on_progress)
 
         ConverterRegistry.register(ext, "ifc", _h_ifc)
+
+        def _h_xml(src, on_progress, *, _ext=ext, **_kw):
+            return _via_step_stream_to_xml(src, on_progress)
+
+        ConverterRegistry.register(ext, "xml", _h_xml)
 
 
 def _register_glb_to_mesh() -> None:
