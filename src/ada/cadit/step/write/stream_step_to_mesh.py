@@ -10,26 +10,11 @@ from __future__ import annotations
 
 import pathlib
 import struct
-from typing import Callable, Iterator
+from typing import Callable
 
 from ada.config import logger
-from ada.geom import Geometry
 
 ProgressFn = Callable[[str, float], None]
-
-
-def _iter_step_solids(src_path) -> Iterator[Geometry]:
-    from ada.cadit.step.read.native_reader import (
-        native_adacpp_step_available,
-        native_stream_read_step,
-    )
-
-    if native_adacpp_step_available():
-        yield from native_stream_read_step(src_path)
-        return
-    from ada.cadit.step.read.stream_reader import stream_read_step
-
-    yield from stream_read_step(src_path, local_pool=False, tolerant=True)
 
 
 def stream_step_to_mesh(
@@ -55,7 +40,9 @@ def stream_step_to_mesh(
     if not hasattr(be, "tessellate_stream"):
         raise RuntimeError("active CAD backend has no libtess2 tessellate_stream; cannot stream mesh")
 
-    emitted = skipped = total = ntri = 0
+    from ada.cadit.step.write._solid_source import read_solids
+
+    emitted = total = ntri = 0
     prog("tessellating", 0.1)
 
     # Triangles materialised at once. A solid's full vertex+index buffer (the
@@ -65,21 +52,17 @@ def stream_step_to_mesh(
     TRI_BATCH = 500_000
 
     def _tris(geom):
-        """Yield (n,3,3) float32 world-space triangle batches (<= TRI_BATCH each) for
-        every instance of one solid."""
-        nonlocal skipped
+        """Yield (n,3,3) float32 world-space triangle batches for one solid."""
         gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
         gid = str(geom.id) if geom.id not in (None, "") else "0"
         try:
             bm = be.tessellate_stream([(gid, gi)], pipeline="libtess2", deflection=deflection, angular_deg=angular_deg)
         except Exception as exc:  # noqa: BLE001 - one bad solid shouldn't sink the file
             logger.debug("stream_step_to_mesh: tessellation failed for %s: %s", gid, exc)
-            skipped += 1
             return
         bpos = getattr(bm, "positions", None)
         bidx = getattr(bm, "indices", None)
         if bpos is None or bidx is None or len(bidx) == 0:
-            skipped += 1
             return
         pos = np.asarray(bpos, dtype=np.float32).reshape(-1, 3)
         idx = np.asarray(bidx, dtype=np.uint32).reshape(-1, 3)
@@ -98,7 +81,7 @@ def stream_step_to_mesh(
         with open(out_path, "wb") as fh:
             fh.write(b"\0" * 80)
             fh.write(struct.pack("<I", 0))  # facet count — patched at the end
-            for total, geom in enumerate(_iter_step_solids(src_path), start=1):
+            for total, geom in enumerate(read_solids(src_path), start=1):
                 any_ok = False
                 for tris in _tris(geom):
                     any_ok = True
@@ -123,7 +106,7 @@ def stream_step_to_mesh(
     else:  # obj
         with open(out_path, "w") as fh:
             voff = 1
-            for total, geom in enumerate(_iter_step_solids(src_path), start=1):
+            for total, geom in enumerate(read_solids(src_path), start=1):
                 any_ok = False
                 for tris in _tris(geom):
                     any_ok = True

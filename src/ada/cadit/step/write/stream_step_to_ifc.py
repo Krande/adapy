@@ -18,10 +18,9 @@ from __future__ import annotations
 import math
 import pathlib
 from collections import Counter
-from typing import Callable, Iterator
+from typing import Callable
 
 from ada.config import logger
-from ada.geom import Geometry
 
 ProgressFn = Callable[[str, float], None]
 
@@ -332,20 +331,6 @@ def _axis_or(v, default=(0.0, 0.0, 1.0)):
     return (float(v[0]), float(v[1]), float(v[2]))
 
 
-def _iter_step_solids(src_path) -> Iterator[Geometry]:
-    from ada.cadit.step.read.native_reader import (
-        native_adacpp_step_available,
-        native_stream_read_step,
-    )
-
-    if native_adacpp_step_available():
-        yield from native_stream_read_step(src_path)
-        return
-    from ada.cadit.step.read.stream_reader import stream_read_step
-
-    yield from stream_read_step(src_path, local_pool=False, tolerant=True)
-
-
 def stream_step_to_ifc(
     src_path: str | pathlib.Path,
     out_path: str | pathlib.Path,
@@ -359,6 +344,7 @@ def stream_step_to_ifc(
     import ada
     from ada.cadit.ifc.utils import create_guid
     from ada.cadit.ifc.write.write_ifc import IfcWriter
+    from ada.cadit.step.write._solid_source import read_solids
 
     prog = on_progress or (lambda *_: None)
     prog("writing-ifc", 0.1)
@@ -422,7 +408,7 @@ def stream_step_to_ifc(
         # Drain `lines` to disk as soon as it grows large — even within one solid —
         # so peak RSS stays bounded regardless of any single solid's complexity.
         emitter._flush = lambda buf: (out.write("\n".join(buf) + "\n"), buf.clear())
-        for geom in _iter_step_solids(src_path):
+        for geom in read_solids(src_path):
             total += 1
             gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
             color = geom.color.rgb if geom.color is not None else None

@@ -17,30 +17,11 @@ from __future__ import annotations
 
 import pathlib
 from collections import Counter
-from typing import Callable, Iterator
+from typing import Callable
 
 from ada.config import logger
-from ada.geom import Geometry
 
 ProgressFn = Callable[[str, float], None]
-
-
-def _iter_step_solids(src_path: str | pathlib.Path) -> Iterator[Geometry]:
-    """Per-solid ``Geometry`` stream for a STEP file. Prefers adacpp's native
-    NGEOM reader (fast, bounded); falls back to the pure-Python stream reader."""
-    from ada.cadit.step.read.native_reader import (
-        native_adacpp_step_available,
-        native_stream_read_step,
-    )
-
-    if native_adacpp_step_available():
-        yield from native_stream_read_step(src_path)
-        return
-    from ada.cadit.step.read.stream_reader import stream_read_step
-
-    # local_pool=False: random-access two-pass index, valid for any reference
-    # order (the bounded path); tolerant skips unsupported solids rather than raising.
-    yield from stream_read_step(src_path, local_pool=False, tolerant=True)
 
 
 def _unsupported_kind(gi) -> str:
@@ -89,6 +70,7 @@ def stream_step_to_step(
     """
     import numpy as np
 
+    from ada.cadit.step.write._solid_source import read_solids
     from ada.cadit.step.write.ap242_stream import Ap242StreamWriter
 
     prog = on_progress or (lambda *_: None)
@@ -99,7 +81,9 @@ def stream_step_to_step(
     with open(out_path, "w") as fh:
         writer = Ap242StreamWriter(fh, schema=schema, assembly=True)
         with writer:
-            for geom in _iter_step_solids(src_path):
+            # read_solids prefers the fast native reader and transparently falls back
+            # to pure-Python when the native NGEOM hydrate can't decode the file.
+            for geom in read_solids(src_path):
                 total += 1
                 gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
                 color = geom.color.rgb if geom.color is not None else None
