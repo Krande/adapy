@@ -376,10 +376,34 @@ def stream_step_to_ifc(
     # one shared identity placement (geometry is baked to world coords)
     pre_lines: list[str] = []
     ident_axis = emitter._axis2(pre_lines, (0, 0, 0), (0, 0, 1), (1, 0, 0))
+    ident_place = emitter._emit(pre_lines, f"IfcLocalPlacement($,#{ident_axis})")
 
     emitted = skipped = total = 0
     reasons: Counter = Counter()
-    product_ids: list[int] = []
+    # Nested assembly tree rebuilt from instance_paths: each node (shared by rep_id)
+    # becomes an IfcElementAssembly; children aggregate under it (IfcRelAggregates),
+    # top-level nodes + flat leaves are contained in the storey. Bounded by node count.
+    asm_nodes: dict = {}  # rep_id -> name
+    asm_parent: dict = {}  # rep_id -> parent rep_id (None = root)
+    node_children: dict = {}  # rep_id -> list of ("node", rep_id) | ("leaf", proxy_id)
+    root_members: list = []  # ("node", rep_id) | ("leaf", proxy_id) directly under the storey
+
+    def _register_path(parent_path):
+        """Register the breadcrumb's assembly nodes + parent edges; return the deepest
+        rep_id (the leaf's parent), or None for a flat solid."""
+        if not parent_path:
+            return None
+        prev = None
+        for level in parent_path:
+            rep_id = level[0] if isinstance(level, (tuple, list)) else level
+            nm = level[1] if (isinstance(level, (tuple, list)) and level[1]) else f"asm_{rep_id}"
+            if rep_id not in asm_nodes:
+                asm_nodes[rep_id] = nm
+                asm_parent[rep_id] = prev
+                node_children.setdefault(rep_id, [])
+                (node_children[prev] if prev is not None else root_members).append(("node", rep_id))
+            prev = rep_id
+        return prev
 
     out = open(out_path, "w")
     try:
@@ -391,6 +415,7 @@ def stream_step_to_ifc(
             gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
             color = geom.color.rgb if geom.color is not None else None
             mats = geom.transforms if geom.transforms else [None]
+            paths = geom.instance_paths if geom.instance_paths else None
             base = str(geom.id) if geom.id not in (None, "") else f"solid_{total}"
             any_ok = False
             for k, m in enumerate(mats):
@@ -402,13 +427,14 @@ def stream_step_to_ifc(
                 any_ok = True
                 rep = emitter._emit(lines, f"IfcShapeRepresentation(#{body_ctx_id},'Body','{rep_type}',(#{brep}))")
                 pds = emitter._emit(lines, f"IfcProductDefinitionShape($,$,(#{rep}))")
-                place = emitter._emit(lines, f"IfcLocalPlacement($,#{ident_axis})")
                 nm = "'" + name.replace("'", "''") + "'"
                 pid = emitter._emit(
                     lines,
-                    f"IfcBuildingElementProxy('{create_guid()}',#{owner_id},{nm},$,$,#{place},#{pds},$,$)",
+                    f"IfcBuildingElementProxy('{create_guid()}',#{owner_id},{nm},$,$,#{ident_place},#{pds},$,$)",
                 )
-                product_ids.append(pid)
+                # nest: aggregate under the leaf's parent assembly node, else storey
+                parent_rep = _register_path(list(paths[k][:-1]) if (paths and k < len(paths) and paths[k]) else None)
+                (node_children[parent_rep] if parent_rep is not None else root_members).append(("leaf", pid))
                 if color is not None:
                     cid = emitter._emit(lines, f"IfcColourRgb($,{_r(color[0])},{_r(color[1])},{_r(color[2])})")
                     sh = emitter._emit(lines, f"IfcSurfaceStyleShading(#{cid},0.)")
@@ -427,14 +453,39 @@ def stream_step_to_ifc(
             out.write("\n".join(lines) + "\n")
             lines.clear()
 
-        # ── trailing: contain every product in the spatial structure ──
-        if product_ids:
-            nid = emitter.nid + 1
-            refs = "(" + ",".join(f"#{i}" for i in product_ids) + ")"
-            out.write(
-                f"#{nid}=IfcRelContainedInSpatialStructure('{create_guid()}',#{owner_id},"
-                f"'Physical model',$,{refs},#{container_id});\n"
+        # ── trailing: assembly tree (IfcElementAssembly + IfcRelAggregates) + the
+        # storey containment of every top-level element ──
+        tail: list[str] = []
+
+        def _e(body):
+            emitter.nid += 1
+            tail.append(f"#{emitter.nid}={body};")
+            return emitter.nid
+
+        # one IfcElementAssembly per node, then resolve child refs to entity ids
+        node_entity = {
+            rep: _e(f"IfcElementAssembly('{create_guid()}',#{owner_id},'{nm}',$,$,#{ident_place},$,$,$,$)")
+            for rep, nm in asm_nodes.items()
+        }
+
+        def _resolve(members):
+            return [node_entity[rep] if kind == "node" else rep for kind, rep in members]
+
+        for rep, kids in node_children.items():
+            ids = _resolve(kids)
+            if ids:
+                refs = "(" + ",".join(f"#{i}" for i in ids) + ")"
+                _e(f"IfcRelAggregates('{create_guid()}',#{owner_id},$,$,#{node_entity[rep]},{refs})")
+
+        roots = _resolve(root_members)
+        if roots:
+            refs = "(" + ",".join(f"#{i}" for i in roots) + ")"
+            _e(
+                f"IfcRelContainedInSpatialStructure('{create_guid()}',#{owner_id},"
+                f"'Physical model',$,{refs},#{container_id})"
             )
+        if tail:
+            out.write("\n".join(tail) + "\n")
         out.write("ENDSEC;\nEND-ISO-10303-21;\n")
     finally:
         out.close()

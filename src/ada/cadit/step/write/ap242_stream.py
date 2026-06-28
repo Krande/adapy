@@ -183,7 +183,16 @@ class Ap242StreamWriter:
         self._ident_axis = None  # shared identity AXIS2_PLACEMENT_3D (lazy)
         self._solids = []  # used when assembly is False
         self._styled = []
-        self._components = []  # (product_definition_id, shape_rep_id, name) when assembly
+        # One entry per assembly OCCURRENCE: (component_pd, component_sr, name,
+        # parent_rep_id, transform). transform is a flat-16 4x4 world placement
+        # ridden by the leaf NAUO (None = identity, e.g. baked add_brep). The same
+        # (pd, sr) repeats across a shared solid's instances — true STEP instancing.
+        self._instances = []
+        # Nested assembly tree rebuilt from per-solid instance paths: intermediate
+        # nodes shared by their representation id (rep_id), so a sub-assembly placed
+        # N times is ONE PRODUCT with N usage edges. Bounded by the assembly count.
+        self._asm_nodes: dict = {}  # rep_id -> node name
+        self._asm_parent: dict = {}  # rep_id -> parent rep_id (or None = under root)
         self._began = False
         self._ended = False
 
@@ -454,28 +463,68 @@ class Ap242StreamWriter:
         pds = self._w(f"PRODUCT_DEFINITION_SHAPE('','',#{pd})")
         self._w(f"SHAPE_DEFINITION_REPRESENTATION(#{pds},#{rep})")
 
-    def _emit_assembly_root(self):
-        """Root assembly PRODUCT + a flat NAUO link to each named component."""
-        axis = self._identity_axis()
-        root_sr = self._w(f"SHAPE_REPRESENTATION('{self.product_name}',(#{axis}),#{self._geom_ctx})")
-        product = self._w(f"PRODUCT('{self.product_name}','{self.product_name}','',(#{self._prod_ctx}))")
+    def _emit_assembly_prod(self, name, geom_items):
+        """One assembly/organisational PRODUCT + its (shape) representation. Returns
+        ``(product_definition_id, shape_representation_id)``."""
+        sr = self._w(f"SHAPE_REPRESENTATION('{name}',({self._refs(geom_items)}),#{self._geom_ctx})")
+        product = self._w(f"PRODUCT('{name}','{name}','',(#{self._prod_ctx}))")
         self._w(f"PRODUCT_RELATED_PRODUCT_CATEGORY('part',$,(#{product}))")
         pdf = self._w(f"PRODUCT_DEFINITION_FORMATION('','',#{product})")
-        root_pd = self._w(f"PRODUCT_DEFINITION('design','',#{pdf},#{self._pd_ctx})")
-        root_pds = self._w(f"PRODUCT_DEFINITION_SHAPE('','',#{root_pd})")
-        self._w(f"SHAPE_DEFINITION_REPRESENTATION(#{root_pds},#{root_sr})")
+        pd = self._w(f"PRODUCT_DEFINITION('design','',#{pdf},#{self._pd_ctx})")
+        pds = self._w(f"PRODUCT_DEFINITION_SHAPE('','',#{pd})")
+        self._w(f"SHAPE_DEFINITION_REPRESENTATION(#{pds},#{sr})")
+        return pd, sr
 
-        for idx, (comp_pd, comp_sr, name) in enumerate(self._components, start=1):
-            nauo = self._w(f"NEXT_ASSEMBLY_USAGE_OCCURRENCE('{idx}','{name}','',#{root_pd},#{comp_pd},$)")
-            nauo_pds = self._w(f"PRODUCT_DEFINITION_SHAPE('','',#{nauo})")
-            # Identity transform: the component geometry is already in world coords.
-            idt = self._w(f"ITEM_DEFINED_TRANSFORMATION('','',#{axis},#{axis})")
-            rrwt = self._w(
-                f"(REPRESENTATION_RELATIONSHIP('','',#{comp_sr},#{root_sr})"
-                f"REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#{idt})"
-                "SHAPE_REPRESENTATION_RELATIONSHIP())"
-            )
-            self._w(f"CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#{rrwt},#{nauo_pds})")
+    def _axis_from_matrix(self, m):
+        """AXIS2_PLACEMENT_3D from a flat row-major 4x4: location = translation
+        column, axis = local +z (3rd column), ref_direction = local +x (1st)."""
+        loc = (m[3], m[7], m[11])
+        z = (m[2], m[6], m[10])
+        x = (m[0], m[4], m[8])
+        return self._w(f"AXIS2_PLACEMENT_3D('',#{self._pt(loc)},#{self._dir(z)},#{self._dir(x)})")
+
+    def _emit_nauo(self, idx, name, parent_pd, parent_sr, child_pd, child_sr, tf=None):
+        """Link child product under parent via NEXT_ASSEMBLY_USAGE_OCCURRENCE, with
+        the occurrence's relative placement (``tf`` flat-16, or identity when None)
+        carried by the CONTEXT_DEPENDENT_SHAPE_REPRESENTATION transform."""
+        axis = self._identity_axis()
+        target = axis if tf is None else self._axis_from_matrix(tf)
+        nauo = self._w(f"NEXT_ASSEMBLY_USAGE_OCCURRENCE('{idx}','{name}','',#{parent_pd},#{child_pd},$)")
+        nauo_pds = self._w(f"PRODUCT_DEFINITION_SHAPE('','',#{nauo})")
+        idt = self._w(f"ITEM_DEFINED_TRANSFORMATION('','',#{axis},#{target})")
+        rrwt = self._w(
+            f"(REPRESENTATION_RELATIONSHIP('','',#{child_sr},#{parent_sr})"
+            f"REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#{idt})"
+            "SHAPE_REPRESENTATION_RELATIONSHIP())"
+        )
+        self._w(f"CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#{rrwt},#{nauo_pds})")
+
+    def _emit_assembly_root(self):
+        """Root assembly PRODUCT + the nested NAUO tree (root → sub-assemblies →
+        component occurrences), rebuilt from the per-solid instance paths. Falls back
+        to a flat root→components tree when no parent paths were supplied."""
+        self._tf = None  # placement axes below are emitted raw (no instance baking)
+        axis = self._identity_axis()
+        root_pd, root_sr = self._emit_assembly_prod(self.product_name, [axis])
+
+        # Intermediate assembly nodes (shared by rep_id) get one PRODUCT each.
+        node_pd: dict = {}
+        node_sr: dict = {}
+        for rep_id, nm in self._asm_nodes.items():
+            node_pd[rep_id], node_sr[rep_id] = self._emit_assembly_prod(nm, [axis])
+
+        idx = 1
+        # sub-assembly node → its parent node (or root); identity relative transform
+        for rep_id, nm in self._asm_nodes.items():
+            parent = self._asm_parent.get(rep_id)
+            ppd, psr = (node_pd[parent], node_sr[parent]) if parent in node_pd else (root_pd, root_sr)
+            self._emit_nauo(idx, nm, ppd, psr, node_pd[rep_id], node_sr[rep_id])
+            idx += 1
+        # leaf occurrence → its parent assembly node (or root); occurrence placement
+        for comp_pd, comp_sr, name, parent_rep, tf in self._instances:
+            ppd, psr = (node_pd[parent_rep], node_sr[parent_rep]) if parent_rep in node_pd else (root_pd, root_sr)
+            self._emit_nauo(idx, name, ppd, psr, comp_pd, comp_sr, tf=tf)
+            idx += 1
 
     # -- the main entry point ----------------------------------------------- #
     def add_extrusion(self, ext: Extrusion) -> int:
@@ -521,12 +570,9 @@ class Ap242StreamWriter:
             self._solids.append(brep)
         return brep
 
-    def _emit_component(self, brep_id, name):
-        """Wrap one solid as a named component PRODUCT with its own shape rep.
-
-        Records (product_definition, shape_representation, name) so ``end()`` can
-        link it under the root assembly via NEXT_ASSEMBLY_USAGE_OCCURRENCE.
-        """
+    def _component_product(self, brep_id, name):
+        """Wrap a B-rep geometry item as a named component PRODUCT + its shape rep;
+        return ``(product_definition_id, shape_representation_id)``."""
         axis = self._identity_axis()
         sr = self._w(f"ADVANCED_BREP_SHAPE_REPRESENTATION('{name}',(#{axis},#{brep_id}),#{self._geom_ctx})")
         product = self._w(f"PRODUCT('{name}','{name}','',(#{self._prod_ctx}))")
@@ -535,7 +581,15 @@ class Ap242StreamWriter:
         pd = self._w(f"PRODUCT_DEFINITION('design','',#{pdf},#{self._pd_ctx})")
         pds = self._w(f"PRODUCT_DEFINITION_SHAPE('','',#{pd})")
         self._w(f"SHAPE_DEFINITION_REPRESENTATION(#{pds},#{sr})")
-        self._components.append((pd, sr, name))
+        return pd, sr
+
+    def _emit_component(self, brep_id, name, parent_path=None):
+        """One component product + a single occurrence under its parent (or root).
+        Used by the flat / baked ``add_brep`` + ``add_extrusion`` paths (transform
+        already baked into the geometry, so the occurrence rides an identity NAUO)."""
+        parent_rep = self._register_asm_path(parent_path)
+        pd, sr = self._component_product(brep_id, name)
+        self._instances.append((pd, sr, name, parent_rep, None))
 
     def _identity_axis(self):
         if self._ident_axis is None:
@@ -546,7 +600,7 @@ class Ap242StreamWriter:
         return self._ident_axis
 
     # -- direct B-rep emission (imported shapes / pure shells / reader output) --- #
-    def add_brep(self, g, *, name="shape", color=None, translate=(0.0, 0.0, 0.0), transform=None):
+    def add_brep(self, g, *, name="shape", color=None, translate=(0.0, 0.0, 0.0), transform=None, parent_path=None):
         """Emit an arbitrary adapy B-rep geometry — ConnectedFaceSet / ClosedShell /
         OpenShell / ShellBasedSurfaceModel / AdvancedFace / FaceSurface — as STEP. The
         inverse of the streaming reader; covers imported shapes, thickness-less shells,
@@ -558,9 +612,12 @@ class Ap242StreamWriter:
         ``transform`` is an optional row-major flat 16-tuple 4x4 instance placement
         (rotation + translation) — baked into the emitted points/directions so an
         instanced solid lands at its world pose. ``translate`` is the legacy
-        translation-only shorthand; ``transform`` wins when both are given."""
-        import ada.geom.surfaces as su
+        translation-only shorthand; ``transform`` wins when both are given.
 
+        ``parent_path`` is the solid's assembly breadcrumb above the leaf — a list
+        of ``(rep_id, name)`` levels (root-first) — used to rebuild the nested
+        PRODUCT tree in :meth:`end`. ``None`` places the component directly under
+        the root assembly (flat)."""
         if transform is not None:
             self._tf = tuple(float(x) for x in transform)
         elif any(translate):
@@ -586,10 +643,26 @@ class Ap242StreamWriter:
         else:
             self._tf = None
         self._t = (float(translate[0]), float(translate[1]), float(translate[2]))
-        self._vcache: dict = {}  # coord -> VERTEX_POINT id (shared across all faces)
-        self._ecache: dict = {}  # topological-edge key -> (EDGE_CURVE id, v0, v1) for edge sharing
         nm = (name or "shape").replace("'", "''")
 
+        item = self._emit_brep_geometry(g, nm, color)
+        if item is None:
+            return None
+        if self.assembly:
+            self._emit_component(item, nm, parent_path=parent_path)
+        else:
+            self._solids.append(item)
+        return item
+
+    def _emit_brep_geometry(self, g, nm, color):
+        """Emit just the B-rep geometry item (+ optional colour) under the active
+        instance transform ``self._tf``; return its id or None if unsupported. No
+        product/assembly wrapping — shared by the flat ``add_brep`` and the
+        instanced ``add_solid_instances``."""
+        import ada.geom.surfaces as su
+
+        self._vcache = {}  # coord -> VERTEX_POINT id (shared across all faces)
+        self._ecache = {}  # topological-edge key -> (EDGE_CURVE id, ...) for edge sharing
         # ConnectedFaceSet is what the streaming NGEOM reader yields for a STEP
         # solid (the shell of a MANIFOLD_SOLID_BREP); structurally identical to a
         # ClosedShell, so emit it the same way.
@@ -627,11 +700,46 @@ class Ap242StreamWriter:
 
         if color is not None:
             self._emit_color(item, color)
-        if self.assembly:
-            self._emit_component(item, nm)
-        else:
-            self._solids.append(item)
         return item
+
+    def add_solid_instances(self, g, *, name="shape", color=None, instances=()):
+        """Emit one solid's geometry ONCE in LOCAL coordinates and place it via one
+        NAUO per instance — true STEP assembly instancing (the shared product is
+        reached N times, each occurrence carrying its own world placement). This is
+        the streaming-reader path: compact files, hierarchy + placement round-trip.
+
+        ``instances`` is a list of ``(transform, parent_path)`` — ``transform`` a
+        row-major flat-16 4x4 world placement (or None = identity), ``parent_path``
+        the ``(rep_id, name)`` breadcrumb above the leaf (or None = under root).
+        Returns the number of instances emitted, or 0 if the geometry is unsupported."""
+        if not self.assembly:
+            raise RuntimeError("add_solid_instances requires assembly=True")
+        self._tf = None  # geometry is emitted in local coords; placement rides the NAUO
+        nm = (name or "shape").replace("'", "''")
+        item = self._emit_brep_geometry(g, nm, color)
+        if item is None:
+            return 0
+        pd, sr = self._component_product(item, nm)
+        for tf, parent_path in instances:
+            parent_rep = self._register_asm_path(parent_path)
+            self._instances.append((pd, sr, nm, parent_rep, tuple(tf) if tf is not None else None))
+        return len(instances)
+
+    def _register_asm_path(self, parent_path) -> int | None:
+        """Register the intermediate assembly nodes of ``parent_path`` (root-first
+        ``(rep_id, name)`` levels) and their parent edges; return the rep_id of the
+        deepest node (the leaf component's direct parent), or None for a flat solid."""
+        if not parent_path:
+            return None
+        prev = None
+        for level in parent_path:
+            rep_id = level[0] if isinstance(level, (tuple, list)) else level
+            nm = (level[1] if (isinstance(level, (tuple, list)) and level[1]) else f"asm_{rep_id}").replace("'", "''")
+            if rep_id not in self._asm_nodes:
+                self._asm_nodes[rep_id] = nm
+                self._asm_parent[rep_id] = prev
+            prev = rep_id
+        return prev
 
     def _brep_faces(self, faces):
         out = []

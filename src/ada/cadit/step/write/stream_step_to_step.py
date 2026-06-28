@@ -103,18 +103,19 @@ def stream_step_to_step(
                 total += 1
                 gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
                 color = geom.color.rgb if geom.color is not None else None
-                # transforms: one world 4x4 per instance of this solid; None => the
-                # geometry is already in world coords (flat, single instance).
+                # True instancing: emit the solid's geometry ONCE (local coords), then
+                # one placement+NAUO per instance. transforms[k] is the world 4x4 (None
+                # => identity); instance_paths[k][:-1] is the nesting breadcrumb.
                 mats = geom.transforms if geom.transforms else [None]
+                paths = geom.instance_paths if geom.instance_paths else None
                 base_name = str(geom.id) if geom.id not in (None, "") else f"solid_{total}"
-                any_ok = False
+                inst = []
                 for k, m in enumerate(mats):
-                    name = base_name if k == 0 else f"{base_name}/{k + 1}"
                     tf = None if m is None else [float(v) for v in np.asarray(m).reshape(-1)]
-                    res = writer.add_brep(gi, name=name, color=color, transform=tf)
-                    if res is not None:
-                        any_ok = True
-                if any_ok:
+                    pp = list(paths[k][:-1]) if (paths and k < len(paths) and paths[k]) else None
+                    inst.append((tf, pp))
+                n = writer.add_solid_instances(gi, name=base_name, color=color, instances=inst)
+                if n:
                     emitted += 1
                 else:
                     skipped += 1
