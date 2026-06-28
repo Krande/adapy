@@ -1781,53 +1781,23 @@ def _via_step_stream_to_mesh(
     on_progress: ProgressFn,
     *,
     step_glb_pipeline: str | None = None,
-) -> bytes:
+) -> pathlib.Path:
     """STEP → mesh container (``.obj`` / ``.stl``) **without building an ada
-    Assembly**.
+    Assembly**, bounded memory.
 
     Multi-GB CAD STEP assemblies OOM-kill / time out through the full-OCC
-    ``ada.from_step`` + ``to_trimesh_scene`` path (the same reason ``.stp → glb``
-    routes around it). Mesh-only targets carry no analytic B-rep, so the
-    tessellated GLB the streaming converter already produces — adacpp native
-    reader + libtess2, memory-bounded, never holding the whole model — is a
-    faithful intermediate: trimesh just transcodes those triangles to OBJ/STL.
-    Same geometry the viewer shows, none of the OCC parse cost.
+    ``ada.from_step`` + ``to_trimesh_scene`` path. We instead tessellate one solid
+    at a time off the native NGEOM stream (libtess2 via the active backend), apply
+    each instance placement and write triangles straight to disk — peak memory is
+    O(one solid's mesh), not the whole-model trimesh.Scene a GLB→trimesh transcode
+    would hold. No OCC, no whole-model buffer. ``step_glb_pipeline`` is accepted for
+    signature compatibility but unused (the mesh path is engine-agnostic libtess2).
     """
-    # Stream to a temporary GLB first (bounded memory, native reader). _via_ada
-    # returns the GLB as a Path on the streaming branch (ownership ours) or as
-    # bytes on the small-file OCC fallback; normalise to bytes either way.
-    glb = _via_ada(
-        src_path,
-        source_ext,
-        "glb",
-        lambda msg, frac: on_progress(msg, 0.05 + 0.70 * float(frac)),
-        step_glb_pipeline=step_glb_pipeline,
-    )
-    if isinstance(glb, pathlib.Path):
-        try:
-            glb_bytes = glb.read_bytes()
-        finally:
-            try:
-                glb.unlink()
-            except OSError:
-                pass
-    else:
-        glb_bytes = glb
+    from ada.cadit.step.write.stream_step_to_mesh import stream_step_to_mesh
 
-    on_progress("exporting", 0.85)
-    import trimesh
-
-    scene = trimesh.load(io.BytesIO(glb_bytes), file_type="glb")
-    if not isinstance(scene, trimesh.Scene):
-        wrapped = trimesh.Scene()
-        wrapped.add_geometry(scene)
-        scene = wrapped
-    _strip_unexportable_for(scene, target_ext)
-    _seed_empty_scene(scene)
-    out = io.BytesIO()
-    scene.export(file_obj=out, file_type=target_ext.lstrip("."))
-    on_progress("ready", 1.0)
-    return out.getvalue()
+    out_path = pathlib.Path(tempfile.mkstemp(suffix=target_ext)[1])
+    stream_step_to_mesh(src_path, out_path, target_ext.lstrip("."), on_progress=on_progress)
+    return out_path
 
 
 def convert(
