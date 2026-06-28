@@ -90,6 +90,12 @@ class _Decoder:
         self._cache: dict[int, object] = {}
 
     def get(self, idx: int):
+        # A negative index is the encoder's "no record here" sentinel (e.g. an
+        # absent surface/position/curve). Return None rather than letting Python's
+        # negative-index wrap resolve it to the last record (which recurses into a
+        # cycle on the root ConnectedFaceSet). Callers already accept None geometry.
+        if idx < 0:
+            return None
         if idx in self._cache:
             return self._cache[idx]
         tag, payload = self._records[idx]
