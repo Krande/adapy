@@ -234,7 +234,7 @@ class SinSource(PanelGroupSource):
         )
 
         if self.merge_panels:
-            stiffened = _merge_panels(mesh, stiffened)
+            stiffened = _merge_panels(mesh, stiffened, aux)
 
         # Subdivide each panel's plate into one field per inter-stiffener strip,
         # the way Genie does (#fields = #stiffeners + 1). Done once on the final
@@ -893,9 +893,22 @@ def _bbox_adjacent(a: tuple[np.ndarray, np.ndarray], b: tuple[np.ndarray, np.nda
     return bool(np.all(a[0] - _BBOX_GAP <= b[1]) and np.all(b[0] - _BBOX_GAP <= a[1]))
 
 
-def _merge_panels(mesh, specs: list[PanelGroupSpec]) -> list[PanelGroupSpec]:
-    """Fuse adjacent stiffened cells into maximal rectangular panels (Genie-style)."""
+def _merge_panels(mesh, specs: list[PanelGroupSpec], aux=None) -> list[PanelGroupSpec]:
+    """Fuse adjacent stiffened cells into maximal rectangular panels (Genie-style).
+
+    A plate-thickness change is a panel boundary: a buckling panel is a region of
+    constant plate thickness ([4]/[6]), and the stiffener axial force integrates
+    that thickness over the tributary (eq (5.1)). Cells of different plate
+    thickness are therefore put in different buckets and never merged, so a panel
+    never spans (e.g.) 8/20/40 mm plate regions. ``aux`` supplies the GELTH
+    thickness per geono; when absent, thickness is not gated (legacy behaviour).
+    """
     from ada.fem.capacity.extract import beam_axis_and_span, element_node_coords, geono_of
+
+    def _plate_thickness(pids: list[int]) -> float:
+        if aux is None or not pids:
+            return 0.0
+        return round(float(aux.thickness_by_geono.get(geono_of(mesh, pids[0]), 0.0)), 6)
 
     specs = list(specs)
     coords: dict[int, np.ndarray] = {}
@@ -924,6 +937,7 @@ def _merge_panels(mesh, specs: list[PanelGroupSpec]) -> list[PanelGroupSpec]:
             geono_of(mesh, bids[0]),
             tuple(np.round(normal, _PLANE_NORMAL_DECIMALS)),
             round(offset, _PLANE_OFFSET_DECIMALS),
+            _plate_thickness(pids),  # a thickness change is a panel boundary
         )
 
     # Plate bounding box per spec (global coords) — a merge only ever joins

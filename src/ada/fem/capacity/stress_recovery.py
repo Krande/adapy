@@ -26,6 +26,8 @@ element normal, ``ey = ez x ex`` — tension-positive like ``RVSTRESS``.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from ada.fem.capacity import extract
@@ -115,6 +117,100 @@ def _quad_strain_at(xy: np.ndarray, uv: np.ndarray, xi: float, eta: float) -> np
     return np.array([_dot1(dn_dx, u), _dot1(dn_dy, v), _dot1(dn_dy, u) + _dot1(dn_dx, v)])
 
 
+@dataclass
+class _RecoveryOp:
+    """Step-invariant displacement→corner-stress operator for one shell element.
+
+    The element frame, the planar node coordinates, and the shape-function
+    derivative operators (tri ``b``/``c`` or per-corner quad ``dn_dx``/``dn_dy``)
+    depend only on geometry, so they are built once and cached on the mesh.
+    Recovery for a result case is then just projecting that case's nodal
+    displacements and applying the cached operators — no Jacobian inverse, frame
+    construction, or coordinate projection per case.
+    """
+
+    node_ids: list[int]
+    corner_coords: list[np.ndarray]
+    ex: np.ndarray
+    ey: np.ndarray
+    E: float
+    nu: float
+    is_tri: bool
+    b: np.ndarray | None = None
+    c: np.ndarray | None = None
+    dn_dx: list[np.ndarray] | None = None
+    dn_dy: list[np.ndarray] | None = None
+
+
+def _build_recovery_op(
+    mesh: Mesh,
+    element_id: int,
+    E: float,
+    nu: float,
+    transform: np.ndarray | None,
+) -> _RecoveryOp | None:
+    """Build the cached recovery operator, or ``None`` for unsupported shapes /
+    degenerate geometry (the element then resolves to ``[]`` every case)."""
+    node_ids = extract.element_node_ids(mesh, element_id)
+    if len(node_ids) not in (3, 4):
+        return None
+    coords = extract.element_node_coords(mesh, element_id)
+    if len(coords) != len(node_ids):
+        return None
+
+    ex, ey = _element_frame(coords, transform)
+    origin = coords[0]
+    rel = coords - origin
+    xy = np.column_stack([(rel * ex).sum(axis=1), (rel * ey).sum(axis=1)])
+
+    if len(node_ids) == 3:
+        (x1, y1), (x2, y2), (x3, y3) = xy
+        two_a = (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1)
+        if abs(two_a) < 1e-20:
+            return None
+        b = np.array([y2 - y3, y3 - y1, y1 - y2]) / two_a
+        c = np.array([x3 - x2, x1 - x3, x2 - x1]) / two_a
+        return _RecoveryOp(node_ids, [coords[i] for i in range(3)], ex, ey, E, nu, True, b=b, c=c)
+
+    dn_dx_l: list[np.ndarray] = []
+    dn_dy_l: list[np.ndarray] = []
+    corner_coords: list[np.ndarray] = []
+    for i, (xi, eta) in enumerate(_QUAD_CORNERS):
+        dn_dxi = np.array([-(1 - eta), (1 - eta), (1 + eta), -(1 + eta)]) / 4.0
+        dn_deta = np.array([-(1 - xi), -(1 + xi), (1 + xi), (1 - xi)]) / 4.0
+        j11 = _dot1(dn_dxi, xy[:, 0])
+        j12 = _dot1(dn_dxi, xy[:, 1])
+        j21 = _dot1(dn_deta, xy[:, 0])
+        j22 = _dot1(dn_deta, xy[:, 1])
+        det = j11 * j22 - j12 * j21
+        if abs(det) < 1e-20:
+            return None
+        dn_dx_l.append((j22 * dn_dxi - j12 * dn_deta) / det)
+        dn_dy_l.append((-j21 * dn_dxi + j11 * dn_deta) / det)
+        corner_coords.append(coords[i])
+    return _RecoveryOp(node_ids, corner_coords, ex, ey, E, nu, False, dn_dx=dn_dx_l, dn_dy=dn_dy_l)
+
+
+def _apply_recovery_op(op: _RecoveryOp, disp_by_node: dict[int, np.ndarray]):
+    try:
+        disp = np.array([disp_by_node[n][:3] for n in op.node_ids], dtype=float)
+    except KeyError:
+        return []
+    u = (disp * op.ex).sum(axis=1)
+    v = (disp * op.ey).sum(axis=1)
+    if op.is_tri:
+        strain = np.array([_dot1(op.b, u), _dot1(op.c, v), _dot1(op.c, u) + _dot1(op.b, v)])
+        tensor = _plane_stress(strain, op.E, op.nu)  # constant over a CST
+        return [(op.corner_coords[i], tensor) for i in range(3)]
+    out: list[tuple[np.ndarray, np.ndarray]] = []
+    for i in range(4):
+        dn_dx = op.dn_dx[i]
+        dn_dy = op.dn_dy[i]
+        strain = np.array([_dot1(dn_dx, u), _dot1(dn_dy, v), _dot1(dn_dy, u) + _dot1(dn_dx, v)])
+        out.append((op.corner_coords[i], _plane_stress(strain, op.E, op.nu)))
+    return out
+
+
 def recover_membrane_corner_points(
     mesh: Mesh,
     element_id: int,
@@ -126,40 +222,24 @@ def recover_membrane_corner_points(
     """Per-corner ``(xyz, (sxx, syy, txy))`` membrane stress for one shell element.
 
     Returns ``[]`` for unsupported shapes, degenerate geometry, or missing nodal
-    displacements.
+    displacements. The step-invariant operator is built once and cached on the
+    mesh, so repeated cases only project displacements (see :class:`_RecoveryOp`).
     """
-    node_ids = extract.element_node_ids(mesh, element_id)
-    if len(node_ids) not in (3, 4):
+    cache = getattr(mesh, "_cap_recovery_ops", None)
+    if cache is None:
+        cache = {}
+        try:
+            mesh._cap_recovery_ops = cache  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    if element_id in cache:
+        op = cache[element_id]
+    else:
+        op = _build_recovery_op(mesh, element_id, E, nu, transform)
+        cache[element_id] = op
+    if op is None:
         return []
-    coords = extract.element_node_coords(mesh, element_id)
-    if len(coords) != len(node_ids):
-        return []
-    try:
-        disp = np.array([disp_by_node[n][:3] for n in node_ids], dtype=float)
-    except KeyError:
-        return []
-
-    ex, ey = _element_frame(coords, transform)
-    origin = coords[0]
-    rel = coords - origin
-    # Project node positions and displacements onto (ex, ey) via elementwise
-    # reductions (no @ / BLAS): xy[:,0] = sum(rel * ex, axis=1), etc.
-    xy = np.column_stack([(rel * ex).sum(axis=1), (rel * ey).sum(axis=1)])
-    uv = np.column_stack([(disp * ex).sum(axis=1), (disp * ey).sum(axis=1)])
-
-    out: list[tuple[np.ndarray, np.ndarray]] = []
-    if len(node_ids) == 3:
-        strain = _tri_strain(xy, uv)
-        if strain is None:
-            return []
-        tensor = _plane_stress(strain, E, nu)  # constant over a CST
-        return [(coords[i], tensor) for i in range(3)]
-    for i, (xi, eta) in enumerate(_QUAD_CORNERS):
-        strain = _quad_strain_at(xy, uv, xi, eta)
-        if strain is None:
-            return []
-        out.append((coords[i], _plane_stress(strain, E, nu)))
-    return out
+    return _apply_recovery_op(op, disp_by_node)
 
 
 def build_recovered_stress(

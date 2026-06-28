@@ -364,6 +364,31 @@ def test_axial_loads_preserve_section_5_positions(manager):
     assert non_uniform
 
 
+def test_plate_axial_force_matches_membrane_stress_times_tributary(manager):
+    """eq (5.1) plate part: ``AxialLoadsPlate == sigma_x * t * s`` with the SAME
+    tributary ``(t, s)`` the capacity check consumes (``model.plates[0]``).
+
+    A mismatch means the stress resolver integrated the plate axial force over a
+    different plate than the check applies it to — the wrong-tributary /
+    heterogeneous-panel bug, where a stiffener's force was integrated over (e.g.)
+    a 40 mm / double-spacing plate while the check used the panel's 10 mm / single
+    spacing, inflating N_Sd and the beam-column UF several-fold.
+    """
+    models = {(m.id or m.name): m for m in manager.capacity_models()}
+    checked = 0
+    for rc in manager.resolve_cases():
+        n_plate = rc.vectors.get("AxialLoadsPlate")
+        sigma = rc.vectors.get("AverageLongitudinalMembraneStresses")
+        model = models.get(rc.capacity_model_id)
+        if not n_plate or not sigma or model is None or not model.plates:
+            continue
+        ts = model.plates[0].thickness * model.plates[0].width
+        for n, s in zip(n_plate, sigma):
+            assert n == pytest.approx(s * ts, rel=1e-6, abs=1.0)
+            checked += 1
+    assert checked > 0
+
+
 def test_section_5_moment_components_are_resolved(manager, genie_variables):
     """Beam moment/force vectors are emitted for q_FE in the Section-6 check."""
     import statistics
@@ -600,9 +625,10 @@ def test_combination_superposition_reproduces_stored_combination(manager):
     material = {e: (p.material.E, p.material.poisson) for m in models for p in m.plates for e in p.element_ids}
     stored: dict[tuple[int, str], object] = {}
     mesh = None
+    geom_cache: dict = {}
     for step, res in iter_sin_step_results(SIN, [9, 10]):
         mesh = mesh or res.mesh
-        for rc in _resolve_step(mesh, aux, models, step, res.results, material, log=False):
+        for rc in _resolve_step(mesh, aux, models, step, res.results, material, geom_cache, log=False):
             stored[(rc.result_case, rc.stiffener)] = rc
 
     keys = set(superposed) & set(stored)

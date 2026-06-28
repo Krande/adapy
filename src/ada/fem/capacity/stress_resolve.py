@@ -95,19 +95,19 @@ def _element_stress_rows(stress_blocks, element_id: int) -> dict[int, np.ndarray
     return {point_id: np.vstack(values).mean(axis=0) for point_id, values in rows.items()}
 
 
-def _rotate_to_stiffener_frame(
+def _rotation_cossin(
     mesh: Mesh,
     element_id: int,
-    tensor: np.ndarray,
     axis: np.ndarray,
     transform: np.ndarray | None = None,
-) -> np.ndarray:
-    """Rotate an element-frame membrane tensor into the stiffener frame.
+) -> tuple[float, float]:
+    """Cosine/sine of the rotation from the element frame to the stiffener frame.
 
-    Returns ``(sigma_long, sigma_trans, tau)`` where *long* is along the
-    stiffener axis and *trans* is perpendicular (in the plate plane).
+    This depends only on element geometry (or its Sesam basis) and the stiffener
+    axis — all step-invariant — so it is computed once per (stiffener, element)
+    and reused across every result case. The actual stress rotation is the cheap
+    closed form in :func:`_apply_rotation`.
     """
-    sxx, syy, txy = tensor
     if transform is not None and np.shape(transform) != (3, 3):
         transform = None
     if transform is not None:
@@ -126,10 +126,34 @@ def _rotate_to_stiffener_frame(
     ax = ax / (np.linalg.norm(ax) or 1.0)
     c = float(np.dot(lx, ax))
     s = float(np.dot(np.cross(lx, ax), normal))
+    return c, s
+
+
+def _apply_rotation(cs: tuple[float, float], tensor: np.ndarray) -> np.ndarray:
+    """Rotate an element-frame membrane ``(sxx, syy, txy)`` into the stiffener
+    frame given the precomputed ``(cos, sin)`` from :func:`_rotation_cossin`.
+
+    Returns ``(sigma_long, sigma_trans, tau)`` where *long* is along the
+    stiffener axis and *trans* is perpendicular (in the plate plane).
+    """
+    c, s = cs
+    sxx, syy, txy = tensor
     s_long = sxx * c * c + syy * s * s + 2 * txy * s * c
     s_trans = sxx * s * s + syy * c * c - 2 * txy * s * c
     tau = (syy - sxx) * s * c + txy * (c * c - s * s)
     return np.array([s_long, s_trans, tau])
+
+
+def _rotate_to_stiffener_frame(
+    mesh: Mesh,
+    element_id: int,
+    tensor: np.ndarray,
+    axis: np.ndarray,
+    transform: np.ndarray | None = None,
+) -> np.ndarray:
+    """Backward-compatible one-shot rotate (basis + apply), for callers that do
+    not have a cached ``(cos, sin)``."""
+    return _apply_rotation(_rotation_cossin(mesh, element_id, axis, transform), tensor)
 
 
 def _element_membrane_points(
@@ -138,16 +162,25 @@ def _element_membrane_points(
     stress_blocks,
     element_id: int,
     axis: np.ndarray,
+    cs: tuple[float, float] | None = None,
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """Membrane stress points as ``(xyz, rotated_tensor)``.
 
     Shell stress output is top/bottom surface data. Pair the two surfaces by
     result-point id order and average them into membrane values at the midpoint
     coordinate before rotating into the stiffener frame.
+
+    ``cs`` is the precomputed ``(cos, sin)`` rotation for this element in the
+    stiffener frame (step-invariant); pass it to skip recomputing the element
+    basis on every result case. When ``None`` it is computed here.
     """
     rows = _element_stress_rows(stress_blocks, element_id)
     if not rows:
         return []
+
+    if cs is None:
+        transform = aux.element_transform_by_element.get(element_id)
+        cs = _rotation_cossin(mesh, element_id, axis, transform)
 
     coords = aux.result_point_coords_by_element.get(element_id, {})
     point_ids = sorted(rows)
@@ -159,8 +192,7 @@ def _element_membrane_points(
                 continue
             tensor = (rows[a] + rows[b]) / 2.0
             xyz = (coords[a] + coords[b]) / 2.0
-            transform = aux.element_transform_by_element.get(element_id)
-            paired.append((xyz, _rotate_to_stiffener_frame(mesh, element_id, tensor, axis, transform)))
+            paired.append((xyz, _apply_rotation(cs, tensor)))
         if paired:
             return paired
 
@@ -168,8 +200,7 @@ def _element_membrane_points(
     if tensor is None:
         return []
     xyz = extract.element_node_coords(mesh, element_id).mean(axis=0)
-    transform = aux.element_transform_by_element.get(element_id)
-    return [(xyz, _rotate_to_stiffener_frame(mesh, element_id, tensor, axis, transform))]
+    return [(xyz, _apply_rotation(cs, tensor))]
 
 
 def _element_area(mesh: Mesh, element_id: int) -> float:
@@ -186,6 +217,7 @@ def _element_area(mesh: Mesh, element_id: int) -> float:
 def _area_weighted_element_mean(
     mesh: Mesh,
     points_by_element: dict[int, list[tuple[np.ndarray, np.ndarray]]],
+    area_by_element: dict[int, float] | None = None,
 ) -> np.ndarray | None:
     values = []
     weights = []
@@ -193,10 +225,19 @@ def _area_weighted_element_mean(
         if not points:
             continue
         values.append(np.array([tensor for _, tensor in points]).mean(axis=0))
-        weights.append(_element_area(mesh, element_id))
+        weights.append(_elem_area(mesh, element_id, area_by_element))
     if not values:
         return None
     return np.average(np.array(values), axis=0, weights=np.array(weights))
+
+
+def _elem_area(mesh: Mesh, element_id: int, area_by_element: dict[int, float] | None) -> float:
+    """Element area, from the per-stiffener cache when available (step-invariant)."""
+    if area_by_element is not None:
+        cached = area_by_element.get(element_id)
+        if cached is not None:
+            return cached
+    return _element_area(mesh, element_id)
 
 
 def _area_weighted_pressure(
@@ -204,6 +245,7 @@ def _area_weighted_pressure(
     aux: extract.AuxRecords,
     result_case: int,
     element_ids: list[int],
+    area_by_element: dict[int, float] | None = None,
 ) -> float:
     """Mean signed shell pressure over the adjacent plate field."""
     pressures = aux.pressure_by_case_element.get(result_case, {})
@@ -213,7 +255,7 @@ def _area_weighted_pressure(
         if element_id not in pressures:
             continue
         values.append(float(pressures[element_id]))
-        weights.append(_element_area(mesh, element_id))
+        weights.append(_elem_area(mesh, element_id, area_by_element))
     if not values:
         return 0.0
     return float(np.average(np.array(values), weights=np.array(weights)))
@@ -346,15 +388,38 @@ def _section_area_and_centroid(section: CapSection) -> tuple[float, float]:
     return area, centroid
 
 
-def _resolve_stiffener(
+@dataclass
+class _StiffGeom:
+    """Step-invariant geometry/topology for one stiffener.
+
+    Everything here depends only on the mesh + capacity-model definition (not on
+    any result case), so it is built once per stiffener and reused across every
+    case in :func:`resolve_cases`. Only the field *values* vary per case.
+    """
+
+    element_ids: tuple[int, ...]
+    axis: np.ndarray
+    origin: np.ndarray
+    edge_trib: list[int]
+    field_trib: list[int]
+    cs_by_element: dict[int, tuple[float, float]]
+    area_by_element: dict[int, float]
+    t: float
+    s_spacing: float
+    section_area: float
+    section_centroid: float
+    z_na: float
+    span: float
+    continuous: bool
+
+
+def _build_stiff_geom(
     mesh: Mesh,
     aux: extract.AuxRecords,
     model: CapacityModel,
     stiff_name: str,
-    result_case: int,
-    stress_blocks,
-    force_blocks,
-) -> ResolvedCase:
+) -> _StiffGeom:
+    """Resolve the case-invariant geometry for a stiffener (see :class:`_StiffGeom`)."""
     st = model.stiffener(stiff_name)
     axis, _ = extract.beam_axis_and_span(mesh, st.element_ids)
 
@@ -368,25 +433,89 @@ def _resolve_stiffener(
     edge_trib = sorted({pe for be in st.element_ids for pe in extract.tributary_plate_ids(mesh, (be,), candidate_plates)})
     field_trib = _adjacent_plate_field_ids(model, edge_trib)
 
+    origin = _beam_origin(mesh, st.element_ids)
+    # Tributary cross-section for the plate axial force (eq (5.1)): use the panel's
+    # representative plate field — the SAME plate the capacity check uses
+    # (``model.plates[0]`` -> Genie ``s``/``t``). Picking an arbitrary bordering
+    # plate via ``next()`` could grab a multi-spacing (e.g. 1300 mm) or — before
+    # the thickness-gated merge — a different-thickness plate, so ``s_spacing·t``
+    # diverged from what the check applied (``AxialLoadsPlate`` then disagreed with
+    # ``sigma_x·t·s`` by the same factor). Panels are single-thickness after the
+    # merge, so ``plates[0]`` carries the correct thickness and stiffener spacing.
+    plate = model.plates[0] if model.plates else None
+    t = plate.thickness if plate else 0.0
+    s_spacing = plate.width if plate else 0.0
+    section_area, section_centroid = _section_area_and_centroid(st.section)
+    plate_area = t * s_spacing
+    z_na = section_area * section_centroid / (section_area + plate_area) if section_area + plate_area else 0.0
+
+    # Per-element rotation (cos/sin) into the stiffener frame and area, for every
+    # tributary plate element — the dominant per-case cost when recomputed.
+    cs_by_element: dict[int, tuple[float, float]] = {}
+    area_by_element: dict[int, float] = {}
+    for pe in set(field_trib) | set(edge_trib):
+        transform = aux.element_transform_by_element.get(pe)
+        cs_by_element[pe] = _rotation_cossin(mesh, pe, axis, transform)
+        area_by_element[pe] = _element_area(mesh, pe)
+
+    return _StiffGeom(
+        element_ids=st.element_ids,
+        axis=axis,
+        origin=origin,
+        edge_trib=edge_trib,
+        field_trib=field_trib,
+        cs_by_element=cs_by_element,
+        area_by_element=area_by_element,
+        t=t,
+        s_spacing=s_spacing,
+        section_area=section_area,
+        section_centroid=section_centroid,
+        z_na=z_na,
+        span=float(st.span or 0.0),
+        continuous=st.continuous,
+    )
+
+
+def _resolve_stiffener(
+    mesh: Mesh,
+    aux: extract.AuxRecords,
+    model: CapacityModel,
+    stiff_name: str,
+    result_case: int,
+    stress_blocks,
+    force_blocks,
+    geom: _StiffGeom,
+) -> ResolvedCase:
+    axis = geom.axis
+    edge_trib = geom.edge_trib
+    field_trib = geom.field_trib
+    cs = geom.cs_by_element
+    areas = geom.area_by_element
+
     # Field transverse/shear membrane in the stiffener frame: each adjacent
     # plate field is averaged over its membrane result points, then
     # area-weighted and negated to Genie's compression-positive convention. If
     # an adjacent plate field is split into several shells, use the full field
     # rather than only the shell sharing the stiffener nodes; this matches
     # Genie's Section-5 field integration on irregular triangular/quadrilateral
-    # edge fields.
-    field_points_by_element = {pe: _element_membrane_points(mesh, aux, stress_blocks, pe, axis) for pe in field_trib}
+    # edge fields. ``edge_trib ⊆ field_trib``, so resolve each element's points
+    # once and slice both views from it.
+    points_by_element = {
+        pe: _element_membrane_points(mesh, aux, stress_blocks, pe, axis, cs.get(pe))
+        for pe in field_trib
+    }
+    field_points_by_element = points_by_element
     field_points = [point for points in field_points_by_element.values() for point in points]
-    field_weighted = _area_weighted_element_mean(mesh, field_points_by_element)
+    field_weighted = _area_weighted_element_mean(mesh, field_points_by_element, areas)
     overall = -field_weighted if field_weighted is not None else np.zeros(3)
 
-    origin = _beam_origin(mesh, st.element_ids)
+    origin = geom.origin
     # Longitudinal axial/moment resultants are edge quantities: sample the plate
     # elements that share the stiffener line, then use result points closest to
     # that line for the calibrated Section-5 axial reconstruction.
-    edge_points_by_element = {pe: _element_membrane_points(mesh, aux, stress_blocks, pe, axis) for pe in edge_trib}
+    edge_points_by_element = {pe: points_by_element.get(pe, []) for pe in edge_trib}
     long_points = [point for points in edge_points_by_element.values() for point in points]
-    long_weighted = _area_weighted_element_mean(mesh, edge_points_by_element)
+    long_weighted = _area_weighted_element_mean(mesh, edge_points_by_element, areas)
     long_overall = -long_weighted if long_weighted is not None else overall
     edge_points = _edge_points(long_points, origin, axis)
     edge_rotated = [tensor for _, tensor in edge_points]
@@ -400,13 +529,12 @@ def _resolve_stiffener(
     v_mid = overall
 
     # Plate tributary area = thickness x spacing of the bordering plate(s).
-    plate = next((p for p in model.plates if any(e in edge_trib for e in p.element_ids)), None)
-    t = plate.thickness if plate else 0.0
-    s_spacing = plate.width if plate else 0.0
-    p_sd = _area_weighted_pressure(mesh, aux, result_case, field_trib)
+    t = geom.t
+    s_spacing = geom.s_spacing
+    p_sd = _area_weighted_pressure(mesh, aux, result_case, field_trib, areas)
     q_dir = p_sd * s_spacing
     n_plate_positions = [float(x * t * s_spacing) for x in long_pos]
-    n_beam_positions = _beam_axial_positions(force_blocks, st.element_ids)
+    n_beam_positions = _beam_axial_positions(force_blocks, geom.element_ids)
     n_axial_positions = [float(n_plate + n_beam) for n_plate, n_beam in zip(n_plate_positions, n_beam_positions)]
     n_axial = n_axial_positions[1]
     n_plate = long_mid * t * s_spacing
@@ -417,14 +545,13 @@ def _resolve_stiffener(
         + 0.2 * max(n_axial_positions[2], 0.0)
     )
 
-    section_area, section_centroid = _section_area_and_centroid(st.section)
-    plate_area = t * s_spacing
-    z_na = section_area * section_centroid / (section_area + plate_area) if section_area + plate_area else 0.0
+    section_area, section_centroid = geom.section_area, geom.section_centroid
+    z_na = geom.z_na
     m_plate = [-float(n * z_na) for n in n_plate_positions]
     m_beam_force = [float(n * (section_centroid - z_na)) for n in n_beam_positions]
-    m_beam = _beam_moment_positions(force_blocks, st.element_ids)
+    m_beam = _beam_moment_positions(force_blocks, geom.element_ids)
     moments = [float(a + b + c) for a, b, c in zip(m_plate, m_beam_force, m_beam)]
-    span = float(st.span or 0.0)
+    span = geom.span
     q_fe = (0.5 * (moments[0] + moments[2]) - moments[1]) * 8.0 / (span * span) if span else 0.0
 
     variables = {
@@ -457,7 +584,7 @@ def _resolve_stiffener(
         stiffener=stiff_name,
         panel_group=model.name,
         capacity_model_id=model.id or model.name,
-        continuous=st.continuous,
+        continuous=geom.continuous,
         variables=variables,
         vectors=vectors,
     )
@@ -568,6 +695,7 @@ def _resolve_step(
     case: int,
     results,
     material_by_element: dict[int, tuple[float, float]],
+    geom_cache: dict[tuple, _StiffGeom],
     *,
     log: bool,
 ) -> list[ResolvedCase]:
@@ -576,6 +704,9 @@ def _resolve_step(
     ``results`` is a step's ``FEAResult.results`` list (a basic case) or the
     superposed block list of a combination — both expose ``STRESS`` / ``FORCES``
     (and ``RVNODDIS`` for the stress-less recovery fallback) by ``name``.
+
+    ``geom_cache`` holds the step-invariant per-stiffener geometry, built on the
+    first case and reused across every subsequent one.
     """
     stress_blocks = [r for r in results if r.name == "STRESS"]
     force_blocks = [r for r in results if r.name == "FORCES"]
@@ -585,7 +716,12 @@ def _resolve_step(
     out: list[ResolvedCase] = []
     for model in models:
         for st in model.stiffeners:
-            rc = _resolve_stiffener(mesh, aux, model, st.name, case, stress_blocks, force_blocks)
+            key = (model.id or model.name, st.name)
+            geom = geom_cache.get(key)
+            if geom is None:
+                geom = _build_stiff_geom(mesh, aux, model, st.name)
+                geom_cache[key] = geom
+            rc = _resolve_stiffener(mesh, aux, model, st.name, case, stress_blocks, force_blocks, geom)
             out.append(
                 ResolvedCase(
                     result_case=case,
@@ -671,10 +807,18 @@ def resolve_cases(
     total = len(direct) + len(combo_plan)
     done = 0
     accums: dict[int, dict] = {case: {} for case in combo_plan}
+    # Per-stiffener geometry is step-invariant; build it on the first case and
+    # reuse across all of them (the rotation bases / tributary topology dominate
+    # the per-case resolve when recomputed every time).
+    geom_cache: dict[tuple, _StiffGeom] = {}
+    # Line forces are only ever read for stiffener beam elements, so narrow the
+    # per-step RVFORCES decode to them — skips unpacking the whole model's
+    # forces on every step (the dominant SIN-read cost on a large model).
+    forces_elements = {int(e) for model in models for st in model.stiffeners for e in st.element_ids}
     # Read the SIN once and reuse the (step-invariant) mesh across cases — on a
     # multi-hundred-MB SIN re-opening + rebuilding the mesh per case dominates.
     mesh = None
-    for step, res in iter_sin_step_results(sin_path, needed_steps):
+    for step, res in iter_sin_step_results(sin_path, needed_steps, forces_elements=forces_elements):
         if mesh is None:
             mesh = res.mesh
         # Accumulate this step into every combination that references it (before
@@ -684,14 +828,14 @@ def resolve_cases(
             if factor:
                 _superpose_into(accums[case], res.results, float(factor))
         if step in direct_set:
-            out.extend(_resolve_step(mesh, aux, models, step, res.results, material_by_element, log=done == 0))
+            out.extend(_resolve_step(mesh, aux, models, step, res.results, material_by_element, geom_cache, log=done == 0))
             done += 1
             if on_progress is not None:
                 on_progress(done, total)
 
     for case, comps in combo_plan.items():
         combined = _accum_blocks(accums[case])
-        out.extend(_resolve_step(mesh, aux, models, case, combined, material_by_element, log=done == 0))
+        out.extend(_resolve_step(mesh, aux, models, case, combined, material_by_element, geom_cache, log=done == 0))
         done += 1
         if on_progress is not None:
             on_progress(done, total)
