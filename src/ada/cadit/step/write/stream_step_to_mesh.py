@@ -40,10 +40,14 @@ def stream_step_to_mesh(
     if not hasattr(be, "tessellate_stream"):
         raise RuntimeError("active CAD backend has no libtess2 tessellate_stream; cannot stream mesh")
 
+    from ada.cadit.step.read.stream_reader import detect_step_length_unit_scale
     from ada.cadit.step.write._solid_source import read_solids
 
     emitted = total = ntri = 0
     prog("tessellating", 0.1)
+    # Scale to metres (the adapy / viewer unit convention, matching the GLB path and the
+    # native C++ mesh writer) — the reader yields geometry in the file's source units.
+    usc = float(detect_step_length_unit_scale(src_path))
 
     # Triangles materialised at once. A solid's full vertex+index buffer (the
     # tessellator output) is unavoidable, but we never expand it to a whole-solid
@@ -75,7 +79,8 @@ def stream_step_to_mesh(
                 R, t = M[:3, :3].T, M[:3, 3]
             for s in range(0, len(idx), TRI_BATCH):
                 tri = pos[idx[s : s + TRI_BATCH]]  # (n,3,3) — gather only this batch
-                yield tri if R is None else (tri @ R + t)
+                world = tri if R is None else (tri @ R + t)
+                yield world if usc == 1.0 else (world * usc)
 
     if fmt == "stl":
         with open(out_path, "wb") as fh:

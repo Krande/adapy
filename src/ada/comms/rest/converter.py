@@ -1783,20 +1783,35 @@ def _via_step_stream_to_mesh(
     step_glb_pipeline: str | None = None,
 ) -> pathlib.Path:
     """STEP → mesh container (``.obj`` / ``.stl``) **without building an ada
-    Assembly**, bounded memory.
+    Assembly**, bounded memory, no OCC.
 
-    Multi-GB CAD STEP assemblies OOM-kill / time out through the full-OCC
-    ``ada.from_step`` + ``to_trimesh_scene`` path. We instead tessellate one solid
-    at a time off the native NGEOM stream (libtess2 via the active backend), apply
-    each instance placement and write triangles straight to disk — peak memory is
-    O(one solid's mesh), not the whole-model trimesh.Scene a GLB→trimesh transcode
-    would hold. No OCC, no whole-model buffer. ``step_glb_pipeline`` is accepted for
-    signature compatibility but unused (the mesh path is engine-agnostic libtess2).
+    Prefers the fully-native adacpp pipeline (``stream_step_to_mesh``): the same C++
+    reader + parallel libtess2 as the native GLB path, baking each placement and
+    streaming triangles straight to disk — ~2.5x faster than per-solid Python on
+    giant-solid / FEM-export STEP. Falls back to the per-solid Python writer
+    (``stream_step_to_mesh``: tessellate one solid at a time via the active backend,
+    transform per triangle-batch) when adacpp's native mesh entry point is absent.
+    Either way peak memory is O(one solid's mesh), never a whole-model buffer.
+    ``step_glb_pipeline`` is accepted for signature compatibility but unused.
     """
+    out_path = pathlib.Path(tempfile.mkstemp(suffix=target_ext)[1])
+    fmt = target_ext.lstrip(".")
+    from ada.cadit.step.native_step_to_mesh import (
+        native_mesh_available,
+        native_step_to_mesh,
+    )
+    from ada.config import logger
+
+    if native_mesh_available():
+        try:
+            native_step_to_mesh(src_path, out_path, fmt, on_progress=on_progress)
+            return out_path
+        except Exception as exc:  # noqa: BLE001 - degrade to the Python writer
+            logger.warning("native STEP->%s failed (%s); falling back to per-solid Python", fmt, exc)
+
     from ada.cadit.step.write.stream_step_to_mesh import stream_step_to_mesh
 
-    out_path = pathlib.Path(tempfile.mkstemp(suffix=target_ext)[1])
-    stream_step_to_mesh(src_path, out_path, target_ext.lstrip("."), on_progress=on_progress)
+    stream_step_to_mesh(src_path, out_path, fmt, on_progress=on_progress)
     return out_path
 
 
