@@ -55,11 +55,19 @@ class _IfcBrepEmitter:
         self._tf = None  # active 16-tuple row-major 4x4, or None (identity)
         self._vcache: dict = {}
         self._ecache: dict = {}
+        # Optional sink that drains the `lines` buffer to disk once it grows past
+        # _flush_at, so a single multi-million-entity solid can't spike RSS (IFC is
+        # emitted children-before-parents, so flushing complete entities mid-solid
+        # is safe — SPF tolerates any reference order). Set by the driver.
+        self._flush = None
+        self._flush_at = 50000
 
     # -- low level ---------------------------------------------------------- #
     def _emit(self, lines, body) -> int:
         self.nid += 1
         lines.append(f"#{self.nid}={body};")
+        if self._flush is not None and len(lines) >= self._flush_at:
+            self._flush(lines)
         return self.nid
 
     def _tp(self, p):
@@ -411,6 +419,9 @@ def stream_step_to_ifc(
         out.write(head + "\n")
         out.write("\n".join(pre_lines) + "\n")
         lines: list[str] = []
+        # Drain `lines` to disk as soon as it grows large — even within one solid —
+        # so peak RSS stays bounded regardless of any single solid's complexity.
+        emitter._flush = lambda buf: (out.write("\n".join(buf) + "\n"), buf.clear())
         for geom in _iter_step_solids(src_path):
             total += 1
             gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
