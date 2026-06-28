@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import struct
 import tempfile
 from dataclasses import dataclass, field
@@ -174,8 +175,10 @@ def parse_elements(glb_bytes: bytes) -> dict[str, Element]:
 # --------------------------------------------------------------------------- #
 # Compare-ref resolution                                                       #
 # --------------------------------------------------------------------------- #
-def resolve_ref_glb(storage, compare_ref: str) -> bytes:
-    """Resolve ``compare_ref`` to the comparison GLB's bytes.
+def resolve_ref_glb_path(storage, compare_ref: str) -> str:
+    """Resolve ``compare_ref`` to a local temp-file path holding the comparison GLB
+    (fetched, never loaded into Python — so the native path can read multi-100-MB
+    refs without a Python-side copy).
 
     ``compare_ref`` may be:
 
@@ -196,13 +199,11 @@ def resolve_ref_glb(storage, compare_ref: str) -> bytes:
         dest = tempfile.mkstemp(suffix=".glb")[1]
         try:
             storage.fetch_to_path(ref, dest)
-            with open(dest, "rb") as fh:
-                data = fh.read()
-        except Exception as exc:  # noqa: BLE001 - fall through to build resolution
+        except Exception as exc:  # noqa: BLE001
             raise ValueError(f"compare file not found in scope: {ref!r} ({exc})") from exc
-        if not data:
+        if os.path.getsize(dest) == 0:
             raise ValueError(f"compare file is empty: {ref!r}")
-        return data
+        return dest
 
     keys = [k for k in storage.list_keys("versions/") if k.endswith(".glb")]
 
@@ -224,7 +225,16 @@ def resolve_ref_glb(storage, compare_ref: str) -> bytes:
 
     dest = tempfile.mkstemp(suffix=".glb")[1]
     storage.fetch_to_path(chosen, dest)
-    with open(dest, "rb") as fh:
+    return dest
+
+
+def resolve_ref_glb(storage, compare_ref: str) -> bytes:
+    """Resolve ``compare_ref`` to the comparison GLB's bytes (Python-path helper).
+
+    Thin wrapper over :func:`resolve_ref_glb_path`; the native diff path uses the
+    path form directly to avoid loading the ref into Python.
+    """
+    with open(resolve_ref_glb_path(storage, compare_ref), "rb") as fh:
         return fh.read()
 
 
@@ -452,12 +462,12 @@ def _native_glb_diff():
 
 
 def _diff_native(
-    glb_diff, scene_glb, ref_glb, diff_type, tolerance, show_removed_overlay, storage, compare_ref, summary
+    glb_diff, scene_path, ref_path, diff_type, tolerance, show_removed_overlay, storage, compare_ref, summary
 ):
-    """Identity-mode diff via the native core. Returns the viewer-ops payload, or
-    None to signal the caller to fall back to the pure-Python path (e.g. the native
-    parse found no elements — an unreadable/meshopt GLB the v1 core can't decode)."""
-    r = glb_diff(scene_glb, ref_glb, _NATIVE_MODE[diff_type], float(tolerance))
+    """Identity-mode diff via the native core (path-based: the big GLBs never copy
+    through Python). Returns the viewer-ops payload, or None to signal the caller to
+    fall back to the pure-Python path (e.g. the native parse found no elements)."""
+    r = glb_diff(scene_path, ref_path, _NATIVE_MODE[diff_type], float(tolerance))
     counts = {k: int(v) for k, v in dict(r["counts"]).items()}
     if not r["ops"] and (counts["added"] + counts["unchanged"] + counts["modified"]) == 0:
         return None  # native couldn't read the scene — let Python try
@@ -536,25 +546,30 @@ def diff(
     show_removed_overlay=True,
     **_,
 ):
-    on_progress("loading-scene", 0.1)
-    with open(scene_glb_path, "rb") as fh:
-        scene_glb = fh.read()
-
     on_progress("resolving-ref", 0.3)
-    ref_glb = resolve_ref_glb(storage, compare_ref)
+    ref_path = resolve_ref_glb_path(storage, compare_ref)
 
     on_progress("diffing", 0.6)
     summary: dict = {"compare_ref": compare_ref, "diff_type": diff_type}
 
     # Identity modes (byName/byCentroid/byProperty): prefer the native core — it
-    # parses one model at a time (never both) and extracts the overlay in C++,
-    # which is what keeps crane-scale diffs under the worker memory cap. byCoverage
-    # has no native equivalent (per-cell binning) and stays on the Python path.
+    # summarises one model at a time (never both, geometry not retained) and extracts
+    # the overlay in C++, keeping crane-scale diffs under the worker memory cap. Both
+    # GLBs stay on disk (path-based) so nothing copies through Python. byCoverage has
+    # no native equivalent (per-cell binning) and stays on the Python path.
     glb_diff = _native_glb_diff() if diff_type in _NATIVE_MODE else None
     if glb_diff is not None:
         try:
             res = _diff_native(
-                glb_diff, scene_glb, ref_glb, diff_type, tolerance, show_removed_overlay, storage, compare_ref, summary
+                glb_diff,
+                scene_glb_path,
+                ref_path,
+                diff_type,
+                tolerance,
+                show_removed_overlay,
+                storage,
+                compare_ref,
+                summary,
             )
         except Exception:  # noqa: BLE001 - any native failure degrades to pure-Python
             res = None
@@ -563,6 +578,10 @@ def diff(
             return res
 
     # ── pure-Python fallback (byCoverage; identity modes when native is absent) ──
+    with open(scene_glb_path, "rb") as fh:
+        scene_glb = fh.read()
+    with open(ref_path, "rb") as fh:
+        ref_glb = fh.read()
     scene = parse_elements(scene_glb)
     ref = parse_elements(ref_glb)
     summary["scene_elements"] = len(scene)
