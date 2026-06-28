@@ -936,14 +936,32 @@ _GLB_ENGINE_TO_STREAM = {
 }
 
 
+def _default_glb_tess_engine() -> str:
+    """Default engine for the non-STEP →GLB (scene) path: ``libtess2`` when adacpp is importable,
+    else the OCC BatchTessellator. OCC's prism tessellation of curved B-spline plates is
+    NON-MANIFOLD — it drops the viewer's per-plate edge outlines (hullskin elev13 plates) — so
+    libtess2 (manifold; non-NGEOM-serializable geom still falls back to OCC per-object) is
+    preferred wherever it can run. Evaluated at conversion time so a slim/adacpp-less pool still
+    gets OCC."""
+    from importlib.util import find_spec
+
+    try:
+        if find_spec("adacpp") is not None:
+            return _STEP_GLB_PIPELINE_LIBTESS2
+    except Exception:  # noqa: BLE001 - find_spec can raise on a broken import path
+        pass
+    return _STEP_GLB_PIPELINE_OCC
+
+
 def _glb_engine_stream_value(engine: str | None) -> str | None:
     """Map the non-STEP →GLB engine option to a BatchTessellator stream pipeline value
     (``ADA_STREAM_TESS_PIPELINE``), or ``None`` for the default OCC BatchTessellator
-    (``occ-builtin`` / unset / unknown). Per-job ``engine`` wins, else the global
-    ``ADAPY_GLB_TESS_ENGINE`` env, else the OCC default."""
+    (``occ-builtin`` / unknown). Per-job ``engine`` wins, else the global ``ADAPY_GLB_TESS_ENGINE``
+    env (set by the worker from the per-source-type ``tess_engine_*`` setting), else the
+    adacpp-aware default (``_default_glb_tess_engine``)."""
     import os
 
-    choice = (engine or os.environ.get("ADAPY_GLB_TESS_ENGINE", "") or _GLB_TESS_ENGINE_DEFAULT).strip().lower()
+    choice = (engine or os.environ.get("ADAPY_GLB_TESS_ENGINE", "") or _default_glb_tess_engine()).strip().lower()
     return _GLB_ENGINE_TO_STREAM.get(choice)
 
 

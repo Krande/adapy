@@ -1177,6 +1177,29 @@ async def _process_one(
                 if raw is not None and raw.strip() != "":
                     env_overrides[env_name] = raw
 
+            # Per-source-type tessellation engine. STEP→glb and the scene path
+            # (gxml/ifc/sat→glb via to_gltf's BatchTessellator) use different engine envs;
+            # resolve the one for THIS source's type from its own setting so e.g. gxml can run
+            # libtess2 while ifc runs occ. Unset → the converter's adacpp-aware default (the scene
+            # path defaults to libtess2 when adacpp is present; OCC's prism tessellation of curved
+            # B-spline plates is non-manifold and drops the viewer's edge outlines). A per-type
+            # setting here supersedes the legacy single ``step_glb_pipeline`` for STEP sources.
+            _tess_engine_by_ext = {
+                ".step": ("tess_engine_step", "ADAPY_STEP_GLB_PIPELINE"),
+                ".stp": ("tess_engine_step", "ADAPY_STEP_GLB_PIPELINE"),
+                ".xml": ("tess_engine_gxml", "ADAPY_GLB_TESS_ENGINE"),
+                ".ifc": ("tess_engine_ifc", "ADAPY_GLB_TESS_ENGINE"),
+                ".sat": ("tess_engine_sat", "ADAPY_GLB_TESS_ENGINE"),
+                ".acis": ("tess_engine_sat", "ADAPY_GLB_TESS_ENGINE"),
+            }
+            _src_ext = os.path.splitext(job.source_key)[1].lower()
+            _eng = _tess_engine_by_ext.get(_src_ext)
+            if _eng is not None:
+                _skey, _engine_env = _eng
+                _raw_engine = await _read_bool_setting(_skey)
+                if _raw_engine is not None and _raw_engine.strip() != "":
+                    env_overrides[_engine_env] = _raw_engine.strip()
+
         # Per-job overrides win over global settings. ``None`` clears
         # an env var, allowing a job to ask "ignore the global
         # toggle, run with adapy's code default" without restarting.
