@@ -127,13 +127,119 @@ def load_assembly_auto(path: str | Path) -> "Assembly":
     raise ValueError(f"visual_parity: no loader for source suffix {ext!r}")
 
 
+def _count_step_instances(path: str | Path) -> int:
+    """Number of placed solid instances in a STEP file. Counted by streaming the
+    native parser and reading each solid's transform list from the metadata —
+    WITHOUT hydrating ada.geom or tessellating (the geometry is never needed, only
+    the count). Falls back to the pure-Python streaming reader."""
+    from ada.cadit.step.read.native_reader import native_adacpp_step_available
+
+    if native_adacpp_step_available():
+        import adacpp
+
+        total = 0
+        for _nbytes, meta in adacpp.cad.StepNgeomStream(str(path)):
+            tf = meta.transforms
+            total += len(tf) if tf else 1
+        return total
+
+    import ada
+
+    return sum(len(g.transforms) if g.transforms else 1 for g in ada.iter_from_step(path, reader="tolerant"))
+
+
+def _count_ifc_proxies(path: str | Path) -> int:
+    """Count ``IfcBuildingElementProxy`` entities in an IFC file via a bounded text
+    scan — the streaming STEP→IFC writer emits exactly one per placed solid instance,
+    so this matches :func:`_count_step_instances` for a clean round-trip."""
+    n = 0
+    with open(path, "r", errors="ignore") as f:
+        for line in f:
+            if "IFCBUILDINGELEMENTPROXY(" in line.upper():
+                n += 1
+    return n
+
+
+def parity_for_step_file(
+    path: str | Path,
+    formats: tuple[str, ...] = ("ifc", "xml", "step"),
+    *,
+    work_dir: str | Path | None = None,
+) -> ParityResult:
+    """Streaming cross-format parity for a STEP source — never loads or tessellates
+    the whole model (the OOM/timeout path was 1 source tessellation + 3×(export +
+    whole re-read + re-tessellation)). The metric is the placed-instance count, which
+    the bounded per-solid readers/writers produce directly:
+
+    * source — count instances off the native parse (no hydrate).
+    * step   — stream-write (``stream_step_to_step``), then count the output's instances.
+    * ifc    — stream-write (``stream_step_to_ifc``), then count its IfcBuildingElementProxy.
+    * xml    — skipped: raw CAD B-rep has no Genie-XML concept representation.
+    """
+    import tempfile
+
+    from ada.cadit.step.write.stream_step_to_ifc import stream_step_to_ifc
+    from ada.cadit.step.write.stream_step_to_step import stream_step_to_step
+
+    tmp_ctx = None
+    if work_dir is None:
+        tmp_ctx = tempfile.TemporaryDirectory()
+        work_dir = tmp_ctx.name
+    work_dir = Path(work_dir)
+
+    baseline = _count_step_instances(path)
+    counts: dict[str, int] = {"source": baseline}
+    errors: dict[str, str] = {}
+    skipped: dict[str, str] = {}
+    try:
+        for fmt in formats:
+            try:
+                if fmt == "step":
+                    out = work_dir / "parity.step"
+                    stream_step_to_step(path, out)
+                    counts["step"] = _count_step_instances(out)
+                elif fmt == "ifc":
+                    out = work_dir / "parity.ifc"
+                    stream_step_to_ifc(path, out)
+                    counts["ifc"] = _count_ifc_proxies(out)
+                elif fmt == "xml":
+                    skipped["xml"] = "raw CAD B-rep has no Genie-XML concept representation"
+                else:
+                    errors[fmt] = f"unknown format {fmt!r}"
+            except Exception as ex:  # noqa: BLE001 - record and continue with the other formats
+                errors[fmt] = f"{type(ex).__name__}: {ex}"
+                logger.warning(f"parity_for_step_file: {fmt} round-trip failed: {ex}")
+    finally:
+        if tmp_ctx is not None:
+            tmp_ctx.cleanup()
+
+    mismatches = {k: v for k, v in counts.items() if k != "source" and v != baseline}
+    return ParityResult(
+        counts=counts,
+        expected=baseline,
+        consistent=not mismatches and not errors,
+        mismatches=mismatches,
+        errors=errors,
+        skipped=skipped,
+    )
+
+
 def parity_for_source_file(
     path: str | Path,
     formats: tuple[str, ...] = ("ifc", "xml", "step"),
     *,
     work_dir: str | Path | None = None,
 ) -> ParityResult:
-    """Load a source model from disk and run :func:`cross_format_parity` on it."""
+    """Load a source model from disk and run :func:`cross_format_parity` on it.
+
+    STEP sources take the streaming :func:`parity_for_step_file` fast path (bounded
+    memory, no tessellation) — the multi-GB STEP assemblies are exactly what OOM'd /
+    timed out the whole-model tessellation path."""
+    if Path(path).suffix.lower() in (".step", ".stp"):
+        try:
+            return parity_for_step_file(path, formats, work_dir=work_dir)
+        except Exception as ex:  # noqa: BLE001 - fall back to the whole-model path on any failure
+            logger.warning(f"parity_for_source_file: streaming STEP parity failed ({ex}); using whole-model path")
     return cross_format_parity(load_assembly_auto(path), formats, work_dir=work_dir)
 
 
