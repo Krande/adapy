@@ -218,7 +218,7 @@ class Ap242StreamWriter:
         return self._w(f"CARTESIAN_POINT('',{self._p3(p)})")
 
     def _dir(self, v):
-        return self._w(f"DIRECTION('',{self._p3(v)})")
+        return self._w(f"DIRECTION('',{self._p3(self._td(v))})")
 
     def _vertex(self, pt_id):
         return self._w(f"VERTEX_POINT('',#{pt_id})")
@@ -281,6 +281,93 @@ class Ap242StreamWriter:
         ell = self._w(f"ELLIPSE('',#{a2p},{self._r(semi1)},{self._r(semi2)})")
         flag = ".T." if same_sense else ".F."
         return self._w(f"EDGE_CURVE('',#{v0},#{v1},#{ell},{flag})")
+
+    # -- free-form (B-spline) geometry -------------------------------------- #
+    def _ilist(self, values):
+        return "(" + ",".join(str(int(v)) for v in values) + ")"
+
+    def _rlist(self, values):
+        return "(" + ",".join(self._r(v) for v in values) + ")"
+
+    def _bspline_surface(self, s):
+        """Emit a B_SPLINE_SURFACE_WITH_KNOTS (or the rational complex-instance form
+        when weights are present) and return its id. Control-point grid is u rows ×
+        v cols, row-major; points are translated by the active instance offset, same
+        as vertices, so the surface stays coincident with its trimming edges."""
+        rows = list(s.control_points_list)  # list[list[Point]] (u × v)
+        grid = "(" + ",".join("(" + ",".join(f"#{self._pt(self._tp(p))}" for p in row) + ")" for row in rows) + ")"
+        form = s.surface_form.value
+        uc = ".T." if s.u_closed else ".F."
+        vc = ".T." if s.v_closed else ".F."
+        si = ".T." if s.self_intersect else ".F."
+        spec = s.knot_spec.value
+        umul, vmul = self._ilist(s.u_multiplicities), self._ilist(s.v_multiplicities)
+        uk, vk = self._rlist(s.u_knots), self._rlist(s.v_knots)
+        weights = getattr(s, "weights_data", None)
+        if weights:
+            wgrid = "(" + ",".join(self._rlist(row) for row in weights) + ")"
+            # AIM rational form: a named complex instance combining the B-spline
+            # supertypes (sub-records carry no '' name; alphabetical type order).
+            body = (
+                f"BOUNDED_SURFACE()B_SPLINE_SURFACE({s.u_degree},{s.v_degree},{grid},.{form}.,{uc},{vc},{si})"
+                f"B_SPLINE_SURFACE_WITH_KNOTS({umul},{vmul},{uk},{vk},.{spec}.)"
+                f"GEOMETRIC_REPRESENTATION_ITEM()RATIONAL_B_SPLINE_SURFACE({wgrid})REPRESENTATION_ITEM('')SURFACE()"
+            )
+            self._id += 1
+            self.fh.write(f"#{self._id}=({body});\n")
+            return self._id
+        return self._w(
+            f"B_SPLINE_SURFACE_WITH_KNOTS('',{s.u_degree},{s.v_degree},{grid},"
+            f".{form}.,{uc},{vc},{si},{umul},{vmul},{uk},{vk},.{spec}.)"
+        )
+
+    def _bspline_curve(self, c):
+        """Emit a B_SPLINE_CURVE_WITH_KNOTS (or the rational complex-instance form)
+        and return its id. Used as the basis curve of a curved EDGE_CURVE."""
+        cps = "(" + ",".join(f"#{self._pt(self._tp(p))}" for p in c.control_points_list) + ")"
+        form = c.curve_form.value
+        closed = ".T." if c.closed_curve else ".F."
+        si = ".T." if c.self_intersect else ".F."
+        spec = c.knot_spec.value
+        mult, kn = self._ilist(c.knot_multiplicities), self._rlist(c.knots)
+        weights = getattr(c, "weights_data", None)
+        if weights:
+            body = (
+                f"BOUNDED_CURVE()B_SPLINE_CURVE({c.degree},{cps},.{form}.,{closed},{si})"
+                f"B_SPLINE_CURVE_WITH_KNOTS({mult},{kn},.{spec}.)CURVE()GEOMETRIC_REPRESENTATION_ITEM()"
+                f"RATIONAL_B_SPLINE_CURVE({self._rlist(weights)})REPRESENTATION_ITEM('')"
+            )
+            self._id += 1
+            self.fh.write(f"#{self._id}=({body});\n")
+            return self._id
+        return self._w(f"B_SPLINE_CURVE_WITH_KNOTS('',{c.degree},{cps},.{form}.,{closed},{si},{mult},{kn},.{spec}.)")
+
+    def _axis1(self, loc, axis):
+        return self._w(f"AXIS1_PLACEMENT('',#{self._pt(loc)},#{self._dir(axis)})")
+
+    def _geom_curve(self, g):
+        """Emit a standalone geometric CURVE (the swept profile of a swept surface)
+        and return its id, or None for an unsupported curve type."""
+        import ada.geom.curves as cu
+
+        if isinstance(g, cu.Line):
+            vec = self._w(f"VECTOR('',#{self._dir(g.dir)},1.)")
+            return self._w(f"LINE('',#{self._pt(self._tp(g.pnt))},#{vec})")
+        if isinstance(g, cu.Circle):
+            pos = g.position
+            a2p = self._axis2(
+                self._tp(pos.location), _axis_or(pos.axis, (0, 0, 1)), _axis_or(pos.ref_direction, (1, 0, 0))
+            )
+            return self._w(f"CIRCLE('',#{a2p},{self._r(g.radius)})")
+        if isinstance(g, cu.Ellipse):
+            pos = g.position
+            a2p = self._axis2(
+                self._tp(pos.location), _axis_or(pos.axis, (0, 0, 1)), _axis_or(pos.ref_direction, (1, 0, 0))
+            )
+            return self._w(f"ELLIPSE('',#{a2p},{self._r(g.semi_axis1)},{self._r(g.semi_axis2)})")
+        if isinstance(g, cu.BSplineCurveWithKnots):
+            return self._bspline_curve(g)
+        return None
 
     # -- lifecycle ---------------------------------------------------------- #
     def __enter__(self):
@@ -459,20 +546,54 @@ class Ap242StreamWriter:
         return self._ident_axis
 
     # -- direct B-rep emission (imported shapes / pure shells / reader output) --- #
-    def add_brep(self, g, *, name="shape", color=None, translate=(0.0, 0.0, 0.0)):
-        """Emit an arbitrary adapy B-rep geometry — ClosedShell / OpenShell /
-        ShellBasedSurfaceModel / AdvancedFace — as STEP. The inverse of the streaming
-        reader; covers imported shapes and thickness-less shells. Returns the top item
-        id, or None if any face uses a surface/curve not yet emitted kernel-free (the
-        shape is skipped wholesale, never partially emitted)."""
+    def add_brep(self, g, *, name="shape", color=None, translate=(0.0, 0.0, 0.0), transform=None):
+        """Emit an arbitrary adapy B-rep geometry — ConnectedFaceSet / ClosedShell /
+        OpenShell / ShellBasedSurfaceModel / AdvancedFace / FaceSurface — as STEP. The
+        inverse of the streaming reader; covers imported shapes, thickness-less shells,
+        and the per-solid geometry the native NGEOM reader yields (incl. analytic
+        B-spline surfaces/curves and swept surfaces). Returns the top item id, or None
+        if any face uses a surface/curve not yet emitted kernel-free (the shape is
+        skipped wholesale, never partially emitted).
+
+        ``transform`` is an optional row-major flat 16-tuple 4x4 instance placement
+        (rotation + translation) — baked into the emitted points/directions so an
+        instanced solid lands at its world pose. ``translate`` is the legacy
+        translation-only shorthand; ``transform`` wins when both are given."""
         import ada.geom.surfaces as su
 
+        if transform is not None:
+            self._tf = tuple(float(x) for x in transform)
+        elif any(translate):
+            tx, ty, tz = translate
+            self._tf = (
+                1.0,
+                0.0,
+                0.0,
+                float(tx),
+                0.0,
+                1.0,
+                0.0,
+                float(ty),
+                0.0,
+                0.0,
+                1.0,
+                float(tz),
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+            )
+        else:
+            self._tf = None
         self._t = (float(translate[0]), float(translate[1]), float(translate[2]))
         self._vcache: dict = {}  # coord -> VERTEX_POINT id (shared across all faces)
         self._ecache: dict = {}  # topological-edge key -> (EDGE_CURVE id, v0, v1) for edge sharing
         nm = (name or "shape").replace("'", "''")
 
-        if isinstance(g, su.ClosedShell):
+        # ConnectedFaceSet is what the streaming NGEOM reader yields for a STEP
+        # solid (the shell of a MANIFOLD_SOLID_BREP); structurally identical to a
+        # ClosedShell, so emit it the same way.
+        if isinstance(g, (su.ClosedShell, su.ConnectedFaceSet)):
             faces = self._brep_faces(g.cfs_faces)
             if faces is None:
                 return None
@@ -495,7 +616,7 @@ class Ap242StreamWriter:
             if not shell_ids:
                 return None
             item = self._w(f"SHELL_BASED_SURFACE_MODEL('{nm}',{self._refs(shell_ids)})")
-        elif isinstance(g, su.AdvancedFace):
+        elif isinstance(g, (su.AdvancedFace, su.FaceSurface)):
             faces = self._brep_faces([g])
             if faces is None:
                 return None
@@ -524,7 +645,10 @@ class Ap242StreamWriter:
     def _brep_face(self, face):
         import ada.geom.surfaces as su
 
-        if not isinstance(face, su.AdvancedFace):
+        # AdvancedFace and FaceSurface are structurally identical (same
+        # face_surface / bounds / same_sense); the streaming NGEOM reader yields
+        # FaceSurface, OCC-read shapes yield AdvancedFace — accept both.
+        if not isinstance(face, (su.AdvancedFace, su.FaceSurface)):
             return None
         surf = self._brep_surface(face.face_surface)
         if surf is None:
@@ -542,6 +666,25 @@ class Ap242StreamWriter:
 
     def _brep_surface(self, s):
         import ada.geom.surfaces as su
+
+        # Free-form / swept surfaces have no (or a null) AXIS2_PLACEMENT — dispatch
+        # before the placement-based analytic primitives below (rational subclasses
+        # base; swept surfaces carry their profile curve + sweep axis instead).
+        if isinstance(s, su.BSplineSurfaceWithKnots):
+            return self._bspline_surface(s)
+        if isinstance(s, su.SurfaceOfLinearExtrusion):
+            crv = self._geom_curve(s.swept_curve)
+            if crv is None:
+                return None
+            vec = self._w(f"VECTOR('',#{self._dir(s.extrusion_direction)},{self._r(s.depth or 1.0)})")
+            return self._w(f"SURFACE_OF_LINEAR_EXTRUSION('',#{crv},#{vec})")
+        if isinstance(s, su.SurfaceOfRevolution):
+            crv = self._geom_curve(s.swept_curve)
+            if crv is None:
+                return None
+            ap = s.axis_position
+            ax1 = self._axis1(self._tp(ap.location), _axis_or(ap.axis, (0, 0, 1)))
+            return self._w(f"SURFACE_OF_REVOLUTION('',#{crv},#{ax1})")
 
         p = getattr(s, "position", None)
         if p is None:
@@ -643,8 +786,15 @@ class Ap242StreamWriter:
                     ec.same_sense,
                 )
 
+        elif isinstance(g, cu.BSplineCurveWithKnots):
+            # Free-form trimming edge — emit the basis B-spline curve (rational
+            # subclass handled inside). EDGE_CURVE orientation follows ec.same_sense.
+            def emit(v0, p0, v1, p1):
+                crv = self._bspline_curve(g)
+                return self._w(f"EDGE_CURVE('',#{v0},#{v1},#{crv},{'.T.' if ec.same_sense else '.F.'})")
+
         else:
-            return None  # B-spline edge -> unsupported
+            return None  # unsupported edge geometry
 
         # Key by the EdgeCurve OBJECT identity: a truly-shared edge resolves to the
         # same ec object in both adjacent faces (reader memoisation), while the two
@@ -685,8 +835,34 @@ class Ap242StreamWriter:
         return vid
 
     def _tp(self, p):
+        # Active instance placement: full 4x4 affine (row-major flat 16-tuple) when
+        # an instance carries rotation, else the legacy translate-only offset. Pure
+        # Python (no numpy) so the streaming writer still runs in the slim worker.
+        m = getattr(self, "_tf", None)
+        x, y, z = float(p[0]), float(p[1]), float(p[2])
+        if m is not None:
+            return (
+                m[0] * x + m[1] * y + m[2] * z + m[3],
+                m[4] * x + m[5] * y + m[6] * z + m[7],
+                m[8] * x + m[9] * y + m[10] * z + m[11],
+            )
         t = getattr(self, "_t", (0.0, 0.0, 0.0))
-        return (float(p[0]) + t[0], float(p[1]) + t[1], float(p[2]) + t[2])
+        return (x + t[0], y + t[1], z + t[2])
+
+    def _td(self, v):
+        """Rotate a direction by the active instance placement's rotation block
+        (no translation), renormalised. Identity when no 4x4 transform is set."""
+        m = getattr(self, "_tf", None)
+        if m is None:
+            return (float(v[0]), float(v[1]), float(v[2]))
+        x, y, z = float(v[0]), float(v[1]), float(v[2])
+        rx = m[0] * x + m[1] * y + m[2] * z
+        ry = m[4] * x + m[5] * y + m[6] * z
+        rz = m[8] * x + m[9] * y + m[10] * z
+        n = math.sqrt(rx * rx + ry * ry + rz * rz)
+        if n == 0.0:
+            return (x, y, z)
+        return (rx / n, ry / n, rz / n)
 
     # -- loop / face construction ------------------------------------------- #
     def _build_loop(self, segs, is_outer, to3d_base, to3d_top, normal, xdir):

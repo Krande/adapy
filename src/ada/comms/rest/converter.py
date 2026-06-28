@@ -1728,6 +1728,85 @@ def _via_glb_to_trimesh(
     return out.getvalue()
 
 
+def _via_step_stream_to_step(
+    src_path: pathlib.Path,
+    on_progress: ProgressFn,
+) -> pathlib.Path:
+    """STEP → STEP (AP242) via the per-solid NGEOM stream — **no OCC**.
+
+    The native adacpp NGEOM reader (pure-Python stream reader as a drop-in
+    fallback) yields one analytic ``ada.geom.Geometry`` per solid — full B-rep
+    incl. B-spline surfaces/curves and swept surfaces, plus colour, world
+    placement and name — and each is hand-authored straight to STEP Part-21 by
+    the kernel-free :class:`Ap242StreamWriter`. Peak memory is O(one solid), so
+    the multi-GB assemblies that OOM/timed out through ``ada.from_step`` →
+    ``to_stp`` now stream through. No tessellation, no OCC anywhere in the path.
+    """
+    from ada.cadit.step.write.stream_step_to_step import stream_step_to_step
+    from ada.config import logger
+
+    out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
+    stats = stream_step_to_step(src_path, out_path, on_progress=on_progress)
+    logger.info("stream STEP->STEP: %s", stats)
+    return out_path
+
+
+def _via_step_stream_to_mesh(
+    src_path: pathlib.Path,
+    source_ext: str,
+    target_ext: str,
+    on_progress: ProgressFn,
+    *,
+    step_glb_pipeline: str | None = None,
+) -> bytes:
+    """STEP → mesh container (``.obj`` / ``.stl``) **without building an ada
+    Assembly**.
+
+    Multi-GB CAD STEP assemblies OOM-kill / time out through the full-OCC
+    ``ada.from_step`` + ``to_trimesh_scene`` path (the same reason ``.stp → glb``
+    routes around it). Mesh-only targets carry no analytic B-rep, so the
+    tessellated GLB the streaming converter already produces — adacpp native
+    reader + libtess2, memory-bounded, never holding the whole model — is a
+    faithful intermediate: trimesh just transcodes those triangles to OBJ/STL.
+    Same geometry the viewer shows, none of the OCC parse cost.
+    """
+    # Stream to a temporary GLB first (bounded memory, native reader). _via_ada
+    # returns the GLB as a Path on the streaming branch (ownership ours) or as
+    # bytes on the small-file OCC fallback; normalise to bytes either way.
+    glb = _via_ada(
+        src_path,
+        source_ext,
+        "glb",
+        lambda msg, frac: on_progress(msg, 0.05 + 0.70 * float(frac)),
+        step_glb_pipeline=step_glb_pipeline,
+    )
+    if isinstance(glb, pathlib.Path):
+        try:
+            glb_bytes = glb.read_bytes()
+        finally:
+            try:
+                glb.unlink()
+            except OSError:
+                pass
+    else:
+        glb_bytes = glb
+
+    on_progress("exporting", 0.85)
+    import trimesh
+
+    scene = trimesh.load(io.BytesIO(glb_bytes), file_type="glb")
+    if not isinstance(scene, trimesh.Scene):
+        wrapped = trimesh.Scene()
+        wrapped.add_geometry(scene)
+        scene = wrapped
+    _strip_unexportable_for(scene, target_ext)
+    _seed_empty_scene(scene)
+    out = io.BytesIO()
+    scene.export(file_obj=out, file_type=target_ext.lstrip("."))
+    on_progress("ready", 1.0)
+    return out.getvalue()
+
+
 def convert(
     src_path: pathlib.Path,
     source_key: str,
@@ -2125,6 +2204,29 @@ def _register_fea_result_to_glb() -> None:
         ConverterRegistry.register(ext, "glb", _h)
 
 
+def _register_step_stream_exports() -> None:
+    # STEP/STP exports that bypass the full-OCC Assembly (which OOM-kills / times
+    # out on multi-GB CAD assemblies). Registered AFTER _register_ada_loadable so
+    # these OVERRIDE the generic OCC registrations for STEP sources only; all other
+    # ada-loadable sources keep their OCC paths.
+    #
+    #  • obj/stl → memory-bounded native streaming GLB, then trimesh transcode.
+    #  • step    → per-solid native NGEOM stream straight into the AP242 writer
+    #              (analytic B-rep incl. B-splines; no OCC, no tessellation).
+    for ext in (".step", ".stp"):
+        for tgt in ("stl", "obj"):
+
+            def _h(src, on_progress, *, _ext=ext, _tgt=tgt, step_glb_pipeline=None, **_kw):
+                return _via_step_stream_to_mesh(src, _ext, f".{_tgt}", on_progress, step_glb_pipeline=step_glb_pipeline)
+
+            ConverterRegistry.register(ext, tgt, _h)
+
+        def _h_step(src, on_progress, *, _ext=ext, **_kw):
+            return _via_step_stream_to_step(src, on_progress)
+
+        ConverterRegistry.register(ext, "step", _h_step)
+
+
 def _register_glb_to_mesh() -> None:
     # GLB → STL / OBJ via pure trimesh. No ada round-trip needed and
     # no ada Assembly is materialised — the user came in with a mesh
@@ -2183,6 +2285,7 @@ _register_trimesh_to_glb()
 _register_ada_loadable()
 _register_fea_result_to_glb()
 _register_glb_to_mesh()
+_register_step_stream_exports()
 
 
 # Allowed target formats — populated from the registry once every
