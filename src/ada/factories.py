@@ -19,11 +19,14 @@ from ada.base.units import Units
 from ada.config import logger
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     import ifcopenshell
 
     from ada.cad import CadConfig
     from ada.fem.formats.sesam.results.read_cc import CCData
     from ada.fem.results.common import FEAResult
+    from ada.geom import Geometry
 
 
 def from_pickle(pickle_file: str | os.PathLike) -> Assembly:
@@ -93,6 +96,50 @@ def from_step(
         product_tree=product_tree,
     )
     return a
+
+
+def iter_from_step(
+    step_file: str | pathlib.Path,
+    *,
+    reader: Literal["auto", "native", "stream", "tolerant"] = "auto",
+) -> Iterator[Geometry]:
+    """Stream a STEP file solid-by-solid as ``ada.geom.Geometry`` — bounded memory,
+    one solid resident at a time. The streaming counterpart to :func:`from_step`
+    (which materialises the whole Assembly): the per-solid foundation the kernel-free
+    exporters (STEP→IFC/STEP/OBJ/STL) and the cross-format validation pass build on,
+    so a multi-GB assembly never has to fit in memory.
+
+    Each yielded ``Geometry`` carries ``id``, ``geometry`` (analytic ``ada.geom``),
+    ``color``, ``transforms`` (per-instance world matrices) and ``instance_paths``
+    (the STEP product/assembly breadcrumb, root-first).
+
+    ``reader`` selects the parse path:
+
+    * ``"auto"`` (default) — the native adacpp C++ NGEOM parser when it decodes
+      cleanly, else the pure-Python stream reader for that file (lossless fallback).
+    * ``"native"`` — force the adacpp C++ parser (raises if it is unavailable).
+    * ``"stream"`` — the pure-Python streaming parser (bottom-up, constant memory).
+    * ``"tolerant"`` — pure-Python, skipping unsupported solids instead of raising.
+    """
+    if reader == "auto":
+        from ada.cadit.step.write._solid_source import read_solids
+
+        yield from read_solids(step_file)
+    elif reader == "native":
+        from ada.cadit.step.read.native_reader import (
+            native_adacpp_step_available,
+            native_stream_read_step,
+        )
+
+        if not native_adacpp_step_available():
+            raise RuntimeError("reader='native' requires the adacpp stream_step_to_ngeom entry point")
+        yield from native_stream_read_step(step_file)
+    elif reader in ("stream", "tolerant"):
+        from ada.cadit.step.read.stream_reader import stream_read_step
+
+        yield from stream_read_step(step_file, local_pool=(reader == "stream"), tolerant=(reader == "tolerant"))
+    else:
+        raise ValueError(f"unknown reader {reader!r}; expected auto|native|stream|tolerant")
 
 
 def from_acis(

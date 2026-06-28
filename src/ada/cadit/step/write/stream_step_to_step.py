@@ -70,8 +70,8 @@ def stream_step_to_step(
     """
     import numpy as np
 
-    from ada.cadit.step.write._solid_source import read_solids
     from ada.cadit.step.write.ap242_stream import Ap242StreamWriter
+    from ada.factories import iter_from_step
 
     prog = on_progress or (lambda *_: None)
     emitted = skipped = total = 0
@@ -81,9 +81,10 @@ def stream_step_to_step(
     with open(out_path, "w") as fh:
         writer = Ap242StreamWriter(fh, schema=schema, assembly=True)
         with writer:
-            # read_solids prefers the fast native reader and transparently falls back
-            # to pure-Python when the native NGEOM hydrate can't decode the file.
-            for geom in read_solids(src_path):
+            # iter_from_step (reader="auto") prefers the fast native reader and
+            # transparently falls back to pure-Python when the native NGEOM hydrate
+            # can't decode the file.
+            for geom in iter_from_step(src_path):
                 total += 1
                 gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
                 color = geom.color.rgb if geom.color is not None else None

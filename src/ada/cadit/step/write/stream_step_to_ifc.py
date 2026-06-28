@@ -344,7 +344,7 @@ def stream_step_to_ifc(
     import ada
     from ada.cadit.ifc.utils import create_guid
     from ada.cadit.ifc.write.write_ifc import IfcWriter
-    from ada.cadit.step.write._solid_source import read_solids
+    from ada.factories import iter_from_step
 
     prog = on_progress or (lambda *_: None)
     prog("writing-ifc", 0.1)
@@ -408,7 +408,7 @@ def stream_step_to_ifc(
         # Drain `lines` to disk as soon as it grows large — even within one solid —
         # so peak RSS stays bounded regardless of any single solid's complexity.
         emitter._flush = lambda buf: (out.write("\n".join(buf) + "\n"), buf.clear())
-        for geom in read_solids(src_path):
+        for geom in iter_from_step(src_path):
             total += 1
             gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
             color = geom.color.rgb if geom.color is not None else None

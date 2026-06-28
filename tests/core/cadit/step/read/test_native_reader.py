@@ -73,3 +73,22 @@ def test_read_step_file_native_builds_assembly():
     names = {s.name for s in shapes}
     assert len(shapes) == 5, "one Shape per product"
     assert {"bolt", "nut", "plate", "rod", "l-bracket"} <= names
+
+
+def test_iter_from_step_factory():
+    """The public streaming factory ``ada.iter_from_step`` yields the same per-solid
+    Geometry stream as the underlying readers, lazily (a generator — bounded memory)."""
+    import types
+
+    gen = ada.iter_from_step(_AS1, reader="native")
+    assert isinstance(gen, types.GeneratorType)  # lazy: nothing parsed until iterated
+
+    native = list(ada.iter_from_step(_AS1, reader="native"))
+    auto = list(ada.iter_from_step(_AS1, reader="auto"))
+    assert len(native) == len(auto) == 5
+    assert [str(g.id) for g in auto] == [str(g.id) for g in native]
+    assert all(g.geometry is not None for g in auto)
+
+    # parity with the underlying native reader it wraps
+    direct = list(native_stream_read_step(_AS1))
+    assert [str(g.id) for g in native] == [str(g.id) for g in direct]

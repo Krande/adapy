@@ -41,7 +41,7 @@ def stream_step_to_mesh(
         raise RuntimeError("active CAD backend has no libtess2 tessellate_stream; cannot stream mesh")
 
     from ada.cadit.step.read.stream_reader import detect_step_length_unit_scale
-    from ada.cadit.step.write._solid_source import read_solids
+    from ada.factories import iter_from_step
 
     emitted = total = ntri = 0
     prog("tessellating", 0.1)
@@ -86,7 +86,7 @@ def stream_step_to_mesh(
         with open(out_path, "wb") as fh:
             fh.write(b"\0" * 80)
             fh.write(struct.pack("<I", 0))  # facet count — patched at the end
-            for total, geom in enumerate(read_solids(src_path), start=1):
+            for total, geom in enumerate(iter_from_step(src_path), start=1):
                 any_ok = False
                 for tris in _tris(geom):
                     any_ok = True
@@ -111,7 +111,7 @@ def stream_step_to_mesh(
     else:  # obj
         with open(out_path, "w") as fh:
             voff = 1
-            for total, geom in enumerate(read_solids(src_path), start=1):
+            for total, geom in enumerate(iter_from_step(src_path), start=1):
                 any_ok = False
                 for tris in _tris(geom):
                     any_ok = True
