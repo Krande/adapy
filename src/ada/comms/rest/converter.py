@@ -1751,6 +1751,29 @@ def _via_step_stream_to_step(
     return out_path
 
 
+def _via_step_stream_to_ifc(
+    src_path: pathlib.Path,
+    on_progress: ProgressFn,
+) -> pathlib.Path:
+    """STEP → IFC4 via the per-solid NGEOM stream — **no OCC**.
+
+    Same architecture as :func:`_via_step_stream_to_step`: the native NGEOM
+    reader yields one analytic ``ada.geom.Geometry`` per solid (full B-rep incl.
+    B-spline surfaces/curves and swept surfaces, plus colour, world placement and
+    name), and each is hand-authored straight to an ``IfcAdvancedBrep`` /
+    ``IfcShellBasedSurfaceModel``. The ifcopenshell.file holds only the spatial
+    preamble, so peak memory is O(one solid) — the multi-GB assemblies that
+    OOM/timed out through ``ada.from_step`` → ``to_ifc`` now stream through.
+    """
+    from ada.cadit.step.write.stream_step_to_ifc import stream_step_to_ifc
+    from ada.config import logger
+
+    out_path = pathlib.Path(tempfile.mkstemp(suffix=".ifc")[1])
+    stats = stream_step_to_ifc(src_path, out_path, on_progress=on_progress)
+    logger.info("stream STEP->IFC: %s", stats)
+    return out_path
+
+
 def _via_step_stream_to_mesh(
     src_path: pathlib.Path,
     source_ext: str,
@@ -2213,6 +2236,8 @@ def _register_step_stream_exports() -> None:
     #  • obj/stl → memory-bounded native streaming GLB, then trimesh transcode.
     #  • step    → per-solid native NGEOM stream straight into the AP242 writer
     #              (analytic B-rep incl. B-splines; no OCC, no tessellation).
+    #  • ifc     → per-solid native NGEOM stream straight into the IFC4
+    #              advanced-B-rep writer (analytic; no OCC, no tessellation).
     for ext in (".step", ".stp"):
         for tgt in ("stl", "obj"):
 
@@ -2225,6 +2250,11 @@ def _register_step_stream_exports() -> None:
             return _via_step_stream_to_step(src, on_progress)
 
         ConverterRegistry.register(ext, "step", _h_step)
+
+        def _h_ifc(src, on_progress, *, _ext=ext, **_kw):
+            return _via_step_stream_to_ifc(src, on_progress)
+
+        ConverterRegistry.register(ext, "ifc", _h_ifc)
 
 
 def _register_glb_to_mesh() -> None:
