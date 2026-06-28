@@ -21,6 +21,7 @@ skipped (counted in the returned stats).
 
 from __future__ import annotations
 
+import io
 import logging
 import math
 from dataclasses import dataclass, field
@@ -89,6 +90,14 @@ def _unit(a):
     if n == 0.0:
         raise ValueError("cannot normalize a zero-length vector")
     return (a[0] / n, a[1] / n, a[2] / n)
+
+
+def _unit_or(a, default=(0.0, 0.0, 1.0)):
+    """Like :func:`_unit` but returns ``default`` for a zero-length vector instead
+    of raising — used in the B-rep emitters where a degenerate (zero-length) edge in
+    real CAD data must not sink the whole solid."""
+    n = _norm(a)
+    return (a[0] / n, a[1] / n, a[2] / n) if n else default
 
 
 # --------------------------------------------------------------------------- #
@@ -233,7 +242,7 @@ class Ap242StreamWriter:
         return self._w(f"VERTEX_POINT('',#{pt_id})")
 
     def _line_edge(self, v0, p0, v1, p1):
-        d = _unit(_sub(p1, p0))
+        d = _unit_or(_sub(p1, p0))
         dir_id = self._dir(d)
         vec_id = self._w(f"VECTOR('',#{dir_id},1.)")
         p0_id = self._pt(p0)
@@ -716,10 +725,26 @@ class Ap242StreamWriter:
             raise RuntimeError("add_solid_instances requires assembly=True")
         self._tf = None  # geometry is emitted in local coords; placement rides the NAUO
         nm = (name or "shape").replace("'", "''")
-        item = self._emit_brep_geometry(g, nm, color)
-        if item is None:
+        self._identity_axis()  # pre-create on the real fh so a rolled-back solid can't strand it
+
+        # Transactional per-solid emission: buffer the solid's geometry + product so a
+        # malformed solid (e.g. a degenerate edge) is skipped wholesale rather than
+        # leaving a half-written entity that corrupts the whole streamed file.
+        real_fh, saved_id = self.fh, self._id
+        self.fh = io.StringIO()
+        try:
+            item = self._emit_brep_geometry(g, nm, color)
+            if item is None:
+                self.fh, self._id = real_fh, saved_id
+                return 0
+            pd, sr = self._component_product(item, nm)
+        except Exception as exc:  # noqa: BLE001 - one bad solid shouldn't sink the file
+            self.fh, self._id = real_fh, saved_id  # discard the partial buffer + reclaim ids
+            logger.warning("ap242 add_solid_instances skipped %r: %s", name, exc)
             return 0
-        pd, sr = self._component_product(item, nm)
+        buffered = self.fh.getvalue()
+        self.fh = real_fh
+        real_fh.write(buffered)
         for tf, parent_path in instances:
             parent_rep = self._register_asm_path(parent_path)
             self._instances.append((pd, sr, nm, parent_rep, tuple(tf) if tf is not None else None))

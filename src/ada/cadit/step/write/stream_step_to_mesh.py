@@ -58,8 +58,13 @@ def stream_step_to_mesh(
     emitted = skipped = total = ntri = 0
     prog("tessellating", 0.1)
 
+    # Cap on triangles materialised at once, so a single giant solid (the crane has
+    # multi-million-triangle solids) can't spike RSS: we emit its mesh in batches.
+    TRI_BATCH = 1_000_000
+
     def _tris(geom):
-        """Yield (M,3,3) world-space triangle arrays for every instance of one solid."""
+        """Yield (n,3,3) float32 world-space triangle batches (<= TRI_BATCH each) for
+        every instance of one solid — keeps peak memory flat regardless of solid size."""
         nonlocal skipped
         gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
         gid = str(geom.id) if geom.id not in (None, "") else "0"
@@ -74,15 +79,16 @@ def stream_step_to_mesh(
         if pos is None or idx is None or len(idx) == 0:
             skipped += 1
             return
-        pos = np.ascontiguousarray(pos, dtype=np.float64).reshape(-1, 3)
+        pos = np.ascontiguousarray(pos, dtype=np.float32).reshape(-1, 3)
         idx = np.ascontiguousarray(idx, dtype=np.uint32).reshape(-1, 3)
         for m in geom.transforms if geom.transforms else [None]:
             if m is None:
                 world = pos
             else:
-                M = np.asarray(m, dtype=np.float64)
+                M = np.asarray(m, dtype=np.float32)
                 world = pos @ M[:3, :3].T + M[:3, 3]
-            yield world[idx]  # (M,3,3)
+            for s in range(0, len(idx), TRI_BATCH):
+                yield world[idx[s : s + TRI_BATCH]]  # (n,3,3) float32
 
     if fmt == "stl":
         with open(out_path, "wb") as fh:

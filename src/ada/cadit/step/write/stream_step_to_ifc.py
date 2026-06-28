@@ -313,6 +313,7 @@ def _sub(a, b):
 
 
 def _unit(a):
+    # tolerant: a degenerate (zero-length) edge in real CAD must not sink the solid
     n = math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2])
     return (a[0] / n, a[1] / n, a[2] / n) if n else (0.0, 0.0, 1.0)
 
@@ -421,31 +422,38 @@ def stream_step_to_ifc(
             for k, m in enumerate(mats):
                 name = base if k == 0 else f"{base}/{k + 1}"
                 tf = None if m is None else [float(v) for v in np.asarray(m).reshape(-1)]
-                brep, rep_type = emitter.solid(lines, gi, transform=tf)
-                if brep is None:
-                    continue
-                any_ok = True
-                rep = emitter._emit(lines, f"IfcShapeRepresentation(#{body_ctx_id},'Body','{rep_type}',(#{brep}))")
-                pds = emitter._emit(lines, f"IfcProductDefinitionShape($,$,(#{rep}))")
-                nm = "'" + name.replace("'", "''") + "'"
-                pid = emitter._emit(
-                    lines,
-                    f"IfcBuildingElementProxy('{create_guid()}',#{owner_id},{nm},$,$,#{ident_place},#{pds},$,$)",
-                )
-                # nest: aggregate under the leaf's parent assembly node, else storey
-                parent_rep = _register_path(list(paths[k][:-1]) if (paths and k < len(paths) and paths[k]) else None)
-                (node_children[parent_rep] if parent_rep is not None else root_members).append(("leaf", pid))
-                if color is not None:
-                    cid = emitter._emit(lines, f"IfcColourRgb($,{_r(color[0])},{_r(color[1])},{_r(color[2])})")
-                    sh = emitter._emit(lines, f"IfcSurfaceStyleShading(#{cid},0.)")
-                    st = emitter._emit(lines, f"IfcSurfaceStyle($,.BOTH.,(#{sh}))")
-                    emitter._emit(lines, f"IfcStyledItem(#{brep},(#{st}),$)")
+                try:
+                    # IFC entities are emitted children-before-parents, so a mid-solid
+                    # failure leaves only orphan (unreferenced) lines — harmless SPF.
+                    brep, rep_type = emitter.solid(lines, gi, transform=tf)
+                    if brep is None:
+                        continue
+                    rep = emitter._emit(lines, f"IfcShapeRepresentation(#{body_ctx_id},'Body','{rep_type}',(#{brep}))")
+                    pds = emitter._emit(lines, f"IfcProductDefinitionShape($,$,(#{rep}))")
+                    nm = "'" + name.replace("'", "''") + "'"
+                    pid = emitter._emit(
+                        lines,
+                        f"IfcBuildingElementProxy('{create_guid()}',#{owner_id},{nm},$,$,#{ident_place},#{pds},$,$)",
+                    )
+                    # nest: aggregate under the leaf's parent assembly node, else storey
+                    pp = list(paths[k][:-1]) if (paths and k < len(paths) and paths[k]) else None
+                    parent_rep = _register_path(pp)
+                    (node_children[parent_rep] if parent_rep is not None else root_members).append(("leaf", pid))
+                    if color is not None:
+                        cid = emitter._emit(lines, f"IfcColourRgb($,{_r(color[0])},{_r(color[1])},{_r(color[2])})")
+                        sh = emitter._emit(lines, f"IfcSurfaceStyleShading(#{cid},0.)")
+                        st = emitter._emit(lines, f"IfcSurfaceStyle($,.BOTH.,(#{sh}))")
+                        emitter._emit(lines, f"IfcStyledItem(#{brep},(#{st}),$)")
+                    any_ok = True
+                except Exception as exc:  # noqa: BLE001 - one bad solid shouldn't sink the file
+                    logger.warning("stream_step_to_ifc skipped %r: %s", name, exc)
             if any_ok:
                 emitted += 1
             else:
                 skipped += 1
                 reasons[_unsupported_kind(gi)] += 1
-            if total % 500 == 0:
+            # Flush by buffer size (not solid count) so a few huge solids can't spike RSS.
+            if len(lines) >= 20000:
                 out.write("\n".join(lines) + "\n")
                 lines.clear()
                 prog(f"writing-ifc {total}", 0.1 + 0.8 * min(0.99, total / 10000.0))
