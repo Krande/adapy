@@ -1627,6 +1627,19 @@ async def _run() -> None:
     _WORKER_IMAGE_TAG = image_tag or None
     worker_id = os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}"
     capabilities = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
+    # An extra-capability pool (e.g. weld-gen) builds FROM / runs an independent adapy and still
+    # advertises the full base converter matrix, so it wins base conversion jobs (gxml->glb, ...)
+    # it has no business running — and when that image is stale it produces outdated output (e.g.
+    # non-manifold meshes). ADA_WORKER_BASE_CONVERSIONS=false makes this worker advertise ZERO base
+    # conversions + base source-ext handling, leaving only its capability-routed utilities intact.
+    # The clean, version-independent way to scope an extra pool (vs the ADA_WORKER_EXT_ALLOW
+    # allowlist, which can only narrow to a positive set of source extensions, not to none).
+    base_conversions_enabled = os.environ.get("ADA_WORKER_BASE_CONVERSIONS", "true").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
     # Source extensions this worker can handle. Pulled from adapy's
     # stream-reader registry — whatever plug-ins ran before this point
     # (e.g. a capability worker's entrypoint that registered an extra
@@ -1638,6 +1651,10 @@ async def _run() -> None:
     from ada.fem.results.artefacts import fea_artefact_extensions
 
     registered_exts = {e.lower() for e in fea_artefact_extensions()}
+    if not base_conversions_enabled:
+        # Pool scoped to its own capability only: don't claim any base source-ext
+        # handling (FEA bake) — the ext allowlist below is then moot.
+        registered_exts = set()
     # Optional per-pod allowlist. Capability (extension-specific) workers
     # build FROM the base image and so inherit its full stream-reader
     # registry — without this gate they'd race the base pool for
@@ -1680,11 +1697,15 @@ async def _run() -> None:
     # message loop so we don't promise something we'd NAK at
     # delivery time. The API merges every live worker's matrix into
     # ``/api/config["conversionMatrix"]`` for the SPA's /convert page.
-    full_matrix = ConverterRegistry.matrix()
-    if ext_allow_set is not None:
-        conversions = [m for m in full_matrix if m["from"] in ext_allow_set]
+    if not base_conversions_enabled:
+        # Scoped pool: advertise no base conversions at all (utilities below still register).
+        conversions: list[dict] = []
     else:
-        conversions = full_matrix
+        full_matrix = ConverterRegistry.matrix()
+        if ext_allow_set is not None:
+            conversions = [m for m in full_matrix if m["from"] in ext_allow_set]
+        else:
+            conversions = full_matrix
     # Truthful capability advertisement: restrict the STEP→GLB engine enum to the engines THIS pool
     # can actually run (a slim/adacpp-less pod won't advertise adacpp-native, etc.). The API unions
     # these across pools for the list and routes engine-pinned jobs to a pool that advertises them.

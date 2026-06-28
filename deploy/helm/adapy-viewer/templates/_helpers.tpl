@@ -166,6 +166,17 @@ spec:
             - name: ADA_WORKER_EXT_ALLOW
               value: {{ . | join "," | quote }}
             {{- end }}
+            {{- if $w.disableBaseConversions }}
+            # Scope this pool to its own capability only: advertise ZERO base
+            # conversions + base source-ext handling, leaving its capability-routed
+            # utility intact (see worker.py ADA_WORKER_BASE_CONVERSIONS). The clean
+            # alternative to ADA_WORKER_EXT_ALLOW for a pool (e.g. weld-gen) that
+            # needs NO base file work at all — an allowlist can only narrow to a
+            # positive set of suffixes, not to none. Takes effect once the pool runs
+            # an adapy image new enough to read this env.
+            - name: ADA_WORKER_BASE_CONVERSIONS
+              value: "false"
+            {{- end }}
             {{- with $w.convertMemLimitMb }}
             # Per-job RSS ceiling (MB) for the conversion subprocess. The worker
             # SIGKILLs a conversion that exceeds this and fails the job cleanly,
