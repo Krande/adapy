@@ -1755,22 +1755,34 @@ def _via_step_stream_to_ifc(
     src_path: pathlib.Path,
     on_progress: ProgressFn,
 ) -> pathlib.Path:
-    """STEP → IFC4 via the per-solid NGEOM stream — **no OCC**.
+    """STEP → IFC4X3_ADD2 advanced B-rep — **no OCC, no ada Assembly**, bounded memory.
 
-    Same architecture as :func:`_via_step_stream_to_step`: the native NGEOM
-    reader yields one analytic ``ada.geom.Geometry`` per solid (full B-rep incl.
-    B-spline surfaces/curves and swept surfaces, plus colour, world placement and
-    name), and each is hand-authored straight to an ``IfcAdvancedBrep`` /
-    ``IfcShellBasedSurfaceModel``. The ifcopenshell.file holds only the spatial
-    preamble, so peak memory is O(one solid) — the multi-GB assemblies that
-    OOM/timed out through ``ada.from_step`` → ``to_ifc`` now stream through.
+    Prefers the fully-native adacpp writer (``stream_step_to_ifc``): the same C++ reader the GLB/mesh
+    paths use resolves each solid's analytic B-rep, emits it as an IfcAdvancedBrep (cones →
+    IfcSurfaceOfRevolution, splines → IfcBSplineSurface, …) and places instances via IfcMappedItem,
+    parallel across the cgroup-aware thread allotment. Lossless (every solid/face/edge analytic) and
+    ifcopenshell-valid. Falls back to the per-solid Python writer (``stream_step_to_ifc``: hand-authors
+    one ``ada.geom.Geometry`` per solid) when adacpp's native IFC entry point is absent. Either way the
+    ifcopenshell.file only ever holds the spatial preamble, so the multi-GB assemblies that OOM/timed
+    out through ``ada.from_step`` → ``to_ifc`` now stream through.
     """
-    from ada.cadit.step.write.stream_step_to_ifc import stream_step_to_ifc
     from ada.config import logger
 
     out_path = pathlib.Path(tempfile.mkstemp(suffix=".ifc")[1])
+    from ada.cadit.step.native_step_to_ifc import native_ifc_available, native_step_to_ifc
+
+    if native_ifc_available():
+        try:
+            stats = native_step_to_ifc(src_path, out_path, on_progress=on_progress)
+            logger.info("native STEP->IFC: %s", stats)
+            return out_path
+        except Exception as exc:  # noqa: BLE001 - degrade to the Python writer
+            logger.warning("native STEP->IFC failed (%s); falling back to per-solid Python", exc)
+
+    from ada.cadit.step.write.stream_step_to_ifc import stream_step_to_ifc
+
     stats = stream_step_to_ifc(src_path, out_path, on_progress=on_progress)
-    logger.info("stream STEP->IFC: %s", stats)
+    logger.info("stream STEP->IFC (python): %s", stats)
     return out_path
 
 

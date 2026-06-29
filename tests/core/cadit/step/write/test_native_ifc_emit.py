@@ -96,6 +96,22 @@ def test_stream_step_to_ifc_file_lossless_and_valid(fixture, tmp_path):
 
 
 @pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_ifc"), reason="no stream_step_to_ifc")
+def test_adapy_native_step_to_ifc_wrapper(tmp_path):
+    """Phase 4: the adapy wrapper ada.cadit.step.native_step_to_ifc (what the converter calls) prefers
+    the native writer, is lossless, and validates."""
+    from ada.cadit.step.native_step_to_ifc import native_ifc_available, native_step_to_ifc
+
+    assert native_ifc_available()
+    out = str(tmp_path / "wrap.ifc")
+    stats = native_step_to_ifc(_fixture_dir() + "Ventilator.stp", out)
+    assert stats["solids_out"] == stats["solids_in"] and stats["faces_dropped"] == 0
+    f = ifcopenshell.open(out)
+    logger = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(f, logger)
+    assert not logger.statements, [str(s.get("message")) for s in logger.statements[:3]]
+
+
+@pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_ifc"), reason="no stream_step_to_ifc")
 @pytest.mark.parametrize("fixture", ["Ventilator.stp", "plate_3_curved.stp"])
 def test_stream_step_to_ifc_parallel_matches_serial(fixture, tmp_path):
     """Phase 3: the parallel writer (num_threads=4, disjoint id blocks) is lossless, has no id-block
