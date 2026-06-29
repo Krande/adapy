@@ -84,6 +84,9 @@ def _ifc_fixture_dir() -> str:
         ("beams/beam-varying-extrusion-paths.ifc", (-0.15, -0.019, -0.2), (0.05, 1.019, 0.4), 2),
         # IfcBlock (CSG primitive -> rectangle extrusion); 2 rotated blocks, ifcopenshell.geom-validated.
         ("box_rotated.ifc", (-1.518, -0.591, 0), (3.082, 3.209, 2.2), 2),
+        # IfcBooleanClippingResult: I-beam clipped by 2 half-spaces (DIFFERENCE) -> BOOLEAN_RESULT,
+        # evaluated via Manifold on re-read; err 0.0 vs ifcopenshell.geom.
+        ("half_space_beam.ifc", (0, -0.05, -0.1), (3.5, 0.05, 0.1), 1),
     ],
 )
 def test_native_ifc_extrusion_to_step(fixture, exp_min, exp_max, n_solids, tmp_path):
