@@ -7,7 +7,7 @@ content (confirmed: a 5-solid assembly emits ~1.5 KB of scaffold, zero structure
 
 So this writer does NOT materialise the whole model the way ``ada.from_step`` →
 ``to_genie_xml`` did (the full-OCC / pure-Python-tokenizer load that OOM'd / timed
-out the multi-GB assemblies — e.g. the Munin crane — for an *empty* output). It
+out the multi-GB assemblies — for an *empty* output). It
 stream-PARSES the STEP one solid at a time to validate that it reads (bounded
 memory, native C++ parser, **no** per-solid ada.geom hydrate since the geometry is
 discarded), then emits the scaffold.

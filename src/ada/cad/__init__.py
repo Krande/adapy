@@ -952,7 +952,22 @@ class AdacppBackend:
             raise NotImplementedError("adacpp.cad.boolean is not available in this build")
         return fn(op.value, a, b)
 
+    def _occ_fallback_for(self, shape: ShapeHandle):
+        # A raw pyOCC TopoDS shape (e.g. produced by a STEP/OCC fallback path while adacpp is the active
+        # backend) belongs to a different OCC instance than adacpp's embedded one and can't be passed to
+        # adacpp.cad.* — return the OCC backend to route it through OCC instead. None => an adacpp shape.
+        if not type(shape).__module__.startswith("OCC."):
+            return None
+        if getattr(self, "_occ_bk", None) is None:
+            from ada.occ.backend import OccBackend
+
+            self._occ_bk = OccBackend()
+        return self._occ_bk
+
     def transform(self, shape: ShapeHandle, matrix: "np.ndarray", copy: bool = True) -> ShapeHandle:
+        occ = self._occ_fallback_for(shape)
+        if occ is not None:
+            return occ.transform(shape, matrix, copy)
         fn = getattr(self._cad, "transform", None)
         if fn is None:
             raise NotImplementedError("adacpp.cad.transform is not available in this build")
@@ -992,12 +1007,18 @@ class AdacppBackend:
         return fn(shape)
 
     def shape_type(self, shape: ShapeHandle) -> str:
+        occ = self._occ_fallback_for(shape)
+        if occ is not None:
+            return occ.shape_type(shape)
         fn = getattr(self._cad, "shape_type", None)
         if fn is None:
             raise NotImplementedError("adacpp.cad.shape_type is not available in this build")
         return fn(shape)
 
     def face_surface_type(self, shape: ShapeHandle) -> str:
+        occ = self._occ_fallback_for(shape)
+        if occ is not None:
+            return occ.face_surface_type(shape)
         fn = getattr(self._cad, "face_surface_type", None)
         if fn is None:
             raise NotImplementedError("adacpp.cad.face_surface_type is not available in this build")
@@ -1019,6 +1040,9 @@ class AdacppBackend:
         """Decompose a B-spline face handle into an ada.geom AdvancedFace
         (surface + FaceBound/EdgeLoop/OrientedEdge with supplied pcurves) —
         reconstructed from adacpp's AdvancedFaceData. Inverse of build()."""
+        occ = self._occ_fallback_for(shape)
+        if occ is not None:
+            return occ.face_to_advanced_face(shape)
         import ada.geom.curves as cu
         import ada.geom.surfaces as su
         from ada.geom.points import Point
@@ -1070,6 +1094,9 @@ class AdacppBackend:
         return su.AdvancedFace(bounds=bounds, face_surface=surface)
 
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        occ = self._occ_fallback_for(shape)
+        if occ is not None:
+            return occ.faces(shape)
         fn = getattr(self._cad, "faces", None)
         if fn is None:
             raise NotImplementedError("adacpp.cad.faces is not available in this build")
@@ -1197,6 +1224,9 @@ class AdacppBackend:
         return Point(*fn(shape))
 
     def shells(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        occ = self._occ_fallback_for(shape)
+        if occ is not None:
+            return occ.shells(shape)
         fn = getattr(self._cad, "shells", None)
         if fn is None:
             raise NotImplementedError("adacpp.cad.shells is not available in this build")
