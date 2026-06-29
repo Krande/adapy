@@ -960,7 +960,13 @@ class SinFile:
         out[:, 1:] = src.gather_f32(word_idx).reshape(nz.size, n_data)
         return out
 
-    def iter_records(self, name: str, *, where_first_word: int | None = None) -> Iterator[tuple[float, ...]]:
+    def iter_records(
+        self,
+        name: str,
+        *,
+        where_first_word: int | None = None,
+        where_second_word: set[int] | None = None,
+    ) -> Iterator[tuple[float, ...]]:
         """Yield one tuple of float32 values per populated record (the
         SIF "data" fields).
 
@@ -1005,6 +1011,12 @@ class SinFile:
                 # skip mismatches before paying for the full unpack.
                 first = int(src.f32(data_byte))
                 if first != where_first_word:
+                    continue
+            if where_second_word is not None:
+                # Same cheap pre-filter on the second data word (e.g. IELNO
+                # for RVFORCES) — skip records for elements the caller does
+                # not need before paying for the full per-record unpack.
+                if n_data < 2 or int(src.f32(data_byte + 4)) not in where_second_word:
                     continue
             yield struct.unpack(f"<{n_data}f", src.read(data_byte, n_data * 4))
 
