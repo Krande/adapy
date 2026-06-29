@@ -1504,6 +1504,9 @@ async def _process_one(
             return
 
         await queue.update(job_id, stage="uploading", progress=0.95)
+        # NOTE: the native STEP->ifc/step/mesh paths used here come from the adacpp overlay
+        # (deploy/Dockerfile.worker bakes the ADACPP_BRANCH HEAD at image-build time — it is NOT
+        # live-tracked), so a worker fix in adacpp needs a fresh full worker build to ship.
         # Gzip text-format outputs (IFC, Genie XML); GLB is binary geometry
         # that doesn't compress meaningfully and is what the in-browser
         # viewer fetches on the hot path.
