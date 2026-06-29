@@ -1514,7 +1514,15 @@ async def _process_one(
         # than its gzip, which is brutal on mobile/cellular. (The on-disk GLB is
         # still uncompressed; this is transport compression, transparent to the
         # GLTF loader. Whole-file load only — gzip-at-rest is not Range-safe.)
-        derived_encoding = "gzip" if job.target_format in {"ifc", "xml", "glb", "gltf"} else None
+        # OBJ / STL / STEP exports are also gzip-at-rest: the native STEP→mesh writer
+        # emits unsimplified geometry (the crane obj is ~7.7 GB raw, 73 M tris), and
+        # storing it raw made the UPLOAD ~57% of that job's wall time. obj/step are
+        # ASCII (compress dramatically); binary STL less so but still a net win. These
+        # are whole-file export downloads (never Range-fetched, unlike FEA field blobs
+        # which must stay raw — see fea_field_blob_range), so gzip-at-rest is safe.
+        derived_encoding = (
+            "gzip" if job.target_format in {"ifc", "xml", "glb", "gltf", "obj", "stl", "step", "stp"} else None
+        )
         # Optional GLB compression (gltfpack / meshopt + quantization), gated
         # by the per-job glb_compression option (or the ADA_GLB_COMPRESSION
         # global default). Post-process step so it covers every GLB-producing
