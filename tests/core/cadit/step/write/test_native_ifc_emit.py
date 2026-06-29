@@ -77,6 +77,24 @@ def _wrap(brep_lines: str, brep_id: str, schema: str) -> str:
     )
 
 
+@pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_ifc"), reason="no stream_step_to_ifc")
+@pytest.mark.parametrize("fixture", ["Ventilator.stp", "curved_plate.stp", "plate_3_curved.stp"])
+def test_stream_step_to_ifc_file_lossless_and_valid(fixture, tmp_path):
+    """Full-file writer (Phase 2): every solid + every face survives STEP->ng::->IFC (no geometry
+    left behind), and the file validates against IFC4X3_ADD2."""
+    out = str(tmp_path / (fixture + ".ifc"))
+    st = _cad.stream_step_to_ifc(_fixture_dir() + fixture, out, "IFC4X3_ADD2", 2.0, 20.0)
+    assert st["solids_in"] > 0 and st["solids_out"] == st["solids_in"], f"solid dropped: {st}"
+    assert st["faces_out"] == st["faces_in"] and st["faces_dropped"] == 0, f"face dropped: {st}"
+    assert st["edges_degenerate"] == 0, f"degenerate edge: {st}"
+    f = ifcopenshell.open(out)
+    logger = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(f, logger)
+    issues = [str(s.get("message", s)) for s in logger.statements]
+    assert not issues, f"{fixture} ifcopenshell.validate issues: {issues[:5]}"
+    assert len(f.by_type("IfcAdvancedBrep")) == st["solids_out"]
+
+
 @pytest.mark.parametrize("fixture", FIXTURES)
 @pytest.mark.parametrize("schema", SCHEMAS)
 def test_emit_ifc_brep_validates(fixture, schema):
