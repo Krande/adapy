@@ -7,6 +7,9 @@ IfcMappedItem. Geometry is lossless (every solid/face/edge analytic) and the out
 ifcopenshell.validate. Single global id space is handled internally (atomic-reserve + renumber), so
 the writer parallelizes across the cgroup-aware thread allotment. Peak memory is O(one solid) per
 worker. The per-solid Python ``stream_step_to_ifc`` stays as the fallback when adacpp lacks the verb.
+
+Output is ifcopenshell.validate-clean (IFC4X3_ADD2) across flat + instanced models — verified on
+fixtures, 469826 (1308 solids) and the instanced crane (proxy/header GlobalIds are disjoint).
 """
 from __future__ import annotations
 
