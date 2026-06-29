@@ -14,7 +14,10 @@ import struct
 import pytest
 
 import ada
-from ada.cadit.step.native_step_to_glb import native_adacpp_available, native_step_to_glb
+from ada.cadit.step.native_step_to_glb import (
+    native_adacpp_available,
+    native_step_to_glb,
+)
 
 pytestmark = pytest.mark.skipif(not native_adacpp_available(), reason="adacpp native STEP->GLB not available")
 

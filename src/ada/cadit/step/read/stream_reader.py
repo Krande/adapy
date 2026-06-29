@@ -31,14 +31,6 @@ surface/curve types raise so the caller can fall back to the OCC reader.
 
 from __future__ import annotations
 
-import re
-from collections import Counter
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Iterator
-
-from ada.config import logger
-
 # ---------------------------------------------------------------------------
 # Stage 0 memory-attribution probe (env-gated; zero cost unless enabled).
 #
@@ -50,6 +42,13 @@ from ada.config import logger
 # we optimise (see dap plan: cut peak parent RSS of STEP->GLB).
 # ---------------------------------------------------------------------------
 import os as _os
+import re
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterator
+
+from ada.config import logger
 
 
 def _mem_probe_enabled() -> bool:

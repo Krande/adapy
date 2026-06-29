@@ -363,7 +363,10 @@ def _iter_stream_solids(src_path):
     from ada.config import logger
 
     try:
-        from ada.cadit.step.read.native_reader import decode_step_root_meta, native_adacpp_step_available
+        from ada.cadit.step.read.native_reader import (
+            decode_step_root_meta,
+            native_adacpp_step_available,
+        )
 
         native = native_adacpp_step_available()
     except Exception:  # noqa: BLE001

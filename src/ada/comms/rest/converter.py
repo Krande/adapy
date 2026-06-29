@@ -1745,7 +1745,10 @@ def _via_step_stream_to_step(
     from ada.config import logger
 
     out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
-    from ada.cadit.step.native_step_to_step import native_step_to_step, native_step_to_step_available
+    from ada.cadit.step.native_step_to_step import (
+        native_step_to_step,
+        native_step_to_step_available,
+    )
 
     if native_step_to_step_available():
         try:
@@ -1774,7 +1777,10 @@ def _via_ifc_to_step(
     fully cover the file — IFC with IfcExtrudedAreaSolid / CSG / tessellated geometry, or any
     product/face left behind — so no geometry is silently lost.
     """
-    from ada.cadit.step.native_ifc_to_step import native_ifc_to_step, native_ifc_to_step_available
+    from ada.cadit.step.native_ifc_to_step import (
+        native_ifc_to_step,
+        native_ifc_to_step_available,
+    )
     from ada.config import logger
 
     if native_ifc_to_step_available():
@@ -1806,7 +1812,10 @@ def _via_step_stream_to_ifc(
     from ada.config import logger
 
     out_path = pathlib.Path(tempfile.mkstemp(suffix=".ifc")[1])
-    from ada.cadit.step.native_step_to_ifc import native_ifc_available, native_step_to_ifc
+    from ada.cadit.step.native_step_to_ifc import (
+        native_ifc_available,
+        native_step_to_ifc,
+    )
 
     if native_ifc_available():
         try:

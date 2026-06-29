@@ -15,7 +15,7 @@ import ada  # noqa: F401  (ensures the test env resolves the package root for fi
 
 ifcopenshell = pytest.importorskip("ifcopenshell")
 pytest.importorskip("ifcopenshell.validate")
-import ifcopenshell.guid  # noqa: E402
+import ifcopenshell.guid  # noqa: E402, F811
 import ifcopenshell.validate  # noqa: E402
 
 try:
@@ -309,7 +309,10 @@ def test_native_step_ifc_step_roundtrip(fixture, tmp_path):
 def test_adapy_native_step_to_ifc_wrapper(tmp_path):
     """Phase 4: the adapy wrapper ada.cadit.step.native_step_to_ifc (what the converter calls) prefers
     the native writer, is lossless, and validates."""
-    from ada.cadit.step.native_step_to_ifc import native_ifc_available, native_step_to_ifc
+    from ada.cadit.step.native_step_to_ifc import (
+        native_ifc_available,
+        native_step_to_ifc,
+    )
 
     assert native_ifc_available()
     out = str(tmp_path / "wrap.ifc")

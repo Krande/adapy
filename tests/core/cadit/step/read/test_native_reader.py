@@ -13,7 +13,10 @@ import numpy as np
 import pytest
 
 import ada
-from ada.cadit.step.read.native_reader import native_adacpp_step_available, native_stream_read_step
+from ada.cadit.step.read.native_reader import (
+    native_adacpp_step_available,
+    native_stream_read_step,
+)
 from ada.cadit.step.read.stream_reader import stream_read_step
 
 pytestmark = pytest.mark.skipif(not native_adacpp_step_available(), reason="adacpp stream_step_to_ngeom unavailable")

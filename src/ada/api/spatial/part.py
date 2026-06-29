@@ -700,7 +700,10 @@ class Part(BackendGeom):
         # "native": adacpp's C++ NGEOM parser hydrated to Geometry (no Python tokenizer); same yield
         # contract, so the Shape-wrap + product-tree below is identical.
         if reader == "native":
-            from ada.cadit.step.read.native_reader import native_adacpp_step_available, native_stream_read_step
+            from ada.cadit.step.read.native_reader import (
+                native_adacpp_step_available,
+                native_stream_read_step,
+            )
 
             if not native_adacpp_step_available():
                 raise StepStreamUnsupported("reader='native' requires the adacpp stream_step_to_ngeom entry point")
