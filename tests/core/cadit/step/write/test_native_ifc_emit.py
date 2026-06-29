@@ -95,6 +95,56 @@ def test_stream_step_to_ifc_file_lossless_and_valid(fixture, tmp_path):
     assert len(f.by_type("IfcAdvancedBrep")) == st["solids_out"]
 
 
+def _mesh_bbox(path):
+    import numpy as np
+
+    m = _cad.stream_step_to_meshes(path, "libtess2", 2.0, 20.0)
+    a = np.asarray(m.positions).reshape(-1, 3)
+    return (a.min(0), a.max(0)) if len(a) else (None, None)
+
+
+def _bbox_relerr(a_path, b_path):
+    import numpy as np
+
+    amn, amx = _mesh_bbox(a_path)
+    bmn, bmx = _mesh_bbox(b_path)
+    if amn is None or bmn is None:
+        return 1.0
+    diag = float(np.linalg.norm(amx - amn)) or 1.0
+    return float(np.linalg.norm((bmn + bmx) / 2 - (amn + amx) / 2) + np.linalg.norm((bmx - bmn) - (amx - amn))) / diag
+
+
+@pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_step"), reason="no stream_step_to_step")
+@pytest.mark.parametrize("fixture", ["Ventilator.stp", "plate_2_curved_complex.stp", "curved_plate.stp"])
+def test_native_step_to_step_roundtrip(fixture, tmp_path):
+    """Native STEP->STEP (AP242): re-export is lossless + the emitted STEP re-tessellates to the same
+    per-model bbox as the source."""
+    pytest.importorskip("numpy")
+    src = _fixture_dir() + fixture
+    out = str(tmp_path / "rt.stp")
+    st = _cad.stream_step_to_step(src, out, 2.0, 20.0, 0, 0)
+    assert st["solids_out"] == st["solids_in"] > 0 and st["faces_dropped"] == 0
+    assert _bbox_relerr(src, out) < 0.02
+
+
+@pytest.mark.skipif(
+    not (hasattr(_cad or object(), "stream_ifc_to_step") and hasattr(_cad or object(), "stream_step_to_ifc")),
+    reason="no native ifc<->step",
+)
+@pytest.mark.parametrize("fixture", ["Ventilator.stp", "plate_3_curved.stp", "curved_plate.stp"])
+def test_native_step_ifc_step_roundtrip(fixture, tmp_path):
+    """Full circle: STEP -> (native STEP->IFC) -> IFC -> (native IFC->STEP) -> STEP; the final mesh
+    bbox matches the source (geometry survives both native conversions), units preserved."""
+    pytest.importorskip("numpy")
+    src = _fixture_dir() + fixture
+    ifc = str(tmp_path / "rt.ifc")
+    stp = str(tmp_path / "rt.stp")
+    _cad.stream_step_to_ifc(src, ifc, "IFC4X3_ADD2", 2.0, 20.0, 0, 0)
+    st = _cad.stream_ifc_to_step(ifc, stp, 2.0, 20.0, 0)
+    assert st["solids_out"] > 0 and st["faces_dropped"] == 0
+    assert _bbox_relerr(src, stp) < 0.02
+
+
 @pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_ifc"), reason="no stream_step_to_ifc")
 def test_adapy_native_step_to_ifc_wrapper(tmp_path):
     """Phase 4: the adapy wrapper ada.cadit.step.native_step_to_ifc (what the converter calls) prefers
