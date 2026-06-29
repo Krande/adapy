@@ -96,6 +96,24 @@ def test_stream_step_to_ifc_file_lossless_and_valid(fixture, tmp_path):
 
 
 @pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_ifc"), reason="no stream_step_to_ifc")
+@pytest.mark.parametrize("fixture", ["Ventilator.stp", "plate_3_curved.stp"])
+def test_stream_step_to_ifc_parallel_matches_serial(fixture, tmp_path):
+    """Phase 3: the parallel writer (num_threads=4, disjoint id blocks) is lossless, has no id-block
+    overflow, and validates — same as serial (num_threads=1)."""
+    src = _fixture_dir() + fixture
+    par = str(tmp_path / "par.ifc")
+    ser = str(tmp_path / "ser.ifc")
+    sp = _cad.stream_step_to_ifc(src, par, "IFC4X3_ADD2", 2.0, 20.0, 0, 4)
+    ss = _cad.stream_step_to_ifc(src, ser, "IFC4X3_ADD2", 2.0, 20.0, 0, 1)
+    assert sp["solids_out"] == ss["solids_out"] and sp["faces_out"] == ss["faces_out"]
+    assert sp["faces_dropped"] == 0 and sp["drop_reasons"].get("id_block_overflow", 0) == 0
+    f = ifcopenshell.open(par)
+    logger = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(f, logger)
+    assert not logger.statements, f"{fixture} parallel validate: {[str(s.get('message')) for s in logger.statements[:3]]}"
+
+
+@pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_ifc"), reason="no stream_step_to_ifc")
 @pytest.mark.parametrize("fixture", ["curved_plate.stp", "plate_3_curved.stp", "bsplinesurfacewithknots.stp"])
 def test_ifc_geometry_matches_glb_oracle(fixture, tmp_path):
     """GLB-oracle parity: the IFC brep's CartesianPoints must span the same per-solid bbox as the
