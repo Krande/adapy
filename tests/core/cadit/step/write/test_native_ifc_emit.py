@@ -95,6 +95,48 @@ def test_stream_step_to_ifc_file_lossless_and_valid(fixture, tmp_path):
     assert len(f.by_type("IfcAdvancedBrep")) == st["solids_out"]
 
 
+@pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_ifc"), reason="no stream_step_to_ifc")
+@pytest.mark.parametrize("fixture", ["curved_plate.stp", "plate_3_curved.stp", "bsplinesurfacewithknots.stp"])
+def test_ifc_geometry_matches_glb_oracle(fixture, tmp_path):
+    """GLB-oracle parity: the IFC brep's CartesianPoints must span the same per-solid bbox as the
+    STEP->GLB tessellation oracle (the IFC carries the same ng:: vertices the GLB tessellates)."""
+    np = pytest.importorskip("numpy")
+    src = _fixture_dir() + fixture
+    mesh = _cad.stream_step_to_meshes(src, "libtess2", 2.0, 20.0)
+    pos = np.asarray(mesh.positions).reshape(-1, 3)
+    oracle = {g.node_id: (pos[g.vstart:g.vstart + g.vlength].min(0), pos[g.vstart:g.vstart + g.vlength].max(0))
+              for g in mesh.groups if g.vlength}
+    out = str(tmp_path / (fixture + ".ifc"))
+    _cad.stream_step_to_ifc(src, out, "IFC4X3_ADD2", 2.0, 20.0)
+    f = ifcopenshell.open(out)
+    worst = 0.0
+    for i, proxy in enumerate(f.by_type("IfcBuildingElementProxy")):
+        brep = proxy.Representation.Representations[0].Items[0]
+        if not brep.is_a("IfcAdvancedBrep") or i not in oracle:
+            continue
+        pts = []
+        for face in brep.Outer.CfsFaces:
+            for b in face.Bounds:
+                lp = b.Bound
+                if lp.is_a("IfcEdgeLoop"):
+                    for oe in lp.EdgeList:
+                        ec = oe.EdgeElement
+                        for v in (ec.EdgeStart, ec.EdgeEnd):
+                            if v and v.is_a("IfcVertexPoint"):
+                                pts.append(v.VertexGeometry.Coordinates)
+                elif lp.is_a("IfcPolyLoop"):
+                    pts += [p.Coordinates for p in lp.Polygon]
+        if not pts:
+            continue
+        a = np.array(pts)
+        omn, omx = oracle[i]
+        diag = float(np.linalg.norm(omx - omn)) or 1.0
+        cerr = float(np.linalg.norm((a.min(0) + a.max(0)) / 2 - (omn + omx) / 2)) / diag
+        serr = float(np.linalg.norm((a.max(0) - a.min(0)) - (omx - omn))) / diag
+        worst = max(worst, cerr, serr)
+    assert worst < 0.02, f"{fixture}: IFC vs GLB bbox rel-err {worst:.4f} too large"
+
+
 @pytest.mark.parametrize("fixture", FIXTURES)
 @pytest.mark.parametrize("schema", SCHEMAS)
 def test_emit_ifc_brep_validates(fixture, schema):
