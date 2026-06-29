@@ -66,29 +66,34 @@ def _ifc_fixture_dir() -> str:
 
 @pytest.mark.skipif(not hasattr(_cad or object(), "stream_ifc_to_step"), reason="no stream_ifc_to_step")
 @pytest.mark.parametrize(
-    "fixture,exp_min,exp_max",
+    "fixture,exp_min,exp_max,n_solids",
     [
         # mm; values cross-checked against OCC (ada.from_ifc) bbox, rel-err 0.0. Rectangle profiles +
         # scaled/rotated mapped instances + IfcLocalPlacement -> native EXTRUDED_AREA_SOLID / baked B-rep.
-        ("mapped_shapes/mapped-shape-with-transformation.ifc", (646.45, -353.55, 0), (1353.55, 353.55, 2000)),
-        ("mapped_shapes/mapped-shape-with-multiple-items.ifc", (646.45, -353.55, 0), (2353.55, 1353.55, 2000)),
+        # (fixture, expected mesh bbox in METRES, expected solids_out). mapped: mm; beams: m / mm.
+        # All cross-checked at rel-err 0.0 vs ifcopenshell.geom (use-world-coords).
+        ("mapped_shapes/mapped-shape-with-transformation.ifc", (0.64645, -0.35355, 0), (1.35355, 0.35355, 2), 1),
+        ("mapped_shapes/mapped-shape-with-multiple-items.ifc", (0.64645, -0.35355, 0), (2.35355, 1.35355, 2), 1),
+        ("beams/beam-extruded-solid.ifc", (-0.11, 0, -0.3), (0.11, 10, 0.3), 1),  # IfcIShapeProfileDef
+        ("beams/beam-standard-case.ifc", (-0.03, -0.11, -0.22), (2.97, 12.38, 2.241), 18),  # I + T profiles
+        ("beams/beam-varying-cardinal-points.ifc", (-0.05, 0, -0.2), (0.6, 1.0, 0.2), 4),
     ],
 )
-def test_native_ifc_extrusion_to_step(fixture, exp_min, exp_max, tmp_path):
-    """Native IFC->STEP covers IfcExtrudedAreaSolid (rectangle profile, mapped instances with
-    scale/rotation + ObjectPlacement) — fully native (products_skipped==0), re-tessellates to the
-    OCC-validated bbox."""
+def test_native_ifc_extrusion_to_step(fixture, exp_min, exp_max, n_solids, tmp_path):
+    """Native IFC->STEP covers IfcExtrudedAreaSolid with rectangle + parametric (I/T-shape) profiles,
+    mapped instances (scale/rotation), and the product ObjectPlacement — fully native
+    (products_skipped==0), re-tessellates to the ifcopenshell.geom-validated bbox (rel-err 0.0)."""
     import numpy as np
 
     src = _ifc_fixture_dir() + fixture
     out = str(tmp_path / "ex.step")
     st = _cad.stream_ifc_to_step(src, out, 2.0, 20.0, 0)
-    assert st["products_skipped"] == 0 and st["solids_out"] > 0
+    assert st["products_skipped"] == 0 and st["solids_out"] == n_solids
     m = _cad.stream_step_to_meshes(out, "libtess2", 2.0, 20.0)
-    a = np.asarray(m.positions).reshape(-1, 3)
+    a = np.asarray(m.positions).reshape(-1, 3) * st["unit_scale"]  # native unit -> metres
     assert len(a) > 0
-    assert np.allclose(a.min(0), exp_min, atol=2.0), a.min(0)
-    assert np.allclose(a.max(0), exp_max, atol=2.0), a.max(0)
+    assert np.allclose(a.min(0), exp_min, atol=0.01), a.min(0)
+    assert np.allclose(a.max(0), exp_max, atol=0.01), a.max(0)
 
 
 def _wrap(brep_lines: str, brep_id: str, schema: str) -> str:
