@@ -155,6 +155,64 @@ def test_native_ifc_csg_primitive(prim, kw, exp_min, exp_max, tmp_path):
     assert np.allclose(a.max(0), exp_max, atol=0.03), a.max(0)
 
 
+@pytest.mark.skipif(not hasattr(_cad or object(), "stream_ifc_to_step"), reason="no stream_ifc_to_step")
+@pytest.mark.parametrize(
+    "prof_kind,kw,exp_min,exp_max,hollow",
+    [
+        # Bboxes cross-checked vs ifcopenshell.geom (rel-err ~0); the *adapy* beam sections route to
+        # these IfcProfileDef types. ifcopenshell.geom omitted here (its pyOCC backend co-loads OCCT
+        # with adacpp -> segfault in the test env); the harness validated against it out-of-band.
+        ("IfcUShapeProfileDef", dict(Depth=0.18, FlangeWidth=0.07, WebThickness=0.006, FlangeThickness=0.01),
+         (-0.035, -0.09, 0), (0.035, 0.09, 3), False),
+        ("IfcCircleHollowProfileDef", dict(Radius=0.2, WallThickness=0.01), (-0.2, -0.2, 0), (0.2, 0.2, 3), True),
+        ("IfcRectangleHollowProfileDef", dict(XDim=0.3, YDim=0.2, WallThickness=0.01), (-0.15, -0.1, 0), (0.15, 0.1, 3), True),
+        ("IfcIShapeProfileDef", dict(OverallWidth=0.3, OverallDepth=0.3, WebThickness=0.0085, FlangeThickness=0.014),
+         (-0.15, -0.15, 0), (0.15, 0.15, 3), False),
+    ],
+)
+def test_native_ifc_parametric_profiles(prof_kind, kw, exp_min, exp_max, hollow, tmp_path):
+    """Parametric + hollow IfcProfileDef types (the targets of adapy's beam-section export) extruded ->
+    native IFC->STEP, fully native (products_skipped==0) with the validated bbox; hollow sections show
+    the void (far more tris than a solid box's 12). Built via ifcopenshell (no pyOCC -> no OCCT clash)."""
+    ifcopenshell = pytest.importorskip("ifcopenshell")
+    import numpy as np
+    from ifcopenshell import guid
+
+    f = ifcopenshell.file(schema="IFC4")
+    ua = f.create_entity("IfcUnitAssignment", Units=[f.create_entity("IfcSIUnit", UnitType="LENGTHUNIT", Name="METRE")])
+    o = f.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, 0.0))
+    z = f.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0))
+    x = f.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0, 0.0))
+    ax = f.create_entity("IfcAxis2Placement3D", Location=o, Axis=z, RefDirection=x)
+    ctx = f.create_entity(
+        "IfcGeometricRepresentationContext", CoordinateSpaceDimension=3, Precision=1e-5, WorldCoordinateSystem=ax
+    )
+    f.create_entity("IfcProject", GlobalId=guid.new(), Name="t", UnitsInContext=ua, RepresentationContexts=[ctx])
+    prof = f.create_entity(prof_kind, ProfileType="AREA", **kw)
+    solid = f.create_entity("IfcExtrudedAreaSolid", SweptArea=prof, ExtrudedDirection=z, Depth=3.0)
+    rep = f.create_entity(
+        "IfcShapeRepresentation", ContextOfItems=ctx, RepresentationIdentifier="Body", RepresentationType="SweptSolid", Items=[solid]
+    )
+    pds = f.create_entity("IfcProductDefinitionShape", Representations=[rep])
+    f.create_entity(
+        "IfcBuildingElementProxy",
+        GlobalId=guid.new(),
+        Representation=pds,
+        ObjectPlacement=f.create_entity("IfcLocalPlacement", RelativePlacement=ax),
+    )
+    ifc = str(tmp_path / "p.ifc")
+    f.write(ifc)
+    out = str(tmp_path / "p.step")
+    st = _cad.stream_ifc_to_step(ifc, out, 2.0, 20.0, 0)
+    assert st["products_skipped"] == 0 and st["solids_out"] == 1, prof_kind
+    m = _cad.stream_step_to_meshes(out, "libtess2", 2.0, 20.0)
+    a = np.asarray(m.positions).reshape(-1, 3) * st["unit_scale"]
+    assert np.allclose(a.min(0), exp_min, atol=0.01), (prof_kind, a.min(0))
+    assert np.allclose(a.max(0), exp_max, atol=0.01), (prof_kind, a.max(0))
+    if hollow:  # a void -> more than a solid box's 12 tris (bbox alone can't see the hole)
+        assert len(np.asarray(m.indices)) // 3 > 16, (prof_kind, "no void?")
+
+
 def _wrap(brep_lines: str, brep_id: str, schema: str) -> str:
     g = ifcopenshell.guid.new
     pre = (
