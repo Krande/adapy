@@ -77,6 +77,11 @@ def _ifc_fixture_dir() -> str:
         ("beams/beam-extruded-solid.ifc", (-0.11, 0, -0.3), (0.11, 10, 0.3), 1),  # IfcIShapeProfileDef
         ("beams/beam-standard-case.ifc", (-0.03, -0.11, -0.22), (2.97, 12.38, 2.241), 18),  # I + T profiles
         ("beams/beam-varying-cardinal-points.ifc", (-0.05, 0, -0.2), (0.6, 1.0, 0.2), 4),
+        # IfcRevolvedAreaSolid (partial revolution of an I-profile about a local axis); err 0.008 vs
+        # ifcopenshell (arc tessellation fineness, the STEP REVOLVED_AREA_SOLID is exact).
+        ("beams/beam-revolved-solid.ifc", (-0.08, -0.076, -0.3), (2.025, 10.076, 0.3), 1),
+        # extrusion + revolve in one file, both native
+        ("beams/beam-varying-extrusion-paths.ifc", (-0.15, -0.019, -0.2), (0.05, 1.019, 0.4), 2),
     ],
 )
 def test_native_ifc_extrusion_to_step(fixture, exp_min, exp_max, n_solids, tmp_path):
