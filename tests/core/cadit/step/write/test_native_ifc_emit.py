@@ -28,12 +28,16 @@ pytestmark = pytest.mark.skipif(
     reason="adacpp.cad.step_emit_ifc_brep unavailable (pre-branch conda build)",
 )
 
-# (fixture filename, expectation note) — chosen to exercise planar, B-spline surf/curve, circle.
+# Exercise the full surface/curve coverage: planar, B-spline surface+curve, circle, and (Ventilator)
+# cylinder/cone/torus/surface-of-revolution/linear-extrusion. "No geometry left behind" — every face
+# must emit and the file must validate.
 FIXTURES = [
     "flat_plate_abaqus_10x10_m.stp",
     "curved_plate.stp",
     "bsplinesurfacewithknots.stp",
     "plate_3_curved.stp",
+    "plate_2_curved_complex.stp",
+    "Ventilator.stp",  # cylinder + cone (->IfcSurfaceOfRevolution) + torus + extrusion + bspline
 ]
 SCHEMAS = ["IFC4X3_ADD2", "IFC4"]
 
