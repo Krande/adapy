@@ -1770,16 +1770,22 @@ def _via_ifc_to_step(
 
     A native IFC advanced-B-rep reader (analytic surfaces/curves + IfcMappedItem instancing) builds
     ng:: neutral geometry which the AP242 STEP emitter re-writes (instances baked). The declared length
-    unit is preserved. Raises (so the dispatcher can surface it) if the native verb is absent — the
-    generic OCC ifc→step path is the registry default in that case.
+    unit is preserved. Falls back to the OCC path (``_via_ada_to_step``) when the native reader can't
+    fully cover the file — IFC with IfcExtrudedAreaSolid / CSG / tessellated geometry, or any
+    product/face left behind — so no geometry is silently lost.
     """
-    from ada.cadit.step.native_ifc_to_step import native_ifc_to_step
+    from ada.cadit.step.native_ifc_to_step import native_ifc_to_step, native_ifc_to_step_available
     from ada.config import logger
 
-    out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
-    stats = native_ifc_to_step(src_path, out_path, on_progress=on_progress)
-    logger.info("native IFC->STEP: %s", stats)
-    return out_path
+    if native_ifc_to_step_available():
+        try:
+            out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
+            stats = native_ifc_to_step(src_path, out_path, on_progress=on_progress)
+            logger.info("native IFC->STEP: %s", stats)
+            return out_path
+        except Exception as exc:  # noqa: BLE001 - native can't cover this IFC; use the OCC writer
+            logger.info("native IFC->STEP unavailable/incomplete (%s); using OCC", exc)
+    return _via_ada_to_step(src_path, ".ifc", on_progress)
 
 
 def _via_step_stream_to_ifc(

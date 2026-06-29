@@ -44,7 +44,14 @@ def native_ifc_to_step(
     stats = adacpp.cad.stream_ifc_to_step(str(ifc_path), str(out_path), deflection=deflection, angular_deg=angular_deg)
     if not stats or stats.get("solids_out", 0) <= 0:
         raise RuntimeError(f"adacpp native stream_ifc_to_step produced no solids for {ifc_path}: {stats}")
-    if stats.get("faces_dropped", 0) or stats.get("drop_reasons"):
-        logger.warning("native IFC->STEP dropped geometry: %s", stats.get("drop_reasons"))
+    # NO GEOMETRY LEFT BEHIND: the analytic reader only represents B-rep/analytic ng:: geometry. If any
+    # product carried geometry it couldn't read (IfcExtrudedAreaSolid/CSG/tessellated -> products_skipped),
+    # OR a face was dropped, the native output is INCOMPLETE — raise so the caller falls back to OCC.
+    skipped = stats.get("products_skipped", 0)
+    if skipped or stats.get("faces_dropped", 0) or stats.get("drop_reasons"):
+        raise RuntimeError(
+            f"native IFC->STEP incomplete for {ifc_path} (products_skipped={skipped}, "
+            f"faces_dropped={stats.get('faces_dropped', 0)}, reasons={stats.get('drop_reasons')})"
+        )
     logger.info("adacpp-native IFC->STEP: solids %s/%s -> %s", stats.get("solids_out"), stats.get("solids_in"), out_path)
     return stats
