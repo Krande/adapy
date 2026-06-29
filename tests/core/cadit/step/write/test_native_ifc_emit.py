@@ -82,6 +82,8 @@ def _ifc_fixture_dir() -> str:
         ("beams/beam-revolved-solid.ifc", (-0.08, -0.076, -0.3), (2.025, 10.076, 0.3), 1),
         # extrusion + revolve in one file, both native
         ("beams/beam-varying-extrusion-paths.ifc", (-0.15, -0.019, -0.2), (0.05, 1.019, 0.4), 2),
+        # IfcBlock (CSG primitive -> rectangle extrusion); 2 rotated blocks, ifcopenshell.geom-validated.
+        ("box_rotated.ifc", (-1.518, -0.591, 0), (3.082, 3.209, 2.2), 2),
     ],
 )
 def test_native_ifc_extrusion_to_step(fixture, exp_min, exp_max, n_solids, tmp_path):
@@ -99,6 +101,55 @@ def test_native_ifc_extrusion_to_step(fixture, exp_min, exp_max, n_solids, tmp_p
     assert len(a) > 0
     assert np.allclose(a.min(0), exp_min, atol=0.01), a.min(0)
     assert np.allclose(a.max(0), exp_max, atol=0.01), a.max(0)
+
+
+@pytest.mark.skipif(not hasattr(_cad or object(), "stream_ifc_to_step"), reason="no stream_ifc_to_step")
+@pytest.mark.parametrize(
+    "prim,kw,exp_min,exp_max",
+    [
+        ("IfcSphere", dict(Radius=1.0), (-1, -1, -1), (1, 1, 1)),
+        ("IfcRightCircularCylinder", dict(Height=2.0, Radius=0.5), (-0.5, -0.5, 0), (0.5, 0.5, 2)),
+        ("IfcRightCircularCone", dict(Height=2.0, BottomRadius=0.5), (-0.5, -0.5, 0), (0.5, 0.5, 2)),
+    ],
+)
+def test_native_ifc_csg_primitive(prim, kw, exp_min, exp_max, tmp_path):
+    """IfcSphere -> ng::revolve, IfcRightCircularCylinder -> extrusion, IfcRightCircularCone -> revolve;
+    re-tessellated bbox matches the analytic primitive. No fixtures exist, so build a minimal IFC."""
+    ifcopenshell = pytest.importorskip("ifcopenshell")
+    import numpy as np
+    from ifcopenshell import guid
+
+    f = ifcopenshell.file(schema="IFC4")
+    ua = f.create_entity("IfcUnitAssignment", Units=[f.create_entity("IfcSIUnit", UnitType="LENGTHUNIT", Name="METRE")])
+    o = f.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, 0.0))
+    z = f.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0))
+    x = f.create_entity("IfcDirection", DirectionRatios=(1.0, 0.0, 0.0))
+    ax = f.create_entity("IfcAxis2Placement3D", Location=o, Axis=z, RefDirection=x)
+    ctx = f.create_entity(
+        "IfcGeometricRepresentationContext", CoordinateSpaceDimension=3, Precision=1e-5, WorldCoordinateSystem=ax
+    )
+    f.create_entity("IfcProject", GlobalId=guid.new(), Name="t", UnitsInContext=ua, RepresentationContexts=[ctx])
+    pos = f.create_entity("IfcAxis2Placement3D", Location=o, Axis=z, RefDirection=x)
+    prm = f.create_entity(prim, Position=pos, **kw)
+    rep = f.create_entity(
+        "IfcShapeRepresentation", ContextOfItems=ctx, RepresentationIdentifier="Body", RepresentationType="CSG", Items=[prm]
+    )
+    pds = f.create_entity("IfcProductDefinitionShape", Representations=[rep])
+    f.create_entity(
+        "IfcBuildingElementProxy",
+        GlobalId=guid.new(),
+        Representation=pds,
+        ObjectPlacement=f.create_entity("IfcLocalPlacement", RelativePlacement=ax),
+    )
+    src = str(tmp_path / "prim.ifc")
+    f.write(src)
+    out = str(tmp_path / "prim.step")
+    st = _cad.stream_ifc_to_step(src, out, 2.0, 20.0, 0)
+    assert st["products_skipped"] == 0 and st["solids_out"] == 1
+    m = _cad.stream_step_to_meshes(out, "libtess2", 2.0, 20.0)
+    a = np.asarray(m.positions).reshape(-1, 3) * st["unit_scale"]
+    assert np.allclose(a.min(0), exp_min, atol=0.03), a.min(0)
+    assert np.allclose(a.max(0), exp_max, atol=0.03), a.max(0)
 
 
 def _wrap(brep_lines: str, brep_id: str, schema: str) -> str:
