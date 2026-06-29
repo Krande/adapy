@@ -8,6 +8,10 @@ and streams the triangles straight to a binary STL or Wavefront OBJ file. No Pyt
 Python ``stream_step_to_mesh`` on giant-solid / FEM-export STEP (469826: 72s native vs 180s Python).
 
 Coordinates are scaled to metres (the adapy / viewer unit convention, same as the native GLB path).
+
+OBJ output welds vertices (each instance's unique tessellated verts written once + indexed faces),
+~2.3x smaller than per-triangle unshared verts (crane 8.25 GB -> 3.53 GB) — the file size drove the
+write + gzip-at-rest + upload time that dominated STEP->obj in the capped worker pod.
 """
 
 from __future__ import annotations
