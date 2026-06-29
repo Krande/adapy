@@ -53,6 +53,44 @@ def _fixture_dir() -> str:
     pytest.skip("step_files fixtures not found")
 
 
+def _ifc_fixture_dir() -> str:
+    import pathlib
+
+    here = pathlib.Path(__file__).resolve()
+    for up in here.parents:
+        cand = up / "files" / "ifc_files"
+        if cand.is_dir():
+            return str(cand) + "/"
+    pytest.skip("ifc_files fixtures not found")
+
+
+@pytest.mark.skipif(not hasattr(_cad or object(), "stream_ifc_to_step"), reason="no stream_ifc_to_step")
+@pytest.mark.parametrize(
+    "fixture,exp_min,exp_max",
+    [
+        # mm; values cross-checked against OCC (ada.from_ifc) bbox, rel-err 0.0. Rectangle profiles +
+        # scaled/rotated mapped instances + IfcLocalPlacement -> native EXTRUDED_AREA_SOLID / baked B-rep.
+        ("mapped_shapes/mapped-shape-with-transformation.ifc", (646.45, -353.55, 0), (1353.55, 353.55, 2000)),
+        ("mapped_shapes/mapped-shape-with-multiple-items.ifc", (646.45, -353.55, 0), (2353.55, 1353.55, 2000)),
+    ],
+)
+def test_native_ifc_extrusion_to_step(fixture, exp_min, exp_max, tmp_path):
+    """Native IFC->STEP covers IfcExtrudedAreaSolid (rectangle profile, mapped instances with
+    scale/rotation + ObjectPlacement) — fully native (products_skipped==0), re-tessellates to the
+    OCC-validated bbox."""
+    import numpy as np
+
+    src = _ifc_fixture_dir() + fixture
+    out = str(tmp_path / "ex.step")
+    st = _cad.stream_ifc_to_step(src, out, 2.0, 20.0, 0)
+    assert st["products_skipped"] == 0 and st["solids_out"] > 0
+    m = _cad.stream_step_to_meshes(out, "libtess2", 2.0, 20.0)
+    a = np.asarray(m.positions).reshape(-1, 3)
+    assert len(a) > 0
+    assert np.allclose(a.min(0), exp_min, atol=2.0), a.min(0)
+    assert np.allclose(a.max(0), exp_max, atol=2.0), a.max(0)
+
+
 def _wrap(brep_lines: str, brep_id: str, schema: str) -> str:
     g = ifcopenshell.guid.new
     pre = (
