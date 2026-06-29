@@ -313,6 +313,27 @@ class _IfcBrepEmitter:
 
         return None, None
 
+    def solid_streaming(self, lines, face_iter, *, transform=None):
+        """Emit a ConnectedFaceSet B-rep (``IfcAdvancedBrep``) from a face ITERATOR —
+        faces are decoded + emitted + freed one at a time (only their small entity ids
+        are kept), so a giant solid (millions of faces) never holds its whole ada.geom
+        tree. The memory-bounded counterpart to :meth:`solid` for the giant-solid OOM
+        (e.g. the 67 MB single solid in 469826). Returns ``(item_id, rep_type)`` or
+        ``(None, None)`` if any face uses non-emittable geometry (solid skipped)."""
+        self._tf = tuple(float(x) for x in transform) if transform is not None else None
+        self._vcache = {}
+        self._ecache = {}
+        face_ids: list[int] = []
+        for fc in face_iter:
+            fid = self._face(lines, fc)
+            if fid is None:
+                return None, None
+            face_ids.append(fid)
+        if not face_ids:
+            return None, None
+        shell = self._emit(lines, f"IfcClosedShell({self._refs(face_ids)})")
+        return self._emit(lines, f"IfcAdvancedBrep(#{shell})"), "AdvancedBrep"
+
 
 # tuple helpers (numpy-free)
 def _sub(a, b):
@@ -331,6 +352,59 @@ def _axis_or(v, default=(0.0, 0.0, 1.0)):
     return (float(v[0]), float(v[1]), float(v[2]))
 
 
+def _iter_stream_solids(src_path):
+    """Yield ``(gi, make_face_gen, gid, color_rgb, mats, paths)`` per solid.
+
+    Native path: for a ConnectedFaceSet solid, ``make_face_gen`` is a callable that
+    returns a fresh face generator (faces decoded one at a time) so the giant solid
+    emits face-by-face (bounded RSS); ``gi`` is None. Other roots / the pure-Python
+    fallback yield a fully-hydrated ``gi`` and ``make_face_gen`` None.
+    """
+    from ada.config import logger
+
+    try:
+        from ada.cadit.step.read.native_reader import decode_step_root_meta, native_adacpp_step_available
+
+        native = native_adacpp_step_available()
+    except Exception:  # noqa: BLE001
+        native = False
+
+    if native:
+        import adacpp
+
+        from ada.cadit.ngeom.deserialize import (
+            NgeomDecodeError,
+            deserialize_geometries,
+            iter_connected_face_set_faces,
+        )
+
+        try:
+            for nbytes, meta in adacpp.cad.StepNgeomStream(str(src_path)):
+                gid, color, mats, paths = decode_step_root_meta(meta)
+                rgb = color.rgb if color is not None else None
+                streamed = iter_connected_face_set_faces(nbytes)
+                if streamed is not None:
+                    yield (None, (lambda nb=nbytes: iter_connected_face_set_faces(nb)[2]), gid, rgb,
+                           (mats or [None]), (paths or None))
+                else:
+                    dec = deserialize_geometries(nbytes)
+                    if not dec:
+                        continue
+                    yield (dec[0][1], None, gid, rgb, (mats or [None]), (paths or None))
+            return
+        except (NgeomDecodeError, RecursionError) as exc:
+            logger.warning("native STEP stream failed (%s); falling back to pure-Python for %s", exc, src_path)
+
+    # pure-Python fallback (full per-solid deserialize; tolerant skips bad solids).
+    from ada.factories import iter_from_step
+
+    for geom in iter_from_step(src_path, reader="tolerant"):
+        gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
+        rgb = geom.color.rgb if geom.color is not None else None
+        gid = str(geom.id) if geom.id not in (None, "") else None
+        yield (gi, None, gid, rgb, (geom.transforms or [None]), geom.instance_paths or None)
+
+
 def stream_step_to_ifc(
     src_path: str | pathlib.Path,
     out_path: str | pathlib.Path,
@@ -344,7 +418,6 @@ def stream_step_to_ifc(
     import ada
     from ada.cadit.ifc.utils import create_guid
     from ada.cadit.ifc.write.write_ifc import IfcWriter
-    from ada.factories import iter_from_step
 
     prog = on_progress or (lambda *_: None)
     prog("writing-ifc", 0.1)
@@ -408,13 +481,9 @@ def stream_step_to_ifc(
         # Drain `lines` to disk as soon as it grows large — even within one solid —
         # so peak RSS stays bounded regardless of any single solid's complexity.
         emitter._flush = lambda buf: (out.write("\n".join(buf) + "\n"), buf.clear())
-        for geom in iter_from_step(src_path):
+        for gi, make_face_gen, gid, color, mats, paths in _iter_stream_solids(src_path):
             total += 1
-            gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
-            color = geom.color.rgb if geom.color is not None else None
-            mats = geom.transforms if geom.transforms else [None]
-            paths = geom.instance_paths if geom.instance_paths else None
-            base = str(geom.id) if geom.id not in (None, "") else f"solid_{total}"
+            base = gid if gid not in (None, "") else f"solid_{total}"
             any_ok = False
             for k, m in enumerate(mats):
                 name = base if k == 0 else f"{base}/{k + 1}"
@@ -422,7 +491,12 @@ def stream_step_to_ifc(
                 try:
                     # IFC entities are emitted children-before-parents, so a mid-solid
                     # failure leaves only orphan (unreferenced) lines — harmless SPF.
-                    brep, rep_type = emitter.solid(lines, gi, transform=tf)
+                    # Giant ConnectedFaceSet solids stream face-by-face (bounded RSS);
+                    # everything else emits from the hydrated geom.
+                    if make_face_gen is not None:
+                        brep, rep_type = emitter.solid_streaming(lines, make_face_gen(), transform=tf)
+                    else:
+                        brep, rep_type = emitter.solid(lines, gi, transform=tf)
                     if brep is None:
                         continue
                     rep = emitter._emit(lines, f"IfcShapeRepresentation(#{body_ctx_id},'Body','{rep_type}',(#{brep}))")
@@ -448,7 +522,7 @@ def stream_step_to_ifc(
                 emitted += 1
             else:
                 skipped += 1
-                reasons[_unsupported_kind(gi)] += 1
+                reasons[_unsupported_kind(gi) if gi is not None else "ConnectedFaceSet(streamed)"] += 1
             # Flush by buffer size (not solid count) so a few huge solids can't spike RSS.
             if len(lines) >= 20000:
                 out.write("\n".join(lines) + "\n")

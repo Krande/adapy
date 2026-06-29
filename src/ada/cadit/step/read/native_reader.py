@@ -37,28 +37,40 @@ def native_stream_read_step(step_path: str | pathlib.Path) -> Iterator[Geometry]
     Uses the streaming ``StepNgeomStream`` iterator (one solid's NGEOM buffer at a time, bounded
     memory), so it scales to large assemblies instead of materialising the whole parsed model."""
     import adacpp
-    import numpy as np
 
     from ada.cadit.ngeom.deserialize import deserialize_geometries
-    from ada.visit.colors import Color
 
     for nbytes, meta in adacpp.cad.StepNgeomStream(str(step_path)):
         decoded = deserialize_geometries(nbytes)  # exactly one root per streamed buffer
         if not decoded:
             continue
-        geom = decoded[0][1]
-        ip = meta.instance_paths
-        # The solid is named after its owning product (the deepest assembly-path level), matching the
-        # Python reader's _solid_name; fall back to the solid's own id when it has no named product.
-        product = ip[0][-1][1] if (ip and ip[0]) else None
-        gid = product or meta.id
-        color = Color(meta.color[0], meta.color[1], meta.color[2]) if meta.has_color else None
-        # column-major (glTF) 16-float -> 4x4 (order='F'); a lone identity collapses to no transform,
-        # matching the Python reader so single-instance/flat solids stay byte-identical downstream.
-        mats = [np.asarray(t, dtype=float).reshape(4, 4, order="F") for t in meta.transforms]
-        if len(mats) == 1 and np.allclose(mats[0], np.eye(4), atol=1e-12):
-            mats = []
-        # The reader couples paths to transforms (the Python reader yields instance_paths only for
-        # placed solids); a no-transform solid is a flat child, so drop its path too.
-        paths = [tuple(p) for p in ip] if mats else []
-        yield Geometry(id=gid, geometry=geom, color=color, transforms=(mats or None), instance_paths=(paths or None))
+        gid, color, mats, paths = decode_step_root_meta(meta)
+        yield Geometry(
+            id=gid, geometry=decoded[0][1], color=color, transforms=(mats or None), instance_paths=(paths or None)
+        )
+
+
+def decode_step_root_meta(meta):
+    """Decode a ``StepRootMeta`` (one streamed solid) into ``(id, color, world
+    matrices, instance_paths)`` — shared by :func:`native_stream_read_step` (full
+    hydrate) and the bounded streaming STEP→IFC/STEP emit (which streams faces and
+    needs only the metadata, not a hydrated Geometry)."""
+    import numpy as np
+
+    from ada.visit.colors import Color
+
+    ip = meta.instance_paths
+    # The solid is named after its owning product (the deepest assembly-path level), matching the
+    # Python reader's _solid_name; fall back to the solid's own id when it has no named product.
+    product = ip[0][-1][1] if (ip and ip[0]) else None
+    gid = product or meta.id
+    color = Color(meta.color[0], meta.color[1], meta.color[2]) if meta.has_color else None
+    # column-major (glTF) 16-float -> 4x4 (order='F'); a lone identity collapses to no transform,
+    # matching the Python reader so single-instance/flat solids stay byte-identical downstream.
+    mats = [np.asarray(t, dtype=float).reshape(4, 4, order="F") for t in meta.transforms]
+    if len(mats) == 1 and np.allclose(mats[0], np.eye(4), atol=1e-12):
+        mats = []
+    # The reader couples paths to transforms (the Python reader yields instance_paths only for
+    # placed solids); a no-transform solid is a flat child, so drop its path too.
+    paths = [tuple(p) for p in ip] if mats else []
+    return gid, color, mats, paths

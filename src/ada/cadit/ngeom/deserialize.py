@@ -333,3 +333,55 @@ def deserialize_geometries(buffer: bytes) -> list[tuple[str, object]]:
         o += id_len
         out.append((rid, dec.get(gidx)))
     return out
+
+
+def iter_connected_face_set_faces(buffer: bytes):
+    """If the NGEOM buffer's single root is a ``ConnectedFaceSet`` (a B-rep solid's
+    shell), return ``(rid, n_faces, face_gen)`` where ``face_gen`` yields each
+    ``FaceSurface`` ONE AT A TIME, clearing the decoder cache between faces so a
+    giant solid (the 67 MB / millions-of-faces case) never has its whole ada.geom
+    tree resident. Returns ``None`` if the root isn't a single ConnectedFaceSet —
+    the caller then falls back to :func:`deserialize_geometries`.
+
+    Bounded-memory streaming emit (STEP→IFC / STEP→STEP): the caller emits each face
+    and keeps only its small entity id, so peak is ~one face's ada.geom, not the
+    whole shell.
+    """
+    mv = memoryview(buffer)
+    if bytes(mv[:8]) != _MAGIC:
+        raise NgeomDecodeError("not an NGEOM buffer (bad magic)")
+    o = 8
+    version = struct.unpack_from("<i", mv, o)[0]
+    o += 4
+    if version != NGEOM_VERSION:
+        raise NgeomDecodeError(f"unsupported NGEOM version {version} (decoder is v{NGEOM_VERSION})")
+    n_records = struct.unpack_from("<i", mv, o)[0]
+    o += 4
+    records: list[tuple[int, memoryview]] = []
+    for _ in range(n_records):
+        tag = struct.unpack_from("<i", mv, o)[0]
+        nbytes = struct.unpack_from("<i", mv, o + 4)[0]
+        o += 8
+        records.append((tag, mv[o : o + nbytes]))
+        o += nbytes
+    dec = _Decoder(records)
+    n_roots = struct.unpack_from("<i", mv, o)[0]
+    o += 4
+    if n_roots != 1:
+        return None
+    gidx = struct.unpack_from("<i", mv, o)[0]
+    id_len = struct.unpack_from("<i", mv, o + 4)[0]
+    o += 8
+    rid = bytes(mv[o : o + id_len]).decode("utf-8")
+    if gidx < 0 or gidx >= len(records) or records[gidx][0] != _CONNECTED_FACE_SET:
+        return None
+    cur = _Cur(records[gidx][1])
+    n = cur.i32()
+    idxs = cur.i32a(n)
+
+    def _gen():
+        for fi in idxs:
+            dec._cache.clear()  # free the previous face's sub-records (+ its interned Points)
+            yield dec.get(fi)
+
+    return rid, n, _gen()
