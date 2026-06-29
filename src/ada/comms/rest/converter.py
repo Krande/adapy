@@ -1742,12 +1742,43 @@ def _via_step_stream_to_step(
     the multi-GB assemblies that OOM/timed out through ``ada.from_step`` →
     ``to_stp`` now stream through. No tessellation, no OCC anywhere in the path.
     """
-    from ada.cadit.step.write.stream_step_to_step import stream_step_to_step
     from ada.config import logger
 
     out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
+    from ada.cadit.step.native_step_to_step import native_step_to_step, native_step_to_step_available
+
+    if native_step_to_step_available():
+        try:
+            stats = native_step_to_step(src_path, out_path, on_progress=on_progress)
+            logger.info("native STEP->STEP: %s", stats)
+            return out_path
+        except Exception as exc:  # noqa: BLE001 - degrade to the Python AP242 writer
+            logger.warning("native STEP->STEP failed (%s); falling back to per-solid Python", exc)
+
+    from ada.cadit.step.write.stream_step_to_step import stream_step_to_step
+
     stats = stream_step_to_step(src_path, out_path, on_progress=on_progress)
-    logger.info("stream STEP->STEP: %s", stats)
+    logger.info("stream STEP->STEP (python): %s", stats)
+    return out_path
+
+
+def _via_ifc_to_step(
+    src_path: pathlib.Path,
+    on_progress: ProgressFn,
+) -> pathlib.Path:
+    """IFC → AP242 STEP via the native adacpp IFC B-rep reader → ng:: → STEP writer — **no OCC**.
+
+    A native IFC advanced-B-rep reader (analytic surfaces/curves + IfcMappedItem instancing) builds
+    ng:: neutral geometry which the AP242 STEP emitter re-writes (instances baked). The declared length
+    unit is preserved. Raises (so the dispatcher can surface it) if the native verb is absent — the
+    generic OCC ifc→step path is the registry default in that case.
+    """
+    from ada.cadit.step.native_ifc_to_step import native_ifc_to_step
+    from ada.config import logger
+
+    out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
+    stats = native_ifc_to_step(src_path, out_path, on_progress=on_progress)
+    logger.info("native IFC->STEP: %s", stats)
     return out_path
 
 
@@ -2277,6 +2308,21 @@ def _register_step_stream_exports() -> None:
             return _via_step_stream_to_xml(src, on_progress)
 
         ConverterRegistry.register(ext, "xml", _h_xml)
+
+    # IFC → STEP via the native adacpp IFC B-rep reader → ng:: → AP242 writer (no OCC). Overrides the
+    # generic OCC ifc→step ONLY when the native verb is present, so older builds keep the OCC path.
+    try:
+        from ada.cadit.step.native_ifc_to_step import native_ifc_to_step_available
+
+        _native_ifc2step = native_ifc_to_step_available()
+    except Exception:  # noqa: BLE001
+        _native_ifc2step = False
+    if _native_ifc2step:
+
+        def _h_ifc2step(src, on_progress, **_kw):
+            return _via_ifc_to_step(src, on_progress)
+
+        ConverterRegistry.register(".ifc", "step", _h_ifc2step)
 
 
 def _register_glb_to_mesh() -> None:
