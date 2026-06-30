@@ -722,7 +722,9 @@ class Ap242StreamWriter:
 
     def _tessellate_solid(self, g):
         """Tessellate an ``ada.geom`` solid to ``(world_points, tri_indices)`` via the
-        adacpp NGEOM/libtess2 pipeline. ``world_points`` is an (N,3) list of float
+        adacpp NGEOM/libtess2 pipeline. Requires the adacpp ``SweepN`` / ``tessellate_sweep``
+        support (the alignment-sweep overlay) for FixedReferenceSweptAreaSolid; falls back to
+        skip on builds without it. ``world_points`` is an (N,3) list of float
         triples already carrying the active instance transform ``self._tf``; ``tri_
         indices`` an (M,3) list of int triples. Returns ``(None, None)`` if adacpp is
         unavailable or the solid yields no triangles."""
