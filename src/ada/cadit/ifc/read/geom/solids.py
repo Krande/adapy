@@ -56,13 +56,22 @@ def extruded_solid_area_tapered(ifc_entity: ifcopenshell.entity_instance) -> geo
 def fixed_reference_swept_area_solid(
     ifc_entity: ifcopenshell.entity_instance,
 ) -> geo_so.FixedReferenceSweptAreaSolid:
-    # FixedReference / StartParam / EndParam are not part of adapy's geom model (the OCC build
-    # derives orientation from the directrix), so they are intentionally dropped on read.
+    # StartParam / EndParam are intentionally dropped: for a bounded directrix (IfcGradientCurve) the
+    # whole curve is swept. FixedReference (default +Z) IS kept — the native ngeom sweep uses it to
+    # orient the profile frame (no Frenet roll).
+    from ada.geom.direction import Direction
+
     position = axis3d(ifc_entity.Position) if ifc_entity.Position is not None else Axis2Placement3D()
+    fixed_ref = (
+        Direction(*ifc_entity.FixedReference.DirectionRatios)
+        if getattr(ifc_entity, "FixedReference", None) is not None
+        else Direction(0.0, 0.0, 1.0)
+    )
     return geo_so.FixedReferenceSweptAreaSolid(
         swept_area=get_surface(ifc_entity.SweptArea),
         position=position,
         directrix=get_curve(ifc_entity.Directrix),
+        fixed_reference=fixed_ref,
     )
 
 
