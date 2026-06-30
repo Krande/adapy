@@ -2,6 +2,15 @@
 
 
 
+## v0.27.0 (2026-06-30)
+
+### Feature
+
+* feat: native no-OCC STEP/IFC conversion pipeline wired into the viewer worker (#232)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`3bc633c`](https://github.com/Krande/adapy/commit/3bc633ca8149d1d9fdb172d662d90fff78e8d986))
+
+
 ## v0.26.0 (2026-06-25)
 
 ### Feature
