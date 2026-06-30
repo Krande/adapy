@@ -43,12 +43,27 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 import os as _os
 import re
+import threading
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
 from ada.config import logger
+
+# Positional read, portable to Windows. POSIX os.pread is thread-safe and doesn't disturb a shared
+# offset; Windows has no os.pread, so fall back to seek+read serialized by a lock (mirrors
+# sesam.results.byte_source.FileByteSource).
+_HAS_PREAD = hasattr(_os, "pread")
+_PREAD_LOCK = threading.Lock()
+
+
+def _pread(fd: int, length: int, offset: int) -> bytes:
+    if _HAS_PREAD:
+        return _os.pread(fd, length, offset)
+    with _PREAD_LOCK:
+        _os.lseek(fd, offset, _os.SEEK_SET)
+        return _os.read(fd, length)
 
 
 def _mem_probe_enabled() -> bool:
@@ -726,7 +741,7 @@ def detect_step_length_unit_scale(filepath) -> float:
     overlap = len(needle) - 1
     chunk = _UNIT_SCAN_CHUNK
     try:
-        fd = os.open(str(filepath), os.O_RDONLY)
+        fd = os.open(str(filepath), os.O_RDONLY | getattr(os, "O_BINARY", 0))
     except OSError:
         return 1.0
     try:
@@ -735,7 +750,7 @@ def detect_step_length_unit_scale(filepath) -> float:
         tail = b""  # trailing bytes of the previous chunk, so a needle straddling a
         hit = -1  # chunk boundary is still found
         while pos < size:
-            buf = os.pread(fd, chunk, pos)
+            buf = _pread(fd, chunk, pos)
             if not buf:
                 break
             base = pos - len(tail)  # absolute file offset of window[0]
@@ -751,7 +766,7 @@ def detect_step_length_unit_scale(filepath) -> float:
         # Statement start = just past the prior ';'. Read a bounded window ending at the
         # match, then the full statement forward via the shared pread helper.
         bstart = max(0, hit - (1 << 16))
-        pre = os.pread(fd, hit - bstart, bstart)
+        pre = _pread(fd, hit - bstart, bstart)
         k = pre.rfind(b";")
         start = bstart + k + 1 if k >= 0 else bstart
         stmt = _read_statement_pread(fd, start, size)
@@ -2051,11 +2066,10 @@ def _read_statement_pread(fd: int, offset: int, file_size: int) -> str:
     window until the terminating ';' is found or EOF. Unlike the mmap slice, the file
     pages this touches stay in the reclaimable OS page cache and never enter the process
     address space / VmRSS — which is what the worker memory caps measure."""
-    import os
 
     chunk = _PREAD_CHUNK
     while True:
-        buf = os.pread(fd, chunk, offset)
+        buf = _pread(fd, chunk, offset)
         end = _stmt_end_bytes(buf)
         if end >= 0:
             return buf[:end].decode("utf-8", "replace")
@@ -2267,7 +2281,7 @@ class StreamIndex:
 
         import numpy as np
 
-        fd = os.open(self.step_path, os.O_RDONLY)
+        fd = os.open(self.step_path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
         if self.idx_ids_path is not None:
             ids_mm = np.memmap(self.idx_ids_path, dtype=np.int64, mode="r")
             offs_mm = np.memmap(self.idx_offs_path, dtype=np.int64, mode="r")
