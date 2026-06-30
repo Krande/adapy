@@ -597,7 +597,15 @@ class Part(BackendGeom):
 
         if reader in ("stream", "auto", "tolerant", "native"):
             if self._read_step_streaming(
-                step_path, name, scale, transform, rotate, colour, opacity, source_units, reader=reader,
+                step_path,
+                name,
+                scale,
+                transform,
+                rotate,
+                colour,
+                opacity,
+                source_units,
+                reader=reader,
                 product_tree=product_tree,
             ):
                 return
@@ -687,7 +695,9 @@ class Part(BackendGeom):
             parent = self
             name_path: tuple = ()
             for level in path[:-1]:  # exclude the solid's own leaf level
-                pname = (level[1] if level[1] else f"asm_{level[0]}") if isinstance(level, (tuple, list)) else str(level)
+                pname = (
+                    (level[1] if level[1] else f"asm_{level[0]}") if isinstance(level, (tuple, list)) else str(level)
+                )
                 name_path += (pname,)
                 p = asm_parts.get(name_path)
                 if p is None:
@@ -715,7 +725,9 @@ class Part(BackendGeom):
         try:
             for i, geometry in enumerate(geom_iter):
                 shp_name = str(geometry.id) if geometry.id not in (None, "") else f"{ada_name}_{i}"
-                shp = Shape(shp_name, geom=geometry, color=colour or geometry.color, opacity=opacity, units=source_units)
+                shp = Shape(
+                    shp_name, geom=geometry, color=colour or geometry.color, opacity=opacity, units=source_units
+                )
                 parent = _tree_parent(geometry.instance_paths) if product_tree else self
                 new_shapes.append((parent, shp))
         except StepStreamUnsupported:

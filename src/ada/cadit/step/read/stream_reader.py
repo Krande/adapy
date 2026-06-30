@@ -148,9 +148,11 @@ def _mem_probe(label: str, *, step_path=None, idx_paths=(), sized=None) -> None:
         anon / 1024.0,
         extra,
     )
-from ada.geom import Geometry
-from ada.geom.booleans import BooleanResult, BoolOpEnum
-from ada.geom.curves import (
+
+
+from ada.geom import Geometry  # noqa: E402
+from ada.geom.booleans import BooleanResult, BoolOpEnum  # noqa: E402
+from ada.geom.curves import (  # noqa: E402
     BSplineCurveFormEnum,
     BSplineCurveWithKnots,
     Circle,
@@ -173,10 +175,10 @@ from ada.geom.curves import (
     RationalBSplineCurveWithKnots,
     TrimmedCurve,
 )
-from ada.geom.direction import Direction
-from ada.geom.placement import Axis1Placement, Axis2Placement3D
-from ada.geom.points import Point
-from ada.geom.solids import (
+from ada.geom.direction import Direction  # noqa: E402
+from ada.geom.placement import Axis1Placement, Axis2Placement3D  # noqa: E402
+from ada.geom.points import Point  # noqa: E402
+from ada.geom.solids import (  # noqa: E402
     Box,
     Cone,
     Cylinder,
@@ -186,7 +188,7 @@ from ada.geom.solids import (
     Sphere,
     Torus,
 )
-from ada.geom.surfaces import (
+from ada.geom.surfaces import (  # noqa: E402
     AdvancedFace,
     BSplineSurfaceForm,
     BSplineSurfaceWithKnots,
@@ -2236,7 +2238,9 @@ class StreamIndex:
         "_owns",
     )
 
-    def __init__(self, step_path, idx_ids_path, idx_offs_path, file_size, roots, colour_map, tmap, prod_names, tolerant):
+    def __init__(
+        self, step_path, idx_ids_path, idx_offs_path, file_size, roots, colour_map, tmap, prod_names, tolerant
+    ):
         self.step_path = str(step_path)
         self.idx_ids_path = idx_ids_path
         self.idx_offs_path = idx_offs_path

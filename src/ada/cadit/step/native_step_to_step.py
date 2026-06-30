@@ -6,6 +6,7 @@ MANIFOLD_SOLID_BREP part (analytic surfaces incl. native CONICAL_SURFACE + ratio
 instances baked). Round-trip-lossless (re-reading the output recovers the same geometry). The
 per-solid Python ``Ap242StreamWriter`` stays as the fallback when adacpp lacks the verb.
 """
+
 from __future__ import annotations
 
 import os
@@ -56,5 +57,7 @@ def native_step_to_step(
         raise RuntimeError(f"adacpp native stream_step_to_step produced no solids for {step_path}: {stats}")
     if stats.get("faces_dropped", 0) or stats.get("drop_reasons"):
         logger.warning("native STEP->STEP dropped geometry: %s", stats.get("drop_reasons"))
-    logger.info("adacpp-native STEP->STEP: solids %s/%s -> %s", stats.get("solids_out"), stats.get("solids_in"), out_path)
+    logger.info(
+        "adacpp-native STEP->STEP: solids %s/%s -> %s", stats.get("solids_out"), stats.get("solids_in"), out_path
+    )
     return stats

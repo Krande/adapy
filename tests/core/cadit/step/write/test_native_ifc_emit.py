@@ -5,6 +5,7 @@ not tessellation. The emitter is dep-free C++; ifcopenshell is only the test ora
 Targets IFC4X3_ADD2 (primary) and IFC4 — the B-rep/geometry-resource entities are identical in
 both. Skips cleanly when adacpp lacks the verb (conda build predating the branch) or ifcopenshell
 isn't installed."""
+
 from __future__ import annotations
 
 import re
@@ -135,7 +136,11 @@ def test_native_ifc_csg_primitive(prim, kw, exp_min, exp_max, tmp_path):
     pos = f.create_entity("IfcAxis2Placement3D", Location=o, Axis=z, RefDirection=x)
     prm = f.create_entity(prim, Position=pos, **kw)
     rep = f.create_entity(
-        "IfcShapeRepresentation", ContextOfItems=ctx, RepresentationIdentifier="Body", RepresentationType="CSG", Items=[prm]
+        "IfcShapeRepresentation",
+        ContextOfItems=ctx,
+        RepresentationIdentifier="Body",
+        RepresentationType="CSG",
+        Items=[prm],
     )
     pds = f.create_entity("IfcProductDefinitionShape", Representations=[rep])
     f.create_entity(
@@ -162,12 +167,28 @@ def test_native_ifc_csg_primitive(prim, kw, exp_min, exp_max, tmp_path):
         # Bboxes cross-checked vs ifcopenshell.geom (rel-err ~0); the *adapy* beam sections route to
         # these IfcProfileDef types. ifcopenshell.geom omitted here (its pyOCC backend co-loads OCCT
         # with adacpp -> segfault in the test env); the harness validated against it out-of-band.
-        ("IfcUShapeProfileDef", dict(Depth=0.18, FlangeWidth=0.07, WebThickness=0.006, FlangeThickness=0.01),
-         (-0.035, -0.09, 0), (0.035, 0.09, 3), False),
+        (
+            "IfcUShapeProfileDef",
+            dict(Depth=0.18, FlangeWidth=0.07, WebThickness=0.006, FlangeThickness=0.01),
+            (-0.035, -0.09, 0),
+            (0.035, 0.09, 3),
+            False,
+        ),
         ("IfcCircleHollowProfileDef", dict(Radius=0.2, WallThickness=0.01), (-0.2, -0.2, 0), (0.2, 0.2, 3), True),
-        ("IfcRectangleHollowProfileDef", dict(XDim=0.3, YDim=0.2, WallThickness=0.01), (-0.15, -0.1, 0), (0.15, 0.1, 3), True),
-        ("IfcIShapeProfileDef", dict(OverallWidth=0.3, OverallDepth=0.3, WebThickness=0.0085, FlangeThickness=0.014),
-         (-0.15, -0.15, 0), (0.15, 0.15, 3), False),
+        (
+            "IfcRectangleHollowProfileDef",
+            dict(XDim=0.3, YDim=0.2, WallThickness=0.01),
+            (-0.15, -0.1, 0),
+            (0.15, 0.1, 3),
+            True,
+        ),
+        (
+            "IfcIShapeProfileDef",
+            dict(OverallWidth=0.3, OverallDepth=0.3, WebThickness=0.0085, FlangeThickness=0.014),
+            (-0.15, -0.15, 0),
+            (0.15, 0.15, 3),
+            False,
+        ),
     ],
 )
 def test_native_ifc_parametric_profiles(prof_kind, kw, exp_min, exp_max, hollow, tmp_path):
@@ -191,7 +212,11 @@ def test_native_ifc_parametric_profiles(prof_kind, kw, exp_min, exp_max, hollow,
     prof = f.create_entity(prof_kind, ProfileType="AREA", **kw)
     solid = f.create_entity("IfcExtrudedAreaSolid", SweptArea=prof, ExtrudedDirection=z, Depth=3.0)
     rep = f.create_entity(
-        "IfcShapeRepresentation", ContextOfItems=ctx, RepresentationIdentifier="Body", RepresentationType="SweptSolid", Items=[solid]
+        "IfcShapeRepresentation",
+        ContextOfItems=ctx,
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=[solid],
     )
     pds = f.create_entity("IfcProductDefinitionShape", Representations=[rep])
     f.create_entity(
@@ -225,11 +250,15 @@ def _wrap(brep_lines: str, brep_id: str, schema: str) -> str:
         f"#12=IFCSITE('{g()}',$,'Site',$,$,#11,$,$,.ELEMENT.,$,$,$,$,$);\n"
         f"#13=IFCRELAGGREGATES('{g()}',$,$,$,#9,(#12));\n"
     )
-    body = pre + brep_lines + (
-        f"#900=IFCSHAPEREPRESENTATION(#6,'Body','AdvancedBrep',(#{brep_id}));\n"
-        f"#901=IFCPRODUCTDEFINITIONSHAPE($,$,(#900));\n"
-        f"#902=IFCBUILDINGELEMENTPROXY('{g()}',$,'proxy',$,$,#11,#901,$,$);\n"
-        f"#903=IFCRELCONTAINEDINSPATIALSTRUCTURE('{g()}',$,$,$,(#902),#12);\n"
+    body = (
+        pre
+        + brep_lines
+        + (
+            f"#900=IFCSHAPEREPRESENTATION(#6,'Body','AdvancedBrep',(#{brep_id}));\n"
+            f"#901=IFCPRODUCTDEFINITIONSHAPE($,$,(#900));\n"
+            f"#902=IFCBUILDINGELEMENTPROXY('{g()}',$,'proxy',$,$,#11,#901,$,$);\n"
+            f"#903=IFCRELCONTAINEDINSPATIALSTRUCTURE('{g()}',$,$,$,(#902),#12);\n"
+        )
     )
     return (
         "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\nFILE_NAME('t','',(''),(''),'','','');\n"
@@ -339,7 +368,9 @@ def test_stream_step_to_ifc_parallel_matches_serial(fixture, tmp_path):
     f = ifcopenshell.open(par)
     logger = ifcopenshell.validate.json_logger()
     ifcopenshell.validate.validate(f, logger)
-    assert not logger.statements, f"{fixture} parallel validate: {[str(s.get('message')) for s in logger.statements[:3]]}"
+    assert (
+        not logger.statements
+    ), f"{fixture} parallel validate: {[str(s.get('message')) for s in logger.statements[:3]]}"
 
 
 @pytest.mark.skipif(not hasattr(_cad or object(), "stream_step_to_ifc"), reason="no stream_step_to_ifc")
@@ -351,8 +382,11 @@ def test_ifc_geometry_matches_glb_oracle(fixture, tmp_path):
     src = _fixture_dir() + fixture
     mesh = _cad.stream_step_to_meshes(src, "libtess2", 2.0, 20.0)
     pos = np.asarray(mesh.positions).reshape(-1, 3)
-    oracle = {g.node_id: (pos[g.vstart:g.vstart + g.vlength].min(0), pos[g.vstart:g.vstart + g.vlength].max(0))
-              for g in mesh.groups if g.vlength}
+    oracle = {
+        g.node_id: (pos[g.vstart : g.vstart + g.vlength].min(0), pos[g.vstart : g.vstart + g.vlength].max(0))
+        for g in mesh.groups
+        if g.vlength
+    }
     out = str(tmp_path / (fixture + ".ifc"))
     _cad.stream_step_to_ifc(src, out, "IFC4X3_ADD2", 2.0, 20.0)
     f = ifcopenshell.open(out)

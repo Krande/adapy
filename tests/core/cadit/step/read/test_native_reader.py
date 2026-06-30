@@ -43,9 +43,9 @@ def test_native_reader_matches_stream():
     assert set(nat) == set(py) and len(py) == 5, "same products"
     for gid in py:
         gn, gp = nat[gid], py[gid]
-        assert serialize_geometries([(gid, gn.geometry)]) == serialize_geometries([(gid, gp.geometry)]), (
-            f"{gid}: B-rep byte-identical"
-        )
+        assert serialize_geometries([(gid, gn.geometry)]) == serialize_geometries(
+            [(gid, gp.geometry)]
+        ), f"{gid}: B-rep byte-identical"
         assert _color(gn.color) == _color(gp.color), f"{gid}: colour"
         # same SET of world-placement matrices (instance enumeration order may differ)
         assert _transform_set(gn.transforms) == _transform_set(gp.transforms), f"{gid}: placement set"

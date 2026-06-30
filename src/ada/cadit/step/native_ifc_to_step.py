@@ -7,6 +7,7 @@ length unit is preserved. Scope: analytic-B-rep IFC (precise-geometry interop + 
 STEP->IFC output). No native fallback — IFC->STEP is native-only (the OCC path is the registry default
 when adacpp lacks the verb).
 """
+
 from __future__ import annotations
 
 import os
@@ -53,5 +54,7 @@ def native_ifc_to_step(
             f"native IFC->STEP incomplete for {ifc_path} (products_skipped={skipped}, "
             f"faces_dropped={stats.get('faces_dropped', 0)}, reasons={stats.get('drop_reasons')})"
         )
-    logger.info("adacpp-native IFC->STEP: solids %s/%s -> %s", stats.get("solids_out"), stats.get("solids_in"), out_path)
+    logger.info(
+        "adacpp-native IFC->STEP: solids %s/%s -> %s", stats.get("solids_out"), stats.get("solids_in"), out_path
+    )
     return stats

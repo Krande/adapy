@@ -13,6 +13,7 @@ fixtures, 469826 (1308 solids) and the instanced crane (proxy/header GlobalIds a
 file declares its real length unit (mm files → MILLIMETRE) and names instanced proxies by their
 assembly path (navigable hierarchy in IFC viewers).
 """
+
 from __future__ import annotations
 
 import os

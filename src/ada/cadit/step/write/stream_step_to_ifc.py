@@ -387,8 +387,14 @@ def _iter_stream_solids(src_path):
                 rgb = color.rgb if color is not None else None
                 streamed = iter_connected_face_set_faces(nbytes)
                 if streamed is not None:
-                    yield (None, (lambda nb=nbytes: iter_connected_face_set_faces(nb)[2]), gid, rgb,
-                           (mats or [None]), (paths or None))
+                    yield (
+                        None,
+                        (lambda nb=nbytes: iter_connected_face_set_faces(nb)[2]),
+                        gid,
+                        rgb,
+                        (mats or [None]),
+                        (paths or None),
+                    )
                 else:
                     dec = deserialize_geometries(nbytes)
                     if not dec:
