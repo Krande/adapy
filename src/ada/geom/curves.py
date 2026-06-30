@@ -29,6 +29,9 @@ CURVE_GEOM_TYPES = Union[
     "PolyLine",
     "TrimmedCurve",
     "CompositeCurve",
+    "Clothoid",
+    "CurveSegment",
+    "GradientCurve",
     "PCurve",
     "PointOnCurve",
     "OffsetCurve3D",
@@ -131,6 +134,55 @@ class CompositeCurve:
     """
 
     segments: list[CompositeCurveSegment]
+    self_intersect: bool = False
+
+
+@dataclass
+class Clothoid:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcClothoid.htm)
+
+    Euler spiral — curvature varies linearly with arc length. Evaluated about its 2D placement
+    (``location`` + unit ``ref_direction``): with A = ``clothoid_constant`` (signed) and the
+    normalized Fresnel integrals C/S, x(u) = |A|*sqrt(pi)*C(u/(|A|*sqrt(pi))) and
+    y(u) = sign(A)*|A|*sqrt(pi)*S(u/(|A|*sqrt(pi))). The sign of A selects the turning sense.
+    """
+
+    location: Iterable  # 2D placement origin (the clothoid's inflection point)
+    ref_direction: Iterable  # 2D unit tangent at u=0
+    clothoid_constant: float
+
+
+@dataclass
+class CurveSegment:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCurveSegment.htm)
+
+    A ``parent_curve`` restricted to the arc-length range [segment_start, segment_start +
+    segment_length] and positioned in the containing curve by a 2D placement (``location`` +
+    unit ``ref_direction``). Distinct from CompositeCurveSegment (no SameSense; carries its own
+    placement + parametric range). segment_length may be negative (parameter decreases).
+    """
+
+    transition: str
+    location: Iterable  # 2D placement origin (segment start position)
+    ref_direction: Iterable  # 2D unit tangent at the segment start
+    segment_start: float
+    segment_length: float
+    parent_curve: CURVE_GEOM_TYPES
+
+
+@dataclass
+class GradientCurve:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcGradientCurve.htm)
+
+    A 3D directrix composing a horizontal ``base_curve`` (a CompositeCurve in x,y over arc length s)
+    with a vertical gradient given by ``segments`` mapping s -> height z.
+    """
+
+    base_curve: "CompositeCurve"
+    segments: list["CurveSegment"]
     self_intersect: bool = False
 
 
