@@ -1,0 +1,565 @@
+{
+  "version": 2,
+  "src": "cantilever_EIG_ca_solid_o1_hqTrue_riFalse",
+  "mesh": {
+    "url": "fea.mesh.glb",
+    "n_points": 1530,
+    "n_cells": 704,
+    "edges_url": "fea.mesh.edges.bin",
+    "n_edges": 3701,
+    "elements_url": "fea.mesh.elements.bin",
+    "n_elements": 704
+  },
+  "fields": [
+    {
+      "name_canonical": "modes___DEPL[0] - 13.6205",
+      "name_native": "modes___DEPL[0] - 13.6205",
+      "kind": "vector3",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "DX",
+        "DY",
+        "DZ"
+      ],
+      "blob": {
+        "url": "fea.modes___DEPL[0] - 13.6205.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 18360,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 1,
+      "steps": [
+        {
+          "i": 0,
+          "value": 13.620477576984733,
+          "label": "modes___DEPL[0] - 13.6205"
+        }
+      ],
+      "scalar_range": {
+        "DX": [
+          -0.04123726114630699,
+          0.04123726114630699
+        ],
+        "DY": [
+          -0.0,
+          1.0
+        ],
+        "DZ": [
+          -0.00038862955989316106,
+          0.00038862955989316106
+        ],
+        "magnitude": [
+          0.0,
+          1.000339388847351
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "name_canonical": "modes___DEPL[1] - 21.0685",
+      "name_native": "modes___DEPL[1] - 21.0685",
+      "kind": "vector3",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "DX",
+        "DY",
+        "DZ"
+      ],
+      "blob": {
+        "url": "fea.modes___DEPL[1] - 21.0685.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 18360,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 1,
+      "steps": [
+        {
+          "i": 0,
+          "value": 21.06853757065289,
+          "label": "modes___DEPL[1] - 21.0685"
+        }
+      ],
+      "scalar_range": {
+        "DX": [
+          -0.03790239244699478,
+          0.03790239244699478
+        ],
+        "DY": [
+          -1.0,
+          1.0
+        ],
+        "DZ": [
+          -0.44065290689468384,
+          0.44065290689468384
+        ],
+        "magnitude": [
+          0.0,
+          1.0931682586669922
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "name_canonical": "modes___DEPL[2] - 50.8252",
+      "name_native": "modes___DEPL[2] - 50.8252",
+      "kind": "vector3",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "DX",
+        "DY",
+        "DZ"
+      ],
+      "blob": {
+        "url": "fea.modes___DEPL[2] - 50.8252.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 18360,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 1,
+      "steps": [
+        {
+          "i": 0,
+          "value": 50.82518758038687,
+          "label": "modes___DEPL[2] - 50.8252"
+        }
+      ],
+      "scalar_range": {
+        "DX": [
+          -0.08628054708242416,
+          0.08628054708242416
+        ],
+        "DY": [
+          -0.0019929478876292706,
+          0.0019929478876292706
+        ],
+        "DZ": [
+          0.0,
+          1.0
+        ],
+        "magnitude": [
+          0.0,
+          1.003713607788086
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "name_canonical": "modes___DEPL[3] - 84.066",
+      "name_native": "modes___DEPL[3] - 84.066",
+      "kind": "vector3",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "DX",
+        "DY",
+        "DZ"
+      ],
+      "blob": {
+        "url": "fea.modes___DEPL[3] - 84.066.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 18360,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 1,
+      "steps": [
+        {
+          "i": 0,
+          "value": 84.06603079772577,
+          "label": "modes___DEPL[3] - 84.066"
+        }
+      ],
+      "scalar_range": {
+        "DX": [
+          -0.14000779390335083,
+          0.14000779390335083
+        ],
+        "DY": [
+          -0.7255533933639526,
+          1.0
+        ],
+        "DZ": [
+          -0.013182256370782852,
+          0.013182256370782852
+        ],
+        "magnitude": [
+          0.0,
+          1.000023365020752
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "name_canonical": "modes___DEPL[4] - 102.334",
+      "name_native": "modes___DEPL[4] - 102.334",
+      "kind": "vector3",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "DX",
+        "DY",
+        "DZ"
+      ],
+      "blob": {
+        "url": "fea.modes___DEPL[4] - 102.334.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 18360,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 1,
+      "steps": [
+        {
+          "i": 0,
+          "value": 102.3340515822355,
+          "label": "modes___DEPL[4] - 102.334"
+        }
+      ],
+      "scalar_range": {
+        "DX": [
+          -0.13609088957309723,
+          0.13609088957309723
+        ],
+        "DY": [
+          -1.0,
+          1.0
+        ],
+        "DZ": [
+          -0.416797012090683,
+          0.416797012090683
+        ],
+        "magnitude": [
+          0.0,
+          1.0904922485351562
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "name_canonical": "modes___DEPL[5] - 227.25",
+      "name_native": "modes___DEPL[5] - 227.25",
+      "kind": "vector3",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "DX",
+        "DY",
+        "DZ"
+      ],
+      "blob": {
+        "url": "fea.modes___DEPL[5] - 227.25.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 18360,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 1,
+      "steps": [
+        {
+          "i": 0,
+          "value": 227.2497792649201,
+          "label": "modes___DEPL[5] - 227.25"
+        }
+      ],
+      "scalar_range": {
+        "DX": [
+          -0.20218978822231293,
+          0.20218978822231293
+        ],
+        "DY": [
+          -0.6713773012161255,
+          1.0
+        ],
+        "DZ": [
+          -0.08858063817024231,
+          0.08858063817024231
+        ],
+        "magnitude": [
+          0.0,
+          1.0000618696212769
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "name_canonical": "modes___DEPL[6] - 255.872",
+      "name_native": "modes___DEPL[6] - 255.872",
+      "kind": "vector3",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "DX",
+        "DY",
+        "DZ"
+      ],
+      "blob": {
+        "url": "fea.modes___DEPL[6] - 255.872.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 18360,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 1,
+      "steps": [
+        {
+          "i": 0,
+          "value": 255.8715635799901,
+          "label": "modes___DEPL[6] - 255.872"
+        }
+      ],
+      "scalar_range": {
+        "DX": [
+          -0.2734149992465973,
+          0.2734149992465973
+        ],
+        "DY": [
+          -0.008265397511422634,
+          0.008265397511422634
+        ],
+        "DZ": [
+          -0.8019371628761292,
+          1.0
+        ],
+        "magnitude": [
+          0.0,
+          1.036607265472412
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "name_canonical": "modes___DEPL[7] - 266.519",
+      "name_native": "modes___DEPL[7] - 266.519",
+      "kind": "vector3",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "DX",
+        "DY",
+        "DZ"
+      ],
+      "blob": {
+        "url": "fea.modes___DEPL[7] - 266.519.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 18360,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 1,
+      "steps": [
+        {
+          "i": 0,
+          "value": 266.51880815208614,
+          "label": "modes___DEPL[7] - 266.519"
+        }
+      ],
+      "scalar_range": {
+        "DX": [
+          -0.22604183852672577,
+          0.22604183852672577
+        ],
+        "DY": [
+          -1.0,
+          1.0
+        ],
+        "DZ": [
+          -0.40263426303863525,
+          0.40263426303863525
+        ],
+        "magnitude": [
+          0.0,
+          1.098683476448059
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "name_canonical": "modes___DEPL[8] - 407.869",
+      "name_native": "modes___DEPL[8] - 407.869",
+      "kind": "vector3",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "DX",
+        "DY",
+        "DZ"
+      ],
+      "blob": {
+        "url": "fea.modes___DEPL[8] - 407.869.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 18360,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 1,
+      "steps": [
+        {
+          "i": 0,
+          "value": 407.8693106406372,
+          "label": "modes___DEPL[8] - 407.869"
+        }
+      ],
+      "scalar_range": {
+        "DX": [
+          -0.19700801372528076,
+          0.19700801372528076
+        ],
+        "DY": [
+          -0.8542630672454834,
+          1.0
+        ],
+        "DZ": [
+          -0.30567342042922974,
+          0.30567342042922974
+        ],
+        "magnitude": [
+          0.0,
+          1.0001194477081299
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "name_canonical": "modes___DEPL[9] - 432.207",
+      "name_native": "modes___DEPL[9] - 432.207",
+      "kind": "vector3",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "DX",
+        "DY",
+        "DZ"
+      ],
+      "blob": {
+        "url": "fea.modes___DEPL[9] - 432.207.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 18360,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 1,
+      "steps": [
+        {
+          "i": 0,
+          "value": 432.20739822407245,
+          "label": "modes___DEPL[9] - 432.207"
+        }
+      ],
+      "scalar_range": {
+        "DX": [
+          0.0,
+          1.0
+        ],
+        "DY": [
+          -0.015138461254537106,
+          0.015138461254537106
+        ],
+        "DZ": [
+          -0.03415877744555473,
+          0.03415877744555473
+        ],
+        "magnitude": [
+          0.0,
+          1.0
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    },
+    {
+      "name_canonical": "modes___DEPL[10] - 500.931",
+      "name_native": "modes___DEPL[10] - 500.931",
+      "kind": "vector3",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "DX",
+        "DY",
+        "DZ"
+      ],
+      "blob": {
+        "url": "fea.modes___DEPL[10] - 500.931.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 18360,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 1,
+      "steps": [
+        {
+          "i": 0,
+          "value": 500.93140010692144,
+          "label": "modes___DEPL[10] - 500.931"
+        }
+      ],
+      "scalar_range": {
+        "DX": [
+          -0.3147899806499481,
+          0.3147899806499481
+        ],
+        "DY": [
+          -1.0,
+          1.0
+        ],
+        "DZ": [
+          -0.40590760111808777,
+          0.40590760111808777
+        ],
+        "magnitude": [
+          0.0,
+          1.1198278665542603
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    }
+  ]
+}
