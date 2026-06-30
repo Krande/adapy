@@ -591,6 +591,9 @@ export interface ConvertMeta {
     // for a slower conversion.
     convert_ms?: number | null;
     compress_ms?: number | null;
+    // The pod's CPU allotment (cgroup quota) at conversion time, so the metrics chart can render CPU
+    // as % utilization across all cores rather than a cumulative ramp.
+    cpu_cores?: number | null;
     options?: Record<string, string>;
 }
 
@@ -788,6 +791,9 @@ export interface MetricsSample {
     peak_rss_kb: number;
     read_bytes: number;
     write_bytes: number;
+    // Per-thread cumulative CPU (utime+stime, ms) keyed by tid — drives the per-core utilization
+    // envelope for the in-process native engine. Absent on older rows / non-native conversions.
+    per_thread_cpu_ms?: Record<string, number> | null;
 }
 
 export interface MetricsHistoryResp {
@@ -2183,6 +2189,23 @@ export const viewerApi = {
         return jsonOrThrow(r, "adminListWorkers");
     },
 
+    /** Admin: drop every currently-offline worker registry entry (a live pod re-registers within a
+     * heartbeat). Returns the number pruned. */
+    async adminPruneWorkers(): Promise<{pruned: number}> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/workers/prune`, {method: "POST"});
+        return jsonOrThrow(r, "adminPruneWorkers");
+    },
+
+    /** Admin: fetch a conversion's captured stdout/stderr log (the log_key blob) as text. Throws
+     * ApiError(404) when the row has no log attached (predates log capture, or no conversion ran). */
+    async adminGetAuditLog(auditId: number): Promise<string> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/${auditId}/log`);
+        if (!r.ok) {
+            throw new ApiError(`adminGetAuditLog(${auditId})`, r.status, await readDetail(r));
+        }
+        return r.text();
+    },
+
     /** Admin: read a key from app_settings. Value is null when unset. */
     async adminGetSetting(key: string): Promise<string | null> {
         const r = await authedFetch(
@@ -2449,6 +2472,7 @@ export const viewerApi = {
         keys: string[],
     ): Promise<{
         copied: Array<{key: string}>;
+        skipped: Array<{key: string; reason: string}>;
         failed: Array<{key: string; reason: string}>;
     }> {
         const r = await authedFetch(

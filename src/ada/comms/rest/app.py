@@ -221,6 +221,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _profile_parser_loop(app.state.db_pool),
                 name="audit-profile-parser",
             )
+        # Stale-worker GC. A pod that crashes / scales down can leave its registry entry behind
+        # (unregister_worker is best-effort); without pruning these accumulate and pollute the
+        # capability matrix. Drop entries unseen for WORKER_PRUNE_AFTER_S (2 days), checked hourly.
+        app.state.worker_prune_task = None
+        if queue.enabled:
+            app.state.worker_prune_task = asyncio.create_task(
+                _worker_prune_loop(queue),
+                name="worker-prune",
+            )
         yield
         # Cancel scheduler + issue bot first so a tick in flight
         # doesn't try to use a pool / queue that's about to be torn
@@ -229,6 +238,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "scheduler_task",
             "issue_bot_task",
             "profile_parser_task",
+            "worker_prune_task",
         ):
             task = getattr(app.state, attr, None)
             if task is not None and not task.done():
@@ -344,7 +354,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.exception("config: failed to read worker registry for matrix")
             return []
         merged: dict[str, set[str]] = {}
+        # from → target → option-name → option-dict. Per-job knob schemas are unioned across workers:
+        # for an enum option (e.g. step_glb_pipeline) the enum VALUES are unioned, so an engine that
+        # only some worker pool can run still appears in the list. (Pair with capability routing so the
+        # job lands on a pool that actually advertises that engine — see queue source-ext routing.)
+        merged_opts: dict[str, dict[str, dict[str, dict]]] = {}
+        now = time.time()
         for w in workers:
+            # Only LIVE pools define the capability matrix — a dead/stale registration (a pod that
+            # crashed or scaled down before unregistering) must not keep advertising engines it no
+            # longer runs. Mirrors the routing staleness window; prune_stale_workers GCs them for good.
+            hb = w.get("last_heartbeat")
+            if not (isinstance(hb, (int, float)) and (now - hb) <= JobQueue.WORKER_STALE_AFTER_S):
+                continue
             for entry in w.get("conversions") or []:
                 if not isinstance(entry, dict):
                     continue
@@ -356,11 +378,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 tos = entry.get("to")
                 if not isinstance(tos, list):
                     continue
+                opts_by_target = entry.get("options") or {}
                 bucket = merged.setdefault(frm, set())
                 for t in tos:
-                    if isinstance(t, str) and t.strip():
-                        bucket.add(t.strip().lstrip(".").lower())
-        return [{"from": frm, "to": sorted(merged[frm])} for frm in sorted(merged)]
+                    if not (isinstance(t, str) and t.strip()):
+                        continue
+                    target = t.strip().lstrip(".").lower()
+                    bucket.add(target)
+                    for opt in opts_by_target.get(t) or opts_by_target.get(target) or []:
+                        if not isinstance(opt, dict) or not opt.get("name"):
+                            continue
+                        slot = merged_opts.setdefault(frm, {}).setdefault(target, {})
+                        cur = slot.get(opt["name"])
+                        if cur is None:
+                            slot[opt["name"]] = dict(opt)
+                        elif isinstance(opt.get("enum"), list) and isinstance(cur.get("enum"), list):
+                            cur["enum"] = cur["enum"] + [v for v in opt["enum"] if v not in cur["enum"]]
+        return [
+            {
+                "from": frm,
+                "to": sorted(merged[frm]),
+                "options": {tgt: list(by_name.values()) for tgt, by_name in merged_opts.get(frm, {}).items()},
+            }
+            for frm in sorted(merged)
+        ]
 
     async def _worker_advertised_utilities() -> list[dict]:
         """Merged utility specs across every currently-registered worker.
@@ -836,11 +877,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # would drown the log.
         if not is_derived_key(key):
             await _audit(request, user, scope_obj, "download", key=key, status="ok")
-        headers: dict[str, str] = {"Accept-Ranges": "bytes"}
+        headers: dict[str, str] = {}
         if result.content_encoding:
             # See storage.py: gzipped sources/derived round-trip via
-            # Content-Encoding so the browser auto-decompresses.
+            # Content-Encoding so the browser auto-decompresses. A gzip-at-rest
+            # object CANNOT be byte-ranged (a range would hand back compressed
+            # bytes — see _serve_blob_range), so advertise no-range honestly:
+            # otherwise a client/CDN trusts ``Accept-Ranges: bytes`` and a Range
+            # GET against the presigned S3 object returns corrupt partial gzip.
             headers["Content-Encoding"] = result.content_encoding
+            headers["Accept-Ranges"] = "none"
+        else:
+            headers["Accept-Ranges"] = "bytes"
         return StreamingResponse(result.stream, media_type="application/octet-stream", headers=headers)
 
     @api.put("/scopes/{scope}/blobs/{key:path}")
@@ -2710,6 +2758,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse({"workers": workers, "now": now, "stale_after_s": stale_after_s})
 
+    @admin.post("/workers/prune")
+    async def admin_prune_workers() -> JSONResponse:
+        """Manually drop every currently-OFFLINE worker registry entry (heartbeat older than the
+        staleness window). A live pod re-registers within a heartbeat tick, so this only clears dead
+        registrations left by crashed / scaled-down pods — which otherwise linger and pollute the
+        capability matrix. The hourly background task also prunes, but only at the conservative 2-day
+        horizon; this button is the immediate manual cleanup."""
+        if not queue.enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="worker registry requires a NATS-backed queue",
+            )
+        try:
+            pruned = await queue.prune_stale_workers(max_age_s=queue.WORKER_STALE_AFTER_S)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"could not prune worker registry: {exc}",
+            ) from exc
+        return JSONResponse({"pruned": pruned})
+
     # ── Audit runs (M1 admin audit panel) ─────────────────────────────
     #
     # POST  /admin/audit/runs           — kick off a sweep
@@ -2760,6 +2829,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         base = after or datetime.now(timezone.utc)
         return croniter(cron_expr, base).get_next(datetime)
+
+    async def _worker_prune_loop(q) -> None:
+        """Background task: hourly, hard-prune worker registry entries unseen for
+        ``WORKER_PRUNE_AFTER_S`` (2 days). Defensive — one failed tick is logged, not fatal; only
+        ``asyncio.CancelledError`` exits cleanly (shutdown)."""
+        PRUNE_INTERVAL_S = 3600.0
+        logger.info("worker prune: starting (every %ss, horizon %ss)", PRUNE_INTERVAL_S, q.WORKER_PRUNE_AFTER_S)
+        try:
+            while True:
+                await asyncio.sleep(PRUNE_INTERVAL_S)
+                try:
+                    n = await q.prune_stale_workers()
+                    if n:
+                        logger.info("worker prune: removed %d stale registration(s)", n)
+                except Exception:
+                    logger.exception("worker prune: tick failed")
+        except asyncio.CancelledError:
+            logger.info("worker prune: stopped")
+            raise
 
     async def _scheduler_loop(pool) -> None:
         """Background task: tick every 30s, claim due schedules, fire
@@ -5316,8 +5404,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Body: ``{"src_scope": "user:me", "keys": [...]}``. Each key is copied
         (Garage / S3 CopyObject — no download/reupload) from ``src_scope`` to the
         same key in the path scope. The caller must be able to read ``src_scope``.
-        Per-key reporting: ``{copied, failed}`` — a collision (target exists),
-        missing source, or backend error doesn't abort the batch.
+        Per-key reporting: ``{copied, skipped, failed}`` — a key that already
+        exists in the destination is reported under ``skipped`` (a no-op, not an
+        error, so recursive folder copies tolerate partial overlap); a missing
+        source, derived-key reject, or backend error lands in ``failed``. Nothing
+        aborts the batch.
         """
         from .converter import is_derived_key
 
@@ -5351,13 +5442,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dst_keys = {f.key for f in await storage.list(scope_obj)}
 
         copied: list[dict] = []
+        skipped: list[dict] = []
         failed: list[dict] = []
         for key in keys:
             if is_derived_key(key):
                 failed.append({"key": key, "reason": "cannot copy derived blobs"})
                 continue
             if key in dst_keys:
-                failed.append({"key": key, "reason": "target already exists"})
+                skipped.append({"key": key, "reason": "already in corpus"})
                 continue
             try:
                 # overwrite=True for the same S3 reason as rename above (the safe
@@ -5372,7 +5464,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             copied.append({"key": key})
             await _audit(request, user, scope_obj, "copy", key=key, status="ok")
 
-        return JSONResponse({"copied": copied, "failed": failed})
+        return JSONResponse({"copied": copied, "skipped": skipped, "failed": failed})
 
     app.include_router(admin)
 

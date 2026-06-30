@@ -20,6 +20,9 @@ export interface ViewerOp {
     op: "color_elements" | "add_overlay_geometry";
     elements?: ColorElement[];
     blob_key?: string;
+    // Inline overlay GLB bytes (the in-browser wasm path has them directly; no storage round-trip).
+    // Takes precedence over blob_key when present.
+    blob?: ArrayBuffer;
     label?: string;
     color?: string;
 }
@@ -56,8 +59,10 @@ function _applyColorElements(elements: ColorElement[]): void {
 }
 
 async function _addOverlay(op: ViewerOp, scope: ScopeUrl): Promise<void> {
-    if (!op.blob_key || !sceneRef.current) return;
-    const buf = await viewerApi.getBlob(scope, op.blob_key);
+    if (!sceneRef.current) return;
+    // Inline bytes (wasm path) take precedence; otherwise fetch the stored overlay blob.
+    const buf = op.blob ?? (op.blob_key ? await viewerApi.getBlob(scope, op.blob_key) : null);
+    if (!buf) return;
     const url = URL.createObjectURL(new Blob([buf], {type: "model/gltf-binary"}));
     try {
         const gltf = await loadGLTF(url);

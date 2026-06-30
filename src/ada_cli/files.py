@@ -24,6 +24,21 @@ import sys
 # can take a while on modest connections for sub-GB artefacts.
 _TRANSFER_TIMEOUT_SECONDS = 30 * 60
 
+# Extensions worth gzipping at rest. The presigned PUT goes STRAIGHT to object storage, bypassing the
+# API's server-side gzip — so without a client-side pass these land uncompressed and every download
+# pays full size. Includes .glb/.gltf to match the worker's gzip-at-rest for derived GLBs (a meshopt
+# crane GLB still gzips ~0.46x). Safe because the viewer loads geometry WHOLE-FILE (no Range) and the
+# browser decompresses transparently; the blob GET advertises `Accept-Ranges: none` for gzip objects so
+# nothing Range-fetches them, and the download-progress overshoot is capped viewer-side. (Field `.bin`
+# artefacts stay raw precisely because they ARE Range-fetched per step — see the FEA field-blob note.)
+_GZIP_UPLOAD_EXTS = frozenset(
+    {".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis", ".sif", ".glb", ".gltf"}
+)
+
+
+def _should_gzip_upload(key: str) -> bool:
+    return pathlib.PurePosixPath(key).suffix.lower() in _GZIP_UPLOAD_EXTS
+
 
 def _config(args: argparse.Namespace) -> tuple[str, str, str]:
     base_url = (getattr(args, "url", None) or os.environ.get("ADAPY_VIEWER_URL", "")).strip().rstrip("/")
@@ -216,19 +231,41 @@ def cmd_upload(args: argparse.Namespace) -> int:
                         file=sys.stderr,
                     )
                     return 1
+                # gzip-at-rest for compressible types: the presigned PUT lands directly in object
+                # storage, so the API's server-side gzip never runs — compress here and attach an
+                # (unsigned, allowed) Content-Encoding: gzip so the stored object is compressed and the
+                # viewer's presigned GET serves it gzipped. Streamed via a temp file (bounded memory).
+                gz_tmp: pathlib.Path | None = None
+                if _should_gzip_upload(key):
+                    import gzip as _gzip
+                    import shutil
+                    import tempfile
+
+                    fd, name = tempfile.mkstemp(suffix=".gz")
+                    os.close(fd)
+                    gz_tmp = pathlib.Path(name)
+                    with src.open("rb") as fi, _gzip.open(gz_tmp, "wb", compresslevel=6) as fo:
+                        shutil.copyfileobj(fi, fo, 1024 * 1024)
+                put_path = gz_tmp or src
+                put_size = put_path.stat().st_size
+                put_headers = {"Content-Length": str(put_size)}
+                if gz_tmp is not None:
+                    put_headers["Content-Encoding"] = "gzip"
                 # No Authorization on the signed URL (same SigV4 constraint as download).
-                with src.open("rb") as fh:
-                    put = client.put(
-                        url_resp.json()["url"],
-                        content=fh,
-                        headers={"Content-Length": str(size)},
-                    )
+                try:
+                    with put_path.open("rb") as fh:
+                        put = client.put(url_resp.json()["url"], content=fh, headers=put_headers)
+                finally:
+                    if gz_tmp is not None:
+                        gz_tmp.unlink(missing_ok=True)
                 if put.status_code >= 400:
                     print(
                         f"presigned PUT failed: {put.status_code} {put.text[:200]}",
                         file=sys.stderr,
                     )
                     return 1
+                if gz_tmp is not None:
+                    print(f"  gzip-at-rest: {size} -> {put_size} bytes ({put_size / max(1, size):.2f}x)")
                 # Finalise: audit row + auto-conversion enqueue happen server-side here.
                 done = client.post(
                     f"{base_url}/api/scopes/{scope}/upload-complete",

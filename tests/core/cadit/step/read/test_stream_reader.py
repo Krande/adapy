@@ -149,6 +149,59 @@ def test_stream_reader_lazy_offset_pool_matches_dict_pool(tmp_path):
     assert len(lazy) == 4
 
 
+def test_stmt_end_bytes_handles_quoted_semicolon():
+    # Bare terminator, quoted ';' (ignored), and the "need more bytes" sentinel.
+    from ada.cadit.step.read.stream_reader import _stmt_end_bytes
+
+    assert _stmt_end_bytes(b"#1=FOO(1,2);") == 11
+    assert _stmt_end_bytes(b"#1=NAME('a;b');") == 14  # the ';' inside the quotes is skipped
+    assert _stmt_end_bytes(b"#1=FOO(1,2)") == -1  # no terminator yet -> grow
+    assert _stmt_end_bytes(b"#1=NAME('a;b") == -1  # open quote runs past chunk -> grow
+
+
+def test_read_statement_pread_matches_mmap(tmp_path):
+    # pread-based statement read must reproduce the mmap-slice read byte-for-byte,
+    # including a statement whose quoted ';' straddles the initial pread window.
+    import os
+
+    from ada.cadit.step.read import stream_reader as sr
+
+    body = (
+        "#1=CARTESIAN_POINT('',(0.,0.,0.));\n"
+        "#2=NAME('weird;name;with;semis and padding " + "x" * 200 + "');\n"
+        "#3=LINE(#1,#2);"
+    )
+    p = tmp_path / "stmts.step"
+    raw = body.encode("utf-8")
+    p.write_bytes(raw)  # exact bytes; write_text would CRLF-translate on Windows and shift offsets
+    file_size = len(raw)
+
+    # Offsets of each statement start ('#').
+    offsets = [i for i, b in enumerate(raw) if chr(b) == "#"]
+    fd = os.open(str(p), os.O_RDONLY | getattr(os, "O_BINARY", 0))  # raw bytes (match the real reader)
+    try:
+        # Force a tiny window so statement #2 (which holds a quoted ';' well past the
+        # window) exercises the grow-and-retry across chunk boundaries.
+        orig = sr._PREAD_CHUNK
+        sr._PREAD_CHUNK = 16
+        try:
+            got = [sr._read_statement_pread(fd, off, file_size) for off in offsets]
+        finally:
+            sr._PREAD_CHUNK = orig
+    finally:
+        os.close(fd)
+
+    # Reference: mmap-slice read of the same offsets.
+    import mmap
+
+    with open(str(p), "rb") as fh, mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+        want = [sr._read_statement_at(mm, off, file_size) for off in offsets]
+
+    assert got == want
+    # The quoted ';' must be preserved inside the statement, not truncated.
+    assert "weird;name;with;semis" in got[1]
+
+
 def test_stream_reader_two_pass_handles_forward_references(tmp_path):
     # OpenCASCADE and most writers emit forward references (a solid written before
     # its shell/faces/points) — the opposite of the streaming emitter's bottom-up

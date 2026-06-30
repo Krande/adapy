@@ -843,25 +843,76 @@ def _should_stream_step(src_path: pathlib.Path, step_streamer: bool | None) -> b
         return False
 
 
-# STEP→GLB engines. ``libtess2`` (adacpp's OCC-free boundary CDT, step2glb-parity
-# geometry incl. curved surfaces the OCC stream reader drops) is the default; the
-# ``occ-builtin`` OCC streaming reader is the prior default, kept as the fallback.
-# ``adacpp-{occ,cgal,hybrid}`` route through adacpp's linked OCCT / ifcopenshell-
-# taxonomy kernels (extra options). (The external ``step2glb`` binary engine was removed —
-# libtess2 reaches the same geometry in-process, so the unprovisioned binary path is gone.)
+# STEP→GLB engines. ``adacpp-native`` (the fully in-process C++ reader+tessellate+write, validated
+# 1:1 with the Python path) is the default; it falls back to ``libtess2`` (adacpp's OCC-free boundary
+# CDT, step2glb-parity geometry incl. curved surfaces the OCC stream reader drops) and then the
+# ``occ-builtin`` OCC streaming reader. ``adacpp-{occ,cgal,hybrid}`` route through adacpp's linked
+# OCCT / ifcopenshell-taxonomy kernels (extra options). (The external ``step2glb`` binary engine was
+# removed — libtess2 reaches the same geometry in-process, so the unprovisioned binary path is gone.)
 _STEP_GLB_PIPELINE_LIBTESS2 = "libtess2"
 _STEP_GLB_PIPELINE_OCC = "occ-builtin"
 _STEP_GLB_PIPELINE_ADACPP_OCC = "adacpp-occ"
 _STEP_GLB_PIPELINE_ADACPP_CGAL = "adacpp-cgal"
 _STEP_GLB_PIPELINE_ADACPP_HYBRID = "adacpp-hybrid"
+# Fully-native: adacpp does the whole STEP->GLB in-process (C++ reader + thread pool + GLB writer),
+# replacing the Python reader + multiprocess pool. Fastest + lowest memory, and now byte-faithful to
+# the Python path — geometry, product names, per-instance picking, and the full assembly tree are
+# validated 1:1 on the crane (see native_step_to_glb / validate_native_vs_python.py). This is the
+# default; it degrades gracefully to libtess2 if adacpp's native entry point is missing or the
+# conversion raises.
+_STEP_GLB_PIPELINE_ADACPP_NATIVE = "adacpp-native"
 _STEP_GLB_PIPELINES = (
     _STEP_GLB_PIPELINE_LIBTESS2,
     _STEP_GLB_PIPELINE_OCC,
     _STEP_GLB_PIPELINE_ADACPP_OCC,
     _STEP_GLB_PIPELINE_ADACPP_CGAL,
     _STEP_GLB_PIPELINE_ADACPP_HYBRID,
+    _STEP_GLB_PIPELINE_ADACPP_NATIVE,
 )
-_STEP_GLB_PIPELINE_DEFAULT = _STEP_GLB_PIPELINE_LIBTESS2
+_STEP_GLB_PIPELINE_DEFAULT = _STEP_GLB_PIPELINE_ADACPP_NATIVE
+# Where the native path degrades to when adacpp is absent or a conversion raises. Kept separate from
+# the default so the native branch's fallback is never circular.
+_STEP_GLB_PIPELINE_FALLBACK = _STEP_GLB_PIPELINE_LIBTESS2
+
+
+def available_step_glb_pipelines() -> tuple[str, ...]:
+    """The STEP→GLB engines THIS process can actually run — for per-worker capability advertisement.
+
+    A worker pool without adacpp won't advertise the adacpp engines; one without OCC won't advertise
+    occ-builtin. The API unions these across pools for the engine list, and routes a job requesting an
+    engine to a pool that advertises it. Detection is conservative: if nothing is detected (which
+    shouldn't happen in a real worker) it returns the full set rather than an empty one.
+    """
+    import importlib.util
+
+    def _have(mod: str) -> bool:
+        try:
+            return importlib.util.find_spec(mod) is not None
+        except Exception:
+            return False
+
+    runnable: set[str] = set()
+    if _have("adacpp"):
+        # adacpp-native is gated with the rest of the adacpp engines (find_spec presence) rather than an
+        # import-based native_adacpp_available() check: under the deployed adacpp-overlay, import caching
+        # can resolve a base adacpp (without the native entrypoint) before the overlay path is active, so
+        # the import check spuriously reports False at worker-startup advert time. find_spec is resolved
+        # at call time against sys.path and isn't poisoned by an earlier import; the worker's runtime
+        # fallback (native → libtess2 → occ-builtin) still covers a pool that turns out not to run it.
+        runnable.update(
+            {
+                _STEP_GLB_PIPELINE_LIBTESS2,
+                _STEP_GLB_PIPELINE_ADACPP_OCC,
+                _STEP_GLB_PIPELINE_ADACPP_CGAL,
+                _STEP_GLB_PIPELINE_ADACPP_HYBRID,
+                _STEP_GLB_PIPELINE_ADACPP_NATIVE,
+            }
+        )
+    if _have("OCP") or _have("OCC"):
+        runnable.add(_STEP_GLB_PIPELINE_OCC)
+    avail = tuple(p for p in _STEP_GLB_PIPELINES if p in runnable)
+    return avail or _STEP_GLB_PIPELINES
+
 
 # Non-STEP →GLB engine toggle (xml / ifc / sat / fem / obj / stl → glb via to_gltf's
 # BatchTessellator). Reuses the STEP option's names so the admin panel reads consistently,
@@ -885,14 +936,32 @@ _GLB_ENGINE_TO_STREAM = {
 }
 
 
+def _default_glb_tess_engine() -> str:
+    """Default engine for the non-STEP →GLB (scene) path: ``libtess2`` when adacpp is importable,
+    else the OCC BatchTessellator. OCC's prism tessellation of curved B-spline plates is
+    NON-MANIFOLD — it drops the viewer's per-plate edge outlines (hullskin elev13 plates) — so
+    libtess2 (manifold; non-NGEOM-serializable geom still falls back to OCC per-object) is
+    preferred wherever it can run. Evaluated at conversion time so a slim/adacpp-less pool still
+    gets OCC."""
+    from importlib.util import find_spec
+
+    try:
+        if find_spec("adacpp") is not None:
+            return _STEP_GLB_PIPELINE_LIBTESS2
+    except Exception:  # noqa: BLE001 - find_spec can raise on a broken import path
+        pass
+    return _STEP_GLB_PIPELINE_OCC
+
+
 def _glb_engine_stream_value(engine: str | None) -> str | None:
     """Map the non-STEP →GLB engine option to a BatchTessellator stream pipeline value
     (``ADA_STREAM_TESS_PIPELINE``), or ``None`` for the default OCC BatchTessellator
-    (``occ-builtin`` / unset / unknown). Per-job ``engine`` wins, else the global
-    ``ADAPY_GLB_TESS_ENGINE`` env, else the OCC default."""
+    (``occ-builtin`` / unknown). Per-job ``engine`` wins, else the global ``ADAPY_GLB_TESS_ENGINE``
+    env (set by the worker from the per-source-type ``tess_engine_*`` setting), else the
+    adacpp-aware default (``_default_glb_tess_engine``)."""
     import os
 
-    choice = (engine or os.environ.get("ADAPY_GLB_TESS_ENGINE", "") or _GLB_TESS_ENGINE_DEFAULT).strip().lower()
+    choice = (engine or os.environ.get("ADAPY_GLB_TESS_ENGINE", "") or _default_glb_tess_engine()).strip().lower()
     return _GLB_ENGINE_TO_STREAM.get(choice)
 
 
@@ -902,9 +971,9 @@ def _resolve_step_glb_pipeline(step_glb_pipeline: str | None) -> str:
     Precedence mirrors ``_should_stream_step``: an explicit per-job choice
     (``step_glb_pipeline`` kwarg, set by the worker from the job option) wins;
     otherwise the global ``ADAPY_STEP_GLB_PIPELINE`` env (same convention as
-    ``ADAPY_CAD_BACKEND``); default ``libtess2``. An adacpp pipeline requested
-    where adacpp isn't installed degrades to ``occ-builtin`` (see
-    ``_cad_config_for_pipeline``), so a libtess2 default is safe everywhere.
+    ``ADAPY_CAD_BACKEND``); default ``adacpp-native``. The native path degrades
+    to ``libtess2`` (then ``occ-builtin``) when adacpp is missing or a conversion
+    raises, so the native default is safe everywhere.
     """
     import os
 
@@ -990,6 +1059,36 @@ def _via_ada(
     try:
         if source_ext in {".step", ".stp"} and target_format == "glb":
             pipe = _resolve_step_glb_pipeline(step_glb_pipeline)
+
+            if pipe == _STEP_GLB_PIPELINE_ADACPP_NATIVE:
+                # Fully-native in-process path (C++ reader + thread pool + GLB writer). Falls through
+                # to the standard pipelines below if adacpp's native entry point isn't available, so a
+                # native request degrades gracefully rather than failing the job.
+                from ada.cadit.step.native_step_to_glb import (
+                    native_adacpp_available,
+                    native_step_to_glb,
+                )
+                from ada.config import logger
+
+                if native_adacpp_available():
+                    try:
+                        native_step_to_glb(src_path, out_path, on_progress=on_progress)
+                        result = out_path
+                        return result
+                    except Exception as exc:
+                        if bool(strict_tess):
+                            raise
+                        logger.warning(
+                            "adacpp-native STEP->GLB failed for %s (%s); falling back to %s",
+                            getattr(src_path, "name", src_path),
+                            exc,
+                            _STEP_GLB_PIPELINE_FALLBACK,
+                        )
+                else:
+                    logger.warning(
+                        "adacpp-native requested but unavailable; falling back to %s", _STEP_GLB_PIPELINE_FALLBACK
+                    )
+                pipe = _STEP_GLB_PIPELINE_FALLBACK
 
             cad_cfg = _cad_config_for_pipeline(pipe)
             if cad_cfg is not None:
@@ -1629,6 +1728,171 @@ def _via_glb_to_trimesh(
     return out.getvalue()
 
 
+def _via_step_stream_to_step(
+    src_path: pathlib.Path,
+    on_progress: ProgressFn,
+) -> pathlib.Path:
+    """STEP → STEP (AP242) via the per-solid NGEOM stream — **no OCC**.
+
+    The native adacpp NGEOM reader (pure-Python stream reader as a drop-in
+    fallback) yields one analytic ``ada.geom.Geometry`` per solid — full B-rep
+    incl. B-spline surfaces/curves and swept surfaces, plus colour, world
+    placement and name — and each is hand-authored straight to STEP Part-21 by
+    the kernel-free :class:`Ap242StreamWriter`. Peak memory is O(one solid), so
+    the multi-GB assemblies that OOM/timed out through ``ada.from_step`` →
+    ``to_stp`` now stream through. No tessellation, no OCC anywhere in the path.
+    """
+    from ada.config import logger
+
+    out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
+    from ada.cadit.step.native_step_to_step import (
+        native_step_to_step,
+        native_step_to_step_available,
+    )
+
+    if native_step_to_step_available():
+        try:
+            stats = native_step_to_step(src_path, out_path, on_progress=on_progress)
+            logger.info("native STEP->STEP: %s", stats)
+            return out_path
+        except Exception as exc:  # noqa: BLE001 - degrade to the Python AP242 writer
+            logger.warning("native STEP->STEP failed (%s); falling back to per-solid Python", exc)
+
+    from ada.cadit.step.write.stream_step_to_step import stream_step_to_step
+
+    stats = stream_step_to_step(src_path, out_path, on_progress=on_progress)
+    logger.info("stream STEP->STEP (python): %s", stats)
+    return out_path
+
+
+def _via_ifc_to_step(
+    src_path: pathlib.Path,
+    on_progress: ProgressFn,
+) -> pathlib.Path:
+    """IFC → AP242 STEP via the native adacpp IFC B-rep reader → ng:: → STEP writer — **no OCC**.
+
+    A native IFC advanced-B-rep reader (analytic surfaces/curves + IfcMappedItem instancing) builds
+    ng:: neutral geometry which the AP242 STEP emitter re-writes (instances baked). The declared length
+    unit is preserved. Falls back to the OCC path (``_via_ada_to_step``) when the native reader can't
+    fully cover the file — IFC with IfcExtrudedAreaSolid / CSG / tessellated geometry, or any
+    product/face left behind — so no geometry is silently lost.
+    """
+    from ada.cadit.step.native_ifc_to_step import (
+        native_ifc_to_step,
+        native_ifc_to_step_available,
+    )
+    from ada.config import logger
+
+    if native_ifc_to_step_available():
+        try:
+            out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
+            stats = native_ifc_to_step(src_path, out_path, on_progress=on_progress)
+            logger.info("native IFC->STEP: %s", stats)
+            return out_path
+        except Exception as exc:  # noqa: BLE001 - native can't cover this IFC; use the OCC writer
+            logger.info("native IFC->STEP unavailable/incomplete (%s); using OCC", exc)
+    return _via_ada_to_step(src_path, ".ifc", on_progress)
+
+
+def _via_step_stream_to_ifc(
+    src_path: pathlib.Path,
+    on_progress: ProgressFn,
+) -> pathlib.Path:
+    """STEP → IFC4X3_ADD2 advanced B-rep — **no OCC, no ada Assembly**, bounded memory.
+
+    Prefers the fully-native adacpp writer (``stream_step_to_ifc``): the same C++ reader the GLB/mesh
+    paths use resolves each solid's analytic B-rep, emits it as an IfcAdvancedBrep (cones →
+    IfcSurfaceOfRevolution, splines → IfcBSplineSurface, …) and places instances via IfcMappedItem,
+    parallel across the cgroup-aware thread allotment. Lossless (every solid/face/edge analytic) and
+    ifcopenshell-valid. Falls back to the per-solid Python writer (``stream_step_to_ifc``: hand-authors
+    one ``ada.geom.Geometry`` per solid) when adacpp's native IFC entry point is absent. Either way the
+    ifcopenshell.file only ever holds the spatial preamble, so the multi-GB assemblies that OOM/timed
+    out through ``ada.from_step`` → ``to_ifc`` now stream through.
+    """
+    from ada.config import logger
+
+    out_path = pathlib.Path(tempfile.mkstemp(suffix=".ifc")[1])
+    from ada.cadit.step.native_step_to_ifc import (
+        native_ifc_available,
+        native_step_to_ifc,
+    )
+
+    if native_ifc_available():
+        try:
+            stats = native_step_to_ifc(src_path, out_path, on_progress=on_progress)
+            logger.info("native STEP->IFC: %s", stats)
+            return out_path
+        except Exception as exc:  # noqa: BLE001 - degrade to the Python writer
+            logger.warning("native STEP->IFC failed (%s); falling back to per-solid Python", exc)
+
+    from ada.cadit.step.write.stream_step_to_ifc import stream_step_to_ifc
+
+    stats = stream_step_to_ifc(src_path, out_path, on_progress=on_progress)
+    logger.info("stream STEP->IFC (python): %s", stats)
+    return out_path
+
+
+def _via_step_stream_to_xml(
+    src_path: pathlib.Path,
+    on_progress: ProgressFn,
+) -> pathlib.Path:
+    """STEP → Genie XML via the per-solid stream — **no OCC, no whole-model load**.
+
+    Raw CAD B-rep has no Genie-XML concept representation, so the XML is the empty
+    structural scaffold. We stream-parse the STEP to validate it reads (bounded,
+    native C++ parser, no ada.geom hydrate) rather than the full ``ada.from_step``
+    load that timed out the multi-GB assemblies for an empty output.
+    """
+    from ada.cadit.step.write.stream_step_to_xml import stream_step_to_xml
+    from ada.config import logger
+
+    out_path = pathlib.Path(tempfile.mkstemp(suffix=".xml")[1])
+    stats = stream_step_to_xml(src_path, out_path, on_progress=on_progress)
+    logger.info("stream STEP->XML: %s", stats)
+    return out_path
+
+
+def _via_step_stream_to_mesh(
+    src_path: pathlib.Path,
+    source_ext: str,
+    target_ext: str,
+    on_progress: ProgressFn,
+    *,
+    step_glb_pipeline: str | None = None,
+) -> pathlib.Path:
+    """STEP → mesh container (``.obj`` / ``.stl``) **without building an ada
+    Assembly**, bounded memory, no OCC.
+
+    Prefers the fully-native adacpp pipeline (``stream_step_to_mesh``): the same C++
+    reader + parallel libtess2 as the native GLB path, baking each placement and
+    streaming triangles straight to disk — ~2.5x faster than per-solid Python on
+    giant-solid / FEM-export STEP. Falls back to the per-solid Python writer
+    (``stream_step_to_mesh``: tessellate one solid at a time via the active backend,
+    transform per triangle-batch) when adacpp's native mesh entry point is absent.
+    Either way peak memory is O(one solid's mesh), never a whole-model buffer.
+    ``step_glb_pipeline`` is accepted for signature compatibility but unused.
+    """
+    out_path = pathlib.Path(tempfile.mkstemp(suffix=target_ext)[1])
+    fmt = target_ext.lstrip(".")
+    from ada.cadit.step.native_step_to_mesh import (
+        native_mesh_available,
+        native_step_to_mesh,
+    )
+    from ada.config import logger
+
+    if native_mesh_available():
+        try:
+            native_step_to_mesh(src_path, out_path, fmt, on_progress=on_progress)
+            return out_path
+        except Exception as exc:  # noqa: BLE001 - degrade to the Python writer
+            logger.warning("native STEP->%s failed (%s); falling back to per-solid Python", fmt, exc)
+
+    from ada.cadit.step.write.stream_step_to_mesh import stream_step_to_mesh
+
+    stream_step_to_mesh(src_path, out_path, fmt, on_progress=on_progress)
+    return out_path
+
+
 def convert(
     src_path: pathlib.Path,
     source_key: str,
@@ -1846,11 +2110,14 @@ def _register_ada_loadable() -> None:
         "default": _STEP_GLB_PIPELINE_DEFAULT,
         "enum": list(_STEP_GLB_PIPELINES),
         "description": (
-            "STEP→GLB tessellation engine. 'libtess2' (default) is adacpp's OCC-free "
-            "boundary tessellator and renders the curved surfaces (rational B-spline / "
-            "spherical / conical / toroidal) the OCC streaming reader silently drops. "
-            "'occ-builtin' is the OpenCASCADE path (whole-model or streaming). "
-            "'adacpp-occ' / 'adacpp-cgal' / 'adacpp-hybrid' use adacpp's taxonomy kernels."
+            "STEP→GLB tessellation engine. 'adacpp-native' (default) runs the whole STEP→GLB in "
+            "adacpp C++ (reader + thread pool + GLB writer) — fastest + lowest-memory, and 1:1 with "
+            "the Python path (geometry, product names, per-instance picking, full assembly tree); "
+            "falls back to 'libtess2' then 'occ-builtin'. 'libtess2' is adacpp's OCC-free boundary "
+            "tessellator (Python reader + worker pool) and renders the curved surfaces (rational "
+            "B-spline / spherical / conical / toroidal) the OCC streaming reader silently drops. "
+            "'occ-builtin' is the OpenCASCADE path. 'adacpp-occ' / 'adacpp-cgal' / 'adacpp-hybrid' "
+            "use adacpp's taxonomy kernels."
         ),
     }
 
@@ -2023,6 +2290,56 @@ def _register_fea_result_to_glb() -> None:
         ConverterRegistry.register(ext, "glb", _h)
 
 
+def _register_step_stream_exports() -> None:
+    # STEP/STP exports that bypass the full-OCC Assembly (which OOM-kills / times
+    # out on multi-GB CAD assemblies). Registered AFTER _register_ada_loadable so
+    # these OVERRIDE the generic OCC registrations for STEP sources only; all other
+    # ada-loadable sources keep their OCC paths.
+    #
+    #  • obj/stl → memory-bounded native streaming GLB, then trimesh transcode.
+    #  • step    → per-solid native NGEOM stream straight into the AP242 writer
+    #              (analytic B-rep incl. B-splines; no OCC, no tessellation).
+    #  • ifc     → per-solid native NGEOM stream straight into the IFC4
+    #              advanced-B-rep writer (analytic; no OCC, no tessellation).
+    for ext in (".step", ".stp"):
+        for tgt in ("stl", "obj"):
+
+            def _h(src, on_progress, *, _ext=ext, _tgt=tgt, step_glb_pipeline=None, **_kw):
+                return _via_step_stream_to_mesh(src, _ext, f".{_tgt}", on_progress, step_glb_pipeline=step_glb_pipeline)
+
+            ConverterRegistry.register(ext, tgt, _h)
+
+        def _h_step(src, on_progress, *, _ext=ext, **_kw):
+            return _via_step_stream_to_step(src, on_progress)
+
+        ConverterRegistry.register(ext, "step", _h_step)
+
+        def _h_ifc(src, on_progress, *, _ext=ext, **_kw):
+            return _via_step_stream_to_ifc(src, on_progress)
+
+        ConverterRegistry.register(ext, "ifc", _h_ifc)
+
+        def _h_xml(src, on_progress, *, _ext=ext, **_kw):
+            return _via_step_stream_to_xml(src, on_progress)
+
+        ConverterRegistry.register(ext, "xml", _h_xml)
+
+    # IFC → STEP via the native adacpp IFC B-rep reader → ng:: → AP242 writer (no OCC). Overrides the
+    # generic OCC ifc→step ONLY when the native verb is present, so older builds keep the OCC path.
+    try:
+        from ada.cadit.step.native_ifc_to_step import native_ifc_to_step_available
+
+        _native_ifc2step = native_ifc_to_step_available()
+    except Exception:  # noqa: BLE001
+        _native_ifc2step = False
+    if _native_ifc2step:
+
+        def _h_ifc2step(src, on_progress, **_kw):
+            return _via_ifc_to_step(src, on_progress)
+
+        ConverterRegistry.register(".ifc", "step", _h_ifc2step)
+
+
 def _register_glb_to_mesh() -> None:
     # GLB → STL / OBJ via pure trimesh. No ada round-trip needed and
     # no ada Assembly is materialised — the user came in with a mesh
@@ -2081,6 +2398,7 @@ _register_trimesh_to_glb()
 _register_ada_loadable()
 _register_fea_result_to_glb()
 _register_glb_to_mesh()
+_register_step_stream_exports()
 
 
 # Allowed target formats — populated from the registry once every

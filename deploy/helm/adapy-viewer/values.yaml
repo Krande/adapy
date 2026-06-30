@@ -114,6 +114,18 @@ worker:
 ##                                   ## extensions and a stale pod can
 ##                                   ## fail jobs the base pod would
 ##                                   ## have handled.
+##       disableBaseConversions: true
+##                                   ## optional: scope the pod to its own
+##                                   ## capability only — advertise ZERO base
+##                                   ## conversions + base source-ext handling
+##                                   ## (utilities still register). Renders
+##                                   ## ``ADA_WORKER_BASE_CONVERSIONS=false``.
+##                                   ## Use for a pool (e.g. weld-gen) that
+##                                   ## needs NO base file work at all; the
+##                                   ## clean alternative to extAllow, which
+##                                   ## can only narrow to a positive suffix
+##                                   ## set, not to none. Needs an adapy image
+##                                   ## new enough to read the env.
 ##
 ## A pool's image is also expected to register any extra
 ## stream-reader plug-ins at startup (the worker introspects

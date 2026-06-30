@@ -137,6 +137,30 @@ async def _audit_done(
         logger.exception("worker: audit update failed for job %s", job_id)
 
 
+def _gate_advertised_engines(conversions: list[dict]) -> list[dict]:
+    """Restrict each conversion's ``step_glb_pipeline`` enum (and its default) to the engines this
+    worker can actually run, so the API's per-worker union + engine routing reflect real capability.
+    Deep-copies so the shared ConverterRegistry option dicts aren't mutated.
+
+    The runnable set comes from ``available_step_glb_pipelines()``, which gates the adacpp engines on
+    find_spec presence (overlay-robust) rather than an import-based native probe — see the note there."""
+    import copy
+
+    from .converter import available_step_glb_pipelines
+
+    avail = set(available_step_glb_pipelines())
+    gated = copy.deepcopy(conversions)
+    for row in gated:
+        for opts in (row.get("options") or {}).values():
+            for opt in opts:
+                if opt.get("name") != "step_glb_pipeline" or not isinstance(opt.get("enum"), list):
+                    continue
+                opt["enum"] = [e for e in opt["enum"] if e in avail]
+                if isinstance(opt.get("default"), str) and opt["default"] not in avail and opt["enum"]:
+                    opt["default"] = opt["enum"][0]
+    return gated
+
+
 def _convert_meta_for(job: "Job", env_overrides: dict | None) -> dict | None:
     """Provenance for a conversion's audit row: which tessellator/engine actually
     ran (resolved here the same way the convert subprocess resolves it — adacpp
@@ -150,24 +174,26 @@ def _convert_meta_for(job: "Job", env_overrides: dict | None) -> dict | None:
     if job.target_format == "glb" and suffix in {".step", ".stp"}:
         try:
             from ada.comms.rest.converter import (
+                _STEP_GLB_PIPELINE_ADACPP_NATIVE,
                 _STEP_GLB_PIPELINE_OCC,
-                _STEP_GLB_PIPELINE_STEP2GLB,
                 _cad_config_for_pipeline,
                 _resolve_step_glb_pipeline,
             )
 
             requested = _resolve_step_glb_pipeline((env_overrides or {}).get("ADAPY_STEP_GLB_PIPELINE"))
             meta["step_glb_pipeline"] = requested
-            if requested == _STEP_GLB_PIPELINE_STEP2GLB:
-                meta["tessellator"] = "step2glb"
+            if requested == _STEP_GLB_PIPELINE_ADACPP_NATIVE:
+                # Fully in-process C++ reader + tessellate + GLB writer — no CadBackend config, so
+                # _cad_config_for_pipeline() is None for it (don't mislabel that as an occ fallback).
+                meta["tessellator"] = "adacpp:native"
+            elif requested == _STEP_GLB_PIPELINE_OCC:
+                meta["tessellator"] = "occ-builtin"
             else:
                 cfg = _cad_config_for_pipeline(requested)
                 if cfg is not None:
                     meta["tessellator"] = cfg.path.value  # e.g. "adacpp:libtess2"
-                elif requested != _STEP_GLB_PIPELINE_OCC:
-                    meta["tessellator"] = f"occ-builtin (fallback from {requested})"
                 else:
-                    meta["tessellator"] = "occ-builtin"
+                    meta["tessellator"] = f"occ-builtin (fallback from {requested})"
             meta["glb_compression"] = (env_overrides or {}).get("ADA_GLB_COMPRESSION") or "meshopt"
             meta["stream_workers"] = (env_overrides or {}).get("ADA_STEP_STREAM_WORKERS")
         except Exception:
@@ -1141,11 +1167,38 @@ async def _process_one(
                 "tess_linear_deflection": "ADA_OCC_TESS_LINEAR_DEFLECTION",
                 "tess_angular_deg": "ADA_OCC_TESS_ANGULAR_DEG",
                 "tess_relative": "ADA_OCC_TESS_RELATIVE",
+                # Conversion log verbosity (DEBUG/INFO/WARNING/ERROR), set from the admin Conversion
+                # panel. Unset keeps the quiet WARNING default; INFO surfaces per-stage progress + the
+                # native engine summary in the captured audit Log. Read by the convert subprocess.
+                "convert_log_level": "ADA_CONVERT_LOG_LEVEL",
             }
             for skey, env_name in _env_map.items():
                 raw = await _read_bool_setting(skey)
                 if raw is not None and raw.strip() != "":
                     env_overrides[env_name] = raw
+
+            # Per-source-type tessellation engine. STEP→glb and the scene path
+            # (gxml/ifc/sat→glb via to_gltf's BatchTessellator) use different engine envs;
+            # resolve the one for THIS source's type from its own setting so e.g. gxml can run
+            # libtess2 while ifc runs occ. Unset → the converter's adacpp-aware default (the scene
+            # path defaults to libtess2 when adacpp is present; OCC's prism tessellation of curved
+            # B-spline plates is non-manifold and drops the viewer's edge outlines). A per-type
+            # setting here supersedes the legacy single ``step_glb_pipeline`` for STEP sources.
+            _tess_engine_by_ext = {
+                ".step": ("tess_engine_step", "ADAPY_STEP_GLB_PIPELINE"),
+                ".stp": ("tess_engine_step", "ADAPY_STEP_GLB_PIPELINE"),
+                ".xml": ("tess_engine_gxml", "ADAPY_GLB_TESS_ENGINE"),
+                ".ifc": ("tess_engine_ifc", "ADAPY_GLB_TESS_ENGINE"),
+                ".sat": ("tess_engine_sat", "ADAPY_GLB_TESS_ENGINE"),
+                ".acis": ("tess_engine_sat", "ADAPY_GLB_TESS_ENGINE"),
+            }
+            _src_ext = os.path.splitext(job.source_key)[1].lower()
+            _eng = _tess_engine_by_ext.get(_src_ext)
+            if _eng is not None:
+                _skey, _engine_env = _eng
+                _raw_engine = await _read_bool_setting(_skey)
+                if _raw_engine is not None and _raw_engine.strip() != "":
+                    env_overrides[_engine_env] = _raw_engine.strip()
 
         # Per-job overrides win over global settings. ``None`` clears
         # an env var, allowing a job to ask "ignore the global
@@ -1212,6 +1265,7 @@ async def _process_one(
                         "peak_rss_kb": sample.peak_rss_kb,
                         "read_bytes": sample.read_bytes,
                         "write_bytes": sample.write_bytes,
+                        "per_thread_cpu_ms": sample.per_thread_cpu_ms,
                     },
                 )
             except Exception:
@@ -1345,6 +1399,20 @@ async def _process_one(
         # incl. an adacpp→occ-builtin fallback, and the effective toggles).
         convert_meta = _convert_meta_for(job, env_overrides)
 
+        # Record the pod's CPU allotment (cgroup quota, else host cores) so the metrics chart can
+        # render CPU as % utilization across all cores instead of the cumulative-time ramp.
+        try:
+            from ada.visit.scene_handling.scene_from_step_stream import (
+                _cgroup_cpu_quota,
+            )
+
+            _cores = _cgroup_cpu_quota() or os.cpu_count()
+            if _cores:
+                convert_meta = dict(convert_meta or {})
+                convert_meta["cpu_cores"] = int(_cores)
+        except Exception:
+            logger.debug("convert_meta: cpu_cores detection failed", exc_info=True)
+
         # Poll the audit_log (cancel endpoint's source of truth) so a user
         # cancellation actually reaps the running conversion subprocess.
         async def _cancel_check() -> bool:
@@ -1436,6 +1504,9 @@ async def _process_one(
             return
 
         await queue.update(job_id, stage="uploading", progress=0.95)
+        # NOTE: the native STEP->ifc/step/mesh paths used here come from the adacpp overlay
+        # (deploy/Dockerfile.worker bakes the ADACPP_BRANCH HEAD at image-build time — it is NOT
+        # live-tracked), so a worker fix in adacpp needs a fresh full worker build to ship.
         # Gzip text-format outputs (IFC, Genie XML); GLB is binary geometry
         # that doesn't compress meaningfully and is what the in-browser
         # viewer fetches on the hot path.
@@ -1446,7 +1517,15 @@ async def _process_one(
         # than its gzip, which is brutal on mobile/cellular. (The on-disk GLB is
         # still uncompressed; this is transport compression, transparent to the
         # GLTF loader. Whole-file load only — gzip-at-rest is not Range-safe.)
-        derived_encoding = "gzip" if job.target_format in {"ifc", "xml", "glb", "gltf"} else None
+        # OBJ / STL / STEP exports are also gzip-at-rest: the native STEP→mesh writer
+        # emits unsimplified geometry (the crane obj is ~7.7 GB raw, 73 M tris), and
+        # storing it raw made the UPLOAD ~57% of that job's wall time. obj/step are
+        # ASCII (compress dramatically); binary STL less so but still a net win. These
+        # are whole-file export downloads (never Range-fetched, unlike FEA field blobs
+        # which must stay raw — see fea_field_blob_range), so gzip-at-rest is safe.
+        derived_encoding = (
+            "gzip" if job.target_format in {"ifc", "xml", "glb", "gltf", "obj", "stl", "step", "stp"} else None
+        )
         # Optional GLB compression (gltfpack / meshopt + quantization), gated
         # by the per-job glb_compression option (or the ADA_GLB_COMPRESSION
         # global default). Post-process step so it covers every GLB-producing
@@ -1582,6 +1661,19 @@ async def _run() -> None:
     _WORKER_IMAGE_TAG = image_tag or None
     worker_id = os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}"
     capabilities = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
+    # An extra-capability pool (e.g. weld-gen) builds FROM / runs an independent adapy and still
+    # advertises the full base converter matrix, so it wins base conversion jobs (gxml->glb, ...)
+    # it has no business running — and when that image is stale it produces outdated output (e.g.
+    # non-manifold meshes). ADA_WORKER_BASE_CONVERSIONS=false makes this worker advertise ZERO base
+    # conversions + base source-ext handling, leaving only its capability-routed utilities intact.
+    # The clean, version-independent way to scope an extra pool (vs the ADA_WORKER_EXT_ALLOW
+    # allowlist, which can only narrow to a positive set of source extensions, not to none).
+    base_conversions_enabled = os.environ.get("ADA_WORKER_BASE_CONVERSIONS", "true").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
     # Source extensions this worker can handle. Pulled from adapy's
     # stream-reader registry — whatever plug-ins ran before this point
     # (e.g. a capability worker's entrypoint that registered an extra
@@ -1593,6 +1685,10 @@ async def _run() -> None:
     from ada.fem.results.artefacts import fea_artefact_extensions
 
     registered_exts = {e.lower() for e in fea_artefact_extensions()}
+    if not base_conversions_enabled:
+        # Pool scoped to its own capability only: don't claim any base source-ext
+        # handling (FEA bake) — the ext allowlist below is then moot.
+        registered_exts = set()
     # Optional per-pod allowlist. Capability (extension-specific) workers
     # build FROM the base image and so inherit its full stream-reader
     # registry — without this gate they'd race the base pool for
@@ -1635,11 +1731,19 @@ async def _run() -> None:
     # message loop so we don't promise something we'd NAK at
     # delivery time. The API merges every live worker's matrix into
     # ``/api/config["conversionMatrix"]`` for the SPA's /convert page.
-    full_matrix = ConverterRegistry.matrix()
-    if ext_allow_set is not None:
-        conversions = [m for m in full_matrix if m["from"] in ext_allow_set]
+    if not base_conversions_enabled:
+        # Scoped pool: advertise no base conversions at all (utilities below still register).
+        conversions: list[dict] = []
     else:
-        conversions = full_matrix
+        full_matrix = ConverterRegistry.matrix()
+        if ext_allow_set is not None:
+            conversions = [m for m in full_matrix if m["from"] in ext_allow_set]
+        else:
+            conversions = full_matrix
+    # Truthful capability advertisement: restrict the STEP→GLB engine enum to the engines THIS pool
+    # can actually run (a slim/adacpp-less pod won't advertise adacpp-native, etc.). The API unions
+    # these across pools for the list and routes engine-pinned jobs to a pool that advertises them.
+    conversions = _gate_advertised_engines(conversions)
 
     # Utilities this worker advertises (every ``@utility`` registration adapy +
     # any preloaded plug-in produced). Importing the bundled utilities package

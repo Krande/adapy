@@ -1,8 +1,9 @@
 import React from "react";
 
 import CollapsibleSection from "@/components/common/CollapsibleSection";
+import FilePickerModal from "@/components/common/FilePickerModal";
 import {runtime} from "@/runtime/config";
-import {viewerApi} from "@/services/viewerApi";
+import {viewerApi, type ScopeUrl} from "@/services/viewerApi";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {
@@ -12,6 +13,7 @@ import {
 } from "@/state/sceneInfoStore";
 import {applyViewerOps, clearViewerOps} from "@/utils/scene/apply_viewer_ops";
 import {flipToCompared, unflip, isFlipped} from "@/utils/scene/flip_geometry";
+import {wasmUtilityFor} from "@/utils/wasm/wasmUtilityRegistry";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -21,113 +23,47 @@ function defaultsFor(spec: UtilitySpec): Record<string, string | number | boolea
     return out;
 }
 
-interface VersionBuild {
-    commit: string;
-    branch: string;
-    label: string;                       // "<branch> @ <shortsha>"
-    artefacts: {name: string; key: string}[];  // GLB files published under the commit
-}
-
-// Parse CI-published build keys (versions/<branch>/<commit>/<artefact>.glb) into
-// per-commit builds (each carrying its GLB artefacts). The branch the model is
-// loaded from is listed first; the currently-loaded commit is excluded. Also
-// returns the loaded model's artefact basename so the file picker can default
-// to the matching GLB (like-for-like comparison).
-function parseVersionBuilds(
-    keys: string[],
-    loadedSourceName: string | null,
-): {builds: VersionBuild[]; loadedArtefact: string | null} {
-    let curBranch: string | null = null;
-    let curCommit: string | null = null;
-    let loadedArtefact: string | null = null;
-    if (loadedSourceName) {
-        const p = loadedSourceName.split("/");
-        if (p[0] === "versions" && p.length >= 4) {
-            curBranch = p[1].replace(/__/g, "/");
-            curCommit = p[2];
-            loadedArtefact = p[p.length - 1];
-        }
-    }
-    const byCommit = new Map<string, VersionBuild>();
-    for (const key of keys) {
-        const p = key.split("/");
-        if (p[0] !== "versions" || p.length < 4 || !key.endsWith(".glb")) continue;
-        const branch = p[1].replace(/__/g, "/");
-        const commit = p[2];
-        if (commit === curCommit) continue;  // exclude the loaded commit
-        const artefact = p[p.length - 1];
-        let b = byCommit.get(commit);
-        if (!b) {
-            b = {commit, branch, label: `${branch} @ ${commit.slice(0, 8)}`, artefacts: []};
-            byCommit.set(commit, b);
-        }
-        b.artefacts.push({name: artefact, key});
-    }
-    const builds = Array.from(byCommit.values());
-    for (const b of builds) b.artefacts.sort((a, c) => a.name.localeCompare(c.name));
-    builds.sort((a, b) => {
-        const ac = a.branch === curBranch ? 0 : 1;
-        const bc = b.branch === curBranch ? 0 : 1;
-        return ac - bc || a.label.localeCompare(b.label);
-    });
-    return {builds, loadedArtefact};
-}
-
-// Chained commit + GLB-file picker for a 'ref' kwarg. The kwarg value is the
-// full blob key of the selected artefact (resolve_ref_glb uses it verbatim).
+// File picker for a 'ref' kwarg — pick the compare file straight from the scope's S3 storage using
+// the shared storage-browser tree (FilePickerModal), no string typing. The kwarg value is the chosen
+// file's blob key (resolve_ref_glb / the wasm path use it verbatim). Restricted to .glb (the directly
+// comparable artefacts); upload non-GLB sources via the normal storage browser if needed.
 function RefField({
-    builds,
-    loadedArtefact,
     value,
     onChange,
+    scope,
 }: {
-    builds: VersionBuild[];
-    loadedArtefact: string | null;
     value: string | number | boolean | null;
     onChange: (v: string) => void;
+    scope: ScopeUrl;
 }) {
-    const common = "text-sm rounded-sm px-1 py-0.5 bg-gray-700 text-gray-100 border border-gray-600 w-full";
-    const ownerOf = (key: string) => builds.find((b) => b.artefacts.some((a) => a.key === key));
-    const [commit, setCommit] = React.useState<string>(
-        () => ownerOf(String(value ?? ""))?.commit ?? builds[0]?.commit ?? "",
-    );
-    const build = builds.find((b) => b.commit === commit) || builds[0];
-
-    // When the commit (or build list) changes, default the file to the loaded
-    // model's artefact name if present, else the first one.
-    React.useEffect(() => {
-        if (!build) return;
-        const preferred = build.artefacts.find((a) => a.name === loadedArtefact) || build.artefacts[0];
-        if (preferred && preferred.key !== value) onChange(preferred.key);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [commit, builds.length]);
-
-    // Published builds (if any) drive the branch/commit + artefact dropdowns; the
-    // free-text field below always lets the user point at ANY uploaded file key
-    // (e.g. debug/other.glb), so two arbitrary models can be compared — not only
-    // CI builds.
+    const [open, setOpen] = React.useState(false);
+    const cur = String(value ?? "");
     return (
-        <div className="space-y-1">
-            {builds.length > 0 && (
-                <>
-                    <select className={common} value={commit} onChange={(e) => setCommit(e.target.value)}>
-                        {builds.map((b) => (
-                            <option key={b.commit} value={b.commit}>{b.label}</option>
-                        ))}
-                    </select>
-                    <select className={common} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
-                        {(build?.artefacts || []).map((a) => (
-                            <option key={a.key} value={a.key}>{a.name}</option>
-                        ))}
-                    </select>
-                </>
-            )}
-            <input
-                type="text"
-                className={common}
-                placeholder="or a file key, e.g. debug/other.glb"
-                value={String(value ?? "")}
-                onChange={(e) => onChange(e.target.value)}
+        <div className="flex items-center gap-2">
+            <span
+                className="text-xs font-mono truncate flex-1 px-1 py-0.5 bg-gray-700 border border-gray-600 rounded-sm"
+                title={cur || undefined}
+            >
+                {cur || "— no compare file —"}
+            </span>
+            <button
+                type="button"
+                className="text-xs px-2 py-0.5 rounded-sm bg-gray-600 text-white whitespace-nowrap"
+                onClick={() => setOpen(true)}
+            >
+                Choose…
+            </button>
+            <FilePickerModal
+                open={open}
+                scope={scope}
+                title="Pick a compare file from scope"
+                initialKey={cur || undefined}
+                filter={(f) => f.key.toLowerCase().endsWith(".glb")}
+                onCancel={() => setOpen(false)}
+                onPick={(k) => {
+                    onChange(k);
+                    setOpen(false);
+                }}
             />
         </div>
     );
@@ -137,19 +73,17 @@ function KwargField({
     kwarg,
     value,
     onChange,
-    builds,
-    loadedArtefact,
+    scope,
 }: {
     kwarg: UtilityKwarg;
     value: string | number | boolean | null;
     onChange: (v: string | number | boolean | null) => void;
-    builds: VersionBuild[];
-    loadedArtefact: string | null;
+    scope: ScopeUrl;
 }) {
     const common = "text-sm rounded-sm px-1 py-0.5 bg-gray-700 text-gray-100 border border-gray-600 w-full";
     let input: React.ReactNode;
     if (kwarg.type === "ref") {
-        input = <RefField builds={builds} loadedArtefact={loadedArtefact} value={value} onChange={onChange}/>;
+        input = <RefField value={value} onChange={onChange} scope={scope}/>;
     } else if (kwarg.type === "enum") {
         input = (
             <select className={common} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
@@ -201,13 +135,15 @@ const UtilitiesSection = () => {
     const setRunning = useSceneInfoStore((s) => s.setRunning);
     const lastResult = useSceneInfoStore((s) => s.lastResult);
     const setLastResult = useSceneInfoStore((s) => s.setLastResult);
-    const [refBuilds, setRefBuilds] = React.useState<VersionBuild[]>([]);
-    const [loadedArtefact, setLoadedArtefact] = React.useState<string | null>(null);
+    const scope = scopeUrlPart(useScopeStore((s) => s.current)); // reactive: drives the ref file picker
     // "Flip to compared geometry" — load the ref build's model in place of the
     // current one for detailed inspection. Module-level flip state mirrored here
     // so the toggle reflects it; `flipBusy` guards the async load.
     const [flipped, setFlipped] = React.useState<boolean>(isFlipped());
     const [flipBusy, setFlipBusy] = React.useState<boolean>(false);
+    // Prefer the in-browser (wasm) implementation when one exists for the selected utility — no NATS
+    // job, no server memory. Falls back to the server path on failure (or when the toggle is off).
+    const [runInBrowser, setRunInBrowser] = React.useState<boolean>(true);
 
     // Fetch advertised utilities from /api/config once.
     React.useEffect(() => {
@@ -230,33 +166,6 @@ const UtilitiesSection = () => {
     }, []);
 
     const spec = utilities.find((u) => u.name === selectedUtility) || null;
-    const hasRefKwarg = !!spec?.kwargs.some((k) => k.type === "ref");
-
-    // When a utility has a ref kwarg, list the CI-published builds (versions/*)
-    // as a branch/commit picker, defaulting the ref kwarg to the first option.
-    React.useEffect(() => {
-        if (!hasRefKwarg) return;
-        (async () => {
-            try {
-                const scope = scopeUrlPart(useScopeStore.getState().current);
-                const files = await viewerApi.listFiles(scope);
-                const {builds, loadedArtefact: la} = parseVersionBuilds(
-                    files.map((f) => f.key), useModelState.getState().loadedSourceName,
-                );
-                setRefBuilds(builds);
-                setLoadedArtefact(la);
-                const refK = spec!.kwargs.find((k) => k.type === "ref");
-                if (refK && builds.length && !kwargs[refK.name]) {
-                    const first = builds[0];
-                    const pref = first.artefacts.find((a) => a.name === la) || first.artefacts[0];
-                    if (pref) setKwargs({...kwargs, [refK.name]: pref.key});
-                }
-            } catch {
-                setRefBuilds([]);
-            }
-        })();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hasRefKwarg, selectedUtility]);
 
     // The ref kwarg's value is the compared build's GLB key (what we flip to).
     const refKwargName = spec?.kwargs.find((k) => k.type === "ref")?.name;
@@ -297,7 +206,6 @@ const UtilitiesSection = () => {
 
     const run = async () => {
         if (!spec) return;
-        const scope = scopeUrlPart(useScopeStore.getState().current);
         const sourceKey = useModelState.getState().loadedSourceName;
         if (!sourceKey) {
             setLastResult({summary: {error: "No model loaded in the scene."}});
@@ -306,6 +214,20 @@ const UtilitiesSection = () => {
         setRunning(true);
         setLastResult(null);
         try {
+            // In-browser (wasm) fast path: compute the viewer-ops client-side, no server job.
+            const wasmUtil = runInBrowser ? wasmUtilityFor(spec.name) : undefined;
+            const wasmCtx = {scope, sourceKey, refKey: compareKey, kwargs};
+            if (wasmUtil && wasmUtil.canRun(wasmCtx)) {
+                try {
+                    const payload = await wasmUtil.run(wasmCtx);
+                    await applyViewerOps(payload, scope);
+                    setLastResult({legend: payload.legend, summary: payload.summary});
+                    return;
+                } catch (e) {
+                    // Surface, but still fall back to the proven server path so the user gets a result.
+                    console.warn("in-browser wasm utility failed; falling back to server:", e);
+                }
+            }
             const job = await viewerApi.runUtility(scope, sourceKey, spec.name, kwargs);
             let status = job;
             for (let i = 0; i < 600 && status.status !== "done" && status.status !== "error"; i++) {
@@ -351,8 +273,7 @@ const UtilitiesSection = () => {
                             key={k.name}
                             kwarg={k}
                             value={kwargs[k.name] ?? null}
-                            builds={refBuilds}
-                            loadedArtefact={loadedArtefact}
+                            scope={scope}
                             onChange={(v) => setKwargs({...kwargs, [k.name]: v})}
                         />
                     ))}
@@ -370,6 +291,15 @@ const UtilitiesSection = () => {
                         onChange={toggleFlip}
                     />
                     <span>{flipBusy ? "Flipping…" : "Inspect compared geometry"}</span>
+                </label>
+            )}
+            {wasmUtilityFor(spec?.name) && (
+                <label
+                    className="flex items-center gap-2 mt-1 mb-1 text-xs"
+                    title="Run this utility entirely in your browser (WebAssembly) — no server job, instant. Falls back to the server automatically if it can't (e.g. byCoverage) or on error."
+                >
+                    <input type="checkbox" checked={runInBrowser} onChange={(e) => setRunInBrowser(e.target.checked)}/>
+                    <span>Run in browser (wasm)</span>
                 </label>
             )}
             <div className="flex gap-2 mt-2">

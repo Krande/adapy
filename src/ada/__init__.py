@@ -87,6 +87,7 @@ from ada.factories import (  # noqa: E402 - imported after the API symbols the f
     from_pickle,
     from_sesam_cc,
     from_step,
+    iter_from_step,
 )
 
 __all__ = [
@@ -97,6 +98,7 @@ __all__ = [
     "from_ifc",
     "from_fem",
     "from_step",
+    "iter_from_step",
     "from_sesam_cc",
     "from_acis",
     "from_pickle",

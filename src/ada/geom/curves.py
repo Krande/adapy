@@ -47,9 +47,9 @@ class Line:
     dir: Direction | Iterable
 
     def __post_init__(self):
-        if isinstance(self.pnt, Iterable):
+        if not isinstance(self.pnt, Point) and isinstance(self.pnt, Iterable):
             self.pnt = Point(*self.pnt)
-        if isinstance(self.dir, Iterable):
+        if not isinstance(self.dir, Direction) and isinstance(self.dir, Iterable):
             self.dir = Direction(*self.dir)
 
 
@@ -65,11 +65,11 @@ class ArcLine:
     end: Point | Iterable
 
     def __post_init__(self):
-        if isinstance(self.start, Iterable):
+        if not isinstance(self.start, Point) and isinstance(self.start, Iterable):
             self.start = Point(*self.start)
-        if isinstance(self.midpoint, Iterable):
+        if not isinstance(self.midpoint, Point) and isinstance(self.midpoint, Iterable):
             self.midpoint = Point(*self.midpoint)
-        if isinstance(self.end, Iterable):
+        if not isinstance(self.end, Point) and isinstance(self.end, Iterable):
             self.end = Point(*self.end)
 
         dim = self.start.dim
@@ -351,9 +351,13 @@ class Edge:
     end: Point
 
     def __post_init__(self):
-        if isinstance(self.start, Iterable):
+        # Already-built Points are the common case (the NGEOM hydrate passes Points
+        # straight in); a Point IS Iterable, so guard on Point first to avoid
+        # re-constructing millions of them through the interning cache (hot in the
+        # streaming STEP→IFC/XML export of B-rep-heavy assemblies).
+        if not isinstance(self.start, Point) and isinstance(self.start, Iterable):
             self.start = Point(*self.start)
-        if isinstance(self.end, Iterable):
+        if not isinstance(self.end, Point) and isinstance(self.end, Iterable):
             self.end = Point(*self.end)
 
         dim = self.start.dim

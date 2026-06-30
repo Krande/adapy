@@ -47,6 +47,7 @@ const WorkersTab: React.FC = () => {
     const [now, setNow] = useState<number>(Date.now() / 1000);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [pruning, setPruning] = useState(false);
 
     const fetchWorkers = async () => {
         setLoading(true);
@@ -60,6 +61,24 @@ const WorkersTab: React.FC = () => {
             setError(msg);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const offlineCount = workers.filter((w) => !w.online).length;
+
+    const pruneWorkers = async () => {
+        if (offlineCount === 0) return;
+        if (!window.confirm(`Remove ${offlineCount} offline worker registration(s)? Live pods re-register within a heartbeat.`)) {
+            return;
+        }
+        setPruning(true);
+        try {
+            await viewerApi.adminPruneWorkers();
+            await fetchWorkers();
+        } catch (e) {
+            setError(e instanceof ApiError ? e.message : String(e));
+        } finally {
+            setPruning(false);
         }
     };
 
@@ -79,13 +98,23 @@ const WorkersTab: React.FC = () => {
                         {loading ? " · refreshing…" : ""}
                     </span>
                 </h2>
-                <button
-                    className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded-sm"
-                    onClick={fetchWorkers}
-                    disabled={loading}
-                >
-                    Refresh
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded-sm disabled:opacity-40"
+                        onClick={pruneWorkers}
+                        disabled={pruning || offlineCount === 0}
+                        title="Drop offline worker registrations left by crashed / scaled-down pods. Live pods re-register automatically."
+                    >
+                        {pruning ? "Removing…" : `Remove offline${offlineCount ? ` (${offlineCount})` : ""}`}
+                    </button>
+                    <button
+                        className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded-sm"
+                        onClick={fetchWorkers}
+                        disabled={loading}
+                    >
+                        Refresh
+                    </button>
+                </div>
             </div>
 
             {error && (

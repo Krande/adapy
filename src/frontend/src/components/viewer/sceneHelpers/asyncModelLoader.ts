@@ -66,8 +66,12 @@ export function loadGLTF(
         resolve(gltf);
       },
       (evt) => {
+        // A gzip-at-rest GLB (derived blobs are stored gzipped) is decompressed transparently by the
+        // browser, so evt.loaded reports DECOMPRESSED bytes while evt.total is the gzipped
+        // Content-Length — loaded/total overshoots 1 (e.g. 218% on a 0.46x file). Cap at 1 so the bar
+        // never exceeds 100%; the real completion is signalled by the onLoad callback above.
         const computable = evt.lengthComputable && evt.total > 0;
-        const frac = computable ? evt.loaded / evt.total : 0;
+        const frac = computable ? Math.min(1, evt.loaded / evt.total) : 0;
         const mb = (evt.loaded / 1e6).toFixed(0);
         // Progress events arrive during download; once it reaches 100% the loader is
         // parsing the GLB (no further events), so surface a "Processing" stage there.

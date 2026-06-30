@@ -49,7 +49,7 @@ jobs:
   viewer:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v4
 
@@ -87,7 +87,14 @@ jobs:
   worker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+
+      # Dockerfile.worker's adacpp-overlay stage does `COPY adacpp-src/ ./adacpp-src/`, which
+      # fails if the path is absent ("/adacpp-src": not found). Release builds use the pinned
+      # conda ada-cpp (no branch overlay), so stage an empty dir — the overlay stage detects no
+      # pyproject.toml and disables itself.
+      - name: Stage empty adacpp-src (release uses the pinned conda ada-cpp)
+        run: mkdir -p adacpp-src
 
       - uses: docker/setup-buildx-action@v4
 
@@ -124,7 +131,7 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # docs/conf.py derives the footer release string from git describe,
           # so the build needs tags (passed in as ADA_DOCS_RELEASE/_DATE).
