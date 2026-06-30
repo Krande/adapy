@@ -1484,6 +1484,39 @@ def _seed_empty_scene(scene) -> None:
     scene.add_geometry(placeholder, node_name="empty", geom_name="empty")
 
 
+# STEP solid-root keywords — mirrors adacpp's StepNgeomStream root taxonomy
+# (cadit/step/step_reader.h). Used only to detect a fully-empty OCC re-export so
+# the IFC->STEP path can fall back to the faceted streaming writer.
+_STEP_SOLID_ROOTS: tuple[bytes, ...] = (
+    b"MANIFOLD_SOLID_BREP",
+    b"SHELL_BASED_SURFACE_MODEL",
+    b"BREP_WITH_VOIDS",
+    b"EXTRUDED_AREA_SOLID",
+    b"REVOLVED_AREA_SOLID",
+    b"BOOLEAN_RESULT",
+)
+
+
+def _step_has_solids(path: pathlib.Path) -> bool:
+    """True if the STEP file at ``path`` contains at least one solid root entity.
+    Chunk-scanned (overlapping the longest keyword) so a large file isn't slurped
+    whole."""
+    overlap = max(len(k) for k in _STEP_SOLID_ROOTS) - 1
+    tail = b""
+    try:
+        with open(path, "rb") as fh:
+            while True:
+                chunk = fh.read(1 << 20)
+                if not chunk:
+                    return False
+                window = tail + chunk
+                if any(k in window for k in _STEP_SOLID_ROOTS):
+                    return True
+                tail = window[-overlap:]
+    except OSError:
+        return False
+
+
 def _via_ada_to_step(
     src_path: pathlib.Path,
     source_ext: str,
@@ -1538,6 +1571,15 @@ def _via_ada_to_step(
                 logger.warning(f"streaming STEP writer skipped {skipped} non-extrudable object(s)")
         else:
             model.to_stp(str(out_path))
+            if not _step_has_solids(out_path):
+                # The OCC/adacpp writer emitted no solid root — e.g. an alignment
+                # IfcFixedReferenceSweptAreaSolid swept over an IfcGradientCurve,
+                # which has no analytic AP242 form and isn't ported to the adacpp
+                # B-rep builder, so every object was skipped. Retry via the
+                # kernel-free streaming writer, which tessellates such solids to a
+                # faceted MANIFOLD_SOLID_BREP so no geometry is left behind.
+                logger.info("OCC ifc->step produced no solids; retrying via streaming faceted writer")
+                model.to_stp(str(out_path), writer="stream", fuse_fem=False)
         on_progress("ready", 1.0)
         returned_path = True
         return out_path
