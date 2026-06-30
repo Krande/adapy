@@ -172,13 +172,13 @@ def test_read_statement_pread_matches_mmap(tmp_path):
         "#3=LINE(#1,#2);"
     )
     p = tmp_path / "stmts.step"
-    p.write_text(body)
     raw = body.encode("utf-8")
+    p.write_bytes(raw)  # exact bytes; write_text would CRLF-translate on Windows and shift offsets
     file_size = len(raw)
 
     # Offsets of each statement start ('#').
     offsets = [i for i, b in enumerate(raw) if chr(b) == "#"]
-    fd = os.open(str(p), os.O_RDONLY)
+    fd = os.open(str(p), os.O_RDONLY | getattr(os, "O_BINARY", 0))  # raw bytes (match the real reader)
     try:
         # Force a tiny window so statement #2 (which holds a quoted ';' well past the
         # window) exercises the grow-and-retry across chunk boundaries.
