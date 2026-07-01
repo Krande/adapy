@@ -773,15 +773,20 @@ def _export_with_ada(
         import os
 
         streaming = os.environ.get("ADA_IFC_STREAMING", "").strip().lower() not in _FALSE
-        # On the streaming path, fold FEM shells via the shared object-free face
-        # engine instead of emitting one plate per element (matches the Genie-XML
-        # and STEP streamers). merge_fem_objects -> coplanar/none; falls back to
-        # 1:1 for non-FEM sources or curved-plate reconstruction.
+        # On the streaming path, fold FEM shells via the shared object-free face engine
+        # instead of emitting one plate per element (matches the Genie-XML and STEP
+        # streamers). Default is analytic auto-detect ("cylinder": tubular members ->
+        # IfcCylindricalSurface, flat panels -> merged IfcPlane faces), same as FEM->STEP;
+        # a string merge_fem_objects overrides verbatim, False opts out to 1:1.
         ms = None
         recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
         if streaming and source_ext is not None and source_ext.lower() in _FEM_SOURCE_EXTS and not recon:
-            merge = True if merge_fem_objects is None else bool(merge_fem_objects)
-            ms = "coplanar" if merge else "none"
+            if isinstance(merge_fem_objects, str):
+                ms = merge_fem_objects
+            elif merge_fem_objects is False:
+                ms = "none"
+            else:
+                ms = "cylinder"  # analytic auto-detect
         model.to_ifc(destination=str(out_path), streaming=streaming, merge_strategy=ms)
     elif target_format == "xml":
         on_progress("writing-xml", 0.55)

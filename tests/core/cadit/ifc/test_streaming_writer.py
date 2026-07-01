@@ -68,6 +68,29 @@ def test_streaming_fused_from_fem(tmp_path):
     assert len(g.by_type("IfcSurfaceStyle")) < len(plates)
 
 
+def test_streaming_fused_from_fem_analytic(tmp_path):
+    # merge_strategy="cylinder" (analytic) emits the FEM shell mesh as ONE recognised-
+    # surface B-rep proxy — an IfcShellBasedSurfaceModel of IfcAdvancedFace (tubes become
+    # IfcCylindricalSurface, flat panels merged IfcPlane) — not one IfcPlate per element.
+    import ifcopenshell
+
+    src = ada.Plate("P", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.02)
+    part = ada.Part("pp")
+    part.fem = src.to_fem_obj(0.5, "shell")
+    assert len(list(part.fem.elements.shell)) > 1 and not len(part.plates)
+
+    ret = (ada.Assembly("A") / part).to_ifc(tmp_path / "analytic.ifc", streaming=True, merge_strategy="cylinder")
+    assert ret is None and (tmp_path / "analytic.ifc").exists()
+
+    g = ifcopenshell.open(str(tmp_path / "analytic.ifc"))
+    assert not g.by_type("IfcPlate")  # analytic path emits no per-element plates
+    assert len(g.by_type("IfcShellBasedSurfaceModel")) == 1
+    assert len(g.by_type("IfcAdvancedFace")) >= 1  # flat plate → merged analytic face(s)
+    assert len(g.by_type("IfcPlane")) >= 1
+    prox = g.by_type("IfcBuildingElementProxy")
+    assert len(prox) == 1 and prox[0].Representation is not None
+
+
 def test_streaming_falls_back_for_file_obj_only(tmp_path):
     # streaming needs an on-disk destination; file_obj_only must fall back, not crash
     f = _model().to_ifc(file_obj_only=True, streaming=True)

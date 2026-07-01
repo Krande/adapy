@@ -189,6 +189,12 @@ def stream_assembly_to_ifc(
     from ada.cadit.ifc.write.write_ifc import IfcWriter
     from ada.fem.formats.utils import convert_part_elem_bm_to_beams
 
+    # Analytic strategy: emit one recognised-surface B-rep shell per FEM part (tubular
+    # members -> IfcCylindricalSurface faces, flat panels -> IfcPlane faces) instead of one
+    # IfcExtrudedAreaSolid plate per shell element — the IFC counterpart of the FEM->STEP
+    # analytic emit. Mirrors _iter_stream_objects' analytic branch.
+    analytic = merge_strategy is not None and str(merge_strategy).lower() in {"cylinder", "analytic"}
+
     destination = pathlib.Path(destination).resolve().absolute()
     os.makedirs(destination.parent, exist_ok=True)
 
@@ -328,26 +334,67 @@ def stream_assembly_to_ifc(
             out.write("\n".join(lines) + "\n")
             lines.clear()
 
-        # 2) fused plates — Part.iter_objects_from_fem builds one element's
-        # plate(s) at a time; being ``detached`` they carry no material back-ref
-        # and free as soon as _emit drops them, so peak memory stays bounded.
-        for part, n_shells in fused:
-            cnt = 0
-            for pl in part.iter_objects_from_fem(
-                beams=False, plates=True, detached=True, mat_cache=mat_cache, merge_strategy=merge_strategy
-            ):
-                _emit(pl)
-                cnt += 1
-                if cnt % 2000 == 0:
-                    out.write("\n".join(lines) + "\n")
-                    lines.clear()
-                    if progress_callback is not None:
-                        progress_callback(min(cnt, n_shells), n_shells)
-            if lines:
+        # 2) fused FEM shells.
+        if analytic:
+            # One recognised-surface B-rep shell per FEM part (cylinders + flat faces),
+            # emitted via the shared IFC B-rep emitter and hung under the part's spatial
+            # container. Ids continue from the plate emitter's counter (_Emitter.nid is the
+            # NEXT id; _IfcBrepEmitter._emit pre-increments, so seed at nid-1).
+            from ada.cadit.step.write.stream_step_to_ifc import _IfcBrepEmitter
+            from ada.fem.formats.mesh_faces import iter_fem_analytic_faces
+            from ada.geom.surfaces import OpenShell, ShellBasedSurfaceModel
+
+            be = _IfcBrepEmitter(emitter.nid - 1)
+            be._flush = lambda buf: (out.write("\n".join(buf) + "\n"), buf.clear())
+            ident_place = be._emit(lines, f"IfcLocalPlacement($,#{be._axis2(lines, (0, 0, 0), (0, 0, 1), (1, 0, 0))})")
+            for part, n_shells in fused:
+                try:
+                    faces = list(iter_fem_analytic_faces(part))
+                    if not faces:
+                        continue
+                    shell = ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=faces)])
+                    brep, rep_type = be.solid(lines, shell)
+                    if brep is None:
+                        skipped += 1
+                        continue
+                    rep = be._emit(lines, f"IfcShapeRepresentation(#{body_ctx_id},'Body','{rep_type}',(#{brep}))")
+                    pds = be._emit(lines, f"IfcProductDefinitionShape($,$,(#{rep}))")
+                    pid = be._emit(
+                        lines,
+                        f"IfcBuildingElementProxy('{create_guid()}',#{owner_id},"
+                        f"{_spf_str((part.name or 'model') + '_analytic')},$,$,#{ident_place},#{pds},$,$)",
+                    )
+                    total += 1
+                    _record_spatial(part.guid, pid)
+                except Exception as exc:  # noqa: BLE001 — one bad part shouldn't sink the file
+                    skipped += 1
+                    logger.warning(f"streaming IFC (analytic): skipped part {getattr(part, 'name', '?')!r}: {exc}")
                 out.write("\n".join(lines) + "\n")
                 lines.clear()
-            if progress_callback is not None:
-                progress_callback(n_shells, n_shells)
+                if progress_callback is not None:
+                    progress_callback(n_shells, n_shells)
+            emitter.nid = be.nid + 1  # continue the trailing-relationship ids past the B-rep entities
+        else:
+            # Part.iter_objects_from_fem builds one element's plate(s) at a time; being
+            # ``detached`` they carry no material back-ref and free as soon as _emit drops
+            # them, so peak memory stays bounded.
+            for part, n_shells in fused:
+                cnt = 0
+                for pl in part.iter_objects_from_fem(
+                    beams=False, plates=True, detached=True, mat_cache=mat_cache, merge_strategy=merge_strategy
+                ):
+                    _emit(pl)
+                    cnt += 1
+                    if cnt % 2000 == 0:
+                        out.write("\n".join(lines) + "\n")
+                        lines.clear()
+                        if progress_callback is not None:
+                            progress_callback(min(cnt, n_shells), n_shells)
+                if lines:
+                    out.write("\n".join(lines) + "\n")
+                    lines.clear()
+                if progress_callback is not None:
+                    progress_callback(n_shells, n_shells)
 
         # ── trailing relationships (hand-emitted from recorded ids) ──
         nid = emitter.nid
