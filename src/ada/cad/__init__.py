@@ -888,6 +888,7 @@ class AdacppBackend:
         deflection: float = 0.0,
         angular_deg: float = 20.0,
         settings: "dict | None" = None,
+        threads: int = 1,
     ) -> "BatchMesh":
         """Tessellate a stream of ``(id, ada.geom geometry)`` via adacpp's NGEOM pipeline.
 
@@ -907,18 +908,24 @@ class AdacppBackend:
         from ada.cadit.ngeom import serialize_geometries
 
         buffer = serialize_geometries(items)
-        # ``settings`` overrides the ifcopenshell ConversionSettings for the
-        # taxonomy paths (occ/cgal/hybrid); ignored by libtess2. Backward-
-        # compatible: adacpp builds predating the settings param raise
-        # TypeError, in which case we retry without it.
-        if settings:
-            try:
-                mesh = fn(buffer, pipeline, deflection, angular_deg, dict(settings))
-            except TypeError:
-                logger.warning("adacpp build has no taxonomy settings param; ignoring %r", settings)
+        # ``settings`` overrides the ifcopenshell ConversionSettings for the taxonomy paths
+        # (occ/cgal/hybrid); ignored by libtess2. ``threads`` (>1) parallelises a root's faces
+        # in the libtess2 path — opt-in, so the STEP->GLB process pool (which parallelises across
+        # solids) stays serial per call and doesn't oversubscribe. The signature grew
+        # (settings, then threads); try the fullest form and fall back for older adacpp builds.
+        try:
+            mesh = fn(buffer, pipeline, deflection, angular_deg, dict(settings or {}), int(threads))
+        except TypeError:
+            if int(threads) > 1:
+                logger.debug("adacpp build has no tessellate_stream threads param; running serial")
+            if settings:
+                try:
+                    mesh = fn(buffer, pipeline, deflection, angular_deg, dict(settings))
+                except TypeError:
+                    logger.warning("adacpp build has no taxonomy settings param; ignoring %r", settings)
+                    mesh = fn(buffer, pipeline, deflection, angular_deg)
+            else:
                 mesh = fn(buffer, pipeline, deflection, angular_deg)
-        else:
-            mesh = fn(buffer, pipeline, deflection, angular_deg)
         groups = [
             MeshGroup(node_id=g.node_id, start=g.start, length=g.length, vstart=g.vstart, vlength=g.vlength)
             for g in mesh.groups

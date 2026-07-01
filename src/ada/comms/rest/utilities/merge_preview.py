@@ -225,7 +225,11 @@ def _generate(asm, model, algorithm, storage, on_progress):
     items = [(c, ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=fs)])) for c, fs in by_cls.items()]
 
     on_progress("tessellating (libtess2)", 0.6)
-    bm = active_backend().tessellate_stream(items, pipeline="libtess2")
+    # This is a single whole-model call (not the per-solid STEP->GLB pool), so use all cores —
+    # the curved B-spline hull panels are the cost and parallelise across the thread pool.
+    import os as _os
+
+    bm = active_backend().tessellate_stream(items, pipeline="libtess2", threads=(_os.cpu_count() or 1))
 
     import trimesh
 
