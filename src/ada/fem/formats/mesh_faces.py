@@ -604,10 +604,10 @@ def _plane_bucket_components(prims: "_Primitives", idxs: list[int], ndigits: int
         yield from comps.values()
 
 
-def _flat_face_with_holes(prims: "_Primitives", comp: list[int], ndigits: int):
-    """A coplanar component → one flat AdvancedFace with the outer boundary + any hole
-    loops (FACE_OUTER_BOUND + FACE_BOUND inners), via robust boundary extraction. Returns
-    None if the boundary won't resolve (non-manifold pinch) — caller falls back."""
+def _flat_faces_with_holes(prims: "_Primitives", comp: list[int], ndigits: int) -> list:
+    """A coplanar component → flat AdvancedFaces via robust boundary extraction: one face
+    per material region (a pinch splits into several), each with FACE_OUTER_BOUND + any
+    FACE_BOUND hole loops. Returns [] if the boundary won't resolve — caller falls back."""
     from ada.core.vector_utils import extract_boundary_loops
     from ada.geom.curves import PolyLoop
     from ada.geom.direction import Direction
@@ -616,28 +616,30 @@ def _flat_face_with_holes(prims: "_Primitives", comp: list[int], ndigits: int):
     from ada.geom.surfaces import AdvancedFace, FaceBound, Plane
 
     res = extract_boundary_loops([prims.outline(j) for j in comp], ndigits=ndigits)
-    if res is None:
-        return None
-    outer, holes = res
+    if not res:
+        return []
     n = prims.normals[comp[0]]
-    plane = Plane(position=Axis2Placement3D(location=Point(*outer[0]), axis=Direction(*n)))
-    bounds = [FaceBound(bound=PolyLoop(polygon=[Point(*p) for p in outer]), orientation=True)]
-    for h in holes:  # inner void loops (kept CW by the extractor)
-        bounds.append(FaceBound(bound=PolyLoop(polygon=[Point(*p) for p in h]), orientation=True))
-    return AdvancedFace(bounds=bounds, face_surface=plane, same_sense=True)
+    faces = []
+    for outer, holes in res:
+        plane = Plane(position=Axis2Placement3D(location=Point(*outer[0]), axis=Direction(*n)))
+        bounds = [FaceBound(bound=PolyLoop(polygon=[Point(*p) for p in outer]), orientation=True)]
+        for h in holes:  # inner void loops (kept CW by the extractor)
+            bounds.append(FaceBound(bound=PolyLoop(polygon=[Point(*p) for p in h]), orientation=True))
+        faces.append(AdvancedFace(bounds=bounds, face_surface=plane, same_sense=True))
+    return faces
 
 
 def _analytic_flat_faces(prims: "_Primitives", patch: list[int], ndigits: int):
-    """Non-cylinder patch → flat AdvancedFaces: one merged face (with holes) per coplanar
-    edge-connected component; single-loop merge or per-facet only where robust extraction
-    can't resolve the boundary. Never worse than the coplanar merge."""
+    """Non-cylinder patch → flat AdvancedFaces: merged faces (with holes, pinches split)
+    per coplanar edge-connected component; single-loop merge or per-facet only where
+    robust extraction can't resolve the boundary. Never worse than the coplanar merge."""
     for comp in _plane_bucket_components(prims, patch, ndigits):
         if len(comp) == 1:
             yield _facet_flat_face(prims, comp[0])
             continue
-        face = _flat_face_with_holes(prims, comp, ndigits)
-        if face is not None:
-            yield face
+        faces = _flat_faces_with_holes(prims, comp, ndigits)
+        if faces:
+            yield from faces
             continue
         fd = _flat_face(prims, comp, ndigits)  # single clean loop (no holes)
         if fd is not None:

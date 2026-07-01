@@ -555,19 +555,21 @@ def has_reflex_vertex(pts2d, tol: float = 1e-9) -> bool:
 
 
 def extract_boundary_loops(facet_loops, ndigits: int = 9):
-    """Robust boundary of a set of (near-)coplanar facet loops → ``(outer, holes)``.
+    """Robust boundary of a set of (near-)coplanar facet loops → a list of faces
+    ``[(outer, holes), ...]`` (each ``outer`` a CCW loop of 3D points, ``holes`` its CW
+    inner loops), or None if it can't be resolved.
 
-    Unlike :func:`merge_coplanar_loops_by_edge_cancellation` (which returns a SINGLE
-    clean loop or None), this returns the outer boundary loop plus every interior hole
-    loop — so a merged panel with cut-outs becomes one face WITH VOIDS instead of
-    shattering back to per-facet. Each returned loop is a list of 3D points; the outer
-    is CCW and holes are CW in the best-fit plane.
-
-    Facets are oriented consistently first (BFS flip over shared edges), so interior
-    edges cancel and the net directed boundary edges form the region's oriented cycles.
-    Returns None if the boundary can't be resolved cleanly (e.g. a non-manifold pinch
-    where a vertex has >1 unused outgoing boundary edge — caller falls back).
+    Unlike :func:`merge_coplanar_loops_by_edge_cancellation` (single clean loop or None)
+    this recovers cut-outs (→ faces with voids) AND non-manifold pinches: facets are
+    oriented consistently (BFS flip over shared edges) so interior edges cancel and the
+    net directed boundary forms the region's oriented cycles; at a pinch vertex (degree>2)
+    the next edge is chosen by angle (hug the interior-on-left boundary), splitting the
+    region into its separate simple loops. Positive-area loops are outer boundaries (a
+    pinched region yields several), negative-area loops are holes, each assigned to its
+    smallest containing outer.
     """
+    import math
+
     import numpy as np
 
     def _rnd(p):
@@ -635,55 +637,97 @@ def extract_boundary_loops(facet_loops, ndigits: int = 9):
     if n_boundary < 3:
         return None
 
-    # ── 3. trace oriented cycles (degree-2 unambiguous; a pinch -> bail) ──
+    # ── 3. plane frame (for angular tie-breaks + signed area) ──
+    keys = list({k for ws in out_star.values() for k in ws} | set(out_star))
+    Pk = np.array([prep[k] for k in keys])
+    ctr = Pk.mean(axis=0)
+    _, _, vt = np.linalg.svd(Pk - ctr, full_matrices=False)
+    e1, e2 = vt[0], vt[1]
+    xy = {k: (float((np.array(prep[k]) - ctr) @ e1), float((np.array(prep[k]) - ctr) @ e2)) for k in keys}
+    two_pi = 2.0 * math.pi
+
+    def _ang(a, b):
+        return math.atan2(xy[b][1] - xy[a][1], xy[b][0] - xy[a][0])
+
+    # ── 4. trace oriented cycles; at a pinch pick the interior-on-left next edge ──
+    out_map: dict = {v: list(ws) for v, ws in out_star.items()}
+    avail: dict = defaultdict(int)
+    for v, ws in out_map.items():
+        for w in ws:
+            avail[(v, w)] += 1
     loops_keys: list = []
-    for a in list(out_star):
-        while out_star[a]:
-            start = a
-            loop = [start]
-            cur = out_star[start].pop()
-            guard = 0
-            while cur != start:
-                loop.append(cur)
-                nxt = out_star.get(cur)
-                if not nxt:
-                    return None  # dangling / non-manifold
-                if len(nxt) > 1:
-                    return None  # pinch (degree>2): needs angular tracing (not yet)
-                cur = nxt.pop()
-                guard += 1
-                if guard > n_boundary + 5:
-                    return None
-            loops_keys.append(loop)
+    for sa in list(out_map):
+        for sb in list(out_map[sa]):
+            while avail[(sa, sb)] > 0:
+                avail[(sa, sb)] -= 1
+                loop = [sa]
+                prev, cur = sa, sb
+                guard = 0
+                while cur != sa:
+                    loop.append(cur)
+                    cands = [w for w in out_map.get(cur, ()) if avail[(cur, w)] > 0]
+                    if not cands:
+                        return None
+                    if len(cands) == 1:
+                        w = cands[0]
+                    else:  # pinch: hug the interior-on-left boundary — largest CCW turn from
+                        # the reverse edge (sharpest right turn in traversal), never the U-turn back.
+                        a_rev = _ang(cur, prev)
+                        w = max(cands, key=lambda x: (_ang(cur, x) - a_rev) % two_pi)
+                    avail[(cur, w)] -= 1
+                    prev, cur = cur, w
+                    guard += 1
+                    if guard > n_boundary + 5:
+                        return None
+                loops_keys.append(loop)
     if not loops_keys:
         return None
 
-    # ── 4. classify by signed area in the best-fit plane: outer = max |area| ──
-    pts_all = np.array([prep[k] for k in {k for lp in loops_keys for k in lp}])
-    ctr = pts_all.mean(axis=0)
-    _, _, vt = np.linalg.svd(pts_all - ctr, full_matrices=False)
-    e1, e2 = vt[0], vt[1]
-
+    # ── 5. classify: +area = outer boundary, -area = hole; assign holes to containers ──
     def _signed_area(lp):
-        xy = [((np.array(prep[k]) - ctr) @ e1, (np.array(prep[k]) - ctr) @ e2) for k in lp]
         s = 0.0
-        for i in range(len(xy)):
-            x1, y1 = xy[i]
-            x2, y2 = xy[(i + 1) % len(xy)]
+        for i in range(len(lp)):
+            x1, y1 = xy[lp[i]]
+            x2, y2 = xy[lp[(i + 1) % len(lp)]]
             s += x1 * y2 - x2 * y1
         return 0.5 * s
 
-    scored = []
+    def _centroid(lp):
+        xs = [xy[k][0] for k in lp]
+        ys = [xy[k][1] for k in lp]
+        return sum(xs) / len(xs), sum(ys) / len(ys)
+
+    def _contains(lp, pt):  # ray-cast point-in-polygon in the plane
+        px, py = pt
+        inside = False
+        n = len(lp)
+        for i in range(n):
+            x1, y1 = xy[lp[i]]
+            x2, y2 = xy[lp[(i + 1) % n]]
+            if (y1 > py) != (y2 > py) and px < (x2 - x1) * (py - y1) / (y2 - y1 + 1e-30) + x1:
+                inside = not inside
+        return inside
+
+    outers: list = []  # (abs_area, loop_keys, pts3)
+    holes: list = []
     for lp in loops_keys:
         pts3 = remove_near_collinear_points([prep[k] for k in lp])
-        if len(pts3) >= 3:
-            scored.append((_signed_area(lp), pts3))
-    if not scored:
+        if len(pts3) < 3:
+            continue
+        a = _signed_area(lp)
+        (outers if a > 0 else holes).append((abs(a), lp, pts3))
+    if not outers:
         return None
-    outer_i = max(range(len(scored)), key=lambda i: abs(scored[i][0]))
-    outer = scored[outer_i][1]
-    holes = [p for i, (_a, p) in enumerate(scored) if i != outer_i]
-    return outer, holes
+    faces = [(pts3, []) for (_a, _lp, pts3) in outers]
+    for _ha, hlp, hp in holes:
+        hc = _centroid(hlp)
+        best = None
+        for oi, (oa, olp, _op) in enumerate(outers):
+            if _contains(olp, hc) and (best is None or oa < outers[best][0]):
+                best = oi
+        if best is not None:
+            faces[best][1].append(hp)
+    return faces
 
 
 def merge_coplanar_loops_by_edge_cancellation(loops, ndigits: int = 9):
