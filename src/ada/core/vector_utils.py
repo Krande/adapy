@@ -554,6 +554,92 @@ def has_reflex_vertex(pts2d, tol: float = 1e-9) -> bool:
     return False
 
 
+def boundary_cycles_3d(facet_loops, ndigits: int = 9):
+    """Oriented boundary loops of a set of facet loops as raw 3D point rings — the
+    surface-agnostic core of :func:`extract_boundary_loops` (no planar projection), for
+    boundaries that live on a curved surface (e.g. a cylinder's two end cuts). Facets are
+    oriented consistently (BFS flip over shared edges); the net directed boundary is traced
+    into cycles. Returns ``list[list[point3d]]`` or None on a non-manifold pinch (degree>2).
+    """
+    from collections import defaultdict, deque
+
+    def _rnd(p):
+        return (round(float(p[0]), ndigits), round(float(p[1]), ndigits), round(float(p[2]), ndigits))
+
+    facets: list = []
+    prep: dict = {}
+    for pts in facet_loops:
+        pts = list(pts)
+        if len(pts) >= 2 and _rnd(pts[0]) == _rnd(pts[-1]):
+            pts = pts[:-1]
+        if len(pts) < 3:
+            continue
+        ring = [_rnd(p) for p in pts]
+        for p, k in zip(pts, ring):
+            prep.setdefault(k, p)
+        facets.append(ring)
+    if not facets:
+        return None
+
+    owners: dict = defaultdict(list)
+    for fi, f in enumerate(facets):
+        m = len(f)
+        for i in range(m):
+            a, b = f[i], f[(i + 1) % m]
+            owners[(a, b) if a <= b else (b, a)].append((fi, a, b))
+    adj: dict = defaultdict(list)
+    for lst in owners.values():
+        if len(lst) == 2:
+            (f0, a0, b0), (f1, a1, b1) = lst
+            adj[f0].append((f1, (a0, b0) == (a1, b1)))
+            adj[f1].append((f0, (a0, b0) == (a1, b1)))
+    flip: list = [None] * len(facets)
+    for s in range(len(facets)):
+        if flip[s] is not None:
+            continue
+        flip[s] = False
+        q = deque([s])
+        while q:
+            c = q.popleft()
+            for nb, same in adj[c]:
+                if flip[nb] is None:
+                    flip[nb] = flip[c] ^ same
+                    q.append(nb)
+
+    dc: dict = defaultdict(int)
+    for fi, f in enumerate(facets):
+        ring = f[::-1] if flip[fi] else f
+        m = len(ring)
+        for i in range(m):
+            dc[(ring[i], ring[(i + 1) % m])] += 1
+    out_star: dict = defaultdict(list)
+    total = 0
+    for (a, b), c in dc.items():
+        for _ in range(max(0, c - dc.get((b, a), 0))):
+            out_star[a].append(b)
+            total += 1
+    if total < 3:
+        return None
+
+    cycles: list = []
+    for sa in list(out_star):
+        while out_star[sa]:
+            loop = [sa]
+            cur = out_star[sa].pop()
+            guard = 0
+            while cur != sa:
+                loop.append(cur)
+                nxt = out_star.get(cur)
+                if not nxt or len(nxt) > 1:  # dangling or pinch (degree>2) — caller falls back
+                    return None
+                cur = nxt.pop()
+                guard += 1
+                if guard > total + 5:
+                    return None
+            cycles.append([prep[k] for k in loop])
+    return cycles or None
+
+
 def extract_boundary_loops(facet_loops, ndigits: int = 9):
     """Robust boundary of a set of (near-)coplanar facet loops → a list of faces
     ``[(outer, holes), ...]`` (each ``outer`` a CCW loop of 3D points, ``holes`` its CW

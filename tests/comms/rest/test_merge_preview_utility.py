@@ -246,6 +246,42 @@ def test_to_stp_cylinder_strategy_routes_through_analytic_emit(tmp_path):
     assert txt.rstrip().endswith("END-ISO-10303-21;")
 
 
+def test_cylinder_trim_faces_bounds_by_real_boundary():
+    """cylinder_trim_faces trims the tube by its ACTUAL boundary loops (here the two end
+    rings) → one CYLINDRICAL_SURFACE face with a FaceBound per loop, edges arcs/lines (no
+    B-spline), emitting valid STEP."""
+    import os
+    import tempfile
+
+    from ada.cadit.step.write.ap242_stream import Ap242StreamWriter
+    from ada.fem.formats.mesh_faces import cylinder_trim_faces, fit_cylinder_params
+    from ada.geom.surfaces import AdvancedFace, CylindricalSurface, OpenShell, ShellBasedSurfaceModel
+
+    prims, patch = _synthetic_cylinder_prims(r=2.0, length=5.0)
+    cf = fit_cylinder_params(prims, patch)
+    faces = cylinder_trim_faces(prims, patch, cf)
+    assert faces is not None and len(faces) == 1
+    f = faces[0]
+    assert isinstance(f, AdvancedFace) and isinstance(f.face_surface, CylindricalSurface)
+    assert len(f.bounds) == 2  # trimmed by the two end rings
+
+    shell = ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=faces)])
+    out = tempfile.mktemp(suffix=".step")
+    try:
+        with open(out, "w") as fh:
+            w = Ap242StreamWriter(fh, schema="AP242", assembly=True)
+            with w:
+                assert w.add_solid_instances(shell, name="tube", color=None, instances=[(None, None)]) == 1
+        with open(out) as fh:
+            txt = fh.read()
+        assert txt.count("CYLINDRICAL_SURFACE") == 1
+        assert "B_SPLINE" not in txt  # constant-z end rings → circular arcs only
+        assert txt.rstrip().endswith("END-ISO-10303-21;")
+    finally:
+        if os.path.exists(out):
+            os.unlink(out)
+
+
 def test_non_fem_source_rejected():
     with pytest.raises(ValueError, match="FEM source"):
         run_utility(

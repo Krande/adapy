@@ -687,7 +687,10 @@ def iter_fem_analytic_faces(part, *, angle_tol: float = 30.0, min_patch_quads: i
                 if len(patch) >= min_patch_quads and classify_patch(prims, patch) == "cylinder":
                     cf = fit_cylinder_params(prims, patch)
                     if cf is not None:
-                        yield from cylinder_fit_to_faces(cf)
+                        # trim to the real joint-cut boundary; fall back to the full tube
+                        # (flat circular ends) if the boundary won't resolve cleanly.
+                        trimmed = cylinder_trim_faces(prims, patch, cf, ndigits)
+                        yield from (trimmed if trimmed is not None else cylinder_fit_to_faces(cf))
                         continue
                 # non-cylinder patch: coplanar-merge it into flat faces WITH holes
                 # (robust boundary extraction), facet only where the boundary won't
@@ -696,6 +699,55 @@ def iter_fem_analytic_faces(part, *, angle_tol: float = 30.0, min_patch_quads: i
                     yield _facet_flat_face(prims, patch[0])
                 else:
                     yield from _analytic_flat_faces(prims, patch, ndigits)
+
+
+def cylinder_trim_faces(prims: "_Primitives", patch: list[int], cf: "CylinderFit", ndigits: int = 6):
+    """Trim the fitted cylinder by the patch's ACTUAL boundary (the joint-cut curves)
+    instead of flat circles at the axial extremes: one CYLINDRICAL_SURFACE face bounded by
+    the patch's boundary loops, each edge an arc (consecutive nodes at ~equal axial height)
+    or a chord line (otherwise) — all (near-)on the cylinder, which OCC accepts. Returns a
+    list of AdvancedFace, or None if the boundary won't resolve (caller uses the full tube)."""
+    from ada.core.vector_utils import boundary_cycles_3d
+    from ada.geom.curves import Circle, EdgeCurve, EdgeLoop, Line, OrientedEdge
+    from ada.geom.direction import Direction
+    from ada.geom.placement import Axis2Placement3D
+    from ada.geom.points import Point
+    from ada.geom.surfaces import AdvancedFace, CylindricalSurface, FaceBound
+
+    cycles = boundary_cycles_3d([prims.outline(j) for j in patch], ndigits=ndigits)
+    if not cycles:
+        return None
+    axis_d = Direction(*cf.axis)
+    ref_d = Direction(*cf.e1)
+    z_tol = 1e-6 * max(cf.z1 - cf.z0, cf.radius, 1.0)
+
+    def _axial(p):
+        return float((np.asarray(p, dtype=float) - cf.origin) @ cf.axis)
+
+    def _edge(pa, pb):
+        Pa, Pb = Point(*pa), Point(*pb)
+        if abs(_axial(pa) - _axial(pb)) <= z_tol:  # constant-height → circular arc on the cylinder
+            loc = Point(*(cf.origin + _axial(pa) * cf.axis))
+            g = Circle(position=Axis2Placement3D(location=loc, axis=axis_d, ref_direction=ref_d), radius=cf.radius)
+        else:  # otherwise a chord (OCC tolerates the sub-mesh-step off-surface deviation)
+            g = Line(pnt=Pa, dir=Direction(pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]))
+        return OrientedEdge(
+            start=Pa,
+            end=Pb,
+            edge_element=EdgeCurve(start=Pa, end=Pb, edge_geometry=g, same_sense=True),
+            orientation=True,
+        )
+
+    bounds = []
+    for cyc in cycles:
+        if len(cyc) < 3:
+            return None
+        edges = [_edge(cyc[i], cyc[(i + 1) % len(cyc)]) for i in range(len(cyc))]
+        bounds.append(FaceBound(bound=EdgeLoop(edge_list=edges), orientation=True))
+    surf = CylindricalSurface(
+        position=Axis2Placement3D(location=Point(*cf.origin), axis=axis_d, ref_direction=ref_d), radius=cf.radius
+    )
+    return [AdvancedFace(bounds=bounds, face_surface=surf, same_sense=True)]
 
 
 def classify_patch(prims: "_Primitives", patch: list[int], *, plane_tol: float = 1e-3, cyl_tol: float = 0.02) -> str:
