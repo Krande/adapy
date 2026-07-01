@@ -1561,8 +1561,14 @@ def _via_ada_to_step(
             recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
             ms = None
             if not recon:
-                merge = True if merge_fem_objects is None else bool(merge_fem_objects)
-                ms = "coplanar" if merge else "none"
+                # A string merge_fem_objects is the strategy verbatim ("cylinder" =
+                # analytic surface emit for tubular jackets); bool keeps the legacy
+                # coplanar/none behaviour.
+                if isinstance(merge_fem_objects, str):
+                    ms = merge_fem_objects
+                else:
+                    merge = True if merge_fem_objects is None else bool(merge_fem_objects)
+                    ms = "coplanar" if merge else "none"
             stats = model.to_stp(
                 str(out_path), writer="stream", fuse_fem=(fem_to_objects is not False), merge_strategy=ms
             )

@@ -1376,6 +1376,28 @@ def _part_fuses_from_fem(p) -> bool:
     return fem is not None and (len(p.plates) + len(p.beams)) == 0 and len(fem.elements) > 0
 
 
+# Merge strategies that emit ANALYTIC surfaces (one CYLINDRICAL_SURFACE per tube
+# member etc.) instead of folding shells into flat plates — see iter_fem_analytic_faces.
+_ANALYTIC_STRATEGIES = {"cylinder", "analytic"}
+
+
+class _AnalyticShell:
+    """A lightweight physical-object shim carrying a whole FEM's analytic face shell
+    (recognised cylinders + flat facets), so the streaming emit loop's B-rep path
+    (``add_brep``) writes it like any other object."""
+
+    def __init__(self, shell, name):
+        self._shell = shell
+        self.name = name
+        self.color = None
+        self.parent = None
+
+    def solid_geom(self):
+        from ada.geom import Geometry
+
+        return Geometry(id=self.name, geometry=self._shell, color=None, transforms=None)
+
+
 def _iter_stream_objects(part, merge_strategy=None):
     """Yield physical objects to stream, fusing Beam/Plate straight from the FEM
     mesh (``Part.iter_objects_from_fem``, one at a time, detached) when they
@@ -1384,8 +1406,26 @@ def _iter_stream_objects(part, merge_strategy=None):
     already-materialised beams/plates) come from the part as before.
 
     ``merge_strategy`` folds shells into plates via the shared object-free face
-    engine (passed straight to ``iter_objects_from_fem``)."""
+    engine (passed straight to ``iter_objects_from_fem``); the analytic strategies
+    (``cylinder``) instead emit one recognised-surface shell for the whole FEM."""
     from ada import Beam, Plate
+
+    if merge_strategy and str(merge_strategy).lower() in _ANALYTIC_STRATEGIES:
+        # One analytic shell for ALL fem under `part` (cylinders + flat trim facets);
+        # then any built objects that aren't fused Beam/Plate.
+        from ada.fem.formats.mesh_faces import iter_fem_analytic_faces
+        from ada.geom.surfaces import OpenShell, ShellBasedSurfaceModel
+
+        faces = list(iter_fem_analytic_faces(part))
+        if faces:
+            shell = ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=faces)])
+            yield _AnalyticShell(shell, f"{part.name or 'model'}_analytic")
+        for p in part.get_all_parts_in_assembly(include_self=True):
+            fused = _part_fuses_from_fem(p)
+            for o in p.get_all_physical_objects(sub_elements_only=True, pipe_to_segments=True):
+                if not fused or not isinstance(o, (Beam, Plate)):
+                    yield o
+        return
 
     for p in part.get_all_parts_in_assembly(include_self=True):
         if _part_fuses_from_fem(p):

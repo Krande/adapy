@@ -232,6 +232,19 @@ def test_iter_fem_analytic_faces_assembles_faces():
     assert all(isinstance(f, AdvancedFace) for f in faces)
 
 
+def test_to_stp_cylinder_strategy_routes_through_analytic_emit(tmp_path):
+    """to_stp(writer='stream', merge_strategy='cylinder') routes the FEM through the
+    analytic emit (one recognised-surface shell) — cylinders on tubes, flat facets on
+    the rest — producing a valid STEP without building Plate objects."""
+    a = _two_coplanar_quads()
+    out = tmp_path / "m.step"
+    stats = a.to_stp(str(out), writer="stream", fuse_fem=True, merge_strategy="cylinder")
+    assert stats["emitted"] >= 1 and stats["skipped"] == 0
+    txt = out.read_text()
+    assert "ADVANCED_FACE" in txt  # analytic faces (flat facets here; CYLINDRICAL_SURFACE on real tubes)
+    assert txt.rstrip().endswith("END-ISO-10303-21;")
+
+
 def test_non_fem_source_rejected():
     with pytest.raises(ValueError, match="FEM source"):
         run_utility(
