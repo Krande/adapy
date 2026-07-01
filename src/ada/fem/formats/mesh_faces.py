@@ -39,6 +39,7 @@ from ada.config import logger
 class MergeStrategy(str, Enum):
     NONE = "none"
     COPLANAR = "coplanar"
+    PLANAR = "planar"
     SURFACE = "surface"
     PANEL = "panel"
 
@@ -248,12 +249,140 @@ def _block_primitives(blk: _ShellBlock) -> _Primitives:
 # ── strategies ──────────────────────────────────────────────────────────────
 
 
-def faces_from_fem(fem, strategy=MergeStrategy.COPLANAR, ndigits: int = 6) -> Iterator[FaceData]:
+# ── region growing (shared by the planar/surface strategies + the preview) ────
+
+
+def _local_adjacency(prims: "_Primitives", idxs: list[int]) -> list[list[int]]:
+    """Shared-edge adjacency among a subset of primitives (conformal mesh: a shared
+    edge == shared node rows). Returns per-local-index neighbour lists."""
+    adj: list[list[int]] = [[] for _ in idxs]
+    edge_owner: dict = {}
+    for li, j in enumerate(idxs):
+        r = prims.rows[j]
+        k = len(r)
+        for e in range(k):
+            a, b = r[e], r[(e + 1) % k]
+            ek = (a, b) if a <= b else (b, a)
+            edge_owner.setdefault(ek, []).append(li)
+    for owners in edge_owner.values():
+        for x in range(len(owners)):
+            for y in range(x + 1, len(owners)):
+                adj[owners[x]].append(owners[y])
+                adj[owners[y]].append(owners[x])
+    return adj
+
+
+def _material_thickness_groups(prims: "_Primitives", ndigits: int) -> list[list[int]]:
+    """Primitive indices bucketed by (material, thickness) — the coarsest grouping a
+    single plate can span (different material/thickness can't share a face)."""
+    thick_q = np.round(np.array(prims.ts), ndigits)
+    mt: dict = {}
+    for j in range(len(prims)):
+        mt.setdefault((prims.mats[j], float(thick_q[j])), []).append(j)
+    return list(mt.values())
+
+
+def _surface_patches(prims: "_Primitives", angle_tol: float, ndigits: int) -> list[list[int]]:
+    """Region-grow *smooth* patches by normal continuity — the curved-skin analogue of
+    coplanar bucketing. Per (material, thickness), flood over shared-edge adjacency
+    joining two edge-adjacent primitives when the angle between their normals is
+    ``<= angle_tol``. Curvature accumulates across the patch (a cylinder's normals
+    sweep 360° yet every adjacent pair is within tol); a sharp feature edge stops it.
+    No rectangular-grid requirement, so irregular/triangulated skin grows into one big
+    patch. Returns list[list[prim_idx]]."""
+    import math
+
+    cos_tol = math.cos(math.radians(angle_tol))
+    normals = prims.normals
+    patches: list[list[int]] = []
+    for idxs in _material_thickness_groups(prims, ndigits):
+        if len(idxs) == 1:
+            patches.append([idxs[0]])
+            continue
+        adj = _local_adjacency(prims, idxs)
+        visited = [False] * len(idxs)
+        for s in range(len(idxs)):
+            if visited[s]:
+                continue
+            comp: list[int] = []
+            stack = [s]
+            visited[s] = True
+            while stack:
+                cur = stack.pop()
+                comp.append(idxs[cur])
+                ncur = normals[idxs[cur]]
+                for nb in adj[cur]:
+                    if visited[nb]:
+                        continue
+                    if abs(float(np.dot(ncur, normals[idxs[nb]]))) >= cos_tol:
+                        visited[nb] = True
+                        stack.append(nb)
+            patches.append(comp)
+    return patches
+
+
+def _planar_patches(prims: "_Primitives", max_dev: float, ndigits: int) -> list[list[int]]:
+    """Region-grow *flat* patches: a facet joins the patch only while every one of its
+    vertices stays within ``max_dev`` of the patch seed's plane. Flat-by-construction,
+    so each patch emits as one flat plate; a curved region naturally breaks into
+    several flat patches (piecewise, bounded error) rather than over-merging a flat
+    panel into an adjacent curve. Returns list[list[prim_idx]]."""
+    normals = prims.normals
+    patches: list[list[int]] = []
+    for idxs in _material_thickness_groups(prims, ndigits):
+        if len(idxs) == 1:
+            patches.append([idxs[0]])
+            continue
+        adj = _local_adjacency(prims, idxs)
+        visited = [False] * len(idxs)
+        for s in range(len(idxs)):
+            if visited[s]:
+                continue
+            # seed plane: the seed facet's normal + centroid; grow neighbours whose
+            # vertices all lie within max_dev of THIS plane (so the whole patch is
+            # provably within max_dev of one plane → a faithful single flat plate).
+            seed = idxs[s]
+            n0 = normals[seed]
+            p0 = prims.outline(seed).mean(axis=0)
+            comp = []
+            stack = [s]
+            visited[s] = True
+            while stack:
+                cur = stack.pop()
+                comp.append(idxs[cur])
+                for nb in adj[cur]:
+                    if visited[nb]:
+                        continue
+                    verts = prims.outline(idxs[nb])
+                    if float(np.abs((verts - p0) @ n0).max()) <= max_dev:
+                        visited[nb] = True
+                        stack.append(nb)
+            patches.append(comp)
+    return patches
+
+
+def _auto_max_dev(prims: "_Primitives") -> float:
+    """Default planar-growing tolerance: 1e-3 of the block's bounding diagonal — tight
+    enough to keep 'flat' meaningful, loose enough to absorb FEM node jitter."""
+    used = np.unique(np.concatenate([np.asarray(r) for r in prims.rows]))
+    pts = prims.coords[used]
+    diag = float(np.linalg.norm(pts.max(axis=0) - pts.min(axis=0)))
+    return 1e-3 * max(diag, 1e-9)
+
+
+def faces_from_fem(
+    fem, strategy=MergeStrategy.COPLANAR, ndigits: int = 6, *, max_dev: float | None = None
+) -> Iterator[FaceData]:
     """Yield merged CAD faces for a single ``FEM`` mesh (one part).
 
     The per-FEM core; :func:`iter_faces` walks an assembly and calls this for
     each part. ``Part.iter_objects_from_fem`` also delegates here so the object
-    and object-free streams share one strategy-aware source."""
+    and object-free streams share one strategy-aware source.
+
+    ``PLANAR`` grows flat patches (within ``max_dev``, auto if None) and emits one
+    flat face per patch — the near-term FEM→CAD plate-count reducer that recovers
+    large flat panels coplanar's exact bucketing misses and piecewise-flattens curved
+    skin. ``SURFACE`` (curved → one B-spline face) is not wired into the writer yet."""
     strategy = MergeStrategy.from_value(strategy)
     if strategy in (MergeStrategy.SURFACE, MergeStrategy.PANEL):
         raise NotImplementedError(f"merge strategy {strategy.value!r} not yet wired into the vectorized face source")
@@ -266,11 +395,24 @@ def faces_from_fem(fem, strategy=MergeStrategy.COPLANAR, ndigits: int = 6) -> It
         if strategy == MergeStrategy.NONE:
             for j in range(len(prims)):
                 yield prims.face(j)
+        elif strategy == MergeStrategy.PLANAR:
+            md = _auto_max_dev(prims) if max_dev is None else max_dev
+            for patch in _planar_patches(prims, md, ndigits):
+                if len(patch) == 1:
+                    yield prims.face(patch[0])
+                    continue
+                face = _flat_face(prims, patch, ndigits)  # whole flat patch → one face
+                if face is not None:
+                    yield face
+                else:  # boundary didn't collapse (hole/T-junction) → coplanar (never worse)
+                    yield from _coplanar_subset(prims, patch, ndigits)
         else:
             yield from _coplanar_block(prims, ndigits)
 
 
-def iter_faces(part, strategy=MergeStrategy.COPLANAR, ndigits: int = 6) -> Iterator[FaceData]:
+def iter_faces(
+    part, strategy=MergeStrategy.COPLANAR, ndigits: int = 6, *, max_dev: float | None = None
+) -> Iterator[FaceData]:
     """Yield merged CAD faces for every FEM mesh under ``part`` (Part or Assembly).
 
     Object-free: walks each sub-part's array-backed shell mesh, never building
@@ -278,7 +420,7 @@ def iter_faces(part, strategy=MergeStrategy.COPLANAR, ndigits: int = 6) -> Itera
     """
     parts = part.get_all_parts_in_assembly(include_self=True) if hasattr(part, "get_all_parts_in_assembly") else [part]
     for p in parts:
-        yield from faces_from_fem(getattr(p, "fem", None), strategy, ndigits)
+        yield from faces_from_fem(getattr(p, "fem", None), strategy, ndigits, max_dev=max_dev)
 
 
 def _coplanar_block(prims: _Primitives, ndigits: int) -> Iterator[FaceData]:
@@ -370,3 +512,46 @@ def _merge_component(prims: _Primitives, cj: list[int], ndigits: int) -> Iterato
     # best-effort contract: merge only when it collapses cleanly, else keep all.
     for j in cj:
         yield prims.face(j)
+
+
+def _flat_face(prims: _Primitives, cj: list[int], ndigits: int) -> "FaceData | None":
+    """The success path of :func:`_merge_component`: merge a patch's boundary to one
+    clean simple loop → one flat ``FaceData``, or None if it doesn't collapse cleanly
+    (hole / T-junction / non-manifold → the all-or-nothing boundary limit)."""
+    from ada.core.vector_utils import (
+        merge_coplanar_loops_by_edge_cancellation,
+        project_points_to_local_2d,
+    )
+    from ada.fem.formats.concept_merge import _loop_is_simple_2d
+
+    merged = merge_coplanar_loops_by_edge_cancellation([prims.outline(j) for j in cj], ndigits=ndigits)
+    if merged is None:
+        return None
+    try:
+        pts2d, _ = project_points_to_local_2d(merged)
+    except Exception:  # noqa: BLE001
+        return None
+    if not _loop_is_simple_2d(pts2d):
+        return None
+    outline = np.asarray(merged, dtype=float)
+    ref = cj[0]
+    return FaceData(f"{prims.names[ref]}_m", outline, _newell_normals(outline[None])[0], prims.mats[ref], prims.ts[ref])
+
+
+def _coplanar_subset(prims: _Primitives, idxs: list[int], ndigits: int) -> Iterator[FaceData]:
+    """Coplanar-merge a subset of primitives (plane buckets → edge-connected components
+    → merge each). The planar strategy's fallback when a grown patch's boundary won't
+    collapse: it can never emit more faces than the plain coplanar merge would."""
+    tol = 10.0 ** (-ndigits)
+    normals = prims.normals
+    sign = _canonical_sign(normals, tol)
+    ncanon = np.round(normals * sign[:, None], ndigits)
+    thick_q = np.round(np.array(prims.ts), ndigits)
+    buckets: dict = {}
+    for j in idxs:
+        p0 = prims.coords[prims.rows[j][0]]
+        off = round(float(sign[j] * float(np.dot(normals[j], p0))), ndigits)
+        key = (prims.mats[j], float(thick_q[j]), tuple(ncanon[j]), off)
+        buckets.setdefault(key, []).append(j)
+    for b in buckets.values():
+        yield from _merge_plane_bucket(prims, b, ndigits)

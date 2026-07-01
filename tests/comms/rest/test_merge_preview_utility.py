@@ -49,7 +49,7 @@ def test_registered_with_algorithm_swap_spec():
     spec = next(s for s in UtilityRegistry.specs() if s["name"] == "merge-preview")
     kw = {k["name"]: k for k in spec["kwargs"]}
     assert {"algorithm", "mode", "ndigits", "angle_tol", "min_patch_quads"} <= set(kw)
-    assert set(kw["algorithm"]["enum"]) == {"none", "coplanar", "surface", "panel"}
+    assert set(kw["algorithm"]["enum"]) == {"none", "coplanar", "planar", "surface", "panel"}
     assert set(kw["mode"]["enum"]) == {"status", "achieved", "component"}
 
 
@@ -94,6 +94,20 @@ def test_surface_region_grows_smooth_patch():
     assert s["surface_patches"] == 1  # grown into a single fitted-surface patch
     assert s["achieved_plates"] == 1
     assert s["angle_tol"] == 30.0
+
+
+def test_planar_strategy_partition_and_writer_agree():
+    # two coplanar edge-sharing quads: planar growing collapses them to one flat plate,
+    # and the object-free writer emits the same single face.
+    from ada.fem.formats.mesh_faces import MergeStrategy, iter_faces
+
+    a = _two_coplanar_quads()
+    s = analyze_part(a, "planar").stats
+    assert s["strategy"] == "planar"
+    assert s["achieved_plates"] == 1
+
+    faces = list(iter_faces(a, MergeStrategy.PLANAR))
+    assert len(faces) == 1  # writer emits one flat face for the flat patch
 
 
 def test_non_fem_source_rejected():

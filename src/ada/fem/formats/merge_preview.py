@@ -34,9 +34,12 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from ada.fem.formats.mesh_faces import (
+    _auto_max_dev,
     _block_primitives,
     _canonical_sign,
+    _planar_patches,
     _shell_blocks,
+    _surface_patches,
 )
 
 
@@ -110,7 +113,7 @@ def _merge_succeeds(prims, cj, ndigits) -> bool:
 # Algorithms the preview can partition by. Each maps to a grouping of the
 # per-block primitives; new strategies (curved-surface / structured-panel region
 # growing) slot in here so the utility can swap between them at runtime.
-ALGORITHMS = ("none", "coplanar", "surface", "panel")
+ALGORITHMS = ("none", "coplanar", "planar", "surface", "panel")
 
 
 def _plane_buckets(prims, ndigits, idxs=None):
@@ -132,76 +135,30 @@ def _plane_buckets(prims, ndigits, idxs=None):
     return list(buckets.values())
 
 
-def _surface_patches(prims, angle_tol, ndigits):
-    """Region-grow *smooth* patches by normal continuity — the curved-skin analogue of
-    coplanar bucketing. Per (material, thickness), flood over shared-edge adjacency
-    joining two edge-adjacent primitives when the angle between their normals is
-    ``<= angle_tol``. Curvature accumulates across the patch (a cylinder's normals
-    sweep 360° yet every adjacent pair is within tol); a sharp feature edge (angle >
-    tol) stops the growth. Mirrors the neighbour-pair test in
-    ``surface_reconstruction._grow_grid`` but without the rectangular-grid requirement,
-    so irregular / triangulated skin still grows into one big patch.
-
-    Returns list[list[prim_idx]]."""
-    import math
-
-    cos_tol = math.cos(math.radians(angle_tol))
-    normals = prims.normals
-    thick_q = np.round(np.array(prims.ts), ndigits)
-    mt: dict = {}
-    for j in range(len(prims)):
-        mt.setdefault((prims.mats[j], float(thick_q[j])), []).append(j)
-
-    patches: list = []
-    for idxs in mt.values():
-        if len(idxs) == 1:
-            patches.append([idxs[0]])
-            continue
-        adj: list = [[] for _ in idxs]
-        edge_owner: dict = {}
-        for li, j in enumerate(idxs):
-            r = prims.rows[j]
-            k = len(r)
-            for e in range(k):
-                a, b = r[e], r[(e + 1) % k]
-                ek = (a, b) if a <= b else (b, a)
-                edge_owner.setdefault(ek, []).append(li)
-        for owners in edge_owner.values():
-            for x in range(len(owners)):
-                for y in range(x + 1, len(owners)):
-                    adj[owners[x]].append(owners[y])
-                    adj[owners[y]].append(owners[x])
-        visited = [False] * len(idxs)
-        for s in range(len(idxs)):
-            if visited[s]:
-                continue
-            comp: list = []
-            stack = [s]
-            visited[s] = True
-            while stack:
-                cur = stack.pop()
-                comp.append(idxs[cur])
-                ncur = normals[idxs[cur]]
-                for nb in adj[cur]:
-                    if visited[nb]:
-                        continue
-                    if abs(float(np.dot(ncur, normals[idxs[nb]]))) >= cos_tol:
-                        visited[nb] = True
-                        stack.append(nb)
-            patches.append(comp)
-    return patches
-
-
-def _strategy_groups(prims, strategy, ndigits, angle_tol, min_patch_quads):
+def _strategy_groups(prims, strategy, ndigits, angle_tol, min_patch_quads, max_dev):
     """Partition one block's primitives into ``[(prim_indices, kind), ...]``.
 
     ``kind`` drives the achieved-merge test in :func:`analyze_part`: ``single`` (1
     primitive, trivially its own plate), ``coplanar`` (collapses only if the union is
-    one clean simple loop), ``surface`` (a smooth region-grown patch → one fitted
-    surface)."""
+    one clean simple loop — used for planar patches too, since a flat patch still needs
+    a clean boundary), ``surface`` (a smooth region-grown patch → one fitted surface)."""
     n = len(prims)
     if strategy == "none":
         return [([j], "single") for j in range(n)]
+
+    if strategy == "planar":
+        md = _auto_max_dev(prims) if max_dev is None else max_dev
+        out = []
+        for p in _planar_patches(prims, md, ndigits):
+            if len(p) == 1:
+                out.append((p, "single"))
+            elif _merge_succeeds(prims, p, ndigits):
+                out.append((p, "merged"))  # whole flat patch collapses to one face
+            else:  # boundary won't collapse -> coplanar fallback (mirrors the writer; never worse)
+                for idxs in _plane_buckets(prims, ndigits, p):
+                    for comp in _component_labels(prims, idxs, ndigits):
+                        out.append((comp, "single" if len(comp) == 1 else "coplanar"))
+        return out
 
     if strategy == "coplanar":
         out: list = []
@@ -238,8 +195,11 @@ def analyze_part(part, strategy: str = "coplanar", ndigits: int = 6, **params) -
       shows the unmerged fragmentation the writers face).
     * ``coplanar`` — plane-bucket + edge-connected components, merged when the union
       collapses to one clean loop (the current production merge).
+    * ``planar`` — flat region growing: grow a patch while it stays within ``max_dev``
+      of one plane, emit one flat plate each (recovers large flat panels coplanar's
+      exact bucketing misses; curved skin becomes piecewise-flat). Wired into the writer.
     * ``surface`` — normal-continuity region growing: smooth patches (curved or flat)
-      grow into one fitted surface, small leftovers fall back to the coplanar merge.
+      grow into one fitted surface (B-spline). Preview-only until the native fit lands.
     * ``panel`` — structured-quad region growing (not implemented yet).
 
     ``ndigits`` is the coplanarity rounding tolerance; ``params`` tune the curved
@@ -253,6 +213,9 @@ def analyze_part(part, strategy: str = "coplanar", ndigits: int = 6, **params) -
         raise NotImplementedError("merge algorithm 'panel' (structured-quad growing) is not implemented yet")
     angle_tol = float(params.get("angle_tol", 30.0))
     min_patch_quads = int(params.get("min_patch_quads", 12))
+    max_dev = params.get("max_dev", None)
+    if max_dev is not None:
+        max_dev = float(max_dev)
 
     res = PartitionResult()
     next_comp = 0
@@ -271,7 +234,7 @@ def analyze_part(part, strategy: str = "coplanar", ndigits: int = 6, **params) -
             # warped-quad-split halves are named "sh{eid}_1"; both halves are tris.
             split = {j for j, nm in enumerate(prims.names) if nm.endswith("_1")}
 
-            for comp, kind in _strategy_groups(prims, strategy, ndigits, angle_tol, min_patch_quads):
+            for comp, kind in _strategy_groups(prims, strategy, ndigits, angle_tol, min_patch_quads, max_dev):
                 n_groups += 1
                 if kind == "surface":
                     n_surface += 1
@@ -279,7 +242,7 @@ def analyze_part(part, strategy: str = "coplanar", ndigits: int = 6, **params) -
                 next_comp += 1
                 # a surface patch is one fitted surface; a coplanar group collapses only
                 # if its union is a single clean loop; a single primitive is trivially one plate.
-                ok = True if kind in ("single", "surface") else _merge_succeeds(prims, comp, ndigits)
+                ok = True if kind in ("single", "surface", "merged") else _merge_succeeds(prims, comp, ndigits)
                 agid = None
                 if ok:
                     agid = next_ach

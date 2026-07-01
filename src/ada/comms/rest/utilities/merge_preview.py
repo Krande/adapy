@@ -42,8 +42,9 @@ _FEM_EXTS = {".fem", ".inp", ".sif", ".sin", ".bdf", ".nas", ".med", ".rmed"}
             "name": "algorithm",
             "type": "enum",
             "default": "coplanar",
-            "enum": ["none", "coplanar", "surface", "panel"],
-            "description": "Merge strategy: none (raw baseline), coplanar (current), surface/panel (curved, WIP).",
+            "enum": ["none", "coplanar", "planar", "surface", "panel"],
+            "description": "Merge strategy: none (raw baseline), coplanar (current), planar (flat region "
+            "growing, writer-wired), surface (curved→B-spline, preview-only), panel (WIP).",
         },
         {
             "name": "mode",
@@ -71,6 +72,13 @@ _FEM_EXTS = {".fem", ".inp", ".sif", ".sin", ".bdf", ".nas", ".med", ".rmed"}
             "default": 12,
             "description": "Smallest curved patch (in quads) worth fitting a surface to (surface/panel).",
         },
+        {
+            "name": "max_dev",
+            "type": "float",
+            "default": 0.0,
+            "description": "Planar strategy: max distance (model units) a facet may sit off the patch "
+            "plane. 0 = auto (1e-3 of the mesh bbox diagonal).",
+        },
     ],
     affects=("scene.overlay",),
 )
@@ -85,6 +93,7 @@ def merge_preview(
     ndigits=6,
     angle_tol=30.0,
     min_patch_quads=12,
+    max_dev=0.0,
     **_,
 ):
     import ada
@@ -107,6 +116,7 @@ def merge_preview(
         ndigits=int(ndigits),
         angle_tol=float(angle_tol),
         min_patch_quads=int(min_patch_quads),
+        max_dev=(float(max_dev) or None),  # 0 → auto
     )
 
     on_progress("rendering-preview", 0.8)
