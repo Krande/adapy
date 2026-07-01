@@ -207,15 +207,23 @@ _GEN_CLASS_COLOR = {
 
 def _generate(asm, model, algorithm, storage, on_progress):
     """Render the merged CAD (the SAME analytic faces the STEP/IFC 'auto' emit produces —
-    cylinders + curved B-spline panels + merged flat plates) to a viewable GLB overlay.
+    cylinders + curved B-spline panels + merged flat plates) to a viewable GLB overlay that
+    behaves like a first-class model: per-plate picking + an object tree.
 
-    Tessellates via the libtess2 pipeline (adacpp NGEOM, OCC-free) instead of building tens
-    of thousands of Plate objects and OCC-meshing them — that path was ~2.5x slower AND used
-    the object-based merge (~44k plates on a ship) rather than the analytic engine. Faces are
-    grouped by class so the GLB colours cylinders/curved/planar distinctly."""
+    Each analytic face is streamed as its own NGEOM root, so libtess2 (adacpp, OCC-free, thread
+    -parallel across plates) returns one BatchMesh group PER PLATE. Plates are decimated (meshopt,
+    fast/light), grouped by class into per-colour MergedMeshes with a GroupReference per plate,
+    and written through the same GLB writer models use — so the GLB carries id_hierarchy +
+    draw_ranges_node* (per-plate picking) and the ADA_EXT_data extension (object tree)."""
+    import os as _os
+
     import numpy as np
+    import trimesh
 
     from ada.cad import active_backend
+    from ada.core.guid import create_guid
+    from ada.extension.design_and_analysis_extension_schema import AdaDesignAndAnalysisExtension
+    from ada.extension.design_extension_schema import DesignDataExtension
     from ada.fem.formats.mesh_faces import iter_fem_analytic_faces
     from ada.geom.surfaces import (
         BSplineSurfaceWithKnots,
@@ -223,6 +231,10 @@ def _generate(asm, model, algorithm, storage, on_progress):
         OpenShell,
         ShellBasedSurfaceModel,
     )
+    from ada.visit.colors import Color
+    from ada.visit.gltf.graph import GraphNode, GraphStore
+    from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
+    from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
     on_progress("recognising surfaces", 0.4)
     faces = list(iter_fem_analytic_faces(asm))
@@ -235,32 +247,34 @@ def _generate(asm, model, algorithm, storage, on_progress):
             return "curved"
         return "planar"
 
-    by_cls: dict = {}
-    for f in faces:
-        by_cls.setdefault(_cls(f), []).append(f)
-    # one shell per class → one BatchMesh group per class → colour by class
-    items = [(c, ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=fs)])) for c, fs in by_cls.items()]
+    # one NGEOM root PER PLATE → one BatchMesh group per plate (pickable unit)
+    cls_of = [_cls(f) for f in faces]
+    items = [
+        (f"{cls_of[i]}_{i}", ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=[f])]))
+        for i, f in enumerate(faces)
+    ]
 
     on_progress("tessellating (libtess2)", 0.6)
-    # This is a single whole-model call (not the per-solid STEP->GLB pool), so use all cores —
-    # the curved B-spline hull panels are the cost and parallelise across the thread pool.
-    import os as _os
-
+    # Whole-model call (not the per-solid STEP->GLB pool) → use all cores; plates parallelise.
     bm = active_backend().tessellate_stream(items, pipeline="libtess2", threads=(_os.cpu_count() or 1))
 
-    # Decimate for a light, fast-loading overlay: the curved B-spline panels tessellate to
-    # ~1.9M verts (dense hull grids) which loads slowly in the browser. meshopt_simplify each
-    # class group (border-locked, so class boundaries hold) to a fraction of its triangles and
-    # colour by class. Falls back to the full mesh if the simplifier is unavailable.
-    on_progress("simplifying", 0.78)
+    on_progress("building pickable model", 0.8)
     try:
         from adacpp.cad import meshopt_simplify_mesh as _simp
     except Exception:  # noqa: BLE001
         _simp = None
     all_pos = np.asarray(bm.positions, dtype=np.float32).reshape(-1, 3)
     all_idx = np.asarray(bm.indices, dtype=np.uint32)
-    parts_pos, parts_idx, parts_col, base = [], [], [], 0
-    for g in bm.groups:
+
+    # Assemble per-class (per-colour) MergedMeshes, each with one GroupReference per plate, plus a
+    # root→class→plate node tree. bm.groups are in item order, so group i is face i.
+    root = GraphNode(model, "0")
+    nodes: dict = {"0": root}
+    nid = 1
+    class_nodes: dict = {}
+    acc: dict = {}  # cls -> {pos:[], idx:[], groups:[], vbase, ibase}
+    for i, g in enumerate(bm.groups):
+        c = cls_of[i]
         gp = all_pos[g.vstart : g.vstart + g.vlength]
         gi = all_idx[g.start : g.start + g.length] - g.vstart
         if _simp is not None and len(gi) >= 3:
@@ -268,23 +282,64 @@ def _generate(asm, model, algorithm, storage, on_progress):
                 sp, si = _simp(gp.reshape(-1), gi.reshape(-1), 0.2, 0.01)  # keep ~20%, ~1% error
                 gp = np.asarray(sp, dtype=np.float32).reshape(-1, 3)
                 gi = np.asarray(si, dtype=np.uint32)
-            except Exception:  # noqa: BLE001 — decimation is best-effort; keep the raw group
+            except Exception:  # noqa: BLE001 — decimation is best-effort; keep the raw plate
                 pass
-        parts_pos.append(gp)
-        parts_idx.append(gi.reshape(-1, 3) + base)
-        parts_col.append(np.tile(_GEN_CLASS_COLOR.get(g.node_id, [180, 180, 180, 255]), (len(gp), 1)))
-        base += len(gp)
-    import trimesh
+        if len(gi) == 0:
+            continue
+        if c not in acc:
+            acc[c] = {"pos": [], "idx": [], "groups": [], "vbase": 0, "ibase": 0}
+            cn = GraphNode(c, str(nid), parent=root)
+            root.children.append(cn)
+            nodes[str(nid)] = cn
+            class_nodes[c] = cn
+            nid += 1
+        a = acc[c]
+        pnode = GraphNode(g.node_id, str(nid), parent=class_nodes[c])
+        class_nodes[c].children.append(pnode)
+        nodes[str(nid)] = pnode
+        nid += 1
+        a["groups"].append(GroupReference(node_ref=pnode, start=a["ibase"], length=int(gi.size)))
+        a["pos"].append(gp)
+        a["idx"].append(gi + a["vbase"])
+        a["vbase"] += len(gp)
+        a["ibase"] += int(gi.size)
 
-    pos = np.concatenate(parts_pos) if parts_pos else np.zeros((0, 3), np.float32)
-    idx = np.concatenate(parts_idx) if parts_idx else np.zeros((0, 3), np.int64)
-    vcolors = np.concatenate(parts_col).astype(np.uint8) if parts_col else np.zeros((0, 4), np.uint8)
+    graph = GraphStore(top_level=root, nodes=nodes)
+    scene = trimesh.Scene(base_frame=root.name)  # merged_mesh_to_trimesh_scene parents to top_level.name
+    total_verts = 0
+    for buffer_id, (c, a) in enumerate(acc.items()):
+        pos = np.concatenate(a["pos"]).reshape(-1).astype(np.float32)
+        idx = np.concatenate(a["idx"]).astype(np.uint32)
+        total_verts += len(pos) // 3
+        rgb = _GEN_CLASS_COLOR.get(c, [180, 180, 180, 255])
+        color = Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
+        mm = MergedMesh(
+            indices=idx, position=pos, normal=None, material=color, type=MeshType.TRIANGLES, groups=a["groups"]
+        )
+        merged_mesh_to_trimesh_scene(scene, mm, color, buffer_id, graph)
 
-    on_progress("writing-glb", 0.85)
+    # id_hierarchy + draw_ranges_node* → scene.extras (per-plate picking + tree)
+    scene.metadata.update(graph.to_json_hierarchy())
+    # Minimal-but-valid ADA_EXT_data so the frontend enables the design (picking) path.
+    ada_ext = AdaDesignAndAnalysisExtension(
+        design_objects=[DesignDataExtension(name=model)],
+        simulation_objects=[],
+        assembly_guid=create_guid(),
+    ).model_dump(mode="json")
+
+    def _tree_pp(tree):
+        tree.setdefault("extensions", {})["ADA_EXT_data"] = ada_ext
+        used = tree.setdefault("extensionsUsed", [])
+        if "ADA_EXT_data" not in used:
+            used.append("ADA_EXT_data")
+        for mat in tree.get("materials", []):
+            mat["doubleSided"] = True
+
+    on_progress("writing-glb", 0.9)
     glb_tmp = tempfile.mkstemp(suffix=".glb")[1]
     try:
-        mesh = trimesh.Trimesh(vertices=pos, faces=idx, vertex_colors=vcolors, process=False)
-        trimesh.Scene(mesh).export(glb_tmp, file_type="glb")
+        data = scene.export(file_type="glb", tree_postprocessor=_tree_pp)
+        pathlib.Path(glb_tmp).write_bytes(data)
         overlay_key = f"{_OVERLAY_PREFIX}{model}.merge-{algorithm}-generated.glb"
         _put_overlay_glb(storage, overlay_key, glb_tmp)
     finally:
@@ -294,7 +349,9 @@ def _generate(asm, model, algorithm, storage, on_progress):
             pass
 
     on_progress("done", 1.0)
-    counts = {c: len(fs) for c, fs in by_cls.items()}
+    counts: dict = {}
+    for c in cls_of:
+        counts[c] = counts.get(c, 0) + 1
     return {
         "ops": [
             {
@@ -316,6 +373,7 @@ def _generate(asm, model, algorithm, storage, on_progress):
             "cylinder_faces": counts.get("cylinder", 0),
             "curved_faces": counts.get("curved", 0),
             "planar_faces": counts.get("planar", 0),
-            "vertices": int(len(pos)),
+            "plates": len(faces),
+            "vertices": int(total_verts),
         },
     }

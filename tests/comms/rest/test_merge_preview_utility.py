@@ -146,6 +146,24 @@ def test_generate_action_builds_plate_glb(monkeypatch, tmp_path):
     assert payload["summary"]["planar_faces"] == 1
     # overlay is named by the model, not the temp file (so the utils menu can scope it)
     assert overlay[0]["blob_key"].startswith("_overlays/")
+    # per-plate picking contract: id_hierarchy + draw_ranges_node* in scene.extras + ADA_EXT_data
+    import json
+    import struct
+
+    glb = store.blobs[overlay[0]["blob_key"]]
+    jlen = struct.unpack("<I", glb[12:16])[0]
+    gltf = json.loads(glb[20 : 20 + jlen])
+    extras = gltf["scenes"][0]["extras"]
+    assert "id_hierarchy" in extras and len(extras["id_hierarchy"]) >= 2  # root + plate(s)
+    dr = [k for k in extras if k.startswith("draw_ranges_node")]
+    assert dr and sum(len(extras[k]) for k in dr) == 1  # one draw range for the single plate
+    for k in dr:
+        for _nid, rng in extras[k].items():
+            assert len(rng) == 2 and rng[1] > 0  # [start, count]
+    ada_ext = gltf.get("extensions", {}).get("ADA_EXT_data")
+    assert ada_ext is not None
+    assert isinstance(ada_ext.get("design_objects"), list) and len(ada_ext["design_objects"]) == 1
+    assert isinstance(ada_ext.get("simulation_objects"), list)
 
 
 def test_classify_recognizes_planar_patch():
