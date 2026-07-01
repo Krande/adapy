@@ -666,7 +666,7 @@ def _facedata_to_advanced_face(fd: "FaceData"):
 
 
 def iter_fem_analytic_faces(
-    part, *, angle_tol: float = 30.0, min_patch_quads: int = 12, ndigits: int = 6, trim_cylinders: bool = False
+    part, *, angle_tol: float = 30.0, min_patch_quads: int = 12, ndigits: int = 6, trim_cylinders: bool = True
 ):
     """Yield analytic ``ada.geom`` faces for every FEM shell mesh under ``part``, auto-
     detecting each region-grown patch's primitive: a **cylinder** patch → analytic
@@ -674,12 +674,10 @@ def iter_fem_analytic_faces(
     patch (one merged plate per clean coplanar component, per-facet only where the merge
     can't collapse). No human guidance — ``classify_patch`` decides.
 
-    ``trim_cylinders`` (default False) trims each tube to its real joint-cut boundary
-    (exact ends, more faithful STEP). It is OFF by default because a joint cut's diagonal
-    boundary edges are chords, not on-surface curves — OCC reads them, but the adacpp
-    backend's stricter wire build can't mesh them curved (needs pcurves), so the default
-    full-tube form (flat circular ends, exact tube *bodies*) stays viz-safe on BOTH CAD
-    backends. Enable it for STEP-precision output that won't be tessellated via adacpp.
+    ``trim_cylinders`` (default True) trims each tube to its real joint-cut boundary (exact
+    ends). Each trim edge carries a 2D pcurve on the cylinder, so the diagonal joint-cut
+    edges tessellate curved on BOTH CAD backends (adacpp routes the pcurve through
+    ``edge_from_pcurve``); set it False for the plain full-tube form (flat circular ends).
 
     Never worse than the plain coplanar merge (non-cylinder patches fall through to it)
     and collapses a tube's thousands of shell facets to a handful of exact cylinders."""
@@ -713,11 +711,16 @@ def iter_fem_analytic_faces(
 def cylinder_trim_faces(prims: "_Primitives", patch: list[int], cf: "CylinderFit", ndigits: int = 6):
     """Trim the fitted cylinder by the patch's ACTUAL boundary (the joint-cut curves)
     instead of flat circles at the axial extremes: one CYLINDRICAL_SURFACE face bounded by
-    the patch's boundary loops, each edge an arc (consecutive nodes at ~equal axial height)
-    or a chord line (otherwise) — all (near-)on the cylinder, which OCC accepts. Returns a
-    list of AdvancedFace, or None if the boundary won't resolve (caller uses the full tube)."""
+    the patch's boundary loops. Each edge carries a 3D curve (arc where consecutive nodes are
+    at ~equal axial height, chord line otherwise) AND a 2D pcurve — the straight line in the
+    cylinder's (u=angle, v=axial) parameter space between the two nodes. The pcurve is what
+    puts the edge ON the cylinder (3D derived as surface(pcurve)) so BRepMesh tessellates the
+    face curved even where the 3D edge is a chord, and it carries the periodic seam through
+    unwrapped u. Returns a list of AdvancedFace, or None if the boundary won't resolve."""
+    import math
+
     from ada.core.vector_utils import boundary_cycles_3d
-    from ada.geom.curves import Circle, EdgeCurve, EdgeLoop, Line, OrientedEdge
+    from ada.geom.curves import Circle, EdgeCurve, EdgeLoop, Line, OrientedEdge, Pcurve2dBSpline
     from ada.geom.direction import Direction
     from ada.geom.placement import Axis2Placement3D
     from ada.geom.points import Point
@@ -728,17 +731,25 @@ def cylinder_trim_faces(prims: "_Primitives", patch: list[int], cf: "CylinderFit
         return None
     axis_d = Direction(*cf.axis)
     ref_d = Direction(*cf.e1)
+    e2 = np.cross(cf.axis, cf.e1)  # so (u=angle from e1, v=axial) matches Geom_CylindricalSurface
     z_tol = 1e-6 * max(cf.z1 - cf.z0, cf.radius, 1.0)
 
-    def _axial(p):
-        return float((np.asarray(p, dtype=float) - cf.origin) @ cf.axis)
+    def _uv(p):
+        d = np.asarray(p, dtype=float) - cf.origin
+        return math.atan2(float(d @ e2), float(d @ cf.e1)), float(d @ cf.axis)
+
+    def _pcurve(ua, ub):  # degree-1 (line) pcurve in (u, v) between two nodes
+        return Pcurve2dBSpline(
+            degree=1, control_points_2d=[list(ua), list(ub)], knots=[0.0, 1.0], knot_multiplicities=[2, 2]
+        )
 
     def _edge(pa, pb):
         Pa, Pb = Point(*pa), Point(*pb)
-        if abs(_axial(pa) - _axial(pb)) <= z_tol:  # constant-height → circular arc on the cylinder
-            loc = Point(*(cf.origin + _axial(pa) * cf.axis))
+        va, vb = (np.asarray(pa, float) - cf.origin) @ cf.axis, (np.asarray(pb, float) - cf.origin) @ cf.axis
+        if abs(va - vb) <= z_tol:  # constant-height → circular arc on the cylinder
+            loc = Point(*(cf.origin + float(va) * cf.axis))
             g = Circle(position=Axis2Placement3D(location=loc, axis=axis_d, ref_direction=ref_d), radius=cf.radius)
-        else:  # otherwise a chord (OCC tolerates the sub-mesh-step off-surface deviation)
+        else:
             g = Line(pnt=Pa, dir=Direction(pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]))
         return OrientedEdge(
             start=Pa,
@@ -751,7 +762,24 @@ def cylinder_trim_faces(prims: "_Primitives", patch: list[int], cf: "CylinderFit
     for cyc in cycles:
         if len(cyc) < 3:
             return None
-        edges = [_edge(cyc[i], cyc[(i + 1) % len(cyc)]) for i in range(len(cyc))]
+        # unwrap u continuously along the loop so pcurve endpoints connect across the seam
+        us, vs = [], []
+        prev_u = None
+        for p in cyc:
+            u, v = _uv(p)
+            if prev_u is not None:
+                u += 2.0 * math.pi * round((prev_u - u) / (2.0 * math.pi))
+            us.append(u)
+            vs.append(v)
+            prev_u = u
+        n = len(cyc)
+        edges = []
+        for i in range(n):
+            j = (i + 1) % n
+            ub = us[j] + (2.0 * math.pi * round((us[i] - us[j]) / (2.0 * math.pi)) if j == 0 else 0.0)
+            oe = _edge(cyc[i], cyc[j])
+            oe.pcurve = _pcurve((us[i], vs[i]), (ub, vs[j]))
+            edges.append(oe)
         bounds.append(FaceBound(bound=EdgeLoop(edge_list=edges), orientation=True))
     surf = CylindricalSurface(
         position=Axis2Placement3D(location=Point(*cf.origin), axis=axis_d, ref_direction=ref_d), radius=cf.radius

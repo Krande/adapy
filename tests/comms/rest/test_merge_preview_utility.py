@@ -282,6 +282,31 @@ def test_cylinder_trim_faces_bounds_by_real_boundary():
             os.unlink(out)
 
 
+def test_cylinder_trim_faces_tessellate_on_cylinder():
+    """A trimmed cylinder tessellates ON the cylinder wall (radius ~r) via its edge pcurves —
+    on whichever CAD backend is active (adacpp routes the kind-6 pcurve through edge_from_pcurve;
+    OCC uses it directly). Guards against the diagonal-cut face meshing flat/degenerate."""
+    import numpy as np
+
+    from ada.cad import active_backend
+    from ada.fem.formats.mesh_faces import cylinder_trim_faces, fit_cylinder_params
+    from ada.geom import Geometry
+    from ada.geom.surfaces import OpenShell, ShellBasedSurfaceModel
+
+    r = 2.0
+    prims, patch = _synthetic_cylinder_prims(r=r, length=5.0)
+    faces = cylinder_trim_faces(prims, patch, fit_cylinder_params(prims, patch))
+    shell = ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=faces)])
+    be = active_backend()
+    mesh = be.tessellate(be.build(Geometry(id="tube", geometry=shell, color=None, transforms=None)))
+    pos = np.asarray(mesh.positions, dtype=float).reshape(-1, 3)
+    assert pos.size, "no vertices"
+    radii = np.hypot(pos[:, 0], pos[:, 1])
+    # the whole clean tube wall meshes on the cylinder — a collapse/degenerate mesh dips inside r
+    assert radii.min() >= r - 0.1, f"vertices collapsed toward the axis (min radius {radii.min():.2f} << {r})"
+    assert pos[:, 2].max() - pos[:, 2].min() >= 4.5, "meshed only a sliver, not the full wall"
+
+
 def test_non_fem_source_rejected():
     with pytest.raises(ValueError, match="FEM source"):
         run_utility(
