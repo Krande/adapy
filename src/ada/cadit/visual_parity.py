@@ -167,14 +167,21 @@ def parity_for_step_file(
     work_dir: str | Path | None = None,
 ) -> ParityResult:
     """Streaming cross-format parity for a STEP source — never loads or tessellates
-    the whole model (the OOM/timeout path was 1 source tessellation + 3×(export +
-    whole re-read + re-tessellation)). The metric is the placed-instance count, which
-    the bounded per-solid readers/writers produce directly:
+    the whole model. The metric is the placed-instance count, which the streaming
+    writers now report directly from their single native parse (``instances`` = solids
+    they emitted, ``total_instances`` = every source instance they saw), so parity no
+    longer re-parses the multi-GB outputs to count them:
 
-    * source — count instances off the native parse (no hydrate).
-    * step   — stream-write (``stream_step_to_step``), then count the output's instances.
-    * ifc    — stream-write (``stream_step_to_ifc``), then count its IfcBuildingElementProxy.
+    * source — the writers' ``total_instances`` (the source-side count from the same
+      native parse that drives the export; a separate ``_count_step_instances`` pass
+      is only the fallback when no writer runs).
+    * step   — ``stream_step_to_step`` returns the instances it wrote.
+    * ifc    — ``stream_step_to_ifc`` returns the IfcBuildingElementProxy it wrote.
     * xml    — skipped: raw CAD B-rep has no Genie-XML concept representation.
+
+    A writer that drops a solid (unsupported geometry) reports ``instances <
+    total_instances``, which surfaces as a mismatch — the exact case parity exists to
+    catch — without the whole-model re-read + re-tessellation that OOM'd / timed out.
     """
     import tempfile
 
@@ -187,21 +194,21 @@ def parity_for_step_file(
         work_dir = tmp_ctx.name
     work_dir = Path(work_dir)
 
-    baseline = _count_step_instances(path)
-    counts: dict[str, int] = {"source": baseline}
+    counts: dict[str, int] = {}
     errors: dict[str, str] = {}
     skipped: dict[str, str] = {}
+    seen: int | None = None  # source instance count, taken from the writers' single parse
     try:
         for fmt in formats:
             try:
                 if fmt == "step":
-                    out = work_dir / "parity.step"
-                    stream_step_to_step(path, out)
-                    counts["step"] = _count_step_instances(out)
+                    stats = stream_step_to_step(path, work_dir / "parity.step")
+                    counts["step"] = stats["instances"]
+                    seen = stats["total_instances"] if seen is None else seen
                 elif fmt == "ifc":
-                    out = work_dir / "parity.ifc"
-                    stream_step_to_ifc(path, out)
-                    counts["ifc"] = _count_ifc_proxies(out)
+                    stats = stream_step_to_ifc(path, work_dir / "parity.ifc")
+                    counts["ifc"] = stats["instances"]
+                    seen = stats["total_instances"] if seen is None else seen
                 elif fmt == "xml":
                     skipped["xml"] = "raw CAD B-rep has no Genie-XML concept representation"
                 else:
@@ -213,6 +220,10 @@ def parity_for_step_file(
         if tmp_ctx is not None:
             tmp_ctx.cleanup()
 
+    # Fall back to an explicit native source count only when no writer produced one
+    # (e.g. formats == ("xml",)); otherwise reuse the writers' parse (no extra pass).
+    baseline = seen if seen is not None else _count_step_instances(path)
+    counts = {"source": baseline, **counts}
     mismatches = {k: v for k, v in counts.items() if k != "source" and v != baseline}
     return ParityResult(
         counts=counts,
