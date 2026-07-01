@@ -149,7 +149,7 @@ const UtilitiesSection = () => {
     // Saved utility overlays (_overlays/<model>.<utility>.glb), selectable per loaded model.
     const loadedSourceName = useModelState((s) => s.loadedSourceName);
     const [overlays, setOverlays] = React.useState<{key: string; size: number; last_modified: string | null}[]>([]);
-    const [loadingOverlay, setLoadingOverlay] = React.useState<string | null>(null);
+    const [activeOverlays, setActiveOverlays] = React.useState<Set<string>>(new Set());
 
     // model stem of a key: "dir/JacketHybrid.merge-auto.glb" -> "JacketHybrid"
     const stemOf = (k: string) => (k.split("/").pop() ?? k).split(".")[0];
@@ -172,19 +172,25 @@ const UtilitiesSection = () => {
         void refreshOverlays();
     }, [refreshOverlays]);
 
-    const loadOverlay = async (key: string) => {
-        // Load the saved overlay GLB as the scene model (the regular model-load path — streams
-        // from storage, decodes meshopt + gzip, fits the camera), not an add_overlay_geometry
-        // layer. The overlay IS a full merged model, so it should replace the view like any model.
-        setLoadingOverlay(key);
+    const toggleOverlay = async (key: string) => {
+        // ADD the overlay ON TOP of the currently loaded model (a colored layer to compare the
+        // merged result against the source), NOT replace it. applyViewerOps clears prior overlay
+        // layers but leaves the model; unchecking (empty set) removes the overlay — that's delete.
+        const next = new Set(activeOverlays);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        setActiveOverlays(next);
         try {
-            const {load_glb_by_url_rest} = await import("@/utils/scene/handlers/view_file_object_from_server");
-            const name = key.split("/").pop() ?? key;
-            await load_glb_by_url_rest(scope, key, name);
+            if (next.size === 0) {
+                clearViewerOps();
+            } else {
+                await applyViewerOps(
+                    {ops: [...next].map((k) => ({op: "add_overlay_geometry" as const, blob_key: k, label: k.split("/").pop() ?? k}))},
+                    scope,
+                );
+            }
         } catch (e) {
             setLastResult({summary: {error: `overlay load failed: ${String(e)}`}});
-        } finally {
-            setLoadingOverlay(null);
         }
     };
 
@@ -402,19 +408,35 @@ const UtilitiesSection = () => {
                         {myOverlays.map((o) => {
                             const short = (o.key.split("/").pop() ?? o.key).replace(/\.glb$/, "");
                             return (
-                                <button
+                                <label
                                     key={o.key}
-                                    type="button"
-                                    className="flex items-center gap-2 text-xs py-0.5 w-full text-left hover:bg-gray-700 rounded-sm px-1 disabled:opacity-50"
-                                    title={`Load ${o.key} as the model`}
-                                    disabled={loadingOverlay !== null}
-                                    onClick={() => void loadOverlay(o.key)}
+                                    className="flex items-center gap-2 text-xs py-0.5 px-1"
+                                    title={`Show ${o.key} over the loaded model`}
                                 >
+                                    <input
+                                        type="checkbox"
+                                        checked={activeOverlays.has(o.key)}
+                                        onChange={() => void toggleOverlay(o.key)}
+                                    />
                                     <span className="truncate flex-1">{short}</span>
-                                    <span className="text-gray-400 shrink-0">
-                                        {loadingOverlay === o.key ? "loading…" : "load"}
-                                    </span>
-                                </button>
+                                    <button
+                                        type="button"
+                                        className="text-gray-400 hover:text-red-400 shrink-0 px-1"
+                                        title="Delete this saved overlay from storage"
+                                        onClick={async (e) => {
+                                            e.preventDefault();
+                                            if (activeOverlays.has(o.key)) await toggleOverlay(o.key);
+                                            try {
+                                                await viewerApi.deleteBlob(scope, o.key);
+                                            } catch (err) {
+                                                setLastResult({summary: {error: `delete failed: ${String(err)}`}});
+                                            }
+                                            void refreshOverlays();
+                                        }}
+                                    >
+                                        ✕
+                                    </button>
+                                </label>
                             );
                         })}
                     </div>

@@ -248,13 +248,37 @@ def _generate(asm, model, algorithm, storage, on_progress):
 
     bm = active_backend().tessellate_stream(items, pipeline="libtess2", threads=(_os.cpu_count() or 1))
 
+    # Decimate for a light, fast-loading overlay: the curved B-spline panels tessellate to
+    # ~1.9M verts (dense hull grids) which loads slowly in the browser. meshopt_simplify each
+    # class group (border-locked, so class boundaries hold) to a fraction of its triangles and
+    # colour by class. Falls back to the full mesh if the simplifier is unavailable.
+    on_progress("simplifying", 0.78)
+    try:
+        from adacpp.cad import meshopt_simplify_mesh as _simp
+    except Exception:  # noqa: BLE001
+        _simp = None
+    all_pos = np.asarray(bm.positions, dtype=np.float32).reshape(-1, 3)
+    all_idx = np.asarray(bm.indices, dtype=np.uint32)
+    parts_pos, parts_idx, parts_col, base = [], [], [], 0
+    for g in bm.groups:
+        gp = all_pos[g.vstart : g.vstart + g.vlength]
+        gi = all_idx[g.start : g.start + g.length] - g.vstart
+        if _simp is not None and len(gi) >= 3:
+            try:
+                sp, si = _simp(gp.reshape(-1), gi.reshape(-1), 0.2, 0.01)  # keep ~20%, ~1% error
+                gp = np.asarray(sp, dtype=np.float32).reshape(-1, 3)
+                gi = np.asarray(si, dtype=np.uint32)
+            except Exception:  # noqa: BLE001 — decimation is best-effort; keep the raw group
+                pass
+        parts_pos.append(gp)
+        parts_idx.append(gi.reshape(-1, 3) + base)
+        parts_col.append(np.tile(_GEN_CLASS_COLOR.get(g.node_id, [180, 180, 180, 255]), (len(gp), 1)))
+        base += len(gp)
     import trimesh
 
-    pos = np.asarray(bm.positions, dtype=np.float64).reshape(-1, 3)
-    idx = np.asarray(bm.indices, dtype=np.int64).reshape(-1, 3)
-    vcolors = np.full((len(pos), 4), 180, dtype=np.uint8)
-    for g in bm.groups:
-        vcolors[g.vstart : g.vstart + g.vlength] = _GEN_CLASS_COLOR.get(g.node_id, [180, 180, 180, 255])
+    pos = np.concatenate(parts_pos) if parts_pos else np.zeros((0, 3), np.float32)
+    idx = np.concatenate(parts_idx) if parts_idx else np.zeros((0, 3), np.int64)
+    vcolors = np.concatenate(parts_col).astype(np.uint8) if parts_col else np.zeros((0, 4), np.uint8)
 
     on_progress("writing-glb", 0.85)
     glb_tmp = tempfile.mkstemp(suffix=".glb")[1]
