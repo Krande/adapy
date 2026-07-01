@@ -181,21 +181,65 @@ def merge_preview(
     }
 
 
+_GEN_CLASS_COLOR = {
+    "cylinder": [70, 190, 90, 255],  # green
+    "curved": [150, 90, 220, 255],  # purple
+    "planar": [70, 120, 220, 255],  # blue
+}
+
+
 def _generate(asm, model, algorithm, storage, on_progress):
-    """Build the actual merged CAD (flat ``Plate`` + curved ``PlateCurved`` objects) from the
-    FEM and render it to a viewable GLB overlay — the "generate" action. ``auto``/``surface``/
-    ``classify`` reconstruct curved panels as NURBS plates (OCC-free native fit); the rest emit
-    merged flat plates. Beams are rebuilt too."""
-    from ada.api.plates.base_pl import PlateCurved
+    """Render the merged CAD (the SAME analytic faces the STEP/IFC 'auto' emit produces —
+    cylinders + curved B-spline panels + merged flat plates) to a viewable GLB overlay.
 
-    on_progress("building-objects", 0.5)
-    reconstruct = algorithm in ("auto", "surface", "classify")
-    asm.create_objects_from_fem(merge=True, reconstruct_surfaces=reconstruct)
+    Tessellates via the libtess2 pipeline (adacpp NGEOM, OCC-free) instead of building tens
+    of thousands of Plate objects and OCC-meshing them — that path was ~2.5x slower AND used
+    the object-based merge (~44k plates on a ship) rather than the analytic engine. Faces are
+    grouped by class so the GLB colours cylinders/curved/planar distinctly."""
+    import numpy as np
 
-    on_progress("tessellating", 0.8)
+    from ada.cad import active_backend
+    from ada.fem.formats.mesh_faces import iter_fem_analytic_faces
+    from ada.geom.surfaces import (
+        BSplineSurfaceWithKnots,
+        CylindricalSurface,
+        OpenShell,
+        ShellBasedSurfaceModel,
+    )
+
+    on_progress("recognising surfaces", 0.4)
+    faces = list(iter_fem_analytic_faces(asm))
+
+    def _cls(f):
+        s = f.face_surface
+        if isinstance(s, CylindricalSurface):
+            return "cylinder"
+        if isinstance(s, BSplineSurfaceWithKnots):
+            return "curved"
+        return "planar"
+
+    by_cls: dict = {}
+    for f in faces:
+        by_cls.setdefault(_cls(f), []).append(f)
+    # one shell per class → one BatchMesh group per class → colour by class
+    items = [(c, ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=fs)])) for c, fs in by_cls.items()]
+
+    on_progress("tessellating (libtess2)", 0.6)
+    bm = active_backend().tessellate_stream(items, pipeline="libtess2")
+
+    import trimesh
+
+    pos = np.asarray(bm.positions, dtype=np.float64).reshape(-1, 3)
+    idx = np.asarray(bm.indices, dtype=np.int64).reshape(-1, 3)
+    vcolors = np.full((len(pos), 4), 180, dtype=np.uint8)
+    for g in bm.groups:
+        vcolors[g.vstart : g.vstart + g.vlength] = _GEN_CLASS_COLOR.get(g.node_id, [180, 180, 180, 255])
+
+    on_progress("writing-glb", 0.85)
     glb_tmp = tempfile.mkstemp(suffix=".glb")[1]
     try:
-        asm.to_gltf(glb_tmp)
+        mesh = trimesh.Trimesh(vertices=pos, faces=idx, vertex_colors=vcolors, process=False)
+        trimesh.Scene(mesh).export(glb_tmp, file_type="glb")
         overlay_key = f"{_OVERLAY_PREFIX}{model}.merge-{algorithm}-generated.glb"
         with open(glb_tmp, "rb") as fh:
             storage.put_bytes(overlay_key, fh.read())
@@ -205,11 +249,8 @@ def _generate(asm, model, algorithm, storage, on_progress):
         except OSError:
             pass
 
-    parts = asm.get_all_parts_in_assembly(include_self=True)
-    plates = [pl for p in parts for pl in list(p.plates)]
-    n_curved = sum(1 for pl in plates if isinstance(pl, PlateCurved))
-    n_beams = sum(len(list(p.beams)) for p in parts)
     on_progress("done", 1.0)
+    counts = {c: len(fs) for c, fs in by_cls.items()}
     return {
         "ops": [
             {
@@ -220,15 +261,17 @@ def _generate(asm, model, algorithm, storage, on_progress):
             }
         ],
         "legend": [
-            {"label": "flat plate", "color": "#4678b4"},
-            {"label": "curved plate (NURBS)", "color": "#9659dc"},
+            {"label": "cylinder", "color": "#46be5a"},
+            {"label": "curved (B-spline)", "color": "#9659dc"},
+            {"label": "planar (merged plate)", "color": "#4678dc"},
         ],
         "summary": {
             "action": "generate",
             "algorithm": algorithm,
-            "plates": len(plates),
-            "curved_plates": n_curved,
-            "flat_plates": len(plates) - n_curved,
-            "beams": n_beams,
+            "faces": len(faces),
+            "cylinder_faces": counts.get("cylinder", 0),
+            "curved_faces": counts.get("curved", 0),
+            "planar_faces": counts.get("planar", 0),
+            "vertices": int(len(pos)),
         },
     }

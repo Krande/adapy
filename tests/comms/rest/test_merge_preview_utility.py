@@ -140,9 +140,12 @@ def test_generate_action_builds_plate_glb(monkeypatch, tmp_path):
     )
     overlay = [o for o in payload["ops"] if o["op"] == "add_overlay_geometry"]
     assert overlay and overlay[0]["blob_key"] in store.blobs
-    assert store.blobs[overlay[0]["blob_key"]][:4] == b"glTF"  # a real GLB
+    assert store.blobs[overlay[0]["blob_key"]][:4] == b"glTF"  # a real GLB (libtess2-tessellated)
     assert payload["summary"]["action"] == "generate"
-    assert payload["summary"]["plates"] == 1  # two coplanar quads → one merged flat plate
+    assert payload["summary"]["faces"] == 1  # two coplanar quads → one merged planar face
+    assert payload["summary"]["planar_faces"] == 1
+    # overlay is named by the model, not the temp file (so the utils menu can scope it)
+    assert overlay[0]["blob_key"].startswith("_overlays/")
 
 
 def test_classify_recognizes_planar_patch():
