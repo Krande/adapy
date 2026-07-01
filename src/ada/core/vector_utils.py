@@ -497,6 +497,103 @@ def _polygon_scale_2d(pts2d) -> float:
     return max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
 
 
+def _rdp_keep_mask(pts2d, tol: float):
+    """Ramer–Douglas–Peucker on an OPEN polyline (list of 2D pts). Returns a bool keep-mask
+    (endpoints always kept). Iterative (no recursion-depth limit on long boundaries)."""
+    import numpy as _np
+
+    n = len(pts2d)
+    keep = [False] * n
+    if n == 0:
+        return keep
+    keep[0] = keep[-1] = True
+    stack = [(0, n - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        a = pts2d[i]
+        b = pts2d[j]
+        abx, aby = b[0] - a[0], b[1] - a[1]
+        L = _np.hypot(abx, aby)
+        dmax, idx = -1.0, -1
+        for k in range(i + 1, j):
+            px, py = pts2d[k]
+            if L < 1e-12:
+                d = _np.hypot(px - a[0], py - a[1])
+            else:
+                d = abs(abx * (a[1] - py) - aby * (a[0] - px)) / L
+            if d > dmax:
+                dmax, idx = d, k
+        if dmax > tol and idx > i:
+            keep[idx] = True
+            stack.append((i, idx))
+            stack.append((idx, j))
+    return keep
+
+
+def simplify_closed_polygon(points3d, rel_tol: float = 0.01, max_area_change: float = 0.02):
+    """Douglas–Peucker simplification of a CLOSED planar polygon. Collapses zigzag/staircase
+    runs (a merged flat plate's boundary traced facet-by-facet) down to their essential corners
+    — a rectangle becomes 4 points — while preserving real corners within ``rel_tol`` × the
+    polygon's 2D scale. Keeps the original 3D coords of retained vertices (no reprojection drift).
+    """
+    import numpy as _np
+
+    pts = list(points3d)
+    if len(pts) < 4:
+        return pts
+    try:
+        p2, _ = project_points_to_local_2d(pts)
+    except Exception:
+        return pts
+    p2 = _np.asarray(p2)
+
+    def _area(poly2d):
+        m = len(poly2d)
+        s = 0.0
+        for i in range(m):
+            x1, y1 = poly2d[i]
+            x2, y2 = poly2d[(i + 1) % m]
+            s += x1 * y2 - x2 * y1
+        return abs(s) * 0.5
+
+    tol = rel_tol * _polygon_scale_2d(p2)
+    if tol <= 0:
+        return pts
+    n = len(p2)
+    # Split the closed loop at two hull-extreme vertices (min-x, max-x) — always real corners, so
+    # RDP never anchors mid-edge and drops a genuine corner. Then RDP each open chain.
+    i0 = int(p2[:, 0].argmin())
+    i1 = int(p2[:, 0].argmax())
+    if i0 == i1:
+        i1 = int(p2[:, 1].argmax())
+    if i0 == i1:
+        return pts
+    a, b = (i0, i1) if i0 < i1 else (i1, i0)
+    idx_a = list(range(a, b + 1))
+    idx_b = list(range(b, n)) + list(range(0, a + 1))
+    ka = _rdp_keep_mask([p2[t] for t in idx_a], tol)
+    kb = _rdp_keep_mask([p2[t] for t in idx_b], tol)
+    keep = [False] * n
+    for t, gi in enumerate(idx_a):
+        if ka[t]:
+            keep[gi] = True
+    for t, gi in enumerate(idx_b):
+        if kb[t]:
+            keep[gi] = True
+    out_idx = [i for i in range(n) if keep[i]]
+    if len(out_idx) < 3:
+        return pts
+    # Guard: reject a simplification that moved the area appreciably (a self-intersection or a
+    # collapsed real corner) — keep the faithful boundary rather than a distorted one.
+    a0 = _area(p2)
+    a1 = _area(p2[out_idx])
+    if a0 > 1e-12 and abs(a1 - a0) / a0 > max_area_change:
+        return pts
+    return [pts[i] for i in out_idx]
+
+
 def remove_near_collinear_points(points3d, tol_factor: float = 1e-8):
     """Drop vertices of a closed planar polygon that are (near-)collinear with their neighbors.
 

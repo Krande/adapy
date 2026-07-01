@@ -48,3 +48,40 @@ def test_corner_pinch_splits_into_two_faces():
     faces = extract_boundary_loops(q)
     assert faces is not None and len(faces) == 2
     assert all(holes == [] and len(outer) == 4 for outer, holes in faces)
+
+
+def test_simplify_closed_polygon_collapses_zigzag_to_corners():
+    # A rectangle whose edges carry a fine near-collinear zigzag (a merged plate's traced
+    # boundary) should collapse to its 4 corners; libtess2 then makes 2 triangles, not ~40.
+    import numpy as np
+
+    from ada.core.vector_utils import simplify_closed_polygon
+
+    pts = []
+    n = 20
+    for i in range(n):  # bottom edge, +/- tiny zigzag off the straight line
+        pts.append((i / n * 10.0, 0.02 * (-1) ** i, 0.0))
+    pts.append((10.0, 0.0, 0.0))
+    for i in range(n):  # right edge
+        pts.append((10.0 + 0.02 * (-1) ** i, i / n * 4.0, 0.0))
+    pts.append((10.0, 4.0, 0.0))
+    pts.append((0.0, 4.0, 0.0))  # top + left (already straight)
+    simp = simplify_closed_polygon(pts, rel_tol=0.03, max_area_change=0.08)
+    assert len(simp) <= 6, f"zigzag rectangle should collapse to ~4 corners, got {len(simp)}"
+
+
+def test_simplify_closed_polygon_guard_keeps_real_corners():
+    # An L-shape (a real reflex corner) must NOT be flattened — the area guard reverts any
+    # simplification that would drop the notch.
+    from ada.core.vector_utils import simplify_closed_polygon
+
+    L = [
+        (0, 0, 0),
+        (4, 0, 0),
+        (4, 2, 0),
+        (2, 2, 0),
+        (2, 4, 0),
+        (0, 4, 0),
+    ]
+    simp = simplify_closed_polygon(L, rel_tol=0.03, max_area_change=0.08)
+    assert len(simp) == 6, "the L-shape's reflex corner must be preserved"
