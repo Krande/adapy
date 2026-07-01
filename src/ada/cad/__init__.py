@@ -803,11 +803,19 @@ class AdacppBackend:
         return rec
 
     def _encode_face_bound(self, fb) -> list[list[float]]:
-        """Encode a FaceBound's edge loop: each OrientedEdge with a supplied
-        pcurve → a kind-6 (pcurve-on-surface) record; otherwise its 3D edge."""
+        """Encode a FaceBound's loop as adacpp edge records. An EdgeLoop maps each
+        OrientedEdge (pcurve → kind-6, else its 3D edge); a PolyLoop (a polygon of
+        points — how the analytic flat faces + their hole loops arrive) maps to straight
+        line edges between consecutive points, closing the loop. Without the PolyLoop arm
+        the bound encoded to an EMPTY edge list and build_advanced_face_planar failed the
+        wire build (flat faces-with-holes were unbuildable on the adacpp backend)."""
         import ada.geom.curves as cu
 
         bound = fb.bound
+        if isinstance(bound, cu.PolyLoop):
+            pts = [self._xyz(p) for p in bound.polygon]
+            n = len(pts)
+            return [[0.0, *pts[i], *pts[(i + 1) % n]] for i in range(n)]
         edge_list = bound.edge_list if isinstance(bound, cu.EdgeLoop) else []
         out = []
         for oe in edge_list:
