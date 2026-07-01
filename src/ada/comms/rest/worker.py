@@ -812,13 +812,23 @@ async def _run_utility_job(
     loop = asyncio.get_running_loop()
     sync_storage = _SyncStorageFacade(storage, scope, loop)
 
+    # run_utility calls on_progress SYNCHRONOUSLY from the executor thread, but _on_progress
+    # is an async coroutine (it writes the KV queue). Schedule it onto the loop so utility
+    # stage/progress updates actually land in the job row — the same channel model loading /
+    # conversions drive the global toast from. Fire-and-forget: we don't block the utility.
+    def _sync_on_progress(stage: str, frac: float) -> None:
+        try:
+            asyncio.run_coroutine_threadsafe(_on_progress(stage, frac), loop)
+        except Exception:  # noqa: BLE001 — a progress hiccup must never sink the utility
+            pass
+
     def _invoke() -> dict:
         return run_utility(
             uname,
             src_path,
             storage=sync_storage,
             scope=scope,
-            on_progress=_on_progress,
+            on_progress=_sync_on_progress,
             kwargs=ukwargs,
         )
 

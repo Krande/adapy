@@ -6,6 +6,7 @@ import {runtime} from "@/runtime/config";
 import {viewerApi, type ScopeUrl} from "@/services/viewerApi";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
+import {useConversionStore, type ConvertStatus} from "@/state/conversionStore";
 import {
     useSceneInfoStore,
     type UtilityKwarg,
@@ -228,11 +229,32 @@ const UtilitiesSection = () => {
                     console.warn("in-browser wasm utility failed; falling back to server:", e);
                 }
             }
+            // Surface the running utility in the SAME global toast the model loader /
+            // conversions use (conversionStore → ConversionProgress). A non-"src::"-prefixed
+            // key keeps it its own row (the load row hijacks "loadName::*"). The worker now
+            // schedules the utility's on_progress onto the loop, so stage/progress land here.
+            const toastKey = `util:${spec.name}`;
+            const label = `${spec.name}: ${sourceKey.split("/").pop() ?? sourceKey}`;
+            const cs = useConversionStore.getState();
+            const pushToast = (s: {job_id: string; status: string; progress?: number; stage?: string; error?: string | null}) =>
+                cs.setJob(toastKey, {
+                    sourceKey: label,
+                    jobId: s.job_id,
+                    derivedKey: "",
+                    status: (s.status as ConvertStatus) || "running",
+                    progress: s.progress ?? 0,
+                    stage: s.stage || "utility",
+                    error: s.error ?? null,
+                    startedAt: Date.now(),
+                });
+
             const job = await viewerApi.runUtility(scope, sourceKey, spec.name, kwargs);
+            pushToast(job);
             let status = job;
             for (let i = 0; i < 600 && status.status !== "done" && status.status !== "error"; i++) {
                 await sleep(1000);
                 status = await viewerApi.convertStatus(job.job_id);
+                pushToast(status);
             }
             if (status.status === "error") throw new Error(status.error || "utility failed");
             if (status.status !== "done") throw new Error("utility timed out");
@@ -243,6 +265,7 @@ const UtilitiesSection = () => {
         } catch (e) {
             setLastResult({summary: {error: String(e)}});
         } finally {
+            useConversionStore.getState().clearJob(`util:${spec.name}`);
             setRunning(false);
         }
     };
