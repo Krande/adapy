@@ -691,7 +691,8 @@ def iter_fem_analytic_faces(
             if len(prims) == 0:
                 continue
             for patch in _surface_patches(prims, angle_tol, ndigits):
-                if len(patch) >= min_patch_quads and classify_patch(prims, patch) == "cylinder":
+                cls = classify_patch(prims, patch) if len(patch) >= min_patch_quads else "planar"
+                if cls == "cylinder":
                     cf = fit_cylinder_params(prims, patch)
                     if cf is not None:
                         # exact joint-cut trim only when asked (breaks adacpp meshing, see above);
@@ -699,13 +700,21 @@ def iter_fem_analytic_faces(
                         trimmed = cylinder_trim_faces(prims, patch, cf, ndigits) if trim_cylinders else None
                         yield from (trimmed if trimmed is not None else cylinder_fit_to_faces(cf))
                         continue
-                # non-cylinder patch: coplanar-merge it into flat faces WITH holes
-                # (robust boundary extraction), facet only where the boundary won't
-                # resolve — never worse than the plain coplanar merge.
                 if len(patch) == 1:
                     yield _facet_flat_face(prims, patch[0])
-                else:
-                    yield from _analytic_flat_faces(prims, patch, ndigits)
+                    continue
+                if cls == "planar":
+                    # The WHOLE patch is flat within tol (classify_patch's plane gate): emit it as
+                    # ONE flat face (its outer boundary + holes) via robust extraction. Skipping the
+                    # per-plane-bucket path is the win — exact-plane bucketing shatters a nearly-flat
+                    # patch into per-facet (the ship-hull 47k-face blow-up).
+                    faces = _flat_faces_with_holes(prims, patch, ndigits)
+                    if faces:
+                        yield from faces
+                        continue
+                # freeform, or a planar patch whose boundary wouldn't resolve: coplanar-merge
+                # per exact-plane component, facet only where that can't collapse either.
+                yield from _analytic_flat_faces(prims, patch, ndigits)
 
 
 def cylinder_trim_faces(prims: "_Primitives", patch: list[int], cf: "CylinderFit", ndigits: int = 6):

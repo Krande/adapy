@@ -794,14 +794,23 @@ def extract_boundary_loops(facet_loops, ndigits: int = 9):
                 inside = not inside
         return inside
 
-    outers: list = []  # (abs_area, loop_keys, pts3)
-    holes: list = []
+    scored: list = []  # (signed_area, loop_keys, pts3)
     for lp in loops_keys:
         pts3 = remove_near_collinear_points([prep[k] for k in lp])
         if len(pts3) < 3:
             continue
-        a = _signed_area(lp)
-        (outers if a > 0 else holes).append((abs(a), lp, pts3))
+        scored.append((_signed_area(lp), lp, pts3))
+    if not scored:
+        return None
+    # The plane frame's handedness (SVD e1×e2 sign) is arbitrary, so "positive area" is not
+    # reliably the outer — for ~half the patches every loop comes out negative. Anchor the
+    # global orientation on the largest-|area| loop (always an outer boundary): flip all signs
+    # so it reads positive, then +area = outer, -area = hole. Without this, a whole flat patch
+    # whose outer happened to trace CW returned None and shattered to per-facet.
+    if max(scored, key=lambda s: abs(s[0]))[0] < 0:
+        scored = [(-a, lp, p) for (a, lp, p) in scored]
+    outers: list = [(abs(a), lp, p) for (a, lp, p) in scored if a > 0]
+    holes: list = [(abs(a), lp, p) for (a, lp, p) in scored if a < 0]
     if not outers:
         return None
     faces = [(pts3, []) for (_a, _lp, pts3) in outers]
