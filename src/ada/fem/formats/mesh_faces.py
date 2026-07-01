@@ -560,14 +560,31 @@ def _facet_flat_face(prims: "_Primitives", j: int):
     )
 
 
-def iter_fem_analytic_faces(part, *, angle_tol: float = 30.0, min_patch_quads: int = 12, ndigits: int = 6):
-    """Yield analytic ``ada.geom`` faces for every FEM shell mesh under ``part``: a
-    recognised cylinder patch → analytic CYLINDRICAL_SURFACE face(s), everything else →
-    per-facet flat faces (fallback until planar/freeform analytic emit lands). Feed the
-    faces to a ShellBasedSurfaceModel and the streaming STEP/IFC writer.
+def _facedata_to_advanced_face(fd: "FaceData"):
+    """A merged flat ``FaceData`` (outline polygon) → a flat planar AdvancedFace."""
+    from ada.geom.curves import PolyLoop
+    from ada.geom.direction import Direction
+    from ada.geom.placement import Axis2Placement3D
+    from ada.geom.points import Point
+    from ada.geom.surfaces import AdvancedFace, FaceBound, Plane
 
-    This is the jacket win: a tube's thousands of shell facets collapse to a handful of
-    analytic cylinder faces, exact to the fit residual."""
+    outline = np.asarray(fd.outline, dtype=float)
+    poly = [Point(*p) for p in outline]
+    plane = Plane(position=Axis2Placement3D(location=Point(*outline[0]), axis=Direction(*fd.normal)))
+    return AdvancedFace(
+        bounds=[FaceBound(bound=PolyLoop(polygon=poly), orientation=True)], face_surface=plane, same_sense=True
+    )
+
+
+def iter_fem_analytic_faces(part, *, angle_tol: float = 30.0, min_patch_quads: int = 12, ndigits: int = 6):
+    """Yield analytic ``ada.geom`` faces for every FEM shell mesh under ``part``, auto-
+    detecting each region-grown patch's primitive: a **cylinder** patch → analytic
+    CYLINDRICAL_SURFACE face(s); anything else → the coplanar-merged flat faces of that
+    patch (one merged plate per clean coplanar component, per-facet only where the merge
+    can't collapse). No human guidance — ``classify_patch`` decides.
+
+    Never worse than the plain coplanar merge (non-cylinder patches fall through to it)
+    and collapses a tube's thousands of shell facets to a handful of exact cylinders."""
     parts = part.get_all_parts_in_assembly(include_self=True) if hasattr(part, "get_all_parts_in_assembly") else [part]
     for p in parts:
         fem = getattr(p, "fem", None)
@@ -583,8 +600,13 @@ def iter_fem_analytic_faces(part, *, angle_tol: float = 30.0, min_patch_quads: i
                     if cf is not None:
                         yield from cylinder_fit_to_faces(cf)
                         continue
-                for j in patch:  # fallback: facet the patch
-                    yield _facet_flat_face(prims, j)
+                # non-cylinder patch: coplanar-merge it (flat plates), facet only where the
+                # boundary won't collapse — never worse than the plain coplanar merge.
+                if len(patch) == 1:
+                    yield _facet_flat_face(prims, patch[0])
+                else:
+                    for fd in _coplanar_subset(prims, patch, ndigits):
+                        yield _facedata_to_advanced_face(fd)
 
 
 def classify_patch(prims: "_Primitives", patch: list[int], *, plane_tol: float = 1e-3, cyl_tol: float = 0.02) -> str:

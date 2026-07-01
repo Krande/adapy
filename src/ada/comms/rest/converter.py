@@ -1525,6 +1525,7 @@ def _via_ada_to_step(
     fem_to_objects: bool | None = None,
     merge_fem_objects: bool | None = None,
     reconstruct_surfaces: bool | None = None,
+    fem_merge_strategy: str | None = None,
 ) -> pathlib.Path:
     """Ada-loadable source → STEP via the OCC writer.
 
@@ -1561,14 +1562,19 @@ def _via_ada_to_step(
             recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
             ms = None
             if not recon:
-                # A string merge_fem_objects is the strategy verbatim ("cylinder" =
-                # analytic surface emit for tubular jackets); bool keeps the legacy
-                # coplanar/none behaviour.
+                # Auto-detect analytic primitives by DEFAULT (no human guidance): tubular
+                # members -> exact cylinder surfaces, flat panels -> plates. Legacy overrides:
+                # a string merge_fem_objects is the strategy verbatim; merge_fem_objects=False
+                # opts out of merging entirely; fem_merge_strategy 'coplanar'/'none' force those.
+                strat = (fem_merge_strategy or "auto").lower()
                 if isinstance(merge_fem_objects, str):
                     ms = merge_fem_objects
+                elif merge_fem_objects is False:
+                    ms = "none"
+                elif strat == "auto":
+                    ms = "cylinder"  # analytic auto-detect
                 else:
-                    merge = True if merge_fem_objects is None else bool(merge_fem_objects)
-                    ms = "coplanar" if merge else "none"
+                    ms = strat  # coplanar | none | cylinder
             stats = model.to_stp(
                 str(out_path), writer="stream", fuse_fem=(fem_to_objects is not False), merge_strategy=ms
             )
@@ -2238,6 +2244,20 @@ def _register_ada_loadable() -> None:
                 "flat plates."
             ),
         },
+        {
+            "name": "fem_merge_strategy",
+            "type": "enum",
+            "default": "auto",
+            "enum": ["auto", "coplanar", "none"],
+            "description": (
+                "How FEM shells fold into CAD faces (STEP target). 'auto' (default) "
+                "recognises each region as an analytic primitive with NO human guidance "
+                "— tubular members become exact CYLINDRICAL_SURFACE faces, flat panels "
+                "merge into plates (a jacket collapses from ~100k plates to a handful of "
+                "cylinders in seconds). 'coplanar' forces flat-plate merging only; 'none' "
+                "keeps one face per element."
+            ),
+        },
     ]
 
     # Original three targets (glb/ifc/xml) via the long-standing ada
@@ -2304,7 +2324,15 @@ def _register_ada_loadable() -> None:
             ConverterRegistry.register(ext, tgt, _h)
 
         def _step(
-            src, on_progress, *, _ext=ext, fem_to_objects=None, merge_fem_objects=None, reconstruct_surfaces=None, **_kw
+            src,
+            on_progress,
+            *,
+            _ext=ext,
+            fem_to_objects=None,
+            merge_fem_objects=None,
+            reconstruct_surfaces=None,
+            fem_merge_strategy=None,
+            **_kw,
         ):
             return _via_ada_to_step(
                 src,
@@ -2313,6 +2341,7 @@ def _register_ada_loadable() -> None:
                 fem_to_objects=fem_to_objects,
                 merge_fem_objects=merge_fem_objects,
                 reconstruct_surfaces=reconstruct_surfaces,
+                fem_merge_strategy=fem_merge_strategy,
             )
 
         ConverterRegistry.register(

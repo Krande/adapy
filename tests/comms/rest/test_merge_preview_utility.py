@@ -228,7 +228,8 @@ def test_iter_fem_analytic_faces_assembles_faces():
 
     a = _two_coplanar_quads()
     faces = list(iter_fem_analytic_faces(a))
-    assert len(faces) == 2  # two shell facets -> two flat faces (patch below cylinder threshold)
+    # non-cylinder patch → coplanar-merged: the two coplanar quads collapse to ONE flat face.
+    assert len(faces) == 1
     assert all(isinstance(f, AdvancedFace) for f in faces)
 
 
