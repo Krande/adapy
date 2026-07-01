@@ -267,7 +267,13 @@ const UtilitiesSection = () => {
             </label>
             {spec && <p className="text-xs mb-2 opacity-80">{spec.description}</p>}
             {spec && spec.kwargs.length > 0 && (
-                <CollapsibleSection title="Properties" defaultOpen>
+                // Cap the option list height and scroll it independently so a many-kwarg utility
+                // (e.g. merge-preview) doesn't push Run / the result off-screen on mobile.
+                <CollapsibleSection
+                    title="Properties"
+                    defaultOpen
+                    bodyClassName="max-h-[40vh] overflow-y-auto pr-1"
+                >
                     {spec.kwargs.map((k) => (
                         <KwargField
                             key={k.name}
