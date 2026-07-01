@@ -53,8 +53,6 @@ def test_corner_pinch_splits_into_two_faces():
 def test_simplify_closed_polygon_collapses_zigzag_to_corners():
     # A rectangle whose edges carry a fine near-collinear zigzag (a merged plate's traced
     # boundary) should collapse to its 4 corners; libtess2 then makes 2 triangles, not ~40.
-    import numpy as np
-
     from ada.core.vector_utils import simplify_closed_polygon
 
     pts = []
