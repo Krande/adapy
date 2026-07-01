@@ -543,6 +543,50 @@ def cylinder_fit_to_faces(cf: "CylinderFit"):
     return faces
 
 
+def _facet_flat_face(prims: "_Primitives", j: int):
+    """One shell facet → a flat planar AdvancedFace (PolyLoop bound) — the analytic-emit
+    fallback for patches that aren't recognised as a cylinder yet (small trim / freeform)."""
+    from ada.geom.curves import PolyLoop
+    from ada.geom.direction import Direction
+    from ada.geom.placement import Axis2Placement3D
+    from ada.geom.points import Point
+    from ada.geom.surfaces import AdvancedFace, FaceBound, Plane
+
+    pts = prims.outline(j)
+    poly = [Point(*p) for p in pts]
+    plane = Plane(position=Axis2Placement3D(location=Point(*pts[0]), axis=Direction(*prims.normals[j])))
+    return AdvancedFace(
+        bounds=[FaceBound(bound=PolyLoop(polygon=poly), orientation=True)], face_surface=plane, same_sense=True
+    )
+
+
+def iter_fem_analytic_faces(part, *, angle_tol: float = 30.0, min_patch_quads: int = 12, ndigits: int = 6):
+    """Yield analytic ``ada.geom`` faces for every FEM shell mesh under ``part``: a
+    recognised cylinder patch → analytic CYLINDRICAL_SURFACE face(s), everything else →
+    per-facet flat faces (fallback until planar/freeform analytic emit lands). Feed the
+    faces to a ShellBasedSurfaceModel and the streaming STEP/IFC writer.
+
+    This is the jacket win: a tube's thousands of shell facets collapse to a handful of
+    analytic cylinder faces, exact to the fit residual."""
+    parts = part.get_all_parts_in_assembly(include_self=True) if hasattr(part, "get_all_parts_in_assembly") else [part]
+    for p in parts:
+        fem = getattr(p, "fem", None)
+        if fem is None or len(fem.elements) == 0:
+            continue
+        for blk in _shell_blocks(fem):
+            prims = _block_primitives(blk)
+            if len(prims) == 0:
+                continue
+            for patch in _surface_patches(prims, angle_tol, ndigits):
+                if len(patch) >= min_patch_quads and classify_patch(prims, patch) == "cylinder":
+                    cf = fit_cylinder_params(prims, patch)
+                    if cf is not None:
+                        yield from cylinder_fit_to_faces(cf)
+                        continue
+                for j in patch:  # fallback: facet the patch
+                    yield _facet_flat_face(prims, j)
+
+
 def classify_patch(prims: "_Primitives", patch: list[int], *, plane_tol: float = 1e-3, cyl_tol: float = 0.02) -> str:
     """Classify a region-grown patch by the analytic surface it fits: ``planar`` (flat
     within ``plane_tol`` of the bbox diagonal), ``cylinder`` (radial normals, circle

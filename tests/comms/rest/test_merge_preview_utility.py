@@ -220,6 +220,18 @@ def test_cylinder_fit_to_faces_emits_cylindrical_surface():
             os.unlink(out)
 
 
+def test_iter_fem_analytic_faces_assembles_faces():
+    """The analytic emit source yields ada.geom faces per FEM patch (flat facets here,
+    since the two-quad model has no cylinder) — the shell fed to the STEP writer."""
+    from ada.fem.formats.mesh_faces import iter_fem_analytic_faces
+    from ada.geom.surfaces import AdvancedFace
+
+    a = _two_coplanar_quads()
+    faces = list(iter_fem_analytic_faces(a))
+    assert len(faces) == 2  # two shell facets -> two flat faces (patch below cylinder threshold)
+    assert all(isinstance(f, AdvancedFace) for f in faces)
+
+
 def test_non_fem_source_rejected():
     with pytest.raises(ValueError, match="FEM source"):
         run_utility(
