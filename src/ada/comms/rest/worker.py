@@ -829,6 +829,7 @@ async def _run_utility_job(
             storage=sync_storage,
             scope=scope,
             on_progress=_sync_on_progress,
+            source_key=job.source_key,  # real model key — src_path is a random temp name
             kwargs=ukwargs,
         )
 

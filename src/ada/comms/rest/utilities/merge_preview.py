@@ -105,6 +105,7 @@ def merge_preview(
     angle_tol=30.0,
     min_patch_quads=12,
     max_dev=0.0,
+    source_key=None,
     **_,
 ):
     import ada
@@ -117,11 +118,15 @@ def merge_preview(
             f"Supported: {sorted(_FEM_EXTS)}"
         )
 
+    # Name persisted overlays by the MODEL, not the worker's random temp file: the utils menu
+    # filters saved overlays by loaded-model stem, so an overlay must carry the real model name.
+    model = pathlib.PurePosixPath(source_key).stem if source_key else src_path.stem
+
     on_progress("loading-fem", 0.35)
     asm = ada.from_fem(src_path)
 
     if action == "generate":
-        return _generate(asm, src_path, algorithm, storage, on_progress)
+        return _generate(asm, model, algorithm, storage, on_progress)
 
     on_progress(f"partitioning ({algorithm})", 0.55)
     res = analyze_part(
@@ -137,7 +142,7 @@ def merge_preview(
     glb_tmp = tempfile.mkstemp(suffix=".glb")[1]
     try:
         write_preview_glb(res, glb_tmp, mode=mode)
-        overlay_key = f"{_OVERLAY_PREFIX}{src_path.stem}.merge-{algorithm}-{mode}.glb"
+        overlay_key = f"{_OVERLAY_PREFIX}{model}.merge-{algorithm}-{mode}.glb"
         with open(glb_tmp, "rb") as fh:
             storage.put_bytes(overlay_key, fh.read())
     finally:
@@ -176,7 +181,7 @@ def merge_preview(
     }
 
 
-def _generate(asm, src_path, algorithm, storage, on_progress):
+def _generate(asm, model, algorithm, storage, on_progress):
     """Build the actual merged CAD (flat ``Plate`` + curved ``PlateCurved`` objects) from the
     FEM and render it to a viewable GLB overlay — the "generate" action. ``auto``/``surface``/
     ``classify`` reconstruct curved panels as NURBS plates (OCC-free native fit); the rest emit
@@ -191,7 +196,7 @@ def _generate(asm, src_path, algorithm, storage, on_progress):
     glb_tmp = tempfile.mkstemp(suffix=".glb")[1]
     try:
         asm.to_gltf(glb_tmp)
-        overlay_key = f"{_OVERLAY_PREFIX}{src_path.stem}.merge-{algorithm}-generated.glb"
+        overlay_key = f"{_OVERLAY_PREFIX}{model}.merge-{algorithm}-generated.glb"
         with open(glb_tmp, "rb") as fh:
             storage.put_bytes(overlay_key, fh.read())
     finally:
