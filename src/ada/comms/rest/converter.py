@@ -479,6 +479,16 @@ def is_derived_key(key: str) -> bool:
     return key.lstrip("/").startswith("_derived/")
 
 
+# Internal namespaces hidden from file listings / the storage explorer. ``_derived/`` is the
+# admin-managed convert-output cache; ``_overlays/`` is the auto-disposed utility overlay bucket
+# (merge-preview / diff GLBs). Neither is a user file. Use this for DISPLAY filtering; keep
+# is_derived_key for derived-product logic (rename/cleanup/grouping), which must not treat an
+# ephemeral overlay as a source's derived product.
+def is_hidden_key(key: str) -> bool:
+    k = key.lstrip("/")
+    return k.startswith("_derived/") or k.startswith("_overlays/")
+
+
 def is_versions_artefact_key(key: str) -> bool:
     """``versions/<branch>/<commit>/<file>`` blobs are pre-built outputs
     pushed by CI rather than conversion sources, so the supported-source
