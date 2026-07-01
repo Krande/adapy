@@ -1565,7 +1565,16 @@ async def _process_one(
             # Stream the output file straight to object storage (multipart) —
             # never reading it into a parent-side bytes buffer. cleanup_output()
             # drops the tmpfile + work dir once the upload settles either way.
-            await storage.put_path(scope, job.derived_key, upload_path, content_encoding=derived_encoding)
+            # put_path returns the at-rest gzip vs upload split so the audit can
+            # attribute the post-conversion tail (gzip-at-rest was ~85% of the
+            # crane STEP->obj wall — see storage._gzip_level).
+            put_timing = await storage.put_path(scope, job.derived_key, upload_path, content_encoding=derived_encoding)
+            if isinstance(convert_meta, dict) and isinstance(put_timing, dict):
+                # Distinct from the GLB meshopt ``compress_ms`` above: ``gzip_ms`` is
+                # the at-rest gzip pass, ``upload_ms`` the multipart PUT.
+                convert_meta["gzip_ms"] = put_timing.get("compress_ms")
+                convert_meta["upload_ms"] = put_timing.get("upload_ms")
+                convert_meta["stored_bytes"] = put_timing.get("stored_bytes")
         except Exception as exc:
             logger.exception("worker: upload failed for %s", job.derived_key)
             trace = tb_module.format_exc()

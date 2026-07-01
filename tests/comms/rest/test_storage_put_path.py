@@ -19,7 +19,7 @@ import pytest
 from obstore.store import LocalStore
 
 from ada.comms.rest.scope import Scope
-from ada.comms.rest.storage import Storage, _gzip_file
+from ada.comms.rest.storage import Storage, _gzip_file, _gzip_level
 
 
 def _storage(tmp_path: pathlib.Path) -> Storage:
@@ -123,3 +123,54 @@ def test_gzip_file_helper_streams_round_trip(tmp_path):
 
     assert dst.read_bytes()[:2] == b"\x1f\x8b"
     assert gzip.decompress(dst.read_bytes()) == src.read_bytes()
+
+
+def test_gzip_file_output_is_standard_gzip_regardless_of_engine(tmp_path):
+    # pigz (parallel) and the zlib fallback must both emit a stream that plain
+    # gzip.decompress reads — the Content-Encoding: gzip download path depends on it.
+    payload = b"<obj>" + b"v 1.0 2.0 3.0\n" * 200_000  # verbose ASCII like an OBJ export
+    src = _src(tmp_path, "mesh.obj", payload)
+    dst = tmp_path / "mesh.obj.gz"
+    _gzip_file(src, dst)
+
+    assert dst.read_bytes()[:2] == b"\x1f\x8b"
+    assert gzip.decompress(dst.read_bytes()) == payload
+
+
+def test_gzip_level_defaults_to_6_and_honours_env(monkeypatch):
+    monkeypatch.delenv("ADA_DERIVED_GZIP_LEVEL", raising=False)
+    assert _gzip_level() == 6  # NOT the zlib/gzip.open default of 9
+    monkeypatch.setenv("ADA_DERIVED_GZIP_LEVEL", "1")
+    assert _gzip_level() == 1
+    monkeypatch.setenv("ADA_DERIVED_GZIP_LEVEL", "99")  # clamped to 9
+    assert _gzip_level() == 9
+    monkeypatch.setenv("ADA_DERIVED_GZIP_LEVEL", "garbage")  # invalid -> default
+    assert _gzip_level() == 6
+
+
+def test_put_path_gzip_returns_compress_and_upload_timing(tmp_path):
+    storage = _storage(tmp_path)
+    scope = Scope.shared()
+    payload = b"<xml>" + b"a" * 400_000 + b"</xml>"
+    src = _src(tmp_path, "model.xml", payload)
+
+    timing = asyncio.run(storage.put_path(scope, "derived/model.xml", src, content_encoding="gzip"))
+
+    assert isinstance(timing, dict)
+    assert isinstance(timing["compress_ms"], int)  # a gzip pass ran
+    assert isinstance(timing["upload_ms"], int)
+    # highly compressible input, so the stored (gzipped) size is well under the raw size
+    assert 0 < timing["stored_bytes"] < len(payload)
+
+
+def test_put_path_plain_reports_no_compression(tmp_path):
+    storage = _storage(tmp_path)
+    scope = Scope.shared()
+    payload = os.urandom(1_500_000)
+    src = _src(tmp_path, "out.step", payload)
+
+    timing = asyncio.run(storage.put_path(scope, "derived/out.step", src))
+
+    assert timing["compress_ms"] is None  # no gzip pass on the plain path
+    assert isinstance(timing["upload_ms"], int)
+    assert timing["stored_bytes"] == len(payload)

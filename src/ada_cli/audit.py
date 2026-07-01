@@ -168,14 +168,29 @@ def cmd_run(args: argparse.Namespace) -> int:
         f"run {run.get('id')}  status={run.get('status')}  "
         f"total={run.get('total')}  failed={run.get('failed')}  started={str(run.get('started_at'))[:25]}"
     )
-    print(f"{'status':7}  {'target':6}  {'dur_s':>6}  {'rss_mb':>7}  {'key / error'}")
+    # conv_s / gzip_s / up_s come from convert_meta (recorded by the worker): conv_ms is
+    # the conversion proper, gzip_ms the at-rest gzip pass, upload_ms the multipart PUT —
+    # so a long ``dur_s`` can be attributed to conversion vs the post-conversion tail.
+    print(
+        f"{'status':7}  {'target':6}  {'dur_s':>6}  {'conv_s':>6}  {'gzip_s':>6}  "
+        f"{'up_s':>5}  {'rss_mb':>7}  {'key / error'}"
+    )
     for j in jobs:
-        dur = (j.get("duration_ms") or 0) // 1000
+        dur = (j.get("duration_ms") or 0) / 1000
         rss = (j.get("peak_rss_kb") or 0) // 1024
+        cm = j.get("convert_meta") or {}
+
+        def _s(ms):
+            return f"{ms / 1000:.0f}" if isinstance(ms, (int, float)) else "-"
+
         tail = j.get("key") or ""
         if j.get("status") == "error":
             tail = f"{tail}  :: {_short(j.get('error'), 100)}"
-        print(f"{str(j.get('status')):7}  {str(j.get('target_format')):6}  {dur:>6}  {rss:>7}  {tail}")
+        print(
+            f"{str(j.get('status')):7}  {str(j.get('target_format')):6}  {dur:>6.0f}  "
+            f"{_s(cm.get('convert_ms')):>6}  {_s(cm.get('gzip_ms')):>6}  {_s(cm.get('upload_ms')):>5}  "
+            f"{rss:>7}  {tail}"
+        )
     if not jobs:
         print("(no matching jobs)", file=sys.stderr)
     return 0

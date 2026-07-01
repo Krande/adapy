@@ -279,6 +279,10 @@ httpx = "*"
 asyncpg = "*"
 psutil = "*"
 croniter = "*"
+# parallel gzip: derived outputs (obj/stl/step/ifc/xml/glb) are gzipped at-rest, and
+# single-threaded zlib at level 9 was ~85% of the crane STEP->obj job wall. pigz emits
+# a standard gzip stream (Content-Encoding: gzip) across all cores — see storage._gzip_file.
+pigz = "*"
 
 # Pin the slim API image's python (it has no `prod`, so it would otherwise float to
 # the newest cpython). Pinned to what it currently resolves to (3.14) for a
