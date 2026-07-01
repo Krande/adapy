@@ -491,6 +491,58 @@ def fit_cylinder_params(prims: "_Primitives", patch: list[int], *, gap_tol_deg: 
     )
 
 
+def cylinder_fit_to_faces(cf: "CylinderFit"):
+    """Build analytic ``ada.geom`` cylindrical AdvancedFace(s) for a fitted member — the
+    exact structure the STEP writer emits (CYLINDRICAL_SURFACE) and both CAD backends
+    build. A full tube is split into ``ceil(sweep/π)`` arc segments (each ≤ 180°) so no
+    face is periodic — sidestepping the seam-trim trap while staying analytic. Each face
+    is one segment: top arc + seam line + bottom arc + seam line (mirrors the validated
+    ``test_advanced_face_seam`` template). Returns list[AdvancedFace]."""
+    import math
+
+    from ada.geom.curves import Circle, EdgeCurve, EdgeLoop, Line, OrientedEdge
+    from ada.geom.direction import Direction
+    from ada.geom.placement import Axis2Placement3D
+    from ada.geom.points import Point
+    from ada.geom.surfaces import AdvancedFace, CylindricalSurface, FaceBound
+
+    axis_d = Direction(*cf.axis)
+    ref_d = Direction(*cf.e1)
+
+    def _pt(theta: float, z: float) -> "Point":
+        radial = math.cos(theta) * cf.e1 + math.sin(theta) * cf.e2
+        return Point(*(cf.origin + cf.radius * radial + z * cf.axis))
+
+    def _circle_at(z: float) -> Circle:
+        loc = Point(*(cf.origin + z * cf.axis))
+        return Circle(position=Axis2Placement3D(location=loc, axis=axis_d, ref_direction=ref_d), radius=cf.radius)
+
+    def _arc(pa, pb, z) -> OrientedEdge:
+        ec = EdgeCurve(start=pa, end=pb, edge_geometry=_circle_at(z), same_sense=True)
+        return OrientedEdge(start=pa, end=pb, edge_element=ec, orientation=True)
+
+    def _line(pa, pb) -> OrientedEdge:
+        d = Direction(pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2])
+        ec = EdgeCurve(start=pa, end=pb, edge_geometry=Line(pnt=pa, dir=d), same_sense=True)
+        return OrientedEdge(start=pa, end=pb, edge_element=ec, orientation=True)
+
+    t0 = 0.0 if cf.full360 else cf.theta_min
+    t1 = t0 + (2.0 * math.pi if cf.full360 else (cf.theta_max - cf.theta_min))
+    n_seg = max(1, math.ceil((t1 - t0) / (math.pi - 1e-6)))
+    dth = (t1 - t0) / n_seg
+    surf = CylindricalSurface(
+        position=Axis2Placement3D(location=Point(*cf.origin), axis=axis_d, ref_direction=ref_d), radius=cf.radius
+    )
+    faces = []
+    for k in range(n_seg):
+        ta, tb = t0 + k * dth, t0 + (k + 1) * dth
+        a_t, b_t = _pt(ta, cf.z1), _pt(tb, cf.z1)
+        a_b, b_b = _pt(ta, cf.z0), _pt(tb, cf.z0)
+        loop = EdgeLoop(edge_list=[_arc(a_t, b_t, cf.z1), _line(b_t, b_b), _arc(b_b, a_b, cf.z0), _line(a_b, a_t)])
+        faces.append(AdvancedFace(bounds=[FaceBound(bound=loop, orientation=True)], face_surface=surf, same_sense=True))
+    return faces
+
+
 def classify_patch(prims: "_Primitives", patch: list[int], *, plane_tol: float = 1e-3, cyl_tol: float = 0.02) -> str:
     """Classify a region-grown patch by the analytic surface it fits: ``planar`` (flat
     within ``plane_tol`` of the bbox diagonal), ``cylinder`` (radial normals, circle

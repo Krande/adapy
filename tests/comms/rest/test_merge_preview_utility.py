@@ -187,6 +187,39 @@ def test_fit_cylinder_params_partial_arc():
     assert 0.3 < (cf.theta_max - cf.theta_min) < 6.0  # a genuine arc, not the full circle
 
 
+def test_cylinder_fit_to_faces_emits_cylindrical_surface():
+    """A fitted tube -> analytic ada.geom cylinder faces that the STEP writer emits as
+    CYLINDRICAL_SURFACE (backend-independent: exercises the ap242 emit, not the CAD
+    build)."""
+    import os
+    import tempfile
+
+    from ada.cadit.step.write.ap242_stream import Ap242StreamWriter
+    from ada.fem.formats.mesh_faces import cylinder_fit_to_faces, fit_cylinder_params
+    from ada.geom.surfaces import AdvancedFace, CylindricalSurface, OpenShell, ShellBasedSurfaceModel
+
+    prims, patch = _synthetic_cylinder_prims(r=2.0, length=5.0)
+    cf = fit_cylinder_params(prims, patch)
+    faces = cylinder_fit_to_faces(cf)
+    assert 1 <= len(faces) <= 4  # a full tube splits into a few <=180-deg arc segments
+    assert all(isinstance(f, AdvancedFace) and isinstance(f.face_surface, CylindricalSurface) for f in faces)
+    assert all(abs(f.face_surface.radius - 2.0) < 1e-3 for f in faces)
+
+    shell = ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=faces)])
+    out = tempfile.mktemp(suffix=".step")
+    try:
+        with open(out, "w") as fh:
+            w = Ap242StreamWriter(fh, schema="AP242", assembly=True)
+            with w:
+                assert w.add_solid_instances(shell, name="cyl", color=None, instances=[(None, None)]) == 1
+        with open(out) as fh:
+            txt = fh.read()
+        assert txt.count("CYLINDRICAL_SURFACE") == len(faces)  # one analytic cylinder face per segment
+    finally:
+        if os.path.exists(out):
+            os.unlink(out)
+
+
 def test_non_fem_source_rejected():
     with pytest.raises(ValueError, match="FEM source"):
         run_utility(
