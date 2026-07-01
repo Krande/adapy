@@ -5,6 +5,7 @@ and reloaded must show the same number of visualized elements. These tests run
 purely in-process (no audit stack) on a known-good 4-object assembly.
 """
 
+import pytest
 import trimesh
 
 import ada
@@ -151,8 +152,10 @@ def test_parity_for_step_file_flags_a_dropped_solid(tmp_path, monkeypatch):
         open(out_path, "w").close()
         return {"emitted": 0, "skipped": 1, "total": 1, "instances": 0, "total_instances": 1, "reasons": {}}
 
-    # parity_for_step_file imports the writer locally each call, so patch the source
-    # module (the `from ... import` re-binds from there at call time).
+    # Force the per-writer path (the native step_parity fast-path would bypass the writers),
+    # then patch the source module — parity_for_step_file imports the writer locally each call,
+    # so the `from ... import` re-binds from there at call time.
+    monkeypatch.setattr(vp, "_native_step_parity", lambda *a, **k: None)
     monkeypatch.setattr("ada.cadit.step.write.stream_step_to_ifc.stream_step_to_ifc", _drop_ifc)
 
     r = vp.parity_for_step_file(src, ("ifc", "step"))
@@ -161,3 +164,31 @@ def test_parity_for_step_file_flags_a_dropped_solid(tmp_path, monkeypatch):
     assert r.expected >= 1
     assert "ifc" in r.mismatches
     assert r.consistent is False
+
+
+def _has_step_parity() -> bool:
+    try:
+        import adacpp
+
+        from ada.cadit.step.read.native_reader import native_adacpp_step_available
+
+        return native_adacpp_step_available() and hasattr(adacpp.cad, "step_parity")
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _has_step_parity(), reason="adacpp.cad.step_parity unavailable (pre-branch / no overlay)")
+def test_native_step_parity_single_parse_matches(tmp_path):
+    """The native single-parse fan-out (adacpp.cad.step_parity) returns a consistent
+    ParityResult on a clean STEP source: source == ifc == step instance counts, xml skipped."""
+    from ada.cadit.visual_parity import _native_step_parity
+
+    src = tmp_path / "boxes.step"
+    (ada.Assembly("m") / (ada.Part("p") / [ada.PrimBox("b1", (0, 0, 0), (1, 1, 1))])).to_stp(src)
+
+    r = _native_step_parity(src, ("ifc", "xml", "step"))
+    assert r is not None  # the verb is present (guarded by the skipif)
+    assert r.expected >= 1
+    assert r.counts["source"] == r.counts["ifc"] == r.counts["step"] == r.expected
+    assert "xml" in r.skipped
+    assert r.consistent is True

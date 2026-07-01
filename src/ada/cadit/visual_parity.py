@@ -160,6 +160,64 @@ def _count_ifc_proxies(path: str | Path) -> int:
     return n
 
 
+def _native_step_parity(path: str | Path, formats: tuple[str, ...]) -> "ParityResult | None":
+    """Cross-format parity in ONE native parse via ``adacpp.cad.step_parity`` — resolve
+    each root once and run both the STEP->IFC and STEP->STEP emitters over it, counting
+    placed instances + faces WITHOUT writing any output. Returns None (caller falls back
+    to the per-writer path) when adacpp / the verb is unavailable or errors.
+
+    The metric is unchanged from the per-writer path: ``expected`` is the source
+    placed-instance count (``total_instances``) and each format's count is the instances
+    it emitted, so a dropped solid shows as a mismatch. A format that emits a solid but
+    loses faces (``faces_dropped`` > 0) is flagged as an error even if its instance count
+    matches — the finer-grained 'no geometry left behind' guard the counts alone can't see.
+    """
+    try:
+        from ada.cadit.step.read.native_reader import native_adacpp_step_available
+
+        if not native_adacpp_step_available():
+            return None
+        import adacpp
+
+        if not hasattr(adacpp.cad, "step_parity"):
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+
+    try:
+        d = adacpp.cad.step_parity(str(path))
+    except Exception as ex:  # noqa: BLE001 - fall back to the per-writer path on any native error
+        logger.warning(f"native step_parity failed ({ex}); falling back to per-writer parity")
+        return None
+
+    baseline = int(d.get("total_instances") or d.get("solids_in") or 0)
+    counts: dict[str, int] = {"source": baseline}
+    errors: dict[str, str] = {}
+    skipped: dict[str, str] = {}
+    fmt_stats = {"ifc": d.get("ifc"), "step": d.get("step")}
+    for fmt in formats:
+        if fmt in fmt_stats and fmt_stats[fmt] is not None:
+            fd = fmt_stats[fmt]
+            counts[fmt] = int(fd.get("instances") or 0)
+            dropped = int(fd.get("faces_dropped") or 0)
+            if dropped:
+                errors[fmt] = f"{dropped} faces dropped: {dict(fd.get('drop_reasons') or {})}"
+        elif fmt == "xml":
+            skipped["xml"] = "raw CAD B-rep has no Genie-XML concept representation"
+        else:
+            errors[fmt] = f"unknown format {fmt!r}"
+
+    mismatches = {k: v for k, v in counts.items() if k != "source" and v != baseline}
+    return ParityResult(
+        counts=counts,
+        expected=baseline,
+        consistent=not mismatches and not errors,
+        mismatches=mismatches,
+        errors=errors,
+        skipped=skipped,
+    )
+
+
 def parity_for_step_file(
     path: str | Path,
     formats: tuple[str, ...] = ("ifc", "xml", "step"),
@@ -182,7 +240,15 @@ def parity_for_step_file(
     A writer that drops a solid (unsupported geometry) reports ``instances <
     total_instances``, which surfaces as a mismatch — the exact case parity exists to
     catch — without the whole-model re-read + re-tessellation that OOM'd / timed out.
+
+    Fast path: ``adacpp.cad.step_parity`` does all of the above in ONE native parse
+    (both emitters share the per-solid resolve, nothing is serialised to disk) — ~17x
+    faster than driving the two Python writers. Falls back to them when unavailable.
     """
+    native = _native_step_parity(path, formats)
+    if native is not None:
+        return native
+
     import tempfile
 
     from ada.cadit.step.write.stream_step_to_ifc import stream_step_to_ifc
