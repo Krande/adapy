@@ -31,6 +31,24 @@ _OVERLAY_PREFIX = "_overlays/"
 _FEM_EXTS = {".fem", ".inp", ".sif", ".sin", ".bdf", ".nas", ".med", ".rmed"}
 
 
+def _put_overlay_glb(storage, key: str, glb_path: str) -> None:
+    """meshopt-compress the overlay GLB (EXT_meshopt_compression — the vertex/index entropy
+    codec the viewer decodes) and upload it gzip-at-rest, so a dense generated/preview overlay
+    downloads small on mobile instead of the raw multi-MB trimesh export."""
+    from ada.visit.gltf.meshopt import meshopt_compress_glb
+
+    packed = str(meshopt_compress_glb(glb_path, str(pathlib.Path(glb_path).with_suffix(".mo.glb"))))
+    try:
+        with open(packed, "rb") as fh:
+            storage.put_bytes(key, fh.read(), content_encoding="gzip")
+    finally:
+        if packed != str(glb_path):
+            try:
+                pathlib.Path(packed).unlink()
+            except OSError:
+                pass
+
+
 @utility(
     name="merge-preview",
     description=(
@@ -143,8 +161,7 @@ def merge_preview(
     try:
         write_preview_glb(res, glb_tmp, mode=mode)
         overlay_key = f"{_OVERLAY_PREFIX}{model}.merge-{algorithm}-{mode}.glb"
-        with open(glb_tmp, "rb") as fh:
-            storage.put_bytes(overlay_key, fh.read())
+        _put_overlay_glb(storage, overlay_key, glb_tmp)
     finally:
         try:
             pathlib.Path(glb_tmp).unlink()
@@ -245,8 +262,7 @@ def _generate(asm, model, algorithm, storage, on_progress):
         mesh = trimesh.Trimesh(vertices=pos, faces=idx, vertex_colors=vcolors, process=False)
         trimesh.Scene(mesh).export(glb_tmp, file_type="glb")
         overlay_key = f"{_OVERLAY_PREFIX}{model}.merge-{algorithm}-generated.glb"
-        with open(glb_tmp, "rb") as fh:
-            storage.put_bytes(overlay_key, fh.read())
+        _put_overlay_glb(storage, overlay_key, glb_tmp)
     finally:
         try:
             pathlib.Path(glb_tmp).unlink()

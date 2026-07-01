@@ -768,8 +768,8 @@ class _SyncStorageFacade:
     def get_bytes(self, key: str) -> bytes:
         return self._run(self._s.get_bytes(self._scope, key))
 
-    def put_bytes(self, key: str, data: bytes) -> None:
-        self._run(self._s.put_bytes(self._scope, key, data))
+    def put_bytes(self, key: str, data: bytes, content_encoding: "str | None" = None) -> None:
+        self._run(self._s.put_bytes(self._scope, key, data, content_encoding=content_encoding))
 
 
 async def _run_utility_job(

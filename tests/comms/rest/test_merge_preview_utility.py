@@ -40,7 +40,7 @@ class _FakeStore:
     def __init__(self):
         self.blobs: dict = {}
 
-    def put_bytes(self, key, data):
+    def put_bytes(self, key, data, content_encoding=None):
         self.blobs[key] = data
 
 
