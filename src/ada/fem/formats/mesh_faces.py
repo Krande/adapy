@@ -370,6 +370,63 @@ def _auto_max_dev(prims: "_Primitives") -> float:
     return 1e-3 * max(diag, 1e-9)
 
 
+# ── analytic primitive fits (patch recognition) ───────────────────────────────
+# A region-grown smooth patch is classified by fitting analytic surfaces to its
+# facet vertices + normals: a jacket member is a CYLINDER (all facet normals are
+# radial ⟂ the axis), a ship panel is PLANAR, the rest is FREEFORM (→ B-spline).
+
+
+def _fit_plane(pts: np.ndarray) -> tuple[np.ndarray, float]:
+    """Best-fit plane; returns (unit normal, max deviation / bbox diagonal)."""
+    c = pts.mean(axis=0)
+    _, _, vt = np.linalg.svd(pts - c, full_matrices=False)
+    n = vt[-1]
+    dev = float(np.abs((pts - c) @ n).max())
+    diag = float(np.linalg.norm(pts.max(axis=0) - pts.min(axis=0)))
+    return n, (dev / diag if diag > 1e-12 else 0.0)
+
+
+def _fit_cylinder(pts: np.ndarray, normals: np.ndarray) -> tuple[float, float, float]:
+    """Fit a cylinder: the axis is the direction least aligned with the (radial) facet
+    normals; a Kåsa circle fit in the cross-section gives the radius. Returns
+    (radius, max radial residual / radius, axial span / radius)."""
+    nn = normals / (np.linalg.norm(normals, axis=1, keepdims=True) + 1e-12)
+    _, _, vt = np.linalg.svd(nn - nn.mean(axis=0), full_matrices=False)
+    axis = vt[-1]
+    axis = axis / (np.linalg.norm(axis) + 1e-12)
+    tmp = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    e1 = np.cross(axis, tmp)
+    e1 /= np.linalg.norm(e1) + 1e-12
+    e2 = np.cross(axis, e1)
+    c = pts.mean(axis=0)
+    u = (pts - c) @ e1
+    v = (pts - c) @ e2
+    sol, *_ = np.linalg.lstsq(np.column_stack([u, v, np.ones_like(u)]), u * u + v * v, rcond=None)
+    cu, cv = sol[0] / 2.0, sol[1] / 2.0
+    r = float(np.sqrt(max(sol[2] + cu * cu + cv * cv, 0.0)))
+    rad = np.sqrt((u - cu) ** 2 + (v - cv) ** 2)
+    rel = float(np.abs(rad - r).max() / r) if r > 1e-9 else 1e9
+    span = float(np.ptp((pts - c) @ axis))
+    return r, rel, (span / r if r > 1e-9 else 0.0)
+
+
+def classify_patch(prims: "_Primitives", patch: list[int], *, plane_tol: float = 1e-3, cyl_tol: float = 0.02) -> str:
+    """Classify a region-grown patch by the analytic surface it fits: ``planar`` (flat
+    within ``plane_tol`` of the bbox diagonal), ``cylinder`` (radial normals, circle
+    cross-section within ``cyl_tol`` of the radius, and an actual axial span), else
+    ``freeform`` (→ B-spline). Planar is tested first (a flat patch is a degenerate
+    cylinder)."""
+    pts = np.vstack([prims.outline(j) for j in patch])
+    _, plane_dev = _fit_plane(pts)
+    if plane_dev <= plane_tol:
+        return "planar"
+    normals = np.array([prims.normals[j] for j in patch], dtype=float)
+    _r, rel, span_over_r = _fit_cylinder(pts, normals)
+    if rel <= cyl_tol and span_over_r > 0.3:
+        return "cylinder"
+    return "freeform"
+
+
 def faces_from_fem(
     fem, strategy=MergeStrategy.COPLANAR, ndigits: int = 6, *, max_dev: float | None = None
 ) -> Iterator[FaceData]:

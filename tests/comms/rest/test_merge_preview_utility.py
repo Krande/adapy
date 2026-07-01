@@ -49,8 +49,8 @@ def test_registered_with_algorithm_swap_spec():
     spec = next(s for s in UtilityRegistry.specs() if s["name"] == "merge-preview")
     kw = {k["name"]: k for k in spec["kwargs"]}
     assert {"algorithm", "mode", "ndigits", "angle_tol", "min_patch_quads"} <= set(kw)
-    assert set(kw["algorithm"]["enum"]) == {"none", "coplanar", "planar", "surface", "panel"}
-    assert set(kw["mode"]["enum"]) == {"status", "achieved", "component"}
+    assert set(kw["algorithm"]["enum"]) == {"none", "coplanar", "planar", "surface", "classify", "panel"}
+    assert set(kw["mode"]["enum"]) == {"status", "achieved", "component", "class"}
 
 
 def test_analyze_coplanar_merges_none_does_not():
@@ -108,6 +108,35 @@ def test_planar_strategy_partition_and_writer_agree():
 
     faces = list(iter_faces(a, MergeStrategy.PLANAR))
     assert len(faces) == 1  # writer emits one flat face for the flat patch
+
+
+def test_classify_recognizes_planar_patch():
+    a = _two_coplanar_quads()  # one flat smooth patch
+    s = analyze_part(a, "classify", min_patch_quads=2).stats
+    assert s["strategy"] == "classify"
+    assert s["patches_by_class"].get("planar") == 1
+    assert s["achieved_plates"] == 1
+
+
+def test_fit_cylinder_and_plane_math():
+    import numpy as np
+
+    from ada.fem.formats.mesh_faces import _fit_cylinder, _fit_plane
+
+    # synthetic cylinder about +z, r=2, radial normals
+    th = np.linspace(0, 2 * np.pi, 40, endpoint=False)
+    z = np.linspace(0, 5, 10)
+    T, Z = np.meshgrid(th, z)
+    T, Z = T.ravel(), Z.ravel()
+    pts = np.column_stack([2.0 * np.cos(T), 2.0 * np.sin(T), Z])
+    normals = np.column_stack([np.cos(T), np.sin(T), np.zeros_like(T)])
+    r, rel, span_over_r = _fit_cylinder(pts, normals)
+    assert abs(r - 2.0) < 1e-6
+    assert rel < 1e-6  # exact cylinder
+    assert span_over_r > 1.0
+
+    _n, dev = _fit_plane(np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0.0]]))
+    assert dev < 1e-9  # exact plane
 
 
 def test_non_fem_source_rejected():

@@ -42,17 +42,18 @@ _FEM_EXTS = {".fem", ".inp", ".sif", ".sin", ".bdf", ".nas", ".med", ".rmed"}
             "name": "algorithm",
             "type": "enum",
             "default": "coplanar",
-            "enum": ["none", "coplanar", "planar", "surface", "panel"],
+            "enum": ["none", "coplanar", "planar", "surface", "classify", "panel"],
             "description": "Merge strategy: none (raw baseline), coplanar (current), planar (flat region "
-            "growing, writer-wired), surface (curved→B-spline, preview-only), panel (WIP).",
+            "growing, writer-wired), surface (curved→B-spline, preview-only), classify (recognise "
+            "planar/cylinder/freeform patches), panel (WIP).",
         },
         {
             "name": "mode",
             "type": "enum",
             "default": "status",
-            "enum": ["status", "achieved", "component"],
+            "enum": ["status", "achieved", "component", "class"],
             "description": "Colouring: status (green=merged/red=fell-back), achieved (per collapsed plate), "
-            "component (per intended group).",
+            "component (per intended group), class (per fitted primitive — pair with algorithm=classify).",
         },
         {
             "name": "ndigits",

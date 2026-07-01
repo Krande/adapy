@@ -40,6 +40,7 @@ from ada.fem.formats.mesh_faces import (
     _planar_patches,
     _shell_blocks,
     _surface_patches,
+    classify_patch,
 )
 
 
@@ -51,6 +52,9 @@ class PartitionResult:
     component: list = field(default_factory=list)  # intended merge-group id per primitive
     achieved: list = field(default_factory=list)  # actually-collapsed group id per primitive
     is_split_tri: list = field(default_factory=list)  # primitive came from a warped-quad split (curved hint)
+    patch_class: list = field(
+        default_factory=list
+    )  # fitted primitive per primitive (classify mode): planar|cylinder|freeform|small|""
     stats: dict = field(default_factory=dict)
 
 
@@ -113,7 +117,7 @@ def _merge_succeeds(prims, cj, ndigits) -> bool:
 # Algorithms the preview can partition by. Each maps to a grouping of the
 # per-block primitives; new strategies (curved-surface / structured-panel region
 # growing) slot in here so the utility can swap between them at runtime.
-ALGORITHMS = ("none", "coplanar", "planar", "surface", "panel")
+ALGORITHMS = ("none", "coplanar", "planar", "surface", "classify", "panel")
 
 
 def _plane_buckets(prims, ndigits, idxs=None):
@@ -136,51 +140,71 @@ def _plane_buckets(prims, ndigits, idxs=None):
 
 
 def _strategy_groups(prims, strategy, ndigits, angle_tol, min_patch_quads, max_dev):
-    """Partition one block's primitives into ``[(prim_indices, kind), ...]``.
+    """Partition one block's primitives into ``[(prim_indices, kind, cls), ...]``.
 
     ``kind`` drives the achieved-merge test in :func:`analyze_part`: ``single`` (1
     primitive, trivially its own plate), ``coplanar`` (collapses only if the union is
-    one clean simple loop — used for planar patches too, since a flat patch still needs
-    a clean boundary), ``surface`` (a smooth region-grown patch → one fitted surface)."""
+    one clean simple loop — used for planar patches too), ``merged``/``surface`` (a
+    region-grown patch that is one face). ``cls`` is the fitted primitive class for the
+    ``classify`` strategy (planar|cylinder|freeform|small), else "".
+    """
     n = len(prims)
     if strategy == "none":
-        return [([j], "single") for j in range(n)]
+        return [([j], "single", "") for j in range(n)]
+
+    if strategy == "coplanar":
+        out: list = []
+        for idxs in _plane_buckets(prims, ndigits):
+            for comp in _component_labels(prims, idxs, ndigits):
+                out.append((comp, "single" if len(comp) == 1 else "coplanar", ""))
+        return out
 
     if strategy == "planar":
         md = _auto_max_dev(prims) if max_dev is None else max_dev
         out = []
         for p in _planar_patches(prims, md, ndigits):
             if len(p) == 1:
-                out.append((p, "single"))
+                out.append((p, "single", ""))
             elif _merge_succeeds(prims, p, ndigits):
-                out.append((p, "merged"))  # whole flat patch collapses to one face
+                out.append((p, "merged", ""))  # whole flat patch collapses to one face
             else:  # boundary won't collapse -> coplanar fallback (mirrors the writer; never worse)
                 for idxs in _plane_buckets(prims, ndigits, p):
                     for comp in _component_labels(prims, idxs, ndigits):
-                        out.append((comp, "single" if len(comp) == 1 else "coplanar"))
+                        out.append((comp, "single" if len(comp) == 1 else "coplanar", ""))
         return out
 
-    if strategy == "coplanar":
-        out: list = []
-        for idxs in _plane_buckets(prims, ndigits):
-            for comp in _component_labels(prims, idxs, ndigits):
-                out.append((comp, "single" if len(comp) == 1 else "coplanar"))
+    if strategy == "classify":
+        # Recognize each smooth region-grown patch as an analytic primitive (planar /
+        # cylinder / freeform). Achieved = one face per recognised patch; small leftovers
+        # fall back to coplanar. This measures the analytic-emit potential (a jacket = a
+        # handful of cylinders) before the STEP/IFC surface emit is wired.
+        out = []
+        leftovers = []
+        for patch in _surface_patches(prims, angle_tol, ndigits):
+            if len(patch) >= min_patch_quads:
+                out.append((patch, "merged", classify_patch(prims, patch)))
+            else:
+                leftovers.extend(patch)
+        if leftovers:
+            for idxs in _plane_buckets(prims, ndigits, leftovers):
+                for comp in _component_labels(prims, idxs, ndigits):
+                    out.append((comp, "single" if len(comp) == 1 else "coplanar", "small"))
         return out
 
     # surface: big smooth patches become one fitted surface; the small leftover
     # patches fall back to the coplanar merge (mirrors reconstruct_shell_surfaces
     # with merge_fallback=True), so the count is a faithful surface+fallback preview.
     out = []
-    leftovers: list = []
+    leftovers = []
     for patch in _surface_patches(prims, angle_tol, ndigits):
         if len(patch) >= min_patch_quads:
-            out.append((patch, "surface"))
+            out.append((patch, "surface", ""))
         else:
             leftovers.extend(patch)
     if leftovers:
         for idxs in _plane_buckets(prims, ndigits, leftovers):
             for comp in _component_labels(prims, idxs, ndigits):
-                out.append((comp, "single" if len(comp) == 1 else "coplanar"))
+                out.append((comp, "single" if len(comp) == 1 else "coplanar", ""))
     return out
 
 
@@ -200,6 +224,9 @@ def analyze_part(part, strategy: str = "coplanar", ndigits: int = 6, **params) -
       exact bucketing misses; curved skin becomes piecewise-flat). Wired into the writer.
     * ``surface`` — normal-continuity region growing: smooth patches (curved or flat)
       grow into one fitted surface (B-spline). Preview-only until the native fit lands.
+    * ``classify`` — like ``surface``, but each patch is recognised as an analytic
+      primitive (planar / cylinder / freeform) via least-squares fits, so the preview
+      can report e.g. "a jacket = 16 cylinders" before the analytic emit is wired.
     * ``panel`` — structured-quad region growing (not implemented yet).
 
     ``ndigits`` is the coplanarity rounding tolerance; ``params`` tune the curved
@@ -234,13 +261,13 @@ def analyze_part(part, strategy: str = "coplanar", ndigits: int = 6, **params) -
             # warped-quad-split halves are named "sh{eid}_1"; both halves are tris.
             split = {j for j, nm in enumerate(prims.names) if nm.endswith("_1")}
 
-            for comp, kind in _strategy_groups(prims, strategy, ndigits, angle_tol, min_patch_quads, max_dev):
+            for comp, kind, cls in _strategy_groups(prims, strategy, ndigits, angle_tol, min_patch_quads, max_dev):
                 n_groups += 1
                 if kind == "surface":
                     n_surface += 1
                 cgid = next_comp
                 next_comp += 1
-                # a surface patch is one fitted surface; a coplanar group collapses only
+                # a surface/merged patch is one fitted face; a coplanar group collapses only
                 # if its union is a single clean loop; a single primitive is trivially one plate.
                 ok = True if kind in ("single", "surface", "merged") else _merge_succeeds(prims, comp, ndigits)
                 agid = None
@@ -250,6 +277,7 @@ def analyze_part(part, strategy: str = "coplanar", ndigits: int = 6, **params) -
                 for j in comp:
                     res.outlines.append(prims.outline(j))
                     res.component.append(cgid)
+                    res.patch_class.append(cls)
                     if ok:
                         res.achieved.append(agid)
                     else:
@@ -275,8 +303,8 @@ def analyze_part(part, strategy: str = "coplanar", ndigits: int = 6, **params) -
     res.stats = {
         "strategy": strategy,
         "ndigits": ndigits,
-        "angle_tol": angle_tol if strategy == "surface" else None,
-        "min_patch_quads": min_patch_quads if strategy == "surface" else None,
+        "angle_tol": angle_tol if strategy in ("surface", "classify") else None,
+        "min_patch_quads": min_patch_quads if strategy in ("surface", "classify") else None,
         "primitives": n_prim,
         "split_tris": int(sum(res.is_split_tri)),
         "groups": n_groups,
@@ -292,6 +320,19 @@ def analyze_part(part, strategy: str = "coplanar", ndigits: int = 6, **params) -
         "reduction_ideal": round(n_prim / max(1, len(comp_sizes)), 2),  # if every component merged
         "plates_lost_to_fallback": len(ach_sizes) - len(comp_sizes),
     }
+    if strategy == "classify":
+        # patches + facet coverage per fitted analytic primitive (the recogniser's verdict).
+        ach_class: dict = {}
+        for a, cls in zip(res.achieved, res.patch_class):
+            ach_class[a] = cls  # all prims of an achieved group share a class
+        patches_by_class: dict = {}
+        facets_by_class: dict = {}
+        for a, cls in zip(res.achieved, res.patch_class):
+            facets_by_class[cls] = facets_by_class.get(cls, 0) + 1
+        for a, cls in ach_class.items():
+            patches_by_class[cls] = patches_by_class.get(cls, 0) + 1
+        res.stats["patches_by_class"] = patches_by_class
+        res.stats["facet_pct_by_class"] = {k: round(100.0 * v / max(1, n_prim), 1) for k, v in facets_by_class.items()}
     return res
 
 
@@ -307,6 +348,17 @@ def _color_for(gid: int) -> np.ndarray:
     return np.array([r, g, b, 255], dtype=np.uint8)
 
 
+# Fixed colors per fitted analytic class (the ``class`` mode of the classify strategy).
+_CLASS_COLORS = {
+    "planar": [70, 120, 220, 255],  # blue
+    "cylinder": [70, 190, 90, 255],  # green
+    "cone": [230, 150, 40, 255],  # orange
+    "freeform": [210, 60, 60, 255],  # red
+    "small": [130, 130, 130, 255],  # grey (below the surface-fit threshold)
+    "": [130, 130, 130, 255],
+}
+
+
 def write_preview_glb(res: PartitionResult, out_path: str, mode: str = "achieved") -> str:
     """Write a GLB coloring each triangulated primitive by its merge group.
 
@@ -315,6 +367,8 @@ def write_preview_glb(res: PartitionResult, out_path: str, mode: str = "achieved
     primitive its own color), so fragmentation is visible at a glance.
     ``mode='component'``: color by the *intended* group (what should have merged).
     ``mode='status'``: green = merged (collapses to 1 plate), red = fell back.
+    ``mode='class'``: color by fitted analytic primitive (planar=blue, cylinder=green,
+    freeform=red, small=grey) — pair with the ``classify`` strategy.
     """
     import trimesh
 
@@ -335,6 +389,8 @@ def write_preview_glb(res: PartitionResult, out_path: str, mode: str = "achieved
         if mode == "status":
             failed = len(comp_to_ach[res.component[i]]) > 1
             col = [210, 60, 60, 255] if failed else [70, 180, 90, 255]
+        elif mode == "class":
+            col = _CLASS_COLORS.get(res.patch_class[i] if i < len(res.patch_class) else "", _CLASS_COLORS[""])
         else:
             col = _color_for(int(label[i])).tolist()
         vcolors.extend([col] * len(pts))
