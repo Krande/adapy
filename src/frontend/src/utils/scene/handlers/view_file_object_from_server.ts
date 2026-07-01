@@ -68,7 +68,7 @@ async function send_view_request(name: string) {
  * needs to auto-decompress) it falls back to the authed streaming ``/blobs/{key}`` GET,
  * where the server reliably forwards ``Content-Encoding: gzip``. Either way GLTFLoader
  * streams + the browser decompresses natively — no whole-file server buffer, no pako. */
-async function load_glb_by_url_rest(scope: string, glbKey: string, sourceName: string) {
+export async function load_glb_by_url_rest(scope: string, glbKey: string, sourceName: string) {
     const {viewerApi} = await import("@/services/viewerApi");
     const {getAccessToken} = await import("@/services/auth/oidc");
     const {replace_model} = await import("./update_scene_from_message");

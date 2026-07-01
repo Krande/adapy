@@ -149,7 +149,7 @@ const UtilitiesSection = () => {
     // Saved utility overlays (_overlays/<model>.<utility>.glb), selectable per loaded model.
     const loadedSourceName = useModelState((s) => s.loadedSourceName);
     const [overlays, setOverlays] = React.useState<{key: string; size: number; last_modified: string | null}[]>([]);
-    const [activeOverlays, setActiveOverlays] = React.useState<Set<string>>(new Set());
+    const [loadingOverlay, setLoadingOverlay] = React.useState<string | null>(null);
 
     // model stem of a key: "dir/JacketHybrid.merge-auto.glb" -> "JacketHybrid"
     const stemOf = (k: string) => (k.split("/").pop() ?? k).split(".")[0];
@@ -172,18 +172,19 @@ const UtilitiesSection = () => {
         void refreshOverlays();
     }, [refreshOverlays]);
 
-    const toggleOverlay = async (key: string) => {
-        const next = new Set(activeOverlays);
-        if (next.has(key)) next.delete(key);
-        else next.add(key);
-        setActiveOverlays(next);
-        // the active set is the source of truth: clear all overlay layers, re-add the selected ones
-        clearViewerOps();
-        for (const k of next) {
-            await applyViewerOps(
-                {ops: [{op: "add_overlay_geometry", blob_key: k, label: k.split("/").pop() ?? k}]},
-                scope,
-            );
+    const loadOverlay = async (key: string) => {
+        // Load the saved overlay GLB as the scene model (the regular model-load path — streams
+        // from storage, decodes meshopt + gzip, fits the camera), not an add_overlay_geometry
+        // layer. The overlay IS a full merged model, so it should replace the view like any model.
+        setLoadingOverlay(key);
+        try {
+            const {load_glb_by_url_rest} = await import("@/utils/scene/handlers/view_file_object_from_server");
+            const name = key.split("/").pop() ?? key;
+            await load_glb_by_url_rest(scope, key, name);
+        } catch (e) {
+            setLastResult({summary: {error: `overlay load failed: ${String(e)}`}});
+        } finally {
+            setLoadingOverlay(null);
         }
     };
 
@@ -401,14 +402,19 @@ const UtilitiesSection = () => {
                         {myOverlays.map((o) => {
                             const short = (o.key.split("/").pop() ?? o.key).replace(/\.glb$/, "");
                             return (
-                                <label key={o.key} className="flex items-center gap-2 text-xs py-0.5" title={o.key}>
-                                    <input
-                                        type="checkbox"
-                                        checked={activeOverlays.has(o.key)}
-                                        onChange={() => void toggleOverlay(o.key)}
-                                    />
+                                <button
+                                    key={o.key}
+                                    type="button"
+                                    className="flex items-center gap-2 text-xs py-0.5 w-full text-left hover:bg-gray-700 rounded-sm px-1 disabled:opacity-50"
+                                    title={`Load ${o.key} as the model`}
+                                    disabled={loadingOverlay !== null}
+                                    onClick={() => void loadOverlay(o.key)}
+                                >
                                     <span className="truncate flex-1">{short}</span>
-                                </label>
+                                    <span className="text-gray-400 shrink-0">
+                                        {loadingOverlay === o.key ? "loading…" : "load"}
+                                    </span>
+                                </button>
                             );
                         })}
                     </div>
