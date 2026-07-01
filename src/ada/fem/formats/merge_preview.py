@@ -117,7 +117,7 @@ def _merge_succeeds(prims, cj, ndigits) -> bool:
 # Algorithms the preview can partition by. Each maps to a grouping of the
 # per-block primitives; new strategies (curved-surface / structured-panel region
 # growing) slot in here so the utility can swap between them at runtime.
-ALGORITHMS = ("none", "coplanar", "planar", "surface", "classify", "panel")
+ALGORITHMS = ("none", "coplanar", "planar", "surface", "classify", "auto", "panel")
 
 
 def _plane_buckets(prims, ndigits, idxs=None):
@@ -139,18 +139,57 @@ def _plane_buckets(prims, ndigits, idxs=None):
     return list(buckets.values())
 
 
-def _strategy_groups(prims, strategy, ndigits, angle_tol, min_patch_quads, max_dev):
+def _strategy_groups(prims, strategy, ndigits, angle_tol, min_patch_quads, max_dev, blk=None):
     """Partition one block's primitives into ``[(prim_indices, kind, cls), ...]``.
 
     ``kind`` drives the achieved-merge test in :func:`analyze_part`: ``single`` (1
     primitive, trivially its own plate), ``coplanar`` (collapses only if the union is
     one clean simple loop — used for planar patches too), ``merged``/``surface`` (a
     region-grown patch that is one face). ``cls`` is the fitted primitive class for the
-    ``classify`` strategy (planar|cylinder|freeform|small), else "".
+    ``classify``/``auto`` strategies (planar|cylinder|freeform|curved|facet|small), else "".
     """
     n = len(prims)
     if strategy == "none":
         return [([j], "single", "") for j in range(n)]
+
+    if strategy == "auto":
+        # Mirror the PRODUCTION analytic emit (mesh_faces.iter_fem_analytic_faces): cylinder
+        # recognition + cross-T curved B-spline panels + planar whole-patch merge + facet
+        # residual, so the colorized preview matches what STEP/IFC/generate actually build.
+        from ada.fem.formats.mesh_faces import _elid_of, _flat_faces_with_holes, _reconstruct_curved_panels
+
+        patches = list(_surface_patches(prims, angle_tol, ndigits))
+        pcls = [(pt, classify_patch(prims, pt) if len(pt) >= min_patch_quads else "planar") for pt in patches]
+        cyl_elids = {_elid_of(prims.names[j]) for pt, c in pcls if c == "cylinder" for j in pt}
+        elid_prims: dict = {}
+        for j, nm in enumerate(prims.names):
+            elid_prims.setdefault(_elid_of(nm), []).append(j)
+        out: list = []
+        consumed: set = set()
+        if blk is not None and blk.conn.shape[1] == 4:
+            for _face, panel_elids in _reconstruct_curved_panels(blk, cyl_elids, ndigits, angle_tol, min_patch_quads):
+                pj = [j for e in panel_elids for j in elid_prims.get(e, [])]
+                if pj:
+                    out.append((pj, "surface", "curved"))
+                    consumed.update(panel_elids)
+        for pt, c in pcls:
+            if c == "cylinder":
+                out.append((pt, "merged", "cylinder"))
+                continue
+            rem = [j for j in pt if _elid_of(prims.names[j]) not in consumed]
+            if not rem:
+                continue
+            if len(rem) == 1:
+                out.append((rem, "single", "facet"))
+                continue
+            if c == "planar" and _flat_faces_with_holes(prims, rem, ndigits):
+                # production merges the whole flat patch to one face via robust extraction
+                out.append((rem, "merged", "planar"))
+                continue
+            for idxs in _plane_buckets(prims, ndigits, rem):  # freeform / unresolved → coplanar/facet
+                for comp in _component_labels(prims, idxs, ndigits):
+                    out.append((comp, "single" if len(comp) == 1 else "coplanar", "facet"))
+        return out
 
     if strategy == "coplanar":
         out: list = []
@@ -227,6 +266,11 @@ def analyze_part(part, strategy: str = "coplanar", ndigits: int = 6, **params) -
     * ``classify`` — like ``surface``, but each patch is recognised as an analytic
       primitive (planar / cylinder / freeform) via least-squares fits, so the preview
       can report e.g. "a jacket = 16 cylinders" before the analytic emit is wired.
+    * ``auto`` — mirrors the PRODUCTION analytic emit exactly (cylinder recognition +
+      cross-T curved B-spline panels + planar whole-patch merge + facet residual), so the
+      colorized preview matches what STEP/IFC/``generate`` actually build. Pair with
+      ``mode="class"`` to colour by output class (cylinder=green, curved=purple,
+      planar=blue, facet=red).
     * ``panel`` — structured-quad region growing (not implemented yet).
 
     ``ndigits`` is the coplanarity rounding tolerance; ``params`` tune the curved
@@ -261,7 +305,7 @@ def analyze_part(part, strategy: str = "coplanar", ndigits: int = 6, **params) -
             # warped-quad-split halves are named "sh{eid}_1"; both halves are tris.
             split = {j for j, nm in enumerate(prims.names) if nm.endswith("_1")}
 
-            for comp, kind, cls in _strategy_groups(prims, strategy, ndigits, angle_tol, min_patch_quads, max_dev):
+            for comp, kind, cls in _strategy_groups(prims, strategy, ndigits, angle_tol, min_patch_quads, max_dev, blk):
                 n_groups += 1
                 if kind == "surface":
                     n_surface += 1
@@ -303,8 +347,8 @@ def analyze_part(part, strategy: str = "coplanar", ndigits: int = 6, **params) -
     res.stats = {
         "strategy": strategy,
         "ndigits": ndigits,
-        "angle_tol": angle_tol if strategy in ("surface", "classify") else None,
-        "min_patch_quads": min_patch_quads if strategy in ("surface", "classify") else None,
+        "angle_tol": angle_tol if strategy in ("surface", "classify", "auto") else None,
+        "min_patch_quads": min_patch_quads if strategy in ("surface", "classify", "auto") else None,
         "primitives": n_prim,
         "split_tris": int(sum(res.is_split_tri)),
         "groups": n_groups,
@@ -320,7 +364,7 @@ def analyze_part(part, strategy: str = "coplanar", ndigits: int = 6, **params) -
         "reduction_ideal": round(n_prim / max(1, len(comp_sizes)), 2),  # if every component merged
         "plates_lost_to_fallback": len(ach_sizes) - len(comp_sizes),
     }
-    if strategy == "classify":
+    if strategy in ("classify", "auto"):
         # patches + facet coverage per fitted analytic primitive (the recogniser's verdict).
         ach_class: dict = {}
         for a, cls in zip(res.achieved, res.patch_class):
@@ -355,6 +399,9 @@ _CLASS_COLORS = {
     "cone": [230, 150, 40, 255],  # orange
     "freeform": [210, 60, 60, 255],  # red
     "small": [130, 130, 130, 255],  # grey (below the surface-fit threshold)
+    # auto (production emit) classes:
+    "curved": [150, 90, 220, 255],  # purple — reconstructed B-spline panel
+    "facet": [210, 60, 60, 255],  # red — un-merged residual (per-facet / coplanar leftover)
     "": [130, 130, 130, 255],
 }
 

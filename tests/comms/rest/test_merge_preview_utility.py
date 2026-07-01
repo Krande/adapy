@@ -48,8 +48,9 @@ def test_registered_with_algorithm_swap_spec():
     assert "merge-preview" in UtilityRegistry.names()
     spec = next(s for s in UtilityRegistry.specs() if s["name"] == "merge-preview")
     kw = {k["name"]: k for k in spec["kwargs"]}
-    assert {"algorithm", "mode", "ndigits", "angle_tol", "min_patch_quads"} <= set(kw)
-    assert set(kw["algorithm"]["enum"]) == {"none", "coplanar", "planar", "surface", "classify", "panel"}
+    assert {"action", "algorithm", "mode", "ndigits", "angle_tol", "min_patch_quads"} <= set(kw)
+    assert set(kw["algorithm"]["enum"]) == {"auto", "none", "coplanar", "planar", "surface", "classify", "panel"}
+    assert set(kw["action"]["enum"]) == {"preview", "generate"}
     assert set(kw["mode"]["enum"]) == {"status", "achieved", "component", "class"}
 
 
@@ -108,6 +109,40 @@ def test_planar_strategy_partition_and_writer_agree():
 
     faces = list(iter_faces(a, MergeStrategy.PLANAR))
     assert len(faces) == 1  # writer emits one flat face for the flat patch
+
+
+def test_auto_strategy_mirrors_production_classes():
+    # the "auto" preview mirrors the production analytic emit: the two coplanar quads are a
+    # planar-merged group (not curved/facet), matching iter_fem_analytic_faces.
+    a = _two_coplanar_quads()
+    s = analyze_part(a, "auto", min_patch_quads=2).stats
+    assert s["strategy"] == "auto"
+    assert s["patches_by_class"].get("planar") == 1
+    assert s["patches_by_class"].get("curved") is None  # flat quads are not reconstructed as curved
+    assert s["achieved_plates"] == 1
+
+
+def test_generate_action_builds_plate_glb(monkeypatch, tmp_path):
+    # action="generate" builds real merged Plate objects and uploads a viewable GLB.
+    a = _two_coplanar_quads()
+    monkeypatch.setattr(ada, "from_fem", lambda *_a, **_k: a)
+    src = tmp_path / "m.fem"
+    src.write_text("stub")
+    store = _FakeStore()
+
+    payload = run_utility(
+        "merge-preview",
+        str(src),
+        storage=store,
+        scope=None,
+        on_progress=lambda *_: None,
+        kwargs={"action": "generate", "algorithm": "auto"},
+    )
+    overlay = [o for o in payload["ops"] if o["op"] == "add_overlay_geometry"]
+    assert overlay and overlay[0]["blob_key"] in store.blobs
+    assert store.blobs[overlay[0]["blob_key"]][:4] == b"glTF"  # a real GLB
+    assert payload["summary"]["action"] == "generate"
+    assert payload["summary"]["plates"] == 1  # two coplanar quads → one merged flat plate
 
 
 def test_classify_recognizes_planar_patch():
@@ -346,9 +381,9 @@ def test_reconstruct_curved_panels_grids_a_curved_patch():
     from ada.geom.surfaces import BSplineSurfaceWithKnots
 
     blk, n_grid = _curved_grid_block(6, 7, curve=0.4)
-    faces, consumed = _reconstruct_curved_panels(blk, set(), 6, 30.0, 12)
-    assert len(faces) == 1 and isinstance(faces[0].face_surface, BSplineSurfaceWithKnots)
-    assert len(consumed) == n_grid  # the whole curved grid → one B-spline panel
+    panels = _reconstruct_curved_panels(blk, set(), 6, 30.0, 12)
+    assert len(panels) == 1 and isinstance(panels[0][0].face_surface, BSplineSurfaceWithKnots)
+    assert len(panels[0][1]) == n_grid  # the whole curved grid → one B-spline panel
 
 
 def test_reconstruct_curved_panels_skips_flat():
@@ -356,8 +391,7 @@ def test_reconstruct_curved_panels_skips_flat():
     from ada.fem.formats.mesh_faces import _reconstruct_curved_panels
 
     blk, _ = _curved_grid_block(6, 7, curve=0.0)
-    faces, consumed = _reconstruct_curved_panels(blk, set(), 6, 30.0, 12)
-    assert faces == [] and consumed == set()
+    assert _reconstruct_curved_panels(blk, set(), 6, 30.0, 12) == []
 
 
 def test_reconstruct_curved_panels_crosses_stiffener_tjunction():
@@ -374,9 +408,9 @@ def test_reconstruct_curved_panels_crosses_stiffener_tjunction():
     from ada.geom.surfaces import BSplineSurfaceWithKnots
 
     blk, n_grid = _curved_grid_block(6, 7, curve=0.4, extra_quads=_stiffener)
-    faces, consumed = _reconstruct_curved_panels(blk, set(), 6, 30.0, 12)
-    assert len(faces) == 1 and isinstance(faces[0].face_surface, BSplineSurfaceWithKnots)
-    assert len(consumed) == n_grid  # whole hull grid captured despite the stiffener T-junction
+    panels = _reconstruct_curved_panels(blk, set(), 6, 30.0, 12)
+    assert len(panels) == 1 and isinstance(panels[0][0].face_surface, BSplineSurfaceWithKnots)
+    assert len(panels[0][1]) == n_grid  # whole hull grid captured despite the stiffener T-junction
 
 
 def test_non_fem_source_rejected():

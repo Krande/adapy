@@ -767,15 +767,16 @@ def _reconstruct_curved_panels(blk, exclude_elids, ndigits, angle_tol, min_patch
     stiffener T-junctions, tiles each into maximal conflict-free rectangles, and emits ONE
     degree-1 B-spline surface face per rectangle that is genuinely CURVED (a planar rectangle
     is left to the flat merge, which represents it better). Cylinder-patch elements are
-    excluded so analytic CYLINDRICAL_SURFACE emit is preserved. Returns (faces, consumed_elids).
-    OCC-free: the grower + native surface builder run the same on every backend."""
+    excluded so analytic CYLINDRICAL_SURFACE emit is preserved. Returns one ``(AdvancedFace,
+    [el_id, ...])`` per curved panel — the emit yields the faces, the preview colours the
+    source elements by panel. OCC-free: grower + native surface builder run on every backend."""
     from ada.fem.formats.concept_merge import _round_key
     from ada.fem.formats.surface_reconstruction import _quad_normal
 
     qr = _quad_rings_by_elid(blk)
     elids = [e for e in qr if e not in exclude_elids]
     if len(elids) < min_patch_quads:
-        return [], set()
+        return []
     rings = [qr[e] for e in elids]
     keys = [tuple(_round_key(p, ndigits) for p in r) for r in rings]
     normals = [_quad_normal(r) for r in rings]
@@ -785,8 +786,7 @@ def _reconstruct_curved_panels(blk, exclude_elids, ndigits, angle_tol, min_patch
             edge_owner.setdefault((a, b) if a <= b else (b, a), []).append(qi)
     cos_tol = float(np.cos(np.deg2rad(angle_tol)))
     visited = [False] * len(rings)
-    faces: list = []
-    consumed: set = set()
+    panels: list = []  # (AdvancedFace, [el_id, ...]) — one per curved rectangle
     for seed in range(len(rings)):
         if visited[seed]:
             continue
@@ -839,9 +839,8 @@ def _reconstruct_curved_panels(blk, exclude_elids, ndigits, angle_tol, min_patch
                 continue  # flat rectangle → leave for the (better) planar merge
             af = _bspline_surface_face_from_grid(grid)
             if af is not None:
-                faces.append(af)
-                consumed.update(elids[qi] for qi in rquads)
-    return faces, consumed
+                panels.append((af, [elids[qi] for qi in rquads]))
+    return panels
 
 
 def _bspline_surface_face_from_grid(grid):
@@ -936,8 +935,11 @@ def iter_fem_analytic_faces(
             consumed: set = set()
             if reconstruct_curved and blk.conn.shape[1] == 4:
                 cyl_elids = {_elid_of(prims.names[j]) for pt, c in patch_cls if c == "cylinder" for j in pt}
-                bfaces, consumed = _reconstruct_curved_panels(blk, cyl_elids, ndigits, angle_tol, min_patch_quads)
-                yield from bfaces
+                for face, panel_elids in _reconstruct_curved_panels(
+                    blk, cyl_elids, ndigits, angle_tol, min_patch_quads
+                ):
+                    yield face
+                    consumed.update(panel_elids)
 
             for patch, cls in patch_cls:
                 if cls == "cylinder":

@@ -232,7 +232,11 @@ def _fit_patch(grid, quads, comp, part, max_dev, backend):
     try:
         advanced_face = backend.build_bspline_advanced_face_from_grid(grid, tol)
     except NotImplementedError:
-        return None  # backend has no fit (adacpp / OCC absent) → fallback
+        # Backend has no NURBS fit (adacpp / OCC absent): use the OCC-free native degree-1
+        # tensor B-spline (control points = grid nodes → passes through every node exactly).
+        from ada.fem.formats.mesh_faces import _bspline_surface_face_from_grid
+
+        advanced_face = _bspline_surface_face_from_grid(grid)
     except Exception as ex:  # defensive: any fit failure → fallback
         logger.debug(f"surface fit raised, falling back to flat plates: {ex}")
         return None

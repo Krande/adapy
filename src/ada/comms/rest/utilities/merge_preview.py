@@ -39,21 +39,30 @@ _FEM_EXTS = {".fem", ".inp", ".sif", ".sin", ".bdf", ".nas", ".med", ".rmed"}
     ),
     kwargs=[
         {
+            "name": "action",
+            "type": "enum",
+            "default": "preview",
+            "enum": ["preview", "generate"],
+            "description": "preview = colorized partition overlay (no geometry built); generate = actually "
+            "build the merged CAD (flat Plate + curved PlateCurved objects) and render it to a GLB for viewing.",
+        },
+        {
             "name": "algorithm",
             "type": "enum",
-            "default": "coplanar",
-            "enum": ["none", "coplanar", "planar", "surface", "classify", "panel"],
-            "description": "Merge strategy: none (raw baseline), coplanar (current), planar (flat region "
-            "growing, writer-wired), surface (curved→B-spline, preview-only), classify (recognise "
-            "planar/cylinder/freeform patches), panel (WIP).",
+            "default": "auto",
+            "enum": ["auto", "none", "coplanar", "planar", "surface", "classify", "panel"],
+            "description": "Merge strategy: auto (the PRODUCTION emit — cylinder ident + curved B-spline panels "
+            "+ planar merge, matches STEP/IFC), none (raw baseline), coplanar, planar (flat region growing), "
+            "surface (curved→B-spline), classify (recognise planar/cylinder/freeform), panel (WIP).",
         },
         {
             "name": "mode",
             "type": "enum",
-            "default": "status",
-            "enum": ["status", "achieved", "component", "class"],
-            "description": "Colouring: status (green=merged/red=fell-back), achieved (per collapsed plate), "
-            "component (per intended group), class (per fitted primitive — pair with algorithm=classify).",
+            "default": "class",
+            "enum": ["class", "status", "achieved", "component"],
+            "description": "Preview colouring: class (per output primitive — cylinder/curved/planar/facet, pair "
+            "with algorithm=auto), status (green=merged/red=fell-back), achieved (per collapsed plate), "
+            "component (per intended group).",
         },
         {
             "name": "ndigits",
@@ -89,8 +98,9 @@ def merge_preview(
     storage,
     scope,
     on_progress,
-    algorithm="coplanar",
-    mode="status",
+    action="preview",
+    algorithm="auto",
+    mode="class",
     ndigits=6,
     angle_tol=30.0,
     min_patch_quads=12,
@@ -109,6 +119,9 @@ def merge_preview(
 
     on_progress("loading-fem", 0.35)
     asm = ada.from_fem(src_path)
+
+    if action == "generate":
+        return _generate(asm, src_path, algorithm, storage, on_progress)
 
     on_progress(f"partitioning ({algorithm})", 0.55)
     res = analyze_part(
@@ -134,14 +147,20 @@ def merge_preview(
             pass
 
     s = res.stats
-    legend = (
-        [
+    if mode == "status":
+        legend = [
             {"label": "merged (→ 1 plate)", "color": "#46b45a"},
             {"label": "fell back (unmerged)", "color": "#d23c3c"},
         ]
-        if mode == "status"
-        else [{"label": "distinct merge group", "color": "#7f7fff"}]
-    )
+    elif mode == "class":
+        legend = [
+            {"label": "cylinder", "color": "#46be5a"},
+            {"label": "curved (B-spline)", "color": "#9659dc"},
+            {"label": "planar (merged)", "color": "#4678dc"},
+            {"label": "facet (residual)", "color": "#d23c3c"},
+        ]
+    else:
+        legend = [{"label": "distinct merge group", "color": "#7f7fff"}]
     on_progress("done", 1.0)
     return {
         "ops": [
@@ -154,4 +173,57 @@ def merge_preview(
         ],
         "legend": legend,
         "summary": s,
+    }
+
+
+def _generate(asm, src_path, algorithm, storage, on_progress):
+    """Build the actual merged CAD (flat ``Plate`` + curved ``PlateCurved`` objects) from the
+    FEM and render it to a viewable GLB overlay — the "generate" action. ``auto``/``surface``/
+    ``classify`` reconstruct curved panels as NURBS plates (OCC-free native fit); the rest emit
+    merged flat plates. Beams are rebuilt too."""
+    from ada.api.plates.base_pl import PlateCurved
+
+    on_progress("building-objects", 0.5)
+    reconstruct = algorithm in ("auto", "surface", "classify")
+    asm.create_objects_from_fem(merge=True, reconstruct_surfaces=reconstruct)
+
+    on_progress("tessellating", 0.8)
+    glb_tmp = tempfile.mkstemp(suffix=".glb")[1]
+    try:
+        asm.to_gltf(glb_tmp)
+        overlay_key = f"{_OVERLAY_PREFIX}{src_path.stem}.merge-{algorithm}-generated.glb"
+        with open(glb_tmp, "rb") as fh:
+            storage.put_bytes(overlay_key, fh.read())
+    finally:
+        try:
+            pathlib.Path(glb_tmp).unlink()
+        except OSError:
+            pass
+
+    parts = asm.get_all_parts_in_assembly(include_self=True)
+    plates = [pl for p in parts for pl in list(p.plates)]
+    n_curved = sum(1 for pl in plates if isinstance(pl, PlateCurved))
+    n_beams = sum(len(list(p.beams)) for p in parts)
+    on_progress("done", 1.0)
+    return {
+        "ops": [
+            {
+                "op": "add_overlay_geometry",
+                "blob_key": overlay_key,
+                "label": f"generated ({algorithm})",
+                "color": "#46b45a",
+            }
+        ],
+        "legend": [
+            {"label": "flat plate", "color": "#4678b4"},
+            {"label": "curved plate (NURBS)", "color": "#9659dc"},
+        ],
+        "summary": {
+            "action": "generate",
+            "algorithm": algorithm,
+            "plates": len(plates),
+            "curved_plates": n_curved,
+            "flat_plates": len(plates) - n_curved,
+            "beams": n_beams,
+        },
     }
