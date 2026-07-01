@@ -139,6 +139,54 @@ def test_fit_cylinder_and_plane_math():
     assert dev < 1e-9  # exact plane
 
 
+def _synthetic_cylinder_prims(r=2.0, n_theta=40, n_z=8, length=5.0):
+    """A closed cylindrical quad mesh as a _Primitives (radial normals), for fit tests."""
+    import numpy as np
+
+    from ada.fem.formats.mesh_faces import _Primitives
+
+    th = np.linspace(0, 2 * np.pi, n_theta, endpoint=False)
+    zs = np.linspace(0, length, n_z)
+    coords = np.array([[r * np.cos(t), r * np.sin(t), z] for z in zs for t in th])
+
+    def idx(i, j):
+        return i * n_theta + (j % n_theta)
+
+    rows, normals = [], []
+    for i in range(n_z - 1):
+        for j in range(n_theta):
+            rows.append((idx(i, j), idx(i, j + 1), idx(i + 1, j + 1), idx(i + 1, j)))
+            tc = th[j] + (th[1] - th[0]) / 2
+            normals.append([np.cos(tc), np.sin(tc), 0.0])
+    prims = _Primitives(
+        coords, rows, [f"q{i}" for i in range(len(rows))], ["m"] * len(rows), [0.01] * len(rows), np.array(normals)
+    )
+    return prims, list(range(len(rows)))
+
+
+def test_fit_cylinder_params_full_tube():
+    from ada.fem.formats.mesh_faces import fit_cylinder_params
+
+    prims, patch = _synthetic_cylinder_prims(r=2.0, length=5.0)
+    cf = fit_cylinder_params(prims, patch)
+    assert cf is not None
+    assert abs(cf.radius - 2.0) < 1e-3
+    assert cf.full360 is True  # closed tube
+    assert abs((cf.z1 - cf.z0) - 5.0) < 1e-3  # axial extent recovered
+    assert cf.max_rel_resid < 0.02
+
+
+def test_fit_cylinder_params_partial_arc():
+    from ada.fem.formats.mesh_faces import fit_cylinder_params
+
+    prims, patch = _synthetic_cylinder_prims(r=2.0, n_theta=40)
+    # keep only columns 0..19 of the circumference (row index j: column = j % n_theta)
+    half = [j for j in patch if j % 40 < 20]
+    cf = fit_cylinder_params(prims, half)
+    assert cf is not None and cf.full360 is False
+    assert 0.3 < (cf.theta_max - cf.theta_min) < 6.0  # a genuine arc, not the full circle
+
+
 def test_non_fem_source_rejected():
     with pytest.raises(ValueError, match="FEM source"):
         run_utility(

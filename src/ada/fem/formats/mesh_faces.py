@@ -410,6 +410,87 @@ def _fit_cylinder(pts: np.ndarray, normals: np.ndarray) -> tuple[float, float, f
     return r, rel, (span / r if r > 1e-9 else 0.0)
 
 
+@dataclass
+class CylinderFit:
+    """A fitted cylinder + the patch's trim extent in the surface's own (θ, z)
+    parameters — everything the STEP/IFC CYLINDRICAL_SURFACE emit needs.
+
+    ``origin`` is a point on the axis; ``(e1, e2, axis)`` is an orthonormal frame, so a
+    3D point maps to ``z = (p-origin)·axis``, ``θ = atan2((p-origin)·e2, (p-origin)·e1)``
+    and lies on the surface at radius ``radius``. ``z0/z1`` bound the tube axially;
+    ``theta_min/theta_max`` its angular sweep (``full360`` when it wraps a closed tube)."""
+
+    origin: np.ndarray
+    axis: np.ndarray
+    radius: float
+    e1: np.ndarray
+    e2: np.ndarray
+    z0: float
+    z1: float
+    theta_min: float
+    theta_max: float
+    full360: bool
+    max_rel_resid: float
+
+
+def fit_cylinder_params(prims: "_Primitives", patch: list[int], *, gap_tol_deg: float = 20.0) -> "CylinderFit | None":
+    """Full cylinder fit for a patch: axis (⟂ the radial facet normals), radius (circle
+    fit), and the axial + angular trim extent in the surface's own parameters. Returns
+    None if the patch isn't a usable cylinder. ``gap_tol_deg`` is the largest angular gap
+    still treated as a closed 360° tube (so a full tube with a meshing seam reads full)."""
+    pts = np.vstack([prims.outline(j) for j in patch])
+    normals = np.array([prims.normals[j] for j in patch], dtype=float)
+    nn = normals / (np.linalg.norm(normals, axis=1, keepdims=True) + 1e-12)
+    _, _, vt = np.linalg.svd(nn - nn.mean(axis=0), full_matrices=False)
+    axis = vt[-1]
+    axis = axis / (np.linalg.norm(axis) + 1e-12)
+    tmp = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    e1 = np.cross(axis, tmp)
+    e1 /= np.linalg.norm(e1) + 1e-12
+    e2 = np.cross(axis, e1)
+    c = pts.mean(axis=0)
+    u = (pts - c) @ e1
+    v = (pts - c) @ e2
+    sol, *_ = np.linalg.lstsq(np.column_stack([u, v, np.ones_like(u)]), u * u + v * v, rcond=None)
+    cu, cv = sol[0] / 2.0, sol[1] / 2.0
+    r = float(np.sqrt(max(sol[2] + cu * cu + cv * cv, 0.0)))
+    if r <= 1e-9:
+        return None
+    origin = c + cu * e1 + cv * e2  # a point on the axis
+    d = pts - origin
+    z = d @ axis
+    uu = d @ e1
+    vv = d @ e2
+    rad = np.sqrt(uu * uu + vv * vv)
+    max_rel = float(np.abs(rad - r).max() / r)
+    theta = np.mod(np.arctan2(vv, uu), 2.0 * np.pi)
+    th = np.sort(theta)
+    gaps = np.diff(np.concatenate([th, th[:1] + 2.0 * np.pi]))
+    gmax_i = int(np.argmax(gaps))
+    gmax = float(gaps[gmax_i])
+    full360 = bool(gmax <= np.radians(gap_tol_deg))
+    if full360:
+        theta_min, theta_max = 0.0, 2.0 * np.pi
+    else:
+        # the arc is the complement of the largest gap: it runs from the vertex after the
+        # gap, around, to the vertex before it.
+        theta_min = float(th[(gmax_i + 1) % len(th)])
+        theta_max = theta_min + (2.0 * np.pi - gmax)
+    return CylinderFit(
+        origin=origin,
+        axis=axis,
+        radius=r,
+        e1=e1,
+        e2=e2,
+        z0=float(z.min()),
+        z1=float(z.max()),
+        theta_min=theta_min,
+        theta_max=theta_max,
+        full360=full360,
+        max_rel_resid=max_rel,
+    )
+
+
 def classify_patch(prims: "_Primitives", patch: list[int], *, plane_tol: float = 1e-3, cyl_tol: float = 0.02) -> str:
     """Classify a region-grown patch by the analytic surface it fits: ``planar`` (flat
     within ``plane_tol`` of the bbox diagonal), ``cylinder`` (radial normals, circle
