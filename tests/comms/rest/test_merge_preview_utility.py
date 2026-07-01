@@ -307,6 +307,78 @@ def test_cylinder_trim_faces_tessellate_on_cylinder():
     assert pos[:, 2].max() - pos[:, 2].min() >= 4.5, "meshed only a sliver, not the full wall"
 
 
+def _curved_grid_block(nu, nv, curve=0.4, extra_quads=None):
+    """A _ShellBlock of an (nu-1)x(nv-1) quad grid, curved in z by ``curve``; ``extra_quads``
+    appends raw node-index quads (e.g. a folded stiffener) sharing grid nodes."""
+    import numpy as np
+
+    from ada.fem.formats.mesh_faces import _ShellBlock
+
+    coords: list = []
+    idx: dict = {}
+
+    def nid(i, j):
+        if (i, j) not in idx:
+            idx[(i, j)] = len(coords)
+            coords.append((float(i), float(j), curve * np.sin(i * 0.7)))
+        return idx[(i, j)]
+
+    conn = [[nid(i, j), nid(i + 1, j), nid(i + 1, j + 1), nid(i, j + 1)] for i in range(nu - 1) for j in range(nv - 1)]
+    n_grid = len(conn)
+    if extra_quads:
+        for q in extra_quads(nid, coords):
+            conn.append(q)
+    m = len(conn)
+    return (
+        _ShellBlock(
+            coords=np.array(coords, dtype=float),
+            conn=np.array(conn, dtype=int),
+            el_ids=np.arange(m),
+            materials=["m"] * m,
+            thicknesses=np.full(m, 0.01),
+        ),
+        n_grid,
+    )
+
+
+def test_reconstruct_curved_panels_grids_a_curved_patch():
+    from ada.fem.formats.mesh_faces import _reconstruct_curved_panels
+    from ada.geom.surfaces import BSplineSurfaceWithKnots
+
+    blk, n_grid = _curved_grid_block(6, 7, curve=0.4)
+    faces, consumed = _reconstruct_curved_panels(blk, set(), 6, 30.0, 12)
+    assert len(faces) == 1 and isinstance(faces[0].face_surface, BSplineSurfaceWithKnots)
+    assert len(consumed) == n_grid  # the whole curved grid → one B-spline panel
+
+
+def test_reconstruct_curved_panels_skips_flat():
+    # a flat grid is left to the planar merge (a degree-1 B-spline of a flat panel gains nothing)
+    from ada.fem.formats.mesh_faces import _reconstruct_curved_panels
+
+    blk, _ = _curved_grid_block(6, 7, curve=0.0)
+    faces, consumed = _reconstruct_curved_panels(blk, set(), 6, 30.0, 12)
+    assert faces == [] and consumed == set()
+
+
+def test_reconstruct_curved_panels_crosses_stiffener_tjunction():
+    # a folded stiffener quad attached along an interior hull edge makes that edge degree-3;
+    # the panel must grow ACROSS it (one panel), not fragment.
+    def _stiffener(nid, coords):
+        a, b = nid(3, 0), nid(3, 1)  # interior grid edge
+        up1, up2 = len(coords), len(coords) + 1
+        coords.append((3.0, 0.0, 5.0))
+        coords.append((3.0, 1.0, 5.0))
+        return [[a, b, up2, up1]]  # vertical web → ~90° fold from the hull
+
+    from ada.fem.formats.mesh_faces import _reconstruct_curved_panels
+    from ada.geom.surfaces import BSplineSurfaceWithKnots
+
+    blk, n_grid = _curved_grid_block(6, 7, curve=0.4, extra_quads=_stiffener)
+    faces, consumed = _reconstruct_curved_panels(blk, set(), 6, 30.0, 12)
+    assert len(faces) == 1 and isinstance(faces[0].face_surface, BSplineSurfaceWithKnots)
+    assert len(consumed) == n_grid  # whole hull grid captured despite the stiffener T-junction
+
+
 def test_non_fem_source_rejected():
     with pytest.raises(ValueError, match="FEM source"):
         run_utility(

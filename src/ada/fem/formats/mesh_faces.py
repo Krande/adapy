@@ -665,8 +665,239 @@ def _facedata_to_advanced_face(fd: "FaceData"):
     )
 
 
+def _elid_of(name: str) -> int:
+    """Element id from a primitive name ('sh123' or 'sh123_1' → 123)."""
+    return int(name[2:].split("_")[0])
+
+
+def _quad_rings_by_elid(blk: "_ShellBlock") -> dict:
+    """el_id → its 4 corner coords, for the block's QUAD elements (grid-fit candidates).
+    Empty for triangle blocks (no structured grid to recover)."""
+    if blk.conn.shape[1] != 4:
+        return {}
+    return {
+        int(blk.el_ids[i]): [tuple(float(x) for x in blk.coords[n]) for n in blk.conn[i][:4]]
+        for i in range(blk.conn.shape[0])
+    }
+
+
+def _grow_smooth_region(seed, keys, normals, edge_owner, cos_tol, visited):
+    """BFS a smooth quad region from ``seed``, assigning each quad integer (gi, gj) grid
+    coords, CROSSING T-junctions: at an edge with >2 owners (a stiffener attaching to the
+    hull) the single *smooth*-continuous neighbour is followed and the folded face(s) ignored,
+    so a hull panel grows straight across stiffener lines. Coord is first-wins (a later
+    conflicting placement is dropped, not poisoned) — the caller tiles the result into
+    conflict-free rectangles. Returns (comp quad indices, {node_key: (gi, gj)})."""
+    from collections import deque
+
+    _cell = ((0, 0), (1, 0), (1, 1), (0, 1))
+    coord: dict = {}
+    for k, off in zip(keys[seed], _cell):
+        coord[k] = off
+    comp = [seed]
+    visited[seed] = True
+    q = deque([seed])
+    while q:
+        qi = q.popleft()
+        ring = keys[qi]
+        for e in range(4):
+            a, b = ring[e], ring[(e + 1) % 4]
+            owners = edge_owner.get((a, b) if a <= b else (b, a), ())
+            cands = [o for o in owners if o != qi and abs(float(np.dot(normals[qi], normals[o]))) >= cos_tol]
+            if len(cands) != 1:  # boundary / all-fold / ambiguous → stop growth across this edge
+                continue
+            nb = cands[0]
+            prev_a = ring[(e - 1) % 4]
+            qx, qy = coord[prev_a][0] - coord[a][0], coord[prev_a][1] - coord[a][1]
+            new_a = (coord[a][0] - qx, coord[a][1] - qy)
+            new_b = (coord[b][0] - qx, coord[b][1] - qy)
+            nbring = keys[nb]
+            try:
+                ia, ib = nbring.index(a), nbring.index(b)
+            except ValueError:
+                continue
+            if ib == (ia + 1) % 4:
+                ka, kb = nbring[(ia - 1) % 4], nbring[(ib + 1) % 4]
+            elif ib == (ia - 1) % 4:
+                ka, kb = nbring[(ia + 1) % 4], nbring[(ib - 1) % 4]
+            else:
+                continue
+            for k, c in ((ka, new_a), (kb, new_b)):
+                coord.setdefault(k, c)  # first-wins; conflicts resolved by the tiler
+            if not visited[nb]:
+                visited[nb] = True
+                comp.append(nb)
+                q.append(nb)
+    return comp, coord
+
+
+def _max_filled_rectangle(cells: set):
+    """Largest all-filled axis-aligned rectangle of grid cells (``{(gi, gj)}``) → inclusive
+    ``(i0, j0, i1, j1)`` or None. Histogram/stack maximal-rectangle over the bounding box."""
+    if not cells:
+        return None
+    i0 = min(c[0] for c in cells)
+    i1 = max(c[0] for c in cells)
+    j0 = min(c[1] for c in cells)
+    j1 = max(c[1] for c in cells)
+    w = j1 - j0 + 1
+    heights = [0] * w
+    best_area = 0
+    best = None
+    for i in range(i0, i1 + 1):
+        for c in range(w):
+            heights[c] = heights[c] + 1 if (i, j0 + c) in cells else 0
+        stack: list = []  # (start_col, height)
+        for c in range(w + 1):
+            h = heights[c] if c < w else 0
+            start = c
+            while stack and stack[-1][1] > h:
+                st, sh = stack.pop()
+                area = sh * (c - st)
+                if area > best_area:
+                    best_area = area
+                    best = (i - sh + 1, j0 + st, i, j0 + c - 1)
+                start = st
+            stack.append((start, h))
+    return best
+
+
+def _reconstruct_curved_panels(blk, exclude_elids, ndigits, angle_tol, min_patch_quads, plane_tol=1e-3):
+    """Curved-panel B-spline pass over a block's QUAD elements. Grows smooth regions across
+    stiffener T-junctions, tiles each into maximal conflict-free rectangles, and emits ONE
+    degree-1 B-spline surface face per rectangle that is genuinely CURVED (a planar rectangle
+    is left to the flat merge, which represents it better). Cylinder-patch elements are
+    excluded so analytic CYLINDRICAL_SURFACE emit is preserved. Returns (faces, consumed_elids).
+    OCC-free: the grower + native surface builder run the same on every backend."""
+    from ada.fem.formats.concept_merge import _round_key
+    from ada.fem.formats.surface_reconstruction import _quad_normal
+
+    qr = _quad_rings_by_elid(blk)
+    elids = [e for e in qr if e not in exclude_elids]
+    if len(elids) < min_patch_quads:
+        return [], set()
+    rings = [qr[e] for e in elids]
+    keys = [tuple(_round_key(p, ndigits) for p in r) for r in rings]
+    normals = [_quad_normal(r) for r in rings]
+    edge_owner: dict = {}
+    for qi, ring in enumerate(keys):
+        for a, b in zip(ring, ring[1:] + ring[:1]):
+            edge_owner.setdefault((a, b) if a <= b else (b, a), []).append(qi)
+    cos_tol = float(np.cos(np.deg2rad(angle_tol)))
+    visited = [False] * len(rings)
+    faces: list = []
+    consumed: set = set()
+    for seed in range(len(rings)):
+        if visited[seed]:
+            continue
+        comp, coord = _grow_smooth_region(seed, keys, normals, edge_owner, cos_tol, visited)
+        # cell → quad + node positions (drop quads whose 4 corners aren't a clean unit cell)
+        cell_quad: dict = {}
+        node_pos: dict = {}
+        for qi in comp:
+            cs = [coord.get(k) for k in keys[qi]]
+            if any(c is None for c in cs):
+                continue
+            gi0 = min(c[0] for c in cs)
+            gj0 = min(c[1] for c in cs)
+            if sorted((c[0] - gi0, c[1] - gj0) for c in cs) != [(0, 0), (0, 1), (1, 0), (1, 1)]:
+                continue
+            if (gi0, gj0) in cell_quad:
+                continue  # two quads claim one cell → conflict, skip both cells' owner
+            cell_quad[(gi0, gj0)] = qi
+            for k, p in zip(keys[qi], rings[qi]):
+                node_pos[coord[k]] = p
+        cells = set(cell_quad)
+        while cells:  # greedily tile into maximal rectangles
+            rect = _max_filled_rectangle(cells)
+            if rect is None:
+                break
+            r0, c0, r1, c1 = rect
+            if (r1 - r0 + 1) * (c1 - c0 + 1) < min_patch_quads:
+                break
+            grid = []
+            good = True
+            for gi in range(r0, r1 + 2):
+                row = []
+                for gj in range(c0, c1 + 2):
+                    p = node_pos.get((gi, gj))
+                    if p is None:
+                        good = False
+                        break
+                    row.append(p)
+                if not good:
+                    break
+                grid.append(row)
+            rquads = [cell_quad[(gi, gj)] for gi in range(r0, r1 + 1) for gj in range(c0, c1 + 1)]
+            for gi in range(r0, r1 + 1):  # consume these cells regardless of outcome
+                for gj in range(c0, c1 + 1):
+                    cells.discard((gi, gj))
+            if not good:
+                continue
+            pts = np.array([p for row in grid for p in row], dtype=float)
+            if _fit_plane(pts)[1] <= plane_tol:
+                continue  # flat rectangle → leave for the (better) planar merge
+            af = _bspline_surface_face_from_grid(grid)
+            if af is not None:
+                faces.append(af)
+                consumed.update(elids[qi] for qi in rquads)
+    return faces, consumed
+
+
+def _bspline_surface_face_from_grid(grid):
+    """A structured nu×nv node grid → ONE degree-1 tensor-product B-spline AdvancedFace,
+    built directly (no OCC, no fit). Control points = the grid nodes with clamped knots, so
+    the surface passes through EVERY node and is bilinear between them — i.e. geometrically
+    identical to the mesh facets, with zero deviation — but the whole curved patch is a single
+    face. Boundary = the grid perimeter (which lies exactly on a degree-1 surface). None if
+    the grid is degenerate."""
+    from ada.geom.curves import KnotType, PolyLoop
+    from ada.geom.points import Point
+    from ada.geom.surfaces import AdvancedFace, BSplineSurfaceForm, BSplineSurfaceWithKnots, FaceBound
+
+    nu = len(grid)
+    nv = len(grid[0]) if nu else 0
+    if nu < 2 or nv < 2:
+        return None
+
+    def _clamped(n):  # degree-1 clamped knot vector: 0..n-1, ends doubled
+        return [float(k) for k in range(n)], [2] + [1] * (n - 2) + [2]
+
+    uk, um = _clamped(nu)
+    vk, vm = _clamped(nv)
+    surf = BSplineSurfaceWithKnots(
+        u_degree=1,
+        v_degree=1,
+        control_points_list=[[Point(*grid[i][j]) for j in range(nv)] for i in range(nu)],
+        surface_form=BSplineSurfaceForm.UNSPECIFIED,
+        u_closed=False,
+        v_closed=False,
+        self_intersect=False,
+        u_multiplicities=um,
+        v_multiplicities=vm,
+        u_knots=uk,
+        v_knots=vk,
+        knot_spec=KnotType.UNSPECIFIED,
+    )
+    # perimeter of the grid (CCW), on the surface exactly for degree 1
+    perim = (
+        [grid[0][j] for j in range(nv)]
+        + [grid[i][nv - 1] for i in range(1, nu)]
+        + [grid[nu - 1][j] for j in range(nv - 2, -1, -1)]
+        + [grid[i][0] for i in range(nu - 2, 0, -1)]
+    )
+    bound = FaceBound(bound=PolyLoop(polygon=[Point(*p) for p in perim]), orientation=True)
+    return AdvancedFace(bounds=[bound], face_surface=surf, same_sense=True)
+
+
 def iter_fem_analytic_faces(
-    part, *, angle_tol: float = 30.0, min_patch_quads: int = 12, ndigits: int = 6, trim_cylinders: bool = True
+    part,
+    *,
+    angle_tol: float = 30.0,
+    min_patch_quads: int = 12,
+    ndigits: int = 6,
+    trim_cylinders: bool = True,
+    reconstruct_curved: bool = True,
 ):
     """Yield analytic ``ada.geom`` faces for every FEM shell mesh under ``part``, auto-
     detecting each region-grown patch's primitive: a **cylinder** patch → analytic
@@ -679,7 +910,13 @@ def iter_fem_analytic_faces(
     edges tessellate curved on BOTH CAD backends (adacpp routes the pcurve through
     ``edge_from_pcurve``); set it False for the plain full-tube form (flat circular ends).
 
-    Never worse than the plain coplanar merge (non-cylinder patches fall through to it)
+    ``reconstruct_curved`` (default True) is the curved-panel pass: over each block's quads it
+    grows smooth regions ACROSS stiffener T-junctions, tiles them into maximal conflict-free
+    rectangles, and emits ONE degree-1 B-spline surface face per CURVED rectangle (a
+    5000-facet hull panel → one BSplineSurfaceWithKnots, exact & OCC-free). Cylinder regions
+    are excluded (kept analytic) and flat rectangles are left to the planar merge.
+
+    Never worse than the plain coplanar merge (non-reconstructed regions fall through to it)
     and collapses a tube's thousands of shell facets to a handful of exact cylinders."""
     parts = part.get_all_parts_in_assembly(include_self=True) if hasattr(part, "get_all_parts_in_assembly") else [part]
     for p in parts:
@@ -690,8 +927,19 @@ def iter_fem_analytic_faces(
             prims = _block_primitives(blk)
             if len(prims) == 0:
                 continue
-            for patch in _surface_patches(prims, angle_tol, ndigits):
-                cls = classify_patch(prims, patch) if len(patch) >= min_patch_quads else "planar"
+            patches = list(_surface_patches(prims, angle_tol, ndigits))
+            patch_cls = [(pt, classify_patch(prims, pt) if len(pt) >= min_patch_quads else "planar") for pt in patches]
+
+            # Curved-panel B-spline pass (over quads NOT in a cylinder patch, to keep those
+            # analytic). Consumes only the curved rectangles; everything else falls to the
+            # cylinder / planar / facet emit below, which skips the consumed elements.
+            consumed: set = set()
+            if reconstruct_curved and blk.conn.shape[1] == 4:
+                cyl_elids = {_elid_of(prims.names[j]) for pt, c in patch_cls if c == "cylinder" for j in pt}
+                bfaces, consumed = _reconstruct_curved_panels(blk, cyl_elids, ndigits, angle_tol, min_patch_quads)
+                yield from bfaces
+
+            for patch, cls in patch_cls:
                 if cls == "cylinder":
                     cf = fit_cylinder_params(prims, patch)
                     if cf is not None:
@@ -700,21 +948,25 @@ def iter_fem_analytic_faces(
                         trimmed = cylinder_trim_faces(prims, patch, cf, ndigits) if trim_cylinders else None
                         yield from (trimmed if trimmed is not None else cylinder_fit_to_faces(cf))
                         continue
-                if len(patch) == 1:
-                    yield _facet_flat_face(prims, patch[0])
+                # drop elements already emitted as a curved B-spline panel
+                rem = [j for j in patch if _elid_of(prims.names[j]) not in consumed] if consumed else patch
+                if not rem:
+                    continue
+                if len(rem) == 1:
+                    yield _facet_flat_face(prims, rem[0])
                     continue
                 if cls == "planar":
                     # The WHOLE patch is flat within tol (classify_patch's plane gate): emit it as
                     # ONE flat face (its outer boundary + holes) via robust extraction. Skipping the
                     # per-plane-bucket path is the win — exact-plane bucketing shatters a nearly-flat
                     # patch into per-facet (the ship-hull 47k-face blow-up).
-                    faces = _flat_faces_with_holes(prims, patch, ndigits)
+                    faces = _flat_faces_with_holes(prims, rem, ndigits)
                     if faces:
                         yield from faces
                         continue
-                # freeform, or a planar patch whose boundary wouldn't resolve: coplanar-merge
-                # per exact-plane component, facet only where that can't collapse either.
-                yield from _analytic_flat_faces(prims, patch, ndigits)
+                # freeform leftover / a planar patch whose boundary wouldn't resolve: coplanar-merge
+                # per exact-plane component, facet where that can't collapse.
+                yield from _analytic_flat_faces(prims, rem, ndigits)
 
 
 def cylinder_trim_faces(prims: "_Primitives", patch: list[int], cf: "CylinderFit", ndigits: int = 6):
