@@ -173,24 +173,25 @@ const UtilitiesSection = () => {
     }, [refreshOverlays]);
 
     const toggleOverlay = async (key: string) => {
-        // ADD the overlay ON TOP of the currently loaded model (a colored layer to compare the
-        // merged result against the source), NOT replace it. applyViewerOps clears prior overlay
-        // layers but leaves the model; unchecking (empty set) removes the overlay — that's delete.
+        // ADD the overlay as a real model ON TOP of the loaded one (compare merged vs source),
+        // via the same model pipeline the StorageBrowser uses — setupModelLoaderAsync renders it
+        // (a raw scene.add(gltf.scene) doesn't, in this batched-mesh viewer) and translate=true
+        // aligns it to the loaded model's frame. Uncheck unloads just this overlay.
         const next = new Set(activeOverlays);
-        if (next.has(key)) next.delete(key);
-        else next.add(key);
-        setActiveOverlays(next);
+        const adding = !next.has(key);
         try {
-            if (next.size === 0) {
-                clearViewerOps();
+            if (adding) {
+                const {overlay_file_in_scene} = await import("@/utils/scene/handlers/overlay_file_in_scene");
+                await overlay_file_in_scene(key, key, {scope}); // key is a .glb → used verbatim
+                next.add(key);
             } else {
-                await applyViewerOps(
-                    {ops: [...next].map((k) => ({op: "add_overlay_geometry" as const, blob_key: k, label: k.split("/").pop() ?? k}))},
-                    scope,
-                );
+                const {unload_source_from_scene} = await import("@/utils/scene/handlers/unload_source_from_scene");
+                await unload_source_from_scene(key);
+                next.delete(key);
             }
+            setActiveOverlays(next);
         } catch (e) {
-            setLastResult({summary: {error: `overlay load failed: ${String(e)}`}});
+            setLastResult({summary: {error: `overlay ${adding ? "load" : "unload"} failed: ${String(e)}`}});
         }
     };
 
@@ -253,6 +254,20 @@ const UtilitiesSection = () => {
     // Re-mounting initialises `flipped` from isFlipped() so the toggle stays
     // accurate. Unflip happens only on explicit toggle-off / Reset / utility switch.
 
+    // Apply a utility result. An overlay-GLB op (merge-preview/generate/diff) is loaded through
+    // the MODEL pipeline (overlay_file_in_scene → CustomBatchedMesh keeps COLOR_0 + geometry and
+    // actually renders); color_elements / inline-blob (wasm) results go through applyViewerOps.
+    const applyResult = async (payload: {ops?: {op: string; blob_key?: string}[]}) => {
+        const oop = (payload.ops || []).find((o) => o.op === "add_overlay_geometry" && o.blob_key);
+        if (oop?.blob_key) {
+            const {overlay_file_in_scene} = await import("@/utils/scene/handlers/overlay_file_in_scene");
+            await overlay_file_in_scene(oop.blob_key, oop.blob_key, {scope});
+            setActiveOverlays((prev) => new Set(prev).add(oop.blob_key as string));
+        } else {
+            await applyViewerOps(payload as never, scope);
+        }
+    };
+
     const run = async () => {
         if (!spec) return;
         const sourceKey = useModelState.getState().loadedSourceName;
@@ -269,7 +284,7 @@ const UtilitiesSection = () => {
             if (wasmUtil && wasmUtil.canRun(wasmCtx)) {
                 try {
                     const payload = await wasmUtil.run(wasmCtx);
-                    await applyViewerOps(payload, scope);
+                    await applyResult(payload);
                     setLastResult({legend: payload.legend, summary: payload.summary});
                     return;
                 } catch (e) {
@@ -308,7 +323,7 @@ const UtilitiesSection = () => {
             if (status.status !== "done") throw new Error("utility timed out");
             const buf = await viewerApi.getBlob(scope, status.derived_key);
             const payload = JSON.parse(new TextDecoder().decode(new Uint8Array(buf)));
-            await applyViewerOps(payload, scope);
+            await applyResult(payload);
             setLastResult({legend: payload.legend, summary: payload.summary});
         } catch (e) {
             setLastResult({summary: {error: String(e)}});
@@ -419,6 +434,24 @@ const UtilitiesSection = () => {
                                         onChange={() => void toggleOverlay(o.key)}
                                     />
                                     <span className="truncate flex-1">{short}</span>
+                                    <button
+                                        type="button"
+                                        className="text-gray-400 hover:text-blue-400 shrink-0 px-1"
+                                        title="Copy this overlay into the current scope as a regular model file (next to the original)"
+                                        onClick={async (e) => {
+                                            e.preventDefault();
+                                            const destKey = o.key.split("/").pop() ?? o.key; // drop _overlays/ prefix
+                                            try {
+                                                const buf = await viewerApi.getBlob(scope, o.key);
+                                                await viewerApi.putBlob(scope, destKey, buf);
+                                                setLastResult({summary: {copied_to: destKey}});
+                                            } catch (err) {
+                                                setLastResult({summary: {error: `copy failed: ${String(err)}`}});
+                                            }
+                                        }}
+                                    >
+                                        ⧉
+                                    </button>
                                     <button
                                         type="button"
                                         className="text-gray-400 hover:text-red-400 shrink-0 px-1"
