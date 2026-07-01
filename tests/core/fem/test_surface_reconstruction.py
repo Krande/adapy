@@ -189,9 +189,13 @@ def test_fold_splits_into_two_panels():
     assert len(flat) == 0
 
 
-def test_backend_without_fit_falls_back(monkeypatch):
-    # Simulate adacpp / OCC-absent: the fit verb raises NotImplementedError →
-    # every patch must fall back to flat plates without crashing.
+def test_backend_without_fit_uses_native_fallback(monkeypatch):
+    # Backend fit absent (adacpp / OCC-absent): the verb raises NotImplementedError, and
+    # _fit_patch now falls back to the OCC-free native degree-1 B-spline, so curved panels
+    # are STILL reconstructed (a PlateCurved with a BSplineSurfaceWithKnots) — not dropped to
+    # flat. This is what makes curved reconstruction work on the adacpp backend.
+    from ada.geom.surfaces import BSplineSurfaceWithKnots
+
     nu, nv = 8, 6
     p = ada.Part("nofit")
     ng = _cylinder_nodes(p, nu, nv)
@@ -207,8 +211,8 @@ def test_backend_without_fit_falls_back(monkeypatch):
     )
     objs = reconstruct_shell_surfaces(p, angle_tol=30.0, min_patch_quads=1)
     curved, flat = _split(objs)
-    assert len(curved) == 0
-    assert len(flat) > 0
+    assert len(curved) > 0  # native fallback reconstructs the curved panel(s)
+    assert isinstance(curved[0].geom.geometry.face_surface, BSplineSurfaceWithKnots)
 
 
 @requires_fit
