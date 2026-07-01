@@ -87,6 +87,15 @@ def test_end_to_end_uploads_overlay_and_reports_stats(monkeypatch, tmp_path):
     assert payload["version"] == 1  # run_utility stamps the viewops version
 
 
+def test_surface_region_grows_smooth_patch():
+    a = _two_coplanar_quads()  # two edge-adjacent quads, same normal -> one smooth patch
+    s = analyze_part(a, "surface", min_patch_quads=2).stats
+    assert s["strategy"] == "surface"
+    assert s["surface_patches"] == 1  # grown into a single fitted-surface patch
+    assert s["achieved_plates"] == 1
+    assert s["angle_tol"] == 30.0
+
+
 def test_non_fem_source_rejected():
     with pytest.raises(ValueError, match="FEM source"):
         run_utility(
@@ -106,5 +115,5 @@ def test_unimplemented_algorithm_raises(monkeypatch, tmp_path):
             storage=_FakeStore(),
             scope=None,
             on_progress=lambda *_: None,
-            kwargs={"algorithm": "surface"},
+            kwargs={"algorithm": "panel"},
         )
