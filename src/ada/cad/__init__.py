@@ -21,6 +21,7 @@ least one backend.
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -45,6 +46,23 @@ if TYPE_CHECKING:
     from ada.geom.direction import Direction
     from ada.geom.points import Point
     from ada.occ.backend import OccBackend  # re-exported at runtime via __getattr__
+
+
+def _circle_param(pt, loc, axis, ref) -> float:
+    """Angular parameter (radians) of ``pt`` on a circle at ``loc`` with normal ``axis``
+    and angular origin ``ref`` — measured from ref about axis, matching OCC's gp_Circ. Used
+    to recover a circular arc's trim extent from its endpoints for the adacpp edge encoder."""
+    ax = [float(x) for x in axis]
+    an = math.sqrt(sum(c * c for c in ax)) or 1.0
+    ax = [c / an for c in ax]
+    r0 = [float(x) for x in ref]
+    dp = sum(r0[i] * ax[i] for i in range(3))
+    r0 = [r0[i] - dp * ax[i] for i in range(3)]  # ref orthogonalised to axis
+    rn = math.sqrt(sum(c * c for c in r0)) or 1.0
+    r0 = [c / rn for c in r0]
+    perp = [ax[1] * r0[2] - ax[2] * r0[1], ax[2] * r0[0] - ax[0] * r0[2], ax[0] * r0[1] - ax[1] * r0[0]]
+    d = [float(pt[i]) - float(loc[i]) for i in range(3)]
+    return math.atan2(sum(d[i] * perp[i] for i in range(3)), sum(d[i] * r0[i] for i in range(3)))
 
 
 class Containment(Enum):
@@ -723,7 +741,16 @@ class AdacppBackend:
                 return [2.0, *loc, *axis, *ref, r, *start]
             if has_trim:
                 return [5.0, *loc, *axis, *ref, r, float(t_start), float(t_end)]
-            return [0.0, *start, *end]  # no trim params recoverable → chord
+            # No explicit trim: recover the arc's angular extent from the endpoints (CCW from
+            # start to end, matching OccBackend's two-point arc). WITHOUT this the arc collapsed
+            # to a chord ([0, start, end]) → the face lost the surface and BRepMesh tessellated it
+            # flat (a cylinder wall meshed toward its axis). Emitting the real arc keeps the
+            # boundary on the cylinder so the analytic face meshes correctly on the adacpp backend.
+            t0 = _circle_param(start, loc, axis, ref)
+            t1 = _circle_param(end, loc, axis, ref)
+            while t1 <= t0 + 1e-12:
+                t1 += 2.0 * math.pi
+            return [5.0, *loc, *axis, *ref, r, t0, t1]
         if isinstance(curve, cu.Ellipse):
             pos = curve.position
             loc, axis, ref = self._xyz(pos.location), self._xyz(pos.axis), self._xyz(pos.ref_direction)

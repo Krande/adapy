@@ -96,6 +96,27 @@ def test_seam_crossing_arc_wire_yields_bounded_face():
     assert pos[:, 1].min() >= -R - pad and pos[:, 1].max() <= R + pad
     assert pos[:, 2].min() >= -pad and pos[:, 2].max() <= H + pad
 
+    # Every meshed vertex must lie ON the cylinder wall (radius ~R). A collapsed/flat mesh —
+    # the arc edges built as straight chords (the adacpp encoder dropping a trim-less Circle to
+    # a chord) — dips well inside R. This is the assertion that catches the collapse on either
+    # backend; the bounded-box check above passes even when the face degenerates to a flat plane.
+    radii = np.hypot(pos[:, 0], pos[:, 1])
+    assert radii.min() >= R - pad, f"vertices collapsed toward the axis (min radius {radii.min():.2f} << {R})"
+
+
+def test_circle_param_recovers_arc_angles():
+    """_circle_param recovers a point's angular parameter on a circle (from ref about axis) —
+    the math the adacpp encoder uses to turn a trim-less Circle arc into a real trimmed circle
+    instead of a chord."""
+    from ada.cad import _circle_param
+
+    loc, axis, ref = (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0)
+    assert abs(_circle_param((R, 0, 0), loc, axis, ref) - 0.0) < 1e-9
+    assert abs(_circle_param((0, R, 0), loc, axis, ref) - math.pi / 2) < 1e-9
+    assert abs(_circle_param((-R, 0, 0), loc, axis, ref) - math.pi) < 1e-9
+    # ref rotation shifts the origin: with ref=+y, the +y point is param 0
+    assert abs(_circle_param((0, R, 0), loc, axis, (0.0, 1.0, 0.0)) - 0.0) < 1e-9
+
 
 def test_runaway_triangles_dropped_from_tessellation():
     """The tessellation-level safety net: a triangle soup with vertices far outside

@@ -665,12 +665,21 @@ def _facedata_to_advanced_face(fd: "FaceData"):
     )
 
 
-def iter_fem_analytic_faces(part, *, angle_tol: float = 30.0, min_patch_quads: int = 12, ndigits: int = 6):
+def iter_fem_analytic_faces(
+    part, *, angle_tol: float = 30.0, min_patch_quads: int = 12, ndigits: int = 6, trim_cylinders: bool = False
+):
     """Yield analytic ``ada.geom`` faces for every FEM shell mesh under ``part``, auto-
     detecting each region-grown patch's primitive: a **cylinder** patch → analytic
     CYLINDRICAL_SURFACE face(s); anything else → the coplanar-merged flat faces of that
     patch (one merged plate per clean coplanar component, per-facet only where the merge
     can't collapse). No human guidance — ``classify_patch`` decides.
+
+    ``trim_cylinders`` (default False) trims each tube to its real joint-cut boundary
+    (exact ends, more faithful STEP). It is OFF by default because a joint cut's diagonal
+    boundary edges are chords, not on-surface curves — OCC reads them, but the adacpp
+    backend's stricter wire build can't mesh them curved (needs pcurves), so the default
+    full-tube form (flat circular ends, exact tube *bodies*) stays viz-safe on BOTH CAD
+    backends. Enable it for STEP-precision output that won't be tessellated via adacpp.
 
     Never worse than the plain coplanar merge (non-cylinder patches fall through to it)
     and collapses a tube's thousands of shell facets to a handful of exact cylinders."""
@@ -687,9 +696,9 @@ def iter_fem_analytic_faces(part, *, angle_tol: float = 30.0, min_patch_quads: i
                 if len(patch) >= min_patch_quads and classify_patch(prims, patch) == "cylinder":
                     cf = fit_cylinder_params(prims, patch)
                     if cf is not None:
-                        # trim to the real joint-cut boundary; fall back to the full tube
-                        # (flat circular ends) if the boundary won't resolve cleanly.
-                        trimmed = cylinder_trim_faces(prims, patch, cf, ndigits)
+                        # exact joint-cut trim only when asked (breaks adacpp meshing, see above);
+                        # otherwise the viz-safe full tube with flat circular ends.
+                        trimmed = cylinder_trim_faces(prims, patch, cf, ndigits) if trim_cylinders else None
                         yield from (trimmed if trimmed is not None else cylinder_fit_to_faces(cf))
                         continue
                 # non-cylinder patch: coplanar-merge it into flat faces WITH holes
