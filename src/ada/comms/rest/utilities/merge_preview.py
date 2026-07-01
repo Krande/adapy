@@ -279,7 +279,12 @@ def _generate(asm, model, algorithm, storage, on_progress):
         gi = all_idx[g.start : g.start + g.length] - g.vstart
         if _simp is not None and len(gi) >= 3:
             try:
-                sp, si = _simp(gp.reshape(-1), gi.reshape(-1), 0.2, 0.01)  # keep ~20%, ~1% error
+                # Curved B-spline panels re-encode the full FEM grid as a degree-1 control net
+                # (~730k tris/panel), so decimate them hard — they're smooth, error-driven collapse
+                # is safe (border-locked → panel seams hold). Flat/cylinder plates are already
+                # minimal, so keep them near-lossless.
+                th, er = (0.05, 0.03) if c == "curved" else (0.5, 0.01)
+                sp, si = _simp(gp.reshape(-1), gi.reshape(-1), th, er)
                 gp = np.asarray(sp, dtype=np.float32).reshape(-1, 3)
                 gi = np.asarray(si, dtype=np.uint32)
             except Exception:  # noqa: BLE001 — decimation is best-effort; keep the raw plate
