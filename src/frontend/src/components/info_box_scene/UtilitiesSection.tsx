@@ -146,6 +146,47 @@ const UtilitiesSection = () => {
     // job, no server memory. Falls back to the server path on failure (or when the toggle is off).
     const [runInBrowser, setRunInBrowser] = React.useState<boolean>(true);
 
+    // Saved utility overlays (_overlays/<model>.<utility>.glb), selectable per loaded model.
+    const loadedSourceName = useModelState((s) => s.loadedSourceName);
+    const [overlays, setOverlays] = React.useState<{key: string; size: number; last_modified: string | null}[]>([]);
+    const [activeOverlays, setActiveOverlays] = React.useState<Set<string>>(new Set());
+
+    // model stem of a key: "dir/JacketHybrid.merge-auto.glb" -> "JacketHybrid"
+    const stemOf = (k: string) => (k.split("/").pop() ?? k).split(".")[0];
+    const loadedStem = loadedSourceName ? stemOf(loadedSourceName) : null;
+    // only overlays generated for the CURRENTLY loaded model
+    const myOverlays = React.useMemo(
+        () => (loadedStem ? overlays.filter((o) => stemOf(o.key) === loadedStem) : []),
+        [overlays, loadedStem],
+    );
+
+    const refreshOverlays = React.useCallback(async () => {
+        try {
+            setOverlays(await viewerApi.listOverlays(scope));
+        } catch {
+            /* non-fatal: overlays are a convenience list */
+        }
+    }, [scope]);
+
+    React.useEffect(() => {
+        void refreshOverlays();
+    }, [refreshOverlays]);
+
+    const toggleOverlay = async (key: string) => {
+        const next = new Set(activeOverlays);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        setActiveOverlays(next);
+        // the active set is the source of truth: clear all overlay layers, re-add the selected ones
+        clearViewerOps();
+        for (const k of next) {
+            await applyViewerOps(
+                {ops: [{op: "add_overlay_geometry", blob_key: k, label: k.split("/").pop() ?? k}]},
+                scope,
+            );
+        }
+    };
+
     // Fetch advertised utilities from /api/config once.
     React.useEffect(() => {
         if (utilities.length) return;
@@ -267,6 +308,7 @@ const UtilitiesSection = () => {
         } finally {
             useConversionStore.getState().clearJob(`util:${spec.name}`);
             setRunning(false);
+            void refreshOverlays();  // a fresh generate/preview persists a new _overlays/ blob
         }
     };
 
@@ -351,6 +393,27 @@ const UtilitiesSection = () => {
                     Reset scene
                 </button>
             </div>
+            {myOverlays.length > 0 && (
+                // Saved overlays generated for the loaded model (scoped by model stem — an
+                // overlay made on JacketHybrid only appears when JacketHybrid is loaded).
+                <CollapsibleSection title={`Saved overlays (${myOverlays.length})`} defaultOpen={false}>
+                    <div className="max-h-40 overflow-y-auto">
+                        {myOverlays.map((o) => {
+                            const short = (o.key.split("/").pop() ?? o.key).replace(/\.glb$/, "");
+                            return (
+                                <label key={o.key} className="flex items-center gap-2 text-xs py-0.5" title={o.key}>
+                                    <input
+                                        type="checkbox"
+                                        checked={activeOverlays.has(o.key)}
+                                        onChange={() => void toggleOverlay(o.key)}
+                                    />
+                                    <span className="truncate flex-1">{short}</span>
+                                </label>
+                            );
+                        })}
+                    </div>
+                </CollapsibleSection>
+            )}
             {lastResult?.legend && (
                 <div className="mt-2">
                     {lastResult.legend.map((l) => (

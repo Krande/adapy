@@ -771,6 +771,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse({"files": out})
 
+    @api.get("/scopes/{scope}/overlays")
+    async def api_scope_overlays(scope_obj: Scope = Depends(_scope_from_path)) -> JSONResponse:
+        # Saved utility overlays (_overlays/<model-stem>.<utility>.glb) so the utils menu can
+        # offer previously-generated merge/diff overlays for the loaded model. The client
+        # filters by model stem — an overlay generated on JacketHybrid only shows when
+        # JacketHybrid is loaded. Excluded from the normal file list (is_hidden_key).
+        files = await storage.list(scope_obj)
+        overlays = [
+            {"key": f.key, "size": f.size, "last_modified": f.last_modified}
+            for f in files
+            if f.key.lstrip("/").startswith("_overlays/")
+        ]
+        overlays.sort(key=lambda o: o.get("last_modified") or "", reverse=True)
+        return JSONResponse({"overlays": overlays})
+
     async def _serve_blob_range(request: Request, scope_obj: Scope, key: str, range_header: str) -> Response | None:
         """Serve a single byte range of an identity-stored object as 206.
 
