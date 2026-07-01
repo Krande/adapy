@@ -554,6 +554,138 @@ def has_reflex_vertex(pts2d, tol: float = 1e-9) -> bool:
     return False
 
 
+def extract_boundary_loops(facet_loops, ndigits: int = 9):
+    """Robust boundary of a set of (near-)coplanar facet loops → ``(outer, holes)``.
+
+    Unlike :func:`merge_coplanar_loops_by_edge_cancellation` (which returns a SINGLE
+    clean loop or None), this returns the outer boundary loop plus every interior hole
+    loop — so a merged panel with cut-outs becomes one face WITH VOIDS instead of
+    shattering back to per-facet. Each returned loop is a list of 3D points; the outer
+    is CCW and holes are CW in the best-fit plane.
+
+    Facets are oriented consistently first (BFS flip over shared edges), so interior
+    edges cancel and the net directed boundary edges form the region's oriented cycles.
+    Returns None if the boundary can't be resolved cleanly (e.g. a non-manifold pinch
+    where a vertex has >1 unused outgoing boundary edge — caller falls back).
+    """
+    import numpy as np
+
+    def _rnd(p):
+        return (round(float(p[0]), ndigits), round(float(p[1]), ndigits), round(float(p[2]), ndigits))
+
+    facets: list = []
+    prep: dict = {}
+    for pts in facet_loops:
+        pts = list(pts)
+        if len(pts) >= 2 and _rnd(pts[0]) == _rnd(pts[-1]):
+            pts = pts[:-1]
+        if len(pts) < 3:
+            continue
+        ring = [_rnd(p) for p in pts]
+        for p, k in zip(pts, ring):
+            prep.setdefault(k, p)
+        facets.append(ring)
+    if not facets:
+        return None
+
+    # ── 1. orient facets consistently (material on a common side) ──
+    from collections import defaultdict, deque
+
+    owners: dict = defaultdict(list)  # undirected edge -> [(facet_idx, a, b), ...]
+    for fi, f in enumerate(facets):
+        m = len(f)
+        for i in range(m):
+            a, b = f[i], f[(i + 1) % m]
+            owners[(a, b) if a <= b else (b, a)].append((fi, a, b))
+    adj: dict = defaultdict(list)
+    for lst in owners.values():
+        if len(lst) == 2:  # a manifold interior edge shared by two facets
+            (f0, a0, b0), (f1, a1, b1) = lst
+            same = (a0, b0) == (a1, b1)  # same direction in both rings => inconsistent winding
+            adj[f0].append((f1, same))
+            adj[f1].append((f0, same))
+    flip: list = [None] * len(facets)
+    for s in range(len(facets)):
+        if flip[s] is not None:
+            continue
+        flip[s] = False
+        q = deque([s])
+        while q:
+            c = q.popleft()
+            for nb, same in adj[c]:
+                want = flip[c] ^ same  # flip neighbour iff it traverses the shared edge the same way
+                if flip[nb] is None:
+                    flip[nb] = want
+                    q.append(nb)
+
+    # ── 2. net directed boundary edges (interior cancels) ──
+    dc: dict = defaultdict(int)
+    for fi, f in enumerate(facets):
+        ring = f[::-1] if flip[fi] else f
+        m = len(ring)
+        for i in range(m):
+            dc[(ring[i], ring[(i + 1) % m])] += 1
+    out_star: dict = defaultdict(list)
+    n_boundary = 0
+    for (a, b), c in dc.items():
+        net = c - dc.get((b, a), 0)
+        for _ in range(max(0, net)):
+            out_star[a].append(b)
+            n_boundary += 1
+    if n_boundary < 3:
+        return None
+
+    # ── 3. trace oriented cycles (degree-2 unambiguous; a pinch -> bail) ──
+    loops_keys: list = []
+    for a in list(out_star):
+        while out_star[a]:
+            start = a
+            loop = [start]
+            cur = out_star[start].pop()
+            guard = 0
+            while cur != start:
+                loop.append(cur)
+                nxt = out_star.get(cur)
+                if not nxt:
+                    return None  # dangling / non-manifold
+                if len(nxt) > 1:
+                    return None  # pinch (degree>2): needs angular tracing (not yet)
+                cur = nxt.pop()
+                guard += 1
+                if guard > n_boundary + 5:
+                    return None
+            loops_keys.append(loop)
+    if not loops_keys:
+        return None
+
+    # ── 4. classify by signed area in the best-fit plane: outer = max |area| ──
+    pts_all = np.array([prep[k] for k in {k for lp in loops_keys for k in lp}])
+    ctr = pts_all.mean(axis=0)
+    _, _, vt = np.linalg.svd(pts_all - ctr, full_matrices=False)
+    e1, e2 = vt[0], vt[1]
+
+    def _signed_area(lp):
+        xy = [((np.array(prep[k]) - ctr) @ e1, (np.array(prep[k]) - ctr) @ e2) for k in lp]
+        s = 0.0
+        for i in range(len(xy)):
+            x1, y1 = xy[i]
+            x2, y2 = xy[(i + 1) % len(xy)]
+            s += x1 * y2 - x2 * y1
+        return 0.5 * s
+
+    scored = []
+    for lp in loops_keys:
+        pts3 = remove_near_collinear_points([prep[k] for k in lp])
+        if len(pts3) >= 3:
+            scored.append((_signed_area(lp), pts3))
+    if not scored:
+        return None
+    outer_i = max(range(len(scored)), key=lambda i: abs(scored[i][0]))
+    outer = scored[outer_i][1]
+    holes = [p for i, (_a, p) in enumerate(scored) if i != outer_i]
+    return outer, holes
+
+
 def merge_coplanar_loops_by_edge_cancellation(loops, ndigits: int = 9):
     """Merge coplanar planar polygon loops by canceling edges shared between them.
 
