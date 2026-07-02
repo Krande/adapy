@@ -230,3 +230,28 @@ def test_min_patch_quads_keeps_small_patches_flat():
 
     curved_only = _split(reconstruct_shell_surfaces(p, min_patch_quads=n_quads))
     assert len(curved_only[0]) == 1 and len(curved_only[1]) == 0
+
+
+def test_fit_cubic_bspline_coarse_and_accurate():
+    # A smooth cylinder-section grid fits a COARSE bicubic (few control points) within tolerance,
+    # instead of a degree-1 surface that re-encodes every node.
+    from ada.fem.formats.mesh_faces import _fit_cubic_bspline_surface_face_from_grid
+
+    nu, nv, R = 40, 80, 5.0
+    th = np.linspace(0.0, 1.2, nu)
+    z = np.linspace(0.0, 10.0, nv)
+    grid = [[(R * np.cos(t), R * np.sin(t), zz) for zz in z] for t in th]
+    af = _fit_cubic_bspline_surface_face_from_grid(grid, rel_tol=0.01)
+    s = af.face_surface
+    assert s.u_degree == 3 and s.v_degree == 3
+    m, n = len(s.control_points_list), len(s.control_points_list[0])
+    assert m <= 16 and n <= 16 and m < nu and n < nv  # far coarser than the node grid
+
+
+def test_fit_cubic_falls_back_on_tiny_grid():
+    # Too few nodes for a cubic → exact degree-1 grid surface (never worse).
+    from ada.fem.formats.mesh_faces import _fit_cubic_bspline_surface_face_from_grid
+
+    grid = [[(x, y, 0.1 * x * y) for y in range(3)] for x in range(3)]
+    af = _fit_cubic_bspline_surface_face_from_grid(grid)
+    assert af.face_surface.u_degree == 1  # fell back

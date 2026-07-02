@@ -843,7 +843,7 @@ def _reconstruct_curved_panels(blk, exclude_elids, ndigits, angle_tol, min_patch
             pts = np.array([p for row in grid for p in row], dtype=float)
             if _fit_plane(pts)[1] <= plane_tol:
                 continue  # flat rectangle → leave for the (better) planar merge
-            af = _bspline_surface_face_from_grid(grid)
+            af = _fit_cubic_bspline_surface_face_from_grid(grid)
             if af is not None:
                 panels.append((af, [elids[qi] for qi in rquads]))
     return panels
@@ -891,6 +891,118 @@ def _bspline_surface_face_from_grid(grid):
         + [grid[nu - 1][j] for j in range(nv - 2, -1, -1)]
         + [grid[i][0] for i in range(nu - 2, 0, -1)]
     )
+    bound = FaceBound(bound=PolyLoop(polygon=[Point(*p) for p in perim]), orientation=True)
+    return AdvancedFace(bounds=[bound], face_surface=surf, same_sense=True)
+
+
+def _clamped_uniform_knots(ncp: int, deg: int):
+    """Clamped uniform B-spline knots for ``ncp`` control points of degree ``deg``.
+    Returns (distinct_knots, multiplicities, flat_knot_vector)."""
+    n_int = ncp - deg - 1  # interior knots
+    interior = [(k + 1) / (n_int + 1) for k in range(n_int)] if n_int > 0 else []
+    distinct = [0.0] + interior + [1.0]
+    mults = [deg + 1] + [1] * len(interior) + [deg + 1]
+    flat = [0.0] * (deg + 1) + interior + [1.0] * (deg + 1)
+    return distinct, mults, flat
+
+
+def _bspline_basis_matrix(params, flat_knots, deg: int, ncp: int):
+    """Cox–de-Boor basis matrix: row r = the ``ncp`` basis-function values at ``params[r]``."""
+    T = np.asarray(flat_knots, dtype=float)
+    x = np.asarray(params, dtype=float)
+    nspan = len(T) - 1
+    M = np.zeros((len(x), ncp))
+    for r, u in enumerate(x):
+        N = np.zeros(nspan)
+        if u >= T[-1]:  # right endpoint → last non-degenerate span
+            for i in range(nspan - 1, -1, -1):
+                if T[i] < T[i + 1]:
+                    N[i] = 1.0
+                    break
+        else:
+            for i in range(nspan):
+                if T[i] <= u < T[i + 1]:
+                    N[i] = 1.0
+                    break
+        for d in range(1, deg + 1):  # in-place front-to-back (reads N[i], N[i+1]; writes N[i])
+            for i in range(nspan - d):
+                a = (u - T[i]) / (T[i + d] - T[i]) * N[i] if T[i + d] > T[i] else 0.0
+                b = (T[i + d + 1] - u) / (T[i + d + 1] - T[i + 1]) * N[i + 1] if T[i + d + 1] > T[i + 1] else 0.0
+                N[i] = a + b
+        M[r, :] = N[:ncp]
+    return M
+
+
+def _fit_cubic_bspline_surface_face_from_grid(grid, rel_tol: float = 0.01, max_cp: int = 16, deg: int = 3):
+    """A structured nu×nv node grid → ONE **coarse bicubic** tensor-product B-spline AdvancedFace,
+    least-squares fit with far fewer control points than nodes (a smooth hull panel → ~10×10
+    control net instead of the full mesh). Adaptive: grows the control net until the max node
+    deviation is within ``rel_tol`` × the patch size, else falls back to the exact degree-1
+    surface (never worse than :func:`_bspline_surface_face_from_grid`)."""
+    from ada.geom.curves import KnotType, PolyLoop
+    from ada.geom.points import Point
+    from ada.geom.surfaces import AdvancedFace, BSplineSurfaceForm, BSplineSurfaceWithKnots, FaceBound
+
+    Q = np.asarray(grid, dtype=float)
+    if Q.ndim != 3 or Q.shape[0] < deg + 1 or Q.shape[1] < deg + 1:
+        return _bspline_surface_face_from_grid(grid)
+    nu, nv = Q.shape[0], Q.shape[1]
+    flat = Q.reshape(-1, 3)
+    scale = float(np.linalg.norm(flat.max(0) - flat.min(0)))
+    tol = rel_tol * scale
+    u = np.linspace(0.0, 1.0, nu)
+    v = np.linspace(0.0, 1.0, nv)
+
+    best = None
+    for cp in (6, 10, max_cp):
+        m, n = min(cp, nu), min(cp, nv)
+        if m < deg + 1 or n < deg + 1:
+            continue
+        ud, um, uf = _clamped_uniform_knots(m, deg)
+        vd, vm, vf = _clamped_uniform_knots(n, deg)
+        Nu = _bspline_basis_matrix(u, uf, deg, m)
+        Nv = _bspline_basis_matrix(v, vf, deg, n)
+        Nui, Nvi = np.linalg.pinv(Nu), np.linalg.pinv(Nv)
+        P = np.stack([Nui @ Q[:, :, c] @ Nvi.T for c in range(3)], axis=-1)  # (m,n,3) control net
+        Qf = np.stack([Nu @ P[:, :, c] @ Nv.T for c in range(3)], axis=-1)  # fitted surface @ grid
+        dev = float(np.linalg.norm(Qf - Q, axis=-1).max())
+        best = (P, Qf, ud, um, vd, vm, m, n)
+        if dev <= tol:
+            break
+    else:
+        if best is None or dev > tol:
+            return _bspline_surface_face_from_grid(grid)  # can't fit coarsely → exact degree-1
+    P, Qf, ud, um, vd, vm, m, n = best
+
+    surf = BSplineSurfaceWithKnots(
+        u_degree=deg,
+        v_degree=deg,
+        control_points_list=[[Point(*P[i][j]) for j in range(n)] for i in range(m)],
+        surface_form=BSplineSurfaceForm.UNSPECIFIED,
+        u_closed=False,
+        v_closed=False,
+        self_intersect=False,
+        u_multiplicities=um,
+        v_multiplicities=vm,
+        u_knots=ud,
+        v_knots=vd,
+        knot_spec=KnotType.UNSPECIFIED,
+    )
+
+    # Boundary: perimeter of the FITTED surface (on the cubic, so the trim is consistent),
+    # coarsened to ~a few points per control span so the border isn't finely subdivided.
+    def _coarsen(seq, target):
+        if len(seq) <= target or target < 2:
+            return seq
+        step = (len(seq) - 1) / (target - 1)
+        return [seq[min(int(round(k * step)), len(seq) - 1)] for k in range(target)]
+
+    tu, tv = max(2, 3 * m), max(2, 3 * n)
+    top = _coarsen([Qf[0][j] for j in range(nv)], tv)
+    right = _coarsen([Qf[i][nv - 1] for i in range(nu)], tu)
+    bot = _coarsen([Qf[nu - 1][j] for j in range(nv - 1, -1, -1)], tv)
+    left = _coarsen([Qf[i][0] for i in range(nu - 1, -1, -1)], tu)
+    perim = top[:-1] + right[:-1] + bot[:-1] + left[:-1]  # drop shared corners
     bound = FaceBound(bound=PolyLoop(polygon=[Point(*p) for p in perim]), orientation=True)
     return AdvancedFace(bounds=[bound], face_surface=surf, same_sense=True)
 

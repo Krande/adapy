@@ -255,8 +255,22 @@ def _generate(asm, model, algorithm, storage, on_progress):
     ]
 
     on_progress("tessellating (libtess2)", 0.6)
+    # A concrete chord tolerance (~0.1% of the model) — NOT deflection=0 (auto), which over-refines
+    # curved B-spline faces catastrophically (a coarse cubic panel → ~1M tris instead of a few k).
+    mn = np.full(3, np.inf)
+    mx = np.full(3, -np.inf)
+    for f in faces:
+        poly = getattr(f.bounds[0].bound, "polygon", None)
+        if poly:
+            arr = np.array([[p.x, p.y, p.z] for p in poly])
+            mn = np.minimum(mn, arr.min(0))
+            mx = np.maximum(mx, arr.max(0))
+    diag = float(np.linalg.norm(mx - mn)) if np.all(np.isfinite(mn)) else 0.0
+    deflection = 1e-3 * diag if diag > 0 else 0.0
     # Whole-model call (not the per-solid STEP->GLB pool) → use all cores; plates parallelise.
-    bm = active_backend().tessellate_stream(items, pipeline="libtess2", threads=(_os.cpu_count() or 1))
+    bm = active_backend().tessellate_stream(
+        items, pipeline="libtess2", deflection=deflection, threads=(_os.cpu_count() or 1)
+    )
 
     on_progress("building pickable model", 0.8)
     try:
@@ -279,11 +293,14 @@ def _generate(asm, model, algorithm, storage, on_progress):
         gi = all_idx[g.start : g.start + g.length] - g.vstart
         if _simp is not None and len(gi) >= 3:
             try:
-                # Curved B-spline panels re-encode the full FEM grid as a degree-1 control net
-                # (~730k tris/panel), so decimate them hard — they're smooth, error-driven collapse
-                # is safe (border-locked → panel seams hold). Flat/cylinder plates are already
-                # minimal, so keep them near-lossless.
-                th, er = (0.05, 0.03) if c == "curved" else (0.5, 0.01)
+                # Coarse-cubic curved panels are already smooth + light (from the fit + a real
+                # deflection), so keep them; only a DENSE panel (a non-smooth region that fell back
+                # to the exact degree-1 grid surface) needs hard decimation. Flat/cylinder plates
+                # are already minimal.
+                if c == "curved":
+                    th, er = (0.1, 0.03) if len(gi) // 3 > 5000 else (0.9, 0.01)
+                else:
+                    th, er = (0.5, 0.01)
                 sp, si = _simp(gp.reshape(-1), gi.reshape(-1), th, er)
                 gp = np.asarray(sp, dtype=np.float32).reshape(-1, 3)
                 gi = np.asarray(si, dtype=np.uint32)
