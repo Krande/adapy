@@ -23,6 +23,7 @@ from ada.fem.capacity.model import (
     CapPlate,
     CapSection,
     CapStiffener,
+    dominant_flange,
 )
 from ada.fem.capacity.sources import PanelGroupSpec
 from ada.fem.results.common import Mesh
@@ -168,16 +169,21 @@ def _section_from_mesh(mesh: Mesh, element_id: int) -> CapSection:
         )
     h = getattr(sec, "h", None)
     t_w = getattr(sec, "t_w", None)
-    w_top = getattr(sec, "w_top", None)
-    t_ftop = getattr(sec, "t_ftop", None)
+    # A Genie T-girder arrives as an unsymmetrical I whose real flange can sit
+    # in either slot (the other is a width==tw dummy) — pick the governing one.
+    bf, tf = dominant_flange(
+        float(t_w) if t_w else 0.0,
+        (getattr(sec, "w_top", None), getattr(sec, "t_ftop", None)),
+        (getattr(sec, "w_btn", None), getattr(sec, "t_fbtn", None)),
+    )
     is_bulb = str(name).upper().startswith("HP")
     return CapSection(
         name=name or "",
         section_type=7 if is_bulb else 0,
         height=float(h) if h else 0.0,
         web_thickness=float(t_w) if t_w else 0.0,
-        flange_width=float(w_top) if w_top else 0.0,
-        flange_thickness=float(t_ftop) if t_ftop else 0.0,
+        flange_width=bf,
+        flange_thickness=tf,
     )
 
 

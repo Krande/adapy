@@ -55,6 +55,41 @@ class CapSection:
         return self.section_type == SECTION_TYPE_BULB
 
 
+def dominant_flange(
+    web_thickness: float,
+    top: tuple[float | None, float | None],
+    bottom: tuple[float | None, float | None] = (None, None),
+) -> tuple[float, float]:
+    """Pick the governing (real) flange of an I/T profile description, in m.
+
+    Genie models T-girders as *unsymmetrical I-sections* with one dummy flange:
+    width equal to the web thickness (the GIORH "no flange when B == tw"
+    convention) and a token thickness (~0.1 mm). Taking whichever flange happens
+    to sit in the "top" slot therefore silently drops the real flange (e.g.
+    TG850x300x16x20 checked with a 16 x 0.1 mm flange). Treat a dummy flange as
+    absent and return the larger of the remaining flanges as ``(width,
+    thickness)``; ``(0, 0)`` if the profile genuinely has none.
+    """
+
+    def real(flange: tuple[float | None, float | None]) -> tuple[float, float] | None:
+        b, t = flange
+        if b is None or t is None:
+            return None
+        b, t = float(b), float(t)
+        if b <= 0.0 or t <= 0.0:
+            return None
+        if b <= web_thickness * (1.0 + 1e-6):  # Genie dummy: width == tw
+            return None
+        if t < 5e-4:  # token thickness (0.1 mm dummy flanges)
+            return None
+        return b, t
+
+    candidates = [f for f in (real(top), real(bottom)) if f is not None]
+    if not candidates:
+        return 0.0, 0.0
+    return max(candidates, key=lambda f: f[0] * f[1])
+
+
 @dataclass(frozen=True)
 class CapPlate:
     """One plate field of a capacity model."""

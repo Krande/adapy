@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ada.fem.capacity.model import CapSection
+from ada.fem.capacity.model import CapSection, dominant_flange
 from ada.fem.results.common import Mesh
 
 
@@ -79,8 +79,11 @@ def _section_names(sin) -> dict[int, str]:
 def _parse_sections(sin, names: dict[int, str]) -> dict[int, CapSection]:
     """Stiffener cross-sections by ``geono`` from the raw beam-section cards.
 
-    * ``GIORH`` [geono, H, tw, Bt, Tt, Bb, Tb] — I/T girders (no bottom flange
-      when ``Bb == tw``).
+    * ``GIORH`` [geono, H, tw, Bt, Tt, Bb, Tb] — I/T girders. Genie encodes a
+      missing flange as a dummy (width == ``tw``, token thickness), and a
+      T-girder is an unsymmetrical I whose real flange can sit in *either*
+      slot, so the governing flange is picked via
+      :func:`~ada.fem.capacity.model.dominant_flange`.
     * ``GLSEC`` [geono, H, tw, b, tf] — L-sections, incl. idealized bulb flats
       (``HP*`` names → tagged as bulb so the consumer applies the bulb→angle
       web-height rule).
@@ -89,8 +92,11 @@ def _parse_sections(sin, names: dict[int, str]) -> dict[int, CapSection]:
     out: dict[int, CapSection] = {}
     for rec in sin.iter_records("GIORH") if "GIORH" in sin.type_blocks else []:
         g = int(rec[0])
-        h, tw, bt, tt = float(rec[1]), float(rec[2]), float(rec[3]), float(rec[4])
-        out[g] = CapSection(names.get(g, ""), 0, h, tw, bt, tt)
+        h, tw = float(rec[1]), float(rec[2])
+        top = (float(rec[3]), float(rec[4]))
+        bottom = (float(rec[5]), float(rec[6])) if len(rec) >= 7 else (None, None)
+        bf, tf = dominant_flange(tw, top, bottom)
+        out[g] = CapSection(names.get(g, ""), 0, h, tw, bf, tf)
     for rec in sin.iter_records("GLSEC") if "GLSEC" in sin.type_blocks else []:
         g = int(rec[0])
         h, tw, b, tf = float(rec[1]), float(rec[2]), float(rec[3]), float(rec[4])

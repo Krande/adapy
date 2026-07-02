@@ -104,6 +104,25 @@ def test_stiffener_span_matches_plate_length(manager):
             assert s.span == pytest.approx(ref_span, rel=1e-3, abs=1e-4)
 
 
+def test_dominant_flange_picks_real_flange_of_genie_t_girder():
+    """Genie models a T-girder as an unsymmetrical I with a dummy flange
+    (width == tw, token thickness); the real flange can sit in either slot.
+    Reference: TG850x300x16x20 arrived as top 16 x 0.1 mm / bottom 300 x 20 mm
+    and was checked with the dummy (UF 8.13 from a near-zero flange)."""
+    from ada.fem.capacity.model import dominant_flange
+
+    # real flange in the bottom slot (the TG850x300x16x20 case)
+    assert dominant_flange(0.016, (0.016, 0.0001), (0.3, 0.02)) == (0.3, 0.02)
+    # real flange in the top slot
+    assert dominant_flange(0.016, (0.3, 0.02), (0.016, 0.0001)) == (0.3, 0.02)
+    # true unsymmetrical I: the larger flange governs
+    assert dominant_flange(0.012, (0.2, 0.02), (0.15, 0.015)) == (0.2, 0.02)
+    # no real flange at all (flat bar idealization)
+    assert dominant_flange(0.016, (0.016, 0.0001), (None, None)) == (0.0, 0.0)
+    # plain T stored top-only (legacy single-flange path still works)
+    assert dominant_flange(0.012, (0.12, 0.016)) == (0.12, 0.016)
+
+
 def test_glsec_sections_parse_as_angular_from_sin():
     from ada.fem.formats.sesam.results.read_sin import read_sin_file
     from ada.sections.categories import BaseTypes

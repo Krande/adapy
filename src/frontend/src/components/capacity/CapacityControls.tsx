@@ -1144,6 +1144,13 @@ interface GirderCheckInputs {
     Is_mm4?: number;
     section?: string;
     continuous_through_girder?: boolean;
+    // Representative stiffener profile (sidecar v11+; bulbs already idealized
+    // as angles) — needed by the UI's Stipla DNV-G export.
+    type?: string;
+    hw_mm?: number;
+    tw_mm?: number;
+    bf_mm?: number;
+    tf_mm?: number;
   };
   material?: { fy_mpa?: number; E_mpa?: number; gamma_m?: number };
   method?: string;
@@ -1169,6 +1176,11 @@ function buildUiGirderValues(
     displayRound(v == null ? fallback : v);
   const num = (v: unknown, factor: number): number =>
     displayRound(scaled(v, factor) ?? 0);
+  // Optional stiffener-profile dimension: blank when the sidecar lacks it.
+  const stDim = (v: unknown): number | string => {
+    const n = asNum(v);
+    return n == null ? "" : displayRound(n);
+  };
   const hw = asNum(ci.girder?.hw_mm) ?? 0;
   const tw = asNum(ci.girder?.tw_mm) ?? 0;
   const bf = asNum(ci.girder?.bf_mm) ?? 0;
@@ -1199,9 +1211,23 @@ function buildUiGirderValues(
     t: dr(t),
     As: dr(asNum(ci.stiffener?.As_mm2)),
     Is: dr(asNum(ci.stiffener?.Is_mm4)),
+    // Stiffener profile (bulbs already idealized as angles by the sidecar):
+    // the UI's Stipla DNV-G export needs the profile, not just A_s/I_s. Blank
+    // on older sidecars — the explicit A_s/I_s above still govern the check.
+    stiffener_type: ci.stiffener?.type ?? "tee",
+    st_hw: stDim(ci.stiffener?.hw_mm),
+    st_tw: stDim(ci.stiffener?.tw_mm),
+    st_bf: stDim(ci.stiffener?.bf_mm),
+    st_tf: stDim(ci.stiffener?.tf_mm),
     continuous_through_girder: ci.stiffener?.continuous_through_girder !== false,
     LG: dr(asNum(ci.bay?.LG_mm)),
     l_span: dr(lSpan),
+    // The sidecar run leaves the optional lengths at the engine defaults
+    // (L_Gk = L_G, L_GT = L_G, no panel length): export explicit blanks so the
+    // UI form does not substitute its own suggested defaults on import.
+    LGk: "",
+    LGT: "",
+    Lp: "",
     continuous: ci.bay?.continuous !== false,
     sigma_y_1: sigmaY(loads.N_G1),
     sigma_y_2: sigmaY(loads.N_G2),
@@ -1446,6 +1472,10 @@ function buildGirderInputGroups(row: CapacityCaseResultLike): InputGroup[] {
       title: "Supported stiffeners",
       fields: [
         f("", "Profile", ci.stiffener?.section || "—"),
+        f("h_w", "Web height", asNum(ci.stiffener?.hw_mm), "mm"),
+        f("t_w", "Web thickness", asNum(ci.stiffener?.tw_mm), "mm"),
+        f("b_f", "Flange width", asNum(ci.stiffener?.bf_mm), "mm"),
+        f("t_f", "Flange thickness", asNum(ci.stiffener?.tf_mm), "mm"),
         f("A_s", "Stiffener area", asNum(ci.stiffener?.As_mm2), "mm²"),
         f("I_s", "Moment of inertia", asNum(ci.stiffener?.Is_mm4), "mm⁴"),
         f(
