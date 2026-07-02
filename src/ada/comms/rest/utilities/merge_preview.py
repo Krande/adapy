@@ -288,16 +288,19 @@ def _generate(asm, model, algorithm, storage, on_progress, solids=False):
         return "planar"
 
     on_progress("recognising surfaces", 0.4)
+    # reconstruct_curved=False: the rectangular grid B-spline recovery over-merges bent regions into
+    # folded grids (gaps at e.g. a slanted roof); the flat plane bucket recovers those with true
+    # bounding edges instead. Cylinders/tubes are still detected. See iter_fem_analytic_faces.
     if solids:
         from ada.fem.formats.mesh_faces import iter_fem_analytic_solids
 
         # already (id, geometry) with geometry a serializable root: a BooleanResult tube solid or a face
-        geoms = [g for _id, g in iter_fem_analytic_solids(asm)]
+        geoms = [g for _id, g in iter_fem_analytic_solids(asm, reconstruct_curved=False)]
         cls_of = [_cls(g) for g in geoms]
     else:
         from ada.fem.formats.mesh_faces import iter_fem_analytic_faces
 
-        faces = list(iter_fem_analytic_faces(asm))
+        faces = list(iter_fem_analytic_faces(asm, reconstruct_curved=False))
         cls_of = [_cls(f) for f in faces]  # classify the FACE (carries face_surface) before wrapping
         geoms = [ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=[f])]) for f in faces]
 

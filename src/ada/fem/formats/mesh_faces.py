@@ -1031,20 +1031,19 @@ def _fit_cubic_bspline_surface_face_from_grid(grid, rel_tol: float = 0.01, max_c
         knot_spec=KnotType.UNSPECIFIED,
     )
 
-    # Boundary: perimeter of the FITTED surface (on the cubic, so the trim is consistent),
-    # coarsened to ~a few points per control span so the border isn't finely subdivided.
-    def _coarsen(seq, target):
-        if len(seq) <= target or target < 2:
-            return seq
-        step = (len(seq) - 1) / (target - 1)
-        return [seq[min(int(round(k * step)), len(seq) - 1)] for k in range(target)]
+    # Boundary: the ACTUAL grid-edge node positions (Q), not the fitted-surface perimeter (Qf). The
+    # fitted cubic's perimeter drifts off the real mesh edge and, coarsened, chords across it — so the
+    # panel pulls in from its true border and leaves a gap against the adjacent (flat) face that
+    # shares those nodes. Using Q keeps the edge on the shared mesh nodes; collapse only collinear
+    # runs so a straight/slanted border becomes its endpoints (not a rectangle).
+    from ada.core.vector_utils import simplify_closed_polygon
 
-    tu, tv = max(2, 3 * m), max(2, 3 * n)
-    top = _coarsen([Qf[0][j] for j in range(nv)], tv)
-    right = _coarsen([Qf[i][nv - 1] for i in range(nu)], tu)
-    bot = _coarsen([Qf[nu - 1][j] for j in range(nv - 1, -1, -1)], tv)
-    left = _coarsen([Qf[i][0] for i in range(nu - 1, -1, -1)], tu)
-    perim = top[:-1] + right[:-1] + bot[:-1] + left[:-1]  # drop shared corners
+    top = [Q[0][j] for j in range(nv)]
+    right = [Q[i][nv - 1] for i in range(1, nu)]
+    bot = [Q[nu - 1][j] for j in range(nv - 2, -1, -1)]
+    left = [Q[i][0] for i in range(nu - 2, 0, -1)]
+    perim = [tuple(float(c) for c in p) for p in (top + right + bot + left)]
+    perim = simplify_closed_polygon(perim, rel_tol=0.02, max_area_change=0.02)
     bound = FaceBound(bound=PolyLoop(polygon=[Point(*p) for p in perim]), orientation=True)
     return AdvancedFace(bounds=[bound], face_surface=surf, same_sense=True)
 
@@ -1313,6 +1312,7 @@ def iter_fem_analytic_solids(
     ndigits: int = 6,
     joint_csg: bool = True,
     cut_margin: float = 2.0,
+    reconstruct_curved: bool = True,
 ):
     """Yield ``(id, ada.geom)`` for a FEM shell mesh as analytic SOLIDS: each detected tube becomes
     a hollow annular member with its real wall thickness, and (``joint_csg``) each joint is resolved
@@ -1384,6 +1384,7 @@ def iter_fem_analytic_solids(
         angle_tol=angle_tol,
         min_patch_quads=min_patch_quads,
         ndigits=ndigits,
+        reconstruct_curved=reconstruct_curved,
         skip_cylinders=True,
         drop_on_tube=(_on_tube if tubes else None),
     ):
