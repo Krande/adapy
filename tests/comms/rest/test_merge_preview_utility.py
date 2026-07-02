@@ -1,4 +1,4 @@
-"""The ``merge-preview`` worker utility: algorithm-swappable FEM plate-merge preview.
+"""The ``merge-cad`` worker utility: FEM shell mesh -> analytic CAD (preview/generate/solids).
 
 Covers registration + advertised spec, the analyze partition (coplanar vs none),
 the end-to-end handler (uploads a colorized overlay GLB + returns stats), and the
@@ -107,7 +107,7 @@ def test_solids_action_builds_hollow_tube_glb(monkeypatch, tmp_path):
     src.write_text("stub")
     store = _FakeStore()
     payload = run_utility(
-        "merge-preview",
+        "merge-cad",
         str(src),
         storage=store,
         scope=None,
@@ -127,8 +127,8 @@ def test_solids_action_builds_hollow_tube_glb(monkeypatch, tmp_path):
 
 
 def test_registered_with_algorithm_swap_spec():
-    assert "merge-preview" in UtilityRegistry.names()
-    spec = next(s for s in UtilityRegistry.specs() if s["name"] == "merge-preview")
+    assert "merge-cad" in UtilityRegistry.names()
+    spec = next(s for s in UtilityRegistry.specs() if s["name"] == "merge-cad")
     kw = {k["name"]: k for k in spec["kwargs"]}
     assert {"action", "algorithm", "mode", "ndigits", "angle_tol", "min_patch_quads"} <= set(kw)
     assert set(kw["algorithm"]["enum"]) == {"auto", "none", "coplanar", "planar", "surface", "classify", "panel"}
@@ -154,7 +154,7 @@ def test_end_to_end_uploads_overlay_and_reports_stats(monkeypatch, tmp_path):
     store = _FakeStore()
 
     payload = run_utility(
-        "merge-preview",
+        "merge-cad",
         str(src),
         storage=store,
         scope=None,
@@ -216,7 +216,7 @@ def test_generate_action_builds_plate_glb(monkeypatch, tmp_path):
     store = _FakeStore()
 
     payload = run_utility(
-        "merge-preview",
+        "merge-cad",
         str(src),
         storage=store,
         scope=None,
@@ -522,7 +522,7 @@ def test_reconstruct_curved_panels_crosses_stiffener_tjunction():
 def test_non_fem_source_rejected():
     with pytest.raises(ValueError, match="FEM source"):
         run_utility(
-            "merge-preview", "model.step", storage=_FakeStore(), scope=None, on_progress=lambda *_: None, kwargs={}
+            "merge-cad", "model.step", storage=_FakeStore(), scope=None, on_progress=lambda *_: None, kwargs={}
         )
 
 
@@ -533,7 +533,7 @@ def test_unimplemented_algorithm_raises(monkeypatch, tmp_path):
     src.write_text("stub")
     with pytest.raises(NotImplementedError):
         run_utility(
-            "merge-preview",
+            "merge-cad",
             str(src),
             storage=_FakeStore(),
             scope=None,

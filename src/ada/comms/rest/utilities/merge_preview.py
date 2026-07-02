@@ -1,13 +1,14 @@
-"""Merge-preview utility: visualize the planned FEM-shell → plate merge partition.
+"""merge-cad utility: recover analytic CAD from a FEM shell mesh.
 
 The FEM→STEP/IFC writers are dominated by plate *count*; the coplanar merge is
 meant to collapse edge-adjacent coplanar shells into big union plates but often
-barely reduces the count. This utility runs the planned partition on the loaded
-FEM source — **without building the merged CAD geometry** — colours each source
-facet by its merge group, and reports the reduction it would achieve, so the
-merge strategy can be tuned visually and quantitatively.
+barely reduces the count. This utility runs the surface-recognition + merge on the
+loaded FEM source and, depending on ``action``, either just previews the partition
+(colour each facet by its merge group, no geometry built) or actually builds the
+merged CAD — analytic faces (``generate``) or hollow tube solids with boolean
+joints (``solids``) — and renders a viewable, per-object-pickable GLB overlay.
 
-Registered as the ``merge-preview`` worker utility. It swaps between merge
+Registered as the ``merge-cad`` worker utility. It swaps between merge
 algorithms and forwards their parameters (see :data:`ada.fem.formats.merge_preview.ALGORITHMS`),
 so a new curved-region strategy is exposed by adding it there — no change here.
 
@@ -50,10 +51,11 @@ def _put_overlay_glb(storage, key: str, glb_path: str) -> None:
 
 
 @utility(
-    name="merge-preview",
+    name="merge-cad",
     description=(
-        "Preview the FEM-shell → plate merge: colour each facet by its planned merge group "
-        "and report how much the plate count would drop (no merged geometry built)."
+        "Recover analytic CAD from a FEM shell mesh: preview the planned plate/tube merge, or build "
+        "it — merged plates + curved panels (generate), or hollow tube members with boolean joints "
+        "(solids). Renders a viewable, per-object-pickable GLB overlay."
     ),
     kwargs=[
         {
