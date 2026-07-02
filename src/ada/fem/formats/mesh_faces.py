@@ -1240,13 +1240,16 @@ def iter_fem_analytic_solids(
     cut_margin: float = 2.0,
 ):
     """Yield ``(id, ada.geom)`` for a FEM shell mesh as analytic SOLIDS: each detected tube becomes
-    a hollow annular member with its real wall thickness, and (``joint_csg``) every joint is
-    resolved with boolean CSG — incoming members are cut to the member they meet and cutout holes
-    are subtracted (both directions), so joints are clean instead of interpenetrating.
+    a hollow annular member with its real wall thickness, and (``joint_csg``) each joint is resolved
+    with boolean CSG the way a tubular joint actually works — the **chord** (the larger member) stays
+    continuous and each **brace** (the smaller member meeting it) is saddle-cut to the chord's outer
+    surface. This is asymmetric on purpose: cutting the chord with every brace too would punch a
+    through-channel across it per brace, and several of those intersecting inside one chord produced
+    the shredded-interior artifact.
 
     Walls are composed as ``outer_solid − inner_solid`` and every boolean operand is a filled
-    cylinder (Manifold rejects the winding of a hollow profile-with-void extrusion). Cutting tools
-    are extended ``cut_margin × radius`` past their ends so they pass fully through the wall.
+    cylinder (Manifold rejects the winding of a hollow profile-with-void extrusion). The chord
+    cutting tool is extended ``cut_margin × radius`` past its ends so it fully trims the brace.
 
     Non-tube geometry (flat plates, curved panels) is emitted as analytic faces via
     :func:`iter_fem_analytic_faces` with the cylinders skipped and any facet lying on a tube wall
@@ -1257,6 +1260,16 @@ def iter_fem_analytic_solids(
     neigh = _tube_neighbors(tubes) if joint_csg else {i: [] for i in range(len(tubes))}
     diff = BoolOpEnum.DIFFERENCE
 
+    def _is_brace_of(i: int, j: int) -> bool:
+        # member i is the brace (gets cut) w.r.t. neighbour j (the chord) when j is the larger tube;
+        # equal radii (X-joint) → deterministic single cut by lower index so only one side is cut.
+        ri, rj = tubes[i].ro, tubes[j].ro
+        if rj > ri + 1e-9:
+            return True
+        if rj < ri - 1e-9:
+            return False
+        return j < i
+
     for i, tb in enumerate(tubes):
         wall = BooleanResult(
             _filled_cylinder(tb.origin, tb.axis, tb.e1, tb.ro, tb.z0, tb.z1),
@@ -1265,6 +1278,8 @@ def iter_fem_analytic_solids(
         )
         geom = wall
         for j in neigh[i]:
+            if not _is_brace_of(i, j):
+                continue  # i is the chord for this pair → stays continuous (not cut)
             nb = tubes[j]
             margin = max(cut_margin * nb.ro, 1.0)
             tool = _filled_cylinder(nb.origin, nb.axis, nb.e1, nb.ro, nb.z0 - margin, nb.z1 + margin)
