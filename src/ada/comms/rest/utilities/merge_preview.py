@@ -60,9 +60,10 @@ def _put_overlay_glb(storage, key: str, glb_path: str) -> None:
             "name": "action",
             "type": "enum",
             "default": "preview",
-            "enum": ["preview", "generate"],
-            "description": "preview = colorized partition overlay (no geometry built); generate = actually "
-            "build the merged CAD (flat Plate + curved PlateCurved objects) and render it to a GLB for viewing.",
+            "enum": ["preview", "generate", "solids"],
+            "description": "preview = colorized partition overlay (no geometry built); generate = build the "
+            "merged CAD (flat + curved faces) and render a GLB; solids = build analytic SOLIDS (tubes as "
+            "hollow members with wall thickness, joints resolved with boolean CSG) and render a GLB.",
         },
         {
             "name": "algorithm",
@@ -143,8 +144,8 @@ def merge_preview(
     on_progress("loading-fem", 0.35)
     asm = ada.from_fem(src_path)
 
-    if action == "generate":
-        return _generate(asm, model, algorithm, storage, on_progress)
+    if action in ("generate", "solids"):
+        return _generate(asm, model, algorithm, storage, on_progress, solids=(action == "solids"))
 
     on_progress(f"partitioning ({algorithm})", 0.55)
     res = analyze_part(
@@ -202,19 +203,24 @@ _GEN_CLASS_COLOR = {
     "cylinder": [70, 190, 90, 255],  # green
     "curved": [150, 90, 220, 255],  # purple
     "planar": [70, 120, 220, 255],  # blue
+    "tube": [220, 150, 60, 255],  # orange (solids mode: hollow tube member)
 }
 
 
-def _generate(asm, model, algorithm, storage, on_progress):
-    """Render the merged CAD (the SAME analytic faces the STEP/IFC 'auto' emit produces —
-    cylinders + curved B-spline panels + merged flat plates) to a viewable GLB overlay that
-    behaves like a first-class model: per-plate picking + an object tree.
+def _generate(asm, model, algorithm, storage, on_progress, solids=False):
+    """Render the merged CAD to a viewable GLB overlay that behaves like a first-class model
+    (per-plate picking + object tree).
 
-    Each analytic face is streamed as its own NGEOM root, so libtess2 (adacpp, OCC-free, thread
-    -parallel across plates) returns one BatchMesh group PER PLATE. Plates are decimated (meshopt,
-    fast/light), grouped by class into per-colour MergedMeshes with a GroupReference per plate,
-    and written through the same GLB writer models use — so the GLB carries id_hierarchy +
-    draw_ranges_node* (per-plate picking) and the ADA_EXT_data extension (object tree)."""
+    ``solids=False`` (generate): the SAME analytic faces the STEP/IFC 'auto' emit produces —
+    cylinders + curved B-spline panels + merged flat plates. ``solids=True`` (solids): analytic
+    SOLIDS — each tube is a hollow member with its real wall thickness and joints are resolved with
+    boolean CSG (:func:`iter_fem_analytic_solids`); non-tube geometry stays as faces.
+
+    Each item is streamed as its own NGEOM root, so libtess2 (adacpp, OCC-free, thread-parallel)
+    returns one BatchMesh group PER item. Items are decimated (meshopt, fast/light), grouped by
+    class into per-colour MergedMeshes with a GroupReference per item, and written through the same
+    GLB writer models use — so the GLB carries id_hierarchy + draw_ranges_node* (per-item picking)
+    and the ADA_EXT_data extension (object tree)."""
     import os as _os
 
     import numpy as np
@@ -224,7 +230,7 @@ def _generate(asm, model, algorithm, storage, on_progress):
     from ada.core.guid import create_guid
     from ada.extension.design_and_analysis_extension_schema import AdaDesignAndAnalysisExtension
     from ada.extension.design_extension_schema import DesignDataExtension
-    from ada.fem.formats.mesh_faces import iter_fem_analytic_faces
+    from ada.geom.booleans import BooleanResult
     from ada.geom.surfaces import (
         BSplineSurfaceWithKnots,
         CylindricalSurface,
@@ -236,23 +242,33 @@ def _generate(asm, model, algorithm, storage, on_progress):
     from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
-    on_progress("recognising surfaces", 0.4)
-    faces = list(iter_fem_analytic_faces(asm))
-
-    def _cls(f):
-        s = f.face_surface
+    def _cls(g):
+        # tubes are BooleanResult (wall - joint cuts); faces classify by their surface
+        if isinstance(g, BooleanResult):
+            return "tube"
+        s = getattr(g, "face_surface", None)
         if isinstance(s, CylindricalSurface):
             return "cylinder"
         if isinstance(s, BSplineSurfaceWithKnots):
             return "curved"
         return "planar"
 
-    # one NGEOM root PER PLATE → one BatchMesh group per plate (pickable unit)
-    cls_of = [_cls(f) for f in faces]
-    items = [
-        (f"{cls_of[i]}_{i}", ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=[f])]))
-        for i, f in enumerate(faces)
-    ]
+    on_progress("recognising surfaces", 0.4)
+    if solids:
+        from ada.fem.formats.mesh_faces import iter_fem_analytic_solids
+
+        # already (id, geometry) with geometry a serializable root: a BooleanResult tube solid or a face
+        geoms = [g for _id, g in iter_fem_analytic_solids(asm)]
+        cls_of = [_cls(g) for g in geoms]
+    else:
+        from ada.fem.formats.mesh_faces import iter_fem_analytic_faces
+
+        faces = list(iter_fem_analytic_faces(asm))
+        cls_of = [_cls(f) for f in faces]  # classify the FACE (carries face_surface) before wrapping
+        geoms = [ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=[f])]) for f in faces]
+
+    # one NGEOM root PER item → one BatchMesh group per item (pickable unit)
+    items = [(f"{cls_of[i]}_{i}", g) for i, g in enumerate(geoms)]
 
     on_progress("tessellating (libtess2)", 0.6)
     be = active_backend()
@@ -362,7 +378,8 @@ def _generate(asm, model, algorithm, storage, on_progress):
     try:
         data = scene.export(file_type="glb", tree_postprocessor=_tree_pp)
         pathlib.Path(glb_tmp).write_bytes(data)
-        overlay_key = f"{_OVERLAY_PREFIX}{model}.merge-{algorithm}-generated.glb"
+        kind = "solids" if solids else "generated"
+        overlay_key = f"{_OVERLAY_PREFIX}{model}.merge-{algorithm}-{kind}.glb"
         _put_overlay_glb(storage, overlay_key, glb_tmp)
     finally:
         try:
@@ -379,23 +396,32 @@ def _generate(asm, model, algorithm, storage, on_progress):
             {
                 "op": "add_overlay_geometry",
                 "blob_key": overlay_key,
-                "label": f"generated ({algorithm})",
+                "label": f"{kind} ({algorithm})",
                 "color": "#46b45a",
             }
         ],
-        "legend": [
-            {"label": "cylinder", "color": "#46be5a"},
-            {"label": "curved (B-spline)", "color": "#9659dc"},
-            {"label": "planar (merged plate)", "color": "#4678dc"},
-        ],
+        "legend": (
+            [
+                {"label": "tube (solid member)", "color": "#dc963c"},
+                {"label": "curved (B-spline)", "color": "#9659dc"},
+                {"label": "planar (merged plate)", "color": "#4678dc"},
+            ]
+            if solids
+            else [
+                {"label": "cylinder", "color": "#46be5a"},
+                {"label": "curved (B-spline)", "color": "#9659dc"},
+                {"label": "planar (merged plate)", "color": "#4678dc"},
+            ]
+        ),
         "summary": {
-            "action": "generate",
+            "action": "solids" if solids else "generate",
             "algorithm": algorithm,
-            "faces": len(faces),
+            "faces": len(cls_of),
+            "tube_solids": counts.get("tube", 0),
             "cylinder_faces": counts.get("cylinder", 0),
             "curved_faces": counts.get("curved", 0),
             "planar_faces": counts.get("planar", 0),
-            "plates": len(faces),
+            "plates": len(cls_of),
             "vertices": int(total_verts),
         },
     }

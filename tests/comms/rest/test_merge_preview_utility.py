@@ -44,13 +44,88 @@ class _FakeStore:
         self.blobs[key] = data
 
 
+def _cylinder_shell(r=1.0, h=4.0, nt=16, nz=5, t=0.02, name="cyl") -> "ada.Assembly":
+    """A closed cylindrical shell mesh (nt angular × nz-1 axial quad rings) — a synthetic tube the
+    solids path should recognise and emit as one hollow member with wall thickness ``t``."""
+    import numpy as np
+
+    p = ada.Part(name)
+    mat = ada.Material("S355")
+    grid = {}
+    nid = 1
+    for iz in range(nz):
+        z = h * iz / (nz - 1)
+        for it in range(nt):
+            ang = 2 * np.pi * it / nt
+            n = Node([r * np.cos(ang), r * np.sin(ang), z], nid)
+            p.fem.nodes.add(n)
+            grid[(iz, it)] = n
+            nid += 1
+    eid = 1
+    for iz in range(nz - 1):
+        for it in range(nt):
+            it2 = (it + 1) % nt
+            ns = [grid[(iz, it)], grid[(iz, it2)], grid[(iz + 1, it2)], grid[(iz + 1, it)]]
+            el = p.fem.add_elem(ada.fem.Elem(eid, ns, ada.fem.Elem.EL_TYPES.SHELL_SHAPES.QUAD, el_formulation_override="S4"))
+            fs = p.fem.add_section(ada.fem.FemSection(f"S{eid}", "shell", ada.fem.FemSet(f"s{eid}", [el]), mat, thickness=t))
+            el.fem_sec = fs
+            eid += 1
+    a = ada.Assembly() / p
+    p.fem.sections.merge_by_properties()
+    return a
+
+
+def test_iter_fem_analytic_solids_emits_hollow_tube():
+    # a cylindrical shell mesh → one BooleanResult tube member (wall = outer_solid - inner_solid),
+    # backend-independent (no tessellation).
+    from ada.fem.formats.mesh_faces import iter_fem_analytic_solids
+    from ada.geom.booleans import BooleanResult
+
+    a = _cylinder_shell()
+    items = list(iter_fem_analytic_solids(a))
+    tubes = [g for _i, g in items if isinstance(g, BooleanResult)]
+    assert len(tubes) >= 1, "cylindrical shell should yield at least one tube CSG solid"
+
+
+def test_solids_action_builds_hollow_tube_glb(monkeypatch, tmp_path):
+    # end-to-end: action="solids" recognises the tube, emits a hollow member solid, uploads a GLB
+    # with per-item picking + ADA_EXT_data. Runs on whichever CAD backend is active (adacpp uses
+    # Manifold CSG; OCC uses BRepAlgoAPI via geom_to_occ_geom's BooleanResult branch).
+    import json
+    import struct
+
+    a = _cylinder_shell()
+    monkeypatch.setattr(ada, "from_fem", lambda *_a, **_k: a)
+    src = tmp_path / "cyl.fem"
+    src.write_text("stub")
+    store = _FakeStore()
+    payload = run_utility(
+        "merge-preview",
+        str(src),
+        storage=store,
+        scope=None,
+        on_progress=lambda *_: None,
+        kwargs={"action": "solids"},
+    )
+    assert payload["summary"]["action"] == "solids"
+    assert payload["summary"]["tube_solids"] >= 1
+    overlay = [o for o in payload["ops"] if o["op"] == "add_overlay_geometry"]
+    assert overlay and overlay[0]["blob_key"].endswith("-solids.glb")
+    glb = store.blobs[overlay[0]["blob_key"]]
+    assert glb[:4] == b"glTF"
+    jlen = struct.unpack("<I", glb[12:16])[0]
+    gltf = json.loads(glb[20 : 20 + jlen])
+    assert "id_hierarchy" in gltf["scenes"][0]["extras"]
+    assert gltf.get("extensions", {}).get("ADA_EXT_data") is not None
+
+
 def test_registered_with_algorithm_swap_spec():
     assert "merge-preview" in UtilityRegistry.names()
     spec = next(s for s in UtilityRegistry.specs() if s["name"] == "merge-preview")
     kw = {k["name"]: k for k in spec["kwargs"]}
     assert {"action", "algorithm", "mode", "ndigits", "angle_tol", "min_patch_quads"} <= set(kw)
     assert set(kw["algorithm"]["enum"]) == {"auto", "none", "coplanar", "planar", "surface", "classify", "panel"}
-    assert set(kw["action"]["enum"]) == {"preview", "generate"}
+    assert set(kw["action"]["enum"]) == {"preview", "generate", "solids"}
     assert set(kw["mode"]["enum"]) == {"status", "achieved", "component", "class"}
 
 

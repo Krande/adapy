@@ -1015,6 +1015,8 @@ def iter_fem_analytic_faces(
     ndigits: int = 6,
     trim_cylinders: bool = True,
     reconstruct_curved: bool = True,
+    skip_cylinders: bool = False,
+    drop_on_tube=None,
 ):
     """Yield analytic ``ada.geom`` faces for every FEM shell mesh under ``part``, auto-
     detecting each region-grown patch's primitive: a **cylinder** patch → analytic
@@ -1061,6 +1063,9 @@ def iter_fem_analytic_faces(
 
             for patch, cls in patch_cls:
                 if cls == "cylinder":
+                    # solids mode owns the tubes (emitted as CSG solids elsewhere); skip the faces.
+                    if skip_cylinders:
+                        continue
                     cf = fit_cylinder_params(prims, patch)
                     if cf is not None:
                         # exact joint-cut trim only when asked (breaks adacpp meshing, see above);
@@ -1070,6 +1075,10 @@ def iter_fem_analytic_faces(
                         continue
                 # drop elements already emitted as a curved B-spline panel
                 rem = [j for j in patch if _elid_of(prims.names[j]) not in consumed] if consumed else patch
+                # solids mode: drop primitives lying on a tube wall (their triangle/quad facets would
+                # otherwise float on the CSG solid — the "leftover triangles on the cylinder" bug).
+                if drop_on_tube is not None and rem:
+                    rem = [j for j in rem if not drop_on_tube(prims.outline(j).mean(axis=0))]
                 if not rem:
                     continue
                 if len(rem) == 1:
@@ -1087,6 +1096,201 @@ def iter_fem_analytic_faces(
                 # freeform leftover / a planar patch whose boundary wouldn't resolve: coplanar-merge
                 # per exact-plane component, facet where that can't collapse.
                 yield from _analytic_flat_faces(prims, rem, ndigits)
+
+
+@dataclass
+class _Tube:
+    """One tube member for the solids path: a fitted cylinder's mid-surface radius ``r`` + wall
+    ``t`` over an axial band ``[z0, z1]`` (in the fit's own axis parameter). ``ro``/``ri`` are the
+    outer/inner radii; ``p0``/``p1`` the axis endpoints."""
+
+    origin: np.ndarray
+    axis: np.ndarray
+    e1: np.ndarray
+    r: float
+    t: float
+    z0: float
+    z1: float
+
+    @property
+    def ro(self) -> float:
+        return self.r + self.t / 2.0
+
+    @property
+    def ri(self) -> float:
+        return max(self.r - self.t / 2.0, 1e-6)
+
+    @property
+    def p0(self) -> np.ndarray:
+        return self.origin + self.z0 * self.axis
+
+    @property
+    def p1(self) -> np.ndarray:
+        return self.origin + self.z1 * self.axis
+
+
+def _filled_cylinder(origin, axis, e1, r: float, z0: float, z1: float):
+    """A solid (filled) circular ExtrudedAreaSolid from ``z0`` to ``z1`` along ``axis`` — the
+    valid closed manifold used both as a wall operand and as a boolean cutting tool (a hollow
+    profile-with-void extrusion has inner-wall winding Manifold rejects, so we compose walls as
+    outer_solid − inner_solid instead)."""
+    from ada.geom.curves import Circle
+    from ada.geom.placement import Axis2Placement3D, Direction
+    from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
+    import ada.geom.solids as geo_so
+
+    start = np.asarray(origin, float) + z0 * np.asarray(axis, float)
+    place = Axis2Placement3D(location=tuple(start), axis=Direction(*axis), ref_direction=Direction(*e1))
+    prof = ArbitraryProfileDef(ProfileType.AREA, Circle(Axis2Placement3D(), float(r)), [])
+    return geo_so.ExtrudedAreaSolid(prof, place, float(z1 - z0), Direction(0.0, 0.0, 1.0))
+
+
+def _seg_seg_distance(p1, q1, p2, q2) -> float:
+    """Shortest distance between 3D segments [p1,q1] and [p2,q2] (Ericson, Real-Time Collision
+    Detection). Used to decide whether two tube members actually intersect (form a joint)."""
+    d1 = q1 - p1
+    d2 = q2 - p2
+    r = p1 - p2
+    a = float(d1 @ d1)
+    e = float(d2 @ d2)
+    f = float(d2 @ r)
+    if a < 1e-12 and e < 1e-12:
+        return float(np.linalg.norm(r))
+    if a < 1e-12:
+        s, t = 0.0, float(np.clip(f / e, 0.0, 1.0))
+    else:
+        c = float(d1 @ r)
+        if e < 1e-12:
+            t, s = 0.0, float(np.clip(-c / a, 0.0, 1.0))
+        else:
+            b = float(d1 @ d2)
+            den = a * e - b * b
+            s = float(np.clip((b * f - c * e) / den, 0.0, 1.0)) if den > 1e-12 else 0.0
+            t = (b * s + f) / e
+            if t < 0.0:
+                t, s = 0.0, float(np.clip(-c / a, 0.0, 1.0))
+            elif t > 1.0:
+                t, s = 1.0, float(np.clip((b - c) / a, 0.0, 1.0))
+    return float(np.linalg.norm((p1 + d1 * s) - (p2 + d2 * t)))
+
+
+def _collect_tubes(part, angle_tol: float, min_patch_quads: int, ndigits: int) -> "list[_Tube]":
+    """Every cylinder patch across the assembly, one :class:`_Tube` per (patch, thickness band) —
+    a patch spanning two shell thicknesses (e.g. a joint can) splits into stacked bands so each
+    solid carries its own wall thickness (never merge across thicknesses)."""
+    parts = part.get_all_parts_in_assembly(include_self=True) if hasattr(part, "get_all_parts_in_assembly") else [part]
+    tubes: list[_Tube] = []
+    for p in parts:
+        fem = getattr(p, "fem", None)
+        if fem is None or len(fem.elements) == 0:
+            continue
+        for blk in _shell_blocks(fem):
+            if blk.conn.shape[1] != 4:
+                continue
+            prims = _block_primitives(blk)
+            if len(prims) == 0:
+                continue
+            for patch in _surface_patches(prims, angle_tol, ndigits):
+                if len(patch) < min_patch_quads or classify_patch(prims, patch) != "cylinder":
+                    continue
+                cf = fit_cylinder_params(prims, patch)
+                if cf is None:
+                    continue
+                origin = np.asarray(cf.origin, float)
+                axis = np.asarray(cf.axis, float)
+                e1 = np.asarray(cf.e1, float)
+                bands: dict[float, list[int]] = {}
+                for j in patch:
+                    bands.setdefault(round(float(prims.ts[j]), ndigits), []).append(j)
+                for t, js in bands.items():
+                    nodes = np.unique(np.concatenate([np.asarray(prims.rows[j]) for j in js]))
+                    axc = (prims.coords[nodes] - origin) @ axis
+                    z0, z1 = float(axc.min()), float(axc.max())
+                    if z1 - z0 < 1e-4:
+                        continue
+                    tubes.append(_Tube(origin, axis, e1, float(cf.radius), float(t), z0, z1))
+    return tubes
+
+
+def _tube_neighbors(tubes: "list[_Tube]", parallel_cos: float = 0.96) -> "dict[int, list[int]]":
+    """i -> tubes that form a JOINT with tube i: axes non-parallel (|cos| < ``parallel_cos``, so a
+    collinear same-tube continuation is NOT treated as a joint) and axis segments closer than the
+    sum of outer radii (they actually intersect)."""
+    neigh: dict[int, list[int]] = {i: [] for i in range(len(tubes))}
+    for i in range(len(tubes)):
+        ti = tubes[i]
+        for j in range(len(tubes)):
+            if i == j:
+                continue
+            tj = tubes[j]
+            if abs(float(ti.axis @ tj.axis)) >= parallel_cos:
+                continue
+            if _seg_seg_distance(ti.p0, ti.p1, tj.p0, tj.p1) < ti.ro + tj.ro:
+                neigh[i].append(j)
+    return neigh
+
+
+def iter_fem_analytic_solids(
+    part,
+    *,
+    angle_tol: float = 30.0,
+    min_patch_quads: int = 12,
+    ndigits: int = 6,
+    joint_csg: bool = True,
+    cut_margin: float = 2.0,
+):
+    """Yield ``(id, ada.geom)`` for a FEM shell mesh as analytic SOLIDS: each detected tube becomes
+    a hollow annular member with its real wall thickness, and (``joint_csg``) every joint is
+    resolved with boolean CSG — incoming members are cut to the member they meet and cutout holes
+    are subtracted (both directions), so joints are clean instead of interpenetrating.
+
+    Walls are composed as ``outer_solid − inner_solid`` and every boolean operand is a filled
+    cylinder (Manifold rejects the winding of a hollow profile-with-void extrusion). Cutting tools
+    are extended ``cut_margin × radius`` past their ends so they pass fully through the wall.
+
+    Non-tube geometry (flat plates, curved panels) is emitted as analytic faces via
+    :func:`iter_fem_analytic_faces` with the cylinders skipped and any facet lying on a tube wall
+    dropped (so triangles that sat on the tube surface don't float on the solid)."""
+    from ada.geom.booleans import BooleanResult, BoolOpEnum
+
+    tubes = _collect_tubes(part, angle_tol, min_patch_quads, ndigits)
+    neigh = _tube_neighbors(tubes) if joint_csg else {i: [] for i in range(len(tubes))}
+    diff = BoolOpEnum.DIFFERENCE
+
+    for i, tb in enumerate(tubes):
+        wall = BooleanResult(
+            _filled_cylinder(tb.origin, tb.axis, tb.e1, tb.ro, tb.z0, tb.z1),
+            _filled_cylinder(tb.origin, tb.axis, tb.e1, tb.ri, tb.z0, tb.z1),
+            diff,
+        )
+        geom = wall
+        for j in neigh[i]:
+            nb = tubes[j]
+            margin = max(cut_margin * nb.ro, 1.0)
+            tool = _filled_cylinder(nb.origin, nb.axis, nb.e1, nb.ro, nb.z0 - margin, nb.z1 + margin)
+            geom = BooleanResult(geom, tool, diff)
+        yield (f"tube_{i}", geom)
+
+    # non-tube faces: skip cylinders (owned above) and drop facets lying on any tube wall
+    def _on_tube(pt: np.ndarray) -> bool:
+        for tb in tubes:
+            d = pt - tb.origin
+            ax = float(d @ tb.axis)
+            if tb.z0 - 1e-6 <= ax <= tb.z1 + 1e-6:
+                radial = float(np.linalg.norm(d - ax * tb.axis))
+                if abs(radial - tb.r) <= tb.t:
+                    return True
+        return False
+
+    for face in iter_fem_analytic_faces(
+        part,
+        angle_tol=angle_tol,
+        min_patch_quads=min_patch_quads,
+        ndigits=ndigits,
+        skip_cylinders=True,
+        drop_on_tube=(_on_tube if tubes else None),
+    ):
+        yield (f"face_{id(face)}", face)
 
 
 def cylinder_trim_faces(prims: "_Primitives", patch: list[int], cf: "CylinderFit", ndigits: int = 6):
