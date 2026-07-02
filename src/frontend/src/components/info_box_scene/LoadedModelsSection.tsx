@@ -11,8 +11,9 @@ import ViewOffIcon from "../icons/ViewOffIcon";
 //
 // Eye button = scene visibility (group.visible flip; model stays in
 // GPU memory). × = full unload (frees the memory, clears tree-view).
-// Streaming-FEA models have no per-source group (replace_model owns
-// the whole scene), so they get no visibility toggle — only unload.
+// Streaming-FEA models register their replace_model group too, so they
+// get the same toggle; the group-less fallback below only applies to a
+// source that somehow landed in loadedSourceNames without a group.
 
 const LoadedModelsSection: React.FC = () => {
     const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
@@ -71,9 +72,9 @@ const LoadedModelsSection: React.FC = () => {
                                     : <ViewOffIcon width="16px" height="16px"/>}
                             </button>
                         ) : (
-                            // Streaming-FEA model — replace_model owns the
-                            // scene, no per-source group to hide.
-                            <span className="shrink-0 p-1 text-blue-400" title="Streaming FEA model">
+                            // Fallback: a source with no registered group
+                            // (can't flip visibility — only unload).
+                            <span className="shrink-0 p-1 text-blue-400" title="Loaded (no visibility toggle)">
                                 <ViewIcon width="16px" height="16px"/>
                             </span>
                         )}
