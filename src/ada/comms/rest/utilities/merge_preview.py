@@ -255,12 +255,22 @@ def _generate(asm, model, algorithm, storage, on_progress):
     ]
 
     on_progress("tessellating (libtess2)", 0.6)
-    # deflection=0 (auto): adacpp's refine_uv derives a scale-relative chord tolerance per face from
-    # the surface's own approx_size (~0.5% of the patch diagonal), so a coarse cubic panel stays a
-    # few k tris. Whole-model call (not the per-solid STEP->GLB pool) → use all cores; plates parallelise.
-    bm = active_backend().tessellate_stream(
-        items, pipeline="libtess2", deflection=0.0, threads=(_os.cpu_count() or 1)
-    )
+    be = active_backend()
+    if hasattr(be, "tessellate_stream"):
+        # deflection=0 (auto): adacpp's refine_uv derives a scale-relative chord tolerance per face
+        # from the surface's own approx_size (~0.5% of the patch diagonal), so a coarse cubic panel
+        # stays a few k tris. Whole-model call (not the per-solid STEP->GLB pool) → use all cores;
+        # plates parallelise.
+        bm = be.tessellate_stream(items, pipeline="libtess2", deflection=0.0, threads=(_os.cpu_count() or 1))
+    else:
+        # Backend without the adacpp NGEOM streaming tessellator (e.g. OccBackend): build + tessellate
+        # each plate through the CadBackend object path and combine into the same BatchMesh. node_id=i
+        # (item position) matches tessellate_stream, so the per-plate assembly below is identical.
+        from ada.cad import tessellate_batch_via_loop
+        from ada.geom import Geometry
+
+        shapes = [be.build(Geometry(id=iid, geometry=geom, color=None, transforms=None)) for iid, geom in items]
+        bm = tessellate_batch_via_loop(be, shapes)
 
     on_progress("building pickable model", 0.8)
     try:
