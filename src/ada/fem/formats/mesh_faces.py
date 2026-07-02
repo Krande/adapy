@@ -587,19 +587,34 @@ def _facet_flat_face(prims: "_Primitives", j: int):
     )
 
 
-def _plane_bucket_components(prims: "_Primitives", idxs: list[int], ndigits: int) -> Iterator[list[int]]:
+def _plane_bucket_components(
+    prims: "_Primitives", idxs: list[int], ndigits: int, plane_digits: int | None = None
+) -> Iterator[list[int]]:
     """Edge-connected components of a primitive subset, split first by plane bucket —
-    each component is a set of coplanar, edge-adjacent facets (one candidate flat face)."""
-    tol = 10.0 ** (-ndigits)
+    each component is a set of coplanar, edge-adjacent facets (one candidate flat face).
+
+    ``plane_digits`` (default ``ndigits``) rounds the bucket key — normal direction AND offset
+    along the normal. Coarser than the exact ``ndigits`` coordinate precision (e.g. 3) so
+    slightly-noisy but genuinely coplanar mesh facets land in ONE bucket instead of shattering into
+    per-facet buckets — the group-by (material, thickness, normal, position-along-normal) that finds
+    large flat plates."""
+    pd = ndigits if plane_digits is None else plane_digits
+    tol = 10.0 ** (-pd)
     normals = prims.normals
     sign = _canonical_sign(normals, tol)
-    ncanon = np.round(normals * sign[:, None], ndigits)
+    ncanon = np.round(normals * sign[:, None], pd)
     thick_q = np.round(np.array(prims.ts), ndigits)
     buckets: dict = {}
     for j in idxs:
-        p0 = prims.coords[prims.rows[j][0]]
-        off = round(float(sign[j] * float(np.dot(normals[j], p0))), ndigits)
-        buckets.setdefault((prims.mats[j], float(thick_q[j]), tuple(ncanon[j]), off), []).append(j)
+        # Offset with the CANONICAL (rounded) normal + the facet centroid, NOT the raw noisy normal:
+        # at large coordinates (a ship spans ~100 m) a 1e-4 normal wobble times the position becomes
+        # ~1e-2 of offset noise, which would shatter one plane across many offset buckets. The rounded
+        # normal is identical for every facet in a direction bucket, so co-planar facets share an
+        # offset; the centroid averages out single-vertex noise.
+        nc = ncanon[j]
+        c = prims.outline(j).mean(axis=0)
+        off = round(float(np.dot(nc, c)), pd)
+        buckets.setdefault((prims.mats[j], float(thick_q[j]), tuple(nc), off), []).append(j)
     for bucket in buckets.values():
         if len(bucket) == 1:
             yield bucket
@@ -1094,41 +1109,46 @@ def iter_fem_analytic_faces(
                     yield face
                     consumed.update(panel_elids)
 
+        # Cylinders emit as analytic tubes (region-grow finds them by swept normals); their prims
+        # are excluded from the flat merge below.
+        cyl_prims: set = set()
         for patch, cls in patch_cls:
-            if cls == "cylinder":
-                # solids mode owns the tubes (emitted as CSG solids elsewhere); skip the faces.
-                if skip_cylinders:
-                    continue
-                cf = fit_cylinder_params(prims, patch)
-                if cf is not None:
-                    # exact joint-cut trim only when asked (breaks adacpp meshing, see above);
-                    # otherwise the viz-safe full tube with flat circular ends.
-                    trimmed = cylinder_trim_faces(prims, patch, cf, ndigits) if trim_cylinders else None
-                    yield from (trimmed if trimmed is not None else cylinder_fit_to_faces(cf))
-                    continue
-            # drop elements already emitted as a curved B-spline panel
-            rem = [j for j in patch if _elid_of(prims.names[j]) not in consumed] if consumed else patch
-            # solids mode: drop primitives lying on a tube wall (their triangle/quad facets would
-            # otherwise float on the CSG solid — the "leftover triangles on the cylinder" bug).
-            if drop_on_tube is not None and rem:
-                rem = [j for j in rem if not drop_on_tube(prims.outline(j).mean(axis=0))]
-            if not rem:
+            if cls != "cylinder":
                 continue
-            if len(rem) == 1:
-                yield _facet_flat_face(prims, rem[0])
+            cyl_prims.update(patch)
+            if skip_cylinders:  # solids mode owns the tubes (emitted as CSG solids elsewhere)
                 continue
-            if cls == "planar":
-                # The WHOLE patch is flat within tol (classify_patch's plane gate): emit it as
-                # ONE flat face (its outer boundary + holes) via robust extraction. Skipping the
-                # per-plane-bucket path is the win — exact-plane bucketing shatters a nearly-flat
-                # patch into per-facet (the ship-hull 47k-face blow-up).
-                faces = _flat_faces_with_holes(prims, rem, ndigits)
-                if faces:
-                    yield from faces
-                    continue
-            # freeform leftover / a planar patch whose boundary wouldn't resolve: coplanar-merge
-            # per exact-plane component, facet where that can't collapse.
-            yield from _analytic_flat_faces(prims, rem, ndigits)
+            cf = fit_cylinder_params(prims, patch)
+            if cf is not None:
+                # exact joint-cut trim only when asked (breaks adacpp meshing, see above);
+                # otherwise the viz-safe full tube with flat circular ends.
+                trimmed = cylinder_trim_faces(prims, patch, cf, ndigits) if trim_cylinders else None
+                yield from (trimmed if trimmed is not None else cylinder_fit_to_faces(cf))
+
+        # Flat plates: group EVERY remaining facet (not a cylinder, not consumed by a curved B-spline
+        # panel) globally by plane bucket — (material, thickness, normal direction, offset along the
+        # normal) — then merge each bucket's edge-connected components into one flat face. This finds
+        # large flat plates that the per-patch classify fragmented: a big region that region-grows as
+        # one slightly-curved "freeform" patch still has huge exactly-coplanar sub-regions, and the
+        # plane bucket recovers them (a coarse plane tolerance groups mesh-noisy coplanar facets).
+        flat = [
+            j
+            for j in range(len(prims))
+            if j not in cyl_prims and (not consumed or _elid_of(prims.names[j]) not in consumed)
+        ]
+        if drop_on_tube is not None and flat:
+            # solids mode: drop facets lying on a tube wall (they'd float on the CSG solid).
+            flat = [j for j in flat if not drop_on_tube(prims.outline(j).mean(axis=0))]
+        for comp in _plane_bucket_components(prims, flat, ndigits, plane_digits=3):
+            if len(comp) == 1:
+                yield _facet_flat_face(prims, comp[0])
+                continue
+            faces = _flat_faces_with_holes(prims, comp, ndigits)
+            if faces:
+                yield from faces
+            else:  # boundary wouldn't resolve → per-facet (never lose geometry)
+                for j in comp:
+                    yield _facet_flat_face(prims, j)
 
 
 @dataclass
