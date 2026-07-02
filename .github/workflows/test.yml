@@ -127,9 +127,16 @@ jobs:
           pixi-version: v0.68.0
           environments: >-
             viewer-api-tests
+            viewer-api-tests-adacpp
           cache: true
 
       - name: Run Tests
         env:
           ADA_TEST_POSTGRES_URL: postgresql://postgres:test@localhost:5432/adapytest
         run: pixi run -e viewer-api-tests test-rest
+
+      # Streaming-path coverage: re-run the adacpp_stream-marked REST tests against the native
+      # ada-cpp backend (tessellate_stream / NGEOM libtess2), which the adacpp-less viewer-api-tests
+      # leg above can only cover via the OCC object-path fallback. No Postgres needed.
+      - name: Run streaming-path tests (ada-cpp backend)
+        run: pixi run -e viewer-api-tests-adacpp test-rest-adacpp

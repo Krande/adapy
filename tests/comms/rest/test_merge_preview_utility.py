@@ -122,8 +122,11 @@ def test_auto_strategy_mirrors_production_classes():
     assert s["achieved_plates"] == 1
 
 
+@pytest.mark.adacpp_stream
 def test_generate_action_builds_plate_glb(monkeypatch, tmp_path):
-    # action="generate" builds real merged Plate objects and uploads a viewable GLB.
+    # action="generate" builds real merged Plate objects and uploads a viewable GLB. Under adacpp
+    # this drives the NGEOM streaming tessellator (tessellate_stream); under OCC the object-path
+    # fallback. The adacpp_stream marker lets CI run it against the native backend (test-rest-adacpp).
     a = _two_coplanar_quads()
     monkeypatch.setattr(ada, "from_fem", lambda *_a, **_k: a)
     src = tmp_path / "m.fem"
