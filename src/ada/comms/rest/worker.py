@@ -1068,6 +1068,7 @@ async def _process_one(
     # back to the full stream when there's no index / it's gzip-stored / fetch
     # fails. ``sif_reduced`` gates the post-convert index build below.
     sif_reduced = False
+    fetch_t0 = time.monotonic()
     try:
         try:
             if src_suffix.lower() == ".sif":
@@ -1102,6 +1103,16 @@ async def _process_one(
                     sib_key,
                     job_id,
                 )
+
+        # Source (+ sidecar) download is done — snapshot the slice so the audit
+        # can attribute it. ``convert_ms`` spans started_at → post-convert, so a
+        # slow object-storage stream (a multi-GB SIN deck takes 50–100 s) would
+        # otherwise read as a slow conversion.
+        fetch_ms = round((time.monotonic() - fetch_t0) * 1000)
+        try:
+            fetch_bytes = src_path.stat().st_size
+        except OSError:
+            fetch_bytes = None
 
         # Conversion settings flip via the admin panel and are read
         # fresh per job — admins can flip one on, send a
@@ -1408,7 +1419,10 @@ async def _process_one(
 
         # Engine + options provenance for the audit row (which tessellator ran,
         # incl. an adacpp→occ-builtin fallback, and the effective toggles).
-        convert_meta = _convert_meta_for(job, env_overrides)
+        convert_meta = dict(_convert_meta_for(job, env_overrides) or {})
+        convert_meta["fetch_ms"] = fetch_ms
+        if fetch_bytes is not None:
+            convert_meta["fetch_bytes"] = fetch_bytes
 
         # Record the pod's CPU allotment (cgroup quota, else host cores) so the metrics chart can
         # render CPU as % utilization across all cores instead of the cumulative-time ramp.
