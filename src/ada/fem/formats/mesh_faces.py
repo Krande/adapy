@@ -1056,7 +1056,7 @@ def iter_fem_analytic_faces(
     min_patch_quads: int = 12,
     ndigits: int = 6,
     trim_cylinders: bool = True,
-    reconstruct_curved: bool = True,
+    reconstruct_curved: bool = False,
     skip_cylinders: bool = False,
     drop_on_tube=None,
 ):
@@ -1071,11 +1071,14 @@ def iter_fem_analytic_faces(
     edges tessellate curved on BOTH CAD backends (adacpp routes the pcurve through
     ``edge_from_pcurve``); set it False for the plain full-tube form (flat circular ends).
 
-    ``reconstruct_curved`` (default True) is the curved-panel pass: over each block's quads it
-    grows smooth regions ACROSS stiffener T-junctions, tiles them into maximal conflict-free
-    rectangles, and emits ONE degree-1 B-spline surface face per CURVED rectangle (a
-    5000-facet hull panel → one BSplineSurfaceWithKnots, exact & OCC-free). Cylinder regions
-    are excluded (kept analytic) and flat rectangles are left to the planar merge.
+    ``reconstruct_curved`` (default **False**) is the opt-in curved-panel pass: over each block's
+    quads it grows smooth regions, tiles them into rectangles, and emits ONE B-spline surface face
+    per curved rectangle. It is OFF by default because the rectangular grid recovery over-merges a
+    region that bends into a FOLDED grid, distorting the panel and leaving gaps against its
+    neighbours (a slanted/doubly-sloped roof). With it off, a piecewise-planar roof is recovered by
+    the flat merge as its separate slopes — each an exactly-flat plate sharing its true node edges
+    with the walls (no penetration, no gap). Leave it False unless a caller specifically wants the
+    B-spline reduction on clean grid-topology hull panels.
 
     Never worse than the plain coplanar merge (non-reconstructed regions fall through to it)
     and collapses a tube's thousands of shell facets to a handful of exact cylinders."""
@@ -1312,7 +1315,7 @@ def iter_fem_analytic_solids(
     ndigits: int = 6,
     joint_csg: bool = True,
     cut_margin: float = 2.0,
-    reconstruct_curved: bool = True,
+    reconstruct_curved: bool = False,
 ):
     """Yield ``(id, ada.geom)`` for a FEM shell mesh as analytic SOLIDS: each detected tube becomes
     a hollow annular member with its real wall thickness, and (``joint_csg``) each joint is resolved
