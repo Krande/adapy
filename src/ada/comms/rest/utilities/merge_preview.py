@@ -255,21 +255,11 @@ def _generate(asm, model, algorithm, storage, on_progress):
     ]
 
     on_progress("tessellating (libtess2)", 0.6)
-    # A concrete chord tolerance (~0.1% of the model) — NOT deflection=0 (auto), which over-refines
-    # curved B-spline faces catastrophically (a coarse cubic panel → ~1M tris instead of a few k).
-    mn = np.full(3, np.inf)
-    mx = np.full(3, -np.inf)
-    for f in faces:
-        poly = getattr(f.bounds[0].bound, "polygon", None)
-        if poly:
-            arr = np.array([[p.x, p.y, p.z] for p in poly])
-            mn = np.minimum(mn, arr.min(0))
-            mx = np.maximum(mx, arr.max(0))
-    diag = float(np.linalg.norm(mx - mn)) if np.all(np.isfinite(mn)) else 0.0
-    deflection = 1e-3 * diag if diag > 0 else 0.0
-    # Whole-model call (not the per-solid STEP->GLB pool) → use all cores; plates parallelise.
+    # deflection=0 (auto): adacpp's refine_uv derives a scale-relative chord tolerance per face from
+    # the surface's own approx_size (~0.5% of the patch diagonal), so a coarse cubic panel stays a
+    # few k tris. Whole-model call (not the per-solid STEP->GLB pool) → use all cores; plates parallelise.
     bm = active_backend().tessellate_stream(
-        items, pipeline="libtess2", deflection=deflection, threads=(_os.cpu_count() or 1)
+        items, pipeline="libtess2", deflection=0.0, threads=(_os.cpu_count() or 1)
     )
 
     on_progress("building pickable model", 0.8)
