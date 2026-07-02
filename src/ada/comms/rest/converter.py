@@ -1330,6 +1330,7 @@ def _via_fea_result(
     *,
     step: int | None = None,
     field: str | None = None,
+    source_uri: str | None = None,
 ) -> bytes:
     """Sesam SIF / SIN result deck → GLB tessellated visualisation.
 
@@ -1340,6 +1341,11 @@ def _via_fea_result(
     coloured/warped GLB. When the caller leaves step/field unset we
     fall back to the first available pair so an auto-convert at
     upload time still produces something viewable.
+
+    ``source_uri`` (SIN only): a range-fetchable URI for the deck —
+    ``open_sin`` reads pages of it straight from object storage, so a
+    multi-GB deck is never downloaded in full and ``src_path`` may be an
+    empty stub. The suffix routing still keys off ``src_path``.
     """
     if target_format != "glb":
         raise UnsupportedFormat(f"Sesam results can only target glb, got {target_format!r}")
@@ -1352,13 +1358,16 @@ def _via_fea_result(
             read_sin_metadata,
         )
 
+        # ``open_sin`` routes by scheme, so a presigned URI reads pages of
+        # the deck straight from object storage instead of a local copy.
+        sin_src = source_uri or str(src_path)
         # When the caller didn't pick a step, use the cheap metadata
         # path to pick one — avoids materialising every step's records
         # just to throw them away (a hundreds-of-modes eigen deck
         # would blow the 4 GiB worker budget). Then load only that
         # step.
         if step is None or field is None:
-            meta = read_sin_metadata(str(src_path))
+            meta = read_sin_metadata(sin_src)
             if not meta.fields or not meta.steps:
                 raise UnsupportedFormat(f"SIN {src_path.name} has no RV* result fields")
             if step is None:
@@ -1368,7 +1377,7 @@ def _via_fea_result(
                 # exposes the SIN names verbatim; the downstream
                 # display layer remaps them.
                 field = meta.fields[0]
-        result = read_sin_file(str(src_path), step=int(step))
+        result = read_sin_file(sin_src, step=int(step))
     else:
         from ada.fem.formats.sesam.results.read_sif import read_sif_file
 
@@ -1971,6 +1980,7 @@ def convert(
     step: int | None = None,
     field: str | None = None,
     options: dict | None = None,
+    source_uri: str | None = None,
 ) -> bytes | pathlib.Path:
     """Convert a local source file to the requested target format.
 
@@ -1994,6 +2004,13 @@ def convert(
     ``step`` / ``field`` only apply to FEA result sources (.sif /
     .sin). When unset the FEA handler picks the first available pair,
     matching the behavior of the auto-convert at upload time.
+
+    ``source_uri`` is a range-fetchable URI (presigned GET / ``s3://``)
+    for the source blob. Only readers with a paged byte source honour it
+    (today: ``.sin`` via ``open_sin``); when set, the handler reads pages
+    straight from object storage and ``src_path`` may be an empty stub.
+    Forwarded only when present so handlers without the kwarg are
+    untouched.
 
     ``options`` is a per-job knob dict — keys match option ``name``
     fields declared at the ``@converter(options=[...])`` site for the
@@ -2028,7 +2045,8 @@ def convert(
             f"viable targets: {ConverterRegistry.targets_for(src_ext) or 'none'}"
         )
     opts = options or {}
-    return handler(src_path, progress, step=step, field=field, **opts)
+    extra: dict = {"source_uri": source_uri} if source_uri is not None else {}
+    return handler(src_path, progress, step=step, field=field, **extra, **opts)
 
 
 def result_bytes(result: bytes | pathlib.Path) -> bytes:
@@ -2370,13 +2388,14 @@ def _register_ada_loadable() -> None:
 def _register_fea_result_to_glb() -> None:
     for ext in _FEA_RESULT_EXTS:
 
-        def _h(src, on_progress, *, _ext=ext, step=None, field=None, **_kw):
+        def _h(src, on_progress, *, _ext=ext, step=None, field=None, source_uri=None, **_kw):
             return _via_fea_result(
                 src,
                 "glb",
                 on_progress,
                 step=step,
                 field=field,
+                source_uri=source_uri,
             )
 
         ConverterRegistry.register(ext, "glb", _h)

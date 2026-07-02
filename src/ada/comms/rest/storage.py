@@ -576,7 +576,9 @@ class Storage:
             timedelta(seconds=expires_in_seconds),
         )
 
-    async def presigned_get_url(self, scope: Scope, key: str, expires_in_seconds: int = 900) -> str:
+    async def presigned_get_url(
+        self, scope: Scope, key: str, expires_in_seconds: int = 900, *, internal: bool = False
+    ) -> str:
         """Mint a presigned GET URL for direct download from the object
         store. Mirrors ``presigned_put_url`` — same gating, same signing.
 
@@ -585,13 +587,17 @@ class Storage:
         artefacts the CLI/clients should hit the object store directly.
         15-minute default TTL is enough for slow upstream links without
         keeping the URL guessable for long.
+
+        ``internal=True`` signs against the in-cluster store endpoint instead
+        of the public one — for URLs the worker itself consumes (the SIN
+        range-stream read), where the public ingress would be a hairpin.
         """
         if not self.supports_presigned_uploads:
             raise NotImplementedError(
                 "presigned downloads require an HTTP object store; " "LocalStore is not supported"
             )
         return await obs.sign_async(
-            self._presign_store,
+            self._store if internal else self._presign_store,
             "GET",
             self._full_key(scope, key),
             timedelta(seconds=expires_in_seconds),
