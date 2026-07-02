@@ -1299,10 +1299,14 @@ def iter_fem_analytic_solids(
             # uncut member → clean hollow profile-with-void extrusion (no boolean, no artifacts)
             yield (f"tube_{i}", _hollow_extrusion(tb.origin, tb.axis, tb.e1, tb.ro, tb.ri, tb.z0, tb.z1))
             continue
-        # cut member → wall as outer − inner (boolean minuend must be a filled solid), then saddle cuts
+        # cut member → wall as outer − inner (boolean minuend must be a filled solid), then saddle
+        # cuts. The inner (bore) cylinder is extended past BOTH caps: sharing exact cap planes with
+        # the outer leaves Manifold unable to open the bore, capping it with a disk membrane across
+        # the tube end (the "out-of-place tris at the ends"); punching through gives clean annuli.
+        eps = 0.02 * (tb.z1 - tb.z0) + 1e-3
         geom = BooleanResult(
             _filled_cylinder(tb.origin, tb.axis, tb.e1, tb.ro, tb.z0, tb.z1),
-            _filled_cylinder(tb.origin, tb.axis, tb.e1, tb.ri, tb.z0, tb.z1),
+            _filled_cylinder(tb.origin, tb.axis, tb.e1, tb.ri, tb.z0 - eps, tb.z1 + eps),
             diff,
         )
         for j in cuts:

@@ -213,7 +213,13 @@ def _crease_split_normals(pos, idx, crease_deg: float = 40.0):
     """Return (pos, idx, normal) with hard edges: vertices are split so faces meeting at a dihedral
     angle sharper than ``crease_deg`` don't share a (smoothed) normal. A CSG solid's cut rims and
     annular end caps stay crisp while the cylinder walls stay smooth — welded/averaged normals
-    otherwise smear the shading across every opening. Degenerate (zero-area) triangles are dropped.
+    otherwise smear the shading across every opening.
+
+    Degenerate sliver triangles are dropped: Manifold leaves near-zero-height slivers along boolean
+    cut boundaries (the "slivers at the tube ends") that z-fight and take garbage normals. A triangle
+    is dropped when its shortest altitude falls below ``3% of the median altitude`` — the real
+    wall/cap/cut triangles cluster ~50× above that, so the cut only removes the degenerate residue
+    (which is coincident with real triangles anyway, so it leaves no hole). Scale-free by design.
 
     ``pos`` (N,3) float, ``idx`` (M*3,) int for ONE member's local mesh."""
     import numpy as np
@@ -221,8 +227,19 @@ def _crease_split_normals(pos, idx, crease_deg: float = 40.0):
     tris = np.asarray(idx, dtype=np.int64).reshape(-1, 3)
     p = np.asarray(pos, dtype=np.float64)
     fn = np.cross(p[tris[:, 1]] - p[tris[:, 0]], p[tris[:, 2]] - p[tris[:, 0]])
-    ln = np.linalg.norm(fn, axis=1)
-    keep = ln > 1e-12
+    ln = np.linalg.norm(fn, axis=1)  # = 2 * area
+    e = np.stack(
+        [
+            np.linalg.norm(p[tris[:, 1]] - p[tris[:, 0]], axis=1),
+            np.linalg.norm(p[tris[:, 2]] - p[tris[:, 1]], axis=1),
+            np.linalg.norm(p[tris[:, 0]] - p[tris[:, 2]], axis=1),
+        ],
+        axis=1,
+    )
+    min_alt = ln / np.maximum(e.max(axis=1), 1e-12)  # shortest triangle altitude
+    nz = min_alt[ln > 1e-12]
+    thresh = 0.03 * float(np.median(nz)) if len(nz) else 0.0
+    keep = (ln > 1e-12) & (min_alt > thresh)
     tris, fn, ln = tris[keep], fn[keep], ln[keep]
     fn = fn / ln[:, None]
     cos_t = float(np.cos(np.radians(crease_deg)))
