@@ -295,6 +295,11 @@ def _generate(asm, model, algorithm, storage, on_progress, solids=False):
         _simp = None
     all_pos = np.asarray(bm.positions, dtype=np.float32).reshape(-1, 3)
     all_idx = np.asarray(bm.indices, dtype=np.uint32)
+    # solids mode carries the backend's geometric normals through (CSG solids have sharp cut edges
+    # and welded verts; recomputed smooth normals smear/flip → artifacts). Decimation reindexes
+    # verts and drops normals, so it's skipped for solids (tube members are already lean).
+    _bm_nrm = np.asarray(bm.normals, dtype=np.float32).reshape(-1, 3) if getattr(bm, "normals", None) is not None else None
+    all_nrm = _bm_nrm if (solids and _bm_nrm is not None and len(_bm_nrm) == len(all_pos)) else None
 
     # Assemble per-class (per-colour) MergedMeshes, each with one GroupReference per plate, plus a
     # root→class→plate node tree. bm.groups are in item order, so group i is face i.
@@ -307,7 +312,8 @@ def _generate(asm, model, algorithm, storage, on_progress, solids=False):
         c = cls_of[i]
         gp = all_pos[g.vstart : g.vstart + g.vlength]
         gi = all_idx[g.start : g.start + g.length] - g.vstart
-        if _simp is not None and len(gi) >= 3:
+        gn = all_nrm[g.vstart : g.vstart + g.vlength] if all_nrm is not None else None
+        if _simp is not None and all_nrm is None and len(gi) >= 3:
             try:
                 # Coarse-cubic curved panels are already smooth + light (from the fit + a real
                 # deflection), so keep them; only a DENSE panel (a non-smooth region that fell back
@@ -325,7 +331,7 @@ def _generate(asm, model, algorithm, storage, on_progress, solids=False):
         if len(gi) == 0:
             continue
         if c not in acc:
-            acc[c] = {"pos": [], "idx": [], "groups": [], "vbase": 0, "ibase": 0}
+            acc[c] = {"pos": [], "idx": [], "nrm": [], "groups": [], "vbase": 0, "ibase": 0}
             cn = GraphNode(c, str(nid), parent=root)
             root.children.append(cn)
             nodes[str(nid)] = cn
@@ -339,6 +345,8 @@ def _generate(asm, model, algorithm, storage, on_progress, solids=False):
         a["groups"].append(GroupReference(node_ref=pnode, start=a["ibase"], length=int(gi.size)))
         a["pos"].append(gp)
         a["idx"].append(gi + a["vbase"])
+        if gn is not None:
+            a["nrm"].append(gn)
         a["vbase"] += len(gp)
         a["ibase"] += int(gi.size)
 
@@ -348,11 +356,12 @@ def _generate(asm, model, algorithm, storage, on_progress, solids=False):
     for buffer_id, (c, a) in enumerate(acc.items()):
         pos = np.concatenate(a["pos"]).reshape(-1).astype(np.float32)
         idx = np.concatenate(a["idx"]).astype(np.uint32)
+        nrm = np.concatenate(a["nrm"]).reshape(-1).astype(np.float32) if a["nrm"] else None
         total_verts += len(pos) // 3
         rgb = _GEN_CLASS_COLOR.get(c, [180, 180, 180, 255])
         color = Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255)
         mm = MergedMesh(
-            indices=idx, position=pos, normal=None, material=color, type=MeshType.TRIANGLES, groups=a["groups"]
+            indices=idx, position=pos, normal=nrm, material=color, type=MeshType.TRIANGLES, groups=a["groups"]
         )
         merged_mesh_to_trimesh_scene(scene, mm, color, buffer_id, graph)
 
