@@ -663,10 +663,13 @@ def _flat_faces_with_holes(prims: "_Primitives", comp: list[int], ndigits: int) 
     for outer, holes in res:
         # The union-boundary tracer follows every facet edge, so a merged plate's boundary
         # zigzags (a rectangle carries dozens of near-collinear points → libtess2 triangulates
-        # them into "etched" noise). Douglas-Peucker collapses each zigzag run to its corners
-        # (rectangle → 4 pts), area-guarded so a genuine corner is never dropped.
-        outer = simplify_closed_polygon(outer, rel_tol=0.03, max_area_change=0.08)
-        holes = [simplify_closed_polygon(h, rel_tol=0.03, max_area_change=0.08) for h in holes]
+        # them into "etched" noise). Douglas-Peucker collapses each near-collinear run to its
+        # corners. A TIGHT tolerance: at 3% it dropped a real vertex like the shallow apex of a
+        # gable-end triangle (the ridge peak), cutting the plate's top off so it no longer met the
+        # roof — a gap. 0.4% only removes genuinely-collinear mesh nodes and keeps every real corner,
+        # so a shared (slanted/peaked) edge stays coincident with the neighbouring plate's.
+        outer = simplify_closed_polygon(outer, rel_tol=0.004, max_area_change=0.01)
+        holes = [simplify_closed_polygon(h, rel_tol=0.004, max_area_change=0.01) for h in holes]
         plane = Plane(position=Axis2Placement3D(location=Point(*outer[0]), axis=Direction(*n)))
         bounds = [FaceBound(bound=PolyLoop(polygon=[Point(*p) for p in outer]), orientation=True)]
         for h in holes:  # inner void loops (kept CW by the extractor)
