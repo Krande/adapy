@@ -252,6 +252,33 @@ def _block_primitives(blk: _ShellBlock) -> _Primitives:
 # ── region growing (shared by the planar/surface strategies + the preview) ────
 
 
+def _combined_shell_primitives(fem) -> "_Primitives | None":
+    """All shell elements of ``fem`` as ONE primitive set (quads + triangles together) so patch
+    growing merges across element types. ``_shell_blocks`` splits by element type; a triangle among
+    quads (transition/filler) would then have no same-block neighbour and strand as a single-facet
+    plate. Every block shares the store's coord array, so their node-row indices are directly
+    concatenable and shared-edge adjacency works across tri/quad."""
+    coords = None
+    rows: list = []
+    names: list = []
+    mats: list = []
+    ts: list = []
+    norms: list = []
+    for blk in _shell_blocks(fem):
+        prims = _block_primitives(blk)
+        if len(prims) == 0:
+            continue
+        coords = prims.coords
+        rows.extend(prims.rows)
+        names.extend(prims.names)
+        mats.extend(prims.mats)
+        ts.extend(prims.ts)
+        norms.append(prims.normals)
+    if coords is None:
+        return None
+    return _Primitives(coords, rows, names, mats, ts, np.vstack(norms))
+
+
 def _local_adjacency(prims: "_Primitives", idxs: list[int]) -> list[list[int]]:
     """Shared-edge adjacency among a subset of primitives (conformal mesh: a shared
     edge == shared node rows). Returns per-local-index neighbour lists."""
@@ -1042,60 +1069,66 @@ def iter_fem_analytic_faces(
         fem = getattr(p, "fem", None)
         if fem is None or len(fem.elements) == 0:
             continue
-        for blk in _shell_blocks(fem):
-            prims = _block_primitives(blk)
-            if len(prims) == 0:
-                continue
-            patches = list(_surface_patches(prims, angle_tol, ndigits))
-            patch_cls = [(pt, classify_patch(prims, pt) if len(pt) >= min_patch_quads else "planar") for pt in patches]
+        # Grow patches over ALL shell elements at once (quads + triangles together): a triangle
+        # sitting among quads (transition/filler, common near openings and the top of a hull) is
+        # edge-adjacent to them via shared node rows, so it joins their patch instead of becoming an
+        # isolated single-facet plate. Splitting by element type stranded every such triangle.
+        prims = _combined_shell_primitives(fem)
+        if prims is None or len(prims) == 0:
+            continue
+        patches = list(_surface_patches(prims, angle_tol, ndigits))
+        patch_cls = [(pt, classify_patch(prims, pt) if len(pt) >= min_patch_quads else "planar") for pt in patches]
 
-            # Curved-panel B-spline pass (over quads NOT in a cylinder patch, to keep those
-            # analytic). Consumes only the curved rectangles; everything else falls to the
-            # cylinder / planar / facet emit below, which skips the consumed elements.
-            consumed: set = set()
-            if reconstruct_curved and blk.conn.shape[1] == 4:
-                cyl_elids = {_elid_of(prims.names[j]) for pt, c in patch_cls if c == "cylinder" for j in pt}
+        # Curved-panel B-spline pass over each QUAD block's structured grid (cylinder patches
+        # excluded, kept analytic). Consumes only the curved rectangles; everything else falls to
+        # the cylinder / planar / facet emit below, which skips the consumed elements.
+        consumed: set = set()
+        if reconstruct_curved:
+            cyl_elids = {_elid_of(prims.names[j]) for pt, c in patch_cls if c == "cylinder" for j in pt}
+            for blk in _shell_blocks(fem):
+                if blk.conn.shape[1] != 4:
+                    continue
                 for face, panel_elids in _reconstruct_curved_panels(
                     blk, cyl_elids, ndigits, angle_tol, min_patch_quads
                 ):
                     yield face
                     consumed.update(panel_elids)
 
-            for patch, cls in patch_cls:
-                if cls == "cylinder":
-                    # solids mode owns the tubes (emitted as CSG solids elsewhere); skip the faces.
-                    if skip_cylinders:
-                        continue
-                    cf = fit_cylinder_params(prims, patch)
-                    if cf is not None:
-                        # exact joint-cut trim only when asked (breaks adacpp meshing, see above);
-                        # otherwise the viz-safe full tube with flat circular ends.
-                        trimmed = cylinder_trim_faces(prims, patch, cf, ndigits) if trim_cylinders else None
-                        yield from (trimmed if trimmed is not None else cylinder_fit_to_faces(cf))
-                        continue
-                # drop elements already emitted as a curved B-spline panel
-                rem = [j for j in patch if _elid_of(prims.names[j]) not in consumed] if consumed else patch
-                # solids mode: drop primitives lying on a tube wall (their triangle/quad facets would
-                # otherwise float on the CSG solid — the "leftover triangles on the cylinder" bug).
-                if drop_on_tube is not None and rem:
-                    rem = [j for j in rem if not drop_on_tube(prims.outline(j).mean(axis=0))]
-                if not rem:
+        for patch, cls in patch_cls:
+            if cls == "cylinder":
+                # solids mode owns the tubes (emitted as CSG solids elsewhere); skip the faces.
+                if skip_cylinders:
                     continue
-                if len(rem) == 1:
-                    yield _facet_flat_face(prims, rem[0])
+                cf = fit_cylinder_params(prims, patch)
+                if cf is not None:
+                    # exact joint-cut trim only when asked (breaks adacpp meshing, see above);
+                    # otherwise the viz-safe full tube with flat circular ends.
+                    trimmed = cylinder_trim_faces(prims, patch, cf, ndigits) if trim_cylinders else None
+                    yield from (trimmed if trimmed is not None else cylinder_fit_to_faces(cf))
                     continue
-                if cls == "planar":
-                    # The WHOLE patch is flat within tol (classify_patch's plane gate): emit it as
-                    # ONE flat face (its outer boundary + holes) via robust extraction. Skipping the
-                    # per-plane-bucket path is the win — exact-plane bucketing shatters a nearly-flat
-                    # patch into per-facet (the ship-hull 47k-face blow-up).
-                    faces = _flat_faces_with_holes(prims, rem, ndigits)
-                    if faces:
-                        yield from faces
-                        continue
-                # freeform leftover / a planar patch whose boundary wouldn't resolve: coplanar-merge
-                # per exact-plane component, facet where that can't collapse.
-                yield from _analytic_flat_faces(prims, rem, ndigits)
+            # drop elements already emitted as a curved B-spline panel
+            rem = [j for j in patch if _elid_of(prims.names[j]) not in consumed] if consumed else patch
+            # solids mode: drop primitives lying on a tube wall (their triangle/quad facets would
+            # otherwise float on the CSG solid — the "leftover triangles on the cylinder" bug).
+            if drop_on_tube is not None and rem:
+                rem = [j for j in rem if not drop_on_tube(prims.outline(j).mean(axis=0))]
+            if not rem:
+                continue
+            if len(rem) == 1:
+                yield _facet_flat_face(prims, rem[0])
+                continue
+            if cls == "planar":
+                # The WHOLE patch is flat within tol (classify_patch's plane gate): emit it as
+                # ONE flat face (its outer boundary + holes) via robust extraction. Skipping the
+                # per-plane-bucket path is the win — exact-plane bucketing shatters a nearly-flat
+                # patch into per-facet (the ship-hull 47k-face blow-up).
+                faces = _flat_faces_with_holes(prims, rem, ndigits)
+                if faces:
+                    yield from faces
+                    continue
+            # freeform leftover / a planar patch whose boundary wouldn't resolve: coplanar-merge
+            # per exact-plane component, facet where that can't collapse.
+            yield from _analytic_flat_faces(prims, rem, ndigits)
 
 
 @dataclass
@@ -1207,31 +1240,30 @@ def _collect_tubes(part, angle_tol: float, min_patch_quads: int, ndigits: int) -
         fem = getattr(p, "fem", None)
         if fem is None or len(fem.elements) == 0:
             continue
-        for blk in _shell_blocks(fem):
-            if blk.conn.shape[1] != 4:
+        # combined tri+quad prims so tube detection matches iter_fem_analytic_faces (a tube meshed
+        # with a few triangles among its quads is one patch, not a quad patch + stranded triangles).
+        prims = _combined_shell_primitives(fem)
+        if prims is None or len(prims) == 0:
+            continue
+        for patch in _surface_patches(prims, angle_tol, ndigits):
+            if len(patch) < min_patch_quads or classify_patch(prims, patch) != "cylinder":
                 continue
-            prims = _block_primitives(blk)
-            if len(prims) == 0:
+            cf = fit_cylinder_params(prims, patch)
+            if cf is None:
                 continue
-            for patch in _surface_patches(prims, angle_tol, ndigits):
-                if len(patch) < min_patch_quads or classify_patch(prims, patch) != "cylinder":
+            origin = np.asarray(cf.origin, float)
+            axis = np.asarray(cf.axis, float)
+            e1 = np.asarray(cf.e1, float)
+            bands: dict[float, list[int]] = {}
+            for j in patch:
+                bands.setdefault(round(float(prims.ts[j]), ndigits), []).append(j)
+            for t, js in bands.items():
+                nodes = np.unique(np.concatenate([np.asarray(prims.rows[j]) for j in js]))
+                axc = (prims.coords[nodes] - origin) @ axis
+                z0, z1 = float(axc.min()), float(axc.max())
+                if z1 - z0 < 1e-4:
                     continue
-                cf = fit_cylinder_params(prims, patch)
-                if cf is None:
-                    continue
-                origin = np.asarray(cf.origin, float)
-                axis = np.asarray(cf.axis, float)
-                e1 = np.asarray(cf.e1, float)
-                bands: dict[float, list[int]] = {}
-                for j in patch:
-                    bands.setdefault(round(float(prims.ts[j]), ndigits), []).append(j)
-                for t, js in bands.items():
-                    nodes = np.unique(np.concatenate([np.asarray(prims.rows[j]) for j in js]))
-                    axc = (prims.coords[nodes] - origin) @ axis
-                    z0, z1 = float(axc.min()), float(axc.max())
-                    if z1 - z0 < 1e-4:
-                        continue
-                    tubes.append(_Tube(origin, axis, e1, float(cf.radius), float(t), z0, z1))
+                tubes.append(_Tube(origin, axis, e1, float(cf.radius), float(t), z0, z1))
     return tubes
 
 
