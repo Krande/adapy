@@ -307,6 +307,13 @@ audit-repro = { cmd = "python scripts/audit_repro.py", env = { "PYTHONPATH" = "$
 viewer-upload = { cmd = "python scripts/viewer_upload.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 glb-face-classify = { cmd = "python scripts/glb_face_classify.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
+# Windows: PYTHONPATH uses ';' as separator, so the ':'-joined overlay prefix above turns the whole
+# value into one bogus path and `python -m ada.comms.rest` dies with ModuleNotFoundError. The
+# /opt/adacpp-overlay prefix is a Linux-deploy concern only, so the win-64 override drops it.
+[feature.viewer-api.target.win-64.tasks]
+viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+viewer-worker = { cmd = "python -m ada.comms.rest.worker", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
 # NOTE: meshopt GLB compression (ada.visit.gltf.meshopt) no longer pulls the PyPI
 # `meshoptimizer` package — it is sdist-only (no wheels) so every viewer/worker image
 # tried to compile it from source and failed (no g++). The EXT_meshopt_compression
