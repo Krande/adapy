@@ -88,6 +88,9 @@ class GirderCapacityModel:
     continuous: bool = True
     stiffener_continuous_through: bool = True
     stations: tuple[tuple[float, float, float], ...] = ()
+    #: Supported-stiffener lines (2-point polylines, clipped to the tributary
+    #: strip) — viewer decoration showing which stiffeners the girder carries.
+    stiffener_stations: tuple[tuple[tuple[float, float, float], ...], ...] = ()
     notes: tuple[str, ...] = ()
 
 
@@ -320,10 +323,67 @@ def build_girder_models(
                 Is=pre.Is,
                 stiffener_section=pre.st_section,
                 stations=tuple(tuple(p) for p in stations or ()),
+                stiffener_stations=_supported_stiffener_lines(mesh, pre),
                 notes=tuple(pre.notes),
             )
         )
     return out
+
+
+def _supported_stiffener_lines(mesh: Mesh, pre: _PreparedGirder) -> tuple[tuple[tuple[float, float, float], ...], ...]:
+    """The supported stiffeners as 2-point lines clipped to the tributary strip.
+
+    Viewer decoration: each strip panel's stiffener line, cut to this bay's
+    along-extent and to the per-side rectangle, so the girder capacity model can
+    show the stiffeners it carries without spilling into the neighbours.
+    """
+    half_plus = pre.half_by_side.get(1, 0.0)
+    half_minus = pre.half_by_side.get(-1, 0.0)
+    out: list[tuple[tuple[float, float, float], ...]] = []
+    for pm in pre.strip_panels:
+        for st in pm.stiffeners:
+            if not st.element_ids:
+                continue
+            stations = extract.stiffener_stations(mesh, st.element_ids)
+            if not stations or len(stations) < 2:
+                continue
+            p0 = np.asarray(stations[0], dtype=float)
+            p1 = np.asarray(stations[-1], dtype=float)
+            clipped = _clip_segment_to_strip(p0, p1, pre, half_plus, half_minus)
+            if clipped is not None:
+                out.append((tuple(float(v) for v in clipped[0]), tuple(float(v) for v in clipped[1])))
+    return tuple(out)
+
+
+def _clip_segment_to_strip(
+    p0: np.ndarray,
+    p1: np.ndarray,
+    pre: _PreparedGirder,
+    half_plus: float,
+    half_minus: float,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Clip a segment to along in [0, a_max] and signed perp in [-half-, +half+]."""
+    r0 = p0 - pre.origin
+    r1 = p1 - pre.origin
+    a0, a1 = float(np.dot(r0, pre.axis)), float(np.dot(r1, pre.axis))
+    s0, s1 = float(np.dot(r0, pre.perp_dir)), float(np.dot(r1, pre.perp_dir))
+    t_lo, t_hi = 0.0, 1.0
+    for value0, value1, lo, hi in (
+        (a0, a1, -1e-3, pre.a_max + 1e-3),
+        (s0, s1, -half_minus - 1e-3, half_plus + 1e-3),
+    ):
+        dv = value1 - value0
+        if abs(dv) < 1e-12:
+            if value0 < lo or value0 > hi:
+                return None
+            continue
+        t_at_lo = (lo - value0) / dv
+        t_at_hi = (hi - value0) / dv
+        t_min, t_max = min(t_at_lo, t_at_hi), max(t_at_lo, t_at_hi)
+        t_lo, t_hi = max(t_lo, t_min), min(t_hi, t_max)
+    if t_hi - t_lo < 1e-3:
+        return None
+    return p0 + t_lo * (p1 - p0), p0 + t_hi * (p1 - p0)
 
 
 @dataclass(frozen=True)

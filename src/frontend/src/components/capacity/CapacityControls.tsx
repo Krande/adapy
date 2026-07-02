@@ -77,7 +77,9 @@ const CapacityControls: React.FC = () => {
   const pickedName = useObjectInfoStore((s) => s.name);
   const pickedFaceIndex = useObjectInfoStore((s) => s.faceIndex);
   const pickedFileName = useObjectInfoStore((s) => s.fileName);
+  const pickedClick = useObjectInfoStore((s) => s.clickCoordinate);
   const lastHandledPickKeyRef = useRef<string | null>(null);
+  const lastHandledClickRef = useRef<object | null>(null);
   const [showInputs, setShowInputs] = useState(false);
   const [showResultsPanel, setShowResultsPanel] = useState(false);
   const [showStations, setShowStations] = useState(false);
@@ -278,10 +280,19 @@ const CapacityControls: React.FC = () => {
       : null;
     if (!pickKey) {
       lastHandledPickKeyRef.current = null;
+      lastHandledClickRef.current = null;
       return;
     }
-    if (lastHandledPickKeyRef.current === pickKey) return;
+    // Each 3D click stores a fresh clickCoordinate object, so a repeat click on
+    // the same face re-enters here (to drill into the individual strip below);
+    // effect re-runs from unrelated deps (same click object) stay deduped.
+    if (
+      lastHandledPickKeyRef.current === pickKey &&
+      lastHandledClickRef.current === pickedClick
+    )
+      return;
     lastHandledPickKeyRef.current = pickKey;
+    lastHandledClickRef.current = pickedClick;
     if (!run || !pickedName || !showDefinitions) return;
     const elementId = elementIdFromName(pickedName);
     if (elementId == null) return;
@@ -289,6 +300,7 @@ const CapacityControls: React.FC = () => {
       activeCaseId: currentCaseId,
       activeMetricId: currentMetricId,
       selectedModelId: currentSelectedModelId,
+      selectedResultId: currentSelectedResultId,
     } = useCapacityResultsStore.getState();
     const match = pickCapacityModelForElement(
       run,
@@ -297,16 +309,33 @@ const CapacityControls: React.FC = () => {
       currentMetricId,
       currentSelectedModelId,
     );
-    if (match && match.id !== currentSelectedModelId) {
+    if (!match) return;
+    if (match.id !== currentSelectedModelId) {
       setSelectedModelId(match.id);
+      return;
+    }
+    // Click inside the already-selected model: select the individual
+    // stiffener/strip under the cursor so the Input/Results/Points panels
+    // (and the amber strip highlight) follow that specific capacity model.
+    const rowKey = pickResultRowForElement(
+      run,
+      match,
+      elementId,
+      currentCaseId,
+      currentMetricId,
+    );
+    if (rowKey && rowKey !== currentSelectedResultId) {
+      setSelectedCapacityResult(match.id, rowKey);
     }
   }, [
     run,
     pickedName,
     pickedFaceIndex,
     pickedFileName,
+    pickedClick,
     showDefinitions,
     setSelectedModelId,
+    setSelectedCapacityResult,
   ]);
 
   if (!results && !loading && !error) return null;
@@ -941,11 +970,13 @@ function fmtInputField(f: InputField): string {
   const v = f.value;
   const a = Math.abs(v);
   const s =
-    a >= 100
-      ? v.toFixed(1)
-      : a >= 1 || a === 0
-        ? v.toFixed(2)
-        : v.toPrecision(3);
+    a >= 1e6
+      ? v.toExponential(3)
+      : a >= 100
+        ? v.toFixed(1)
+        : a >= 1 || a === 0
+          ? v.toFixed(2)
+          : v.toPrecision(3);
   return f.unit && f.unit !== "-" ? `${s} ${f.unit}` : s;
 }
 
@@ -1096,6 +1127,98 @@ function buildUiCaseValues(
   };
 }
 
+/** Girder run ``check_inputs`` payload (see
+ *  girder_capacity_check._build_girder_check_inputs — mm / MPa / mm² / mm⁴). */
+interface GirderCheckInputs {
+  girder?: {
+    hw_mm?: number;
+    tw_mm?: number;
+    bf_mm?: number;
+    tf_mm?: number;
+    section?: string;
+  };
+  bay?: { LG_mm?: number; l_mm?: number; s_mm?: number; continuous?: boolean };
+  plate?: { s_mm?: number; t_mm?: number };
+  stiffener?: {
+    As_mm2?: number;
+    Is_mm4?: number;
+    section?: string;
+    continuous_through_girder?: boolean;
+  };
+  material?: { fy_mpa?: number; E_mpa?: number; gamma_m?: number };
+  method?: string;
+  welded?: boolean;
+}
+
+function girderCheckInputs(row: CapacityCaseResultLike): GirderCheckInputs {
+  return (row.check_inputs ?? {}) as unknown as GirderCheckInputs;
+}
+
+/** Build the aibel_dnv_rp_c201_ui ``fe_girder`` value map from a girder result
+ *  row. Geometry comes from the as-checked ``check_inputs``; the loads invert
+ *  ``GirderLoads.from_membrane_stress`` (eq. 5.2): the UI takes girder-direction
+ *  membrane stresses, so sigma_y,i = N_Gi / (A_G + l·t) with A_G = hw·tw + bf·tf
+ *  — the same section the UI rebuilds, so the imported case reproduces the
+ *  engine loads. */
+function buildUiGirderValues(
+  row: CapacityCaseResultLike,
+): Record<string, number | string | boolean> {
+  const ci = girderCheckInputs(row);
+  const loads = (row.loads ?? {}) as Record<string, unknown>;
+  const dr = (v: number | null, fallback = 0): number =>
+    displayRound(v == null ? fallback : v);
+  const num = (v: unknown, factor: number): number =>
+    displayRound(scaled(v, factor) ?? 0);
+  const hw = asNum(ci.girder?.hw_mm) ?? 0;
+  const tw = asNum(ci.girder?.tw_mm) ?? 0;
+  const bf = asNum(ci.girder?.bf_mm) ?? 0;
+  const tf = asNum(ci.girder?.tf_mm) ?? 0;
+  const lSpan = asNum(ci.bay?.l_mm) ?? 0;
+  const t = asNum(ci.plate?.t_mm) ?? 0;
+  const areaMm2 = hw * tw + bf * tf + lSpan * t;
+  // N [N] / A [mm²] = sigma [MPa] exactly.
+  const sigmaY = (nG: unknown): number => {
+    const n = asNum(nG);
+    return displayRound(areaMm2 > 0 && n != null ? n / areaMm2 : 0);
+  };
+  return {
+    method: ci.method ?? "GCM3",
+    effective_width_method: "auto",
+    z_star: 0,
+    k_moment_reduction: 1,
+    welded: ci.welded !== false,
+    fy: dr(asNum(ci.material?.fy_mpa), 355),
+    E: dr(asNum(ci.material?.E_mpa), 210000),
+    gamma_M: dr(asNum(ci.material?.gamma_m), 1.15),
+    hw: dr(hw),
+    tw: dr(tw),
+    bf: dr(bf),
+    tf: dr(tf),
+    flange_type: "symmetric",
+    s: dr(asNum(ci.plate?.s_mm)),
+    t: dr(t),
+    As: dr(asNum(ci.stiffener?.As_mm2)),
+    Is: dr(asNum(ci.stiffener?.Is_mm4)),
+    continuous_through_girder: ci.stiffener?.continuous_through_girder !== false,
+    LG: dr(asNum(ci.bay?.LG_mm)),
+    l_span: dr(lSpan),
+    continuous: ci.bay?.continuous !== false,
+    sigma_y_1: sigmaY(loads.N_G1),
+    sigma_y_2: sigmaY(loads.N_G2),
+    sigma_y_3: sigmaY(loads.N_G3),
+    M_1: num(loads.M_G1, 1e-3),
+    M_2: num(loads.M_G2, 1e-3),
+    M_3: num(loads.M_G3, 1e-3),
+    tau_1: num(loads.tau_1, 1e-6),
+    tau_2: num(loads.tau_2, 1e-6),
+    tau_3: num(loads.tau_3, 1e-6),
+    sigma_x: num(loads.sigma_x_Sd, 1e-6),
+    shear_force: num(loads.V_Sd, 1e-3),
+    lateral_pressure: num(loads.p_Sd, 1e-6),
+    p_dir: num(loads.p_dir, 1e-6),
+  };
+}
+
 function slugForFile(value: string): string {
   return (
     (value || "case").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
@@ -1104,8 +1227,12 @@ function slugForFile(value: string): string {
 
 /** Download the current input as an aibel_dnv_rp_c201_ui case file. The schema
  *  (``aibel-dnv-c201-ui/case@1`` + ``check_id``/``values``) is exactly what that
- *  app's "Import JSON…" expects. */
+ *  app's "Import JSON…" expects. Girder rows export the Section-7 ``fe_girder``
+ *  check; panel rows the ``fe_stiffened`` check. */
 function downloadUiCase(run: CapacityRunLike, row: CapacityCaseResultLike): void {
+  const isGirder =
+    run.capacity_models.find((m) => m.id === row.capacity_model_id)?.type ===
+    "girder";
   const name = `${shortName(row.stiffener ?? row.panel_group)} ${caseLabelForRow(
     run,
     row,
@@ -1113,11 +1240,13 @@ function downloadUiCase(run: CapacityRunLike, row: CapacityCaseResultLike): void
   const payload = {
     schema: "aibel-dnv-c201-ui/case@1",
     name,
-    check_id: "fe_stiffened",
+    check_id: isGirder ? "fe_girder" : "fe_stiffened",
     source: "adapy-capacity-viewer",
     capacity_model_id: row.capacity_model_id,
     case_id: row.case_id,
-    values: buildUiCaseValues(run, row),
+    values: isGirder
+      ? buildUiGirderValues(row)
+      : buildUiCaseValues(run, row),
     saved_at: new Date().toISOString(),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -1142,6 +1271,7 @@ function buildInputGroups(
   row: CapacityCaseResultLike,
 ): InputGroup[] {
   const model = run.capacity_models.find((m) => m.id === row.capacity_model_id);
+  if (model?.type === "girder") return buildGirderInputGroups(row);
   const plate = (model?.plates?.[0] ?? {}) as Record<string, unknown>;
   const stiffeners = (model?.stiffeners ?? []) as Array<
     Record<string, unknown>
@@ -1278,6 +1408,111 @@ function buildInputGroups(
   ];
 }
 
+/** Section-7 girder Input panel: the girder bay/section, the supported
+ *  stiffeners and the [7.8] design loads — the girder counterpart of the panel
+ *  groups above, built from the girder ``check_inputs`` + ``loads``. */
+function buildGirderInputGroups(row: CapacityCaseResultLike): InputGroup[] {
+  const ci = girderCheckInputs(row);
+  const loads = (row.loads ?? {}) as Record<string, unknown>;
+  const f = (
+    symbol: string,
+    label: string,
+    value: number | string | null,
+    unit?: string,
+    pos?: number,
+    ref?: string,
+  ): InputField => ({ symbol, label, value, unit, pos, ref });
+  return [
+    {
+      title: "Girder bay",
+      fields: [
+        f("L_G", "Girder span", asNum(ci.bay?.LG_mm), "mm"),
+        f("l", "Stiffener span", asNum(ci.bay?.l_mm), "mm", undefined, "[7.4]"),
+        f("s", "Stiffener spacing", asNum(ci.plate?.s_mm), "mm"),
+        f("t", "Plate thickness", asNum(ci.plate?.t_mm), "mm"),
+      ],
+    },
+    {
+      title: "Girder section",
+      fields: [
+        f("", "Profile", ci.girder?.section || "—"),
+        f("h_wG", "Web height", asNum(ci.girder?.hw_mm), "mm"),
+        f("t_wG", "Web thickness", asNum(ci.girder?.tw_mm), "mm"),
+        f("b_fG", "Flange width", asNum(ci.girder?.bf_mm), "mm"),
+        f("t_fG", "Flange thickness", asNum(ci.girder?.tf_mm), "mm"),
+      ],
+    },
+    {
+      title: "Supported stiffeners",
+      fields: [
+        f("", "Profile", ci.stiffener?.section || "—"),
+        f("A_s", "Stiffener area", asNum(ci.stiffener?.As_mm2), "mm²"),
+        f("I_s", "Moment of inertia", asNum(ci.stiffener?.Is_mm4), "mm⁴"),
+        f(
+          "",
+          "Continuous through girder",
+          ci.stiffener?.continuous_through_girder === false ? "no" : "yes",
+        ),
+      ],
+    },
+    {
+      title: "Material",
+      fields: [
+        f("f_y", "Yield strength", asNum(ci.material?.fy_mpa), "MPa"),
+        f("E", "Young's modulus", asNum(ci.material?.E_mpa), "MPa"),
+        f("γ_M", "Material factor", asNum(ci.material?.gamma_m), "-"),
+      ],
+    },
+    {
+      title: "Girder axial force (compression +)",
+      fields: [
+        f("N_G1", "Position 1", scaled(loads.N_G1, 1e-3), "kN", 1, "[7.8.2]"),
+        f("N_G2", "Position 2", scaled(loads.N_G2, 1e-3), "kN", 2),
+        f("N_G3", "Position 3", scaled(loads.N_G3, 1e-3), "kN", 3),
+      ],
+    },
+    {
+      title: "Girder moment (tension in plate flange +)",
+      fields: [
+        f("M_G1", "Position 1", scaled(loads.M_G1, 1e-3), "kN·m", 1, "(7.42)"),
+        f("M_G2", "Position 2", scaled(loads.M_G2, 1e-3), "kN·m", 2, "(7.43)"),
+        f("M_G3", "Position 3", scaled(loads.M_G3, 1e-3), "kN·m", 3, "(7.44)"),
+      ],
+    },
+    {
+      title: "Shear stress",
+      fields: [
+        f("τ_1", "Position 1", scaled(loads.tau_1, 1e-6), "MPa", 1, "(7.45)"),
+        f("τ_2", "Position 2", scaled(loads.tau_2, 1e-6), "MPa", 2),
+        f("τ_3", "Position 3", scaled(loads.tau_3, 1e-6), "MPa", 3),
+      ],
+    },
+    {
+      title: "Other loads",
+      fields: [
+        f(
+          "σ_x,Sd",
+          "Stiffener-direction stress",
+          scaled(loads.sigma_x_Sd, 1e-6),
+          "MPa",
+          undefined,
+          "[7.8.5]",
+        ),
+        f("p_Sd", "Lateral pressure", scaled(loads.p_Sd, 1e-3), "kPa"),
+        f("V_Sd", "Web shear force", scaled(loads.V_Sd, 1e-3), "kN", undefined, "(7.68)"),
+      ],
+    },
+    {
+      title: "Method",
+      fields: [
+        f("", "Girder capacity model", ci.method ?? "GCM3", undefined, undefined, "Table 7-1"),
+        f("", "Continuous girder", ci.bay?.continuous === false ? "no" : "yes"),
+        f("", "Welded", ci.welded === false ? "no" : "yes"),
+      ],
+    },
+  ];
+}
+
 function metricLabel(
   run: CapacityRunLike,
   field: CapacityVisualFieldLike,
@@ -1329,6 +1564,47 @@ function pickCapacityModelForElement(
       );
     })[0] ?? null
   );
+}
+
+/** Result-row key for the individual stiffener/strip of ``model`` that owns the
+ *  picked element, so a click inside an already-selected panel selects that
+ *  specific capacity model (not just the panel's worst). Overlapping strips
+ *  resolve to the highest UF for the active metric. The worst view keeps
+ *  model-level selection (its rows aggregate over cases). */
+function pickResultRowForElement(
+  run: CapacityRunLike,
+  model: CapacityRunLike["capacity_models"][number],
+  elementId: number,
+  activeCaseId: string | null,
+  activeMetricId: string,
+): string | null {
+  if (!activeCaseId || activeCaseId === WORST_CASE_ID) return null;
+  const stiffeners = (model.stiffeners ?? []) as Array<Record<string, unknown>>;
+  const owners = new Set(
+    stiffeners
+      .filter((s) => {
+        const own = (s.element_ids as number[] | undefined) ?? [];
+        const trib = (s.tributary_plate_ids as number[] | undefined) ?? [];
+        return own.includes(elementId) || trib.includes(elementId);
+      })
+      .map((s) => String(s.name)),
+  );
+  if (owners.size === 0) return null;
+  const store = useCapacityResultsStore.getState();
+  const rows = (
+    store.caseDetail[activeCaseId] ??
+    run.case_results.filter((r) => r.case_id === activeCaseId)
+  ).filter(
+    (r) => r.capacity_model_id === model.id && owners.has(String(r.stiffener)),
+  );
+  if (rows.length === 0) return null;
+  const checkId = metricCheckId(activeMetricId);
+  const best = rows
+    .slice()
+    .sort(
+      (a, b) => (rowMetricUf(b, checkId) ?? -1) - (rowMetricUf(a, checkId) ?? -1),
+    )[0];
+  return caseResultKey(best);
 }
 
 function activeMetricScores(

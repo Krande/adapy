@@ -142,6 +142,17 @@ export interface CapacityCaseDetailPointer {
 /** Synthetic "case" id for the worst-over-selected-cases view. */
 export const WORST_CASE_ID = "__worst__";
 
+/** UI selection stashed per run so switching Run (stiffened panel <-> girder)
+ *  and back restores what was open and selected. */
+interface RunUiMemory {
+  activeCaseId: string | null;
+  activeMetricId: string;
+  selectedModelId: string | null;
+  selectedResultId: string | null;
+  worstCaseIds: string[];
+  worstSummary: CapacityWorstSummary | null;
+}
+
 /** One compact row in the worst-over-cases summary (no heavy check detail). */
 export interface CapacityWorstRow {
   /** Unique per (case, model, stiffener). */
@@ -244,6 +255,8 @@ export interface CapacityResultsState {
   worstCaseIds: string[];
   worstSummary: CapacityWorstSummary | null;
   worstSummaryLoading: boolean;
+  /** Selection state remembered per run id (restored on run switch). */
+  runUiMemory: Record<string, RunUiMemory>;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setCapacityData: (
@@ -298,6 +311,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   worstCaseIds: [],
   worstSummary: null,
   worstSummaryLoading: false,
+  runUiMemory: {},
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error, loading: false }),
   setCapacityData: (manifest, source, results) => {
@@ -322,6 +336,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       worstCaseIds: run?.result_cases?.map((c) => c.id) ?? [],
       worstSummary: null,
       worstSummaryLoading: false,
+      runUiMemory: {},
       loading: false,
       error: null,
     });
@@ -368,25 +383,45 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       worstCaseIds: [],
       worstSummary: null,
       worstSummaryLoading: false,
+      runUiMemory: {},
       loading: false,
       error: null,
     }),
   // Runs carry disjoint case ids (the girder run g-prefixes them) and their own
-  // worst summary, so switching runs also resets the active case, the worst-case
-  // subset and the cached worst summary to the new run's.
+  // worst summary, so switching runs swaps the active case, selection, metric
+  // and worst-case subset. The outgoing run's state is stashed in runUiMemory
+  // and restored when the user switches back (panel <-> girder round trips keep
+  // what was open and selected); a first visit starts from the run's defaults.
   setActiveRunId: (activeRunId) =>
     set((state) => {
       const run =
         state.results?.runs.find((r) => r.id === activeRunId) ??
         state.results?.runs[0] ??
         null;
+      const runUiMemory = { ...state.runUiMemory };
+      if (state.activeRunId) {
+        runUiMemory[state.activeRunId] = {
+          activeCaseId: state.activeCaseId,
+          activeMetricId: state.activeMetricId,
+          selectedModelId: state.selectedModelId,
+          selectedResultId: state.selectedResultId,
+          worstCaseIds: state.worstCaseIds,
+          worstSummary: state.worstSummary,
+        };
+      }
+      const saved = activeRunId ? runUiMemory[activeRunId] : undefined;
       return {
         activeRunId,
-        selectedModelId: null,
-        selectedResultId: null,
-        activeCaseId: run?.result_cases?.[0]?.id ?? null,
-        worstCaseIds: run?.result_cases?.map((c) => c.id) ?? [],
-        worstSummary: null,
+        runUiMemory,
+        selectedModelId: saved?.selectedModelId ?? null,
+        selectedResultId: saved?.selectedResultId ?? null,
+        activeCaseId: saved?.activeCaseId ?? run?.result_cases?.[0]?.id ?? null,
+        // Metric ids are run-specific (panel vs girder checks); fall back to
+        // the governing UF, which every run carries.
+        activeMetricId: saved?.activeMetricId ?? DEFAULT_METRIC,
+        worstCaseIds:
+          saved?.worstCaseIds ?? run?.result_cases?.map((c) => c.id) ?? [],
+        worstSummary: saved?.worstSummary ?? null,
         worstSummaryLoading: false,
       };
     }),

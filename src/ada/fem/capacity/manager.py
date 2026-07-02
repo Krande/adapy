@@ -32,6 +32,7 @@ class CapacityManager:
         self.builder = builder or StiffenedPlateBuilder()
         self._aux: AuxRecords | None = None
         self._mesh = None
+        self._groups = None
         self._models: list[CapacityModel] | None = None
         self._girder_models = None
 
@@ -62,6 +63,17 @@ class CapacityManager:
         return self._aux
 
     # ── capacity models ───────────────────────────────────────────────
+    def panel_groups(self):
+        """Identify (and cache) the panel-group membership.
+
+        Exposed separately from :meth:`capacity_models` because on a large SIN
+        the grouping is the slow part (mesh read + geometric panel
+        reconstruction); a caller can report it as its own progress phase.
+        """
+        if self._groups is None:
+            self._groups = list(self.source.groups(self.mesh, self.aux))
+        return self._groups
+
     def capacity_models(
         self,
         *,
@@ -73,7 +85,7 @@ class CapacityManager:
         caller can drive a progress bar without this package depending on it.
         """
         if self._models is None:
-            groups = list(self.source.groups(self.mesh, self.aux))
+            groups = self.panel_groups()
             total = len(groups)
             models: list[CapacityModel] = []
             for index, group in enumerate(groups, start=1):

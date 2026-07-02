@@ -87,6 +87,9 @@ interface ActiveFeaStreaming {
     capacityStiffenerLineOverlay?: THREE.LineSegments;
     /** Red boundary overlay for the selected capacity model. */
     capacitySelectedBoundaryOverlay?: THREE.LineSegments;
+    /** Amber boundary overlay for the individually selected stiffener strip
+     *  within the selected capacity model. */
+    capacitySelectedStripOverlay?: THREE.LineSegments;
     /** Non-pickable non-indexed overlay used for hard-edged capacity colors. */
     capacityColorOverlay?: THREE.Mesh;
     /** Capacity color overlay for optional beam-solid geometry. */
@@ -944,23 +947,33 @@ function disposeCapacityGirderLineOverlay(): void {
     active.capacityGirderLineOverlay = undefined;
 }
 
-/** Dashed near-black polylines through each panel stiffener's station points,
- *  indicating the stiffeners inside the (panel) capacity models. Girder-run
- *  models are skipped — their ``stiffeners[0]`` is the girder itself. */
+/** Dashed near-black polylines indicating the stiffeners of the capacity
+ *  models: each panel stiffener's station line, and — for girder models — the
+ *  supported-stiffener lines carried in ``stiffener_stations`` (the girder's
+ *  own ``stiffeners[0]`` is the amber girder line, not a stiffener). */
 function rebuildCapacityStiffenerLineOverlay(
-    models: Array<{type?: string; stiffeners?: Array<Record<string, unknown>>}>,
+    models: Array<{
+        type?: string;
+        stiffeners?: Array<Record<string, unknown>>;
+        stiffener_stations?: number[][][];
+    }>,
 ): void {
     disposeCapacityStiffenerLineOverlay();
     if (!active?.mesh) return;
     const positions: number[] = [];
+    const pushPolyline = (stations: number[][] | undefined): void => {
+        if (!stations || stations.length < 2) return;
+        for (let i = 0; i + 1 < stations.length; i++) {
+            positions.push(...stations[i].slice(0, 3), ...stations[i + 1].slice(0, 3));
+        }
+    };
     for (const model of models) {
-        if (model.type === "girder") continue;
+        if (model.type === "girder") {
+            for (const line of model.stiffener_stations ?? []) pushPolyline(line);
+            continue;
+        }
         for (const stiff of model.stiffeners ?? []) {
-            const stations = stiff.stations as number[][] | undefined;
-            if (!stations || stations.length < 2) continue;
-            for (let i = 0; i + 1 < stations.length; i++) {
-                positions.push(...stations[i].slice(0, 3), ...stations[i + 1].slice(0, 3));
-            }
+            pushPolyline(stiff.stations as number[][] | undefined);
         }
     }
     if (positions.length === 0) return;
@@ -1194,7 +1207,7 @@ function paintCapacityEntries(
     const colorAttr = overlay.geometry.getAttribute("color") as THREE.BufferAttribute | undefined;
     if (!colorAttr) return false;
     const colors = colorAttr.array as Float32Array;
-    seedNeutralColors(colors, 0.42);
+    seedNeutralColors(colors);
     const tmp = new Float32Array(3);
 
     for (const entry of values) {
@@ -1204,10 +1217,11 @@ function paintCapacityEntries(
         capacityUfColor(entry.value, tmp);
         const [vStart, vCount] = dr;
         for (let i = vStart; i < vStart + vCount; i++) {
-            const off = i * 3;
+            const off = i * 4;
             colors[off + 0] = tmp[0];
             colors[off + 1] = tmp[1];
             colors[off + 2] = tmp[2];
+            colors[off + 3] = 1.0;
         }
     }
 
@@ -1274,8 +1288,10 @@ function buildCapacityColorOverlay(
 
     const indexArr = indexAttr.array as Uint16Array | Uint32Array;
     const positions = new Float32Array(indexArr.length * 3);
-    const colors = new Float32Array(indexArr.length * 3);
-    seedNeutralColors(colors, 0.42);
+    // RGBA vertex colours: alpha 0 (transparent) until a result value paints
+    // the element, so un-valued elements keep the shaded base mesh look.
+    const colors = new Float32Array(indexArr.length * 4);
+    seedNeutralColors(colors);
     for (let i = 0; i < indexArr.length; i++) {
         const srcIdx = indexArr[i];
         const out = i * 3;
@@ -1286,7 +1302,7 @@ function buildCapacityColorOverlay(
 
     const geom = new THREE.BufferGeometry();
     geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geom.setAttribute("color", new THREE.BufferAttribute(colors, 4));
     duplicateMorphPositions(src, geom, indexArr);
 
     // "Only definitions": collapse every triangle that is not part of a capacity
@@ -1388,7 +1404,14 @@ function collapseNonCapacityTriangles(
 }
 
 function updateCapacitySelectionOverlay(
-    run: {capacity_models: Array<{id: string; panel_group: string; element_ids: {all?: number[]}}>},
+    run: {
+        capacity_models: Array<{
+            id: string;
+            panel_group: string;
+            element_ids: {all?: number[]};
+            stiffeners?: Array<Record<string, unknown>>;
+        }>;
+    },
     selectedModelId: string | null,
 ): void {
     disposeCapacitySelectedBoundaryOverlay();
@@ -1416,6 +1439,38 @@ function updateCapacitySelectionOverlay(
     if (overlay && active?.mesh) {
         active.mesh.add(overlay);
         active.capacitySelectedBoundaryOverlay = overlay;
+        linkLineMorphToMesh(active.mesh);
+    }
+
+    // When an individual stiffener row is selected within a multi-stiffener
+    // panel, outline that stiffener's own strip (line + tributary plate) in
+    // amber so the specific capacity model under inspection stands out.
+    const selectedResultId = useCapacityResultsStore.getState().selectedResultId;
+    const stiffeners = selectedModel.stiffeners ?? [];
+    const stiffName = selectedResultId?.split("::").pop() ?? null;
+    if (!stiffName || stiffeners.length < 2) return;
+    const stiff = stiffeners.find((s) => String(s.name) === stiffName);
+    if (!stiff) return;
+    const stripIds = [
+        ...(((stiff.element_ids as number[] | undefined) ?? [])),
+        ...(((stiff.tributary_plate_ids as number[] | undefined) ?? [])),
+    ];
+    if (stripIds.length === 0) return;
+    const strip = buildCapacityBoundaryOverlay(
+        [
+            {
+                id: `${selectedModel.id}::${stiffName}`,
+                panel_group: selectedModel.panel_group,
+                element_ids: {all: stripIds},
+            },
+        ],
+        0xffc53d,
+        "capacity-selected-strip-boundary",
+        false,
+    );
+    if (strip && active?.mesh) {
+        active.mesh.add(strip);
+        active.capacitySelectedStripOverlay = strip;
         linkLineMorphToMesh(active.mesh);
     }
 }
@@ -1543,13 +1598,16 @@ function disposeCapacityBoundaryOverlay(): void {
 }
 
 function disposeCapacitySelectedBoundaryOverlay(): void {
-    if (!active?.capacitySelectedBoundaryOverlay) return;
-    active.capacitySelectedBoundaryOverlay.removeFromParent();
-    active.capacitySelectedBoundaryOverlay.geometry.dispose();
-    const material = active.capacitySelectedBoundaryOverlay.material;
-    if (Array.isArray(material)) material.forEach((m) => m.dispose());
-    else material.dispose();
-    active.capacitySelectedBoundaryOverlay = undefined;
+    for (const key of ["capacitySelectedBoundaryOverlay", "capacitySelectedStripOverlay"] as const) {
+        const overlay = active?.[key];
+        if (!overlay) continue;
+        overlay.removeFromParent();
+        overlay.geometry.dispose();
+        const material = overlay.material;
+        if (Array.isArray(material)) material.forEach((m) => m.dispose());
+        else material.dispose();
+        active![key] = undefined;
+    }
 }
 
 function disposeCapacityColorOverlay(which: "main" | "beam"): void {
@@ -1578,12 +1636,11 @@ function addBoundaryEdge(
     else edgeCounts.set(key, [lo, hi, 1]);
 }
 
-function seedNeutralColors(colors: Float32Array, value = 0.64): void {
-    for (let i = 0; i < colors.length; i += 3) {
-        colors[i + 0] = value;
-        colors[i + 1] = value;
-        colors[i + 2] = value;
-    }
+/** Seed the RGBA capacity colour buffer fully transparent: elements without a
+ *  result value contribute nothing, so the normally-shaded base mesh shows
+ *  through instead of a flat unlit grey. */
+function seedNeutralColors(colors: Float32Array): void {
+    colors.fill(0);
 }
 
 // Genie "UfTot" discrete colour bands (no gradient between them) — sampled from
