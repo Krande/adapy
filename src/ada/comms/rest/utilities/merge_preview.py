@@ -288,6 +288,7 @@ def _generate(asm, model, algorithm, storage, on_progress, solids=False):
     from ada.extension.design_and_analysis_extension_schema import AdaDesignAndAnalysisExtension
     from ada.extension.design_extension_schema import DesignDataExtension
     from ada.geom.booleans import BooleanResult
+    from ada.geom.solids import ExtrudedAreaSolid
     from ada.geom.surfaces import (
         BSplineSurfaceWithKnots,
         CylindricalSurface,
@@ -300,8 +301,9 @@ def _generate(asm, model, algorithm, storage, on_progress, solids=False):
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
     def _cls(g):
-        # tubes are BooleanResult (wall - joint cuts); faces classify by their surface
-        if isinstance(g, BooleanResult):
+        # tubes are a hollow ExtrudedAreaSolid (uncut) or a BooleanResult (wall - saddle cuts);
+        # faces classify by their surface
+        if isinstance(g, (BooleanResult, ExtrudedAreaSolid)):
             return "tube"
         s = getattr(g, "face_surface", None)
         if isinstance(s, CylindricalSurface):

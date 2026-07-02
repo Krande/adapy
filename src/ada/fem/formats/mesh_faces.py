@@ -1129,20 +1129,43 @@ class _Tube:
         return self.origin + self.z1 * self.axis
 
 
+def _tube_placement(origin, axis, e1, z0: float):
+    from ada.geom.placement import Axis2Placement3D, Direction
+
+    start = np.asarray(origin, float) + z0 * np.asarray(axis, float)
+    return Axis2Placement3D(location=tuple(start), axis=Direction(*axis), ref_direction=Direction(*e1))
+
+
 def _filled_cylinder(origin, axis, e1, r: float, z0: float, z1: float):
-    """A solid (filled) circular ExtrudedAreaSolid from ``z0`` to ``z1`` along ``axis`` — the
-    valid closed manifold used both as a wall operand and as a boolean cutting tool (a hollow
-    profile-with-void extrusion has inner-wall winding Manifold rejects, so we compose walls as
-    outer_solid − inner_solid instead)."""
+    """A solid (filled) circular ExtrudedAreaSolid from ``z0`` to ``z1`` along ``axis`` — used as a
+    boolean cutting tool and as the wall operands for a CUT member (a hollow profile-with-void
+    extrusion has inner-wall winding Manifold rejects as a boolean minuend, so a cut member's wall
+    is composed as outer_solid − inner_solid)."""
     from ada.geom.curves import Circle
     from ada.geom.placement import Axis2Placement3D, Direction
     from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
     import ada.geom.solids as geo_so
 
-    start = np.asarray(origin, float) + z0 * np.asarray(axis, float)
-    place = Axis2Placement3D(location=tuple(start), axis=Direction(*axis), ref_direction=Direction(*e1))
     prof = ArbitraryProfileDef(ProfileType.AREA, Circle(Axis2Placement3D(), float(r)), [])
-    return geo_so.ExtrudedAreaSolid(prof, place, float(z1 - z0), Direction(0.0, 0.0, 1.0))
+    return geo_so.ExtrudedAreaSolid(prof, _tube_placement(origin, axis, e1, z0), float(z1 - z0), Direction(0.0, 0.0, 1.0))
+
+
+def _hollow_extrusion(origin, axis, e1, ro: float, ri: float, z0: float, z1: float):
+    """A hollow tube as ONE ExtrudedAreaSolid whose profile is an outer circle with an inner-circle
+    void (IfcArbitraryProfileDefWithVoids). This is the clean form for an UNCUT member — no boolean,
+    so no Manifold artifacts (the outer_solid − inner_solid boolean introduces degenerate +
+    non-manifold triangles from the long sliver wall triangles; the void profile is watertight)."""
+    from ada.geom.curves import Circle
+    from ada.geom.placement import Axis2Placement3D, Direction
+    from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
+    import ada.geom.solids as geo_so
+
+    prof = ArbitraryProfileDef(
+        ProfileType.AREA,
+        Circle(Axis2Placement3D(), float(ro)),
+        [Circle(Axis2Placement3D(), float(ri))],
+    )
+    return geo_so.ExtrudedAreaSolid(prof, _tube_placement(origin, axis, e1, z0), float(z1 - z0), Direction(0.0, 0.0, 1.0))
 
 
 def _seg_seg_distance(p1, q1, p2, q2) -> float:
@@ -1271,15 +1294,18 @@ def iter_fem_analytic_solids(
         return j < i
 
     for i, tb in enumerate(tubes):
-        wall = BooleanResult(
+        cuts = [j for j in neigh[i] if _is_brace_of(i, j)]
+        if not cuts:
+            # uncut member → clean hollow profile-with-void extrusion (no boolean, no artifacts)
+            yield (f"tube_{i}", _hollow_extrusion(tb.origin, tb.axis, tb.e1, tb.ro, tb.ri, tb.z0, tb.z1))
+            continue
+        # cut member → wall as outer − inner (boolean minuend must be a filled solid), then saddle cuts
+        geom = BooleanResult(
             _filled_cylinder(tb.origin, tb.axis, tb.e1, tb.ro, tb.z0, tb.z1),
             _filled_cylinder(tb.origin, tb.axis, tb.e1, tb.ri, tb.z0, tb.z1),
             diff,
         )
-        geom = wall
-        for j in neigh[i]:
-            if not _is_brace_of(i, j):
-                continue  # i is the chord for this pair → stays continuous (not cut)
+        for j in cuts:
             nb = tubes[j]
             margin = max(cut_margin * nb.ro, 1.0)
             tool = _filled_cylinder(nb.origin, nb.axis, nb.e1, nb.ro, nb.z0 - margin, nb.z1 + margin)

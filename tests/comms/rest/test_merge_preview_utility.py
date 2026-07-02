@@ -76,15 +76,22 @@ def _cylinder_shell(r=1.0, h=4.0, nt=16, nz=5, t=0.02, name="cyl") -> "ada.Assem
 
 
 def test_iter_fem_analytic_solids_emits_hollow_tube():
-    # a cylindrical shell mesh → one BooleanResult tube member (wall = outer_solid - inner_solid),
+    # a cylindrical shell mesh → one hollow tube member: an uncut member is a profile-with-void
+    # ExtrudedAreaSolid (clean, no boolean); a cut member is a BooleanResult (wall - saddle cuts).
     # backend-independent (no tessellation).
     from ada.fem.formats.mesh_faces import iter_fem_analytic_solids
     from ada.geom.booleans import BooleanResult
+    from ada.geom.solids import ExtrudedAreaSolid
+    from ada.geom.surfaces import ArbitraryProfileDef
 
     a = _cylinder_shell()
     items = list(iter_fem_analytic_solids(a))
-    tubes = [g for _i, g in items if isinstance(g, BooleanResult)]
-    assert len(tubes) >= 1, "cylindrical shell should yield at least one tube CSG solid"
+    tubes = [g for _i, g in items if isinstance(g, (BooleanResult, ExtrudedAreaSolid))]
+    assert len(tubes) >= 1, "cylindrical shell should yield at least one hollow tube solid"
+    # the lone cylinder has no joint → the clean profile-with-void form (outer circle + inner void)
+    void = next((g for g in tubes if isinstance(g, ExtrudedAreaSolid)), None)
+    assert void is not None and isinstance(void.swept_area, ArbitraryProfileDef)
+    assert len(void.swept_area.inner_curves) == 1, "hollow tube profile must carry the inner-circle void"
 
 
 def test_solids_action_builds_hollow_tube_glb(monkeypatch, tmp_path):
