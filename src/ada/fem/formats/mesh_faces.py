@@ -593,11 +593,14 @@ def _plane_bucket_components(
     """Edge-connected components of a primitive subset, split first by plane bucket —
     each component is a set of coplanar, edge-adjacent facets (one candidate flat face).
 
-    ``plane_digits`` (default ``ndigits``) rounds the bucket key — normal direction AND offset
-    along the normal. Coarser than the exact ``ndigits`` coordinate precision (e.g. 3) so
-    slightly-noisy but genuinely coplanar mesh facets land in ONE bucket instead of shattering into
-    per-facet buckets — the group-by (material, thickness, normal, position-along-normal) that finds
-    large flat plates."""
+    Bucket key = (material, thickness, canonical NORMAL direction). NO offset-along-normal: two
+    edge-connected facets with the same normal necessarily share a plane (they share an edge, so
+    the same-normal plane through it is the same), so connectivity already separates distinct
+    parallel planes — while an offset key would stair-step a slightly-curved surface (a slanted
+    roof) into many parallel plates with gaps between the steps. ``plane_digits`` (default
+    ``ndigits``) rounds the normal — coarser than the exact coordinate precision (e.g. 3) so
+    mesh-noisy coplanar facets share a bucket, and so a piecewise-planar roof splits by its slopes
+    (distinct normals) rather than merging into one averaged plane."""
     pd = ndigits if plane_digits is None else plane_digits
     tol = 10.0 ** (-pd)
     normals = prims.normals
@@ -606,15 +609,7 @@ def _plane_bucket_components(
     thick_q = np.round(np.array(prims.ts), ndigits)
     buckets: dict = {}
     for j in idxs:
-        # Offset with the CANONICAL (rounded) normal + the facet centroid, NOT the raw noisy normal:
-        # at large coordinates (a ship spans ~100 m) a 1e-4 normal wobble times the position becomes
-        # ~1e-2 of offset noise, which would shatter one plane across many offset buckets. The rounded
-        # normal is identical for every facet in a direction bucket, so co-planar facets share an
-        # offset; the centroid averages out single-vertex noise.
-        nc = ncanon[j]
-        c = prims.outline(j).mean(axis=0)
-        off = round(float(np.dot(nc, c)), pd)
-        buckets.setdefault((prims.mats[j], float(thick_q[j]), tuple(nc), off), []).append(j)
+        buckets.setdefault((prims.mats[j], float(thick_q[j]), tuple(ncanon[j])), []).append(j)
     for bucket in buckets.values():
         if len(bucket) == 1:
             yield bucket
@@ -1059,7 +1054,6 @@ def iter_fem_analytic_faces(
     ndigits: int = 6,
     trim_cylinders: bool = True,
     reconstruct_curved: bool = True,
-    flat_patch_tol: float = 0.02,
     skip_cylinders: bool = False,
     drop_on_tube=None,
 ):
@@ -1112,10 +1106,13 @@ def iter_fem_analytic_faces(
                     yield face
                     consumed.update(panel_elids)
 
-        # Cylinders emit as analytic tubes (region-grow finds them by swept normals).
+        # Cylinders emit as analytic tubes (region-grow finds them by swept normals); their prims
+        # are excluded from the flat merge below.
+        cyl_prims: set = set()
         for patch, cls in patch_cls:
             if cls != "cylinder":
                 continue
+            cyl_prims.update(patch)
             if skip_cylinders:  # solids mode owns the tubes (emitted as CSG solids elsewhere)
                 continue
             cf = fit_cylinder_params(prims, patch)
@@ -1125,39 +1122,29 @@ def iter_fem_analytic_faces(
                 trimmed = cylinder_trim_faces(prims, patch, cf, ndigits) if trim_cylinders else None
                 yield from (trimmed if trimmed is not None else cylinder_fit_to_faces(cf))
 
-        # Flat plates: one merged face per smooth region-grow patch. A flat-or-gently-curved patch
-        # (plane deviation within flat_patch_tol of its size — a slanted/slightly-domed roof) becomes
-        # ONE plate spanning its TRUE bounding edges (best-fit plane), NOT stair-stepped into many
-        # offset buckets with gaps between the steps. Only a genuinely-curved patch falls back to the
-        # coarse offset plane bucket (each step flat). Distinct parallel planes stay separate because
-        # region growing keeps them in different (non-adjacent) patches.
-        for patch, cls in patch_cls:
-            if cls == "cylinder":
-                continue  # handled above
-            rem = [j for j in patch if not consumed or _elid_of(prims.names[j]) not in consumed]
-            if drop_on_tube is not None and rem:
-                rem = [j for j in rem if not drop_on_tube(prims.outline(j).mean(axis=0))]
-            if not rem:
+        # Flat plates: group every remaining facet (not a cylinder, not consumed by a curved B-spline
+        # panel) by plane bucket — (material, thickness, normal) + edge-connected components — and
+        # merge each component into one flat face on its OWN plane. Grouping by normal keeps a
+        # piecewise-planar roof as its separate slopes (each an exactly-flat plate that shares its
+        # true node edges with the walls); dropping the offset key avoids stair-stepping a slope.
+        flat = [
+            j
+            for j in range(len(prims))
+            if j not in cyl_prims and (not consumed or _elid_of(prims.names[j]) not in consumed)
+        ]
+        if drop_on_tube is not None and flat:
+            # solids mode: drop facets lying on a tube wall (they'd float on the CSG solid).
+            flat = [j for j in flat if not drop_on_tube(prims.outline(j).mean(axis=0))]
+        for comp in _plane_bucket_components(prims, flat, ndigits, plane_digits=3):
+            if len(comp) == 1:
+                yield _facet_flat_face(prims, comp[0])
                 continue
-            if len(rem) == 1:
-                yield _facet_flat_face(prims, rem[0])
-                continue
-            if _fit_plane(np.vstack([prims.outline(j) for j in rem]))[1] <= flat_patch_tol:
-                faces = _flat_faces_with_holes(prims, rem, ndigits)
-                if faces:
-                    yield from faces
-                    continue
-            # genuinely curved (or boundary didn't resolve): coarse offset plane bucket per component
-            for comp in _plane_bucket_components(prims, rem, ndigits, plane_digits=3):
-                if len(comp) == 1:
-                    yield _facet_flat_face(prims, comp[0])
-                    continue
-                faces = _flat_faces_with_holes(prims, comp, ndigits)
-                if faces:
-                    yield from faces
-                else:  # boundary wouldn't resolve → per-facet (never lose geometry)
-                    for j in comp:
-                        yield _facet_flat_face(prims, j)
+            faces = _flat_faces_with_holes(prims, comp, ndigits)
+            if faces:
+                yield from faces
+            else:  # boundary wouldn't resolve → per-facet (never lose geometry)
+                for j in comp:
+                    yield _facet_flat_face(prims, j)
 
 
 @dataclass
