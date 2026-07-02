@@ -97,10 +97,14 @@ export async function load_glb_by_url_rest(scope: string, glbKey: string, source
         metrics?.fail(e instanceof Error ? e.message : String(e));
         throw e;
     }
+    // Order matters: setLoadedSourceName wipes loadedSourceGroups (drops any prior overlay set),
+    // so it must run BEFORE we register this primary model's group — otherwise the group we just
+    // registered is cleared, leaving the model in loadedSourceNames with no group and thus a
+    // non-toggleable eye in the loaded-models list (couldn't hide the original under an overlay).
+    useModelState.getState().setLoadedSourceName(sourceName);
     if (group && sourceName) {
         useModelState.getState().registerLoadedSource(sourceName, group);
     }
-    useModelState.getState().setLoadedSourceName(sourceName);
 }
 
 export async function view_file_object_from_server(fileobject: FileObject) {
