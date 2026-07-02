@@ -209,25 +209,21 @@ _GEN_CLASS_COLOR = {
 }
 
 
-def _crease_split_normals(pos, idx, crease_deg: float = 40.0):
-    """Return (pos, idx, normal) with hard edges: vertices are split so faces meeting at a dihedral
-    angle sharper than ``crease_deg`` don't share a (smoothed) normal. A CSG solid's cut rims and
-    annular end caps stay crisp while the cylinder walls stay smooth — welded/averaged normals
-    otherwise smear the shading across every opening.
+def _drop_sliver_tris(pos, idx):
+    """Drop Manifold's degenerate sliver triangles (near-zero shortest altitude) left along boolean
+    cut boundaries — the "slivers at the tube ends". Keeps the mesh welded and adds NO normals: the
+    geometry is clean, so the viewer's own smoothing renders the cylinder walls smooth (carried
+    hard-edge normals faceted them into visible axial edges). A triangle is dropped when its shortest
+    altitude falls below 3% of the median — the real wall/cap/cut triangles cluster ~50× above that,
+    and the residue is coincident with real triangles anyway so nothing structural is lost.
 
-    Degenerate sliver triangles are dropped: Manifold leaves near-zero-height slivers along boolean
-    cut boundaries (the "slivers at the tube ends") that z-fight and take garbage normals. A triangle
-    is dropped when its shortest altitude falls below ``3% of the median altitude`` — the real
-    wall/cap/cut triangles cluster ~50× above that, so the cut only removes the degenerate residue
-    (which is coincident with real triangles anyway, so it leaves no hole). Scale-free by design.
-
-    ``pos`` (N,3) float, ``idx`` (M*3,) int for ONE member's local mesh."""
+    ``pos`` (N,3) float, ``idx`` (M*3,) int for ONE member's mesh. Returns (pos, idx) unchanged
+    except for the removed triangles (``pos`` untouched; unused vertices are harmless)."""
     import numpy as np
 
     tris = np.asarray(idx, dtype=np.int64).reshape(-1, 3)
     p = np.asarray(pos, dtype=np.float64)
-    fn = np.cross(p[tris[:, 1]] - p[tris[:, 0]], p[tris[:, 2]] - p[tris[:, 0]])
-    ln = np.linalg.norm(fn, axis=1)  # = 2 * area
+    two_area = np.linalg.norm(np.cross(p[tris[:, 1]] - p[tris[:, 0]], p[tris[:, 2]] - p[tris[:, 0]]), axis=1)
     e = np.stack(
         [
             np.linalg.norm(p[tris[:, 1]] - p[tris[:, 0]], axis=1),
@@ -236,51 +232,11 @@ def _crease_split_normals(pos, idx, crease_deg: float = 40.0):
         ],
         axis=1,
     )
-    min_alt = ln / np.maximum(e.max(axis=1), 1e-12)  # shortest triangle altitude
-    nz = min_alt[ln > 1e-12]
+    min_alt = two_area / np.maximum(e.max(axis=1), 1e-12)  # shortest triangle altitude
+    nz = min_alt[two_area > 1e-12]
     thresh = 0.03 * float(np.median(nz)) if len(nz) else 0.0
-    keep = (ln > 1e-12) & (min_alt > thresh)
-    tris, fn, ln = tris[keep], fn[keep], ln[keep]
-    fn = fn / ln[:, None]
-    cos_t = float(np.cos(np.radians(crease_deg)))
-
-    incident: dict[int, list[int]] = {}
-    for fi, t in enumerate(tris):
-        for v in t:
-            incident.setdefault(int(v), []).append(fi)
-
-    new_pos: list = []
-    new_nrm: list = []
-    remap: dict[tuple, int] = {}  # (orig_vertex, cluster_id) -> new vertex
-    vcluster: dict[int, list] = {}  # orig vertex -> list of (repr_normal, [face ids])
-    for v, faces in incident.items():
-        clusters: list = []
-        for fi in faces:
-            n = fn[fi]
-            for cl in clusters:
-                if float(np.dot(cl[0], n)) >= cos_t:
-                    cl[1].append(fi)
-                    break
-            else:
-                clusters.append([n.copy(), [fi]])
-        vcluster[v] = clusters
-        for ci, cl in enumerate(clusters):
-            avg = fn[cl[1]].mean(axis=0)
-            nrm = avg / (np.linalg.norm(avg) + 1e-12)
-            remap[(v, ci)] = len(new_pos)
-            new_pos.append(p[v])
-            new_nrm.append(nrm)
-
-    out = np.empty_like(tris)
-    for fi, t in enumerate(tris):
-        for k, v in enumerate(t):
-            ci = next(i for i, cl in enumerate(vcluster[int(v)]) if fi in cl[1])
-            out[fi, k] = remap[(int(v), ci)]
-    return (
-        np.asarray(new_pos, dtype=np.float32),
-        out.reshape(-1).astype(np.uint32),
-        np.asarray(new_nrm, dtype=np.float32),
-    )
+    keep = (two_area > 1e-12) & (min_alt > thresh)
+    return pos, tris[keep].reshape(-1).astype(np.uint32)
 
 
 def _generate(asm, model, algorithm, storage, on_progress, solids=False):
@@ -383,9 +339,9 @@ def _generate(asm, model, algorithm, storage, on_progress, solids=False):
         gi = all_idx[g.start : g.start + g.length] - g.vstart
         gn = None
         if solids and len(gi) >= 3:
-            # hard-edge (crease-split) normals so CSG cut rims + annular openings render crisp
-            # instead of smeared by welded/averaged normals; also drops degenerate boolean triangles.
-            gp, gi, gn = _crease_split_normals(gp, gi)
+            # drop Manifold's degenerate cut slivers; no normals (viewer smooths — carried hard-edge
+            # normals faceted the cylinder walls into visible axial edges).
+            gp, gi = _drop_sliver_tris(gp, gi)
         if len(gi) == 0:
             continue
         if c not in acc:
