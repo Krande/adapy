@@ -371,8 +371,25 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       loading: false,
       error: null,
     }),
+  // Runs carry disjoint case ids (the girder run g-prefixes them) and their own
+  // worst summary, so switching runs also resets the active case, the worst-case
+  // subset and the cached worst summary to the new run's.
   setActiveRunId: (activeRunId) =>
-    set({ activeRunId, selectedModelId: null, selectedResultId: null }),
+    set((state) => {
+      const run =
+        state.results?.runs.find((r) => r.id === activeRunId) ??
+        state.results?.runs[0] ??
+        null;
+      return {
+        activeRunId,
+        selectedModelId: null,
+        selectedResultId: null,
+        activeCaseId: run?.result_cases?.[0]?.id ?? null,
+        worstCaseIds: run?.result_cases?.map((c) => c.id) ?? [],
+        worstSummary: null,
+        worstSummaryLoading: false,
+      };
+    }),
   setActiveCaseId: (activeCaseId) =>
     set({ activeCaseId, selectedModelId: null, selectedResultId: null }),
   setActiveMode: (activeMode) => set({ activeMode }),

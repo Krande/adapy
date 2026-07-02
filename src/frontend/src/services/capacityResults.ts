@@ -16,8 +16,11 @@ export const CAPACITY_RESULTS_FORMAT = "dnv-rp-c201-capacity-results";
 // v10: capacity-model topology fix — thickness-gated panel merge, stiffener axial
 // force integrated over the panel's own tributary plate, models keyed by
 // (capacity_model_id, stiffener). Corrects over-reported axial forces/UFs.
+// v11: the bundle gains a second run — the DNV-RP-C201 Section-7 girder check
+// (scope "girder", capacity models of type "girder", g-prefixed case ids so the
+// per-case detail cache never collides with the stiffened-panel run).
 // Kept in lockstep with viewer_export.py.
-export const CAPACITY_RESULTS_VERSION = 10;
+export const CAPACITY_RESULTS_VERSION = 11;
 
 export interface CapacityValidationContext {
     manifest?: Pick<FeaManifest, "source_sha256"> | null;

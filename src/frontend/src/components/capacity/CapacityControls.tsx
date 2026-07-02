@@ -23,11 +23,11 @@ import {
 import { useObjectInfoStore } from "@/state/objectInfoStore";
 import {
   applyCapacityDefinitionView,
+  applyCapacityGirderLineUf,
   applyCapacityIsolation,
   applyCapacityIndividualField,
   applyCapacitySelectionHighlight,
   applyCapacityStations,
-  applyCapacityVisualField,
   clearCapacityDefinitionView,
   clearCapacityIsolation,
   clearCapacityStations,
@@ -81,7 +81,6 @@ const CapacityControls: React.FC = () => {
   const [showInputs, setShowInputs] = useState(false);
   const [showResultsPanel, setShowResultsPanel] = useState(false);
   const [showStations, setShowStations] = useState(false);
-  const [individualUf, setIndividualUf] = useState(false);
 
   const run = useMemo(() => {
     if (!results?.runs?.length) return null;
@@ -201,17 +200,19 @@ const CapacityControls: React.FC = () => {
       clearCapacityDefinitionView();
     }
     if (showResults && activeCaseId) {
-      if (individualUf) {
-        // Worst view colours each stiffener strip by its worst-over-selected-cases
-        // UF; a specific case uses that case's rows.
-        applyCapacityIndividualField(
-          buildIndividualUfValues(isWorst ? worstRows : activeRows, run),
-        );
-      } else {
-        void applyCapacityVisualField(activeMetricId, activeCaseId);
-      }
+      // Always colour per stiffener strip ("individual UF"): each stiffener's
+      // own line + tributary plate carries that stiffener's UF for the active
+      // metric. The worst view colours by the worst-over-selected-cases UF; a
+      // specific case uses that case's rows. Girder models colour the girder
+      // line itself; their tributary plates light up only when selected.
+      const rows = isWorst ? worstRows : activeRows;
+      applyCapacityIndividualField(
+        buildIndividualUfValues(rows, run, activeMetricId, selectedModelId),
+      );
+      applyCapacityGirderLineUf(buildGirderUfMap(rows, run, activeMetricId));
     } else {
       clearCapacityVisualField();
+      applyCapacityGirderLineUf(null);
     }
     applyCapacitySelectionHighlight();
   }, [
@@ -223,7 +224,6 @@ const CapacityControls: React.FC = () => {
     showDefinitions,
     showResults,
     selectedModelId,
-    individualUf,
     selectedRow,
     // Re-run so the colour overlay rebuilds (collapsing / restoring the
     // non-capacity faces) when "Only definitions" toggles.
@@ -421,14 +421,6 @@ const CapacityControls: React.FC = () => {
               title="While 'Only definitions' is on, also draw the rest of the model as a wireframe for context"
             >
               Show rest as wireframe
-            </button>
-            <button
-              className={modeButton(individualUf)}
-              onClick={() => setIndividualUf(!individualUf)}
-              disabled={!showResults}
-              title="Colour each stiffener's tributary strip by its own UF (within-panel variation) instead of the panel maximum — works for a specific case and for the worst-over-selected-cases view"
-            >
-              Individual UF
             </button>
             <button
               className={
@@ -827,13 +819,19 @@ const CapacityInputDetails: React.FC<{
   );
 };
 
-/** Per-element UF values for the "individual UF" view: each stiffener's own line
- *  + tributary plate strip carries that stiffener's UF (max where strips overlap),
- *  so within a panel you see each stiffener's UF rather than the panel maximum. */
+/** Per-element UF values for the per-stiffener colour view: each stiffener's own
+ *  line + tributary plate strip carries that stiffener's UF (max where strips
+ *  overlap), so within a panel you see each stiffener's UF rather than the panel
+ *  maximum. A specific check metric uses that check's usage from the row; rows
+ *  without per-check usages (the worst-summary rows) fall back to the governing
+ *  UF. */
 function buildIndividualUfValues(
   rows: CapacityCaseResultLike[],
   run: CapacityRunLike,
+  activeMetricId: string,
+  selectedModelId: string | null,
 ): Array<{ element_id: number; value: number | null }> {
+  const checkId = metricCheckId(activeMetricId);
   const byElement = new Map<number, number>();
   const modelById = new Map(run.capacity_models.map((m) => [m.id, m]));
   const stiffMaps = new Map<string, Map<string, Record<string, unknown>>>();
@@ -850,10 +848,19 @@ function buildIndividualUfValues(
     }
     const stiff = byName.get(String(r.stiffener));
     if (!stiff) continue;
-    const uf = r.governing_usage ?? 0;
+    const uf = rowMetricUf(r, checkId);
+    if (uf == null) continue; // this check does not apply to the row
+    // Girder models colour the girder member itself (via the girder-line
+    // overlay); their tributary plates are painted only for the SELECTED
+    // girder, so the associated plates of one girder can be inspected
+    // without every rectangle overlapping in the scene.
+    const isGirder = (model as { type?: string }).type === "girder";
+    const includeTributary = !isGirder || model.id === selectedModelId;
     const ids = [
       ...((stiff.element_ids as number[] | undefined) ?? []),
-      ...((stiff.tributary_plate_ids as number[] | undefined) ?? []),
+      ...(includeTributary
+        ? ((stiff.tributary_plate_ids as number[] | undefined) ?? [])
+        : []),
     ];
     for (const id of ids) {
       const prev = byElement.get(id);
@@ -861,6 +868,49 @@ function buildIndividualUfValues(
     }
   }
   return [...byElement].map(([element_id, value]) => ({ element_id, value }));
+}
+
+/** Specific check id for a metric, or null for the governing-UF metric. */
+function metricCheckId(activeMetricId: string): string | null {
+  return activeMetricId.startsWith("capacity.uf.") &&
+    activeMetricId !== "capacity.uf.governing"
+    ? activeMetricId.slice("capacity.uf.".length)
+    : null;
+}
+
+/** The row's UF for the active metric (governing, or a specific check). */
+function rowMetricUf(
+  r: CapacityCaseResultLike,
+  checkId: string | null,
+): number | null {
+  if (checkId && r.checks?.length) {
+    return r.checks.find((c) => c.id === checkId)?.usage ?? null;
+  }
+  return r.governing_usage ?? 0;
+}
+
+/** Per-girder-model UF for colouring the girder lines in the 3D view. */
+function buildGirderUfMap(
+  rows: CapacityCaseResultLike[],
+  run: CapacityRunLike,
+  activeMetricId: string,
+): Map<string, number | null> {
+  const checkId = metricCheckId(activeMetricId);
+  const girderIds = new Set(
+    run.capacity_models
+      .filter((m) => (m as { type?: string }).type === "girder")
+      .map((m) => m.id),
+  );
+  const out = new Map<string, number | null>();
+  if (girderIds.size === 0) return out;
+  for (const r of rows) {
+    if (!girderIds.has(r.capacity_model_id)) continue;
+    const uf = rowMetricUf(r, checkId);
+    if (uf == null) continue;
+    const prev = out.get(r.capacity_model_id);
+    if (prev == null || uf > prev) out.set(r.capacity_model_id, uf);
+  }
+  return out;
 }
 
 function asNum(v: unknown): number | null {

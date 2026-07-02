@@ -79,6 +79,12 @@ interface ActiveFeaStreaming {
     feaEdges?: THREE.LineSegments;
     /** Capacity-model boundary overlay built from AFEM element draw ranges. */
     capacityBoundaryOverlay?: THREE.LineSegments;
+    /** Amber polyline marking the girder line itself (girder-run models),
+     *  drawn through each girder model's station points. */
+    capacityGirderLineOverlay?: THREE.LineSegments;
+    /** Dashed near-black polylines marking the stiffeners of the panel
+     *  capacity models (station-point lines). */
+    capacityStiffenerLineOverlay?: THREE.LineSegments;
     /** Red boundary overlay for the selected capacity model. */
     capacitySelectedBoundaryOverlay?: THREE.LineSegments;
     /** Non-pickable non-indexed overlay used for hard-edged capacity colors. */
@@ -833,16 +839,159 @@ export function applyCapacityDefinitionView(): boolean {
     const run = results.runs.find((r) => r.id === store.activeRunId) ?? results.runs[0];
     if (!run) return false;
 
+    // Girder-run models clutter the scene when every (adjacent) rectangle is
+    // outlined; draw the boundary only for the selected girder — its
+    // associated tributary plates — while the girder lines mark every model.
+    const boundaryModels = run.capacity_models.filter(
+        (model) =>
+            (model as {type?: string}).type !== "girder" ||
+            model.id === store.selectedModelId,
+    );
     rebuildCapacityBoundaryOverlay(
-        run.capacity_models.map((model) => ({
+        boundaryModels.map((model) => ({
             id: model.id,
             panel_group: model.panel_group,
             element_ids: model.element_ids,
         })),
         capacityFailedModelIds(run, store),
     );
+    rebuildCapacityGirderLineOverlay(run.capacity_models, lastGirderUf);
+    rebuildCapacityStiffenerLineOverlay(run.capacity_models);
     applyCapacitySelectionHighlight();
     return true;
+}
+
+/** Distinct colour for the girder line itself in the definitions view. */
+const CAPACITY_GIRDER_LINE_COLOR = 0xf59e0b; // amber
+/** Dashed stiffener-line colour in the definitions view. */
+const CAPACITY_STIFFENER_LINE_COLOR = 0x111827; // near-black
+
+/** Last per-girder UF values applied (kept so the definition rebuild keeps
+ *  the result colours instead of flashing back to amber). */
+let lastGirderUf: Map<string, number | null> | null = null;
+
+/** Colour the girder lines by per-model UF (girder run, results on). Pass
+ *  ``null`` to return to the neutral amber definition colour. */
+export function applyCapacityGirderLineUf(values: Map<string, number | null> | null): void {
+    lastGirderUf = values;
+    const store = useCapacityResultsStore.getState();
+    const run =
+        store.results?.runs.find((r) => r.id === store.activeRunId) ??
+        store.results?.runs[0];
+    if (!run) return;
+    rebuildCapacityGirderLineOverlay(run.capacity_models, lastGirderUf);
+}
+
+/** Girder-run models mark the girder member itself: a polyline through the
+ *  model's station points (start/mid/end of the bay — the girder line). Amber
+ *  in the definitions view; coloured by the girder's UF when result values are
+ *  supplied. Panels have no such marker; the white boundary outline is theirs. */
+function rebuildCapacityGirderLineOverlay(
+    models: Array<{id: string; type?: string; stiffeners?: Array<Record<string, unknown>>}>,
+    ufByModelId?: Map<string, number | null> | null,
+): void {
+    disposeCapacityGirderLineOverlay();
+    if (!active?.mesh) return;
+    const positions: number[] = [];
+    const colors: number[] = [];
+    const amber = new THREE.Color(CAPACITY_GIRDER_LINE_COLOR);
+    const band = new Float32Array(3);
+    for (const model of models) {
+        if (model.type !== "girder") continue;
+        const uf = ufByModelId?.get(model.id);
+        let r = amber.r;
+        let g = amber.g;
+        let b = amber.b;
+        if (uf != null && isFinite(uf)) {
+            capacityUfColor(uf, band);
+            [r, g, b] = band;
+        }
+        for (const stiff of model.stiffeners ?? []) {
+            const stations = stiff.stations as number[][] | undefined;
+            if (!stations || stations.length < 2) continue;
+            for (let i = 0; i + 1 < stations.length; i++) {
+                positions.push(...stations[i].slice(0, 3), ...stations[i + 1].slice(0, 3));
+                colors.push(r, g, b, r, g, b);
+            }
+        }
+    }
+    if (positions.length === 0) return;
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
+    geom.setAttribute("color", new THREE.BufferAttribute(new Float32Array(colors), 3));
+    const mat = new THREE.LineBasicMaterial({
+        vertexColors: true,
+        depthTest: false,
+        depthWrite: false,
+        transparent: true,
+        opacity: 1.0,
+    });
+    const overlay = new THREE.LineSegments(geom, mat);
+    overlay.name = "capacity-girder-lines";
+    overlay.layers.mask = active.mesh.layers.mask;
+    overlay.renderOrder = 7; // above the boundary overlay
+    active.mesh.add(overlay);
+    active.capacityGirderLineOverlay = overlay;
+}
+
+function disposeCapacityGirderLineOverlay(): void {
+    if (!active?.capacityGirderLineOverlay) return;
+    active.capacityGirderLineOverlay.removeFromParent();
+    active.capacityGirderLineOverlay.geometry.dispose();
+    const material = active.capacityGirderLineOverlay.material;
+    if (Array.isArray(material)) material.forEach((m) => m.dispose());
+    else material.dispose();
+    active.capacityGirderLineOverlay = undefined;
+}
+
+/** Dashed near-black polylines through each panel stiffener's station points,
+ *  indicating the stiffeners inside the (panel) capacity models. Girder-run
+ *  models are skipped — their ``stiffeners[0]`` is the girder itself. */
+function rebuildCapacityStiffenerLineOverlay(
+    models: Array<{type?: string; stiffeners?: Array<Record<string, unknown>>}>,
+): void {
+    disposeCapacityStiffenerLineOverlay();
+    if (!active?.mesh) return;
+    const positions: number[] = [];
+    for (const model of models) {
+        if (model.type === "girder") continue;
+        for (const stiff of model.stiffeners ?? []) {
+            const stations = stiff.stations as number[][] | undefined;
+            if (!stations || stations.length < 2) continue;
+            for (let i = 0; i + 1 < stations.length; i++) {
+                positions.push(...stations[i].slice(0, 3), ...stations[i + 1].slice(0, 3));
+            }
+        }
+    }
+    if (positions.length === 0) return;
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
+    const mat = new THREE.LineDashedMaterial({
+        color: CAPACITY_STIFFENER_LINE_COLOR,
+        dashSize: 0.12,
+        gapSize: 0.08,
+        depthTest: true,
+        depthWrite: false,
+        transparent: true,
+        opacity: 0.9,
+    });
+    const overlay = new THREE.LineSegments(geom, mat);
+    overlay.computeLineDistances(); // required for dashed rendering
+    overlay.name = "capacity-stiffener-lines";
+    overlay.layers.mask = active.mesh.layers.mask;
+    overlay.renderOrder = 4;
+    active.mesh.add(overlay);
+    active.capacityStiffenerLineOverlay = overlay;
+}
+
+function disposeCapacityStiffenerLineOverlay(): void {
+    if (!active?.capacityStiffenerLineOverlay) return;
+    active.capacityStiffenerLineOverlay.removeFromParent();
+    active.capacityStiffenerLineOverlay.geometry.dispose();
+    const material = active.capacityStiffenerLineOverlay.material;
+    if (Array.isArray(material)) material.forEach((m) => m.dispose());
+    else material.dispose();
+    active.capacityStiffenerLineOverlay = undefined;
 }
 
 /** Capacity models whose check raised (and was skipped) in the current case
@@ -872,6 +1021,8 @@ function capacityFailedModelIds(
 
 export function clearCapacityDefinitionView(): void {
     disposeCapacityBoundaryOverlay();
+    disposeCapacityGirderLineOverlay();
+    disposeCapacityStiffenerLineOverlay();
     clearCapacitySelectionHighlight();
 }
 

@@ -33,6 +33,7 @@ class CapacityManager:
         self._aux: AuxRecords | None = None
         self._mesh = None
         self._models: list[CapacityModel] | None = None
+        self._girder_models = None
 
     # ── construction ──────────────────────────────────────────────────
     @classmethod
@@ -97,6 +98,48 @@ class CapacityManager:
         return resolve_cases(
             self.sin_path,
             self.capacity_models(),
+            result_cases=result_cases,
+            on_progress=on_progress,
+        )
+
+    # ── girder capacity models (DNV-RP-C201 Section 7) ─────────────────
+    def girder_models(
+        self,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+    ):
+        """Build (and cache) the girder capacity models.
+
+        The stiffened-panel models are built first (the girders derive their
+        flanking-panel geometry — l, s, t, As, Is — from them).
+        """
+        if self._girder_models is None:
+            from ada.fem.capacity.girder import build_girder_models
+
+            group = getattr(self.source, "group", None)
+            self._girder_models = build_girder_models(
+                self.mesh,
+                self.aux,
+                self.capacity_models(),
+                group=group,
+                on_progress=on_progress,
+            )
+        elif on_progress is not None:
+            count = len(self._girder_models)
+            on_progress(count, count)
+        return self._girder_models
+
+    def resolve_girder_cases(
+        self,
+        result_cases: list[int] | None = None,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+    ):
+        from ada.fem.capacity.girder import resolve_girder_cases
+
+        return resolve_girder_cases(
+            self.sin_path,
+            self.girder_models(),
             result_cases=result_cases,
             on_progress=on_progress,
         )
