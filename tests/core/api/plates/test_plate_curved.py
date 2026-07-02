@@ -529,3 +529,50 @@ def test_round_trip_occ_face_preserves_face_count():
     extruded = plate.extruded_solid_occ()
     found_bspline = any(backend.face_surface_type(f) == "bspline" for f in backend.faces(extruded))
     assert found_bspline, "extruded prism lost its BSpline surface — round-trip dropped curvature"
+
+
+def test_curved_plate_render_covers_footprint(fem_files):
+    """Every rendered PlateCurved must cover at least its flat footprint.
+
+    A correct (curved or flat) plate prism has top+bottom faces each >= the
+    flat footprint area, so the tessellated mesh area is always >= ~2x the
+    footprint. Some trimmed B-spline faces defeat BRepMesh — it emits a
+    degenerate centre-fan covering only ~half the surface ("missing
+    triangles") — and the batch tessellator now detects that (curved mesh
+    area < 1.85x footprint) and falls back to the clean flat quad. This pins
+    the invariant: no PlateCurved ships an under-covered mesh.
+    """
+    import numpy as np
+    import trimesh
+
+    src = fem_files / "sesam/curved_plates.xml"
+    if not src.exists():
+        pytest.skip(f"fixture not present: {src}")
+
+    asm = ada.from_genie_xml(src)
+    curved = [o for o in asm.get_all_physical_objects() if type(o).__name__ == "PlateCurved"]
+    assert curved, "fixture should contain PlateCurved objects"
+
+    def _footprint_area(o):
+        fb = getattr(o, "_flat_fallback_pts", None)
+        if not fb or len(fb) < 3:
+            return None
+        pts = np.array([list(p)[:3] for p in fb])
+        n = np.zeros(3)
+        for i in range(len(pts)):
+            n = n + np.cross(pts[i], pts[(i + 1) % len(pts)])
+        return 0.5 * float(np.linalg.norm(n))
+
+    checked = 0
+    for o in curved:
+        fa = _footprint_area(o)
+        if not fa or fa < 1e-6:
+            continue
+        sub = ada.Assembly("s") / (ada.Part("p") / o)
+        scene = sub.to_trimesh_scene(merge_meshes=False)
+        mesh_area = sum(g.area for g in scene.geometry.values() if isinstance(g, trimesh.Trimesh))
+        # >= 1.85x footprint: a correct prism is ~2x + walls; the degenerate
+        # centre-fan (the bug) lands ~1.5x and must have fallen back to flat.
+        assert mesh_area >= 1.85 * fa, f"{o.name}: mesh area {mesh_area:.3f} < 1.85 x footprint {fa:.3f}"
+        checked += 1
+    assert checked > 0

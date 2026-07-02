@@ -149,6 +149,59 @@ def test_stream_reader_lazy_offset_pool_matches_dict_pool(tmp_path):
     assert len(lazy) == 4
 
 
+def test_stmt_end_bytes_handles_quoted_semicolon():
+    # Bare terminator, quoted ';' (ignored), and the "need more bytes" sentinel.
+    from ada.cadit.step.read.stream_reader import _stmt_end_bytes
+
+    assert _stmt_end_bytes(b"#1=FOO(1,2);") == 11
+    assert _stmt_end_bytes(b"#1=NAME('a;b');") == 14  # the ';' inside the quotes is skipped
+    assert _stmt_end_bytes(b"#1=FOO(1,2)") == -1  # no terminator yet -> grow
+    assert _stmt_end_bytes(b"#1=NAME('a;b") == -1  # open quote runs past chunk -> grow
+
+
+def test_read_statement_pread_matches_mmap(tmp_path):
+    # pread-based statement read must reproduce the mmap-slice read byte-for-byte,
+    # including a statement whose quoted ';' straddles the initial pread window.
+    import os
+
+    from ada.cadit.step.read import stream_reader as sr
+
+    body = (
+        "#1=CARTESIAN_POINT('',(0.,0.,0.));\n"
+        "#2=NAME('weird;name;with;semis and padding " + "x" * 200 + "');\n"
+        "#3=LINE(#1,#2);"
+    )
+    p = tmp_path / "stmts.step"
+    raw = body.encode("utf-8")
+    p.write_bytes(raw)  # exact bytes; write_text would CRLF-translate on Windows and shift offsets
+    file_size = len(raw)
+
+    # Offsets of each statement start ('#').
+    offsets = [i for i, b in enumerate(raw) if chr(b) == "#"]
+    fd = os.open(str(p), os.O_RDONLY | getattr(os, "O_BINARY", 0))  # raw bytes (match the real reader)
+    try:
+        # Force a tiny window so statement #2 (which holds a quoted ';' well past the
+        # window) exercises the grow-and-retry across chunk boundaries.
+        orig = sr._PREAD_CHUNK
+        sr._PREAD_CHUNK = 16
+        try:
+            got = [sr._read_statement_pread(fd, off, file_size) for off in offsets]
+        finally:
+            sr._PREAD_CHUNK = orig
+    finally:
+        os.close(fd)
+
+    # Reference: mmap-slice read of the same offsets.
+    import mmap
+
+    with open(str(p), "rb") as fh, mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+        want = [sr._read_statement_at(mm, off, file_size) for off in offsets]
+
+    assert got == want
+    # The quoted ';' must be preserved inside the statement, not truncated.
+    assert "weird;name;with;semis" in got[1]
+
+
 def test_stream_reader_two_pass_handles_forward_references(tmp_path):
     # OpenCASCADE and most writers emit forward references (a solid written before
     # its shell/faces/points) — the opposite of the streaming emitter's bottom-up
@@ -305,46 +358,51 @@ def test_stream_reader_bspline_surface_and_pure_shell(example_files):
     assert BSplineSurfaceWithKnots.__name__ in surf_types
 
 
-def test_stream_reader_rational_bspline_falls_back(example_files):
-    # Rational B-spline faces need p-curve trimming; the reader signals unsupported
-    # (reader="stream" raises) so reader="auto" falls back to OCC and still renders.
+def test_stream_reader_rational_bspline_native(example_files):
+    # Rational B-spline surfaces import natively (RationalBSplineSurfaceWithKnots) and
+    # tessellate: the reader carries the weight grid, and the OCC build heals the face
+    # (ShapeFix computes the missing p-curves) so BRepMesh produces triangles. Earlier
+    # this raised StepStreamUnsupported and fell back to OCC; now the stream path
+    # handles it directly.
     import tempfile
 
-    from ada.cadit.step.read.stream_reader import StepStreamUnsupported
+    import numpy as np
+
+    from ada.cad import active_backend
 
     a = ada.from_step(example_files / "step_files/curved_plate.stp", reader="occ")
     out = pathlib.Path(tempfile.mkdtemp()) / "rat.step"
     a.to_stp(out)
 
-    with pytest.raises(StepStreamUnsupported):
-        list(stream_read_step(out, local_pool=False))
+    geoms = list(stream_read_step(out, local_pool=False))  # no raise
+    assert len(geoms) >= 1
 
-    asm = ada.from_step(out, reader="auto")  # OCC fallback, no crash/empty
-    assert len(list(asm.get_all_physical_objects())) >= 1
+    from ada.cadit.diagnostics import _mesh_buffers
+
+    b = active_backend()
+    tris = 0
+    for g in geoms:
+        mesh = b.tessellate(b.build(g), -1.0)
+        # portable mesh access: OccBackend names it `.faces`, adacpp `.indices`
+        _, idx = _mesh_buffers(mesh)
+        tris += len(np.asarray(idx).reshape(-1, 3))
+    assert tris > 0, "rational B-spline plate must tessellate, not render blank"
 
 
-def test_stream_reader_tolerant_skips_unsupported(example_files, tmp_path):
-    # tolerant mode reads every supported solid and SKIPS the unsupported ones (a
-    # rational-B-spline curved plate here — still needs p-curve trimming) instead of
-    # raising, so a big mixed CAD file reads its supported solids kernel-free rather
-    # than dropping the whole file to OCC.
-    from ada.cadit.step.read.stream_reader import StepStreamUnsupported
-
+def test_stream_reader_reads_mixed_rational_and_analytic(example_files, tmp_path):
+    # A mixed file (rational-B-spline curved plate + analytic box) reads BOTH solids in
+    # the stream path — the plate is no longer skipped as unsupported. Non-tolerant mode
+    # also succeeds (nothing to raise on).
     a = ada.from_step(example_files / "step_files/curved_plate.stp", reader="occ")  # rational B-spline
     a / (ada.Part("extra") / Beam("box", (10, 0, 0), (10, 0, 3), Section("box", from_str="BOX400x400x20x20")))
     out = tmp_path / "mix.step"
     a.to_stp(out)  # OCC writer; rational-B-spline plate + analytic box
 
-    # non-tolerant two-pass raises on the unsupported rational-B-spline plate
-    with pytest.raises(StepStreamUnsupported):
-        list(stream_read_step(out, local_pool=False))
+    # non-tolerant two-pass no longer raises — both solids are supported
+    geoms = list(stream_read_step(out, local_pool=False))
+    assert len(geoms) >= 2  # the plate AND the box
 
-    # tolerant skips the rational plate and reads the analytic box (no raise, no OCC)
-    tol = list(stream_read_step(out, local_pool=False, tolerant=True))
-    assert len(tol) >= 1
-    assert all(isinstance(g.geometry, ClosedShell) for g in tol)
-
-    # from_step(reader="tolerant"): no OCC fallback; the box is imported
+    # from_step(reader="tolerant"): both imported, no OCC fallback
     asm = ada.from_step(out, reader="tolerant")
     assert len(list(asm.get_all_physical_objects())) >= 1
 

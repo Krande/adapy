@@ -364,6 +364,22 @@ def fetch(base: str, token: str, audit_id: int, out_root: pathlib.Path) -> tuple
     return src, meta
 
 
+def cmd_logfile(args: argparse.Namespace) -> int:
+    """Download a conversion's captured stdout/stderr log (every conversion ships one)."""
+    base, token = _config(args)
+    body, headers = _get(base, token, f"/api/admin/audit/{args.audit_id}/log")
+    if (headers.get("content-encoding") or "").lower() == "gzip":
+        import gzip
+
+        body = gzip.decompress(body)
+    if args.out:
+        pathlib.Path(args.out).write_bytes(body)
+        print(f"wrote {len(body)} bytes -> {args.out}", file=sys.stderr)
+    else:
+        sys.stdout.buffer.write(body)
+    return 0
+
+
 def cmd_fetch(args: argparse.Namespace) -> int:
     base, token = _config(args)
     src, meta = fetch(base, token, args.audit_id, pathlib.Path(args.out))
@@ -380,19 +396,29 @@ def cmd_repro(args: argparse.Namespace) -> int:
     print(f"original status={meta.get('status')} error={_short(meta.get('error'), 160)!r}")
 
     # Lazy import — keeps the rest of `ada audit` free of the FEM/CAD stack.
-    from ada.comms.rest.converter import convert
+    from ada.comms.rest.converter import convert, result_bytes
 
     def on_progress(stage: str, frac: float) -> None:
         print(f"  [{frac:5.1%}] {stage}")
 
     try:
-        out = convert(src, str(src), target, on_progress)
+        result = convert(src, str(src), target, on_progress)
+        # convert() returns a path for the disk-writing exporters; the repro
+        # CLI wants the bytes on hand to write its .out copy.
+        out = result_bytes(result)
     except Exception:
         import traceback
 
         sys.stderr.write("\n--- repro raised ---\n")
         traceback.print_exc()
         return 1
+    finally:
+        # Drop the converter's tempfile if it handed us a path.
+        if isinstance(locals().get("result"), pathlib.Path):
+            try:
+                result.unlink()
+            except OSError:
+                pass
 
     out_path = src.with_suffix(f".out.{target.lstrip('.')}")
     out_path.write_bytes(out)
@@ -936,6 +962,12 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     fetch_p.add_argument("audit_id", type=int)
     fetch_p.add_argument("--out", default=DEFAULT_OUT, help=f"Download root (default: {DEFAULT_OUT}).")
     fetch_p.set_defaults(func=cmd_fetch)
+
+    logfile = asub.add_parser("logfile", help="Download a conversion's captured stdout/stderr log.")
+    _remote(logfile)
+    logfile.add_argument("audit_id", type=int)
+    logfile.add_argument("--out", default=None, help="Write to this path (default: stdout).")
+    logfile.set_defaults(func=cmd_logfile)
 
     repro = asub.add_parser("repro", help="Run a given audit's conversion locally.")
     _remote(repro)

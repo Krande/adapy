@@ -9,6 +9,7 @@ import {clearActiveFeaStreaming} from "./load_fea_streaming";
 import {animationControllerRef, modelKeyMapRef, sceneRef} from "@/state/refs";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {loadGLTFfrombase64} from "../loadGLTFfrombase64";
+import {disposeObject3D} from "@/utils/scene/dispose_object";
 import {useAnimationStore} from "@/state/animationStore";
 import {runtime} from "@/runtime/config";
 
@@ -30,6 +31,10 @@ export async function replace_model(
     // meshes can sit far from origin (real instance coordinates), so the streaming load passes
     // true; the legacy WS-message caller keeps the old no-recenter behaviour.
     translate: boolean = false,
+    // Auth headers when ``url`` is an authed REST streaming GET (REST-mode view-by-URL).
+    requestHeaders?: Record<string, string>,
+    // Optional admin load-metrics recorder (REST view path). No-op when absent.
+    metrics?: import("@/utils/scene/loadMetrics").LoadMetricsRecorder | null,
 ) {
         // Clear animation state first
     const animationStore = useAnimationStore.getState();
@@ -64,12 +69,15 @@ export async function replace_model(
         for (let key of modelKeyMapRef.current.keys()) {
             let existing_group = modelKeyMapRef.current.get(key);
             if (existing_group) {
+                // Free GPU buffers of the outgoing model before detaching — clear() alone
+                // leaves geometry/material in the renderer caches (VRAM doesn't fall).
+                disposeObject3D(existing_group);
                 existing_group.clear();
             }
 
         }
     }
-    return await setupModelLoaderAsync(url, translate, prepareHook, sourceName);
+    return await setupModelLoaderAsync(url, translate, prepareHook, sourceName, requestHeaders, metrics);
 }
 
 export async function update_scene_from_message(message: Message) {

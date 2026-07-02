@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import ada.geom.curves as cu
 import ada.geom.solids as so
 import ada.geom.surfaces as su
 from ada.geom import Geometry
@@ -62,6 +63,13 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
         occ_geom = geo_su.make_shell_from_shell_based_surface_geom(geometry)
     elif isinstance(geometry, su.PolygonalFaceSet):
         occ_geom = geo_su.make_shell_from_polygonal_face_set_geom(geometry)
+
+    # Bare curves (no surface): sectionless wire bodies / construction wireframes. Build an OCC
+    # wire so the tessellator renders them as glTF line geometry. See ada.geom.curves.
+    elif isinstance(geometry, cu.CURVE_GEOM_TUPLE):
+        import ada.occ.geom.curves as geo_cu
+
+        occ_geom = geo_cu.make_wire_from_curve(geometry)
     else:
         raise NotImplementedError(f"Geometry to OCC conversion for type {type(geometry)} not implemented")
 

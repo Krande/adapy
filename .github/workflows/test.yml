@@ -15,7 +15,7 @@ jobs:
       run:
         shell: bash -l {0}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
@@ -35,7 +35,7 @@ jobs:
       run:
         shell: bash -l {0}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
@@ -60,7 +60,7 @@ jobs:
       run:
         shell: bash -l {0}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
@@ -81,7 +81,7 @@ jobs:
       run:
         shell: bash -l {0}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
@@ -94,3 +94,42 @@ jobs:
 
       - name: Run Tests
         run: pixi run -e tests-adacpp test-core
+
+  test-rest:
+    name: Test viewer REST API
+    runs-on: ubuntu-latest
+    # tests/comms/rest is excluded from the core/full/pr tasks because it needs
+    # the viewer-api stack; run it here with a live Postgres so the DB-backed
+    # admin/audit tests actually execute instead of skipping.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: adapytest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: prefix-dev/setup-pixi@v0.9.6
+        with:
+          pixi-version: v0.68.0
+          environments: >-
+            viewer-api-tests
+          cache: true
+
+      - name: Run Tests
+        env:
+          ADA_TEST_POSTGRES_URL: postgresql://postgres:test@localhost:5432/adapytest
+        run: pixi run -e viewer-api-tests test-rest

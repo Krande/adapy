@@ -40,6 +40,7 @@ import {viewerApi} from "@/services/viewerApi";
 import {useStorageMutations} from "./useStorageMutations";
 import {useLoadQueueStore} from "@/state/loadQueueStore";
 import {buildFileMenuItems, buildFolderMenuItems} from "./storageMenuItems";
+import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
 import {canLoadIntoSceneLegacy, isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 
@@ -391,15 +392,21 @@ const StorageBrowser: React.FC = () => {
     const [renaming, setRenaming] = useState<{kind: "file" | "folder"; path: string} | null>(null);
     // Right-click context menu: items are computed at open time by the
     // same builders that feed the kebab, so the two stay in lockstep.
-    const [ctxMenu, setCtxMenu] = useState<{x: number; y: number; items: KebabMenuItem[]} | null>(null);
+    const [ctxMenu, setCtxMenu] = useState<{
+        x: number;
+        y: number;
+        items: KebabMenuItem[];
+        header?: React.ReactNode;
+    } | null>(null);
     const openCtxMenu = (
         e: {clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void},
         items: KebabMenuItem[],
+        header?: React.ReactNode,
     ) => {
         if (items.length === 0) return;
         e.preventDefault?.();
         e.stopPropagation?.();
-        setCtxMenu({x: e.clientX, y: e.clientY, items});
+        setCtxMenu({x: e.clientX, y: e.clientY, items, header});
     };
     // In-panel drag state: keys being dragged (for row dimming + the
     // move-to-root strip). Cleared on dragend/drop.
@@ -879,6 +886,7 @@ const StorageBrowser: React.FC = () => {
                     ? () => onLoadStreamer(f.name)
                     : undefined,
             onDownload: runtime.isRestMode() ? () => onDownloadFile(f.name) : undefined,
+            onCopyPath: () => void writeToClipboard(f.name),
             onRename: () => setRenaming({kind: "file", path: f.name}),
             onMoveToFolder: () => onMoveSingleToFolder(f.name),
             onDelete: () => void onDeleteFile(f),
@@ -898,6 +906,7 @@ const StorageBrowser: React.FC = () => {
                     ? () => onLoadStreamer(f.name)
                     : undefined,
             onDownload: runtime.isRestMode() ? () => onDownloadFile(f.name) : undefined,
+            onCopyPath: () => void writeToClipboard(f.name),
         });
     };
     const folderMenuItems = (path: string, fileCount: number, isPending: boolean): KebabMenuItem[] =>
@@ -1368,7 +1377,15 @@ const StorageBrowser: React.FC = () => {
                                                 rowKey={`file:${node.file.name}`}
                                                 focused={focusedKey === `file:${node.file.name}`}
                                                 menuItems={items}
-                                                onOpenContextMenu={(e) => openCtxMenu(e, items)}
+                                                onOpenContextMenu={(e) =>
+                                                    openCtxMenu(
+                                                        e,
+                                                        items,
+                                                        <span className="font-mono" title={node.file.name}>
+                                                            {node.file.name}
+                                                        </span>,
+                                                    )
+                                                }
                                                 draggable={canMutate}
                                                 onDragStartRow={onDragStartFile(node.file)}
                                                 onDragEndRow={onDragEndFile}
@@ -1414,7 +1431,15 @@ const StorageBrowser: React.FC = () => {
                                                 rowKey={`folder:${node.path}`}
                                                 focused={focusedKey === `folder:${node.path}`}
                                                 menuItems={items}
-                                                onOpenContextMenu={(e) => openCtxMenu(e, items)}
+                                                onOpenContextMenu={(e) =>
+                                                    openCtxMenu(
+                                                        e,
+                                                        items,
+                                                        <span className="font-mono" title={node.path}>
+                                                            {node.path}/
+                                                        </span>,
+                                                    )
+                                                }
                                                 onDropInto={(e) => void handleDropOnFolder(node.path, e)}
                                                 draggable={canMutate && !isPending}
                                                 onDragStartRow={(e) => {
@@ -1480,6 +1505,7 @@ const StorageBrowser: React.FC = () => {
             {ctxMenu && (
                 <PositionedMenu
                     items={ctxMenu.items}
+                    header={ctxMenu.header}
                     onClose={() => setCtxMenu(null)}
                     anchor={{kind: "point", x: ctxMenu.x, y: ctxMenu.y}}
                 />

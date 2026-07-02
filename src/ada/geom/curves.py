@@ -21,11 +21,17 @@ CURVE_GEOM_TYPES = Union[
     "ArcLine",
     "Circle",
     "Ellipse",
+    "Parabola",
+    "Hyperbola",
     "BSplineCurveWithKnots",
+    "RationalBSplineCurveWithKnots",
     "IndexedPolyCurve",
     "PolyLine",
     "TrimmedCurve",
     "CompositeCurve",
+    "PCurve",
+    "PointOnCurve",
+    "OffsetCurve3D",
     "GeometricCurveSet",
 ]
 
@@ -41,9 +47,9 @@ class Line:
     dir: Direction | Iterable
 
     def __post_init__(self):
-        if isinstance(self.pnt, Iterable):
+        if not isinstance(self.pnt, Point) and isinstance(self.pnt, Iterable):
             self.pnt = Point(*self.pnt)
-        if isinstance(self.dir, Iterable):
+        if not isinstance(self.dir, Direction) and isinstance(self.dir, Iterable):
             self.dir = Direction(*self.dir)
 
 
@@ -59,11 +65,11 @@ class ArcLine:
     end: Point | Iterable
 
     def __post_init__(self):
-        if isinstance(self.start, Iterable):
+        if not isinstance(self.start, Point) and isinstance(self.start, Iterable):
             self.start = Point(*self.start)
-        if isinstance(self.midpoint, Iterable):
+        if not isinstance(self.midpoint, Point) and isinstance(self.midpoint, Iterable):
             self.midpoint = Point(*self.midpoint)
-        if isinstance(self.end, Iterable):
+        if not isinstance(self.end, Point) and isinstance(self.end, Iterable):
             self.end = Point(*self.end)
 
         dim = self.start.dim
@@ -227,6 +233,47 @@ class Ellipse:
     semi_axis2: float
 
 
+@dataclass
+class Parabola:
+    """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_parabola.html
+
+    A conic: ``focal_dist`` is the distance from vertex to focus. (No IFC equivalent.)
+    """
+
+    position: Axis2Placement3D
+    focal_dist: float
+
+
+@dataclass
+class PointOnCurve:
+    """STEP AP242 t_point_on_curve — a point located at ``parameter`` on a basis curve."""
+
+    basis_curve: "CURVE_GEOM_TYPES"
+    parameter: float
+
+
+@dataclass
+class OffsetCurve3D:
+    """STEP AP242 t_offset_curve_3d — a curve offset from a basis curve by ``distance``."""
+
+    basis_curve: "CURVE_GEOM_TYPES"
+    distance: float
+    self_intersect: bool = False
+    ref_direction: "Direction | None" = None
+
+
+@dataclass
+class Hyperbola:
+    """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_hyperbola.html
+
+    A conic with real (``semi_axis``) and imaginary (``semi_imag_axis``) semi-axes.
+    """
+
+    position: Axis2Placement3D
+    semi_axis: float
+    semi_imag_axis: float
+
+
 class BSplineCurveFormEnum(Enum):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcBSplineCurveForm.htm)
@@ -304,9 +351,13 @@ class Edge:
     end: Point
 
     def __post_init__(self):
-        if isinstance(self.start, Iterable):
+        # Already-built Points are the common case (the NGEOM hydrate passes Points
+        # straight in); a Point IS Iterable, so guard on Point first to avoid
+        # re-constructing millions of them through the interning cache (hot in the
+        # streaming STEP→IFC/XML export of B-rep-heavy assemblies).
+        if not isinstance(self.start, Point) and isinstance(self.start, Iterable):
             self.start = Point(*self.start)
-        if isinstance(self.end, Iterable):
+        if not isinstance(self.end, Point) and isinstance(self.end, Iterable):
             self.end = Point(*self.end)
 
         dim = self.start.dim
@@ -403,3 +454,24 @@ class EdgeLoop:
     """
 
     edge_list: list[OrientedEdge]
+
+
+# Concrete tuple of bare-curve geometry classes (CURVE_GEOM_TYPES is a Union of forward-ref
+# strings, so it can't be used with isinstance). Used to detect a Geometry that carries a curve
+# rather than a surface/solid — e.g. a sectionless SAT wire body that must render as glTF line
+# geometry. Includes Edge (a bare topological edge) which CURVE_GEOM_TYPES omits.
+CURVE_GEOM_TUPLE = (
+    Line,
+    ArcLine,
+    Circle,
+    Ellipse,
+    Parabola,
+    Hyperbola,
+    BSplineCurveWithKnots,
+    RationalBSplineCurveWithKnots,
+    IndexedPolyCurve,
+    PolyLine,
+    TrimmedCurve,
+    CompositeCurve,
+    Edge,
+)

@@ -49,6 +49,7 @@ class Assembly(Part):
         metadata=None,
         units: Units | str = Units.M,
         ifc_class: SpatialTypes = SpatialTypes.IfcSite,
+        cad_config=None,
     ):
         metadata = dict() if metadata is None else metadata
         metadata["project"] = project
@@ -58,12 +59,30 @@ class Assembly(Part):
         user.parent = self
         self._user = user
 
+        self._cad_config = cad_config  # ada.cad.CadConfig | None (lazy default on first access)
         self._ifc_class = ifc_class
         self._ifc_store = None
         self._ifc_file = None
         self._ifc_sections = None
         self._ifc_materials = None
         self._source_ifc_files = dict()
+
+    @property
+    def cad_config(self):
+        """CAD backend + tessellation-path config (:class:`ada.cad.CadConfig`).
+
+        Defaults lazily to the best path available in the environment — libtess2 when adacpp is
+        installed (OCC-free, step2glb-parity), else OCC. Set it to pick a path explicitly; pass
+        it on to factory functions, e.g. ``stream_step_to_glb(..., cad_config=asm.cad_config)``."""
+        if self._cad_config is None:
+            from ada.cad import CadConfig
+
+            self._cad_config = CadConfig.default()
+        return self._cad_config
+
+    @cad_config.setter
+    def cad_config(self, value):
+        self._cad_config = value
 
     def __getstate__(self):
         # ifcopenshell.file and ifcopenshell.geom.settings are C-bound and
@@ -217,6 +236,32 @@ class Assembly(Part):
 
         return postprocess(res_path, fem_format=fem_format)
 
+    def to_pickle(self, pickle_file: str | pathlib.Path) -> pathlib.Path:
+        """Serialize this Assembly to a pickle file (round-trips via :func:`ada.from_pickle`).
+
+        adapy objects are kept picklable on purpose — backend CAD bodies live in the transient
+        ``_occ_cache`` slot, not on the object — so the parametric model round-trips cleanly. Lets
+        a source parsed once be reused for many exports without re-reading/re-parsing it.
+        """
+        import pickle
+        import tempfile
+
+        pickle_file = pathlib.Path(pickle_file)
+        pickle_file.parent.mkdir(parents=True, exist_ok=True)
+        # atomic write so a concurrent reader never sees a half-written pickle
+        fd, tmp = tempfile.mkstemp(dir=str(pickle_file.parent), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(tmp, pickle_file)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        return pickle_file
+
     def to_ifc(
         self,
         destination=None,
@@ -225,6 +270,8 @@ class Assembly(Part):
         validate=False,
         progress_callback: Callable[[int, int], None] = None,
         geom_repr_override: dict[str, GeomRepr] = None,
+        streaming=False,
+        merge_strategy=None,
     ) -> ifcopenshell.file:
         import ifcopenshell.validate
 
@@ -234,6 +281,36 @@ class Assembly(Part):
             destination = pathlib.Path(destination).resolve().absolute()
 
         logger.info(f'Beginning writing to IFC file "{destination}" using IfcOpenShell')
+
+        # Memory-bounded path: hand-author Plate solids as SPF text instead of
+        # holding the whole ifcopenshell.file in memory. It rebuilds the IFC
+        # from the assembly's concept objects, so it's only correct for freshly
+        # built models. Fall back to the in-memory writer when:
+        #   * there is no on-disk destination / a geom_repr_override is set, or
+        #   * the model was loaded from IFC — ifc_store.f then already holds the
+        #     source products (objects are NOCHANGE) and the normal writer's
+        #     passthrough is required; rebuilding them from scratch fails.
+        if streaming and not file_obj_only and destination != "object" and geom_repr_override is None:
+            if not self.ifc_store.f.by_type("IfcProduct"):
+                from ada.cadit.ifc.write.stream_ifc import stream_assembly_to_ifc
+
+                stream_assembly_to_ifc(
+                    self,
+                    destination,
+                    include_fem=include_fem,
+                    progress_callback=progress_callback,
+                    merge_strategy=merge_strategy,
+                )
+                if validate:
+                    ifcopenshell.validate.validate(destination, logger)
+                logger.info("IFC file creation complete (streaming)")
+                return None
+            logger.info("to_ifc(streaming=True): model carries loaded IFC entities; using the in-memory writer")
+        elif streaming:
+            logger.warning(
+                "to_ifc(streaming=True) needs an on-disk destination and no geom_repr_override; "
+                "falling back to the in-memory writer."
+            )
 
         self.ifc_store.sync(
             include_fem=include_fem, progress_callback=progress_callback, geom_repr_override=geom_repr_override
@@ -250,11 +327,32 @@ class Assembly(Part):
         return self.ifc_store.f
 
     def to_genie_xml(
-        self, destination_xml, writer_postprocessor: Callable[[ET.Element, Part], None] = None, embed_sat=False
+        self,
+        destination_xml,
+        writer_postprocessor: Callable[[ET.Element, Part], None] = None,
+        embed_sat=False,
+        streaming=False,
+        merge_strategy=None,
     ):
-        from ada.cadit.gxml.write.write_xml import write_xml
+        # ``streaming`` emits the per-object <structure> entries straight to the
+        # file instead of building the whole ElementTree DOM, cutting peak RSS on
+        # large FEM-derived models. Geometry-identical to the DOM writer. Not
+        # available with embed_sat (the SAT path shares one whole-model CDATA
+        # body), so fall back there.
+        #
+        # ``merge_strategy`` (None | "none" | "coplanar" | ...) sources plates
+        # from the object-free vectorized FEM-shell face engine instead of
+        # materialising Plate objects — only honoured on the streaming path.
+        if streaming and not embed_sat:
+            from ada.cadit.gxml.write.stream_xml import write_xml_stream
 
-        write_xml(self, destination_xml, writer_postprocessor=writer_postprocessor, embed_sat=embed_sat)
+            write_xml_stream(
+                self, destination_xml, writer_postprocessor=writer_postprocessor, merge_strategy=merge_strategy
+            )
+        else:
+            from ada.cadit.gxml.write.write_xml import write_xml
+
+            write_xml(self, destination_xml, writer_postprocessor=writer_postprocessor, embed_sat=embed_sat)
         logger.info(f'Genie XML file "{destination_xml}" created')
 
         return destination_xml

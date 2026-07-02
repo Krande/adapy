@@ -447,9 +447,11 @@ def make_wire_from_edge_loop(edge_loop: geo_cu.EdgeLoop) -> TopoDS_Wire:
             logger.debug(f"Special-case handling failed: {ex}, falling back to normal loop handling")
             pass
 
+    occ_edges = []
     for i, para_edge in enumerate(edge_loop.edge_list):
         try:
             occ_edge = make_edge_from_edge(para_edge)
+            occ_edges.append(occ_edge)
             wire.Add(occ_edge)
             added_edges += 1
         except (RuntimeError, UnableToCreateCurveOCCGeom) as e:
@@ -468,11 +470,46 @@ def make_wire_from_edge_loop(edge_loop: geo_cu.EdgeLoop) -> TopoDS_Wire:
 
     wire.Build()
 
-    if not wire.IsDone():
-        logger.error(f"Wire creation failed after adding {added_edges} edges (skipped {skipped_edges})")
-        raise UnableToCreateCurveOCCGeom(f"Failed to build wire from {added_edges} edges")
+    # Sequential MakeWire.Add chains each edge to the previous one's free vertex, so an
+    # out-of-order edge list (common in SAT/STEP face-bound loops) either fails outright
+    # (IsDone False) OR silently drops the edges that don't chain and returns an *open*
+    # wire (IsDone True). An EdgeLoop is a closed loop by definition, so a closed
+    # sequential wire is the only clean success; anything else gets a ShapeFix_Wire
+    # reorder over the full edge set before we give up (these otherwise drop as holes).
+    seq_wire = wire.Wire() if wire.IsDone() else None
+    if seq_wire is not None and seq_wire.Closed():
+        return seq_wire
 
-    return wire.Wire()
+    if len(occ_edges) >= 2:
+        try:
+            from OCC.Core.ShapeExtend import ShapeExtend_WireData
+            from OCC.Core.ShapeFix import ShapeFix_Wire
+
+            wd = ShapeExtend_WireData()
+            for e in occ_edges:
+                wd.Add(e)
+            sfw = ShapeFix_Wire()
+            sfw.Load(wd)
+            sfw.SetMaxTolerance(1.0e-3)
+            sfw.FixReorder()
+            sfw.FixConnected()
+            sfw.FixClosed()
+            fixed = sfw.Wire()
+            # Reorder reconnects the FULL edge set, so it is at least as complete as the
+            # sequential wire (which silently drops non-chaining edges). Prefer any
+            # non-null reordered wire — even if OCC's Closed() flag stays false, the
+            # downstream BRepBuilderAPI_MakeFace tolerates the residual sub-tolerance gap.
+            if fixed is not None and not fixed.IsNull():
+                logger.debug("Wire rebuilt via ShapeFix_Wire reorder (sequential build gave open/failed wire)")
+                return fixed
+        except Exception as ex:  # noqa: BLE001 - fall through to the original behaviour
+            logger.debug(f"ShapeFix_Wire reorder fallback failed: {ex}")
+
+    if seq_wire is not None:
+        return seq_wire  # preserve prior behaviour: an open-but-built wire still beats nothing
+
+    logger.error(f"Wire creation failed after adding {added_edges} edges (skipped {skipped_edges})")
+    raise UnableToCreateCurveOCCGeom(f"Failed to build wire from {added_edges} edges")
 
 
 def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):

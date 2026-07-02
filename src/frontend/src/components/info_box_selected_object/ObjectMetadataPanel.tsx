@@ -70,6 +70,13 @@ type PlateMeta = {
     material?: MaterialDict | null;
 };
 
+type CurvedPlateMeta = {
+    type: 'PlateCurved';
+    name?: string;
+    thickness?: number | null;
+    material?: MaterialDict | null;
+};
+
 type Props = {
     data: any | null;
 };
@@ -230,8 +237,8 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
     // Panel always renders when there's a selection — even without
     // any structured metadata — because it still hosts the clicked-
     // coordinate row and the cross-model link buttons.
-    const meta = (effectiveData ?? null) as BeamMeta | PlateMeta | null;
-    const known = meta?.type === 'Beam' || meta?.type === 'Plate';
+    const meta = (effectiveData ?? null) as BeamMeta | PlateMeta | CurvedPlateMeta | null;
+    const known = meta?.type === 'Beam' || meta?.type === 'Plate' || meta?.type === 'PlateCurved';
     return (
         <div className="mt-2">
             <button
@@ -259,6 +266,13 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
                         <>
                             <Row label="Type:">Plate</Row>
                             <Row label="Thickness:">{fmtMm((meta as PlateMeta).thickness)}</Row>
+                            <MaterialRows material={meta.material} />
+                        </>
+                    )}
+                    {meta?.type === 'PlateCurved' && (
+                        <>
+                            <Row label="Type:">Curved Plate</Row>
+                            <Row label="Thickness:">{fmtMm((meta as CurvedPlateMeta).thickness)}</Row>
                             <MaterialRows material={meta.material} />
                         </>
                     )}

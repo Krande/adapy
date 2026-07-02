@@ -6,6 +6,7 @@ import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef} from "@/state/refs";
 import {clearActiveFeaStreaming} from "./load_fea_streaming";
 import {requestRender} from "@/state/perfStore";
+import {disposeObject3D} from "@/utils/scene/dispose_object";
 
 // Tear the currently-loaded model out of the scene without loading a
 // replacement. Mirrors what `replace_model` does up to the point of
@@ -31,6 +32,9 @@ export async function clear_loaded_model(): Promise<void> {
     const three_scene = sceneRef.current;
     if (modelKeyMapRef.current) {
         for (const [, group] of modelKeyMapRef.current) {
+            // Free GPU buffers before detaching — group.clear()/remove() alone leaves the
+            // geometry/material in the renderer's caches, so VRAM never falls.
+            disposeObject3D(group);
             group.clear();
             three_scene?.remove(group);
         }

@@ -34,3 +34,8 @@ audit_repro_*/
 # pyodide adapy wheel build output
 dist_pyodide/
 src/frontend/public/wheels/
+# adacpp no-pyodide STEP->GLB wasm module (copied from adacpp build-wasm-stepglb)
+src/frontend/public/wasm/
+
+# CI-staged adacpp branch overlay source (built by Dockerfile.worker)
+adacpp-src/

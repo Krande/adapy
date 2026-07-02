@@ -17,8 +17,9 @@ import {
 // next_before_id) — that way the table doesn't shift while new audit
 // rows are inserted between pages.
 
-const ACTIONS = ["", "upload", "download", "convert", "view"];
+const ACTIONS = ["", "upload", "download", "convert", "view", "render"];
 const KINDS = ["", "shared", "project", "user"];
+const TARGETS = ["", "glb", "ifc", "xml", "step", "stl", "obj", "sat"];
 
 const PROFILE_SETTING_KEY = "profile_conversions";
 
@@ -29,7 +30,14 @@ const PROFILE_SETTING_KEY = "profile_conversions";
 // buttons.
 function hasDetails(e: AuditEntry): boolean {
     if (e.action === "convert") return true;
+    // Browser view/render rows always carry a client_metrics payload to
+    // inspect (per-phase split + per-function frames), fetched lazily.
+    if (e.action === "view" || e.action === "render") return true;
     return Boolean(e.error || e.traceback);
+}
+
+function isClientMetricsRow(e: AuditEntry): boolean {
+    return e.action === "view" || e.action === "render";
 }
 
 function hasMetrics(e: AuditEntry): boolean {
@@ -191,6 +199,17 @@ const AuditLogTab: React.FC = () => {
                         onChange={(v) => onFilter({action: v || undefined})}
                         placeholder="any action"
                     />
+                    <FilterSelect
+                        options={TARGETS}
+                        value={filters.target || ""}
+                        onChange={(v) => onFilter({target: v || undefined})}
+                        placeholder="any target"
+                    />
+                    <FilterInput
+                        placeholder="filename / path…"
+                        value={filters.key || ""}
+                        onChange={(v) => onFilter({key: v || undefined})}
+                    />
                     <button
                         className="hidden sm:inline-block ml-auto bg-blue-700 hover:bg-blue-600 px-2 py-1 rounded-sm"
                         onClick={() => reload(filters)}
@@ -271,6 +290,7 @@ const AuditLogTab: React.FC = () => {
                         <Th>User</Th>
                         <Th>Scope</Th>
                         <Th>Action</Th>
+                        <Th>Device</Th>
                         <Th>Key</Th>
                         <Th>Target</Th>
                         <Th>Status</Th>
@@ -283,12 +303,19 @@ const AuditLogTab: React.FC = () => {
                                 <span className="font-mono text-gray-300">#{e.id}</span>
                             </Td>
                             <Td title={e.ts || ""}>{formatTs(e.ts)}</Td>
-                            <Td title={e.user_sub || ""}>{shortSub(e.user_sub)}</Td>
+                            <Td title={userTooltip(e)}>{e.user_display_name || shortSub(e.user_sub)}</Td>
                             <Td title={e.scope_id || ""}>
                                 {e.scope_kind}
                                 {e.scope_id ? `:${shortSub(e.scope_id)}` : ""}
                             </Td>
                             <Td>{e.action}</Td>
+                            <Td title={e.device_id || ""}>
+                                {e.device_id ? (
+                                    <span className="font-mono text-gray-400">{e.device_id.slice(0, 8)}</span>
+                                ) : (
+                                    <span className="text-gray-600">—</span>
+                                )}
+                            </Td>
                             <Td title={e.key || ""}>{e.key || ""}</Td>
                             <Td>
                                 {e.target_format || ""}
@@ -340,8 +367,8 @@ const AuditLogTab: React.FC = () => {
                                 </div>
                             )}
                             {e.user_sub && (
-                                <div className="text-gray-500 mt-0.5" title={e.user_sub}>
-                                    by {shortSub(e.user_sub)}
+                                <div className="text-gray-500 mt-0.5" title={userTooltip(e)}>
+                                    by {e.user_display_name || shortSub(e.user_sub)}
                                 </div>
                             )}
                             {e.error && (
@@ -395,13 +422,58 @@ const AuditLogTab: React.FC = () => {
     );
 };
 
+// Lazy-loaded conversion log (worker-captured stdout/stderr, stored at log_key). Fetched on first
+// view of the Log tab — surfaces what the structured fields don't, e.g. an "adacpp-native ...
+// falling back to libtess2" warning when a pipeline silently degrades inside the convert subprocess.
+const LogTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
+    const [text, setText] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState<string | null>(null);
+
+    useEffect(() => {
+        let alive = true;
+        setLoading(true);
+        setErr(null);
+        viewerApi
+            .adminGetAuditLog(entry.id)
+            .then((t) => {
+                if (alive) setText(t);
+            })
+            .catch((e) => {
+                if (!alive) return;
+                setErr(
+                    e instanceof ApiError
+                        ? e.status === 404
+                            ? "No log captured for this row."
+                            : e.detail || e.message
+                        : String(e),
+                );
+            })
+            .finally(() => {
+                if (alive) setLoading(false);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [entry.id]);
+
+    if (loading) return <div className="p-4 text-sm text-gray-400">Loading log…</div>;
+    if (err) return <div className="p-4 text-sm text-gray-400 italic">{err}</div>;
+    return (
+        <pre className="p-3 text-xs leading-relaxed whitespace-pre-wrap break-words text-gray-200 font-mono">
+            {text}
+        </pre>
+    );
+};
+
 // Tabbed details view: Error (or 'OK' summary) on one tab, Metrics
 // on the other. Both tabs render even when their data is partial so
 // the user gets a consistent layout regardless of job outcome — a
 // timed-out conversion and a clean success share the same shape.
 const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry, onClose}) => {
-    const [tab, setTab] = useState<"error" | "metrics">(
-        entry.error || entry.traceback ? "error" : "metrics",
+    const clientRow = isClientMetricsRow(entry);
+    const [tab, setTab] = useState<"error" | "metrics" | "client" | "log">(
+        entry.error || entry.traceback ? "error" : clientRow ? "client" : "metrics",
     );
     const [copied, setCopied] = useState(false);
     const [downloading, setDownloading] = useState(false);
@@ -486,15 +558,27 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                     </button>
                 </div>
                 <div className="flex border-b border-gray-700 text-xs">
+                    {clientRow && (
+                        <TabButton active={tab === "client"} onClick={() => setTab("client")}>
+                            {entry.action === "render" ? "Render" : "Load"}
+                        </TabButton>
+                    )}
                     <TabButton active={tab === "error"} onClick={() => setTab("error")}>
                         {entry.error ? "Error" : "Outcome"}
                     </TabButton>
-                    <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")}>
-                        Metrics
-                        {hasMetrics(entry) ? null : (
-                            <span className="text-gray-500"> (none)</span>
-                        )}
-                    </TabButton>
+                    {!clientRow && (
+                        <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")}>
+                            Metrics
+                            {hasMetrics(entry) ? null : (
+                                <span className="text-gray-500"> (none)</span>
+                            )}
+                        </TabButton>
+                    )}
+                    {!clientRow && (
+                        <TabButton active={tab === "log"} onClick={() => setTab("log")}>
+                            Log
+                        </TabButton>
+                    )}
                 </div>
                 <div className="flex-1 overflow-auto">
                     {tab === "error" && (
@@ -508,6 +592,8 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                             downloadErr={downloadErr}
                         />
                     )}
+                    {tab === "client" && <ClientMetricsTab entry={entry}/>}
+                    {tab === "log" && <LogTab entry={entry}/>}
                 </div>
             </div>
         </div>
@@ -569,6 +655,134 @@ const ErrorTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
     );
 };
 
+// Conversion engine + effective toggles (the convert_meta JSONB). Highlights the
+// tessellator that actually ran — an "occ-builtin (fallback …)" value means adacpp
+// wasn't present in the worker so libtess2 silently degraded.
+const ConvertEngine: React.FC<{meta: import("@/services/viewerApi").ConvertMeta}> = ({meta}) => {
+    const fellBack = (meta.tessellator || "").includes("fallback");
+    const opts = meta.options || {};
+    const optKeys = Object.keys(opts).sort();
+    return (
+        <div className="pt-2 border-t border-gray-800 space-y-1">
+            <div className="text-[11px] uppercase tracking-wide text-gray-400">Conversion engine</div>
+            <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 font-mono">
+                {meta.tessellator && (
+                    <>
+                        <dt className="text-gray-400">Tessellator</dt>
+                        <dd className={fellBack ? "text-amber-300" : "text-emerald-300"}>{meta.tessellator}</dd>
+                    </>
+                )}
+                {meta.step_glb_pipeline && (
+                    <><dt className="text-gray-400">Requested</dt><dd>{meta.step_glb_pipeline}</dd></>
+                )}
+                {meta.glb_compression && (
+                    <><dt className="text-gray-400">Compression</dt><dd>{meta.glb_compression}</dd></>
+                )}
+                {meta.stream_workers != null && meta.stream_workers !== "" && (
+                    <><dt className="text-gray-400">Workers</dt><dd>{String(meta.stream_workers)}</dd></>
+                )}
+                {meta.convert_ms != null && (
+                    <><dt className="text-gray-400">Convert</dt><dd>{meta.convert_ms} ms</dd></>
+                )}
+                {meta.compress_ms != null && (
+                    <>
+                        <dt className="text-gray-400">Compress</dt>
+                        <dd className="text-sky-300">
+                            {meta.compress_ms} ms
+                            {meta.convert_ms != null && meta.convert_ms > 0
+                                ? ` (+${Math.round((meta.compress_ms / meta.convert_ms) * 100)}%)`
+                                : ""}
+                        </dd>
+                    </>
+                )}
+            </dl>
+            {optKeys.length > 0 && (
+                <div className="pt-1">
+                    <div className="text-[11px] text-gray-400 mb-0.5">Effective options</div>
+                    <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono text-[11px]">
+                        {optKeys.map((k) => (
+                            <React.Fragment key={k}>
+                                <dt className="text-gray-500 break-all">{k}</dt>
+                                <dd className="text-gray-300 break-all">{opts[k]}</dd>
+                            </React.Fragment>
+                        ))}
+                    </dl>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Worker package manifest ("pixi list") for the row's worker image — lazily
+// fetched on expand, filterable. Links a conversion to the exact toolchain
+// (occt / pythonocc-core / ada-cpp / …) that produced it.
+const WorkerPackages: React.FC<{imageTag: string}> = ({imageTag}) => {
+    const [open, setOpen] = useState(false);
+    const [pkgs, setPkgs] = useState<import("@/services/viewerApi").WorkerPackage[] | null>(null);
+    const [err, setErr] = useState<string | null>(null);
+    const [filter, setFilter] = useState("");
+    const toggle = async () => {
+        if (pkgs || err) {
+            setOpen((v) => !v);
+            return;
+        }
+        setOpen(true);
+        try {
+            const r = await viewerApi.adminWorkerPackages(imageTag);
+            setPkgs(r.packages);
+        } catch (e) {
+            setErr(e instanceof Error ? e.message : String(e));
+        }
+    };
+    const f = filter.trim().toLowerCase();
+    const shown = (pkgs || []).filter((p) => !f || p.name.toLowerCase().includes(f));
+    return (
+        <div className="pt-2 border-t border-gray-800 space-y-1">
+            <button
+                type="button"
+                onClick={toggle}
+                className="text-[11px] text-blue-300 hover:text-blue-200 flex items-center gap-1.5"
+                title="Captured conda package manifest for this worker image"
+            >
+                <span>{open ? "▾" : "▸"}</span>
+                <span>Worker packages</span>
+                <span className="font-mono text-gray-500 break-all">{imageTag}</span>
+            </button>
+            {open && (
+                <div className="space-y-1 pl-3">
+                    {err && <div className="text-[11px] text-red-400">{err}</div>}
+                    {!err && !pkgs && <div className="text-[11px] text-gray-400">Loading…</div>}
+                    {pkgs && (
+                        <>
+                            <input
+                                value={filter}
+                                onChange={(e) => setFilter(e.target.value)}
+                                placeholder="filter (occt, ada-cpp…)"
+                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-0.5 text-[11px] text-gray-100 w-48"
+                            />
+                            <div className="max-h-64 overflow-auto">
+                                <dl className="grid grid-cols-[1fr_max-content] gap-x-3 gap-y-0.5 font-mono text-[11px]">
+                                    {shown.map((p) => (
+                                        <React.Fragment key={p.name}>
+                                            <dt className="text-gray-300 break-all">{p.name}</dt>
+                                            <dd className="text-gray-400 text-right whitespace-nowrap">
+                                                {p.version}{p.build ? ` (${p.build})` : ""}
+                                            </dd>
+                                        </React.Fragment>
+                                    ))}
+                                </dl>
+                            </div>
+                            <div className="text-[10px] text-gray-500">
+                                {shown.length} / {pkgs.length} packages
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const MetricsTab: React.FC<{
     entry: AuditEntry;
     onDownloadProfile: () => void;
@@ -597,7 +811,13 @@ const MetricsTab: React.FC<{
                 <MetricRow label="Read"     value={formatBytes(entry.read_bytes)}/>
                 <MetricRow label="Write"    value={formatBytes(entry.write_bytes)}/>
             </dl>
-            <MetricsHistoryChart auditId={entry.id}/>
+            {entry.convert_meta && <ConvertEngine meta={entry.convert_meta}/>}
+            {entry.worker_image_tag && <WorkerPackages imageTag={entry.worker_image_tag}/>}
+            <MetricsHistoryChart
+                auditId={entry.id}
+                cores={entry.convert_meta?.cpu_cores ?? undefined}
+                native={entry.convert_meta?.tessellator === "adacpp:native"}
+            />
             {entry.profile_key ? (
                 <div className="pt-2 border-t border-gray-800 space-y-3">
                     <div>
@@ -631,7 +851,129 @@ const MetricsTab: React.FC<{
     );
 };
 
-const MetricsHistoryChart: React.FC<{auditId: number}> = ({auditId}) => {
+// Per-row inspection of a browser view/render event: the full
+// client_metrics payload (lazily fetched), shown as a phase/scalar grid
+// plus the per-function self-time frames when call profiling was on.
+const CM_MS_KEYS = new Set([
+    "total_ms", "ttfb_ms", "download_ms", "decompress_ms", "parse_ms", "prepare_ms",
+    "first_render_ms", "dns_ms", "tcp_ms", "tls_ms", "long_task_ms", "blocking_ms",
+    "window_ms", "frame_ms_p50", "frame_ms_p95", "gpu_ms_p50", "gpu_ms_p95",
+]);
+const CM_BYTE_KEYS = new Set(["transfer_bytes", "decoded_bytes"]);
+
+const ClientMetricsTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
+    const [cm, setCm] = useState<Record<string, unknown> | null>(null);
+    const [err, setErr] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        let alive = true;
+        setLoading(true);
+        viewerApi
+            .adminAuditClientMetrics(entry.id)
+            .then((d) => alive && setCm(d.client_metrics))
+            .catch((e) => alive && setErr((e as Error).message))
+            .finally(() => alive && setLoading(false));
+        return () => {
+            alive = false;
+        };
+    }, [entry.id]);
+
+    if (loading) return <div className="px-4 py-3 text-xs text-gray-400">Loading…</div>;
+    if (err) return <div className="px-4 py-3 text-xs text-red-300">{err}</div>;
+    if (!cm) return <div className="px-4 py-3 text-xs text-gray-400">No client metrics recorded for this entry.</div>;
+
+    const frames = Array.isArray(cm.profile_frames)
+        ? (cm.profile_frames as Array<{fn?: string; self_ms?: number; total_ms?: number}>)
+        : [];
+    // Scalar fields → a sorted key/value grid, with ms/bytes formatting.
+    const scalars = Object.entries(cm)
+        .filter(([k, v]) => k !== "profile_frames" && (typeof v === "number" || typeof v === "string" || typeof v === "boolean"))
+        .sort(([a], [b]) => a.localeCompare(b));
+    // Performance toggles active when this load/render was captured.
+    const perfOptions =
+        cm.perf_options && typeof cm.perf_options === "object" && !Array.isArray(cm.perf_options)
+            ? (cm.perf_options as Record<string, unknown>)
+            : null;
+    const fmt = (k: string, v: unknown): string => {
+        if (typeof v === "number") {
+            if (CM_MS_KEYS.has(k)) return formatDuration(v);
+            if (CM_BYTE_KEYS.has(k)) return formatBytes(v);
+            return String(Math.round(v * 100) / 100);
+        }
+        return String(v);
+    };
+
+    return (
+        <div className="px-4 py-3 text-xs text-gray-200 space-y-3">
+            <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono">
+                {scalars.map(([k, v]) => (
+                    <React.Fragment key={k}>
+                        <dt className="text-gray-400">{k}</dt>
+                        <dd className="text-gray-100">{fmt(k, v)}</dd>
+                    </React.Fragment>
+                ))}
+            </dl>
+            {perfOptions ? (
+                <div className="pt-2 border-t border-gray-800">
+                    <div className="text-[11px] text-gray-400 mb-1">Performance options (active at capture)</div>
+                    <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono">
+                        {Object.entries(perfOptions)
+                            .sort(([a], [b]) => a.localeCompare(b))
+                            .map(([k, v]) => (
+                                <React.Fragment key={k}>
+                                    <dt className="text-gray-400">{k}</dt>
+                                    <dd className="text-gray-100">{String(v)}</dd>
+                                </React.Fragment>
+                            ))}
+                    </dl>
+                </div>
+            ) : null}
+            {frames.length > 0 ? (
+                <div className="pt-2 border-t border-gray-800">
+                    <div className="text-[11px] text-gray-400 mb-1">
+                        Call hotspots (self-time, TS + WASM)
+                        {entry.action === "render" && " · main-thread only (GPU-bound shows in gpu_ms)"}
+                    </div>
+                    <table className="w-full">
+                        <thead className="text-gray-400">
+                            <tr>
+                                <th className="text-left font-medium">Function</th>
+                                <th className="text-right font-medium">Self</th>
+                                <th className="text-right font-medium">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {frames.map((f, i) => (
+                                <tr key={i} className="border-t border-gray-800">
+                                    <td className="py-0.5 font-mono truncate max-w-md" title={f.fn}>
+                                        {typeof f.fn === "string" && f.fn.toLowerCase().includes("wasm") && (
+                                            <span className="text-violet-300 mr-1">[wasm]</span>
+                                        )}
+                                        {f.fn}
+                                    </td>
+                                    <td className="text-right font-mono">{formatDuration(f.self_ms ?? null)}</td>
+                                    <td className="text-right font-mono">{formatDuration(f.total_ms ?? null)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            ) : (
+                <div className="text-[10px] text-gray-500 pt-2 border-t border-gray-800">
+                    No call profile on this event. Enable "Profile calls" in Performance options
+                    (Chromium + Document-Policy: js-profiling).
+                </div>
+            )}
+        </div>
+    );
+};
+
+const MetricsHistoryChart: React.FC<{auditId: number; cores?: number; native?: boolean}> = ({
+    auditId,
+    cores,
+    native,
+}) => {
     const [samples, setSamples] = useState<MetricsSample[] | null>(null);
     const [err, setErr] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -672,8 +1014,49 @@ const MetricsHistoryChart: React.FC<{auditId: number}> = ({auditId}) => {
 
     const maxElapsed = Math.max(...samples.map((s) => s.elapsed_s), 1);
     const maxRss = Math.max(...samples.map((s) => Math.max(s.rss_kb, s.peak_rss_kb)), 1);
-    const maxCpuMs = Math.max(...samples.map((s) => s.cpu_user_ms + s.cpu_sys_ms), 1);
     const maxIo = Math.max(...samples.map((s) => Math.max(s.read_bytes, s.write_bytes)), 1);
+
+    // cpu_user_ms/cpu_sys_ms are CUMULATIVE, so plotting them is just a monotonic ramp. Instead show
+    // utilization: Δ(user+sys) / Δwall between consecutive samples = CPU cores busy in that window.
+    // When the pod's core count is known (convert_meta.cpu_cores) render it as % of all cores (0–100%);
+    // otherwise as absolute cores busy.
+    const cpuCoresBusy: number[] = samples.map((s, i) => {
+        const prevCpu = i === 0 ? 0 : samples[i - 1].cpu_user_ms + samples[i - 1].cpu_sys_ms;
+        const prevT = i === 0 ? 0 : samples[i - 1].elapsed_s;
+        const dCpuMs = s.cpu_user_ms + s.cpu_sys_ms - prevCpu;
+        const dWallMs = (s.elapsed_s - prevT) * 1000;
+        return dWallMs > 0 ? Math.max(0, dCpuMs / dWallMs) : 0;
+    });
+    const maxCoresBusy = Math.max(...cpuCoresBusy, 0.01);
+    const cpuFullScale = cores && cores > 0 ? cores : Math.max(Math.ceil(maxCoresBusy), 1);
+    const cpuLabel =
+        cores && cores > 0
+            ? `${Math.round((maxCoresBusy / cores) * 100)}% of ${cores} cores`
+            : `${maxCoresBusy.toFixed(1)} cores`;
+
+    // Per-thread (≈ per-core) utilization envelope — only for the in-process native engine, where the
+    // C++ tessellation threads live in the sampled process. Match threads by tid across consecutive
+    // samples, take each thread's Δcpu/Δwall (1.0 = one core's worth), then SORT descending per sample
+    // so each plotted line is a "core rank": N lines pinned high = N cores saturated, vs all N at
+    // mid-height = N cores half-busy — the distinction the aggregate % can't make.
+    const hasPerThread =
+        !!native && samples.some((s) => s.per_thread_cpu_ms && Object.keys(s.per_thread_cpu_ms).length > 0);
+    const nLanes = hasPerThread ? Math.max(cores && cores > 0 ? cores : 1, 1) : 0;
+    const lanes: number[][] = hasPerThread
+        ? samples.map((s, i) => {
+              const cur = s.per_thread_cpu_ms || {};
+              const prev = i > 0 ? samples[i - 1].per_thread_cpu_ms || {} : {};
+              const dWallMs = (s.elapsed_s - (i > 0 ? samples[i - 1].elapsed_s : 0)) * 1000;
+              const busy = Object.keys(cur)
+                  .map((tid) => (dWallMs > 0 ? Math.max(0, (cur[tid] - (prev[tid] ?? 0)) / dWallMs) : 0))
+                  .sort((a, b) => b - a);
+              return Array.from({length: nLanes}, (_, k) => busy[k] ?? 0); // rank-ordered, padded to nLanes
+          })
+        : [];
+    const laneColors = Array.from({length: nLanes}, (_, k) => `hsl(152 ${72 - k * 6}% ${62 - k * 5}%)`);
+    const peakLanes = hasPerThread
+        ? Math.max(0, ...samples.map((_, i) => lanes[i].filter((v) => v >= 0.5).length))
+        : 0;
 
     return (
         <div className="space-y-2 pt-2 border-t border-gray-800">
@@ -688,17 +1071,29 @@ const MetricsHistoryChart: React.FC<{auditId: number}> = ({auditId}) => {
                     {color: "#f87171", points: samples.map((s) => [s.elapsed_s / maxElapsed, s.peak_rss_kb / maxRss]), label: "peak"},
                 ]}
             />
-            <ChartPanel
-                title="CPU (user+sys)"
-                yLabel={formatDuration(maxCpuMs)}
-                series={[
-                    {
-                        color: "#34d399",
-                        points: samples.map((s) => [s.elapsed_s / maxElapsed, (s.cpu_user_ms + s.cpu_sys_ms) / maxCpuMs]),
-                        label: "cpu",
-                    },
-                ]}
-            />
+            {hasPerThread ? (
+                <CpuPerCorePanel
+                    samples={samples}
+                    lanes={lanes}
+                    nLanes={nLanes}
+                    cores={cores && cores > 0 ? cores : nLanes}
+                    maxElapsed={maxElapsed}
+                    colors={laneColors}
+                    peakLanes={peakLanes}
+                />
+            ) : (
+                <ChartPanel
+                    title={cores ? "CPU util (% of cores)" : "CPU (cores busy)"}
+                    yLabel={cpuLabel}
+                    series={[
+                        {
+                            color: "#34d399",
+                            points: samples.map((s, i) => [s.elapsed_s / maxElapsed, Math.min(1, cpuCoresBusy[i] / cpuFullScale)]),
+                            label: "cpu",
+                        },
+                    ]}
+                />
+            )}
             <ChartPanel
                 title="IO bytes"
                 yLabel={formatBytes(maxIo)}
@@ -707,6 +1102,56 @@ const MetricsHistoryChart: React.FC<{auditId: number}> = ({auditId}) => {
                     {color: "#fbbf24", points: samples.map((s) => [s.elapsed_s / maxElapsed, s.write_bytes / maxIo]), label: "write"},
                 ]}
             />
+        </div>
+    );
+};
+
+// Stacked per-core CPU utilization (native engine). Each band is one core, rank-sorted busiest →
+// least and stacked from the bottom; the y-axis ceiling is the pod's core count. So the FILLED
+// HEIGHT at any instant = "cores busy," and saturation reads directly off the chart: the stack
+// hugging the top across the whole width = all cores saturated for the whole conversion; a dip = an
+// idle stretch. 3 full bands reaching 3/4 (native reserves one core for the parent) is unmistakably
+// different from 4 half-height bands reaching 2/4 — which the aggregate % and overlaid lines blur.
+const CpuPerCorePanel: React.FC<{
+    samples: MetricsSample[];
+    lanes: number[][];
+    nLanes: number;
+    cores: number;
+    maxElapsed: number;
+    colors: string[];
+    peakLanes: number;
+}> = ({samples, lanes, nLanes, cores, maxElapsed, colors, peakLanes}) => {
+    const W = 320;
+    const H = 56;
+    const x = (i: number) => (samples[i].elapsed_s / maxElapsed) * W;
+    const yAt = (cumCores: number) => H - Math.min(1, cumCores / cores) * H;
+    const cum = (i: number, k: number) => {
+        let c = 0;
+        for (let j = 0; j < k; j++) c += lanes[i][j] ?? 0;
+        return c;
+    };
+    return (
+        <div>
+            <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                <div className="text-[10px] text-gray-400 font-mono">CPU per core (native)</div>
+                <div className="text-[10px] text-gray-500 font-mono">
+                    top = {cores} cores · peak {peakLanes} saturated
+                </div>
+            </div>
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14 bg-gray-900/60 border border-gray-800 rounded-sm">
+                {Array.from({length: nLanes}, (_, k) => {
+                    const top = samples.map(
+                        (_, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${yAt(cum(i, k + 1)).toFixed(1)}`,
+                    );
+                    const bot: string[] = [];
+                    for (let i = samples.length - 1; i >= 0; i--) {
+                        bot.push(`L${x(i).toFixed(1)},${yAt(cum(i, k)).toFixed(1)}`);
+                    }
+                    return (
+                        <path key={k} d={`${top.join(" ")} ${bot.join(" ")} Z`} fill={colors[k]} fillOpacity={0.85} stroke="none"/>
+                    );
+                })}
+            </svg>
         </div>
     );
 };
@@ -1047,6 +1492,16 @@ function shortSub(s: string | null): string {
     return `${s.slice(0, 8)}…${s.slice(-4)}`;
 }
 
+// Hover tooltip for the user column: display name + email (resolved server-side from the users
+// table), falling back to the raw subject when a name/email isn't on file.
+function userTooltip(e: AuditEntry): string {
+    const lines: string[] = [];
+    if (e.user_display_name) lines.push(e.user_display_name);
+    if (e.user_email) lines.push(e.user_email);
+    if (e.user_sub) lines.push(e.user_sub);
+    return lines.join("\n");
+}
+
 function formatTs(ts: string | null): string {
     // Render in the browser's local timezone. ``sv-SE`` gives the
     // ISO-shaped "YYYY-MM-DD HH:MM:SS" output that matches what the
@@ -1149,6 +1604,7 @@ function countActive(f: AuditFilters): number {
     if (f.scope_kind) n++;
     if (f.scope_id) n++;
     if (f.action) n++;
+    if (f.key) n++;
     return n;
 }
 

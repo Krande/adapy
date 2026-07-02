@@ -221,6 +221,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _profile_parser_loop(app.state.db_pool),
                 name="audit-profile-parser",
             )
+        # Stale-worker GC. A pod that crashes / scales down can leave its registry entry behind
+        # (unregister_worker is best-effort); without pruning these accumulate and pollute the
+        # capability matrix. Drop entries unseen for WORKER_PRUNE_AFTER_S (2 days), checked hourly.
+        app.state.worker_prune_task = None
+        if queue.enabled:
+            app.state.worker_prune_task = asyncio.create_task(
+                _worker_prune_loop(queue),
+                name="worker-prune",
+            )
         yield
         # Cancel scheduler + issue bot first so a tick in flight
         # doesn't try to use a pool / queue that's about to be torn
@@ -229,6 +238,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "scheduler_task",
             "issue_bot_task",
             "profile_parser_task",
+            "worker_prune_task",
         ):
             task = getattr(app.state, attr, None)
             if task is not None and not task.done():
@@ -344,7 +354,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.exception("config: failed to read worker registry for matrix")
             return []
         merged: dict[str, set[str]] = {}
+        # from → target → option-name → option-dict. Per-job knob schemas are unioned across workers:
+        # for an enum option (e.g. step_glb_pipeline) the enum VALUES are unioned, so an engine that
+        # only some worker pool can run still appears in the list. (Pair with capability routing so the
+        # job lands on a pool that actually advertises that engine — see queue source-ext routing.)
+        merged_opts: dict[str, dict[str, dict[str, dict]]] = {}
+        now = time.time()
         for w in workers:
+            # Only LIVE pools define the capability matrix — a dead/stale registration (a pod that
+            # crashed or scaled down before unregistering) must not keep advertising engines it no
+            # longer runs. Mirrors the routing staleness window; prune_stale_workers GCs them for good.
+            hb = w.get("last_heartbeat")
+            if not (isinstance(hb, (int, float)) and (now - hb) <= JobQueue.WORKER_STALE_AFTER_S):
+                continue
             for entry in w.get("conversions") or []:
                 if not isinstance(entry, dict):
                     continue
@@ -356,11 +378,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 tos = entry.get("to")
                 if not isinstance(tos, list):
                     continue
+                opts_by_target = entry.get("options") or {}
                 bucket = merged.setdefault(frm, set())
                 for t in tos:
-                    if isinstance(t, str) and t.strip():
-                        bucket.add(t.strip().lstrip(".").lower())
-        return [{"from": frm, "to": sorted(merged[frm])} for frm in sorted(merged)]
+                    if not (isinstance(t, str) and t.strip()):
+                        continue
+                    target = t.strip().lstrip(".").lower()
+                    bucket.add(target)
+                    for opt in opts_by_target.get(t) or opts_by_target.get(target) or []:
+                        if not isinstance(opt, dict) or not opt.get("name"):
+                            continue
+                        slot = merged_opts.setdefault(frm, {}).setdefault(target, {})
+                        cur = slot.get(opt["name"])
+                        if cur is None:
+                            slot[opt["name"]] = dict(opt)
+                        elif isinstance(opt.get("enum"), list) and isinstance(cur.get("enum"), list):
+                            cur["enum"] = cur["enum"] + [v for v in opt["enum"] if v not in cur["enum"]]
+        return [
+            {
+                "from": frm,
+                "to": sorted(merged[frm]),
+                "options": {tgt: list(by_name.values()) for tgt, by_name in merged_opts.get(frm, {}).items()},
+            }
+            for frm in sorted(merged)
+        ]
 
     async def _worker_advertised_utilities() -> list[dict]:
         """Merged utility specs across every currently-registered worker.
@@ -836,11 +877,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # would drown the log.
         if not is_derived_key(key):
             await _audit(request, user, scope_obj, "download", key=key, status="ok")
-        headers: dict[str, str] = {"Accept-Ranges": "bytes"}
+        headers: dict[str, str] = {}
         if result.content_encoding:
             # See storage.py: gzipped sources/derived round-trip via
-            # Content-Encoding so the browser auto-decompresses.
+            # Content-Encoding so the browser auto-decompresses. A gzip-at-rest
+            # object CANNOT be byte-ranged (a range would hand back compressed
+            # bytes — see _serve_blob_range), so advertise no-range honestly:
+            # otherwise a client/CDN trusts ``Accept-Ranges: bytes`` and a Range
+            # GET against the presigned S3 object returns corrupt partial gzip.
             headers["Content-Encoding"] = result.content_encoding
+            headers["Accept-Ranges"] = "none"
+        else:
+            headers["Accept-Ranges"] = "bytes"
         return StreamingResponse(result.stream, media_type="application/octet-stream", headers=headers)
 
     @api.put("/scopes/{scope}/blobs/{key:path}")
@@ -1249,6 +1297,120 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     logger.exception("audit/local: metrics sample append failed for %s", job_id)
         return JSONResponse({"ok": True})
 
+    @api.post("/scopes/{scope}/audit/view")
+    async def api_scope_audit_view(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Record one browser model-load (``action = 'view'``) or a
+        steady-state render window (``action = 'render'`` — selected by
+        ``client_metrics.kind == 'render'``).
+
+        Posted by the viewer's opt-in load/render instrumentation
+        (admin-only toggle in the Performance options) once a GLB has
+        finished loading into the scene, or per render-sample window.
+        Body (JSON):
+
+          ``{key, status, duration_ms?, read_bytes?, write_bytes?,
+             peak_rss_kb?, client_metrics?}``
+
+        ``client_metrics`` is the per-phase IO/network/CPU/GPU breakdown
+        (see migration 017). Best-effort: a metrics post must never break
+        the user's session, so a DB hiccup is logged and swallowed with a
+        200. Not admin-gated — any user with scope access may record their
+        own loads (the row is owned by ``user.sub``); the collection is
+        gated client-side so it only fires for admins.
+        """
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            # No DB on this deployment — quietly accept so the client
+            # doesn't error-toast on a metrics post.
+            return JSONResponse({"ok": False, "reason": "no-db"})
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="body must be a JSON object")
+
+        key = (str(body.get("key") or "")).strip().lstrip("/") or None
+        status = (str(body.get("status") or "ok")).strip().lower()
+        if status not in {"ok", "done", "error", "failed"}:
+            status = "ok"
+
+        def _int_or_none(v):
+            try:
+                return int(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        cm = body.get("client_metrics")
+        if not isinstance(cm, dict):
+            cm = None
+        else:
+            # Defensive cap: keep the JSONB small and bounded regardless
+            # of what a client sends. Scalars pass through; the one allowed
+            # nested value is ``profile_frames`` (the JS Self-Profiling top-N
+            # self-time table) — bounded to a sane length with scalar-only
+            # fields. Any other nested/oversized value is dropped.
+            cleaned: dict = {}
+            for k, v in list(cm.items())[:64]:
+                if not isinstance(k, str):
+                    continue
+                if isinstance(v, (int, float, bool)) or v is None:
+                    cleaned[k[:64]] = v
+                elif isinstance(v, str):
+                    cleaned[k[:64]] = v[:512]
+                elif k == "profile_frames" and isinstance(v, list):
+                    frames: list = []
+                    for f in v[:80]:
+                        if not isinstance(f, dict):
+                            continue
+                        fn = f.get("fn")
+                        if not isinstance(fn, str):
+                            continue
+                        frame: dict = {"fn": fn[:200]}
+                        for fk in ("self_ms", "total_ms"):
+                            fv = f.get(fk)
+                            if isinstance(fv, (int, float)) and not isinstance(fv, bool):
+                                frame[fk] = fv
+                        frames.append(frame)
+                    if frames:
+                        cleaned["profile_frames"] = frames
+            cm = cleaned or None
+
+        # Steady-state render-window rows post to the same endpoint but
+        # carry ``client_metrics.kind == "render"`` so they land under the
+        # 'render' action (the load-time rows use 'view').
+        action = "render" if (cm and cm.get("kind") == "render") else "view"
+
+        try:
+            await db_module.insert_audit(
+                pool,
+                user_sub=user.sub,
+                scope_kind=scope_obj.kind,
+                scope_id=scope_obj.id,
+                action=action,
+                key=key,
+                target_format=None,
+                status=status,
+                error=(str(body["error"])[:2000] if body.get("error") is not None else None),
+                # Client-side load failures (e.g. a malformed GLB buffer) carry no
+                # Python traceback; stash the browser error's JS stack here so the
+                # audit Error panel has something actionable to show.
+                traceback=(str(body["traceback"])[:8000] if body.get("traceback") is not None else None),
+                duration_ms=_int_or_none(body.get("duration_ms")),
+                read_bytes=_int_or_none(body.get("read_bytes")),
+                write_bytes=_int_or_none(body.get("write_bytes")),
+                peak_rss_kb=_int_or_none(body.get("peak_rss_kb")),
+                client_metrics=cm,
+            )
+        except Exception:
+            logger.exception("audit/view record failed")
+            return JSONResponse({"ok": False, "reason": "insert-failed"})
+        return JSONResponse({"ok": True}, status_code=201)
+
     @api.post("/scopes/{scope}/fea/artefacts")
     async def api_scope_fea_artefacts_upload(
         request: Request,
@@ -1592,7 +1754,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # old-client mix degrades to "global setting wins".
         _LEGACY_ENV_OPTS = {
             "use_sat_pcurves",
-            "pcurve_drive_edge",
             "skip_shapefix",
             "profile_conversions",
         }
@@ -2597,6 +2758,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse({"workers": workers, "now": now, "stale_after_s": stale_after_s})
 
+    @admin.post("/workers/prune")
+    async def admin_prune_workers() -> JSONResponse:
+        """Manually drop every currently-OFFLINE worker registry entry (heartbeat older than the
+        staleness window). A live pod re-registers within a heartbeat tick, so this only clears dead
+        registrations left by crashed / scaled-down pods — which otherwise linger and pollute the
+        capability matrix. The hourly background task also prunes, but only at the conservative 2-day
+        horizon; this button is the immediate manual cleanup."""
+        if not queue.enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="worker registry requires a NATS-backed queue",
+            )
+        try:
+            pruned = await queue.prune_stale_workers(max_age_s=queue.WORKER_STALE_AFTER_S)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"could not prune worker registry: {exc}",
+            ) from exc
+        return JSONResponse({"pruned": pruned})
+
     # ── Audit runs (M1 admin audit panel) ─────────────────────────────
     #
     # POST  /admin/audit/runs           — kick off a sweep
@@ -2647,6 +2829,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         base = after or datetime.now(timezone.utc)
         return croniter(cron_expr, base).get_next(datetime)
+
+    async def _worker_prune_loop(q) -> None:
+        """Background task: hourly, hard-prune worker registry entries unseen for
+        ``WORKER_PRUNE_AFTER_S`` (2 days). Defensive — one failed tick is logged, not fatal; only
+        ``asyncio.CancelledError`` exits cleanly (shutdown)."""
+        PRUNE_INTERVAL_S = 3600.0
+        logger.info("worker prune: starting (every %ss, horizon %ss)", PRUNE_INTERVAL_S, q.WORKER_PRUNE_AFTER_S)
+        try:
+            while True:
+                await asyncio.sleep(PRUNE_INTERVAL_S)
+                try:
+                    n = await q.prune_stale_workers()
+                    if n:
+                        logger.info("worker prune: removed %d stale registration(s)", n)
+                except Exception:
+                    logger.exception("worker prune: tick failed")
+        except asyncio.CancelledError:
+            logger.info("worker prune: stopped")
+            raise
 
     async def _scheduler_loop(pool) -> None:
         """Background task: tick every 30s, claim due schedules, fire
@@ -3154,6 +3355,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             summary["commented"],
         )
 
+    async def _dispatch_auto_validation(pool, parent: dict) -> None:
+        """Append a validation (cross-format parity) pass to a finished
+        ``auto_validate`` conversion run — *into the same run*, not a new one.
+        The run's total grows by the parity cell count and it reopens to
+        ``running`` until those cells land (then it re-finishes). The claim
+        already stamped the parent so this runs once; failures are logged but
+        never break the poller tick."""
+        try:
+            s = _parse_scope(parent["scope"], _SystemUser())
+            s = await _resolve_project_scope(pool, s)
+        except Exception:
+            logger.exception("auto-validate: scope resolution failed for run %s", parent["id"])
+            return
+        # Awaited (not fire-and-forget) so the run is reopened with its parity
+        # cells before the issue-bot drain in the same tick can claim it.
+        try:
+            await _audit_dispatch(
+                parent["id"],
+                s,
+                parent["worker_pool"],
+                "system",
+                pool,
+                False,
+                validate_only=True,
+                extend=True,
+            )
+            logger.info("auto-validate: appended validation cells to run %s", parent["id"])
+        except Exception:
+            logger.exception("auto-validate: dispatch failed for run %s", parent["id"])
+
     async def _issue_bot_loop(pool) -> None:
         """Background task: drain (1) finished audit runs + (2)
         failed user-driven conversions per tick. Defensive —
@@ -3175,7 +3406,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             while True:
                 try:
-                    # Drain audit runs first (each represents many
+                    # Auto-validate first: a finished auto_validate run gets its
+                    # parity cells appended (reopening it to 'running'), so the
+                    # issue-bot below only claims a run once it's *truly* done —
+                    # conversions and validation together. Claimed once (the
+                    # claim stamps auto_validate_dispatched_at).
+                    while True:
+                        parent = await db_module.claim_audit_run_for_auto_validate(pool)
+                        if parent is None:
+                            break
+                        await _dispatch_auto_validation(pool, parent)
+                    # Drain finished audit runs (each represents many
                     # failures batched into one sync, more valuable
                     # to keep current).
                     while True:
@@ -3240,6 +3481,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         pool,
         force_rebuild: bool = False,
         validate_only: bool = False,
+        extend: bool = False,
     ) -> None:
         """Enumerate the scope's files × the converter matrix and
         enqueue one regular convert job per cell. Cached cells
@@ -3251,6 +3493,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         every cell is re-converted from source. Used for perf
         measurement runs where a 4-hour audit re-run mustn't
         short-circuit 80% of cells against prior outputs.
+
+        ``extend`` *appends* the enumerated cells to an already-finished run
+        (growing its total + reopening it) instead of setting the total from
+        scratch — the auto-validation pass uses this to fold its parity cells
+        into the conversion run rather than spawning a separate run. With
+        ``extend`` an empty cell set is a no-op (the finished run is left as
+        is) rather than a zero-total finish.
 
         Errors during enumeration / enqueue surface as a ``failed``
         audit row on the cell that tripped them — the run still
@@ -3267,12 +3516,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cells = await _audit_run_list_cells(scope_obj, validate_only)
         except Exception:
             logger.exception("audit run %s: scope listing failed", run_id)
-            await db_module.set_audit_run_total(pool, run_id, 0)
+            if not extend:
+                await db_module.set_audit_run_total(pool, run_id, 0)
             return
 
-        await db_module.set_audit_run_total(pool, run_id, len(cells))
-        if not cells:
-            return
+        if extend:
+            if not cells:
+                return  # nothing to append; leave the finished run untouched
+            await db_module.extend_audit_run_total(pool, run_id, len(cells))
+        else:
+            await db_module.set_audit_run_total(pool, run_id, len(cells))
+            if not cells:
+                return
 
         for source_key, target_format in cells:
             # Parity cells produce no derived blob, so there is nothing to cache
@@ -3482,6 +3737,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # cross-format parity cells, skipping the conversion grid. The parity job
         # re-derives from source, so it needs no prior conversion outputs.
         validate_only = bool(body.get("validate_only") or False)
+        # auto_validate: once this conversion run finishes, the finished-run
+        # poller fires a follow-up validate_only run for the same scope. Only
+        # meaningful for a worker-pool conversion run (a validation run / a
+        # browser run has nothing to chain).
+        auto_validate = bool(body.get("auto_validate") or False) and not validate_only and not is_wasm
 
         s = _parse_scope(scope_str, user)
         s = await _resolve_project_scope(pool, s)
@@ -3496,6 +3756,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             note=note,
             created_by=user.sub,
             force_rebuild=force_rebuild,
+            auto_validate=auto_validate,
         )
         if is_wasm:
             # Parity cells are a worker-only concern (no browser parity
@@ -3587,7 +3848,156 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=404,
                 detail="audit run not found or not in running state",
             )
+        # Deep-clean the cancelled cells' still-queued JetStream messages so the
+        # worker never pulls a doomed conversion (wasted download/convert/hang).
+        purge_ids = run.pop("cancelled_job_ids", []) or []
+        if purge_ids and queue is not None:
+            try:
+                await queue.purge_jobs(purge_ids)
+            except Exception:
+                logger.exception("audit cancel: queue purge failed for run %s", run_id)
         return JSONResponse(run)
+
+    @admin.post("/audit/runs/{run_id}/re-dispatch")
+    async def admin_audit_run_re_dispatch(
+        run_id: str,
+        request: Request,
+        background_tasks: BackgroundTasks,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Re-run a prior audit against the same scope / pool / settings.
+
+        Creates a fresh run that mirrors the prior one's ``scope``,
+        ``worker_pool``, ``force_rebuild`` and ``auto_validate`` (linked via
+        ``parent_run_id``), then dispatches it the same way the original was
+        (NATS workers, or the browser WASM engine for a ``wasm`` pool). The
+        cell set is re-enumerated from the scope at dispatch time, so a
+        re-dispatch reflects the scope's current files — not a frozen copy."""
+        pool = _require_pool(request)
+        prior = await db_module.get_audit_run(pool, run_id)
+        if prior is None:
+            raise HTTPException(status_code=404, detail="audit run not found")
+
+        scope_str = prior["scope"]
+        worker_pool = prior["worker_pool"]
+        is_wasm = isinstance(worker_pool, str) and worker_pool.strip().lower() == _WASM_POOL
+        if not is_wasm and not queue.enabled:
+            raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
+
+        s = _parse_scope(scope_str, user)
+        s = await _resolve_project_scope(pool, s)
+        if not await scope_can_access(user, s, pool):
+            raise HTTPException(status_code=403, detail="forbidden")
+
+        run = await db_module.create_audit_run(
+            pool,
+            scope=scope_str,
+            worker_pool=worker_pool,
+            trigger="re-dispatch",
+            note=f"re-run of {run_id[:8]}",
+            created_by=user.sub,
+            force_rebuild=prior["force_rebuild"],
+            auto_validate=prior["auto_validate"],
+            parent_run_id=run_id,
+        )
+        if is_wasm:
+            background_tasks.add_task(_audit_dispatch_wasm, run["id"], s, pool)
+        else:
+            background_tasks.add_task(
+                _audit_dispatch,
+                run["id"],
+                s,
+                worker_pool,
+                user.sub,
+                pool,
+                prior["force_rebuild"],
+                False,
+            )
+        return JSONResponse(run, status_code=202)
+
+    @admin.post("/audit/runs/{run_id}/validate")
+    async def admin_audit_run_validate(
+        run_id: str,
+        request: Request,
+        background_tasks: BackgroundTasks,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Append a validation (cross-format parity) pass to a finished run —
+        the manual counterpart to the auto-validate toggle. Grows the run's
+        total + reopens it, then enqueues the parity cells under the same run
+        id. 409 if the run isn't finished or has already been validated (the
+        pass runs at most once per run; re-run the audit for a fresh one)."""
+        pool = _require_pool(request)
+        run = await db_module.get_audit_run(pool, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="audit run not found")
+
+        s = _parse_scope(run["scope"], user)
+        s = await _resolve_project_scope(pool, s)
+        if not await scope_can_access(user, s, pool):
+            raise HTTPException(status_code=403, detail="forbidden")
+        if not queue.enabled and run["worker_pool"] != _WASM_POOL:
+            raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
+
+        claimed = await db_module.claim_run_for_validation(pool, run_id)
+        if claimed is None:
+            raise HTTPException(
+                status_code=409,
+                detail="run is not finished, or its validation pass has already been dispatched",
+            )
+        background_tasks.add_task(
+            _audit_dispatch,
+            run_id,
+            s,
+            run["worker_pool"],
+            user.sub,
+            pool,
+            False,  # force_rebuild
+            True,  # validate_only
+            True,  # extend — append into the existing run
+        )
+        return JSONResponse(claimed, status_code=202)
+
+    @admin.delete("/audit/runs/{run_id}")
+    async def admin_audit_run_delete(
+        run_id: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Delete an audit run and its audit_log rows (parity rows cascade).
+        Refuses a still-running run — cancel it first — so an in-flight sweep
+        can't be deleted out from under its workers."""
+        pool = _require_pool(request)
+        run = await db_module.get_audit_run(pool, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="audit run not found")
+        if run["status"] == "running":
+            raise HTTPException(status_code=409, detail="cancel the run before deleting it")
+        deleted, queued_job_ids = await db_module.delete_audit_run(pool, run_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="audit run not found")
+        # The rows are gone, so the worker's cancel check can't catch these — purge
+        # their still-queued JetStream messages so they aren't pulled + processed.
+        if queued_job_ids and queue is not None:
+            try:
+                await queue.purge_jobs(queued_job_ids)
+            except Exception:
+                logger.exception("audit delete: queue purge failed for run %s", run_id)
+        return JSONResponse({"deleted": run_id})
+
+    @admin.get("/audit/cell-history")
+    async def admin_audit_cell_history(
+        request: Request,
+        key: str,
+        target: str,
+        limit: int = 50,
+    ) -> JSONResponse:
+        """Historic results for one ``(source key, target_format)`` cell across
+        every run — newest first. Drives the grid's right-click 'show history'
+        table so an operator can see how one conversion has trended."""
+        pool = _require_pool(request)
+        rows = await db_module.audit_log_history_for_cell(pool, key, target, limit=limit)
+        return JSONResponse({"key": key, "target_format": target, "history": rows})
 
     @admin.get("/audit/runs/{run_id}/cells")
     async def admin_audit_run_cells(
@@ -4151,6 +4561,73 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
         )
 
+    @admin.get("/audit/frontend-loads")
+    async def admin_audit_frontend_loads(
+        request: Request,
+        since: int = 30,
+    ) -> JSONResponse:
+        """Per-file browser model-load perf snapshot (``action = 'view'``).
+
+        One cell per GLB loaded, with p50/p95 of every load phase and a
+        ``dominant_bound`` label (io / network / cpu / gpu) so a slow
+        load is immediately attributable to a bottleneck class. ``since``
+        is days back from now. Drives the admin "Frontend Loads" tab.
+        """
+        from datetime import datetime, timezone
+
+        pool = _require_pool(request)
+        cells = await db_module.aggregate_view_load_metrics(pool, since_days=since)
+        return JSONResponse(
+            {
+                "cells": cells,
+                "since_days": max(1, min(365, since)),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    @admin.get("/audit/frontend-loads/hotspots")
+    async def admin_audit_frontend_loads_hotspots(
+        request: Request,
+        key: str | None = None,
+        since: int = 30,
+        limit: int = 100,
+        kind: str = "view",
+    ) -> JSONResponse:
+        """Function-level hotspots across browser ``view`` loads or
+        ``render`` windows (``kind``) — summed JS Self-Profiling self-time
+        per TS/WASM frame. Optionally scoped to one ``key`` (GLB file).
+        Empty ``functions`` with ``loads_in_window=0`` means no profiled
+        rows (self-profiling unsupported/disabled or
+        ``Document-Policy: js-profiling`` not served)."""
+        pool = _require_pool(request)
+        key_arg = (key or "").strip() or None
+        action = "render" if (kind or "").strip().lower() == "render" else "view"
+        out = await db_module.aggregate_view_load_hotspots(
+            pool, action=action, key=key_arg, since_days=since, limit=limit
+        )
+        return JSONResponse({**out, "key": key_arg, "kind": action, "since_days": max(1, min(365, since))})
+
+    @admin.get("/audit/render")
+    async def admin_audit_render(
+        request: Request,
+        since: int = 30,
+    ) -> JSONResponse:
+        """Per-file steady-state render-performance snapshot
+        (``action = 'render'``). One cell per GLB with median/worst FPS,
+        CPU vs GPU frame time, draw calls + triangles rendered, and a
+        ``dominant_bound`` (cpu / gpu) label."""
+        from datetime import datetime, timezone
+
+        pool = _require_pool(request)
+        cells = await db_module.aggregate_render_metrics(pool, since_days=since)
+        return JSONResponse(
+            {
+                "cells": cells,
+                "since_days": max(1, min(365, since)),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
     @admin.get("/audit/perf/workers")
     async def admin_audit_perf_workers(
         request: Request,
@@ -4381,6 +4858,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers["Content-Encoding"] = result.content_encoding
         return StreamingResponse(result.stream, media_type="application/octet-stream", headers=headers)
 
+    @admin.get("/audit/{audit_id}/log")
+    async def admin_audit_log_file(
+        audit_id: int,
+        request: Request,
+    ) -> StreamingResponse:
+        """Download the captured stdout/stderr log for a conversion (every conversion now ships
+        one). 404 when the row or its log_key is missing — i.e. a conversion that predates the
+        log-capture, not a silent gap."""
+        pool = _require_pool(request)
+        row = await db_module.get_audit_by_id(pool, audit_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"audit row {audit_id} not found")
+        log_key = row.get("log_key")
+        if not log_key:
+            raise HTTPException(status_code=404, detail="no log attached to this row")
+        scope = (
+            Scope.shared()
+            if row["scope_kind"] == "shared"
+            else Scope(kind=row["scope_kind"], id=row["scope_id"])  # type: ignore[arg-type]
+        )
+        try:
+            result = await storage.open_stream(scope, log_key)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        headers = {"Content-Disposition": f'attachment; filename="{log_key.rsplit("/", 1)[-1]}"'}
+        if result.content_encoding:
+            headers["Content-Encoding"] = result.content_encoding
+        return StreamingResponse(result.stream, media_type="text/plain; charset=utf-8", headers=headers)
+
     @admin.get("/audit/{audit_id}/metrics-history")
     async def admin_audit_metrics_history(
         audit_id: int,
@@ -4403,6 +4909,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"audit row {audit_id} not found")
         samples = row.get("metrics_samples") or []
         return JSONResponse({"audit_id": audit_id, "samples": samples})
+
+    @admin.get("/audit/{audit_id}/client-metrics")
+    async def admin_audit_client_metrics(
+        audit_id: int,
+        request: Request,
+    ) -> JSONResponse:
+        """Return the ``client_metrics`` payload for one browser
+        view/render audit row — the per-phase IO/network/CPU/GPU split,
+        payload + device context, and (when profiling was on) the
+        per-function self-time frames. Backs the audit-log detail view's
+        Client tab so a single load/render event can be inspected.
+        ``null`` when the row isn't a browser-instrumented one."""
+        pool = _require_pool(request)
+        cm = await db_module.get_audit_client_metrics(pool, audit_id)
+        return JSONResponse({"audit_id": audit_id, "client_metrics": cm})
 
     @admin.get("/audit/{audit_id}/profile/stats")
     async def admin_audit_profile_stats(
@@ -4526,16 +5047,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_kind: str | None = None,
         scope_id: str | None = None,
         action: str | None = None,
+        target: str | None = None,
+        key: str | None = None,
         before_id: int | None = None,
         limit: int = 100,
     ) -> JSONResponse:
         pool = _require_pool(request)
+        # ``key`` is a case-insensitive substring filter on the source filepath/
+        # filename so the audit log can be narrowed to one file or folder.
+        key_like = (key or "").strip() or None
+        # ``target`` filters by the conversion's target format (glb / ifc / step / …).
+        target_format = (target or "").strip().lstrip(".").lower() or None
         rows = await db_module.list_audit(
             pool,
             user_sub=user_sub,
             scope_kind=scope_kind,
             scope_id=scope_id,
             action=action,
+            target_format=target_format,
+            key_like=key_like,
             limit=limit,
             before_id=before_id,
         )
@@ -4543,6 +5073,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # as ``before_id`` to fetch the next older page.
         next_before = rows[-1]["id"] if len(rows) >= max(1, min(limit, 500)) else None
         return JSONResponse({"entries": rows, "next_before_id": next_before})
+
+    @admin.get("/worker-packages/{image_tag:path}")
+    async def admin_worker_packages(image_tag: str, request: Request) -> JSONResponse:
+        """The captured package manifest ("pixi list") for a worker image tag —
+        linked from a convert audit row via its worker_image_tag."""
+        pool = _require_pool(request)
+        manifest = await db_module.get_worker_packages(pool, image_tag)
+        if manifest is None:
+            raise HTTPException(status_code=404, detail=f"no package manifest for worker {image_tag!r}")
+        return JSONResponse(manifest)
 
     @admin.get("/projects")
     async def admin_projects_list(request: Request) -> JSONResponse:
@@ -4864,8 +5404,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Body: ``{"src_scope": "user:me", "keys": [...]}``. Each key is copied
         (Garage / S3 CopyObject — no download/reupload) from ``src_scope`` to the
         same key in the path scope. The caller must be able to read ``src_scope``.
-        Per-key reporting: ``{copied, failed}`` — a collision (target exists),
-        missing source, or backend error doesn't abort the batch.
+        Per-key reporting: ``{copied, skipped, failed}`` — a key that already
+        exists in the destination is reported under ``skipped`` (a no-op, not an
+        error, so recursive folder copies tolerate partial overlap); a missing
+        source, derived-key reject, or backend error lands in ``failed``. Nothing
+        aborts the batch.
         """
         from .converter import is_derived_key
 
@@ -4899,13 +5442,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dst_keys = {f.key for f in await storage.list(scope_obj)}
 
         copied: list[dict] = []
+        skipped: list[dict] = []
         failed: list[dict] = []
         for key in keys:
             if is_derived_key(key):
                 failed.append({"key": key, "reason": "cannot copy derived blobs"})
                 continue
             if key in dst_keys:
-                failed.append({"key": key, "reason": "target already exists"})
+                skipped.append({"key": key, "reason": "already in corpus"})
                 continue
             try:
                 # overwrite=True for the same S3 reason as rename above (the safe
@@ -4920,7 +5464,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             copied.append({"key": key})
             await _audit(request, user, scope_obj, "copy", key=key, status="ok")
 
-        return JSONResponse({"copied": copied, "failed": failed})
+        return JSONResponse({"copied": copied, "skipped": skipped, "failed": failed})
 
     app.include_router(admin)
 
@@ -5005,6 +5549,20 @@ def _wire_spa_fallback(app: FastAPI, static_dir: pathlib.Path) -> None:
     """
     static_root = static_dir.resolve()
 
+    def _index_response() -> FileResponse:
+        # Grant the JS Self-Profiling API on the SPA document. This is an
+        # inert *permission* — it costs nothing and starts no profiling on
+        # its own; the viewer only constructs a Profiler when an admin
+        # turns on "Profile calls during load" (Performance options). The
+        # policy can't be toggled at runtime (it's fixed for the document
+        # at load), but it doesn't need to be: with the toggle off, no
+        # profiling happens. Chromium-only; other browsers ignore it.
+        # Must be on the HTML *document* response, not the assets.
+        return FileResponse(
+            static_dir / "index.html",
+            headers={"Document-Policy": "js-profiling"},
+        )
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str) -> FileResponse:
         # Don't paper over API mistakes by returning the SPA shell.
@@ -5019,8 +5577,12 @@ def _wire_spa_fallback(app: FastAPI, static_dir: pathlib.Path) -> None:
             except ValueError:
                 raise HTTPException(status_code=404)
             if candidate.is_file():
+                # A direct hit on index.html is still the document — keep
+                # the profiling permission on it too.
+                if candidate.name == "index.html":
+                    return _index_response()
                 return FileResponse(candidate)
-        return FileResponse(static_dir / "index.html")
+        return _index_response()
 
 
 app = create_app()

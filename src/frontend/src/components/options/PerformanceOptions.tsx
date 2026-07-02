@@ -1,6 +1,8 @@
 import React from "react";
 import {usePerfStore, requestRender} from "@/state/perfStore";
 import {useOptionsStore} from "@/state/optionsStore";
+import {useViewMetricsStore} from "@/state/viewMetricsStore";
+import {useMeStore} from "@/state/meStore";
 
 // Phase A perf-toggle panel. Each row is an opt-in A/B switch for one
 // rendering-cost lever. Defaults reproduce the pre-toggle behaviour so
@@ -44,6 +46,7 @@ const PerformanceOptions: React.FC = () => {
         hideBeamSolids, setHideBeamSolids,
         hideElementEdges, setHideElementEdges,
         useFlatPicker, setUseFlatPicker,
+        timeSlicedLoad, setTimeSlicedLoad,
     } = usePerfStore();
 
     // Most toggles re-affect on next mesh load (material / content) or
@@ -152,6 +155,13 @@ const PerformanceOptions: React.FC = () => {
                 blurb="Only renders on controls/animation activity. Big idle win; if a step-change appears stale, nudge the view."
             />
 
+            <Row
+                checked={timeSlicedLoad}
+                onChange={() => setTimeSlicedLoad(!timeSlicedLoad)}
+                title="Time-sliced (non-blocking) load"
+                blurb="Process the model in small per-frame batches during load, yielding to the browser between them. The viewer stays interactive and geometry streams in instead of freezing in one long stall. Total load time is about the same. Takes effect on next model load."
+            />
+
             <hr className="border-gray-600 my-1"/>
 
             <Row
@@ -172,7 +182,51 @@ const PerformanceOptions: React.FC = () => {
                 title="Skip element-edge wireframe"
                 blurb="Drops one LineSegments per FEA mesh + saves the AFEG fetch. Takes effect on next FEA load."
             />
+
+            <AdminMetricsRows/>
         </div>
+    );
+};
+
+// Admin-only instrumentation toggles. Default OFF; when on, the viewer
+// times each model load (IO / network / CPU / GPU split) and/or samples
+// the render loop, posting rows to the backend that the admin "Frontend
+// Loads" tab aggregates. Hidden entirely for non-admins.
+const AdminMetricsRows: React.FC = () => {
+    const isAdmin = useMeStore((s) => s.isAdmin);
+    const {
+        collectLoadMetrics, setCollectLoadMetrics,
+        profileCalls, setProfileCalls,
+        collectRenderMetrics, setCollectRenderMetrics,
+    } = useViewMetricsStore();
+
+    if (!isAdmin) return null;
+
+    return (
+        <>
+            <hr className="border-gray-600 my-1"/>
+            <div className="font-semibold text-xs uppercase tracking-wide text-purple-300">
+                Frontend metrics (admin)
+            </div>
+            <Row
+                checked={collectLoadMetrics}
+                onChange={() => setCollectLoadMetrics(!collectLoadMetrics)}
+                title="Record model-load metrics"
+                blurb="Times each load phase (TTFB / download / parse / prepare / first-render) plus payload + device, and posts it to the Frontend Loads admin dashboard. Default off."
+            />
+            <Row
+                checked={profileCalls}
+                onChange={() => setProfileCalls(!profileCalls)}
+                title="Profile calls during load (TS + WASM)"
+                blurb="Runs the JS Self-Profiling API during a load to capture per-function self-time hotspots. Needs the Document-Policy: js-profiling header (Chromium); silently skipped otherwise. Only used when load metrics are on."
+            />
+            <Row
+                checked={collectRenderMetrics}
+                onChange={() => setCollectRenderMetrics(!collectRenderMetrics)}
+                title="Record render metrics (FPS / draw calls / GPU)"
+                blurb="Samples the render loop and posts a rolling window: FPS, CPU frame time, draw calls, and true GPU ms (timer query) so CPU-bound vs GPU-bound is clear. Adds per-frame cost — default off."
+            />
+        </>
     );
 };
 

@@ -74,7 +74,7 @@ jobs:
       docs_full: ${{ steps.filter.outputs.docs_full }}
       run_start_epoch: ${{ steps.filter.outputs.run_start_epoch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: https://github.com/actions/checkout@v4
         with:
           # We diff against github.event.before; checkout depth must
           # cover that commit. fetch-depth: 0 fetches the full history
@@ -352,7 +352,7 @@ jobs:
     if: needs.detect.outputs.viewer == 'true'
     runs-on: docker-build
     steps:
-      - uses: actions/checkout@v4
+      - uses: https://github.com/actions/checkout@v4
 
       - name: Login to registry
         run: |
@@ -425,7 +425,7 @@ jobs:
     if: needs.detect.outputs.worker == 'true'
     runs-on: docker-build
     steps:
-      - uses: actions/checkout@v4
+      - uses: https://github.com/actions/checkout@v4
 
       - name: Login to registry
         run: |
@@ -436,6 +436,12 @@ jobs:
         env:
           REGISTRY_IMAGE: ${{ secrets.WORKER_REGISTRY_IMAGE }}
           FULL: ${{ needs.detect.outputs.worker_full }}
+          # Optional: build this adacpp branch and overlay it (PYTHONPATH) over the conda-pinned
+          # ada-cpp, for pre-release testing in the deployed worker. Set the ADACPP_BRANCH repo
+          # variable to a branch name; empty/unset = no overlay (pinned ada-cpp). ADACPP_REPO
+          # defaults to the public adacpp repo (already adapy's dependency); override only if needed.
+          ADACPP_BRANCH: ${{ vars.ADACPP_BRANCH }}
+          ADACPP_REPO: ${{ vars.ADACPP_REPO }}
         run: |
           if [ -z "$REGISTRY_IMAGE" ]; then
             echo "::error::WORKER_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
@@ -448,6 +454,19 @@ jobs:
           # the gitops bump below pins that exact tag.
           TAG="sha-${GITHUB_SHA::7}-${GITHUB_RUN_NUMBER:-0}"
           BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
+          # Optional adacpp-branch overlay: clone the branch source into the build context (empty
+          # dir otherwise — Dockerfile.worker always COPYs it) and force a FULL build so the gated
+          # builder stage actually bakes the overlay in. The fast path FROMs the prior image and
+          # inherits whatever overlay it was built with, so a one-off full dispatch is what flips it.
+          rm -rf adacpp-src && mkdir -p adacpp-src
+          ADACPP_BUILD_ARG=""
+          if [ -n "${ADACPP_BRANCH}" ]; then
+            REPO="${ADACPP_REPO:-https://github.com/Krande/adacpp.git}"
+            echo "adacpp overlay: building branch '${ADACPP_BRANCH}' over the pinned conda ada-cpp."
+            git clone --depth 1 --branch "${ADACPP_BRANCH}" "${REPO}" adacpp-src
+            FULL=true
+            ADACPP_BUILD_ARG="--build-arg ADACPP_BRANCH=${ADACPP_BRANCH}"
+          fi
           # Fast path: only adapy source changed AND a prior branch image
           # exists to overlay onto. Anything else → full build.
           DOCKERFILE="deploy/Dockerfile.worker"
@@ -462,6 +481,7 @@ jobs:
           docker build \
             -f "$DOCKERFILE" \
             --build-arg "IMAGE_TAG=${TAG}" \
+            ${ADACPP_BUILD_ARG} \
             ${EXTRA} \
             -t "${REGISTRY_IMAGE}:${TAG}" \
             -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
@@ -510,7 +530,7 @@ jobs:
     if: needs.detect.outputs.docs == 'true'
     runs-on: docker-build
     steps:
-      - uses: actions/checkout@v4
+      - uses: https://github.com/actions/checkout@v4
         with:
           # docs/conf.py shells out to ``git describe`` to derive the
           # release string baked into the rendered footer. Default

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from itertools import groupby
 from typing import TYPE_CHECKING, Iterable
@@ -11,6 +12,7 @@ from ada.base.types import GeomRepr
 from ada.cad import active_backend, is_shape_handle
 from ada.config import logger
 from ada.geom import Geometry
+from ada.geom.curves import CURVE_GEOM_TUPLE as _CURVE_GEOM_TUPLE
 from ada.occ.exceptions import (
     UnableToCreateCurveOCCGeom,
     UnableToCreateTesselationFromSolidOCCGeom,
@@ -40,6 +42,66 @@ def _is_topods_shape(shape) -> bool:
     except ModuleNotFoundError:
         return False
     return isinstance(shape, TopoDS_Shape)
+
+
+def _mesh_store_area(ms) -> float:
+    """Total triangle area of a tessellated ``MeshStore`` (position soup +
+    indices). Used to gauge whether a curved-plate prism actually covered its
+    surface vs under-meshed it."""
+    pos = getattr(ms, "position", None)
+    idx = getattr(ms, "indices", None)
+    if pos is None or idx is None:
+        return 0.0
+    verts = np.asarray(pos, dtype=float).reshape(-1, 3)
+    faces = np.asarray(idx, dtype=np.int64).reshape(-1, 3)
+    if len(faces) == 0 or len(verts) == 0:
+        return 0.0
+    tris = verts[faces]
+    return float(np.sum(0.5 * np.linalg.norm(np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]), axis=1)))
+
+
+def _natural_bound_curved_solid(ada_obj):
+    """Rebuild a PlateCurved's solid from its surface over the face's *natural*
+    UV bounds, discarding the trim wire.
+
+    A handful of imported B-spline plate faces carry malformed pcurves (the
+    wire backtracks / duplicates an edge in UV), so BRepMesh grids only ~half
+    the face — the "missing triangles". The underlying surface is sound and its
+    UV box equals the plate's (rectangular) boundary, so a face built straight
+    from the surface over ``UVBounds`` re-meshes fully. Returns an OCC solid
+    (prism by thickness ``t`` along the surface normal), or the bare face when
+    ``t == 0``, or ``None`` if the rebuild can't be done."""
+    face_fn = getattr(ada_obj, "_face_occ", None)
+    if not callable(face_fn):
+        return None
+    try:
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism
+        from OCC.Core.BRepTools import breptools
+        from OCC.Core.GeomLProp import GeomLProp_SLProps
+        from OCC.Core.gp import gp_Vec
+
+        face = face_fn()
+        if not _is_topods_shape(face):
+            return None
+        surf = BRep_Tool.Surface(face)
+        umin, umax, vmin, vmax = breptools.UVBounds(face)
+        mf = BRepBuilderAPI_MakeFace(surf, umin, umax, vmin, vmax, 1e-6)
+        if not mf.IsDone():
+            return None
+        nb = mf.Face()
+        t = getattr(ada_obj, "t", None) or 0.0
+        if not t:
+            return nb
+        props = GeomLProp_SLProps(surf, (umin + umax) / 2.0, (vmin + vmax) / 2.0, 1, 1e-6)
+        if not props.IsNormalDefined():
+            return nb
+        n = props.Normal()
+        return BRepPrimAPI_MakePrism(nb, gp_Vec(n.X(), n.Y(), n.Z()).Multiplied(t)).Shape()
+    except Exception as e:  # OCC missing / pathological surface
+        logger.debug("natural-bound curved rebuild failed: %s", e)
+        return None
 
 
 def _shapefix_for_mesh(occ_geom):
@@ -90,14 +152,144 @@ def _vertex_normals(positions: np.ndarray, faces: np.ndarray) -> np.ndarray:
     return (normals / lengths).reshape(-1).astype("float32")
 
 
+def _thicken_face_mesh(positions: np.ndarray, faces: np.ndarray, thickness: float):
+    """Extrude an open face mesh into a closed thin solid along a single vector — the
+    area-weighted average surface normal × ``thickness`` — matching OCC's
+    ``extrude_face_along_normal`` (``BRepPrimAPI_MakePrism`` by the centre-normal vector). The
+    OCC-free libtess2 path tessellates only the bare curved face (a shell); this gives a
+    PlateCurved its thickness so it matches the OCC solid. Returns flat (positions, indices) for
+    the top face + translated bottom (reversed winding) + boundary side walls. Falls back to the
+    input shell on a degenerate normal / empty mesh."""
+    P = positions.reshape(-1, 3).astype(np.float64)
+    F = faces.reshape(-1, 3).astype(np.int64)
+    if len(F) == 0:
+        return positions, faces
+    fn = np.cross(P[F[:, 1]] - P[F[:, 0]], P[F[:, 2]] - P[F[:, 0]])  # len ∝ 2*area
+    nsum = fn.sum(axis=0)
+    nlen = float(np.linalg.norm(nsum))
+    if nlen < 1e-12:
+        return positions, faces  # no consistent normal (e.g. a closed/degenerate mesh)
+    V = (nsum / nlen) * float(thickness)
+    n = len(P)
+    bottom_P = P + V
+    bottom_F = F[:, ::-1] + n  # reversed winding → back face points the other way
+    # Boundary = undirected edges used by exactly one triangle; keep them directed (the winding
+    # from the top triangles) so the side walls face outward.
+    e = np.concatenate([F[:, [0, 1]], F[:, [1, 2]], F[:, [2, 0]]], axis=0)
+    key = np.minimum(e[:, 0], e[:, 1]) * (n + 1) + np.maximum(e[:, 0], e[:, 1])
+    _uniq, inv, counts = np.unique(key, return_inverse=True, return_counts=True)
+    be = e[counts[inv] == 1]
+    a, b = be[:, 0], be[:, 1]
+    side = np.empty((len(be) * 2, 3), dtype=np.int64)
+    side[0::2] = np.stack([a, b, b + n], axis=1)
+    side[1::2] = np.stack([a, b + n, a + n], axis=1)
+    pos2 = np.concatenate([P, bottom_P], axis=0).reshape(-1).astype("float32")
+    idx2 = np.concatenate([F, bottom_F, side], axis=0).reshape(-1).astype("uint32")
+    return pos2, idx2
+
+
 def tessellate_edges(shape: TopoDS_Edge, deflection=0.01) -> LineMesh:
-    from OCC.Extend.TopologyUtils import discretize_edge
+    """Discretize an edge / wire (or any shape's edges) into a GL_LINES mesh.
 
-    points = discretize_edge(shape, deflection=deflection)
+    Indices are emitted as endpoint PAIRS (``i0,i1, i1,i2, ...``) — the glTF store reshapes
+    them to ``(n/2, 2)`` segments — not a sequential strip, so a wire of several edges renders
+    as one connected polyline rather than disjoint hops."""
+    from OCC.Core.TopAbs import TopAbs_EDGE
+    from OCC.Extend.TopologyUtils import TopologyExplorer, discretize_edge
 
-    np_edge_vertices = np.array(points, dtype=np.float32)
-    np_edge_indices = np.arange(np_edge_vertices.shape[0], dtype=np.uint32)
-    return LineMesh(np_edge_vertices, np_edge_indices)
+    if shape.ShapeType() == TopAbs_EDGE:
+        edges = [shape]
+    else:
+        edges = list(TopologyExplorer(shape).edges()) or [shape]
+
+    verts: list = []
+    indices: list = []
+    for edge in edges:
+        pts = discretize_edge(edge, deflection=deflection)
+        if len(pts) < 2:
+            continue
+        base = len(verts) // 3
+        verts.extend(c for p in pts for c in (float(p[0]), float(p[1]), float(p[2])))
+        for i in range(len(pts) - 1):
+            indices.append(base + i)
+            indices.append(base + i + 1)
+    # Flat xyz buffer (the gltf store does position.reshape(len/3, 3)).
+    return LineMesh(np.array(verts, dtype=np.float32), np.array(indices, dtype=np.uint32))
+
+
+def _tessellate_brepmesh(shape, linear_deflection: float, angular_deflection: float, relative: bool) -> "TriangleMesh":
+    """Tessellate via BRepMesh with an EXPLICIT linear + angular deflection and extract
+    the per-face triangles (unwelded, 3 verts/tri, with area-weighted vertex normals).
+
+    Unlike ShapeTesselator — which only exposes a single relative ``mesh_quality`` and no
+    angular control — this gives curvature-adaptive smoothness: the angular deflection
+    sets a minimum facet count around any curve regardless of size, and an *absolute*
+    linear deflection adds facets in proportion to a curve's radius (matching step2glb's
+    1 mm + 25° model). Used when ADA_TESS_LINEAR_DEFLECTION is configured."""
+    from OCC.Core.Bnd import Bnd_Box
+    from OCC.Core.BRep import BRep_Tool
+    from OCC.Core.BRepBndLib import brepbndlib
+    from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+    from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
+    from OCC.Core.TopExp import TopExp_Explorer
+    from OCC.Core.TopLoc import TopLoc_Location
+    from OCC.Core.TopoDS import topods
+
+    # Runaway clip reference: the shape's TIGHT geometric bbox, taken BEFORE meshing (the
+    # shape arrives unmeshed; useTriangulation=True then yields the true extent). At a fine
+    # absolute deflection an over-covered B-spline face — a param-extent / natural-bound
+    # rebuild that spans more UV than its true trim — meshes well outside the real solid
+    # and "explodes" the part. Triangle vertices on a healthy face sit on the surface, so
+    # they cannot leave the tight bbox by more than a small margin; anything past 10% of
+    # the diagonal is a phantom and is dropped. NB: must use the tight bbox, not an edge
+    # hull — brepbndlib over-estimates B-spline EDGE bounds 5-6x (control polygon), which
+    # silently defeats any edge-based guard.
+    ref = Bnd_Box()
+    try:
+        brepbndlib.Add(shape, ref, True)
+    except Exception:  # noqa: BLE001
+        pass
+    clip_lo = clip_hi = None
+    if not ref.IsVoid():
+        rx0, ry0, rz0, rx1, ry1, rz1 = ref.Get()
+        pad = 0.1 * ((rx1 - rx0) ** 2 + (ry1 - ry0) ** 2 + (rz1 - rz0) ** 2) ** 0.5 + 1e-6
+        clip_lo = (rx0 - pad, ry0 - pad, rz0 - pad)
+        clip_hi = (rx1 + pad, ry1 + pad, rz1 + pad)
+
+    BRepMesh_IncrementalMesh(shape, linear_deflection, relative, angular_deflection, True)
+    verts: list = []
+    exp = TopExp_Explorer(shape, TopAbs_FACE)
+    while exp.More():
+        face = topods.Face(exp.Current())
+        loc = TopLoc_Location()
+        tri = BRep_Tool.Triangulation(face, loc)
+        if tri is not None:
+            trsf = loc.Transformation()
+            rev = face.Orientation() == TopAbs_REVERSED
+            for i in range(1, tri.NbTriangles() + 1):
+                a, b, c = tri.Triangle(i).Get()
+                if rev:
+                    a, c = c, a
+                pts = [tri.Node(ni).Transformed(trsf) for ni in (a, b, c)]
+                if clip_lo is not None and any(
+                    p.X() < clip_lo[0]
+                    or p.X() > clip_hi[0]
+                    or p.Y() < clip_lo[1]
+                    or p.Y() > clip_hi[1]
+                    or p.Z() < clip_lo[2]
+                    or p.Z() > clip_hi[2]
+                    for p in pts
+                ):
+                    continue  # phantom triangle outside the real solid — drop it
+                for p in pts:
+                    verts.extend((p.X(), p.Y(), p.Z()))
+        exp.Next()
+    positions = np.asarray(verts, dtype="float32")
+    if not positions.size:
+        return TriangleMesh(positions, np.arange(0, dtype="uint32"), None, positions)
+    faces = np.arange(positions.size // 3, dtype="uint32")
+    normals = _vertex_normals(positions, faces)
+    return TriangleMesh(positions, faces, None, normals)
 
 
 def tessellate_advanced_face(face: TopoDS_Shape, linear_deflection=0.1, angular_deflection=0.1, relative=True) -> None:
@@ -176,18 +368,124 @@ def _drop_runaway_triangles(shape, np_vertices, np_normals):
     return np_vertices, np_normals
 
 
+def _empty_triangle_mesh() -> TriangleMesh:
+    e = np.empty(0, dtype="float32")
+    return TriangleMesh(e, np.empty(0, dtype="uint32"), None, e)
+
+
+def _has_meshable_extent(shape: TopoDS_Shape) -> bool:
+    """False when ``shape`` has nothing to triangulate — an empty body or a
+    void / zero-extent bounding box.
+
+    ``ShapeTesselator.Compute`` derives a *relative* linear deflection from the
+    shape's bounding box, so a void/zero-extent box yields deflection 0 and OCC
+    raises ``std::invalid_argument("The deviation must be greater than 0")``.
+    That's a plain C++ exception (not a ``Standard_Failure``), so pythonocc
+    doesn't translate it to a Python ``RuntimeError`` — it escapes the
+    try/except in :func:`tessellate_shape` and ``std::terminate``\\s the whole
+    process. Empty bodies turn up from round-trips that drop geometry (e.g. a
+    FEM deck whose elements don't convert exports an empty STEP compound), so
+    guard rather than crash."""
+    from OCC.Core.Bnd import Bnd_Box
+
+    try:
+        from OCC.Core.BRepBndLib import brepbndlib
+
+        _add = brepbndlib.Add
+    except (ImportError, AttributeError):
+        from OCC.Core.BRepBndLib import brepbndlib_Add as _add
+
+    box = Bnd_Box()
+    try:
+        _add(shape, box)
+    except Exception:
+        return False
+    if box.IsVoid():
+        return False
+    xmin, ymin, zmin, xmax, ymax, zmax = box.Get()
+    diag2 = (xmax - xmin) ** 2 + (ymax - ymin) ** 2 + (zmax - zmin) ** 2
+    return diag2 > 1e-18  # ~1 nm extent floor
+
+
+def _backend_has_meshable_extent(shape) -> bool:
+    """Backend-agnostic mirror of :func:`_has_meshable_extent` for a non-OCC
+    handle. An empty body crashes adacpp's native tessellator the same way it
+    crashes OCC's (the C++ exception can't cross nanobind), so probe the
+    backend's bbox first — it raises / reports a void box for a geometry-less
+    shape."""
+    from ada.cad import active_backend
+
+    try:
+        # optimal=False: we only need "does it have non-zero extent", not a tight
+        # box. AddOptimal samples every BSpline/B-rep face (~ms each) — on a model
+        # with thousands of curved faces that empty-probe alone dominated the
+        # conversion (e.g. a hull skin: ~29s of bbox just to confirm non-empty).
+        xmin, ymin, zmin, xmax, ymax, zmax = active_backend().bbox(shape, optimal=False)
+    except Exception:
+        return False  # "empty bounding box (shape has no geometry)" etc.
+    diag2 = (xmax - xmin) ** 2 + (ymax - ymin) ** 2 + (zmax - zmin) ** 2
+    return diag2 > 1e-18  # ~1 nm extent floor
+
+
 def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, parallel=True) -> TriangleMesh:
     # Backend dispatch: a pythonocc TopoDS uses the rich ShapeTesselator
     # (normals + edges). Any other handle (e.g. an adacpp ShapeHandle) is
     # tessellated through the active backend's tessellate verb (adacpp's native
     # ShapeTesselator port) and adapted to a TriangleMesh with computed normals.
     if not _is_topods_shape(shape):
+        # Empty / void-bbox shape: adacpp's native tessellate crashes on it the
+        # same way OCC's does, so guard here too (see _has_meshable_extent).
+        if not _backend_has_meshable_extent(shape):
+            return _empty_triangle_mesh()
         from ada.cad import active_backend
 
         mesh = active_backend().tessellate(shape)
         positions = np.ascontiguousarray(mesh.positions, dtype="float32")
         faces = np.ascontiguousarray(mesh.indices, dtype="uint32")
         return TriangleMesh(positions, faces, None, _vertex_normals(positions, faces))
+
+    # Nothing to mesh (empty body / void bbox) → return empty rather than let
+    # OCC SIGABRT on a zero relative deflection. See _has_meshable_extent.
+    if not _has_meshable_extent(shape):
+        return _empty_triangle_mesh()
+
+    # Configurable quality (Config ``occ_tess`` section / env ADA_OCC_TESS_*): when
+    # linear_deflection > 0, tessellate with an explicit chordal + angular deflection via
+    # BRepMesh — curvature-adaptive smoothness, à la step2glb (1 mm + ~25°). Default
+    # (0) keeps the lean ShapeTesselator(quality) path so production GLB size / mobile
+    # perf are unchanged unless a caller opts in. Read fresh from the singleton so a
+    # spawned tessellation worker honours the per-job env the orchestrator set.
+    import math as _math
+    import os as _os_tess
+
+    from ada.config import Config as _Config
+
+    # Per-job env (set by the worker / orchestrator, inherited by spawned workers) wins;
+    # the Config singleton supplies the startup/config-file default.
+    _cfg = _Config()
+
+    def _opt(env_name, attr, cast):
+        raw = _os_tess.environ.get(env_name)
+        if raw is not None and raw.strip() != "":
+            return cast(raw)
+        return cast(getattr(_cfg, attr, None))
+
+    try:
+        ld = float(_opt("ADA_OCC_TESS_LINEAR_DEFLECTION", "occ_tess_linear_deflection", float) or 0.0)
+    except (ValueError, TypeError):
+        ld = 0.0
+    if ld > 0:
+        try:
+            ang = _math.radians(float(_opt("ADA_OCC_TESS_ANGULAR_DEG", "occ_tess_angular_deg", float)))
+            rel_raw = _os_tess.environ.get("ADA_OCC_TESS_RELATIVE")
+            relative = (
+                rel_raw.strip().lower() in {"1", "true", "yes", "on"}
+                if rel_raw is not None and rel_raw.strip() != ""
+                else bool(getattr(_cfg, "occ_tess_relative", False))
+            )
+            return _tessellate_brepmesh(shape, ld, ang, relative)
+        except (ValueError, TypeError):
+            pass
 
     from OCC.Core.Tesselator import ShapeTesselator
 
@@ -235,6 +533,13 @@ def shape_to_tri_mesh(shape: TopoDS_Shape, rgba_color: Iterable[float, float, fl
         material=trimesh.visual.material.PBRMaterial(baseColorFactor=rgba_color)
     )
     return mesh
+
+
+class TessellationFallbackError(RuntimeError):
+    """Raised in strict mode (``ADA_STREAM_TESS_STRICT``) when a geometry can't be tessellated
+    by the selected OCC-free stream pipeline (libtess2/adacpp-*) and would otherwise silently
+    fall back to OCC. Lets a conversion *enforce* 100% stream-kernel coverage — it fails loudly,
+    naming the geometry + reason, instead of completing on the OCC path."""
 
 
 @dataclass
@@ -302,6 +607,34 @@ class BatchTessellator:
             geom_ref,
         )
 
+    def _direct_line_meshstore(self, geom: Geometry, node_ref) -> MeshStore | None:
+        """Build a GL_LINES MeshStore from a curve geometry WITHOUT OCC or libtess2: straight
+        segments are their endpoints, arcs/circles are sampled by chord deflection (the native
+        ada.geom.curve_discretize sampler — parity-tested against OCC discretize_edge). Also lets
+        line geometry render on wasm (no pythonocc). Returns None for curve kinds with no native
+        sampler (e.g. B-spline), which fall through to the OCC discretization path."""
+        from ada.geom.curve_discretize import discretize_curve
+
+        deflection = float(os.environ.get("ADA_LINE_DEFLECTION", "0.01"))
+        pts = discretize_curve(geom.geometry, deflection=deflection)
+        if not pts or len(pts) < 2:
+            return None
+
+        # Flat xyz buffer (the gltf store does position.reshape(len/3, 3)).
+        position = np.array([c for p in pts for c in (float(p[0]), float(p[1]), float(p[2]))], dtype=np.float32)
+        # GL_LINES endpoint pairs: (0,1),(1,2),... — connected polyline (the glTF store reshapes
+        # indices to (n/2, 2) segments).
+        idx: list = []
+        for i in range(len(pts) - 1):
+            idx.extend((i, i + 1))
+        mat_id = self.material_store.get(geom.color, None)
+        if mat_id is None:
+            mat_id = len(self.material_store)
+            self.material_store[geom.color] = mat_id
+        return MeshStore(
+            node_ref, None, position, np.array(idx, dtype=np.uint32), None, mat_id, MeshType.LINES, node_ref
+        )
+
     def tessellate_geom(
         self,
         geom: Geometry,
@@ -309,6 +642,29 @@ class BatchTessellator:
         graph_store: GraphStore = None,
         mesh_type: MeshType = MeshType.TRIANGLES,
     ) -> MeshStore:
+        if graph_store is not None:
+            node_ref = graph_store.hash_map.get(obj.guid)
+        else:
+            node_ref = getattr(obj, "guid", geom.id)
+
+        # OCC-free fast path: discretize the curve natively (straight = endpoints; arc/circle =
+        # chord-deflection sampling) and emit the GL_LINES mesh directly — no OCC build, no
+        # libtess2. Also lets line geometry render on wasm (no pythonocc). Only curve kinds
+        # without a native sampler (e.g. B-spline) return None and fall to the OCC path below.
+        if mesh_type == MeshType.LINES:
+            direct = self._direct_line_meshstore(geom, node_ref)
+            if direct is not None:
+                return direct
+
+        # NGEOM stream path (opt-in via ADA_STREAM_TESS_PIPELINE=libtess2|occ|cgal|hybrid):
+        # serialize ada.geom + tessellate in one adacpp call instead of the OCC build +
+        # BRepMesh below. Returns None when the env is unset or the active backend has no
+        # tessellate_stream, so the default path runs UNCHANGED.
+        if mesh_type != MeshType.LINES:
+            stream_ms = self._tessellate_geom_via_stream(geom, node_ref)
+            if stream_ms is not None:
+                return stream_ms
+
         try:
             # Construction seam: build through the active CAD backend rather
             # than calling geom_to_occ_geom directly (= OccBackend.build under
@@ -326,12 +682,58 @@ class BatchTessellator:
             )
             raise
 
-        if graph_store is not None:
-            node_ref = graph_store.hash_map.get(obj.guid)
-        else:
-            node_ref = getattr(obj, "guid", geom.id)
-
         return self.tessellate_occ_geom(occ_geom, node_ref, geom.color, mesh_type)
+
+    @staticmethod
+    def _log_tess_fallback(node_ref, pipeline: str, reason: str, geom: Geometry | None = None) -> None:
+        """Audit a silent NGEOM->OCC tessellation fallback. Normally DEBUG; set
+        ADA_TESS_FALLBACK_DEBUG=1 to surface every fallback as a WARNING (so a
+        coarse/odd object that quietly dropped off the selected kernel is caught)."""
+        gt = "?"
+        if geom is not None:
+            inner = getattr(geom, "geometry", geom)
+            gt = type(getattr(inner, "geometry", inner)).__name__
+        msg = f"NGEOM pipeline {pipeline!r} fell back to OCC for {node_ref!r} (geom={gt}): {reason}"
+        # Strict mode: a fall back to OCC is a hard failure, so a conversion can enforce/measure
+        # 100% stream-kernel (libtess2/adacpp-*) coverage rather than silently completing on OCC.
+        if os.environ.get("ADA_STREAM_TESS_STRICT", "").strip().lower() not in ("", "0", "false", "no", "off"):
+            logger.warning(msg)
+            raise TessellationFallbackError(msg)
+        if os.environ.get("ADA_TESS_FALLBACK_DEBUG"):
+            logger.warning(msg)
+        else:
+            logger.debug(msg)
+
+    def _tessellate_geom_via_stream(self, geom: Geometry, node_ref) -> MeshStore | None:
+        pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE")
+        if not pipeline:
+            return None
+        be = active_backend()
+        if not hasattr(be, "tessellate_stream"):
+            self._log_tess_fallback(node_ref, pipeline, "active backend has no tessellate_stream", geom)
+            return None
+        gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
+        defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
+        ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+        try:
+            bm = be.tessellate_stream([(str(node_ref), gi)], pipeline=pipeline, deflection=defl, angular_deg=ang)
+        except Exception as e:  # noqa: BLE001 - fall back to the OCC build path on any stream failure
+            self._log_tess_fallback(node_ref, pipeline, f"tessellate_stream raised {type(e).__name__}: {e}", geom)
+            return None
+        pos = getattr(bm, "positions", None)
+        idx = getattr(bm, "indices", None)
+        if pos is None or idx is None or len(idx) == 0:
+            self._log_tess_fallback(node_ref, pipeline, "empty mesh (geom type not NGEOM-serializable)", geom)
+            return None
+        pos = np.ascontiguousarray(pos, dtype=np.float32)
+        idx = np.ascontiguousarray(idx, dtype=np.uint32)
+        nrm = getattr(bm, "normals", None)
+        nrm = np.ascontiguousarray(nrm, dtype=np.float32) if nrm is not None and len(nrm) else None
+        mat_id = self.material_store.get(geom.color, None)
+        if mat_id is None:
+            mat_id = len(self.material_store)
+            self.material_store[geom.color] = mat_id
+        return MeshStore(node_ref, None, pos, idx, nrm, mat_id, MeshType.TRIANGLES, node_ref)
 
     def batch_tessellate(
         self,
@@ -346,6 +748,12 @@ class BatchTessellator:
             if isinstance(obj, BackendGeom):
                 ada_obj = obj
                 geom_repr = render_override.get(obj.guid, GeomRepr.SOLID)
+                # A Shape carrying a bare curve geometry (sectionless SAT wire body, open
+                # wireframe) has no solid/shell — render it as glTF line geometry.
+                if geom_repr == GeomRepr.SOLID:
+                    _g = getattr(obj, "geom", None)
+                    if _g is not None and isinstance(getattr(_g, "geometry", None), _CURVE_GEOM_TUPLE):
+                        geom_repr = GeomRepr.LINE
                 node_ref = graph_store.hash_map.get(obj.guid) if graph_store is not None else getattr(obj, "guid", None)
 
                 # PlateCurved: prism-extrude the BSpline face by
@@ -360,12 +768,61 @@ class BatchTessellator:
                     and hasattr(obj, "extruded_solid_occ")
                     and callable(getattr(obj, "extruded_solid_occ"))
                 ):
+                    # Stream-first: a curved plate's solid_geom() can be serialized to NGEOM and
+                    # tessellated by the selected OCC-free kernel. Only if that yields nothing do we
+                    # use the OCC prism-extrude path below — routed through _log_tess_fallback so it
+                    # is logged and strict mode fails instead of silently completing on OCC. (This
+                    # path previously always used OCC, so curved plates never reached libtess2.)
+                    if os.environ.get("ADA_STREAM_TESS_PIPELINE"):
+                        cng = None
+                        try:
+                            cng = obj.solid_geom()
+                        except Exception:  # noqa: BLE001 - no parametric geom → OCC prism path
+                            cng = None
+                        if cng is not None:
+                            ms_cs = self._tessellate_geom_via_stream(cng, node_ref)
+                            if ms_cs is not None:
+                                # The stream tessellates only the bare curved face (a shell);
+                                # give it the plate thickness so it matches the OCC prism solid
+                                # (extrude_face_along_normal). t=0 (SurfaceCurved) stays a shell.
+                                t = getattr(obj, "t", None)
+                                if t:
+                                    pos2, idx2 = _thicken_face_mesh(ms_cs.position, ms_cs.indices, float(t))
+                                    ms_cs = MeshStore(
+                                        ms_cs.index,
+                                        ms_cs.matrix,
+                                        pos2,
+                                        idx2,
+                                        _vertex_normals(pos2, idx2),
+                                        ms_cs.material,
+                                        ms_cs.type,
+                                        ms_cs.node_ref,
+                                    )
+                                yield ms_cs
+                                continue
+                        else:
+                            self._log_tess_fallback(
+                                node_ref,
+                                os.environ["ADA_STREAM_TESS_PIPELINE"],
+                                "PlateCurved has no parametric solid_geom for the stream kernel",
+                                None,
+                            )
                     ms_curved = None
                     try:
                         shape = obj.extruded_solid_occ()
                         ms_curved = self.tessellate_occ_geom(shape, node_ref, obj.color)
                     except UnableToCreateTesselationFromSolidOCCGeom as e:
                         logger.error(e)
+                    except Exception as e:
+                        # A backend that can't build this curved face's wire
+                        # (e.g. adacpp ``build_advanced_face: wire build failed``)
+                        # must not crash the whole model render — fall through to
+                        # the flat-fallback path below for this one plate.
+                        logger.warning(
+                            "PlateCurved %r: solid build failed (%s); using flat representation",
+                            getattr(ada_obj, "name", "?"),
+                            e,
+                        )
                     if ms_curved is not None:
                         pos = getattr(ms_curved, "position", None)
                         idx = getattr(ms_curved, "indices", None)
@@ -413,6 +870,62 @@ class BatchTessellator:
                                             float(limit[worst]),
                                         )
                                         mesh_ok = False
+
+                                    # Under-coverage guard. Some trimmed B-spline
+                                    # faces defeat BRepMesh: a malformed trim wire
+                                    # (pcurves that backtrack/duplicate in UV) makes
+                                    # it grid only ~half the face, regardless of the
+                                    # deflection — the "missing triangles" on a few
+                                    # hull-skin plates. The mesh extent is right, so
+                                    # the bbox check above passes it. But a correct
+                                    # *prism* of a (curved or flat) plate has
+                                    # top+bottom faces each at least the flat
+                                    # footprint area, so its mesh area is always
+                                    # >= ~2x the footprint plus the side walls.
+                                    # Healthy plates measure ~2.05x; the broken ones
+                                    # ~1.55x. When under-covered, first try a
+                                    # natural-bound rebuild (keeps the curve — the
+                                    # surface is sound, only the wire is bad); fall
+                                    # back to the flat quad only if that fails too.
+                                    if mesh_ok and idx_n >= 3:
+                                        mesh_area = _mesh_store_area(ms_curved)
+                                        # Newell area of the (planar) flat-footprint loop.
+                                        nrm = _np.zeros(3)
+                                        for _i in range(len(flat_arr)):
+                                            nrm = nrm + _np.cross(flat_arr[_i], flat_arr[(_i + 1) % len(flat_arr)])
+                                        flat_area = 0.5 * float(_np.linalg.norm(nrm))
+                                        if flat_area > 1e-6 and mesh_area < 1.85 * flat_area:
+                                            mesh_ok = False
+                                            rebuilt = _natural_bound_curved_solid(ada_obj)
+                                            if rebuilt is not None:
+                                                ms_rb = self.tessellate_occ_geom(rebuilt, node_ref, obj.color)
+                                                rb_area = _mesh_store_area(ms_rb)
+                                                # Accept the repaired curve when it now
+                                                # covers (>=1.85x) without overshooting
+                                                # the trim (<=3.5x rules out a surface
+                                                # whose natural box exceeds the real
+                                                # plate — those keep the flat fallback).
+                                                if 1.85 * flat_area <= rb_area <= 3.5 * flat_area:
+                                                    logger.warning(
+                                                        "PlateCurved %r: trim-wire tessellation under-covered "
+                                                        "(%.2f m^2 < %.2f); rebuilt from surface natural bounds "
+                                                        "(%.2f m^2)",
+                                                        getattr(ada_obj, "name", "?"),
+                                                        mesh_area,
+                                                        2.0 * flat_area,
+                                                        rb_area,
+                                                    )
+                                                    yield ms_rb
+                                                    continue
+                                            logger.warning(
+                                                "PlateCurved %r: curved mesh area %.2f m^2 vs %.2f expected "
+                                                "(< 1.85x flat footprint %.2f) — degenerate tessellation, "
+                                                "using flat representation",
+                                                getattr(ada_obj, "name", "?"),
+                                                mesh_area,
+                                                2.0 * flat_area,
+                                                flat_area,
+                                            )
                                 except Exception:
                                     pass
                             if mesh_ok:
@@ -482,6 +995,33 @@ class BatchTessellator:
                     except (NotImplementedError, AttributeError):
                         raw = None
                 if geom_repr == GeomRepr.SOLID and is_shape_handle(raw):
+                    # NGEOM pipeline requested: prefer serializing the object's ada.geom +
+                    # streaming it through the selected kernel — the raw OCC body (_occ_cache,
+                    # set by primitives + raw-OCC imports) alone can't drive a non-OCC kernel.
+                    # Objects with no parametric solid_geom (raw-OCC imports) fall back to the
+                    # direct OCC tessellation below.
+                    if os.environ.get("ADA_STREAM_TESS_PIPELINE"):
+                        ng = None
+                        try:
+                            ng = obj.solid_geom()
+                        except Exception:  # noqa: BLE001 - no parametric geom -> OCC fast path
+                            ng = None
+                        if ng is not None:
+                            ms_ng = self._tessellate_geom_via_stream(ng, node_ref)
+                            if ms_ng is not None:
+                                yield ms_ng
+                                continue
+                        else:
+                            # Raw-OCC body with no parametric solid_geom (e.g. SAT/STEP import):
+                            # it can't be serialized to NGEOM, so it only renders via OCC. That IS a
+                            # stream→OCC fallback — route it through the choke point so it's logged
+                            # and strict mode fails instead of silently completing on OCC.
+                            self._log_tess_fallback(
+                                node_ref,
+                                os.environ["ADA_STREAM_TESS_PIPELINE"],
+                                "raw-OCC body has no parametric solid_geom for the stream kernel",
+                                None,
+                            )
                     try:
                         yield self.tessellate_occ_geom(raw, node_ref, obj.color, MeshType.TRIANGLES)
                     except UnableToCreateTesselationFromSolidOCCGeom as e:

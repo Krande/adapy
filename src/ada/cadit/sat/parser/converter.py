@@ -17,6 +17,7 @@ from ada.cadit.sat.parser.acis_entities import (
     AcisCoedge,
     AcisConeSurface,
     AcisCylinderSurface,
+    AcisEdge,
     AcisEllipseCurve,
     AcisFace,
     AcisIntcurveCurve,
@@ -31,6 +32,7 @@ from ada.cadit.sat.parser.acis_entities import (
     AcisStraightCurve,
     AcisTorusSurface,
     AcisVertex,
+    AcisWire,
 )
 from ada.cadit.sat.parser.parser import AcisSatParser
 from ada.cadit.sat.read.bsplinecurves import create_2d_pcurve_from_acis_pcurve
@@ -777,6 +779,101 @@ class AcisToAdaConverter:
             lump_ref = lump.next_lump_ref if hasattr(lump, "next_lump_ref") else None
 
         return geometries
+
+    def convert_all_wire_bodies(self) -> List[Tuple[str, List[geo_cu.CURVE_GEOM_TYPES]]]:
+        """Extract wire (sectionless) bodies as curve geometries.
+
+        ACIS stores beam centerlines / construction wireframes as a body whose
+        lump→shell carries a ``wire`` (or the body references a wire directly) of
+        coedges/edges with no bounding face — so :meth:`convert_body` yields nothing
+        and the body was dropped, producing an empty scene. Returning the wires as
+        ``ada.geom`` curves (Edge / IndexedPolyCurve) lets the importer wrap each in a
+        Shape that glTF renders as line geometry ("no geometry left behind" — a wire has
+        no surface to mesh and is not a beam, so nothing is fabricated). One entry per
+        body: ``(name, [curve, ...])``.
+        """
+        results = []
+        for body in self.parser.get_bodies():
+            try:
+                curves = [
+                    c for c in (self._polyline_to_curve(pl) for pl in self._collect_body_wire_polylines(body)) if c
+                ]
+                if curves:
+                    results.append((self._get_body_name(body), curves))
+            except Exception as e:  # noqa: BLE001 - a malformed wire shouldn't abort the import
+                logger.warning(f"Failed to extract wires from body {body.index}: {e}")
+        return results
+
+    def _polyline_to_curve(self, pts: List[Tuple[float, float, float]]):
+        """Turn an ordered point list into an ada.geom curve: a single ``Edge`` for one
+        segment, else an ``IndexedPolyCurve`` of straight ``Edge`` segments."""
+        if len(pts) < 2:
+            return None
+        segments = [geo_cu.Edge(start=Point(*pts[i]), end=Point(*pts[i + 1])) for i in range(len(pts) - 1)]
+        return segments[0] if len(segments) == 1 else geo_cu.IndexedPolyCurve(segments=segments)
+
+    def _collect_body_wire_polylines(self, body: AcisBody) -> List[List[Tuple[float, float, float]]]:
+        """Gather every wire reachable from a body (body→wire and body→lump→shell→wire)."""
+        wire_refs: List[int] = []
+        if body.wire_ref is not None and isinstance(self.entities.get(body.wire_ref), AcisWire):
+            wire_refs.append(body.wire_ref)
+
+        lump_ref = body.lump_ref
+        # Some ACIS versions parse the body's lump into the wire slot (index shift) — mirror
+        # convert_body: a wire_ref that actually resolves to a Lump is the lump chain.
+        if lump_ref is None and body.wire_ref is not None and isinstance(self.entities.get(body.wire_ref), AcisLump):
+            lump_ref = body.wire_ref
+        while lump_ref:
+            lump = self.entities.get(lump_ref)
+            if not isinstance(lump, AcisLump):
+                break
+            shell_ref = lump.shell_ref
+            while shell_ref:
+                shell = self.entities.get(shell_ref)
+                if not isinstance(shell, AcisShell):
+                    break
+                w_ref = getattr(shell, "wire_ref", None)
+                if w_ref is not None and isinstance(self.entities.get(w_ref), AcisWire):
+                    wire_refs.append(w_ref)
+                shell_ref = getattr(shell, "next_shell_ref", None)
+            lump_ref = getattr(lump, "next_lump_ref", None)
+
+        polylines = []
+        for w_ref in wire_refs:
+            pts = self._wire_polyline(w_ref)
+            if len(pts) >= 2:
+                polylines.append(pts)
+        return polylines
+
+    def _wire_polyline(self, wire_ref: int) -> List[Tuple[float, float, float]]:
+        """Walk a wire's coedge chain and collect ordered, de-duplicated edge endpoints."""
+        wire = self.entities.get(wire_ref)
+        if not isinstance(wire, AcisWire):
+            return []
+        pts: List[Tuple[float, float, float]] = []
+        visited = set()
+        coedge_ref = wire.coedge_ref
+        while coedge_ref and coedge_ref not in visited:
+            visited.add(coedge_ref)
+            coedge = self.entities.get(coedge_ref)
+            if not isinstance(coedge, AcisCoedge):
+                break
+            edge = self.entities.get(coedge.edge_ref)
+            if isinstance(edge, AcisEdge):
+                for p in (self._vertex_point(edge.start_vertex_ref), self._vertex_point(edge.end_vertex_ref)):
+                    if p is not None and (not pts or pts[-1] != p):
+                        pts.append(p)
+            coedge_ref = coedge.next_coedge_ref
+        return pts
+
+    def _vertex_point(self, vertex_ref: Optional[int]) -> Optional[Tuple[float, float, float]]:
+        vertex = self.entities.get(vertex_ref) if vertex_ref is not None else None
+        if not isinstance(vertex, AcisVertex):
+            return None
+        point = self.entities.get(vertex.point_ref)
+        if not isinstance(point, AcisPoint):
+            return None
+        return (float(point.x), float(point.y), float(point.z))
 
     def convert_shell(self, shell: AcisShell) -> Optional[geo_su.ClosedShell | geo_su.OpenShell]:
         """

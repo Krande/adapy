@@ -180,6 +180,18 @@ class Sphere:
 
 
 @dataclass
+class Torus:
+    """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_torus.html
+
+    A CSG torus primitive (axis position + major/minor radii). No IFC equivalent.
+    """
+
+    position: Axis1Placement
+    major_radius: float
+    minor_radius: float
+
+
+@dataclass
 class AdvancedBrep:
     """
     IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcAdvancedBrep.htm)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from ada.extension.fem_concepts_builder import build_design_fem_concepts
@@ -13,8 +14,12 @@ if TYPE_CHECKING:
 
 def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: SceneConverter) -> trimesh.Scene:
     import ada.extension.design_extension_schema as design_ext
-    from ada import Assembly, Beam, Plate
-    from ada.comms.msg_handling.object_metadata import beam_metadata, plate_metadata
+    from ada import Assembly, Beam, Plate, PlateCurved
+    from ada.comms.msg_handling.object_metadata import (
+        beam_metadata,
+        curved_plate_metadata,
+        plate_metadata,
+    )
     from ada.config import logger
     from ada.occ.tessellating import BatchTessellator
 
@@ -38,8 +43,13 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
         )
         groups.append(g)
 
+    # The IFC-stream path tessellates via ifcopenshell's own geometry iterator (OCC), which
+    # never sees ada.geom — so it can't honour an NGEOM pipeline. When one is requested
+    # (ADA_STREAM_TESS_PIPELINE=libtess2|occ|cgal|hybrid) route through the ada.geom
+    # part-tessellation instead (BatchTessellator.tessellate_geom carries the NGEOM hook).
+    _ngeom_pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE")
     scene = None
-    if params.stream_from_ifc_store:
+    if params.stream_from_ifc_store and not _ngeom_pipeline:
         if isinstance(part_or_assembly, Assembly):
             scene = bt.ifc_to_trimesh_scene(
                 part_or_assembly.get_assembly().ifc_store, merge_meshes=params.merge_meshes, graph=graph
@@ -73,6 +83,8 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
         if object_metadata is not None and obj.name:
             if isinstance(obj, Beam):
                 object_metadata[obj.name] = beam_metadata(obj.name, obj.section, obj.material)
+            elif isinstance(obj, PlateCurved):
+                object_metadata[obj.name] = curved_plate_metadata(obj.name, obj.t, obj.material)
             elif isinstance(obj, Plate):
                 object_metadata[obj.name] = plate_metadata(obj.name, obj.t, obj.material)
 

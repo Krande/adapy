@@ -26,7 +26,6 @@ import FolderPickerModal from "@/components/common/FolderPickerModal";
 
 type OverrideKey =
     | "use_sat_pcurves"
-    | "pcurve_drive_edge"
     | "skip_shapefix"
     | "merge_meshes"
     | "profile_conversions";
@@ -35,7 +34,6 @@ type OverrideTri = "unset" | "on" | "off";
 
 const OVERRIDE_KEYS: { key: OverrideKey; label: string }[] = [
     {key: "use_sat_pcurves", label: "Use SAT pcurves"},
-    {key: "pcurve_drive_edge", label: "Drive edge from pcurve"},
     {key: "skip_shapefix", label: "Skip ShapeFix"},
     {key: "merge_meshes", label: "Merge GLB meshes"},
     {key: "profile_conversions", label: "Profile this run"},

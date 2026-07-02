@@ -129,10 +129,113 @@ async def _audit_done(
             read_bytes=metrics.get("read_bytes"),
             write_bytes=metrics.get("write_bytes"),
             profile_key=metrics.get("profile_key"),
+            log_key=metrics.get("log_key"),
             worker_image_tag=_WORKER_IMAGE_TAG,
+            convert_meta=metrics.get("convert_meta"),
         )
     except Exception:
         logger.exception("worker: audit update failed for job %s", job_id)
+
+
+def _gate_advertised_engines(conversions: list[dict]) -> list[dict]:
+    """Restrict each conversion's ``step_glb_pipeline`` enum (and its default) to the engines this
+    worker can actually run, so the API's per-worker union + engine routing reflect real capability.
+    Deep-copies so the shared ConverterRegistry option dicts aren't mutated.
+
+    The runnable set comes from ``available_step_glb_pipelines()``, which gates the adacpp engines on
+    find_spec presence (overlay-robust) rather than an import-based native probe — see the note there."""
+    import copy
+
+    from .converter import available_step_glb_pipelines
+
+    avail = set(available_step_glb_pipelines())
+    gated = copy.deepcopy(conversions)
+    for row in gated:
+        for opts in (row.get("options") or {}).values():
+            for opt in opts:
+                if opt.get("name") != "step_glb_pipeline" or not isinstance(opt.get("enum"), list):
+                    continue
+                opt["enum"] = [e for e in opt["enum"] if e in avail]
+                if isinstance(opt.get("default"), str) and opt["default"] not in avail and opt["enum"]:
+                    opt["default"] = opt["enum"][0]
+    return gated
+
+
+def _convert_meta_for(job: "Job", env_overrides: dict | None) -> dict | None:
+    """Provenance for a conversion's audit row: which tessellator/engine actually
+    ran (resolved here the same way the convert subprocess resolves it — adacpp
+    availability is identical in this shared env — so a libtess2→occ-builtin
+    fallback is recorded accurately) plus the effective toggle options."""
+    suffix = pathlib.PurePosixPath(job.source_key).suffix.lower()
+    meta: dict = {}
+    # The effective non-default toggles applied to the child (settings + per-job).
+    if env_overrides:
+        meta["options"] = dict(env_overrides)
+    if job.target_format == "glb" and suffix in {".step", ".stp"}:
+        try:
+            from ada.comms.rest.converter import (
+                _STEP_GLB_PIPELINE_ADACPP_NATIVE,
+                _STEP_GLB_PIPELINE_OCC,
+                _cad_config_for_pipeline,
+                _resolve_step_glb_pipeline,
+            )
+
+            requested = _resolve_step_glb_pipeline((env_overrides or {}).get("ADAPY_STEP_GLB_PIPELINE"))
+            meta["step_glb_pipeline"] = requested
+            if requested == _STEP_GLB_PIPELINE_ADACPP_NATIVE:
+                # Fully in-process C++ reader + tessellate + GLB writer — no CadBackend config, so
+                # _cad_config_for_pipeline() is None for it (don't mislabel that as an occ fallback).
+                meta["tessellator"] = "adacpp:native"
+            elif requested == _STEP_GLB_PIPELINE_OCC:
+                meta["tessellator"] = "occ-builtin"
+            else:
+                cfg = _cad_config_for_pipeline(requested)
+                if cfg is not None:
+                    meta["tessellator"] = cfg.path.value  # e.g. "adacpp:libtess2"
+                else:
+                    meta["tessellator"] = f"occ-builtin (fallback from {requested})"
+            meta["glb_compression"] = (env_overrides or {}).get("ADA_GLB_COMPRESSION") or "meshopt"
+            meta["stream_workers"] = (env_overrides or {}).get("ADA_STEP_STREAM_WORKERS")
+        except Exception:
+            logger.exception("worker: convert_meta tessellator resolution failed for %s", job.source_key)
+    return meta or None
+
+
+def _capture_worker_packages() -> list[dict]:
+    """Snapshot the worker env's installed packages — the conda-meta manifest
+    (authoritative for occt / pythonocc-core / ada-cpp / ifcopenshell / numpy …)
+    plus any pip-only dists. Best-effort; a parse failure just drops that entry."""
+    import glob
+    import importlib.metadata as _im
+    import json as _json
+    import sys
+
+    pkgs: dict[str, dict] = {}
+    try:
+        for f in glob.glob(os.path.join(sys.prefix, "conda-meta", "*.json")):
+            try:
+                with open(f) as fh:
+                    d = _json.load(fh)
+                name = d.get("name")
+                if name:
+                    pkgs[name.lower()] = {
+                        "name": name,
+                        "version": d.get("version"),
+                        "build": d.get("build"),
+                        "channel": d.get("channel"),
+                    }
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        for dist in _im.distributions():
+            name = (dist.metadata.get("Name") or "").strip()
+            if name and name.lower() not in pkgs:
+                pkgs[name.lower()] = {"name": name, "version": dist.version, "build": None, "channel": "pypi"}
+    except Exception:
+        pass
+    return sorted(pkgs.values(), key=lambda p: (p.get("name") or "").lower())
 
 
 async def _run_fea_artefact_bake(
@@ -386,6 +489,35 @@ async def _run_fea_meta_compute(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+def _parity_child(src_path, source_key, target_format, on_progress, *, formats=()):
+    """``convert_fn``-shaped wrapper that runs the cross-format parity check and
+    returns its result as JSON bytes.
+
+    Parity re-derives the source to ifc/xml/step and reloads each — easily a
+    multi-GB peak on a large model. Running it through ``run_isolated_convert``
+    (this function in the forked child) instead of a worker threadpool means an
+    OOM is SIGKILLed by the per-job memory watchdog and fails the cell, rather
+    than taking the whole worker pod down."""
+    import json as _json
+    import pathlib as _pl
+
+    from ada.cadit.visual_parity import parity_for_source_file
+
+    on_progress("parity", 0.2)
+    res = parity_for_source_file(_pl.Path(src_path), tuple(formats))
+    on_progress("ready", 1.0)
+    return _json.dumps(
+        {
+            "counts": res.counts,
+            "expected": res.expected,
+            "consistent": res.consistent,
+            "mismatches": res.mismatches,
+            "errors": res.errors,
+            "summary": res.summary(),
+        }
+    ).encode("utf-8")
+
+
 async def _run_parity_validation(
     *,
     job: Job,
@@ -395,6 +527,7 @@ async def _run_parity_validation(
     db_pool: "asyncpg.Pool | None",
     started_at: float,
     _on_progress: Callable[[str, float], Awaitable[None]],
+    timeout_s: float | None = None,
 ) -> None:
     """Cross-format visual-parity validation for one source (target_format=='parity').
 
@@ -404,28 +537,76 @@ async def _run_parity_validation(
     table and the cell is audited done/error (a mismatch maps to ``error`` so it
     surfaces in the run's failed cells). Never raises.
 
-    Re-deriving (rather than reading the stored GLB) is deliberate: the stored GLB
-    is mesh-merged, so its scene-entry count is not the object count — the parity
-    check must reload with merging off, which ``parity_for_source_file`` does.
+    Runs in the same memory-capped forked child the convert path uses
+    (``run_isolated_convert``): re-deriving + reloading several formats can spike
+    RAM, and a blow-up must die in isolation (cell fails as OOM) rather than
+    OOM-killing the worker pod. Re-deriving (rather than reading the stored GLB)
+    is deliberate: the stored GLB is mesh-merged, so its scene-entry count isn't
+    the object count — the check reloads with merging off.
     """
+    import json
+
     job_id = job.job_id
     suffix = pathlib.PurePosixPath(job.source_key).suffix.lower()
     formats = tuple(t for t in ("ifc", "xml", "step") if t in ConverterRegistry.targets_for(suffix))
 
-    # Lazy import keeps the FEM/CAD stack out of the worker import path until
-    # a parity job actually runs (same pattern as _run_fea_meta_compute).
-    from ada.cadit.visual_parity import parity_for_source_file
+    async def _cancel_check() -> bool:
+        if db_pool is None:
+            return False
+        try:
+            return await db_module.audit_is_cancelled(db_pool, job_id)
+        except Exception:
+            return False
 
-    await _on_progress("parity", 0.20)
-    loop = asyncio.get_running_loop()
     try:
-        result = await loop.run_in_executor(None, functools.partial(parity_for_source_file, src_path, formats))
+        iresult: IsolatedConvertResult = await run_isolated_convert(
+            _parity_child,
+            src_path,
+            job.source_key,
+            "parity",
+            convert_kwargs={"formats": list(formats)},
+            on_progress=_on_progress,
+            timeout_s=timeout_s,
+            cancel_check=_cancel_check,
+        )
     except Exception as exc:
-        logger.exception("worker: parity validation failed for %s", job.source_key)
-        trace = tb_module.format_exc()
+        logger.exception("worker: parity subprocess wrapper failed for %s", job.source_key)
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="parity", error=str(exc))
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
         return
+
+    metrics = dict(iresult.final_metrics)
+
+    # User cancellation: the watchdog reaped the child; the row is already
+    # 'cancelled' (set by the cancel endpoint) — don't flip it to error.
+    if iresult.signal_name == "CANCELLED":
+        try:
+            await queue.update(job_id, status="cancelled", stage="parity", error="cancelled by user")
+        except Exception:
+            pass
+        iresult.cleanup_output()
+        return
+
+    # OOM / timeout / crash / no-output: the child died (memory watchdog
+    # SIGKILL, timeout, SIGSEGV) — surface as an error cell, pod intact.
+    if iresult.exit_code != 0 or iresult.out_path is None:
+        err = iresult.error or "parity subprocess produced no output"
+        if iresult.signal_name:
+            logger.warning("worker: parity child for %s ended via %s", job.source_key, iresult.signal_name)
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="parity", error=err)
+        await _audit_done(db_pool, job_id, "error", err, started_at, traceback=iresult.traceback, metrics=metrics)
+        iresult.cleanup_output()
+        return
+
+    try:
+        payload = json.loads(iresult.out_path.read_text())
+    except Exception as exc:
+        logger.exception("worker: parity result decode failed for %s", job.source_key)
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="parity", error=str(exc))
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, metrics=metrics)
+        iresult.cleanup_output()
+        return
+    iresult.cleanup_output()
 
     if db_pool is not None:
         try:
@@ -433,22 +614,22 @@ async def _run_parity_validation(
                 db_pool,
                 job_id=job_id,
                 source_key=job.source_key,
-                baseline=result.expected,
-                counts=result.counts,
-                consistent=result.consistent,
-                mismatches=result.mismatches,
-                errors=result.errors,
+                baseline=payload["expected"],
+                counts=payload["counts"],
+                consistent=payload["consistent"],
+                mismatches=payload["mismatches"],
+                errors=payload["errors"],
             )
         except Exception:
             logger.exception("worker: insert_audit_parity failed for %s", job.source_key)
 
-    if result.consistent:
+    if payload["consistent"]:
         await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
-        await _audit_done(db_pool, job_id, "done", None, started_at)
+        await _audit_done(db_pool, job_id, "done", None, started_at, metrics=metrics)
     else:
-        msg = result.summary()
+        msg = payload.get("summary") or "parity mismatch"
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="ready", progress=1.0, error=msg)
-        await _audit_done(db_pool, job_id, "error", msg, started_at)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, metrics=metrics)
 
 
 async def _run_component_build(
@@ -529,7 +710,9 @@ async def _run_component_build(
 
     try:
         await queue.update(job_id, stage="upload", progress=0.90)
-        await storage.put_bytes(scope, job.derived_key, glb_bytes)
+        # gzip-at-rest (see the conversion path) so the presigned GET serves it
+        # Content-Encoding: gzip and the browser decompresses on the fly.
+        await storage.put_bytes(scope, job.derived_key, glb_bytes, content_encoding="gzip")
     except Exception as exc:
         logger.exception("worker: component_build upload failed for %s", spec_name)
         trace = tb_module.format_exc()
@@ -662,6 +845,98 @@ async def _run_utility_job(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+async def _try_reduced_sif_source(
+    storage: Storage,
+    scope: Scope,
+    source_key: str,
+    step: int | None,
+    src_path: pathlib.Path,
+) -> bool:
+    """Range-fetch just one result step of a SIF deck instead of the whole file.
+
+    When a byte-offset index sidecar exists (built by a prior conversion), the
+    bytes of every *other* step are skipped: only the target step's RV records
+    plus the step-invariant mesh / RDPOINTS / control rows are fetched and
+    concatenated into ``src_path`` — a smaller, still-valid SIF the normal
+    reader parses. A 969 MB deck becomes a ~340 MB read, and re-picking a mode
+    in the viewer stops re-downloading the whole file.
+
+    Returns True on success; False (with ``src_path`` untouched) to fall back
+    to the full streaming download. Skipped when the source is gzip-stored —
+    range offsets address the *uncompressed* file.
+    """
+    from ada.fem.formats.sesam.results.sif_index import SifStepIndex
+
+    from .converter import sif_index_key_for
+
+    index_key = sif_index_key_for(source_key)
+    try:
+        idx_bytes = await storage.get_bytes(scope, index_key)
+    except FileNotFoundError:
+        return False
+    except Exception:
+        logger.exception("worker: reading SIF index %s failed (non-fatal)", index_key)
+        return False
+
+    try:
+        idx = SifStepIndex.from_json(idx_bytes)
+    except Exception:
+        logger.warning("worker: SIF index %s unreadable; full download", index_key)
+        return False
+
+    try:
+        if await storage.is_gzip_stored(scope, source_key):
+            return False
+    except Exception:
+        return False
+
+    target = step if step is not None else idx.default_step()
+    if target not in idx.steps:
+        return False
+
+    ranges = idx.include_ranges(target)
+    try:
+        with open(src_path, "wb") as fo:
+            for s, e in ranges:
+                fo.write(await storage.get_range(scope, source_key, s, e - s))
+    except Exception:
+        logger.exception("worker: SIF range-fetch for %s failed; full download", source_key)
+        return False
+
+    fetched = sum(e - s for s, e in ranges)
+    logger.info(
+        "worker: SIF reduced read %s step %s — %d/%d bytes (%.0f%%)",
+        source_key,
+        target,
+        fetched,
+        idx.size,
+        100.0 * fetched / max(idx.size, 1),
+    )
+    return True
+
+
+async def _ensure_sif_index(storage: Storage, scope: Scope, source_key: str, src_path: pathlib.Path) -> None:
+    """Build + upload the SIF byte-offset index sidecar if absent.
+
+    One-time cheap byte scan (no float parsing) of the full local deck so later
+    picks of other steps range-fetch a reduced file. Best-effort: a failure
+    here never fails the job — it just means the next pick scans the whole file
+    again."""
+    from ada.fem.formats.sesam.results.sif_index import build_sif_index
+
+    from .converter import sif_index_key_for
+
+    index_key = sif_index_key_for(source_key)
+    try:
+        if await storage.exists(scope, index_key):
+            return
+        idx = await asyncio.to_thread(build_sif_index, src_path)
+        await storage.put_bytes(scope, index_key, idx.to_json())
+        logger.info("worker: built SIF index for %s (%d steps)", source_key, len(idx.steps))
+    except Exception:
+        logger.exception("worker: building SIF index for %s failed (non-fatal)", source_key)
+
+
 async def _process_one(
     job_id: str,
     queue: JobQueue,
@@ -682,6 +957,20 @@ async def _process_one(
         return
 
     scope = _scope_of(job)
+
+    # Pre-download cancel skip: a cell whose (audit) run was cancelled is acked +
+    # skipped here, BEFORE any source download or convert — so a cancelled run's
+    # queued backlog costs ~nothing and can't wedge the worker on a doomed job.
+    # (A *deleted* run's rows are gone, so audit_is_cancelled can't catch those —
+    # the run cancel/delete endpoints purge those messages from the stream up front.)
+    if db_pool is not None:
+        try:
+            if await db_module.audit_is_cancelled(db_pool, job_id):
+                logger.info("worker: job %s cancelled; skipping before download", job_id)
+                await queue.update(job_id, status="cancelled", stage="cancelled", progress=1.0, error=None)
+                return
+        except Exception:
+            logger.exception("worker: pre-download cancel check failed for job %s", job_id)
 
     # Poison-pill guard: if NATS has redelivered this message past
     # the cap, the previous attempts crashed the worker before they
@@ -763,9 +1052,17 @@ async def _process_one(
     src_fd, src_name = tempfile.mkstemp(suffix=src_suffix)
     os.close(src_fd)
     src_path = pathlib.Path(src_name)
+    # A SIF deck with a cached byte-offset index range-fetches only the target
+    # step (reduced, still-valid SIF) instead of the whole ~1 GB file. Falls
+    # back to the full stream when there's no index / it's gzip-stored / fetch
+    # fails. ``sif_reduced`` gates the post-convert index build below.
+    sif_reduced = False
     try:
         try:
-            await storage.stream_to_path(scope, job.source_key, src_path)
+            if src_suffix.lower() == ".sif":
+                sif_reduced = await _try_reduced_sif_source(storage, scope, job.source_key, job.step, src_path)
+            if not sif_reduced:
+                await storage.stream_to_path(scope, job.source_key, src_path)
         except FileNotFoundError as exc:
             logger.warning("worker: source %s missing for job %s", job.source_key, job_id)
             await queue.update(job_id, status=JOB_STATUS_ERROR, stage="loading", error=str(exc))
@@ -842,20 +1139,66 @@ async def _process_one(
             # cases (e.g. "yes" / "no").
             _env_map = {
                 "use_sat_pcurves": "ADA_USE_SAT_PCURVES",
-                "pcurve_drive_edge": "ADA_PCURVE_DRIVE_EDGE",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
+                # Reuse a parsed source across export targets: parse once, pickle (content-hashed,
+                # local), reuse for every other target instead of re-reading the file. Big win for
+                # audit runs (one source → many targets); harmless when a source converts once.
+                "assembly_cache": "ADA_ASSEMBLY_CACHE",
+                # STEP→GLB tessellation engine (libtess2 / occ-builtin / step2glb /
+                # adacpp-{occ,cgal,hybrid}); enum string, read by _resolve_step_glb_pipeline.
+                "step_glb_pipeline": "ADAPY_STEP_GLB_PIPELINE",
                 # STEP→GLB streaming defaults (large-file OOM guard).
                 "step_streamer_auto": "ADA_STEP_STREAMER_AUTO",
                 "step_streamer_threshold_mb": "ADA_STEP_STREAMER_THRESHOLD_MB",
                 # Per-solid tessellation budget; a solid that overruns it (OCC hang) is
                 # killed and skipped so one bad solid can't freeze the whole conversion.
                 "step_stream_solid_timeout_s": "ADA_STEP_STREAM_SOLID_TIMEOUT_S",
+                # STEP→GLB tessellation pool memory bound: worker count cap + per-worker
+                # soft/hard RSS caps (a worker over soft respawns between solids; over hard
+                # mid-solid is killed + the solid requeued once). Sizes peak conversion RSS.
+                "step_stream_workers": "ADA_STEP_STREAM_WORKERS",
+                "step_stream_worker_soft_mem_mb": "ADA_STEP_STREAM_WORKER_SOFT_MEM_MB",
+                "step_stream_worker_hard_mem_mb": "ADA_STEP_STREAM_WORKER_HARD_MEM_MB",
+                # FEM→IFC memory-bounded writer. Default on (converter treats
+                # unset as on); set falsy to revert to the in-memory writer.
+                "ifc_streaming": "ADA_IFC_STREAMING",
+                # Curved-surface tessellation quality (0 = lean relative default).
+                "tess_linear_deflection": "ADA_OCC_TESS_LINEAR_DEFLECTION",
+                "tess_angular_deg": "ADA_OCC_TESS_ANGULAR_DEG",
+                "tess_relative": "ADA_OCC_TESS_RELATIVE",
+                # Conversion log verbosity (DEBUG/INFO/WARNING/ERROR), set from the admin Conversion
+                # panel. Unset keeps the quiet WARNING default; INFO surfaces per-stage progress + the
+                # native engine summary in the captured audit Log. Read by the convert subprocess.
+                "convert_log_level": "ADA_CONVERT_LOG_LEVEL",
             }
             for skey, env_name in _env_map.items():
                 raw = await _read_bool_setting(skey)
                 if raw is not None and raw.strip() != "":
                     env_overrides[env_name] = raw
+
+            # Per-source-type tessellation engine. STEP→glb and the scene path
+            # (gxml/ifc/sat→glb via to_gltf's BatchTessellator) use different engine envs;
+            # resolve the one for THIS source's type from its own setting so e.g. gxml can run
+            # libtess2 while ifc runs occ. Unset → the converter's adacpp-aware default (the scene
+            # path defaults to libtess2 when adacpp is present; OCC's prism tessellation of curved
+            # B-spline plates is non-manifold and drops the viewer's edge outlines). A per-type
+            # setting here supersedes the legacy single ``step_glb_pipeline`` for STEP sources.
+            _tess_engine_by_ext = {
+                ".step": ("tess_engine_step", "ADAPY_STEP_GLB_PIPELINE"),
+                ".stp": ("tess_engine_step", "ADAPY_STEP_GLB_PIPELINE"),
+                ".xml": ("tess_engine_gxml", "ADAPY_GLB_TESS_ENGINE"),
+                ".ifc": ("tess_engine_ifc", "ADAPY_GLB_TESS_ENGINE"),
+                ".sat": ("tess_engine_sat", "ADAPY_GLB_TESS_ENGINE"),
+                ".acis": ("tess_engine_sat", "ADAPY_GLB_TESS_ENGINE"),
+            }
+            _src_ext = os.path.splitext(job.source_key)[1].lower()
+            _eng = _tess_engine_by_ext.get(_src_ext)
+            if _eng is not None:
+                _skey, _engine_env = _eng
+                _raw_engine = await _read_bool_setting(_skey)
+                if _raw_engine is not None and _raw_engine.strip() != "":
+                    env_overrides[_engine_env] = _raw_engine.strip()
 
         # Per-job overrides win over global settings. ``None`` clears
         # an env var, allowing a job to ask "ignore the global
@@ -864,10 +1207,15 @@ async def _process_one(
         if per_job:
             _env_map_full = {
                 "use_sat_pcurves": "ADA_USE_SAT_PCURVES",
-                "pcurve_drive_edge": "ADA_PCURVE_DRIVE_EDGE",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
+                "assembly_cache": "ADA_ASSEMBLY_CACHE",
+                "step_glb_pipeline": "ADAPY_STEP_GLB_PIPELINE",
                 "step_streamer": "ADA_STEP_STREAMER",
+                "ifc_streaming": "ADA_IFC_STREAMING",
+                "tess_linear_deflection": "ADA_OCC_TESS_LINEAR_DEFLECTION",
+                "tess_angular_deg": "ADA_OCC_TESS_ANGULAR_DEG",
+                "tess_relative": "ADA_OCC_TESS_RELATIVE",
             }
             for k, v in per_job.items():
                 env_name = _env_map_full.get(k)
@@ -917,6 +1265,7 @@ async def _process_one(
                         "peak_rss_kb": sample.peak_rss_kb,
                         "read_bytes": sample.read_bytes,
                         "write_bytes": sample.write_bytes,
+                        "per_thread_cpu_ms": sample.per_thread_cpu_ms,
                     },
                 )
             except Exception:
@@ -934,6 +1283,19 @@ async def _process_one(
                 return profile_key
             except Exception:
                 logger.exception("worker: profile upload failed for job %s", job_id)
+                return None
+
+        async def _maybe_upload_log_bytes(log_bytes: bytes | None) -> str | None:
+            """Upload the captured child stdout/stderr so a conversion's output (incl. silently
+            swallowed library warnings) is recoverable via the audit log. Best-effort + gzip-at-rest."""
+            if not log_bytes:
+                return None
+            try:
+                log_key = f"_derived/{job.source_key}.{job_id}.log"
+                await storage.put_bytes(scope, log_key, log_bytes, content_encoding="gzip")
+                return log_key
+            except Exception:
+                logger.exception("worker: log upload failed for job %s", job_id)
                 return None
 
         # FEA streaming-viewer artefact bake — sibling code path to
@@ -1003,6 +1365,7 @@ async def _process_one(
                 db_pool=db_pool,
                 started_at=started_at,
                 _on_progress=_on_progress,
+                timeout_s=timeout_s,
             )
             return
 
@@ -1016,7 +1379,7 @@ async def _process_one(
         # ignored harmlessly.
         #
         # Legacy env-var-driven options (use_sat_pcurves /
-        # pcurve_drive_edge / skip_shapefix) still flow via env vars
+        # skip_shapefix) still flow via env vars
         # on the child fork (see ``env_overrides`` below) because
         # their consuming code lives in deep OCC paths that haven't
         # been migrated to take these as function parameters yet.
@@ -1031,6 +1394,24 @@ async def _process_one(
                 if v is None:
                     continue  # tri-state "clear"; nothing to forward
                 convert_options[k] = v
+
+        # Engine + options provenance for the audit row (which tessellator ran,
+        # incl. an adacpp→occ-builtin fallback, and the effective toggles).
+        convert_meta = _convert_meta_for(job, env_overrides)
+
+        # Record the pod's CPU allotment (cgroup quota, else host cores) so the metrics chart can
+        # render CPU as % utilization across all cores instead of the cumulative-time ramp.
+        try:
+            from ada.visit.scene_handling.scene_from_step_stream import (
+                _cgroup_cpu_quota,
+            )
+
+            _cores = _cgroup_cpu_quota() or os.cpu_count()
+            if _cores:
+                convert_meta = dict(convert_meta or {})
+                convert_meta["cpu_cores"] = int(_cores)
+        except Exception:
+            logger.debug("convert_meta: cpu_cores detection failed", exc_info=True)
 
         # Poll the audit_log (cancel endpoint's source of truth) so a user
         # cancellation actually reaps the running conversion subprocess.
@@ -1084,7 +1465,7 @@ async def _process_one(
             return
 
         # Map the isolated result back to the existing audit/error flow.
-        if iresult.exit_code != 0 or iresult.out_bytes is None:
+        if iresult.exit_code != 0 or iresult.out_path is None:
             err_msg = iresult.error or "convert subprocess produced no output"
             trace = iresult.traceback
             # Recognize BundleError by name in the error message rather
@@ -1109,6 +1490,8 @@ async def _process_one(
             )
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
+            metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
+            metrics["convert_meta"] = convert_meta
             await _audit_done(
                 db_pool,
                 job_id,
@@ -1120,21 +1503,77 @@ async def _process_one(
             )
             return
 
-        out_bytes = iresult.out_bytes
-
         await queue.update(job_id, stage="uploading", progress=0.95)
+        # NOTE: the native STEP->ifc/step/mesh paths used here come from the adacpp overlay
+        # (deploy/Dockerfile.worker bakes the ADACPP_BRANCH HEAD at image-build time — it is NOT
+        # live-tracked), so a worker fix in adacpp needs a fresh full worker build to ship.
         # Gzip text-format outputs (IFC, Genie XML); GLB is binary geometry
         # that doesn't compress meaningfully and is what the in-browser
         # viewer fetches on the hot path.
-        derived_encoding = "gzip" if job.target_format in {"ifc", "xml"} else None
+        # gzip-at-rest so the object carries Content-Encoding: gzip and the
+        # browser auto-decompresses. GLBs are included: since the viewer switched
+        # to a presigned GET straight from object storage (no API relay), the
+        # stored bytes go over the wire as-is — a raw float32 GLB is ~2-3x larger
+        # than its gzip, which is brutal on mobile/cellular. (The on-disk GLB is
+        # still uncompressed; this is transport compression, transparent to the
+        # GLTF loader. Whole-file load only — gzip-at-rest is not Range-safe.)
+        # OBJ / STL / STEP exports are also gzip-at-rest: the native STEP→mesh writer
+        # emits unsimplified geometry (the crane obj is ~7.7 GB raw, 73 M tris), and
+        # storing it raw made the UPLOAD ~57% of that job's wall time. obj/step are
+        # ASCII (compress dramatically); binary STL less so but still a net win. These
+        # are whole-file export downloads (never Range-fetched, unlike FEA field blobs
+        # which must stay raw — see fea_field_blob_range), so gzip-at-rest is safe.
+        derived_encoding = (
+            "gzip" if job.target_format in {"ifc", "xml", "glb", "gltf", "obj", "stl", "step", "stp"} else None
+        )
+        # Optional GLB compression (gltfpack / meshopt + quantization), gated
+        # by the per-job glb_compression option (or the ADA_GLB_COMPRESSION
+        # global default). Post-process step so it covers every GLB-producing
+        # path from one place; fully guarded — any failure / missing binary
+        # uploads the original GLB unchanged. The compressed file is a
+        # separate path we unlink after upload.
+        upload_path = iresult.out_path
+        compressed_path = None
+        # The audit's duration_ms is whole-job wall-clock (started_at → done), so a
+        # meshopt encode reads as a slower *conversion*. Split it: convert_ms is the
+        # time up to here (conversion proper), compress_ms is just the GLB-compression
+        # post-step. Both land on convert_meta so the audit can show the breakdown.
+        if isinstance(convert_meta, dict):
+            convert_meta["convert_ms"] = round((time.monotonic() - started_at) * 1000)
+        if job.target_format == "glb":
+            _opts = getattr(job, "conversion_options", None) or {}
+            # Default-on: a job that doesn't set glb_compression still gets
+            # meshopt (the registry default isn't injected into
+            # conversion_options). Per-job value wins; ADA_GLB_COMPRESSION is
+            # the global override / kill switch (set to "off" to disable).
+            _mode = _opts.get("glb_compression") or os.environ.get("ADA_GLB_COMPRESSION") or "meshopt"
+            if _mode and str(_mode).lower() != "off":
+                try:
+                    from ada.visit.gltf.compress import compress_glb
+
+                    _compress_t0 = time.monotonic()
+                    packed = compress_glb(iresult.out_path, str(_mode))
+                    if isinstance(convert_meta, dict):
+                        convert_meta["compress_ms"] = round((time.monotonic() - _compress_t0) * 1000)
+                    if str(packed) != str(iresult.out_path):
+                        compressed_path = str(packed)
+                        upload_path = compressed_path
+                except Exception:
+                    logger.exception("worker: glb compression failed; uploading uncompressed")
+                    upload_path = iresult.out_path
         try:
-            await storage.put_bytes(scope, job.derived_key, out_bytes, content_encoding=derived_encoding)
+            # Stream the output file straight to object storage (multipart) —
+            # never reading it into a parent-side bytes buffer. cleanup_output()
+            # drops the tmpfile + work dir once the upload settles either way.
+            await storage.put_path(scope, job.derived_key, upload_path, content_encoding=derived_encoding)
         except Exception as exc:
             logger.exception("worker: upload failed for %s", job.derived_key)
             trace = tb_module.format_exc()
             await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
+            metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
+            metrics["convert_meta"] = convert_meta
             await _audit_done(
                 db_pool,
                 job_id,
@@ -1145,14 +1584,32 @@ async def _process_one(
                 metrics=metrics,
             )
             return
+        finally:
+            # Drop the compressed sibling first — cleanup_output() rmdir's the
+            # work dir, which fails (and leaks) if our *.pack.glb is still in it.
+            if compressed_path:
+                try:
+                    os.unlink(compressed_path)
+                except OSError:
+                    pass
+            iresult.cleanup_output()
 
         # Conversion + upload succeeded — collect metrics and (optionally)
         # the cProfile dump from the child.
         metrics = dict(iresult.final_metrics)
         metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
+        metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
+        metrics["convert_meta"] = convert_meta
 
         await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
         await _audit_done(db_pool, job_id, "done", None, started_at, metrics=metrics)
+
+        # First full conversion of a SIF deck: build + cache the byte-offset
+        # index so subsequent step/field picks range-fetch one step instead of
+        # the whole file. Skipped when we already read a reduced file (the
+        # index existed) or the source isn't a SIF. Best-effort.
+        if src_suffix.lower() == ".sif" and not sif_reduced:
+            await _ensure_sif_index(storage, scope, job.source_key, src_path)
     finally:
         try:
             src_path.unlink()
@@ -1204,6 +1661,19 @@ async def _run() -> None:
     _WORKER_IMAGE_TAG = image_tag or None
     worker_id = os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}"
     capabilities = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
+    # An extra-capability pool (e.g. weld-gen) builds FROM / runs an independent adapy and still
+    # advertises the full base converter matrix, so it wins base conversion jobs (gxml->glb, ...)
+    # it has no business running — and when that image is stale it produces outdated output (e.g.
+    # non-manifold meshes). ADA_WORKER_BASE_CONVERSIONS=false makes this worker advertise ZERO base
+    # conversions + base source-ext handling, leaving only its capability-routed utilities intact.
+    # The clean, version-independent way to scope an extra pool (vs the ADA_WORKER_EXT_ALLOW
+    # allowlist, which can only narrow to a positive set of source extensions, not to none).
+    base_conversions_enabled = os.environ.get("ADA_WORKER_BASE_CONVERSIONS", "true").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
     # Source extensions this worker can handle. Pulled from adapy's
     # stream-reader registry — whatever plug-ins ran before this point
     # (e.g. a capability worker's entrypoint that registered an extra
@@ -1215,6 +1685,10 @@ async def _run() -> None:
     from ada.fem.results.artefacts import fea_artefact_extensions
 
     registered_exts = {e.lower() for e in fea_artefact_extensions()}
+    if not base_conversions_enabled:
+        # Pool scoped to its own capability only: don't claim any base source-ext
+        # handling (FEA bake) — the ext allowlist below is then moot.
+        registered_exts = set()
     # Optional per-pod allowlist. Capability (extension-specific) workers
     # build FROM the base image and so inherit its full stream-reader
     # registry — without this gate they'd race the base pool for
@@ -1257,11 +1731,19 @@ async def _run() -> None:
     # message loop so we don't promise something we'd NAK at
     # delivery time. The API merges every live worker's matrix into
     # ``/api/config["conversionMatrix"]`` for the SPA's /convert page.
-    full_matrix = ConverterRegistry.matrix()
-    if ext_allow_set is not None:
-        conversions = [m for m in full_matrix if m["from"] in ext_allow_set]
+    if not base_conversions_enabled:
+        # Scoped pool: advertise no base conversions at all (utilities below still register).
+        conversions: list[dict] = []
     else:
-        conversions = full_matrix
+        full_matrix = ConverterRegistry.matrix()
+        if ext_allow_set is not None:
+            conversions = [m for m in full_matrix if m["from"] in ext_allow_set]
+        else:
+            conversions = full_matrix
+    # Truthful capability advertisement: restrict the STEP→GLB engine enum to the engines THIS pool
+    # can actually run (a slim/adacpp-less pod won't advertise adacpp-native, etc.). The API unions
+    # these across pools for the list and routes engine-pinned jobs to a pool that advertises them.
+    conversions = _gate_advertised_engines(conversions)
 
     # Utilities this worker advertises (every ``@utility`` registration adapy +
     # any preloaded plug-in produced). Importing the bundled utilities package
@@ -1315,6 +1797,18 @@ async def _run() -> None:
                 max_inactive_connection_lifetime=600.0,
             )
             logger.info("worker: db pool ready")
+            # Capture this worker image's package manifest once at startup so
+            # convert audit rows (stamped with worker_image_tag) can link to the
+            # exact toolchain that produced their output.
+            if _WORKER_IMAGE_TAG:
+                try:
+                    await db_module.upsert_worker_packages(
+                        db_pool,
+                        worker_image_tag=_WORKER_IMAGE_TAG,
+                        packages=_capture_worker_packages(),
+                    )
+                except Exception:
+                    logger.exception("worker: package manifest capture failed")
         except Exception:
             logger.exception("worker: db connect failed; running without audit updates")
 

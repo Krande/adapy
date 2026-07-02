@@ -1,0 +1,47 @@
+-- 017_view_load_metrics.sql — client-side (browser) model-load metrics.
+--
+-- Admin-toggled instrumentation in the viewer posts one audit_log row per
+-- GLB model load with ``action = 'view'`` (the action string reserved but
+-- unused since 001_initial). These rows reuse the existing per-job columns
+-- so they show up in standard tooling:
+--   * duration_ms   = total wall-clock load time (start -> first painted frame)
+--   * read_bytes    = bytes transferred over the wire (compressed/gzip size)
+--   * write_bytes   = decoded GLB size (uncompressed)
+--   * peak_rss_kb   = JS heap used at load (Chrome performance.memory), KB
+--   * target_format = NULL (load rows have no conversion target)
+--
+-- The rich per-phase breakdown — needed to attribute a slow load to an IO,
+-- network, CPU, or GPU bottleneck and to normalize by payload/device — goes
+-- in ``client_metrics`` JSONB. A single column (not a child table) for the
+-- same reasons as metrics_samples (005): read pattern is always "this row's
+-- detail", write pattern is a single insert, and the clear-metrics flow nulls
+-- one column. Aggregation extracts numeric fields via (client_metrics->>'k').
+--
+-- Shape (all keys optional; absent when the browser/transport can't measure
+-- them — e.g. cross-origin presigned S3 suppresses the Resource Timing split
+-- unless the object store sets Timing-Allow-Origin):
+--   {
+--     -- IO / backend
+--     "transport": "presigned" | "relayed",
+--     "ttfb_ms": <num>, "server_io_ms": <num>,
+--     -- network / transfer
+--     "dns_ms": <num>, "tcp_ms": <num>, "tls_ms": <num>,
+--     "download_ms": <num>, "transfer_bytes": <num>, "decoded_bytes": <num>,
+--     "throughput_mbps": <num>, "gzip": <bool>,
+--     -- CPU (main thread)
+--     "decompress_ms": <num>, "parse_ms": <num>, "prepare_ms": <num>,
+--     -- GPU
+--     "first_render_ms": <num>,
+--     -- totals
+--     "total_ms": <num>,
+--     -- payload (normalizers)
+--     "triangles": <num>, "vertices": <num>, "num_nodes": <num>,
+--     "num_meshes": <num>, "num_primitives": <num>, "num_materials": <num>,
+--     "draw_calls": <num>, "geometries": <num>,
+--     -- device context
+--     "cores": <num>, "device_memory_gb": <num>, "dpr": <num>,
+--     "gpu_renderer": <str>, "screen_w": <num>, "screen_h": <num>,
+--     "js_heap_used_mb": <num>, "js_heap_limit_mb": <num>, "ua": <str>
+--   }
+
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS client_metrics JSONB;

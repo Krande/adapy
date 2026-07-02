@@ -451,7 +451,9 @@ def test_stream_glb_groups_instances_under_assembly_tree(tmp_path):
     path = tmp_path / "multi.step"
     path.write_text(_render(block))
     glb = tmp_path / "multi.glb"
-    stream_step_to_glb(path, glb, tolerant=True)
+    # Unmerged mode: each instance is its own node ('box' + 'box/2'). The default merges
+    # same-name siblings — covered by test_stream_glb_merges_same_name_instances below.
+    stream_step_to_glb(path, glb, tolerant=True, merge_same_name_siblings=False)
 
     raw = glb.read_bytes()
     jlen = struct.unpack("<I", raw[12:16])[0]
@@ -469,3 +471,64 @@ def test_stream_glb_groups_instances_under_assembly_tree(tmp_path):
     assert box_group, f"'box' group not parented under 'a': {meta}"
     leaf_parents = {str(pid) for nid, pid in by_name["box"] + by_name["box/2"] if str(nid) not in box_group}
     assert leaf_parents == {str(box_group[0])}, f"instances not grouped under 'box': {meta}"
+
+
+def test_stream_glb_merges_same_name_instances(tmp_path):
+    """Default merge: the two same-named 'box' instances collapse onto a SINGLE node whose
+    picking draw-range is one contiguous span covering both (one pickable object), and the
+    total triangle count is unchanged vs the unmerged output (no geometry lost)."""
+    import json
+    import struct
+
+    from ada.cadit.step.stream_to_glb import stream_step_to_glb
+
+    child = ((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    parent_a = ((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    parent_b = ((10.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    block = _idt_block(child, parent_a)
+    block += (
+        _axis2_lines(300, *child)
+        + _axis2_lines(310, *parent_b)
+        + "#388=ITEM_DEFINED_TRANSFORMATION('','',#300,#310);\n"
+        "#389=(REPRESENTATION_RELATIONSHIP('','',#172,#179)"
+        "REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#388)SHAPE_REPRESENTATION_RELATIONSHIP());\n"
+        "#390=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#389,#187);\n"
+    )
+    path = tmp_path / "multi.step"
+    path.write_text(_render(block))
+
+    def _load(glb):
+        raw = glb.read_bytes()
+        jlen = struct.unpack("<I", raw[12:16])[0]
+        return json.loads(raw[20 : 20 + jlen])
+
+    g_off = tmp_path / "off.glb"
+    stream_step_to_glb(path, g_off, tolerant=True, merge_same_name_siblings=False)
+    g_on = tmp_path / "on.glb"
+    stream_step_to_glb(path, g_on, tolerant=True, merge_same_name_siblings=True)
+
+    j_off, j_on = _load(g_off), _load(g_on)
+
+    def _names(j):
+        meta = j["scenes"][0]["extras"]["id_hierarchy"]
+        out = {}
+        for nid, (name, pid) in meta.items():
+            out.setdefault(name, []).append(nid)
+        return out
+
+    # merged: a single 'box' node (no 'box/2'); unmerged: two distinct instance nodes.
+    assert "box/2" not in _names(j_on)
+    assert "box/2" in _names(j_off)
+
+    # geometry preserved: same total index count both ways.
+    tot = lambda j: sum(a["count"] for a in j["accessors"] if a.get("type") == "SCALAR")  # noqa: E731
+    assert tot(j_on) == tot(j_off)
+
+    # one pickable object: the merged node maps to ONE contiguous draw-range covering both
+    # instances, i.e. the unmerged path's two ranges fused into one of double the length.
+    dr_on = next(v for k, v in j_on["scenes"][0]["extras"].items() if k.startswith("draw_ranges_node"))
+    lengths = sorted(rng[1] for rng in dr_on.values())
+    # box-group range is the largest; it equals the sum of the two unmerged box ranges.
+    dr_off = next(v for k, v in j_off["scenes"][0]["extras"].items() if k.startswith("draw_ranges_node"))
+    box_len_off = sorted(rng[1] for rng in dr_off.values())[-1]
+    assert lengths[-1] == 2 * box_len_off, f"merged box range not contiguous-doubled: {dr_on} vs {dr_off}"

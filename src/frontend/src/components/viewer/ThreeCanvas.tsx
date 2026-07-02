@@ -21,6 +21,7 @@ import {replace_model} from "@/utils/scene/handlers/update_scene_from_message";
 import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
 import {consumeDirty, requestRender, usePerfStore} from "@/state/perfStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {renderProfiler} from "@/utils/scene/renderProfiler";
 
 
 const ThreeCanvas: React.FC = () => {
@@ -226,7 +227,12 @@ const ThreeCanvas: React.FC = () => {
             const shouldRender =
                 !perfNow.onDemandRender || dirty || animActive || feaPlaying;
             if (shouldRender) {
+                // Admin-only render profiler — brackets the draw so it can
+                // capture CPU submission time + a GPU timer query. No-op
+                // (one store read) unless collectRenderMetrics + admin.
+                renderProfiler.beforeRender();
                 renderer.render(scene, camera);
+                renderProfiler.afterRender();
 
                 // 4) update custom panels from renderer.info — only
                 // updates when we actually rendered, otherwise the

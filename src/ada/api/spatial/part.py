@@ -562,7 +562,8 @@ class Part(BackendGeom):
         opacity=1.0,
         source_units=Units.M,
         include_shells=False,
-        reader: str = "occ",
+        reader: Literal["occ", "stream", "auto", "tolerant", "native"] | None = None,
+        product_tree: bool = False,
     ):
         """
 
@@ -574,17 +575,38 @@ class Part(BackendGeom):
         :param colour: Assign a specific colour upon import
         :param opacity: Assign Opacity upon import
         :param source_units: Unit of the imported STEP file. Default is 'm'
-        :param reader: "occ" (default) reads via the OpenCASCADE STEPControl_Reader.
-            "stream" uses the kernel-free streaming reader (constant-memory parse,
-            yields adapy geometry directly — see ada.cadit.step.read.stream_reader);
-            "auto" tries the streaming reader first and falls back to OCC if the file
-            uses any entity outside its scope; "tolerant" reads every supported solid
-            kernel-free and *skips* the unsupported ones (no whole-file OCC fallback) —
-            best for large mixed CAD that would OOM the OCC reader.
+        :param reader: STEP read path. ``None`` (default) resolves from the active
+            ``CadConfig.step_reader`` (``"auto"`` out of the box). "occ" reads via the
+            OpenCASCADE STEPControl_Reader. "stream" uses the kernel-free streaming reader
+            (constant-memory parse, yields adapy geometry directly — see
+            ada.cadit.step.read.stream_reader); "auto" tries the streaming reader first and
+            falls back to OCC if the file uses any entity outside its scope; "tolerant"
+            reads every supported solid kernel-free and *skips* the unsupported ones (no
+            whole-file OCC fallback) — best for large mixed CAD that would OOM the OCC reader.
         """
-        if reader in ("stream", "auto", "tolerant"):
+        if reader is None:
+            # Resolve the default read path from the active CAD config so it's configurable
+            # via CadConfig.step_reader (default "auto": constant-memory streaming + OCC
+            # fallback). The streaming readers can't apply scale/transform/rotate, so when
+            # those are requested fall back to the OCC reader regardless of the configured
+            # default.
+            if scale is not None or transform is not None or rotate is not None:
+                reader = "occ"
+            else:
+                reader = self._resolve_step_reader()
+
+        if reader in ("stream", "auto", "tolerant", "native"):
             if self._read_step_streaming(
-                step_path, name, scale, transform, rotate, colour, opacity, source_units, reader=reader
+                step_path,
+                name,
+                scale,
+                transform,
+                rotate,
+                colour,
+                opacity,
+                source_units,
+                reader=reader,
+                product_tree=product_tree,
             ):
                 return
             # auto-fallback: the file is outside the streaming reader's scope.
@@ -616,7 +638,17 @@ class Part(BackendGeom):
                 self.add_shape(ada_shape)
 
     def _read_step_streaming(
-        self, step_path, name, scale, transform, rotate, colour, opacity, source_units, reader: str
+        self,
+        step_path,
+        name,
+        scale,
+        transform,
+        rotate,
+        colour,
+        opacity,
+        source_units,
+        reader: Literal["stream", "auto", "tolerant", "native"],
+        product_tree=False,
     ) -> bool:
         """Read a STEP file via the kernel-free streaming reader, wrapping each
         yielded adapy ``Geometry`` in a ``Shape``. Returns True on success; False
@@ -626,6 +658,13 @@ class Part(BackendGeom):
         The streaming parse touches no CAD kernel, so it avoids the whole-model
         materialisation that makes ``STEPControl_Reader`` OOM on large files; the
         per-object OCC body is built lazily only when an object is tessellated.
+
+        ``product_tree`` (default False = flat list of Shapes under this Part): when True,
+        reconstruct the STEP product/assembly tree as nested ``Part``s from each solid's
+        assembly path (``Geometry.instance_paths`` — root-first ``(rep_id, product_name)``
+        levels; the last level is the solid itself). Same-name products under a parent are
+        merged into one Part, so the result mirrors the product tree rather than every
+        placed instance.
         """
         from ada.cadit.step.read.stream_reader import (
             StepStreamUnsupported,
@@ -643,13 +682,54 @@ class Part(BackendGeom):
         tolerant = reader == "tolerant"
 
         ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
-        new_shapes = []
-        try:
-            for i, geometry in enumerate(stream_read_step(step_path, local_pool=local_pool, tolerant=tolerant)):
-                shp_name = str(geometry.id) if geometry.id not in (None, "") else f"{ada_name}_{i}"
-                new_shapes.append(
-                    Shape(shp_name, geom=geometry, color=colour or geometry.color, opacity=opacity, units=source_units)
+        asm_parts: dict[tuple, Part] = {}  # name-path -> Part (merges same-name siblings)
+
+        def _tree_parent(paths) -> Part:
+            """The nested Part a solid belongs under, per its assembly path. The last path
+            level is the solid itself (excluded); intermediate levels become nested Parts,
+            reusing an existing same-name child rather than colliding. Falls back to this
+            Part when there is no real hierarchy."""
+            path = paths[0] if paths else None
+            if not path or len(path) <= 1:
+                return self
+            parent = self
+            name_path: tuple = ()
+            for level in path[:-1]:  # exclude the solid's own leaf level
+                pname = (
+                    (level[1] if level[1] else f"asm_{level[0]}") if isinstance(level, (tuple, list)) else str(level)
                 )
+                name_path += (pname,)
+                p = asm_parts.get(name_path)
+                if p is None:
+                    existing = parent._parts.get(pname)
+                    p = existing if existing is not None else parent.add_part(Part(pname))
+                    asm_parts[name_path] = p
+                parent = p
+            return parent
+
+        # "native": adacpp's C++ NGEOM parser hydrated to Geometry (no Python tokenizer); same yield
+        # contract, so the Shape-wrap + product-tree below is identical.
+        if reader == "native":
+            from ada.cadit.step.read.native_reader import (
+                native_adacpp_step_available,
+                native_stream_read_step,
+            )
+
+            if not native_adacpp_step_available():
+                raise StepStreamUnsupported("reader='native' requires the adacpp stream_step_to_ngeom entry point")
+            geom_iter = native_stream_read_step(step_path)
+        else:
+            geom_iter = stream_read_step(step_path, local_pool=local_pool, tolerant=tolerant)
+
+        new_shapes = []  # (parent_part, shape)
+        try:
+            for i, geometry in enumerate(geom_iter):
+                shp_name = str(geometry.id) if geometry.id not in (None, "") else f"{ada_name}_{i}"
+                shp = Shape(
+                    shp_name, geom=geometry, color=colour or geometry.color, opacity=opacity, units=source_units
+                )
+                parent = _tree_parent(geometry.instance_paths) if product_tree else self
+                new_shapes.append((parent, shp))
         except StepStreamUnsupported:
             if reader != "auto":
                 raise
@@ -663,9 +743,22 @@ class Part(BackendGeom):
             logger.info("read_step_file: streaming reader produced no solids; falling back to OCC reader")
             return False
 
-        for shp in new_shapes:
-            self.add_shape(shp)
+        for parent, shp in new_shapes:
+            parent.add_shape(shp)
         return True
+
+    def _resolve_step_reader(self) -> str:
+        """The STEP read path to use when the caller didn't pass one explicitly.
+
+        Pulled from the owning assembly's ``CadConfig.step_reader`` so the default is
+        configurable through the CAD abstraction; falls back to ``"auto"`` (constant-memory
+        streaming with an OCC fallback) when there's no assembly/config in the ancestry.
+        """
+        cfg = getattr(self.get_assembly(), "cad_config", None)
+        reader = getattr(cfg, "step_reader", None)
+        if reader is None:
+            return "auto"
+        return reader.value if hasattr(reader, "value") else str(reader)
 
     def calculate_cog(self) -> COG:
         import numpy as np
@@ -699,8 +792,7 @@ class Part(BackendGeom):
                 shapes_tot_cogs.append(np.array(obj.cog_abs) * obj.mass)
                 shapes_tot_mass += obj.mass
             elif isinstance(obj, Beam):
-                mass = obj.get_mass()
-                cog = obj.get_cog()
+                cog, mass = obj.get_cog_and_mass()
                 cogs.append(cog * mass)
                 tot_mass += mass
                 # beams only
@@ -790,6 +882,84 @@ class Part(BackendGeom):
             convert_part_objects(self, skip_plates, skip_beams, merge=merge, reconstruct_surfaces=reconstruct_surfaces)
         logger.info("Conversion complete")
 
+    def iter_objects_from_fem(
+        self,
+        beams: bool = True,
+        plates: bool = True,
+        detached: bool = True,
+        mat_cache: dict | None = None,
+        merge_strategy=None,
+    ) -> Iterable[Beam | Plate]:
+        """Lazily build concept objects from this part's FEM mesh.
+
+        Streaming sibling of :meth:`create_objects_from_fem`: yields one object
+        at a time WITHOUT materialising the full set or adding them to the
+        part's containers, so a streaming exporter (e.g.
+        ``Assembly.to_ifc(streaming=True)``) keeps peak memory bounded. Beams
+        are yielded before plates.
+
+        ``detached`` (default) yields transient plates carrying no material
+        back-reference, so each frees as soon as the consumer drops it.
+
+        ``merge_strategy`` selects how shells fold into plates: ``None`` (default)
+        keeps the legacy 1:1 element→plate mapping; any strategy value
+        (``"coplanar"``/...) sources plates from the object-free vectorized face
+        engine (:func:`ada.fem.formats.mesh_faces.faces_from_fem`) and wraps each
+        merged face in a single transient :class:`Plate`. This is the one place
+        the merge strategy lives, so every streaming consumer (Genie XML, IFC,
+        STEP) folds shells the same way. Beams are unaffected (they fold via the
+        colinear pass on the object create path; the strategy is shell-only).
+
+        ``mat_cache`` (name → :class:`Material`) lets the caller pin which
+        material objects the plates reference — pass the already-consolidated
+        materials so the streamed plates share the exporter's material identity
+        (else a post-consolidation ``materials.add`` would mint a fresh copy).
+        """
+        from ada.fem.formats.utils import (
+            convert_shell_elem_to_plates,
+            line_elem_to_beam,
+        )
+
+        if self.fem is None:
+            return
+        if beams:
+            for elem in self.fem.elements.lines:
+                yield line_elem_to_beam(elem, self)
+        if not plates:
+            return
+        if merge_strategy is None:
+            mat_dict: dict = {} if mat_cache is None else mat_cache
+            for elem in self.fem.elements.shell:
+                yield from convert_shell_elem_to_plates(elem, self, mat_dict, detached=detached)
+        else:
+            yield from self._iter_merged_plates_from_fem(merge_strategy, detached, mat_cache)
+
+    def _iter_merged_plates_from_fem(self, merge_strategy, detached: bool, mat_cache: dict | None):
+        """Wrap each object-free merged :class:`FaceData` in one transient Plate.
+
+        Bounded: builds and yields a single Plate at a time. Tri/quad faces take
+        the fast ``Plate.from_fem_shell`` path; merged N-gons use the general
+        ``from_3d_points``."""
+        from ada import Plate
+        from ada.fem.formats.mesh_faces import faces_from_fem
+
+        # name -> Material, resolved once from this part's shell sections so the
+        # wrapped plates reference the real material object (faces carry names).
+        mats: dict = dict(mat_cache) if mat_cache else {}
+        for sec in self.fem.sections.shells:
+            mat = getattr(sec, "material", None)
+            if mat is not None and mat.name not in mats:
+                mats[mat.name] = mat
+
+        for face in faces_from_fem(self.fem, merge_strategy):
+            mat = mats.get(face.material, face.material)
+            if len(face.outline) <= 4:
+                yield Plate.from_fem_shell(
+                    face.name, face.outline, face.thickness, mat=mat, parent=self, detached=detached
+                )
+            else:
+                yield Plate.from_3d_points(face.name, face.outline, face.thickness, mat=mat, parent=self)
+
     def get_part(self, name: str, search_all_parts_in_assembly=False) -> Part | None:
         """Get part by name."""
         if search_all_parts_in_assembly:
@@ -871,32 +1041,23 @@ class Part(BackendGeom):
     def consolidate_sections(self, include_self=True):
         """Moves all sections from all sub-parts to this part"""
         from ada import Beam
-        from ada.fem import FemSection
 
         new_sections = Sections(parent=self)
-        refs_num = 0
 
         for sec in self.get_all_sections(include_self=include_self):
             res = new_sections.add(sec)
             if res.guid == sec.guid:
                 continue
-            refs = [r for r in sec.refs]
-            for elem in refs:
-                refs_num += 1
-                sec.refs.pop(sec.refs.index(elem))
-                if elem not in res.refs:
-                    res.refs.append(elem)
-                if isinstance(elem, (Beam, FemSection)):
-                    if isinstance(elem, BeamTapered) and res.guid == elem.taper.guid:
-                        if not res.equal_props(elem.taper):
-                            raise ValueError(f"Section {res} and {elem.taper} have different properties")
-                        elem.taper = res
-                    else:
-                        if not res.equal_props(elem.section):
-                            raise ValueError(f"Section {res} and {elem.section} have different properties")
-                        elem.section = res
-                else:
-                    raise NotImplementedError(f"Not yet support section {type(elem)=}")
+            # ``Sections.add`` above already redirected every ``sec.refs``
+            # element's section/taper pointer to ``res`` and merged them into
+            # ``res.refs`` via the ``_ref_id_set`` cache (O(N) amortised, only
+            # for props-matching refs). Just drop the orphaned source list — the
+            # sec_map check below raises if add() left any beam unconsolidated
+            # (e.g. a same-name section with mismatched properties). The old
+            # per-element ``pop(index(...))`` + ``elem not in res.refs`` +
+            # ``elem.section = res`` was three O(N) ops against a growing list,
+            # i.e. O(N²) and the dominant Genie-XML write cost.
+            sec.refs.clear()
 
         for part in filter(lambda x: len(x.sections) > 0, self.get_all_parts_in_assembly(include_self=include_self)):
             part.sections = Sections(parent=part)
@@ -1405,16 +1566,28 @@ class Part(BackendGeom):
         evict_solid_cache: bool = True,
         writer: str = "occ",
         schema: str = "AP242",
+        fuse_fem: bool = True,
+        merge_strategy=None,
     ):
         # The "stream" writer authors AP242 B-rep text directly from parametric
         # geometry without building any OCC/adacpp shapes — constant memory, so
         # it does not OOM on large FEM models the way the OCC XCAF path does. It
         # covers extruded solids only (plates, straight beams, straight pipe
-        # segments); other geometry is skipped. See cadit.step.write.ap242_stream.
+        # segments); other geometry is skipped. ``fuse_fem`` streams Beam/Plate
+        # straight from the FEM mesh when they aren't built (no concept-object
+        # peak); ``merge_strategy`` folds shells via the shared object-free face
+        # engine. See cadit.step.write.ap242_stream.
         if writer == "stream":
             from ada.cadit.step.write.ap242_stream import write_step_stream
 
-            return write_step_stream(self, destination_file, schema=schema, progress_callback=progress_callback)
+            return write_step_stream(
+                self,
+                destination_file,
+                schema=schema,
+                progress_callback=progress_callback,
+                fuse_fem=fuse_fem,
+                merge_strategy=merge_strategy,
+            )
         if writer != "occ":
             raise ValueError(f"unknown writer {writer!r}; expected 'occ' or 'stream'")
 

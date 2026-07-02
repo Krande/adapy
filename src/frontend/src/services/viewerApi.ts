@@ -573,6 +573,8 @@ export interface AuditEntry {
     id: number;
     ts: string | null;
     user_sub: string | null;
+    user_email: string | null;
+    user_display_name: string | null;
     scope_kind: string;
     scope_id: string | null;
     action: string;
@@ -597,6 +599,37 @@ export interface AuditEntry {
     issue_bot_status: string | null;
     issue_bot_synced_at: string | null;
     issue_bot_last_error: string | null;
+    // Stable per-device id (from client_metrics) — distinguishes view/render
+    // audit logs by device (e.g. phone vs desktop). Null for server-side rows.
+    device_id: string | null;
+    // The worker image that processed a convert row; links to its package manifest.
+    worker_image_tag: string | null;
+    // Conversion engine + effective toggles for a convert row (which tessellator
+    // actually ran, incl. an adacpp→occ-builtin fallback, + the options used).
+    convert_meta: ConvertMeta | null;
+}
+
+export interface ConvertMeta {
+    tessellator?: string;
+    step_glb_pipeline?: string;
+    glb_compression?: string;
+    stream_workers?: string | number | null;
+    // Wall-clock split of the recorded duration: the conversion proper vs the
+    // GLB-compression (meshopt) post-step, so compression cost isn't mistaken
+    // for a slower conversion.
+    convert_ms?: number | null;
+    compress_ms?: number | null;
+    // The pod's CPU allotment (cgroup quota) at conversion time, so the metrics chart can render CPU
+    // as % utilization across all cores rather than a cumulative ramp.
+    cpu_cores?: number | null;
+    options?: Record<string, string>;
+}
+
+export interface WorkerPackage {
+    name: string;
+    version: string | null;
+    build: string | null;
+    channel: string | null;
 }
 
 // One audit-sweep record. Returned by /admin/audit/runs endpoints.
@@ -606,6 +639,12 @@ export interface AuditEntry {
 // sum equals total.
 export interface AuditRun {
     id: string;
+    // Short, human-referrable monotonic run number ("Run #42"); the UUID id
+    // stays canonical. May be absent on rows from before the seq migration.
+    seq?: number | null;
+    // Idle time (ms) excluded from the active duration — the gap before a
+    // later validation pass folded into the run. UI subtracts it.
+    idle_ms?: number | null;
     scope: string;
     worker_pool: string | null;
     trigger: string;
@@ -622,11 +661,34 @@ export interface AuditRun {
     // short-circuit. Useful as a UI badge so an unexpected slow
     // run is recognisable as a perf measurement vs a regression.
     force_rebuild: boolean;
+    // When true, the finished-run poller auto-fires a follow-up
+    // validate_only parity run for the same scope once this run finishes.
+    auto_validate?: boolean;
+    // Set once a validation pass has been dispatched for this run (via the
+    // toggle or the manual button) — used to gate the "Validate" button so a
+    // run is validated at most once.
+    auto_validate_dispatched_at?: string | null;
+    // Set on a derived run (the auto-validation child, or a re-dispatched
+    // copy) to the run it was created from.
+    parent_run_id?: string | null;
     // M5: issue-bot sync status. NULL until the bot has touched the
     // run; 'syncing' while in flight; terminal 'done'/'skipped'/'failed'.
     issue_bot_status: string | null;
     issue_bot_last_error: string | null;
     issue_bot_synced_at: string | null;
+}
+
+// One historic result for a (source key, target_format) cell — newest
+// first — backing the grid's right-click "show history" table.
+export interface AuditCellHistoryRow {
+    id: number;
+    ts: string | null;
+    status: string;
+    error: string | null;
+    duration_ms: number | null;
+    peak_rss_kb: number | null;
+    worker_image_tag: string | null;
+    audit_run_id: string | null;
 }
 
 // Per-deployment configuration for the audit-failure → issue tracker
@@ -757,6 +819,9 @@ export interface MetricsSample {
     peak_rss_kb: number;
     read_bytes: number;
     write_bytes: number;
+    // Per-thread cumulative CPU (utime+stime, ms) keyed by tid — drives the per-core utilization
+    // envelope for the in-process native engine. Absent on older rows / non-native conversions.
+    per_thread_cpu_ms?: Record<string, number> | null;
 }
 
 export interface MetricsHistoryResp {
@@ -820,6 +885,10 @@ export interface AuditFilters {
     scope_kind?: string;
     scope_id?: string;
     action?: string;
+    /** Conversion target format (glb / ifc / step / …). */
+    target?: string;
+    /** Case-insensitive substring filter on the source filepath/filename. */
+    key?: string;
     before_id?: number;
     limit?: number;
 }
@@ -1398,8 +1467,8 @@ export const viewerApi = {
             // Per-job knobs. Keys come from the conversion matrix's
             // ``options[<target>]`` schema (declared at the worker
             // ``@converter(options=...)`` site) plus the legacy
-            // hardcoded set (use_sat_pcurves / pcurve_drive_edge /
-            // skip_shapefix / profile_conversions) that still ride
+            // hardcoded set (use_sat_pcurves / skip_shapefix /
+            // profile_conversions) that still ride
             // the env-var rail. Values are tri-state native:
             // ``null`` clears any global override; otherwise the
             // type matches the option's declared ``type``.
@@ -1579,6 +1648,16 @@ export const viewerApi = {
         return jsonOrThrow(r, "adminAudit");
     },
 
+    /** Admin: the captured package manifest ("pixi list") for a worker image
+     * tag — linked from a convert audit row via its worker_image_tag. */
+    async adminWorkerPackages(
+        imageTag: string,
+    ): Promise<{worker_image_tag: string; packages: WorkerPackage[]; captured_at: string | null}> {
+        const url = `${runtime.apiBase()}/admin/worker-packages/${encodeURIComponent(imageTag)}`;
+        const r = await authedFetch(url);
+        return jsonOrThrow(r, "adminWorkerPackages");
+    },
+
     /** Admin: list live regression corpora (admin-curated proprietary
      * source sets driving M3 audit sweeps). Archived rows hidden. */
     async adminCorporaList(): Promise<{corpora: Corpus[]}> {
@@ -1628,6 +1707,7 @@ export const viewerApi = {
             note?: string | null;
             force_rebuild?: boolean;
             validate_only?: boolean;
+            auto_validate?: boolean;
         },
     ): Promise<AuditRun> {
         const r = await authedFetch(`${runtime.apiBase()}/admin/audit/runs`, {
@@ -1636,6 +1716,54 @@ export const viewerApi = {
             body: JSON.stringify(body),
         });
         return jsonOrThrow(r, "adminAuditRunCreate");
+    },
+
+    /** Admin: re-run a prior audit against the same scope / pool / settings.
+     * The cells are re-enumerated from the scope at dispatch time, so the
+     * re-run reflects the scope's current files. Returns the new run. */
+    async adminAuditRunReDispatch(runId: string): Promise<AuditRun> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}/re-dispatch`,
+            {method: "POST"},
+        );
+        return jsonOrThrow(r, `adminAuditRunReDispatch(${runId})`);
+    },
+
+    /** Admin: append a validation (cross-format parity) pass to a finished
+     * run — folded into the same run, not a new one. 409 if the run isn't
+     * finished or has already been validated. Returns the (reopened) run. */
+    async adminAuditRunValidate(runId: string): Promise<AuditRun> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}/validate`,
+            {method: "POST"},
+        );
+        return jsonOrThrow(r, `adminAuditRunValidate(${runId})`);
+    },
+
+    /** Admin: delete an audit run and its audit_log rows (parity cascades).
+     * 409 if the run is still running — cancel it first. */
+    async adminAuditRunDelete(runId: string): Promise<void> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}`,
+            {method: "DELETE"},
+        );
+        if (!r.ok) {
+            throw new ApiError(`adminAuditRunDelete(${runId})`, r.status, await readDetail(r));
+        }
+    },
+
+    /** Admin: historic results for one (source key, target_format) cell across
+     * every run, newest first. Backs the grid's right-click "show history". */
+    async adminAuditCellHistory(
+        key: string,
+        target: string,
+        limit = 50,
+    ): Promise<{key: string; target_format: string; history: AuditCellHistoryRow[]}> {
+        const params = new URLSearchParams({key, target, limit: String(limit)});
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/cell-history?${params.toString()}`,
+        );
+        return jsonOrThrow(r, "adminAuditCellHistory");
     },
 
     /** Cell matrix for an audit run — drives the in-browser (WASM) sweep
@@ -1923,6 +2051,133 @@ export const viewerApi = {
         return jsonOrThrow(r, "adminPerfHotspots");
     },
 
+    /** Record one browser model-load (``action='view'``) — the viewer's
+     * opt-in load instrumentation posts this once a GLB is in the scene.
+     * Best-effort: never throws into the load path. ``client_metrics`` is
+     * the per-phase IO/network/CPU/GPU + payload + device breakdown. */
+    async recordViewLoad(
+        scope: ScopeUrl,
+        body: {
+            key: string;
+            status?: "ok" | "error";
+            duration_ms?: number | null;
+            read_bytes?: number | null;
+            write_bytes?: number | null;
+            peak_rss_kb?: number | null;
+            error?: string | null;
+            traceback?: string | null;
+            client_metrics?: Record<string, unknown> | null;
+        },
+    ): Promise<void> {
+        try {
+            await authedFetch(
+                `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/audit/view`,
+                {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify(body),
+                },
+            );
+        } catch (e) {
+            // Metrics must never disrupt the session.
+            console.debug("recordViewLoad failed (ignored)", e);
+        }
+    },
+
+    /** Record one steady-state render-performance window
+     * (``action='render'``). Same best-effort contract as
+     * ``recordViewLoad``. */
+    async recordRenderProfile(
+        scope: ScopeUrl,
+        body: {
+            key: string;
+            duration_ms?: number | null;
+            client_metrics?: Record<string, unknown> | null;
+        },
+    ): Promise<void> {
+        try {
+            await authedFetch(
+                `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/audit/view`,
+                {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    // The ingest endpoint stores any action via client_metrics;
+                    // render rows are marked by client_metrics.kind === "render"
+                    // and the backend routes them to action='render'.
+                    body: JSON.stringify(body),
+                },
+            );
+        } catch (e) {
+            console.debug("recordRenderProfile failed (ignored)", e);
+        }
+    },
+
+    /** Admin: per-file browser model-load perf snapshot. One cell per
+     * GLB with p50/p95 of every load phase + a dominant-bottleneck
+     * label (io / network / cpu / gpu). */
+    async adminFrontendLoads(since = 30): Promise<{
+        cells: Array<Record<string, number | string | null>>;
+        since_days: number;
+        generated_at: string;
+    }> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/frontend-loads?since=${since}`,
+        );
+        return jsonOrThrow(r, "adminFrontendLoads");
+    },
+
+    /** Admin: function-level hotspots (summed JS Self-Profiling self-time
+     * per TS/WASM frame) across browser loads, optionally one ``key``. */
+    async adminFrontendLoadHotspots(opts: {key?: string; since?: number; limit?: number; kind?: "view" | "render"}): Promise<{
+        functions: Array<{
+            fn: string;
+            samples: number;
+            self_ms_sum: number | null;
+            self_ms_avg: number | null;
+            total_ms_max: number | null;
+            is_wasm: boolean;
+        }>;
+        loads_in_window: number;
+        key: string | null;
+        kind: string;
+        since_days: number;
+    }> {
+        const params = new URLSearchParams();
+        if (opts.key) params.set("key", opts.key);
+        if (opts.since != null) params.set("since", String(opts.since));
+        if (opts.limit != null) params.set("limit", String(opts.limit));
+        if (opts.kind) params.set("kind", opts.kind);
+        const qs = params.toString();
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/frontend-loads/hotspots${qs ? `?${qs}` : ""}`,
+        );
+        return jsonOrThrow(r, "adminFrontendLoadHotspots");
+    },
+
+    /** Admin: the client_metrics payload for one browser view/render
+     * audit row — per-phase split + device + per-function frames. Backs
+     * the audit-log detail "Client" tab. */
+    async adminAuditClientMetrics(id: number): Promise<{
+        audit_id: number;
+        client_metrics: Record<string, unknown> | null;
+    }> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/${id}/client-metrics`);
+        return jsonOrThrow(r, "adminAuditClientMetrics");
+    },
+
+    /** Admin: per-file steady-state render-performance snapshot
+     * (``action='render'``). */
+    async adminRenderProfiles(since = 30): Promise<{
+        cells: Array<Record<string, number | string | null>>;
+        since_days: number;
+        generated_at: string;
+    }> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/render?since=${since}`,
+        );
+        return jsonOrThrow(r, "adminRenderProfiles");
+    },
+
     /** Admin: kick off a background sweep that scans the scope for
      * gzip-compressible source files (.ifc / .step / .sif / etc.)
      * whose stored bytes aren't gzipped, and rewrites each with
@@ -1960,6 +2215,23 @@ export const viewerApi = {
     }> {
         const r = await authedFetch(`${runtime.apiBase()}/admin/workers`);
         return jsonOrThrow(r, "adminListWorkers");
+    },
+
+    /** Admin: drop every currently-offline worker registry entry (a live pod re-registers within a
+     * heartbeat). Returns the number pruned. */
+    async adminPruneWorkers(): Promise<{pruned: number}> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/workers/prune`, {method: "POST"});
+        return jsonOrThrow(r, "adminPruneWorkers");
+    },
+
+    /** Admin: fetch a conversion's captured stdout/stderr log (the log_key blob) as text. Throws
+     * ApiError(404) when the row has no log attached (predates log capture, or no conversion ran). */
+    async adminGetAuditLog(auditId: number): Promise<string> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/${auditId}/log`);
+        if (!r.ok) {
+            throw new ApiError(`adminGetAuditLog(${auditId})`, r.status, await readDetail(r));
+        }
+        return r.text();
     },
 
     /** Admin: read a key from app_settings. Value is null when unset. */
@@ -2228,6 +2500,7 @@ export const viewerApi = {
         keys: string[],
     ): Promise<{
         copied: Array<{key: string}>;
+        skipped: Array<{key: string; reason: string}>;
         failed: Array<{key: string; reason: string}>;
     }> {
         const r = await authedFetch(

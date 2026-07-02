@@ -81,7 +81,7 @@ def _put(client: TestClient, key: str, data: bytes) -> None:
                 break
         if storage is not None:
             break
-    asyncio.get_event_loop().run_until_complete(storage.put_bytes(Scope.shared(), key, data))
+    asyncio.run(storage.put_bytes(Scope.shared(), key, data))
 
 
 @pytest.fixture

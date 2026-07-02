@@ -12,7 +12,7 @@
 # CI passes the full image reference as a build-arg so this Dockerfile
 # stays registry-agnostic. Pin a different adacpp by pointing the
 # build-arg at a different version tag.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.9.0
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.10.0
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
@@ -47,6 +47,15 @@ RUN npm run build:serve
 COPY --from=adacpp-wheel /out/ /build/dist/wheels/
 COPY --from=adapy-wheel  /out/ /build/dist/wheels/
 
+# The no-pyodide STEP->GLB embind module (adacpp_step_glb.js + .wasm) ships in the same adacpp base
+# image under /out/wasm/, so the copy above lands it at dist/wheels/wasm/. Promote it to /wasm/ — where
+# the in-browser "Load STEP" converter (LocalStepLoader -> stepConverter.worker) fetches it. Guarded so
+# the build still works against older base images that predate the module.
+RUN mkdir -p /build/dist/wasm && \
+    if [ -d /build/dist/wheels/wasm ]; then \
+        mv /build/dist/wheels/wasm/* /build/dist/wasm/ && rmdir /build/dist/wheels/wasm; \
+    fi
+
 # Stage 2a: pixi env solver — installs the viewer-api-slim environment
 # from pixi.toml/pixi.lock so the runtime stack stays in lockstep with
 # what's solved locally. Replaces a hand-curated ``pip install`` list
@@ -74,7 +83,7 @@ ENV PATH="/env/bin:$PATH"
 # prefix (/work/.pixi/envs/viewer-api-slim/ssl), which no longer exists
 # after the env is COPY'd to /env. urllib (used by PyJWKClient for the
 # JWKS fetch) honours OpenSSL's default path, so without this it can't
-# verify TLS to authentik.krande.no and every token check 401s — while
+# verify TLS to the configured Authentik (OIDC) host and every token check 401s — while
 # httpx-based discovery still works via certifi, hence callback-OK but
 # /api/me-401. Point OpenSSL/urllib at the CA bundle in its new location.
 ENV SSL_CERT_FILE=/env/ssl/cert.pem \

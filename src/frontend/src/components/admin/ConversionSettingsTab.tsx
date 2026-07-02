@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useState} from "react";
 import {ApiError, viewerApi} from "@/services/viewerApi";
+import {runtime} from "@/runtime/config";
 
 // Per-deployment conversion knobs. Each row maps to a key in the
 // app_settings table; a falsy value (or absence) means "use adapy's
@@ -25,15 +26,6 @@ const ROWS: SettingRow[] = [
             "Consume the 2D parameter-space curves authored in the SAT/Genie input " +
             "instead of regenerating them from the 3D edges. Off → safer fallback that " +
             "is ~5x slower and may visually diverge for some BSpline faces.",
-        codeDefault: true,
-    },
-    {
-        key: "pcurve_drive_edge",
-        label: "Drive edge from pcurve",
-        description:
-            "Build each OCC edge from the (pcurve, surface) pair instead of from the " +
-            "3D BSpline curve, so the edge's 3D parametrization is forced consistent " +
-            "with the surface. Fixes stretched-face artifacts seen on large SAT hull models.",
         codeDefault: true,
     },
     {
@@ -77,6 +69,17 @@ const ROWS: SettingRow[] = [
         codeDefault: false,
     },
     {
+        key: "ifc_streaming",
+        label: "Stream IFC write",
+        description:
+            "Write FEM→IFC with the memory-bounded streaming writer: Plate solids are " +
+            "hand-authored as SPF text instead of holding the whole model in memory, " +
+            "~halving peak RSS so large shell meshes (100k+ plates) don't OOM the worker. " +
+            "On by default. Off → the in-memory writer (needed if a model uses groups, " +
+            "presentation layers or welds, which the streaming path omits for plates).",
+        codeDefault: true,
+    },
+    {
         key: "profile_conversions",
         label: "Profile conversions",
         description:
@@ -106,6 +109,47 @@ function triToString(tri: TriState): string {
 
 const TIMEOUT_KEY = "conversion_timeout_minutes";
 
+// STEP→GLB tessellation engine. Empty = adapy's code default. Maps to the ADAPY_STEP_GLB_PIPELINE
+// env the worker applies per job; per-job convert-dialog overrides win over this global default.
+//
+// The engine LIST is read live from the worker-advertised conversion matrix
+// (runtime.conversionOptionsFor — the SAME single source the convert page uses), so a new engine in
+// converter.py's _STEP_GLB_PIPELINES shows up here automatically with no frontend change. The map
+// below is only friendly labels; an unknown engine id falls back to showing the id verbatim.
+const STEP_GLB_PIPELINE_KEY = "step_glb_pipeline";
+
+// Verbosity of the captured conversion log (audit row Log tab). Empty = the worker's quiet WARNING
+// default; INFO surfaces per-stage progress + the native engine summary. Maps to ADA_CONVERT_LOG_LEVEL,
+// applied to the ``ada`` logger inside the convert subprocess.
+const CONVERT_LOG_LEVEL_KEY = "convert_log_level";
+const LOG_LEVEL_OPTIONS: {value: string; label: string}[] = [
+    {value: "", label: "Unset (WARNING)"},
+    {value: "DEBUG", label: "DEBUG — most verbose"},
+    {value: "INFO", label: "INFO — progress + summaries"},
+    {value: "WARNING", label: "WARNING — default"},
+    {value: "ERROR", label: "ERROR — errors only"},
+];
+const PIPELINE_LABELS: Record<string, string> = {
+    "adacpp-native": "adacpp-native — full C++ STEP→GLB (fastest, lowest memory)",
+    "libtess2": "libtess2 — adacpp OCC-free (Python reader + worker pool)",
+    "occ-builtin": "occ-builtin — OpenCASCADE (drops some curved surfaces)",
+    "adacpp-occ": "adacpp-occ — taxonomy / OCCT kernel",
+    "adacpp-cgal": "adacpp-cgal — taxonomy / CGAL kernel",
+    "adacpp-hybrid": "adacpp-hybrid — taxonomy / hybrid kernel",
+};
+
+// Derive the dropdown from the live matrix (.step or .stp → glb), labelling known ids.
+function buildPipelineOptions(): {value: string; label: string}[] {
+    const opt =
+        runtime.conversionOptionsFor(".step", "glb").find((o) => o.name === STEP_GLB_PIPELINE_KEY) ??
+        runtime.conversionOptionsFor(".stp", "glb").find((o) => o.name === STEP_GLB_PIPELINE_KEY);
+    const dflt = typeof opt?.default === "string" ? opt.default : "";
+    return [
+        {value: "", label: `Unset — adapy default${dflt ? ` (${dflt})` : ""}`},
+        ...(opt?.enum ?? []).map((v) => ({value: v, label: PIPELINE_LABELS[v] ?? v})),
+    ];
+}
+
 const ConversionSettingsTab: React.FC = () => {
     const [values, setValues] = useState<Record<string, TriState>>(() =>
         Object.fromEntries(ROWS.map((r) => [r.key, "unset"])),
@@ -119,6 +163,12 @@ const ConversionSettingsTab: React.FC = () => {
     const [solidTimeout, setSolidTimeout] = useState("");
     const [solidTimeoutSaving, setSolidTimeoutSaving] = useState(false);
     const [solidTimeoutSavedAt, setSolidTimeoutSavedAt] = useState<number | null>(null);
+    const [pipeline, setPipeline] = useState("");
+    const [pipelineSaving, setPipelineSaving] = useState(false);
+    const [pipelineSavedAt, setPipelineSavedAt] = useState<number | null>(null);
+    const [logLevel, setLogLevel] = useState("");
+    const [logLevelSaving, setLogLevelSaving] = useState(false);
+    const [logLevelSavedAt, setLogLevelSavedAt] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState<Record<string, boolean>>({});
     const [error, setError] = useState<string | null>(null);
@@ -139,6 +189,10 @@ const ConversionSettingsTab: React.FC = () => {
                 if (!cancelled) setStreamerThreshold((thr || "").trim());
                 const sto = await viewerApi.adminGetSetting(SOLID_TIMEOUT_KEY);
                 if (!cancelled) setSolidTimeout((sto || "").trim());
+                const pp = await viewerApi.adminGetSetting(STEP_GLB_PIPELINE_KEY);
+                if (!cancelled) setPipeline((pp || "").trim());
+                const ll = await viewerApi.adminGetSetting(CONVERT_LOG_LEVEL_KEY);
+                if (!cancelled) setLogLevel((ll || "").trim().toUpperCase());
                 if (!cancelled) setValues(next);
             } catch (e) {
                 if (!cancelled) setError(e instanceof ApiError ? e.detail || e.message : String(e));
@@ -230,6 +284,34 @@ const ConversionSettingsTab: React.FC = () => {
         }
     };
 
+    const onPipelineChange = async (next: string) => {
+        setPipelineSaving(true);
+        setError(null);
+        try {
+            await viewerApi.adminSetSetting(STEP_GLB_PIPELINE_KEY, next);
+            setPipeline(next);
+            setPipelineSavedAt(Date.now());
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setPipelineSaving(false);
+        }
+    };
+
+    const onLogLevelChange = async (next: string) => {
+        setLogLevelSaving(true);
+        setError(null);
+        try {
+            await viewerApi.adminSetSetting(CONVERT_LOG_LEVEL_KEY, next);
+            setLogLevel(next);
+            setLogLevelSavedAt(Date.now());
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setLogLevelSaving(false);
+        }
+    };
+
     const anySaving = useMemo(() => Object.values(saving).some(Boolean), [saving]);
 
     return (
@@ -246,6 +328,79 @@ const ConversionSettingsTab: React.FC = () => {
                 </div>
             )}
             <div className="flex-1 min-h-0 overflow-auto">
+                {!loading && (
+                    <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+                        <div>
+                            <div className="font-medium text-sm">STEP→GLB tessellator</div>
+                            <div className="text-[11px] text-gray-400 font-mono">
+                                {STEP_GLB_PIPELINE_KEY}
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <select
+                                value={pipeline}
+                                onChange={(e) => onPipelineChange(e.target.value)}
+                                disabled={pipelineSaving}
+                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm text-gray-100 max-w-full"
+                            >
+                                {buildPipelineOptions().map((o) => (
+                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                ))}
+                            </select>
+                            {pipelineSaving && <span className="text-[11px] text-gray-400">saving…</span>}
+                            {pipelineSavedAt && !pipelineSaving && (
+                                <span className="text-[11px] text-emerald-400">
+                                    saved {Math.floor((Date.now() - pipelineSavedAt) / 1000)}s ago
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-xs text-gray-400 max-w-2xl">
+                            Engine for STEP→GLB tessellation. <span className="font-mono">libtess2</span>{" "}
+                            (the code default when Unset) is adacpp's OCC-free boundary tessellator — it
+                            renders the curved surfaces (rational B-spline / spherical / conical / toroidal)
+                            the OpenCASCADE streaming reader silently drops.{" "}
+                            <span className="font-mono">occ-builtin</span> is the prior OpenCASCADE path;
+                            <span className="font-mono"> adacpp-occ/cgal/hybrid</span> use adacpp's taxonomy
+                            kernels; <span className="font-mono">step2glb</span> runs the external binary.
+                            Per-job overrides on the convert dialog win over this.
+                        </div>
+                    </div>
+                )}
+                {!loading && (
+                    <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+                        <div>
+                            <div className="font-medium text-sm">Conversion log level</div>
+                            <div className="text-[11px] text-gray-400 font-mono">
+                                {CONVERT_LOG_LEVEL_KEY}
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <select
+                                value={logLevel}
+                                onChange={(e) => onLogLevelChange(e.target.value)}
+                                disabled={logLevelSaving}
+                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm text-gray-100 max-w-full"
+                            >
+                                {LOG_LEVEL_OPTIONS.map((o) => (
+                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                ))}
+                            </select>
+                            {logLevelSaving && <span className="text-[11px] text-gray-400">saving…</span>}
+                            {logLevelSavedAt && !logLevelSaving && (
+                                <span className="text-[11px] text-emerald-400">
+                                    saved {Math.floor((Date.now() - logLevelSavedAt) / 1000)}s ago
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-xs text-gray-400 max-w-2xl">
+                            Verbosity of the captured conversion log (the audit row's Log tab).{" "}
+                            <span className="font-mono">WARNING</span> (default) keeps successful runs quiet;{" "}
+                            <span className="font-mono">INFO</span> surfaces per-stage progress and the native
+                            engine summary. Applied to the <span className="font-mono">ada</span> logger inside
+                            the convert subprocess.
+                        </div>
+                    </div>
+                )}
                 {!loading && (
                     <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
                         <div>
@@ -376,6 +531,51 @@ const ConversionSettingsTab: React.FC = () => {
                         </div>
                     </div>
                 )}
+                {!loading && (
+                    <NumberSetting
+                        settingKey="step_stream_workers"
+                        label="STEP stream worker count"
+                        unit="workers"
+                        placeholder="auto (min(cpu-1, 3))"
+                        min={1}
+                        onError={setError}
+                        description={
+                            "Tessellation worker processes for STEP→GLB streaming. Peak conversion RSS " +
+                            "scales ~linearly with this (each worker holds a chunk of mesh in flight). " +
+                            "Empty = code default min(cpu-1, 3). Raise on a roomier pod to trade RAM for speed."
+                        }
+                    />
+                )}
+                {!loading && (
+                    <NumberSetting
+                        settingKey="step_stream_worker_soft_mem_mb"
+                        label="STEP stream worker soft memory cap"
+                        unit="MB"
+                        placeholder="800"
+                        min={0}
+                        onError={setError}
+                        description={
+                            "A streaming tessellation worker still above this BETWEEN solids (after gc + " +
+                            "malloc_trim) exits cleanly and respawns fresh — nothing lost, pending solids go " +
+                            "to the next worker. Bounds native-heap fragmentation. Empty = code default 800 MB; 0 disables."
+                        }
+                    />
+                )}
+                {!loading && (
+                    <NumberSetting
+                        settingKey="step_stream_worker_hard_mem_mb"
+                        label="STEP stream worker hard memory cap"
+                        unit="MB"
+                        placeholder="1600"
+                        min={0}
+                        onError={setError}
+                        description={
+                            "A worker crossing this MID-solid is killed and the in-flight solid requeued once; " +
+                            "if it overruns again the solid itself needs that much memory and is skipped with a " +
+                            "'memory' reason (lost geometry). Keep comfortably above the soft cap. Empty = code default 1600 MB; 0 disables."
+                        }
+                    />
+                )}
                 {loading ? (
                     <div className="px-3 sm:px-4 py-4 text-sm text-gray-300">Loading settings…</div>
                 ) : (
@@ -413,6 +613,90 @@ const ConversionSettingsTab: React.FC = () => {
                     </table>
                 )}
             </div>
+        </div>
+    );
+};
+
+// Self-contained numeric app_setting row (loads + saves its own key). Used for the
+// STEP-stream memory knobs; empty = adapy's code default.
+const NumberSetting: React.FC<{
+    settingKey: string;
+    label: string;
+    unit: string;
+    placeholder: string;
+    description: React.ReactNode;
+    min?: number;
+    onError: (msg: string | null) => void;
+}> = ({settingKey, label, unit, placeholder, description, min = 0, onError}) => {
+    const [value, setValue] = useState("");
+    const [saving, setSaving] = useState(false);
+    const [savedAt, setSavedAt] = useState<number | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const v = await viewerApi.adminGetSetting(settingKey);
+                if (!cancelled) setValue((v || "").trim());
+            } catch {
+                /* surfaced by the tab's batch load */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [settingKey]);
+    const save = async () => {
+        const raw = value.trim();
+        if (raw !== "") {
+            const n = Number(raw);
+            if (Number.isNaN(n) || n < min) {
+                onError(`${label} must be a number ≥ ${min} (got "${raw}")`);
+                return;
+            }
+        }
+        setSaving(true);
+        onError(null);
+        try {
+            await viewerApi.adminSetSetting(settingKey, raw);
+            setSavedAt(Date.now());
+        } catch (e) {
+            onError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setSaving(false);
+        }
+    };
+    return (
+        <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+            <div>
+                <div className="font-medium text-sm">{label}</div>
+                <div className="text-[11px] text-gray-400 font-mono">{settingKey}</div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+                <input
+                    type="number"
+                    min={min}
+                    step="1"
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    placeholder={placeholder}
+                    className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm w-32 text-gray-100"
+                />
+                <span className="text-xs text-gray-400">{unit}</span>
+                <button
+                    type="button"
+                    onClick={save}
+                    disabled={saving}
+                    className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                >
+                    {saving ? "Saving…" : "Save"}
+                </button>
+                {savedAt && (
+                    <span className="text-[11px] text-emerald-400">
+                        saved {Math.floor((Date.now() - savedAt) / 1000)}s ago
+                    </span>
+                )}
+            </div>
+            <div className="text-xs text-gray-400 max-w-2xl">{description}</div>
         </div>
     );
 };

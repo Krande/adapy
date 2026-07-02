@@ -14,6 +14,7 @@ from ada.cadit.sat.parser.acis_entities import (
     AcisCoedge,
     AcisConeSurface,
     AcisCylinderSurface,
+    AcisDegenerateCurve,
     AcisEdge,
     AcisEllipseCurve,
     AcisEntity,
@@ -22,6 +23,7 @@ from ada.cadit.sat.parser.acis_entities import (
     AcisIntcurveCurve,
     AcisLoop,
     AcisLump,
+    AcisMeshSurface,
     AcisNameAttrib,
     AcisPCurve,
     AcisPlaneSurface,
@@ -40,6 +42,7 @@ from ada.cadit.sat.parser.acis_entities import (
     AcisTransform,
     AcisVersion,
     AcisVertex,
+    AcisWire,
     NurbsType,
     SenseType,
 )
@@ -245,6 +248,8 @@ class AcisSatParser:
                 return self._parse_face(index, data)
             elif entity_type == "loop":
                 return self._parse_loop(index, data)
+            elif entity_type == "wire":
+                return self._parse_wire(index, data)
             elif entity_type == "coedge":
                 return self._parse_coedge(index, data)
             elif entity_type == "edge":
@@ -259,6 +264,8 @@ class AcisSatParser:
                 return self._parse_ellipse_curve(index, data)
             elif entity_type == "intcurve-curve":
                 return self._parse_intcurve_curve(index, data)
+            elif entity_type == "degenerate-curve":
+                return self._parse_degenerate_curve(index, data)
             elif entity_type == "plane-surface":
                 return self._parse_plane_surface(index, data)
             elif entity_type == "cone-surface":
@@ -271,6 +278,8 @@ class AcisSatParser:
                 return self._parse_torus_surface(index, data)
             elif entity_type == "spline-surface":
                 return self._parse_spline_surface(index, data)
+            elif entity_type == "meshsurf-surface":
+                return self._parse_meshsurf_surface(index, data)
             elif "attrib" in entity_type or "gen-attrib" in entity_type:
                 return self._parse_attrib(index, entity_type, data)
             elif entity_type == "pcurve":
@@ -428,6 +437,43 @@ class AcisSatParser:
             coedge_ref=self._parse_ref(parts[5]) if len(parts) > 5 else None,
             bounding_box=self._parse_bbox(parts, 7) if len(parts) > 12 else None,
         )
+
+    def _parse_wire(self, index: int, data: str) -> AcisWire:
+        """Parse wire entity (a connected coedge chain not bounding a face — wireframe).
+
+        Layout varies by ACIS version; the coedge reference is the load-bearing field, so
+        grab refs defensively rather than relying on fixed positions."""
+        parts = data.split()
+        refs = [self._parse_ref(p) for p in parts if p.startswith("$")]
+        refs = [r for r in refs if r is not None]
+        return AcisWire(
+            index=index,
+            entity_type="wire",
+            next_wire_ref=self._parse_ref(parts[0]) if parts and parts[0].startswith("$") else None,
+            coedge_ref=refs[-2] if len(refs) >= 2 else (refs[-1] if refs else None),
+            body_ref=refs[-1] if refs else None,
+            bounding_box=self._parse_bbox(parts, len(parts) - 6) if len(parts) > 6 else None,
+        )
+
+    def _parse_degenerate_curve(self, index: int, data: str) -> AcisDegenerateCurve:
+        """Parse degenerate-curve entity (a curve collapsed to a point, e.g. a cone apex
+        or sphere pole). Keep the collapse position so the edge isn't silently lost."""
+        nums = []
+        for part in data.split():
+            if part.startswith("$") or part in ("I", "F", "#"):
+                continue
+            try:
+                nums.append(float(part))
+            except ValueError:
+                continue
+        return AcisDegenerateCurve(
+            index=index, entity_type="degenerate-curve", position=nums[0:3] if len(nums) >= 3 else []
+        )
+
+    def _parse_meshsurf_surface(self, index: int, data: str) -> AcisMeshSurface:
+        """Parse meshsurf-surface entity (an explicitly faceted surface). The node/facet
+        mesh is kept raw for downstream triangulation rather than dropped to a generic."""
+        return AcisMeshSurface(index=index, entity_type="meshsurf-surface", raw_data=data.strip())
 
     def _parse_coedge(self, index: int, data: str) -> AcisCoedge:
         """Parse coedge entity.

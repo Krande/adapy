@@ -19,8 +19,11 @@ Diff types:
   structure split into more/fewer pieces (the topologic-cut case) — which the
   identity-based modes miss because the pieces don't line up 1:1.
 
-Everything here is pure-Python GLB parsing (no CAD kernel) so it runs in the
-slim worker. The GLB structure produced by adapy is::
+Identity modes (byName/byCentroid/byProperty) prefer the native adacpp core
+(``adacpp.cad.glb_diff``): it parses one model at a time (never both full models
+resident) + extracts the removed overlay in C++ — the memory fix for crane-scale
+diffs. The pure-Python parser below is the fallback (and powers byCoverage). The
+GLB structure produced by adapy is::
 
     scene.extras["id_hierarchy"]        : {node_id: [name, parent_id]}
     scene.extras["draw_ranges_node<N>"] : {node_id: [start, count]}  # into indices
@@ -32,6 +35,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import struct
 import tempfile
 from dataclasses import dataclass, field
@@ -171,20 +175,36 @@ def parse_elements(glb_bytes: bytes) -> dict[str, Element]:
 # --------------------------------------------------------------------------- #
 # Compare-ref resolution                                                       #
 # --------------------------------------------------------------------------- #
-def resolve_ref_glb(storage, compare_ref: str) -> bytes:
-    """Resolve ``compare_ref`` to a published build GLB's bytes.
+def resolve_ref_glb_path(storage, compare_ref: str) -> str:
+    """Resolve ``compare_ref`` to a local temp-file path holding the comparison GLB
+    (fetched, never loaded into Python — so the native path can read multi-100-MB
+    refs without a Python-side copy).
 
-    Builds land at ``versions/<branch>/<commit>/<artefact>.glb`` (ada build
-    upload). ``compare_ref`` may be:
+    ``compare_ref`` may be:
 
-    * a **full blob key** ``versions/<branch>/<commit>/<artefact>.glb`` — used
-      verbatim (the frontend's artefact picker sends this so the diff compares
-      like-for-like against the chosen GLB), or
+    * an **arbitrary blob key** ending in ``.glb`` (e.g. ``debug/other.glb``,
+      ``uploads/x.glb``) — fetched verbatim from the current scope, so the diff
+      can compare any two uploaded models, not only published builds, or
+    * a **full build key** ``versions/<branch>/<commit>/<artefact>.glb`` — used
+      verbatim (the frontend's artefact picker sends this), or
     * a **branch name** or **commit SHA** — matched against the ``<branch>`` or
-      ``<commit>`` path segment, picking the first ``.glb`` lexicographically
-      (back-compat / CLI use).
+      ``<commit>`` path segment under ``versions/``, picking the first ``.glb``
+      lexicographically (back-compat / CLI use).
     """
     ref = compare_ref.strip()
+
+    # Arbitrary uploaded file: any .glb key in the scope that isn't a versions/
+    # build path. Fetch it directly so two arbitrary models can be compared.
+    if ref.endswith(".glb") and not ref.startswith("versions/"):
+        dest = tempfile.mkstemp(suffix=".glb")[1]
+        try:
+            storage.fetch_to_path(ref, dest)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"compare file not found in scope: {ref!r} ({exc})") from exc
+        if os.path.getsize(dest) == 0:
+            raise ValueError(f"compare file is empty: {ref!r}")
+        return dest
+
     keys = [k for k in storage.list_keys("versions/") if k.endswith(".glb")]
 
     if ref.startswith("versions/") and ref.endswith(".glb"):
@@ -205,7 +225,16 @@ def resolve_ref_glb(storage, compare_ref: str) -> bytes:
 
     dest = tempfile.mkstemp(suffix=".glb")[1]
     storage.fetch_to_path(chosen, dest)
-    with open(dest, "rb") as fh:
+    return dest
+
+
+def resolve_ref_glb(storage, compare_ref: str) -> bytes:
+    """Resolve ``compare_ref`` to the comparison GLB's bytes (Python-path helper).
+
+    Thin wrapper over :func:`resolve_ref_glb_path`; the native diff path uses the
+    path form directly to avoid loading the ref into Python.
+    """
+    with open(resolve_ref_glb_path(storage, compare_ref), "rb") as fh:
         return fh.read()
 
 
@@ -408,6 +437,58 @@ def build_removed_overlay_glb(ref_glb: bytes, removed_names: list[str]) -> bytes
 
 
 # --------------------------------------------------------------------------- #
+# Native core (adacpp.cad.glb_diff): parse+match+overlay in C++, one model at a  #
+# time (never both full models resident) — the memory fix for crane-scale diffs. #
+# --------------------------------------------------------------------------- #
+# Overlays are throwaway diff artefacts → an EPHEMERAL prefix that a storage
+# lifecycle rule auto-disposes (vs the persistent, admin-managed _derived/). A
+# stale (expired) overlay simply regenerates on the next diff.
+_OVERLAY_PREFIX = "_overlays/"
+
+# native diff status int -> colour (2=removed is shown via the overlay, not coloured in-scene).
+_STATUS_COLOR = {0: COLOR_UNCHANGED, 1: COLOR_ADDED, 3: COLOR_MODIFIED}
+# diff_type -> native match mode (byCoverage has no native equivalent — Python only).
+_NATIVE_MODE = {"byName": "byName", "byCentroid": "byCentroid", "byProperty": "byProperty"}
+
+
+def _native_glb_diff():
+    """Return ``adacpp.cad.glb_diff`` if the native diff core is importable, else None."""
+    try:
+        import adacpp.cad as _c
+
+        return getattr(_c, "glb_diff", None)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _diff_native(
+    glb_diff, scene_path, ref_path, diff_type, tolerance, show_removed_overlay, storage, compare_ref, summary
+):
+    """Identity-mode diff via the native core (path-based: the big GLBs never copy
+    through Python). Returns the viewer-ops payload, or None to signal the caller to
+    fall back to the pure-Python path (e.g. the native parse found no elements)."""
+    r = glb_diff(scene_path, ref_path, _NATIVE_MODE[diff_type], float(tolerance))
+    counts = {k: int(v) for k, v in dict(r["counts"]).items()}
+    if not r["ops"] and (counts["added"] + counts["unchanged"] + counts["modified"]) == 0:
+        return None  # native couldn't read the scene — let Python try
+
+    elements = [{"key": nid, "color": _STATUS_COLOR.get(int(st), COLOR_UNCHANGED)} for nid, st in r["ops"]]
+    ops: list[dict] = [{"op": "color_elements", "elements": elements}]
+    summary.update(counts)
+    legend = [
+        {"label": "added", "color": COLOR_ADDED, "count": counts["added"]},
+        {"label": "modified", "color": COLOR_MODIFIED, "count": counts["modified"]},
+        {"label": "removed", "color": COLOR_REMOVED, "count": counts["removed"]},
+        {"label": "unchanged", "color": COLOR_UNCHANGED, "count": counts["unchanged"]},
+    ]
+    if show_removed_overlay and counts["removed"] > 0 and r["overlay"]:
+        overlay_key = f"{_OVERLAY_PREFIX}{abs(hash((compare_ref, diff_type))) & 0xFFFFFFFF:08x}.removed.glb"
+        storage.put_bytes(overlay_key, bytes(r["overlay"]))
+        ops.append({"op": "add_overlay_geometry", "blob_key": overlay_key, "label": "removed", "color": COLOR_REMOVED})
+    return {"ops": ops, "legend": legend, "summary": summary}
+
+
+# --------------------------------------------------------------------------- #
 # The utility                                                                  #
 # --------------------------------------------------------------------------- #
 @utility(
@@ -420,7 +501,10 @@ def build_removed_overlay_glb(ref_glb: bytes, removed_names: list[str]) -> bytes
             "name": "compare_ref",
             "type": "ref",
             "default": "",
-            "description": "Published build (branch/commit) to compare against.",
+            "description": (
+                "What to compare against: an uploaded file key (e.g. debug/other.glb), "
+                "a published build key, or a branch/commit ref."
+            ),
         },
         {
             "name": "diff_type",
@@ -462,24 +546,48 @@ def diff(
     show_removed_overlay=True,
     **_,
 ):
-    on_progress("loading-scene", 0.1)
-    with open(scene_glb_path, "rb") as fh:
-        scene_glb = fh.read()
-    scene = parse_elements(scene_glb)
-
     on_progress("resolving-ref", 0.3)
-    ref_glb = resolve_ref_glb(storage, compare_ref)
-    ref = parse_elements(ref_glb)
+    ref_path = resolve_ref_glb_path(storage, compare_ref)
 
     on_progress("diffing", 0.6)
+    summary: dict = {"compare_ref": compare_ref, "diff_type": diff_type}
+
+    # Identity modes (byName/byCentroid/byProperty): prefer the native core — it
+    # summarises one model at a time (never both, geometry not retained) and extracts
+    # the overlay in C++, keeping crane-scale diffs under the worker memory cap. Both
+    # GLBs stay on disk (path-based) so nothing copies through Python. byCoverage has
+    # no native equivalent (per-cell binning) and stays on the Python path.
+    glb_diff = _native_glb_diff() if diff_type in _NATIVE_MODE else None
+    if glb_diff is not None:
+        try:
+            res = _diff_native(
+                glb_diff,
+                scene_glb_path,
+                ref_path,
+                diff_type,
+                tolerance,
+                show_removed_overlay,
+                storage,
+                compare_ref,
+                summary,
+            )
+        except Exception:  # noqa: BLE001 - any native failure degrades to pure-Python
+            res = None
+        if res is not None:
+            on_progress("done", 1.0)
+            return res
+
+    # ── pure-Python fallback (byCoverage; identity modes when native is absent) ──
+    with open(scene_glb_path, "rb") as fh:
+        scene_glb = fh.read()
+    with open(ref_path, "rb") as fh:
+        ref_glb = fh.read()
+    scene = parse_elements(scene_glb)
+    ref = parse_elements(ref_glb)
+    summary["scene_elements"] = len(scene)
+    summary["ref_elements"] = len(ref)
     ops: list[dict] = []
     legend: list[dict] = []
-    summary: dict = {
-        "compare_ref": compare_ref,
-        "diff_type": diff_type,
-        "scene_elements": len(scene),
-        "ref_elements": len(ref),
-    }
 
     if diff_type == "byCoverage":
         res = _by_coverage(scene, ref, grid_size)
@@ -513,9 +621,7 @@ def diff(
             if overlay is not None:
                 # The worker uploads viewops JSON at job.derived_key; the overlay
                 # GLB rides alongside it under a deterministic sibling key.
-                overlay_key = (
-                    f"_derived/diff_overlays/{abs(hash((compare_ref, diff_type))) & 0xFFFFFFFF:08x}.removed.glb"
-                )
+                overlay_key = f"{_OVERLAY_PREFIX}{abs(hash((compare_ref, diff_type))) & 0xFFFFFFFF:08x}.removed.glb"
                 storage.put_bytes(overlay_key, overlay)
                 ops.append(
                     {"op": "add_overlay_geometry", "blob_key": overlay_key, "label": "removed", "color": COLOR_REMOVED}

@@ -272,6 +272,36 @@ def test_sin_stream_reader_bake_matches_full(tmp_path):
     assert full == stream, f"differing artefacts: {[n for n in full if full[n] != stream.get(n)]}"
 
 
+def test_sin_load_step_card_filter():
+    """A per-field bake pass loads only that field's RV card, not all of them.
+
+    The bake iterates one field at a time, so the streaming reader gathers just
+    the RV card for the field being emitted — ~3x fewer record reads (and page
+    fetches on a range source) on a multi-step deck. Here we assert the filter
+    keeps exactly the requested card's field and drops the others."""
+    from ada.fem.formats.sesam.results.read_sin import SinStreamReader
+    from ada.fem.formats.sesam.results.sin_reader import open_sin
+
+    reader = SinStreamReader(open_sin(SIN_PATH))
+    try:
+
+        def names(res):
+            return {getattr(x, "name", None) for x in res.results}
+
+        all_cards = names(reader._load_step(1))
+        assert "RVNODDIS" in all_cards  # nodal present in the full load
+
+        nodal_only = names(reader._load_step(1, cards={"RVNODDIS"}))
+        assert "RVNODDIS" in nodal_only
+        assert "STRESS" not in nodal_only  # element field's card was skipped
+
+        stress_only = names(reader._load_step(1, cards={"RVSTRESS"}))
+        assert "STRESS" in stress_only
+        assert "RVNODDIS" not in stress_only  # nodal card was skipped
+    finally:
+        reader.close()
+
+
 def test_bake_artefacts_on_artefact_sink_ships_each_file(tmp_path):
     """The ``on_artefact`` sink must fire once per artefact (manifest last)
     and yield the same bytes as a normal bake — even when the sink deletes

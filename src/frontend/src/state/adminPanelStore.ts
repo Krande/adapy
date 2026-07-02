@@ -8,6 +8,7 @@ export type AdminTab =
     | "schedules"
     | "issues"
     | "performance"
+    | "frontend_loads"
     | "corpus"
     | "projects"
     | "storage"

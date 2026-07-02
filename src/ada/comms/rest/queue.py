@@ -28,6 +28,8 @@ import nats
 from nats.js.api import ConsumerConfig, RetentionPolicy, StreamConfig
 from nats.js.errors import BadRequestError, BucketNotFoundError, KeyNotFoundError
 
+from ada.config import logger
+
 from .config import QueueConfig
 from .converter import derived_key_for
 
@@ -62,7 +64,7 @@ class Job:
     step: int | None = None
     field: str | None = None
     # Per-conversion overrides for the global app_settings knobs
-    # (use_sat_pcurves / pcurve_drive_edge / skip_shapefix /
+    # (use_sat_pcurves / skip_shapefix /
     # merge_meshes / profile_conversions). Worker merges these on
     # top of the global settings before forking. Stored as plain
     # str/bool/None so the JSON round-trip through KV stays stable.
@@ -99,6 +101,21 @@ class Job:
 
 class QueueDisabled(RuntimeError):
     """Raised when queue operations are attempted but no NATS URL is configured."""
+
+
+def _worker_advertises_engine(w: dict, ext: str, engine: str) -> bool:
+    """True if worker registry entry ``w`` lists ``engine`` in its step_glb_pipeline enum for the
+    ``ext`` → glb conversion — i.e. that pool can actually run the requested STEP→GLB engine."""
+    want = ext.lstrip(".").lower()
+    for entry in w.get("conversions") or []:
+        if not isinstance(entry, dict):
+            continue
+        if (entry.get("from") or "").strip().lstrip(".").lower() != want:
+            continue
+        for opt in (entry.get("options") or {}).get("glb") or []:
+            if isinstance(opt, dict) and opt.get("name") == "step_glb_pipeline":
+                return engine in (opt.get("enum") or [])
+    return False
 
 
 class JobQueue:
@@ -197,6 +214,44 @@ class JobQueue:
             self._js = None
             self._kv = None
 
+    async def purge_jobs(self, job_ids) -> int:
+        """Delete still-queued work-queue messages whose body (a job_id) is in
+        ``job_ids``. WORK_QUEUE retention removes a message on ack, so the stream
+        only holds the un-processed backlog — the scan is over the pending jobs,
+        not all history. Used to deep-clean a cancelled/deleted audit run's cells
+        so the worker never pulls and (partially) processes a doomed conversion.
+        Best-effort; returns the count purged."""
+        ids = {j for j in (job_ids or []) if j}
+        if not ids or self._js is None:
+            return 0
+        try:
+            info = await self._js.stream_info(self._cfg.stream)
+        except Exception:
+            logger.exception("queue: stream_info failed during purge")
+            return 0
+        first = info.state.first_seq or 1
+        last = info.state.last_seq or 0
+        purged = 0
+        for seq in range(first, last + 1):
+            try:
+                msg = await self._js.get_msg(self._cfg.stream, seq)
+            except Exception:
+                continue  # already acked/deleted — gap in the sequence
+            data = getattr(msg, "data", b"") or b""
+            try:
+                jid = data.decode("utf-8") if isinstance(data, (bytes, bytearray)) else str(data)
+            except Exception:
+                continue
+            if jid in ids:
+                try:
+                    await self._js.delete_msg(self._cfg.stream, seq)
+                    purged += 1
+                except Exception:
+                    logger.debug("queue: delete_msg failed for seq %s", seq)
+        if purged:
+            logger.info("queue: purged %d cancelled job message(s) from the stream", purged)
+        return purged
+
     # --- producer side (called from API) -----------------------------
 
     async def enqueue(
@@ -250,7 +305,12 @@ class JobQueue:
         # instead of stuck-pending forever, so the operator sees
         # the actual problem (unsupported file type, missing pool).
         if target_capability is None:
-            target_capability = await self._capability_for_ext(source_key)
+            # A STEP→GLB job pinned to a specific engine routes to a pool that ADVERTISES that engine
+            # (capability gating makes that truthful); otherwise route by source extension as before.
+            requested_engine = None
+            if target_format == "glb" and conversion_options:
+                requested_engine = conversion_options.get("step_glb_pipeline")
+            target_capability = await self._capability_for_ext(source_key, requested_engine)
             # Persist the resolved capability so the worker / UI can
             # show "audit-dispatched to abaqus" without a second
             # registry lookup.
@@ -267,17 +327,18 @@ class JobQueue:
         await self._js.publish(subject, job.job_id.encode("utf-8"))
         return job
 
-    async def _capability_for_ext(self, source_key: str) -> str:
-        """Look up the capability tag of the first online worker
-        whose advertised ``source_exts`` includes the source's
-        suffix. Used by :func:`enqueue` to route a job to the pool
-        that can actually process it (``.odb`` → abaqus etc.) when
-        the caller didn't pin a pool explicitly.
+    async def _capability_for_ext(self, source_key: str, engine: str | None = None) -> str:
+        """Look up the capability tag of the online worker pool that should handle this job.
 
-        Falls back to :data:`DEFAULT_CAPABILITY` when no online
-        worker advertises the extension. The worker-side misroute
-        guard catches that case and writes an explicit error so the
-        operator sees what's wrong instead of a silently-stuck job.
+        Routes to the first online pool whose advertised ``source_exts`` includes the source's suffix
+        (``.odb`` → abaqus etc.). When ``engine`` is given (a STEP→GLB job pinned to a specific
+        tessellation engine), PREFER a pool that also advertises that engine in its conversion matrix
+        — so an ``adacpp-native`` job lands on a pool that actually has adacpp — and fall back to any
+        ext-capable pool (the worker's own engine fallback chain then applies) rather than stranding it.
+
+        Falls back to :data:`DEFAULT_CAPABILITY` when no online worker advertises the extension. The
+        worker-side misroute guard catches that case and writes an explicit error so the operator sees
+        what's wrong instead of a silently-stuck job.
         """
         import pathlib
 
@@ -294,20 +355,25 @@ class JobQueue:
         # pool (the ``.odb`` → base misroute bug). Mirror the admin endpoint's
         # 60s threshold via the shared :data:`WORKER_STALE_AFTER_S`.
         now = time.time()
+        ext_cap: str | None = None  # first ext-capable pool — fallback when no pool has the engine
         for w in workers:
             hb = w.get("last_heartbeat")
             if not (isinstance(hb, (int, float)) and (now - hb) <= self.WORKER_STALE_AFTER_S):
                 continue
-            for src in w.get("source_exts") or []:
-                if not isinstance(src, str):
-                    continue
-                if src.strip().lower() == ext:
-                    caps = w.get("capabilities") or []
-                    for c in caps:
-                        if isinstance(c, str) and c.strip():
-                            return c.strip().lower()
-                    return self.DEFAULT_CAPABILITY
-        return self.DEFAULT_CAPABILITY
+            if not any(isinstance(s, str) and s.strip().lower() == ext for s in (w.get("source_exts") or [])):
+                continue
+            cap = self.DEFAULT_CAPABILITY
+            for c in w.get("capabilities") or []:
+                if isinstance(c, str) and c.strip():
+                    cap = c.strip().lower()
+                    break
+            if ext_cap is None:
+                ext_cap = cap
+            # No engine pinned → the first ext-capable pool wins (unchanged behaviour). Engine pinned →
+            # only accept a pool whose matrix advertises that engine for this source.
+            if engine is None or _worker_advertises_engine(w, ext, engine):
+                return cap
+        return ext_cap or self.DEFAULT_CAPABILITY
 
     async def get(self, job_id: str) -> Job | None:
         try:
@@ -506,6 +572,30 @@ class JobQueue:
             info["worker_id"] = key[len(self._WORKER_KEY_PREFIX) :]
             workers.append(info)
         return workers
+
+    # Hard-prune horizon for dead worker entries — much longer than the ``WORKER_STALE_AFTER_S``
+    # online window used for routing/UI. A pod that crashes or scales down can leave its registry
+    # entry behind (``unregister_worker`` is best-effort); without pruning these accumulate and
+    # pollute the capability union, so we drop entries unseen for 2 days.
+    WORKER_PRUNE_AFTER_S = 2 * 24 * 3600
+
+    async def prune_stale_workers(self, max_age_s: float | None = None) -> int:
+        """Delete worker registry entries whose ``last_heartbeat`` is older than ``max_age_s`` (default
+        :data:`WORKER_PRUNE_AFTER_S`, 2 days). Entries with a missing/garbage heartbeat are pruned too
+        (they can never be online). Returns the number removed."""
+        if self._kv is None:
+            return 0
+        cutoff = time.time() - (max_age_s if max_age_s is not None else self.WORKER_PRUNE_AFTER_S)
+        pruned = 0
+        for w in await self.list_workers():
+            hb = w.get("last_heartbeat")
+            if isinstance(hb, (int, float)) and hb >= cutoff:
+                continue
+            wid = w.get("worker_id")
+            if wid:
+                await self.unregister_worker(wid)
+                pruned += 1
+        return pruned
 
     # --- consumer side (called from worker) --------------------------
 
