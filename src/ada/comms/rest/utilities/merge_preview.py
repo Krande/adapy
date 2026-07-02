@@ -207,6 +207,63 @@ _GEN_CLASS_COLOR = {
 }
 
 
+def _crease_split_normals(pos, idx, crease_deg: float = 40.0):
+    """Return (pos, idx, normal) with hard edges: vertices are split so faces meeting at a dihedral
+    angle sharper than ``crease_deg`` don't share a (smoothed) normal. A CSG solid's cut rims and
+    annular end caps stay crisp while the cylinder walls stay smooth — welded/averaged normals
+    otherwise smear the shading across every opening. Degenerate (zero-area) triangles are dropped.
+
+    ``pos`` (N,3) float, ``idx`` (M*3,) int for ONE member's local mesh."""
+    import numpy as np
+
+    tris = np.asarray(idx, dtype=np.int64).reshape(-1, 3)
+    p = np.asarray(pos, dtype=np.float64)
+    fn = np.cross(p[tris[:, 1]] - p[tris[:, 0]], p[tris[:, 2]] - p[tris[:, 0]])
+    ln = np.linalg.norm(fn, axis=1)
+    keep = ln > 1e-12
+    tris, fn, ln = tris[keep], fn[keep], ln[keep]
+    fn = fn / ln[:, None]
+    cos_t = float(np.cos(np.radians(crease_deg)))
+
+    incident: dict[int, list[int]] = {}
+    for fi, t in enumerate(tris):
+        for v in t:
+            incident.setdefault(int(v), []).append(fi)
+
+    new_pos: list = []
+    new_nrm: list = []
+    remap: dict[tuple, int] = {}  # (orig_vertex, cluster_id) -> new vertex
+    vcluster: dict[int, list] = {}  # orig vertex -> list of (repr_normal, [face ids])
+    for v, faces in incident.items():
+        clusters: list = []
+        for fi in faces:
+            n = fn[fi]
+            for cl in clusters:
+                if float(np.dot(cl[0], n)) >= cos_t:
+                    cl[1].append(fi)
+                    break
+            else:
+                clusters.append([n.copy(), [fi]])
+        vcluster[v] = clusters
+        for ci, cl in enumerate(clusters):
+            avg = fn[cl[1]].mean(axis=0)
+            nrm = avg / (np.linalg.norm(avg) + 1e-12)
+            remap[(v, ci)] = len(new_pos)
+            new_pos.append(p[v])
+            new_nrm.append(nrm)
+
+    out = np.empty_like(tris)
+    for fi, t in enumerate(tris):
+        for k, v in enumerate(t):
+            ci = next(i for i, cl in enumerate(vcluster[int(v)]) if fi in cl[1])
+            out[fi, k] = remap[(int(v), ci)]
+    return (
+        np.asarray(new_pos, dtype=np.float32),
+        out.reshape(-1).astype(np.uint32),
+        np.asarray(new_nrm, dtype=np.float32),
+    )
+
+
 def _generate(asm, model, algorithm, storage, on_progress, solids=False):
     """Render the merged CAD to a viewable GLB overlay that behaves like a first-class model
     (per-plate picking + object tree).
@@ -289,17 +346,8 @@ def _generate(asm, model, algorithm, storage, on_progress, solids=False):
         bm = tessellate_batch_via_loop(be, shapes)
 
     on_progress("building pickable model", 0.8)
-    try:
-        from adacpp.cad import meshopt_simplify_mesh as _simp
-    except Exception:  # noqa: BLE001
-        _simp = None
     all_pos = np.asarray(bm.positions, dtype=np.float32).reshape(-1, 3)
     all_idx = np.asarray(bm.indices, dtype=np.uint32)
-    # solids mode carries the backend's geometric normals through (CSG solids have sharp cut edges
-    # and welded verts; recomputed smooth normals smear/flip → artifacts). Decimation reindexes
-    # verts and drops normals, so it's skipped for solids (tube members are already lean).
-    _bm_nrm = np.asarray(bm.normals, dtype=np.float32).reshape(-1, 3) if getattr(bm, "normals", None) is not None else None
-    all_nrm = _bm_nrm if (solids and _bm_nrm is not None and len(_bm_nrm) == len(all_pos)) else None
 
     # Assemble per-class (per-colour) MergedMeshes, each with one GroupReference per plate, plus a
     # root→class→plate node tree. bm.groups are in item order, so group i is face i.
@@ -307,27 +355,16 @@ def _generate(asm, model, algorithm, storage, on_progress, solids=False):
     nodes: dict = {"0": root}
     nid = 1
     class_nodes: dict = {}
-    acc: dict = {}  # cls -> {pos:[], idx:[], groups:[], vbase, ibase}
+    acc: dict = {}  # cls -> {pos:[], idx:[], nrm:[], groups:[], vbase, ibase}
     for i, g in enumerate(bm.groups):
         c = cls_of[i]
         gp = all_pos[g.vstart : g.vstart + g.vlength]
         gi = all_idx[g.start : g.start + g.length] - g.vstart
-        gn = all_nrm[g.vstart : g.vstart + g.vlength] if all_nrm is not None else None
-        if _simp is not None and all_nrm is None and len(gi) >= 3:
-            try:
-                # Coarse-cubic curved panels are already smooth + light (from the fit + a real
-                # deflection), so keep them; only a DENSE panel (a non-smooth region that fell back
-                # to the exact degree-1 grid surface) needs hard decimation. Flat/cylinder plates
-                # are already minimal.
-                if c == "curved":
-                    th, er = (0.1, 0.03) if len(gi) // 3 > 5000 else (0.9, 0.01)
-                else:
-                    th, er = (0.5, 0.01)
-                sp, si = _simp(gp.reshape(-1), gi.reshape(-1), th, er)
-                gp = np.asarray(sp, dtype=np.float32).reshape(-1, 3)
-                gi = np.asarray(si, dtype=np.uint32)
-            except Exception:  # noqa: BLE001 — decimation is best-effort; keep the raw plate
-                pass
+        gn = None
+        if solids and len(gi) >= 3:
+            # hard-edge (crease-split) normals so CSG cut rims + annular openings render crisp
+            # instead of smeared by welded/averaged normals; also drops degenerate boolean triangles.
+            gp, gi, gn = _crease_split_normals(gp, gi)
         if len(gi) == 0:
             continue
         if c not in acc:
