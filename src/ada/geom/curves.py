@@ -39,7 +39,7 @@ CURVE_GEOM_TYPES = Union[
 ]
 
 
-@dataclass
+@dataclass(slots=True)
 class Line:
     """
     IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcLine.htm
@@ -56,7 +56,7 @@ class Line:
             self.dir = Direction(*self.dir)
 
 
-@dataclass
+@dataclass(slots=True)
 class ArcLine:
     """
     IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcArcIndex.htm
@@ -87,12 +87,12 @@ class ArcLine:
         return iter((self.start, self.midpoint, self.end))
 
 
-@dataclass
+@dataclass(slots=True)
 class PolyLine:
     points: list[Point]
 
 
-@dataclass
+@dataclass(slots=True)
 class TrimmedCurve:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcTrimmedCurve.htm)
@@ -111,7 +111,7 @@ class TrimmedCurve:
     master_representation: str = "PARAMETER"
 
 
-@dataclass
+@dataclass(slots=True)
 class CompositeCurveSegment:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCompositeCurveSegment.htm)
@@ -124,7 +124,7 @@ class CompositeCurveSegment:
     transition: str = "CONTINUOUS"
 
 
-@dataclass
+@dataclass(slots=True)
 class CompositeCurve:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCompositeCurve.htm)
@@ -137,7 +137,7 @@ class CompositeCurve:
     self_intersect: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class Clothoid:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcClothoid.htm)
@@ -153,7 +153,7 @@ class Clothoid:
     clothoid_constant: float
 
 
-@dataclass
+@dataclass(slots=True)
 class CurveSegment:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCurveSegment.htm)
@@ -172,7 +172,7 @@ class CurveSegment:
     parent_curve: CURVE_GEOM_TYPES
 
 
-@dataclass
+@dataclass(slots=True)
 class GradientCurve:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcGradientCurve.htm)
@@ -186,7 +186,7 @@ class GradientCurve:
     self_intersect: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class IndexedPolyCurve:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcIndexedPolyCurve.htm)
@@ -257,12 +257,12 @@ class IndexedPolyCurve:
         return local_points
 
 
-@dataclass
+@dataclass(slots=True)
 class GeometricCurveSet:
     elements: list[CURVE_GEOM_TYPES]
 
 
-@dataclass
+@dataclass(slots=True)
 class Circle:
     """
     IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCircle.htm
@@ -273,7 +273,7 @@ class Circle:
     radius: float
 
 
-@dataclass
+@dataclass(slots=True)
 class Ellipse:
     """
     IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcEllipse.htm
@@ -285,7 +285,7 @@ class Ellipse:
     semi_axis2: float
 
 
-@dataclass
+@dataclass(slots=True)
 class Parabola:
     """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_parabola.html
 
@@ -296,7 +296,7 @@ class Parabola:
     focal_dist: float
 
 
-@dataclass
+@dataclass(slots=True)
 class PointOnCurve:
     """STEP AP242 t_point_on_curve — a point located at ``parameter`` on a basis curve."""
 
@@ -304,7 +304,7 @@ class PointOnCurve:
     parameter: float
 
 
-@dataclass
+@dataclass(slots=True)
 class OffsetCurve3D:
     """STEP AP242 t_offset_curve_3d — a curve offset from a basis curve by ``distance``."""
 
@@ -314,7 +314,7 @@ class OffsetCurve3D:
     ref_direction: "Direction | None" = None
 
 
-@dataclass
+@dataclass(slots=True)
 class Hyperbola:
     """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_hyperbola.html
 
@@ -356,7 +356,7 @@ class KnotType(Enum):
         return KnotType(value)
 
 
-@dataclass
+@dataclass(slots=True)
 class BSplineCurveWithKnots:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcBSplineCurveWithKnots.htm)
@@ -373,7 +373,7 @@ class BSplineCurveWithKnots:
     knot_spec: KnotType
 
 
-@dataclass
+@dataclass(slots=True)
 class PCurve:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPcurve.htm)
@@ -383,7 +383,7 @@ class PCurve:
     reference_curve: CURVE_GEOM_TYPES
 
 
-@dataclass
+@dataclass(slots=True)
 class RationalBSplineCurveWithKnots(BSplineCurveWithKnots):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRationalBSplineCurveWithKnots.htm)
@@ -392,7 +392,7 @@ class RationalBSplineCurveWithKnots(BSplineCurveWithKnots):
     weights_data: list[float]
 
 
-@dataclass
+@dataclass(slots=True)
 class Edge:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcEdge.htm)
@@ -430,7 +430,7 @@ class Edge:
         return iter((self.start, self.end))
 
 
-@dataclass
+@dataclass(slots=True)
 class Pcurve2dBSpline:
     """A 2D B-spline curve in the parameter space (UV) of a surface — the
     p-curve attached to a coedge in ACIS / STEP / IFC. Carrying the
@@ -450,7 +450,7 @@ class Pcurve2dBSpline:
     closed: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class OrientedEdge(Edge):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcOrientedEdge.htm)
@@ -479,7 +479,7 @@ class OrientedEdge(Edge):
     t_end: float | None = None
 
 
-@dataclass
+@dataclass(slots=True)
 class EdgeCurve(Edge):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcEdgeCurve.htm)
@@ -490,7 +490,7 @@ class EdgeCurve(Edge):
     same_sense: bool
 
 
-@dataclass
+@dataclass(slots=True)
 class PolyLoop:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPolyLoop.htm)
@@ -499,7 +499,7 @@ class PolyLoop:
     polygon: list[Point]
 
 
-@dataclass
+@dataclass(slots=True)
 class EdgeLoop:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcEdgeLoop.htm)

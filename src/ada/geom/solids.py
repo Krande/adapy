@@ -17,7 +17,7 @@ from ada.geom.surfaces import (
 )
 
 
-@dataclass
+@dataclass(slots=True)
 class ExtrudedAreaSolid:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcExtrudedAreaSolid.htm)
@@ -30,7 +30,7 @@ class ExtrudedAreaSolid:
     extruded_direction: Direction
 
 
-@dataclass
+@dataclass(slots=True)
 class ExtrudedAreaSolidTapered(ExtrudedAreaSolid):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcExtrudedAreaSolidTapered.htm)
@@ -39,7 +39,7 @@ class ExtrudedAreaSolidTapered(ExtrudedAreaSolid):
     end_swept_area: ProfileDef
 
 
-@dataclass
+@dataclass(slots=True)
 class RevolvedAreaSolid:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRevolvedAreaSolid.htm)
@@ -52,7 +52,7 @@ class RevolvedAreaSolid:
     angle: float
 
 
-@dataclass
+@dataclass(slots=True)
 class FixedReferenceSweptAreaSolid:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcFixedReferenceSweptAreaSolid.htm)
@@ -69,7 +69,7 @@ class FixedReferenceSweptAreaSolid:
     fixed_reference: Direction = field(default_factory=lambda: Direction(0.0, 0.0, 1.0))
 
 
-@dataclass
+@dataclass(slots=True)
 class SweptDiskSolid:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSweptDiskSolid.htm)
@@ -88,7 +88,7 @@ class SweptDiskSolid:
     fillet_radius: float | None = None
 
 
-@dataclass
+@dataclass(slots=True)
 class Box:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcBlock.htm)
@@ -118,7 +118,7 @@ class Box:
         return Box.from_xyz_and_dims(x, y, z, x_length, y_length, z_length)
 
 
-@dataclass
+@dataclass(slots=True)
 class RectangularPyramid:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRectangularPyramid.htm)
@@ -131,7 +131,7 @@ class RectangularPyramid:
     z_length: float
 
 
-@dataclass
+@dataclass(slots=True)
 class Cone:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRightCircularCone.htm)
@@ -152,7 +152,7 @@ class Cone:
         return Cone(axis3d, r, height)
 
 
-@dataclass
+@dataclass(slots=True)
 class Cylinder:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcRightCircularCylinder.htm)
@@ -173,7 +173,7 @@ class Cylinder:
         return Cylinder(axis3d, r, height)
 
 
-@dataclass
+@dataclass(slots=True)
 class Sphere:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcSphere.htm)
@@ -184,7 +184,7 @@ class Sphere:
     radius: float
 
 
-@dataclass
+@dataclass(slots=True)
 class Torus:
     """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_torus.html
 
@@ -196,7 +196,7 @@ class Torus:
     minor_radius: float
 
 
-@dataclass
+@dataclass(slots=True)
 class AdvancedBrep:
     """
     IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcAdvancedBrep.htm)
@@ -205,7 +205,7 @@ class AdvancedBrep:
     outer: ConnectedFaceSet
 
 
-@dataclass
+@dataclass(slots=True)
 class FacetedBrep:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFacetedBrep.htm)

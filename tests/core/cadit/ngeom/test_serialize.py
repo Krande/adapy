@@ -103,7 +103,9 @@ def test_dependency_order_no_forward_refs():
 def _bspline_surface_face():
     nu, nv = 4, 6  # 24 control points > _BULK_MIN
     rows = [[Point(float(i), float(j), float(i * j) * 0.25) for j in range(nv)] for i in range(nu)]
-    surf = su.BSplineSurfaceWithKnots(
+    # Rational subclass carries the weights as a real field (the geom dataclasses are
+    # slotted — ad-hoc attributes on the non-rational class no longer stick).
+    surf = su.RationalBSplineSurfaceWithKnots(
         u_degree=3,
         v_degree=3,
         control_points_list=rows,
@@ -116,15 +118,15 @@ def _bspline_surface_face():
         u_knots=[float(i) for i in range(20)],
         v_knots=[float(i) * 0.5 for i in range(20)],
         knot_spec=cu.KnotType.UNSPECIFIED,
+        weights_data=[[1.0 + 0.01 * (i + j) for j in range(nv)] for i in range(nu)],  # >16 flat weights
     )
-    surf.weights_data = [[1.0 + 0.01 * (i + j) for j in range(nv)] for i in range(nu)]  # >16 flat weights
     poly = cu.PolyLoop(polygon=[Point(math.cos(0.3 * k), math.sin(0.3 * k), 0.1 * k) for k in range(20)])  # >16 pts
     return su.FaceSurface(bounds=[su.FaceBound(bound=poly, orientation=True)], face_surface=surf, same_sense=True)
 
 
 def _bspline_curve_edge_face():
     cps = [Point(float(i), float(i % 3), 0.0) for i in range(20)]  # >16 control points
-    bc = cu.BSplineCurveWithKnots(
+    bc = cu.RationalBSplineCurveWithKnots(
         degree=3,
         control_points_list=cps,
         curve_form=cu.BSplineCurveFormEnum.POLYLINE_FORM,
@@ -133,8 +135,8 @@ def _bspline_curve_edge_face():
         knot_multiplicities=[1] * 24,  # >16 multiplicities
         knots=[float(i) for i in range(24)],  # >16 knots
         knot_spec=cu.KnotType.UNSPECIFIED,
+        weights_data=[1.0 + 0.001 * i for i in range(20)],  # >16 weights (real field; slotted classes)
     )
-    bc.weights_data = [1.0 + 0.001 * i for i in range(20)]  # >16 weights
     s, t = (0.0, 0.0, 0.0), (19.0, 0.0, 0.0)
     ec = cu.EdgeCurve(start=s, end=t, edge_geometry=bc, same_sense=True)
     oe = cu.OrientedEdge(start=s, end=t, edge_element=ec, orientation=True)
