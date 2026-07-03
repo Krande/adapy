@@ -934,6 +934,31 @@ class AdacppBackend:
         item's position). ``pipeline``: ``libtess2`` (OCC-free) | ``occ`` | ``cgal``
         (ifcopenshell taxonomy kernels). ``geometry`` is an ``ada.geom`` ``FaceSurface`` or
         ``ConnectedFaceSet`` (unmappable items are skipped by the serializer)."""
+        from ada.cadit.ngeom import serialize_geometries
+
+        return self.tessellate_stream_buffer(
+            serialize_geometries(items),
+            pipeline=pipeline,
+            deflection=deflection,
+            angular_deg=angular_deg,
+            settings=settings,
+            threads=threads,
+        )
+
+    def tessellate_stream_buffer(
+        self,
+        buffer,
+        *,
+        pipeline: str = "libtess2",
+        deflection: float = 0.0,
+        angular_deg: float = 20.0,
+        settings: "dict | None" = None,
+        threads: int = 1,
+    ) -> "BatchMesh":
+        """Tessellate a pre-encoded NGEOM buffer — the fast path for blobs already in
+        the neutral form (a lazy ``ShapeStore``'s stored solid, a cached ``.ngeom``
+        file): no hydration and no re-serialization, the buffer goes straight to the
+        C++ kernel."""
         fn = getattr(self._cad, "tessellate_stream", None)
         if fn is None:
             raise NotImplementedError(
@@ -941,9 +966,10 @@ class AdacppBackend:
             )
         import numpy as np
 
-        from ada.cadit.ngeom import serialize_geometries
-
-        buffer = serialize_geometries(items)
+        if not isinstance(buffer, (bytes, bytearray)):
+            # adacpp's binding currently takes nb::bytes only; drop this coercion once
+            # the buffer-protocol/zero-copy adacpp change lands.
+            buffer = bytes(buffer)
         # ``settings`` overrides the ifcopenshell ConversionSettings for the taxonomy paths
         # (occ/cgal/hybrid); ignored by libtess2. ``threads`` (>1) parallelises a root's faces
         # in the libtess2 path — opt-in, so the STEP->GLB process pool (which parallelises across

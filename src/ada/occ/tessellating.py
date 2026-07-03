@@ -740,19 +740,44 @@ class BatchTessellator:
         except Exception as e:  # noqa: BLE001 - fall back to the OCC build path on any stream failure
             self._log_tess_fallback(node_ref, pipeline, f"tessellate_stream raised {type(e).__name__}: {e}", geom)
             return None
+        ms = self._mesh_store_from_batch(bm, node_ref, geom.color)
+        if ms is None:
+            self._log_tess_fallback(node_ref, pipeline, "empty mesh (geom type not NGEOM-serializable)", geom)
+        return ms
+
+    def _tessellate_blob_via_stream(self, blob, node_ref, color) -> MeshStore | None:
+        """Tessellate a lazy shape's stored NGEOM buffer directly — no hydration, no
+        re-serialization: the ShapeStore blob goes straight to the C++ kernel."""
+        pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE")
+        if not pipeline:
+            return None
+        be = active_backend()
+        if not hasattr(be, "tessellate_stream_buffer"):
+            return None
+        defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
+        ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+        try:
+            bm = be.tessellate_stream_buffer(blob, pipeline=pipeline, deflection=defl, angular_deg=ang)
+        except Exception as e:  # noqa: BLE001 - fall back to the hydrate path on any stream failure
+            self._log_tess_fallback(
+                node_ref, pipeline, f"tessellate_stream_buffer raised {type(e).__name__}: {e}", None
+            )
+            return None
+        return self._mesh_store_from_batch(bm, node_ref, color)
+
+    def _mesh_store_from_batch(self, bm, node_ref, color) -> MeshStore | None:
         pos = getattr(bm, "positions", None)
         idx = getattr(bm, "indices", None)
         if pos is None or idx is None or len(idx) == 0:
-            self._log_tess_fallback(node_ref, pipeline, "empty mesh (geom type not NGEOM-serializable)", geom)
             return None
         pos = np.ascontiguousarray(pos, dtype=np.float32)
         idx = np.ascontiguousarray(idx, dtype=np.uint32)
         nrm = getattr(bm, "normals", None)
         nrm = np.ascontiguousarray(nrm, dtype=np.float32) if nrm is not None and len(nrm) else None
-        mat_id = self.material_store.get(geom.color, None)
+        mat_id = self.material_store.get(color, None)
         if mat_id is None:
             mat_id = len(self.material_store)
-            self.material_store[geom.color] = mat_id
+            self.material_store[color] = mat_id
         return MeshStore(node_ref, None, pos, idx, nrm, mat_id, MeshType.TRIANGLES, node_ref)
 
     def batch_tessellate(
@@ -766,15 +791,30 @@ class BatchTessellator:
 
         for obj in objects:
             if isinstance(obj, BackendGeom):
+                from ada.api.shapes import ShapeProxy
+
                 ada_obj = obj
                 geom_repr = render_override.get(obj.guid, GeomRepr.SOLID)
                 # A Shape carrying a bare curve geometry (sectionless SAT wire body, open
-                # wireframe) has no solid/shell — render it as glTF line geometry.
-                if geom_repr == GeomRepr.SOLID:
+                # wireframe) has no solid/shell — render it as glTF line geometry. Lazy
+                # ShapeProxy objects skip the sniff: it would hydrate the whole tree, and
+                # the store only ever holds B-rep solids/shells, never bare curves.
+                if geom_repr == GeomRepr.SOLID and not isinstance(obj, ShapeProxy):
                     _g = getattr(obj, "geom", None)
                     if _g is not None and isinstance(getattr(_g, "geometry", None), _CURVE_GEOM_TUPLE):
                         geom_repr = GeomRepr.LINE
                 node_ref = graph_store.hash_map.get(obj.guid) if graph_store is not None else getattr(obj, "guid", None)
+
+                # Lazy-blob fast path: a ShapeProxy backed by an NGEOM buffer tessellates
+                # straight from the stored blob when the stream kernel is selected — no
+                # ada.geom hydration and no re-serialization for the whole model.
+                if geom_repr == GeomRepr.SOLID and isinstance(obj, ShapeProxy):
+                    blob = obj.ngeom_blob()
+                    if blob is not None:
+                        ms_blob = self._tessellate_blob_via_stream(blob, node_ref, obj.color)
+                        if ms_blob is not None:
+                            yield ms_blob
+                            continue
 
                 # PlateCurved: prism-extrude the BSpline face by
                 # thickness so the GLB ships a solid (matching what

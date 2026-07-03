@@ -176,6 +176,29 @@ def test_proxy_pickle_shares_store():
     assert isinstance(r1, ShapeProxy) and isinstance(r1, Shape)
 
 
+def test_blob_fast_path_matches_serialized_tessellation():
+    """A stored NGEOM blob tessellates via tessellate_stream_buffer to the same mesh
+    the hydrate+re-serialize route produces (the lazy fast path skips both steps)."""
+    import pytest
+
+    from ada.cad import active_backend
+
+    be = active_backend()
+    if not hasattr(be, "tessellate_stream_buffer") or not hasattr(be, "tessellate_stream"):
+        pytest.skip("active CAD backend has no NGEOM stream tessellation")
+
+    g = _shell_geometry()
+    store = ShapeStore()
+    idx = store.add_blob(_ngeom_blob(g), gid=str(g.id))
+    p = ShapeProxy("solid1", store, idx)
+
+    via_blob = be.tessellate_stream_buffer(p.ngeom_blob(), pipeline="libtess2")
+    hydrated = p.geom
+    via_items = be.tessellate_stream([(str(hydrated.id), hydrated.geometry)], pipeline="libtess2")
+    assert via_blob.positions.tobytes() == via_items.positions.tobytes()
+    assert via_blob.indices.tobytes() == via_items.indices.tobytes()
+
+
 def test_pickle_kind_has_no_ngeom_blob():
     store = ShapeStore()
     idx = store.add_geometry(_boolean_geometry())

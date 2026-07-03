@@ -195,6 +195,10 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         geo_su.AdvancedFace: advanced_face,
         geo_su.CurveBoundedPlane: curve_bounded_plane,
         geo_su.ClosedShell: create_closed_shell,
+        # Bare CONNECTED_FACE_SET: the native NGEOM reader's B-rep root form when the
+        # closedness promotion couldn't verify the shell (e.g. edges split differently
+        # across adjacent faces). Same face-set emit as ClosedShell.
+        geo_su.ConnectedFaceSet: create_closed_shell,
         # Curve-only bodies (SAT wire bodies import as bare curve geometry):
         # emitted as a Curve3D representation instead of failing solid_occ().
         geo_cu.Edge: _edge_as_polyline,
@@ -204,7 +208,9 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         BoolHalfSpace: create_half_space_geom,
     }
 
-    if type(shape) is Shape:
+    from ada.api.shapes import ShapeProxy
+
+    if type(shape) in (Shape, ShapeProxy):
         param_geo = shape.geom.geometry
     else:
         param_geo = shape
