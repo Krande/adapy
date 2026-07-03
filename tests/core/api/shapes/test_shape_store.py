@@ -240,6 +240,36 @@ def test_stream_tessellation_applies_bool_operations():
     assert abs(float(z2.max()) - 1.4) < 1e-6, "union operand not applied"
 
 
+def test_native_ifc_brep_products_import_as_ngeom_blobs(tmp_path):
+    """B-rep IFC products the Python-native readers can't resolve import via adacpp's
+    IfcNgeomStream as zero-copy ngeom-kind proxies instead of eager OCC kernel bodies."""
+    import pytest
+
+    import ada
+
+    adacpp = pytest.importorskip("adacpp")
+    if not hasattr(adacpp.cad, "IfcNgeomStream"):
+        pytest.skip("adacpp build predates IfcNgeomStream")
+
+    box = ada.PrimBox("bx", (0, 0, 0), (1, 1, 1))
+    a = ada.Assembly("m") / (ada.Part("p") / [box])
+    stp = tmp_path / "nb.stp"
+    ifc = tmp_path / "nb.ifc"
+    a.to_stp(stp, writer="stream")
+    adacpp.cad.stream_step_to_ifc(str(stp), str(ifc))  # advanced-brep IFC4
+
+    b = ada.from_ifc(ifc)
+    shapes = [s for p in b.get_all_parts_in_assembly(include_self=True) for s in p.shapes]
+    assert shapes
+    for s in shapes:
+        assert isinstance(s, ShapeProxy), f"{s.name}: expected lazy proxy, got {type(s).__name__}"
+        assert s._occ_cache is None, f"{s.name}: eager OCC body retained"
+        rec = s._shape_store.record(s._store_index)
+        assert rec.kind == "ngeom", f"{s.name}: expected native blob, got {rec.kind}"
+        assert s.ngeom_blob() is not None
+        assert s.geom.geometry is not None  # hydrates
+
+
 def test_ifc_roundtrip_imports_lazy_proxies_with_booleans(tmp_path):
     """from_ifc mints ShapeProxy objects (lazy store default-on) and a boolean cut
     (IfcBooleanClippingResult -> bool_operations) survives the store round-trip."""
