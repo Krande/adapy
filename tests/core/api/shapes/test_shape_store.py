@@ -1,0 +1,184 @@
+"""ShapeStore + ShapeProxy: blob-backed lazy shape geometry.
+
+Parity is asserted via re-serialization bytes (NGEOM) or field checks — Geometry
+dataclass ``==`` is unusable because Point's ndarray ``__eq__`` breaks dataclass
+equality.
+"""
+
+from __future__ import annotations
+
+import gc
+import pickle
+import weakref
+
+import ada.geom.curves as cu
+import ada.geom.solids as so
+import ada.geom.surfaces as su
+from ada.api.primitives.base import Shape
+from ada.api.shapes import ShapeProxy, ShapeStore
+from ada.cadit.ngeom import serialize_geometries
+from ada.geom.booleans import BooleanOperation, BoolOpEnum
+from ada.geom.core import Geometry
+from ada.geom.placement import Axis2Placement3D, Direction, Point
+
+
+def _line_oe(s, t):
+    ec = cu.EdgeCurve(start=s, end=t, edge_geometry=cu.Line(s, [b - a for a, b in zip(s, t)]), same_sense=True)
+    return cu.OrientedEdge(start=s, end=t, edge_element=ec, orientation=True)
+
+
+def _square_face():
+    p = [(0, 0, 0), (2, 0, 0), (2, 2, 0), (0, 2, 0)]
+    loop = cu.EdgeLoop(edge_list=[_line_oe(p[i], p[(i + 1) % 4]) for i in range(4)])
+    plane = su.Plane(position=Axis2Placement3D(Point(0, 0, 0), Direction(0, 0, 1), Direction(1, 0, 0)))
+    return su.FaceSurface(bounds=[su.FaceBound(bound=loop, orientation=True)], face_surface=plane, same_sense=True)
+
+
+def _shell_geometry(gid="solid1") -> Geometry:
+    return Geometry(id=gid, geometry=su.ClosedShell(cfs_faces=[_square_face()]))
+
+
+def _boolean_geometry(gid="cut1") -> Geometry:
+    base = _shell_geometry(gid)
+    half_space = su.HalfSpaceSolid(
+        base_surface=su.Plane(position=Axis2Placement3D(Point(0, 0, 1), Direction(0, 0, 1), Direction(1, 0, 0)))
+    )
+    box = so.Box(Axis2Placement3D(Point(0, 0, 0), Direction(0, 0, 1), Direction(1, 0, 0)), 1.0, 1.0, 1.0)
+    base.bool_operations = [
+        BooleanOperation(Geometry("hs", half_space), BoolOpEnum.DIFFERENCE),
+        BooleanOperation(Geometry("box", box), BoolOpEnum.UNION),
+    ]
+    return base
+
+
+def _ngeom_blob(geom: Geometry) -> bytes:
+    return serialize_geometries([(str(geom.id), geom.geometry)])
+
+
+def test_ngeom_blob_roundtrip_byte_parity():
+    """ngeom-kind: hydrated tree re-serializes to the exact stored bytes."""
+    g = _shell_geometry()
+    blob = _ngeom_blob(g)
+    store = ShapeStore()
+    idx = store.add_blob(blob, gid=str(g.id))
+    hydrated = store.geometry(idx)
+    assert hydrated.id == "solid1"
+    assert serialize_geometries([(hydrated.id, hydrated.geometry)]) == blob
+
+
+def test_add_blob_rejects_non_ngeom():
+    store = ShapeStore()
+    try:
+        store.add_blob(b"not a buffer at all", gid="x")
+    except ValueError as e:
+        assert "magic" in str(e)
+    else:
+        raise AssertionError("expected ValueError on bad magic")
+
+
+def test_pickle_kind_roundtrips_bool_operations():
+    """pickle-kind: booleans (incl. half-space operands) hydrate exactly."""
+    g = _boolean_geometry()
+    store = ShapeStore()
+    idx = store.add_geometry(g)
+    hydrated = store.geometry(idx)
+    assert hydrated.id == "cut1"
+    assert isinstance(hydrated.geometry, su.ClosedShell)
+    ops = hydrated.bool_operations
+    assert [op.operator for op in ops] == [BoolOpEnum.DIFFERENCE, BoolOpEnum.UNION]
+    hs = ops[0].second_operand.geometry
+    assert isinstance(hs, su.HalfSpaceSolid)
+    assert hs.agreement_flag is True
+    assert list(hs.base_surface.position.location) == [0.0, 0.0, 1.0]
+    box = ops[1].second_operand.geometry
+    assert isinstance(box, so.Box)
+    assert (box.x_length, box.y_length, box.z_length) == (1.0, 1.0, 1.0)
+
+
+def test_weakref_cache_identity_and_release():
+    store = ShapeStore()
+    idx = store.add_geometry(_shell_geometry())
+    g1 = store.geometry(idx)
+    assert store.geometry(idx) is g1, "same live object while referenced"
+    ref = weakref.ref(g1)
+    del g1
+    gc.collect()
+    assert ref() is None, "hydrated tree must be reclaimable once dropped"
+    # and a fresh access hydrates again
+    assert store.geometry(idx).id == "solid1"
+
+
+def test_compression_roundtrip_both_kinds():
+    g = _shell_geometry()
+    blob = _ngeom_blob(g)
+    store = ShapeStore(compress=True)
+    i_ngeom = store.add_blob(blob, gid=str(g.id))
+    i_pickle = store.add_geometry(_boolean_geometry())
+    assert store.record(i_ngeom).compressed and store.record(i_pickle).compressed
+    assert store.nbytes < len(blob) + 100_000  # stored compressed
+    assert store.ngeom_blob(i_ngeom) == blob  # decompresses to the original
+    assert store.geometry(i_pickle).bool_operations[0].operator == BoolOpEnum.DIFFERENCE
+
+
+def test_proxy_is_shape_and_hydrates_via_property():
+    store = ShapeStore()
+    g = _shell_geometry()
+    idx = store.add_blob(_ngeom_blob(g), gid=str(g.id))
+    p = ShapeProxy("solid1", store, idx)
+    assert isinstance(p, Shape)
+    assert p._geom is None, "proxy must not hold an eager tree"
+    # NGEOM lowers ClosedShell -> ConnectedFaceSet; today's eager native reader
+    # yields the same, so downstream behaviour is identical.
+    assert isinstance(p.geom.geometry, su.ConnectedFaceSet)
+    assert p.ngeom_blob() is not None
+
+    # solid_geom() (a base-class method) works through the overridden property on
+    # an accepted solid type — pickle-kind keeps the ClosedShell exact.
+    idx2 = store.add_geometry(_shell_geometry("solid2"))
+    p2 = ShapeProxy("solid2", store, idx2)
+    solid = p2.solid_geom()
+    assert solid.id == "solid2"
+    assert isinstance(solid.geometry, su.ClosedShell)
+
+
+def test_proxy_pin_semantics():
+    store = ShapeStore()
+    idx = store.add_geometry(_shell_geometry())
+    p = ShapeProxy("solid1", store, idx)
+
+    # unpinned: mutation on a transient hydration does not survive a GC cycle
+    p.geom.color = "marker"
+    gc.collect()
+    assert p.geom.color is None
+
+    pinned = p.pin()
+    pinned.color = "marker"
+    gc.collect()
+    assert p.geom.color == "marker"
+
+    # assigning .geom pins the assigned object
+    other = _shell_geometry("other")
+    p.geom = other
+    assert p.geom is other
+
+
+def test_proxy_pickle_shares_store():
+    store = ShapeStore()
+    g = _shell_geometry()
+    blob = _ngeom_blob(g)
+    idx1 = store.add_blob(blob, gid="a")
+    idx2 = store.add_blob(blob, gid="b")
+    p1 = ShapeProxy("a", store, idx1)
+    p2 = ShapeProxy("b", store, idx2)
+    r1, r2 = pickle.loads(pickle.dumps([p1, p2]))
+    assert r1._shape_store is r2._shape_store, "pickle memo must keep one store"
+    assert r1.geom.id == "a" and r2.geom.id == "b"
+    assert isinstance(r1, ShapeProxy) and isinstance(r1, Shape)
+
+
+def test_pickle_kind_has_no_ngeom_blob():
+    store = ShapeStore()
+    idx = store.add_geometry(_boolean_geometry())
+    assert store.ngeom_blob(idx) is None
+    p = ShapeProxy("cut1", store, idx)
+    assert p.ngeom_blob() is None
