@@ -50,7 +50,9 @@ def merged_mesh_to_trimesh_scene(
         # which reads as shading artifacts. Only set when the buffer matches the vertex count.
         if merged_mesh.normal is not None:
             nrm = np.asarray(merged_mesh.normal, dtype=np.float64).reshape(-1, 3)
-            if len(nrm) == len(mesh.vertices):
+            # len > 0 guard: assigning empty normals to an empty Trimesh crashes in
+            # trimesh's ptp validation (zero-size reduction).
+            if len(nrm) > 0 and len(nrm) == len(mesh.vertices):
                 mesh.vertex_normals = nrm
     elif merged_mesh.type == MeshType.LINES:
         entities = [Line(x) for x in merged_mesh.indices.reshape(int(len(merged_mesh.indices) / 2), 2)]
