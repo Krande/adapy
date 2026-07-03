@@ -130,6 +130,12 @@ skip_glob = ["**/node_modules/**", "**/temp/**", "**/_build/**"]
 asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    # REST tests whose assertions specifically exercise the adacpp NGEOM streaming tessellator
+    # (tessellate_stream). Run under the viewer-api-tests-adacpp env (`test-rest-adacpp`); they
+    # also pass under OCC via the object-path fallback in the plain viewer-api-tests leg.
+    "adacpp_stream: REST test exercising the adacpp streaming tessellation path",
+]
 # This is meant to stop and catch any unintended hangs
 timeout = 600
 timeout_method = "thread"

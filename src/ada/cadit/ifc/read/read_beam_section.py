@@ -40,13 +40,34 @@ def import_section_from_ifc(profile_def, units=Units.M) -> Section:
             sec_str=name,
         )
     elif profile_def.is_a("IfcTShapeProfileDef"):
+        # Adapy's TPROFILE convention (see string_to_section): the absent bottom
+        # flange is encoded collapsed-onto-the-web (w_btn = t_w, t_fbtn = t_ftop),
+        # not None — the section writers (e.g. Genie XML's unsymmetrical_i_section)
+        # do arithmetic on these fields.
         return Section(
             name=name,
             sec_type=Section.TYPES.TPROFILE,
             h=profile_def.Depth,
             w_top=profile_def.FlangeWidth,
+            w_btn=profile_def.WebThickness,
             t_w=profile_def.WebThickness,
             t_ftop=profile_def.FlangeThickness,
+            t_fbtn=profile_def.FlangeThickness,
+            units=units,
+        )
+    elif profile_def.is_a("IfcUShapeProfileDef"):
+        # Mirrors ChannelProfile.get_ifc_props (write_sections): Depth=h,
+        # FlangeWidth=w_top, WebThickness=t_w, FlangeThickness=t_ftop. UNP
+        # channels are symmetric so both flanges share width/thickness.
+        return Section(
+            name=name,
+            sec_type=Section.TYPES.CHANNEL,
+            h=profile_def.Depth,
+            w_top=profile_def.FlangeWidth,
+            w_btn=profile_def.FlangeWidth,
+            t_w=profile_def.WebThickness,
+            t_ftop=profile_def.FlangeThickness,
+            t_fbtn=profile_def.FlangeThickness,
             units=units,
         )
     elif profile_def.is_a("IfcCircleHollowProfileDef"):

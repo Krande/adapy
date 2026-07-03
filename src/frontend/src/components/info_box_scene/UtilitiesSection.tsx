@@ -6,6 +6,7 @@ import {runtime} from "@/runtime/config";
 import {viewerApi, type ScopeUrl} from "@/services/viewerApi";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
+import {useConversionStore, type ConvertStatus} from "@/state/conversionStore";
 import {
     useSceneInfoStore,
     type UtilityKwarg,
@@ -145,6 +146,55 @@ const UtilitiesSection = () => {
     // job, no server memory. Falls back to the server path on failure (or when the toggle is off).
     const [runInBrowser, setRunInBrowser] = React.useState<boolean>(true);
 
+    // Saved utility overlays (_overlays/<model>.<utility>.glb), selectable per loaded model.
+    const loadedSourceName = useModelState((s) => s.loadedSourceName);
+    const [overlays, setOverlays] = React.useState<{key: string; size: number; last_modified: string | null}[]>([]);
+    const [activeOverlays, setActiveOverlays] = React.useState<Set<string>>(new Set());
+
+    // model stem of a key: "dir/MyModel.merge-auto.glb" -> "MyModel"
+    const stemOf = (k: string) => (k.split("/").pop() ?? k).split(".")[0];
+    const loadedStem = loadedSourceName ? stemOf(loadedSourceName) : null;
+    // only overlays generated for the CURRENTLY loaded model
+    const myOverlays = React.useMemo(
+        () => (loadedStem ? overlays.filter((o) => stemOf(o.key) === loadedStem) : []),
+        [overlays, loadedStem],
+    );
+
+    const refreshOverlays = React.useCallback(async () => {
+        try {
+            setOverlays(await viewerApi.listOverlays(scope));
+        } catch {
+            /* non-fatal: overlays are a convenience list */
+        }
+    }, [scope]);
+
+    React.useEffect(() => {
+        void refreshOverlays();
+    }, [refreshOverlays]);
+
+    const toggleOverlay = async (key: string) => {
+        // ADD the overlay as a real model ON TOP of the loaded one (compare merged vs source),
+        // via the same model pipeline the StorageBrowser uses — setupModelLoaderAsync renders it
+        // (a raw scene.add(gltf.scene) doesn't, in this batched-mesh viewer) and translate=true
+        // aligns it to the loaded model's frame. Uncheck unloads just this overlay.
+        const next = new Set(activeOverlays);
+        const adding = !next.has(key);
+        try {
+            if (adding) {
+                const {overlay_file_in_scene} = await import("@/utils/scene/handlers/overlay_file_in_scene");
+                await overlay_file_in_scene(key, key, {scope}); // key is a .glb → used verbatim
+                next.add(key);
+            } else {
+                const {unload_source_from_scene} = await import("@/utils/scene/handlers/unload_source_from_scene");
+                await unload_source_from_scene(key);
+                next.delete(key);
+            }
+            setActiveOverlays(next);
+        } catch (e) {
+            setLastResult({summary: {error: `overlay ${adding ? "load" : "unload"} failed: ${String(e)}`}});
+        }
+    };
+
     // Fetch advertised utilities from /api/config once.
     React.useEffect(() => {
         if (utilities.length) return;
@@ -204,6 +254,20 @@ const UtilitiesSection = () => {
     // Re-mounting initialises `flipped` from isFlipped() so the toggle stays
     // accurate. Unflip happens only on explicit toggle-off / Reset / utility switch.
 
+    // Apply a utility result. An overlay-GLB op (merge-preview/generate/diff) is loaded through
+    // the MODEL pipeline (overlay_file_in_scene → CustomBatchedMesh keeps COLOR_0 + geometry and
+    // actually renders); color_elements / inline-blob (wasm) results go through applyViewerOps.
+    const applyResult = async (payload: {ops?: {op: string; blob_key?: string}[]}) => {
+        const oop = (payload.ops || []).find((o) => o.op === "add_overlay_geometry" && o.blob_key);
+        if (oop?.blob_key) {
+            const {overlay_file_in_scene} = await import("@/utils/scene/handlers/overlay_file_in_scene");
+            await overlay_file_in_scene(oop.blob_key, oop.blob_key, {scope});
+            setActiveOverlays((prev) => new Set(prev).add(oop.blob_key as string));
+        } else {
+            await applyViewerOps(payload as never, scope);
+        }
+    };
+
     const run = async () => {
         if (!spec) return;
         const sourceKey = useModelState.getState().loadedSourceName;
@@ -220,7 +284,7 @@ const UtilitiesSection = () => {
             if (wasmUtil && wasmUtil.canRun(wasmCtx)) {
                 try {
                     const payload = await wasmUtil.run(wasmCtx);
-                    await applyViewerOps(payload, scope);
+                    await applyResult(payload);
                     setLastResult({legend: payload.legend, summary: payload.summary});
                     return;
                 } catch (e) {
@@ -228,22 +292,45 @@ const UtilitiesSection = () => {
                     console.warn("in-browser wasm utility failed; falling back to server:", e);
                 }
             }
+            // Surface the running utility in the SAME global toast the model loader /
+            // conversions use (conversionStore → ConversionProgress). A non-"src::"-prefixed
+            // key keeps it its own row (the load row hijacks "loadName::*"). The worker now
+            // schedules the utility's on_progress onto the loop, so stage/progress land here.
+            const toastKey = `util:${spec.name}`;
+            const label = `${spec.name}: ${sourceKey.split("/").pop() ?? sourceKey}`;
+            const cs = useConversionStore.getState();
+            const pushToast = (s: {job_id: string; status: string; progress?: number; stage?: string; error?: string | null}) =>
+                cs.setJob(toastKey, {
+                    sourceKey: label,
+                    jobId: s.job_id,
+                    derivedKey: "",
+                    status: (s.status as ConvertStatus) || "running",
+                    progress: s.progress ?? 0,
+                    stage: s.stage || "utility",
+                    error: s.error ?? null,
+                    startedAt: Date.now(),
+                });
+
             const job = await viewerApi.runUtility(scope, sourceKey, spec.name, kwargs);
+            pushToast(job);
             let status = job;
             for (let i = 0; i < 600 && status.status !== "done" && status.status !== "error"; i++) {
                 await sleep(1000);
                 status = await viewerApi.convertStatus(job.job_id);
+                pushToast(status);
             }
             if (status.status === "error") throw new Error(status.error || "utility failed");
             if (status.status !== "done") throw new Error("utility timed out");
             const buf = await viewerApi.getBlob(scope, status.derived_key);
             const payload = JSON.parse(new TextDecoder().decode(new Uint8Array(buf)));
-            await applyViewerOps(payload, scope);
+            await applyResult(payload);
             setLastResult({legend: payload.legend, summary: payload.summary});
         } catch (e) {
             setLastResult({summary: {error: String(e)}});
         } finally {
+            useConversionStore.getState().clearJob(`util:${spec.name}`);
             setRunning(false);
+            void refreshOverlays();  // a fresh generate/preview persists a new _overlays/ blob
         }
     };
 
@@ -267,7 +354,13 @@ const UtilitiesSection = () => {
             </label>
             {spec && <p className="text-xs mb-2 opacity-80">{spec.description}</p>}
             {spec && spec.kwargs.length > 0 && (
-                <CollapsibleSection title="Properties" defaultOpen>
+                // Cap the option list height and scroll it independently so a many-kwarg utility
+                // (e.g. merge-preview) doesn't push Run / the result off-screen on mobile.
+                <CollapsibleSection
+                    title="Properties"
+                    defaultOpen
+                    bodyClassName="max-h-[40vh] overflow-y-auto pr-1"
+                >
                     {spec.kwargs.map((k) => (
                         <KwargField
                             key={k.name}
@@ -322,6 +415,66 @@ const UtilitiesSection = () => {
                     Reset scene
                 </button>
             </div>
+            {myOverlays.length > 0 && (
+                // Saved overlays generated for the loaded model (scoped by model stem — an
+                // overlay made on MyModel only appears when MyModel is loaded).
+                <CollapsibleSection title={`Saved overlays (${myOverlays.length})`} defaultOpen={false}>
+                    <div className="max-h-40 overflow-y-auto">
+                        {myOverlays.map((o) => {
+                            const short = (o.key.split("/").pop() ?? o.key).replace(/\.glb$/, "");
+                            return (
+                                <label
+                                    key={o.key}
+                                    className="flex items-center gap-2 text-xs py-0.5 px-1"
+                                    title={`Show ${o.key} over the loaded model`}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={activeOverlays.has(o.key)}
+                                        onChange={() => void toggleOverlay(o.key)}
+                                    />
+                                    <span className="truncate flex-1">{short}</span>
+                                    <button
+                                        type="button"
+                                        className="text-gray-400 hover:text-blue-400 shrink-0 px-1"
+                                        title="Copy this overlay into the current scope as a regular model file (next to the original)"
+                                        onClick={async (e) => {
+                                            e.preventDefault();
+                                            const destKey = o.key.split("/").pop() ?? o.key; // drop _overlays/ prefix
+                                            try {
+                                                const buf = await viewerApi.getBlob(scope, o.key);
+                                                await viewerApi.putBlob(scope, destKey, buf);
+                                                setLastResult({summary: {copied_to: destKey}});
+                                            } catch (err) {
+                                                setLastResult({summary: {error: `copy failed: ${String(err)}`}});
+                                            }
+                                        }}
+                                    >
+                                        ⧉
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="text-gray-400 hover:text-red-400 shrink-0 px-1"
+                                        title="Delete this saved overlay from storage"
+                                        onClick={async (e) => {
+                                            e.preventDefault();
+                                            if (activeOverlays.has(o.key)) await toggleOverlay(o.key);
+                                            try {
+                                                await viewerApi.deleteBlob(scope, o.key);
+                                            } catch (err) {
+                                                setLastResult({summary: {error: `delete failed: ${String(err)}`}});
+                                            }
+                                            void refreshOverlays();
+                                        }}
+                                    >
+                                        ✕
+                                    </button>
+                                </label>
+                            );
+                        })}
+                    </div>
+                </CollapsibleSection>
+            )}
             {lastResult?.legend && (
                 <div className="mt-2">
                     {lastResult.legend.map((l) => (

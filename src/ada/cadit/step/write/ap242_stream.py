@@ -705,8 +705,117 @@ class Ap242StreamWriter:
             shell = self._w(f"OPEN_SHELL('',{self._refs(faces)})")
             item = self._w(f"SHELL_BASED_SURFACE_MODEL('{nm}',(#{shell}))")
         else:
+            # No analytic AP242 B-rep form (e.g. an alignment
+            # IfcFixedReferenceSweptAreaSolid swept over an IfcGradientCurve: the
+            # clothoid + vertical-gradient directrix has no STEP analytic curve).
+            # Rather than leave it behind, tessellate via the validated NGEOM path
+            # and emit the triangle mesh as one faceted MANIFOLD_SOLID_BREP.
+            import ada.geom.solids as so
+
+            if isinstance(g, so.FixedReferenceSweptAreaSolid):
+                return self._emit_faceted_brep(g, nm, color)
             return None
 
+        if color is not None:
+            self._emit_color(item, color)
+        return item
+
+    def _tessellate_solid(self, g):
+        """Tessellate an ``ada.geom`` solid to ``(world_points, tri_indices)`` via the
+        adacpp NGEOM/libtess2 pipeline. Requires the adacpp ``SweepN`` / ``tessellate_sweep``
+        support (the alignment-sweep overlay) for FixedReferenceSweptAreaSolid; falls back to
+        skip on builds without it. ``world_points`` is an (N,3) list of float
+        triples already carrying the active instance transform ``self._tf``; ``tri_
+        indices`` an (M,3) list of int triples. Returns ``(None, None)`` if adacpp is
+        unavailable or the solid yields no triangles."""
+        import os
+
+        try:
+            from ada.cad import active_backend
+        except Exception:  # noqa: BLE001
+            return None, None
+        backend = active_backend()
+        fn = getattr(backend, "tessellate_stream", None)
+        if fn is None:
+            return None, None
+        defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
+        ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+        try:
+            mesh = fn([("0", g)], pipeline="libtess2", deflection=defl, angular_deg=ang)
+        except Exception as exc:  # noqa: BLE001 - tessellation can't cover this solid
+            logger.warning("faceted-brep tessellation failed (%s); skipping", exc)
+            return None, None
+        pos = mesh.positions
+        idx = mesh.indices
+        if pos is None or idx is None or len(idx) < 3:
+            return None, None
+        flat_pos = [float(v) for v in (pos.ravel() if hasattr(pos, "ravel") else pos)]
+        flat_idx = [int(v) for v in (idx.ravel() if hasattr(idx, "ravel") else idx)]
+        pts = [(flat_pos[3 * i], flat_pos[3 * i + 1], flat_pos[3 * i + 2]) for i in range(len(flat_pos) // 3)]
+        wpts = [self._tp(p) for p in pts]
+        tris = [(flat_idx[k], flat_idx[k + 1], flat_idx[k + 2]) for k in range(0, len(flat_idx) - 2, 3)]
+        return wpts, tris
+
+    def _emit_faceted_brep(self, g, nm, color):
+        """Emit a solid the analytic writers can't author kernel-free as one faceted
+        MANIFOLD_SOLID_BREP: tessellate via the NGEOM/libtess2 path and write a planar
+        ADVANCED_FACE per triangle (shared VERTEX_POINTs + EDGE_CURVEs). Points are
+        pre-baked to world by :meth:`_tessellate_solid`, so the low-level direction/
+        point helpers must NOT re-apply ``self._tf`` — it is cleared for the duration.
+        Returns the brep id, or None if tessellation is unavailable / degenerate."""
+        wpts, tris = self._tessellate_solid(g)
+        if wpts is None:
+            return None
+        saved_tf, saved_t = self._tf, getattr(self, "_t", (0.0, 0.0, 0.0))
+        self._tf, self._t = None, (0.0, 0.0, 0.0)  # points already world; emit raw
+        try:
+            # libtess2 yields an UNWELDED mesh (each triangle owns 3 fresh indices),
+            # so share by quantised coordinate, not index — adjacent triangles then
+            # reference one VERTEX_POINT/EDGE_CURVE, giving a watertight CLOSED_SHELL
+            # (~3x fewer entities than per-triangle duplication).
+            vmap: dict = {}  # quantised coord -> VERTEX_POINT id
+            vpt: dict = {}  # VERTEX_POINT id -> representative point
+            ecache: dict = {}  # (lo_vid, hi_vid) -> EDGE_CURVE id
+            faces = []
+
+            def welded_vid(p):
+                key = (round(p[0], 6), round(p[1], 6), round(p[2], 6))
+                vid = vmap.get(key)
+                if vid is None:
+                    vid = self._vertex(self._pt(p))
+                    vmap[key] = vid
+                    vpt[vid] = p
+                return vid
+
+            def oriented_edge(pa, pb):
+                va, vb = welded_vid(pa), welded_vid(pb)
+                if va == vb:
+                    return None  # collapsed edge (coincident corners)
+                lo, hi = (va, vb) if va < vb else (vb, va)
+                eid = ecache.get((lo, hi))
+                if eid is None:
+                    eid = self._line_edge(lo, vpt[lo], hi, vpt[hi])
+                    ecache[(lo, hi)] = eid
+                return self._oriented(eid, va < vb)
+
+            for i0, i1, i2 in tris:
+                p0, p1, p2 = wpts[i0], wpts[i1], wpts[i2]
+                normal = _cross(_sub(p1, p0), _sub(p2, p0))
+                if _norm(normal) <= 1e-12:
+                    continue  # degenerate triangle -> no valid planar face
+                oes = [oriented_edge(p0, p1), oriented_edge(p1, p2), oriented_edge(p2, p0)]
+                if None in oes:
+                    continue  # a collapsed edge -> not a valid triangular loop
+                plane_id = self._plane(p0, _unit(normal), _unit_or(_sub(p1, p0)))
+                loop = self._edge_loop(oes)
+                bound = self._w(f"FACE_OUTER_BOUND('',#{loop},.T.)")
+                faces.append(self._w(f"ADVANCED_FACE('',(#{bound}),#{plane_id},.T.)"))
+        finally:
+            self._tf, self._t = saved_tf, saved_t
+        if not faces:
+            return None
+        shell = self._w(f"CLOSED_SHELL('',{self._refs(faces)})")
+        item = self._w(f"MANIFOLD_SOLID_BREP('{nm}',#{shell})")
         if color is not None:
             self._emit_color(item, color)
         return item
@@ -1267,6 +1376,28 @@ def _part_fuses_from_fem(p) -> bool:
     return fem is not None and (len(p.plates) + len(p.beams)) == 0 and len(fem.elements) > 0
 
 
+# Merge strategies that emit ANALYTIC surfaces (one CYLINDRICAL_SURFACE per tube
+# member etc.) instead of folding shells into flat plates — see iter_fem_analytic_faces.
+_ANALYTIC_STRATEGIES = {"cylinder", "analytic"}
+
+
+class _AnalyticShell:
+    """A lightweight physical-object shim carrying a whole FEM's analytic face shell
+    (recognised cylinders + flat facets), so the streaming emit loop's B-rep path
+    (``add_brep``) writes it like any other object."""
+
+    def __init__(self, shell, name):
+        self._shell = shell
+        self.name = name
+        self.color = None
+        self.parent = None
+
+    def solid_geom(self):
+        from ada.geom import Geometry
+
+        return Geometry(id=self.name, geometry=self._shell, color=None, transforms=None)
+
+
 def _iter_stream_objects(part, merge_strategy=None):
     """Yield physical objects to stream, fusing Beam/Plate straight from the FEM
     mesh (``Part.iter_objects_from_fem``, one at a time, detached) when they
@@ -1275,8 +1406,26 @@ def _iter_stream_objects(part, merge_strategy=None):
     already-materialised beams/plates) come from the part as before.
 
     ``merge_strategy`` folds shells into plates via the shared object-free face
-    engine (passed straight to ``iter_objects_from_fem``)."""
+    engine (passed straight to ``iter_objects_from_fem``); the analytic strategies
+    (``cylinder``) instead emit one recognised-surface shell for the whole FEM."""
     from ada import Beam, Plate
+
+    if merge_strategy and str(merge_strategy).lower() in _ANALYTIC_STRATEGIES:
+        # One analytic shell for ALL fem under `part` (cylinders + flat trim facets);
+        # then any built objects that aren't fused Beam/Plate.
+        from ada.fem.formats.mesh_faces import iter_fem_analytic_faces
+        from ada.geom.surfaces import OpenShell, ShellBasedSurfaceModel
+
+        faces = list(iter_fem_analytic_faces(part))
+        if faces:
+            shell = ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=faces)])
+            yield _AnalyticShell(shell, f"{part.name or 'model'}_analytic")
+        for p in part.get_all_parts_in_assembly(include_self=True):
+            fused = _part_fuses_from_fem(p)
+            for o in p.get_all_physical_objects(sub_elements_only=True, pipe_to_segments=True):
+                if not fused or not isinstance(o, (Beam, Plate)):
+                    yield o
+        return
 
     for p in part.get_all_parts_in_assembly(include_self=True):
         if _part_fuses_from_fem(p):

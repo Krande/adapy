@@ -1,4 +1,5 @@
 import ifcopenshell
+import numpy as np
 
 from ada.core.utils import flatten
 from ada.geom import curves as geo_cu
@@ -37,8 +38,75 @@ def get_surface(ifc_entity: ifcopenshell.entity_instance) -> geo_su.SURFACE_GEOM
         return circle_profile_def(ifc_entity)
     elif ifc_entity.is_a("IfcRectangleProfileDef"):
         return rectangle_profile_def(ifc_entity)
+    elif ifc_entity.is_a("IfcDerivedProfileDef"):
+        return derived_profile_def(ifc_entity)
+    elif ifc_entity.is_a("IfcUShapeProfileDef"):
+        return u_shape_profile_def(ifc_entity)
     else:
         raise NotImplementedError(f"Geometry type {ifc_entity.is_a()} not implemented")
+
+
+def _operator_2d_matrix(op: ifcopenshell.entity_instance) -> tuple[np.ndarray, np.ndarray]:
+    """IfcCartesianTransformationOperator2D -> (R 2x2, t) so a point maps P' = R @ P + t.
+
+    Axis1 is the transformed X direction; Axis2 (if absent) is Axis1 rotated +90 deg. Scale (if
+    absent) is 1. R = [u | v] * scale; t = LocalOrigin. The operator is a rigid/similarity map, so
+    baking it into a profile's line/arc points is exact."""
+    u = np.asarray(op.Axis1.DirectionRatios if op.Axis1 is not None else (1.0, 0.0), dtype=float)
+    u = u / np.linalg.norm(u)
+    if op.Axis2 is not None:
+        v = np.asarray(op.Axis2.DirectionRatios, dtype=float)
+        v = v / np.linalg.norm(v)
+    else:
+        v = np.array([-u[1], u[0]])  # +90 deg CCW
+    scale = float(op.Scale) if op.Scale is not None else 1.0
+    r = np.column_stack([u, v]) * scale
+    t = np.asarray(op.LocalOrigin.Coordinates if op.LocalOrigin is not None else (0.0, 0.0), dtype=float)
+    return r, t
+
+
+def _xform_curve_2d(curve: geo_cu.CURVE_GEOM_TYPES, r: np.ndarray, t: np.ndarray) -> geo_cu.CURVE_GEOM_TYPES:
+    """Apply a 2D affine transform (R @ P + t) to a planar profile curve by transforming its points.
+    Exact for the Edge/ArcLine segments IfcIndexedPolyCurve profiles use (a similarity map keeps a
+    3-point arc a 3-point arc)."""
+
+    def xf(p):
+        return (r @ np.asarray(p, dtype=float)[:2] + t).tolist()
+
+    if isinstance(curve, geo_cu.IndexedPolyCurve):
+        segs = []
+        for s in curve.segments:
+            if isinstance(s, geo_cu.ArcLine):
+                segs.append(geo_cu.ArcLine(xf(s.start), xf(s.midpoint), xf(s.end)))
+            else:
+                segs.append(geo_cu.Edge(xf(s.start), xf(s.end)))
+        return geo_cu.IndexedPolyCurve(segs, curve.self_intersect)
+    raise NotImplementedError(f"IfcDerivedProfileDef transform of {type(curve).__name__} not supported")
+
+
+def derived_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.ArbitraryProfileDef:
+    """IfcDerivedProfileDef: a parent profile transformed by an IfcCartesianTransformationOperator2D.
+    Read the parent natively and bake the 2D operator into its curve points, keeping the result a
+    native ArbitraryProfileDef (no OCC)."""
+    parent = get_surface(ifc_entity.ParentProfile)
+    if not isinstance(parent, geo_su.ArbitraryProfileDef):
+        raise NotImplementedError(f"IfcDerivedProfileDef parent {ifc_entity.ParentProfile.is_a()} not supported")
+    r, t = _operator_2d_matrix(ifc_entity.Operator)
+    parent.outer_curve = _xform_curve_2d(parent.outer_curve, r, t)
+    parent.inner_curves = [_xform_curve_2d(c, r, t) for c in parent.inner_curves]
+    return parent
+
+
+def u_shape_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.ArbitraryProfileDef:
+    """IfcUShapeProfileDef -> ArbitraryProfileDef, materialised through adapy's own
+    CHANNEL section profile generator (the same one the writer uses in
+    non-parametric mode), so the polygon and its orientation convention match what
+    the beam looked like before the parametric write."""
+    from ada.api.beams.geom_beams import section_to_arbitrary_profile_def_with_voids
+    from ada.cadit.ifc.read.read_beam_section import import_section_from_ifc
+
+    sec = import_section_from_ifc(ifc_entity)
+    return section_to_arbitrary_profile_def_with_voids(sec)
 
 
 def arbitrary_closed_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.ArbitraryProfileDef:

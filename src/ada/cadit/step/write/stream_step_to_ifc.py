@@ -456,6 +456,10 @@ def stream_step_to_ifc(
     ident_place = emitter._emit(pre_lines, f"IfcLocalPlacement($,#{ident_axis})")
 
     emitted = skipped = total = 0
+    # proxies: placed IfcBuildingElementProxy count (one per occurrence — matches
+    # _count_ifc_proxies of the output). total_instances: every placed instance seen.
+    # These are the parity metric, returned so the caller needn't re-scan the output.
+    proxies = total_instances = 0
     reasons: Counter = Counter()
     # Nested assembly tree rebuilt from instance_paths: each node (shared by rep_id)
     # becomes an IfcElementAssembly; children aggregate under it (IfcRelAggregates),
@@ -492,6 +496,7 @@ def stream_step_to_ifc(
         emitter._flush = lambda buf: (out.write("\n".join(buf) + "\n"), buf.clear())
         for gi, make_face_gen, gid, color, mats, paths in _iter_stream_solids(src_path):
             total += 1
+            total_instances += len(mats)
             base = gid if gid not in (None, "") else f"solid_{total}"
             any_ok = False
             for k, m in enumerate(mats):
@@ -515,6 +520,7 @@ def stream_step_to_ifc(
                         lines,
                         f"IfcBuildingElementProxy('{create_guid()}',#{owner_id},{nm},$,$,#{ident_place},#{pds},$,$)",
                     )
+                    proxies += 1  # one placed proxy written == one source instance preserved
                     # nest: aggregate under the leaf's parent assembly node, else storey
                     pp = list(paths[k][:-1]) if (paths and k < len(paths) and paths[k]) else None
                     parent_rep = _register_path(pp)
@@ -581,7 +587,14 @@ def stream_step_to_ifc(
     if skipped:
         logger.warning("stream_step_to_ifc: %d/%d solids skipped (unsupported): %s", skipped, total, dict(reasons))
     prog("ready", 1.0)
-    return {"emitted": emitted, "skipped": skipped, "total": total, "reasons": dict(reasons)}
+    return {
+        "emitted": emitted,
+        "skipped": skipped,
+        "total": total,
+        "instances": proxies,
+        "total_instances": total_instances,
+        "reasons": dict(reasons),
+    }
 
 
 def _unsupported_kind(gi) -> str:

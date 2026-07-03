@@ -224,25 +224,37 @@ class HttpRangeSource:
     """HTTP ``Range``-GET fetcher (stdlib ``urllib``) — for a presigned
     URL or any range-capable HTTP endpoint on CPython.
 
-    Size comes from a ``HEAD`` (``Content-Length``) unless passed in. Each
-    ``fetch`` is one ranged ``GET``. In the browser, supply a fetch-based
-    fetcher with the same ``size()`` / ``fetch()`` surface instead — this
-    one relies on real sockets that pyodide doesn't provide.
+    Size comes from a ``Range: bytes=0-0`` GET probe (``Content-Range``
+    total) unless passed in — NOT a ``HEAD``: a presigned URL is signed
+    for one method only, so a HEAD against a GET-presigned URL fails the
+    SigV4 check (403). Each ``fetch`` is one ranged ``GET``. In the
+    browser, supply a fetch-based fetcher with the same ``size()`` /
+    ``fetch()`` surface instead — this one relies on real sockets that
+    pyodide doesn't provide.
     """
 
     def __init__(self, url: str, size: int | None = None, headers: dict | None = None):
         self._url = url
         self._headers = dict(headers or {})
-        self._size = int(size) if size is not None else self._head_size()
+        self._size = int(size) if size is not None else self._probe_size()
 
-    def _head_size(self) -> int:
+    def _probe_size(self) -> int:
         import urllib.request
 
-        req = urllib.request.Request(self._url, method="HEAD", headers=self._headers)
+        headers = {**self._headers, "Range": "bytes=0-0"}
+        req = urllib.request.Request(self._url, headers=headers)
         with urllib.request.urlopen(req) as resp:
+            # 206: total after the slash in ``Content-Range: bytes 0-0/N``.
+            cr = resp.headers.get("Content-Range")
+            if cr is not None:
+                total = cr.rpartition("/")[2].strip()
+                if total and total != "*":
+                    return int(total)
+            # 200: the server ignored Range; Content-Length is the full size.
+            # Close without reading the body — we only wanted the headers.
             cl = resp.headers.get("Content-Length")
         if cl is None:
-            raise ValueError(f"HEAD {self._url} returned no Content-Length; pass size= explicitly")
+            raise ValueError(f"GET {self._url} returned no Content-Range/Content-Length; pass size= explicitly")
         return int(cl)
 
     def size(self) -> int:

@@ -62,6 +62,11 @@ class FixedReferenceSweptAreaSolid:
     swept_area: SURFACE_GEOM_TYPES
     position: Axis2Placement3D
     directrix: CURVE_GEOM_TYPES
+    # The reference direction that keeps the swept profile from twisting along the directrix (no
+    # Frenet roll). IFC default is +Z. StartParam/EndParam are intentionally not modelled — for a
+    # bounded directrix (e.g. IfcGradientCurve) IfcOpenShell sweeps the whole curve regardless, and
+    # we match that.
+    fixed_reference: Direction = field(default_factory=lambda: Direction(0.0, 0.0, 1.0))
 
 
 @dataclass

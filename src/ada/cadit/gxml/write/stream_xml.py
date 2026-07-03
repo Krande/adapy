@@ -32,7 +32,12 @@ from .write_hinges import add_hinges
 from .write_load_case import add_loads
 from .write_masses import add_masses
 from .write_materials import add_materials
-from .write_plates import add_plate_polygon, add_plate_polygon_data, thickness_name
+from .write_plates import (
+    add_plate_curved_polygon,
+    add_plate_polygon,
+    add_plate_polygon_data,
+    thickness_name,
+)
 from .write_sections import add_sections
 from .write_sets import add_sets
 from .write_xml import _XML_TEMPLATE
@@ -88,8 +93,12 @@ def write_xml_stream(
     # materialise geometry (face path reads them straight off the FEM sections).
     thickness_map: dict[float, str] = {}
     thicknesses_elem = ET.SubElement(properties, "thicknesses")
+    from ada.api.plates import PlateCurved
+
     distinct_thicknesses = (
-        _shell_thicknesses(part) if use_faces else [p.t for p in part.get_all_physical_objects(by_type=Plate)]
+        _shell_thicknesses(part)
+        if use_faces
+        else [p.t for p in part.get_all_physical_objects(by_type=(Plate, PlateCurved))]
     )
     for t in distinct_thicknesses:
         if t not in thickness_map:
@@ -171,29 +180,54 @@ def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_
     """
     import itertools
 
+    from ada.api.beams import BeamRevolve, BeamSweep
     from ada.api.spatial.eq_types import EquipRepr
     from ada.api.spatial.equipment import Equipment
+    from ada.config import logger as _logger
 
     from .write_beams import add_straight_beam
 
     for beam in itertools.chain(
         part.get_all_physical_objects(by_type=Beam),
         part.get_all_physical_objects(by_type=BeamTapered),
+        # Curved-axis beams: Genie XML's curved_beam element reads back as
+        # chord segments anyway (see read_beams.seg_to_beam), so emit the
+        # straight chord rather than silently dropping the member.
+        part.get_all_physical_objects(by_type=BeamRevolve),
+        part.get_all_physical_objects(by_type=BeamSweep),
     ):
         # mirror add_beams: equipment beams that aren't AS_IS are emitted by the
         # equipment writer, not as standalone structures.
         parent = beam.parent
         if isinstance(parent, Equipment) and parent.eq_repr != EquipRepr.AS_IS:
             continue
+        if isinstance(beam, (BeamRevolve, BeamSweep)):
+            _logger.warning(
+                f"gxml-write: {type(beam).__name__} {beam.name!r} written as a straight chord beam "
+                "(curved axis not supported by the Genie XML writer)"
+            )
         tmp = ET.Element("structures")
         add_straight_beam(beam, tmp)
         for child in list(tmp):
             fh.write(ET.tostring(child, encoding="unicode"))
 
     if merge_strategy is None:
+        from ada.api.plates import PlateCurved
+        from ada.config import logger
+
         for plate in part.get_all_physical_objects(by_type=Plate):
             tmp = ET.Element("structures")
             add_plate_polygon(plate, thickness_map[plate.t], tmp)
+            for child in list(tmp):
+                fh.write(ET.tostring(child, encoding="unicode"))
+        for plate in part.get_all_physical_objects(by_type=PlateCurved):
+            # No native curved-plate element in Genie XML without SAT-embedded
+            # spline geometry — degrade to the boundary polygon rather than
+            # silently dropping the plate (see add_plate_curved_polygon).
+            tmp = ET.Element("structures")
+            if not add_plate_curved_polygon(plate, thickness_map[plate.t], tmp):
+                logger.warning(f"gxml-write: PlateCurved {plate.name!r} has no usable boundary; dropped")
+                continue
             for child in list(tmp):
                 fh.write(ET.tostring(child, encoding="unicode"))
     else:

@@ -937,6 +937,19 @@ export const viewerApi = {
         return body.files;
     },
 
+    /** Saved utility overlays (_overlays/<model>.<utility>.glb) for the scope. The utils
+     * menu filters these by the loaded model so an overlay generated on one model only
+     * shows when that model is loaded. */
+    async listOverlays(scope: ScopeUrl): Promise<{key: string; size: number; last_modified: string | null}[]> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/overlays`,
+        );
+        const body = await jsonOrThrow<{overlays: {key: string; size: number; last_modified: string | null}[]}>(
+            r, `listOverlays(${scope})`,
+        );
+        return body.overlays;
+    },
+
     /** Same scope file listing as ``listFiles`` but with each source's
      * existing derived blobs grouped under it. The /convert page uses
      * this to show pre-existing conversions next to fresh upload rows

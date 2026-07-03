@@ -713,17 +713,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_obj: Scope = Depends(_scope_from_path),
         include_derived: bool = False,
     ) -> JSONResponse:
-        from .converter import is_derived_key, supported_targets_for
+        from .converter import is_derived_key, is_hidden_key, supported_targets_for
 
         files = await storage.list(scope_obj)
 
         if not include_derived:
-            # Default — hide the _derived/ namespace. Those blobs are
-            # an internal cache, not user files. Convert + download
-            # surfaces them explicitly when needed.
+            # Default — hide internal namespaces (_derived/ convert cache + _overlays/
+            # auto-disposed utility overlays). Those blobs aren't user files. Convert +
+            # download surfaces the derived ones explicitly when needed.
             return JSONResponse(
                 {
-                    "files": [{"key": f.key, "size": f.size} for f in files if not is_derived_key(f.key)],
+                    "files": [{"key": f.key, "size": f.size} for f in files if not is_hidden_key(f.key)],
                 }
             )
 
@@ -770,6 +770,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             reverse=True,
         )
         return JSONResponse({"files": out})
+
+    @api.get("/scopes/{scope}/overlays")
+    async def api_scope_overlays(scope_obj: Scope = Depends(_scope_from_path)) -> JSONResponse:
+        # Saved utility overlays (_overlays/<model-stem>.<utility>.glb) so the utils menu can
+        # offer previously-generated merge/diff overlays for the loaded model. The client
+        # filters by model stem — an overlay generated on MyModel only shows when
+        # MyModel is loaded. Excluded from the normal file list (is_hidden_key).
+        files = await storage.list(scope_obj)
+        overlays = [
+            {"key": f.key, "size": f.size, "last_modified": f.last_modified}
+            for f in files
+            if f.key.lstrip("/").startswith("_overlays/")
+        ]
+        overlays.sort(key=lambda o: o.get("last_modified") or "", reverse=True)
+        return JSONResponse({"overlays": overlays})
 
     async def _serve_blob_range(request: Request, scope_obj: Scope, key: str, range_header: str) -> Response | None:
         """Serve a single byte range of an identity-stored object as 206.
@@ -5286,6 +5301,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         derived_index: dict[str, list[dict]] = {}
 
         for f in files:
+            if f.key.lstrip("/").startswith("_overlays/"):
+                continue  # auto-disposed utility overlays (merge-preview/diff) — not user files
             if is_derived_key(f.key):
                 parsed = derived_source_of(f.key)
                 if parsed is None:

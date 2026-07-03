@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import ada.geom.curves as geo_cu
 import ada.geom.surfaces as geo_su
 from ada import (
     Boolean,
@@ -17,6 +18,7 @@ from ada import (
 )
 from ada.base.units import Units
 from ada.cadit.ifc.utils import add_colour, create_local_placement, tesselate_shape
+from ada.cadit.ifc.write.geom.curves import indexed_poly_curve, poly_line
 from ada.cadit.ifc.write.geom.surfaces import (
     advanced_face,
     create_closed_shell,
@@ -163,6 +165,15 @@ def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
     return ifc_elem
 
 
+def _edge_as_polyline(e, f):
+    """A bare Edge (line segment) as an IfcPolyline — IfcEdge is a topology
+    entity, not a geometric representation item, so it can't go in a
+    ShapeRepresentation directly."""
+    from ada.cadit.ifc.write.geom.points import cpt
+
+    return f.create_entity("IfcPolyline", Points=[cpt(f, e.start), cpt(f, e.end)])
+
+
 def generate_parametric_solid(shape: Shape | PrimSphere, f):
     from ada.api.primitives.bool_half_space import BoolHalfSpace
 
@@ -184,6 +195,11 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         geo_su.AdvancedFace: advanced_face,
         geo_su.CurveBoundedPlane: curve_bounded_plane,
         geo_su.ClosedShell: create_closed_shell,
+        # Curve-only bodies (SAT wire bodies import as bare curve geometry):
+        # emitted as a Curve3D representation instead of failing solid_occ().
+        geo_cu.Edge: _edge_as_polyline,
+        geo_cu.IndexedPolyCurve: indexed_poly_curve,
+        geo_cu.PolyLine: poly_line,
         # Various
         BoolHalfSpace: create_half_space_geom,
     }
@@ -210,6 +226,9 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         geo_su.AdvancedFace: "AdvancedSurface",
         geo_su.CurveBoundedPlane: "AdvancedSurface",
         geo_su.ClosedShell: "AdvancedSurface",
+        geo_cu.Edge: "Curve3D",
+        geo_cu.IndexedPolyCurve: "Curve3D",
+        geo_cu.PolyLine: "Curve3D",
     }
     repr_type_str = repr_type_map.get(type(param_geo), None)
     shape_representation = f.create_entity(
