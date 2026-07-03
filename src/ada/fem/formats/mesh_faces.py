@@ -901,7 +901,12 @@ def _bspline_surface_face_from_grid(grid):
     the grid is degenerate."""
     from ada.geom.curves import KnotType, PolyLoop
     from ada.geom.points import Point
-    from ada.geom.surfaces import AdvancedFace, BSplineSurfaceForm, BSplineSurfaceWithKnots, FaceBound
+    from ada.geom.surfaces import (
+        AdvancedFace,
+        BSplineSurfaceForm,
+        BSplineSurfaceWithKnots,
+        FaceBound,
+    )
 
     nu = len(grid)
     nv = len(grid[0]) if nu else 0
@@ -984,7 +989,12 @@ def _fit_cubic_bspline_surface_face_from_grid(grid, rel_tol: float = 0.01, max_c
     surface (never worse than :func:`_bspline_surface_face_from_grid`)."""
     from ada.geom.curves import KnotType, PolyLoop
     from ada.geom.points import Point
-    from ada.geom.surfaces import AdvancedFace, BSplineSurfaceForm, BSplineSurfaceWithKnots, FaceBound
+    from ada.geom.surfaces import (
+        AdvancedFace,
+        BSplineSurfaceForm,
+        BSplineSurfaceWithKnots,
+        FaceBound,
+    )
 
     Q = np.asarray(grid, dtype=float)
     if Q.ndim != 3 or Q.shape[0] < deg + 1 or Q.shape[1] < deg + 1:
@@ -1196,13 +1206,15 @@ def _filled_cylinder(origin, axis, e1, r: float, z0: float, z1: float):
     boolean cutting tool and as the wall operands for a CUT member (a hollow profile-with-void
     extrusion has inner-wall winding Manifold rejects as a boolean minuend, so a cut member's wall
     is composed as outer_solid − inner_solid)."""
+    import ada.geom.solids as geo_so
     from ada.geom.curves import Circle
     from ada.geom.placement import Axis2Placement3D, Direction
     from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
-    import ada.geom.solids as geo_so
 
     prof = ArbitraryProfileDef(ProfileType.AREA, Circle(Axis2Placement3D(), float(r)), [])
-    return geo_so.ExtrudedAreaSolid(prof, _tube_placement(origin, axis, e1, z0), float(z1 - z0), Direction(0.0, 0.0, 1.0))
+    return geo_so.ExtrudedAreaSolid(
+        prof, _tube_placement(origin, axis, e1, z0), float(z1 - z0), Direction(0.0, 0.0, 1.0)
+    )
 
 
 def _hollow_extrusion(origin, axis, e1, ro: float, ri: float, z0: float, z1: float):
@@ -1210,17 +1222,19 @@ def _hollow_extrusion(origin, axis, e1, ro: float, ri: float, z0: float, z1: flo
     void (IfcArbitraryProfileDefWithVoids). This is the clean form for an UNCUT member — no boolean,
     so no Manifold artifacts (the outer_solid − inner_solid boolean introduces degenerate +
     non-manifold triangles from the long sliver wall triangles; the void profile is watertight)."""
+    import ada.geom.solids as geo_so
     from ada.geom.curves import Circle
     from ada.geom.placement import Axis2Placement3D, Direction
     from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
-    import ada.geom.solids as geo_so
 
     prof = ArbitraryProfileDef(
         ProfileType.AREA,
         Circle(Axis2Placement3D(), float(ro)),
         [Circle(Axis2Placement3D(), float(ri))],
     )
-    return geo_so.ExtrudedAreaSolid(prof, _tube_placement(origin, axis, e1, z0), float(z1 - z0), Direction(0.0, 0.0, 1.0))
+    return geo_so.ExtrudedAreaSolid(
+        prof, _tube_placement(origin, axis, e1, z0), float(z1 - z0), Direction(0.0, 0.0, 1.0)
+    )
 
 
 def _seg_seg_distance(p1, q1, p2, q2) -> float:
@@ -1406,7 +1420,14 @@ def cylinder_trim_faces(prims: "_Primitives", patch: list[int], cf: "CylinderFit
     import math
 
     from ada.core.vector_utils import boundary_cycles_3d
-    from ada.geom.curves import Circle, EdgeCurve, EdgeLoop, Line, OrientedEdge, Pcurve2dBSpline
+    from ada.geom.curves import (
+        Circle,
+        EdgeCurve,
+        EdgeLoop,
+        Line,
+        OrientedEdge,
+        Pcurve2dBSpline,
+    )
     from ada.geom.direction import Direction
     from ada.geom.placement import Axis2Placement3D
     from ada.geom.points import Point

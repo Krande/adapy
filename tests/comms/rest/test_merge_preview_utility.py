@@ -12,7 +12,7 @@ import pytest
 import ada
 from ada import Node
 from ada.comms.rest import utilities  # noqa: F401  registers the utilities
-from ada.comms.rest.utility import run_utility, UtilityRegistry
+from ada.comms.rest.utility import UtilityRegistry, run_utility
 from ada.fem.formats.merge_preview import analyze_part
 
 
@@ -66,8 +66,12 @@ def _cylinder_shell(r=1.0, h=4.0, nt=16, nz=5, t=0.02, name="cyl") -> "ada.Assem
         for it in range(nt):
             it2 = (it + 1) % nt
             ns = [grid[(iz, it)], grid[(iz, it2)], grid[(iz + 1, it2)], grid[(iz + 1, it)]]
-            el = p.fem.add_elem(ada.fem.Elem(eid, ns, ada.fem.Elem.EL_TYPES.SHELL_SHAPES.QUAD, el_formulation_override="S4"))
-            fs = p.fem.add_section(ada.fem.FemSection(f"S{eid}", "shell", ada.fem.FemSet(f"s{eid}", [el]), mat, thickness=t))
+            el = p.fem.add_elem(
+                ada.fem.Elem(eid, ns, ada.fem.Elem.EL_TYPES.SHELL_SHAPES.QUAD, el_formulation_override="S4")
+            )
+            fs = p.fem.add_section(
+                ada.fem.FemSection(f"S{eid}", "shell", ada.fem.FemSet(f"s{eid}", [el]), mat, thickness=t)
+            )
             el.fem_sec = fs
             eid += 1
     a = ada.Assembly() / p
@@ -337,7 +341,12 @@ def test_cylinder_fit_to_faces_emits_cylindrical_surface():
 
     from ada.cadit.step.write.ap242_stream import Ap242StreamWriter
     from ada.fem.formats.mesh_faces import cylinder_fit_to_faces, fit_cylinder_params
-    from ada.geom.surfaces import AdvancedFace, CylindricalSurface, OpenShell, ShellBasedSurfaceModel
+    from ada.geom.surfaces import (
+        AdvancedFace,
+        CylindricalSurface,
+        OpenShell,
+        ShellBasedSurfaceModel,
+    )
 
     prims, patch = _synthetic_cylinder_prims(r=2.0, length=5.0)
     cf = fit_cylinder_params(prims, patch)
@@ -396,7 +405,12 @@ def test_cylinder_trim_faces_bounds_by_real_boundary():
 
     from ada.cadit.step.write.ap242_stream import Ap242StreamWriter
     from ada.fem.formats.mesh_faces import cylinder_trim_faces, fit_cylinder_params
-    from ada.geom.surfaces import AdvancedFace, CylindricalSurface, OpenShell, ShellBasedSurfaceModel
+    from ada.geom.surfaces import (
+        AdvancedFace,
+        CylindricalSurface,
+        OpenShell,
+        ShellBasedSurfaceModel,
+    )
 
     prims, patch = _synthetic_cylinder_prims(r=2.0, length=5.0)
     cf = fit_cylinder_params(prims, patch)
@@ -521,9 +535,7 @@ def test_reconstruct_curved_panels_crosses_stiffener_tjunction():
 
 def test_non_fem_source_rejected():
     with pytest.raises(ValueError, match="FEM source"):
-        run_utility(
-            "merge-cad", "model.step", storage=_FakeStore(), scope=None, on_progress=lambda *_: None, kwargs={}
-        )
+        run_utility("merge-cad", "model.step", storage=_FakeStore(), scope=None, on_progress=lambda *_: None, kwargs={})
 
 
 def test_unimplemented_algorithm_raises(monkeypatch, tmp_path):

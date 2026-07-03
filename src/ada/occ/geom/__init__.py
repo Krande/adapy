@@ -69,7 +69,11 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
     # (each may itself be a BooleanResult) and apply the OCC boolean. This is the root-geometry form
     # adacpp/NGEOM uses; the Geometry.bool_operations path (applied below) is the other form.
     elif isinstance(geometry, bo.BooleanResult):
-        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
+        from OCC.Core.BRepAlgoAPI import (
+            BRepAlgoAPI_Common,
+            BRepAlgoAPI_Cut,
+            BRepAlgoAPI_Fuse,
+        )
 
         from ada.core.guid import create_guid
 

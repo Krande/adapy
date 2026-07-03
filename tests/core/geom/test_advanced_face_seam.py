@@ -114,7 +114,13 @@ def test_planar_face_with_polyloop_hole_builds_on_backend():
     from ada.geom.curves import PolyLoop
     from ada.geom.placement import Axis2Placement3D
     from ada.geom.points import Point
-    from ada.geom.surfaces import AdvancedFace, FaceBound, OpenShell, Plane, ShellBasedSurfaceModel
+    from ada.geom.surfaces import (
+        AdvancedFace,
+        FaceBound,
+        OpenShell,
+        Plane,
+        ShellBasedSurfaceModel,
+    )
 
     outer = [(0, 0, 0), (3, 0, 0), (3, 3, 0), (0, 3, 0)]
     hole = [(1, 1, 0), (1, 2, 0), (2, 2, 0), (2, 1, 0)]

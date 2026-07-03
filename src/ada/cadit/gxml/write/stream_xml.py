@@ -180,10 +180,9 @@ def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_
     """
     import itertools
 
+    from ada.api.beams import BeamRevolve, BeamSweep
     from ada.api.spatial.eq_types import EquipRepr
     from ada.api.spatial.equipment import Equipment
-
-    from ada.api.beams import BeamRevolve, BeamSweep
     from ada.config import logger as _logger
 
     from .write_beams import add_straight_beam

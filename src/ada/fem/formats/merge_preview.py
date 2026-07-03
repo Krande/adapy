@@ -156,7 +156,11 @@ def _strategy_groups(prims, strategy, ndigits, angle_tol, min_patch_quads, max_d
         # Mirror the PRODUCTION analytic emit (mesh_faces.iter_fem_analytic_faces): cylinder
         # recognition + cross-T curved B-spline panels + planar whole-patch merge + facet
         # residual, so the colorized preview matches what STEP/IFC/generate actually build.
-        from ada.fem.formats.mesh_faces import _elid_of, _flat_faces_with_holes, _reconstruct_curved_panels
+        from ada.fem.formats.mesh_faces import (
+            _elid_of,
+            _flat_faces_with_holes,
+            _reconstruct_curved_panels,
+        )
 
         patches = list(_surface_patches(prims, angle_tol, ndigits))
         pcls = [(pt, classify_patch(prims, pt) if len(pt) >= min_patch_quads else "planar") for pt in patches]

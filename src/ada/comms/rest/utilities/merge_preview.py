@@ -260,7 +260,9 @@ def _generate(asm, model, algorithm, storage, on_progress, solids=False):
 
     from ada.cad import active_backend
     from ada.core.guid import create_guid
-    from ada.extension.design_and_analysis_extension_schema import AdaDesignAndAnalysisExtension
+    from ada.extension.design_and_analysis_extension_schema import (
+        AdaDesignAndAnalysisExtension,
+    )
     from ada.extension.design_extension_schema import DesignDataExtension
     from ada.geom.booleans import BooleanResult
     from ada.geom.solids import ExtrudedAreaSolid

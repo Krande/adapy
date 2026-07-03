@@ -94,7 +94,9 @@ def test_alignment_fixed_reference_swept_solid_to_step_is_one_solid(tmp_path):
             # present. If it CAN tessellate but the STEP is still empty, that's a real
             # emit regression.
             if _sweep_tris(ifc) == 0:
-                pytest.skip("adacpp build lacks FIXED_REF_SWEPT_SOLID/SweepN support (needs dfde659+ / ada-cpp release)")
+                pytest.skip(
+                    "adacpp build lacks FIXED_REF_SWEPT_SOLID/SweepN support (needs dfde659+ / ada-cpp release)"
+                )
             pytest.fail("ifc->step produced no solid root despite a tessellable sweep (emit regression)")
         assert _count_solids(out) == 1, "expected exactly one solid (faceted MANIFOLD_SOLID_BREP)"
 
