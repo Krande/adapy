@@ -240,6 +240,21 @@ def test_stream_tessellation_applies_bool_operations():
     assert abs(float(z2.max()) - 1.4) < 1e-6, "union operand not applied"
 
 
+def test_backend_builds_hydrated_connected_face_set():
+    """Audit regression: a non-promoted native root hydrates as bare ConnectedFaceSet
+    and must build on the ACTIVE backend (adacpp raised 'not yet ported'); it sews
+    like the ClosedShell/OpenShell shells."""
+    from ada.cad import active_backend
+
+    store = ShapeStore()
+    g = _shell_geometry()
+    idx = store.add_blob(_ngeom_blob(g), gid=str(g.id))
+    hydrated = store.geometry(idx)
+    assert isinstance(hydrated.geometry, su.ConnectedFaceSet)  # single face -> not promoted
+    handle = active_backend().build(hydrated)
+    assert handle is not None
+
+
 def test_native_ifc_brep_products_import_as_ngeom_blobs(tmp_path):
     """B-rep IFC products the Python-native readers can't resolve import via adacpp's
     IfcNgeomStream as zero-copy ngeom-kind proxies instead of eager OCC kernel bodies."""

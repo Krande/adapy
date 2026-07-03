@@ -396,12 +396,15 @@ class AdacppBackend:
                         )
                     polygons.append([self._xyz(p) for p in fb.bound.polygon])
             shape = self._cad.build_face_based_surface_model(polygons)
-        elif isinstance(g, (su.ShellBasedSurfaceModel, su.OpenShell, su.ClosedShell)):
+        elif isinstance(g, (su.ShellBasedSurfaceModel, su.OpenShell, su.ClosedShell, su.ConnectedFaceSet)):
             # Sew the member faces into one shell handle. Each face is built through the
             # AdvancedFace path; open shells (IfcShellBasedSurfaceModel) don't bound a
             # volume, so sew_faces (BRepBuilderAPI_Sewing) is used rather than
             # make_volumes_from_faces. Mirrors OccBackend's make_shell_from_shell_based_
-            # surface_geom / make_open_shell_from_geom.
+            # surface_geom / make_open_shell_from_geom. Bare ConnectedFaceSet is the
+            # native NGEOM reader's B-rep root form (closedness not recorded in the
+            # buffer; hydration promotes verified-closed sets to ClosedShell, the rest
+            # arrive here) — same face-sew as the shells.
             from ada.geom import Geometry as _Geometry
 
             boundary_shells = g.sbsm_boundary if isinstance(g, su.ShellBasedSurfaceModel) else [g]
@@ -409,12 +412,15 @@ class AdacppBackend:
             if not face_handles:
                 raise NotImplementedError("AdacppBackend.build: shell model has no faces")
             shape = self._cad.sew_faces(face_handles)
-        elif isinstance(g, su.AdvancedFace):
+        elif isinstance(g, (su.AdvancedFace, su.FaceSurface)):
             # B-spline (PlateCurved / loft-derived / SAT) faces. With bounds, the
             # surface is trimmed to the boundary wire(s) — each OrientedEdge with
             # a supplied pcurve drives its edge from surface(pcurve(t)) (the
             # SAT-pcurve path of OccBackend.make_face_from_geom). Without bounds,
             # the natural-UV face. Analytic surfaces aren't ported yet.
+            # FaceSurface is AdvancedFace's structurally-identical sibling (same
+            # face_surface/bounds/same_sense, NOT a subclass) — it is what NGEOM
+            # hydration yields for native-read B-rep faces.
             surf = g.face_surface
             if isinstance(surf, su.Plane) and g.bounds:
                 # Planar AdvancedFace (flat SAT/IFC plates): plane inferred from the boundary
