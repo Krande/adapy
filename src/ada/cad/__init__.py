@@ -787,9 +787,28 @@ class AdacppBackend:
         return [0.0, *start, *end]
 
     @staticmethod
-    def _encode_pcurve(pc) -> list[float]:
+    def _encode_pcurve(
+        pc,
+        t_start: float | None = None,
+        t_end: float | None = None,
+        p_start=None,
+        p_end=None,
+    ) -> list[float]:
         """Encode a Pcurve2dBSpline (2D UV curve on the face surface) as a
-        kind-6 edge record for adacpp.cad.build_advanced_face_bspline."""
+        kind-6 edge record for adacpp.cad.build_advanced_face_bspline.
+
+        ``t_start``/``t_end`` are the owning edge's parametric trim on the
+        underlying curve; ``p_start``/``p_end`` its declared 3D vertices. SAT
+        pcurves typically span the FULL underlying curve, not just the edge's
+        segment — without a trim adacpp built the edge over the whole pcurve,
+        the wire endpoints landed metres apart and the face failed with "wire
+        build failed". The t-params alone aren't enough either: an ACIS bs2
+        pcurve is a fit approximation with its OWN parameterization, so the
+        edge's curve-params land slightly off on the pcurve (cm-scale 3D error
+        on this data). The 3D vertices let adacpp trim geometrically
+        (point → surface UV → pcurve param). Appended as an optional
+        [2.0, t0, t1, sx, sy, sz, ex, ey, ez] tail (flag-detected,
+        back-compatible; flag 1.0 = params-only legacy tail)."""
         cps = pc.control_points_2d
         knots = [float(k) for k in pc.knots]
         mults = [float(m) for m in pc.knot_multiplicities]
@@ -800,6 +819,12 @@ class AdacppBackend:
         rec += [float(len(knots)), *knots, *mults]
         if rational:
             rec += [float(w) for w in pc.weights]
+        if t_start is not None and t_end is not None:
+            if p_start is not None and p_end is not None:
+                rec += [2.0, float(t_start), float(t_end)]
+                rec += [float(c) for c in list(p_start)[:3]] + [float(c) for c in list(p_end)[:3]]
+            else:
+                rec += [1.0, float(t_start), float(t_end)]
         return rec
 
     def _encode_face_bound(self, fb) -> list[list[float]]:
@@ -820,7 +845,18 @@ class AdacppBackend:
         out = []
         for oe in edge_list:
             pc = getattr(oe, "pcurve", None)
-            out.append(self._encode_pcurve(pc) if pc is not None else self._encode_oriented_edge(oe))
+            if pc is not None:
+                out.append(
+                    self._encode_pcurve(
+                        pc,
+                        getattr(oe, "t_start", None),
+                        getattr(oe, "t_end", None),
+                        getattr(oe, "start", None),
+                        getattr(oe, "end", None),
+                    )
+                )
+            else:
+                out.append(self._encode_oriented_edge(oe))
         return out
 
     def make_wire(self, points: "list") -> ShapeHandle:
