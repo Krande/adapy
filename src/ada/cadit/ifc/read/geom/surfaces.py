@@ -40,6 +40,8 @@ def get_surface(ifc_entity: ifcopenshell.entity_instance) -> geo_su.SURFACE_GEOM
         return rectangle_profile_def(ifc_entity)
     elif ifc_entity.is_a("IfcDerivedProfileDef"):
         return derived_profile_def(ifc_entity)
+    elif ifc_entity.is_a("IfcUShapeProfileDef"):
+        return u_shape_profile_def(ifc_entity)
     else:
         raise NotImplementedError(f"Geometry type {ifc_entity.is_a()} not implemented")
 
@@ -93,6 +95,18 @@ def derived_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Arbi
     parent.outer_curve = _xform_curve_2d(parent.outer_curve, r, t)
     parent.inner_curves = [_xform_curve_2d(c, r, t) for c in parent.inner_curves]
     return parent
+
+
+def u_shape_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.ArbitraryProfileDef:
+    """IfcUShapeProfileDef -> ArbitraryProfileDef, materialised through adapy's own
+    CHANNEL section profile generator (the same one the writer uses in
+    non-parametric mode), so the polygon and its orientation convention match what
+    the beam looked like before the parametric write."""
+    from ada.api.beams.geom_beams import section_to_arbitrary_profile_def_with_voids
+    from ada.cadit.ifc.read.read_beam_section import import_section_from_ifc
+
+    sec = import_section_from_ifc(ifc_entity)
+    return section_to_arbitrary_profile_def_with_voids(sec)
 
 
 def arbitrary_closed_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.ArbitraryProfileDef:
