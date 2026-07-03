@@ -41,6 +41,28 @@ from ada.geom.curves import KnotType
 from ada.geom.placement import Axis2Placement3D
 
 
+def _bound_is_degenerate(bound: geo_su.FaceBound) -> bool:
+    """True when every edge in the bound's loop is a zero-length straight edge —
+    an ACIS vertex/marker loop, not real face boundary geometry."""
+    edges = getattr(bound.bound, "edge_list", None) or []
+    if not edges:
+        return True
+    for oriented in edges:
+        e = getattr(oriented, "edge_element", oriented)
+        g = getattr(e, "edge_geometry", None)
+        if g is not None and not isinstance(g, geo_cu.Line):
+            return False  # curved edge: start == end can be a legitimate seam
+        s = getattr(e, "start", None)
+        t = getattr(e, "end", None)
+        s = getattr(s, "vertex_geometry", s)
+        t = getattr(t, "vertex_geometry", t)
+        if s is None or t is None:
+            return False  # can't judge — keep the face
+        if sum((float(a) - float(b)) ** 2 for a, b in zip(s, t)) > 1e-18:
+            return False
+    return True
+
+
 class AcisToAdaConverter:
     """
     Converter for transforming ACIS entities to adapy geometry representations.
@@ -102,6 +124,15 @@ class AcisToAdaConverter:
         bounds = self.convert_face_bounds(face)
         if not bounds:
             logger.warning(f"Face {face.index} has no bounds")
+            return None
+
+        # SESAM SAT marker faces: a "face" whose every loop collapses to zero-length
+        # line edges (a vertex loop artifact, no area). Building it downstream aborts
+        # the whole solid (OCCT StdFail_NotDone on the boundary wire) — drop it here.
+        # Only zero-length LINE edges count as degenerate: a closed-curve seam edge
+        # (full circle/spline) legitimately has start == end.
+        if all(_bound_is_degenerate(b) for b in bounds):
+            logger.debug(f"Face {face.index}: all loops degenerate (marker/vertex loop); skipping")
             return None
 
         # Create AdvancedFace for all surface types
