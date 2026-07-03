@@ -148,6 +148,34 @@ def _count_step_instances(path: str | Path) -> int:
     return sum(len(g.transforms) if g.transforms else 1 for g in ada.iter_from_step(path, reader="tolerant"))
 
 
+def _count_step_product_instances(path: str | Path) -> int | None:
+    """Placed *product* instances in a STEP file — the round-trip count that matches
+    how the source object model and the IFC leg count elements.
+
+    A writer may split one object's multi-body geometry into several geometry roots
+    under a single product (OCC's ``to_stp`` writes one SHELL_BASED_SURFACE_MODEL per
+    shell of a sewn multi-shell body; a mapped IFC representation becomes one brep per
+    mapped item) — the object is still ONE element per placed instance, so roots that
+    share their owning product's representation are grouped before counting. Roots
+    without assembly metadata (flat/baked files) group by their own id, i.e. count
+    exactly as :func:`_count_step_instances`. None when the native parser is
+    unavailable (caller falls back to the reload count)."""
+    from ada.cadit.step.read.native_reader import native_adacpp_step_available
+
+    if not native_adacpp_step_available():
+        return None
+    import adacpp
+
+    groups: dict[tuple, int] = {}
+    for _nbytes, meta in adacpp.cad.StepNgeomStream(str(path)):
+        ip = meta.instance_paths
+        # the deepest path level is the solid's own (rep_id, product_name)
+        key = tuple(ip[0][-1]) if (ip and ip[0]) else ("root", meta.id)
+        n = len(meta.transforms) or 1
+        groups[key] = max(groups.get(key, 0), n)
+    return sum(groups.values())
+
+
 def _count_ifc_proxies(path: str | Path) -> int:
     """Count ``IfcBuildingElementProxy`` entities in an IFC file via a bounded text
     scan — the streaming STEP→IFC writer emits exactly one per placed solid instance,
@@ -493,7 +521,14 @@ def cross_format_parity(
             out = work_dir / f"parity{suffix}"
             try:
                 writer(assembly, out)
-                counts[fmt] = assembly_element_count(reader(out))
+                # STEP: count placed product instances from the file's metadata rather
+                # than reloading — a reload makes one Shape per geometry ROOT, so an
+                # object whose body the writer split into several roots under one
+                # product (multi-shell SBSM, mapped-item breps) over-counts vs the
+                # source and the IFC leg. Grouping by owning product restores the
+                # one-element-per-object convention both other legs use.
+                n = _count_step_product_instances(out) if fmt == "step" else None
+                counts[fmt] = n if n is not None else assembly_element_count(reader(out))
             except Exception as ex:  # noqa: BLE001 - record and continue with the other formats
                 errors[fmt] = f"{type(ex).__name__}: {ex}"
                 logger.warning(f"cross_format_parity: {fmt} round-trip failed: {ex}")
