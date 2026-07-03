@@ -151,7 +151,7 @@ const UtilitiesSection = () => {
     const [overlays, setOverlays] = React.useState<{key: string; size: number; last_modified: string | null}[]>([]);
     const [activeOverlays, setActiveOverlays] = React.useState<Set<string>>(new Set());
 
-    // model stem of a key: "dir/JacketHybrid.merge-auto.glb" -> "JacketHybrid"
+    // model stem of a key: "dir/MyModel.merge-auto.glb" -> "MyModel"
     const stemOf = (k: string) => (k.split("/").pop() ?? k).split(".")[0];
     const loadedStem = loadedSourceName ? stemOf(loadedSourceName) : null;
     // only overlays generated for the CURRENTLY loaded model
@@ -417,7 +417,7 @@ const UtilitiesSection = () => {
             </div>
             {myOverlays.length > 0 && (
                 // Saved overlays generated for the loaded model (scoped by model stem — an
-                // overlay made on JacketHybrid only appears when JacketHybrid is loaded).
+                // overlay made on MyModel only appears when MyModel is loaded).
                 <CollapsibleSection title={`Saved overlays (${myOverlays.length})`} defaultOpen={false}>
                     <div className="max-h-40 overflow-y-auto">
                         {myOverlays.map((o) => {

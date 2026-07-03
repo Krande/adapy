@@ -775,8 +775,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def api_scope_overlays(scope_obj: Scope = Depends(_scope_from_path)) -> JSONResponse:
         # Saved utility overlays (_overlays/<model-stem>.<utility>.glb) so the utils menu can
         # offer previously-generated merge/diff overlays for the loaded model. The client
-        # filters by model stem — an overlay generated on JacketHybrid only shows when
-        # JacketHybrid is loaded. Excluded from the normal file list (is_hidden_key).
+        # filters by model stem — an overlay generated on MyModel only shows when
+        # MyModel is loaded. Excluded from the normal file list (is_hidden_key).
         files = await storage.list(scope_obj)
         overlays = [
             {"key": f.key, "size": f.size, "last_modified": f.last_modified}
