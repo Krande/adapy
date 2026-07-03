@@ -1041,12 +1041,25 @@ class Ap242StreamWriter:
         else:
             return None  # unsupported edge geometry
 
-        # Key by the EdgeCurve OBJECT identity: a truly-shared edge resolves to the
-        # same ec object in both adjacent faces (reader memoisation), while the two
-        # semicircle arcs of one circle are distinct objects — so they are NOT merged
-        # (a geometric vertex-pair key collides them and corrupts the topology).
+        # Key by the EDGE_CURVE's VALUE, not the ec object's identity: the Python
+        # reader memoises shared edges into one object, but NGEOM-hydrated trees
+        # (native reader / lazy ShapeStore) re-decode one EdgeCurve object per
+        # referencing face — identity keying would emit duplicate EDGE_CURVEs and
+        # the shell would read back with free edges (no solid). The value key is the
+        # raw emit direction (unnormalised — two complementary arcs of one circle
+        # run opposite ways), the underlying curve's signature (arcs of one circle
+        # share endpoints; the signature alone doesn't split them, direction and
+        # t-range do), the trim range, and same_sense.
+        ts, te = getattr(oe, "t_start", None), getattr(oe, "t_end", None)
+        key = (
+            self._vfor(ec.start),
+            self._vfor(ec.end),
+            _edge_curve_value_sig(g),
+            bool(ec.same_sense),
+            None if ts is None else (min(ts, te), max(ts, te)),
+        )
         return self._shared_oriented(
-            id(ec),
+            key,
             self._vfor(oe.start),
             self._vfor(oe.end),  # loop traversal direction
             self._vfor(ec.start),
@@ -1516,6 +1529,25 @@ def write_step_stream(
 def _axis_or(d, default):
     """A direction as a 3-list, or ``default`` when the optional axis is unset."""
     return list(d) if d is not None else list(default)
+
+
+def _edge_curve_value_sig(g):
+    """A value signature of an edge's underlying curve (see _brep_oriented's key).
+    Mirrors ada.cadit.ngeom.deserialize._edge_curve_sig, duplicated here so the
+    streaming writer stays numpy-free for the slim worker."""
+    if g is None:
+        return None
+    tname = type(g).__name__
+    pos = getattr(g, "position", None)
+    loc = tuple(float(v) for v in pos.location) if pos is not None else None
+    if hasattr(g, "radius"):
+        return (tname, loc, float(g.radius))
+    if hasattr(g, "semi_axis1"):
+        return (tname, loc, float(g.semi_axis1), float(g.semi_axis2))
+    cps = getattr(g, "control_points_list", None)
+    if cps is not None:
+        return (tname, tuple(tuple(float(v) for v in p) for p in cps))
+    return (tname, loc)
 
 
 def _object_geom_meta(obj):

@@ -341,6 +341,81 @@ def deserialize_geometries(buffer: bytes) -> list[tuple[str, object]]:
     return out
 
 
+def connected_face_set_is_closed(cfs) -> bool:
+    """Topological closedness of a decoded ``ConnectedFaceSet``: every (undirected)
+    edge is used exactly twice across the faces' bounds — the manifold-closed-shell
+    condition. NGEOM tag 66 does not record whether the source shell was closed
+    (MANIFOLD_SOLID_BREP) or open (SHELL_BASED_SURFACE_MODEL), so the native read
+    paths use this to restore ``ClosedShell`` parity with the Python stream reader.
+
+    Edges are keyed by VALUE, not object identity — the C++ emitter re-encodes an
+    edge record per referencing face. Endpoints alone are ambiguous for arcs (two
+    halves of one circle share both endpoints), so the key adds the underlying
+    curve's signature and the oriented edge's parameter range. Two uses of the same
+    key = the edge is interior; any other count = a free or non-manifold edge. A
+    model whose adjacent faces don't encode identical edge values conservatively
+    reads as open."""
+    from collections import Counter
+
+    edge_use: Counter = Counter()
+    for f in getattr(cfs, "cfs_faces", []) or []:
+        for b in getattr(f, "bounds", []) or []:
+            loop = getattr(b, "bound", None)
+            edge_list = getattr(loop, "edge_list", None)
+            if edge_list is not None:
+                for oe in edge_list:
+                    e = oe.edge_element
+                    a, z = tuple(map(float, e.start)), tuple(map(float, e.end))
+                    ts, te = getattr(oe, "t_start", None), getattr(oe, "t_end", None)
+                    trange = None if ts is None else (min(ts, te), max(ts, te))
+                    key = ((a, z) if a <= z else (z, a), _edge_curve_sig(e.edge_geometry), trange)
+                    edge_use[key] += 1
+                continue
+            polygon = getattr(loop, "polygon", None)
+            if polygon is not None:
+                pts = [tuple(map(float, p)) for p in polygon]
+                for i, a in enumerate(pts):
+                    z = pts[(i + 1) % len(pts)]
+                    if a == z:
+                        continue
+                    edge_use[((a, z) if a <= z else (z, a), None, None)] += 1
+    if not edge_use:
+        return False
+    return all(n == 2 for n in edge_use.values())
+
+
+def _edge_curve_sig(geom):
+    """A value signature of an edge's underlying curve, discriminating edges whose
+    endpoints coincide (arcs of one circle, seam edges). Decoded floats from equal
+    source records are bit-identical, so exact tuples work as keys."""
+    if geom is None:
+        return None
+    tname = type(geom).__name__
+    pos = getattr(geom, "position", None)
+    loc = tuple(map(float, pos.location)) if pos is not None else None
+    if hasattr(geom, "radius"):  # Circle / cylinder-ish
+        return (tname, loc, float(geom.radius))
+    if hasattr(geom, "semi_axis1"):  # Ellipse
+        return (tname, loc, float(geom.semi_axis1), float(geom.semi_axis2))
+    cps = getattr(geom, "control_points_list", None)
+    if cps is not None:  # B-spline
+        return (tname, tuple(tuple(map(float, p)) for p in cps))
+    pnt = getattr(geom, "pnt", None)
+    if pnt is not None:  # Line
+        return (tname,)
+    return (tname, loc)
+
+
+def promote_closed_shell(geometry):
+    """Return ``ClosedShell(cfs_faces)`` when ``geometry`` is a bare, topologically
+    closed ``ConnectedFaceSet`` root; otherwise return it unchanged. Restores the
+    Python stream reader's root form (solid_geom / OCC build / STEP re-emit all key
+    on ClosedShell vs open shells) for natively-parsed B-reps."""
+    if type(geometry) is su.ConnectedFaceSet and connected_face_set_is_closed(geometry):
+        return su.ClosedShell(cfs_faces=geometry.cfs_faces)
+    return geometry
+
+
 def iter_connected_face_set_faces(buffer: bytes):
     """If the NGEOM buffer's single root is a ``ConnectedFaceSet`` (a B-rep solid's
     shell), return ``(rid, n_faces, face_gen)`` where ``face_gen`` yields each

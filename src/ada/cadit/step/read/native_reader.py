@@ -30,23 +30,38 @@ def native_adacpp_step_available() -> bool:
         return False
 
 
+def native_stream_read_step_blobs(step_path: str | pathlib.Path) -> Iterator[tuple]:
+    """Yield ``(ngeom_blob, gid, color, world_matrices, instance_paths)`` per solid WITHOUT
+    hydrating the geometry — the foundation of the lazy ``ShapeStore`` import path.
+
+    The blob is yielded exactly as it crosses the adacpp boundary (today ``bytes``; a
+    buffer view once the zero-copy binding lands) so the consumer can retain it with
+    no further copies. Hydration, when a consumer eventually wants the ``ada.geom``
+    tree, is ``deserialize_geometries(blob)``."""
+    import adacpp
+
+    for nbytes, meta in adacpp.cad.StepNgeomStream(str(step_path)):
+        gid, color, mats, paths = decode_step_root_meta(meta)
+        yield nbytes, gid, color, mats, paths
+
+
 def native_stream_read_step(step_path: str | pathlib.Path) -> Iterator[Geometry]:
     """Yield one ``ada.geom.Geometry`` per solid, parsed natively — the inverse-serialized B-rep plus
     its colour, world-placement matrices and assembly paths. A drop-in for ``stream_read_step``.
 
     Uses the streaming ``StepNgeomStream`` iterator (one solid's NGEOM buffer at a time, bounded
     memory), so it scales to large assemblies instead of materialising the whole parsed model."""
-    import adacpp
+    from ada.cadit.ngeom.deserialize import deserialize_geometries, promote_closed_shell
 
-    from ada.cadit.ngeom.deserialize import deserialize_geometries
-
-    for nbytes, meta in adacpp.cad.StepNgeomStream(str(step_path)):
+    for nbytes, gid, color, mats, paths in native_stream_read_step_blobs(step_path):
         decoded = deserialize_geometries(nbytes)  # exactly one root per streamed buffer
         if not decoded:
             continue
-        gid, color, mats, paths = decode_step_root_meta(meta)
+        # NGEOM does not record shell closedness; restore ClosedShell for manifold
+        # roots so downstream (solid_geom / STEP re-emit) matches the Python reader.
+        geometry = promote_closed_shell(decoded[0][1])
         yield Geometry(
-            id=gid, geometry=decoded[0][1], color=color, transforms=(mats or None), instance_paths=(paths or None)
+            id=gid, geometry=geometry, color=color, transforms=(mats or None), instance_paths=(paths or None)
         )
 
 

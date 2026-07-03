@@ -1977,6 +1977,24 @@ def make_open_shell_from_geom(shell: geo_su.OpenShell) -> TopoDS_Shell:
     return occ_shell
 
 
+def make_shell_from_connected_face_set_geom(cfs: geo_su.ConnectedFaceSet) -> TopoDS_Shell:
+    """Bare CONNECTED_FACE_SET — the native NGEOM reader's B-rep root form (the buffer
+    does not record whether the source shell was closed). Build the faces like the
+    closed/open shells above and let OCC determine closedness, so a manifold solid
+    B-rep read natively behaves like the Python reader's ClosedShell downstream."""
+    builder = BRep_Builder()
+    occ_shell = TopoDS_Shell()
+    builder.MakeShell(occ_shell)
+    _add_cfs_faces_to_shell(builder, occ_shell, cfs.cfs_faces)
+    try:
+        from OCC.Core.BRep import BRep_Tool
+
+        occ_shell.Closed(BRep_Tool.IsClosed(occ_shell))
+    except Exception:  # noqa: BLE001 - closedness flag is an optimisation, not correctness
+        pass
+    return occ_shell
+
+
 def make_shell_from_polygonal_face_set_geom(pfs: geo_su.PolygonalFaceSet) -> TopoDS_Shape:
     """Build an IfcPolygonalFaceSet — a shared point list plus n-gon faces — into a sewn
     OCC shell. Each face is a planar polygon wire (1-based indices into the point list);

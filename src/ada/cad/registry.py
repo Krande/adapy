@@ -87,12 +87,14 @@ class StepReader(str, Enum):
     for the common case and as robust/complete as OCC for the rest (no geometry skipped). ``STREAM``
     is streaming-only (raises on out-of-scope entities). ``TOLERANT`` streams and *skips* the
     unsupported solids (never OOMs, but drops geometry — avoid as a default). ``OCC`` forces the
-    whole-file OCC reader (needed for scale/transform/rotate-on-import)."""
+    whole-file OCC reader (needed for scale/transform/rotate-on-import). ``NATIVE`` forces
+    adacpp's C++ NGEOM parser (fastest; ``AUTO`` probes it first when adacpp is available)."""
 
     AUTO = "auto"
     STREAM = "stream"
     TOLERANT = "tolerant"
     OCC = "occ"
+    NATIVE = "native"
 
 
 @dataclass

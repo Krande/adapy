@@ -707,34 +707,97 @@ class Part(BackendGeom):
                 parent = p
             return parent
 
-        # "native": adacpp's C++ NGEOM parser hydrated to Geometry (no Python tokenizer); same yield
-        # contract, so the Shape-wrap + product-tree below is identical.
-        if reader == "native":
-            from ada.cadit.step.read.native_reader import (
-                native_adacpp_step_available,
-                native_stream_read_step,
-            )
+        from ada.config import Config
 
-            if not native_adacpp_step_available():
-                raise StepStreamUnsupported("reader='native' requires the adacpp stream_step_to_ngeom entry point")
-            geom_iter = native_stream_read_step(step_path)
-        else:
-            geom_iter = stream_read_step(step_path, local_pool=local_pool, tolerant=tolerant)
+        # Lazy shape store (default on): retain each solid as its compact blob and mint
+        # ShapeProxy objects that hydrate on demand, instead of holding the whole model
+        # as ada.geom trees (~10x resident memory on large assemblies). Opt out via
+        # ADA_CAD_LAZY_SHAPE_STORE=false.
+        store = None
+        if Config().cad_lazy_shape_store:
+            from ada.api.shapes import ShapeProxy, ShapeStore
 
-        new_shapes = []  # (parent_part, shape)
-        try:
-            for i, geometry in enumerate(geom_iter):
-                shp_name = str(geometry.id) if geometry.id not in (None, "") else f"{ada_name}_{i}"
-                shp = Shape(
+            store = ShapeStore(compress=Config().cad_shape_store_compress)
+
+        def _mint_shape(shp_name, geometry) -> Shape:
+            if store is None:
+                return Shape(
                     shp_name, geom=geometry, color=colour or geometry.color, opacity=opacity, units=source_units
                 )
-                parent = _tree_parent(geometry.instance_paths) if product_tree else self
-                new_shapes.append((parent, shp))
-        except StepStreamUnsupported:
-            if reader != "auto":
-                raise
-            logger.info("read_step_file: streaming reader hit an unsupported entity; falling back to OCC reader")
-            return False
+            idx = store.add_geometry(geometry)
+            return ShapeProxy(shp_name, store, idx, color=colour or geometry.color, opacity=opacity, units=source_units)
+
+        new_shapes = []  # (parent_part, shape)
+
+        # "native": adacpp's C++ NGEOM parser. "auto" also probes it first (matching
+        # iter_from_step's read_solids): the native parse is faster and, with the lazy
+        # store, keeps the per-solid NGEOM buffer as-is — no hydration at import at all.
+        # A first-solid hydrate probe guards against files whose buffers the Python
+        # decode path can't handle; those fall back to the pure-Python reader ("auto")
+        # or raise ("native").
+        use_native = False
+        if reader in ("native", "auto"):
+            from ada.cadit.step.read.native_reader import native_adacpp_step_available
+
+            if native_adacpp_step_available():
+                use_native = True
+            elif reader == "native":
+                raise StepStreamUnsupported("reader='native' requires the adacpp stream_step_to_ngeom entry point")
+
+        if use_native:
+            from ada.cadit.ngeom.deserialize import deserialize_geometries
+            from ada.cadit.step.read.native_reader import native_stream_read_step_blobs
+            from ada.cadit.step.write._solid_source import NATIVE_DECODE_ERRORS
+            from ada.geom import Geometry
+
+            try:
+                for i, (blob, gid, color, mats, paths) in enumerate(native_stream_read_step_blobs(step_path)):
+                    if i == 0:
+                        deserialize_geometries(blob)  # hydrate-probe (result discarded)
+                    shp_name = gid if gid not in (None, "") else f"{ada_name}_{i}"
+                    if store is not None:
+                        idx = store.add_blob(
+                            blob, gid=shp_name, color=color, transforms=(mats or None), instance_paths=(paths or None)
+                        )
+                        shp = ShapeProxy(
+                            shp_name, store, idx, color=colour or color, opacity=opacity, units=source_units
+                        )
+                    else:
+                        geometry = Geometry(
+                            id=shp_name,
+                            geometry=deserialize_geometries(blob)[0][1],
+                            color=color,
+                            transforms=(mats or None),
+                            instance_paths=(paths or None),
+                        )
+                        shp = _mint_shape(shp_name, geometry)
+                    parent = _tree_parent(paths) if product_tree else self
+                    new_shapes.append((parent, shp))
+            except (*NATIVE_DECODE_ERRORS, RuntimeError) as exc:
+                if reader == "native" or new_shapes:
+                    # native was forced, or solids were already committed (a mid-stream
+                    # failure can't be un-yielded) — fail loudly over silent truncation.
+                    raise
+                logger.info("read_step_file: native STEP reader failed (%s); using the pure-Python reader", exc)
+                use_native = False
+            if use_native and not new_shapes and reader == "auto":
+                # Native recognised no solids; the pure-Python reader supports entity
+                # kinds the native one skips, so give it the file before the OCC fallback.
+                use_native = False
+
+        if not use_native:
+            geom_iter = stream_read_step(step_path, local_pool=local_pool, tolerant=tolerant)
+            try:
+                for i, geometry in enumerate(geom_iter):
+                    shp_name = str(geometry.id) if geometry.id not in (None, "") else f"{ada_name}_{i}"
+                    shp = _mint_shape(shp_name, geometry)
+                    parent = _tree_parent(geometry.instance_paths) if product_tree else self
+                    new_shapes.append((parent, shp))
+            except StepStreamUnsupported:
+                if reader != "auto":
+                    raise
+                logger.info("read_step_file: streaming reader hit an unsupported entity; falling back to OCC reader")
+                return False
 
         # A zero-yield on a non-empty file means the streaming reader didn't
         # recognise the structure — fall back to OCC rather than silently

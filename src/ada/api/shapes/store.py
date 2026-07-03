@@ -166,12 +166,17 @@ class ShapeStore:
         rec = self._records[index]
         bool_ops: list[BooleanOperation] = []
         if rec.kind == "ngeom":
-            from ada.cadit.ngeom.deserialize import deserialize_geometries
+            from ada.cadit.ngeom.deserialize import (
+                deserialize_geometries,
+                promote_closed_shell,
+            )
 
             roots = deserialize_geometries(self.ngeom_blob(index))
             if not roots:
                 raise ValueError(f"NGEOM blob for {rec.gid!r} decoded to zero roots")
-            inner = roots[0][1]
+            # NGEOM doesn't record shell closedness; restore ClosedShell for manifold
+            # B-rep roots so hydration matches the Python stream reader's form.
+            inner = promote_closed_shell(roots[0][1])
         else:
             payload = self._blobs[index]
             if rec.compressed:

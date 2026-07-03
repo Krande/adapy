@@ -70,7 +70,7 @@ def from_step(
     colour=None,
     opacity: float = 1.0,
     include_shells: bool = False,
-    reader: Literal["occ", "stream", "auto", "tolerant"] | None = None,
+    reader: Literal["occ", "stream", "auto", "tolerant", "native"] | None = None,
     product_tree: bool = False,
 ) -> Assembly:
     """Create an Assembly object from a STEP file.
