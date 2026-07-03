@@ -1244,9 +1244,21 @@ class Part(BackendGeom):
             physical_objects.append(all_as_iterable)
 
         if by_type is not None:
+            from ada.api.shapes import ShapeProxy
+
             if not isinstance(by_type, (list, tuple)):
                 by_type = (by_type,)
-            res = filter(lambda x: type(x) in by_type, chain.from_iterable(physical_objects))
+
+            def _match_type(x, _by=tuple(by_type)):
+                # Exact-type filter, but a lazy ShapeProxy counts as its public type
+                # Shape (a proxy is an implementation detail of the import path, not
+                # a distinct kind — Shape subclasses like PrimBox stay excluded).
+                t = type(x)
+                if t is ShapeProxy:
+                    t = Shape
+                return t in _by
+
+            res = filter(_match_type, chain.from_iterable(physical_objects))
         elif by_metadata is not None:
             res = filter(
                 lambda x: all(x.metadata.get(key) == value for key, value in by_metadata.items()),
