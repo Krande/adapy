@@ -38,9 +38,7 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
             local_placement = get_local_placement(obj_placement)
             extra_opts["placement"] = Placement.from_4x4_matrix(local_placement)
 
-    shape = Shape(
-        name,
-        geom=geom,
+    common = dict(
         guid=product.GlobalId,
         ifc_store=ifc_store,
         units=ifc_store.assembly.units,
@@ -48,6 +46,24 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
         opacity=color.opacity if color is not None else 1.0,
         **extra_opts,
     )
+
+    if geom is not None and Config().cad_lazy_shape_store:
+        # Lazy shape store (default on): keep the natively-read geometry as one
+        # compact pickled blob (bool_operations, half-space operands and parametric
+        # profiles round-trip exactly) and mint a ShapeProxy that hydrates on
+        # demand — large IFC imports stop holding every product's ada.geom tree.
+        # Kernel-fallback products (occ_body) stay eager Shapes: their geometry is
+        # the transient OCC body, and there is nothing heavy retained to avoid.
+        from ada.api.shapes import ShapeProxy, ShapeStore
+
+        store = getattr(ifc_store, "_lazy_shape_store", None)
+        if store is None:
+            store = ShapeStore(compress=Config().cad_shape_store_compress)
+            ifc_store._lazy_shape_store = store
+        idx = store.add_geometry(geom)
+        return ShapeProxy(name, store, idx, **common)
+
+    shape = Shape(name, geom=geom, **common)
 
     # Assign the kernel-built OCC body to the transient cache explicitly rather than via
     # the constructor: the constructor only routes ``geom`` to ``_occ_cache`` when the

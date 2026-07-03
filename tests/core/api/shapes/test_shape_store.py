@@ -205,3 +205,24 @@ def test_pickle_kind_has_no_ngeom_blob():
     assert store.ngeom_blob(idx) is None
     p = ShapeProxy("cut1", store, idx)
     assert p.ngeom_blob() is None
+
+
+def test_ifc_roundtrip_imports_lazy_proxies_with_booleans(tmp_path):
+    """from_ifc mints ShapeProxy objects (lazy store default-on) and a boolean cut
+    (IfcBooleanClippingResult -> bool_operations) survives the store round-trip."""
+    import ada
+
+    box = ada.PrimBox("bx", (0, 0, 0), (1, 1, 1))
+    box.add_boolean(ada.BoolHalfSpace((0.5, 0.5, 0.9), (0, 0, 1), name="cut"))
+    a = ada.Assembly("m") / (ada.Part("p") / [box])
+    f = tmp_path / "lazy_bool.ifc"
+    a.to_ifc(f)
+
+    b = ada.from_ifc(f)
+    shapes = [s for p in b.get_all_parts_in_assembly(include_self=True) for s in p.shapes]
+    assert shapes, "no shapes imported"
+    proxies = [s for s in shapes if isinstance(s, ShapeProxy)]
+    assert proxies, f"expected lazy proxies, got {[type(s).__name__ for s in shapes]}"
+    geom = proxies[0].geom
+    assert geom.bool_operations, "boolean clipping lost through the lazy store"
+    assert geom.bool_operations[0].operator == BoolOpEnum.DIFFERENCE
