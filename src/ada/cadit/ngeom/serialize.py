@@ -652,6 +652,65 @@ class _Encoder:
         b = self._dispatch(br.second_operand)
         return self._add(_BOOLEAN_RESULT, self.i32(op) + self.i32(a) + self.i32(b))
 
+    def half_space_box(self, hs, ref_min, ref_max) -> int:
+        """HalfSpaceSolid -> a finite box (EXTRUDED_AREA_SOLID) on the material side
+        of the plane, sized to cover the reference bbox — the same lowering adacpp's
+        native STEP/IFC readers apply (``mk_halfspace``), so the neutral buffer needs
+        no half-space entity and the boolean evaluates identically everywhere.
+        ``agreement_flag=True`` keeps the material BELOW the plane (-normal side)."""
+        import math
+
+        pos = hs.base_surface.position
+        o, z, x_ref = _frame_vectors(pos)
+        agree = bool(getattr(hs, "agreement_flag", True))
+        hd = tuple(-c for c in z) if agree else z
+
+        c = tuple((mn + mx) / 2.0 for mn, mx in zip(ref_min, ref_max))
+        diag = math.sqrt(sum((mx - mn) ** 2 for mn, mx in zip(ref_min, ref_max)))
+        s = diag * 1.5 + 1e-6
+        # project the bbox centre onto the cutting plane -> box origin ON the plane
+        d = sum(zc * (cc - oc) for zc, cc, oc in zip(z, c, o))
+        cp = tuple(cc - zc * d for cc, zc in zip(c, z))
+        # frame: local Z = material side; X from the plane frame, orthonormalised
+        t = x_ref if abs(sum(a * b for a, b in zip(hd, x_ref))) < 0.9 else _perp_of(z, x_ref)
+        dt = sum(a * b for a, b in zip(hd, t))
+        fx = tuple(tc - hc * dt for tc, hc in zip(t, hd))
+        n = math.sqrt(sum(v * v for v in fx)) or 1.0
+        fx = tuple(v / n for v in fx)
+
+        pts = [(-s, -s, 0.0), (s, -s, 0.0), (s, s, 0.0), (-s, s, 0.0)]
+        loop = self._add(_POLY_LOOP, self.i32(4) + self._v3_raw(pts))
+        bound = self._add(_FACE_BOUND, self.i32(loop) + self.i32(1))
+        face = self._planar_face([bound])
+        place = self._add(_PLACEMENT3, self.v3(cp) + self.v3(hd) + self.v3(fx))
+        body = self.i32(face) + self.i32(place) + self.v3((0.0, 0.0, 1.0)) + self.f64(s)
+        return self._add(_EXTRUDED_AREA_SOLID, body)
+
+    def _fold_bool_ops(self, base_idx: int, base_geom, bool_ops) -> int:
+        """Chain a base solid's ``Geometry.bool_operations`` into nested
+        BOOLEAN_RESULT records (base as first operand, applied in order) so cuts
+        reach the neutral kernel instead of being dropped with the wrapper."""
+        idx = base_idx
+        bbox = None
+        for op in bool_ops:
+            og = op.second_operand
+            while hasattr(og, "geometry") and hasattr(og, "bool_operations"):
+                og = og.geometry  # unwrap core.Geometry
+            import ada.geom.surfaces as _su
+
+            if isinstance(og, _su.HalfSpaceSolid):
+                if bbox is None:
+                    bbox = _loose_bbox(base_geom)
+                if bbox is None:
+                    raise _Unsupported("HalfSpaceSolid operand without a boundable base solid")
+                op_idx = self.half_space_box(og, bbox[0], bbox[1])
+            else:
+                op_idx = self._dispatch(og)
+            op_name = getattr(op.operator, "value", op.operator)
+            opi = {"DIFFERENCE": 0, "UNION": 1, "INTERSECTION": 2}.get(str(op_name).upper(), 0)
+            idx = self._add(_BOOLEAN_RESULT, self.i32(opi) + self.i32(idx) + self.i32(op_idx))
+        return idx
+
     # --- root + finish -----------------------------------------------------------------
     def _dispatch(self, geom) -> int:
         """Serialize one geometry instance to its record index (used for both
@@ -690,8 +749,20 @@ class _Encoder:
         raise _Unsupported(f"geometry {type(geom).__name__}")
 
     def root(self, geom) -> int:
-        """Serialize a top-level geometry instance, returning its record index."""
-        return self._dispatch(geom)
+        """Serialize a top-level geometry instance, returning its record index.
+
+        Accepts a raw ``ada.geom`` type or a ``core.Geometry`` wrapper — the wrapper's
+        ``bool_operations`` are folded into a BOOLEAN_RESULT chain (previously every
+        caller stripped the wrapper, silently dropping IFC clipping cuts and API
+        booleans from the stream-tessellation/export paths)."""
+        ops = []
+        while hasattr(geom, "geometry") and hasattr(geom, "bool_operations"):
+            ops.extend(geom.bool_operations or [])
+            geom = geom.geometry
+        idx = self._dispatch(geom)
+        if ops:
+            idx = self._fold_bool_ops(idx, geom, ops)
+        return idx
 
     def finish(self, roots: list[tuple[int, str]]) -> bytes:
         out = bytearray(b"ADANGEOM")
@@ -707,6 +778,131 @@ class _Encoder:
 
 class _Unsupported(Exception):
     pass
+
+
+def _frame_vectors(pos) -> tuple[tuple, tuple, tuple]:
+    """(origin, z, x) of an Axis2Placement3D with the usual defaults, as plain tuples."""
+    import math
+
+    o = tuple(float(v) for v in pos.location) if pos is not None else (0.0, 0.0, 0.0)
+    z = tuple(float(v) for v in pos.axis) if pos is not None and pos.axis is not None else (0.0, 0.0, 1.0)
+    n = math.sqrt(sum(v * v for v in z)) or 1.0
+    z = tuple(v / n for v in z)
+    if pos is not None and getattr(pos, "ref_direction", None) is not None:
+        x = tuple(float(v) for v in pos.ref_direction)
+    else:
+        x = _perp_of(z, (1.0, 0.0, 0.0))
+    return o, z, x
+
+
+def _perp_of(z, seed) -> tuple:
+    """A unit vector perpendicular to ``z``, seeded by ``seed`` (world X/Y fallback)."""
+    import math
+
+    d = sum(a * b for a, b in zip(z, seed))
+    if abs(d) > 0.9:
+        seed = (0.0, 1.0, 0.0)
+        d = sum(a * b for a, b in zip(z, seed))
+    v = tuple(s - zc * d for s, zc in zip(seed, z))
+    n = math.sqrt(sum(c * c for c in v)) or 1.0
+    return tuple(c / n for c in v)
+
+
+def _loose_bbox(geom) -> tuple[tuple, tuple] | None:
+    """Loose world-frame bbox of an ada.geom solid — over-estimate is fine, it only
+    sizes the finite box a HalfSpaceSolid operand is lowered to (mirrors adacpp's
+    ``solid_item_bbox``). Pure Python/ada.geom — the neutral path stays OCC-free.
+    Returns ``((minx,miny,minz), (maxx,maxy,maxz))`` or ``None``."""
+    import ada.geom.booleans as _bo
+    import ada.geom.solids as _so
+    import ada.geom.surfaces as _su
+
+    while hasattr(geom, "geometry") and hasattr(geom, "bool_operations"):
+        geom = geom.geometry
+
+    def frame_pts(pos, local_pts):
+        o, z, x = _frame_vectors(pos)
+        y = (
+            z[1] * x[2] - z[2] * x[1],
+            z[2] * x[0] - z[0] * x[2],
+            z[0] * x[1] - z[1] * x[0],
+        )
+        return [tuple(o[i] + x[i] * p[0] + y[i] * p[1] + z[i] * p[2] for i in range(3)) for p in local_pts]
+
+    pts: list[tuple] = []
+    if isinstance(geom, _bo.BooleanResult):
+        return _loose_bbox(geom.first_operand)  # the result is contained in operand a
+    if isinstance(geom, _so.ExtrudedAreaSolid):
+        profile = geom.swept_area
+        outer = getattr(profile, "outer_curve", None)
+        if outer is None:
+            try:
+                from ada.api.beams.geom_beams import parametric_profile_to_arbitrary
+
+                outer = parametric_profile_to_arbitrary(profile).outer_curve
+            except Exception:  # noqa: BLE001
+                return None
+        base = _profile_curve_pts(outer)
+        if base is None:
+            return None
+        d = tuple(float(v) * float(geom.depth) for v in geom.extruded_direction)
+        local = base + [(p[0] + d[0], p[1] + d[1], p[2] + d[2]) for p in base]
+        pts = frame_pts(geom.position, local)
+    elif isinstance(geom, _so.RevolvedAreaSolid):
+        base = _profile_curve_pts(getattr(geom.swept_area, "outer_curve", None))
+        if base is None:
+            return None
+        r = max((p[0] ** 2 + p[1] ** 2 + p[2] ** 2) ** 0.5 for p in base)
+        world = frame_pts(geom.position, base)
+        pts = [tuple(c + s * r for c in p) for p in world for s in (-1.0, 1.0)]
+    elif isinstance(geom, _so.Box):
+        x, y, z = float(geom.x_length), float(geom.y_length), float(geom.z_length)
+        pts = frame_pts(geom.position, [(0, 0, 0), (x, 0, 0), (x, y, 0), (0, y, 0), (0, 0, z), (x, y, z)])
+    elif isinstance(geom, _so.Cylinder) or isinstance(geom, _so.Cone):
+        r = float(getattr(geom, "radius", 0.0) or getattr(geom, "bottom_radius", 0.0))
+        h = float(geom.height)
+        pts = frame_pts(geom.position, [(-r, -r, 0), (r, r, 0), (-r, -r, h), (r, r, h)])
+    elif isinstance(geom, _so.Sphere):
+        c, r = geom.center, float(geom.radius)
+        pts = [tuple(float(cc) + s * r for cc in c) for s in (-1.0, 1.0)]
+    else:
+        faces = getattr(geom, "cfs_faces", None)
+        if faces is None and hasattr(geom, "outer"):  # AdvancedBrep / FacetedBrep
+            faces = getattr(geom.outer, "cfs_faces", None)
+        if faces is None and hasattr(geom, "bounds"):  # a single face
+            faces = [geom]
+        if faces is None:
+            return None
+        for f in faces:
+            for b in getattr(f, "bounds", []) or []:
+                loop = getattr(b, "bound", None)
+                for oe in getattr(loop, "edge_list", None) or []:
+                    e = getattr(oe, "edge_element", oe)
+                    pts.append(tuple(float(v) for v in e.start))
+                    pts.append(tuple(float(v) for v in e.end))
+                for p in getattr(loop, "polygon", None) or []:
+                    pts.append(tuple(float(v) for v in p))
+    if not pts:
+        return None
+    mn = tuple(min(p[i] for p in pts) for i in range(3))
+    mx = tuple(max(p[i] for p in pts) for i in range(3))
+    return mn, mx
+
+
+def _profile_curve_pts(curve) -> list[tuple[float, float, float]] | None:
+    """Boundary points of a profile curve (shared with the encoder's poly path);
+    conics fall back to their bounding square."""
+    if curve is None:
+        return None
+    r = float(getattr(curve, "radius", 0.0) or getattr(curve, "semi_axis1", 0.0) or 0.0)
+    if r > 0.0:
+        pos = getattr(curve, "position", None)
+        o = tuple(float(v) for v in pos.location) if pos is not None else (0.0, 0.0, 0.0)
+        return [(o[0] + sx * r, o[1] + sy * r, o[2]) for sx in (-1, 1) for sy in (-1, 1)]
+    try:
+        return _Encoder._loop_points_3d(curve)
+    except _Unsupported:
+        return None
 
 
 def serialize_geometries(items: Iterable[tuple[str, object]]) -> bytes:

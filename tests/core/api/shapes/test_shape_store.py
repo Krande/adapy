@@ -207,6 +207,39 @@ def test_pickle_kind_has_no_ngeom_blob():
     assert p.ngeom_blob() is None
 
 
+def test_stream_tessellation_applies_bool_operations():
+    """A Geometry wrapper's bool_operations reach the stream kernel: the serializer
+    folds them into a BOOLEAN_RESULT chain (half-space lowered to a finite box, the
+    same lowering adacpp's readers use) and Manifold evaluates the cut."""
+    import pytest
+
+    import ada
+    from ada.cad import active_backend
+
+    be = active_backend()
+    if not hasattr(be, "tessellate_stream"):
+        pytest.skip("active CAD backend has no NGEOM stream tessellation")
+
+    box = ada.PrimBox("bx", (0, 0, 0), (1, 1, 1))
+    box.add_boolean(ada.BoolHalfSpace((0.5, 0.5, 0.6), (0, 0, 1), name="cut"))
+    geom = box.solid_geom()
+    assert geom.bool_operations, "fixture must carry a boolean"
+
+    bm = be.tessellate_stream([("bx", geom)], pipeline="libtess2")
+    z = bm.positions.reshape(-1, 3)[:, 2] if bm.positions.ndim == 1 else bm.positions[:, 2]
+    assert len(z) > 0, "boolean-bearing solid tessellated to nothing"
+    zmax = float(z.max())
+    assert abs(zmax - 0.6) < 1e-6, f"half-space cut not applied (zmax={zmax}, expected 0.6)"
+
+    # solid second operand (UNION): a box fused on top raises the extent instead
+    box2 = ada.PrimBox("bx2", (0, 0, 0), (1, 1, 1))
+    box2.add_boolean(ada.PrimBox("cap", (0.25, 0.25, 0.5), (0.75, 0.75, 1.4)), "union")
+    g2 = box2.solid_geom()
+    bm2 = be.tessellate_stream([("bx2", g2)], pipeline="libtess2")
+    z2 = bm2.positions.reshape(-1, 3)[:, 2] if bm2.positions.ndim == 1 else bm2.positions[:, 2]
+    assert abs(float(z2.max()) - 1.4) < 1e-6, "union operand not applied"
+
+
 def test_ifc_roundtrip_imports_lazy_proxies_with_booleans(tmp_path):
     """from_ifc mints ShapeProxy objects (lazy store default-on) and a boolean cut
     (IfcBooleanClippingResult -> bool_operations) survives the store round-trip."""

@@ -932,8 +932,9 @@ class AdacppBackend:
         per-object ``build``/ShapeHandle round-trip) and tessellates it in one C++ call,
         returning a combined ``BatchMesh`` with a group per input id (``node_id`` = the
         item's position). ``pipeline``: ``libtess2`` (OCC-free) | ``occ`` | ``cgal``
-        (ifcopenshell taxonomy kernels). ``geometry`` is an ``ada.geom`` ``FaceSurface`` or
-        ``ConnectedFaceSet`` (unmappable items are skipped by the serializer)."""
+        (ifcopenshell taxonomy kernels). ``geometry`` is an ``ada.geom`` solid/face-set,
+        or a ``core.Geometry`` wrapper — the wrapper's ``bool_operations`` are folded
+        into the buffer as a BOOLEAN_RESULT chain (unmappable items are skipped)."""
         from ada.cadit.ngeom import serialize_geometries
 
         return self.tessellate_stream_buffer(
