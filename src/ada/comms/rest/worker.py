@@ -201,6 +201,35 @@ def _convert_meta_for(job: "Job", env_overrides: dict | None) -> dict | None:
     return meta or None
 
 
+def _attach_cpp_profiles(convert_meta: dict | None, log_bytes: bytes | None) -> None:
+    """Parse the adacpp pipeline profiler's machine-readable summaries out of the
+    captured child output into ``convert_meta["cpp_profile"]``.
+
+    When the ``profile_conversions`` toggle is on, the child runs with
+    ``ADACPP_STEP_PROFILE=1`` and each instrumented C++ pipeline prints ONE
+    ``[STEPPROF-JSON] {...}`` line at teardown (phase wall/RSS, VmHWM peak,
+    per-solid stats, parallelism/IO pressure, per-thread utilisation). Attaching
+    them to convert_meta puts the C++ side in the audit Metrics panel with the
+    same visibility as the Python timings. No-op when profiling was off (no
+    marker lines) or the log is empty."""
+    if not isinstance(convert_meta, dict) or not log_bytes:
+        return
+    import json
+
+    marker = b"[STEPPROF-JSON] "
+    profiles: list[dict] = []
+    for line in log_bytes.splitlines():
+        i = line.find(marker)
+        if i < 0:
+            continue
+        try:
+            profiles.append(json.loads(line[i + len(marker) :].decode("utf-8", "replace")))
+        except (ValueError, UnicodeDecodeError):
+            continue  # a torn/interleaved line must not fail the job
+    if profiles:
+        convert_meta["cpp_profile"] = profiles
+
+
 def _capture_worker_packages() -> list[dict]:
     """Snapshot the worker env's installed packages — the conda-meta manifest
     (authoritative for occt / pythonocc-core / ada-cpp / ifcopenshell / numpy …)
@@ -1564,6 +1593,7 @@ async def _process_one(
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
             metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
+            _attach_cpp_profiles(convert_meta, iresult.log_bytes)
             metrics["convert_meta"] = convert_meta
             await _audit_done(
                 db_pool,
@@ -1655,6 +1685,7 @@ async def _process_one(
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
             metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
+            _attach_cpp_profiles(convert_meta, iresult.log_bytes)
             metrics["convert_meta"] = convert_meta
             await _audit_done(
                 db_pool,
@@ -1681,6 +1712,7 @@ async def _process_one(
         metrics = dict(iresult.final_metrics)
         metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
         metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
+        _attach_cpp_profiles(convert_meta, iresult.log_bytes)
         metrics["convert_meta"] = convert_meta
 
         await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)

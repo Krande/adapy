@@ -595,6 +595,39 @@ export interface ConvertMeta {
     // as % utilization across all cores rather than a cumulative ramp.
     cpu_cores?: number | null;
     options?: Record<string, string>;
+    // adacpp [STEPPROF-JSON] pipeline summaries, parsed from the captured child log when
+    // the profile_conversions toggle was on — one entry per instrumented C++ pipeline run.
+    cpp_profile?: CppProfile[];
+}
+
+export interface CppProfilePhase {
+    name: string;
+    ms: number;
+    rss_mb: number;
+}
+
+export interface CppProfileThread {
+    tid: number;
+    solids: number;
+    busy_ms: number;
+}
+
+export interface CppProfile {
+    label: string;
+    wall_ms: number;
+    peak_rss_mb: number;
+    cpu_s?: number;
+    parallelism?: number;
+    vctx?: number;
+    nvctx?: number;
+    disk_read_mb?: number;
+    majflt?: number;
+    solids?: number;
+    tris?: number;
+    max_tris_solid?: number;
+    phases: CppProfilePhase[];
+    notes?: Record<string, number>;
+    threads?: CppProfileThread[];
 }
 
 export interface WorkerPackage {

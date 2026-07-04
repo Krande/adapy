@@ -783,6 +783,88 @@ const WorkerPackages: React.FC<{imageTag: string}> = ({imageTag}) => {
     );
 };
 
+// adacpp [STEPPROF-JSON] pipeline summaries (captured when "Profile conversions"
+// is on): per-pipeline phase wall/RSS breakdown, kernel-exact peak (VmHWM),
+// per-solid stats, achieved parallelism / IO pressure and per-thread utilisation
+// — the C++ sibling of the Python profile below.
+const CppProfilePanel: React.FC<{profiles: import("@/services/viewerApi").CppProfile[]}> = ({profiles}) => (
+    <div className="pt-2 border-t border-gray-800 space-y-3">
+        <div className="text-[11px] uppercase tracking-wide text-gray-400">C++ pipeline profile</div>
+        {profiles.map((p, i) => {
+            const wall = p.wall_ms > 0 ? p.wall_ms : 1;
+            return (
+                <div key={`${p.label}-${i}`} className="space-y-1">
+                    <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono text-[11px]">
+                        <dt className="text-gray-400">Pipeline</dt>
+                        <dd className="text-emerald-300">{p.label}</dd>
+                        <dt className="text-gray-400">Wall</dt>
+                        <dd>{formatDuration(p.wall_ms)}</dd>
+                        <dt className="text-gray-400">Peak RSS</dt>
+                        <dd>{formatBytes(p.peak_rss_mb * 1024 * 1024)} <span className="text-gray-500">(VmHWM)</span></dd>
+                        {p.cpu_s != null && (
+                            <><dt className="text-gray-400">CPU</dt>
+                            <dd>{p.cpu_s.toFixed(1)} s{p.parallelism != null ? ` — ${p.parallelism.toFixed(2)}x cores busy` : ""}</dd></>
+                        )}
+                        {(p.solids ?? 0) > 0 && (
+                            <><dt className="text-gray-400">Solids</dt>
+                            <dd>{p.solids}{(p.tris ?? 0) > 0 ? ` (${p.tris} tris, max ${p.max_tris_solid}/solid)` : ""}</dd></>
+                        )}
+                        {p.disk_read_mb != null && p.disk_read_mb > 0 && (
+                            <><dt className="text-gray-400">Disk read</dt>
+                            <dd>{p.disk_read_mb.toFixed(0)} MB physical{p.majflt != null ? `, ${p.majflt} major faults` : ""}</dd></>
+                        )}
+                    </dl>
+                    {p.phases.length > 0 && (
+                        <table className="w-full text-[11px] font-mono">
+                            <thead>
+                                <tr className="text-gray-500 text-left">
+                                    <th className="font-normal pr-2">phase</th>
+                                    <th className="font-normal pr-2 text-right">ms</th>
+                                    <th className="font-normal pr-2 text-right">RSS</th>
+                                    <th className="font-normal w-1/3">share</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {p.phases.map((ph) => (
+                                    <tr key={ph.name} className="text-gray-300">
+                                        <td className="pr-2 break-all">{ph.name}</td>
+                                        <td className="pr-2 text-right">{Math.round(ph.ms)}</td>
+                                        <td className="pr-2 text-right">{Math.round(ph.rss_mb)} MB</td>
+                                        <td>
+                                            <div className="bg-gray-800 rounded-sm h-2 w-full">
+                                                <div
+                                                    className="bg-sky-600 rounded-sm h-2"
+                                                    style={{width: `${Math.min(100, (ph.ms / wall) * 100).toFixed(1)}%`}}
+                                                />
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                    {p.notes && Object.keys(p.notes).length > 0 && (
+                        <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono text-[11px]">
+                            {Object.entries(p.notes).map(([k, v]) => (
+                                <React.Fragment key={k}>
+                                    <dt className="text-gray-500 break-all">{k}</dt>
+                                    <dd className="text-gray-300">{v}</dd>
+                                </React.Fragment>
+                            ))}
+                        </dl>
+                    )}
+                    {(p.threads?.length ?? 0) > 0 && (
+                        <div className="text-[11px] font-mono text-gray-400">
+                            threads:{" "}
+                            {p.threads!.map((t) => `t${t.tid}=${Math.round(t.busy_ms)}ms/${t.solids}s`).join("  ")}
+                        </div>
+                    )}
+                </div>
+            );
+        })}
+    </div>
+);
+
 const MetricsTab: React.FC<{
     entry: AuditEntry;
     onDownloadProfile: () => void;
@@ -812,6 +894,9 @@ const MetricsTab: React.FC<{
                 <MetricRow label="Write"    value={formatBytes(entry.write_bytes)}/>
             </dl>
             {entry.convert_meta && <ConvertEngine meta={entry.convert_meta}/>}
+            {(entry.convert_meta?.cpp_profile?.length ?? 0) > 0 && (
+                <CppProfilePanel profiles={entry.convert_meta!.cpp_profile!}/>
+            )}
             {entry.worker_image_tag && <WorkerPackages imageTag={entry.worker_image_tag}/>}
             <MetricsHistoryChart
                 auditId={entry.id}
