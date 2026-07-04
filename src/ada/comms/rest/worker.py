@@ -1172,6 +1172,14 @@ async def _process_one(
 
             v = await _read_bool_setting("profile_conversions")
             profile_enabled = (v or "").strip().lower() in {"1", "true", "yes", "on"}
+            if profile_enabled:
+                # The C++ sibling of the cProfile artefact: adacpp's env-gated
+                # [STEPPROF] pipeline profiler (phase wall times, RSS at phase
+                # boundaries, VmHWM peak, per-solid stats, parallelism/IO
+                # pressure) prints to stderr, which the captured job Log keeps.
+                # Applied inside the child fork only, so sibling jobs and the
+                # parent worker keep their pristine env.
+                env_overrides["ADACPP_STEP_PROFILE"] = "1"
 
             # Optional per-job wall-clock budget. Empty / 0 / non-
             # numeric leaves the watchdog off so legitimately-long
