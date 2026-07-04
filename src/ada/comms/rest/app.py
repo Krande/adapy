@@ -5063,6 +5063,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_id: str | None = None,
         action: str | None = None,
         target: str | None = None,
+        status: str | None = None,
         key: str | None = None,
         before_id: int | None = None,
         limit: int = 100,
@@ -5073,6 +5074,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         key_like = (key or "").strip() or None
         # ``target`` filters by the conversion's target format (glb / ifc / step / …).
         target_format = (target or "").strip().lstrip(".").lower() or None
+        # ``status`` filters by job state (queued / running / done / error).
+        status_norm = (status or "").strip().lower() or None
         rows = await db_module.list_audit(
             pool,
             user_sub=user_sub,
@@ -5080,6 +5083,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             scope_id=scope_id,
             action=action,
             target_format=target_format,
+            statuses=[status_norm] if status_norm else None,
             key_like=key_like,
             limit=limit,
             before_id=before_id,

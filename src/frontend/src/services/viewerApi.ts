@@ -892,6 +892,8 @@ export interface AuditFilters {
     action?: string;
     /** Conversion target format (glb / ifc / step / …). */
     target?: string;
+    /** Job state (queued / running / done / error). */
+    status?: string;
     /** Case-insensitive substring filter on the source filepath/filename. */
     key?: string;
     before_id?: number;

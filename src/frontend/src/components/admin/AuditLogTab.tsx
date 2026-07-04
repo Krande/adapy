@@ -20,6 +20,8 @@ import {
 const ACTIONS = ["", "upload", "download", "convert", "view", "render"];
 const KINDS = ["", "shared", "project", "user"];
 const TARGETS = ["", "glb", "ifc", "xml", "step", "stl", "obj", "sat"];
+// Job states the queue writes (queue.py JOB_STATUS_*) — server-side filter.
+const STATUSES = ["", "queued", "running", "done", "error"];
 
 const PROFILE_SETTING_KEY = "profile_conversions";
 
@@ -204,6 +206,12 @@ const AuditLogTab: React.FC = () => {
                         value={filters.target || ""}
                         onChange={(v) => onFilter({target: v || undefined})}
                         placeholder="any target"
+                    />
+                    <FilterSelect
+                        options={STATUSES}
+                        value={filters.status || ""}
+                        onChange={(v) => onFilter({status: v || undefined})}
+                        placeholder="any state"
                     />
                     <FilterInput
                         placeholder="filename / path…"
