@@ -745,7 +745,10 @@ class Part(BackendGeom):
                 raise StepStreamUnsupported("reader='native' requires the adacpp stream_step_to_ngeom entry point")
 
         if use_native:
-            from ada.cadit.ngeom.deserialize import deserialize_geometries
+            from ada.cadit.ngeom.deserialize import (
+                deserialize_geometries,
+                promote_closed_shell,
+            )
             from ada.cadit.step.read.native_reader import native_stream_read_step_blobs
             from ada.cadit.step.write._solid_source import NATIVE_DECODE_ERRORS
             from ada.geom import Geometry
@@ -763,9 +766,12 @@ class Part(BackendGeom):
                             shp_name, store, idx, color=colour or color, opacity=opacity, units=source_units
                         )
                     else:
+                        # Eager Shapes get the ClosedShell promotion here (the lazy
+                        # store applies it at hydration) — the streaming reader itself
+                        # yields bare face-sets to keep the exporters' hot loop lean.
                         geometry = Geometry(
                             id=shp_name,
-                            geometry=deserialize_geometries(blob)[0][1],
+                            geometry=promote_closed_shell(deserialize_geometries(blob)[0][1]),
                             color=color,
                             transforms=(mats or None),
                             instance_paths=(paths or None),

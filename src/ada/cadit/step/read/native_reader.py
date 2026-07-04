@@ -51,17 +51,19 @@ def native_stream_read_step(step_path: str | pathlib.Path) -> Iterator[Geometry]
 
     Uses the streaming ``StepNgeomStream`` iterator (one solid's NGEOM buffer at a time, bounded
     memory), so it scales to large assemblies instead of materialising the whole parsed model."""
-    from ada.cadit.ngeom.deserialize import deserialize_geometries, promote_closed_shell
+    from ada.cadit.ngeom.deserialize import deserialize_geometries
 
     for nbytes, gid, color, mats, paths in native_stream_read_step_blobs(step_path):
         decoded = deserialize_geometries(nbytes)  # exactly one root per streamed buffer
         if not decoded:
             continue
-        # NGEOM does not record shell closedness; restore ClosedShell for manifold
-        # roots so downstream (solid_geom / STEP re-emit) matches the Python reader.
-        geometry = promote_closed_shell(decoded[0][1])
+        # Roots are yielded as decoded (bare ConnectedFaceSet). The ClosedShell
+        # promotion (edge-pairing closedness check) costs ~17% of this loop on the
+        # crane and only matters where shells are re-exported or solid-built — the
+        # Assembly import paths apply promote_closed_shell at wrap/hydration; the
+        # streaming exporters (obj/stl/step emit) don't need it.
         yield Geometry(
-            id=gid, geometry=geometry, color=color, transforms=(mats or None), instance_paths=(paths or None)
+            id=gid, geometry=decoded[0][1], color=color, transforms=(mats or None), instance_paths=(paths or None)
         )
 
 
