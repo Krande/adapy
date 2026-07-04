@@ -96,7 +96,8 @@ def test_pickle_kind_roundtrips_bool_operations():
 
 
 def test_weakref_cache_identity_and_release():
-    store = ShapeStore()
+    # hydration_cache_size=0 -> pure weakref semantics (no strong LRU window)
+    store = ShapeStore(hydration_cache_size=0)
     idx = store.add_geometry(_shell_geometry())
     g1 = store.geometry(idx)
     assert store.geometry(idx) is g1, "same live object while referenced"
@@ -106,6 +107,24 @@ def test_weakref_cache_identity_and_release():
     assert ref() is None, "hydrated tree must be reclaimable once dropped"
     # and a fresh access hydrates again
     assert store.geometry(idx).id == "solid1"
+
+
+def test_hydration_lru_keeps_hot_and_evicts_cold():
+    """Back-to-back .geom access must not re-decode (consumers read it 3-5x per
+    call), while the strong window stays bounded — hydrate-all still returns to
+    the blob floor."""
+    store = ShapeStore(hydration_cache_size=2)
+    idxs = [store.add_geometry(_shell_geometry(f"s{i}")) for i in range(4)]
+
+    g0 = store.geometry(idxs[0])
+    assert store.geometry(idxs[0]) is g0, "hot entry must be identity-stable with no outside refs"
+
+    ref0 = weakref.ref(g0)
+    del g0
+    for i in idxs[1:]:  # push idx0 out of the 2-slot window
+        store.geometry(i)
+    gc.collect()
+    assert ref0() is None, "evicted entry must be reclaimable"
 
 
 def test_compression_roundtrip_both_kinds():
@@ -142,7 +161,9 @@ def test_proxy_is_shape_and_hydrates_via_property():
 
 
 def test_proxy_pin_semantics():
-    store = ShapeStore()
+    # hydration_cache_size=0: the strong LRU window would keep an unpinned mutation
+    # alive until eviction — the CONTRACT (pin before mutating) is what's tested.
+    store = ShapeStore(hydration_cache_size=0)
     idx = store.add_geometry(_shell_geometry())
     p = ShapeProxy("solid1", store, idx)
 

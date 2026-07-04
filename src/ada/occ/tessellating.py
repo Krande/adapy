@@ -798,13 +798,17 @@ class BatchTessellator:
                 ada_obj = obj
                 geom_repr = render_override.get(obj.guid, GeomRepr.SOLID)
                 # A Shape carrying a bare curve geometry (sectionless SAT wire body, open
-                # wireframe) has no solid/shell — render it as glTF line geometry. Lazy
-                # ShapeProxy objects skip the sniff: it would hydrate the whole tree, and
-                # the store only ever holds B-rep solids/shells, never bare curves.
-                if geom_repr == GeomRepr.SOLID and not isinstance(obj, ShapeProxy):
-                    _g = getattr(obj, "geom", None)
-                    if _g is not None and isinstance(getattr(_g, "geometry", None), _CURVE_GEOM_TUPLE):
-                        geom_repr = GeomRepr.LINE
+                # wireframe — incl. one round-tripped through IFC into the lazy store) has
+                # no solid/shell — render it as glTF line geometry. Lazy proxies answer
+                # from their store record instead of hydrating the whole tree.
+                if geom_repr == GeomRepr.SOLID:
+                    if isinstance(obj, ShapeProxy):
+                        if obj.is_bare_curve():
+                            geom_repr = GeomRepr.LINE
+                    else:
+                        _g = getattr(obj, "geom", None)
+                        if _g is not None and isinstance(getattr(_g, "geometry", None), _CURVE_GEOM_TUPLE):
+                            geom_repr = GeomRepr.LINE
                 node_ref = graph_store.hash_map.get(obj.guid) if graph_store is not None else getattr(obj, "guid", None)
 
                 # Lazy-blob fast path: a ShapeProxy backed by an NGEOM buffer tessellates

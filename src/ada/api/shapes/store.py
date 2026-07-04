@@ -32,6 +32,7 @@ from __future__ import annotations
 import pickle
 import weakref
 import zlib
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -56,6 +57,10 @@ class ShapeRecord:
     transforms: list[np.ndarray] | None = None
     instance_paths: list[tuple] | None = None
     compressed: bool = False
+    # The stored geometry is a bare curve (SAT wire body / open wireframe round-
+    # tripped through IFC) — consumers render it as line geometry. Recorded at
+    # store time so the tessellator's curve sniff never has to hydrate.
+    curve: bool = False
 
 
 class ShapeStore:
@@ -67,14 +72,22 @@ class ShapeStore:
     as soon as no consumer holds them.
     """
 
-    __slots__ = ("_blobs", "_records", "_geom_cache", "compress", "__weakref__")
+    __slots__ = ("_blobs", "_records", "_geom_cache", "_geom_lru", "hydration_cache_size", "compress", "__weakref__")
 
-    def __init__(self, compress: bool = False):
+    def __init__(self, compress: bool = False, hydration_cache_size: int = 16):
         self._blobs: list[object] = []
         self._records: list[ShapeRecord] = []
         # Mirrors MeshArrays._proxy_cache: same live object for repeated access,
         # GC'd when the last outside reference drops.
         self._geom_cache: weakref.WeakValueDictionary[int, Geometry] = weakref.WeakValueDictionary()
+        # Small strong LRU on top of the weak cache. Consumers touch ``.geom``
+        # several times in one call (``solid_geom()`` alone reads it 3-5x) and each
+        # temporary dies between property evaluations, so a purely weak cache
+        # re-decodes the blob per access (~40% slower conversions on the audit).
+        # A bounded strong window keeps the hot shape alive without giving up the
+        # hydrate-all-then-drop memory floor (N x ~0.3 MB, evicted FIFO).
+        self._geom_lru: OrderedDict[int, Geometry] = OrderedDict()
+        self.hydration_cache_size = hydration_cache_size
         self.compress = compress
 
     def __len__(self) -> int:
@@ -123,6 +136,8 @@ class ShapeStore:
         geometry + ``bool_operations`` (which pickle round-trips exactly, including
         half-space operands and parametric profiles the NGEOM codec would lower).
         """
+        from ada.geom.curves import CURVE_GEOM_TUPLE
+
         payload = pickle.dumps((geometry.geometry, geometry.bool_operations), protocol=pickle.HIGHEST_PROTOCOL)
         compressed = False
         if self.compress:
@@ -137,6 +152,7 @@ class ShapeStore:
                 transforms=geometry.transforms,
                 instance_paths=geometry.instance_paths,
                 compressed=compressed,
+                curve=isinstance(geometry.geometry, CURVE_GEOM_TUPLE),
             )
         )
         return len(self._records) - 1
@@ -159,9 +175,11 @@ class ShapeStore:
         return blob
 
     def geometry(self, index: int) -> Geometry:
-        """Hydrate the full ``ada.geom.Geometry`` for one shape (weakref-cached)."""
+        """Hydrate the full ``ada.geom.Geometry`` for one shape (weakref-cached, with
+        a small strong LRU window for back-to-back access)."""
         geom = self._geom_cache.get(index)
         if geom is not None:
+            self._lru_touch(index, geom)
             return geom
         rec = self._records[index]
         bool_ops: list[BooleanOperation] = []
@@ -182,7 +200,7 @@ class ShapeStore:
             if rec.compressed:
                 payload = zlib.decompress(payload)
             inner, bool_ops = pickle.loads(payload)
-        geom = Geometry(
+        hydrated = Geometry(
             id=rec.gid,
             geometry=inner,
             color=rec.color,
@@ -190,8 +208,19 @@ class ShapeStore:
             transforms=rec.transforms,
             instance_paths=rec.instance_paths,
         )
-        self._geom_cache[index] = geom
-        return geom
+        self._geom_cache[index] = hydrated
+        self._lru_touch(index, hydrated)
+        return hydrated
+
+    def _lru_touch(self, index: int, geom: Geometry) -> None:
+        cap = self.hydration_cache_size
+        if cap <= 0:
+            return
+        lru = self._geom_lru
+        lru[index] = geom
+        lru.move_to_end(index)
+        while len(lru) > cap:
+            lru.popitem(last=False)
 
     # --- diagnostics / pickling -----------------------------------------------------------
 
@@ -202,15 +231,18 @@ class ShapeStore:
 
     def __getstate__(self):
         # Buffer views (e.g. capsule-backed ndarrays from adacpp) coerce to bytes —
-        # the one accepted pickle-time copy. The weak cache never travels.
+        # the one accepted pickle-time copy. The hydration caches never travel.
         return {
             "blobs": [b if isinstance(b, bytes) else bytes(b) for b in self._blobs],
             "records": self._records,
             "compress": self.compress,
+            "hydration_cache_size": self.hydration_cache_size,
         }
 
     def __setstate__(self, state):
         self._blobs = state["blobs"]
         self._records = state["records"]
         self.compress = state["compress"]
+        self.hydration_cache_size = state.get("hydration_cache_size", 16)
         self._geom_cache = weakref.WeakValueDictionary()
+        self._geom_lru = OrderedDict()

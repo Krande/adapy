@@ -56,6 +56,11 @@ class ShapeProxy(Shape):
         was stored from Python-built geometry (pickle kind)."""
         return self._shape_store.ngeom_blob(self._store_index)
 
+    def is_bare_curve(self) -> bool:
+        """The stored geometry is a bare curve (wire body) — render as line geometry.
+        Answered from the record, no hydration."""
+        return self._shape_store.record(self._store_index).curve
+
     @property
     def units(self):
         return self._units
