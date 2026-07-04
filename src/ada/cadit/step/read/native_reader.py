@@ -58,10 +58,10 @@ def native_stream_read_step(step_path: str | pathlib.Path) -> Iterator[Geometry]
         if not decoded:
             continue
         # Roots are yielded as decoded (bare ConnectedFaceSet). The ClosedShell
-        # promotion (edge-pairing closedness check) costs ~17% of this loop on the
-        # crane and only matters where shells are re-exported or solid-built — the
-        # Assembly import paths apply promote_closed_shell at wrap/hydration; the
-        # streaming exporters (obj/stl/step emit) don't need it.
+        # promotion (edge-pairing closedness check) costs ~17% of this loop on a
+        # large B-rep assembly and only matters where shells are re-exported or
+        # solid-built — the Assembly import paths apply promote_closed_shell at
+        # wrap/hydration; the streaming exporters (obj/stl/step emit) don't need it.
         yield Geometry(
             id=gid, geometry=decoded[0][1], color=color, transforms=(mats or None), instance_paths=(paths or None)
         )

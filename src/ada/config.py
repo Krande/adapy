@@ -155,7 +155,7 @@ class Config:
                 # buffers from the native readers / pickled ada.geom otherwise) in a
                 # shared ShapeStore, minting ShapeProxy objects that hydrate geometry
                 # on demand (weakref-cached). ~5x lower resident memory on large STEP
-                # imports (Munin crane 2.6 GB -> ~0.5 GB settled). On by default; set
+                # imports (a 778 MB / 7291-solid STEP: 2.6 GB -> ~0.5 GB settled). On by default; set
                 # ADA_CAD_LAZY_SHAPE_STORE=false to materialise eager Shapes as before.
                 ConfigEntry("lazy_shape_store", bool, True, required=False),
                 # Compress stored blobs (zlib-1, ~3x on B-rep buffers) at the cost of a
