@@ -48,7 +48,9 @@ def visualized_element_count(scene: "trimesh.Scene") -> int:
 
     Counts mesh / polyline entries one-per-object (build the scene with
     ``merge_meshes=False``); excludes the placeholder point cloud the converter
-    seeds for otherwise-empty scenes.
+    seeds for otherwise-empty scenes, and zero-vertex entries (the OCC STEP
+    fallback reader materializes one empty Shape from a geometry-less file —
+    it renders nothing, so it must not count as an element).
     """
     import trimesh
 
@@ -56,6 +58,8 @@ def visualized_element_count(scene: "trimesh.Scene") -> int:
     for geom in scene.geometry.values():
         if isinstance(geom, trimesh.PointCloud):
             continue  # empty-scene placeholder
+        if len(getattr(geom, "vertices", ())) == 0:
+            continue  # degenerate/empty body — renders nothing
         n += 1
     return n
 

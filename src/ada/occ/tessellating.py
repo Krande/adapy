@@ -200,7 +200,10 @@ def tessellate_edges(shape: TopoDS_Edge, deflection=0.01) -> LineMesh:
     if shape.ShapeType() == TopAbs_EDGE:
         edges = [shape]
     else:
-        edges = list(TopologyExplorer(shape).edges()) or [shape]
+        # A shape with no edges at all (e.g. an empty compound from a
+        # geometry-less STEP product) has nothing to discretize — passing the
+        # shape itself would trip discretize_edge's TopoDS_Edge assert.
+        edges = list(TopologyExplorer(shape).edges())
 
     verts: list = []
     indices: list = []
@@ -590,6 +593,20 @@ class BatchTessellator:
                 if fixed is not None:
                     tess_shape = tessellate_shape(fixed, self.quality, self.render_edges, self.parallel)
                     indices = tess_shape.faces
+            if len(indices) == 0:
+                # Wire-only body (e.g. a GEOMETRIC_CURVE_SET STEP wireframe read
+                # back through the OCC fallback reader): there is no face to
+                # mesh, but the edges are real geometry — downgrade to line
+                # rendering instead of returning an empty mesh. Guarded so a
+                # non-OCC handle just keeps the empty result.
+                try:
+                    edge_tess = tessellate_edges(occ_geom)
+                except Exception:  # noqa: BLE001
+                    edge_tess = None
+                if edge_tess is not None and len(edge_tess.positions):
+                    tess_shape = edge_tess
+                    indices = edge_tess.indices
+                    mesh_type = MeshType.LINES
 
         mat_id = self.material_store.get(geom_color, None)
         if mat_id is None:
@@ -613,20 +630,30 @@ class BatchTessellator:
         ada.geom.curve_discretize sampler — parity-tested against OCC discretize_edge). Also lets
         line geometry render on wasm (no pythonocc). Returns None for curve kinds with no native
         sampler (e.g. B-spline), which fall through to the OCC discretization path."""
+        import ada.geom.curves as geo_cu
         from ada.geom.curve_discretize import discretize_curve
 
         deflection = float(os.environ.get("ADA_LINE_DEFLECTION", "0.01"))
-        pts = discretize_curve(geom.geometry, deflection=deflection)
-        if not pts or len(pts) < 2:
+        # A GeometricCurveSet is several independent curves in one body — each
+        # element gets its own polyline (no connector segment between them).
+        curves = geom.geometry.elements if isinstance(geom.geometry, geo_cu.GeometricCurveSet) else [geom.geometry]
+        pts: list = []
+        idx: list = []
+        for c in curves:
+            c_pts = discretize_curve(c, deflection=deflection)
+            if not c_pts or len(c_pts) < 2:
+                return None  # unsupported element — fall back to the OCC path
+            off = len(pts)
+            pts.extend(c_pts)
+            # GL_LINES endpoint pairs: (0,1),(1,2),... — connected polyline (the
+            # glTF store reshapes indices to (n/2, 2) segments).
+            for i in range(len(c_pts) - 1):
+                idx.extend((off + i, off + i + 1))
+        if len(pts) < 2:
             return None
 
         # Flat xyz buffer (the gltf store does position.reshape(len/3, 3)).
         position = np.array([c for p in pts for c in (float(p[0]), float(p[1]), float(p[2]))], dtype=np.float32)
-        # GL_LINES endpoint pairs: (0,1),(1,2),... — connected polyline (the glTF store reshapes
-        # indices to (n/2, 2) segments).
-        idx: list = []
-        for i in range(len(pts) - 1):
-            idx.extend((i, i + 1))
         mat_id = self.material_store.get(geom.color, None)
         if mat_id is None:
             mat_id = len(self.material_store)

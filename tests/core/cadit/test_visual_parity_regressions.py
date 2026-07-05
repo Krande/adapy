@@ -41,3 +41,22 @@ def test_cross_format_parity(example_files, monkeypatch, rel_path):
 
     res = parity_for_source_file(example_files / rel_path, ("ifc", "xml", "step"))
     assert res.consistent, f"{rel_path}: counts={res.counts} mismatches={res.mismatches} errors={res.errors}"
+
+
+def test_empty_source_counts_zero_everywhere(example_files, tmp_path):
+    """A geometry-less model must count 0 on every leg. The STEP leg regressed
+    to 1 once (audit run 64): the wireframe-blind native counter fell back to a
+    reload, and the reloaded empty file materialized one zero-vertex Shape."""
+    import ada
+    from ada.cadit.visual_parity import assembly_element_count, cross_format_parity
+
+    res = cross_format_parity(ada.Assembly("Empty"), ("ifc", "step"), work_dir=tmp_path)
+    assert res.counts == {"source": 0, "ifc": 0, "step": 0}
+    assert res.consistent, f"counts={res.counts} mismatches={res.mismatches} errors={res.errors}"
+
+    # And a wire-only STEP must still count its wireframe as 1 (not 0, not a
+    # zero-vertex phantom): GEOMETRIC_CURVE_SET is a stream-reader root.
+    a = ada.from_acis(example_files / "sat_files/single_beam_sesam.sat")
+    out = tmp_path / "wire.step"
+    a.to_stp(out)
+    assert assembly_element_count(ada.from_step(out, reader="auto")) == 1

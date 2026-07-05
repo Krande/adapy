@@ -526,4 +526,7 @@ CURVE_GEOM_TUPLE = (
     TrimmedCurve,
     CompositeCurve,
     Edge,
+    # Loose curve collection (STEP GEOMETRIC_CURVE_SET wireframe bodies) — a
+    # curve body like its members, so every curve-body path treats it as one.
+    GeometricCurveSet,
 )

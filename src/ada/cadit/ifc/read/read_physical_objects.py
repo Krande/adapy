@@ -28,25 +28,33 @@ def _belongs_to_system(product) -> bool:
 def import_physical_ifc_elem(product, name, ifc_store: IfcStore):
     pr_type = product.is_a()
 
+    # Typed imports are best-effort: a product the concept importer can't
+    # express (tessellated body, missing material/axis, unusual profile) must
+    # still land as a generic Shape via the fall-through below — never be
+    # dropped. The named exceptions are the expected downgrades (debug); any
+    # other failure is logged so real importer bugs stay visible.
     if pr_type in ["IfcBeamStandardCase", "IfcBeam"]:
         try:
             return import_ifc_beam(product, name, ifc_store)
         except (NoIfcAxesAttachedError, UnableToConvertBoolResToBeamException) as e:
             logger.debug(e)
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f'Beam import of "{name}" failed ("{e}"); importing as a generic shape')
     if pr_type in ["IfcPlateStandardCase", "IfcPlate"]:
         try:
             return import_ifc_plate(product, name, ifc_store)
         except NoIfcAxesAttachedError as e:
             logger.debug(e)
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f'Plate import of "{name}" failed ("{e}"); importing as a generic shape')
 
     if pr_type in ["IfcWall", "IfcWallStandardCase"]:
         try:
             return import_ifc_wall(product, name, ifc_store)
         except NoIfcAxesAttachedError as e:
             logger.debug(e)
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f'Wall import of "{name}" failed ("{e}"); importing as a generic shape')
 
     if product.is_a("IfcFastener"):
         return import_ifc_fastener(product, name, ifc_store)

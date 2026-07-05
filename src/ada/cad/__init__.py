@@ -757,6 +757,13 @@ class AdacppBackend:
             for seg in curve.segments:
                 edges.extend(self._encode_curve(seg.parent_curve))
             return edges
+        if isinstance(curve, cu.GeometricCurveSet):
+            # Loose curve collection (STEP wireframe body) — concatenate the
+            # member encodings; the records stay independent edges.
+            edges = []
+            for element in curve.elements:
+                edges.extend(self._encode_curve(element))
+            return edges
         if isinstance(curve, cu.GradientCurve):
             # Alignment directrix (IFC4x3): clothoid segments have no analytic
             # edge record — encode the sampled polyline (shared with the

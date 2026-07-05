@@ -163,7 +163,8 @@ def triangulated_face_set(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Tr
     return geo_su.TriangulatedFaceSet(
         coordinates=[Point(*x) for x in ifc_entity.Coordinates.CoordList],
         indices=flatten(ifc_entity.CoordIndex),
-        normals=[Direction(*x) for x in ifc_entity.Normals],
+        # Normals is OPTIONAL in the schema (flat shading when absent).
+        normals=[Direction(*x) for x in ifc_entity.Normals or []],
     )
 
 

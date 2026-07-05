@@ -564,6 +564,19 @@ def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
         return make_wire_from_composite_curve(outer_curve)
     elif isinstance(outer_curve, geo_cu.GradientCurve):
         return make_wire_from_gradient_curve(outer_curve)
+    elif isinstance(outer_curve, geo_cu.GeometricCurveSet):
+        # Loose curve collection (STEP wireframe body): the members are
+        # independent curves, so build a compound of wires rather than
+        # forcing them into one connected wire.
+        from OCC.Core.BRep import BRep_Builder
+        from OCC.Core.TopoDS import TopoDS_Compound
+
+        builder = BRep_Builder()
+        compound = TopoDS_Compound()
+        builder.MakeCompound(compound)
+        for element in outer_curve.elements:
+            builder.Add(compound, make_wire_from_curve(element))
+        return compound
     else:
         raise NotImplementedError(f"Unsupported curve type {type(outer_curve)}")
 
