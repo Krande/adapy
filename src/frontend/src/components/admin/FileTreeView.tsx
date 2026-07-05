@@ -213,6 +213,10 @@ export function FileTreeView<T>({
     // Pointer interactions move it too, so arrows continue from the
     // last clicked row (mirrors StorageBrowser).
     const [focusedKey, setFocusedKey] = useState<string | null>(null);
+    // Anchor for shift-click / shift+arrow range selection — the last
+    // file row toggled by any input path (same semantics as
+    // StorageBrowser's lastSelectedRef).
+    const lastToggledRef = useRef<string | null>(null);
     const wrapRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
         if (!focusedKey) return;
@@ -445,7 +449,31 @@ export function FileTreeView<T>({
             const checked = selection ? selection.selected.has(key) : false;
             const onRowSelect = () => {
                 if (!selection || disabled) return;
+                lastToggledRef.current = key;
                 selection.onSelect([key], !checked);
+            };
+            // Shift+click selects the visible range from the anchor to
+            // this row (adds, never removes — matches StorageBrowser).
+            // ``flatRows`` is initialized before render evaluates this
+            // closure, so referencing it here is safe.
+            const onRowClick = (e: React.MouseEvent) => {
+                setFocusedKey(`file:${key}`);
+                if (!selection || disabled) return;
+                if (e.shiftKey && lastToggledRef.current && lastToggledRef.current !== key) {
+                    const fileKeys: string[] = [];
+                    for (const r of flatRows) {
+                        if (r.kind === "file" && !r.disabled) fileKeys.push(r.key);
+                    }
+                    const a = fileKeys.indexOf(lastToggledRef.current);
+                    const b = fileKeys.indexOf(key);
+                    if (a >= 0 && b >= 0) {
+                        const [lo, hi] = a < b ? [a, b] : [b, a];
+                        selection.onSelect(fileKeys.slice(lo, hi + 1), true);
+                        lastToggledRef.current = key;
+                        return;
+                    }
+                }
+                onRowSelect();
             };
             const isRenaming = renaming?.kind === "file" && renaming.path === key;
             const menuItems = fileMenuItems(key);
@@ -466,10 +494,7 @@ export function FileTreeView<T>({
                                 : "hover:bg-gray-800/60 ")
                     }
                     style={{paddingLeft: 8 + indentPx}}
-                    onClick={() => {
-                        setFocusedKey(rowKey);
-                        onRowSelect();
-                    }}
+                    onClick={onRowClick}
                     draggable={(!!mutations && !isRenaming) || undefined}
                     onDragStart={mutations ? onDragStartFile(key) : undefined}
                     onDragEnd={mutations ? clearDragState : undefined}
@@ -687,6 +712,7 @@ export function FileTreeView<T>({
         const row = idx >= 0 ? flatRows[idx] : null;
         const selectRow = (r: FlatRow | null) => {
             if (!selection || !r || r.kind !== "file" || r.disabled) return;
+            lastToggledRef.current = r.key;
             selection.onSelect([r.key], true);
         };
         const focusAt = (i: number, extendSelection: boolean) => {
@@ -717,6 +743,7 @@ export function FileTreeView<T>({
                 break;
             case " ":
                 if (row?.kind === "file" && selection && !row.disabled) {
+                    lastToggledRef.current = row.key;
                     selection.onSelect([row.key], !selection.selected.has(row.key));
                 }
                 break;
