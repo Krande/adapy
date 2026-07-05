@@ -141,6 +141,14 @@ def get_org(f, org_id):
 def add_to_assembly(assembly: Assembly, obj, ifc_parent, elements2part):
     from ada import Pipe
 
+    if ifc_parent is None:
+        # IFC4x3 alignment-hosted products (e.g. a signal on an
+        # IfcLinearPlacement) may have no spatial containment relation
+        # at all — attach to the assembly root instead of crashing.
+        logger.info(f'No spatial parent for {type(obj)} "{obj.name}". Adding to Assembly root')
+        assembly.add_shape(obj)
+        return
+
     pp_name = ifc_parent.Name
 
     if pp_name is None:

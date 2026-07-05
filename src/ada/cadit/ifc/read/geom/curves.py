@@ -38,7 +38,15 @@ def get_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CURVE_GEOM_TYP
 
 
 def line(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Line:
-    return geo_cu.Line(pnt=Point(ifc_entity.Pnt.Coordinates), dir=Direction(ifc_entity.Dir.Orientation.DirectionRatios))
+    # IfcLine.Dir is an IfcVector — its Magnitude scales the curve's
+    # parameterization (P(t) = Pnt + t*Dir). Fold it into the stored
+    # direction so parameter trims (IfcTrimmedCurve on a line basis)
+    # evaluate correctly; consumers that only need the direction are
+    # magnitude-agnostic.
+    vec = ifc_entity.Dir
+    mag = float(getattr(vec, "Magnitude", 1.0) or 1.0)
+    ratios = tuple(float(x) * mag for x in vec.Orientation.DirectionRatios)
+    return geo_cu.Line(pnt=Point(ifc_entity.Pnt.Coordinates), dir=Direction(ratios))
 
 
 def circle(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Circle:
@@ -100,10 +108,14 @@ def gradient_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.GradientC
 
 
 def ellipse(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Ellipse:
-    from .placement import axis3d
+    from .placement import axis2d_as_3d, axis3d
 
+    # Profile-plane ellipses (2D placement, no Axis attribute) lift into
+    # the z=0 plane — same treatment as circle() above.
+    pos = ifc_entity.Position
+    position = axis2d_as_3d(pos) if pos.is_a("IfcAxis2Placement2D") else axis3d(pos)
     return geo_cu.Ellipse(
-        position=axis3d(ifc_entity.Position),
+        position=position,
         semi_axis1=ifc_entity.SemiAxis1,
         semi_axis2=ifc_entity.SemiAxis2,
     )
@@ -136,11 +148,34 @@ def composite_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Composit
     return geo_cu.CompositeCurve(segments=segments, self_intersect=bool(ifc_entity.SelfIntersect))
 
 
+def _plane_angle_scale(f) -> float:
+    """Radians per file plane-angle unit (1.0 for SI radian files; 0.01745…
+    for files declaring a conversion-based DEGREE unit)."""
+    import ifcopenshell.util.unit as uu
+
+    try:
+        return float(uu.calculate_unit_scale(f, unit_type="PLANEANGLEUNIT"))
+    except Exception:  # noqa: BLE001 - missing/odd unit assignment: assume radians
+        return 1.0
+
+
 def trimmed_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.TrimmedCurve:
+    trim1 = _trim_select(ifc_entity.Trim1)
+    trim2 = _trim_select(ifc_entity.Trim2)
+    if ifc_entity.BasisCurve.is_a("IfcConic"):
+        # Parameter trims on conics are angles expressed in the file's
+        # plane-angle unit — normalize to radians at read time so
+        # downstream evaluators need no unit context (the buildingSMART
+        # curve-parameter samples ship one file in degrees, one in radians).
+        scale = _plane_angle_scale(ifc_entity.file)
+        if isinstance(trim1, float):
+            trim1 *= scale
+        if isinstance(trim2, float):
+            trim2 *= scale
     return geo_cu.TrimmedCurve(
         basis_curve=get_curve(ifc_entity.BasisCurve),
-        trim1=_trim_select(ifc_entity.Trim1),
-        trim2=_trim_select(ifc_entity.Trim2),
+        trim1=trim1,
+        trim2=trim2,
         sense_agreement=ifc_entity.SenseAgreement,
         master_representation=ifc_entity.MasterRepresentation,
     )

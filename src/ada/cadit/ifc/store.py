@@ -10,8 +10,9 @@ import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
 from ada.base.types import GeomRepr
+from ada.base.units import Units
 from ada.cadit.ifc.units_conversion import convert_file_length_units
-from ada.cadit.ifc.utils import assembly_to_ifc_file, default_settings, get_unit_type
+from ada.cadit.ifc.utils import assembly_to_ifc_file, calculate_unit_scale, default_settings
 from ada.cadit.ifc.write.write_user import create_owner_history_from_user
 from ada.config import Config, logger
 
@@ -251,9 +252,14 @@ class IfcStore:
         if projects and getattr(projects[0], "GlobalId", None):
             self.assembly._guid = projects[0].GlobalId
 
-        unit_type = get_unit_type(self.f)
-
-        if unit_type != self.assembly.units:
+        # Compare raw length scales rather than mapping to the Units
+        # enum — files in inches/feet (conversion-based units, e.g. the
+        # buildingSMART samples at scale 0.0254) have no enum member but
+        # convert_file_length_units handles them fine via ifcopenshell's
+        # unit entities.
+        unit_scale = calculate_unit_scale(self.f)  # meters per file length unit
+        target_scale = 0.001 if self.assembly.units == Units.MM else 1.0
+        if abs(unit_scale - target_scale) > 1e-9 * target_scale:
             self.f = convert_file_length_units(self.f, self.assembly.units)
 
         if elements2part is None:

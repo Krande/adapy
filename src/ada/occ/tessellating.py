@@ -635,6 +635,28 @@ class BatchTessellator:
             node_ref, None, position, np.array(idx, dtype=np.uint32), None, mat_id, MeshType.LINES, node_ref
         )
 
+    def _direct_triangulated_meshstore(self, geom: Geometry, node_ref) -> MeshStore | None:
+        """A TriangulatedFaceSet (IfcTriangulatedFaceSet import) already IS a triangle mesh —
+        emit it directly instead of round-tripping through a kernel build + re-tessellation
+        (no backend even has a B-rep build for it). Returns None for every other kind."""
+        import ada.geom.surfaces as geo_su
+
+        tfs = geom.geometry
+        if not isinstance(tfs, geo_su.TriangulatedFaceSet):
+            return None
+        if not tfs.coordinates or not tfs.indices:
+            return None
+        position = np.asarray(tfs.coordinates, dtype=np.float32).reshape(-1)
+        indices = np.asarray(tfs.indices, dtype=np.uint32) - 1  # IFC indices are 1-based
+        normal = None
+        if tfs.normals and len(tfs.normals) == len(tfs.coordinates):
+            normal = np.asarray(tfs.normals, dtype=np.float32).reshape(-1)
+        mat_id = self.material_store.get(geom.color, None)
+        if mat_id is None:
+            mat_id = len(self.material_store)
+            self.material_store[geom.color] = mat_id
+        return MeshStore(node_ref, None, position, indices, normal, mat_id, MeshType.TRIANGLES, node_ref)
+
     def tessellate_geom(
         self,
         geom: Geometry,
@@ -653,6 +675,12 @@ class BatchTessellator:
         # without a native sampler (e.g. B-spline) return None and fall to the OCC path below.
         if mesh_type == MeshType.LINES:
             direct = self._direct_line_meshstore(geom, node_ref)
+            if direct is not None:
+                return direct
+
+        # Pre-tessellated geometry: pass the triangles straight through.
+        if mesh_type == MeshType.TRIANGLES:
+            direct = self._direct_triangulated_meshstore(geom, node_ref)
             if direct is not None:
                 return direct
 

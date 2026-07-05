@@ -1313,6 +1313,16 @@ def extrusion_from_geometry(geom, *, name="obj", color=None, translate=(0.0, 0.0
     normal = tuple(float(v) for v in pos.axis)
 
     profile = solid.swept_area
+    if not hasattr(profile, "outer_curve"):
+        # Parametric profile (Rectangle/I/T from an IFC import) — convert to a
+        # concrete outline first, same seam the tessellation backends use.
+        from ada.api.beams.geom_beams import parametric_profile_to_arbitrary
+
+        try:
+            profile = parametric_profile_to_arbitrary(profile)
+        except NotImplementedError as e:
+            logger.warning("%s: swept profile %s not convertible (%s); skipping", name, type(profile).__name__, e)
+            return None
     outer = _curve_to_segs(profile.outer_curve, is_outer=True)
     if outer is None:
         return None

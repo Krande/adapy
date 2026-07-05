@@ -228,6 +228,28 @@ def parametric_profile_to_arbitrary(area: geo_su.ProfileDef) -> geo_su.Arbitrary
             t_w=area.web_thickness,
             t_ftop=area.flange_thickness,
         )
+    elif isinstance(area, geo_su.RectangleProfileDef):
+        # IFC semantics: the rectangle is centred on the profile position.
+        # adapy's RectangleProfileDef carries no Position (readers only see
+        # the default $), so an explicit centred outline is exact — no
+        # Section detour needed.
+        from ada.geom.curves import Edge, IndexedPolyCurve
+        from ada.geom.points import Point
+
+        dx, dy = area.x_dim / 2.0, area.y_dim / 2.0
+        corners = [
+            Point(-dx, -dy),
+            Point(dx, -dy),
+            Point(dx, dy),
+            Point(-dx, dy),
+        ]
+        segments = [Edge(corners[i], corners[(i + 1) % 4]) for i in range(4)]
+        return geo_su.ArbitraryProfileDef(
+            area.profile_type,
+            IndexedPolyCurve(segments),
+            [],
+            profile_name=getattr(area, "profile_name", None),
+        )
     else:
         raise NotImplementedError(f"Profile def {type(area).__name__} is not implemented")
 

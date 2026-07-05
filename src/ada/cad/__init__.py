@@ -655,14 +655,79 @@ class AdacppBackend:
             pts = curve.points
             return [[0.0, *self._xyz(a), *self._xyz(b)] for a, b in zip(pts[:-1], pts[1:])]
         if isinstance(curve, cu.TrimmedCurve):
+            import numpy as _np
+
             from ada.geom.points import Point as _Point
 
             b, t1, t2 = curve.basis_curve, curve.trim1, curve.trim2
-            if isinstance(b, cu.Line) and isinstance(t1, _Point) and isinstance(t2, _Point):
-                return [[0.0, *self._xyz(t1), *self._xyz(t2)]]
-            if isinstance(b, cu.Circle) and isinstance(t1, _Point) and isinstance(t2, _Point):
-                mid = self._arc_midpoint(b, t1, t2, curve.sense_agreement)
-                return [[1.0, *self._xyz(t1), *mid, *self._xyz(t2)]]
+            if isinstance(b, cu.Line):
+                # Parameter trims evaluate on P(t) = pnt + t*dir — the reader
+                # keeps the IfcVector magnitude in ``dir`` so t is unscaled.
+                def _line_pt(t):
+                    if isinstance(t, _Point):
+                        return self._xyz(t)
+                    p = _np.asarray(self._xyz(b.pnt), dtype=float)
+                    d = _np.asarray(self._xyz(b.dir), dtype=float)
+                    return [float(v) for v in p + float(t) * d]
+
+                return [[0.0, *_line_pt(t1), *_line_pt(t2)]]
+            if isinstance(b, cu.Circle):
+                # Parameter trims are angles (radians, normalized at read) in
+                # the circle's own x/y frame — the same frame _arc_midpoint
+                # measures in, so sense/wrap handling is shared.
+                def _circle_pt(t):
+                    if isinstance(t, _Point):
+                        return self._xyz(t)
+                    c = _np.asarray(self._xyz(b.position.location), dtype=float)
+                    z = _np.asarray(
+                        self._xyz(b.position.axis) if b.position.axis is not None else [0, 0, 1], dtype=float
+                    )
+                    x = _np.asarray(
+                        self._xyz(b.position.ref_direction) if b.position.ref_direction is not None else [1, 0, 0],
+                        dtype=float,
+                    )
+                    z = z / (_np.linalg.norm(z) or 1.0)
+                    x = x / (_np.linalg.norm(x) or 1.0)
+                    y = _np.cross(z, x)
+                    w = c + float(b.radius) * (_np.cos(float(t)) * x + _np.sin(float(t)) * y)
+                    return [float(v) for v in w]
+
+                p1, p2 = _circle_pt(t1), _circle_pt(t2)
+                mid = self._arc_midpoint(b, p1, p2, curve.sense_agreement)
+                return [[1.0, *p1, *mid, *p2]]
+            if isinstance(b, cu.Ellipse):
+                # adacpp has no ellipse edge record — sample the trimmed arc
+                # (parametric angle; trims normalized to radians at read) into
+                # a fine polyline. Profile use only, so chord error at 64
+                # segments/full-turn is well under tessellation deflection.
+                c = _np.asarray(self._xyz(b.position.location), dtype=float)
+                z = _np.asarray(self._xyz(b.position.axis) if b.position.axis is not None else [0, 0, 1], dtype=float)
+                x = _np.asarray(
+                    self._xyz(b.position.ref_direction) if b.position.ref_direction is not None else [1, 0, 0],
+                    dtype=float,
+                )
+                z = z / (_np.linalg.norm(z) or 1.0)
+                x = x / (_np.linalg.norm(x) or 1.0)
+                y = _np.cross(z, x)
+                sa1, sa2 = float(b.semi_axis1), float(b.semi_axis2)
+
+                def _param_of(t):
+                    if not isinstance(t, _Point):
+                        return float(t)
+                    d = _np.asarray(self._xyz(t), dtype=float) - c
+                    return float(_np.arctan2(float(d @ y) / sa2, float(d @ x) / sa1))
+
+                a0, a1 = _param_of(t1), _param_of(t2)
+                if curve.sense_agreement and a1 <= a0:
+                    a1 += 2.0 * _np.pi
+                elif not curve.sense_agreement and a1 >= a0:
+                    a1 -= 2.0 * _np.pi
+                n = max(8, int(abs(a1 - a0) / (2.0 * _np.pi) * 64))
+                ts = _np.linspace(a0, a1, n + 1)
+                pts = [c + sa1 * _np.cos(t) * x + sa2 * _np.sin(t) * y for t in ts]
+                return [
+                    [0.0, *[float(v) for v in p], *[float(v) for v in q]] for p, q in zip(pts[:-1], pts[1:])
+                ]
             raise NotImplementedError(
                 f"AdacppBackend.build: TrimmedCurve basis {type(b).__name__!r} not yet ported to adacpp."
             )

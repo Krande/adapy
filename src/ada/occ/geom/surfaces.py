@@ -2047,7 +2047,13 @@ def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
     elif isinstance(outer_curve, geo_cu.Circle):
         return make_face_from_circle(outer_curve)
     else:
-        raise NotImplementedError("Only IndexedPolyCurve is implemented")
+        # Composite / trimmed / ellipse outlines (e.g. IFC profile curves
+        # stitched from IfcTrimmedCurve segments) — build the wire through
+        # the generic dispatcher and face it planar.
+        from ada.occ.geom.curves import make_wire_from_curve
+
+        wire = make_wire_from_curve(outer_curve)
+        return BRepBuilderAPI_MakeFace(wire, True).Shape()
 
 
 def make_profile_from_geom(area: geo_su.ProfileDef) -> TopoDS_Shape | TopoDS_Face:
