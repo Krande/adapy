@@ -129,7 +129,10 @@ export const PositionedMenu: React.FC<PositionedMenuProps> = ({
         <div
             ref={menuRef}
             role="menu"
-            className="fixed z-50 min-w-[180px] rounded-sm border border-gray-700 bg-gray-800 shadow-lg text-gray-100"
+            // z-[70]: body-portaled, so it must clear the floating admin
+            // panel host (fixed z-[60]) — the corpus tab's kebab/context
+            // menus open from inside it.
+            className="fixed z-[70] min-w-[180px] rounded-sm border border-gray-700 bg-gray-800 shadow-lg text-gray-100"
             style={style}
             onClick={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.preventDefault()}

@@ -85,7 +85,10 @@ const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
 
     return createPortal(
         <div
-            className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 sm:p-8 overflow-y-auto"
+            // z-[70]: body-portaled, so it must clear the floating admin
+            // panel host (fixed z-[60]) — the corpus tab's move/upload
+            // destination prompts open from inside it.
+            className="fixed inset-0 z-[70] flex items-start justify-center bg-black/40 p-4 sm:p-8 overflow-y-auto"
             onMouseDown={(e) => {
                 // Click on backdrop dismisses. Stop propagation
                 // inside the panel itself so a stray mousedown there
