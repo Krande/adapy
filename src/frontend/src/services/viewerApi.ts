@@ -658,6 +658,10 @@ export interface AuditRun {
     status: string;
     note: string | null;
     total: number;
+    // Auto-validation parity cells counted into `total` upfront but not yet
+    // enqueued (the poller dispatches them once the conversion cells land).
+    // 0 once the validation pass starts, and for non-auto-validate runs.
+    validate_total?: number;
     ok: number;
     failed: number;
     skipped: number;

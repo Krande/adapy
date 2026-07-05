@@ -3371,20 +3371,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     async def _dispatch_auto_validation(pool, parent: dict) -> None:
-        """Append a validation (cross-format parity) pass to a finished
+        """Dispatch the validation (cross-format parity) pass of an
         ``auto_validate`` conversion run — *into the same run*, not a new one.
-        The run's total grows by the parity cell count and it reopens to
-        ``running`` until those cells land (then it re-finishes). The claim
-        already stamped the parent so this runs once; failures are logged but
-        never break the poller tick."""
+        Runs dispatched with an upfront reservation (``validate_total > 0``)
+        already count these cells in their total, so dispatch consumes the
+        reservation; pre-reservation runs get their total extended (and
+        reopen from ``finished``) as before. The claim already stamped the
+        parent so this runs once; failures are logged but never break the
+        poller tick."""
         try:
             s = _parse_scope(parent["scope"], _SystemUser())
             s = await _resolve_project_scope(pool, s)
         except Exception:
             logger.exception("auto-validate: scope resolution failed for run %s", parent["id"])
+            if (parent.get("validate_total") or 0) > 0:
+                # Release the reservation — no parity cells will ever be
+                # enqueued, so the run must not hang 'running' on them.
+                await db_module.consume_audit_run_validation_reserve(pool, parent["id"], 0)
             return
-        # Awaited (not fire-and-forget) so the run is reopened with its parity
-        # cells before the issue-bot drain in the same tick can claim it.
+        # Awaited (not fire-and-forget) so the run holds its parity cells
+        # before the issue-bot drain in the same tick can claim it.
         try:
             await _audit_dispatch(
                 parent["id"],
@@ -3395,6 +3401,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 False,
                 validate_only=True,
                 extend=True,
+                consume_reserve=(parent.get("validate_total") or 0) > 0,
             )
             logger.info("auto-validate: appended validation cells to run %s", parent["id"])
         except Exception:
@@ -3421,11 +3428,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             while True:
                 try:
-                    # Auto-validate first: a finished auto_validate run gets its
-                    # parity cells appended (reopening it to 'running'), so the
-                    # issue-bot below only claims a run once it's *truly* done —
-                    # conversions and validation together. Claimed once (the
-                    # claim stamps auto_validate_dispatched_at).
+                    # Auto-validate first: an auto_validate run whose conversion
+                    # cells have landed gets its parity cells dispatched (the
+                    # run stays 'running' on its upfront-reserved total; legacy
+                    # finished runs reopen), so the issue-bot below only claims
+                    # a run once it's *truly* done — conversions and validation
+                    # together. Claimed once (the claim stamps
+                    # auto_validate_dispatched_at).
                     while True:
                         parent = await db_module.claim_audit_run_for_auto_validate(pool)
                         if parent is None:
@@ -3454,20 +3463,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.info("issue-bot poller: stopped")
             raise
 
-    async def _audit_run_list_cells(
-        scope_obj: Scope,
+    def _audit_cells_for_files(
+        files,
         validate_only: bool,
     ) -> list[tuple[str, str]]:
-        """Enumerate the (source_key, target_format) cells for an audit
-        run over ``scope_obj`` — the scope's non-derived, supported
-        source files crossed with the converter matrix. ``validate_only``
-        emits only per-source ``parity`` cells. Shared by the NATS
-        dispatcher, the WASM dispatcher, and the cells endpoint so the
-        three never disagree on what a run covers. May raise on a scope
-        listing failure (caller decides how to surface it)."""
+        """Pure cell enumeration over an already-fetched file listing —
+        lets the dispatcher derive both the conversion grid and the
+        parity-cell reservation from ONE listing, so the two counts
+        can't disagree on what files existed at dispatch time."""
         from .converter import ConverterRegistry, is_derived_key, is_supported_source
 
-        files = await storage.list(scope_obj)
         cells: list[tuple[str, str]] = []
         for f in files:
             if is_derived_key(f.key):
@@ -3488,6 +3493,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     cells.append((f.key, target_format))
         return cells
 
+    async def _audit_run_list_cells(
+        scope_obj: Scope,
+        validate_only: bool,
+    ) -> list[tuple[str, str]]:
+        """Enumerate the (source_key, target_format) cells for an audit
+        run over ``scope_obj`` — the scope's non-derived, supported
+        source files crossed with the converter matrix. ``validate_only``
+        emits only per-source ``parity`` cells. Shared by the NATS
+        dispatcher, the WASM dispatcher, and the cells endpoint so the
+        three never disagree on what a run covers. May raise on a scope
+        listing failure (caller decides how to surface it)."""
+        files = await storage.list(scope_obj)
+        return _audit_cells_for_files(files, validate_only)
+
     async def _audit_dispatch(
         run_id: str,
         scope_obj: Scope,
@@ -3497,6 +3516,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         force_rebuild: bool = False,
         validate_only: bool = False,
         extend: bool = False,
+        reserve_validation: bool = False,
+        consume_reserve: bool = False,
     ) -> None:
         """Enumerate the scope's files × the converter matrix and
         enqueue one regular convert job per cell. Cached cells
@@ -3509,12 +3530,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         measurement runs where a 4-hour audit re-run mustn't
         short-circuit 80% of cells against prior outputs.
 
-        ``extend`` *appends* the enumerated cells to an already-finished run
-        (growing its total + reopening it) instead of setting the total from
-        scratch — the auto-validation pass uses this to fold its parity cells
-        into the conversion run rather than spawning a separate run. With
-        ``extend`` an empty cell set is a no-op (the finished run is left as
-        is) rather than a zero-total finish.
+        ``reserve_validation`` (auto-validate runs) counts the parity cells
+        into the run's total upfront — as ``validate_total`` — so the total
+        is complete from the very start instead of growing when the
+        validation pass begins. The parity cells themselves are enqueued
+        later by the auto-validate poller, which fires once the conversion
+        cells alone have landed.
+
+        ``extend`` *appends* the enumerated cells to an existing run instead
+        of setting the total from scratch — used by the validation pass.
+        With ``consume_reserve`` (a run dispatched with
+        ``reserve_validation``) the reserved count is swapped for the actual
+        parity cell count, so the total only moves by scope drift between
+        the two enumerations. Without it (manual Validate on a finished run,
+        or pre-reservation rows) the total grows by the parity cell count
+        and the run reopens; an empty cell set is then a no-op.
 
         Errors during enumeration / enqueue surface as a ``failed``
         audit row on the cell that tripped them — the run still
@@ -3528,19 +3558,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # if it gets zero, so a typo'd scope shows up immediately in
         # the UI rather than as a perpetually-running ghost.
         try:
-            cells = await _audit_run_list_cells(scope_obj, validate_only)
+            files = await storage.list(scope_obj)
         except Exception:
             logger.exception("audit run %s: scope listing failed", run_id)
-            if not extend:
-                await db_module.set_audit_run_total(pool, run_id, 0)
+            if extend:
+                if consume_reserve:
+                    # Release the reservation so the run can finish instead of
+                    # hanging forever on cells that will never be enqueued.
+                    await db_module.consume_audit_run_validation_reserve(pool, run_id, 0)
+                return
+            await db_module.set_audit_run_total(pool, run_id, 0)
             return
+        cells = _audit_cells_for_files(files, validate_only)
 
         if extend:
-            if not cells:
-                return  # nothing to append; leave the finished run untouched
-            await db_module.extend_audit_run_total(pool, run_id, len(cells))
+            if consume_reserve:
+                # Swap the upfront reservation for the actual parity cell
+                # count (finishes the run right here when that count is 0).
+                await db_module.consume_audit_run_validation_reserve(pool, run_id, len(cells))
+                if not cells:
+                    return
+            else:
+                if not cells:
+                    return  # nothing to append; leave the finished run untouched
+                await db_module.extend_audit_run_total(pool, run_id, len(cells))
         else:
-            await db_module.set_audit_run_total(pool, run_id, len(cells))
+            # Reserve the auto-validation parity cells in the total now — the
+            # counter-bump finish check compares against the full total, so
+            # the run stays 'running' through the gap between the last
+            # conversion cell and the poller dispatching the parity cells.
+            reserved = len(_audit_cells_for_files(files, True)) if reserve_validation else 0
+            await db_module.set_audit_run_total(pool, run_id, len(cells) + reserved, validate_total=reserved)
             if not cells:
                 return
 
@@ -3794,6 +3842,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 pool,
                 force_rebuild,
                 validate_only,
+                # Count the auto-validation parity cells into the run total
+                # from the start (dispatched later by the poller).
+                reserve_validation=auto_validate,
             )
         return JSONResponse(run, status_code=202)
 
@@ -3927,6 +3978,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 pool,
                 prior["force_rebuild"],
                 False,
+                reserve_validation=prior["auto_validate"],
             )
         return JSONResponse(run, status_code=202)
 

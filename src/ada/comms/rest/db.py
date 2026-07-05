@@ -1265,6 +1265,9 @@ def _audit_run_row(r) -> dict:
         "status": r["status"],
         "note": r["note"],
         "total": r["total"],
+        # Parity cells reserved in ``total`` for the auto-validation pass but
+        # not yet enqueued (0 once the pass dispatches, or for non-auto runs).
+        "validate_total": _opt("validate_total") or 0,
         "ok": r["ok"],
         "failed": r["failed"],
         "skipped": r["skipped"],
@@ -1335,21 +1338,31 @@ async def set_audit_run_total(
     pool: asyncpg.Pool,
     run_id: str,
     total: int,
+    *,
+    validate_total: int = 0,
 ) -> None:
     """Set the dispatched-job count after enqueue completes. If
     ``total`` is 0 (no jobs to run — empty scope or no viable cells),
     the run is marked ``finished`` immediately so the UI doesn't show
-    a perpetually-running row."""
+    a perpetually-running row.
+
+    ``validate_total`` reserves that many of the ``total`` cells for the
+    auto-validation parity pass, which is dispatched later (once the
+    conversion cells have landed) — so the run's total is complete from
+    the start. The reservation is consumed by
+    :func:`consume_audit_run_validation_reserve`."""
     await pool.execute(
         """
         UPDATE audit_runs
         SET total = $2,
+            validate_total = $3,
             status = CASE WHEN $2 = 0 THEN 'finished' ELSE status END,
             finished_at = CASE WHEN $2 = 0 THEN NOW() ELSE finished_at END
         WHERE id = $1
         """,
         run_id,
         total,
+        validate_total,
     )
 
 
@@ -1377,6 +1390,45 @@ async def extend_audit_run_total(pool: asyncpg.Pool, run_id: str, delta: int) ->
         """,
         run_id,
         delta,
+    )
+
+
+async def consume_audit_run_validation_reserve(
+    pool: asyncpg.Pool,
+    run_id: str,
+    actual: int,
+) -> None:
+    """Swap a run's reserved validation-cell count for the ``actual``
+    number of parity cells enumerated at dispatch time.
+
+    ``total`` was set upfront to conversions + reservation; here it is
+    corrected by (actual - validate_total) — normally zero, non-zero only
+    when the scope's files changed between the two enumerations — and the
+    reservation is cleared. If the corrected total is already met (e.g.
+    ``actual`` is 0 because the parity enumeration failed or the sources
+    vanished), the run finishes here since no counter-bump will arrive to
+    do it. Aborted runs only get their bookkeeping corrected."""
+    await pool.execute(
+        """
+        UPDATE audit_runs
+        SET total = total - validate_total + $2,
+            validate_total = 0,
+            finished_at = CASE
+                WHEN status = 'aborted' THEN finished_at
+                WHEN ok + failed + skipped >= total - validate_total + $2
+                    THEN COALESCE(finished_at, NOW())
+                ELSE finished_at
+            END,
+            status = CASE
+                WHEN status = 'aborted' THEN 'aborted'
+                WHEN ok + failed + skipped >= total - validate_total + $2
+                    THEN 'finished'
+                ELSE status
+            END
+        WHERE id = $1
+        """,
+        run_id,
+        actual,
     )
 
 
@@ -1419,7 +1471,7 @@ async def list_audit_runs(
     rows = await pool.fetch(
         f"""
         SELECT id, seq, scope, worker_pool, trigger, started_at, finished_at,
-               status, note, total, ok, failed, skipped, created_by, idle_ms,
+               status, note, total, validate_total, ok, failed, skipped, created_by, idle_ms,
                force_rebuild, auto_validate, parent_run_id, auto_validate_dispatched_at,
                issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         FROM audit_runs
@@ -1436,7 +1488,7 @@ async def get_audit_run(pool: asyncpg.Pool, run_id: str) -> dict | None:
     row = await pool.fetchrow(
         """
         SELECT id, seq, scope, worker_pool, trigger, started_at, finished_at,
-               status, note, total, ok, failed, skipped, created_by, idle_ms,
+               status, note, total, validate_total, ok, failed, skipped, created_by, idle_ms,
                force_rebuild, auto_validate, parent_run_id, auto_validate_dispatched_at,
                issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         FROM audit_runs WHERE id = $1
@@ -1829,26 +1881,39 @@ async def claim_audit_run_for_issue_bot(
 
 
 async def claim_audit_run_for_auto_validate(pool: asyncpg.Pool):
-    """Atomically claim the oldest finished ``auto_validate`` run whose
-    validation pass hasn't been dispatched yet. Stamps
-    ``auto_validate_dispatched_at`` in the same statement so a concurrent tick
-    / replica can't double-fire. Returns the claimed run row or ``None``."""
+    """Atomically claim the oldest ``auto_validate`` run that is ready for its
+    validation pass. Two shapes qualify:
+
+    * a run whose parity cells were reserved upfront (``validate_total > 0``)
+      and whose conversion cells have all landed — it is still ``running``
+      because the reserved cells keep the counter-bump finish check from
+      tripping;
+    * a pre-reservation run (``validate_total = 0``) that already finished —
+      its validation extends the total, the legacy behaviour.
+
+    Stamps ``auto_validate_dispatched_at`` in the same statement so a
+    concurrent tick / replica can't double-fire. Returns the claimed run row
+    or ``None``."""
     row = await pool.fetchrow(
         """
         UPDATE audit_runs
         SET auto_validate_dispatched_at = NOW()
         WHERE id = (
             SELECT id FROM audit_runs
-            WHERE status = 'finished'
-              AND auto_validate = TRUE
+            WHERE auto_validate = TRUE
               AND auto_validate_dispatched_at IS NULL
-            ORDER BY finished_at ASC NULLS LAST
+              AND (
+                    (validate_total > 0 AND status = 'running'
+                        AND ok + failed + skipped >= total - validate_total)
+                 OR (validate_total = 0 AND status = 'finished')
+              )
+            ORDER BY started_at ASC NULLS LAST
             LIMIT 1
             FOR UPDATE SKIP LOCKED
         )
         RETURNING id, scope, worker_pool, trigger, started_at, finished_at,
-                  status, note, total, ok, failed, skipped, created_by,
-                  force_rebuild, auto_validate, parent_run_id,
+                  status, note, total, validate_total, ok, failed, skipped,
+                  created_by, force_rebuild, auto_validate, parent_run_id,
                   issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         """,
     )
