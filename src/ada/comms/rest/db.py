@@ -1175,6 +1175,32 @@ async def create_corpus(
     return _corpus_row(row)
 
 
+async def update_corpus(
+    pool: asyncpg.Pool,
+    slug: str,
+    *,
+    name: str,
+    description: str | None,
+) -> dict | None:
+    """Update a live corpus's display name / description. The slug is
+    immutable — it's baked into the storage prefix (``corpus/<slug>/``)
+    and scope URLs, so renaming it would orphan the bucket bytes.
+    Returns the updated row, or None when the slug isn't live."""
+    row = await pool.fetchrow(
+        """
+        UPDATE corpora
+        SET name = $2, description = $3
+        WHERE slug = $1 AND archived_at IS NULL
+        RETURNING id, slug, name, description, created_at,
+                  created_by, archived_at
+        """,
+        slug,
+        name,
+        description,
+    )
+    return _corpus_row(row) if row else None
+
+
 async def get_corpus_by_slug(
     pool: asyncpg.Pool,
     slug: str,

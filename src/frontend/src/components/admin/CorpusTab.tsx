@@ -51,6 +51,11 @@ function normKey(key: string): string {
     return key.replace(/^\/+/, "");
 }
 
+// Batch size for chunked server-side moves/copies. Every chunk is still
+// a Garage-side CopyObject (no file bytes through the browser) — the
+// chunking only exists so the progress counter ticks between requests.
+const OP_CHUNK = 8;
+
 // Flat-list ⇄ folder-tree representation switch. Storage is flat on the
 // server; tree mode just groups the keys' "/" segments. Shared by the
 // corpus file overview and the copy-from-scope modal.
@@ -411,12 +416,35 @@ const CopyFromScopeModal: React.FC<{
     );
 };
 
-const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
+const CorpusFiles: React.FC<{
+    corpus: Corpus;
+    /** Name/description saved — the parent re-fetches the corpora list
+     * so the sidebar and this header pick up the new values. */
+    onMetaUpdated: () => void;
+}> = ({corpus, onMetaUpdated}) => {
     const scope = `corpus:${corpus.slug}`;
     const [files, setFiles] = useState<FileEntry[]>([]);
     const [err, setErr] = useState<string | null>(null);
     // Transient success line (e.g. copy-to-personal outcome).
     const [note, setNote] = useState<string | null>(null);
+    // In-flight batch operation (move / delete / copy) — rendered as a
+    // spinner status bar under the button row so a drag-drop move of
+    // many files visibly runs until the listing refreshes. The ref
+    // mirrors it so callbacks can reject overlapping batches without
+    // stale-closure issues (concurrent moves would race server-side).
+    const [busy, setBusy] = useState<string | null>(null);
+    const busyRef = useRef(false);
+    const beginOp = (msg: string): boolean => {
+        if (busyRef.current) return false;
+        busyRef.current = true;
+        setBusy(msg);
+        return true;
+    };
+    const updateOp = (msg: string) => setBusy(msg);
+    const endOp = () => {
+        busyRef.current = false;
+        setBusy(null);
+    };
     const [uploading, setUploading] = useState<string | null>(null);
     const [progress, setProgress] = useState(0);
     const [copyOpen, setCopyOpen] = useState(false);
@@ -487,6 +515,41 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
         (path: string) => files.some((f) => normKey(f.key).startsWith(path + "/")),
         [files],
     );
+
+    // Inline name/description editor in the header. The slug is
+    // immutable (storage prefix + scope URLs hang off it), so only the
+    // display fields are editable. Seeded from the current corpus row
+    // each time the editor opens.
+    const [editingMeta, setEditingMeta] = useState(false);
+    const [metaName, setMetaName] = useState("");
+    const [metaDesc, setMetaDesc] = useState("");
+    const [metaBusy, setMetaBusy] = useState(false);
+    const openMetaEdit = () => {
+        setMetaName(corpus.name);
+        setMetaDesc(corpus.description ?? "");
+        setEditingMeta(true);
+    };
+    const saveMeta = async () => {
+        const name = metaName.trim();
+        if (!name) {
+            setErr("name required");
+            return;
+        }
+        setMetaBusy(true);
+        try {
+            await viewerApi.adminCorpusUpdate(corpus.slug, {
+                name,
+                description: metaDesc.trim() || null,
+            });
+            setEditingMeta(false);
+            setErr(null);
+            onMetaUpdated();
+        } catch (e) {
+            setErr((e as Error).message || "corpus update failed");
+        } finally {
+            setMetaBusy(false);
+        }
+    };
 
     // Where the tree's "new folder" inline input shows ("" = top level).
     const [newFolderAt, setNewFolderAt] = useState<string | null>(null);
@@ -592,6 +655,10 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
 
     const runFolderMove = useCallback(async (folderPath: string, newPath: string) => {
         if (newPath === folderPath) return;
+        const count = files.filter((f) => normKey(f.key).startsWith(folderPath + "/")).length;
+        if (!beginOp(
+            `Moving folder "${folderPath}" → "${newPath}" (${count} file${count === 1 ? "" : "s"})…`,
+        )) return;
         try {
             const allKeys = files.map((f) => f.key);
             const r = await viewerApi.adminRenameOrMoveFolder(scope, folderPath, newPath, allKeys);
@@ -600,26 +667,41 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
             await reload();
         } catch (e) {
             setErr((e as Error).message || "folder move failed");
+        } finally {
+            endOp();
         }
     }, [files, scope, reload]);
 
     const moveKeys = useCallback(async (keys: string[], destFolder: string) => {
+        const label = destFolder ? `${destFolder}/` : "root /";
+        if (!beginOp(`Moving 0/${keys.length} to ${label}…`)) return;
         try {
             if (destFolder === "") {
                 // Move-to-root: the move endpoint requires a non-empty
                 // folder, so root moves are per-key renames to the
                 // basename.
+                let done = 0;
                 for (const k of keys) {
+                    updateOp(`Moving ${done + 1}/${keys.length} to ${label}…`);
                     await viewerApi.adminRenameKey(scope, k, basenameOf(k));
+                    done++;
                 }
             } else {
-                const r = await viewerApi.adminMoveKeysToFolder(scope, keys, destFolder);
-                alertFailures(r.failed);
+                const failed: Array<{key: string; reason: string}> = [];
+                for (let i = 0; i < keys.length; i += OP_CHUNK) {
+                    const chunk = keys.slice(i, i + OP_CHUNK);
+                    updateOp(`Moving ${Math.min(i + chunk.length, keys.length)}/${keys.length} to ${label}…`);
+                    const r = await viewerApi.adminMoveKeysToFolder(scope, chunk, destFolder);
+                    failed.push(...r.failed);
+                }
+                alertFailures(failed);
             }
             clearSelection();
             await reload();
         } catch (e) {
             setErr((e as Error).message || "move failed");
+        } finally {
+            endOp();
         }
     }, [scope, reload]);
 
@@ -643,14 +725,20 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
             "This can't be undone.\n\n" +
             previewKeyList(keys),
         )) return;
+        if (!beginOp(`Deleting 0/${keys.length}…`)) return;
         try {
+            let done = 0;
             for (const k of keys) {
+                updateOp(`Deleting ${done + 1}/${keys.length}…`);
                 await viewerApi.adminDeleteBlob(scope, k);
+                done++;
             }
             setSelected(new Set());
             await reload();
         } catch (e) {
             setErr((e as Error).message || "delete failed");
+        } finally {
+            endOp();
         }
     }, [scope, corpus.slug, reload]);
 
@@ -659,16 +747,29 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
     // overwritten — same semantics as the copy-into-corpus modal.
     const copyToPersonal = useCallback(async (keys: string[]) => {
         if (keys.length === 0) return;
+        if (!beginOp(`Copying 0/${keys.length} to your files…`)) return;
         setNote(null);
         try {
-            const r = await viewerApi.adminCopyKeysFromScope("user:me", scope, keys);
-            alertFailures(r.failed);
+            let copied = 0;
+            let skipped = 0;
+            const failed: Array<{key: string; reason: string}> = [];
+            for (let i = 0; i < keys.length; i += OP_CHUNK) {
+                const chunk = keys.slice(i, i + OP_CHUNK);
+                updateOp(`Copying ${Math.min(i + chunk.length, keys.length)}/${keys.length} to your files…`);
+                const r = await viewerApi.adminCopyKeysFromScope("user:me", scope, chunk);
+                copied += r.copied.length;
+                skipped += r.skipped.length;
+                failed.push(...r.failed);
+            }
+            alertFailures(failed);
             setNote(
-                `copied ${r.copied.length} to your files` +
-                (r.skipped.length > 0 ? ` · skipped ${r.skipped.length} (already there)` : ""),
+                `copied ${copied} to your files` +
+                (skipped > 0 ? ` · skipped ${skipped} (already there)` : ""),
             );
         } catch (e) {
             setErr((e as Error).message || "copy to personal scope failed");
+        } finally {
+            endOp();
         }
     }, [scope]);
 
@@ -711,16 +812,22 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
                 previewKeyList(targets.map((t) => t.key)),
             )) return;
             void (async () => {
+                if (!beginOp(`Deleting 0/${targets.length} from "${path}"…`)) return;
                 try {
                     // Sequential: deletes cascade derived blobs server-side
                     // and parallel calls would race on the storage listing.
+                    let done = 0;
                     for (const t of targets) {
+                        updateOp(`Deleting ${done + 1}/${targets.length} from "${path}"…`);
                         await viewerApi.adminDeleteBlob(scope, t.key);
+                        done++;
                     }
                     removePendingFoldersUnder(path);
                     await reload();
                 } catch (e) {
                     setErr((e as Error).message || "folder delete failed");
+                } finally {
+                    endOp();
                 }
             })();
         },
@@ -763,12 +870,73 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
     return (
         <div className="flex flex-col h-full">
             <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between gap-3">
-                <div className="text-xs text-gray-300 min-w-0">
-                    <div className="font-mono truncate">{corpus.slug}</div>
-                    {corpus.description && (
-                        <div className="text-gray-500 truncate">{corpus.description}</div>
-                    )}
-                </div>
+                {!editingMeta ? (
+                    <div className="text-xs text-gray-300 min-w-0 flex items-start gap-1.5">
+                        <div className="min-w-0">
+                            <div className="font-mono truncate">
+                                {corpus.slug}
+                                <span className="text-gray-400 font-sans"> · {corpus.name}</span>
+                            </div>
+                            {corpus.description && (
+                                <div className="text-gray-500 truncate">{corpus.description}</div>
+                            )}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={openMetaEdit}
+                            title="Edit name / description (slug is immutable)"
+                            aria-label="Edit corpus name and description"
+                            className="shrink-0 text-gray-500 hover:text-gray-200 leading-none px-1"
+                        >
+                            ✎
+                        </button>
+                    </div>
+                ) : (
+                    <form
+                        className="flex flex-col gap-1 min-w-0 flex-1 max-w-md text-xs"
+                        onSubmit={(e) => {
+                            e.preventDefault();
+                            void saveMeta();
+                        }}
+                    >
+                        <div className="font-mono text-gray-500">{corpus.slug}</div>
+                        <input
+                            type="text"
+                            value={metaName}
+                            onChange={(e) => setMetaName(e.target.value)}
+                            placeholder="Name"
+                            autoFocus
+                            className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-gray-100"
+                        />
+                        <input
+                            type="text"
+                            value={metaDesc}
+                            onChange={(e) => setMetaDesc(e.target.value)}
+                            placeholder="Description (optional)"
+                            onKeyDown={(e) => {
+                                if (e.key === "Escape") setEditingMeta(false);
+                            }}
+                            className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-gray-100"
+                        />
+                        <div className="flex gap-2">
+                            <button
+                                type="submit"
+                                disabled={metaBusy}
+                                className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-2 py-0.5 rounded-sm"
+                            >
+                                {metaBusy ? "Saving…" : "Save"}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setEditingMeta(false)}
+                                disabled={metaBusy}
+                                className="text-gray-300 hover:bg-gray-800 px-2 py-0.5 rounded-sm"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                )}
                 <div className="flex items-center gap-2 shrink-0">
                     <ViewModeToggle mode={viewMode} onChange={setViewMode}/>
                     {viewMode === "tree" && (
@@ -817,10 +985,19 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
                     onCopied={() => void reload()}
                 />
             )}
+            {busy && (
+                <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-800 bg-blue-900/20 text-xs text-blue-300">
+                    <span
+                        className="inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0"
+                        aria-hidden="true"
+                    />
+                    <span className="truncate" role="status">{busy}</span>
+                </div>
+            )}
             {err && (
                 <div className="text-xs text-red-400 px-3 py-2">{err}</div>
             )}
-            {note && !err && (
+            {note && !err && !busy && (
                 <div className="text-xs text-emerald-400 px-3 py-2">{note}</div>
             )}
             {viewMode === "tree" && selected.size > 0 && (
@@ -1070,7 +1247,7 @@ const CorpusTab: React.FC = () => {
                                     ← corpora
                                 </button>
                             </div>
-                            <CorpusFiles key={selected.slug} corpus={selected}/>
+                            <CorpusFiles key={selected.slug} corpus={selected} onMetaUpdated={loadCorpora}/>
                         </>
                     )}
                 </div>

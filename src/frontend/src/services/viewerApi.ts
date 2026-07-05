@@ -1699,6 +1699,24 @@ export const viewerApi = {
         return jsonOrThrow(r, "adminCorpusCreate");
     },
 
+    /** Admin: update a corpus's display name / description. The slug
+     * is immutable (baked into the storage prefix + scope URLs). An
+     * empty description clears it. */
+    async adminCorpusUpdate(
+        slug: string,
+        body: {name: string; description: string | null},
+    ): Promise<Corpus> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/corpora/${encodeURIComponent(slug)}`,
+            {
+                method: "PATCH",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(body),
+            },
+        );
+        return jsonOrThrow(r, "adminCorpusUpdate");
+    },
+
     /** Admin: soft-delete a corpus by slug. Storage bytes survive —
      * the operator clears those out-of-band. The slug becomes
      * immediately available for reuse. */

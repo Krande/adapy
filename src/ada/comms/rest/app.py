@@ -4123,6 +4123,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise
         return JSONResponse(row, status_code=201)
 
+    @admin.patch("/corpora/{slug}")
+    async def admin_corpora_update(slug: str, request: Request) -> JSONResponse:
+        """Update a corpus's display name / description.
+
+        Body: ``{"name": "...", "description": "..."}`` — name required
+        non-empty, empty description clears it. The slug itself is
+        immutable: it's baked into the storage prefix
+        (``corpus/<slug>/``) and scope URLs, so renaming it would
+        orphan the bucket bytes.
+        """
+        pool = _require_pool(request)
+        body = await request.json() if await request.body() else {}
+        name = (body.get("name") or "").strip()
+        description = (body.get("description") or "").strip() or None
+        if not name:
+            raise HTTPException(status_code=400, detail="name required")
+        row = await db_module.update_corpus(pool, slug, name=name, description=description)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"corpus {slug!r} not found")
+        return JSONResponse(row)
+
     @admin.delete("/corpora/{slug}")
     async def admin_corpora_archive(slug: str, request: Request) -> JSONResponse:
         """Soft-delete a corpus by slug. Storage bytes are NOT wiped —

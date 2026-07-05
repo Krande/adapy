@@ -417,27 +417,69 @@ const StorageBrowser: React.FC = () => {
         window.alert(e instanceof Error ? e.message : String(e));
     };
 
+    // In-flight move status — a spinner line under the header so a
+    // drag-drop of many files visibly runs until the listing refreshes.
+    // Moves are chunked purely so the counter ticks between requests;
+    // every chunk is still a server-side S3 rename (CopyObject+Delete
+    // on Garage) — no file bytes pass through the browser. The ref
+    // rejects overlapping batches (concurrent moves would race on the
+    // server-side collision checks).
+    const [opNote, setOpNote] = useState<string | null>(null);
+    const opBusyRef = useRef(false);
+    const OP_CHUNK = 8;
+    const moveKeysWithProgress = async (keys: string[], folder: string) => {
+        if (opBusyRef.current || keys.length === 0) return;
+        opBusyRef.current = true;
+        const label = folder ? `${folder}/` : "root /";
+        setOpNote(`Moving 0/${keys.length} to ${label}…`);
+        try {
+            if (folder === "") {
+                // Move-to-root: the move endpoint requires a non-empty
+                // folder, so root moves are per-key renames to the
+                // basename.
+                let done = 0;
+                for (const k of keys) {
+                    setOpNote(`Moving ${done + 1}/${keys.length} to ${label}…`);
+                    await mutations.renameKey(k, basenameOf(k));
+                    done++;
+                }
+            } else {
+                const failed: Array<{key: string; reason: string}> = [];
+                for (let i = 0; i < keys.length; i += OP_CHUNK) {
+                    const chunk = keys.slice(i, i + OP_CHUNK);
+                    setOpNote(`Moving ${Math.min(i + chunk.length, keys.length)}/${keys.length} to ${label}…`);
+                    const r = await mutations.moveKeys(chunk, folder);
+                    failed.push(...r.failed);
+                }
+                if (failed.length > 0) {
+                    window.alert(failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+                }
+            }
+            clearSelection();
+            void request_list_of_files_from_server();
+        } catch (e) {
+            alertError(e);
+        } finally {
+            opBusyRef.current = false;
+            setOpNote(null);
+        }
+    };
+
     const onMoveSingleToFolder = (key: string) => {
         setPicker({
             title: `Move "${key}" to folder`,
-            onPick: async (folder) => {
-                try {
-                    const r = await mutations.moveKeys([key], folder);
-                    if (r.failed.length > 0) {
-                        window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
-                    }
-                    void request_list_of_files_from_server();
-                } catch (e) {
-                    alertError(e);
-                }
-            },
+            onPick: (folder) => moveKeysWithProgress([key], folder),
         });
     };
 
     const runFolderMove = async (folderPath: string, newPath: string) => {
         if (newPath === folderPath) return;
+        if (opBusyRef.current) return;
+        opBusyRef.current = true;
+        const allKeys = files.map((f) => f.name);
+        const count = allKeys.filter((k) => k.replace(/^\/+/, "").startsWith(folderPath + "/")).length;
+        setOpNote(`Moving folder "${folderPath}" → "${newPath}" (${count} file${count === 1 ? "" : "s"})…`);
         try {
-            const allKeys = files.map((f) => f.name);
             const r = await mutations.renameOrMoveFolder(folderPath, newPath, allKeys);
             if (r.failed.length > 0) {
                 window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
@@ -452,6 +494,9 @@ const StorageBrowser: React.FC = () => {
             void request_list_of_files_from_server();
         } catch (e) {
             alertError(e);
+        } finally {
+            opBusyRef.current = false;
+            setOpNote(null);
         }
     };
 
@@ -694,18 +739,7 @@ const StorageBrowser: React.FC = () => {
         if (keys.length === 0) return;
         setPicker({
             title: `Move ${keys.length} file${keys.length === 1 ? "" : "s"} to folder`,
-            onPick: async (folder) => {
-                try {
-                    const r = await mutations.moveKeys(keys, folder);
-                    if (r.failed.length > 0) {
-                        window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
-                    }
-                    clearSelection();
-                    void request_list_of_files_from_server();
-                } catch (e) {
-                    alertError(e);
-                }
-            },
+            onPick: (folder) => moveKeysWithProgress(keys, folder),
         });
     };
 
@@ -817,26 +851,7 @@ const StorageBrowser: React.FC = () => {
                 return;
             }
             keys = keys.filter((k) => typeof k === "string" && dirnameOf(k) !== target);
-            if (keys.length === 0) return;
-            try {
-                if (target === "") {
-                    // Move-to-root: the move endpoint requires a non-empty
-                    // folder, so root moves are per-key renames to the
-                    // basename.
-                    for (const k of keys) {
-                        await mutations.renameKey(k, basenameOf(k));
-                    }
-                } else {
-                    const r = await mutations.moveKeys(keys, target);
-                    if (r.failed.length > 0) {
-                        window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
-                    }
-                }
-                clearSelection();
-                void request_list_of_files_from_server();
-            } catch (err) {
-                alertError(err);
-            }
+            await moveKeysWithProgress(keys, target);
             return;
         }
         if (e.dataTransfer.files?.length) {
@@ -1248,6 +1263,15 @@ const StorageBrowser: React.FC = () => {
                     </div>
                 );
             })()}
+            {opNote && (
+                <div className="mb-2 flex items-center gap-2 text-xs text-blue-300">
+                    <span
+                        className="inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0"
+                        aria-hidden="true"
+                    />
+                    <span className="truncate flex-1 min-w-0" role="status">{opNote}</span>
+                </div>
+            )}
             {uploadName && (
                 <div className="mb-2 text-xs">
                     <div className="flex items-center justify-between gap-2">
