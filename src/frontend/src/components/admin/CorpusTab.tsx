@@ -591,19 +591,34 @@ const CorpusFiles: React.FC<{
         [files, pendingFolders],
     );
 
+    // Failed uploads from the last batch — drives the retry dialog.
+    // Holds the actual File objects so Retry can re-attempt without
+    // re-picking them from disk.
+    const [uploadFailures, setUploadFailures] = useState<{
+        folder?: string;
+        failed: Array<{file: File; reason: string}>;
+    } | null>(null);
+
     // Upload a batch sequentially into an optional folder prefix. Pin
     // autoConvert:false so we don't auto-generate derived blobs for
     // corpus uploads — the audit dispatcher does that on demand when
-    // the sweep fires. A failed file is reported without aborting the
-    // batch.
+    // the sweep fires. Files whose destination key already exists in
+    // the corpus are skipped, never overwritten (same semantics as the
+    // copy flows). A failed file doesn't abort the batch — failures
+    // land in the retry dialog.
     const uploadFilesTo = useCallback(async (list: File[], folder?: string) => {
         if (list.length === 0) return;
         setErr(null);
+        setNote(null);
+        const existing = new Set(files.map((f) => normKey(f.key)));
+        const targetKey = (file: File) => (folder ? `${folder}/${file.name}` : file.name);
+        const skipped = list.filter((f) => existing.has(targetKey(f)));
+        const toUpload = list.filter((f) => !existing.has(targetKey(f)));
         const {uploadFile} = await import("@/utils/scene/handlers/upload_source_file");
-        const failures: string[] = [];
-        for (let i = 0; i < list.length; i++) {
-            const file = list[i];
-            setUploading(list.length > 1 ? `${file.name} (${i + 1}/${list.length})` : file.name);
+        const failed: Array<{file: File; reason: string}> = [];
+        for (let i = 0; i < toUpload.length; i++) {
+            const file = toUpload[i];
+            setUploading(toUpload.length > 1 ? `${file.name} (${i + 1}/${toUpload.length})` : file.name);
             setProgress(0);
             try {
                 await uploadFile(file, {
@@ -613,14 +628,19 @@ const CorpusFiles: React.FC<{
                     onProgress: (loaded, total) => setProgress(total > 0 ? loaded / total : 0),
                 });
             } catch (e) {
-                failures.push(`${file.name}: ${(e as Error).message || "upload failed"}`);
+                failed.push({file, reason: (e as Error).message || "upload failed"});
             }
         }
         setUploading(null);
         setProgress(0);
-        if (failures.length) setErr(failures.join("; "));
         await reload();
-    }, [scope, reload]);
+        const bits: string[] = [];
+        const uploaded = toUpload.length - failed.length;
+        if (uploaded > 0) bits.push(`uploaded ${uploaded}`);
+        if (skipped.length > 0) bits.push(`skipped ${skipped.length} (already in corpus)`);
+        if (bits.length > 0) setNote(bits.join(" · "));
+        if (failed.length > 0) setUploadFailures({folder, failed});
+    }, [files, scope, reload]);
 
     // Upload button flow: pick the files first, then prompt for the
     // destination folder — an existing folder, a new path, or the top
@@ -1117,6 +1137,58 @@ const CorpusFiles: React.FC<{
                     if (action) void action(folder);
                 }}
             />
+            {/* Failed-uploads overview + retry. Not portaled — like the
+                copy-from-scope modal it renders inside the admin panel's
+                stacking context, so z-50 suffices here. Retry re-runs
+                only the failed files (the skip-existing pre-check makes
+                a partially-succeeded upload a safe no-op). */}
+            {uploadFailures && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                    <div className="bg-gray-900 border border-gray-700 rounded-md w-full max-w-lg max-h-[70vh] flex flex-col">
+                        <div className="px-4 py-3 border-b border-gray-700 text-sm font-semibold text-gray-100">
+                            {uploadFailures.failed.length} upload{uploadFailures.failed.length === 1 ? "" : "s"} failed
+                            {uploadFailures.folder ? (
+                                <span className="text-gray-400 font-normal"> → {uploadFailures.folder}/</span>
+                            ) : null}
+                        </div>
+                        <div className="flex-1 min-h-0 overflow-auto px-4 py-2">
+                            <ul className="space-y-1 text-xs">
+                                {uploadFailures.failed.map(({file, reason}) => (
+                                    <li key={file.name} className="flex justify-between items-baseline gap-3">
+                                        <span className="font-mono text-gray-200 truncate" title={file.name}>
+                                            {file.name}
+                                        </span>
+                                        <span className="text-red-400 truncate shrink-0 max-w-[50%]" title={reason}>
+                                            {reason}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                        <div className="px-4 py-3 border-t border-gray-700 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setUploadFailures(null)}
+                                className="text-sm px-3 py-1 rounded-sm text-gray-300 hover:bg-gray-800"
+                            >
+                                Close
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!!uploading}
+                                onClick={() => {
+                                    const {folder, failed} = uploadFailures;
+                                    setUploadFailures(null);
+                                    void uploadFilesTo(failed.map((f) => f.file), folder);
+                                }}
+                                className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-sm px-3 py-1 rounded-sm"
+                            >
+                                Retry {uploadFailures.failed.length} file{uploadFailures.failed.length === 1 ? "" : "s"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
