@@ -30,10 +30,12 @@ import {
     FolderNode,
     loadExpandedFolders,
     loadPendingFolders,
+    previewKeyList,
     saveExpandedFolders,
     savePendingFolders,
 } from "@/utils/storage/fileTree";
 import {RowKebabMenu} from "@/components/common/RowKebabMenu";
+import InlineNameInput from "@/components/common/InlineNameInput";
 import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu";
 import FolderPickerModal from "@/components/common/FolderPickerModal";
 import {viewerApi} from "@/services/viewerApi";
@@ -211,54 +213,6 @@ function formatRelative(iso: string): string {
     if (dt < 7 * 86400) return `${Math.round(dt / 86400)} d ago`;
     return new Date(t).toISOString().slice(0, 10);
 }
-
-// Inline name editor used for file/folder rename and new-folder
-// creation. Enter commits, Escape (or blur) cancels. ``selectStem``
-// pre-selects the basename-without-extension so a quick type replaces
-// the name but keeps the extension.
-const InlineNameInput: React.FC<{
-    initial: string;
-    placeholder?: string;
-    selectStem?: boolean;
-    onCommit: (value: string) => void;
-    onCancel: () => void;
-}> = ({initial, placeholder, selectStem, onCommit, onCancel}) => {
-    const inputRef = useRef<HTMLInputElement>(null);
-    useEffect(() => {
-        const el = inputRef.current;
-        if (!el) return;
-        el.focus();
-        if (selectStem) {
-            const dot = initial.lastIndexOf(".");
-            el.setSelectionRange(0, dot > 0 ? dot : initial.length);
-        } else {
-            el.select();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-    return (
-        <input
-            ref={inputRef}
-            type="text"
-            defaultValue={initial}
-            placeholder={placeholder}
-            className={
-                "flex-1 min-w-0 bg-gray-800 border border-blue-500 rounded-sm " +
-                "px-1 py-0.5 text-xs text-gray-100 focus:outline-hidden"
-            }
-            onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                    onCommit((e.target as HTMLInputElement).value);
-                } else if (e.key === "Escape") {
-                    onCancel();
-                }
-            }}
-            onBlur={onCancel}
-        />
-    );
-};
 
 const StorageBrowser: React.FC = () => {
     const files = useServerInfoStore((s) => s.serverFileObjects);
@@ -444,10 +398,13 @@ const StorageBrowser: React.FC = () => {
     const mutations = useStorageMutations();
     const canMutate = mutations.canMutate;
 
-    // The picker modal drives both move flows; ``onPick`` is the
-    // closure that knows what to do once a destination is chosen.
+    // The picker modal drives the move flows and the upload-destination
+    // prompt; ``onPick`` is the closure that knows what to do once a
+    // destination is chosen.
     const [picker, setPicker] = useState<{
         title: string;
+        allowRoot?: boolean;
+        submitLabel?: string;
         onPick: (folder: string) => Promise<void> | void;
     } | null>(null);
     // Download a stored blob with auth (REST mode). The suggested filename is the
@@ -574,12 +531,13 @@ const StorageBrowser: React.FC = () => {
             removePendingFoldersUnder(path);
             return;
         }
-        if (!window.confirm(
-            `Delete folder "${path}" and its ${fileCount} file${fileCount === 1 ? "" : "s"}?\n` +
-            "Converted view caches are removed too.",
-        )) return;
         const prefix = path + "/";
         const targets = files.filter((x) => x.name.replace(/^\/+/, "").startsWith(prefix));
+        if (!window.confirm(
+            `Delete folder "${path}" and its ${fileCount} file${fileCount === 1 ? "" : "s"}?\n` +
+            "Converted view caches are removed too.\n\n" +
+            previewKeyList(targets.map((t) => t.name)),
+        )) return;
         try {
             // Sequential: each delete cascades derived blobs server-side
             // and parallel calls would race on the storage listing.
@@ -712,7 +670,8 @@ const StorageBrowser: React.FC = () => {
         if (keys.length === 0) return;
         if (!window.confirm(
             `Delete ${keys.length} file${keys.length === 1 ? "" : "s"}?\n` +
-            "Converted view caches are removed too.",
+            "Converted view caches are removed too.\n\n" +
+            previewKeyList(keys),
         )) return;
         setBulkBusy("delete");
         try {
@@ -803,9 +762,22 @@ const StorageBrowser: React.FC = () => {
     const onFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
         const picked = Array.from(e.target.files ?? []);
         e.target.value = "";
-        const folder = uploadTargetRef.current ?? undefined;
+        const folder = uploadTargetRef.current;
         uploadTargetRef.current = null;
-        void uploadFilesTo(picked, folder);
+        if (picked.length === 0) return;
+        if (folder !== null) {
+            // "Upload here…" on a folder row — destination already chosen.
+            void uploadFilesTo(picked, folder || undefined);
+            return;
+        }
+        // Generic "Upload files…": ask where the batch should land — an
+        // existing folder, a new path, or the top level (the default).
+        setPicker({
+            title: `Upload ${picked.length} file${picked.length === 1 ? "" : "s"} to`,
+            allowRoot: true,
+            submitLabel: "Upload",
+            onPick: (dest) => void uploadFilesTo(picked, dest || undefined),
+        });
     };
 
     // ── Drag & drop ─────────────────────────────────────────────────
@@ -956,23 +928,40 @@ const StorageBrowser: React.FC = () => {
 
     const onListKeyDown = (e: React.KeyboardEvent) => {
         if (flatRows.length === 0) return;
-        if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", " "].includes(e.key)) return;
+        if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", " ", "Delete"].includes(e.key)) return;
         // Don't steal keys from the inline rename/new-folder inputs.
         if ((e.target as HTMLElement).tagName === "INPUT") return;
         e.preventDefault();
         e.stopPropagation();
         const idx = focusedKey ? flatRows.findIndex((r) => rowKeyOf(r) === focusedKey) : -1;
         const row = idx >= 0 ? flatRows[idx] : null;
-        const focusAt = (i: number) => {
+        // Shift+Arrow extends the selection while moving focus —
+        // multi-select without a pointer. Anchor the range on the row
+        // we're leaving, then take the row we land on with us. Folder
+        // rows just pass through (they can't be selected).
+        const selectFileRow = (r: FlatRow | null) => {
+            if (!r || r.kind !== "file") return;
+            setSelection((prev) => {
+                const next = new Set(prev);
+                next.add(r.name);
+                return next;
+            });
+            lastSelectedRef.current = r.name;
+        };
+        const focusAt = (i: number, extendSelection = false) => {
             const clamped = Math.max(0, Math.min(flatRows.length - 1, i));
+            if (extendSelection) {
+                selectFileRow(row);
+                selectFileRow(flatRows[clamped]);
+            }
             setFocusedKey(rowKeyOf(flatRows[clamped]));
         };
         switch (e.key) {
             case "ArrowDown":
-                focusAt(idx < 0 ? 0 : idx + 1);
+                focusAt(idx < 0 ? 0 : idx + 1, e.shiftKey);
                 break;
             case "ArrowUp":
-                focusAt(idx < 0 ? flatRows.length - 1 : idx - 1);
+                focusAt(idx < 0 ? flatRows.length - 1 : idx - 1, e.shiftKey);
                 break;
             case "ArrowRight":
                 if (!row) {
@@ -1000,6 +989,33 @@ const StorageBrowser: React.FC = () => {
             case " ":
                 if (row?.kind === "file") toggleSelection(row.name);
                 break;
+            case "Delete": {
+                if (!canMutate) break;
+                if (selection.size > 0) {
+                    // The selection takes precedence over the focused row.
+                    // Version blobs are server-protected — refuse loudly
+                    // instead of half-deleting the batch.
+                    const hasVersions = Array.from(selection).some((k) =>
+                        k.replace(/^\/+/, "").startsWith("versions/"),
+                    );
+                    if (hasVersions) {
+                        window.alert("CI version files can't be deleted");
+                        break;
+                    }
+                    void onDeleteSelected();
+                    break;
+                }
+                if (!row) break;
+                if (row.kind === "file") {
+                    void onDeleteFile(row.file);
+                } else {
+                    const prefix = row.path + "/";
+                    const count = files.filter((x) =>
+                        x.name.replace(/^\/+/, "").startsWith(prefix)).length;
+                    void onDeleteFolder(row.path, count, count === 0);
+                }
+                break;
+            }
         }
     };
 
@@ -1532,6 +1548,8 @@ const StorageBrowser: React.FC = () => {
                 open={picker !== null}
                 title={picker?.title ?? ""}
                 existingFolders={existingFolderPaths}
+                allowRoot={picker?.allowRoot}
+                submitLabel={picker?.submitLabel}
                 onCancel={() => setPicker(null)}
                 onPick={(folder) => {
                     const action = picker?.onPick;

@@ -1,7 +1,14 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {Corpus, FileEntry, viewerApi} from "@/services/viewerApi";
-import {buildFileTree} from "@/utils/storage/fileTree";
-import FileTreeView from "./FileTreeView";
+import {
+    buildFileTree,
+    collectFolderPaths,
+    loadPendingFolders,
+    previewKeyList,
+    savePendingFolders,
+} from "@/utils/storage/fileTree";
+import FileTreeView, {FileTreeMutations} from "./FileTreeView";
+import FolderPickerModal from "@/components/common/FolderPickerModal";
 
 // Admin tab — manage proprietary regression corpora (M3 of the audit
 // panel design in plan/v2/notes_admin_audit_panel.md).
@@ -14,6 +21,13 @@ import FileTreeView from "./FileTreeView";
 //
 // The trigger form on the Audit Runs tab picks a corpus by slug from
 // the same /admin/corpora list this tab maintains.
+//
+// Tree mode carries the storage panel's organize affordances (via the
+// shared FileTreeView mutations): rename / move / delete files and
+// folders, drag-and-drop moves, client-side pending folders, and a
+// checkbox / shift+arrow multi-select feeding a bulk Move/Delete
+// toolbar. Server ops go through the admin endpoints (corpus scopes
+// are admin-only on every axis).
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -22,6 +36,19 @@ function fmtBytes(n: number): string {
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
     if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function dirnameOf(key: string): string {
+    const i = key.lastIndexOf("/");
+    return i >= 0 ? key.slice(0, i) : "";
+}
+
+function basenameOf(key: string): string {
+    return key.split("/").pop() ?? key;
+}
+
+function normKey(key: string): string {
+    return key.replace(/^\/+/, "");
 }
 
 // Flat-list ⇄ folder-tree representation switch. Storage is flat on the
@@ -388,6 +415,8 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
     const scope = `corpus:${corpus.slug}`;
     const [files, setFiles] = useState<FileEntry[]>([]);
     const [err, setErr] = useState<string | null>(null);
+    // Transient success line (e.g. copy-to-personal outcome).
+    const [note, setNote] = useState<string | null>(null);
     const [uploading, setUploading] = useState<string | null>(null);
     const [progress, setProgress] = useState(0);
     const [copyOpen, setCopyOpen] = useState(false);
@@ -421,24 +450,103 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
 
     useEffect(() => { void reload(); }, [reload]);
 
-    const onPick = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(e.target.files ?? []);
-        if (files.length === 0) return;
+    // Client-side "pending" empty folders — storage is prefix-based so
+    // they have no server representation until a file lands in them.
+    // Persisted per corpus scope; pruned once a real key appears
+    // underneath (same mechanics as StorageBrowser).
+    const [pendingFolders, setPendingFolders] = useState<string[]>(
+        () => loadPendingFolders("corpus", scope),
+    );
+    useEffect(() => {
+        savePendingFolders("corpus", scope, pendingFolders);
+    }, [scope, pendingFolders]);
+    useEffect(() => {
+        setPendingFolders((prev) => {
+            const next = prev.filter(
+                (p) => !files.some((f) => normKey(f.key).startsWith(p + "/")),
+            );
+            return next.length === prev.length ? prev : next;
+        });
+    }, [files]);
+    const removePendingFoldersUnder = (path: string) => {
+        setPendingFolders((prev) =>
+            prev.filter((p) => p !== path && !p.startsWith(path + "/")),
+        );
+    };
+    // Rename/move of a pending (empty) folder is pure client state.
+    const rekeyPendingFolders = (oldPath: string, newPath: string) => {
+        setPendingFolders((prev) => prev.map((p) => (
+            p === oldPath
+                ? newPath
+                : p.startsWith(oldPath + "/")
+                    ? newPath + p.slice(oldPath.length)
+                    : p
+        )));
+    };
+    const folderHasKeys = useCallback(
+        (path: string) => files.some((f) => normKey(f.key).startsWith(path + "/")),
+        [files],
+    );
+
+    // Where the tree's "new folder" inline input shows ("" = top level).
+    const [newFolderAt, setNewFolderAt] = useState<string | null>(null);
+    // Destination-folder modal shared by the upload and move flows.
+    const [picker, setPicker] = useState<{
+        title: string;
+        allowRoot?: boolean;
+        submitLabel?: string;
+        onPick: (folder: string) => Promise<void> | void;
+    } | null>(null);
+
+    // Multi-select (tree mode): checkbox / shift+arrow selection set
+    // feeding the bulk Move/Delete toolbar. Dragging a selected row
+    // drags the whole set (FileTreeView handles that).
+    const [selected, setSelected] = useState<Set<string>>(() => new Set());
+    const setSelection = useCallback((keys: string[], select: boolean) => {
+        setSelected((prev) => {
+            const next = new Set(prev);
+            if (select) keys.forEach((k) => next.add(k));
+            else keys.forEach((k) => next.delete(k));
+            return next;
+        });
+    }, []);
+    const clearSelection = () => setSelected(new Set());
+    // Drop selection entries whose keys vanished (moved/renamed/deleted).
+    useEffect(() => {
+        setSelected((prev) => {
+            const live = new Set(files.map((f) => f.key));
+            const next = new Set(Array.from(prev).filter((k) => live.has(k)));
+            return next.size === prev.size ? prev : next;
+        });
+    }, [files]);
+
+    const existingFolderPaths = useMemo(
+        () => Array.from(new Set([
+            ...collectFolderPaths(files, (f) => f.key),
+            ...pendingFolders,
+        ])).sort((a, b) => a.localeCompare(b)),
+        [files, pendingFolders],
+    );
+
+    // Upload a batch sequentially into an optional folder prefix. Pin
+    // autoConvert:false so we don't auto-generate derived blobs for
+    // corpus uploads — the audit dispatcher does that on demand when
+    // the sweep fires. A failed file is reported without aborting the
+    // batch.
+    const uploadFilesTo = useCallback(async (list: File[], folder?: string) => {
+        if (list.length === 0) return;
         setErr(null);
-        // Reuse the existing per-scope upload path. Pin autoConvert:false so we
-        // don't auto-generate derived blobs for corpus uploads — the audit
-        // dispatcher does that on demand when the sweep fires. Sequential; a
-        // failed file is reported without aborting the batch.
         const {uploadFile} = await import("@/utils/scene/handlers/upload_source_file");
         const failures: string[] = [];
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            setUploading(files.length > 1 ? `${file.name} (${i + 1}/${files.length})` : file.name);
+        for (let i = 0; i < list.length; i++) {
+            const file = list[i];
+            setUploading(list.length > 1 ? `${file.name} (${i + 1}/${list.length})` : file.name);
             setProgress(0);
             try {
                 await uploadFile(file, {
                     autoConvert: false,
                     scope,
+                    folder,
                     onProgress: (loaded, total) => setProgress(total > 0 ? loaded / total : 0),
                 });
             } catch (e) {
@@ -447,10 +555,24 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
         }
         setUploading(null);
         setProgress(0);
-        if (inputRef.current) inputRef.current.value = "";
         if (failures.length) setErr(failures.join("; "));
         await reload();
     }, [scope, reload]);
+
+    // Upload button flow: pick the files first, then prompt for the
+    // destination folder — an existing folder, a new path, or the top
+    // level (the default).
+    const onPickUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const picked = Array.from(e.target.files ?? []);
+        if (inputRef.current) inputRef.current.value = "";
+        if (picked.length === 0) return;
+        setPicker({
+            title: `Upload ${picked.length} file${picked.length === 1 ? "" : "s"} to`,
+            allowRoot: true,
+            submitLabel: "Upload",
+            onPick: (folder) => void uploadFilesTo(picked, folder || undefined),
+        });
+    }, [uploadFilesTo]);
 
     const onDelete = useCallback(async (key: string) => {
         if (!confirm(`Delete ${key} from ${corpus.slug}? This can't be undone.`)) return;
@@ -462,6 +584,182 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
         }
     }, [scope, corpus.slug, reload]);
 
+    const alertFailures = (failed: Array<{key: string; reason: string}>) => {
+        if (failed.length > 0) {
+            window.alert(failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+        }
+    };
+
+    const runFolderMove = useCallback(async (folderPath: string, newPath: string) => {
+        if (newPath === folderPath) return;
+        try {
+            const allKeys = files.map((f) => f.key);
+            const r = await viewerApi.adminRenameOrMoveFolder(scope, folderPath, newPath, allKeys);
+            alertFailures(r.failed);
+            removePendingFoldersUnder(folderPath);
+            await reload();
+        } catch (e) {
+            setErr((e as Error).message || "folder move failed");
+        }
+    }, [files, scope, reload]);
+
+    const moveKeys = useCallback(async (keys: string[], destFolder: string) => {
+        try {
+            if (destFolder === "") {
+                // Move-to-root: the move endpoint requires a non-empty
+                // folder, so root moves are per-key renames to the
+                // basename.
+                for (const k of keys) {
+                    await viewerApi.adminRenameKey(scope, k, basenameOf(k));
+                }
+            } else {
+                const r = await viewerApi.adminMoveKeysToFolder(scope, keys, destFolder);
+                alertFailures(r.failed);
+            }
+            clearSelection();
+            await reload();
+        } catch (e) {
+            setErr((e as Error).message || "move failed");
+        }
+    }, [scope, reload]);
+
+    // Folder subtree lands at ``destFolder``/``basename`` ("" = root).
+    const moveFolderTo = (path: string, destFolder: string) => {
+        const base = basenameOf(path);
+        const newPath = destFolder ? `${destFolder}/${base}` : base;
+        if (!folderHasKeys(path)) {
+            rekeyPendingFolders(path, newPath);
+            return;
+        }
+        void runFolderMove(path, newPath);
+    };
+
+    // Shared by the bulk toolbar and the Delete key: confirm with an
+    // overview of exactly what goes, then delete sequentially.
+    const deleteKeysWithConfirm = useCallback(async (keys: string[]) => {
+        if (keys.length === 0) return;
+        if (!confirm(
+            `Delete ${keys.length} file${keys.length === 1 ? "" : "s"} from ${corpus.slug}? ` +
+            "This can't be undone.\n\n" +
+            previewKeyList(keys),
+        )) return;
+        try {
+            for (const k of keys) {
+                await viewerApi.adminDeleteBlob(scope, k);
+            }
+            setSelected(new Set());
+            await reload();
+        } catch (e) {
+            setErr((e as Error).message || "delete failed");
+        }
+    }, [scope, corpus.slug, reload]);
+
+    // Server-side copy (Garage CopyObject) corpus → the caller's
+    // personal scope, preserving keys. Existing keys are skipped, not
+    // overwritten — same semantics as the copy-into-corpus modal.
+    const copyToPersonal = useCallback(async (keys: string[]) => {
+        if (keys.length === 0) return;
+        setNote(null);
+        try {
+            const r = await viewerApi.adminCopyKeysFromScope("user:me", scope, keys);
+            alertFailures(r.failed);
+            setNote(
+                `copied ${r.copied.length} to your files` +
+                (r.skipped.length > 0 ? ` · skipped ${r.skipped.length} (already there)` : ""),
+            );
+        } catch (e) {
+            setErr((e as Error).message || "copy to personal scope failed");
+        }
+    }, [scope]);
+
+    const mutations: FileTreeMutations = {
+        renameFile: (key, newName) => {
+            const dir = dirnameOf(key);
+            const newKey = dir ? `${dir}/${newName}` : newName;
+            void (async () => {
+                try {
+                    await viewerApi.adminRenameKey(scope, key, newKey);
+                    await reload();
+                } catch (e) {
+                    setErr((e as Error).message || "rename failed");
+                }
+            })();
+        },
+        renameFolder: (path, newName) => {
+            const parent = dirnameOf(path);
+            const newPath = parent ? `${parent}/${newName}` : newName;
+            if (!folderHasKeys(path)) {
+                rekeyPendingFolders(path, newPath);
+                return;
+            }
+            void runFolderMove(path, newPath);
+        },
+        moveKeys: (keys, destFolder) => void moveKeys(keys, destFolder),
+        moveFolder: moveFolderTo,
+        deleteFile: (key) => void onDelete(key),
+        deleteFolder: (path, fileCount) => {
+            if (fileCount === 0) {
+                // Pending (empty) folder — pure client state.
+                removePendingFoldersUnder(path);
+                return;
+            }
+            const prefix = path + "/";
+            const targets = files.filter((f) => normKey(f.key).startsWith(prefix));
+            if (!confirm(
+                `Delete folder "${path}" and its ${fileCount} file${fileCount === 1 ? "" : "s"} ` +
+                `from ${corpus.slug}? This can't be undone.\n\n` +
+                previewKeyList(targets.map((t) => t.key)),
+            )) return;
+            void (async () => {
+                try {
+                    // Sequential: deletes cascade derived blobs server-side
+                    // and parallel calls would race on the storage listing.
+                    for (const t of targets) {
+                        await viewerApi.adminDeleteBlob(scope, t.key);
+                    }
+                    removePendingFoldersUnder(path);
+                    await reload();
+                } catch (e) {
+                    setErr((e as Error).message || "folder delete failed");
+                }
+            })();
+        },
+        createFolder: (parent, name) => {
+            // ``_derived`` is where the converter parks derived blobs —
+            // a user folder with that name would collide with the cache
+            // prefix.
+            if (!parent && name === "_derived") {
+                window.alert(`"${name}" is a reserved name`);
+                return;
+            }
+            const path = parent ? `${parent}/${name}` : name;
+            setPendingFolders((prev) => (prev.includes(path) ? prev : [...prev, path]));
+        },
+        requestMoveFile: (key) => setPicker({
+            title: `Move "${key}" to folder`,
+            onPick: (folder) => void moveKeys([key], folder),
+        }),
+        requestMoveFolder: (path) => setPicker({
+            title: `Move folder "${path}" into`,
+            onPick: (dest) => moveFolderTo(path, dest),
+        }),
+        deleteKeys: (keys) => void deleteKeysWithConfirm(keys),
+        uploadTo: (folder, list) => void uploadFilesTo(list, folder || undefined),
+        downloadFile: (key) => void viewerApi.downloadBlob(scope, key, basenameOf(key)),
+    };
+
+    const onMoveSelected = () => {
+        const keys = Array.from(selected);
+        if (keys.length === 0) return;
+        setPicker({
+            title: `Move ${keys.length} file${keys.length === 1 ? "" : "s"} to folder`,
+            onPick: (folder) => void moveKeys(keys, folder),
+        });
+    };
+
+    const showTree = viewMode === "tree" &&
+        (files.length > 0 || pendingFolders.length > 0 || newFolderAt !== null);
+
     return (
         <div className="flex flex-col h-full">
             <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between gap-3">
@@ -472,14 +770,22 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
                     )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                    {files.length > 0 && (
-                        <ViewModeToggle mode={viewMode} onChange={setViewMode}/>
+                    <ViewModeToggle mode={viewMode} onChange={setViewMode}/>
+                    {viewMode === "tree" && (
+                        <button
+                            type="button"
+                            onClick={() => setNewFolderAt("")}
+                            disabled={!!uploading}
+                            className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm px-3 py-1 rounded-sm"
+                        >
+                            New folder
+                        </button>
                     )}
                     <input
                         ref={inputRef}
                         type="file"
                         multiple
-                        onChange={onPick}
+                        onChange={onPickUpload}
                         className="hidden"
                         disabled={!!uploading}
                     />
@@ -514,8 +820,47 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
             {err && (
                 <div className="text-xs text-red-400 px-3 py-2">{err}</div>
             )}
+            {note && !err && (
+                <div className="text-xs text-emerald-400 px-3 py-2">{note}</div>
+            )}
+            {viewMode === "tree" && selected.size > 0 && (
+                <div className="mx-3 my-2 px-2 py-1.5 rounded-sm border border-gray-700 bg-gray-800/95 flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-white whitespace-nowrap">
+                        {selected.size} selected
+                    </span>
+                    <button
+                        type="button"
+                        onClick={onMoveSelected}
+                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-xs px-2 py-1 rounded-sm cursor-pointer"
+                    >
+                        Move…
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => void copyToPersonal(Array.from(selected))}
+                        title="Server-side copy into your personal scope (same keys; existing files are skipped)"
+                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-xs px-2 py-1 rounded-sm cursor-pointer"
+                    >
+                        Copy to my files
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => void deleteKeysWithConfirm(Array.from(selected))}
+                        className="bg-red-800 hover:bg-red-700 active:bg-red-900 text-white text-xs px-2 py-1 rounded-sm cursor-pointer"
+                    >
+                        Delete
+                    </button>
+                    <button
+                        type="button"
+                        onClick={clearSelection}
+                        className="ml-auto bg-gray-600 hover:bg-gray-500 text-white text-xs px-2 py-1 rounded-sm cursor-pointer"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            )}
             <div className="flex-1 min-h-0 overflow-auto">
-                {files.length === 0 && !err && (
+                {files.length === 0 && !err && pendingFolders.length === 0 && newFolderAt === null && (
                     <div className="text-xs text-gray-500 italic px-3 py-4">
                         No files yet. Upload representative source files (STEP /
                         IFC / RMED / etc.) to drive regression sweeps from the
@@ -547,7 +892,7 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
                                     <td className="text-right px-3 py-1 border-b border-gray-800">
                                         <button
                                             type="button"
-                                            onClick={() => onDelete(f.key)}
+                                            onClick={() => void onDelete(f.key)}
                                             className="text-red-400 hover:text-red-300 text-xs"
                                         >
                                             delete
@@ -558,29 +903,43 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
                         </tbody>
                     </table>
                 )}
-                {files.length > 0 && viewMode === "tree" && (
+                {showTree && (
                     <div className="px-1 py-1">
                         <FileTreeView
-                            nodes={buildFileTree(files, (f) => f.key)}
+                            nodes={buildFileTree(files, (f) => f.key, pendingFolders)}
                             getKey={(f) => f.key}
                             namespace="corpus"
                             scope={scope}
+                            selection={{selected, onSelect: setSelection}}
+                            mutations={mutations}
+                            extraFileMenuItems={(key) => [{
+                                key: "copy-to-personal",
+                                label: "Copy to my files",
+                                title: "Server-side copy into your personal scope (same key; skipped if it already exists)",
+                                onClick: () => void copyToPersonal([key]),
+                            }]}
+                            newFolderAt={newFolderAt}
+                            onNewFolderAtChange={setNewFolderAt}
                             renderFileTail={(f) => (
-                                <span className="flex items-center gap-3">
-                                    <span className="text-gray-400 font-mono">{fmtBytes(f.size)}</span>
-                                    <button
-                                        type="button"
-                                        onClick={() => onDelete(f.key)}
-                                        className="text-red-400 hover:text-red-300 text-xs"
-                                    >
-                                        delete
-                                    </button>
-                                </span>
+                                <span className="text-gray-400 font-mono">{fmtBytes(f.size)}</span>
                             )}
                         />
                     </div>
                 )}
             </div>
+            <FolderPickerModal
+                open={picker !== null}
+                title={picker?.title ?? ""}
+                existingFolders={existingFolderPaths}
+                allowRoot={picker?.allowRoot}
+                submitLabel={picker?.submitLabel}
+                onCancel={() => setPicker(null)}
+                onPick={(folder) => {
+                    const action = picker?.onPick;
+                    setPicker(null);
+                    if (action) void action(folder);
+                }}
+            />
         </div>
     );
 };

@@ -33,13 +33,21 @@ export interface FolderPickerModalProps {
     /** Button label — defaults to "Move". Folder-rename / move-into
      *  flows pass a more specific verb. */
     submitLabel?: string;
+    /** Offer a "Top level (root)" choice and make it the default.
+     *  Used by upload-destination prompts where root is the common
+     *  case; ``onPick`` receives ``""`` when it's chosen. Move flows
+     *  leave this off (a move to "" is handled by drag-to-root). */
+    allowRoot?: boolean;
 }
 
+type PickMode = "root" | "existing" | "new";
+
 const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
-    open, title, existingFolders, initialNew, onCancel, onPick, submitLabel,
+    open, title, existingFolders, initialNew, onCancel, onPick, submitLabel, allowRoot,
 }) => {
     const hasExisting = existingFolders.length > 0;
-    const [mode, setMode] = useState<"existing" | "new">(hasExisting ? "existing" : "new");
+    const defaultMode: PickMode = allowRoot ? "root" : hasExisting ? "existing" : "new";
+    const [mode, setMode] = useState<PickMode>(defaultMode);
     const [selected, setSelected] = useState<string>(existingFolders[0] ?? "");
     const [newPath, setNewPath] = useState<string>(initialNew ?? "");
     const newInputRef = useRef<HTMLInputElement>(null);
@@ -49,10 +57,10 @@ const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
     // would see stale state.
     useEffect(() => {
         if (!open) return;
-        setMode(hasExisting ? "existing" : "new");
+        setMode(defaultMode);
         setSelected(existingFolders[0] ?? "");
         setNewPath(initialNew ?? "");
-    }, [open, hasExisting, existingFolders, initialNew]);
+    }, [open, defaultMode, existingFolders, initialNew]);
 
     // Focus the new-folder input the moment the user switches to
     // that mode, mirroring the prompt() ergonomics.
@@ -65,6 +73,10 @@ const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
     if (!open) return null;
 
     const submit = () => {
+        if (mode === "root") {
+            onPick("");
+            return;
+        }
         const value = mode === "existing" ? selected : newPath;
         const trimmed = value.trim().replace(/^\/+|\/+$/g, "");
         if (!trimmed) return;
@@ -89,6 +101,21 @@ const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
                     {title}
                 </div>
                 <div className="px-4 py-3 space-y-3 text-sm">
+                    {allowRoot && (
+                        <label className="flex items-start gap-2 cursor-pointer">
+                            <input
+                                type="radio"
+                                checked={mode === "root"}
+                                onChange={() => setMode("root")}
+                                className="mt-1 shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                                <div className="text-gray-200">
+                                    Top level <span className="text-gray-400 font-mono text-xs">/</span>
+                                </div>
+                            </div>
+                        </label>
+                    )}
                     {hasExisting && (
                         <label className="flex items-start gap-2 cursor-pointer">
                             <input
@@ -158,8 +185,9 @@ const FolderPickerModal: React.FC<FolderPickerModalProps> = ({
                         onClick={submit}
                         className="px-3 py-1 rounded-sm bg-blue-700 hover:bg-blue-600 text-xs disabled:opacity-50"
                         disabled={
-                            (mode === "existing" && !selected.trim()) ||
-                            (mode === "new" && !newPath.trim())
+                            mode !== "root" &&
+                            ((mode === "existing" && !selected.trim()) ||
+                                (mode === "new" && !newPath.trim()))
                         }
                     >
                         {submitLabel ?? "Move"}
