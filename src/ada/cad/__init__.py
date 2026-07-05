@@ -243,6 +243,7 @@ class AdacppBackend:
         # being ported to adacpp C++ incrementally; types not yet ported raise
         # NotImplementedError rather than borrowing pythonocc. End goal: full
         # parity with OccBackend. See dap plan/v3 Phase 7.
+        import ada.geom.curves as gcu
         import ada.geom.solids as so
         import ada.geom.surfaces as su
         from ada.api.beams.geom_beams import parametric_profile_to_arbitrary
@@ -540,6 +541,15 @@ class AdacppBackend:
                 self._cad.polygon_face([self._xyz(g.coordinates[i - 1]) for i in face_idx]) for face_idx in g.faces
             ]
             shape = self._cad.sew_faces(faces)
+        elif isinstance(g, su.TriangulatedFaceSet):
+            # Triangle mesh (IfcTriangulatedFaceSet): one planar face per 1-based
+            # index triple, sewn into a shell — same treatment as PolygonalFaceSet.
+            idx = [int(i) for i in g.indices]
+            faces = [
+                self._cad.polygon_face([self._xyz(g.coordinates[i - 1]) for i in idx[k : k + 3]])
+                for k in range(0, len(idx), 3)
+            ]
+            shape = self._cad.sew_faces(faces)
         elif isinstance(g, so.RectangularPyramid):
             # Rectangular base + 4 triangular sides (apex centred above), placed at the frame.
             x, y, z = g.x_length, g.y_length, g.z_length
@@ -576,6 +586,12 @@ class AdacppBackend:
             if len(edge_list) < 3:
                 raise NotImplementedError("AdacppBackend.build: WireFilledFace needs >=3 boundary edges")
             shape = self._cad.build_filled_face([self._encode_oriented_edge(oe) for oe in edge_list])
+        elif isinstance(g, gcu.CURVE_GEOM_TUPLE):
+            # Bare curve bodies (sectionless SAT wire bodies, construction
+            # wireframes): build the wire so B-rep exports carry them — STEP
+            # writes wires natively (GEOMETRIC_CURVE_SET). Mirrors
+            # geom_to_occ_geom's CURVE_GEOM_TUPLE arm.
+            shape = self._cad.build_wire(self._encode_curve(g))
         else:
             raise NotImplementedError(
                 f"AdacppBackend.build: ada.geom type {type(g).__name__!r} is not yet ported to "
@@ -651,6 +667,11 @@ class AdacppBackend:
         if isinstance(curve, cu.Circle):
             axis = self._xyz(curve.position.axis) if curve.position.axis is not None else [0.0, 0.0, 1.0]
             return [[2.0, *self._xyz(curve.position.location), *axis, float(curve.radius)]]
+        if isinstance(curve, cu.Edge) and not isinstance(curve, cu.ArcLine):
+            # Bare line segment (sectionless SAT wire body).
+            return [[0.0, *self._xyz(curve.start), *self._xyz(curve.end)]]
+        if isinstance(curve, cu.ArcLine):
+            return [[1.0, *self._xyz(curve.start), *self._xyz(curve.midpoint), *self._xyz(curve.end)]]
         if isinstance(curve, cu.PolyLine):
             pts = curve.points
             return [[0.0, *self._xyz(a), *self._xyz(b)] for a, b in zip(pts[:-1], pts[1:])]
@@ -736,6 +757,20 @@ class AdacppBackend:
             for seg in curve.segments:
                 edges.extend(self._encode_curve(seg.parent_curve))
             return edges
+        if isinstance(curve, cu.GradientCurve):
+            # Alignment directrix (IFC4x3): clothoid segments have no analytic
+            # edge record — encode the sampled polyline (shared with the
+            # NGEOM SweepN tessellation path, which uses the same evaluator).
+            import numpy as _np
+
+            from ada.cadit.ngeom._alignment_sweep import gradient_curve_points
+
+            pts = gradient_curve_points(curve, n_per=100)
+            return [
+                [0.0, *[float(v) for v in a], *[float(v) for v in b]]
+                for a, b in zip(pts[:-1], pts[1:])
+                if float(_np.linalg.norm(b - a)) > 1e-9
+            ]
         raise NotImplementedError(
             f"AdacppBackend.build: profile curve {type(curve).__name__!r} not yet ported to adacpp."
         )

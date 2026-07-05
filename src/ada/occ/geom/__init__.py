@@ -67,6 +67,8 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
         occ_geom = geo_su.make_shell_from_connected_face_set_geom(geometry)
     elif isinstance(geometry, su.PolygonalFaceSet):
         occ_geom = geo_su.make_shell_from_polygonal_face_set_geom(geometry)
+    elif isinstance(geometry, su.TriangulatedFaceSet):
+        occ_geom = geo_su.make_shell_from_triangulated_face_set_geom(geometry)
 
     # Standalone boolean tree (ada.geom.booleans.BooleanResult): recursively build both operands
     # (each may itself be a BooleanResult) and apply the OCC boolean. This is the root-geometry form

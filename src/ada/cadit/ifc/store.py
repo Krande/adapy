@@ -149,7 +149,28 @@ class IfcStore:
 
         matches = [x for x in contexts if x.ContextIdentifier == context_id and x.ContextType == "Model"]
         if len(matches) == 0:
-            raise ValueError(f'0 IfcGeometry Subcontexts found with "{context_id=}"')
+            # Imported files don't always carry the standard subcontexts (e.g.
+            # the buildingSMART type-library samples have '3D'/'2D' model+plan
+            # contexts and nothing else). Writing into such a store must not
+            # fail — create the missing subcontext under the model context,
+            # exactly as add_standard_contexts would for a fresh file.
+            model_ctxs = [
+                x
+                for x in contexts
+                if not x.is_a("IfcGeometricRepresentationSubContext") and (x.ContextType or "").upper() == "MODEL"
+            ]
+            if not model_ctxs:
+                raise ValueError(f'0 IfcGeometry Subcontexts found with "{context_id=}"')
+            target_view = {"Axis": "GRAPH_VIEW"}.get(context_id, "MODEL_VIEW")
+            sub = self.f.create_entity(
+                "IfcGeometricRepresentationSubContext",
+                ContextIdentifier=context_id,
+                ContextType="Model",
+                ParentContext=model_ctxs[0],
+                TargetView=target_view,
+            )
+            self._context_cache[context_id] = sub
+            return sub
         if len(matches) > 1:
             raise ValueError(f'Multiple Subcontexts found with "{context_id=}"')
 

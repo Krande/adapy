@@ -99,9 +99,9 @@ class OCCStore:
                 _g = getattr(obj_, "geom", None)
                 if _g is not None and isinstance(getattr(_g, "geometry", None), CURVE_GEOM_TUPLE):
                     try:
-                        from ada.occ.geom.curves import make_wire_from_curve
+                        from ada.cad import active_backend
 
-                        occ_geom = make_wire_from_curve(_g.geometry)
+                        occ_geom = active_backend().build(_g)
                     except (NotImplementedError, ImportError) as e:
                         logger.warning(f"Skipping {getattr(obj_, 'name', obj_)!r} in STEP export: {e}")
                         return None

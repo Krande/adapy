@@ -562,8 +562,30 @@ def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
         return make_wire_from_trimmed_curve(outer_curve)
     elif isinstance(outer_curve, geo_cu.CompositeCurve):
         return make_wire_from_composite_curve(outer_curve)
+    elif isinstance(outer_curve, geo_cu.GradientCurve):
+        return make_wire_from_gradient_curve(outer_curve)
     else:
         raise NotImplementedError(f"Unsupported curve type {type(outer_curve)}")
+
+
+def make_wire_from_gradient_curve(curve: geo_cu.GradientCurve) -> TopoDS_Wire:
+    """Alignment directrix (IFC4x3 IfcGradientCurve): clothoid segments have no
+    analytic OCC curve, so build a polyline wire from the shared alignment
+    evaluator's sampling — the same discretization the adacpp backend sweeps."""
+    import numpy as np
+
+    from ada.cadit.ngeom._alignment_sweep import gradient_curve_points
+
+    pts = gradient_curve_points(curve, n_per=100)
+    wire_maker = BRepBuilderAPI_MakeWire()
+    for a, b in zip(pts[:-1], pts[1:]):
+        if float(np.linalg.norm(b - a)) < 1e-9:
+            continue
+        edge = BRepBuilderAPI_MakeEdge(
+            gp_Pnt(float(a[0]), float(a[1]), float(a[2])), gp_Pnt(float(b[0]), float(b[1]), float(b[2]))
+        ).Edge()
+        wire_maker.Add(edge)
+    return wire_maker.Wire()
 
 
 def make_wire_from_face_bound(face_bound: geo_su.FaceBound) -> TopoDS_Wire:

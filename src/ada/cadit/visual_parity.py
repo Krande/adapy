@@ -528,6 +528,13 @@ def cross_format_parity(
                 # source and the IFC leg. Grouping by owning product restores the
                 # one-element-per-object convention both other legs use.
                 n = _count_step_product_instances(out) if fmt == "step" else None
+                if fmt == "step" and n == 0:
+                    # The native stream counter sees only solid/B-rep roots — a
+                    # wireframe-only output (GEOMETRIC_CURVE_SET wire bodies)
+                    # counts 0 there even though the geometry is present. A
+                    # 0-count file is small by construction, so the exact reload
+                    # count is affordable.
+                    n = None
                 counts[fmt] = n if n is not None else assembly_element_count(reader(out))
             except Exception as ex:  # noqa: BLE001 - record and continue with the other formats
                 errors[fmt] = f"{type(ex).__name__}: {ex}"

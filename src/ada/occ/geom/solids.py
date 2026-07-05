@@ -11,6 +11,7 @@ from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
 import ada.geom.solids as geo_so
+from ada.config import logger
 from ada.geom.direction import Direction
 from ada.geom.points import Point
 from ada.occ.geom.curves import make_wire_from_curve
@@ -203,7 +204,13 @@ def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSw
     pipe_builder.Add(profile_wire, True, False)  # with contact and correction
 
     pipe_builder.Build()
-    pipe_builder.MakeSolid()
+    try:
+        pipe_builder.MakeSolid()
+    except RuntimeError as e:
+        # An open/non-closable sweep (e.g. a sampled alignment spine) still
+        # yields a valid shell — renderable and exportable — so degrade to it
+        # rather than dropping the body.
+        logger.warning(f"FixedReferenceSweptAreaSolid: MakeSolid failed ({e}); exporting the swept shell")
     swept_solid = pipe_builder.Shape()
 
     location = frs.position.location.tolist()

@@ -2025,6 +2025,38 @@ def make_shell_from_polygonal_face_set_geom(pfs: geo_su.PolygonalFaceSet) -> Top
     return sewing.SewedShape()
 
 
+def make_shell_from_triangulated_face_set_geom(tfs: geo_su.TriangulatedFaceSet) -> TopoDS_Shape:
+    """Build an IfcTriangulatedFaceSet — a shared point list plus flat 1-based index
+    triples — into a sewn OCC shell, same treatment as the polygonal face set. Needed
+    for B-rep exports (STEP/IFC) of mesh-native bodies; tessellation itself takes the
+    direct mesh path and never comes here."""
+    coords = tfs.coordinates
+    idx = [int(i) for i in tfs.indices]
+    sewing = BRepBuilderAPI_Sewing(1e-6)
+    n_faces = 0
+    for k in range(0, len(idx), 3):
+        tri = idx[k : k + 3]
+        poly = BRepBuilderAPI_MakePolygon()
+        for i in tri:
+            poly.Add(point3d(coords[i - 1]))
+        poly.Close()
+        if not poly.IsDone():
+            logger.warning("TriangulatedFaceSet: skipping triangle %s (could not build wire)", tri)
+            continue
+        face_maker = BRepBuilderAPI_MakeFace(poly.Wire(), True)
+        if not face_maker.IsDone():
+            logger.warning("TriangulatedFaceSet: skipping degenerate triangle %s", tri)
+            continue
+        sewing.Add(face_maker.Face())
+        n_faces += 1
+
+    if n_faces == 0:
+        raise UnableToCreateTesselationFromSolidOCCGeom("TriangulatedFaceSet produced no usable faces")
+
+    sewing.Perform()
+    return sewing.SewedShape()
+
+
 def make_shell_from_shell_based_surface_geom(sbsm: geo_su.ShellBasedSurfaceModel) -> TopoDS_Shape:
     """Build an IfcShellBasedSurfaceModel — a set of open/closed shells — into a single OCC
     compound of shells, so a multi-shell wall/cladding surface renders and exports."""

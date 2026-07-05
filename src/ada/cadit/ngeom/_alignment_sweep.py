@@ -127,6 +127,22 @@ def _sample_planar(segs: list[geo_cu.CurveSegment], n_per: int) -> tuple[np.ndar
     return np.array(s_vals), np.array(pts)
 
 
+def gradient_curve_points(directrix: geo_cu.GradientCurve, n_per: int = 300) -> np.ndarray:
+    """Sampled 3D polyline of a GradientCurve: horizontal alignment (base_curve, sampled per
+    segment) with the vertical gradient's height interpolated over arc length. Clothoid
+    segments have no analytic B-rep form, so exports/sweeps consume this sampling."""
+    hsegs = _curve_segments(directrix.base_curve)
+    s, hxy = _sample_planar(hsegs, n_per)  # (s,), (s,2)
+
+    # vertical gradient -> z(s) by interpolation on its (distance, height) samples
+    vsegs = _curve_segments(directrix)
+    _, vdh = _sample_planar(vsegs, max(n_per, 50))
+    order = np.argsort(vdh[:, 0])
+    z = np.interp(s, vdh[order, 0], vdh[order, 1])
+
+    return np.column_stack([hxy[:, 0], hxy[:, 1], z])
+
+
 def directrix_frames(
     solid: geo_so.FixedReferenceSweptAreaSolid, n_per: int = 300
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -137,16 +153,7 @@ def directrix_frames(
     if not isinstance(directrix, geo_cu.GradientCurve):
         raise NotImplementedError(f"directrix {type(directrix).__name__} (only GradientCurve supported)")
 
-    hsegs = _curve_segments(directrix.base_curve)
-    s, hxy = _sample_planar(hsegs, n_per)  # (s,), (s,2)
-
-    # vertical gradient -> z(s) by interpolation on its (distance, height) samples
-    vsegs = _curve_segments(directrix)
-    _, vdh = _sample_planar(vsegs, max(n_per, 50))
-    order = np.argsort(vdh[:, 0])
-    z = np.interp(s, vdh[order, 0], vdh[order, 1])
-
-    pts = np.column_stack([hxy[:, 0], hxy[:, 1], z])
+    pts = gradient_curve_points(directrix, n_per)
 
     F = np.asarray(solid.fixed_reference, dtype=float)
     F = F / np.linalg.norm(F)

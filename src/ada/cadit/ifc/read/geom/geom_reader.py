@@ -25,7 +25,9 @@ from .solids import (
 from .surfaces import advanced_face, curve_bounded_plane
 from .surfaces import face as read_face
 from .surfaces import (
+    closed_shell,
     half_space_solid,
+    open_shell,
     polygonal_face_set,
     shell_based_surface_model,
     triangulated_face_set,
@@ -84,6 +86,12 @@ def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GE
         return read_face(geom_repr)
     elif geom_repr.is_a("IfcShellBasedSurfaceModel"):
         return shell_based_surface_model(geom_repr)
+    elif geom_repr.is_a("IfcClosedShell"):
+        # Bare shell as the representation item (write_shapes emits imported
+        # ClosedShell/ConnectedFaceSet bodies this way).
+        return closed_shell(geom_repr)
+    elif geom_repr.is_a("IfcOpenShell"):
+        return open_shell(geom_repr)
     elif geom_repr.is_a("IfcCurveBoundedPlane"):
         return curve_bounded_plane(geom_repr)
     elif geom_repr.is_a("IfcHalfSpaceSolid"):

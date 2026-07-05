@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import ada.geom.curves as geo_cu
+import ada.geom.solids as geo_so
 import ada.geom.surfaces as geo_su
 from ada import (
     Boolean,
@@ -19,11 +20,13 @@ from ada import (
 from ada.base.units import Units
 from ada.cadit.ifc.utils import add_colour, create_local_placement, tesselate_shape
 from ada.cadit.ifc.write.geom.curves import indexed_poly_curve, poly_line
+from ada.cadit.ifc.write.geom.solids import faceted_brep
 from ada.cadit.ifc.write.geom.surfaces import (
     advanced_face,
     create_closed_shell,
     create_half_space_geom,
     curve_bounded_plane,
+    triangulated_face_set,
 )
 from ada.cadit.ifc.write.shapes.box import generate_ifc_box_geom
 from ada.cadit.ifc.write.shapes.cone import generate_ifc_cone_geom
@@ -199,6 +202,10 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         # closedness promotion couldn't verify the shell (e.g. edges split differently
         # across adjacent faces). Same face-set emit as ClosedShell.
         geo_su.ConnectedFaceSet: create_closed_shell,
+        # Mesh-native bodies (IFC tessellated imports): 1:1 emit — the
+        # tessellation fallback would need a kernel build these kinds don't have.
+        geo_su.TriangulatedFaceSet: triangulated_face_set,
+        geo_so.FacetedBrep: faceted_brep,
         # Curve-only bodies (SAT wire bodies import as bare curve geometry):
         # emitted as a Curve3D representation instead of failing solid_occ().
         geo_cu.Edge: _edge_as_polyline,
@@ -232,6 +239,8 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         geo_su.AdvancedFace: "AdvancedSurface",
         geo_su.CurveBoundedPlane: "AdvancedSurface",
         geo_su.ClosedShell: "AdvancedSurface",
+        geo_su.TriangulatedFaceSet: "Tessellation",
+        geo_so.FacetedBrep: "Brep",
         geo_cu.Edge: "Curve3D",
         geo_cu.IndexedPolyCurve: "Curve3D",
         geo_cu.PolyLine: "Curve3D",
