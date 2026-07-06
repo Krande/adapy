@@ -80,11 +80,78 @@ def test_object_free_no_plates_built(fem_files):
     assert len(list(a.get_all_physical_objects(by_type=ada.Plate))) == 0
 
 
-def test_surface_and_panel_not_yet_implemented(fem_files):
+def _tube(nseg=24, nrows=12, r=0.5, length=4.0, t=0.01):
+    """A quad-meshed cylinder along z — exercises the analytic cylinder detection."""
+    from ada import Node
+
+    p = ada.Part("tube")
+    mat = ada.Material("S355")
+    grid: dict = {}
+    nid = 1
+    for iz in range(nrows + 1):
+        for ia in range(nseg):
+            ang = 2.0 * np.pi * ia / nseg
+            grid[(ia, iz)] = Node([r * np.cos(ang), r * np.sin(ang), length * iz / nrows], nid)
+            p.fem.nodes.add(grid[(ia, iz)])
+            nid += 1
+    eid = 1
+    Q = ada.fem.Elem.EL_TYPES.SHELL_SHAPES.QUAD
+    for iz in range(nrows):
+        for ia in range(nseg):
+            a_, b_ = grid[(ia, iz)], grid[((ia + 1) % nseg, iz)]
+            c_, d_ = grid[((ia + 1) % nseg, iz + 1)], grid[(ia, iz + 1)]
+            el = p.fem.add_elem(ada.fem.Elem(eid, [a_, b_, c_, d_], Q, el_formulation_override="S4"))
+            el.fem_sec = p.fem.add_section(
+                ada.fem.FemSection(f"S{eid}", "shell", ada.fem.FemSet(f"s{eid}", [el]), mat, thickness=t)
+            )
+            eid += 1
+    a = ada.Assembly() / p
+    p.fem.sections.merge_by_properties()
+    return a
+
+
+def test_surface_strategy_flat_mesh_matches_coplanar(fem_files):
+    # A mesh with no recognisable curved patches: SURFACE degrades to the flat merge.
     a = ada.from_fem(fem_files / "sesam/beamMassT1.FEM")
-    for strat in (MergeStrategy.SURFACE, MergeStrategy.PANEL):
-        with pytest.raises(NotImplementedError):
-            list(iter_faces(a, strat))
+    surf = list(iter_faces(a, MergeStrategy.SURFACE))
+    cop = list(iter_faces(a, MergeStrategy.COPLANAR))
+    assert all(f.geom_face is None for f in surf)
+    assert len(surf) == len(cop)
+    assert _total_area(surf) == pytest.approx(_total_area(cop), rel=1e-9)
+
+
+def test_surface_strategy_detects_cylinder():
+    a = _tube()
+    part = next(p_ for p_ in a.get_all_parts_in_assembly(include_self=True) if p_.fem is not None and len(p_.fem.elements))
+    faces = list(iter_faces(part, MergeStrategy.SURFACE))
+    analytic = [f for f in faces if f.geom_face is not None]
+    # the 288-quad tube collapses to a handful of analytic cylinder faces
+    assert 1 <= len(analytic) <= 8
+    assert all(f.thickness == pytest.approx(0.01) and f.material == "S355" for f in analytic)
+    # polygon-only consumers (Genie XML) must get flats instead — never lose geometry
+    flats = list(iter_faces(part, MergeStrategy.SURFACE, allow_analytic=False))
+    assert all(f.geom_face is None for f in flats)
+    assert len(flats) >= 1
+
+    # PANEL includes the cylinder pass too
+    panel = [f for f in iter_faces(part, MergeStrategy.PANEL) if f.geom_face is not None]
+    assert len(panel) >= 1
+
+
+def test_surface_strategy_object_stream_yields_curved_plates():
+    a = _tube()
+    part = next(p_ for p_ in a.get_all_parts_in_assembly(include_self=True) if p_.fem is not None and len(p_.fem.elements))
+    objs = list(part.iter_objects_from_fem(beams=False, plates=True, merge_strategy="surface"))
+    curved = [o for o in objs if isinstance(o, ada.PlateCurved)]
+    assert 1 <= len(curved) <= 8
+    assert len(objs) < 20  # 288 shells -> a handful of concept objects
+    # each curved plate tessellates on the active backend (renderable, not just writable)
+    from ada.occ.tessellating import BatchTessellator
+
+    bt = BatchTessellator()
+    for o in curved:
+        (ms,) = list(bt.batch_tessellate([o]))
+        assert len(ms.position) > 0
 
 
 def _part_with_fem(fem_files):

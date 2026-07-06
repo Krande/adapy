@@ -1049,7 +1049,26 @@ class Part(BackendGeom):
             buf.clear()
 
         for face in faces_from_fem(self.fem, merge_strategy):
-            if len(face.outline) <= 4:
+            if face.geom_face is not None:
+                # Analytic patch (SURFACE/PANEL: trimmed cylinder or B-spline
+                # panel) → one curved-plate concept, mirroring the FEM surface
+                # reconstruction path. Flush pending tri/quads first so the
+                # stream order is unchanged.
+                yield from _flush()
+                from ada import PlateCurved
+                from ada.core.guid import create_guid
+                from ada.geom import Geometry
+
+                mat = mats.get(face.material, face.material)
+                yield PlateCurved(
+                    face.name,
+                    Geometry(create_guid(), face.geom_face, None),
+                    float(face.thickness),
+                    mat=mat,
+                    extrude_as_solid=True,
+                    parent=self,
+                )
+            elif len(face.outline) <= 4:
                 buf.append(face)
                 if len(buf) >= chunk:
                     yield from _flush()
