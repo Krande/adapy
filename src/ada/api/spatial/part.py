@@ -1003,13 +1003,20 @@ class Part(BackendGeom):
         else:
             yield from self._iter_merged_plates_from_fem(merge_strategy, detached, mat_cache)
 
-    def _iter_merged_plates_from_fem(self, merge_strategy, detached: bool, mat_cache: dict | None):
-        """Wrap each object-free merged :class:`FaceData` in one transient Plate.
+    def _iter_merged_plates_from_fem(self, merge_strategy, detached: bool, mat_cache: dict | None, chunk: int = 2048):
+        """Wrap the object-free merged :class:`FaceData` records in transient Plates.
 
-        Bounded: builds and yields a single Plate at a time. Tri/quad faces take
-        the fast ``Plate.from_fem_shell`` path; merged N-gons use the general
-        ``from_3d_points``."""
+        Tri/quad faces are buffered into bounded chunks and built through the
+        vectorized :meth:`CurvePoly2d.from_fem_shells_batch` (bitwise-identical to
+        the per-face ``Plate.from_fem_shell`` — the batch path escapes degenerate
+        rows back to it). ``chunk`` bounds the buffered face count, keeping the
+        streaming exporters' peak memory bounded; yield order matches the face
+        engine's stream order exactly. Merged N-gons use the general
+        ``from_3d_points`` path."""
+        import numpy as np
+
         from ada import Plate
+        from ada.api.curves import CurvePoly2d
         from ada.fem.formats.mesh_faces import faces_from_fem
 
         # name -> Material, resolved once from this part's shell sections so the
@@ -1020,14 +1027,38 @@ class Part(BackendGeom):
             if mat is not None and mat.name not in mats:
                 mats[mat.name] = mat
 
+        buf: list = []  # pending tri/quad FaceData, flushed as one vectorized batch
+
+        def _flush():
+            if not buf:
+                return
+            by_k: dict[int, list[int]] = {}
+            for i, f in enumerate(buf):
+                by_k.setdefault(len(f.outline), []).append(i)
+            polys: list = [None] * len(buf)
+            for _k, idxs in by_k.items():
+                pts = np.stack([np.asarray(buf[i].outline, dtype=float) for i in idxs])
+                for i, poly in zip(idxs, CurvePoly2d.from_fem_shells_batch(pts, parent=self)):
+                    polys[i] = poly
+            for f, poly in zip(buf, polys):
+                mat = mats.get(f.material, f.material)
+                if poly is None:
+                    yield Plate.from_fem_shell(f.name, f.outline, f.thickness, mat=mat, parent=self, detached=detached)
+                else:
+                    yield Plate(f.name, poly, f.thickness, mat=mat, parent=self, detached=detached)
+            buf.clear()
+
         for face in faces_from_fem(self.fem, merge_strategy):
-            mat = mats.get(face.material, face.material)
             if len(face.outline) <= 4:
-                yield Plate.from_fem_shell(
-                    face.name, face.outline, face.thickness, mat=mat, parent=self, detached=detached
-                )
+                buf.append(face)
+                if len(buf) >= chunk:
+                    yield from _flush()
             else:
+                # Flush pending tri/quads first so the stream order is unchanged.
+                yield from _flush()
+                mat = mats.get(face.material, face.material)
                 yield Plate.from_3d_points(face.name, face.outline, face.thickness, mat=mat, parent=self)
+        yield from _flush()
 
     def get_part(self, name: str, search_all_parts_in_assembly=False) -> Part | None:
         """Get part by name."""
