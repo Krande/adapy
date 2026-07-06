@@ -3,6 +3,7 @@ import * as THREE from "three";
 import {handleClickEmptySpace} from "@/utils/mesh_select/handleClickEmptySpace";
 import {handleClickMesh} from "@/utils/mesh_select/handleClickMesh";
 import {handleClickPoints} from "@/utils/mesh_select/handleClickPoints";
+import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 // handleClickMesh signature change accommodates a prefilledRangeId
 // from the GPU mesh picker; the raycast fallback still passes only
 // the intersection.
@@ -149,8 +150,14 @@ export function setupPointerHandler(
         }
 
         if (nearestMesh) {
-            // Clear any highlighted point if not multi-select
-            await handleClickMesh(nearestMesh, e);
+            // Only imported geometry (CustomBatchedMesh) is selectable. If the first opaque
+            // hit is anything else — a section-plane cap, a helper, a non-shape mesh — treat
+            // the click as a deselect, not a no-op: clicking off a shape clears the selection.
+            if (nearestMesh.object instanceof CustomBatchedMesh) {
+                await handleClickMesh(nearestMesh, e);
+            } else {
+                handleClickEmptySpace(e);
+            }
             return;
         }
 

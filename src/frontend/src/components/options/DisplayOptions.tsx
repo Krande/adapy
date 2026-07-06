@@ -21,6 +21,7 @@ const DisplayOptions: React.FC = () => {
         lockTranslation, setLockTranslation,
         enableNodeEditor, setEnableNodeEditor,
         enableWebsocket, setEnableWebsocket,
+        autoFit, setAutoFit,
         autoConvertOnUpload, setAutoConvertOnUpload,
     } = useOptionsStore();
     const {showLegend, setShowLegend} = useColorStore();
@@ -70,6 +71,7 @@ const DisplayOptions: React.FC = () => {
                     </span>
                 </span>
             </label>
+            <Toggle checked={autoFit} onChange={() => setAutoFit(!autoFit)}>Auto Fit to View</Toggle>
             <Toggle checked={lockTranslation} onChange={() => setLockTranslation(!lockTranslation)}>Lock Translation</Toggle>
             <Toggle checked={enableNodeEditor} onChange={() => setEnableNodeEditor(!enableNodeEditor)}>Enable Node Editor</Toggle>
             <Toggle checked={enableWebsocket} onChange={() => setEnableWebsocket(!enableWebsocket)}>Enable Websocket</Toggle>

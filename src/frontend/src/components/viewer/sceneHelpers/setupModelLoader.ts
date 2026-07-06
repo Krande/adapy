@@ -3,7 +3,8 @@ import {prepareLoadedModel} from "./prepareLoadedModel";
 import {useModelState} from "@/state/modelState";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useAnimationStore} from "@/state/animationStore";
-import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef, adaExtensionRef} from "@/state/refs";
+import {animationControllerRef, cameraRef, controlsRef, modelKeyMapRef, sceneRef, simulationDataRef, adaExtensionRef} from "@/state/refs";
+import {zoomToAll} from "./setupCameraControlsHandlers";
 import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 import {requestRender} from "@/state/perfStore";
 import {FilePurpose} from "@/flatbuffers/base/file-purpose";
@@ -172,6 +173,18 @@ export async function setupModelLoaderAsync(
     if (animations.length > 0) {
         // Set the hasAnimation flag to true in the store
         animationStore.setHasAnimation(true);
+    }
+
+    // Auto fit-to-all after the model is in the scene (scene-config toggle, default on) —
+    // frames a freshly loaded model, and each geom cycled through in gallery mode, without a
+    // manual Shift+A. Deferred a frame so the just-added meshes' world bounds are current.
+    if (optionsStore.autoFit) {
+        const cam = cameraRef.current;
+        const ctl = controlsRef.current;
+        const scn = sceneRef.current;
+        if (cam && ctl && scn) {
+            requestAnimationFrame(() => zoomToAll(scn, cam as THREE.PerspectiveCamera, ctl));
+        }
     }
     return modelGroup;
 }

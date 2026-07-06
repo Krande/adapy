@@ -62,6 +62,23 @@ const GalleryControls: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [enabled, files]);
 
+    // Left/Right arrows cycle prev/next while gallery mode is active (the camera controls
+    // don't bind arrow keys, so there's no conflict). Ignored while typing in a field or
+    // while a load is in flight; preventDefault stops the page from scrolling.
+    useEffect(() => {
+        if (!enabled) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+            const t = e.target as HTMLElement | null;
+            if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+            if (useLoadQueueStore.getState().current) return; // a load is already running
+            e.preventDefault();
+            void go(index + (e.key === "ArrowRight" ? 1 : -1));
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [enabled, go, index]);
+
     if (!enabled) return null;
 
     const current = files[index] ?? null;
