@@ -60,3 +60,38 @@ def test_polygonal_face_set_ifc_roundtrip():
     assert read_back.closed is True
     # First coordinate survives the round-trip.
     assert read_back.coordinates[0].is_equal(pfs.coordinates[0])
+
+
+def test_polygonal_face_set_shape_tessellates(example_files):
+    """An IfcPolygonalFaceSet product (polygonal-face-tessellation.ifc) must import AND render.
+    Shape.solid_geom previously rejected PolygonalFaceSet (not in its accepted-types list), so
+    the tessellator skipped it -> empty scene. Also checks the NGEOM libtess2 production path."""
+    import os
+
+    import trimesh
+
+    import ada
+
+    a = ada.from_ifc(example_files / "ifc_files/bs_samples/polygonal-face-tessellation.ifc")
+    shape = next(iter(a.get_all_physical_objects()))
+    # solid_geom must not raise for a PolygonalFaceSet geometry.
+    assert isinstance(shape.solid_geom().geometry, geo_su.PolygonalFaceSet)
+
+    def _faces(**env):
+        for k, v in env.items():
+            os.environ[k] = v
+        try:
+            sc = a.to_trimesh_scene(merge_meshes=True)
+        finally:
+            for k in env:
+                os.environ.pop(k, None)
+        tris = [g for g in sc.geometry.values() if hasattr(g, "faces")]
+        return trimesh.util.concatenate(tris) if tris else None
+
+    for label, env in (("occ", {}), ("libtess2", {"ADA_STREAM_TESS_PIPELINE": "libtess2"})):
+        m = _faces(**env)
+        assert m is not None and len(m.faces) > 0, f"{label}: PolygonalFaceSet produced no geometry"
+        # 20-cube (bbox -10..10) with an inner cavity; both paths agree, outward winding.
+        lo, hi = m.vertices.min(0), m.vertices.max(0)
+        assert lo.min() < -9.9 and hi.max() > 9.9
+        assert m.volume > 0, f"{label}: inside-out ({m.volume})"

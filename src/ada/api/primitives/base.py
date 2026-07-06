@@ -189,6 +189,7 @@ class Shape(BackendGeom):
                 geo_su.ConnectedFaceSet,  # the native NGEOM reader's B-rep root form
                 geo_su.ShellBasedSurfaceModel,
                 geo_su.TriangulatedFaceSet,  # pre-tessellated (IfcTriangulatedFaceSet) — direct mesh path
+                geo_su.PolygonalFaceSet,  # IfcPolygonalFaceSet — shared point list + n-gon faces
                 geo_so.FacetedBrep,
                 geo_so.Box,
                 geo_so.Sphere,
