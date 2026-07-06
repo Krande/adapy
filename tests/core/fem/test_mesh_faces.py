@@ -154,6 +154,27 @@ def test_surface_strategy_object_stream_yields_curved_plates():
         assert len(ms.position) > 0
 
 
+def test_analytic_cylinder_ifc_streaming_roundtrips(tmp_path, monkeypatch):
+    # The streaming IFC B-rep emitter must carry the joint-cut cylinder faces' UV
+    # p-curves (IfcSurfaceCurve/IfcPcurve); without them the trimmed CYLINDRICAL_SURFACE
+    # face can't rebuild its wire on re-import ('wire build failed') and the shell drops.
+    monkeypatch.setenv("ADA_IFC_IMPORT_SHAPE_GEOM", "true")
+    ada.config.Config().reload_config()
+
+    a = _tube()
+    out = tmp_path / "tube.ifc"
+    a.to_ifc(out, streaming=True, merge_strategy="cylinder")
+    txt = out.read_text(errors="ignore").upper()
+    assert txt.count("IFCPCURVE(") > 0
+    assert txt.count("IFCCYLINDRICALSURFACE(") > 0
+
+    b = ada.from_ifc(out)
+    scene = b.to_trimesh_scene()
+    tris = sum(g.faces.shape[0] for g in scene.geometry.values() if hasattr(g, "faces"))
+    # the re-imported cylinder tessellates to a real curved mesh, not a degenerate one
+    assert tris > 100
+
+
 def _part_with_fem(fem_files):
     a = ada.from_fem(fem_files / "sesam/beamMassT1.FEM")
     return a.get_all_parts_in_assembly(include_self=True)[0]

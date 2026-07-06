@@ -1191,6 +1191,19 @@ class BatchTessellator:
                 logger.error(e)
             except UnableToCreateCurveOCCGeom as e:
                 logger.error(e)
+            except TessellationFallbackError:
+                raise  # strict mode: a kernel fallback must fail the conversion, not skip a shape
+            except Exception as e:  # noqa: BLE001
+                # A single unbuildable shape (e.g. a B-rep face whose trim wire
+                # won't reconstruct) must not sink the whole export — log loudly
+                # and continue with the rest of the model. tessellate_geom has
+                # already logged the full context at ERROR before re-raising.
+                logger.error(
+                    "skipping %s %r after tessellation failure: %s",
+                    type(ada_obj).__name__ if ada_obj is not None else "geometry",
+                    getattr(ada_obj, "name", None),
+                    e,
+                )
             if ms is not None:
                 # Treat an empty MeshStore the same as a thrown
                 # tessellation error: BRepMesh produced 0 triangles

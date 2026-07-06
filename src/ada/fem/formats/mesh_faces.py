@@ -1245,11 +1245,12 @@ def _analytic_face_data(
                 cf = fit_cylinder_params(prims, sub_patch)
                 if cf is None:
                     continue
-                # Full-tube (seam-template) faces, NOT the joint-cut trim: the trimmed
-                # form's pcurve bounds don't survive an IFC write/read round-trip yet
-                # (adacpp 'wire build failed' on rebuild), and concept objects get
-                # round-tripped — the analytic writer path keeps its exact trims.
-                faces = cylinder_fit_to_faces(cf)
+                # Joint-cut trimmed faces: bounded to the patch's real extent (a brace
+                # cut at a joint stops at the cut, not the full tube). Each edge carries
+                # a UV pcurve, which the IFC B-rep emitter now writes as
+                # IfcSurfaceCurve/IfcPcurve and the reader recovers — so these round-trip.
+                # Fall back to the full seam-template tube only if the trim won't resolve.
+                faces = cylinder_trim_faces(prims, sub_patch, cf, ndigits) or cylinder_fit_to_faces(cf)
                 t = float(prims.ts[sub_patch[0]])
                 base = _elid_of(prims.names[sub_patch[0]])
                 for i, face in enumerate(faces):

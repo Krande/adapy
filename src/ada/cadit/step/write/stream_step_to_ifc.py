@@ -157,7 +157,21 @@ class _IfcBrepEmitter:
             return self._bspline_curve(lines, g)
         return None
 
-    def _edge_curve(self, lines, ec):
+    def _pcurve_bspline_2d(self, lines, pc):
+        """Emit a :class:`Pcurve2dBSpline` as a 2D IfcBSplineCurveWithKnots (UV space —
+        control points are raw parameter pairs, never transformed)."""
+        cps = self._refs(
+            [self._emit(lines, f"IfcCartesianPoint(({_r(p[0])},{_r(p[1])}))") for p in pc.control_points_2d]
+        )
+        common = (
+            f"{int(pc.degree)},{cps},.UNSPECIFIED.,{_b(bool(pc.closed))},.F.,"
+            f"{self._ilist(pc.knot_multiplicities)},{self._rlist(pc.knots)},.UNSPECIFIED."
+        )
+        if pc.weights:
+            return self._emit(lines, f"IfcRationalBSplineCurveWithKnots({common},{self._rlist(pc.weights)})")
+        return self._emit(lines, f"IfcBSplineCurveWithKnots({common})")
+
+    def _edge_curve(self, lines, ec, pcurve=None, surf_id=None):
         g = ec.edge_geometry
         import ada.geom.curves as cu
 
@@ -167,23 +181,33 @@ class _IfcBrepEmitter:
             p0, p1 = ec.start, ec.end
             d = _unit(_sub(p1, p0))
             crv = self._emit(lines, f"IfcLine(#{self._pt(lines, p0)},#{self._vec(lines, d)})")
+        if pcurve is not None and surf_id is not None:
+            # Carry the coedge's UV p-curve: without it a trimmed analytic face
+            # (joint-cut cylinder, exppc B-spline) can't rebuild its wire on
+            # re-import ('wire build failed' in adacpp). The reader recovers it
+            # from IfcSurfaceCurve.AssociatedGeometry[0].ReferenceCurve.
+            pcv = self._emit(lines, f"IfcPcurve(#{surf_id},#{self._pcurve_bspline_2d(lines, pcurve)})")
+            crv = self._emit(lines, f"IfcSurfaceCurve(#{crv},(#{pcv}),.CURVE3D.)")
         v0, v1 = self._vertex(lines, ec.start), self._vertex(lines, ec.end)
         return self._emit(lines, f"IfcEdgeCurve(#{v0},#{v1},#{crv},{_b(ec.same_sense)})")
 
-    def _oriented_edge(self, lines, oe):
+    def _oriented_edge(self, lines, oe, surf_id=None):
         ec = getattr(oe, "edge_element", oe)
-        key = id(ec)
+        pcurve = getattr(oe, "pcurve", None)
+        # The p-curve lives on the coedge (face-specific UV), so a pcurve-carrying
+        # edge is cached per (edge, surface) — the bare 3D form stays shared.
+        key = (id(ec), surf_id) if pcurve is not None else id(ec)
         edge_id = self._ecache.get(key)
         if edge_id is None:
-            edge_id = self._edge_curve(lines, ec)
+            edge_id = self._edge_curve(lines, ec, pcurve=pcurve, surf_id=surf_id)
             self._ecache[key] = edge_id
         return self._emit(lines, f"IfcOrientedEdge($,$,#{edge_id},{_b(oe.orientation)})")
 
-    def _loop(self, lines, loop):
+    def _loop(self, lines, loop, surf_id=None):
         import ada.geom.curves as cu
 
         if isinstance(loop, cu.EdgeLoop):
-            oe = [self._oriented_edge(lines, e) for e in loop.edge_list]
+            oe = [self._oriented_edge(lines, e, surf_id=surf_id) for e in loop.edge_list]
             if not oe:
                 return None
             return self._emit(lines, f"IfcEdgeLoop({self._refs(oe)})")
@@ -248,7 +272,7 @@ class _IfcBrepEmitter:
             return None
         bounds = []
         for i, fb in enumerate(face.bounds):
-            loop = self._loop(lines, fb.bound)
+            loop = self._loop(lines, fb.bound, surf_id=surf)
             if loop is None:
                 return None
             kw = "IfcFaceOuterBound" if i == 0 else "IfcFaceBound"
