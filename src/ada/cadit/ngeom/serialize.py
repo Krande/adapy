@@ -485,13 +485,48 @@ class _Encoder:
 
     def revolved_area_solid(self, ras) -> int:
         """RevolvedAreaSolid -> profile FACE + revolution axis (placement1) +
-        angle + placement. Decoded by adacpp into a BRepPrimAPI_MakeRevol."""
+        angle + placement. Decoded by adacpp into a BRepPrimAPI_MakeRevol.
+
+        Two frame/unit conventions must be reconciled with the NGEOM tessellator:
+
+        * ``RevolvedAreaSolid.angle`` is in DEGREES (the OCC build path converts it
+          ``angle_deg * pi/180``); the NGEOM field is RADIANS (``_revolve_z`` writes
+          ``2*pi`` for a full turn). Without the conversion a 87.2deg beam revolve
+          tessellated as 87.2 RADIANS (~14 turns), splattering the profile.
+
+        * ``tessellate_revolve`` rotates the (local) profile ring about the axis and
+          THEN transforms by the position frame (``F.to_world(rotate(ring, axo, axd))``)
+          — i.e. it expects the axis in the POSITION-LOCAL frame (as cylinders/cones
+          emit it: local +Z at the origin). But ``ras.axis`` is in GLOBAL coordinates
+          (the convention the OCC build path consumes). Left global, the axis and the
+          profile's own normal ended up parallel and the sweep collapsed flat. Rotation
+          commutes with the rigid position transform when the axis is expressed in that
+          frame, so transform the global axis into position-local here."""
+        import math
+
+        import numpy as np
+
+        pos = ras.position
+        xdir = np.asarray(pos.ref_direction if pos.ref_direction is not None else (1.0, 0.0, 0.0), dtype=float)
+        zdir = np.asarray(pos.axis if pos.axis is not None else (0.0, 0.0, 1.0), dtype=float)
+        xdir = xdir / (np.linalg.norm(xdir) or 1.0)
+        zdir = zdir / (np.linalg.norm(zdir) or 1.0)
+        ydir = np.cross(zdir, xdir)
+        rot = np.column_stack([xdir, ydir, zdir])  # local->world; rot.T is world->local
+        origin = np.asarray(pos.location, dtype=float)
+
+        ax_loc_world = np.asarray(ras.axis.location, dtype=float)
+        ax_dir_world = np.asarray(ras.axis.axis, dtype=float)
+        local_loc = rot.T @ (ax_loc_world - origin)
+        local_dir = rot.T @ ax_dir_world
+
         face = self._profile_face(ras.swept_area)
+        axis_rec = self._add(_PLACEMENT1, self.v3(tuple(local_loc)) + self.v3(tuple(local_dir)))
         body = (
             self.i32(face)
-            + self.i32(self.placement3(ras.position))
-            + self.i32(self.placement1(ras.axis))
-            + self.f64(ras.angle)
+            + self.i32(self.placement3(pos))
+            + self.i32(axis_rec)
+            + self.f64(math.radians(ras.angle))
         )
         return self._add(_REVOLVED_AREA_SOLID, body)
 

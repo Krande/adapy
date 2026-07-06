@@ -115,3 +115,40 @@ def test_buildingsmart_revolved_beam_arc_is_smooth(example_files):
     sagitta = bm.curve.radius * (1.0 - np.cos(theta / 2.0))
     apex = sagitta + bm.section.w_top / 2.0  # ~2.11 m for this IPE600 beam
     assert verts[:, 0].max() > apex * 0.99, f"arc apex clipped: {verts[:, 0].max():.3f} vs ~{apex:.3f}"
+
+
+def test_buildingsmart_revolved_beam_via_ngeom_stream(example_files, monkeypatch):
+    """Production (worker/viewer) GLB uses the NGEOM libtess2 stream tessellator, NOT the
+    OCC BatchTessellator the other tests exercise. That path had the revolve wrong three
+    ways: the angle was fed in as radians not degrees (~14 turns -> profile splattered
+    ±12 m around the axis); the revolve axis was left in global coords while the tessellator
+    expects it position-local (axis ended up parallel to the profile normal -> the sweep
+    collapsed flat); and partial revolves emitted no end caps with inside-out winding
+    (negative volume -> dark shading). Assert the streamed solid sits in the right place,
+    closed and outward-facing. Gated to ada-cpp (libtess2 needs it)."""
+    import numpy as np
+    import pytest
+    import trimesh
+
+    from ada.cad import active_backend
+
+    if active_backend().name != "adacpp":
+        pytest.skip("NGEOM libtess2 stream tessellation is the ada-cpp path")
+
+    monkeypatch.setenv("ADA_STREAM_TESS_PIPELINE", "libtess2")
+    a = ada.from_ifc(example_files / "ifc_files/beams/beam-revolved-solid.ifc")
+    bm = next(o for o in a.get_all_physical_objects() if isinstance(o, ada.BeamRevolve))
+    sc = a.to_trimesh_scene(merge_meshes=True)
+    m = trimesh.util.concatenate([g for g in sc.geometry.values() if hasattr(g, "faces")])
+    lo, hi = np.asarray(m.vertices).min(0), np.asarray(m.vertices).max(0)
+
+    # Arc chord runs along +Y to ~10 m; profile depth keeps Z within ±0.3; bulge in +X ~2 m.
+    # Splatter (angle-as-radians) blows Z/X out to ±12; flat (global axis) puts the arc on
+    # the wrong plane so Y never reaches 10.
+    assert hi[1] == pytest.approx(10.08, abs=0.3), f"arc doesn't sweep to p2 along Y: ymax={hi[1]:.2f}"
+    assert abs(lo[2]) < 0.4 and abs(hi[2]) < 0.4, f"profile splattered out of plane in Z: {lo[2]:.2f}..{hi[2]:.2f}"
+    assert 1.5 < hi[0] < 2.3, f"bulge apex X off: {hi[0]:.2f}"
+    # Caps present + outward winding -> a closed, positive-volume solid near the analytic value.
+    exp = bm.section.properties.Ax * (bm.curve.radius * np.deg2rad(bm.curve.angle))
+    assert m.volume > 0, f"inside-out winding (negative volume {m.volume:.3f})"
+    assert abs(m.volume - exp) / exp < 0.05, f"volume {m.volume:.4f} vs analytic {exp:.4f}"
