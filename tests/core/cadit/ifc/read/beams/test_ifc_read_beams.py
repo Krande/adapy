@@ -85,6 +85,10 @@ def test_extruded_solid_beam_winding_is_outward(example_files, monkeypatch):
     sc = a.to_trimesh_scene(merge_meshes=True)
     m = trimesh.util.concatenate([g for g in sc.geometry.values() if hasattr(g, "faces")])
     # Right magnitude (area * length) AND positive sign (outward winding).
+    # Sharp-I ``Ax`` underestimates the real (filleted) IPE600 area by ~4%, so the tessellated
+    # solid — which now includes the web/flange fillets — sits a few % above ``Ax*length``.
+    # Band-check the magnitude (catches gross errors) but keep the strict positive-volume
+    # winding guard.
     exp = bm.section.properties.Ax * 10.0  # 10 m long
     assert m.volume > 0, f"extrusion is inside-out (negative volume {m.volume:.5f})"
-    assert abs(m.volume - exp) / exp < 0.02
+    assert exp * 0.97 < m.volume < exp * 1.10, f"volume {m.volume:.5f} out of band around {exp:.5f}"

@@ -36,6 +36,10 @@ def import_section_from_ifc(profile_def, units=Units.M) -> Section:
             t_w=profile_def.WebThickness,
             t_ftop=profile_def.FlangeThickness,
             t_fbtn=profile_def.FlangeThickness,
+            # Flange-root fillet radius (optional in IFC). Stored in the otherwise-unused ``r``
+            # for I-sections so iprofiles() rounds the four web/flange junctions instead of
+            # drawing sharp corners.
+            r=profile_def.FilletRadius,
             units=units,
             sec_str=name,
         )
