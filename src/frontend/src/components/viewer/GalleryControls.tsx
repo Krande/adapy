@@ -13,7 +13,9 @@ import {canLoadIntoSceneLegacy, isStreamingFEAResult} from "@/utils/scene/fileKi
 const GalleryControls: React.FC = () => {
     const enabled = useGalleryStore((s) => s.enabled);
     const fileObjects = useServerInfoStore((s) => s.serverFileObjects);
-    const loadedSourceName = useModelState((s) => s.loadedSourceName);
+    // The overlay load path registers into the plural loaded-source SET (not the
+    // singular loadedSourceName), so anchor + "is it shown?" checks use the set.
+    const loadedSources = useModelState((s) => s.loadedSourceNames);
     const loadBusy = useLoadQueueStore((s) => s.current);
 
     // The gallery walks only files the viewer can actually mount.
@@ -27,16 +29,6 @@ const GalleryControls: React.FC = () => {
 
     const [index, setIndex] = useState(0);
 
-    // Keep the index anchored to whatever is actually shown: when a file
-    // loads (via the gallery or the storage panel) point at it; when the
-    // file list changes (scope switch / refresh) clamp into range.
-    useEffect(() => {
-        if (files.length === 0) return;
-        const at = loadedSourceName ? files.indexOf(loadedSourceName) : -1;
-        if (at >= 0) setIndex(at);
-        else setIndex((i) => Math.min(i, files.length - 1));
-    }, [files, loadedSourceName]);
-
     const go = useCallback(
         async (next: number) => {
             if (files.length === 0) return;
@@ -48,6 +40,27 @@ const GalleryControls: React.FC = () => {
         },
         [files],
     );
+
+    // Keep the index anchored to whatever is actually shown: when a gallery file
+    // is in the scene point at it; when the file list changes (scope switch /
+    // refresh) clamp into range.
+    useEffect(() => {
+        if (files.length === 0) return;
+        const at = files.findIndex((f) => loadedSources.has(f));
+        if (at >= 0) setIndex(at);
+        else setIndex((i) => Math.min(i, files.length - 1));
+    }, [files, loadedSources]);
+
+    // Auto-load the current pick when gallery mode turns on with nothing from the
+    // scope's files already in the scene — otherwise the HUD shows a path but the
+    // viewer stays empty until the user clicks Next/Prev.
+    useEffect(() => {
+        if (!enabled || files.length === 0 || loadBusy) return;
+        const anyShown = files.some((f) => loadedSources.has(f));
+        if (!anyShown) void go(index);
+        // Only re-evaluate on enable / file-list change, not on every index tick.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [enabled, files]);
 
     if (!enabled) return null;
 

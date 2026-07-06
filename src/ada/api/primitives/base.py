@@ -168,6 +168,15 @@ class Shape(BackendGeom):
         if self.geom is None:
             raise NotImplementedError(f"solid_geom() not implemented for {self.__class__.__name__}")
 
+        # Carry the Shape's colour onto its Geometry when the wrapper was built
+        # without one (SAT/STEP imports pass ``Geometry(i, geom)`` with no colour,
+        # so the tessellator — which reads ``geom.color`` — otherwise gets None and
+        # renders the body black). ``self.color`` defaults to light-gray, matching
+        # what Plate.solid_geom already injects. A colour the geom already carries
+        # (e.g. an IFC style) is left untouched.
+        if self.geom.color is None and self.color is not None:
+            self.geom.color = self.color
+
         import ada.geom.solids as geo_so
         import ada.geom.surfaces as geo_su
 
