@@ -66,3 +66,25 @@ def test_read_revolved_solid(example_files):
     a = ada.from_ifc(example_files / "ifc_files/beams/beam-revolved-solid.ifc")
     _ = a.to_ifc(file_obj_only=True)
     print(a)
+
+
+def test_extruded_solid_beam_winding_is_outward(example_files, monkeypatch):
+    """The production NGEOM libtess2 stream tessellates the extruded beam with OUTWARD-facing
+    normals (positive signed volume). A CW-discretized profile loop previously came out
+    inside-out (negative volume -> dark shading). Gated to ada-cpp (libtess2 needs it)."""
+    import trimesh
+
+    from ada.cad import active_backend
+
+    if active_backend().name != "adacpp":
+        pytest.skip("NGEOM libtess2 stream tessellation is the ada-cpp path")
+
+    monkeypatch.setenv("ADA_STREAM_TESS_PIPELINE", "libtess2")
+    a = ada.from_ifc(example_files / "ifc_files/beams/beam-extruded-solid.ifc")
+    bm = next(iter(a.get_all_physical_objects()))
+    sc = a.to_trimesh_scene(merge_meshes=True)
+    m = trimesh.util.concatenate([g for g in sc.geometry.values() if hasattr(g, "faces")])
+    # Right magnitude (area * length) AND positive sign (outward winding).
+    exp = bm.section.properties.Ax * 10.0  # 10 m long
+    assert m.volume > 0, f"extrusion is inside-out (negative volume {m.volume:.5f})"
+    assert abs(m.volume - exp) / exp < 0.02
