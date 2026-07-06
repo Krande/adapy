@@ -23,10 +23,14 @@ import {useOptionsStore} from "@/state/optionsStore";
 export async function view_in_3d(
     sourceKey: string,
     derivedKey: string,
+    // Load the blob from this scope instead of the currently-selected one.
+    // The audit grid passes its run's scope (e.g. corpus:<slug>) so a cell's
+    // cached product opens regardless of which scope the user is browsing.
+    scopeOverride?: string,
 ): Promise<void> {
     const inModal = useViewerPanelStore.getState().open !== null;
     const scope = useScopeStore.getState().current;
-    const scopePart = scope ? scopeUrlPart(scope) : "";
+    const scopePart = scopeOverride ?? (scope ? scopeUrlPart(scope) : "");
 
     if (!inModal) {
         const params = new URLSearchParams({
@@ -45,5 +49,5 @@ export async function view_in_3d(
     useOptionsStore.getState().setIsOptionsVisible(false);
 
     const {overlay_file_in_scene} = await import("./overlay_file_in_scene");
-    await overlay_file_in_scene(sourceKey, derivedKey);
+    await overlay_file_in_scene(sourceKey, derivedKey, scopeOverride ? {scope: scopeOverride} : undefined);
 }

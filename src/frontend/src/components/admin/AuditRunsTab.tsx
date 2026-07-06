@@ -1,6 +1,8 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {viewerApi, AuditRun, AuditRunJob, AuditCellHistoryRow, Corpus} from "@/services/viewerApi";
 import {runWasmAuditSweep, WasmSweepProgress} from "@/services/audit/wasmSweep";
+import {runtime} from "@/runtime/config";
+import {view_in_3d} from "@/utils/scene/handlers/view_in_3d";
 
 // Synthetic worker-pool value routing a run to the in-browser WASM engine.
 const WASM_POOL = "wasm";
@@ -152,12 +154,34 @@ const METRIC_COLOR_BUCKETS: {cls: string}[] = [
     {cls: "bg-red-900/60 border-red-600 text-red-100"},              // outlier
 ];
 
+// The derived-blob key a cell produced. Mirrors the server's
+// derived_key_for convention: _derived/<source>.<target>, except a glb
+// target of a source that is already a .glb has no derivation.
+function cellDerivedKey(file: string, target: string): string {
+    if (target === "glb" && file.toLowerCase().endsWith(".glb")) return file;
+    return `_derived/${file}.${target}`;
+}
+
+// Whether a cell's product can be opened in the 3D viewer. The viewer mounts
+// GLB directly and converts any target the converter can turn into GLB
+// (ifc/step/xml/...); parity has no artifact, and a non-done cell has nothing
+// cached to open. Mirrors ConversionRow's canPreview gate.
+function cellViewable(job: AuditRunJob | undefined): boolean {
+    if (!job || !job.key || !job.target_format) return false;
+    if (!(job.status === "done" || job.status === "ok")) return false;
+    const t = job.target_format;
+    if (t === "glb") return true;
+    if (t === "parity") return false;
+    return runtime.conversionTargetsFor(t).includes("glb");
+}
+
 const RunGrid: React.FC<{
     jobs: AuditRunJob[];
     metric: MetricKey;
     onCellHistory: (file: string, target: string) => void;
     onCellDetails: (file: string, target: string) => void;
-}> = ({jobs, metric, onCellHistory, onCellDetails}) => {
+    onCellOpen: (file: string, target: string) => void;
+}> = ({jobs, metric, onCellHistory, onCellDetails, onCellOpen}) => {
     const grid = useMemo(() => buildGrid(jobs), [jobs]);
 
     // Right-click (desktop) / long-press (touch) context menu for a cell.
@@ -346,6 +370,18 @@ const RunGrid: React.FC<{
                     <div className="px-3 py-1 text-[10px] text-gray-500 font-mono truncate max-w-[240px]">
                         {menu.file} · .{menu.target}
                     </div>
+                    {cellViewable(grid.cells.get(`${menu.file}::${menu.target}`)) && (
+                        <button
+                            type="button"
+                            className="w-full text-left px-3 py-1 text-emerald-300 hover:bg-gray-700"
+                            onClick={() => {
+                                onCellOpen(menu.file, menu.target);
+                                setMenu(null);
+                            }}
+                        >
+                            Open in viewer ↗
+                        </button>
+                    )}
                     <button
                         type="button"
                         className="w-full text-left px-3 py-1 text-gray-200 hover:bg-gray-700"
@@ -1253,6 +1289,12 @@ const AuditRunsTab: React.FC = () => {
                                     metric={metric}
                                     onCellHistory={(file, target) => setHistoryCell({key: file, target})}
                                     onCellDetails={(file, target) => setDetailsCell({file, target})}
+                                    onCellOpen={(file, target) => {
+                                        // Load the cell's cached product into the
+                                        // underlying scene, from the RUN's scope
+                                        // (may differ from the browsed one).
+                                        void view_in_3d(file, cellDerivedKey(file, target), selectedRun.scope);
+                                    }}
                                 />
                             </div>
                         </>
