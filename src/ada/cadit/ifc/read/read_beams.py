@@ -12,7 +12,7 @@ from ada.config import logger
 from ada.core.vector_utils import calc_yvec, unit_vector
 
 from .geom.geom_reader import get_product_definitions
-from .geom.placement import axis3d
+from .geom.placement import axis3d, placement_from_ifc_4x4
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
 from .reader_utils import (
@@ -77,18 +77,11 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
         # rel_place here as well (as the flat, no-parent path below does) double-rotates the
         # axis — a beam whose RelativePlacement swaps X<->Z (extrude along local Z placed onto
         # world X) then rendered along the wrong world axis (beam-standard-case.ifc).
-        # get_local_placement returns the world transform with the local axes as COLUMNS
-        # (standard 4x4). But Placement stores its rotation as ROWS (xdir/ydir/zdir) and
-        # get_matrix4x4 — which the scene/tessellation applies as M@p — stacks them back as
-        # rows, so from_4x4_matrix(M).get_matrix4x4() == M.T. For a symmetric rotation that's
-        # invisible; for an axis-swapping placement (beam-standard-case.ifc: local Z extruded
-        # onto world X) it renders the beam along the wrong world axis. Feed the transpose so
-        # the scene applies the intended matrix. (from_4x4_matrix has the same latent quirk for
-        # IfcShape placements — see read_shapes — not touched here.)
-        M = np.asarray(get_local_placement(obj_placement), dtype=float).copy()
-        M[:3, :3] = M[:3, :3].T
-        place = Placement.from_4x4_matrix(M)
-        extra_opts["placement"] = place
+        # The FULL get_local_placement chain (world transform, axes as rotation COLUMNS)
+        # becomes the beam placement; placement_from_ifc_4x4 reconciles the column<->row
+        # transpose in Placement.get_matrix4x4 so the scene applies the intended matrix (a
+        # symmetric rotation hid it; the local-Z-onto-world-X swap here did not).
+        extra_opts["placement"] = placement_from_ifc_4x4(get_local_placement(obj_placement))
         extrude_dir = unit_vector(body.position.axis)
         ref_dir = unit_vector(body.position.ref_direction)
         p1 = body.position.location

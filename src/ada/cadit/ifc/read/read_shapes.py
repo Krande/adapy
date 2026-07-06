@@ -7,8 +7,8 @@ import ifcopenshell.geom
 from ifcopenshell.util.placement import get_local_placement
 
 from ada import Shape
-from ada.api.transforms import Placement
 from ada.cadit.ifc.read.geom.geom_reader import get_product_definitions
+from ada.cadit.ifc.read.geom.placement import placement_from_ifc_4x4
 from ada.cadit.ifc.read.read_color import get_product_color
 from ada.config import Config, logger
 from ada.geom import Geometry
@@ -36,8 +36,7 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
     if occ_body is None:
         obj_placement = product.ObjectPlacement
         if obj_placement is not None and obj_placement.PlacementRelTo:
-            local_placement = get_local_placement(obj_placement)
-            extra_opts["placement"] = Placement.from_4x4_matrix(local_placement)
+            extra_opts["placement"] = placement_from_ifc_4x4(get_local_placement(obj_placement))
 
     common = dict(
         guid=product.GlobalId,
@@ -75,7 +74,7 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
                 import numpy as np
 
                 mat = np.asarray(meta.transforms[0], dtype=float).reshape(4, 4, order="F")
-                common["placement"] = Placement.from_4x4_matrix(mat)
+                common["placement"] = placement_from_ifc_4x4(mat)
             idx = store.add_blob(blob, gid=product.GlobalId, color=color)
         return ShapeProxy(name, store, idx, **common)
 
@@ -240,7 +239,7 @@ def import_ifc_sphere(product: ifcopenshell.entity_instance, name, ifc_store: If
     extra_opts = {}
     obj_placement = product.ObjectPlacement
     if obj_placement is not None and obj_placement.PlacementRelTo:
-        extra_opts["placement"] = Placement.from_4x4_matrix(get_local_placement(obj_placement))
+        extra_opts["placement"] = placement_from_ifc_4x4(get_local_placement(obj_placement))
 
     # A sphere-bodied product marked MassPoint reads back as MassPoint (mass from properties).
     if product.ObjectType == "MassPoint":
