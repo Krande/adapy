@@ -65,8 +65,32 @@ def visualized_element_count(scene: "trimesh.Scene") -> int:
 
 
 def assembly_element_count(assembly: "Assembly") -> int:
-    """Visualized-element count for an adapy Assembly (unmerged scene)."""
-    return visualized_element_count(assembly.to_trimesh_scene(merge_meshes=False))
+    """Visualized-element count for an adapy Assembly.
+
+    Counted from the raw tessellation stream — one MeshStore per renderable
+    object, the exact set ``meshes_to_trimesh(merge_meshes=False)`` turns into
+    scene entries — WITHOUT assembling a trimesh scene. Scene assembly
+    (trimesh objects, materials, normals) was ~1/3 of a parity cell's wall
+    time and contributes nothing to the count. Same exclusions as
+    :func:`visualized_element_count`: point clouds (the empty-scene
+    placeholder) and zero-vertex stores (degenerate bodies render nothing)."""
+    from itertools import chain
+
+    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.gltf.meshes import MeshType
+
+    bt = BatchTessellator()
+    # Mirror tessellate_part's object set: physical objects (pipes as
+    # segments) + welds, which live in their own per-Part container.
+    objects = chain(assembly.get_all_physical_objects(pipe_to_segments=True), assembly.get_all_welds())
+    n = 0
+    for ms in bt.batch_tessellate(objects):
+        if ms is None or ms.type == MeshType.POINTS:
+            continue
+        if len(ms.position) == 0:
+            continue
+        n += 1
+    return n
 
 
 @dataclass
