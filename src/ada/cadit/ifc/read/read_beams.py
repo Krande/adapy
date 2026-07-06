@@ -68,20 +68,38 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
         raise ValueError("Number of body objects attached to element is not 1")
     body = bodies[0]
 
-    rel_place = Placement.from_axis3d(axis3d(ifc_elem.ObjectPlacement.RelativePlacement))
-
-    extrude_dir = unit_vector(rel_place.transform_vector(body.position.axis, inverse=True))
-    ref_dir = unit_vector(rel_place.transform_vector(body.position.ref_direction))
-    p1 = body.position.location
-    local_y = calc_yvec(ref_dir, extrude_dir)
-    p2 = p1 + extrude_dir * body.depth
-
     extra_opts = {}
     obj_placement = ifc_elem.ObjectPlacement
     if obj_placement.PlacementRelTo:
-        local_placement = get_local_placement(obj_placement)
-        place = Placement.from_4x4_matrix(local_placement)
+        # The FULL ObjectPlacement chain — including this beam's own RelativePlacement —
+        # becomes the beam's world placement. So n1/n2 must stay in the beam's LOCAL frame:
+        # the extrusion's own position/direction, NOT re-rotated by rel_place. Applying
+        # rel_place here as well (as the flat, no-parent path below does) double-rotates the
+        # axis — a beam whose RelativePlacement swaps X<->Z (extrude along local Z placed onto
+        # world X) then rendered along the wrong world axis (beam-standard-case.ifc).
+        # get_local_placement returns the world transform with the local axes as COLUMNS
+        # (standard 4x4). But Placement stores its rotation as ROWS (xdir/ydir/zdir) and
+        # get_matrix4x4 — which the scene/tessellation applies as M@p — stacks them back as
+        # rows, so from_4x4_matrix(M).get_matrix4x4() == M.T. For a symmetric rotation that's
+        # invisible; for an axis-swapping placement (beam-standard-case.ifc: local Z extruded
+        # onto world X) it renders the beam along the wrong world axis. Feed the transpose so
+        # the scene applies the intended matrix. (from_4x4_matrix has the same latent quirk for
+        # IfcShape placements — see read_shapes — not touched here.)
+        M = np.asarray(get_local_placement(obj_placement), dtype=float).copy()
+        M[:3, :3] = M[:3, :3].T
+        place = Placement.from_4x4_matrix(M)
         extra_opts["placement"] = place
+        extrude_dir = unit_vector(body.position.axis)
+        ref_dir = unit_vector(body.position.ref_direction)
+        p1 = body.position.location
+    else:
+        # No parent placement: bake this beam's own RelativePlacement into world-space n1/n2.
+        rel_place = Placement.from_axis3d(axis3d(obj_placement.RelativePlacement))
+        extrude_dir = unit_vector(rel_place.transform_vector(body.position.axis, inverse=True))
+        ref_dir = unit_vector(rel_place.transform_vector(body.position.ref_direction))
+        p1 = body.position.location
+    local_y = calc_yvec(ref_dir, extrude_dir)
+    p2 = p1 + extrude_dir * body.depth
 
     common = dict(
         sec=sec,

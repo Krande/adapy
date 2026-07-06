@@ -1,6 +1,17 @@
+import numpy as np
 import pytest
 
 import ada
+
+
+def _world(bm: ada.Beam, pt) -> tuple:
+    """The beam endpoint in world coords: apply the full placement transform to the
+    LOCAL n1/n2. These beams carry a rotated ObjectPlacement (local Z extruded onto
+    world X), so the placement rotation must be applied — a naive ``origin + n1`` does
+    not, and would silently mask a wrong-axis placement (beam-standard-case.ifc)."""
+    m = bm.placement.get_matrix4x4()
+    q = m @ np.array([pt[0], pt[1], pt[2], 1.0])
+    return tuple(np.round(q[:3], 4))
 
 
 def test_read_standard_case_beams(example_files, tmp_path):
@@ -11,19 +22,19 @@ def test_read_standard_case_beams(example_files, tmp_path):
     p = a.get_by_name("Building")
     assert len(p.beams) == 18
 
+    # World-space beam axes, verified against ifcopenshell's create_shape (USE_WORLD_COORDS).
+    # The A-row beams run along world X at increasing Y; the placement swaps local Z -> world X.
     bm_a1: ada.Beam = p.get_by_name("A-1")
-    assert tuple(bm_a1.n1.p) == (-0.055, 0.11, 0.0)
-    assert tuple(bm_a1.n2.p) == (1.945, 0.11, 0.0)
+    assert _world(bm_a1, bm_a1.n1.p) == (0.0, -0.055, 0.11)
+    assert _world(bm_a1, bm_a1.n2.p) == (2.0, -0.055, 0.11)
 
     bm_a2: ada.Beam = p.get_by_name("A-2")
-    o = bm_a2.placement
-    assert tuple(o.origin + bm_a2.n1.p) == (0.0, 1.61, 0.0)
-    assert tuple(o.origin + bm_a2.n2.p) == (2.0, 1.61, 0.0)
+    assert _world(bm_a2, bm_a2.n1.p) == (0.0, 1.5, 0.11)
+    assert _world(bm_a2, bm_a2.n2.p) == (2.0, 1.5, 0.11)
 
     bm_b1: ada.Beam = p.get_by_name("B-1")
-    o = bm_b1.placement
-    assert tuple(o.origin + bm_b1.n1.p) == (-0.075, 0.075, 1.5)
-    assert tuple(o.origin + bm_b1.n2.p) == pytest.approx((2.865, 0.318, 2.046), abs=1e-3)
+    assert _world(bm_b1, bm_b1.n1.p) == pytest.approx((-0.0149, -0.0387, 1.5976), abs=1e-3)
+    assert _world(bm_b1, bm_b1.n2.p) == pytest.approx((2.9249, 0.2043, 2.1436), abs=1e-3)
 
 
 def test_read_extruded_solid_beams(example_files):
