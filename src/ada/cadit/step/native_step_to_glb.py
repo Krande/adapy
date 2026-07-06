@@ -59,7 +59,8 @@ def native_step_to_glb(
     if deflection is None:
         deflection = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
     if angular_deg is None:
-        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+        from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
 
     if num_threads <= 0:
         # ``num_threads=0`` lets the C++ pick std::thread::hardware_concurrency(), which reports the

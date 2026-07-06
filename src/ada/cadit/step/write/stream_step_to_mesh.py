@@ -12,6 +12,7 @@ import pathlib
 import struct
 from typing import Callable
 
+from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
 from ada.config import logger
 
 ProgressFn = Callable[[str, float], None]
@@ -23,7 +24,7 @@ def stream_step_to_mesh(
     fmt: str,
     *,
     deflection: float = 2.0,
-    angular_deg: float = 20.0,
+    angular_deg: float = DEFAULT_STREAM_TESS_ANGULAR_DEG,
     on_progress: ProgressFn | None = None,
 ) -> dict:
     """Stream a STEP file to ``fmt`` ('stl' | 'obj'), one solid at a time. Returns

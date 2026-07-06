@@ -152,3 +152,63 @@ def test_buildingsmart_revolved_beam_via_ngeom_stream(example_files, monkeypatch
     exp = bm.section.properties.Ax * (bm.curve.radius * np.deg2rad(bm.curve.angle))
     assert m.volume > 0, f"inside-out winding (negative volume {m.volume:.3f})"
     assert abs(m.volume - exp) / exp < 0.05, f"volume {m.volume:.4f} vs analytic {exp:.4f}"
+
+
+def _revolve_curve_params(model):
+    bm = next(o for o in model.get_all_physical_objects() if isinstance(o, ada.BeamRevolve))
+    c = bm.curve
+    return bm, {
+        "radius": round(float(c.radius), 3),
+        "angle": round(float(c.angle), 2),
+        "rot_axis": [round(float(x), 3) for x in c.rot_axis],
+        "section": bm.section.name,
+    }
+
+
+def _stream_bbox_vol(model):
+    import numpy as np
+
+    sc = model.to_trimesh_scene(merge_meshes=True)
+    m = trimesh.util.concatenate([g for g in sc.geometry.values() if hasattr(g, "faces")])
+    v = np.asarray(m.vertices)
+    return v.min(0), v.max(0), float(m.volume)
+
+
+def test_buildingsmart_revolved_beam_ifc_roundtrip_via_stream(example_files, tmp_path, monkeypatch):
+    """The revolved beam must survive an IFC write->read round-trip: the CurveRevolve
+    parameters (radius, sweep angle, revolution axis, section) preserved AND the
+    production NGEOM-tessellated solid landing in the same place, closed and outward.
+    Exercises the libtess2 stream path (the worker/viewer + the path that carried the
+    original splatter/flat/inside-out bug). Gated to ada-cpp."""
+    import numpy as np
+    import pytest
+
+    from ada.cad import active_backend
+
+    if active_backend().name != "adacpp":
+        pytest.skip("NGEOM libtess2 stream tessellation is the ada-cpp path")
+
+    monkeypatch.setenv("ADA_STREAM_TESS_PIPELINE", "libtess2")
+
+    a0 = ada.from_ifc(example_files / "ifc_files/beams/beam-revolved-solid.ifc")
+    _, p0 = _revolve_curve_params(a0)
+    lo0, hi0, vol0 = _stream_bbox_vol(a0)
+
+    a0.to_ifc(tmp_path / "rt.ifc")
+    a1 = ada.from_ifc(tmp_path / "rt.ifc")
+    bm1, p1 = _revolve_curve_params(a1)
+    lo1, hi1, vol1 = _stream_bbox_vol(a1)
+
+    # Parameters preserved exactly through the round-trip.
+    assert p1 == p0 == {"radius": 7.25, "angle": 87.21, "rot_axis": [0.0, 0.0, 1.0], "section": "IPE600"}
+
+    # Geometry preserved: still the correct arc (Y->10, Z in-plane, X-bulge), not splattered
+    # or flat, and still a positive-volume closed solid near the analytic value.
+    assert hi1[1] == pytest.approx(10.08, abs=0.3)
+    assert abs(lo1[2]) < 0.4 and abs(hi1[2]) < 0.4
+    assert 1.9 < hi1[0] < 2.2  # bulge apex ~2.08 at the 10deg corpus default
+    exp = bm1.section.properties.Ax * (bm1.curve.radius * np.deg2rad(bm1.curve.angle))
+    assert vol1 > 0 and abs(vol1 - exp) / exp < 0.05
+    # Round-trip is stable, not just valid: same bbox + volume as before the write.
+    assert np.allclose(lo1, lo0, atol=1e-3) and np.allclose(hi1, hi0, atol=1e-3)
+    assert vol1 == pytest.approx(vol0, rel=1e-3)

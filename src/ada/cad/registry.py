@@ -23,6 +23,22 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
 
+# Corpus-wide defaults for the NGEOM stream (libtess2/adacpp) tessellator. angular_deg caps
+# the arc-segment span for any curved geometry (revolves, pipes, cylinders, B-splines) — the
+# linear deflection alone can't keep a large-radius arc smooth because its sag tolerance grows
+# with radius. 10 deg (was 20) keeps a 7 m-radius revolved beam's bulge apex within ~1% of true;
+# it roughly matches the OCC path's 0.2 rad. Override per-run with ADA_STREAM_TESS_ANGULAR /
+# ADA_STREAM_TESS_DEFLECTION or per-model via CadConfig.
+DEFAULT_STREAM_TESS_DEFLECTION = 2.0
+DEFAULT_STREAM_TESS_ANGULAR_DEG = 10.0
+
+
+def stream_tess_defaults() -> tuple[float, float]:
+    """(deflection, angular_deg) for the NGEOM stream path: env override else the corpus default."""
+    defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", str(DEFAULT_STREAM_TESS_DEFLECTION)))
+    ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
+    return defl, ang
+
 
 class CadBackendName(str, Enum):
     OCC = "occ"  # pythonocc-core (native BRepMesh)
@@ -104,8 +120,8 @@ class CadConfig:
     ``ada.from_step(..., cad_config=cfg)``)."""
 
     path: TessellationPath = TessellationPath.OCC
-    deflection: float = 2.0
-    angular_deg: float = 20.0
+    deflection: float = DEFAULT_STREAM_TESS_DEFLECTION
+    angular_deg: float = DEFAULT_STREAM_TESS_ANGULAR_DEG
     simplify: bool = False  # meshopt cleanup (step2glb merge parity); adacpp paths only
     # The STEP read path the factories default to. AUTO = constant-memory streaming with an OCC
     # fallback for out-of-scope files — the most memory-efficient + robust default. Override per

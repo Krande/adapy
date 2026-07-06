@@ -739,7 +739,8 @@ class Ap242StreamWriter:
         if fn is None:
             return None, None
         defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
-        ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+        from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+        ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
         try:
             mesh = fn([("0", g)], pipeline="libtess2", deflection=defl, angular_deg=ang)
         except Exception as exc:  # noqa: BLE001 - tessellation can't cover this solid

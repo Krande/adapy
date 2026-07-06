@@ -185,7 +185,8 @@ def _tessellate_geom_worker(geom):
         _pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE")
         if _pipeline and hasattr(be, "tessellate_stream"):
             defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
-            ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+            from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+            ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
             gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
             bm = be.tessellate_stream([(gid or "0", gi)], pipeline=_pipeline, deflection=defl, angular_deg=ang)
             _pos = getattr(bm, "positions", None)

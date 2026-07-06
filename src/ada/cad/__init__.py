@@ -28,6 +28,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from ada.cad.registry import (  # noqa: E402 - registry is stdlib-only, no ada.cad cycle
+    DEFAULT_STREAM_TESS_ANGULAR_DEG,
     CadBackendName,
     CadConfig,
     StepReader,
@@ -1035,7 +1036,7 @@ class AdacppBackend:
         items: "list[tuple[str, object]]",
         pipeline: str = "libtess2",
         deflection: float = 0.0,
-        angular_deg: float = 20.0,
+        angular_deg: float = DEFAULT_STREAM_TESS_ANGULAR_DEG,
         settings: "dict | None" = None,
         threads: int = 1,
     ) -> "BatchMesh":
@@ -1065,7 +1066,7 @@ class AdacppBackend:
         *,
         pipeline: str = "libtess2",
         deflection: float = 0.0,
-        angular_deg: float = 20.0,
+        angular_deg: float = DEFAULT_STREAM_TESS_ANGULAR_DEG,
         settings: "dict | None" = None,
         threads: int = 1,
     ) -> "BatchMesh":

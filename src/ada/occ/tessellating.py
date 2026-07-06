@@ -790,8 +790,9 @@ class BatchTessellator:
         # Pass the Geometry wrapper through: the serializer unwraps it and folds any
         # bool_operations into a BOOLEAN_RESULT chain, so IFC clipping cuts and API
         # booleans reach the stream kernel instead of being dropped with the wrapper.
-        defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
-        ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+        from ada.cad.registry import stream_tess_defaults
+
+        defl, ang = stream_tess_defaults()
         try:
             bm = be.tessellate_stream([(str(node_ref), geom)], pipeline=pipeline, deflection=defl, angular_deg=ang)
         except Exception as e:  # noqa: BLE001 - fall back to the OCC build path on any stream failure
@@ -811,8 +812,9 @@ class BatchTessellator:
         be = active_backend()
         if not hasattr(be, "tessellate_stream_buffer"):
             return None
-        defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
-        ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+        from ada.cad.registry import stream_tess_defaults
+
+        defl, ang = stream_tess_defaults()
         try:
             bm = be.tessellate_stream_buffer(blob, pipeline=pipeline, deflection=defl, angular_deg=ang)
         except Exception as e:  # noqa: BLE001 - fall back to the hydrate path on any stream failure
