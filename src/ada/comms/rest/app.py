@@ -1822,11 +1822,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
 
+        # A re-conversion (gallery "Re-convert") always re-runs and writes to the SEPARATE
+        # ``_reconvert/`` namespace, so it never overwrites the ``_derived/`` audit product in a
+        # corpus scope. Regular converts keep the cached ``_derived/`` short-circuit below.
+        reconvert = bool(body.get("reconvert"))
         try:
-            derived_key = derived_key_for(source_key, target_format, step=step, field=field)
+            if reconvert:
+                from .converter import reconvert_key_for
+
+                derived_key = reconvert_key_for(source_key, target_format)
+            else:
+                derived_key = derived_key_for(source_key, target_format, step=step, field=field)
         except UnsupportedFormat as exc:
             raise HTTPException(status_code=415, detail=str(exc)) from exc
-        if await storage.exists(scope_obj, derived_key):
+        if not reconvert and await storage.exists(scope_obj, derived_key):
             await _audit(
                 request,
                 user,
@@ -1860,6 +1869,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 step=step,
                 field=field,
                 conversion_options=conversion_options,
+                derived_key=derived_key if reconvert else None,
+                force_rebuild=reconvert,
             )
         except Exception as exc:
             logger.exception("enqueue failed")

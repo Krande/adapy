@@ -430,6 +430,20 @@ def derived_key_for(
     return f"_derived/{src}.{fmt}"
 
 
+def reconvert_key_for(source_key: str, target_format: str = "glb") -> str:
+    """Output key for a user-triggered *re-conversion* (gallery "Re-convert" button).
+
+    Lives in a SEPARATE ``_reconvert/`` namespace from the ``_derived/`` convert cache, so a
+    re-convert never overwrites the audit-run product in a corpus scope — the derived cache
+    stays exactly as the audit produced it. One blob per (source, format): re-converting the
+    same file again overwrites its own ``_reconvert/`` blob (throwaway, not accumulating).
+    """
+    fmt = target_format.lstrip(".").lower()
+    if fmt not in TARGET_FORMATS:
+        raise UnsupportedFormat(f"unknown target format: {target_format!r}")
+    return f"_reconvert/{source_key.strip('/')}.{fmt}"
+
+
 # Suffix appended to derived keys for cached result-meta JSON. Lives in
 # the same _derived/ namespace, so it's hidden from the user file list
 # but still scoped to the source.
@@ -486,7 +500,7 @@ def is_derived_key(key: str) -> bool:
 # ephemeral overlay as a source's derived product.
 def is_hidden_key(key: str) -> bool:
     k = key.lstrip("/")
-    return k.startswith("_derived/") or k.startswith("_overlays/")
+    return k.startswith("_derived/") or k.startswith("_overlays/") or k.startswith("_reconvert/")
 
 
 def is_versions_artefact_key(key: str) -> bool:

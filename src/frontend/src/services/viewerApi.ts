@@ -1497,6 +1497,9 @@ export const viewerApi = {
             // ``null`` clears any global override; otherwise the
             // type matches the option's declared ``type``.
             conversionOptions?: Record<string, boolean | string | number | null>;
+            // Re-convert: always re-run and write to the separate ``_reconvert/`` namespace so
+            // a corpus scope's ``_derived/`` audit product is never overwritten.
+            reconvert?: boolean;
         },
     ): Promise<ConvertResponse> {
         const body: Record<string, unknown> = {
@@ -1509,6 +1512,9 @@ export const viewerApi = {
         }
         if (opts?.conversionOptions && Object.keys(opts.conversionOptions).length) {
             body.conversion_options = opts.conversionOptions;
+        }
+        if (opts?.reconvert) {
+            body.reconvert = true;
         }
         const r = await authedFetch(
             `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/convert`,
