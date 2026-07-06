@@ -4,8 +4,9 @@ import {persist} from "zustand/middleware";
 // One scope the user is browsing right now. Mirrors the backend's
 // /api/me response.
 export interface ScopeOption {
-    kind: "shared" | "user" | "project";
-    id: string | null; // 'me' for user-scope here; null for shared
+    kind: "shared" | "user" | "project" | "corpus";
+    // 'me' for user-scope; null for shared; the corpus slug for corpus.
+    id: string | null;
     name: string;
 }
 
@@ -66,5 +67,6 @@ export function scopeUrlPart(s: ScopeOption | null): string {
     if (!s) return "shared";
     if (s.kind === "shared") return "shared";
     if (s.kind === "user") return "user:me"; // server resolves 'me' to the caller's sub
+    if (s.kind === "corpus") return `corpus:${s.id}`; // admin-only, gated server-side
     return `project:${s.id}`;
 }

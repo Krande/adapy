@@ -684,6 +684,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         for p in projects:
             scopes.append({"kind": "project", "id": p["id"], "name": p["name"]})
 
+        # Corpus scopes are admin-only (scope_can_access gates them). Advertise
+        # them here so an admin can browse + visualise corpus files straight from
+        # the main storage panel — the same list/convert flow every other scope
+        # uses. Non-admins never see them; the backend rejects the scope anyway.
+        if user.is_admin and pool is not None:
+            try:
+                for c in await db_module.list_corpora(pool):
+                    scopes.append({"kind": "corpus", "id": c["slug"], "name": c["name"]})
+            except Exception:
+                logger.exception("api_me: listing corpora failed")
+
         return JSONResponse(
             {
                 "sub": user.sub,

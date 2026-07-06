@@ -9,6 +9,7 @@ import {
 } from "@/utils/storage/fileTree";
 import FileTreeView, {FileTreeMutations} from "./FileTreeView";
 import FolderPickerModal from "@/components/common/FolderPickerModal";
+import {scopeUrlPart} from "@/state/scopeStore";
 
 // Admin tab — manage proprietary regression corpora (M3 of the audit
 // panel design in plan/v2/notes_admin_audit_panel.md).
@@ -205,10 +206,7 @@ const CopyFromScopeModal: React.FC<{
                 const me = await viewerApi.me();
                 setScopes(
                     me.scopes
-                        .map((s) => ({
-                            name: s.name,
-                            url: s.kind === "user" ? "user:me" : s.kind === "shared" ? "shared" : `project:${s.id}`,
-                        }))
+                        .map((s) => ({name: s.name, url: scopeUrlPart(s)}))
                         .filter((s) => s.url !== dstScope),
                 );
             } catch (e) {

@@ -131,6 +131,38 @@ def test_admin_uuid_validation(tmp_path):
         assert r.status_code == 400
 
 
+@needs_postgres
+def test_api_me_lists_corpus_scopes_for_admin_only(tmp_path):
+    """An admin's /api/me advertises corpus scopes (so corpus files can be
+    browsed + visualised from the main storage panel); a non-admin's does not."""
+    settings = _settings(tmp_path, db_url=POSTGRES_URL)
+    slug = f"corp-{uuid.uuid4().hex[:12]}"
+    app = create_app(settings)
+    with TestClient(app) as client:
+        # local-dev synthetic user is admin — create a corpus, then read /api/me.
+        r = client.post("/api/admin/corpora", json={"slug": slug, "name": "Corp Test"})
+        assert r.status_code == 201, r.text
+        me = client.get("/api/me").json()
+        corpus_scopes = [s for s in me["scopes"] if s["kind"] == "corpus"]
+        assert any(s["id"] == slug and s["name"] == "Corp Test" for s in corpus_scopes), corpus_scopes
+        client.delete(f"/api/admin/corpora/{slug}")
+
+    # Non-admin: same DB, but no corpus scopes surface.
+    import ada.comms.rest.auth as _auth
+
+    orig = _auth.User.local_dev
+    _auth.User.local_dev = classmethod(
+        lambda cls: cls(sub="viewer", email="v@x", display_name="V", groups=frozenset(), is_admin=False)
+    )
+    try:
+        app2 = create_app(settings)
+        with TestClient(app2) as client:
+            me = client.get("/api/me").json()
+            assert not any(s["kind"] == "corpus" for s in me["scopes"]), me["scopes"]
+    finally:
+        _auth.User.local_dev = orig
+
+
 # ── Live-Postgres path ───────────────────────────────────────────────
 
 

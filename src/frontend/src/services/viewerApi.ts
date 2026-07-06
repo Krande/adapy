@@ -66,7 +66,7 @@ export interface MeResponse {
     email: string;
     displayName: string;
     isAdmin: boolean;
-    scopes: Array<{kind: "shared" | "user" | "project"; id: string | null; name: string}>;
+    scopes: Array<{kind: "shared" | "user" | "project" | "corpus"; id: string | null; name: string}>;
     projects: Array<{id: string; slug: string; name: string; role: string}>;
 }
 
