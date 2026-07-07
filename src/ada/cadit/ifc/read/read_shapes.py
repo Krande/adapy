@@ -29,13 +29,17 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
         geom, occ_body, blob_rec = _read_shape_geometry(product, color, ifc_store)
 
     extra_opts = {}
-    # Only apply the IFC local placement when we keep the native (parametric) geometry,
-    # which is expressed in the product's local coordinates. The kernel fallback below
-    # bakes world coordinates into the OCC body (``USE_WORLD_COORDS``), so re-applying
-    # the placement there would double-transform it.
+    # Only apply the IFC local placement when we keep the native (parametric) geometry, which is
+    # expressed in the product's local coordinates. The kernel fallback below bakes world
+    # coordinates into the OCC body (``USE_WORLD_COORDS``), so re-applying the placement there would
+    # double-transform it. ``get_local_placement`` returns the full world 4x4 regardless of whether
+    # the ObjectPlacement is relative (PlacementRelTo chain) or ABSOLUTE — an absolute placement can
+    # still carry a non-identity rotation (e.g. an IfcBeam that fell through to the shape importer,
+    # with its extrusion axis rotated into the world frame), so it must be applied too. Gating on
+    # PlacementRelTo dropped those rotations and rendered the product on the wrong world axis.
     if occ_body is None:
         obj_placement = product.ObjectPlacement
-        if obj_placement is not None and obj_placement.PlacementRelTo:
+        if obj_placement is not None:
             extra_opts["placement"] = placement_from_ifc_4x4(get_local_placement(obj_placement))
 
     common = dict(

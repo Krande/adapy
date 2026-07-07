@@ -52,6 +52,24 @@ def test_mapped_csg_solid_reads_native(example_files):
     assert _tris(objs) > 0
 
 
+def test_reinforcing_assembly_matches_oracle(example_files):
+    """End-to-end: reinforcing-assembly (34 mapped IfcSweptDiskSolid rebar + a concrete IfcBeam that
+    falls through to the shape importer). The rebar read native via IfcMappedItem, and the beam's
+    ABSOLUTE ObjectPlacement (a non-identity Y<->Z rotation, PlacementRelTo=None) is applied — so
+    the beam runs along world Y, not Z. The whole assembly bbox must match the ifcopenshell oracle
+    ([-0.1, 0, -0.4]..[0.1, 5, 0])."""
+    a = ada.from_ifc(example_files / "ifc_files/reinforcing-assembly.ifc")
+    objs = list(a.get_all_physical_objects())
+
+    from ada.occ.tessellating import BatchTessellator
+
+    bt = BatchTessellator()
+    pts = [np.asarray(ms.position, float).reshape(-1, 3) for o in objs for ms in bt.batch_tessellate([o])]
+    p = np.vstack([x for x in pts if len(x)])
+    assert np.allclose(p.min(0), (-0.1, 0.0, -0.4), atol=0.02), p.min(0)
+    assert np.allclose(p.max(0), (0.1, 5.0, 0.0), atol=0.02), p.max(0)
+
+
 def test_transform_geometry_rigid_and_nonrigid():
     """The mapped-item geometry transform: identity is a no-op, a rigid transform moves a face set's
     coordinates, and a non-uniform/shear transform raises (so the caller keeps the kernel path)."""
