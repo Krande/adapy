@@ -62,13 +62,15 @@ def native_step_to_glb(
         from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
         angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
 
-    # Adaptive per-surface angular density (opt-in): estimate a model reference scale so adacpp
-    # can coarsen tiny curved features while keeping large surfaces at the fine angle. model_scale
-    # 0 (adaptive off, or estimate unavailable) => the fixed angular_deg governs every surface.
-    from ada.cad.registry import stream_tess_adaptive
-
+    # Adaptive per-surface angular density is ON BY DEFAULT for STEP->GLB: large curved CAD
+    # assemblies (crane: 7291 solids, thousands of sub-cm bolts/pins) over-tessellate at a fixed
+    # fine angle, and the GLB is the transfer-size-sensitive product. We estimate a model reference
+    # scale so adacpp coarsens tiny features while keeping large surfaces fine. ADA_STREAM_TESS_
+    # ADAPTIVE=0/false forces the fixed-angle path (model_scale 0 => angular_deg governs everything).
+    adaptive_env = os.environ.get("ADA_STREAM_TESS_ADAPTIVE")
+    adaptive = True if adaptive_env is None else adaptive_env.strip().lower() not in {"0", "false", "no", "off", ""}
     model_scale = 0.0
-    if stream_tess_adaptive():
+    if adaptive:
         from ada.cadit.step.model_scale import estimate_step_model_scale
 
         model_scale = estimate_step_model_scale(step_path)
@@ -110,7 +112,8 @@ def native_step_to_glb(
     # capture (the worker adds wall-time + peak RSS to the row's metrics separately).
     print(
         f"[adacpp-native] {n} solids -> {glb_path} "
-        f"(threads={num_threads}, deflection={deflection}, angular={angular_deg}, meshopt={meshopt})",
+        f"(threads={num_threads}, deflection={deflection}, angular={angular_deg}, meshopt={meshopt}, "
+        f"adaptive={'off' if model_scale <= 0 else f'model_scale={model_scale:.0f}'})",
         flush=True,
     )
     if on_progress is not None:
