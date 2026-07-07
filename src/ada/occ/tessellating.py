@@ -790,11 +790,17 @@ class BatchTessellator:
         # Pass the Geometry wrapper through: the serializer unwraps it and folds any
         # bool_operations into a BOOLEAN_RESULT chain, so IFC clipping cuts and API
         # booleans reach the stream kernel instead of being dropped with the wrapper.
-        from ada.cad.registry import stream_tess_defaults
+        from ada.cad.registry import stream_tess_defaults, stream_tess_model_scale
 
         defl, ang = stream_tess_defaults()
         try:
-            bm = be.tessellate_stream([(str(node_ref), geom)], pipeline=pipeline, deflection=defl, angular_deg=ang)
+            bm = be.tessellate_stream(
+                [(str(node_ref), geom)],
+                pipeline=pipeline,
+                deflection=defl,
+                angular_deg=ang,
+                model_scale=stream_tess_model_scale(),
+            )
         except Exception as e:  # noqa: BLE001 - fall back to the OCC build path on any stream failure
             self._log_tess_fallback(node_ref, pipeline, f"tessellate_stream raised {type(e).__name__}: {e}", geom)
             return None
@@ -812,11 +818,13 @@ class BatchTessellator:
         be = active_backend()
         if not hasattr(be, "tessellate_stream_buffer"):
             return None
-        from ada.cad.registry import stream_tess_defaults
+        from ada.cad.registry import stream_tess_defaults, stream_tess_model_scale
 
         defl, ang = stream_tess_defaults()
         try:
-            bm = be.tessellate_stream_buffer(blob, pipeline=pipeline, deflection=defl, angular_deg=ang)
+            bm = be.tessellate_stream_buffer(
+                blob, pipeline=pipeline, deflection=defl, angular_deg=ang, model_scale=stream_tess_model_scale()
+            )
         except Exception as e:  # noqa: BLE001 - fall back to the hydrate path on any stream failure
             self._log_tess_fallback(
                 node_ref, pipeline, f"tessellate_stream_buffer raised {type(e).__name__}: {e}", None

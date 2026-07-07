@@ -62,6 +62,17 @@ def native_step_to_glb(
         from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
         angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
 
+    # Adaptive per-surface angular density (opt-in): estimate a model reference scale so adacpp
+    # can coarsen tiny curved features while keeping large surfaces at the fine angle. model_scale
+    # 0 (adaptive off, or estimate unavailable) => the fixed angular_deg governs every surface.
+    from ada.cad.registry import stream_tess_adaptive
+
+    model_scale = 0.0
+    if stream_tess_adaptive():
+        from ada.cadit.step.model_scale import estimate_step_model_scale
+
+        model_scale = estimate_step_model_scale(step_path)
+
     if num_threads <= 0:
         # ``num_threads=0`` lets the C++ pick std::thread::hardware_concurrency(), which reports the
         # NODE's core count (e.g. 16) — NOT the pod's cgroup CPU quota. 16 threads on a 4-CPU /
@@ -80,14 +91,16 @@ def native_step_to_glb(
     if on_progress is not None:
         on_progress("adacpp-native", 0.1)
 
-    n = adacpp.cad.stream_step_to_glb(
-        str(step_path),
-        str(glb_path),
-        deflection=deflection,
-        angular_deg=angular_deg,
-        num_threads=num_threads,
-        meshopt=meshopt,
+    glb_kwargs = dict(
+        deflection=deflection, angular_deg=angular_deg, num_threads=num_threads, meshopt=meshopt
     )
+    # Only forward model_scale to an adacpp build that accepts it (nanobind embeds the signature in
+    # __doc__); an older extension would raise on the unknown kwarg. Off (0.0) behaves as before.
+    if "model_scale" in (adacpp.cad.stream_step_to_glb.__doc__ or ""):
+        glb_kwargs["model_scale"] = model_scale
+    elif model_scale > 0.0:
+        logger.warning("adacpp build predates adaptive tessellation (no model_scale); using fixed angular_deg")
+    n = adacpp.cad.stream_step_to_glb(str(step_path), str(glb_path), **glb_kwargs)
     if n < 0:
         raise RuntimeError(f"adacpp native stream_step_to_glb failed for {step_path}")
 

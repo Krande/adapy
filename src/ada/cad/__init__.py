@@ -1039,6 +1039,7 @@ class AdacppBackend:
         angular_deg: float = DEFAULT_STREAM_TESS_ANGULAR_DEG,
         settings: "dict | None" = None,
         threads: int = 1,
+        model_scale: float = 0.0,
     ) -> "BatchMesh":
         """Tessellate a stream of ``(id, ada.geom geometry)`` via adacpp's NGEOM pipeline.
 
@@ -1058,6 +1059,7 @@ class AdacppBackend:
             angular_deg=angular_deg,
             settings=settings,
             threads=threads,
+            model_scale=model_scale,
         )
 
     def tessellate_stream_buffer(
@@ -1069,6 +1071,7 @@ class AdacppBackend:
         angular_deg: float = DEFAULT_STREAM_TESS_ANGULAR_DEG,
         settings: "dict | None" = None,
         threads: int = 1,
+        model_scale: float = 0.0,
     ) -> "BatchMesh":
         """Tessellate a pre-encoded NGEOM buffer — the fast path for blobs already in
         the neutral form (a lazy ``ShapeStore``'s stored solid, a cached ``.ngeom``
@@ -1091,7 +1094,16 @@ class AdacppBackend:
         # solids) stays serial per call and doesn't oversubscribe. The signature grew
         # (settings, then threads); try the fullest form and fall back for older adacpp builds.
         try:
-            mesh = fn(buffer, pipeline, deflection, angular_deg, dict(settings or {}), int(threads))
+            # model_scale (>0 => adaptive per-surface density) is the newest param; try it first
+            # and fall back for older adacpp builds (which drop it along with threads/settings).
+            try:
+                mesh = fn(
+                    buffer, pipeline, deflection, angular_deg, dict(settings or {}), int(threads), float(model_scale)
+                )
+            except TypeError:
+                if float(model_scale) > 0.0:
+                    logger.debug("adacpp build has no tessellate_stream model_scale param; fixed angular_deg")
+                mesh = fn(buffer, pipeline, deflection, angular_deg, dict(settings or {}), int(threads))
         except TypeError:
             if int(threads) > 1:
                 logger.debug("adacpp build has no tessellate_stream threads param; running serial")

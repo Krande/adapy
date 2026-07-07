@@ -32,12 +32,41 @@ from functools import lru_cache
 DEFAULT_STREAM_TESS_DEFLECTION = 2.0
 DEFAULT_STREAM_TESS_ANGULAR_DEG = 10.0
 
+# Angular density mode. OFF (default): ``angular_deg`` is a fixed global ceiling for every curved
+# surface (explicit-global-angle mode, backward compatible). ON: the ceiling is applied ADAPTIVELY
+# per surface — a model-relative reference (``model_scale``, the model bbox diagonal) lets tiny
+# curved features (bolts/pins in a large assembly, whose facets are sub-pixel) coarsen while large
+# visible surfaces keep the fine angle. The relaxation itself lives in adacpp (angle_step); adapy
+# only decides the mode and supplies ``model_scale``. Toggle with ADA_STREAM_TESS_ADAPTIVE.
+DEFAULT_STREAM_TESS_ADAPTIVE = False
+
 
 def stream_tess_defaults() -> tuple[float, float]:
     """(deflection, angular_deg) for the NGEOM stream path: env override else the corpus default."""
     defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", str(DEFAULT_STREAM_TESS_DEFLECTION)))
     ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
     return defl, ang
+
+
+def stream_tess_adaptive() -> bool:
+    """Whether adaptive per-surface angular density is enabled (env override else the default OFF)."""
+    v = os.environ.get("ADA_STREAM_TESS_ADAPTIVE")
+    if v is None:
+        return DEFAULT_STREAM_TESS_ADAPTIVE
+    return v.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def stream_tess_model_scale() -> float:
+    """The model reference scale (world units) for adaptive density on the object stream path, or
+    0.0 (off). Adaptive is meaningful only with a model scale, so this returns 0 unless adaptive is
+    enabled AND a scale is supplied via ADA_STREAM_TESS_MODEL_SCALE (the caller sets it once per
+    model — the native STEP->GLB path estimates its own; see ada.cadit.step.model_scale)."""
+    if not stream_tess_adaptive():
+        return 0.0
+    try:
+        return float(os.environ.get("ADA_STREAM_TESS_MODEL_SCALE", "0") or 0.0)
+    except ValueError:
+        return 0.0
 
 
 class CadBackendName(str, Enum):
