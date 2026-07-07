@@ -8,7 +8,7 @@ import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {convertViaServer} from "@/services/conversion/serverPipeline";
 import {canLoadIntoSceneLegacy, isStreamingFEAResult} from "@/utils/scene/fileKinds";
-import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry, type WalkOrder} from "@/utils/scene/galleryWalk";
+import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 
 // Gallery HUD. Three "walk" types (dropdown):
 //   - "files": cycles the current scope's loadable files (clear → load).
@@ -32,7 +32,7 @@ const GalleryControls: React.FC = () => {
     const loadBusy = useLoadQueueStore((s) => s.current);
     const selectedName = useObjectInfoStore((s) => s.name);
 
-    const isGeomWalk = walk === "geoms" || walk === "tree";
+    const isGeomWalk = walk === "geoms";
 
     // ---- Files walk -------------------------------------------------------
     // The gallery walks only files the viewer can actually mount.
@@ -86,11 +86,10 @@ const GalleryControls: React.FC = () => {
 
     const rebuildGeoms = useCallback(() => {
         if (!isGeomWalk) return [] as GeomEntry[];
-        const order: WalkOrder = walk === "tree" ? "tree" : geomOrder;
-        const entries = collectGeomEntries(order);
+        const entries = collectGeomEntries(geomOrder);
         setGeomEntries(entries);
         return entries;
-    }, [isGeomWalk, walk, geomOrder]);
+    }, [isGeomWalk, geomOrder]);
 
     const goGeom = useCallback(
         async (next: number, entriesOverride?: GeomEntry[]) => {
@@ -114,7 +113,7 @@ const GalleryControls: React.FC = () => {
             void goGeom(0, entries);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [enabled, isGeomWalk, walk, geomOrder]);
+    }, [enabled, isGeomWalk, geomOrder]);
 
     // A scene change (file loaded/unloaded) rebuilds the list but keeps the
     // current position; focus the first geom if the scene only just populated.
@@ -222,24 +221,22 @@ const GalleryControls: React.FC = () => {
         >
             <option value="files">Files</option>
             <option value="geoms">Geoms</option>
-            <option value="tree">Tree</option>
         </select>
     );
 
-    // Geom-walk sub-controls: order (geoms only) + isolate toggle + refresh.
+    // Geom-walk sub-controls: order + isolate toggle + refresh.
     const geomControls = isGeomWalk && (
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-300">
-            {walk === "geoms" && (
-                <select
-                    aria-label="Geom order"
-                    value={geomOrder}
-                    onChange={(e) => setGeomOrder(e.target.value as typeof geomOrder)}
-                    className="rounded-sm border border-gray-600 bg-gray-800 px-1 py-0.5 text-[11px] text-gray-100"
-                >
-                    <option value="scene">Order: scene</option>
-                    <option value="density">Order: density</option>
-                </select>
-            )}
+            <select
+                aria-label="Geom order"
+                value={geomOrder}
+                onChange={(e) => setGeomOrder(e.target.value as typeof geomOrder)}
+                className="rounded-sm border border-gray-600 bg-gray-800 px-1 py-0.5 text-[11px] text-gray-100"
+            >
+                <option value="scene">Order: scene</option>
+                <option value="density">Order: density</option>
+                <option value="tree">Order: tree</option>
+            </select>
             <label className="flex items-center gap-1" title="Hide everything except the current geom during the walk">
                 <input type="checkbox" checked={hideUnselected} onChange={() => toggleHideUnselected()} />
                 <span>Isolate</span>

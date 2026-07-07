@@ -24,7 +24,7 @@ export interface GeomEntry {
     density: number;
 }
 
-export type WalkOrder = GeomWalkOrder | "tree";
+export type WalkOrder = GeomWalkOrder;
 
 function allBatchedMeshes(): CustomBatchedMesh[] {
     const out: CustomBatchedMesh[] = [];
