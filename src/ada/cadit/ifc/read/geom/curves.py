@@ -16,15 +16,24 @@ def get_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CURVE_GEOM_TYP
         return b_spline_curve_with_knots(ifc_entity)
     elif ifc_entity.is_a("IfcTrimmedCurve"):
         return trimmed_curve(ifc_entity)
+    elif ifc_entity.is_a("IfcSegmentedReferenceCurve"):
+        # Subtype of IfcCompositeCurve (via IfcGradientCurve) — must precede both.
+        return segmented_reference_curve(ifc_entity)
     elif ifc_entity.is_a("IfcGradientCurve"):
         # Subtype of IfcCompositeCurve — must precede it.
         return gradient_curve(ifc_entity)
     elif ifc_entity.is_a("IfcCompositeCurve"):
         return composite_curve(ifc_entity)
+    elif ifc_entity.is_a("IfcCurveSegment"):
+        # A single alignment curve segment used directly as a representation item (an
+        # IfcAlignmentSegment's 'Axis'/'Segment' body).
+        return curve_segment(ifc_entity)
     elif ifc_entity.is_a("IfcLine"):
         return line(ifc_entity)
     elif ifc_entity.is_a("IfcClothoid"):
         return clothoid(ifc_entity)
+    elif ifc_entity.is_a("IfcCosineSpiral"):
+        return cosine_spiral(ifc_entity)
     elif ifc_entity.is_a("IfcCircle"):
         return circle(ifc_entity)
     elif ifc_entity.is_a("IfcEllipse"):
@@ -69,6 +78,21 @@ def clothoid(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Clothoid:
     )
 
 
+def cosine_spiral(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CosineSpiral:
+    """IfcCosineSpiral — 2D transition spiral about its Position; curvature varies as a cosine.
+    A1 = CosineTerm (required), A0 = ConstantTerm (optional)."""
+    pos = ifc_entity.Position
+    loc = pos.Location.Coordinates
+    rd = pos.RefDirection.DirectionRatios if pos.RefDirection is not None else (1.0, 0.0)
+    ct = ifc_entity.ConstantTerm
+    return geo_cu.CosineSpiral(
+        location=(float(loc[0]), float(loc[1])),
+        ref_direction=(float(rd[0]), float(rd[1])),
+        cosine_term=float(ifc_entity.CosineTerm),
+        constant_term=float(ct) if ct is not None else None,
+    )
+
+
 def _measure(v) -> float:
     return float(v.wrappedValue if hasattr(v, "wrappedValue") else v)
 
@@ -84,6 +108,14 @@ def curve_segment(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CurveSegme
         rd = pl.RefDirection.DirectionRatios if pl.RefDirection is not None else (1.0, 0.0)
         location = (float(loc[0]), float(loc[1]))
         ref_direction = (float(rd[0]), float(rd[1]))
+    elif pl.is_a("IfcAxis2Placement3D"):
+        # Cant segments of an IfcSegmentedReferenceCurve are placed by a 3D axis placement; the
+        # extra (vertical) component of the location is the superelevation offset. Keep the full
+        # 3D location + ref direction — planar consumers slice [:2].
+        loc = pl.Location.Coordinates
+        rd = pl.RefDirection.DirectionRatios if pl.RefDirection is not None else (1.0, 0.0, 0.0)
+        location = tuple(float(c) for c in loc)
+        ref_direction = tuple(float(c) for c in rd)
     else:  # IfcAxis2PlacementLinear — planar location resolved at evaluation; carry the ref dir
         rd = pl.RefDirection.DirectionRatios if pl.RefDirection is not None else (1.0, 0.0)
         location = (0.0, 0.0)
@@ -102,6 +134,16 @@ def gradient_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.GradientC
     """IfcGradientCurve — vertical gradient (Segments, distance->height) over a horizontal BaseCurve."""
     return geo_cu.GradientCurve(
         base_curve=composite_curve(ifc_entity.BaseCurve),
+        segments=[curve_segment(s) for s in ifc_entity.Segments],
+        self_intersect=bool(ifc_entity.SelfIntersect),
+    )
+
+
+def segmented_reference_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.SegmentedReferenceCurve:
+    """IfcSegmentedReferenceCurve — cant (superelevation) segments over a BaseCurve (an
+    IfcGradientCurve). The base gives x,y,z; the segments add the vertical cant offset."""
+    return geo_cu.SegmentedReferenceCurve(
+        base_curve=get_curve(ifc_entity.BaseCurve),
         segments=[curve_segment(s) for s in ifc_entity.Segments],
         self_intersect=bool(ifc_entity.SelfIntersect),
     )

@@ -30,8 +30,10 @@ CURVE_GEOM_TYPES = Union[
     "TrimmedCurve",
     "CompositeCurve",
     "Clothoid",
+    "CosineSpiral",
     "CurveSegment",
     "GradientCurve",
+    "SegmentedReferenceCurve",
     "PCurve",
     "PointOnCurve",
     "OffsetCurve3D",
@@ -154,19 +156,43 @@ class Clothoid:
 
 
 @dataclass(slots=True)
+class CosineSpiral:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcCosineSpiral.htm)
+
+    A transition spiral whose curvature varies as a cosine of arc length. With A1 =
+    ``cosine_term``, A0 = ``constant_term`` (optional) and L the length over which the cosine
+    completes half a period (the containing CurveSegment's length), the heading angle is
+    ``theta(s) = s/A0 + (L/(pi*A1))*sin(pi*s/L)`` and the curvature ``kappa(s) = 1/A0 +
+    (1/A1)*cos(pi*s/L)``. Position is obtained by integrating ``(cos theta, sin theta)`` (no
+    closed form) about the 2D placement (``location`` + unit ``ref_direction``).
+    """
+
+    location: Iterable  # 2D placement origin
+    ref_direction: Iterable  # 2D unit tangent at s=0
+    cosine_term: float  # A1 (required)
+    constant_term: float | None = None  # A0 (optional)
+
+
+@dataclass(slots=True)
 class CurveSegment:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCurveSegment.htm)
 
     A ``parent_curve`` restricted to the arc-length range [segment_start, segment_start +
-    segment_length] and positioned in the containing curve by a 2D placement (``location`` +
-    unit ``ref_direction``). Distinct from CompositeCurveSegment (no SameSense; carries its own
+    segment_length] and positioned in the containing curve by a placement (``location`` + unit
+    ``ref_direction``). Distinct from CompositeCurveSegment (no SameSense; carries its own
     placement + parametric range). segment_length may be negative (parameter decreases).
+
+    ``location``/``ref_direction`` are 2D for the planar (horizontal/vertical) curves, but 3D for
+    the cant segments of an IfcSegmentedReferenceCurve (IfcAxis2Placement3D) — the extra vertical
+    component of ``location`` is the superelevation offset baked onto the base curve. Planar
+    consumers slice ``location[:2]``, so the 3D form is backward-compatible.
     """
 
     transition: str
-    location: Iterable  # 2D placement origin (segment start position)
-    ref_direction: Iterable  # 2D unit tangent at the segment start
+    location: Iterable  # placement origin (2D planar, 3D for cant segments)
+    ref_direction: Iterable  # unit tangent at the segment start (2D planar, 3D for cant)
     segment_start: float
     segment_length: float
     parent_curve: CURVE_GEOM_TYPES
@@ -182,6 +208,23 @@ class GradientCurve:
     """
 
     base_curve: "CompositeCurve"
+    segments: list["CurveSegment"]
+    self_intersect: bool = False
+
+
+@dataclass(slots=True)
+class SegmentedReferenceCurve:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcSegmentedReferenceCurve.htm)
+
+    A 3D curve defined in the linear parameter space of its ``base_curve`` (typically an
+    IfcGradientCurve giving x,y,z along arc length). Its ``segments`` carry the cant
+    (superelevation): each maps a parameter range of the base curve to a vertical offset applied
+    perpendicular to the base curve axis, producing the rail reference curve. The horizontal
+    (x,y) is that of the base curve unchanged; only the vertical (z) is displaced by the cant.
+    """
+
+    base_curve: "GradientCurve"
     segments: list["CurveSegment"]
     self_intersect: bool = False
 
@@ -529,4 +572,9 @@ CURVE_GEOM_TUPLE = (
     # Loose curve collection (STEP GEOMETRIC_CURVE_SET wireframe bodies) — a
     # curve body like its members, so every curve-body path treats it as one.
     GeometricCurveSet,
+    # NB: the analytic alignment types (Clothoid / CosineSpiral / GradientCurve /
+    # SegmentedReferenceCurve) are intentionally NOT here — they are intermediate curves consumed
+    # by the alignment evaluator and never stored as a Shape's geometry (the reader converts them
+    # to a sampled PolyLine, which IS a curve body). Listing them would misclassify a swept
+    # solid's GradientCurve directrix as a bare wire body.
 )

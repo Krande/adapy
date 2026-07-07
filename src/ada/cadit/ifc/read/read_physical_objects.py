@@ -71,12 +71,20 @@ def import_physical_ifc_elem(product, name, ifc_store: IfcStore):
         return import_pipe_segment(product, name, ifc_store)
 
     # Non-physical products (alignment, annotation, grid, positioning) carry only
-    # curve/axis representations, never body geometry. Importing them as empty Shapes
-    # pollutes the model and makes downstream exporters choke on a geometry-less shape
-    # (solid_geom() raises) — and feeding their curves to the IfcOpenShell geometry kernel
-    # can hang (IfcCurveSegment runs a 9000-iter root find per sample). Skip any product
-    # that is neither a physical IfcElement nor carries a Body representation.
+    # curve/axis representations, never body geometry. Feeding their IfcCurveSegments to the
+    # IfcOpenShell geometry kernel can hang (a 9000-iter root find per sample), so we never do —
+    # instead the alignment reader evaluates the analytic curve to a polyline natively (no OCC)
+    # and renders it as GL_LINES.
     if not product.is_a("IfcElement") and not _has_body_representation(product):
+        from .read_alignment import import_ifc_alignment, is_alignment_curve_product
+
+        if is_alignment_curve_product(product):
+            alignment = import_ifc_alignment(product, name, ifc_store)
+            if alignment is not None:
+                return alignment
+        # No evaluable curve geometry (a geometry-less positioning product, an annotation, …):
+        # importing it as an empty Shape pollutes the model and makes exporters choke
+        # (solid_geom() raises), so skip it.
         logger.info(f'skipping non-physical product "{name}" ({product.is_a()})')
         return None
 
