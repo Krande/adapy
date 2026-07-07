@@ -6,18 +6,12 @@ from ada.geom.placement import Axis1Placement, Axis2Placement3D
 
 
 def placement_from_ifc_4x4(matrix) -> Placement:
-    """Build a Placement from an IFC world transform (``get_local_placement`` / a column-major
-    ``IfcObjectPlacement`` 4x4), whose local axes are the rotation COLUMNS.
-
-    ``Placement`` stores its rotation as ROWS (xdir/ydir/zdir) and ``get_matrix4x4`` — which the
-    scene/tessellation applies as ``M@p`` — rebuilds it as rows, so ``from_4x4_matrix(M)`` yields
-    a placement whose ``get_matrix4x4() == M.T``. That is invisible for a symmetric rotation but
-    renders an axis-swapping placement along the wrong world axis (beam-standard-case.ifc,
-    box_rotated.ifc). Transpose the rotation here so the scene applies the intended matrix.
-    """
-    m = np.asarray(matrix, dtype=float).copy()
-    m[:3, :3] = m[:3, :3].T
-    return Placement.from_4x4_matrix(m)
+    """Build a Placement from an IFC world transform (``get_local_placement`` / a standard 4x4
+    ``IfcObjectPlacement``). Now that ``Placement.from_4x4_matrix`` is self-consistent (row-based,
+    ``from_4x4_matrix(M).get_matrix4x4() == M``), this is a plain wrapper — the historic transpose
+    workaround is gone. Kept as a named entry point for the IFC readers (and a home for any
+    future IFC-specific placement handling)."""
+    return Placement.from_4x4_matrix(np.asarray(matrix, dtype=float))
 
 
 def ifc_direction(ifc_entity) -> Direction:
