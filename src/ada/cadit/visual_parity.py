@@ -155,24 +155,41 @@ def load_assembly_auto(path: str | Path) -> "Assembly":
     raise ValueError(f"visual_parity: no loader for source suffix {ext!r}")
 
 
+def _count_curve_set_roots(path: str | Path, size_limit: int = 64_000_000) -> int:
+    """Number of loose curve/geometric-set roots (one per placed curve body — e.g. an evaluated
+    alignment reference curve) in a STEP file. The solid-only native reader skips these; each is a
+    distinct GEOMETRIC_CURVE_SET / GEOMETRIC_SET entity definition. Size-bounded (such wireframe
+    bodies are tiny; a multi-GB solid assembly carries none worth a full scan)."""
+    try:
+        p = Path(path)
+        if p.stat().st_size > size_limit:
+            return 0
+        data = p.read_bytes()
+    except OSError:
+        return 0
+    # "GEOMETRIC_CURVE_SET(" does not contain "GEOMETRIC_SET(" as a substring, so counting both
+    # names never double-counts.
+    return data.count(b"GEOMETRIC_CURVE_SET(") + data.count(b"GEOMETRIC_SET(")
+
+
 def _count_step_instances(path: str | Path) -> int:
     """Number of placed solid instances in a STEP file. Counted by streaming the
     native parser and reading each solid's transform list from the metadata —
     WITHOUT hydrating ada.geom or tessellating (the geometry is never needed, only
     the count). Falls back to the pure-Python streaming reader."""
     from ada.cadit.step.read.native_reader import native_adacpp_step_available
-    from ada.cadit.step.write._solid_source import step_has_curve_set_roots
 
-    # The native StepNgeomStream is solid-only; a file with loose curve/geometric-set roots
-    # (wireframe bodies) needs the pure-Python tolerant reader to count them too.
-    if native_adacpp_step_available() and not step_has_curve_set_roots(path):
+    # Native StepNgeomStream counts the solids; add the loose curve/geometric-set roots it can't
+    # see (one per placed curve body). This keeps native grouping/transform semantics instead of a
+    # whole-model reload, which would ungroup an OCC-exploded multi-face solid and over-count.
+    if native_adacpp_step_available():
         import adacpp
 
         total = 0
         for _nbytes, meta in adacpp.cad.StepNgeomStream(str(path)):
             tf = meta.transforms
             total += len(tf) if tf else 1
-        return total
+        return total + _count_curve_set_roots(path)
 
     import ada
 
@@ -192,13 +209,8 @@ def _count_step_product_instances(path: str | Path) -> int | None:
     exactly as :func:`_count_step_instances`. None when the native parser is
     unavailable (caller falls back to the reload count)."""
     from ada.cadit.step.read.native_reader import native_adacpp_step_available
-    from ada.cadit.step.write._solid_source import step_has_curve_set_roots
 
     if not native_adacpp_step_available():
-        return None
-    # The native StepNgeomStream is solid-only; for a file carrying loose curve/geometric-set
-    # roots (wireframe bodies) it undercounts — defer to the caller's lossless reload count.
-    if step_has_curve_set_roots(path):
         return None
     import adacpp
 
@@ -209,7 +221,12 @@ def _count_step_product_instances(path: str | Path) -> int | None:
         key = tuple(ip[0][-1]) if (ip and ip[0]) else ("root", meta.id)
         n = len(meta.transforms) or 1
         groups[key] = max(groups.get(key, 0), n)
-    return sum(groups.values())
+    # The native StepNgeomStream is solid-only but GROUPS a multi-face solid (OCC's to_stp splits a
+    # sectioned/swept or sewn multi-shell solid into many SHELL_BASED_SURFACE_MODEL roots) back into
+    # its one owning product. A whole-model reload would UNGROUP that explosion and massively
+    # over-count, so instead of deferring we keep the grouped solid count and ADD the loose
+    # curve/geometric-set roots (one per placed curve body) the native reader can't see.
+    return sum(groups.values()) + _count_curve_set_roots(path)
 
 
 def _count_ifc_proxies(path: str | Path) -> int:
