@@ -89,19 +89,16 @@ def make_face_from_circle(circle: geo_cu.Circle):
 
 
 def make_shell_from_face_based_surface_geom(surface: FaceBasedSurfaceModel) -> TopoDS_Shape:
-    occ_face = None
-    for face in surface.fbsm_faces:
-        for cfs_face in face.cfs_faces:
-            if not isinstance(cfs_face.bound, PolyLoop):
-                raise NotImplementedError("Only PolyLoop bounds are supported")
-            new_face = make_face_from_poly_loop(cfs_face.bound)
-            if occ_face is None:
-                occ_face = new_face
-            else:
-                # Fuse the new face with the existing face
-                occ_face = BRepAlgoAPI_Fuse(new_face, occ_face).Shape()
-
-    return occ_face
+    """Build an IfcFaceBasedSurfaceModel — a set of IfcConnectedFaceSets — into an OCC compound of
+    shells, mirroring make_shell_from_shell_based_surface_geom. Each connected face set is built by
+    the shared face-set builder (which reads each Face's ``bounds`` correctly), so an n-face surface
+    model renders and exports instead of erroring on the old ``cfs_face.bound`` assumption."""
+    builder = BRep_Builder()
+    compound = TopoDS_Compound()
+    builder.MakeCompound(compound)
+    for cfs in surface.fbsm_faces:
+        builder.Add(compound, make_shell_from_connected_face_set_geom(cfs))
+    return compound
 
 
 def make_shell_from_curve_bounded_plane_geom(surface: geo_su.CurveBoundedPlane) -> TopoDS_Shape:

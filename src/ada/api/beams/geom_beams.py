@@ -314,7 +314,11 @@ def profile_disconnected_to_face_geom(beam: Beam) -> Geometry:
         points = np.concatenate([p1, p2, p3, p4]).reshape(-1, 3)
         new_points = np.matmul(rotation_matrix, points.T).T + beam.n1.p
         poly_loop = ada.geom.curves.PolyLoop(polygon=[Point(*p) for p in new_points])
-        connected_faces += [geo_su.ConnectedFaceSet([geo_su.FaceBound(bound=poly_loop, orientation=True)])]
+        # cfs_faces holds Faces (per IfcConnectedFaceSet), each carrying its FaceBound(s) — not a
+        # bare FaceBound. Wrapping keeps this consistent with the IFC face-set reader so the shared
+        # face-set OCC/NGEOM builders handle both.
+        loop_face = geo_su.Face(bounds=[geo_su.FaceBound(bound=poly_loop, orientation=True)])
+        connected_faces += [geo_su.ConnectedFaceSet([loop_face])]
 
     geom = geo_su.FaceBasedSurfaceModel(connected_faces)
     return Geometry(beam.guid, geom, beam.color)

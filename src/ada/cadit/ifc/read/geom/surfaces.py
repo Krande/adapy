@@ -340,3 +340,17 @@ def shell_based_surface_model(ifc_entity: ifcopenshell.entity_instance) -> geo_s
             raise NotImplementedError(f"{face} is not yet implemented.")
 
     return geo_su.ShellBasedSurfaceModel(sbsm_boundary=sbsm_boundary)
+
+
+def connected_face_set(ifc_entity: ifcopenshell.entity_instance) -> geo_su.ConnectedFaceSet:
+    """IfcConnectedFaceSet — a set of IfcFace (CfsFaces). Same shape as IfcClosed/OpenShell, but the
+    generic (not necessarily closed) form used inside an IfcFaceBasedSurfaceModel."""
+    from ada.cadit.ifc.read.geom.geom_reader import import_geometry_from_ifc_geom
+
+    return geo_su.ConnectedFaceSet([import_geometry_from_ifc_geom(f) for f in ifc_entity.CfsFaces])
+
+
+def face_based_surface_model(ifc_entity: ifcopenshell.entity_instance) -> geo_su.FaceBasedSurfaceModel:
+    """IfcFaceBasedSurfaceModel — a set of IfcConnectedFaceSet (FbsmFaces). The face-set sibling of
+    IfcShellBasedSurfaceModel; the OCC and NGEOM builders already sew/tessellate its face sets."""
+    return geo_su.FaceBasedSurfaceModel(fbsm_faces=[connected_face_set(cfs) for cfs in ifc_entity.FbsmFaces])

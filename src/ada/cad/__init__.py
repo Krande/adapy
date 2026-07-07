@@ -390,13 +390,14 @@ class AdacppBackend:
 
             polygons = []
             for cfs in g.fbsm_faces:
-                for fb in cfs.cfs_faces:
-                    if not isinstance(fb.bound, cu.PolyLoop):
-                        raise NotImplementedError(
-                            f"AdacppBackend.build: FaceBasedSurfaceModel bound "
-                            f"{type(fb.bound).__name__!r} not yet ported to adacpp."
-                        )
-                    polygons.append([self._xyz(p) for p in fb.bound.polygon])
+                for face in cfs.cfs_faces:  # geo_su.Face, each carrying one or more FaceBound
+                    for fb in face.bounds:
+                        if not isinstance(fb.bound, cu.PolyLoop):
+                            raise NotImplementedError(
+                                f"AdacppBackend.build: FaceBasedSurfaceModel bound "
+                                f"{type(fb.bound).__name__!r} not yet ported to adacpp."
+                            )
+                        polygons.append([self._xyz(p) for p in fb.bound.polygon])
             shape = self._cad.build_face_based_surface_model(polygons)
         elif isinstance(g, (su.ShellBasedSurfaceModel, su.OpenShell, su.ClosedShell, su.ConnectedFaceSet)):
             # Sew the member faces into one shell handle. Each face is built through the
