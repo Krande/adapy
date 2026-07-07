@@ -3493,11 +3493,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lets the dispatcher derive both the conversion grid and the
         parity-cell reservation from ONE listing, so the two counts
         can't disagree on what files existed at dispatch time."""
-        from .converter import ConverterRegistry, is_derived_key, is_supported_source
+        from .converter import ConverterRegistry, is_hidden_key, is_supported_source
 
         cells: list[tuple[str, str]] = []
         for f in files:
-            if is_derived_key(f.key):
+            # Skip ALL internal namespaces, not just _derived/: _overlays/ (utility previews) and
+            # _reconvert/ (gallery throwaway re-conversions) are not corpus sources and must never
+            # become audit cells. is_hidden_key covers all three; is_derived_key did not match
+            # _reconvert/ (deliberately not a derived product), so it leaked into runs.
+            if is_hidden_key(f.key):
                 continue
             if not is_supported_source(f.key):
                 continue

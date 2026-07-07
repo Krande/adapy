@@ -31,3 +31,21 @@ def test_reconvert_key_is_hidden_but_not_derived():
 def test_reconvert_key_rejects_unknown_format():
     with pytest.raises(UnsupportedFormat):
         reconvert_key_for("x/y.ifc", "bogus")
+
+
+def test_reconvert_and_overlay_excluded_from_audit_cells():
+    """Audit cell enumeration skips ``is_hidden_key`` (not just ``is_derived_key``). A re-convert
+    or overlay blob is stored as ``.glb`` — a SUPPORTED source ext — and ``_reconvert/`` is
+    deliberately NOT a derived key, so without the hidden-key skip both would leak in as audit
+    cells. Assert the exact filter the dispatcher uses excludes them."""
+    from ada.comms.rest.converter import is_supported_source
+
+    reconvert = "_reconvert/cad/ifc/beam-extruded-solid.ifc.glb"
+    overlay = "_overlays/mymodel.merge.glb"
+    real_source = "cad/ifc/beam-extruded-solid.ifc"
+
+    # Both throwaway blobs pass the source-ext test (glb) but must be hidden...
+    assert is_supported_source(reconvert) and is_hidden_key(reconvert)
+    assert is_supported_source(overlay) and is_hidden_key(overlay)
+    # ...while a genuine corpus source is a source and NOT hidden -> becomes a cell.
+    assert is_supported_source(real_source) and not is_hidden_key(real_source)
