@@ -70,27 +70,20 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
 
     extra_opts = {}
     obj_placement = ifc_elem.ObjectPlacement
-    if obj_placement.PlacementRelTo:
-        # The FULL ObjectPlacement chain — including this beam's own RelativePlacement —
-        # becomes the beam's world placement. So n1/n2 must stay in the beam's LOCAL frame:
-        # the extrusion's own position/direction, NOT re-rotated by rel_place. Applying
-        # rel_place here as well (as the flat, no-parent path below does) double-rotates the
-        # axis — a beam whose RelativePlacement swaps X<->Z (extrude along local Z placed onto
-        # world X) then rendered along the wrong world axis (beam-standard-case.ifc).
-        # The FULL get_local_placement chain (world transform, axes as rotation COLUMNS)
-        # becomes the beam placement; placement_from_ifc_4x4 reconciles the column<->row
-        # transpose in Placement.get_matrix4x4 so the scene applies the intended matrix (a
-        # symmetric rotation hid it; the local-Z-onto-world-X swap here did not).
+    if obj_placement is not None:
+        # n1/n2 stay in the beam's LOCAL frame (the extrusion's own position/direction — this is
+        # also where the cardinal-point offset lives, baked into ExtrudedAreaSolid.Position by the
+        # authoring tool), and the FULL ObjectPlacement world transform becomes the beam placement.
+        # get_local_placement composes the whole chain, so this covers BOTH a parent chain
+        # (beam-standard-case.ifc) AND a bare RelativePlacement with no parent
+        # (beam-varying-cardinal-points.ifc) — the old no-parent path baked rel_place into the
+        # extrude DIRECTION but left the location + origin untransformed, dropping the placement
+        # entirely and rendering the beam at the wrong spot. placement_from_ifc_4x4 reconciles the
+        # column<->row transpose in Placement.get_matrix4x4 so the scene applies the intended matrix.
         extra_opts["placement"] = placement_from_ifc_4x4(get_local_placement(obj_placement))
-        extrude_dir = unit_vector(body.position.axis)
-        ref_dir = unit_vector(body.position.ref_direction)
-        p1 = body.position.location
-    else:
-        # No parent placement: bake this beam's own RelativePlacement into world-space n1/n2.
-        rel_place = Placement.from_axis3d(axis3d(obj_placement.RelativePlacement))
-        extrude_dir = unit_vector(rel_place.transform_vector(body.position.axis, inverse=True))
-        ref_dir = unit_vector(rel_place.transform_vector(body.position.ref_direction))
-        p1 = body.position.location
+    extrude_dir = unit_vector(body.position.axis)
+    ref_dir = unit_vector(body.position.ref_direction)
+    p1 = body.position.location
     local_y = calc_yvec(ref_dir, extrude_dir)
     p2 = p1 + extrude_dir * body.depth
 

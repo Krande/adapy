@@ -1,3 +1,4 @@
+import re
 import numpy as np
 import pytest
 
@@ -43,8 +44,10 @@ def test_read_extruded_solid_beams(example_files):
     assert len(p.beams) == 1
     bm = p.beams[0]
 
-    assert tuple(bm.n1.p) == (0.0, 0.0, 0.0)
-    assert tuple(bm.n2.p) == (0.0, 10.0, 0.0)
+    # n1/n2 are in the beam's LOCAL frame (the extrusion is along local Z); the ObjectPlacement
+    # rotates that onto world +Y. Check the WORLD endpoints via the placement transform.
+    assert tuple(_world(bm, bm.n1.p)) == (0.0, 0.0, 0.0)
+    assert tuple(_world(bm, bm.n2.p)) == (0.0, 10.0, 0.0)
 
 
 def test_read_varying_cardinal_points(example_files):
@@ -92,3 +95,37 @@ def test_extruded_solid_beam_winding_is_outward(example_files, monkeypatch):
     exp = bm.section.properties.Ax * 10.0  # 10 m long
     assert m.volume > 0, f"extrusion is inside-out (negative volume {m.volume:.5f})"
     assert exp * 0.97 < m.volume < exp * 1.10, f"volume {m.volume:.5f} out of band around {exp:.5f}"
+
+
+def test_read_varying_cardinal_points_world_positions(example_files):
+    """The 4 beams in beam-varying-cardinal-points.ifc each carry a different CardinalPoint
+    (1/2/8/9). The authoring tool bakes that offset into the extrusion's Position, and each
+    beam's rotated ObjectPlacement (no PlacementRelTo) must be applied — the old no-parent
+    import path dropped the placement, collapsing every profile onto its axis. World bboxes
+    verified against ifcopenshell.geom (USE_WORLD_COORDS)."""
+    import numpy as np
+    import trimesh
+
+    a = ada.from_ifc(example_files / "ifc_files/beams/beam-varying-cardinal-points.ifc")
+    # (min, max) world bbox per beam name.
+    expected = {
+        "BotLeft": ((0.5, 0.0, 0.0), (0.6, 1.0, 0.2)),
+        "BotMid": ((-0.05, 0.0, 0.0), (0.05, 1.0, 0.2)),
+        "TopMid": ((-0.05, 0.0, -0.2), (0.05, 1.0, 0.0)),
+        "TopRight": ((0.4, 0.0, -0.2), (0.5, 1.0, 0.0)),
+    }
+    sc = a.to_trimesh_scene(merge_meshes=False)
+    seen = {}
+    for node in sc.graph.nodes_geometry:
+        m = re.search(r"name=(\w+)", str(node))
+        if not m:
+            continue
+        T, gn = sc.graph[node]
+        v = trimesh.transformations.transform_points(np.asarray(sc.geometry[gn].vertices), T)
+        seen[m.group(1)] = (v.min(0), v.max(0))
+    for nm, (emn, emx) in expected.items():
+        assert nm in seen, f"{nm} not rendered"
+        amn, amx = seen[nm]
+        assert np.allclose(amn, emn, atol=1e-3) and np.allclose(amx, emx, atol=1e-3), (
+            f"{nm}: cardinal offset wrong — got {np.round(amn,3)}..{np.round(amx,3)}, want {emn}..{emx}"
+        )
