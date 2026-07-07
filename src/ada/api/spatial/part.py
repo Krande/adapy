@@ -744,6 +744,17 @@ class Part(BackendGeom):
             elif reader == "native":
                 raise StepStreamUnsupported("reader='native' requires the adacpp stream_step_to_ngeom entry point")
 
+        # The native reader is solid-only; for "auto" a file carrying loose curve/geometric-set
+        # roots (wireframe bodies — SAT wire bodies, evaluated alignment reference curves) would
+        # silently lose them. Route such files to the lossless pure-Python reader instead so
+        # "auto" keeps its no-geometry-left-behind contract. ("native" stays as asked.)
+        if use_native and reader == "auto":
+            from ada.cadit.step.write._solid_source import step_has_curve_set_roots
+
+            if step_has_curve_set_roots(step_path):
+                use_native = False
+                tolerant = True  # the pure-Python fallback must read the curve sets, not raise
+
         if use_native:
             from ada.cadit.ngeom.deserialize import (
                 deserialize_geometries,

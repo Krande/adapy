@@ -28,6 +28,27 @@ def native_available() -> bool:
     return native_adacpp_step_available()
 
 
+# Loose curve/geometric-set roots (wireframe bodies — SAT wire bodies, evaluated alignment
+# reference curves) that the native adacpp reader (solid-only) silently drops. "auto" must stay
+# lossless, so a file carrying these routes to the pure-Python reader instead.
+_CURVE_SET_MARKERS = (b"GEOMETRIC_CURVE_SET", b"GEOMETRIC_SET")
+
+
+def step_has_curve_set_roots(src_path: str | pathlib.Path, size_limit: int = 64_000_000) -> bool:
+    """Cheap check: does the STEP file contain loose curve/geometric-set roots that the native
+    (solid-only) reader would drop? Bounded to files under ``size_limit`` — such wireframe bodies
+    are small, and a multi-GB solid assembly is not worth a full extra scan (kept on the fast
+    native path)."""
+    try:
+        p = pathlib.Path(src_path)
+        if p.stat().st_size > size_limit:
+            return False
+        data = p.read_bytes()
+    except OSError:
+        return False
+    return any(m in data for m in _CURVE_SET_MARKERS)
+
+
 def _python_solids(src_path) -> Iterator[Geometry]:
     # local_pool=False: random-access two-pass index (valid for any reference order);
     # tolerant skips unsupported solids rather than raising.
@@ -40,6 +61,12 @@ def read_solids(src_path: str | pathlib.Path) -> Iterator[Geometry]:
     """Yield one ``ada.geom.Geometry`` per solid. Uses the native reader when it
     decodes cleanly; otherwise falls back to the pure-Python reader for the file."""
     if not native_available():
+        yield from _python_solids(src_path)
+        return
+
+    # The native reader is solid-only; a file with loose curve/geometric-set roots (wireframe
+    # bodies) would silently lose them, so route it to the lossless pure-Python reader.
+    if step_has_curve_set_roots(src_path):
         yield from _python_solids(src_path)
         return
 

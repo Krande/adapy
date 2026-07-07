@@ -161,8 +161,11 @@ def _count_step_instances(path: str | Path) -> int:
     WITHOUT hydrating ada.geom or tessellating (the geometry is never needed, only
     the count). Falls back to the pure-Python streaming reader."""
     from ada.cadit.step.read.native_reader import native_adacpp_step_available
+    from ada.cadit.step.write._solid_source import step_has_curve_set_roots
 
-    if native_adacpp_step_available():
+    # The native StepNgeomStream is solid-only; a file with loose curve/geometric-set roots
+    # (wireframe bodies) needs the pure-Python tolerant reader to count them too.
+    if native_adacpp_step_available() and not step_has_curve_set_roots(path):
         import adacpp
 
         total = 0
@@ -189,8 +192,13 @@ def _count_step_product_instances(path: str | Path) -> int | None:
     exactly as :func:`_count_step_instances`. None when the native parser is
     unavailable (caller falls back to the reload count)."""
     from ada.cadit.step.read.native_reader import native_adacpp_step_available
+    from ada.cadit.step.write._solid_source import step_has_curve_set_roots
 
     if not native_adacpp_step_available():
+        return None
+    # The native StepNgeomStream is solid-only; for a file carrying loose curve/geometric-set
+    # roots (wireframe bodies) it undercounts — defer to the caller's lossless reload count.
+    if step_has_curve_set_roots(path):
         return None
     import adacpp
 

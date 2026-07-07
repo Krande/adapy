@@ -564,6 +564,8 @@ def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
         return make_wire_from_composite_curve(outer_curve)
     elif isinstance(outer_curve, geo_cu.GradientCurve):
         return make_wire_from_gradient_curve(outer_curve)
+    elif isinstance(outer_curve, geo_cu.PolyLine):
+        return make_wire_from_polyline(outer_curve)
     elif isinstance(outer_curve, geo_cu.GeometricCurveSet):
         # Loose curve collection (STEP wireframe body): the members are
         # independent curves, so build a compound of wires rather than
@@ -598,6 +600,27 @@ def make_wire_from_gradient_curve(curve: geo_cu.GradientCurve) -> TopoDS_Wire:
             gp_Pnt(float(a[0]), float(a[1]), float(a[2])), gp_Pnt(float(b[0]), float(b[1]), float(b[2]))
         ).Edge()
         wire_maker.Add(edge)
+    return wire_maker.Wire()
+
+
+def make_wire_from_polyline(curve: geo_cu.PolyLine) -> TopoDS_Wire:
+    """A sampled polyline (e.g. an evaluated alignment reference curve) -> a polyline wire, so it
+    round-trips through the OCC B-rep exporters (STEP GEOMETRIC_CURVE_SET, IFC)."""
+    import numpy as np
+
+    pts = [np.asarray(p, dtype=float) for p in curve.points]
+    wire_maker = BRepBuilderAPI_MakeWire()
+    added = 0
+    for a, b in zip(pts[:-1], pts[1:]):
+        if float(np.linalg.norm(b - a)) < 1e-9:
+            continue
+        edge = BRepBuilderAPI_MakeEdge(
+            gp_Pnt(float(a[0]), float(a[1]), float(a[2])), gp_Pnt(float(b[0]), float(b[1]), float(b[2]))
+        ).Edge()
+        wire_maker.Add(edge)
+        added += 1
+    if added == 0:
+        raise NotImplementedError("PolyLine has no non-degenerate segments to build a wire from")
     return wire_maker.Wire()
 
 
