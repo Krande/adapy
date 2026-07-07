@@ -85,6 +85,27 @@ def test_segmented_reference_curve_cant_z(example_files):
         assert np.isclose(pts[int(station * 2), 2], z, atol=1e-4), f"cant z at s={station}"
 
 
+def test_sectioned_solid_horizontal_native(example_files):
+    """IfcSectionedSolidHorizontal (a profile swept along the alignment directrix over a distance
+    range) reads natively as a triangulated swept shell — NOT the OCC-kernel explosion into
+    thousands of loose faces — so it renders and STEP-round-trips as one solid. bbox matches the
+    ifcopenshell oracle."""
+    import ada.geom.surfaces as su
+
+    a = ada.from_ifc(example_files / "ifc_files/sectioned-solid-horizontal.ifc")
+    objs = list(a.get_all_physical_objects())
+    assert len(objs) == 8  # 1 sectioned solid + 7 alignment curves
+
+    solids = [o for o in objs if o.geom is not None and isinstance(o.geom.geometry, su.TriangulatedFaceSet)]
+    assert len(solids) == 1, "the sectioned solid must read as one native triangulated shell"
+    tfs = solids[0].geom.geometry
+    coords = np.array([[p[0], p[1], p[2]] for p in tfs.coordinates])
+    assert len(tfs.indices) % 3 == 0 and len(tfs.indices) // 3 > 100
+    # oracle (ifcopenshell.geom, USE_WORLD_COORDS): swept over directrix distance 300..600
+    assert np.allclose(coords.min(0), (300.0, -22.26, 148.52), atol=0.1)
+    assert np.allclose(coords.max(0), (599.88, 5.0, 149.7), atol=0.1)
+
+
 def test_alignment_renders_as_lines(example_files):
     """The imported polylines tessellate to GL_LINES (kernel-free discretize_curve path) with the
     expected scene bbox (reference curve dips to z = -7.92 from the cant)."""

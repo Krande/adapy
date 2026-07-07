@@ -20,6 +20,7 @@ from .solids import (
     ifc_rectangular_pyramid,
     ifc_sphere,
     revolved_solid_area,
+    sectioned_solid_horizontal,
     swept_disk_solid,
 )
 from .surfaces import advanced_face, curve_bounded_plane
@@ -57,6 +58,9 @@ def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GE
         return revolved_solid_area(geom_repr)
     elif geom_repr.is_a("IfcFixedReferenceSweptAreaSolid"):
         return fixed_reference_swept_area_solid(geom_repr)
+    elif geom_repr.is_a("IfcSectionedSolidHorizontal"):
+        # Subtype of IfcSectionedSolid — a profile swept along an alignment directrix.
+        return sectioned_solid_horizontal(geom_repr)
     elif geom_repr.is_a("IfcSweptDiskSolid"):
         # Covers the IfcSweptDiskSolidPolygonal subtype too.
         return swept_disk_solid(geom_repr)

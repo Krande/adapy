@@ -251,6 +251,87 @@ def curve_to_polyline(curve, n_per: int = 300) -> np.ndarray:
     raise NotImplementedError(f"alignment curve container {type(curve).__name__}")
 
 
+def _directrix_points_with_s(curve, n_per: int) -> tuple[np.ndarray, np.ndarray]:
+    """(arc length s, 3D points) for a sweep directrix — GradientCurve / SegmentedReferenceCurve
+    (via its base) / CompositeCurve. ``s`` is measured along the base curve, matching the distance
+    coordinate the IfcSectionedSolidHorizontal cross-section positions are given in."""
+    if isinstance(curve, geo_cu.SegmentedReferenceCurve):
+        curve = curve.base_curve
+    if isinstance(curve, geo_cu.GradientCurve):
+        return gradient_curve_points_with_s(curve, n_per)
+    if isinstance(curve, geo_cu.CompositeCurve):
+        s, xy = _sample_planar(_curve_segments(curve), n_per)
+        return s, np.column_stack([xy[:, 0], xy[:, 1], np.zeros(len(xy))])
+    raise NotImplementedError(f"sweep directrix {type(curve).__name__}")
+
+
+def sectioned_solid_horizontal_mesh(
+    directrix,
+    profile_xy,
+    start_dist: float,
+    end_dist: float,
+    fixed_ref=(0.0, 0.0, 1.0),
+    n_stations: int = 400,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Triangulated swept solid for an IfcSectionedSolidHorizontal with a CONSTANT cross-section.
+
+    ``profile_xy`` is the (M,2) closed outline (no repeated closing vertex). The profile is swept
+    along ``directrix`` over arc length ``[start_dist, end_dist]`` with fixed-reference framing
+    (no Frenet roll): at each station the profile's local x maps to the lateral axis and local y to
+    the fixed-reference "up" (validated exact against the ifcopenshell oracle bbox). Returns
+    ``(coords (K,3), tri_indices (T,3) 0-based)`` — a closed shell (side quads + fan end caps),
+    wound outward (signed-volume checked)."""
+    prof = np.asarray(profile_xy, dtype=float)[:, :2]
+    if len(prof) >= 2 and np.allclose(prof[0], prof[-1]):
+        prof = prof[:-1]  # drop the repeated closing vertex
+    m = len(prof)
+    if m < 3:
+        raise NotImplementedError("sectioned solid profile has < 3 outline vertices")
+
+    s, pts = _directrix_points_with_s(directrix, n_per=max(200, n_stations // 2))
+    lo, hi = min(start_dist, end_dist), max(start_dist, end_dist)
+    stations = np.linspace(lo, hi, n_stations)
+    centers = np.column_stack([np.interp(stations, s, pts[:, k]) for k in range(3)])
+
+    F = np.asarray(fixed_ref, dtype=float)
+    F = F / np.linalg.norm(F)
+    tangent = np.gradient(centers, axis=0)
+    tangent /= np.linalg.norm(tangent, axis=1, keepdims=True)
+    lateral = np.cross(tangent, F)
+    lateral /= np.linalg.norm(lateral, axis=1, keepdims=True)
+    up = np.cross(lateral, tangent)
+    up /= np.linalg.norm(up, axis=1, keepdims=True)
+
+    n = len(centers)
+    rings = (
+        centers[:, None, :]
+        + prof[None, :, 0, None] * lateral[:, None, :]  # profile x -> lateral
+        + prof[None, :, 1, None] * up[:, None, :]  # profile y -> fixed-reference up
+    )  # (n, m, 3)
+    coords = rings.reshape(-1, 3)
+
+    faces = []
+    for i in range(n - 1):
+        for j in range(m):
+            a, b = i * m + j, i * m + (j + 1) % m
+            c, d = (i + 1) * m + j, (i + 1) * m + (j + 1) % m
+            faces.append((a, b, d))
+            faces.append((a, d, c))
+    base = (n - 1) * m
+    for j in range(1, m - 1):  # convex fan end caps
+        faces.append((0, j + 1, j))
+        faces.append((base, base + j, base + j + 1))
+    tris = np.asarray(faces, dtype=np.int64)
+
+    # Orient outward: a closed shell with inward winding tessellates dark. Flip all triangles when
+    # the signed volume (divergence theorem over the triangles) is negative.
+    v0, v1, v2 = coords[tris[:, 0]], coords[tris[:, 1]], coords[tris[:, 2]]
+    signed_vol = float(np.einsum("ij,ij->i", v0, np.cross(v1, v2)).sum()) / 6.0
+    if signed_vol < 0.0:
+        tris = tris[:, ::-1]
+    return coords, tris
+
+
 def directrix_frames(
     solid: geo_so.FixedReferenceSweptAreaSolid, n_per: int = 300
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

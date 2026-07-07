@@ -1,12 +1,62 @@
 import ifcopenshell
 
 from ada.geom import solids as geo_so
+from ada.geom import surfaces as geo_su
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
 from .curves import get_curve
 from .placement import axis1placement, axis2placement, axis3d, ifc_direction
 from .surfaces import closed_shell, get_surface
+
+
+def _distance_along(placement: ifcopenshell.entity_instance) -> float:
+    """Arc-length distance of an IfcAxis2PlacementLinear along its base curve — the
+    IfcPointByDistanceExpression.DistanceAlong at its Location."""
+    dist = placement.Location.DistanceAlong
+    return float(dist.wrappedValue if hasattr(dist, "wrappedValue") else dist)
+
+
+def sectioned_solid_horizontal(ifc_entity: ifcopenshell.entity_instance) -> geo_su.TriangulatedFaceSet:
+    """IfcSectionedSolidHorizontal — a profile swept along a (horizontal alignment) directrix, its
+    cross-sections placed at distances along it. For a CONSTANT cross-section (all sections equal)
+    this is a fixed-reference sweep over the directrix range [first, last] cross-section distance;
+    we evaluate it natively to a triangulated shell (no OCC kernel, which otherwise explodes the
+    swept solid into thousands of loose faces). Varying cross-sections aren't handled yet
+    (NotImplementedError -> the caller's kernel fallback)."""
+    import numpy as np
+
+    from ada.cadit.ngeom._alignment_sweep import sectioned_solid_horizontal_mesh
+    from ada.geom import curves as geo_cu
+
+    cross = list(ifc_entity.CrossSections)
+    if any(cs != cross[0] for cs in cross):
+        raise NotImplementedError("IfcSectionedSolidHorizontal with varying cross-sections not yet native")
+
+    profile = get_surface(cross[0])
+    outer = getattr(profile, "outer_curve", None)
+    # The 2D profile outline (the swept cross-section). IndexedPolyCurve/PolyLine expose their
+    # vertices directly; a bare curve type without a vertex list can't seed a swept polygon.
+    if isinstance(outer, geo_cu.IndexedPolyCurve):
+        pts = outer.get_points()
+    elif isinstance(outer, geo_cu.PolyLine):
+        pts = [tuple(p) for p in outer.points]
+    else:
+        raise NotImplementedError(f"sectioned-solid profile outline {type(outer).__name__} not supported")
+    if not pts or len(pts) < 3:
+        raise NotImplementedError("sectioned-solid profile has no polygon outline")
+
+    directrix = get_curve(ifc_entity.Directrix)
+    dists = [_distance_along(p) for p in ifc_entity.CrossSectionPositions]
+    fixed_ref = (0.0, 0.0, 1.0)
+    coords, tris = sectioned_solid_horizontal_mesh(
+        directrix, np.asarray(pts, dtype=float)[:, :2], dists[0], dists[-1], fixed_ref=fixed_ref
+    )
+    return geo_su.TriangulatedFaceSet(
+        coordinates=[Point(float(c[0]), float(c[1]), float(c[2])) for c in coords],
+        normals=[],
+        indices=(tris + 1).reshape(-1).tolist(),  # IFC face indices are 1-based
+    )
 
 
 def faceted_brep(ifc_entity: ifcopenshell.entity_instance) -> geo_so.FacetedBrep:
