@@ -3,6 +3,7 @@ import {selectInOtherModel} from '@/utils/scene/crossModelSelect';
 import type {LinkResult} from '@/state/lineageStore';
 import {useViewerStores} from '@/state/AdaViewerContext';
 import ConnectionsSection from './ConnectionsSection';
+import MeshStatsSection from './MeshStatsSection';
 
 // Decimal places for the "Clicked at" coordinates, matching the
 // precision the old standalone block used before the fold-in.
@@ -280,6 +281,7 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
                     {link && <LinkRow link={link} />}
                 </div>
             )}
+            <MeshStatsSection />
             <ConnectionsSection fileName={fileName} objectName={clickedName} />
         </div>
     );
