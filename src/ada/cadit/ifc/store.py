@@ -20,6 +20,22 @@ if TYPE_CHECKING:
 
     from ada import Assembly, Section, User
     from ada.cadit.ifc.read.read_ifc import IfcReader
+
+
+def open_ifc_file(ifc_file_path: str | os.PathLike) -> ifcopenshell.file:
+    """Open an IFC file, transparently decompressing a gzip-compressed model. Some exporters and
+    servers ship a gzip'd IFC under a plain ``.ifc`` name; ``ifcopenshell.open`` then fails with
+    'Unable to parse IFC SPF header'. Detect the gzip magic (0x1f 0x8b) and load the inflated SPF
+    text via ``from_string`` instead."""
+    import gzip
+
+    path = str(ifc_file_path)
+    with open(path, "rb") as fh:
+        is_gzip = fh.read(2) == b"\x1f\x8b"
+    if is_gzip:
+        with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
+            return ifcopenshell.file.from_string(fh.read())
+    return ifcopenshell.open(path)
     from ada.cadit.ifc.write.write_ifc import IfcWriter
 
 
@@ -68,7 +84,7 @@ class IfcStore:
             if self.ifc_file_path is not None:
                 self.ifc_file_path = pathlib.Path(self.ifc_file_path)
                 if self.ifc_file_path.exists():
-                    self.f = ifcopenshell.open(str(self.ifc_file_path))
+                    self.f = open_ifc_file(self.ifc_file_path)
             elif self.assembly is not None:
                 self.f = assembly_to_ifc_file(self.assembly)
                 self.add_standard_contexts()
@@ -458,7 +474,7 @@ class IfcStore:
         ifc_file = pathlib.Path(ifc_file).resolve().absolute()
         if ifc_file.exists() is False:
             raise FileNotFoundError(f'Unable to find "{ifc_file}"')
-        return ifcopenshell.open(str(ifc_file))
+        return open_ifc_file(ifc_file)
 
     @staticmethod
     def copy_ifc_obj(ifc_file: ifcopenshell.file) -> ifcopenshell.file:

@@ -18,7 +18,11 @@ if TYPE_CHECKING:
 def open_ifc(ifc_file_path: Union[str, pathlib.Path, StringIO]):
     if type(ifc_file_path) is StringIO:
         return ifcopenshell.file.from_string(str(ifc_file_path.read()))
-    return ifcopenshell.open(str(ifc_file_path))
+    # Transparently inflate a gzip-compressed IFC shipped under a plain .ifc name (see
+    # ada.cadit.ifc.store.open_ifc_file).
+    from ada.cadit.ifc.store import open_ifc_file
+
+    return open_ifc_file(ifc_file_path)
 
 
 def get_ifc_property_sets(ifc_elem) -> dict:
