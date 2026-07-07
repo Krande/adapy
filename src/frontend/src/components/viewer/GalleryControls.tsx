@@ -9,6 +9,7 @@ import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {convertViaServer} from "@/services/conversion/serverPipeline";
 import {canLoadIntoSceneLegacy, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
+import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
 
 // Gallery HUD. Three "walk" types (dropdown):
 //   - "files": cycles the current scope's loadable files (clear → load).
@@ -204,6 +205,14 @@ const GalleryControls: React.FC = () => {
     const activeIndex = isGeomWalk ? geomIndex : index;
     const empty = count === 0;
     const navBusy = !isGeomWalk && !!loadBusy;
+    const [nameCopied, setNameCopied] = useState(false);
+    const copyName = useCallback(async (text: string) => {
+        if (!text) return;
+        if (await writeToClipboard(text)) {
+            setNameCopied(true);
+            window.setTimeout(() => setNameCopied(false), 1200);
+        }
+    }, []);
     const primaryLabel = isGeomWalk
         ? empty
             ? "no geoms in scene"
@@ -311,9 +320,15 @@ const GalleryControls: React.FC = () => {
                     </button>
                 </div>
                 {geomControls}
-                <div className="truncate font-mono text-[11px] text-gray-300" title={primaryLabel}>
-                    {primaryLabel}
-                </div>
+                <button
+                    type="button"
+                    onClick={() => void copyName(primaryLabel)}
+                    disabled={empty}
+                    title={empty ? primaryLabel : `Click to copy: ${primaryLabel}`}
+                    className="truncate text-left font-mono text-[11px] text-gray-300 hover:text-gray-100 disabled:cursor-default"
+                >
+                    {nameCopied ? "✓ copied" : primaryLabel}
+                </button>
                 {toolsDrawer}
             </div>
 
@@ -331,9 +346,15 @@ const GalleryControls: React.FC = () => {
                         ‹
                     </button>
                     <div className="min-w-0 flex-1 text-center">
-                        <div className="truncate font-mono text-[11px] text-gray-200" title={primaryLabel}>
-                            {primaryLabel}
-                        </div>
+                        <button
+                            type="button"
+                            onClick={() => void copyName(primaryLabel)}
+                            disabled={empty}
+                            title={empty ? primaryLabel : `Tap to copy: ${primaryLabel}`}
+                            className="w-full truncate font-mono text-[11px] text-gray-200 hover:text-white disabled:cursor-default"
+                        >
+                            {nameCopied ? "✓ copied" : primaryLabel}
+                        </button>
                         <div className="tabular-nums text-[10px] text-gray-500">
                             {empty ? "0 / 0" : `${activeIndex + 1} / ${count}`}
                         </div>
