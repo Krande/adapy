@@ -20,6 +20,50 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
 
+def _bake_placement_into_geometry(geom_wrapper: Geometry, placement: Placement) -> Geometry | None:
+    """Return a COPY of ``geom_wrapper`` with ``placement`` folded into the underlying solid's
+    ``position``, so a placement-agnostic tessellator renders the shape in world coordinates.
+
+    Only analytic solids (those carrying an ``Axis2Placement3D`` / ``Axis1Placement``
+    ``position`` — Box, Sphere, Cylinder, Cone, Extruded/Revolved/Swept area solids) are
+    supported; anything else (face sets, B-reps) returns ``None`` so the caller keeps the
+    unplaced geometry (a follow-up). Uses the public ``transform_local_points_to_global`` /
+    ``transform_vector`` helpers, which encode the (now self-consistent) Placement rotation
+    convention — ``transform_local_points_to_global(p) == rot_matrix @ p + origin`` — so the
+    location, axis and ref_direction land on the same world frame the tessellator expects.
+    """
+    import copy
+
+    import numpy as np
+
+    from ada import Direction
+    from ada.geom.placement import Axis1Placement, Axis2Placement3D
+
+    solid = geom_wrapper.geometry
+    pos = getattr(solid, "position", None)
+    if not isinstance(pos, (Axis2Placement3D, Axis1Placement)):
+        return None
+
+    abs_p = placement.get_absolute_placement(include_rotations=True)
+
+    def _pt(p):
+        return abs_p.transform_local_points_to_global(np.asarray([[float(p[0]), float(p[1]), float(p[2])]]))[0]
+
+    def _vec(v):
+        return abs_p.transform_vector(np.asarray([float(v[0]), float(v[1]), float(v[2])]))
+
+    new_solid = copy.copy(solid)  # shallow: only ``position`` is replaced
+    loc = _pt(pos.location)
+    axis = _vec(pos.axis)
+    if isinstance(pos, Axis2Placement3D):
+        ref = _vec(pos.ref_direction)
+        new_solid.position = Axis2Placement3D(Point(*loc), Direction(*axis), Direction(*ref))
+    else:
+        new_solid.position = Axis1Placement(Point(*loc), Direction(*axis))
+
+    return Geometry(geom_wrapper.id, new_solid, geom_wrapper.color, bool_operations=geom_wrapper.bool_operations)
+
+
 class Shape(BackendGeom):
     IFC_CLASSES = ShapeTypes
 
@@ -210,6 +254,20 @@ class Shape(BackendGeom):
                 self.geom.bool_operations = [
                     BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans
                 ]
+
+            # Bake a non-identity placement into the geometry. The tessellator/exporters are
+            # placement-agnostic for generic Shapes (unlike Beam, whose straight_beam_to_geom
+            # bakes it in, and the Prim* subclasses, which override solid_geom) — so an IFC/
+            # native shape read in LOCAL representation coords with its world transform held in
+            # ``self.placement`` would otherwise render unplaced (rotation dropped; translation
+            # only happened to work when it was already baked into the geom). Returns a COPY so
+            # repeat calls don't compound; ``self.geom``/``self.placement`` are never mutated.
+            # Only analytic (positioned) solids are handled today — face-set / B-rep placement
+            # baking is a follow-up (helper returns None → keep the unplaced geom).
+            if not self.placement.is_identity():
+                placed = _bake_placement_into_geometry(self.geom, self.placement)
+                if placed is not None:
+                    return placed
             return self.geom
         else:
             raise NotImplementedError(f"solid_geom() not implemented for {self.geom=}")
