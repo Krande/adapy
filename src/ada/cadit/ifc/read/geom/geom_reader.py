@@ -109,6 +109,10 @@ def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GE
         # Covers IfcBooleanClippingResult (a subtype). Returns a wrapped Geometry carrying
         # the cut(s) as bool_operations, not a raw geom — callers handle both (read_shapes).
         return boolean_result(geom_repr)
+    elif geom_repr.is_a("IfcMappedItem"):
+        # Instanced reuse of a mapped representation, placed by a transform. Unwrap + read the
+        # underlying geometry natively (no OCC kernel, which otherwise builds the mapped body).
+        return mapped_item(geom_repr)
     elif geom_repr.is_a("IfcCurve"):
         # Curve-only body (Curve3D representation) — e.g. a SAT wire body round-tripped
         # through write_shapes. IfcCurve is the supertype of every concrete curve entity;
@@ -118,6 +122,90 @@ def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GE
         return get_curve(geom_repr)
     else:
         raise NotImplementedError(f"Geometry type {geom_repr.is_a()} not implemented")
+
+
+def mapped_item(geom_repr: ifcopenshell.entity_instance) -> GEOM:
+    """IfcMappedItem — reuse of a MappingSource representation placed by a MappingTarget transform.
+
+    Unwrap the (single) mapped representation item, read it natively (recurse), and apply the
+    mapped-item 4x4 (MappingTarget composed with MappingOrigin — via ifcopenshell's pure-Python
+    ``get_mappeditem_transformation``, no OCC kernel). A mapped representation with more than one
+    item, or a non-rigid (shear / non-uniform-scale) transform on an analytic solid, raises
+    NotImplementedError so the caller keeps the kernel fallback for that product."""
+    import ifcopenshell.util.placement as _placement
+
+    items = list(geom_repr.MappingSource.MappedRepresentation.Items)
+    if len(items) != 1:
+        raise NotImplementedError("IfcMappedItem MappedRepresentation with != 1 item (kernel fallback)")
+    geom = import_geometry_from_ifc_geom(items[0])
+    return _transform_geometry(geom, _placement.get_mappeditem_transformation(geom_repr))
+
+
+def _transform_curve(curve, xf, r_mat, scale):
+    """Apply a rigid (optionally uniformly-scaled) 4x4 to a curve by transforming its vertices —
+    Edge / ArcLine / IndexedPolyCurve / PolyLine (the swept-solid directrix forms)."""
+    from ada.geom import curves as geo_cu
+
+    if isinstance(curve, geo_cu.Edge):
+        return geo_cu.Edge(xf(curve.start), xf(curve.end))
+    if isinstance(curve, geo_cu.ArcLine):
+        return geo_cu.ArcLine(xf(curve.start), xf(curve.midpoint), xf(curve.end))
+    if isinstance(curve, geo_cu.PolyLine):
+        return geo_cu.PolyLine(points=[xf(p) for p in curve.points])
+    if isinstance(curve, geo_cu.IndexedPolyCurve):
+        return geo_cu.IndexedPolyCurve(
+            [_transform_curve(s, xf, r_mat, scale) for s in curve.segments], curve.self_intersect
+        )
+    raise NotImplementedError(f"mapped-item transform of directrix {type(curve).__name__}")
+
+
+def _transform_geometry(geom: GEOM, matrix) -> GEOM:
+    """Apply a mapped-item 4x4 to a native geometry. Identity returns the geometry unchanged
+    (the common case — the mapped body sits at the source origin and the product's ObjectPlacement
+    does the placing). Otherwise the transform must be rigid (optionally uniform scale): point-set
+    geometries transform their coordinates, an IfcSweptDiskSolid transforms its directrix + scales
+    its radius. Non-rigid transforms and unsupported analytic types raise NotImplementedError."""
+    import numpy as np
+
+    from ada.geom import solids as geo_so
+    from ada.geom import surfaces as geo_su
+    from ada.geom.direction import Direction
+    from ada.geom.points import Point
+
+    m = np.asarray(matrix, dtype=float)
+    if np.allclose(m, np.eye(4), atol=1e-12):
+        return geom
+
+    rot = m[:3, :3]
+    rtr = rot.T @ rot
+    s2 = float(np.trace(rtr)) / 3.0
+    if s2 <= 0 or not np.allclose(rtr, s2 * np.eye(3), atol=1e-6):
+        raise NotImplementedError("non-rigid (shear / non-uniform scale) mapped-item transform")
+    scale = float(np.sqrt(s2))
+
+    def xf(p) -> Point:
+        q = m @ np.array([float(p[0]), float(p[1]), float(p[2]), 1.0])
+        return Point(q[0], q[1], q[2])
+
+    if isinstance(geom, geo_su.PolygonalFaceSet):
+        return geo_su.PolygonalFaceSet(
+            coordinates=[xf(p) for p in geom.coordinates], faces=geom.faces, closed=geom.closed
+        )
+    if isinstance(geom, geo_su.TriangulatedFaceSet):
+        rn = rot / scale  # pure rotation for the normals
+        normals = [Direction(*(rn @ np.asarray([n[0], n[1], n[2]], float))) for n in geom.normals]
+        return geo_su.TriangulatedFaceSet(
+            coordinates=[xf(p) for p in geom.coordinates], normals=normals, indices=geom.indices
+        )
+    if isinstance(geom, geo_so.SweptDiskSolid):
+        return geo_so.SweptDiskSolid(
+            directrix=_transform_curve(geom.directrix, xf, rot / scale, scale),
+            radius=geom.radius * scale,
+            inner_radius=(geom.inner_radius * scale if geom.inner_radius else None),
+            start_param=geom.start_param,
+            end_param=geom.end_param,
+        )
+    raise NotImplementedError(f"mapped-item transform of {type(geom).__name__} (kernel fallback)")
 
 
 def boolean_result(geom_repr: ifcopenshell.entity_instance) -> "Geometry":

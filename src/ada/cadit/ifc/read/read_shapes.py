@@ -111,9 +111,15 @@ def _read_shape_geometry(product: ifcopenshell.entity_instance, color, ifc_store
         logger.debug(f"native IFC geom reader unsupported for {product.is_a()}; using kernel fallback ({e})")
         geometries = []
 
+    if len(geometries) > 1:
+        # A product with several Body items (e.g. multiple IfcMappedItem instances) needs ALL of
+        # them — one Shape carries one geometry, so taking geometries[0] would silently drop the
+        # rest. The OCC kernel builds every item into one compound, so keep the kernel fallback for
+        # multi-item products (rare) rather than losing geometry.
+        logger.debug(f"product {product.is_a()} has {len(geometries)} Body geometries; using kernel fallback")
+        geometries = []
+
     if geometries:
-        if len(geometries) > 1:
-            logger.warning(f"Multiple geometries on product {product}. Choosing geometry @ index=0")
         geometry = geometries[0]
         # A boolean result (e.g. IfcBooleanClippingResult) already comes back as a Geometry
         # carrying its bool_operations — adopt the product's guid/color rather than re-wrap.

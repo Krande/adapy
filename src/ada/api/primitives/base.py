@@ -243,6 +243,7 @@ class Shape(BackendGeom):
                 geo_so.ExtrudedAreaSolidTapered,
                 geo_so.RevolvedAreaSolid,
                 geo_so.FixedReferenceSweptAreaSolid,
+                geo_so.SweptDiskSolid,  # pipes/rods (IfcSweptDiskSolid) — OCC + NGEOM builders exist
             ),
         ):
 
