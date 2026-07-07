@@ -71,7 +71,17 @@ def test_libtess2_tessellation_parity_gate(tmp_path):
         t = 0
         for g in stream_read_step(src, local_pool=False, tolerant=True):
             gi = g.geometry.geometry if hasattr(g.geometry, "geometry") else g.geometry
-            t += len(be.tessellate_stream([(str(g.id), gi)], pipeline="libtess2", deflection=2.0).indices) // 3
+            # Pin max-angle 20 explicitly: this gate measures step2glb PARITY (its ~20-25deg
+            # density), independent of the viewer's finer corpus default (DEFAULT_STREAM_TESS_
+            # ANGULAR_DEG, now 10deg) which would otherwise ~double the golden counts.
+            t += (
+                len(
+                    be.tessellate_stream(
+                        [(str(g.id), gi)], pipeline="libtess2", deflection=2.0, angular_deg=20.0
+                    ).indices
+                )
+                // 3
+            )
         return t
 
     golden = {"cylinder": 120, "sphere": 324}
