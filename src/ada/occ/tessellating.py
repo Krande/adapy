@@ -1320,15 +1320,19 @@ class BatchTessellator:
     ) -> trimesh.Scene:
         import trimesh
 
-        all_shapes = sorted(shapes_tess_iter, key=lambda x: x.material)
+        # Group by (material, mesh type): a merged glTF primitive is a single type, and
+        # concatenate_stores can't mix triangle stores (with normals) and line/point stores
+        # (without) — a scene carrying both solids and line geometry (e.g. an alignment reference
+        # curve alongside a swept solid) would otherwise crash the normal concatenation.
+        all_shapes = sorted(shapes_tess_iter, key=lambda x: (x.material, x.type.value))
 
         # filter out all shapes associated with an animation,
         base_frame = graph.top_level.name if graph is not None else "root"
 
         scene = trimesh.Scene(base_frame=base_frame)
-        for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
+        for (mat_id, _mtype), meshes in groupby(all_shapes, lambda x: (x.material, x.type)):
             if merge_meshes:
-                merged_store = concatenate_stores(meshes)
+                merged_store = concatenate_stores(list(meshes))
                 merged_mesh_to_trimesh_scene(
                     scene, merged_store, self.get_mat_by_id(mat_id), mat_id, graph, apply_transform=apply_transform
                 )

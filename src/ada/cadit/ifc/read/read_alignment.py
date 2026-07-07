@@ -104,7 +104,7 @@ def import_ifc_alignment(product: ifcopenshell.entity_instance, name, ifc_store:
 
     color = get_product_color(product, ifc_store.f)
     geom = Geometry(product.GlobalId, PolyLine(points=points), color)
-    return Shape(
+    shape = Shape(
         name,
         geom=geom,
         guid=product.GlobalId,
@@ -113,3 +113,10 @@ def import_ifc_alignment(product: ifcopenshell.entity_instance, name, ifc_store:
         color=color,
         opacity=color.opacity if color is not None else 1.0,
     )
+    # Alignment products carry no IfcStyledItem, so ``color`` is None; the line-render / GLB
+    # material path reads ``geom.color`` and calls ``.rgb255`` on it. Shape defaults a None color
+    # to light-gray — mirror that onto the geometry so the mesh material is never None (the solid
+    # path does the same sync in Shape.solid_geom).
+    if geom.color is None:
+        geom.color = shape.color
+    return shape
