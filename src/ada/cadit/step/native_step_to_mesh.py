@@ -65,11 +65,26 @@ def native_step_to_mesh(
         except Exception:  # noqa: BLE001
             num_threads = 0
 
+    # Adaptive per-surface density is ON BY DEFAULT for STEP->OBJ/STL too (same rationale as
+    # STEP->GLB: dense curved assemblies over-tessellate, and the text OBJ/STL are the largest,
+    # slowest products — the crane's 107M-tri OBJ/STL blew the 5-min timeout). ADA_STREAM_TESS_
+    # ADAPTIVE=0/false forces the fixed-angle path.
+    adaptive_env = os.environ.get("ADA_STREAM_TESS_ADAPTIVE")
+    adaptive = True if adaptive_env is None else adaptive_env.strip().lower() not in {"0", "false", "no", "off", ""}
+    model_scale = 0.0
+    if adaptive:
+        from ada.cadit.step.model_scale import estimate_step_model_scale
+
+        model_scale = estimate_step_model_scale(step_path)
+
     if on_progress is not None:
         on_progress("adacpp-native-mesh", 0.1)
-    n = adacpp.cad.stream_step_to_mesh(
-        str(step_path), str(out_path), fmt, deflection=deflection, angular_deg=angular_deg, num_threads=num_threads
-    )
+    mesh_kwargs = dict(deflection=deflection, angular_deg=angular_deg, num_threads=num_threads)
+    if "model_scale" in (adacpp.cad.stream_step_to_mesh.__doc__ or ""):
+        mesh_kwargs["model_scale"] = model_scale
+    elif model_scale > 0.0:
+        logger.warning("adacpp build predates adaptive tessellation (no model_scale); using fixed angular_deg")
+    n = adacpp.cad.stream_step_to_mesh(str(step_path), str(out_path), fmt, **mesh_kwargs)
     if n < 0:
         raise RuntimeError(f"adacpp native stream_step_to_mesh failed for {step_path}")
     logger.info("adacpp-native STEP->%s: %s triangles -> %s", fmt.upper(), n, out_path)
