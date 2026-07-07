@@ -36,6 +36,10 @@ def get_surface(ifc_entity: ifcopenshell.entity_instance) -> geo_su.SURFACE_GEOM
         return t_shape_profile_def(ifc_entity)
     elif ifc_entity.is_a("IfcCircleProfileDef"):
         return circle_profile_def(ifc_entity)
+    elif ifc_entity.is_a("IfcRoundedRectangleProfileDef"):
+        # MUST precede IfcRectangleProfileDef — RoundedRectangle is a subtype, so the
+        # rectangle branch would swallow it and drop RoundingRadius (sharp corners).
+        return rounded_rectangle_profile_def(ifc_entity)
     elif ifc_entity.is_a("IfcRectangleProfileDef"):
         return rectangle_profile_def(ifc_entity)
     elif ifc_entity.is_a("IfcDerivedProfileDef"):
@@ -184,6 +188,45 @@ def rectangle_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Re
         profile_type=geo_su.ProfileType.from_str(ifc_entity.ProfileType),
         x_dim=ifc_entity.XDim,
         y_dim=ifc_entity.YDim,
+    )
+
+
+def rounded_rectangle_profile_def(ifc_entity: ifcopenshell.entity_instance) -> geo_su.SURFACE_GEOM_TYPES:
+    """IfcRoundedRectangleProfileDef -> a rectangle (centred on the profile origin) with quarter-circle
+    fillets of RoundingRadius at all four corners, materialised as an ArbitraryProfileDef whose outer
+    curve is an IndexedPolyCurve of 4 Edges + 4 ArcLines. Falls back to a plain rectangle when the
+    radius is ~0 (nothing to round). The dropped rounding was what made the bath-csg void read with
+    sharp interior corners."""
+    x_dim = float(ifc_entity.XDim)
+    y_dim = float(ifc_entity.YDim)
+    hx, hy = x_dim / 2.0, y_dim / 2.0
+    r = float(ifc_entity.RoundingRadius or 0.0)
+    # A valid fillet can't exceed the half-extents; clamp defensively.
+    r = min(r, hx, hy)
+    if r <= 1e-9:
+        return rectangle_profile_def(ifc_entity)
+
+    import math
+
+    def arc(cx, cy, start, end, ang_mid_deg):
+        # midpoint = the on-arc point at 45 deg into the corner (arc spans 90 deg)
+        m = (cx + r * math.cos(math.radians(ang_mid_deg)), cy + r * math.sin(math.radians(ang_mid_deg)))
+        return geo_cu.ArcLine(list(start), list(m), list(end))
+
+    segs = [
+        geo_cu.Edge([-hx + r, -hy], [hx - r, -hy]),  # bottom
+        arc(hx - r, -hy + r, (hx - r, -hy), (hx, -hy + r), -45),  # bottom-right
+        geo_cu.Edge([hx, -hy + r], [hx, hy - r]),  # right
+        arc(hx - r, hy - r, (hx, hy - r), (hx - r, hy), 45),  # top-right
+        geo_cu.Edge([hx - r, hy], [-hx + r, hy]),  # top
+        arc(-hx + r, hy - r, (-hx + r, hy), (-hx, hy - r), 135),  # top-left
+        geo_cu.Edge([-hx, hy - r], [-hx, -hy + r]),  # left
+        arc(-hx + r, -hy + r, (-hx, -hy + r), (-hx + r, -hy), 225),  # bottom-left
+    ]
+    return geo_su.ArbitraryProfileDef(
+        profile_type=geo_su.ProfileType.from_str(ifc_entity.ProfileType),
+        outer_curve=geo_cu.IndexedPolyCurve(segs),
+        profile_name=ifc_entity.ProfileName,
     )
 
 

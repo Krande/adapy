@@ -281,8 +281,12 @@ def indexed_poly_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Index
     for segment in ifc_entity.Segments:
         value = [x - 1 for x in segment.wrappedValue]
         if segment.is_a("IfcLineIndex"):
-            segments.append(geo_cu.Edge(pts[value[0]], pts[value[1]]))
-        else:
+            # IfcLineIndex is a POLYLINE through all its points (>=2) — one edge per
+            # consecutive pair. Taking only value[0]/value[1] dropped every intermediate
+            # vertex, collapsing multi-point runs (e.g. an I-section's flange outline).
+            for a, b in zip(value[:-1], value[1:]):
+                segments.append(geo_cu.Edge(pts[a], pts[b]))
+        else:  # IfcArcIndex: exactly (start, mid, end)
             segments.append(geo_cu.ArcLine(pts[value[0]], pts[value[1]], pts[value[2]]))
 
     return geo_cu.IndexedPolyCurve(segments, ifc_entity.SelfIntersect)
