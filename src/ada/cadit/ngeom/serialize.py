@@ -374,16 +374,36 @@ class _Encoder:
     @staticmethod
     def _loop_points_3d(curve) -> list[tuple[float, float, float]]:
         """Ordered boundary points of a closed profile curve, lifted to z=0
-        (the profile lives in its local XY plane). IndexedPolyCurve / Polyline
-        expose ``get_points()``; fall back to ``.points``."""
+        (the profile lives in its local XY plane).
+
+        For an IndexedPolyCurve, walk the SEGMENTS so ``ArcLine`` fillets are sampled into
+        arc polylines — ``get_points()`` returns only each segment's start/end, chording every
+        arc. Chording a concave web/flange fillet fills the whole corner triangle instead of
+        the smaller arc region, so an IPE profile came out ~4% over-area with straight
+        chamfers instead of rounded fillets. Polyline / everything else falls back to
+        ``get_points()`` / ``.points``."""
+        import ada.geom.curves as cu
+
+        def _to3(p):
+            p = list(p)
+            return (float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 0.0)
+
+        segs = getattr(curve, "segments", None)
+        if segs and any(isinstance(s, cu.ArcLine) for s in segs):
+            pts: list[tuple[float, float, float]] = []
+            for s in segs:
+                if isinstance(s, cu.ArcLine):
+                    arc = _sample_arc(s.start, s.midpoint, s.end)
+                    pts.extend(_to3(p) for p in arc[:-1])  # end repeats the next segment's start
+                else:  # Edge / straight segment
+                    pts.append(_to3(s.start))
+            return pts
+
         getp = getattr(curve, "get_points", None)
         raw = getp() if callable(getp) else getattr(curve, "points", None)
         if raw is None:
             raise _Unsupported(f"profile curve {type(curve).__name__}")
-        pts: list[tuple[float, float, float]] = []
-        for p in raw:
-            p = list(p)
-            pts.append((float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 0.0))
+        pts = [_to3(p) for p in raw]
         if len(pts) > 1 and pts[0] == pts[-1]:  # POLY_LOOP closes implicitly
             pts.pop()
         return pts
