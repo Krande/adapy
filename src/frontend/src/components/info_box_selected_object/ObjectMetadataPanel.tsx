@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {selectInOtherModel} from '@/utils/scene/crossModelSelect';
 import type {LinkResult} from '@/state/lineageStore';
 import {useViewerStores} from '@/state/AdaViewerContext';
+import {useOptionsStore} from '@/state/optionsStore';
 import ConnectionsSection from './ConnectionsSection';
 import MeshStatsSection from './MeshStatsSection';
 
@@ -218,6 +219,7 @@ const ClickedAtRow: React.FC = () => {
 
 const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
     const {useObjectInfoStore, useLineageStore} = useViewerStores();
+    const showMeshStats = useOptionsStore((s) => s.showMeshStats);
     // Default collapsed: most clicks are just for selection / hide /
     // jump, not for inspecting properties. Folding keeps the info box
     // compact and the chevron tells the user where the data lives.
@@ -281,7 +283,11 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
                     {link && <LinkRow link={link} />}
                 </div>
             )}
-            <MeshStatsSection />
+            {expanded && showMeshStats && (
+                <div className="ml-4">
+                    <MeshStatsSection />
+                </div>
+            )}
             <ConnectionsSection fileName={fileName} objectName={clickedName} />
         </div>
     );

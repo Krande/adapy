@@ -8,6 +8,8 @@ export type OptionsState = {
     isOptionsVisible: boolean;
     showPerf: boolean;
     showEdges: boolean;
+    // Show the "Mesh" tessellation-stats block inside the selection's Properties panel.
+    showMeshStats: boolean;
     hideTessellationEdges: boolean;
     lockTranslation: boolean;
     enableWebsocket: boolean;
@@ -27,6 +29,7 @@ export type OptionsState = {
     setIsOptionsVisible: (value: boolean) => void;
     setShowPerf: (value: boolean) => void;
     setShowEdges: (value: boolean) => void;
+    setShowMeshStats: (value: boolean) => void;
     setHideTessellationEdges: (value: boolean) => void;
     setLockTranslation: (value: boolean) => void;
     setEnableWebsocket: (value: boolean) => void;
@@ -42,6 +45,7 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     isOptionsVisible: false,
     showPerf: false,
     showEdges: true,
+    showMeshStats: true,
     hideTessellationEdges: true,
     lockTranslation: false,
     enableWebsocket: true,
@@ -55,6 +59,7 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     setIsOptionsVisible: (v) => set({isOptionsVisible: v}),
     setShowPerf: (v) => set({showPerf: v}),
     setShowEdges: (v) => set({showEdges: v}),
+    setShowMeshStats: (v) => set({showMeshStats: v}),
     setHideTessellationEdges: (v) => set({hideTessellationEdges: v}),
     setLockTranslation: (v) => set({lockTranslation: v}),
     setEnableWebsocket: (v) => set({enableWebsocket: v}),

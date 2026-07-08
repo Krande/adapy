@@ -17,6 +17,7 @@ const Toggle: React.FC<{
 const DisplayOptions: React.FC = () => {
     const {
         showEdges, setShowEdges,
+        showMeshStats, setShowMeshStats,
         hideTessellationEdges, setHideTessellationEdges,
         lockTranslation, setLockTranslation,
         enableNodeEditor, setEnableNodeEditor,
@@ -55,6 +56,9 @@ const DisplayOptions: React.FC = () => {
                     </span>
                 </label>
             )}
+            <Toggle checked={showMeshStats} onChange={() => setShowMeshStats(!showMeshStats)}>
+                Mesh stats in Properties
+            </Toggle>
             <label className="flex items-start space-x-2">
                 <input
                     type="checkbox"
