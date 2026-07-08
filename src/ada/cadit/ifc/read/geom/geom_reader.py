@@ -84,6 +84,11 @@ def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GE
         # WithVoids is a sibling of FacetedBrep (both direct IfcManifoldSolidBrep subtypes),
         # so it must be matched explicitly — is_a("IfcFacetedBrep") does not cover it.
         return faceted_brep(geom_repr)
+    elif geom_repr.is_a("IfcAdvancedBrep"):
+        # IfcManifoldSolidBrep subtype: an outer ClosedShell of IfcAdvancedFaces (analytic /
+        # B-spline surfaces). Serialized like any closed shell; the AdvancedFaces carry their
+        # surface + trimming bounds. (Voids on IfcAdvancedBrepWithVoids ignored for now.)
+        return closed_shell(geom_repr.Outer)
     elif geom_repr.is_a("IfcAdvancedFace"):
         return advanced_face(geom_repr)
     elif geom_repr.is_a("IfcFace"):
