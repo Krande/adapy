@@ -650,6 +650,9 @@ export interface AuditRun {
     // Idle time (ms) excluded from the active duration — the gap before a
     // later validation pass folded into the run. UI subtracts it.
     idle_ms?: number | null;
+    // Sum of every cell's own duration_ms — the run's active compute time,
+    // independent of wall clock. The UI shows this as the run's total runtime.
+    cells_duration_ms?: number | null;
     scope: string;
     worker_pool: string | null;
     trigger: string;
@@ -1775,6 +1778,22 @@ export const viewerApi = {
             {method: "POST"},
         );
         return jsonOrThrow(r, `adminAuditRunReDispatch(${runId})`);
+    },
+
+    /** Admin: re-run a single cell of a run in place (right-click → Rerun).
+     * Enqueues one force-rebuild conversion for (key, target) against the run's
+     * own scope/pool and reopens the run; the other cells are untouched.
+     * Returns the (reopened) run. */
+    async adminAuditRunRerunCell(runId: string, key: string, target: string): Promise<AuditRun> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}/rerun-cell`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({key, target}),
+            },
+        );
+        return jsonOrThrow(r, `adminAuditRunRerunCell(${runId})`);
     },
 
     /** Admin: append a validation (cross-format parity) pass to a finished

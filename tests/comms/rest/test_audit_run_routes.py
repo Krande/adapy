@@ -143,6 +143,53 @@ def test_extend_folds_idle_gap(db):
     assert 3_400_000 < after["idle_ms"] < 3_800_000
 
 
+def test_cells_duration_ms_is_sum_of_cells(db):
+    pool, run = db
+    r = run(db_module.create_audit_run(pool, scope="shared", worker_pool=None))
+    run(db_module.set_audit_run_total(pool, r["id"], 2))
+    run(db_module.insert_audit(pool, user_sub=None, scope_kind="shared", scope_id=None, action="convert",
+                               key="a.step", target_format="glb", status="done", duration_ms=10,
+                               job_id="jobA", audit_run_id=r["id"]))
+    run(db_module.insert_audit(pool, user_sub=None, scope_kind="shared", scope_id=None, action="convert",
+                               key="b.step", target_format="glb", status="error", duration_ms=20,
+                               job_id="jobB", audit_run_id=r["id"]))
+    after = run(db_module.get_audit_run(pool, r["id"]))
+    assert after["cells_duration_ms"] == 30  # sum, not wall clock
+    assert after["ok"] == 1 and after["failed"] == 1 and after["status"] == "finished"
+
+
+def test_reset_audit_cell_for_rerun_undoes_counter_and_reopens(db):
+    pool, run = db
+    r = run(db_module.create_audit_run(pool, scope="shared", worker_pool=None))
+    run(db_module.set_audit_run_total(pool, r["id"], 2))
+    run(db_module.insert_audit(pool, user_sub=None, scope_kind="shared", scope_id=None, action="convert",
+                               key="a.step", target_format="glb", status="done", duration_ms=10,
+                               job_id="jobA", audit_run_id=r["id"]))
+    run(db_module.insert_audit(pool, user_sub=None, scope_kind="shared", scope_id=None, action="convert",
+                               key="b.step", target_format="glb", status="error", duration_ms=20,
+                               job_id="jobB", audit_run_id=r["id"]))
+
+    # Re-run cell B: the failed counter drops, the run reopens, and B's row is
+    # re-pointed at a fresh job with its result timing cleared.
+    ok = run(db_module.reset_audit_cell_for_rerun(pool, r["id"], "b.step", "glb", "jobB2"))
+    assert ok is True
+    mid = run(db_module.get_audit_run(pool, r["id"]))
+    assert mid["failed"] == 0 and mid["ok"] == 1
+    assert mid["status"] == "running" and mid["finished_at"] is None
+    assert mid["cells_duration_ms"] == 10  # B's 20ms cleared until it re-completes
+
+    # The worker completes the new job → B goes green, run re-finishes, runtime
+    # reflects the new per-cell timing.
+    run(db_module.update_audit_by_job(pool, job_id="jobB2", status="done", duration_ms=15))
+    end = run(db_module.get_audit_run(pool, r["id"]))
+    assert end["ok"] == 2 and end["failed"] == 0
+    assert end["status"] == "finished"
+    assert end["cells_duration_ms"] == 25  # 10 + the re-run's 15
+
+    # Unknown cell → no-op, returns False.
+    assert run(db_module.reset_audit_cell_for_rerun(pool, r["id"], "nope.step", "glb", "x")) is False
+
+
 def test_claim_run_for_validation_is_once(db):
     pool, run = db
     r = run(_finish_run(pool, n=1))

@@ -59,12 +59,23 @@ function fmtMs(n: number | null | undefined): string {
 }
 
 function fmtRunDuration(run: AuditRun): string {
-    if (!run.started_at) return "—";
-    const start = new Date(run.started_at).getTime();
-    const end = run.finished_at ? new Date(run.finished_at).getTime() : Date.now();
-    // Subtract idle time (the gap before a validation pass appended hours
-    // later) so the duration is active-block time, not wall clock.
-    const ms = Math.max(0, end - start - (run.idle_ms ?? 0));
+    // The run's total runtime is the SUM of every cell's own runtime, not wall
+    // clock: parallel workers compress wall clock below the real compute cost,
+    // and a single-cell re-run (which reopens + re-finishes the run) would
+    // otherwise inflate wall clock with the idle gap since the first run. The
+    // sum recomputes server-side whenever any cell's row changes, so a re-run's
+    // new timing is reflected immediately. Fall back to active wall clock for
+    // older runs / in-flight rows that have no per-cell sum yet.
+    const sum = run.cells_duration_ms;
+    let ms: number;
+    if (sum != null && sum > 0) {
+        ms = sum;
+    } else {
+        if (!run.started_at) return "—";
+        const start = new Date(run.started_at).getTime();
+        const end = run.finished_at ? new Date(run.finished_at).getTime() : Date.now();
+        ms = Math.max(0, end - start - (run.idle_ms ?? 0));
+    }
     if (ms < 60_000) return `${(ms / 1000).toFixed(0)}s`;
     if (ms < 3600_000) return `${(ms / 60_000).toFixed(0)}m`;
     return `${(ms / 3600_000).toFixed(1)}h`;
@@ -181,7 +192,8 @@ const RunGrid: React.FC<{
     onCellHistory: (file: string, target: string) => void;
     onCellDetails: (file: string, target: string) => void;
     onCellOpen: (file: string, target: string) => void;
-}> = ({jobs, metric, onCellHistory, onCellDetails, onCellOpen}) => {
+    onCellRerun: (file: string, target: string) => void;
+}> = ({jobs, metric, onCellHistory, onCellDetails, onCellOpen, onCellRerun}) => {
     const grid = useMemo(() => buildGrid(jobs), [jobs]);
 
     // Right-click (desktop) / long-press (touch) context menu for a cell.
@@ -402,6 +414,18 @@ const RunGrid: React.FC<{
                     >
                         Show history
                     </button>
+                    {menu.target !== "parity" && (
+                        <button
+                            type="button"
+                            className="w-full text-left px-3 py-1 text-sky-300 hover:bg-gray-700"
+                            onClick={() => {
+                                onCellRerun(menu.file, menu.target);
+                                setMenu(null);
+                            }}
+                        >
+                            Rerun cell ↻
+                        </button>
+                    )}
                 </div>
             )}
         </div>
@@ -1294,6 +1318,18 @@ const AuditRunsTab: React.FC = () => {
                                         // underlying scene, from the RUN's scope
                                         // (may differ from the browsed one).
                                         void view_in_3d(file, cellDerivedKey(file, target), selectedRun.scope);
+                                    }}
+                                    onCellRerun={(file, target) => {
+                                        // Re-run just this cell in place (force rebuild). Reopens
+                                        // the run; the poller then streams the fresh result in.
+                                        void (async () => {
+                                            try {
+                                                await viewerApi.adminAuditRunRerunCell(selectedRun.id, file, target);
+                                                await loadDetail(selectedRun.id);
+                                            } catch (e) {
+                                                window.alert(`Rerun failed: ${(e as Error).message}`);
+                                            }
+                                        })();
                                     }}
                                 />
                             </div>

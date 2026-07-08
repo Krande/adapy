@@ -531,6 +531,69 @@ async def _bump_audit_run_counter(
     )
 
 
+async def reset_audit_cell_for_rerun(
+    pool: asyncpg.Pool,
+    run_id: str,
+    key: str,
+    target_format: str,
+    new_job_id: str,
+) -> bool:
+    """Re-point a single audit cell at a fresh conversion job so it can be
+    re-run in place, keeping the run's counters and total correct.
+
+    One row exists per cell in a run (the dispatcher inserts it ``queued`` and
+    the worker updates it by ``job_id``). To re-run one cell we: undo the
+    counter its prior terminal status bumped (so ``failed`` drops when a
+    previously-failed cell is retried), clear its result fields, attach the new
+    ``job_id`` and set it back to ``queued``, and reopen the run. The worker's
+    normal completion path (``update_audit_by_job`` → the counter bump)
+    then re-increments and re-finishes the run exactly as for a first run.
+
+    Returns False if the cell isn't part of the run (nothing to re-run)."""
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                """
+                SELECT id, status FROM audit_log
+                WHERE audit_run_id = $1 AND key = $2 AND target_format = $3
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                run_id,
+                key,
+                target_format,
+            )
+            if row is None:
+                return False
+            prior_col = _AUDIT_RUN_COUNTER_FOR_STATUS.get(row["status"] or "")
+            await conn.execute(
+                """
+                UPDATE audit_log
+                SET job_id = $2, status = 'queued', error = NULL, traceback = NULL,
+                    duration_ms = NULL, cpu_user_ms = NULL, cpu_sys_ms = NULL,
+                    peak_rss_kb = NULL, read_bytes = NULL, write_bytes = NULL,
+                    profile_key = NULL, log_key = NULL, ts = NOW()
+                WHERE id = $1
+                """,
+                row["id"],
+                new_job_id,
+            )
+            # Undo the prior terminal counter (if any) and reopen the run. The
+            # column name comes from a closed allowlist so the f-string is safe.
+            dec = f"{prior_col} = GREATEST({prior_col} - 1, 0)," if prior_col else ""
+            await conn.execute(
+                f"""
+                UPDATE audit_runs
+                SET {dec}
+                    status = CASE WHEN status = 'aborted' THEN 'aborted' ELSE 'running' END,
+                    finished_at = CASE WHEN status = 'aborted' THEN finished_at ELSE NULL END
+                WHERE id = $1
+                """,
+                run_id,
+            )
+            return True
+
+
 async def active_audit_summary(pool: asyncpg.Pool) -> dict:
     """Aggregate state of currently-``running`` audit runs.
 
@@ -1276,6 +1339,11 @@ def _audit_run_row(r) -> dict:
         # Idle time excluded from the run's active duration (gap before a later
         # validation pass). The UI shows (finished_at - started_at) - idle_ms.
         "idle_ms": _opt("idle_ms") or 0,
+        # Sum of every cell's own duration_ms — the run's active compute time,
+        # independent of wall clock (which parallel workers compress and a
+        # single-cell re-run inflates with idle). Recomputes whenever a cell's
+        # row changes, so a re-run's new timing is reflected immediately.
+        "cells_duration_ms": _opt("cells_duration_ms") or 0,
         "force_rebuild": _opt("force_rebuild") or False,
         "auto_validate": _opt("auto_validate") or False,
         "parent_run_id": str(parent_run_id) if parent_run_id else None,
@@ -1473,7 +1541,9 @@ async def list_audit_runs(
         SELECT id, seq, scope, worker_pool, trigger, started_at, finished_at,
                status, note, total, validate_total, ok, failed, skipped, created_by, idle_ms,
                force_rebuild, auto_validate, parent_run_id, auto_validate_dispatched_at,
-               issue_bot_status, issue_bot_last_error, issue_bot_synced_at
+               issue_bot_status, issue_bot_last_error, issue_bot_synced_at,
+               (SELECT COALESCE(SUM(duration_ms), 0)::bigint FROM audit_log
+                WHERE audit_run_id = audit_runs.id) AS cells_duration_ms
         FROM audit_runs
         {where}
         ORDER BY started_at DESC
@@ -1490,7 +1560,9 @@ async def get_audit_run(pool: asyncpg.Pool, run_id: str) -> dict | None:
         SELECT id, seq, scope, worker_pool, trigger, started_at, finished_at,
                status, note, total, validate_total, ok, failed, skipped, created_by, idle_ms,
                force_rebuild, auto_validate, parent_run_id, auto_validate_dispatched_at,
-               issue_bot_status, issue_bot_last_error, issue_bot_synced_at
+               issue_bot_status, issue_bot_last_error, issue_bot_synced_at,
+               (SELECT COALESCE(SUM(duration_ms), 0)::bigint FROM audit_log
+                WHERE audit_run_id = audit_runs.id) AS cells_duration_ms
         FROM audit_runs WHERE id = $1
         """,
         run_id,

@@ -4008,6 +4008,72 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         return JSONResponse(run, status_code=202)
 
+    @admin.post("/audit/runs/{run_id}/rerun-cell")
+    async def admin_audit_run_rerun_cell(
+        run_id: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Re-run one cell of an existing run in place (right-click → Rerun).
+
+        Enqueues a single force-rebuild conversion for ``{key, target}`` against
+        the run's own scope/pool, re-points the cell's audit row at the new job
+        and reopens the run (``db.reset_audit_cell_for_rerun``). The worker's
+        normal completion path updates the row and re-finishes the run, so the
+        counters, the sum-of-cells runtime and the grid cell all reflect the
+        fresh result — no full re-dispatch of the other 900+ cells."""
+        from .converter import derived_key_for
+
+        body = await request.json()
+        key = (body or {}).get("key")
+        target = (body or {}).get("target")
+        if not key or not target:
+            raise HTTPException(status_code=400, detail="key and target are required")
+        if target == "parity":
+            raise HTTPException(
+                status_code=400,
+                detail="parity cells have no derived product — use Re-validate on the run instead",
+            )
+
+        pool = _require_pool(request)
+        prior = await db_module.get_audit_run(pool, run_id)
+        if prior is None:
+            raise HTTPException(status_code=404, detail="audit run not found")
+        worker_pool = prior["worker_pool"]
+        if isinstance(worker_pool, str) and worker_pool.strip().lower() == _WASM_POOL:
+            raise HTTPException(status_code=400, detail="cannot re-run a single cell of a wasm run from the server")
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
+
+        s = _parse_scope(prior["scope"], user)
+        s = await _resolve_project_scope(pool, s)
+        if not await scope_can_access(user, s, pool):
+            raise HTTPException(status_code=403, detail="forbidden")
+
+        try:
+            derived_key_for(key, target)  # validate the target is convertible for this source
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"not a convertible cell: {exc}") from exc
+
+        try:
+            job = await queue.enqueue(
+                key,
+                target,
+                scope_kind=s.kind,
+                scope_id=s.id,
+                target_capability=worker_pool,
+                force_rebuild=True,
+            )
+        except Exception as exc:
+            logger.exception("rerun-cell enqueue failed for %s -> %s", key, target)
+            raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
+
+        found = await db_module.reset_audit_cell_for_rerun(pool, run_id, key, target, job.job_id)
+        if not found:
+            raise HTTPException(status_code=404, detail="cell not found in this run")
+        run = await db_module.get_audit_run(pool, run_id)
+        return JSONResponse(run, status_code=202)
+
     @admin.post("/audit/runs/{run_id}/validate")
     async def admin_audit_run_validate(
         run_id: str,
