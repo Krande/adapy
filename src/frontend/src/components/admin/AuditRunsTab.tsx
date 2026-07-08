@@ -58,17 +58,20 @@ function fmtMs(n: number | null | undefined): string {
     return `${(n / 1000).toFixed(1)} s`;
 }
 
-function fmtRunDuration(run: AuditRun): string {
-    // The run's total runtime is the SUM of every cell's own runtime, not wall
-    // clock: parallel workers compress wall clock below the real compute cost,
-    // and a single-cell re-run (which reopens + re-finishes the run) would
-    // otherwise inflate wall clock with the idle gap since the first run. The
-    // sum recomputes server-side whenever any cell's row changes, so a re-run's
-    // new timing is reflected immediately. Fall back to active wall clock for
-    // older runs / in-flight rows that have no per-cell sum yet.
+type RuntimeMode = "cells" | "wall";
+
+// Two equally-relevant views of a run's runtime, switched by the overview toggle:
+//   "cells" — SUM of every cell's own duration_ms: the real compute cost. Immune
+//             to worker parallelism and to a single-cell re-run reopening the run
+//             (which would inflate wall clock with the idle gap since the first
+//             run). Recomputes server-side whenever a cell's row changes.
+//   "wall"  — active wall clock (finished−started−idle): how long the operator
+//             actually waited, which parallelism compresses below the cell sum.
+// "cells" falls back to wall clock for older runs / in-flight rows with no sum yet.
+function fmtRunDuration(run: AuditRun, mode: RuntimeMode): string {
     const sum = run.cells_duration_ms;
     let ms: number;
-    if (sum != null && sum > 0) {
+    if (mode === "cells" && sum != null && sum > 0) {
         ms = sum;
     } else {
         if (!run.started_at) return "—";
@@ -1064,6 +1067,15 @@ const AuditRunsTab: React.FC = () => {
     const [selectedRun, setSelectedRun] = useState<AuditRun | null>(null);
     const [selectedJobs, setSelectedJobs] = useState<AuditRunJob[]>([]);
     const [metric, setMetric] = useState<MetricKey>("status");
+    // Runtime shown in the overview: sum-of-cell-times vs active wall clock.
+    // Persisted so the operator's choice sticks across visits.
+    const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
+        () => (localStorage.getItem("auditRuntimeMode") === "wall" ? "wall" : "cells"),
+    );
+    useEffect(() => { localStorage.setItem("auditRuntimeMode", runtimeMode); }, [runtimeMode]);
+    // New-run form: collapsible on mobile (always visible on md+). Auto-collapses
+    // when a run is opened so the run detail owns the small screen.
+    const [formOpen, setFormOpen] = useState(true);
     const [listError, setListError] = useState<string | null>(null);
     const [detailError, setDetailError] = useState<string | null>(null);
     // Cell whose cross-run history modal is open (from the grid context menu).
@@ -1110,6 +1122,9 @@ const AuditRunsTab: React.FC = () => {
 
     const onSelectRun = useCallback((runId: string) => {
         setSelectedId(runId);
+        // Collapse the new-run form on mobile so the selected run's grid gets
+        // the viewport (no-op visually on md+, where the form is always shown).
+        setFormOpen(false);
         void loadDetail(runId);
     }, [loadDetail]);
 
@@ -1122,7 +1137,21 @@ const AuditRunsTab: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full">
-            <TriggerForm onCreated={loadRuns}/>
+            {/* Mobile-only collapse header for the new-run form. On md+ the form
+                is always shown (this button is hidden), matching desktop where
+                screen space isn't scarce. */}
+            <button
+                type="button"
+                onClick={() => setFormOpen((o) => !o)}
+                className="md:hidden flex items-center justify-between w-full px-3 py-2 border-b border-gray-800 bg-gray-900/40 text-xs text-gray-200"
+                aria-expanded={formOpen}
+            >
+                <span>New audit run</span>
+                <span className="text-gray-400">{formOpen ? "▾ hide" : "▸ show"}</span>
+            </button>
+            <div className={(formOpen ? "block" : "hidden") + " md:block"}>
+                <TriggerForm onCreated={loadRuns}/>
+            </div>
 
             <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
                 {/* History list. Side-by-side w-80 on md+; full-width
@@ -1143,6 +1172,33 @@ const AuditRunsTab: React.FC = () => {
                     "flex-1 min-h-0 border-b border-gray-800 overflow-auto " +
                     (showHistory ? "block" : "hidden md:block")
                 }>
+                    {/* Overview toggle: show each run's runtime as the sum of its
+                        cell times or as active wall clock. Both are relevant —
+                        cells = compute cost, wall = time waited. Sticky so it
+                        stays put while the list scrolls. */}
+                    <div className="sticky top-0 z-10 flex items-center justify-between gap-2 px-3 py-1.5 border-b border-gray-800 bg-gray-900/80 backdrop-blur text-[11px] text-gray-400">
+                        <span>Runtime</span>
+                        <div className="inline-flex rounded-sm border border-gray-700 overflow-hidden">
+                            <button
+                                type="button"
+                                onClick={() => setRuntimeMode("cells")}
+                                className={"px-2 py-0.5 " + (runtimeMode === "cells"
+                                    ? "bg-blue-700 text-white" : "text-gray-300 hover:bg-gray-800")}
+                                title="Sum of every cell's own runtime — the real compute cost, immune to worker parallelism and single-cell re-runs."
+                            >
+                                Σ cells
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setRuntimeMode("wall")}
+                                className={"px-2 py-0.5 border-l border-gray-700 " + (runtimeMode === "wall"
+                                    ? "bg-blue-700 text-white" : "text-gray-300 hover:bg-gray-800")}
+                                title="Active wall-clock time (finished − started − idle) — how long the run actually took to watch."
+                            >
+                                wall
+                            </button>
+                        </div>
+                    </div>
                     {listError && (
                         <div className="text-xs text-red-400 px-3 py-2">{listError}</div>
                     )}
@@ -1187,7 +1243,9 @@ const AuditRunsTab: React.FC = () => {
                                     </div>
                                     <div className="text-gray-400 mt-0.5 flex justify-between">
                                         <span>{run.ok + run.failed + run.skipped} / {run.total}</span>
-                                        <span>{fmtRunDuration(run)}</span>
+                                        <span title={runtimeMode === "cells" ? "sum of cell runtimes" : "active wall clock"}>
+                                            {fmtRunDuration(run, runtimeMode)}
+                                        </span>
                                     </div>
                                     {run.total > 0 && (
                                         <div className="h-1 bg-gray-700 rounded-sm overflow-hidden mt-1">
