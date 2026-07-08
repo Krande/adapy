@@ -408,6 +408,19 @@ class _Encoder:
                 continue
         return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + self._i32_raw(faces))
 
+    def polygonal_face_set(self, pfs) -> int:
+        """IfcPolygonalFaceSet — a shared coordinate list plus n-gon faces (1-based indices) — as a
+        CONNECTED_FACE_SET of planar polygon faces. face_surface infers each face's plane, so the
+        stream kernel renders it natively instead of falling back to OCC."""
+        coords = pfs.coordinates
+        faces = []
+        for face in pfs.faces:
+            pts = [coords[i - 1] for i in face if 0 < i <= len(coords)]  # IFC 1-based indices
+            if len(pts) < 3:
+                continue
+            faces.append(su.Face(bounds=[su.FaceBound(bound=cu.PolyLoop(polygon=pts), orientation=True)]))
+        return self.connected_face_set(su.ConnectedFaceSet(faces))
+
     # --- solids ------------------------------------------------------------------------
     @staticmethod
     def _loop_points_3d(curve) -> list[tuple[float, float, float]]:
@@ -839,6 +852,8 @@ class _Encoder:
             return self.face_surface(geom)
         if isinstance(geom, (su.ConnectedFaceSet, su.ClosedShell, su.OpenShell)):
             return self.connected_face_set(geom)
+        if isinstance(geom, su.PolygonalFaceSet):
+            return self.polygonal_face_set(geom)
         if isinstance(geom, _so.FacetedBrep):
             # Render the outer shell's faces natively (each plain planar Face gets an inferred
             # plane in face_surface). Voids (FacetedBrepWithVoids) need a boolean cut not yet in
