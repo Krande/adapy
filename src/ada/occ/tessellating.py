@@ -74,19 +74,23 @@ def consume_tess_fallback_stats() -> dict:
     return s
 
 
-# Per-conversion tally of heavily-distorted (degenerate + extreme-sliver) triangles across every
-# tessellated mesh. Fed by the scene builders as they collect meshes (raw triangles, so no meshopt
-# decode) and read out at teardown into convert_meta for a per-cell audit flag. A distorted triangle
-# is one whose area is near-zero relative to its longest edge (aspect = emax^2 / 2*area very large) —
-# the shape a mis-placed/collapsed vertex produces, which is what the "tris out of place" bug looks
-# like at the triangle level.
-_DISTORTION_ASPECT = 60.0  # emax^2/(2*area) above this = sliver/spike (equilateral ~= 3.5)
+# Per-conversion tally of "crows-nest" spike triangles across every tessellated mesh. Fed by the
+# scene builders as they collect meshes (raw triangles, so no meshopt decode) and read out at
+# teardown into convert_meta for a per-cell audit flag. A spike is a thin (needle: aspect =
+# emax^2 / 2*area large) triangle that touches an OUTLIER vertex — one whose distance from the mesh's
+# robust (median) centroid exceeds _SPIKE_OUTLIER_K × the median vertex distance, i.e. a vertex shot
+# out past the body. The outlier test is what separates a real spike from benign geometry that a
+# raw aspect/reach test over-flags: a deep thin extrusion's side slivers, or a coarse curved surface,
+# are thin and reach across the bbox but their vertices sit ON the body, not outside it. Mirrors the
+# frontend meshStats "maxSpike" metric that drives the "distorted" gallery walk.
+_DISTORTION_ASPECT = 8.0  # emax^2/(2*area) above this = thin/needle (equilateral ~= 3.5)
+_SPIKE_OUTLIER_K = 4.0  # vertex dist > this × median vertex dist from the centroid = an outlier
 _DISTORTION_SAMPLE_CAP = 300_000  # sample huge meshes so the scan stays sub-ms; count is scaled back
 MESH_DISTORTION_STATS: dict = {"n_tris": 0, "distorted": 0}
 
 
 def accumulate_mesh_distortion(positions, indices) -> None:
-    """Tally degenerate/sliver triangles in one mesh (best-effort, vectorized, sampled)."""
+    """Tally crows-nest spike triangles in one mesh (best-effort, vectorized, sampled)."""
     try:
         v = np.asarray(positions, dtype=float).reshape(-1, 3)
         idx = np.asarray(indices, dtype=np.int64).reshape(-1, 3)
@@ -95,6 +99,11 @@ def accumulate_mesh_distortion(positions, indices) -> None:
     n = len(idx)
     if n == 0 or len(v) == 0:
         return
+    # Outlier vertices: distance from the median-per-axis centroid > K × the median distance.
+    centroid = np.median(v, axis=0)
+    vdist = np.linalg.norm(v - centroid, axis=1)
+    med = float(np.median(vdist))
+    is_outlier = (vdist > _SPIKE_OUTLIER_K * med) if med > 1e-9 else np.zeros(len(v), dtype=bool)
     scale = 1.0
     if n > _DISTORTION_SAMPLE_CAP:
         step = n // _DISTORTION_SAMPLE_CAP + 1
@@ -108,7 +117,8 @@ def accumulate_mesh_distortion(positions, indices) -> None:
     )
     with np.errstate(divide="ignore", invalid="ignore"):
         aspect = np.where(area2 > 1e-20, emax * emax / area2, np.inf)
-    distorted = int(((aspect > _DISTORTION_ASPECT) & (emax > 1e-9)).sum())
+    touches_outlier = is_outlier[idx].any(axis=1)  # any of the tri's 3 vertices is an outlier
+    distorted = int(((aspect > _DISTORTION_ASPECT) & touches_outlier & (emax > 1e-9)).sum())
     MESH_DISTORTION_STATS["n_tris"] += int(n)
     MESH_DISTORTION_STATS["distorted"] += int(round(distorted * scale))
 

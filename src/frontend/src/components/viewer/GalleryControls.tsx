@@ -129,9 +129,9 @@ const GalleryControls: React.FC = () => {
             if (entries.length === 0) return;
             const wrapped = (next + entries.length) % entries.length;
             setGeomIndex(wrapped);
-            await focusGeomEntry(entries[wrapped], {hideUnselected});
+            await focusGeomEntry(entries[wrapped], {hideUnselected, forceEdges: geomOrder === "distorted"});
         },
-        [geomEntries, hideUnselected],
+        [geomEntries, hideUnselected, geomOrder],
     );
 
     // Entering a geom walk or changing walk/order (re)builds the list and
@@ -254,10 +254,17 @@ const GalleryControls: React.FC = () => {
             window.setTimeout(() => setNameCopied(false), 1200);
         }
     }, []);
+    const curEntry = isGeomWalk ? geomEntries[geomIndex] : undefined;
+    const spikeSuffix =
+        geomOrder === "distorted" && curEntry
+            ? ` · spike ${curEntry.spike.toFixed(1)}× · ${curEntry.spikeTris} tri${curEntry.spikeTris === 1 ? "" : "s"}`
+            : "";
     const primaryLabel = isGeomWalk
         ? empty
-            ? "no geoms in scene"
-            : (selectedName ?? `geom ${geomIndex + 1}`)
+            ? geomOrder === "distorted"
+                ? "no distorted geoms 🎉"
+                : "no geoms in scene"
+            : (selectedName ?? `geom ${geomIndex + 1}`) + spikeSuffix
         : empty
           ? "no viewable files in this scope"
           : (current ?? "");
@@ -286,6 +293,7 @@ const GalleryControls: React.FC = () => {
                 <option value="scene">Order: scene</option>
                 <option value="density">Order: density</option>
                 <option value="tree">Order: tree</option>
+                <option value="distorted">Order: distorted tris</option>
             </select>
             <label className="flex items-center gap-1" title="Hide everything except the current geom during the walk">
                 <input type="checkbox" checked={hideUnselected} onChange={() => toggleHideUnselected()} />

@@ -10,6 +10,9 @@ import {persist} from "zustand/middleware";
 //   - "density": triangles per surface area — heaviest/most-detailed
 //     geometry first.
 //   - "tree": the model tree's hierarchy order (parent → children DFS).
+//   - "distorted": only geoms with a "crows-nest" spike (a thin triangle
+//     shooting out past the geometry), worst-first — the tessellation-bug
+//     inspector. Forces geometry edges on so the spikes are visible.
 // "hideUnselected" optionally isolates the current geom during a geom
 // walk (hides everything else) so it reads clearly.
 //
@@ -17,7 +20,7 @@ import {persist} from "zustand/middleware";
 // preferences); the per-walk index is transient and lives in the
 // GalleryControls component (it depends on the current scope / scene).
 export type GalleryWalk = "files" | "geoms";
-export type GeomWalkOrder = "scene" | "density" | "tree";
+export type GeomWalkOrder = "scene" | "density" | "tree" | "distorted";
 
 interface GalleryState {
     enabled: boolean;
