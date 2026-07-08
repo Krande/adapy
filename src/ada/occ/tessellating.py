@@ -741,21 +741,43 @@ class BatchTessellator:
         )
 
     def _direct_triangulated_meshstore(self, geom: Geometry, node_ref) -> MeshStore | None:
-        """A TriangulatedFaceSet (IfcTriangulatedFaceSet import) already IS a triangle mesh —
-        emit it directly instead of round-tripping through a kernel build + re-tessellation
-        (no backend even has a B-rep build for it). Returns None for every other kind."""
+        """Face-set geometry that already IS (or trivially becomes) a triangle mesh — emit it
+        directly instead of round-tripping through a kernel build + re-tessellation:
+
+          * TriangulatedFaceSet (IfcTriangulatedFaceSet) — coords + triangle index list as-is.
+          * PolygonalFaceSet (IfcPolygonalFaceSet) — shared coords + n-gon faces; fan-triangulate
+            each face in 3D. This keeps the ORIGINAL vertices (unlike inferring a plane and
+            projecting, which flattens non-planar faces and wrecks the mesh), and no backend has a
+            B-rep build for it — so without this it falls back to OCC.
+
+        Returns None for every other kind."""
         import ada.geom.surfaces as geo_su
 
-        tfs = geom.geometry
-        if not isinstance(tfs, geo_su.TriangulatedFaceSet):
-            return None
-        if not tfs.coordinates or not tfs.indices:
-            return None
-        position = np.asarray(tfs.coordinates, dtype=np.float32).reshape(-1)
-        indices = np.asarray(tfs.indices, dtype=np.uint32) - 1  # IFC indices are 1-based
+        g = geom.geometry
         normal = None
-        if tfs.normals and len(tfs.normals) == len(tfs.coordinates):
-            normal = np.asarray(tfs.normals, dtype=np.float32).reshape(-1)
+        if isinstance(g, geo_su.TriangulatedFaceSet):
+            if not g.coordinates or not g.indices:
+                return None
+            position = np.asarray(g.coordinates, dtype=np.float32).reshape(-1)
+            indices = np.asarray(g.indices, dtype=np.uint32) - 1  # IFC indices are 1-based
+            if g.normals and len(g.normals) == len(g.coordinates):
+                normal = np.asarray(g.normals, dtype=np.float32).reshape(-1)
+        elif isinstance(g, geo_su.PolygonalFaceSet):
+            if not g.coordinates or not g.faces:
+                return None
+            position = np.asarray([list(p)[:3] for p in g.coordinates], dtype=np.float32).reshape(-1)
+            n_coords = len(g.coordinates)
+            tri: list[int] = []
+            for face in g.faces:
+                f = [i - 1 for i in face if 0 < i <= n_coords]  # IFC 1-based -> 0-based
+                for k in range(1, len(f) - 1):  # fan-triangulate the n-gon (keeps 3D vertices)
+                    tri += (f[0], f[k], f[k + 1])
+            if not tri:
+                return None
+            indices = np.asarray(tri, dtype=np.uint32)
+        else:
+            return None
+
         mat_id = self.material_store.get(geom.color, None)
         if mat_id is None:
             mat_id = len(self.material_store)
@@ -862,6 +884,12 @@ class BatchTessellator:
         pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE") or force_pipeline
         if not pipeline:
             return None
+        # A pre-triangulated / polygonal face set is already a mesh — emit it directly (3D
+        # fan-triangulation, original vertices). libtess2 can't take it and inferring a plane per
+        # face would flatten non-planar faces; this keeps it OCC-free without that distortion.
+        direct = self._direct_triangulated_meshstore(geom, node_ref)
+        if direct is not None:
+            return direct
         be = active_backend()
         if not hasattr(be, "tessellate_stream"):
             self._log_tess_fallback(node_ref, pipeline, "active backend has no tessellate_stream", geom)
