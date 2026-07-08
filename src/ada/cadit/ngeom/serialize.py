@@ -608,6 +608,62 @@ class _Encoder:
         )
         return self._add(_FIXED_REF_SWEPT_SOLID, body)
 
+    def _sweep_frames(self, directrix):
+        """Per-station (origin, profile-x, profile-y) frames along a general 3D directrix, using a
+        rotation-minimising (parallel-transport) frame so the swept profile doesn't twist. profile-x
+        and profile-y are both perpendicular to the tangent; profile-x x profile-y = tangent."""
+        pts = np.asarray(self._loop_points_3d(directrix), float)
+        if len(pts) < 2:
+            return pts, np.zeros((0, 3)), np.zeros((0, 3))
+        t = np.gradient(pts, axis=0)
+        tn = np.linalg.norm(t, axis=1, keepdims=True)
+        t = t / np.where(tn < 1e-12, 1.0, tn)
+        ref = np.array([0.0, 0.0, 1.0]) if abs(t[0, 2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+        dir_x = np.zeros((len(pts), 3))
+        x0 = np.cross(ref, t[0])
+        dir_x[0] = x0 / (np.linalg.norm(x0) or 1.0)
+        for i in range(1, len(pts)):
+            v1, v2 = t[i - 1], t[i]
+            ax = np.cross(v1, v2)
+            s = float(np.linalg.norm(ax))
+            xp = dir_x[i - 1]
+            if s < 1e-9:  # no bend -> carry the frame
+                dir_x[i] = xp
+            else:  # Rodrigues-rotate the frame by the tangent turn
+                ax /= s
+                ang = np.arctan2(s, float(np.dot(v1, v2)))
+                dir_x[i] = xp * np.cos(ang) + np.cross(ax, xp) * np.sin(ang) + ax * float(np.dot(ax, xp)) * (1 - np.cos(ang))
+            dir_x[i] -= float(np.dot(dir_x[i], t[i])) * t[i]  # re-orthogonalise against the tangent
+            dir_x[i] /= np.linalg.norm(dir_x[i]) or 1.0
+        return pts, dir_x, np.cross(t, dir_x)
+
+    def swept_disk_solid(self, sds) -> int:
+        """IfcSweptDiskSolid (rebar/pipe) -> a circular/annular profile swept along the directrix,
+        encoded like a FixedReferenceSweptAreaSolid (profile FACE + per-station frames). The
+        directrix is sampled + parallel-transport-framed here, so any directrix (polyline, arc,
+        composite) works — not just alignment GradientCurves."""
+        from ada.geom.placement import Axis2Placement3D
+
+        o = Axis2Placement3D(location=(0.0, 0.0, 0.0))
+        inner = [cu.Circle(position=o, radius=float(sds.inner_radius))] if sds.inner_radius else []
+        prof = su.ArbitraryProfileDef(
+            profile_type=su.ProfileType.AREA, outer_curve=cu.Circle(position=o, radius=float(sds.radius)),
+            inner_curves=inner,
+        )
+        face = self._profile_face(prof)
+        origins, dir_x, dir_y = self._sweep_frames(sds.directrix)
+        if len(origins) < 2:
+            raise _Unsupported("swept-disk directrix has < 2 stations")
+        body = (
+            self.i32(face)
+            + self.i32(self.placement3(o))
+            + self.i32(len(origins))
+            + self._f64_raw(origins.ravel())
+            + self._f64_raw(dir_x.ravel())
+            + self._f64_raw(dir_y.ravel())
+        )
+        return self._add(_FIXED_REF_SWEPT_SOLID, body)
+
     def _xz_planar_face(self, pts3d) -> int:
         """Planar FACE_SURFACE in the local XZ plane (y=0; normal=+Y, ref=+X)."""
         place = self._add(_PLACEMENT3, self.v3((0.0, 0.0, 0.0)) + self.v3((0.0, 1.0, 0.0)) + self.v3((1.0, 0.0, 0.0)))
@@ -819,6 +875,8 @@ class _Encoder:
             return self.revolved_area_solid(geom)
         if isinstance(geom, _so.FixedReferenceSweptAreaSolid):
             return self.fixed_reference_swept_area_solid(geom)
+        if isinstance(geom, _so.SweptDiskSolid):
+            return self.swept_disk_solid(geom)
         if isinstance(geom, _so.Box):
             return self.box_solid(geom)
         if isinstance(geom, _so.Cylinder):
