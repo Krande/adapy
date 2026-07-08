@@ -187,8 +187,15 @@ def _tessellate_geom_worker(geom):
             defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
             from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
             ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
+            # Adaptive coarsening: relax the angular ceiling on features small vs the whole model, so a
+            # large assembly (e.g. the boiler's asm_22) doesn't over-tessellate every small pipe/torus
+            # into a slivery "crows nest". model_scale (the model bbox diagonal) is estimated once by
+            # the parent and passed via env; 0 => off (fixed angular), matching native_step_to_glb.
+            mscale = float(os.environ.get("ADA_STREAM_TESS_MODEL_SCALE", "0") or "0")
             gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
-            bm = be.tessellate_stream([(gid or "0", gi)], pipeline=_pipeline, deflection=defl, angular_deg=ang)
+            bm = be.tessellate_stream(
+                [(gid or "0", gi)], pipeline=_pipeline, deflection=defl, angular_deg=ang, model_scale=mscale
+            )
             _pos = getattr(bm, "positions", None)
             _idx = getattr(bm, "indices", None)
             if _pos is None or _idx is None or len(_idx) == 0:
@@ -488,6 +495,26 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     unit_scale = detect_step_length_unit_scale(source.path)
     if unit_scale != 1.0:
         logger.info("scene_from_step_stream: scaling length unit to metres (factor %g)", unit_scale)
+
+    # Adaptive tessellation coarsening (matches native_step_to_glb): estimate the model bbox diagonal
+    # once and expose it to the pool workers via env (they inherit it), so the libtess2 path relaxes
+    # density on features small vs the whole model instead of over-tessellating every small pipe/torus
+    # into a slivery crows-nest. Only when the libtess2 stream path is active and not already set;
+    # gated by ADA_STREAM_TESS_ADAPTIVE (default on, "0/false/off" disables). unit_scale-corrected.
+    import os
+
+    if os.environ.get("ADA_STREAM_TESS_PIPELINE") and "ADA_STREAM_TESS_MODEL_SCALE" not in os.environ:
+        _adaptive = (os.environ.get("ADA_STREAM_TESS_ADAPTIVE") or "").strip().lower() not in {"0", "false", "no", "off"}
+        if _adaptive:
+            try:
+                from ada.cadit.step.model_scale import estimate_step_model_scale
+
+                _ms = estimate_step_model_scale(source.path) * unit_scale
+                if _ms > 0.0:
+                    os.environ["ADA_STREAM_TESS_MODEL_SCALE"] = repr(_ms)
+                    logger.info("scene_from_step_stream: adaptive tessellation model_scale=%.1f", _ms)
+            except Exception as exc:  # noqa: BLE001 - estimation is best-effort; fall back to fixed angular
+                logger.debug("model_scale estimate failed (%s); fixed-angular tessellation", exc)
 
     root = graph.top_level
     on_progress = source.on_progress
