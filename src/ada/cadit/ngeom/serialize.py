@@ -70,6 +70,80 @@ def _sample_arc(start, mid, end, n: int = 24) -> list:
     return pts
 
 
+def _sample_trimmed_curve(tc, n: int = 24) -> list:
+    """Sample a TrimmedCurve — a conic arc (circle/ellipse) or a line segment — start->end into an
+    ordered point list. Conic trims are angles in radians (the reader normalized the file's plane
+    -angle unit); a Cartesian-point trim is projected back to its angle."""
+    import ada.geom.curves as _cu
+
+    basis = tc.basis_curve
+    if isinstance(basis, (_cu.Circle, _cu.Ellipse)):
+        pos = basis.position
+        loc = np.asarray(pos.location, float)
+        ref = np.asarray(pos.ref_direction, float)
+        ref = ref / (np.linalg.norm(ref) or 1.0)
+        axis = np.asarray(pos.axis, float)
+        axis = axis / (np.linalg.norm(axis) or 1.0)
+        y = np.cross(axis, ref)
+        a = float(getattr(basis, "radius", None) or basis.semi_axis1)
+        b = float(getattr(basis, "radius", None) or basis.semi_axis2)
+
+        def _angle(trim):
+            if isinstance(trim, (int, float)):
+                return float(trim)
+            d = np.asarray(trim, float) - loc  # Cartesian point -> its parametric angle
+            return float(np.arctan2((d @ y) / (b or 1.0), (d @ ref) / (a or 1.0)))
+
+        t1, t2 = _angle(tc.trim1), _angle(tc.trim2)
+        if tc.sense_agreement:
+            if t2 <= t1:
+                t2 += 2.0 * np.pi
+        elif t2 >= t1:
+            t2 -= 2.0 * np.pi
+        return [loc + a * np.cos(t) * ref + b * np.sin(t) * y for t in np.linspace(t1, t2, n + 1)]
+    if isinstance(basis, _cu.Line):
+        p0 = np.asarray(basis.pnt, float)
+        d = np.asarray(basis.dir, float)
+
+        def _pt(trim):
+            return (p0 + float(trim) * d) if isinstance(trim, (int, float)) else np.asarray(trim, float)
+
+        endpoints = [_pt(tc.trim1), _pt(tc.trim2)]
+        return endpoints if tc.sense_agreement else endpoints[::-1]  # False = reversed trim direction
+    raise _Unsupported(f"trimmed-curve basis {type(basis).__name__}")
+
+
+def _composite_curve_loop_points(cc) -> list:
+    """Ordered boundary points of an IfcCompositeCurve profile boundary — sample each segment's
+    parent curve (trimmed conic / line / polyline), honour ``same_sense``, and chain, dropping the
+    shared join point so the POLY_LOOP closes cleanly."""
+    import ada.geom.curves as _cu
+
+    def _p3(x):
+        x = np.asarray(x, float).ravel()
+        return np.array([x[0], x[1], x[2] if x.shape[0] > 2 else 0.0])
+
+    pts: list = []
+    for seg in cc.segments:
+        p = seg.parent_curve
+        if isinstance(p, _cu.TrimmedCurve):
+            spts = [_p3(x) for x in _sample_trimmed_curve(p)]
+        elif isinstance(p, _cu.PolyLine):
+            spts = [_p3(x) for x in p.points]
+        elif isinstance(p, _cu.ArcLine):
+            spts = [_p3(x) for x in _sample_arc(p.start, p.midpoint, p.end)]
+        else:
+            raise _Unsupported(f"composite-curve segment {type(p).__name__}")
+        if not getattr(seg, "same_sense", True):
+            spts = spts[::-1]
+        if pts and np.linalg.norm(pts[-1] - spts[0]) < 1e-7:
+            spts = spts[1:]
+        pts.extend(spts)
+    if len(pts) > 1 and np.linalg.norm(pts[0] - pts[-1]) < 1e-7:
+        pts.pop()
+    return [(float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 0.0) for p in pts]
+
+
 # tag catalog (spec §3)
 _PLACEMENT3 = 1
 _PLACEMENT1 = 2
@@ -426,6 +500,9 @@ class _Encoder:
             p = list(p)
             return (float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 0.0)
 
+        if isinstance(curve, cu.CompositeCurve):  # trimmed-conic / line segments -> sampled loop
+            return _composite_curve_loop_points(curve)
+
         segs = getattr(curve, "segments", None)
         if segs and any(isinstance(s, cu.ArcLine) for s in segs):
             pts: list[tuple[float, float, float]] = []
@@ -757,9 +834,11 @@ class _Encoder:
         return self._add(_FACE_SURFACE, self.i32(plane) + self.i32(1) + self.i32(1) + self.i32(bnd))
 
     def _any_face(self, f) -> int:
-        # FaceSurface / AdvancedFace -> normal path; bare FaceBound (planar loop,
-        # no surface — Beam.shell_geom) -> synthesize a planar face.
-        if hasattr(f, "face_surface") and hasattr(f, "bounds"):
+        # FaceSurface / AdvancedFace / a plain IfcFace (bounds, but no surface attribute — e.g. an
+        # IfcFaceBasedSurfaceModel's polyloop faces) all go through face_surface, which infers a
+        # plane when no surface is carried. A bare FaceBound (planar loop — Beam.shell_geom) ->
+        # synthesize a planar face.
+        if hasattr(f, "bounds"):
             return self.face_surface(f)
         bound = getattr(f, "bound", None)
         if bound is not None:
