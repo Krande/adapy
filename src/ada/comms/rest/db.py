@@ -585,6 +585,15 @@ async def reset_audit_cell_for_rerun(
                 f"""
                 UPDATE audit_runs
                 SET {dec}
+                    -- Fold the idle gap since this run last finished into idle_ms
+                    -- (same as extend_audit_run_total). Then when the re-run cell
+                    -- lands and re-finishes the run, the wall-clock duration grows
+                    -- ONLY by the re-run's own delta, not the days-long gap since
+                    -- the original run. RHS reads the pre-update finished_at.
+                    idle_ms = idle_ms + CASE
+                        WHEN status <> 'aborted' AND finished_at IS NOT NULL
+                        THEN GREATEST(0, (EXTRACT(EPOCH FROM (NOW() - finished_at)) * 1000)::bigint)
+                        ELSE 0 END,
                     status = CASE WHEN status = 'aborted' THEN 'aborted' ELSE 'running' END,
                     finished_at = CASE WHEN status = 'aborted' THEN finished_at ELSE NULL END
                 WHERE id = $1

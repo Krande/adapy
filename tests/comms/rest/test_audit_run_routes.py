@@ -190,6 +190,19 @@ def test_reset_audit_cell_for_rerun_undoes_counter_and_reopens(db):
     assert run(db_module.reset_audit_cell_for_rerun(pool, r["id"], "nope.step", "glb", "x")) is False
 
 
+def test_reset_audit_cell_folds_idle_gap(db):
+    pool, run = db
+    r = run(_finish_run(pool, n=1))  # one done cell, run finished
+    # Backdate the finish so the re-run sees a ~1h gap since the original run.
+    run(pool.execute("UPDATE audit_runs SET finished_at = NOW() - INTERVAL '1 hour' WHERE id = $1", r["id"]))
+    run(db_module.reset_audit_cell_for_rerun(pool, r["id"], "models/f0.step", "glb", "job0b"))
+    after = run(db_module.get_audit_run(pool, r["id"]))
+    assert after["status"] == "running" and after["finished_at"] is None
+    # The ~1h gap is folded into idle_ms so wall clock won't swallow it when the
+    # cell re-completes — the re-run only adds its own delta.
+    assert 3_400_000 < after["idle_ms"] < 3_800_000
+
+
 def test_claim_run_for_validation_is_once(db):
     pool, run = db
     r = run(_finish_run(pool, n=1))
