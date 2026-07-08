@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {viewerApi, AuditRun, AuditRunJob, AuditCellHistoryRow, Corpus} from "@/services/viewerApi";
 import {runWasmAuditSweep, WasmSweepProgress} from "@/services/audit/wasmSweep";
 import {runtime} from "@/runtime/config";
+import {useAuditToastStore} from "@/state/auditToastStore";
 import {view_in_3d} from "@/utils/scene/handlers/view_in_3d";
 
 // Synthetic worker-pool value routing a run to the in-browser WASM engine.
@@ -1120,6 +1121,9 @@ const AuditRunsTab: React.FC = () => {
         () => (localStorage.getItem("auditRuntimeMode") === "wall" ? "wall" : "cells"),
     );
     useEffect(() => { localStorage.setItem("auditRuntimeMode", runtimeMode); }, [runtimeMode]);
+    // Ambient "audit sweep in progress" toast (shown over the viewer) — operators can hide it here.
+    const toastHidden = useAuditToastStore((s) => s.hidden);
+    const toggleToast = useAuditToastStore((s) => s.toggle);
     // New-run form: collapsible on mobile (always visible on md+). Auto-collapses
     // when a run is opened so the run detail owns the small screen.
     const [formOpen, setFormOpen] = useState(true);
@@ -1224,27 +1228,39 @@ const AuditRunsTab: React.FC = () => {
                         cells = compute cost, wall = time waited. Sticky so it
                         stays put while the list scrolls. */}
                     <div className="sticky top-0 z-10 flex items-center justify-between gap-2 px-3 py-1.5 border-b border-gray-800 bg-gray-900/80 backdrop-blur text-[11px] text-gray-400">
-                        <span>Runtime</span>
-                        <div className="inline-flex rounded-sm border border-gray-700 overflow-hidden">
-                            <button
-                                type="button"
-                                onClick={() => setRuntimeMode("cells")}
-                                className={"px-2 py-0.5 " + (runtimeMode === "cells"
-                                    ? "bg-blue-700 text-white" : "text-gray-300 hover:bg-gray-800")}
-                                title="Sum of every cell's own runtime — the real compute cost, immune to worker parallelism and single-cell re-runs."
-                            >
-                                Σ cells
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setRuntimeMode("wall")}
-                                className={"px-2 py-0.5 border-l border-gray-700 " + (runtimeMode === "wall"
-                                    ? "bg-blue-700 text-white" : "text-gray-300 hover:bg-gray-800")}
-                                title="Active wall-clock time (finished − started − idle) — how long the run actually took to watch."
-                            >
-                                wall
-                            </button>
+                        <div className="flex items-center gap-1.5">
+                            <span>Runtime</span>
+                            <div className="inline-flex rounded-sm border border-gray-700 overflow-hidden">
+                                <button
+                                    type="button"
+                                    onClick={() => setRuntimeMode("cells")}
+                                    className={"px-2 py-0.5 " + (runtimeMode === "cells"
+                                        ? "bg-blue-700 text-white" : "text-gray-300 hover:bg-gray-800")}
+                                    title="Sum of every cell's own runtime — the real compute cost, immune to worker parallelism and single-cell re-runs."
+                                >
+                                    Σ cells
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setRuntimeMode("wall")}
+                                    className={"px-2 py-0.5 border-l border-gray-700 " + (runtimeMode === "wall"
+                                        ? "bg-blue-700 text-white" : "text-gray-300 hover:bg-gray-800")}
+                                    title="Active wall-clock time (finished − started − idle) — how long the run actually took to watch."
+                                >
+                                    wall
+                                </button>
+                            </div>
                         </div>
+                        <button
+                            type="button"
+                            onClick={toggleToast}
+                            className={"px-2 py-0.5 rounded-sm border " + (toastHidden
+                                ? "border-gray-700 text-gray-400 hover:bg-gray-800"
+                                : "border-blue-700 bg-blue-900/40 text-blue-200 hover:bg-blue-900/60")}
+                            title="Show/hide the ambient 'audit sweep in progress' toast over the viewer."
+                        >
+                            {toastHidden ? "◌ toast off" : "● toast on"}
+                        </button>
                     </div>
                     {listError && (
                         <div className="text-xs text-red-400 px-3 py-2">{listError}</div>

@@ -6,6 +6,8 @@ import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {viewerApi} from "@/services/viewerApi";
 import {useLoadQueueStore, type LoadTask} from "@/state/loadQueueStore";
+import {useAuditToastStore} from "@/state/auditToastStore";
+import {useGalleryStore} from "@/state/galleryStore";
 
 // Shared dismiss button. Hit area is 28×28 (Apple HIG min is 44 but
 // the toast is dense; 28 still beats the 24 we shipped with and stays
@@ -580,6 +582,7 @@ function fmtCellElapsed(ms: number | null): string {
 const AuditActivityBadge: React.FC = () => {
     const isAdmin = useMeStore((s) => s.isAdmin);
     const openPanel = useViewerPanelStore((s) => s.openPanel);
+    const toastHidden = useAuditToastStore((s) => s.hidden);
     const [summary, setSummary] = useState<AuditActiveSummary | null>(null);
 
     useEffect(() => {
@@ -610,7 +613,7 @@ const AuditActivityBadge: React.FC = () => {
         };
     }, [isAdmin, summary && summary.running_runs > 0]);
 
-    if (!isAdmin || !summary || summary.running_runs === 0) return null;
+    if (!isAdmin || toastHidden || !summary || summary.running_runs === 0) return null;
     const {running_runs, pending_cells, current_cell} = summary;
     return (
         <button
@@ -665,6 +668,9 @@ const ConversionProgress = () => {
     const removeQueued = useLoadQueueStore((s) => s.removeQueued);
     const clearError = useLoadQueueStore((s) => s.clearError);
     const loadCurrentName = loadCurrent?.name ?? null;
+    // On mobile the gallery HUD is a bottom bar; lift the toast stack above it so the audit toast
+    // stacks on top of the gallery menu instead of overlapping. 0 (desktop/gallery-off) => default.
+    const galleryBarHeight = useGalleryStore((s) => s.mobileBarHeight);
 
     // The in-scene GLB download/parse is tracked as a conversionStore job under a
     // sentinel key (asyncModelLoader's LOAD_KEY). It's the SAME activity as the
@@ -722,7 +728,10 @@ const ConversionProgress = () => {
         // From the ``sm:`` breakpoint up we revert to the desktop
         // floating-pill style — anchored to the right, capped at
         // ``max-w-sm`` (24rem).
-        <div className="absolute bottom-4 left-4 right-4 sm:left-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto">
+        <div
+            className="absolute bottom-4 left-4 right-4 sm:left-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto"
+            style={galleryBarHeight > 0 ? {bottom: galleryBarHeight + 16} : undefined}
+        >
             <AuditActivityBadge/>
             {visibleSweeps.map(([scopeLabel, state]) => (
                 <CompressionToast

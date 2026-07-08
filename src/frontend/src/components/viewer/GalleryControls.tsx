@@ -25,6 +25,27 @@ const GalleryControls: React.FC = () => {
     const setGeomOrder = useGalleryStore((s) => s.setGeomOrder);
     const hideUnselected = useGalleryStore((s) => s.hideUnselected);
     const toggleHideUnselected = useGalleryStore((s) => s.toggleHideUnselected);
+    const setMobileBarHeight = useGalleryStore((s) => s.setMobileBarHeight);
+
+    // Publish the mobile bar's live height so the audit toast can stack above it (not overlap).
+    // getBoundingClientRect().height is 0 when the bar is display:none (desktop md:hidden), so the
+    // offset naturally applies only on mobile.
+    const mobileBarRef = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+        const el = mobileBarRef.current;
+        if (!el || typeof ResizeObserver === "undefined") {
+            setMobileBarHeight(0);
+            return;
+        }
+        const publish = () => setMobileBarHeight(el.getBoundingClientRect().height);
+        const ro = new ResizeObserver(publish);
+        ro.observe(el);
+        publish();
+        return () => {
+            ro.disconnect();
+            setMobileBarHeight(0);
+        };
+    }, [setMobileBarHeight, enabled]);
 
     const fileObjects = useServerInfoStore((s) => s.serverFileObjects);
     // The overlay load path registers into the plural loaded-source SET (not the
@@ -333,7 +354,7 @@ const GalleryControls: React.FC = () => {
             </div>
 
             {/* Mobile: bottom bar, larger tap targets, clear of the top menu. */}
-            <div className="flex md:hidden pointer-events-auto absolute inset-x-2 bottom-2 z-20 flex-col gap-1 rounded-md border border-gray-600 bg-gray-900/90 px-2 py-2 text-xs text-gray-100 shadow-lg backdrop-blur-sm">
+            <div ref={mobileBarRef} className="flex md:hidden pointer-events-auto absolute inset-x-2 bottom-2 z-20 flex-col gap-1 rounded-md border border-gray-600 bg-gray-900/90 px-2 py-2 text-xs text-gray-100 shadow-lg backdrop-blur-sm">
                 <div className="flex items-center gap-2">
                     {walkSelector}
                     <button

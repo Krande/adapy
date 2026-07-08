@@ -33,6 +33,12 @@ interface GalleryState {
     hideUnselected: boolean;
     setHideUnselected: (v: boolean) => void;
     toggleHideUnselected: () => void;
+
+    // Measured height (px) of the mobile gallery bar so bottom-anchored overlays (the audit toast)
+    // can stack ABOVE it instead of overlapping. 0 when the bar isn't shown (desktop / gallery off).
+    // Transient — not persisted.
+    mobileBarHeight: number;
+    setMobileBarHeight: (h: number) => void;
 }
 
 export const useGalleryStore = create<GalleryState>()(
@@ -51,7 +57,19 @@ export const useGalleryStore = create<GalleryState>()(
             hideUnselected: false,
             setHideUnselected: (hideUnselected) => set({hideUnselected}),
             toggleHideUnselected: () => set((s) => ({hideUnselected: !s.hideUnselected})),
+
+            mobileBarHeight: 0,
+            setMobileBarHeight: (mobileBarHeight) => set({mobileBarHeight}),
         }),
-        {name: "ada-gallery"},
+        {
+            name: "ada-gallery",
+            // Persist only the viewing preferences; mobileBarHeight is transient runtime layout.
+            partialize: (s) => ({
+                enabled: s.enabled,
+                walk: s.walk,
+                geomOrder: s.geomOrder,
+                hideUnselected: s.hideUnselected,
+            }),
+        },
     ),
 );
