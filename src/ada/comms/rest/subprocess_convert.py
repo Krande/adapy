@@ -441,6 +441,20 @@ async def run_isolated_convert(
                     _move_into_result(os.fspath(out), result_path)
                 else:
                     raise TypeError(f"convert returned {type(out).__name__}, expected bytes or a path")
+                # Emit per-conversion quality tallies for the parent to fold into convert_meta
+                # (marker-line channel, same as the C++ [STEPPROF-JSON] profiler). Best-effort:
+                # a tally failure must never fail an otherwise-successful conversion.
+                try:
+                    from ada.occ.tessellating import consume_mesh_distortion_stats, consume_tess_fallback_stats
+
+                    fb = consume_tess_fallback_stats()
+                    if fb.get("count"):
+                        _sys.stderr.write("[TESSFALLBACK-JSON] " + json.dumps(fb) + "\n")
+                    md = consume_mesh_distortion_stats()
+                    if md.get("distorted_tris"):
+                        _sys.stderr.write("[MESHHEALTH-JSON] " + json.dumps(md) + "\n")
+                except Exception:
+                    pass
                 _flush_std()
                 os._exit(0)
             except BaseException as exc:  # noqa: BLE001 — propagate verbatim

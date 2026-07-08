@@ -44,6 +44,84 @@ def _is_topods_shape(shape) -> bool:
     return isinstance(shape, TopoDS_Shape)
 
 
+# Per-conversion tally of silent NGEOM(libtess2/adacpp-*)->OCC tessellation fallbacks. Incremented
+# at the single choke point (_log_tess_fallback), which is only reached when a stream pipeline was
+# actually selected — so every hit is a genuine "the OCC-free path fell back to OCC" event. The
+# convert subprocess reads + resets this at teardown and emits it to the audit (convert_meta), so a
+# conversion that quietly completed on OCC instead of libtess2 is flagged rather than invisible.
+from collections import Counter as _Counter
+
+TESS_FALLBACK_STATS: dict = {"count": 0, "reasons": _Counter(), "geoms": _Counter()}
+
+
+def _record_tess_fallback(reason: str, geom_type: str) -> None:
+    TESS_FALLBACK_STATS["count"] += 1
+    # Keep the reason label short + bounded (the strings are fixed call-site literals).
+    TESS_FALLBACK_STATS["reasons"][reason.split(":")[0][:40]] += 1
+    TESS_FALLBACK_STATS["geoms"][geom_type] += 1
+
+
+def consume_tess_fallback_stats() -> dict:
+    """Return the accumulated fallback tally and reset it (per-conversion scope)."""
+    s = {
+        "count": int(TESS_FALLBACK_STATS["count"]),
+        "reasons": dict(TESS_FALLBACK_STATS["reasons"]),
+        "geoms": dict(TESS_FALLBACK_STATS["geoms"]),
+    }
+    TESS_FALLBACK_STATS["count"] = 0
+    TESS_FALLBACK_STATS["reasons"].clear()
+    TESS_FALLBACK_STATS["geoms"].clear()
+    return s
+
+
+# Per-conversion tally of heavily-distorted (degenerate + extreme-sliver) triangles across every
+# tessellated mesh. Fed by the scene builders as they collect meshes (raw triangles, so no meshopt
+# decode) and read out at teardown into convert_meta for a per-cell audit flag. A distorted triangle
+# is one whose area is near-zero relative to its longest edge (aspect = emax^2 / 2*area very large) —
+# the shape a mis-placed/collapsed vertex produces, which is what the "tris out of place" bug looks
+# like at the triangle level.
+_DISTORTION_ASPECT = 60.0  # emax^2/(2*area) above this = sliver/spike (equilateral ~= 3.5)
+_DISTORTION_SAMPLE_CAP = 300_000  # sample huge meshes so the scan stays sub-ms; count is scaled back
+MESH_DISTORTION_STATS: dict = {"n_tris": 0, "distorted": 0}
+
+
+def accumulate_mesh_distortion(positions, indices) -> None:
+    """Tally degenerate/sliver triangles in one mesh (best-effort, vectorized, sampled)."""
+    try:
+        v = np.asarray(positions, dtype=float).reshape(-1, 3)
+        idx = np.asarray(indices, dtype=np.int64).reshape(-1, 3)
+    except Exception:  # noqa: BLE001 - a malformed buffer must never fail a conversion
+        return
+    n = len(idx)
+    if n == 0 or len(v) == 0:
+        return
+    scale = 1.0
+    if n > _DISTORTION_SAMPLE_CAP:
+        step = n // _DISTORTION_SAMPLE_CAP + 1
+        idx = idx[::step]
+        scale = n / max(len(idx), 1)
+    tv = v[idx]
+    e0 = tv[:, 1] - tv[:, 0]
+    area2 = np.linalg.norm(np.cross(e0, tv[:, 2] - tv[:, 0]), axis=1)  # 2*area
+    emax = np.maximum.reduce(
+        [np.linalg.norm(e0, axis=1), np.linalg.norm(tv[:, 2] - tv[:, 1], axis=1), np.linalg.norm(tv[:, 0] - tv[:, 2], axis=1)]
+    )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        aspect = np.where(area2 > 1e-20, emax * emax / area2, np.inf)
+    distorted = int(((aspect > _DISTORTION_ASPECT) & (emax > 1e-9)).sum())
+    MESH_DISTORTION_STATS["n_tris"] += int(n)
+    MESH_DISTORTION_STATS["distorted"] += int(round(distorted * scale))
+
+
+def consume_mesh_distortion_stats() -> dict:
+    """Return the distortion tally and reset it (per-conversion scope)."""
+    n = int(MESH_DISTORTION_STATS["n_tris"])
+    d = int(MESH_DISTORTION_STATS["distorted"])
+    MESH_DISTORTION_STATS["n_tris"] = 0
+    MESH_DISTORTION_STATS["distorted"] = 0
+    return {"n_tris": n, "distorted_tris": d, "distorted_frac": (d / n if n else 0.0)}
+
+
 def _mesh_store_area(ms) -> float:
     """Total triangle area of a tessellated ``MeshStore`` (position soup +
     indices). Used to gauge whether a curved-plate prism actually covered its
@@ -767,6 +845,7 @@ class BatchTessellator:
             inner = getattr(geom, "geometry", geom)
             gt = type(getattr(inner, "geometry", inner)).__name__
         msg = f"NGEOM pipeline {pipeline!r} fell back to OCC for {node_ref!r} (geom={gt}): {reason}"
+        _record_tess_fallback(reason, gt)
         # Strict mode: a fall back to OCC is a hard failure, so a conversion can enforce/measure
         # 100% stream-kernel (libtess2/adacpp-*) coverage rather than silently completing on OCC.
         if os.environ.get("ADA_STREAM_TESS_STRICT", "").strip().lower() not in ("", "0", "false", "no", "off"):
@@ -1375,8 +1454,15 @@ class BatchTessellator:
             graph_store=graph,
         )
 
+        # Tally distorted (degenerate/sliver) triangles for the per-cell audit flag as meshes
+        # stream past — raw triangles, before GLB/meshopt encoding. Best-effort, never alters output.
+        def _scanned(it):
+            for ms in it:
+                accumulate_mesh_distortion(getattr(ms, "position", None), getattr(ms, "indices", None))
+                yield ms
+
         scene = self.meshes_to_trimesh(
-            shapes_tess_iter, graph, merge_meshes=params.merge_meshes, apply_transform=params.apply_transform
+            _scanned(shapes_tess_iter), graph, merge_meshes=params.merge_meshes, apply_transform=params.apply_transform
         )
 
         return scene

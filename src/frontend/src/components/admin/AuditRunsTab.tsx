@@ -189,6 +189,39 @@ function cellViewable(job: AuditRunJob | undefined): boolean {
     return runtime.conversionTargetsFor(t).includes("glb");
 }
 
+type CellFlag = {key: string; label: string; title: string; cls: string};
+
+// Per-source quality flags, aggregated across the row's cells' convert_meta. Mirrors the
+// PerformanceTab "streaming" pill idea: a compact badge per detected issue.
+//   occ_fallback — the NGEOM/libtess2 (OCC-free) tessellation silently fell back to OCC.
+//   distorted    — a converted mesh has heavily distorted (degenerate/sliver) triangles.
+function sourceFlags(cells: Map<string, AuditRunJob>, targets: string[], file: string): CellFlag[] {
+    let occ = 0;
+    let distorted = 0;
+    for (const t of targets) {
+        const cm = cells.get(`${file}::${t}`)?.convert_meta;
+        if (!cm) continue;
+        occ += cm.occ_fallback?.count ?? 0;
+        distorted += cm.mesh_flags?.distorted_tris ?? 0;
+    }
+    const flags: CellFlag[] = [];
+    if (occ > 0)
+        flags.push({
+            key: "occ",
+            label: "occ fallback",
+            title: `${occ} object(s) fell back from the libtess2 stream kernel to OCC`,
+            cls: "bg-amber-900/50 border-amber-700 text-amber-200",
+        });
+    if (distorted > 0)
+        flags.push({
+            key: "distorted",
+            label: "distorted tris",
+            title: `${distorted} heavily distorted (degenerate/sliver) triangle(s) in a converted mesh`,
+            cls: "bg-red-900/50 border-red-700 text-red-200",
+        });
+    return flags;
+}
+
 const RunGrid: React.FC<{
     jobs: AuditRunJob[];
     metric: MetricKey;
@@ -340,6 +373,9 @@ const RunGrid: React.FC<{
                                 .{t}
                             </th>
                         ))}
+                        <th className="px-2 py-1 border-b border-gray-700 font-medium text-gray-300 text-left" title="Per-source quality flags (OCC fallback, distorted triangles)">
+                            flags
+                        </th>
                     </tr>
                 </thead>
                 <tbody>
@@ -370,6 +406,17 @@ const RunGrid: React.FC<{
                                     </td>
                                 );
                             })}
+                            <td className="px-2 py-1 border-b border-gray-800 whitespace-nowrap">
+                                {sourceFlags(grid.cells, grid.targets, file).map((f) => (
+                                    <span
+                                        key={f.key}
+                                        className={`inline-block mr-1 px-1.5 py-0.5 rounded-sm border text-[10px] ${f.cls}`}
+                                        title={f.title}
+                                    >
+                                        {f.label}
+                                    </span>
+                                ))}
+                            </td>
                         </tr>
                     ))}
                 </tbody>

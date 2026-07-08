@@ -229,6 +229,35 @@ def _attach_cpp_profiles(convert_meta: dict | None, log_bytes: bytes | None) -> 
     if profiles:
         convert_meta["cpp_profile"] = profiles
 
+    # Per-conversion quality flags emitted by the child (subprocess_convert). Currently the
+    # NGEOM(libtess2/adacpp)->OCC fallback tally — a conversion that silently completed on OCC
+    # instead of the selected stream kernel. Surfaced as a cell flag in the audit grid.
+    fb_marker = b"[TESSFALLBACK-JSON] "
+    for line in log_bytes.splitlines():
+        i = line.find(fb_marker)
+        if i < 0:
+            continue
+        try:
+            fb = json.loads(line[i + len(fb_marker) :].decode("utf-8", "replace"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(fb, dict) and fb.get("count"):
+            convert_meta["occ_fallback"] = fb  # {count, reasons, geoms}
+        break
+
+    mh_marker = b"[MESHHEALTH-JSON] "
+    for line in log_bytes.splitlines():
+        i = line.find(mh_marker)
+        if i < 0:
+            continue
+        try:
+            mh = json.loads(line[i + len(mh_marker) :].decode("utf-8", "replace"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(mh, dict) and mh.get("distorted_tris"):
+            convert_meta["mesh_flags"] = mh  # {n_tris, distorted_tris, distorted_frac}
+        break
+
 
 def _capture_worker_packages() -> list[dict]:
     """Snapshot the worker env's installed packages — the conda-meta manifest

@@ -801,6 +801,14 @@ export interface AuditRunJob {
     // Empty for cells finished before migration 013 / cells that
     // hit the dispatcher's cached short-circuit.
     worker_image_tag: string | null;
+    // Per-conversion provenance + quality flags (JSONB). Includes
+    // ``occ_fallback`` ({count, reasons, geoms}) when the NGEOM/libtess2 path
+    // silently fell back to OCC, and ``mesh_flags`` for distorted triangles.
+    convert_meta?: {
+        occ_fallback?: {count: number; reasons?: Record<string, number>; geoms?: Record<string, number>};
+        mesh_flags?: {distorted_tris?: number; distorted_frac?: number; n_tris?: number};
+        [k: string]: unknown;
+    } | null;
 }
 
 export interface ProfileStatsRow {
