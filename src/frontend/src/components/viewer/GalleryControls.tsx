@@ -53,6 +53,9 @@ const GalleryControls: React.FC = () => {
     const loadedSources = useModelState((s) => s.loadedSourceNames);
     const loadBusy = useLoadQueueStore((s) => s.current);
     const selectedName = useObjectInfoStore((s) => s.name);
+    // A stable key for the active scope so a scope switch resets the walk (its geom entries point at
+    // the old scope's now-disposed meshes).
+    const scopeKey = useScopeStore((s) => (s.current ? scopeUrlPart(s.current) : ""));
 
     const isGeomWalk = walk === "geoms";
 
@@ -108,7 +111,14 @@ const GalleryControls: React.FC = () => {
 
     const rebuildGeoms = useCallback(() => {
         if (!isGeomWalk) return [] as GeomEntry[];
-        const entries = collectGeomEntries(geomOrder);
+        // Runs synchronously inside effects; a mid-transition scene must never throw here (that
+        // would unmount the whole app). Fall back to an empty walk on any error.
+        let entries: GeomEntry[] = [];
+        try {
+            entries = collectGeomEntries(geomOrder);
+        } catch {
+            entries = [];
+        }
         setGeomEntries(entries);
         return entries;
     }, [isGeomWalk, geomOrder]);
@@ -156,6 +166,16 @@ const GalleryControls: React.FC = () => {
         void goGeom(geomIndex);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hideUnselected]);
+
+    // Switching scope disposes the current scope's meshes; drop the walk's stale entries + any
+    // isolation/selection so nothing references a freed mesh. The scene-change effect above then
+    // rebuilds cleanly once the new scope's geoms land.
+    useEffect(() => {
+        endGeomWalk();
+        setGeomEntries([]);
+        setGeomIndex(0);
+        focusedOnce.current = false;
+    }, [scopeKey]);
 
     // Leaving a geom walk (switch to files, disable gallery) restores the scene —
     // but only if we actually entered one, so enabling the files walk never

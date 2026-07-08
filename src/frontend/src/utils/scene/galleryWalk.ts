@@ -106,7 +106,24 @@ function hideAllExcept(keepMesh: CustomBatchedMesh, keepRangeId: string): void {
 
 // Select the entry, populate the Object Info panel, optionally isolate
 // it, and frame the camera on it (fit object).
-export async function focusGeomEntry(entry: GeomEntry, opts: {hideUnselected: boolean}): Promise<void> {
+// True only while the mesh is still attached to the live scene. A scope switch disposes the old
+// scope's batched meshes; a walk holding stale entries would otherwise select/frame a freed mesh
+// (disposed geometry -> crash). Guards every operation that touches a walked mesh.
+function meshIsLive(mesh: CustomBatchedMesh | undefined | null): boolean {
+    if (!mesh) return false;
+    const scene = sceneRef.current;
+    if (!scene) return false;
+    let node: any = mesh;
+    while (node) {
+        if (node === scene) return true;
+        node = node.parent;
+    }
+    return false;
+}
+
+export async function focusGeomEntry(entry: GeomEntry | undefined, opts: {hideUnselected: boolean}): Promise<void> {
+    // A scope/scene transition can leave a stale or disposed entry in the walk — never crash on it.
+    if (!entry || !meshIsLive(entry.mesh) || !entry.mesh.drawRanges.has(entry.rangeId)) return;
     const {mesh, rangeId} = entry;
 
     const sel = useSelectedObjectStore.getState();
@@ -133,6 +150,9 @@ export async function focusGeomEntry(entry: GeomEntry, opts: {hideUnselected: bo
         }
     }
 
+    // The name lookup above awaited; a scope switch may have disposed the mesh in that window.
+    // Re-check before framing so centerViewOnSelection never reads freed geometry.
+    if (!meshIsLive(mesh)) return;
     const controls = controlsRef.current;
     const camera = cameraRef.current;
     if (controls && camera) centerViewOnSelection(controls, camera, 1.5);
