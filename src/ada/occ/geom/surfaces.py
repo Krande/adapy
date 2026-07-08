@@ -74,6 +74,45 @@ def make_face_from_poly_loop(poly_loop: PolyLoop) -> TopoDS_Shape:
     return BRepBuilderAPI_MakeFace(wire).Shape()
 
 
+def _loop_newell(loop: PolyLoop):
+    """Newell area-vector of a planar loop — magnitude 2*area, direction the winding normal.
+    Robust for non-convex polygons."""
+    import numpy as np
+
+    pts = np.asarray([list(p)[:3] for p in loop.polygon], float)
+    n = np.zeros(3)
+    for i in range(len(pts)):
+        n += np.cross(pts[i], pts[(i + 1) % len(pts)])
+    return n
+
+
+def make_planar_face_from_bounds(bounds) -> TopoDS_Shape:
+    """Planar (IfcFace / faceted-brep) face from its ``FaceBound`` list: the first loop is the
+    outer boundary, any further loops are cut as holes. The old faceted-brep path used only
+    ``bounds[0]`` and dropped inner bounds, so a face with an opening (e.g. a basin's rim, whose
+    IfcFaceOuterBound carries an IfcFaceBound hole for the mouth) built as a solid cap.
+
+    A hole wire must wind opposite to the outer for MakeFace to subtract it, and sources are
+    inconsistent about the inner loop's stored direction — so decide per inner loop from its
+    winding relative to the outer normal rather than trusting a fixed convention."""
+    import numpy as np
+
+    outer = bounds[0].bound
+    if not isinstance(outer, PolyLoop):
+        raise NotImplementedError(f"Only PolyLoop bounds supported for Face, not {type(outer)}")
+    onrm = _loop_newell(outer)
+    mk = BRepBuilderAPI_MakeFace(make_wire_from_poly_loop(outer), True)  # True: plane inferred from the wire
+    for fb in bounds[1:]:
+        inner = fb.bound
+        if not isinstance(inner, PolyLoop):
+            raise NotImplementedError(f"Only PolyLoop inner bounds supported for Face, not {type(inner)}")
+        inner_wire = make_wire_from_poly_loop(inner)
+        if float(np.dot(_loop_newell(inner), onrm)) > 0.0:  # inner winds like the outer -> reverse to cut a hole
+            inner_wire.Reverse()
+        mk.Add(inner_wire)
+    return mk.Face()
+
+
 def make_face_from_indexed_poly_curve_geom(curve: geo_cu.IndexedPolyCurve) -> TopoDS_Shape:
     wire = make_wire_from_indexed_poly_curve_geom(curve)
     return BRepBuilderAPI_MakeFace(wire).Shape()
@@ -1900,10 +1939,9 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
         elif type(cfs_face) is geo_su.Face:
             n_faces += 1
             try:
-                outer = cfs_face.bounds[0].bound
-                if not isinstance(outer, PolyLoop):
-                    raise NotImplementedError(f"Only PolyLoop bounds supported for Face, not {type(outer)}")
-                face = make_face_from_poly_loop(outer)
+                # bounds[0] is the outer loop; any further bounds are holes (openings)
+                # in this planar face — build them so an IfcFace with a hole doesn't cap.
+                face = make_planar_face_from_bounds(cfs_face.bounds)
                 builder.UpdateFace(face, 1e-6)
                 builder.Add(occ_shell, face)
             except Exception as ex:
