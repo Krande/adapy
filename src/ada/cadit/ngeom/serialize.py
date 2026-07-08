@@ -110,6 +110,7 @@ class _Encoder:
     def __init__(self):
         self._records: list[tuple[int, bytes]] = []
         self._memo: dict[int, int] = {}  # id(obj) -> record index
+        self._pinned_inferred: list = []  # keep transient inferred planes alive (id()-memo safety)
 
     def _add(self, tag: int, payload: bytes) -> int:
         idx = len(self._records)
@@ -352,10 +353,37 @@ class _Encoder:
         lp = self.loop(fb.bound)
         return self._add(_FACE_BOUND, self.i32(lp) + self.i32(1 if fb.orientation else 0))
 
-    def face_surface(self, f: su.FaceSurface) -> int:
-        surf = self.surface(f.face_surface)
+    def _infer_plane(self, loop) -> su.Plane:
+        from ada.geom.placement import Axis2Placement3D
+
+        pts = np.asarray([list(p)[:3] for p in loop.polygon], float)
+        nrm = np.zeros(3)
+        for i in range(len(pts)):
+            nrm += np.cross(pts[i], pts[(i + 1) % len(pts)])
+        ln = float(np.linalg.norm(nrm))
+        if ln < 1e-12:
+            raise _Unsupported("degenerate planar face")
+        axis = nrm / ln
+        ref = pts[1] - pts[0]
+        ref = ref - float(np.dot(ref, axis)) * axis
+        rn = float(np.linalg.norm(ref))
+        if rn < 1e-9:
+            alt = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+            ref = np.cross(axis, alt)
+            rn = float(np.linalg.norm(ref))
+        ref = ref / rn
+        plane = su.Plane(position=Axis2Placement3D(location=pts[0].tolist(), axis=axis.tolist(), ref_direction=ref.tolist()))
+        # Pin it: surface() memoizes by id(), and a transient inferred plane would be GC'd right
+        # after — the next face's plane reusing the freed id() then collides in the memo and gets
+        # the previous plane's record, mis-placing the face. Keep every inferred plane alive.
+        self._pinned_inferred.append(plane)
+        return plane
+
+    def face_surface(self, f: su.Face) -> int:
+        fs = getattr(f, "face_surface", None)
+        surf = self.surface(fs if fs is not None else self._infer_plane(f.bounds[0].bound))
         bounds = [self.face_bound(b) for b in f.bounds]
-        body = self.i32(surf) + self.i32(1 if f.same_sense else 0) + self.i32(len(bounds))
+        body = self.i32(surf) + self.i32(1 if getattr(f, "same_sense", True) else 0) + self.i32(len(bounds))
         body += b"".join(self.i32(b) for b in bounds)  # 1-2 bounds/face: inline (per-face hot path)
         return self._add(_FACE_SURFACE, body)
 
@@ -801,6 +829,11 @@ class _Encoder:
             return self.face_surface(geom)
         if isinstance(geom, (su.ConnectedFaceSet, su.ClosedShell, su.OpenShell)):
             return self.connected_face_set(geom)
+        if isinstance(geom, _so.FacetedBrep):
+            # Render the outer shell's faces natively (each plain planar Face gets an inferred
+            # plane in face_surface). Voids (FacetedBrepWithVoids) need a boolean cut not yet in
+            # the stream path — the outer surface still renders, cavities simply not carved.
+            return self.connected_face_set(geom.outer)
         raise _Unsupported(f"geometry {type(geom).__name__}")
 
     def root(self, geom) -> int:
