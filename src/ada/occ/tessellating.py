@@ -230,6 +230,36 @@ def _vertex_normals(positions: np.ndarray, faces: np.ndarray) -> np.ndarray:
     return (normals / lengths).reshape(-1).astype("float32")
 
 
+def _emit_with_geom_transforms(ms: "MeshStore", ada_obj):
+    """Yield ``ms`` once per world transform on the object's Geometry wrapper, baking each 4x4
+    into the vertex positions (and inverse-transpose into the normals, so non-uniform scale renders
+    correctly). ``Geometry.transforms`` carries per-instance placements the geometry itself can't
+    hold — e.g. an IfcMappedItem instanced N times, or a mapped item with a non-rigid (scale/shear)
+    transform that can't be baked into an analytic solid. No transforms → yield ``ms`` unchanged."""
+    transforms = getattr(getattr(ada_obj, "geom", None), "transforms", None)
+    if not transforms:
+        yield ms
+        return
+    base = np.asarray(ms.position, dtype=np.float64).reshape(-1, 3)
+    base_n = None
+    if ms.normal is not None and len(ms.normal):
+        base_n = np.asarray(ms.normal, dtype=np.float64).reshape(-1, 3)
+    for mat in transforms:
+        m = np.asarray(mat, dtype=np.float64)
+        pos = (np.c_[base, np.ones(len(base))] @ m.T)[:, :3].astype(np.float32).reshape(-1)
+        nrm = None
+        if base_n is not None:
+            try:
+                nm = np.linalg.inv(m[:3, :3]).T  # inverse-transpose: correct under non-uniform scale
+            except np.linalg.LinAlgError:
+                nm = m[:3, :3]
+            n = base_n @ nm.T
+            ln = np.linalg.norm(n, axis=1, keepdims=True)
+            ln[ln == 0] = 1.0
+            nrm = (n / ln).astype(np.float32).reshape(-1)
+        yield MeshStore(ms.index, ms.matrix, pos, ms.indices, nrm, ms.material, ms.type, ms.node_ref)
+
+
 def _thicken_face_mesh(positions: np.ndarray, faces: np.ndarray, thickness: float):
     """Extrude an open face mesh into a closed thin solid along a single vector — the
     area-weighted average surface normal × ``thickness`` — matching OCC's
@@ -1334,7 +1364,7 @@ class BatchTessellator:
                 pos_n = 0 if pos is None else (len(pos) if hasattr(pos, "__len__") else 0)
                 idx_n = 0 if idx is None else (len(idx) if hasattr(idx, "__len__") else 0)
                 if pos_n > 0 and idx_n > 0:
-                    yield ms
+                    yield from _emit_with_geom_transforms(ms, ada_obj)
                     continue
                 logger.error(
                     "PlateCurved %r: tessellation produced empty mesh (pos=%d idx=%d)",

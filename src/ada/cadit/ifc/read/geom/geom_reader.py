@@ -151,7 +151,51 @@ def mapped_item(geom_repr: ifcopenshell.entity_instance) -> GEOM:
     if len(items) != 1:
         raise NotImplementedError("IfcMappedItem MappedRepresentation with != 1 item (kernel fallback)")
     geom = import_geometry_from_ifc_geom(items[0])
-    return _transform_geometry(geom, _placement.get_mappeditem_transformation(geom_repr))
+    matrix = _placement.get_mappeditem_transformation(geom_repr)
+    try:
+        return _transform_geometry(geom, matrix)
+    except NotImplementedError:
+        # A non-rigid (scale/shear) transform, or an analytic solid whose parameters can't absorb
+        # the 4x4, can't be baked into the geometry. Carry it as a mesh-level world transform
+        # instead (Geometry.transforms) — applied to the tessellated mesh, so it renders natively
+        # without the OCC kernel fallback. Any geom kind + any affine works this way.
+        import numpy as np
+
+        from ada.geom import Geometry
+
+        base = geom if isinstance(geom, Geometry) else Geometry(items[0].id(), geom)
+        base.transforms = [np.asarray(matrix, dtype=float)]
+        return base
+
+
+def mapped_instance_group(prod_def: ifcopenshell.entity_instance):
+    """If a product's Body representation is several IfcMappedItems that all reuse the SAME mapping
+    source (one IfcRepresentationMap instanced N times, e.g. mapped-shape-with-multiple-items), read
+    the source geometry ONCE and return a single Geometry carrying every instance's 4x4 in
+    ``transforms`` — rendered natively via mesh-level instancing instead of the multi-item kernel
+    fallback. Returns None when the pattern doesn't hold (mixed item kinds, differing sources, or a
+    source that isn't itself a single item)."""
+    import numpy as np
+    import ifcopenshell.util.placement as _placement
+
+    from ada.geom import Geometry
+
+    items = []
+    for rep in prod_def.Representation.Representations:
+        if rep.RepresentationIdentifier == "Body":
+            items.extend(rep.Items)
+    if len(items) < 2 or not all(i.is_a("IfcMappedItem") for i in items):
+        return None
+    src = items[0].MappingSource.MappedRepresentation
+    if not all(i.MappingSource.MappedRepresentation == src for i in items):
+        return None
+    src_items = list(src.Items)
+    if len(src_items) != 1:
+        return None
+    base = import_geometry_from_ifc_geom(src_items[0])
+    base = base if isinstance(base, Geometry) else Geometry(src_items[0].id(), base)
+    base.transforms = [np.asarray(_placement.get_mappeditem_transformation(i), dtype=float) for i in items]
+    return base
 
 
 def _transform_curve(curve, xf, r_mat, scale):

@@ -118,10 +118,17 @@ def _read_shape_geometry(product: ifcopenshell.entity_instance, color, ifc_store
     if len(geometries) > 1:
         # A product with several Body items (e.g. multiple IfcMappedItem instances) needs ALL of
         # them — one Shape carries one geometry, so taking geometries[0] would silently drop the
-        # rest. The OCC kernel builds every item into one compound, so keep the kernel fallback for
-        # multi-item products (rare) rather than losing geometry.
-        logger.debug(f"product {product.is_a()} has {len(geometries)} Body geometries; using kernel fallback")
-        geometries = []
+        # rest. When they're all instances of one shared mapping source, fold them into a single
+        # mesh-instanced Geometry (renders natively); otherwise keep the kernel fallback (the OCC
+        # kernel builds every item into one compound).
+        from ada.cadit.ifc.read.geom.geom_reader import mapped_instance_group
+
+        folded = mapped_instance_group(product)
+        if folded is not None:
+            geometries = [folded]
+        else:
+            logger.debug(f"product {product.is_a()} has {len(geometries)} Body geometries; kernel fallback")
+            geometries = []
 
     if geometries:
         geometry = geometries[0]
