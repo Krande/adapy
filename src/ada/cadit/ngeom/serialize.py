@@ -24,7 +24,17 @@ _BULK_MIN = 16
 def _sample_arc(start, mid, end, n: int = 24) -> list:
     """Sample a 3-point circular arc (IFC ArcLine) into an ordered polyline start->mid->end.
     Falls back to the 3 raw points if the points are (near-)collinear."""
-    p0, p1, p2 = np.asarray(start, float), np.asarray(mid, float), np.asarray(end, float)
+
+    # A profile's ArcLine (I/T/... section fillet) carries 2D points; np.cross of two 2D vectors is
+    # a SCALAR, and the circumcenter math below then does np.cross(vec, scalar) -> "array has zero
+    # dimension". Lift to 3D (z=0) so the cross products stay vector-valued.
+    def _v3(p):
+        p = np.asarray(p, float).ravel()
+        return p if p.shape[0] == 3 else np.array([p[0] if p.shape[0] > 0 else 0.0,
+                                                   p[1] if p.shape[0] > 1 else 0.0, 0.0])
+
+    start, mid, end = _v3(start), _v3(mid), _v3(end)
+    p0, p1, p2 = start, mid, end
     a, b = p1 - p0, p2 - p0
     n_vec = np.cross(a, b)
     nn = np.linalg.norm(n_vec)
