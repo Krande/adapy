@@ -14,6 +14,11 @@ export (audit run 63 parity phase):
   import back
 * IfcTriangulatedFaceSet: no B-rep build existed, so IFC re-export needed an
   impossible kernel round-trip and STEP export wrote no solid
+* multi-instance IfcMappedItem (mapped-shape-with-multiple-items): 4 non-uniform-
+  scaled instances of one source solid. The OCC ``to_stp`` writer (the parity's
+  old STEP leg) collapsed them to 1 — a rigid STEP placement can't carry the
+  scale — so the parity now writes STEP via the non-OCC stream writer, which
+  emits one analytic solid per instance.
 """
 
 import pytest
@@ -29,6 +34,7 @@ PARITY_SOURCES = [
     "fem_files/sesam/xml_all_basic_props.sat",
     "ifc_files/bs_samples/tessellation-with-image-texture.ifc",
     "ifc_files/bs_samples/column-straight-rectangle-tessellation.ifc",
+    "ifc_files/mapped_shapes/mapped-shape-with-multiple-items.ifc",
 ]
 
 

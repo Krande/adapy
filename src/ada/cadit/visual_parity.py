@@ -28,9 +28,24 @@ if TYPE_CHECKING:
     from ada import Assembly
 
 # Structure-preserving formats: (writer(assembly, path), reader(path) -> Assembly, suffix).
-# STEP is written via the OCC writer (full geometry, not just extrusions) and
-# read via the streaming reader with an OCC fallback (reader="auto").
+# STEP is written via the non-OCC stream writer (the kernel-free AP242 path prod uses), which
+# preserves mapped/instanced shapes the OCC writer drops; it falls back to OCC per-file only for
+# solids the analytic stream writer can't yet author (swept/revolved/tapered). Read via the
+# streaming reader with an OCC fallback (reader="auto").
 _FORMAT_IO: dict[str, tuple[Callable, Callable, str]] = {}
+
+
+def _write_step_parity(assembly, path) -> None:
+    """Write STEP for the parity round-trip via the non-OCC stream writer (matches the prod
+    ifc/step→step converter path, and preserves multi-instance mapped shapes the OCC writer
+    collapses). If the stream writer skipped any solid it can't author analytically
+    (swept/revolved/tapered), re-write the whole file with the OCC writer, which covers those —
+    so the leg stays lossless either way. (A model mixing mapped instances AND swept solids would
+    lose the mapped instances to the OCC rewrite; none exist in the corpus and the stream writer's
+    coverage is being extended to remove even that.)"""
+    stats = assembly.to_stp(path, writer="stream")
+    if isinstance(stats, dict) and stats.get("skipped", 0) > 0:
+        assembly.to_stp(path, writer="occ")
 
 
 def _register_default_formats() -> None:
@@ -40,7 +55,7 @@ def _register_default_formats() -> None:
 
     _FORMAT_IO["ifc"] = (lambda a, p: a.to_ifc(p), lambda p: ada.from_ifc(p), ".ifc")
     _FORMAT_IO["xml"] = (lambda a, p: a.to_genie_xml(p), lambda p: ada.from_genie_xml(p), ".xml")
-    _FORMAT_IO["step"] = (lambda a, p: a.to_stp(p), lambda p: ada.from_step(p, reader="auto"), ".step")
+    _FORMAT_IO["step"] = (_write_step_parity, lambda p: ada.from_step(p, reader="auto"), ".step")
 
 
 def visualized_element_count(scene: "trimesh.Scene") -> int:
