@@ -36,7 +36,22 @@ const SPIKE_ASPECT_MIN = 8;
 // edges look identical to a spike by length, but their vertices aren't outliers.
 export const SPIKE_OUTLIER_K = 4;
 
-export function computeRangeStats(mesh: CustomBatchedMesh, rangeId: string): RangeStats | null {
+// The two spike thresholds, adjustable from the Mesh inspection panel so a scan can be re-run tighter
+// or looser. The module constants above are the defaults (and what the gallery uses).
+export interface SpikeThresholds {
+    spikeAspectMin: number; // longest-edge² / (2·area) over which a triangle is "thin"
+    spikeOutlierK: number; // vertex-distance / median over which a vertex is a crows-nest outlier
+}
+export const DEFAULT_SPIKE_THRESHOLDS: SpikeThresholds = {
+    spikeAspectMin: SPIKE_ASPECT_MIN,
+    spikeOutlierK: SPIKE_OUTLIER_K,
+};
+
+export function computeRangeStats(
+    mesh: CustomBatchedMesh,
+    rangeId: string,
+    thresholds: SpikeThresholds = DEFAULT_SPIKE_THRESHOLDS,
+): RangeStats | null {
     const geometry = mesh.geometry as THREE.BufferGeometry;
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
     const indexAttr = geometry.getIndex();
@@ -111,7 +126,7 @@ export function computeRangeStats(mesh: CustomBatchedMesh, rangeId: string): Ran
         for (let k = 0; k < verts.length; k++) {
             const ratio = dists[k] / medDist;
             if (ratio > maxSpike) maxSpike = ratio;
-            if (ratio > SPIKE_OUTLIER_K) outliers.add(verts[k]);
+            if (ratio > thresholds.spikeOutlierK) outliers.add(verts[k]);
         }
     }
 
@@ -131,7 +146,7 @@ export function computeRangeStats(mesh: CustomBatchedMesh, rangeId: string): Ran
             bc.subVectors(c, b);
             const triArea = 0.5 * cross.crossVectors(ab, ac).length();
             const emax = Math.max(ab.length(), ac.length(), bc.length());
-            if (triArea > 0 && emax * emax > SPIKE_ASPECT_MIN * 2 * triArea) spikeTris++;
+            if (triArea > 0 && emax * emax > thresholds.spikeAspectMin * 2 * triArea) spikeTris++;
         }
     }
 

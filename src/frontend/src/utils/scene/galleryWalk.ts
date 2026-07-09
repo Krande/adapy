@@ -9,7 +9,8 @@ import {centerViewOnSelection} from "@/utils/scene/centerViewOnSelection";
 import {unhideAllRanges} from "@/utils/scene/visibility";
 import {queryNameFromRangeId} from "@/utils/mesh_select/queryMeshDrawRange";
 import {query_ws_server_mesh_info} from "@/utils/mesh_select/handlers/send_mesh_selected_info_callback";
-import {computeRangeStats, SPIKE_OUTLIER_K} from "@/utils/mesh_select/meshStats";
+import {computeRangeStats, DEFAULT_SPIKE_THRESHOLDS} from "@/utils/mesh_select/meshStats";
+import type {SpikeThresholds} from "@/utils/mesh_select/meshStats";
 import {useOptionsStore} from "@/state/optionsStore";
 import type {GeomWalkOrder} from "@/state/galleryStore";
 
@@ -38,12 +39,16 @@ function allBatchedMeshes(): CustomBatchedMesh[] {
     return out;
 }
 
-function sceneOrderEntries(meshes: CustomBatchedMesh[], withStats: boolean): GeomEntry[] {
+function sceneOrderEntries(
+    meshes: CustomBatchedMesh[],
+    withStats: boolean,
+    thresholds: SpikeThresholds = DEFAULT_SPIKE_THRESHOLDS,
+): GeomEntry[] {
     const entries: GeomEntry[] = [];
     for (const mesh of meshes) {
         for (const rangeId of mesh.drawRanges.keys()) {
             if (withStats) {
-                const s = computeRangeStats(mesh, rangeId);
+                const s = computeRangeStats(mesh, rangeId, thresholds);
                 entries.push({
                     mesh,
                     rangeId,
@@ -92,15 +97,19 @@ function treeOrderEntries(meshes: CustomBatchedMesh[]): GeomEntry[] {
     return entries.length > 0 ? entries : sceneOrderEntries(meshes, false);
 }
 
-export function collectGeomEntries(order: WalkOrder): GeomEntry[] {
+export function collectGeomEntries(
+    order: WalkOrder,
+    thresholds: SpikeThresholds = DEFAULT_SPIKE_THRESHOLDS,
+): GeomEntry[] {
     const meshes = allBatchedMeshes();
     if (order === "tree") return treeOrderEntries(meshes);
-    const entries = sceneOrderEntries(meshes, order === "density" || order === "distorted");
+    const entries = sceneOrderEntries(meshes, order === "density" || order === "distorted", thresholds);
     if (order === "density") entries.sort((x, y) => y.density - x.density);
     if (order === "distorted") {
         // Only geoms with an outlier-vertex spike, worst-first — the walk visits problems, not the
-        // whole model. Empty result ⇒ nothing distorted (the good outcome).
-        return entries.filter((e) => e.spike > SPIKE_OUTLIER_K).sort((x, y) => y.spike - x.spike);
+        // whole model. Empty result ⇒ nothing distorted (the good outcome). The Mesh panel passes
+        // adjusted thresholds here to re-scan tighter/looser; the gallery uses the default.
+        return entries.filter((e) => e.spike > thresholds.spikeOutlierK).sort((x, y) => y.spike - x.spike);
     }
     return entries;
 }
