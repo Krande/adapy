@@ -992,7 +992,13 @@ class BatchTessellator:
         if mat_id is None:
             mat_id = len(self.material_store)
             self.material_store[color] = mat_id
-        return MeshStore(node_ref, None, pos, idx, nrm, mat_id, MeshType.TRIANGLES, node_ref)
+        # Curve-only bodies (alignment axes, trimmed/segmented curves) tessellate to LINES;
+        # the batch carries the glTF primitive mode so they render as lines, not triangles.
+        try:
+            mtype = MeshType.from_int(getattr(bm, "mesh_type", 4))
+        except ValueError:
+            mtype = MeshType.TRIANGLES
+        return MeshStore(node_ref, None, pos, idx, nrm, mat_id, mtype, node_ref)
 
     def batch_tessellate(
         self,

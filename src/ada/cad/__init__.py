@@ -116,6 +116,9 @@ class BatchMesh:
     indices: Any  # flat uint32,  length = 3 * num_triangles
     groups: "list[MeshGroup]"
     normals: Any = None  # flat float32, len == positions, or None if not supplied
+    mesh_type: int = 4  # glTF primitive mode of ``indices`` — 4=TRIANGLES (default),
+    # 1=LINES for curve-only bodies (alignment axes, trimmed/segmented curves). A single
+    # stream blob is one homogeneous root, so one mode covers the whole BatchMesh.
 
 
 def tessellate_batch_via_loop(backend, shapes, linear_deflection: float = -1.0) -> "BatchMesh":
@@ -1017,11 +1020,17 @@ class AdacppBackend:
             for g in mesh.groups
         ]
         nrm = np.asarray(mesh.normals)
+        # mesh_type: glTF primitive mode (4=TRIANGLES, 1=LINES for curve-only bodies). Older
+        # adacpp builds' Mesh has no mesh_type attr → default TRIANGLES. The binding returns a
+        # MeshType enum whose int value already equals the glTF mode.
+        mt = getattr(mesh, "mesh_type", None)
+        mesh_type = int(getattr(mt, "value", mt)) if mt is not None else 4
         return BatchMesh(
             positions=np.asarray(mesh.positions),
             indices=np.asarray(mesh.indices),
             groups=groups,
             normals=nrm if nrm.size else None,
+            mesh_type=mesh_type,
         )
 
     def ifc_taxonomy_settings(self) -> "list[dict]":
@@ -1121,11 +1130,17 @@ class AdacppBackend:
             for g in mesh.groups
         ]
         nrm = np.asarray(mesh.normals)
+        # mesh_type: glTF primitive mode (4=TRIANGLES, 1=LINES for curve-only bodies). Older
+        # adacpp builds' Mesh has no mesh_type attr → default TRIANGLES. The binding returns a
+        # MeshType enum whose int value already equals the glTF mode.
+        mt = getattr(mesh, "mesh_type", None)
+        mesh_type = int(getattr(mt, "value", mt)) if mt is not None else 4
         return BatchMesh(
             positions=np.asarray(mesh.positions),
             indices=np.asarray(mesh.indices),
             groups=groups,
             normals=nrm if nrm.size else None,
+            mesh_type=mesh_type,
         )
 
     def bbox(
