@@ -140,32 +140,76 @@ def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GE
 def mapped_item(geom_repr: ifcopenshell.entity_instance) -> GEOM:
     """IfcMappedItem — reuse of a MappingSource representation placed by a MappingTarget transform.
 
-    Unwrap the (single) mapped representation item, read it natively (recurse), and apply the
+    Unwrap the mapped representation item(s), read them natively (recurse), and apply the
     mapped-item 4x4 (MappingTarget composed with MappingOrigin — via ifcopenshell's pure-Python
-    ``get_mappeditem_transformation``, no OCC kernel). A mapped representation with more than one
-    item, or a non-rigid (shear / non-uniform-scale) transform on an analytic solid, raises
-    NotImplementedError so the caller keeps the kernel fallback for that product."""
+    ``get_mappeditem_transformation``, no OCC kernel). A single-item source bakes the transform
+    into the geometry when it is rigid, else carries it as a mesh-level ``Geometry.transforms``.
+    A *multi-item* mapped representation (e.g. a detailed part exported as several
+    IfcPolygonalFaceSets) merges its faceted items into one geometry and carries the shared 4x4 as a
+    mesh-level transform. Non-faceted multi-item sources raise NotImplementedError so the caller
+    keeps the kernel fallback for that product."""
+    import numpy as np
     import ifcopenshell.util.placement as _placement
 
+    from ada.geom import Geometry
+
     items = list(geom_repr.MappingSource.MappedRepresentation.Items)
-    if len(items) != 1:
-        raise NotImplementedError("IfcMappedItem MappedRepresentation with != 1 item (kernel fallback)")
-    geom = import_geometry_from_ifc_geom(items[0])
     matrix = _placement.get_mappeditem_transformation(geom_repr)
-    try:
-        return _transform_geometry(geom, matrix)
-    except NotImplementedError:
-        # A non-rigid (scale/shear) transform, or an analytic solid whose parameters can't absorb
-        # the 4x4, can't be baked into the geometry. Carry it as a mesh-level world transform
-        # instead (Geometry.transforms) — applied to the tessellated mesh, so it renders natively
-        # without the OCC kernel fallback. Any geom kind + any affine works this way.
-        import numpy as np
 
-        from ada.geom import Geometry
+    if len(items) == 1:
+        geom = import_geometry_from_ifc_geom(items[0])
+        try:
+            return _transform_geometry(geom, matrix)
+        except NotImplementedError:
+            # A non-rigid (scale/shear) transform, or an analytic solid whose parameters can't absorb
+            # the 4x4, can't be baked into the geometry. Carry it as a mesh-level world transform
+            # instead (Geometry.transforms) — applied to the tessellated mesh, so it renders natively
+            # without the OCC kernel fallback. Any geom kind + any affine works this way.
+            base = geom if isinstance(geom, Geometry) else Geometry(items[0].id(), geom)
+            base.transforms = [np.asarray(matrix, dtype=float)]
+            return base
 
-        base = geom if isinstance(geom, Geometry) else Geometry(items[0].id(), geom)
-        base.transforms = [np.asarray(matrix, dtype=float)]
-        return base
+    # Several items under one mapping source: merge the faceted items into a single geometry (one
+    # Shape carries one Geometry, so we can't emit them separately) and carry the shared mapped 4x4
+    # as a mesh-level transform. This renders natively instead of the OCC kernel building the mapped
+    # multi-item body. _merge_face_sets raises NotImplementedError for non-face-set items.
+    merged = _merge_face_sets([import_geometry_from_ifc_geom(it) for it in items])
+    base = Geometry(geom_repr.id(), merged)
+    m = np.asarray(matrix, dtype=float)
+    if not np.allclose(m, np.eye(4), atol=1e-12):
+        base.transforms = [m]
+    return base
+
+
+def _merge_face_sets(geoms: list) -> GEOM:
+    """Merge a list of homogeneous face sets into one, concatenating coordinates and offsetting the
+    (1-based) vertex indices. Supports all-PolygonalFaceSet or all-TriangulatedFaceSet inputs; any
+    other/mixed content raises NotImplementedError (the multi-item mapped-item caller then keeps the
+    kernel fallback)."""
+    if geoms and all(isinstance(g, geo_su.PolygonalFaceSet) for g in geoms):
+        coordinates: list = []
+        faces: list[list[int]] = []
+        offset = 0
+        closed = True
+        for g in geoms:
+            faces.extend([[i + offset for i in face] for face in g.faces])
+            coordinates.extend(g.coordinates)
+            offset += len(g.coordinates)
+            closed = closed and g.closed
+        return geo_su.PolygonalFaceSet(coordinates=coordinates, faces=faces, closed=closed)
+    if geoms and all(isinstance(g, geo_su.TriangulatedFaceSet) for g in geoms):
+        coordinates = []
+        normals: list = []
+        indices: list[int] = []
+        offset = 0
+        for g in geoms:
+            indices.extend([i + offset for i in g.indices])
+            coordinates.extend(g.coordinates)
+            normals.extend(g.normals)
+            offset += len(g.coordinates)
+        return geo_su.TriangulatedFaceSet(coordinates=coordinates, normals=normals, indices=indices)
+    kinds = ", ".join(sorted({type(g).__name__ for g in geoms})) or "empty"
+    raise NotImplementedError(f"multi-item mapped representation with non-mergeable items ({kinds})")
 
 
 def mapped_instance_group(prod_def: ifcopenshell.entity_instance):
