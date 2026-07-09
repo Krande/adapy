@@ -1219,6 +1219,10 @@ async def _process_one(
         # sibling jobs / the parent worker keep their pristine env.
         profile_enabled = False
         env_overrides: dict[str, str] = {}
+        # Initialised here (not only inside the ``db_pool is not None`` block below) so a worker
+        # that came up without a DB pool — e.g. it raced Postgres during a restart — still converts
+        # with code defaults instead of crashing every job with UnboundLocalError on ``timeout_s``.
+        timeout_s: float | None = None
         if db_pool is not None:
 
             async def _read_bool_setting(key: str) -> str | None:
@@ -1247,7 +1251,6 @@ async def _process_one(
             # convert subprocess after the deadline and SIGKILLs
             # 30 s later if it's still alive.
             timeout_minutes_raw = await _read_bool_setting("conversion_timeout_minutes")
-            timeout_s: float | None = None
             try:
                 tm = float((timeout_minutes_raw or "").strip())
                 if tm > 0:
