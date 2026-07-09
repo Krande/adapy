@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {useMeshPanelStore} from "@/state/meshPanelStore";
+import {useOptionsStore} from "@/state/optionsStore";
 import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 import {queryNameFromRangeId} from "@/utils/mesh_select/queryMeshDrawRange";
 
@@ -26,6 +27,7 @@ const num = (n: number, digits = 1) => (Number.isFinite(n) ? n.toFixed(digits) :
 const MeshDistortionSection: React.FC = () => {
     const {spikeAspectMin, spikeOutlierK, setSpikeAspectMin, setSpikeOutlierK, resetThresholds} =
         useMeshPanelStore();
+    const {showEdges, setShowEdges, hideTessellationEdges, setHideTessellationEdges} = useOptionsStore();
 
     const [rows, setRows] = useState<Row[]>([]);
     const [scanning, setScanning] = useState(false);
@@ -100,6 +102,29 @@ const MeshDistortionSection: React.FC = () => {
                 <span className="text-xs text-gray-400">
                     {scanning ? "scanning…" : scanned ? `${rows.length} distorted` : ""}
                 </span>
+            </div>
+
+            {/* Mesh triangle visibility — see the triangulation to judge tessellation/welding. Edge
+                overlay toggles live; the full triangulation grid is baked at load (needs a reload). */}
+            <div className="flex items-center gap-4 text-sm border-b border-gray-700 pb-2">
+                <label className="flex items-center space-x-1">
+                    <input type="checkbox" className="no-drag" checked={showEdges} onChange={() => setShowEdges(!showEdges)}/>
+                    <span>Mesh edges</span>
+                </label>
+                <label
+                    className="flex items-center space-x-1"
+                    title="Show every triangle edge (the tessellation grid), not just feature edges. Baked at load — reload the model to apply."
+                >
+                    <input
+                        type="checkbox"
+                        className="no-drag"
+                        checked={!hideTessellationEdges}
+                        onChange={() => setHideTessellationEdges(!hideTessellationEdges)}
+                    />
+                    <span>
+                        Triangles <span className="text-[10px] uppercase tracking-wide text-amber-300">(reload)</span>
+                    </span>
+                </label>
             </div>
 
             {/* Thresholds — edit then Rescan. */}
