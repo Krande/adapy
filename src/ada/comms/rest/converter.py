@@ -956,7 +956,10 @@ _GLB_TESS_ENGINES = (
     _STEP_GLB_PIPELINE_ADACPP_CGAL,
     _STEP_GLB_PIPELINE_ADACPP_HYBRID,
 )
-_GLB_TESS_ENGINE_DEFAULT = _STEP_GLB_PIPELINE_OCC
+# Advertised default for the non-STEP →GLB engine option. Kept in lockstep with the RUNTIME default
+# (`_default_glb_tess_engine`, which returns libtess2 whenever adacpp is importable) so the SPA/audit
+# UI reflects the path actually taken. libtess2 gracefully degrades to OCC on an adacpp-less pool.
+_GLB_TESS_ENGINE_DEFAULT = _STEP_GLB_PIPELINE_LIBTESS2
 _GLB_ENGINE_TO_STREAM = {
     _STEP_GLB_PIPELINE_LIBTESS2: "libtess2",
     _STEP_GLB_PIPELINE_ADACPP_OCC: "occ",
@@ -2223,15 +2226,16 @@ def _register_ada_loadable() -> None:
     }
 
     # Non-STEP →GLB tessellation engine (xml / ifc / sat / fem / obj / stl → glb). Same engines
-    # as STEP but driving to_gltf's BatchTessellator stream selector; default OCC (libtess2 opt-in).
+    # as STEP but driving to_gltf's BatchTessellator stream selector; default libtess2 (adacpp-aware,
+    # matching the runtime `_default_glb_tess_engine`), degrading to OCC on an adacpp-less pool.
     glb_tess_engine_option = {
         "name": "glb_tess_engine",
         "type": "enum",
         "default": _GLB_TESS_ENGINE_DEFAULT,
         "enum": list(_GLB_TESS_ENGINES),
         "description": (
-            "→GLB tessellation engine. 'occ-builtin' (default) is the OpenCASCADE tessellator. "
-            "'libtess2' is adacpp's OCC-free boundary tessellator — renders curved surfaces OCC "
+            "→GLB tessellation engine. 'libtess2' (default) is adacpp's OCC-free boundary "
+            "tessellator — renders curved surfaces OCC "
             "drops and avoids the OCC optimal-bbox cost on curved-heavy models (per-geom fallback "
             "to OCC when a geometry isn't yet NGEOM-serializable). 'adacpp-occ' / 'adacpp-cgal' / "
             "'adacpp-hybrid' use adacpp's taxonomy kernels. Engines needing adacpp fall back to OCC "
