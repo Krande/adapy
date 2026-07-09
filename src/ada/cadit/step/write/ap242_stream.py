@@ -860,6 +860,38 @@ class Ap242StreamWriter:
             self._instances.append((pd, sr, nm, parent_rep, tuple(tf) if tf is not None else None))
         return len(instances)
 
+    def add_baked_instances(self, g, *, name="shape", color=None, transforms=()) -> int:
+        """Emit one component per world 4x4 in ``transforms``, each BAKED into a faceted
+        MANIFOLD_SOLID_BREP whose planar faces are recomputed from the transformed points — so
+        ANY affine (including the non-uniform-scale mapped-item transforms an IfcMappedItem carries)
+        is represented losslessly. This mirrors adacpp's step_emit "bake per-instance geometry"
+        (a scale/shear can't ride a rotation-only STEP placement, and NAUO/AXIS2_PLACEMENT is
+        rigid-only), so it is the transform-preserving path for mapped/instanced shapes that the
+        analytic ``add_extrusion``/``add_brep`` writers can't place. Returns the number emitted.
+
+        ``transforms`` is a list of row-major flat-16 4x4 world matrices (``None`` = identity)."""
+        nm = (name or "shape").replace("'", "''")
+        saved_tf, saved_t = getattr(self, "_tf", None), getattr(self, "_t", (0.0, 0.0, 0.0))
+        emitted = 0
+        for m in transforms:
+            self._tf = tuple(float(x) for x in m) if m is not None else None
+            self._t = (0.0, 0.0, 0.0)
+            try:
+                item = self._emit_faceted_brep(g, nm, color)  # bakes self._tf into world points
+            except Exception as exc:  # noqa: BLE001 - one bad instance shouldn't sink the file
+                logger.warning("ap242 add_baked_instances skipped %r: %s", name, exc)
+                item = None
+            finally:
+                self._tf, self._t = saved_tf, saved_t
+            if item is None:
+                continue
+            if self.assembly:
+                self._emit_component(item, nm)
+            else:
+                self._solids.append(item)
+            emitted += 1
+        return emitted
+
     def _register_asm_path(self, parent_path) -> int | None:
         """Register the intermediate assembly nodes of ``parent_path`` (root-first
         ``(rep_id, name)`` levels) and their parent edges; return the rep_id of the
@@ -1284,6 +1316,82 @@ def _curve_to_segs(curve, *, is_outer):
     return None
 
 
+def _transform_extrusion(ext, W):
+    """Apply a world affine 4x4 ``W`` to an :class:`Extrusion`, returning a NEW analytic Extrusion
+    (exact planar faces + line/arc edges — no tessellation), or None when the transform can't be
+    carried analytically (an oblique extrude vector under shear, or a circular arc that a
+    non-uniform in-plane scale would turn elliptic). The caller then facet-bakes that instance.
+
+    The profile's own 2D coordinates absorb the linear map: each 2D point is lifted to 3D in the
+    source frame, mapped by ``W``'s rotation/scale, and re-projected into a fresh orthonormal frame
+    fitted to the transformed profile plane — so a rotation, a uniform, or an axis-aligned
+    non-uniform scale (the common mapped-instance case) all stay a valid ExtrudedAreaSolid."""
+    import numpy as np
+
+    Wm = np.asarray(W, dtype=float)
+    R = Wm[:3, :3]
+    o = np.asarray(ext.origin, dtype=float)
+    xd = np.asarray(ext.xdir, dtype=float)
+    nd = np.asarray(ext.normal, dtype=float)
+    yd = np.cross(nd, xd)
+
+    # The transformed profile plane's normal is cross(R@xd, R@yd) — NOT R@nd (that only coincides
+    # for axis-aligned scale/rotation; a shear tilts the plane while leaving R@nd unchanged).
+    tx, ty = R @ xd, R @ yd
+    n2 = np.cross(tx, ty)
+    if np.linalg.norm(n2) < 1e-12:
+        return None
+    n_hat = n2 / np.linalg.norm(n2)
+    x_hat = tx - np.dot(tx, n_hat) * n_hat
+    if np.linalg.norm(x_hat) < 1e-9:
+        return None
+    x_hat /= np.linalg.norm(x_hat)
+    y_hat = np.cross(n_hat, x_hat)
+
+    # add_extrusion extrudes along `normal` by `depth`; the mapped extrude vector must stay ~parallel
+    # to the transformed plane normal (no oblique-prism support here) → else facet-fallback.
+    ev = R @ (float(ext.depth) * nd)
+    depth2 = float(np.dot(ev, n_hat))
+    if np.linalg.norm(ev - depth2 * n_hat) > 1e-6 * (abs(depth2) + 1.0):
+        return None
+    if depth2 < 0:  # extrude flipped → flip the frame so depth stays positive (add_extrusion req.)
+        n_hat, y_hat, depth2 = -n_hat, -y_hat, -depth2
+    if depth2 <= 1e-12:
+        return None
+
+    # A non-uniform in-plane scale turns circles into ellipses — a circular-arc Seg can't represent
+    # that, so bail (facet) when the profile has arcs and the in-plane scale is anisotropic.
+    sx, sy = np.linalg.norm(R @ xd), np.linalg.norm(R @ yd)
+    anisotropic = abs(sx - sy) > 1e-6 * max(sx, sy, 1.0)
+    if anisotropic and any(s.kind == "arc" for loop in [ext.outer, *ext.inners] for s in loop):
+        return None
+
+    def to2d(p2):
+        q = R @ (float(p2[0]) * xd + float(p2[1]) * yd)  # W@(o+..) - W@o = R@(..)
+        return (float(np.dot(q, x_hat)), float(np.dot(q, y_hat)))
+
+    def tf_loop(segs):
+        out = []
+        for s in segs:
+            if s.kind == "arc":
+                out.append(Seg("arc", to2d(s.start), to2d(s.end), mid=to2d(s.mid)))
+            else:
+                out.append(Seg(s.kind, to2d(s.start), to2d(s.end)))
+        return out
+
+    new_origin = tuple((Wm @ np.array([o[0], o[1], o[2], 1.0]))[:3])
+    return Extrusion(
+        origin=new_origin,
+        xdir=tuple(x_hat),
+        normal=tuple(n_hat),
+        depth=depth2,
+        outer=tf_loop(ext.outer),
+        inners=[tf_loop(loop) for loop in ext.inners],
+        name=ext.name,
+        color=ext.color,
+    )
+
+
 def extrusion_from_geometry(geom, *, name="obj", color=None, translate=(0.0, 0.0, 0.0)):
     """Build an :class:`Extrusion` from an adapy ``Geometry`` whose solid is a
     plain ``ExtrudedAreaSolid``. Returns None if the geometry is not a supported
@@ -1518,15 +1626,50 @@ def write_step_stream(
             geom, name, color, translate = _object_geom_meta(obj)
             done = False
             if geom is not None:
-                ext = extrusion_from_geometry(
-                    geom, name=name, color=color, translate=translate
-                ) or _primitive_to_extrusion(geom, name=name, color=color, translate=translate)
-                if ext is not None:
-                    writer.add_extrusion(ext)
-                    done = True
-                elif writer.add_brep(geom.geometry, name=name, color=color, translate=translate) is not None:
-                    # B-rep fallback: imported shapes, pure shells, analytic faces
-                    done = True
+                # transforms ride obj.geom (the mapped-item mesh-level instances); solid_geom()
+                # strips them. World order (matching the tessellation path + the ifcopenshell oracle)
+                # is placement @ transform[k] @ local — so bake the LOCAL geometry (obj.geom.geometry,
+                # pre-placement) under self._tf = P @ transform[k].
+                obj_geom = getattr(obj, "geom", None)
+                transforms = getattr(obj_geom, "transforms", None) if obj_geom is not None else None
+                if transforms:
+                    # Mapped / instanced shape: N world 4x4s from a multi-instance IfcMappedItem. The
+                    # analytic writers place a single solid (dropping N-1 instances). Emit ONE solid
+                    # per instance, ANALYTICALLY where possible — transform the Extrusion (exact
+                    # planar faces + line/arc edges preserved, no tessellation) and emit via
+                    # add_extrusion. Only a transform the analytic form can't carry (oblique/elliptic
+                    # under shear) falls back to a faceted bake — facet-but-present, never dropped.
+                    import numpy as np
+
+                    from ada.geom import Geometry
+
+                    P = np.asarray(obj.placement.get_matrix4x4(), dtype=float)
+                    base_ext = extrusion_from_geometry(
+                        Geometry(name, obj_geom.geometry), name=name, color=color
+                    )
+                    n_ok = 0
+                    for m in transforms:
+                        W = P @ np.asarray(m, dtype=float)
+                        placed = _transform_extrusion(base_ext, W) if base_ext is not None else None
+                        if placed is not None:
+                            writer.add_extrusion(placed)
+                            n_ok += 1
+                        elif writer.add_baked_instances(
+                            obj_geom.geometry, name=name, color=color, transforms=[tuple(W.ravel())]
+                        ) > 0:
+                            n_ok += 1
+                    if n_ok > 0:
+                        done = True
+                else:
+                    ext = extrusion_from_geometry(
+                        geom, name=name, color=color, translate=translate
+                    ) or _primitive_to_extrusion(geom, name=name, color=color, translate=translate)
+                    if ext is not None:
+                        writer.add_extrusion(ext)
+                        done = True
+                    elif writer.add_brep(geom.geometry, name=name, color=color, translate=translate) is not None:
+                        # B-rep fallback: imported shapes, pure shells, analytic faces
+                        done = True
             emitted += 1 if done else 0
             skipped += 0 if done else 1
             if progress_callback is not None:
