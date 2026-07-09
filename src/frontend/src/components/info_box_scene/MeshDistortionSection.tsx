@@ -1,15 +1,14 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
-import {PANEL_CHROME} from "@/state/themeStore";
 import {useMeshPanelStore} from "@/state/meshPanelStore";
 import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 import {queryNameFromRangeId} from "@/utils/mesh_select/queryMeshDrawRange";
 
-// Dedicated Mesh inspection panel (Menu bar → Mesh). Scans every geom in the scene for "crows-nest"
-// tessellation spikes — the same detector the gallery "distorted" walk uses (utils/mesh_select/
-// meshStats) — and lists the offenders in a table sorted by distortion (worst first). The two spike
-// thresholds are editable; "Rescan" re-runs the scan with the current thresholds. Clicking a row
-// selects + frames that geom (with triangle edges on) so the spike is visible — the gallery's
-// distorted-walk behaviour, on demand from a table.
+// "Mesh" mode of the Scene panel (Scene dropdown → Mesh). Scans every geom in the scene for
+// "crows-nest" tessellation spikes — the same detector the gallery "distorted" walk uses
+// (utils/mesh_select/meshStats) — and lists the offenders in a distortion-sorted table. The two
+// spike thresholds are editable; "Rescan" re-runs at the current thresholds. Clicking a row selects
+// + frames that geom (triangle edges on) so the spike is visible. Rendered inside SceneInfoBox, which
+// supplies the panel chrome + the mode dropdown — so this is a bare section, no outer chrome.
 
 interface Row {
     mesh: GeomEntry["mesh"];
@@ -17,14 +16,14 @@ interface Row {
     triangles: number;
     spike: number;
     spikeTris: number;
-    name: string; // resolved lazily; falls back to the rangeId
+    name: string;
 }
 
 type SortKey = "spike" | "spikeTris" | "triangles" | "name";
 
 const num = (n: number, digits = 1) => (Number.isFinite(n) ? n.toFixed(digits) : "—");
 
-const MeshPanel: React.FC = () => {
+const MeshDistortionSection: React.FC = () => {
     const {spikeAspectMin, spikeOutlierK, setSpikeAspectMin, setSpikeOutlierK, resetThresholds} =
         useMeshPanelStore();
 
@@ -40,7 +39,6 @@ const MeshPanel: React.FC = () => {
     const rescan = useCallback(async () => {
         const seq = ++scanSeq.current;
         setScanning(true);
-        // collectGeomEntries("distorted", …) already filters to spiked geoms and sorts worst-first.
         const entries = collectGeomEntries("distorted", {spikeAspectMin, spikeOutlierK});
         if (scanSeq.current !== seq) return;
         const base: Row[] = entries.map((e) => ({
@@ -49,13 +47,11 @@ const MeshPanel: React.FC = () => {
             triangles: e.triangles,
             spike: e.spike,
             spikeTris: e.spikeTris,
-            name: e.rangeId, // placeholder until the async name resolves
+            name: e.rangeId,
         }));
         setRows(base);
         setScanning(false);
         setScanned(true);
-        // Resolve human-readable names best-effort (may hit the WS server); the small distorted set
-        // keeps this cheap. Bail if a newer scan superseded this one.
         const names = await Promise.all(
             base.map((r) => queryNameFromRangeId(r.mesh.unique_key, r.rangeId).catch(() => null)),
         );
@@ -63,8 +59,8 @@ const MeshPanel: React.FC = () => {
         setRows(base.map((r, i) => ({...r, name: names[i] || r.rangeId})));
     }, [spikeAspectMin, spikeOutlierK]);
 
-    // Scan once when the panel opens. Threshold edits do NOT auto-rescan — the user hits "Rescan"
-    // (so a mid-edit value doesn't trigger a heavy full-scene scan on every keystroke).
+    // Scan once when the Mesh mode is opened. Threshold edits don't auto-rescan (avoid a heavy
+    // full-scene scan on every keystroke) — the user hits Rescan.
     useEffect(() => {
         void rescan();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,17 +94,16 @@ const MeshPanel: React.FC = () => {
     const thClass = "sticky top-0 bg-gray-800 px-2 py-1 text-left font-semibold cursor-pointer select-none whitespace-nowrap";
 
     return (
-        <div className={`${PANEL_CHROME} min-w-96 max-h-[80vh] overflow-y-auto`}>
-            <div className="flex items-center justify-between mb-2">
-                <h2 className="font-bold">Mesh — distortion scan</h2>
+        <div className="space-y-2">
+            <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">Distortion scan</span>
                 <span className="text-xs text-gray-400">
                     {scanning ? "scanning…" : scanned ? `${rows.length} distorted` : ""}
                 </span>
             </div>
 
-            {/* Thresholds — edit then Rescan. Aspect: thinness of a triangle; Outlier K: how far a
-                vertex must shoot past the body to count as a crows-nest spike. */}
-            <div className="space-y-2 mb-2 text-sm">
+            {/* Thresholds — edit then Rescan. */}
+            <div className="space-y-2 text-sm">
                 <label className="flex items-center space-x-2">
                     <span className="w-40">Thin-triangle aspect ≥</span>
                     <input
@@ -210,4 +205,4 @@ const MeshPanel: React.FC = () => {
     );
 };
 
-export default MeshPanel;
+export default MeshDistortionSection;

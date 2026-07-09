@@ -21,11 +21,8 @@ import ServerIcon from "./icons/ServerIcon";
 import ToggleControlsIcon from "./icons/AnimationControlToggle";
 import TreeViewIcon from "./icons/TreeViewIcon";
 import SceneIcon from "./icons/SceneIcon";
-import MeshIcon from "./icons/MeshIcon";
 import ComponentIcon from "./icons/ComponentIcon";
 import SceneInfoBox from "./info_box_scene/SceneInfoBox";
-import MeshPanel from "./info_box_mesh/MeshPanel";
-import {useMeshPanelStore} from "@/state/meshPanelStore";
 import {WebsocketStatusMenu, WebsocketStatusBox} from "./WebsocketStatusMenu";
 
 
@@ -114,8 +111,6 @@ const Menu = () => {
     const componentSpecsAvailable = useComponentSpecsStore((s) => s.hasSpecs);
     const {showInfoBox: showWebsocketInfoBox} = stores.useWebsocketStatusStore();
     const {isTreeCollapsed, setIsTreeCollapsed, treeViewWidth} = stores.useTreeViewStore();
-    const meshPanelVisible = useMeshPanelStore((s) => s.visible);
-    const toggleMeshPanel = useMeshPanelStore((s) => s.toggle);
     const isDesktop = useIsDesktop();
 
     // On desktop the tree panel pushes the menu bar to its right so
@@ -196,14 +191,6 @@ const Menu = () => {
                         aria-label="Toggle scene info"
                         aria-pressed={show_scene_info_box}
                     ><SceneIcon/></button>
-                    <button
-                        className={navBtnClass(meshPanelVisible, "", use_node_editor_only)}
-                        hidden={use_node_editor_only}
-                        onClick={toggleMeshPanel}
-                        title="Toggle mesh distortion inspector"
-                        aria-label="Toggle mesh distortion inspector"
-                        aria-pressed={meshPanelVisible}
-                    ><MeshIcon/></button>
 
                     <button
                         className={navBtnClass(isControlsVisible, "", !hasAnimation && !feaSessionActive)}
@@ -240,7 +227,6 @@ const Menu = () => {
                     )}
                     {show_info_box && <ObjectInfoBox/>}
                     {show_scene_info_box && <SceneInfoBox/>}
-                    {meshPanelVisible && <MeshPanel/>}
                     {showWebsocketInfoBox && <WebsocketStatusBox/>}
                     {isControlsVisible && <SimulationControls/>}
                     {componentControlsVisible && <ComponentControls/>}
