@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {useMeshPanelStore} from "@/state/meshPanelStore";
 import {useOptionsStore} from "@/state/optionsStore";
+import CollapsibleSection from "@/components/common/CollapsibleSection";
 import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 import {queryNameFromRangeId} from "@/utils/mesh_select/queryMeshDrawRange";
 
@@ -96,136 +97,136 @@ const MeshDistortionSection: React.FC = () => {
     const thClass = "sticky top-0 bg-gray-800 px-2 py-1 text-left font-semibold cursor-pointer select-none whitespace-nowrap";
 
     return (
-        <div className="space-y-2">
-            <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">Distortion scan</span>
-                <span className="text-xs text-gray-400">
-                    {scanning ? "scanning…" : scanned ? `${rows.length} distorted` : ""}
-                </span>
-            </div>
+        <div className="space-y-1">
+            <CollapsibleSection title="Options" defaultOpen>
+                <div className="space-y-2 pt-1">
+                    {/* Mesh triangle visibility — see the triangulation to judge tessellation/welding.
+                        Edge overlay toggles live; the full triangulation grid is baked at load (reload). */}
+                    <div className="flex items-center gap-4 text-sm">
+                        <label className="flex items-center space-x-1">
+                            <input type="checkbox" className="no-drag" checked={showEdges} onChange={() => setShowEdges(!showEdges)}/>
+                            <span>Mesh edges</span>
+                        </label>
+                        <label
+                            className="flex items-center space-x-1"
+                            title="Show every triangle edge (the tessellation grid), not just feature edges. Baked at load — reload the model to apply."
+                        >
+                            <input
+                                type="checkbox"
+                                className="no-drag"
+                                checked={!hideTessellationEdges}
+                                onChange={() => setHideTessellationEdges(!hideTessellationEdges)}
+                            />
+                            <span>
+                                Triangles <span className="text-[10px] uppercase tracking-wide text-amber-300">(reload)</span>
+                            </span>
+                        </label>
+                    </div>
 
-            {/* Mesh triangle visibility — see the triangulation to judge tessellation/welding. Edge
-                overlay toggles live; the full triangulation grid is baked at load (needs a reload). */}
-            <div className="flex items-center gap-4 text-sm border-b border-gray-700 pb-2">
-                <label className="flex items-center space-x-1">
-                    <input type="checkbox" className="no-drag" checked={showEdges} onChange={() => setShowEdges(!showEdges)}/>
-                    <span>Mesh edges</span>
-                </label>
-                <label
-                    className="flex items-center space-x-1"
-                    title="Show every triangle edge (the tessellation grid), not just feature edges. Baked at load — reload the model to apply."
-                >
-                    <input
-                        type="checkbox"
-                        className="no-drag"
-                        checked={!hideTessellationEdges}
-                        onChange={() => setHideTessellationEdges(!hideTessellationEdges)}
-                    />
-                    <span>
-                        Triangles <span className="text-[10px] uppercase tracking-wide text-amber-300">(reload)</span>
-                    </span>
-                </label>
-            </div>
-
-            {/* Thresholds — edit then Rescan. */}
-            <div className="space-y-2 text-sm">
-                <label className="flex items-center space-x-2">
-                    <span className="w-40">Thin-triangle aspect ≥</span>
-                    <input
-                        type="range" min={1} max={50} step={1}
-                        value={spikeAspectMin}
-                        onChange={(e) => setSpikeAspectMin(parseFloat(e.target.value))}
-                        className="flex-1 no-drag"
-                    />
-                    <input
-                        type="number" min={1} max={50} step={1}
-                        value={spikeAspectMin}
-                        onChange={(e) => setSpikeAspectMin(parseFloat(e.target.value) || 1)}
-                        className="w-20 bg-gray-700 text-white p-1 rounded-sm no-drag"
-                    />
-                </label>
-                <label className="flex items-center space-x-2">
-                    <span className="w-40">Outlier vertex K ≥</span>
-                    <input
-                        type="range" min={1} max={20} step={0.5}
-                        value={spikeOutlierK}
-                        onChange={(e) => setSpikeOutlierK(parseFloat(e.target.value))}
-                        className="flex-1 no-drag"
-                    />
-                    <input
-                        type="number" min={1} max={20} step={0.5}
-                        value={spikeOutlierK}
-                        onChange={(e) => setSpikeOutlierK(parseFloat(e.target.value) || 1)}
-                        className="w-20 bg-gray-700 text-white p-1 rounded-sm no-drag"
-                    />
-                </label>
-                <div className="flex items-center gap-2">
-                    <button
-                        className="bg-blue-700 pointer-fine:hover:bg-blue-600 text-white px-3 py-1 rounded-sm no-drag disabled:opacity-50"
-                        onClick={() => void rescan()}
-                        disabled={scanning}
-                    >
-                        {scanning ? "Scanning…" : "Rescan"}
-                    </button>
-                    <button
-                        className="bg-gray-700 pointer-fine:hover:bg-gray-600 text-white px-3 py-1 rounded-sm no-drag"
-                        onClick={resetThresholds}
-                        title="Reset thresholds to the gallery defaults"
-                    >
-                        Reset
-                    </button>
-                    <label className="flex items-center space-x-1 ml-auto">
-                        <input type="checkbox" className="no-drag" checked={isolate} onChange={() => setIsolate((v) => !v)}/>
-                        <span>Isolate</span>
+                    {/* Thresholds — edit then Rescan. */}
+                    <label className="flex items-center space-x-2 text-sm">
+                        <span className="w-40">Thin-triangle aspect ≥</span>
+                        <input
+                            type="range" min={1} max={50} step={1}
+                            value={spikeAspectMin}
+                            onChange={(e) => setSpikeAspectMin(parseFloat(e.target.value))}
+                            className="flex-1 no-drag"
+                        />
+                        <input
+                            type="number" min={1} max={50} step={1}
+                            value={spikeAspectMin}
+                            onChange={(e) => setSpikeAspectMin(parseFloat(e.target.value) || 1)}
+                            className="w-20 bg-gray-700 text-white p-1 rounded-sm no-drag"
+                        />
                     </label>
-                    <button
-                        className="bg-gray-700 pointer-fine:hover:bg-gray-600 text-white px-2 py-1 rounded-sm no-drag"
-                        onClick={() => {
-                            setSelectedRange(null);
-                            endGeomWalk();
-                        }}
-                        title="Clear selection / un-isolate"
-                    >
-                        Clear
-                    </button>
+                    <label className="flex items-center space-x-2 text-sm">
+                        <span className="w-40">Outlier vertex K ≥</span>
+                        <input
+                            type="range" min={1} max={20} step={0.5}
+                            value={spikeOutlierK}
+                            onChange={(e) => setSpikeOutlierK(parseFloat(e.target.value))}
+                            className="flex-1 no-drag"
+                        />
+                        <input
+                            type="number" min={1} max={20} step={0.5}
+                            value={spikeOutlierK}
+                            onChange={(e) => setSpikeOutlierK(parseFloat(e.target.value) || 1)}
+                            className="w-20 bg-gray-700 text-white p-1 rounded-sm no-drag"
+                        />
+                    </label>
+                    <div className="flex items-center gap-2">
+                        <button
+                            className="bg-blue-700 pointer-fine:hover:bg-blue-600 text-white px-3 py-1 rounded-sm no-drag disabled:opacity-50"
+                            onClick={() => void rescan()}
+                            disabled={scanning}
+                        >
+                            {scanning ? "Scanning…" : "Rescan"}
+                        </button>
+                        <button
+                            className="bg-gray-700 pointer-fine:hover:bg-gray-600 text-white px-3 py-1 rounded-sm no-drag"
+                            onClick={resetThresholds}
+                            title="Reset thresholds to the gallery defaults"
+                        >
+                            Reset
+                        </button>
+                        <label className="flex items-center space-x-1 ml-auto">
+                            <input type="checkbox" className="no-drag" checked={isolate} onChange={() => setIsolate((v) => !v)}/>
+                            <span>Isolate</span>
+                        </label>
+                        <button
+                            className="bg-gray-700 pointer-fine:hover:bg-gray-600 text-white px-2 py-1 rounded-sm no-drag"
+                            onClick={() => {
+                                setSelectedRange(null);
+                                endGeomWalk();
+                            }}
+                            title="Clear selection / un-isolate"
+                        >
+                            Clear
+                        </button>
+                    </div>
                 </div>
-            </div>
+            </CollapsibleSection>
 
-            {/* Results table — y-overflow, sortable, distortion-sorted by default. */}
-            {rows.length === 0 ? (
-                <div className="text-sm text-gray-400 py-4 text-center">
-                    {scanning ? "Scanning scene…" : "No distorted geoms at these thresholds."}
-                </div>
-            ) : (
-                <div className="max-h-[50vh] overflow-y-auto border border-gray-700 rounded-sm">
-                    <table className="w-full text-xs border-collapse">
-                        <thead>
-                            <tr>
-                                <th className={thClass} onClick={() => onSort("name")}>Geom{sortArrow("name")}</th>
-                                <th className={`${thClass} text-right`} onClick={() => onSort("spike")}>Spike{sortArrow("spike")}</th>
-                                <th className={`${thClass} text-right`} onClick={() => onSort("spikeTris")}>Spike tris{sortArrow("spikeTris")}</th>
-                                <th className={`${thClass} text-right`} onClick={() => onSort("triangles")}>Tris{sortArrow("triangles")}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sorted.map((r) => (
-                                <tr
-                                    key={`${r.mesh.unique_key}|${r.rangeId}`}
-                                    className={`cursor-pointer pointer-fine:hover:bg-gray-700 ${
-                                        selectedRange === r.rangeId ? "bg-blue-900" : ""
-                                    }`}
-                                    onClick={() => onRowClick(r)}
-                                >
-                                    <td className="px-2 py-1 max-w-56 truncate" title={r.name}>{r.name}</td>
-                                    <td className="px-2 py-1 text-right font-mono">{num(r.spike)}</td>
-                                    <td className="px-2 py-1 text-right font-mono">{r.spikeTris}</td>
-                                    <td className="px-2 py-1 text-right font-mono">{r.triangles}</td>
+            {/* Results table — collapsible, default collapsed; y-overflow, sortable, distortion-sorted. */}
+            <CollapsibleSection
+                title={`Distorted geoms${scanned ? ` (${rows.length})` : ""}${scanning ? " — scanning…" : ""}`}
+                defaultOpen={false}
+            >
+                {rows.length === 0 ? (
+                    <div className="text-sm text-gray-400 py-4 text-center">
+                        {scanning ? "Scanning scene…" : "No distorted geoms at these thresholds."}
+                    </div>
+                ) : (
+                    <div className="max-h-[50vh] overflow-y-auto border border-gray-700 rounded-sm">
+                        <table className="w-full text-xs border-collapse">
+                            <thead>
+                                <tr>
+                                    <th className={thClass} onClick={() => onSort("name")}>Geom{sortArrow("name")}</th>
+                                    <th className={`${thClass} text-right`} onClick={() => onSort("spike")}>Spike{sortArrow("spike")}</th>
+                                    <th className={`${thClass} text-right`} onClick={() => onSort("spikeTris")}>Spike tris{sortArrow("spikeTris")}</th>
+                                    <th className={`${thClass} text-right`} onClick={() => onSort("triangles")}>Tris{sortArrow("triangles")}</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
+                            </thead>
+                            <tbody>
+                                {sorted.map((r) => (
+                                    <tr
+                                        key={`${r.mesh.unique_key}|${r.rangeId}`}
+                                        className={`cursor-pointer pointer-fine:hover:bg-gray-700 ${
+                                            selectedRange === r.rangeId ? "bg-blue-900" : ""
+                                        }`}
+                                        onClick={() => onRowClick(r)}
+                                    >
+                                        <td className="px-2 py-1 max-w-56 truncate" title={r.name}>{r.name}</td>
+                                        <td className="px-2 py-1 text-right font-mono">{num(r.spike)}</td>
+                                        <td className="px-2 py-1 text-right font-mono">{r.spikeTris}</td>
+                                        <td className="px-2 py-1 text-right font-mono">{r.triangles}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </CollapsibleSection>
         </div>
     );
 };
