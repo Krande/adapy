@@ -2419,6 +2419,36 @@ def _register_fea_result_to_glb() -> None:
         ConverterRegistry.register(ext, "glb", _h)
 
 
+def _via_ifc_stream_to_glb(
+    src_path: pathlib.Path,
+    on_progress: ProgressFn,
+    *,
+    glb_tess_engine: str | None = None,
+    strict_tess: bool | None = None,
+) -> bytes | pathlib.Path:
+    """IFC → GLB, fully native (adacpp ``stream_ifc_to_glb``: pure-C++ IfcResolver → libtess2 →
+    merge-by-colour GLB, no ifcopenshell/OCC), with a graceful fallback to the ifcopenshell
+    ``from_ifc`` → GLB path. The native GLB carries geometry + per-mesh colour + the spatial tree +
+    names — viewer-equivalent (IFC property sets never live in the GLB; they are fetched on selection).
+    Falls back when adacpp's native entry is absent, the run raises, or it produces 0 products (e.g. an
+    IFC of only tessellated face-sets the analytic resolver skips)."""
+    from ada.config import logger
+
+    from ada.cadit.ifc.native_ifc_to_glb import native_ifc_glb_available, native_ifc_to_glb
+
+    if native_ifc_glb_available():
+        try:
+            out_path = pathlib.Path(tempfile.mkstemp(suffix=".glb")[1])
+            stats = native_ifc_to_glb(src_path, out_path, on_progress=on_progress)
+            if stats.get("solids", 0) > 0:
+                logger.info("native IFC->GLB: %s", stats)
+                return out_path
+            logger.info("native IFC->GLB produced 0 products; falling back to from_ifc")
+        except Exception as exc:  # noqa: BLE001
+            logger.info("native IFC->GLB failed (%s); falling back to from_ifc", exc)
+    return _via_ada(src_path, ".ifc", "glb", on_progress, glb_tess_engine=glb_tess_engine, strict_tess=strict_tess)
+
+
 def _register_step_stream_exports() -> None:
     # STEP/STP exports that bypass the full-OCC Assembly (which OOM-kills / times
     # out on multi-GB CAD assemblies). Registered AFTER _register_ada_loadable so
@@ -2467,6 +2497,22 @@ def _register_step_stream_exports() -> None:
             return _via_ifc_to_step(src, on_progress)
 
         ConverterRegistry.register(".ifc", "step", _h_ifc2step)
+
+    # IFC → GLB via the native adacpp IFC pipeline (no ifcopenshell/OCC), overriding the generic
+    # from_ifc → GLB. Gated on the native verb; degrades to from_ifc per _via_ifc_stream_to_glb's
+    # own fallback (absent verb / error / 0 products), so this is always safe to register.
+    try:
+        from ada.cadit.ifc.native_ifc_to_glb import native_ifc_glb_available
+
+        _native_ifc2glb = native_ifc_glb_available()
+    except Exception:  # noqa: BLE001
+        _native_ifc2glb = False
+    if _native_ifc2glb:
+
+        def _h_ifc2glb(src, on_progress, *, glb_tess_engine=None, strict_tess=None, **_kw):
+            return _via_ifc_stream_to_glb(src, on_progress, glb_tess_engine=glb_tess_engine, strict_tess=strict_tess)
+
+        ConverterRegistry.register(".ifc", "glb", _h_ifc2glb)
 
 
 def _register_glb_to_mesh() -> None:
