@@ -46,7 +46,10 @@ def native_read_ifc_into(assembly, ifc_path: str | pathlib.Path, *, product_tree
     from ada.api.spatial import Part
     from ada.config import Config
 
-    store = ShapeStore() if Config().cad_lazy_shape_store else None
+    # Lazy store retains each product's NGEOM blob (the zero-copy ndarray view the C++ IfcNgeomStream
+    # yields — no memcpy) and, when cad_shape_store_compress is on, zlib-compresses it in place to cut
+    # resident memory — same as the STEP native reader (part.py).
+    store = ShapeStore(compress=Config().cad_shape_store_compress) if Config().cad_lazy_shape_store else None
     asm_parts: dict[tuple, Part] = {}
 
     def _tree_parent(paths):
