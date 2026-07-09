@@ -4,6 +4,7 @@ import {useOptionsStore} from "@/state/optionsStore";
 import CollapsibleSection from "@/components/common/CollapsibleSection";
 import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 import {queryNameFromRangeId} from "@/utils/mesh_select/queryMeshDrawRange";
+import {refreshEdgeOverlays} from "@/utils/scene/refreshEdgeOverlays";
 
 // "Mesh" mode of the Scene panel (Scene dropdown → Mesh). Scans every geom in the scene for
 // "crows-nest" tessellation spikes — the same detector the gallery "distorted" walk uses
@@ -101,25 +102,34 @@ const MeshDistortionSection: React.FC = () => {
             <CollapsibleSection title="Options" defaultOpen>
                 <div className="space-y-2 pt-1">
                     {/* Mesh triangle visibility — see the triangulation to judge tessellation/welding.
-                        Edge overlay toggles live; the full triangulation grid is baked at load (reload). */}
+                        Both rebuild the edge overlays live (no page/model reload). */}
                     <div className="flex items-center gap-4 text-sm">
                         <label className="flex items-center space-x-1">
-                            <input type="checkbox" className="no-drag" checked={showEdges} onChange={() => setShowEdges(!showEdges)}/>
+                            <input
+                                type="checkbox"
+                                className="no-drag"
+                                checked={showEdges}
+                                onChange={() => {
+                                    setShowEdges(!showEdges);
+                                    refreshEdgeOverlays();
+                                }}
+                            />
                             <span>Mesh edges</span>
                         </label>
                         <label
                             className="flex items-center space-x-1"
-                            title="Show every triangle edge (the tessellation grid), not just feature edges. Baked at load — reload the model to apply."
+                            title="Show every triangle edge (the tessellation grid), not just feature edges."
                         >
                             <input
                                 type="checkbox"
                                 className="no-drag"
                                 checked={!hideTessellationEdges}
-                                onChange={() => setHideTessellationEdges(!hideTessellationEdges)}
+                                onChange={() => {
+                                    setHideTessellationEdges(!hideTessellationEdges);
+                                    refreshEdgeOverlays();
+                                }}
                             />
-                            <span>
-                                Triangles <span className="text-[10px] uppercase tracking-wide text-amber-300">(reload)</span>
-                            </span>
+                            <span>Triangles</span>
                         </label>
                     </div>
 

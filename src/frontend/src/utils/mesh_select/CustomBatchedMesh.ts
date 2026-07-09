@@ -39,6 +39,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
     private edgeMesh?: THREE.LineSegments;
     private rangeIdToIndex?: Map<string, number>;
     private edgeMaterial?: THREE.ShaderMaterial;
+    public edgesEligible = false; // true once a design edge overlay was built (persists across rebuilds)
 
     // Cached materials to avoid per-click allocations for non-vertex-colored meshes
     private _matSelected?: THREE.Material;
@@ -236,6 +237,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
 
     /** call this when you have a renderer and want the overlay in the scene */
     public getEdgeOverlay(renderer: THREE.WebGLRenderer): THREE.LineSegments {
+        this.edgesEligible = true; // this mesh takes a design edge overlay (FEA meshes never call this)
         if (!this.edgeMesh) {
             // first‐time initialization
             const {geometry, rangeIdToIndex} =
@@ -251,6 +253,19 @@ export class CustomBatchedMesh extends THREE.Mesh {
             this.edgeMesh.applyMatrix4(worldMat);
         }
         return this.edgeMesh;
+    }
+
+    /** Drop the cached edge overlay so the next getEdgeOverlay() rebuilds it from the CURRENT options
+     *  (e.g. after hideTessellationEdges toggled feature-only vs full-triangulation edges). Returns the
+     *  old LineSegments so the caller can remove it from the scene before re-adding the rebuilt one. */
+    public invalidateEdgeOverlay(): THREE.LineSegments | undefined {
+        const old = this.edgeMesh;
+        (this.edgeMesh?.geometry as THREE.BufferGeometry | undefined)?.dispose();
+        this.edgeMaterial?.dispose();
+        this.edgeMesh = undefined;
+        this.edgeMaterial = undefined;
+        this.rangeIdToIndex = undefined;
+        return old;
     }
 
     public updateSelectionGroups(rangeIds: string[]) {
