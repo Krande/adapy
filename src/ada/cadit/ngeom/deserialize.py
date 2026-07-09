@@ -10,8 +10,10 @@ Used by the native STEP reader (``read_step_file(reader="native")``): ``adacpp.c
 emits one NGEOM root per solid (a B-rep ``ConnectedFaceSet``), and this rebuilds each as an
 ``ada.geom`` geometry. Also the round-trip oracle for ``serialize_geometries``.
 
-Swept/CSG solids (extruded/revolved/boolean/sphere primitives) are serialized as synthesized profile
-faces; the native STEP path never emits them (STEP solids are explicit B-reps), so those tags raise.
+Swept/CSG solids (extruded/revolved/boolean/sphere — tags 50-53) are serialized with a synthesized
+profile FACE; they decode back to the ada.geom solid (the profile is rebuilt from the face's local-XY
+boundary loops). Only the baked-frame FixedReferenceSweptAreaSolid (tag 54) can't be inverted — its
+directrix is gone — so it raises (hydrate that via the adacpp tessellator instead).
 """
 
 from __future__ import annotations
@@ -35,6 +37,13 @@ _LINE, _POLYLINE, _HYPERBOLA, _PARABOLA, _COMPOSITE_CURVE = 10, 11, 12, 13, 14
 _CIRCLE, _ELLIPSE, _BSPLINE_CURVE, _TRIMMED_CURVE = 20, 21, 22, 24
 _PLANE, _CYLINDER, _CONE, _SPHERE, _TORUS, _BSPLINE_SURFACE = 40, 41, 42, 43, 44, 45
 _SURF_LIN_EXTRUSION, _SURF_REVOLUTION = 46, 47
+_EXTRUDED_AREA_SOLID, _REVOLVED_AREA_SOLID, _BOOLEAN_RESULT, _SPHERE_SOLID, _FIXED_REF_SWEPT_SOLID = (
+    50,
+    51,
+    52,
+    53,
+    54,
+)
 _EDGE_CURVE, _ORIENTED_EDGE, _EDGE_LOOP, _POLY_LOOP, _FACE_BOUND, _FACE_SURFACE, _CONNECTED_FACE_SET = (
     60,
     61,
@@ -275,6 +284,110 @@ class _Decoder:
         n = c.i32()
         return su.ConnectedFaceSet([self.get(i) for i in c.i32a(n)])
 
+    # --- swept / CSG solids (tags 50-54) ---
+    @staticmethod
+    def _loop_to_curve(loop) -> cu.IndexedPolyCurve:
+        """One profile boundary loop (in the profile's local XY plane, z=0) → a closed 2D
+        IndexedPolyCurve. A ``PolyLoop`` is a straight-edge polygon; an ``EdgeLoop`` restores a
+        Circle-backed oriented edge as an ``ArcLine`` (fillet round-trip), else a straight ``Edge``."""
+
+        def p2d(p) -> Point:
+            return Point(float(p[0]), float(p[1]))
+
+        if isinstance(loop, cu.PolyLoop):
+            pts = [p2d(p) for p in loop.polygon]
+            return cu.IndexedPolyCurve([cu.Edge(pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts))])
+
+        segs: list = []
+        for oe in loop.edge_list:
+            s, e = p2d(oe.start), p2d(oe.end)
+            geom = getattr(oe.edge_element, "edge_geometry", None)
+            if isinstance(geom, cu.Circle):
+                ctr = np.asarray(geom.position.location, dtype=float)[:2]
+                a = np.asarray(s, dtype=float) - ctr
+                b = np.asarray(e, dtype=float) - ctr
+                bis = a + b  # minor-arc midpoint direction (profile fillets are minor arcs)
+                if np.linalg.norm(bis) < 1e-12:  # half-circle: rotate `a` 90°
+                    bis = np.array([-a[1], a[0]])
+                mid = ctr + float(geom.radius) * bis / (np.linalg.norm(bis) or 1.0)
+                segs.append(cu.ArcLine(s, Point(float(mid[0]), float(mid[1])), e))
+            else:
+                segs.append(cu.Edge(s, e))
+        return cu.IndexedPolyCurve(segs)
+
+    def _profile_from_face(self, face) -> su.ArbitraryProfileDef:
+        """Rebuild the swept-area ProfileDef the encoder flattened into a planar FACE — outer bound
+        first, then any inner (void) bounds."""
+        bounds = list(getattr(face, "bounds", None) or [])
+        if not bounds:
+            raise NgeomDecodeError("swept solid profile face has no bounds")
+        return su.ArbitraryProfileDef(
+            profile_type=su.ProfileType.AREA,
+            outer_curve=self._loop_to_curve(bounds[0].bound),
+            inner_curves=[self._loop_to_curve(b.bound) for b in bounds[1:]],
+        )
+
+    def _extruded_area_solid(self, c: _Cur):
+        import ada.geom.solids as so
+
+        profile = self._profile_from_face(self.get(c.i32()))
+        position = self.get(c.i32())
+        direction = Direction(*c.v3())
+        depth = c.f64()
+        return so.ExtrudedAreaSolid(
+            swept_area=profile, position=position, depth=depth, extruded_direction=direction
+        )
+
+    def _revolved_area_solid(self, c: _Cur):
+        import math
+
+        import ada.geom.solids as so
+
+        profile = self._profile_from_face(self.get(c.i32()))
+        position = self.get(c.i32())
+        axis_local = self.get(c.i32())  # Axis1Placement in the position-LOCAL frame (encoder transform)
+        angle_rad = c.f64()
+        # Invert the encoder's world→local axis transform (serialize.revolved_area_solid): rebuild the
+        # position frame's rotation and map the local axis back to world. angle is stored in RADIANS;
+        # RevolvedAreaSolid.angle is DEGREES.
+        xdir = np.asarray(position.ref_direction if position.ref_direction is not None else (1, 0, 0), float)
+        zdir = np.asarray(position.axis if position.axis is not None else (0, 0, 1), float)
+        xdir = xdir / (np.linalg.norm(xdir) or 1.0)
+        zdir = zdir / (np.linalg.norm(zdir) or 1.0)
+        rot = np.column_stack([xdir, np.cross(zdir, xdir), zdir])  # local→world
+        origin = np.asarray(position.location, float)
+        loc_w = rot @ np.asarray(axis_local.location, float) + origin
+        dir_w = rot @ np.asarray(axis_local.axis, float)
+        axis = Axis1Placement(Point(*loc_w), Direction(*dir_w))
+        return so.RevolvedAreaSolid(
+            swept_area=profile, position=position, axis=axis, angle=math.degrees(angle_rad)
+        )
+
+    def _sphere_solid(self, c: _Cur):
+        import ada.geom.solids as so
+
+        pos = self.get(c.i32())
+        radius = c.f64()
+        return so.Sphere(center=Point(*pos.location), radius=radius)
+
+    def _boolean_result(self, c: _Cur):
+        from ada.geom.booleans import BooleanResult, BoolOpEnum
+
+        op = {0: BoolOpEnum.DIFFERENCE, 1: BoolOpEnum.UNION, 2: BoolOpEnum.INTERSECTION}[c.i32()]
+        first = self.get(c.i32())
+        second = self.get(c.i32())
+        return BooleanResult(first_operand=first, second_operand=second, operator=op)
+
+    def _fixed_ref_swept(self, c: _Cur):
+        # tag 54 bakes an alignment sweep into per-station (origin, dir_x, dir_y) frames — the
+        # analytic directrix is gone, so it cannot be rebuilt as an ada.geom
+        # FixedReferenceSweptAreaSolid. Consumers that need this must decode via adacpp (which
+        # tessellates the frames directly); flag it rather than return a wrong solid.
+        raise NgeomDecodeError(
+            "FIXED_REF_SWEPT_SOLID (tag 54) is a baked per-station frame field with no invertible "
+            "directrix — hydrate via the adacpp tessellator, not the Python deserializer"
+        )
+
 
 _DISPATCH = {
     _PLACEMENT3: _Decoder._placement3,
@@ -303,6 +416,11 @@ _DISPATCH = {
     _FACE_BOUND: _Decoder._face_bound,
     _FACE_SURFACE: _Decoder._face_surface,
     _CONNECTED_FACE_SET: _Decoder._connected_face_set,
+    _EXTRUDED_AREA_SOLID: _Decoder._extruded_area_solid,
+    _REVOLVED_AREA_SOLID: _Decoder._revolved_area_solid,
+    _BOOLEAN_RESULT: _Decoder._boolean_result,
+    _SPHERE_SOLID: _Decoder._sphere_solid,
+    _FIXED_REF_SWEPT_SOLID: _Decoder._fixed_ref_swept,
 }
 
 
