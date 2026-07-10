@@ -6,9 +6,18 @@
 
 import {useConversionStore, ConversionJob} from "@/state/conversionStore";
 import {viewerApi, ScopeUrl, TargetFormat} from "@/services/viewerApi";
-import {nativeBrepWrite, type BrepDir} from "@/utils/nativeConvert/brepWriterConverter";
+import {
+    nativeBrepWrite,
+    nativeBrepWriteStreaming,
+    nativeBrepWriterOpfsAvailable,
+    type BrepDir,
+} from "@/utils/nativeConvert/brepWriterConverter";
 
 const WASM_IMAGE_TAG = "wasm:native-brepwriter";
+
+// Above this source size, prefer the OPFS-streaming tier (source read off-disk, bounded RSS) when
+// OPFS + a presigned URL are available; below it, the buffered MEMFS path.
+const OPFS_STREAM_THRESHOLD = 100 * 1024 * 1024; // 100 MB
 
 function extOf(name: string): string {
     const i = name.lastIndexOf(".");
@@ -74,16 +83,44 @@ export async function convertViaWasmBrepAndUpload(
     };
 
     try {
-        const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
-        const readBytes = sourceBuf.byteLength; // capture before the buffer is transferred to the worker
+        const label = dir === "step2ifc" ? "STEP → IFC" : "IFC → STEP";
+        // Prefer OPFS streaming for large sources (bounded RSS): presign + feature-detect OPFS. Falls
+        // back to buffering the whole source into the wasm heap when small, presign-less, or no OPFS.
+        // A streaming run is NOT retried buffered (re-reading a huge file would OOM).
+        let streamUrl: {url: string; size: number} | null = null;
+        try {
+            const dl = await viewerApi.requestDownloadUrl(scope, sourceKey);
+            if (dl.size >= OPFS_STREAM_THRESHOLD && (await nativeBrepWriterOpfsAvailable())) {
+                streamUrl = {url: dl.url, size: dl.size};
+            }
+        } catch {
+            streamUrl = null; // presign unavailable → buffered fallback
+        }
 
-        store.setJob(storeKey, {
-            ...(store.jobs[storeKey] || job),
-            progress: 0.2,
-            stage: `writing ${dir === "step2ifc" ? "STEP → IFC" : "IFC → STEP"} in browser (native)`,
-        });
+        let output: ArrayBuffer;
+        let products: number;
+        let ms: number;
+        let readBytes: number;
+        if (streamUrl) {
+            store.setJob(storeKey, {
+                ...(store.jobs[storeKey] || job),
+                progress: 0.2,
+                stage: `writing ${label} in browser (native, OPFS)`,
+            });
+            ({output, products, ms} = await nativeBrepWriteStreaming(dir, streamUrl.url));
+            readBytes = streamUrl.size; // source size; only streamed, never staged whole
+        } else {
+            const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
+            readBytes = sourceBuf.byteLength; // capture before the buffer is transferred to the worker
 
-        const {output, products, ms} = await nativeBrepWrite(dir, sourceBuf);
+            store.setJob(storeKey, {
+                ...(store.jobs[storeKey] || job),
+                progress: 0.2,
+                stage: `writing ${label} in browser (native)`,
+            });
+
+            ({output, products, ms} = await nativeBrepWrite(dir, sourceBuf));
+        }
         const outBytes = new Uint8Array(output);
 
         store.setJob(storeKey, {

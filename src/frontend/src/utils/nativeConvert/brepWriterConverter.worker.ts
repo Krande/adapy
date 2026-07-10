@@ -1,7 +1,7 @@
 // Web Worker: native (no-pyodide) B-rep writer — STEP→IFC and IFC→STEP entirely in the browser via
 // the OCC-free adacpp_brep_writer embind module (StreamIndex/IfcResolver readers → ifc_emit/step_emit
-// emitters; no tessellation, no OCC, no ifcopenshell, no Python). ~1.3 MB. Buffered MEMFS IO; an
-// OPFS-streaming tier (mountOpfs) can follow the CAD→GLB pattern for very large B-rep files.
+// emitters; no tessellation, no OCC, no ifcopenshell, no Python). ~1.3 MB. Buffered MEMFS path +
+// OPFS-streaming tier (mountOpfs) for very large B-rep files, sharing opfsWasmfs with cadGlbConverter.
 //
 // embind surface (adacpp/src/cad/brep_writer_wasm.cpp):
 //   stepToIfc(inPath, outPath, schema, deflection, angularDeg, maxSolids) -> products (0 = none/error)
@@ -11,6 +11,7 @@
 import * as Comlink from "comlink";
 
 import {loadEmscriptenModule} from "@/utils/wasm/emscriptenLoader";
+import {WasmfsModule, OPFS_MOUNT, ensureOpfsMounted, streamUrlToOpfs, unlinkAll} from "./opfsWasmfs";
 
 const WASM_URL = "/wasm/adacpp_brep_writer.js";
 
@@ -21,8 +22,12 @@ interface EmscriptenFS {
     writeFile(path: string, data: Uint8Array): void;
     readFile(path: string): Uint8Array;
     unlink(path: string): void;
+    mkdir(path: string): void;
+    open(path: string, flags: string): unknown;
+    write(stream: unknown, buffer: Uint8Array, offset: number, length: number, position: number): number;
+    close(stream: unknown): void;
 }
-interface EmModule {
+interface EmModule extends WasmfsModule {
     FS: EmscriptenFS;
     stepToIfc(
         inPath: string,
@@ -54,7 +59,23 @@ const DEFAULT_DEFLECTION = 2.0;
 const DEFAULT_ANGULAR_DEG = 20.0;
 const DEFAULT_IFC_SCHEMA = "IFC4X3_ADD2";
 
+const srcExt = (dir: BrepDir) => (dir === "step2ifc" ? "step" : "ifc");
+const outExt = (dir: BrepDir) => (dir === "step2ifc" ? "ifc" : "step");
+
+// Run the writer verb for `dir` on inPath → outPath. Returns products (>0 success).
+function runWriter(Module: EmModule, dir: BrepDir, inPath: string, outPath: string, schema: string, maxSolids: number) {
+    return dir === "step2ifc"
+        ? Module.stepToIfc(inPath, outPath, schema, DEFAULT_DEFLECTION, DEFAULT_ANGULAR_DEG, maxSolids)
+        : Module.ifcToStep(inPath, outPath, DEFAULT_DEFLECTION, DEFAULT_ANGULAR_DEG, maxSolids);
+}
+
 const api = {
+    // Can this worker OPFS-stream? (mount is the capability gate; worker-only.)
+    async opfsAvailable(): Promise<boolean> {
+        return ensureOpfsMounted(await getModule());
+    },
+
+    // Buffered path: source bytes → MEMFS → output. Simplest; fine below the OPFS threshold.
     async convert(
         dir: BrepDir,
         srcBytes: ArrayBuffer,
@@ -62,32 +83,44 @@ const api = {
     ): Promise<NativeBrepWriteResult> {
         const Module = await getModule();
         const t0 = performance.now();
-        const inPath = dir === "step2ifc" ? "/in.step" : "/in.ifc";
-        const outPath = dir === "step2ifc" ? "/out.ifc" : "/out.step";
+        const inPath = `/in.${srcExt(dir)}`;
+        const outPath = `/out.${outExt(dir)}`;
         Module.FS.writeFile(inPath, new Uint8Array(srcBytes));
-        const maxSolids = opts?.maxSolids ?? 0;
-        const products =
-            dir === "step2ifc"
-                ? Module.stepToIfc(
-                      inPath,
-                      outPath,
-                      opts?.schema ?? DEFAULT_IFC_SCHEMA,
-                      DEFAULT_DEFLECTION,
-                      DEFAULT_ANGULAR_DEG,
-                      maxSolids,
-                  )
-                : Module.ifcToStep(inPath, outPath, DEFAULT_DEFLECTION, DEFAULT_ANGULAR_DEG, maxSolids);
+        const products = runWriter(Module, dir, inPath, outPath, opts?.schema ?? DEFAULT_IFC_SCHEMA, opts?.maxSolids ?? 0);
         if (products <= 0) {
             throw new Error(`native ${dir === "step2ifc" ? "STEP→IFC" : "IFC→STEP"} wrote no products`);
         }
         const out = Module.FS.readFile(outPath);
         const output = out.slice().buffer;
-        try {
-            Module.FS.unlink(inPath);
-            Module.FS.unlink(outPath);
-        } catch {
-            /* best-effort cleanup */
+        unlinkAll(Module, [inPath, outPath]);
+        const result: NativeBrepWriteResult = {output, products, ms: performance.now() - t0};
+        return Comlink.transfer(result, [output]);
+    },
+
+    // OPFS-streaming path: stream a (presigned) URL into OPFS through WASMFS, write off-disk, read the
+    // output back through WASMFS. For B-rep files too large to buffer in the wasm heap.
+    async convertStreaming(
+        dir: BrepDir,
+        sourceUrl: string,
+        opts?: {schema?: string; maxSolids?: number},
+    ): Promise<NativeBrepWriteResult> {
+        const Module = await getModule();
+        if (!ensureOpfsMounted(Module)) {
+            throw new Error("OPFS streaming unavailable in this worker (OPFS backend not mountable)");
         }
+        const t0 = performance.now();
+        const inPath = `${OPFS_MOUNT}/adacpp_brep_in.${srcExt(dir)}`;
+        const outPath = `${OPFS_MOUNT}/adacpp_brep_out.${outExt(dir)}`;
+        await streamUrlToOpfs(Module, inPath, sourceUrl);
+        const cleanup = () => unlinkAll(Module, [inPath, outPath]);
+        const products = runWriter(Module, dir, inPath, outPath, opts?.schema ?? DEFAULT_IFC_SCHEMA, opts?.maxSolids ?? 0);
+        if (products <= 0) {
+            cleanup();
+            throw new Error(`native streaming ${dir === "step2ifc" ? "STEP→IFC" : "IFC→STEP"} wrote no products`);
+        }
+        const out = Module.FS.readFile(outPath);
+        const output = out.slice().buffer;
+        cleanup();
         const result: NativeBrepWriteResult = {output, products, ms: performance.now() - t0};
         return Comlink.transfer(result, [output]);
     },

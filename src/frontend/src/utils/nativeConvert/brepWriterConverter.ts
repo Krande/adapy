@@ -27,3 +27,22 @@ export async function nativeBrepWrite(
 ): Promise<NativeBrepWriteResult> {
     return ensureApi().convert(dir, Comlink.transfer(srcBytes, [srcBytes]), opts);
 }
+
+/** Does this browser/worker support the OPFS-streaming tier for the B-rep writer? */
+export async function nativeBrepWriterOpfsAvailable(): Promise<boolean> {
+    try {
+        return await ensureApi().opfsAvailable();
+    } catch {
+        return false;
+    }
+}
+
+/** Convert a STEP/IFC at a (presigned, streamable) URL, streaming the source through OPFS so a large
+ * B-rep file never has to fit the wasm heap. Requires nativeBrepWriterOpfsAvailable(). */
+export async function nativeBrepWriteStreaming(
+    dir: BrepDir,
+    sourceUrl: string,
+    opts?: {schema?: string; maxSolids?: number},
+): Promise<NativeBrepWriteResult> {
+    return ensureApi().convertStreaming(dir, sourceUrl, opts);
+}

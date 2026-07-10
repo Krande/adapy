@@ -12,6 +12,7 @@
 import * as Comlink from "comlink";
 
 import {loadEmscriptenModule} from "@/utils/wasm/emscriptenLoader";
+import {WasmfsModule, OPFS_MOUNT, ensureOpfsMounted, streamUrlToOpfs, unlinkAll} from "./opfsWasmfs";
 
 // Which native module + verb + source extension a `kind` maps to. Each module ships its own single
 // verb; both share the FS + mountOpfs surface.
@@ -21,20 +22,16 @@ const MODULES: Record<CadKind, {url: string; verb: string; ext: string}> = {
     ifc: {url: "/wasm/adacpp_ifc_glb.js", verb: "ifcToGlb", ext: "ifc"},
 };
 
-interface FsStream {
-    // opaque emscripten stream handle from FS.open
-    [k: string]: unknown;
-}
 interface EmscriptenFS {
     writeFile(path: string, data: Uint8Array): void;
     readFile(path: string): Uint8Array;
     mkdir(path: string): void;
     unlink(path: string): void;
-    open(path: string, flags: string): FsStream;
-    write(stream: FsStream, buffer: Uint8Array, offset: number, length: number, position: number): number;
-    close(stream: FsStream): void;
+    open(path: string, flags: string): unknown;
+    write(stream: unknown, buffer: Uint8Array, offset: number, length: number, position: number): number;
+    close(stream: unknown): void;
 }
-interface EmModule {
+interface EmModule extends WasmfsModule {
     FS: EmscriptenFS;
     mountOpfs(mountPoint: string): number;
     // The per-module conversion verb (stepToGlb / ifcToGlb) — same signature, looked up by name.
@@ -68,75 +65,17 @@ export interface NativeCadGlbResult {
     ms: number;
 }
 
-// OPFS mount + streaming file paths, all UNDER the OPFS mount so every byte lives on disk, not the
-// wasm heap. The source is streamed in THROUGH WASMFS (FS.open/write) — not via the browser OPFS API —
-// so the file is always visible to the C++ `pread` (no WASMFS mount-cache / cross-boundary gap) while
-// still writing through to OPFS chunk-by-chunk (bounded RSS). Names are namespaced per module.
-const OPFS_MOUNT = "/opfs";
+// OPFS-mounted streaming file paths (all under OPFS_MOUNT so every byte lives on disk, not the wasm
+// heap). Streaming write + mount are the shared opfsWasmfs helpers. Names are namespaced per module.
 const opfsInPath = (kind: CadKind) => `${OPFS_MOUNT}/adacpp_${kind}glb_in.${MODULES[kind].ext}`;
 const opfsOutPath = (kind: CadKind) => `${OPFS_MOUNT}/adacpp_${kind}glb_out.glb`;
 const opfsSpillDir = (kind: CadKind) => `${OPFS_MOUNT}/adacpp_${kind}glb_spill`;
-
-// wasmfs_create_opfs_backend() ABORTS the whole module (fatal) if called on the main browser thread
-// without JSPI — which would also kill the buffered fallback that shares this module. It is only safe
-// inside a dedicated Worker (emscripten_is_main_browser_thread() == false there). This file always
-// runs in a Worker (instantiated via `new Worker`), but guard it anyway so the mount can never abort
-// the shared module.
-function inDedicatedWorker(): boolean {
-    return (
-        typeof (globalThis as {WorkerGlobalScope?: unknown}).WorkerGlobalScope !== "undefined" &&
-        typeof (globalThis as {DedicatedWorkerGlobalScope?: unknown}).DedicatedWorkerGlobalScope !== "undefined" &&
-        (globalThis as unknown as {self?: unknown}).self instanceof
-            (globalThis as unknown as {DedicatedWorkerGlobalScope: new () => unknown}).DedicatedWorkerGlobalScope
-    );
-}
-
-const opfsMounted: Partial<Record<CadKind, boolean>> = {};
-function ensureOpfsMounted(Module: EmModule, kind: CadKind): boolean {
-    if (opfsMounted[kind]) return true;
-    if (!inDedicatedWorker()) return false; // never risk the fatal main-thread mount assertion
-    try {
-        if (Module.mountOpfs(OPFS_MOUNT) === 0) {
-            opfsMounted[kind] = true;
-            return true;
-        }
-    } catch {
-        /* OPFS unavailable — caller falls back to the buffered MEMFS path */
-    }
-    return false;
-}
-
-// Stream `sourceUrl` into an OPFS-mounted file THROUGH WASMFS (FS.open/write), chunk by chunk. Each
-// chunk is written straight through to OPFS at its offset and freed — neither the JS heap nor the wasm
-// heap ever holds the whole source. Because the write goes through WASMFS, the C++ side sees the file
-// immediately (no browser-OPFS ↔ WASMFS visibility gap). Returns the mount path to read from.
-async function streamUrlToOpfs(Module: EmModule, sourceUrl: string, kind: CadKind): Promise<string> {
-    const inPath = opfsInPath(kind);
-    const resp = await fetch(sourceUrl);
-    if (!resp.ok || !resp.body) {
-        throw new Error(`fetch source failed: ${resp.status} ${resp.statusText}`);
-    }
-    const stream = Module.FS.open(inPath, "w");
-    try {
-        const reader = resp.body.getReader();
-        let pos = 0;
-        for (;;) {
-            const {done, value} = await reader.read();
-            if (done) break;
-            Module.FS.write(stream, value, 0, value.byteLength, pos);
-            pos += value.byteLength;
-        }
-    } finally {
-        Module.FS.close(stream);
-    }
-    return inPath;
-}
 
 const api = {
     // Can this worker run the OPFS-streaming tier for `kind`? Mounting OPFS (worker-only) is the real
     // capability gate; the pipeline decides WHEN to use it (large sources with a presigned URL).
     async opfsAvailable(kind: CadKind): Promise<boolean> {
-        return ensureOpfsMounted(await getModule(kind), kind);
+        return ensureOpfsMounted(await getModule(kind));
     },
 
     // OPFS-streaming path: stream a (presigned) URL into OPFS, tessellate off-disk via pread, write
@@ -147,26 +86,19 @@ const api = {
         opts: {deflection: number; angularDeg: number; meshopt: boolean},
     ): Promise<NativeCadGlbResult> {
         const Module = await getModule(kind);
-        if (!ensureOpfsMounted(Module, kind)) {
+        if (!ensureOpfsMounted(Module)) {
             throw new Error("OPFS streaming unavailable in this worker (OPFS backend not mountable)");
         }
         const t0 = performance.now();
-        const inPath = await streamUrlToOpfs(Module, sourceUrl, kind);
+        const inPath = opfsInPath(kind);
+        await streamUrlToOpfs(Module, inPath, sourceUrl);
         const outPath = opfsOutPath(kind);
         try {
             Module.FS.mkdir(opfsSpillDir(kind));
         } catch {
             /* already exists on a reused module */
         }
-        const cleanup = () => {
-            for (const p of [inPath, outPath]) {
-                try {
-                    Module.FS.unlink(p);
-                } catch {
-                    /* best-effort */
-                }
-            }
-        };
+        const cleanup = () => unlinkAll(Module, [inPath, outPath]);
         const products = convertVerb(Module, kind)(
             inPath,
             outPath,
