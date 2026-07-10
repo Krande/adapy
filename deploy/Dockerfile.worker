@@ -19,9 +19,11 @@ ARG IMAGE_TAG=dev
 # CI stages the branch source into ./adacpp-src (clone) or an empty dir, and passes the branch
 # name so the builder stage below knows whether to build. Built with adacpp's own pinned env
 # (occt ==7.9.3), which matches what the released ada-cpp links → ABI-compatible .so.
-# The feat/ngeom-alignment-sweep overlay HEAD carries: alignment fixed-reference swept solid
-# (SweepN), the step_parity single-parse fan-out (STEP parity), and incremental meshopt in the
-# native GLB writer (halves peak RSS on large merged GLBs — fixes the STEP→GLB OOM).
+# The feat/lazy-shape-store overlay HEAD carries: the z=0 face-set plane-fit (IfcFacetedBrep /
+# Triangulated- + PolygonalFaceSet no longer render as a flat sheet), parallel native IFC→GLB,
+# a B-spline-weighted LPT cost estimate + per-solid audit instrumentation (spearman_est_ms/tris),
+# the NAUO-gate fix for the crane STEP→GLB regression, and a moderate 4 MB malloc mmap/trim that
+# trims streaming-tessellation peak RSS.
 ARG ADACPP_BRANCH=""
 
 # ---- optional adacpp-branch overlay (gated by ADACPP_BRANCH) -----------------------
