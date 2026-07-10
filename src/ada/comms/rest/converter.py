@@ -1084,6 +1084,7 @@ def _glb_serializer_options(source_ext: str) -> list[dict]:
         {
             "name": "serializer",
             "type": "enum",
+            "title": "Serializer",
             "default": default_ser,
             "enum": serializers,
             "labels": {s: _GLB_SERIALIZER_LABELS[s] for s in serializers},
@@ -1097,6 +1098,9 @@ def _glb_serializer_options(source_ext: str) -> list[dict]:
         {
             "name": "tessellator",
             "type": "enum",
+            # Mesh target → this axis meshes the geometry ("Tessellator"). (For B-rep targets the
+            # analogous axis is titled "Writer" — same mechanism, set on those rows.)
+            "title": "Tessellator",
             "default": enum_by[default_ser][0],
             "enum": tess_tokens,
             "labels": {t: _GLB_TESS_LABELS.get(t, t) for t in tess_tokens},

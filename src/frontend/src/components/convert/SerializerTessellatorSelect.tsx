@@ -49,6 +49,10 @@ export const SerializerTessellatorSelect: React.FC<{
     const tessTokens = tessellatorsFor(schema, serializer);
     const serLabels = schema.serializer.labels ?? {};
     const tessLabels = schema.tessellator.labels ?? {};
+    // Axis display names come from the backend (single source): "Tessellator" for mesh targets,
+    // "Writer" for B-rep targets. Fall back to the option name.
+    const serTitle = (schema.serializer.title ?? "serializer").toLowerCase();
+    const tessTitle = (schema.tessellator.title ?? schema.tessellator.name).toLowerCase();
 
     const selCls = compact
         ? "rounded-sm border border-gray-600 bg-gray-800 px-1 py-0.5 text-[11px] text-gray-100"
@@ -59,8 +63,8 @@ export const SerializerTessellatorSelect: React.FC<{
 
     return (
         <>
-            <label className={lblCls} title={schema.serializer.description || "serializer"}>
-                <span>serializer:</span>
+            <label className={lblCls} title={schema.serializer.description || serTitle}>
+                <span>{serTitle}:</span>
                 <select
                     aria-label="Serializer"
                     className={selCls}
@@ -73,8 +77,8 @@ export const SerializerTessellatorSelect: React.FC<{
                     ))}
                 </select>
             </label>
-            <label className={lblCls} title={schema.tessellator.description || "tessellator"}>
-                <span>tessellator:</span>
+            <label className={lblCls} title={schema.tessellator.description || tessTitle}>
+                <span>{tessTitle}:</span>
                 <select
                     aria-label="Tessellator"
                     className={selCls}
