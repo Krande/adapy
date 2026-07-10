@@ -82,6 +82,21 @@ MAX_DELIVERIES = 3
 # stays free to fire these.
 IN_PROGRESS_REFRESH_SECONDS = 30
 
+# Liveness heartbeat. The worker touches this file whenever its JetStream pull loop iterates
+# (idle / between jobs) or an in-flight conversion reports progress. A k8s livenessProbe checks the
+# file's mtime is fresh: if the pull loop stalls — e.g. the durable consumer wedged after a NATS
+# restart, leaving the pod "Running" but no longer fetching (num_waiting=0) — the file goes stale and
+# k8s restarts the pod, instead of it sitting silently broken while jobs pile up unconsumed.
+WORKER_LIVENESS_FILE = os.environ.get("WORKER_LIVENESS_FILE", "/tmp/worker-alive")
+
+
+def _touch_liveness() -> None:
+    try:
+        with open(WORKER_LIVENESS_FILE, "w") as fh:
+            fh.write(str(time.time()))
+    except OSError:
+        logger.debug("worker: liveness touch failed", exc_info=True)
+
 # Per-source-suffix sidecar files that the worker co-downloads next to
 # the main payload so format-specific readers find them by basename.
 # Keep this conservative — a 404 on an absent sibling is silent, but
@@ -1362,6 +1377,7 @@ async def _process_one(
 
         async def _on_progress(stage: str, frac: float) -> None:
             nonlocal last_kv_write
+            _touch_liveness()  # a long conversion blocks the pull loop; progress keeps liveness fresh
             now = time.monotonic()
             if now - last_kv_write < 0.25 and frac < 1.0:
                 return
@@ -1376,6 +1392,7 @@ async def _process_one(
         # behind for post-mortem instead of an empty metrics_samples
         # column.
         async def _on_sample(sample: ConvertSample) -> None:
+            _touch_liveness()  # fires every ~2s during a subprocess conversion
             if db_pool is None:
                 return
             try:
@@ -2004,8 +2021,10 @@ async def _run() -> None:
     # Keep the parameter on _process_one for now (callers may still
     # pass it) but no longer create one here.
     logger.info("worker: ready, polling %s", settings.queue.subject)
+    _touch_liveness()  # seed the heartbeat before the first fetch so the probe has a fresh mtime
     try:
         while not stop.is_set():
+            _touch_liveness()  # each pull round — a stalled fetch lets this go stale -> livenessProbe restart
             try:
                 msgs = await sub.fetch(batch=FETCH_BATCH, timeout=FETCH_TIMEOUT)
             except asyncio.TimeoutError:
