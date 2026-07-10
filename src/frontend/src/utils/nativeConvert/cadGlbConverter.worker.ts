@@ -21,11 +21,18 @@ const MODULES: Record<CadKind, {url: string; verb: string; ext: string}> = {
     ifc: {url: "/wasm/adacpp_ifc_glb.js", verb: "ifcToGlb", ext: "ifc"},
 };
 
+interface FsStream {
+    // opaque emscripten stream handle from FS.open
+    [k: string]: unknown;
+}
 interface EmscriptenFS {
     writeFile(path: string, data: Uint8Array): void;
     readFile(path: string): Uint8Array;
     mkdir(path: string): void;
     unlink(path: string): void;
+    open(path: string, flags: string): FsStream;
+    write(stream: FsStream, buffer: Uint8Array, offset: number, length: number, position: number): number;
+    close(stream: FsStream): void;
 }
 interface EmModule {
     FS: EmscriptenFS;
@@ -61,11 +68,12 @@ export interface NativeCadGlbResult {
     ms: number;
 }
 
-// OPFS mount + streaming file names. The mount maps to the OPFS root, so a browser-written OPFS file
-// at root name `N` is visible to WASMFS at `${OPFS_MOUNT}/N` (emscripten OPFS backend interop). Names
-// are namespaced so the two modules (each with its own FS) never collide with unrelated OPFS data.
+// OPFS mount + streaming file paths, all UNDER the OPFS mount so every byte lives on disk, not the
+// wasm heap. The source is streamed in THROUGH WASMFS (FS.open/write) — not via the browser OPFS API —
+// so the file is always visible to the C++ `pread` (no WASMFS mount-cache / cross-boundary gap) while
+// still writing through to OPFS chunk-by-chunk (bounded RSS). Names are namespaced per module.
 const OPFS_MOUNT = "/opfs";
-const opfsInName = (kind: CadKind) => `adacpp_${kind}glb_in.${MODULES[kind].ext}`;
+const opfsInPath = (kind: CadKind) => `${OPFS_MOUNT}/adacpp_${kind}glb_in.${MODULES[kind].ext}`;
 const opfsOutPath = (kind: CadKind) => `${OPFS_MOUNT}/adacpp_${kind}glb_out.glb`;
 const opfsSpillDir = (kind: CadKind) => `${OPFS_MOUNT}/adacpp_${kind}glb_spill`;
 
@@ -98,65 +106,36 @@ function ensureOpfsMounted(Module: EmModule, kind: CadKind): boolean {
     return false;
 }
 
-// The worker-only OPFS sync-access-handle API (createSyncAccessHandle) isn't in every TS DOM lib —
-// probe it structurally via `unknown`.
-function syncHandleSupported(): boolean {
-    const g = globalThis as unknown as {
-        FileSystemFileHandle?: {prototype?: Record<string, unknown>};
-        navigator?: {storage?: {getDirectory?: unknown}};
-    };
-    const proto = g.FileSystemFileHandle?.prototype;
-    return (
-        typeof proto?.createSyncAccessHandle === "function" &&
-        typeof g.navigator?.storage?.getDirectory === "function"
-    );
-}
-
-// Stream `sourceUrl` into an OPFS file via a worker-only sync access handle, chunk by chunk, so
-// neither the JS heap nor the wasm heap ever holds the whole source. Returns the OPFS-mount path
-// WASMFS reads it from.
-async function streamUrlToOpfs(sourceUrl: string, kind: CadKind): Promise<string> {
-    const nav = globalThis.navigator as unknown as {storage: {getDirectory(): Promise<any>}};
-    const root = await nav.storage.getDirectory();
-    const fh = await root.getFileHandle(opfsInName(kind), {create: true});
-    const access = await fh.createSyncAccessHandle();
+// Stream `sourceUrl` into an OPFS-mounted file THROUGH WASMFS (FS.open/write), chunk by chunk. Each
+// chunk is written straight through to OPFS at its offset and freed — neither the JS heap nor the wasm
+// heap ever holds the whole source. Because the write goes through WASMFS, the C++ side sees the file
+// immediately (no browser-OPFS ↔ WASMFS visibility gap). Returns the mount path to read from.
+async function streamUrlToOpfs(Module: EmModule, sourceUrl: string, kind: CadKind): Promise<string> {
+    const inPath = opfsInPath(kind);
+    const resp = await fetch(sourceUrl);
+    if (!resp.ok || !resp.body) {
+        throw new Error(`fetch source failed: ${resp.status} ${resp.statusText}`);
+    }
+    const stream = Module.FS.open(inPath, "w");
     try {
-        access.truncate(0);
-        const resp = await fetch(sourceUrl);
-        if (!resp.ok || !resp.body) {
-            throw new Error(`fetch source failed: ${resp.status} ${resp.statusText}`);
-        }
         const reader = resp.body.getReader();
-        let at = 0;
+        let pos = 0;
         for (;;) {
             const {done, value} = await reader.read();
             if (done) break;
-            // write() copies `value` straight to the OPFS-backed file at `at`; nothing accumulates.
-            access.write(value, {at});
-            at += value.byteLength;
+            Module.FS.write(stream, value, 0, value.byteLength, pos);
+            pos += value.byteLength;
         }
-        access.flush();
     } finally {
-        access.close();
+        Module.FS.close(stream);
     }
-    return `${OPFS_MOUNT}/${opfsInName(kind)}`;
-}
-
-async function removeOpfsInput(kind: CadKind): Promise<void> {
-    try {
-        const nav = globalThis.navigator as unknown as {storage: {getDirectory(): Promise<any>}};
-        const root = await nav.storage.getDirectory();
-        await root.removeEntry(opfsInName(kind));
-    } catch {
-        /* best-effort cleanup */
-    }
+    return inPath;
 }
 
 const api = {
-    // Can this worker run the OPFS-streaming tier for `kind`? (feature-detect only; the pipeline
-    // decides when to use it — large sources with a presigned URL.)
+    // Can this worker run the OPFS-streaming tier for `kind`? Mounting OPFS (worker-only) is the real
+    // capability gate; the pipeline decides WHEN to use it (large sources with a presigned URL).
     async opfsAvailable(kind: CadKind): Promise<boolean> {
-        if (!syncHandleSupported()) return false;
         return ensureOpfsMounted(await getModule(kind), kind);
     },
 
@@ -168,17 +147,26 @@ const api = {
         opts: {deflection: number; angularDeg: number; meshopt: boolean},
     ): Promise<NativeCadGlbResult> {
         const Module = await getModule(kind);
-        if (!syncHandleSupported() || !ensureOpfsMounted(Module, kind)) {
-            throw new Error("OPFS streaming unavailable in this worker (no sync access handles)");
+        if (!ensureOpfsMounted(Module, kind)) {
+            throw new Error("OPFS streaming unavailable in this worker (OPFS backend not mountable)");
         }
         const t0 = performance.now();
-        const inPath = await streamUrlToOpfs(sourceUrl, kind);
+        const inPath = await streamUrlToOpfs(Module, sourceUrl, kind);
         const outPath = opfsOutPath(kind);
         try {
             Module.FS.mkdir(opfsSpillDir(kind));
         } catch {
             /* already exists on a reused module */
         }
+        const cleanup = () => {
+            for (const p of [inPath, outPath]) {
+                try {
+                    Module.FS.unlink(p);
+                } catch {
+                    /* best-effort */
+                }
+            }
+        };
         const products = convertVerb(Module, kind)(
             inPath,
             outPath,
@@ -188,19 +176,14 @@ const api = {
             opts.meshopt,
         );
         if (products < 0) {
-            await removeOpfsInput(kind);
+            cleanup();
             throw new Error(`native streaming ${kind.toUpperCase()}→GLB failed (I/O error in the wasm module)`);
         }
-        // Read the OPFS-written GLB back through WASMFS (consistent within WASMFS; no cross-handle
-        // flush race). This materialises the output once — the GLB is far smaller than the source.
+        // Read the OPFS-written GLB back through WASMFS (all IO goes through WASMFS — consistent, no
+        // cross-boundary flush race). Materialises the output once — the GLB is far smaller than source.
         const out = Module.FS.readFile(outPath);
         const glb = out.slice().buffer;
-        try {
-            Module.FS.unlink(outPath);
-        } catch {
-            /* best-effort */
-        }
-        await removeOpfsInput(kind);
+        cleanup();
         const result: NativeCadGlbResult = {glb, products, ms: performance.now() - t0};
         return Comlink.transfer(result, [glb]);
     },
