@@ -46,11 +46,155 @@ export interface NativeStepGlbResult {
     ms: number;
 }
 
+// MEMFS (in-heap) paths for the buffered path.
 const IN_PATH = "/in.step";
 const OUT_PATH = "/out.glb";
 const SPILL_DIR = "/spill";
 
+// OPFS-streaming paths. The mount maps to the OPFS root, so a browser-written OPFS file at root
+// name `N` is visible to WASMFS at `${OPFS_MOUNT}/N` (emscripten OPFS backend interop). We stream
+// the STEP into OPFS so the C++ `pread` reads it off disk (bounded RSS) instead of the wasm heap.
+const OPFS_MOUNT = "/opfs";
+const OPFS_IN_NAME = "adacpp_stepglb_in.step";
+const OPFS_OUT_PATH = `${OPFS_MOUNT}/adacpp_stepglb_out.glb`;
+const OPFS_SPILL_DIR = `${OPFS_MOUNT}/adacpp_stepglb_spill`;
+
+// wasmfs_create_opfs_backend() ABORTS the whole module (fatal) if called on the main browser thread
+// without JSPI — which would also kill the buffered fallback that shares this module. It is only safe
+// inside a dedicated Worker (emscripten_is_main_browser_thread() == false there). This file always
+// runs in a Worker (instantiated via `new Worker`), but guard it anyway so the mount can never abort
+// the shared module.
+function inDedicatedWorker(): boolean {
+    return (
+        typeof (globalThis as {WorkerGlobalScope?: unknown}).WorkerGlobalScope !== "undefined" &&
+        typeof (globalThis as {DedicatedWorkerGlobalScope?: unknown}).DedicatedWorkerGlobalScope !== "undefined" &&
+        (globalThis as unknown as {self?: unknown}).self instanceof
+            (globalThis as unknown as {DedicatedWorkerGlobalScope: new () => unknown}).DedicatedWorkerGlobalScope
+    );
+}
+
+let opfsMounted = false;
+function ensureOpfsMounted(Module: EmModule): boolean {
+    if (opfsMounted) return true;
+    if (!inDedicatedWorker()) return false; // never risk the fatal main-thread mount assertion
+    try {
+        if (Module.mountOpfs(OPFS_MOUNT) === 0) {
+            opfsMounted = true;
+            return true;
+        }
+    } catch {
+        /* OPFS unavailable — caller falls back to the buffered MEMFS path */
+    }
+    return false;
+}
+
+// The worker-only OPFS sync-access-handle API (createSyncAccessHandle) isn't in every TS DOM lib —
+// probe it structurally via `unknown`.
+function syncHandleSupported(): boolean {
+    const g = globalThis as unknown as {
+        FileSystemFileHandle?: {prototype?: Record<string, unknown>};
+        navigator?: {storage?: {getDirectory?: unknown}};
+    };
+    const proto = g.FileSystemFileHandle?.prototype;
+    return (
+        typeof proto?.createSyncAccessHandle === "function" &&
+        typeof g.navigator?.storage?.getDirectory === "function"
+    );
+}
+
+// Stream `sourceUrl` into an OPFS file via a worker-only sync access handle, chunk by chunk, so
+// neither the JS heap nor the wasm heap ever holds the whole source. Returns the OPFS-mount path
+// WASMFS reads it from.
+async function streamUrlToOpfs(sourceUrl: string): Promise<string> {
+    const nav = globalThis.navigator as unknown as {
+        storage: {getDirectory(): Promise<any>};
+    };
+    const root = await nav.storage.getDirectory();
+    const fh = await root.getFileHandle(OPFS_IN_NAME, {create: true});
+    const access = await fh.createSyncAccessHandle();
+    try {
+        access.truncate(0);
+        const resp = await fetch(sourceUrl);
+        if (!resp.ok || !resp.body) {
+            throw new Error(`fetch source failed: ${resp.status} ${resp.statusText}`);
+        }
+        const reader = resp.body.getReader();
+        let at = 0;
+        for (;;) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            // write() copies `value` straight to the OPFS-backed file at `at`; nothing accumulates.
+            access.write(value, {at});
+            at += value.byteLength;
+        }
+        access.flush();
+    } finally {
+        access.close();
+    }
+    return `${OPFS_MOUNT}/${OPFS_IN_NAME}`;
+}
+
+async function removeOpfsInput(): Promise<void> {
+    try {
+        const nav = globalThis.navigator as unknown as {storage: {getDirectory(): Promise<any>}};
+        const root = await nav.storage.getDirectory();
+        await root.removeEntry(OPFS_IN_NAME);
+    } catch {
+        /* best-effort cleanup */
+    }
+}
+
 const api = {
+    // Can this worker run the OPFS-streaming tier? (feature-detect only; the pipeline decides when
+    // to use it — large sources with a presigned URL.)
+    async opfsAvailable(): Promise<boolean> {
+        if (!syncHandleSupported()) return false;
+        return ensureOpfsMounted(await getModule());
+    },
+
+    // OPFS-streaming path: stream a (presigned) URL into OPFS, tessellate off-disk via pread, write
+    // the GLB to OPFS, read it back through WASMFS. For multi-GB decks that can't fit the wasm heap.
+    async stepToGlbStreaming(
+        sourceUrl: string,
+        opts: {deflection: number; angularDeg: number; meshopt: boolean},
+    ): Promise<NativeStepGlbResult> {
+        const Module = await getModule();
+        if (!syncHandleSupported() || !ensureOpfsMounted(Module)) {
+            throw new Error("OPFS streaming unavailable in this worker (no sync access handles)");
+        }
+        const t0 = performance.now();
+        const inPath = await streamUrlToOpfs(sourceUrl);
+        try {
+            Module.FS.mkdir(OPFS_SPILL_DIR);
+        } catch {
+            /* already exists on a reused module */
+        }
+        const tris = Module.stepToGlb(
+            inPath,
+            OPFS_OUT_PATH,
+            OPFS_SPILL_DIR,
+            opts.deflection,
+            opts.angularDeg,
+            opts.meshopt,
+        );
+        if (tris < 0) {
+            await removeOpfsInput();
+            throw new Error("native streaming STEP→GLB failed (I/O error in the wasm module)");
+        }
+        // Read the OPFS-written GLB back through WASMFS (consistent within WASMFS; no cross-handle
+        // flush race). This materialises the output once — output GLB is far smaller than the STEP.
+        const out = Module.FS.readFile(OPFS_OUT_PATH);
+        const glb = out.slice().buffer;
+        try {
+            Module.FS.unlink(OPFS_OUT_PATH);
+        } catch {
+            /* best-effort */
+        }
+        await removeOpfsInput();
+        const result: NativeStepGlbResult = {glb, tris, ms: performance.now() - t0};
+        return Comlink.transfer(result, [glb]);
+    },
+
     async stepToGlb(
         stepBytes: ArrayBuffer,
         opts: {deflection: number; angularDeg: number; meshopt: boolean},

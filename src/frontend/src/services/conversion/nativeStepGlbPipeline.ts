@@ -6,10 +6,19 @@
 
 import {useConversionStore, ConversionJob} from "@/state/conversionStore";
 import {viewerApi, ScopeUrl, TargetFormat} from "@/services/viewerApi";
-import {nativeStepToGlb} from "@/utils/nativeConvert/stepGlbConverter";
+import {
+    nativeStepToGlb,
+    nativeStepToGlbStreaming,
+    nativeStepGlbOpfsAvailable,
+} from "@/utils/nativeConvert/stepGlbConverter";
 
 // Distinguishes the native embind module from the pyodide path in the audit panel.
 const WASM_IMAGE_TAG = "wasm:native-stepglb";
+
+// Above this source size we prefer the OPFS-streaming tier (source read off-disk via pread, bounded
+// RSS) over buffering the whole STEP into the wasm heap — provided OPFS + a presigned URL are both
+// available. Below it, the buffered MEMFS path is simpler and plenty (and the validated default).
+const OPFS_STREAM_THRESHOLD = 100 * 1024 * 1024; // 100 MB
 
 function extOf(name: string): string {
     const i = name.lastIndexOf(".");
@@ -67,16 +76,45 @@ export async function convertViaWasmNativeAndUpload(
     };
 
     try {
-        const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
-        const readBytes = sourceBuf.byteLength; // capture before the buffer is transferred to the worker
+        // Prefer the OPFS-streaming tier for large sources: mint a presigned URL, feature-detect
+        // OPFS, and stream the STEP through OPFS (bounded RSS) so a multi-GB deck never has to fit
+        // the wasm heap. Falls back to buffering the whole source into the wasm heap when the source
+        // is small, presign is unavailable (local-disk backends 503), or OPFS isn't supported. A
+        // streaming run is NOT retried buffered — re-reading a huge deck into the heap would just OOM.
+        let streamUrl: {url: string; size: number} | null = null;
+        try {
+            const dl = await viewerApi.requestDownloadUrl(scope, sourceKey);
+            if (dl.size >= OPFS_STREAM_THRESHOLD && (await nativeStepGlbOpfsAvailable())) {
+                streamUrl = {url: dl.url, size: dl.size};
+            }
+        } catch {
+            streamUrl = null; // presign unavailable → buffered fallback
+        }
 
-        store.setJob(storeKey, {
-            ...(store.jobs[storeKey] || job),
-            progress: 0.15,
-            stage: "converting STEP → GLB in browser (native)",
-        });
+        let glb: ArrayBuffer;
+        let tris: number;
+        let ms: number;
+        let readBytes: number;
+        if (streamUrl) {
+            store.setJob(storeKey, {
+                ...(store.jobs[storeKey] || job),
+                progress: 0.15,
+                stage: "streaming STEP → GLB in browser (native, OPFS)",
+            });
+            ({glb, tris, ms} = await nativeStepToGlbStreaming(streamUrl.url));
+            readBytes = streamUrl.size; // source size; only streamed, never staged whole
+        } else {
+            const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
+            readBytes = sourceBuf.byteLength; // capture before the buffer is transferred to the worker
 
-        const {glb, tris, ms} = await nativeStepToGlb(sourceBuf);
+            store.setJob(storeKey, {
+                ...(store.jobs[storeKey] || job),
+                progress: 0.15,
+                stage: "converting STEP → GLB in browser (native)",
+            });
+
+            ({glb, tris, ms} = await nativeStepToGlb(sourceBuf));
+        }
         const outBytes = new Uint8Array(glb);
 
         store.setJob(storeKey, {
