@@ -58,8 +58,22 @@ def native_ifc_to_glb(
     if on_progress is not None:
         on_progress("adacpp-native-ifc", 0.1)
 
+    # Same cgroup-aware worker count as the STEP streaming path (cpu quota - 1, capped at 3): bounds
+    # peak RSS and reserves a core for the parent's JetStream heartbeat.
+    try:
+        from ada.visit.scene_handling.scene_from_step_stream import _stream_workers
+
+        num_threads = _stream_workers()
+    except Exception:
+        num_threads = 0  # C++ falls back to cgroup-aware effective_concurrency()
+
     n = adacpp.cad.stream_ifc_to_glb(
-        str(ifc_path), str(glb_path), deflection=deflection, angular_deg=angular_deg, meshopt=meshopt
+        str(ifc_path),
+        str(glb_path),
+        deflection=deflection,
+        angular_deg=angular_deg,
+        meshopt=meshopt,
+        num_threads=num_threads,
     )
     if n < 0:
         raise RuntimeError(f"adacpp native stream_ifc_to_glb failed for {ifc_path}")
