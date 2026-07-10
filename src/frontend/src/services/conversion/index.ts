@@ -94,10 +94,20 @@ export async function convertWithSelection(
     const resolved = schema ? normalizeSelection(schema, selection) : null;
 
     if (resolved?.isClient) {
-        // In-browser (WASM/Pyodide) path — no server round-trip. The chosen
-        // client engine (``resolved.tessellator``: pyodide / wasm-native) is a
-        // hint the pipeline can act on; today both run through the Pyodide
-        // pipeline (the only wired in-browser engine).
+        // In-browser path — no server round-trip. Two client engines, picked by
+        // the tessellator token:
+        //   wasm-native → the OCC-free, no-pyodide adacpp_step_glb embind module
+        //                 (STEP → GLB only, 2.3 MB, no Python runtime).
+        //   pyodide     → the Pyodide pipeline (ifc / step / mesh, wasm wheels).
+        if (resolved.tessellator === "wasm-native") {
+            const {convertViaWasmNativeAndUpload, nativeStepGlbSupported} = await import(
+                "./nativeStepGlbPipeline"
+            );
+            if (nativeStepGlbSupported(sourceKey, targetFormat)) {
+                return convertViaWasmNativeAndUpload(scope, sourceKey, targetFormat);
+            }
+            // The native module doesn't cover this (source, target) — fall through to Pyodide.
+        }
         if (!wasmSupportsConversion(sourceKey, targetFormat)) {
             throw new Error(
                 `in-browser conversion doesn't support ${ext || sourceKey} → ${targetFormat}`,
