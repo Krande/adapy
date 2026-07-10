@@ -230,6 +230,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _worker_prune_loop(queue),
                 name="worker-prune",
             )
+        # Worker-registry snapshot refresher. Prime it once now (a single
+        # ~1s NATS scan at boot) so the very first /config.js is warm, then
+        # keep it fresh in the background — the config endpoints read the
+        # cached snapshot instead of hitting NATS on the request path.
+        app.state.worker_registry_task = None
+        if queue.enabled:
+            await _refresh_worker_registry()
+            app.state.worker_registry_task = asyncio.create_task(
+                _worker_registry_refresh_loop(),
+                name="worker-registry-refresh",
+            )
         yield
         # Cancel scheduler + issue bot first so a tick in flight
         # doesn't try to use a pool / queue that's about to be torn
@@ -239,6 +250,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "issue_bot_task",
             "profile_parser_task",
             "worker_prune_task",
+            "worker_registry_task",
         ):
             task = getattr(app.state, attr, None)
             if task is not None and not task.done():
@@ -278,6 +290,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Public — load balancers + readiness probes hit this.
         return Response(status_code=200)
 
+    # Cached worker-registry snapshot, refreshed off the request path by
+    # ``_worker_registry_refresh_loop``. ``queue.list_workers()`` is an
+    # N+1 over NATS KV (list keys, then one round-trip per worker key);
+    # the SPA fetches ``/config.js`` (and later ``/api/config``) on its
+    # critical startup path, and each of those endpoints derived exts /
+    # conversions / utilities by calling ``list_workers()`` 2-3 times.
+    # That put 2.5-4s of blocking NATS latency on every page load. The
+    # helpers below now read this snapshot synchronously so page load
+    # never waits on NATS; the background task keeps it fresh (~3s). The
+    # snapshot changes on worker-heartbeat timescales, so a few seconds
+    # of staleness is immaterial to the picker / capability matrix.
+    # Empty until the first refresh tick (same observable state as a
+    # queue-disabled deploy — the SPA falls back to its static set).
+    _worker_registry: dict = {"workers": [], "image_tag": None, "ts": 0.0}
+
+    async def _refresh_worker_registry() -> None:
+        """Snapshot the worker registry + worker image tag into
+        ``_worker_registry``. Defensive: a failed NATS call is logged and
+        leaves the previous snapshot in place rather than blanking it."""
+        if not queue.enabled:
+            return
+        try:
+            workers = await queue.list_workers()
+        except Exception:
+            logger.exception("worker registry refresh: list_workers failed")
+            return
+        image_tag = _worker_registry.get("image_tag")
+        try:
+            image_tag = await queue.get_meta("worker_image_tag")
+        except Exception:
+            logger.exception("worker registry refresh: get_meta failed")
+        _worker_registry["workers"] = workers
+        _worker_registry["image_tag"] = image_tag
+        _worker_registry["ts"] = time.time()
+
     async def _is_accepted_source(key: str) -> bool:
         """``is_supported_source`` plus a check against the workers'
         advertised extra extensions. Use this on every upload / bake
@@ -311,11 +358,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         if not queue.enabled:
             return []
-        try:
-            workers = await queue.list_workers()
-        except Exception:
-            logger.exception("config: failed to read worker registry")
-            return []
+        workers = _worker_registry["workers"]
         out: set[str] = set()
         for w in workers:
             for raw in w.get("source_exts") or []:
@@ -348,11 +391,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         if not queue.enabled:
             return []
-        try:
-            workers = await queue.list_workers()
-        except Exception:
-            logger.exception("config: failed to read worker registry for matrix")
-            return []
+        workers = _worker_registry["workers"]
         merged: dict[str, set[str]] = {}
         # from → target → option-name → option-dict. Per-job knob schemas are unioned across workers:
         # for an enum option (e.g. step_glb_pipeline) the enum VALUES are unioned, so an engine that
@@ -414,11 +453,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         if not queue.enabled:
             return []
-        try:
-            workers = await queue.list_workers()
-        except Exception:
-            logger.exception("config: failed to read worker registry for utilities")
-            return []
+        workers = _worker_registry["workers"]
         by_name: dict[str, dict] = {}
         for w in workers:
             for spec in w.get("utilities") or []:
@@ -437,12 +472,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # publishes its tag on startup. Either may be missing in dev /
         # local runs; the SPA hides the row when both are empty.
         viewer_tag = os.environ.get("ADA_IMAGE_TAG", "").strip() or None
-        worker_tag: str | None = None
-        if queue.enabled:
-            try:
-                worker_tag = await queue.get_meta("worker_image_tag")
-            except Exception:
-                logger.exception("config: failed to read worker image tag")
+        # Cached snapshot — no NATS on the request path (see _worker_registry).
+        worker_tag: str | None = _worker_registry["image_tag"] if queue.enabled else None
         extra_source_exts = await _worker_advertised_exts()
         # Subset of stream-readable extensions that the legacy /convert
         # pipeline does NOT handle. The SPA uses this to pick between
@@ -2866,6 +2897,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         base = after or datetime.now(timezone.utc)
         return croniter(cron_expr, base).get_next(datetime)
+
+    async def _worker_registry_refresh_loop() -> None:
+        """Background task: refresh the cached worker-registry snapshot
+        (:data:`_worker_registry`) every ``REFRESH_INTERVAL_S`` so the
+        config endpoints never call ``list_workers()`` (an N+1 over NATS
+        KV) on the request path. Defensive — a failed tick keeps the last
+        good snapshot; only ``asyncio.CancelledError`` exits (shutdown)."""
+        REFRESH_INTERVAL_S = 3.0
+        logger.info("worker registry refresh: starting (every %ss)", REFRESH_INTERVAL_S)
+        try:
+            while True:
+                await asyncio.sleep(REFRESH_INTERVAL_S)
+                await _refresh_worker_registry()
+        except asyncio.CancelledError:
+            logger.info("worker registry refresh: stopped")
+            raise
 
     async def _worker_prune_loop(q) -> None:
         """Background task: hourly, hard-prune worker registry entries unseen for
@@ -5664,12 +5711,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         import json as _json
 
         viewer_tag = os.environ.get("ADA_IMAGE_TAG", "").strip() or None
-        worker_tag: str | None = None
-        if queue.enabled:
-            try:
-                worker_tag = await queue.get_meta("worker_image_tag")
-            except Exception:
-                logger.exception("config.js: failed to read worker image tag")
+        # Cached snapshot — no NATS on the request path (see _worker_registry).
+        worker_tag: str | None = _worker_registry["image_tag"] if queue.enabled else None
         extra_source_exts = await _worker_advertised_exts()
         streaming_only_exts = sorted(e for e in extra_source_exts if e not in LEGACY_CONVERT_EXTS)
         conversion_matrix = await _worker_advertised_conversions()

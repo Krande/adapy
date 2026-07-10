@@ -12,8 +12,16 @@
           Hosted viewer mode injects window.COMMS_MODE / window.API_BASE
           via /config.js. In Vite dev or embedded mode the request 404s
           and the comms picker falls back to the WS default.
+
+          ``defer`` keeps config.js off the render-blocking path: a classic
+          (non-module) <script src> without defer stalls HTML parsing until
+          it downloads+runs, so a slow /config.js froze the whole page load.
+          Deferred classic scripts and module scripts execute in document
+          order after parsing, so config.js still runs before index.tsx and
+          sets its window.* globals — the SPA bootstrap ordering is intact,
+          but the browser can parse and paint while config.js is in flight.
         -->
-        <script src="/config.js" onerror="this.remove()"></script>
+        <script defer src="/config.js" onerror="this.remove()"></script>
         <script type="module" src="index.tsx"></script>
         <!-- Inject the startup config placeholder into a script -->
         <!--STARTUP_CONFIG_PLACEHOLDER-->
