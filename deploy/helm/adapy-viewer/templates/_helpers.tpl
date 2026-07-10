@@ -202,6 +202,25 @@ spec:
           {{- with $w.resources }}
           resources: {{- toYaml . | nindent 12 }}
           {{- end }}
+          # Liveness: the worker touches /tmp/worker-alive on every JetStream pull-loop iteration
+          # (<=5s when idle) and on conversion progress (~2s). If the pull loop stalls — the durable
+          # consumer wedges after a NATS restart, leaving the pod "Running" but no longer fetching
+          # (num_waiting=0) — the file goes stale and k8s restarts the pod, instead of it sitting
+          # silently broken while jobs pile up unconsumed. Override via .worker.livenessProbe.
+          livenessProbe:
+            {{- with $w.livenessProbe }}
+            {{- toYaml . | nindent 12 }}
+            {{- else }}
+            exec:
+              command:
+                - sh
+                - -c
+                - 'test $(( $(date +%s) - $(stat -c %Y /tmp/worker-alive 2>/dev/null || echo 0) )) -lt 120'
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 4
+            timeoutSeconds: 5
+            {{- end }}
           {{- with $w.securityContext }}
           securityContext: {{- toYaml . | nindent 12 }}
           {{- end }}
