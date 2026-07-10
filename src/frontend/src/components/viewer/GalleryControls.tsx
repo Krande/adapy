@@ -323,7 +323,10 @@ const GalleryControls: React.FC = () => {
         </div>
     );
 
-    const toolsDrawer = !isGeomWalk && (
+    // Re-convert operates on the current file (files[index]), which is the loaded file in BOTH the
+    // files walk and the geoms walk — so the reconvert-path tools are available in either mode (a user
+    // walking a model's geoms can still reconvert it via a different path, e.g. to pick up a fix).
+    const toolsDrawer = (
         <div className="border-t border-gray-700 pt-1">
             <button
                 type="button"
