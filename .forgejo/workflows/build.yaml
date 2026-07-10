@@ -336,6 +336,17 @@ jobs:
             docs_full=true
           fi
 
+          # [nodocs] opt-out: the docs image (Sphinx + FEA verification report) is the slowest build,
+          # so honour a ``[nodocs]`` marker in the head commit message to skip it regardless of what
+          # changed. Viewer/worker are unaffected. Works for push and workflow_dispatch (GITHUB_SHA is
+          # the branch tip either way; fetch-depth:0 above makes the message available).
+          COMMIT_MSG=$(git log -1 --format=%B "$GITHUB_SHA" 2>/dev/null || echo "")
+          if printf '%s' "$COMMIT_MSG" | grep -qiF '[nodocs]'; then
+            echo "[nodocs] present in the head commit message — skipping the docs build."
+            docs=false
+            docs_full=false
+          fi
+
           {
             echo "viewer=$viewer"
             echo "viewer_full=$viewer_full"
