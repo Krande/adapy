@@ -1,22 +1,23 @@
-// In-browser conversion pipeline using the NATIVE (no-pyodide) adacpp_step_glb wasm module.
-// STEP/STP → GLB only — the embind module's single verb. Fetches source bytes from storage, runs
-// stepToGlb in a Web Worker, PUTs the resulting GLB back to storage (same derived-key contract as
-// the server + pyodide paths), and records a metrics-rich audit row so the conversion shows up in
-// the audit panel with a "WASM" badge exactly like the pyodide path.
+// In-browser conversion pipeline using the NATIVE (no-pyodide) adacpp CAD→GLB wasm modules
+// (adacpp_step_glb / adacpp_ifc_glb). STEP/STP + IFC → GLB. Fetches source bytes from storage, runs
+// the embind module in a Web Worker, PUTs the resulting GLB back to storage (same derived-key
+// contract as the server + pyodide paths), and records a metrics-rich audit row so the conversion
+// shows up in the audit panel with a "WASM" badge exactly like the pyodide path.
 
 import {useConversionStore, ConversionJob} from "@/state/conversionStore";
 import {viewerApi, ScopeUrl, TargetFormat} from "@/services/viewerApi";
 import {
-    nativeStepToGlb,
-    nativeStepToGlbStreaming,
-    nativeStepGlbOpfsAvailable,
-} from "@/utils/nativeConvert/stepGlbConverter";
+    nativeCadToGlb,
+    nativeCadToGlbStreaming,
+    nativeCadGlbOpfsAvailable,
+    type CadKind,
+} from "@/utils/nativeConvert/cadGlbConverter";
 
 // Distinguishes the native embind module from the pyodide path in the audit panel.
-const WASM_IMAGE_TAG = "wasm:native-stepglb";
+const WASM_IMAGE_TAG = "wasm:native-cadglb";
 
 // Above this source size we prefer the OPFS-streaming tier (source read off-disk via pread, bounded
-// RSS) over buffering the whole STEP into the wasm heap — provided OPFS + a presigned URL are both
+// RSS) over buffering the whole source into the wasm heap — provided OPFS + a presigned URL are both
 // available. Below it, the buffered MEMFS path is simpler and plenty (and the validated default).
 const OPFS_STREAM_THRESHOLD = 100 * 1024 * 1024; // 100 MB
 
@@ -25,9 +26,17 @@ function extOf(name: string): string {
     return i === -1 ? "" : name.slice(i).toLowerCase();
 }
 
-/** Does the native (no-pyodide) module handle this (source, target)? STEP/STP → GLB only. */
-export function nativeStepGlbSupported(sourceKey: string, targetFormat: TargetFormat): boolean {
-    return targetFormat === "glb" && (extOf(sourceKey) === ".step" || extOf(sourceKey) === ".stp");
+// Which native module handles a source extension (STEP/STP → step_glb, IFC → ifc_glb).
+function cadKindFor(sourceKey: string): CadKind | null {
+    const ext = extOf(sourceKey);
+    if (ext === ".step" || ext === ".stp") return "step";
+    if (ext === ".ifc") return "ifc";
+    return null;
+}
+
+/** Does a native (no-pyodide) module handle this (source, target)? {STEP,STP,IFC} → GLB. */
+export function nativeCadGlbSupported(sourceKey: string, targetFormat: TargetFormat): boolean {
+    return targetFormat === "glb" && cadKindFor(sourceKey) !== null;
 }
 
 export async function convertViaWasmNativeAndUpload(
@@ -36,8 +45,9 @@ export async function convertViaWasmNativeAndUpload(
     targetFormat: TargetFormat = "glb",
     opts?: {auditRunId?: string | null},
 ): Promise<string> {
-    if (!nativeStepGlbSupported(sourceKey, targetFormat)) {
-        throw new Error(`native wasm module only converts STEP → GLB (got ${sourceKey} → ${targetFormat})`);
+    const kind = cadKindFor(sourceKey);
+    if (targetFormat !== "glb" || !kind) {
+        throw new Error(`native wasm module only converts STEP/IFC → GLB (got ${sourceKey} → ${targetFormat})`);
     }
     const storeKey = `${sourceKey}::${targetFormat}`;
     const store = useConversionStore.getState();
@@ -81,10 +91,11 @@ export async function convertViaWasmNativeAndUpload(
         // the wasm heap. Falls back to buffering the whole source into the wasm heap when the source
         // is small, presign is unavailable (local-disk backends 503), or OPFS isn't supported. A
         // streaming run is NOT retried buffered — re-reading a huge deck into the heap would just OOM.
+        const upper = kind.toUpperCase();
         let streamUrl: {url: string; size: number} | null = null;
         try {
             const dl = await viewerApi.requestDownloadUrl(scope, sourceKey);
-            if (dl.size >= OPFS_STREAM_THRESHOLD && (await nativeStepGlbOpfsAvailable())) {
+            if (dl.size >= OPFS_STREAM_THRESHOLD && (await nativeCadGlbOpfsAvailable(kind))) {
                 streamUrl = {url: dl.url, size: dl.size};
             }
         } catch {
@@ -92,16 +103,16 @@ export async function convertViaWasmNativeAndUpload(
         }
 
         let glb: ArrayBuffer;
-        let tris: number;
+        let products: number;
         let ms: number;
         let readBytes: number;
         if (streamUrl) {
             store.setJob(storeKey, {
                 ...(store.jobs[storeKey] || job),
                 progress: 0.15,
-                stage: "streaming STEP → GLB in browser (native, OPFS)",
+                stage: `streaming ${upper} → GLB in browser (native, OPFS)`,
             });
-            ({glb, tris, ms} = await nativeStepToGlbStreaming(streamUrl.url));
+            ({glb, products, ms} = await nativeCadToGlbStreaming(kind, streamUrl.url));
             readBytes = streamUrl.size; // source size; only streamed, never staged whole
         } else {
             const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
@@ -110,17 +121,17 @@ export async function convertViaWasmNativeAndUpload(
             store.setJob(storeKey, {
                 ...(store.jobs[storeKey] || job),
                 progress: 0.15,
-                stage: "converting STEP → GLB in browser (native)",
+                stage: `converting ${upper} → GLB in browser (native)`,
             });
 
-            ({glb, tris, ms} = await nativeStepToGlb(sourceBuf));
+            ({glb, products, ms} = await nativeCadToGlb(kind, sourceBuf));
         }
         const outBytes = new Uint8Array(glb);
 
         store.setJob(storeKey, {
             ...(store.jobs[storeKey] || job),
             progress: 0.9,
-            stage: `uploading derived (${tris.toLocaleString()} tris, ${Math.round(ms)} ms)`,
+            stage: `uploading derived (${products.toLocaleString()} products, ${Math.round(ms)} ms)`,
         });
 
         const derivedKey = await viewerApi.putDerivedBlob(scope, sourceKey, targetFormat, outBytes);

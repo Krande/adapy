@@ -100,10 +100,10 @@ export async function convertWithSelection(
         //                 (STEP → GLB only, 2.3 MB, no Python runtime).
         //   pyodide     → the Pyodide pipeline (ifc / step / mesh, wasm wheels).
         if (resolved.tessellator === "wasm-native") {
-            const {convertViaWasmNativeAndUpload, nativeStepGlbSupported} = await import(
-                "./nativeStepGlbPipeline"
+            const {convertViaWasmNativeAndUpload, nativeCadGlbSupported} = await import(
+                "./nativeCadGlbPipeline"
             );
-            if (nativeStepGlbSupported(sourceKey, targetFormat)) {
+            if (nativeCadGlbSupported(sourceKey, targetFormat)) {
                 return convertViaWasmNativeAndUpload(scope, sourceKey, targetFormat);
             }
             // The native module doesn't cover this (source, target) — fall through to Pyodide.
