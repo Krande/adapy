@@ -6,7 +6,9 @@ import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {useLoadQueueStore} from "@/state/loadQueueStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
-import {convertViaServer} from "@/services/conversion/serverPipeline";
+import {convertWithSelection} from "@/services/conversion";
+import {SerializerTessellatorSelect} from "@/components/convert/SerializerTessellatorSelect";
+import type {SerializerSelection} from "@/services/conversion/serializerMatrix";
 import {canLoadIntoSceneLegacy, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
@@ -218,8 +220,13 @@ const GalleryControls: React.FC = () => {
     const [toolsOpen, setToolsOpen] = useState(false);
     const [reconverting, setReconverting] = useState(false);
     const [reconvertMsg, setReconvertMsg] = useState<string | null>(null);
+    // Serializer/tessellator pick for the reconvert. Empty until the user
+    // touches a dropdown; convertWithSelection then normalises against the
+    // backend matrix (defaults to the cpp/native server path).
+    const [serializerSel, setSerializerSel] = useState<SerializerSelection>({});
 
     const current = files[index] ?? null;
+    const currentExt = current ? (current.slice(current.lastIndexOf(".")).toLowerCase()) : "";
 
     const reconvert = useCallback(async () => {
         if (!current || reconverting) return;
@@ -228,7 +235,10 @@ const GalleryControls: React.FC = () => {
         setReconverting(true);
         setReconvertMsg("re-converting…");
         try {
-            const derivedKey = await convertViaServer(scopePart, current, "glb", {reconvert: true});
+            const derivedKey = await convertWithSelection(scopePart, current, "glb", {
+                selection: serializerSel,
+                reconvert: true,
+            });
             await clear_loaded_model();
             const {overlay_file_in_scene} = await import("@/utils/scene/handlers/overlay_file_in_scene");
             await overlay_file_in_scene(current, derivedKey, {scope: scopePart});
@@ -238,7 +248,7 @@ const GalleryControls: React.FC = () => {
         } finally {
             setReconverting(false);
         }
-    }, [current, reconverting]);
+    }, [current, reconverting, serializerSel]);
 
     if (!enabled) return null;
 
@@ -325,6 +335,18 @@ const GalleryControls: React.FC = () => {
             </button>
             {toolsOpen && (
                 <div className="mt-1 flex flex-col gap-1">
+                    {current && (
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <SerializerTessellatorSelect
+                                ext={currentExt}
+                                target="glb"
+                                value={serializerSel}
+                                onChange={setSerializerSel}
+                                disabled={reconverting}
+                                compact
+                            />
+                        </div>
+                    )}
                     <button
                         type="button"
                         disabled={empty || reconverting}
