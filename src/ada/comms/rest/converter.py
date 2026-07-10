@@ -1151,6 +1151,87 @@ def _apply_glb_serializer(
     return step_glb_pipeline, glb_tess_engine, False
 
 
+# ---------------------------------------------------------------------------
+# B-rep → B-rep (step→ifc, ifc→step) path options. Same shared frontend selector
+# as the →GLB rows, but the second axis is a WRITER (no tessellation happens),
+# titled "Writer" via the backend. The writer mirrors the serializer 1:1 — each
+# code path has exactly one B-rep emitter — so the writer dropdown is
+# informational (one entry per serializer), consistent with how cpp→glb pins its
+# tessellator. Client (wasm) B-rep writers run in-browser via the adacpp wasm
+# writer modules.
+_BREP_SERIALIZER_LABELS = {
+    _GLB_SERIALIZER_CPP: "C++ (adacpp native)",
+    _GLB_SERIALIZER_PYTHON: "Python (OCC)",
+    _GLB_SERIALIZER_WASM: "WASM (browser)",
+}
+# serializer -> (writer token, writer label). One writer per path.
+_BREP_SERIALIZER_WRITER = {
+    _GLB_SERIALIZER_CPP: ("native", "Native (adacpp B-rep)"),
+    _GLB_SERIALIZER_PYTHON: ("occ", "OCC / ifcopenshell"),
+    _GLB_SERIALIZER_WASM: ("wasm-native", "Native (WASM)"),
+}
+_BREP_SERIALIZER_ORDER = (_GLB_SERIALIZER_CPP, _GLB_SERIALIZER_PYTHON, _GLB_SERIALIZER_WASM)
+
+
+def _brep_serializer_options(source_ext: str, target: str) -> list[dict]:
+    """serializer + dependent ``writer`` options for a B-rep→B-rep row (single-sourced, like
+    :func:`_glb_serializer_options`). The writer axis is titled "Writer" and mirrors the serializer."""
+    serializers = list(_BREP_SERIALIZER_ORDER)
+    enum_by = {s: [_BREP_SERIALIZER_WRITER[s][0]] for s in serializers}
+    writer_tokens: list[str] = []
+    for s in serializers:
+        for tok in enum_by[s]:
+            if tok not in writer_tokens:
+                writer_tokens.append(tok)
+    writer_labels = {_BREP_SERIALIZER_WRITER[s][0]: _BREP_SERIALIZER_WRITER[s][1] for s in serializers}
+    default_ser = serializers[0]
+    return [
+        {
+            "name": "serializer",
+            "type": "enum",
+            "title": "Serializer",
+            "default": default_ser,
+            "enum": serializers,
+            "labels": {s: _BREP_SERIALIZER_LABELS[s] for s in serializers},
+            "runtime": {s: ("client" if s in _GLB_CLIENT_SERIALIZERS else "server") for s in serializers},
+            "description": (
+                f"Conversion code path for →{target.upper()}. 'cpp' = pure-C++ adacpp B-rep writer "
+                "(fastest, dep-free); 'python' = the OpenCASCADE / ifcopenshell writer; 'wasm' runs "
+                "the adacpp writer entirely in your browser (no server round-trip)."
+            ),
+        },
+        {
+            "name": "tessellator",  # wire key kept stable across targets; DISPLAYED as "Writer"
+            "type": "enum",
+            "title": "Writer",
+            "default": enum_by[default_ser][0],
+            "enum": writer_tokens,
+            "labels": writer_labels,
+            "enum_by": enum_by,
+            "depends_on": "serializer",
+            "description": "B-rep writer. Mirrors the serializer — each code path has one writer.",
+        },
+    ]
+
+
+def _conversion_path_options(source_ext: str, target: str) -> list[dict]:
+    """The shared serializer × (tessellator|writer) path options for a (source, target) row. Mesh
+    targets (glb) get the tessellator axis; B-rep targets (ifc/step) get the writer axis. Single
+    source of the vocabulary for the frontend selector."""
+    t = target.lstrip(".").lower()
+    if t == "glb":
+        return _glb_serializer_options(source_ext)
+    if t in ("ifc", "step"):
+        return _brep_serializer_options(source_ext, t)
+    return []
+
+
+def _brep_writer_is_python(serializer: str | None) -> bool:
+    """A B-rep→B-rep serializer that routes to the Python/OCC writer (vs the native adacpp emitter).
+    Client (wasm) serializers never reach the worker, so they are not 'python' here."""
+    return serializer == _GLB_SERIALIZER_PYTHON
+
+
 def _default_glb_tess_engine() -> str:
     """Default engine for the non-STEP →GLB (scene) path: ``libtess2`` when adacpp is importable,
     else the OCC BatchTessellator. OCC's prism tessellation of curved B-spline plates is
@@ -2671,10 +2752,14 @@ def _register_step_stream_exports() -> None:
 
         ConverterRegistry.register(ext, "step", _h_step)
 
-        def _h_ifc(src, on_progress, *, _ext=ext, **_kw):
+        def _h_ifc(src, on_progress, *, _ext=ext, serializer=None, tessellator=None, **_kw):
+            # serializer=python routes to the OCC/ifcopenshell writer; cpp (default) uses the native
+            # streaming adacpp B-rep emitter. wasm serializers run client-side (never reach here).
+            if _brep_writer_is_python(serializer):
+                return _via_ada(src, _ext, "ifc", on_progress)
             return _via_step_stream_to_ifc(src, on_progress)
 
-        ConverterRegistry.register(ext, "ifc", _h_ifc)
+        ConverterRegistry.register(ext, "ifc", _h_ifc, options=_conversion_path_options(ext, "ifc"))
 
         def _h_xml(src, on_progress, *, _ext=ext, **_kw):
             return _via_step_stream_to_xml(src, on_progress)
@@ -2691,10 +2776,16 @@ def _register_step_stream_exports() -> None:
         _native_ifc2step = False
     if _native_ifc2step:
 
-        def _h_ifc2step(src, on_progress, **_kw):
+        def _h_ifc2step(src, on_progress, *, serializer=None, tessellator=None, **_kw):
+            # serializer=python routes to the OCC ifc→step writer; cpp (default) uses the native
+            # adacpp B-rep reader → AP242 writer. wasm serializers run client-side.
+            if _brep_writer_is_python(serializer):
+                return _via_ada(src, ".ifc", "step", on_progress)
             return _via_ifc_to_step(src, on_progress)
 
-        ConverterRegistry.register(".ifc", "step", _h_ifc2step)
+        ConverterRegistry.register(
+            ".ifc", "step", _h_ifc2step, options=_conversion_path_options(".ifc", "step")
+        )
 
     # IFC → GLB via the native adacpp IFC pipeline (no ifcopenshell/OCC), overriding the generic
     # from_ifc → GLB. Gated on the native verb; degrades to from_ifc per _via_ifc_stream_to_glb's

@@ -120,3 +120,26 @@ def test_apply_glb_serializer_resolves_to_engine_knobs():
     # unset serializer keeps explicit knobs + defaults
     assert ap(".step", None, None, step_glb_pipeline="occ-builtin", glb_tess_engine=None) == (
         "occ-builtin", None, False)
+
+
+def test_brep_target_exposes_serializer_writer_axis():
+    """B-rep→B-rep rows (step→ifc, ifc→step) advertise the same shared selector, but the 2nd axis is
+    titled 'Writer' (no tessellation) and mirrors the serializer 1:1."""
+    for frm, to in ((".step", "ifc"), (".ifc", "step")):
+        opts = conv.ConverterRegistry.options_for(frm, to)
+        by_name = {o["name"]: o for o in opts}
+        # not every build registers native ifc→step; skip when the path options aren't present
+        if "serializer" not in by_name:
+            continue
+        ser, wr = by_name["serializer"], by_name["tessellator"]
+        assert ser["title"] == "Serializer"
+        assert set(ser["enum"]) == {"cpp", "python", "wasm"}
+        assert ser["runtime"]["wasm"] == "client"
+        # 2nd axis is DISPLAYED as Writer (wire key stays 'tessellator' for a unified resolver)
+        assert wr["title"] == "Writer"
+        assert wr["depends_on"] == "serializer"
+        assert wr["enum_by"] == {"cpp": ["native"], "python": ["occ"], "wasm": ["wasm-native"]}
+    # python serializer → the OCC writer branch; cpp/wasm do not
+    assert conv._brep_writer_is_python("python") is True
+    assert conv._brep_writer_is_python("cpp") is False
+    assert conv._brep_writer_is_python("wasm") is False
