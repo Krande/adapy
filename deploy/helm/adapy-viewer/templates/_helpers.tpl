@@ -206,7 +206,14 @@ spec:
           # (<=5s when idle) and on conversion progress (~2s). If the pull loop stalls — the durable
           # consumer wedges after a NATS restart, leaving the pod "Running" but no longer fetching
           # (num_waiting=0) — the file goes stale and k8s restarts the pod, instead of it sitting
-          # silently broken while jobs pile up unconsumed. Override via .worker.livenessProbe.
+          # silently broken while jobs pile up unconsumed.
+          #
+          # This heartbeat probe ONLY works on pools running the adapy worker image, which writes the
+          # file. Capability pools that run a foreign image (abaqus, weld-gen) never write it, so the
+          # probe would fail every time and SIGKILL-crashloop them. Hence it is OPT-IN: emitted only
+          # when the pool sets `heartbeatLiveness: true` (the adapy worker default) or supplies its own
+          # `livenessProbe:`. Pools that do neither get no liveness probe.
+          {{- if or $w.livenessProbe $w.heartbeatLiveness }}
           livenessProbe:
             {{- with $w.livenessProbe }}
             {{- toYaml . | nindent 12 }}
@@ -221,6 +228,7 @@ spec:
             failureThreshold: 4
             timeoutSeconds: 5
             {{- end }}
+          {{- end }}
           {{- with $w.securityContext }}
           securityContext: {{- toYaml . | nindent 12 }}
           {{- end }}
