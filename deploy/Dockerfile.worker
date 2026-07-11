@@ -6,6 +6,10 @@
 # (the build runner has no egress to Ubuntu mirrors). The conda env
 # itself dominates final image size, so a multi-stage trim wouldn't
 # meaningfully shrink things.
+#
+# Rebuild marker (bump to re-pull the ADACPP_BRANCH overlay fresh):
+#   2026-07-11 — adacpp feat/lazy-shape-store @ ae8fb6b: 469826 STEP->GLB
+#   peak RSS 2840->1286 MB (phase-A parse_cache_ bound) + CSR weld.
 
 ARG PIXI_VERSION=0.68.0
 # CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the worker can publish
