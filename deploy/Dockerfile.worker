@@ -8,8 +8,9 @@
 # meaningfully shrink things.
 #
 # Rebuild marker (bump to re-pull the ADACPP_BRANCH overlay fresh):
-#   2026-07-11 — adacpp feat/lazy-shape-store @ ae8fb6b: 469826 STEP->GLB
-#   peak RSS 2840->1286 MB (phase-A parse_cache_ bound) + CSR weld.
+#   2026-07-11b — adacpp feat/lazy-shape-store @ 5fe25ba: extend the phase-A
+#   parse_cache_ bound to STEP->obj/stl (was OOM on 469826; now ~1.3GB, like
+#   STEP->GLB). Also carries the worker parent pre-warm + visible startup logs.
 
 ARG PIXI_VERSION=0.68.0
 # CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the worker can publish
