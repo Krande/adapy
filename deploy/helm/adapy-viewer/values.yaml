@@ -49,6 +49,11 @@ strategy:
 worker:
   enabled: true
   replicaCount: 1
+  # This pool runs the adapy worker image, which writes /tmp/worker-alive on
+  # every pull-loop iteration, so the heartbeat livenessProbe applies (restarts
+  # a wedged pull loop). Capability pools on foreign images must leave this
+  # unset — see the livenessProbe note in _helpers.tpl.
+  heartbeatLiveness: true
   image:
     repository: ghcr.io/krande/adapy-viewer-worker
     tag: ""
