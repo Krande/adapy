@@ -1780,14 +1780,61 @@ async def _process_one(
             pass
 
 
+def _warm_convert_imports() -> None:
+    """Pre-import the heavy CAD C-extensions in the worker PARENT so every
+    ``os.fork()``ed conversion child (see subprocess_convert) inherits them
+    copy-on-write instead of re-importing per job.
+
+    Without this, an IFC child faults in ifcopenshell(.geom) and a SAT child
+    faults in OCC.Core — hundreds of MB of ``.so`` pages — on EVERY job; on a
+    cold/pressured page cache that measured ~20-40s of near-zero-CPU I/O-wait
+    per conversion (STEP's native adacpp reader was unaffected). Pre-importing
+    keeps the pages referenced by the long-lived parent and out of every child's
+    hot path. Per-module guard: a slim/scoped pool lacking a backend just skips it.
+
+    NOTE: the durable fix is routing IFC/SAT conversions through adacpp + the
+    native C++ IFC reader/writer so these deps aren't loaded at all (native STEP
+    already is). Until every target format is wired natively, IFC->{stl,obj,xml}
+    and SAT still go through ada.from_ifc / ada.from_acis; this removes their
+    per-fork re-import tax in the meantime.
+    """
+    import importlib
+
+    for mod, why in (
+        ("ada.cadit.ifc.store", "ifcopenshell + ifcopenshell.geom"),
+        ("ada.occ.tessellating", "OCC.Core tessellation + backends"),
+    ):
+        t0 = time.perf_counter()
+        try:
+            importlib.import_module(mod)
+        except Exception as exc:  # scoped/slim pool without this backend — skip
+            logger.info("worker: warm-import skipped %s (%s): %s", mod, why, exc)
+            continue
+        logger.info("worker: warm-imported %s (%s) in %.2fs", mod, why, time.perf_counter() - t0)
+
+
 async def _run() -> None:
+    # Make the worker's own lifecycle logs visible. The "ada" logger otherwise
+    # inherits root's WARNING level, which silently drops every worker: INFO
+    # line (booting / connected / registered / subscribing / ready) — leaving a
+    # healthy idle worker indistinguishable from a hung one in `kubectl logs`.
+    # This is the worker process only; the viewer configures its own logging.
+    # ADA_WORKER_LOG_LEVEL overrides (e.g. WARNING to quiet a chatty pool).
+    from ada.config import configure_logger
+
+    configure_logger()  # attach the stdout StreamHandler (no-op if already attached)
+    logger.setLevel(os.environ.get("ADA_WORKER_LOG_LEVEL", "INFO").upper())
+
     settings = load_settings()
     if settings.queue.url is None:
         raise SystemExit("ADA_VIEWER_NATS_URL not set; nothing for the worker to do")
 
+    logger.info("worker: booting capabilities=%s", os.environ.get("ADA_WORKER_CAPABILITIES", "base"))
     storage = Storage.from_settings(settings)
     queue = JobQueue(settings.queue)
+    logger.info("worker: connecting to NATS subject=%s", settings.queue.subject)
     await queue.connect()
+    logger.info("worker: connected to NATS")
 
     # Optional importer hook: capability workers built FROM the base
     # image often need to populate the connection-spec registry (or
@@ -1987,6 +2034,15 @@ async def _run() -> None:
         primary_capability,
     )
     sub = await queue.pull_subscribe(primary_capability)
+
+    # Warm the heavy CAD imports in this (parent) process before the per-job fork
+    # loop below, so forked children inherit them copy-on-write instead of paying
+    # a cold re-import per conversion. Base pool only — capability pools
+    # (weld-gen/abaqus) run foreign images with their own deps. Run in a thread so
+    # a slow cold import (OCC/ifcopenshell off a cold page cache) doesn't stall the
+    # event loop's NATS keepalive while the worker is still starting up.
+    if "base" in {c.lower() for c in capabilities}:
+        await asyncio.get_running_loop().run_in_executor(None, _warm_convert_imports)
 
     stop = asyncio.Event()
 
