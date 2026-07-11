@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import threading
+from collections.abc import Awaitable, Callable, Iterable
 from pathlib import PurePosixPath
 
 from ada.comms.fb.fb_server_gen import ServerProcessInfoDC
@@ -242,15 +243,17 @@ async def dispatch(
     storage: Storage,
     scope: Scope,
     *,
-    extra_source_exts: frozenset[str] | None = None,
+    exts_provider: Callable[[], Awaitable[Iterable[str]]] | None = None,
 ) -> bytes | None:
     """Deserialize, dispatch (passing the request's scope to handlers),
     return serialized response (or None for no-reply).
 
-    ``extra_source_exts`` is the set of source extensions advertised by
-    online capability workers — only LIST_FILE_OBJECTS uses it today
-    (to surface plug-in formats like .odb in the storage overview).
-    Other handlers ignore the argument.
+    ``exts_provider`` lazily yields the set of source extensions
+    advertised by online capability workers. Only LIST_FILE_OBJECTS
+    consumes it (to surface plug-in formats like .odb in the storage
+    overview), so it is resolved *inside* that branch — every other
+    command (server info, view-file, ...) skips the worker-registry read
+    entirely, keeping worker-listing off the critical file-listing path.
     """
 
     message = deserialize_root_message(payload)
@@ -259,5 +262,11 @@ async def dispatch(
         logger.info("REST: unsupported command_type %s", message.command_type)
         return _error_reply(message, f"command_type {message.command_type} not supported in REST mode")
     if message.command_type == CommandTypeDC.LIST_FILE_OBJECTS:
+        extra_source_exts: frozenset[str] = frozenset()
+        if exts_provider is not None:
+            try:
+                extra_source_exts = frozenset(await exts_provider())
+            except Exception:
+                logger.exception("rpc: failed to read worker-advertised exts")
         return await handler(message, storage, scope, extra_source_exts)
     return await handler(message, storage, scope)

@@ -24,6 +24,13 @@ function pickConnectUrl(): string {
  * during ``initWebSocket`` (well before AuthGate's bootstrap
  * resolves). */
 export function loadInitialServerState(): void {
+    // File listing goes out FIRST: it's what the storage browser is
+    // waiting on and the slowest server op (cold S3 list ~3s), so it
+    // must not queue behind server-info. requestServerInfo (process
+    // metadata + the worker-advertised set) is lower priority and can
+    // resolve after — the UI it feeds (convert matrix, tags) isn't on
+    // the critical "show me my files" path.
+    request_list_of_files_from_server();
     requestServerInfo();
     // LIST_WEB_CLIENTS is a websocket-era concept (per-connection
     // client tracking). The REST backend rejects the command with a
@@ -32,7 +39,6 @@ export function loadInitialServerState(): void {
     if (!runtime.isRestMode()) {
         requestConnectedClients();
     }
-    request_list_of_files_from_server();
 }
 
 export async function initWebSocket() {
