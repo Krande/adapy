@@ -241,6 +241,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _worker_registry_refresh_loop(),
                 name="worker-registry-refresh",
             )
+        # Completed-job KV cleanup. Keeps the shared bucket lean (the KV is a
+        # transient progress cache; durable history lives in Postgres/S3) so
+        # keys() scans stay cheap and never storm NATS again.
+        app.state.job_cleanup_task = None
+        if queue.enabled:
+            app.state.job_cleanup_task = asyncio.create_task(
+                _job_cleanup_loop(queue),
+                name="job-kv-cleanup",
+            )
         yield
         # Cancel scheduler + issue bot first so a tick in flight
         # doesn't try to use a pool / queue that's about to be torn
@@ -251,6 +260,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "profile_parser_task",
             "worker_prune_task",
             "worker_registry_task",
+            "job_cleanup_task",
         ):
             task = getattr(app.state, attr, None)
             if task is not None and not task.done():
@@ -2902,7 +2912,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         config endpoints never call ``list_workers()`` (an N+1 over NATS
         KV) on the request path. Defensive — a failed tick keeps the last
         good snapshot; only ``asyncio.CancelledError`` exits (shutdown)."""
-        REFRESH_INTERVAL_S = 3.0
+        # 15s (was 3s): the refresh does a KV keys() scan, and worker
+        # capabilities/tags only change on a worker's ~15s heartbeat, so a
+        # tighter interval bought nothing but scan traffic. Cheap now that the
+        # KV is kept lean (see _job_cleanup_loop), but no reason to over-poll.
+        REFRESH_INTERVAL_S = 15.0
         logger.info("worker registry refresh: starting (every %ss)", REFRESH_INTERVAL_S)
         try:
             while True:
@@ -2910,6 +2924,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await _refresh_worker_registry()
         except asyncio.CancelledError:
             logger.info("worker registry refresh: stopped")
+            raise
+
+    async def _job_cleanup_loop(q) -> None:
+        """Background task: periodically drop completed job entries from the KV
+        so the shared bucket stays small. The KV is a transient in-flight
+        progress cache only — the durable record lives in Postgres (audit) and
+        S3 (blobs/profiles). Without this, terminal job entries piled up
+        (observed: 47k), so every worker-registry keys() scan replayed the whole
+        bucket and stormed NATS. Grace keeps a completed job readable long
+        enough for a polling client to see its final state. Defensive per tick;
+        only CancelledError exits."""
+        CLEANUP_INTERVAL_S = 300.0
+        GRACE_S = 900.0  # keep terminal jobs ~15min so the frontend's final poll still resolves
+        logger.info("job KV cleanup: starting (every %ss, grace %ss)", CLEANUP_INTERVAL_S, GRACE_S)
+        try:
+            while True:
+                await asyncio.sleep(CLEANUP_INTERVAL_S)
+                try:
+                    await q.purge_completed_jobs(grace_s=GRACE_S)
+                except Exception:
+                    logger.exception("job KV cleanup: tick failed")
+        except asyncio.CancelledError:
+            logger.info("job KV cleanup: stopped")
             raise
 
     async def _worker_prune_loop(q) -> None:

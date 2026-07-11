@@ -397,6 +397,49 @@ class JobQueue:
     async def _put(self, job: Job) -> None:
         await self._kv.put(job.job_id, job.to_json())
 
+    # Terminal statuses whose KV entry is disposable once the client has had a
+    # chance to read the final state. The durable record lives in Postgres
+    # (audit_log / audit runs) and S3 (derived blobs, profiles) — the KV is only
+    # a transient progress cache for in-flight polling.
+    _TERMINAL_STATUSES = frozenset({JOB_STATUS_DONE, JOB_STATUS_ERROR, "cancelled"})
+
+    async def purge_completed_jobs(self, grace_s: float = 600.0) -> int:
+        """Drop KV entries for jobs that reached a terminal state more than
+        ``grace_s`` ago, so the bucket stays small and ``keys()`` scans stay
+        cheap. Without this, completed job-status entries accumulated forever
+        (observed: 47k entries), turning every registry scan into a full-bucket
+        replay that hammered NATS. ``__meta_*`` keys are never touched."""
+        if self._kv is None:
+            return 0
+        try:
+            keys = await self._kv.keys()
+        except (BucketNotFoundError, Exception):
+            return 0
+        cutoff = time.time() - grace_s
+        purged = 0
+        for key in keys:
+            if key.startswith(self._META_KEY_PREFIX):
+                continue
+            try:
+                entry = await self._kv.get(key)
+            except KeyNotFoundError:
+                continue
+            except Exception:
+                continue
+            try:
+                job = Job.from_json(entry.value)
+            except Exception:
+                continue
+            if job.status in self._TERMINAL_STATUSES and (job.updated_at or 0.0) < cutoff:
+                try:
+                    await self._kv.purge(key)
+                    purged += 1
+                except Exception:
+                    pass
+        if purged:
+            logger.info("queue: purged %d completed job entr(ies) from the KV", purged)
+        return purged
+
     # --- meta-state helpers ------------------------------------------
     #
     # The shared KV bucket also holds small operational metadata under
