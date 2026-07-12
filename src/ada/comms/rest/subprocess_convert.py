@@ -455,6 +455,19 @@ async def run_isolated_convert(
                         _sys.stderr.write("[MESHHEALTH-JSON] " + json.dumps(md) + "\n")
                 except Exception:
                     pass
+                # Triangle tally -> convert_meta["tri_stats"] (regression signal, see tess_stats).
+                # Native mesh conversions record it directly; for GLB (no tri count in the return)
+                # parse the output's JSON chunk. Best-effort — never fail a good conversion.
+                try:
+                    from ada.cadit.step.tess_stats import consume_tri_stats, count_glb_tri_stats
+
+                    ts = consume_tri_stats()
+                    if not ts.get("n_tris") and target_format in ("glb", "gltf"):
+                        ts = count_glb_tri_stats(result_path)
+                    if ts.get("n_tris"):
+                        _sys.stderr.write("[TRISTATS-JSON] " + json.dumps(ts) + "\n")
+                except Exception:
+                    pass
                 _flush_std()
                 os._exit(0)
             except BaseException as exc:  # noqa: BLE001 — propagate verbatim

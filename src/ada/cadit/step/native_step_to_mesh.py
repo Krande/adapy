@@ -87,6 +87,11 @@ def native_step_to_mesh(
     n = adacpp.cad.stream_step_to_mesh(str(step_path), str(out_path), fmt, **mesh_kwargs)
     if n < 0:
         raise RuntimeError(f"adacpp native stream_step_to_mesh failed for {step_path}")
+    # Record the triangle tally for the audit (convert_meta["tri_stats"]) so a tessellation-output
+    # change (density drift, the adaptive thread bug, a dropped solid) is caught run-to-run.
+    from ada.cadit.step.tess_stats import record_tri_stats
+
+    record_tri_stats(n_tris=n, engine="adacpp:libtess2")
     logger.info("adacpp-native STEP->%s: %s triangles -> %s", fmt.upper(), n, out_path)
     print(
         f"[adacpp-native] {n} triangles -> {out_path} (fmt={fmt}, threads={num_threads}, "

@@ -273,6 +273,21 @@ def _attach_cpp_profiles(convert_meta: dict | None, log_bytes: bytes | None) -> 
             convert_meta["mesh_flags"] = mh  # {n_tris, distorted_tris, distorted_frac}
         break
 
+    # Triangle tally — total output triangles (+ primitive/solid counts when known). The primary
+    # run-to-run regression signal: a tessellation-density change or a dropped solid moves n_tris.
+    ts_marker = b"[TRISTATS-JSON] "
+    for line in log_bytes.splitlines():
+        i = line.find(ts_marker)
+        if i < 0:
+            continue
+        try:
+            ts = json.loads(line[i + len(ts_marker) :].decode("utf-8", "replace"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(ts, dict) and ts.get("n_tris"):
+            convert_meta["tri_stats"] = ts  # {n_tris, engine?, n_primitives?, n_solids?, ...}
+        break
+
 
 def _capture_worker_packages() -> list[dict]:
     """Snapshot the worker env's installed packages — the conda-meta manifest
