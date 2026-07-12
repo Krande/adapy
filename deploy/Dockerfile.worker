@@ -8,9 +8,12 @@
 # meaningfully shrink things.
 #
 # Rebuild marker (bump to re-pull the ADACPP_BRANCH overlay fresh):
-#   2026-07-11b — adacpp feat/lazy-shape-store @ 5fe25ba: extend the phase-A
-#   parse_cache_ bound to STEP->obj/stl (was OOM on 469826; now ~1.3GB, like
-#   STEP->GLB). Also carries the worker parent pre-warm + visible startup logs.
+#   2026-07-12 — adacpp feat/lazy-shape-store @ b83a8f9: fix the thread_local
+#   model_scale bug (spawned face-worker threads tessellated at full density ->
+#   tri count scaled with thread count + was nondeterministic; now thread-invariant)
+#   + toggleable face-merge batching. Also carries the adapy tri-count audit logging
+#   (convert_meta.tri_stats) and the worker-parent malloc_trim between jobs (bounds the
+#   fork-inherited RSS behind the 469826 obj/stl watchdog OOM).
 
 ARG PIXI_VERSION=0.68.0
 # CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the worker can publish
