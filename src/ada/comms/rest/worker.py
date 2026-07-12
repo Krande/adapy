@@ -15,6 +15,7 @@ worker reconverts (deterministic output, so this is safe).
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import functools
 import os
 import pathlib
@@ -56,6 +57,36 @@ def _scope_of(job: Job) -> Scope:
     if job.scope_kind == "corpus" and job.scope_id:
         return Scope.corpus(job.scope_id)
     return Scope.shared()
+
+
+_LIBC_MALLOC_TRIM: object = None  # cached glibc malloc_trim, or False when unavailable
+
+
+def _trim_parent_memory() -> None:
+    """Return glibc's freed-but-retained arena memory to the OS in the long-lived worker PARENT
+    after each job. The parent forks per conversion; the freed per-job allocations it makes itself
+    (reading the child's captured log, parsing the marker JSON / cpp profile, building convert_meta,
+    the metrics-sample lists) pile up in glibc's arena free-lists rather than returning to the OS, so
+    parent RSS creeps up across a run (measured on a 23h prod worker: 218 MB fresh -> 540-840 MB idle,
+    higher mid-run). Because every conversion is a fork, the child INHERITS the parent's address space
+    (COW, counted in the child's RSS), so a bloated parent lifts EVERY conversion's baseline — enough
+    to push a big-model fork (469826) over the per-job memory watchdog, and the parent+child sum over
+    the 6 GiB pod limit (the run-90 pod OOM / Exit 137). Trimming after each job keeps the parent flat.
+    glibc-only; a best-effort no-op elsewhere. Disable with ADA_WORKER_NO_MALLOC_TRIM."""
+    global _LIBC_MALLOC_TRIM
+    if _LIBC_MALLOC_TRIM is None:
+        if os.environ.get("ADA_WORKER_NO_MALLOC_TRIM"):
+            _LIBC_MALLOC_TRIM = False
+        else:
+            try:
+                _LIBC_MALLOC_TRIM = ctypes.CDLL("libc.so.6").malloc_trim
+            except (OSError, AttributeError):
+                _LIBC_MALLOC_TRIM = False
+    if _LIBC_MALLOC_TRIM:
+        try:
+            _LIBC_MALLOC_TRIM(0)
+        except Exception:  # noqa: BLE001 — memory hygiene must never fail a job
+            pass
 
 
 # How long the pull-subscriber waits per fetch round before re-issuing.
@@ -2228,6 +2259,9 @@ async def _run() -> None:
                     except Exception:
                         pass
                     await msg.ack()
+                    # Release the freed-but-retained arena memory this job left in the parent, so it
+                    # doesn't accumulate across the run and inflate the next conversion's fork baseline.
+                    _trim_parent_memory()
     finally:
         heartbeat_task.cancel()
         try:
