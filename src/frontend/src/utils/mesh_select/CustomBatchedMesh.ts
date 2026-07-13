@@ -471,12 +471,13 @@ export class CustomBatchedMesh extends THREE.Mesh {
                     (overlayGeom.morphAttributes as any)[mName] = (srcGeom.morphAttributes as any)[mName];
             overlayGeom.morphTargetsRelative = srcGeom.morphTargetsRelative === true;
 
-            const visMat = new THREE.MeshStandardMaterial({
-                color: 0xff7a1a, emissive: 0x552200, side: THREE.DoubleSide,
-            });
+            // Same blue as object selection — in Faces mode only the clicked face is painted (the rest
+            // of the solid keeps its normal colour), so it reads as a face-granular selection.
+            const visMat = selectedMaterial.clone();
+            visMat.side = THREE.DoubleSide;
             (visMat as any).morphTargets = true;
             (visMat as any).polygonOffset = true;
-            (visMat as any).polygonOffsetFactor = -2; // in front of the (-1) selection overlay
+            (visMat as any).polygonOffsetFactor = -2; // sit in front of the base surface
             (visMat as any).polygonOffsetUnits = -2;
             const invMat = new THREE.MeshBasicMaterial({visible: false});
             (invMat as any).morphTargets = true;

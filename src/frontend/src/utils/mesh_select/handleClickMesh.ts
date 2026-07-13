@@ -60,12 +60,17 @@ export async function handleClickMesh(
         [rangeId] = drawRange;
     }
 
+    const facePicking = useOptionsStore.getState().faceLevelPicking;
+
     // Face-level picking (opt-in): resolve the clicked triangle to its source face region (STEP/IFC
-    // #id) using the SAME mesh-name key the draw range resolved with. Needs a real triangle index —
-    // available on the raycast path (setupPointerHandler forces it when face picking is on); the
-    // GPU-pick path has no faceIndex, so face info clears there.
-    if (useOptionsStore.getState().faceLevelPicking && typeof intersect.faceIndex === "number") {
-        const fi = await queryFaceInfo(mesh.unique_key, resolvedMeshName, intersect.faceIndex);
+    // #id) and highlight just that face in the selection colour. Try both mesh-name keys (mesh.name /
+    // node<node_id>) since the GPU-pick path supplies a prefilled rangeId and skips the draw-range
+    // lookup that would otherwise resolve the key. faceIndex comes from the refined single-mesh raycast.
+    if (facePicking && typeof intersect.faceIndex === "number") {
+        let fi = await queryFaceInfo(mesh.unique_key, mesh.name, intersect.faceIndex);
+        if (!fi && mesh.userData?.node_id != null) {
+            fi = await queryFaceInfo(mesh.unique_key, `node${mesh.userData?.node_id}`, intersect.faceIndex);
+        }
         useObjectInfoStore.getState().setClickedFace(fi ? {faceId: fi.faceId, seq: fi.seq} : null);
         if (fi) setFaceHighlight(mesh, fi.start, fi.length);
         else clearFaceHighlight();
@@ -74,7 +79,14 @@ export async function handleClickMesh(
         clearFaceHighlight();
     }
 
-    await perform_selection(mesh, shiftKey, rangeId);
+    // Faces mode highlights ONLY the clicked face (the rest of the solid keeps its normal colour), so
+    // skip the whole-object selection overlay and drop any lingering one. The Properties panel still
+    // populates — it's gated on the object name set below, not on the selection store.
+    if (!facePicking) {
+        await perform_selection(mesh, shiftKey, rangeId);
+    } else {
+        useSelectedObjectStore.getState().clearSelectedObjects();
+    }
 
     // update object info
     const last_selected_name = await queryNameFromRangeId(mesh.unique_key, rangeId);
@@ -94,9 +106,9 @@ export async function handleClickMesh(
     useObjectInfoStore.getState().setJsonData(null);
     void query_ws_server_mesh_info(last_selected_name, faceIndex, activeFile);
 
-    // update tree selection
+    // update tree selection — only in Solid mode; Faces mode doesn't select the whole object
     const treeViewStore = useTreeViewStore.getState();
-    if (treeViewStore.treeData && treeViewStore.tree && !treeViewStore.isTreeCollapsed) {
+    if (!facePicking && treeViewStore.treeData && treeViewStore.tree && !treeViewStore.isTreeCollapsed) {
         // flag programmatic change
         // @ts-ignore
         treeViewStore.tree.isProgrammaticChange = true;

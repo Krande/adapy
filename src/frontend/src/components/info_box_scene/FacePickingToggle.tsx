@@ -2,6 +2,7 @@ import React from "react";
 import {useOptionsStore} from "@/state/optionsStore";
 import {clearFaceHighlight} from "@/utils/mesh_select/faceHighlight";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
+import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 
 // Solid/Faces picking mode. Only rendered when the loaded model carries per-face regions
 // (face_ranges extras). "Faces" routes clicks through the raycast path so the exact source face
@@ -33,7 +34,17 @@ const FacePickingToggle: React.FC = () => {
                 >
                     Solid
                 </button>
-                <button type="button" className={btn(faces)} onClick={() => setFaces(true)} aria-pressed={faces}>
+                <button
+                    type="button"
+                    className={btn(faces)}
+                    onClick={() => {
+                        setFaces(true);
+                        // Drop any whole-object selection so Faces mode starts clean (only the next
+                        // clicked face gets the blue highlight).
+                        useSelectedObjectStore.getState().clearSelectedObjects();
+                    }}
+                    aria-pressed={faces}
+                >
                     Faces
                 </button>
             </div>

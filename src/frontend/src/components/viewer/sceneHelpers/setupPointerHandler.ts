@@ -107,22 +107,21 @@ export function setupPointerHandler(
         //     through to the raycast block on miss so plain (non
         //     CustomBatchedMesh) meshes + empty-space clicks still work
         //     via the legacy path.
-        //
-        //     Skipped when face-level picking is on: the GPU picker resolves
-        //     color→object with no triangle index, but face regions need the
-        //     clicked triangle, which only the raycast path below provides.
-        if (!useOptionsStore.getState().faceLevelPicking) try {
+        try {
             const meshPick = gpuMeshPicker.pickAt(e.clientX, e.clientY);
             if (meshPick) {
                 // GPU picking identifies the object + a representative vertex (the draw range's
                 // first vertex), NOT the exact clicked point — so "Clicked at" would show the same
                 // coordinate for every click on one object (very noticeable on a small model). Refine
-                // it with a raycast against just the picked mesh; falls back to the vertex when the
-                // mesh is too large to raycast cheaply (keeps the huge-FEA fast path).
+                // it with a raycast against just the picked mesh; that also yields the exact triangle
+                // index for face-level picking (the full-scene raycast would hit the edge overlay first
+                // and require zooming way in). Falls back to the vertex when the mesh is too large to
+                // raycast cheaply (keeps the huge-FEA fast path — face picking then unavailable there).
                 const refined = raycastPointOnMesh(e, camera, renderer, meshPick.mesh);
                 const fakeIntersection: THREE.Intersection = {
                     object: meshPick.mesh,
-                    point: refined ?? meshPick.worldPosition.clone(),
+                    point: refined?.point ?? meshPick.worldPosition.clone(),
+                    faceIndex: refined?.faceIndex,
                     distance: 0,
                 } as THREE.Intersection;
                 await handleClickMesh(fakeIntersection, e, meshPick.rangeId);
@@ -210,7 +209,7 @@ function raycastPointOnMesh(
     camera: THREE.PerspectiveCamera,
     renderer: THREE.WebGLRenderer,
     mesh: THREE.Object3D,
-): THREE.Vector3 | null {
+): {point: THREE.Vector3; faceIndex: number | undefined} | null {
     try {
         const geom = (mesh as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
         if (!geom) return null;
@@ -223,8 +222,10 @@ function raycastPointOnMesh(
         ray.layers.set(0);
         ray.layers.disable(1);
         ray.setFromCamera(new THREE.Vector2(nx, ny), camera);
+        // Only the picked mesh — never the edge/wireframe overlays — so the triangle index is reliable
+        // regardless of zoom (the full-scene raycast would hit an edge line first when zoomed out).
         const hit = ray.intersectObject(mesh, false)[0];
-        return hit?.point ? hit.point.clone() : null;
+        return hit?.point ? {point: hit.point.clone(), faceIndex: hit.faceIndex ?? undefined} : null;
     } catch {
         return null;
     }
