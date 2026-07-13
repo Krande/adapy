@@ -319,6 +319,22 @@ def _attach_cpp_profiles(convert_meta: dict | None, log_bytes: bytes | None) -> 
             convert_meta["tri_stats"] = ts  # {n_tris, engine?, n_primitives?, n_solids?, ...}
         break
 
+    # Geometry health — faces with a real trim boundary that tessellated to zero triangles (silently
+    # dropped geometry, e.g. the SURFACE_OF_LINEAR_EXTRUSION drops). Flagged in the audit grid so this
+    # class of bug is caught without visual inspection.
+    gh_marker = b"[GEOMHEALTH-JSON] "
+    for line in log_bytes.splitlines():
+        i = line.find(gh_marker)
+        if i < 0:
+            continue
+        try:
+            gh = json.loads(line[i + len(gh_marker) :].decode("utf-8", "replace"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(gh, dict) and gh.get("dropped_faces"):
+            convert_meta["geom_health"] = gh  # {dropped_faces, total_faces}
+        break
+
 
 def _capture_worker_packages() -> list[dict]:
     """Snapshot the worker env's installed packages — the conda-meta manifest
