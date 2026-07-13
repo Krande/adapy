@@ -199,13 +199,22 @@ type CellFlag = {key: string; label: string; title: string; cls: string};
 function sourceFlags(cells: Map<string, AuditRunJob>, targets: string[], file: string): CellFlag[] {
     let occ = 0;
     let distorted = 0;
+    let dropped = 0;
     for (const t of targets) {
         const cm = cells.get(`${file}::${t}`)?.convert_meta;
         if (!cm) continue;
         occ += cm.occ_fallback?.count ?? 0;
         distorted += cm.mesh_flags?.distorted_tris ?? 0;
+        dropped = Math.max(dropped, cm.geom_health?.dropped_faces ?? 0);
     }
     const flags: CellFlag[] = [];
+    if (dropped > 0)
+        flags.push({
+            key: "dropped",
+            label: "dropped faces",
+            title: `${dropped} face(s) with a trim boundary tessellated to zero triangles — silently dropped geometry (e.g. a swept/extruded surface the kernel couldn't mesh)`,
+            cls: "bg-red-900/50 border-red-700 text-red-200",
+        });
     if (occ > 0)
         flags.push({
             key: "occ",

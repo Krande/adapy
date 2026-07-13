@@ -807,6 +807,8 @@ export interface AuditRunJob {
     convert_meta?: {
         occ_fallback?: {count: number; reasons?: Record<string, number>; geoms?: Record<string, number>};
         mesh_flags?: {distorted_tris?: number; distorted_frac?: number; n_tris?: number};
+        // Faces with a trim boundary that tessellated to zero triangles (silently dropped geometry).
+        geom_health?: {dropped_faces?: number; total_faces?: number};
         [k: string]: unknown;
     } | null;
 }
