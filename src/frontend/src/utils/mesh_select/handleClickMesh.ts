@@ -3,7 +3,8 @@ import * as THREE from "three";
 import {CustomBatchedMesh} from "./CustomBatchedMesh";
 import {useModelState} from "@/state/modelState";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
-import {queryMeshDrawRange, queryNameFromRangeId} from "./queryMeshDrawRange";
+import {queryMeshDrawRange, queryNameFromRangeId, queryFaceInfo} from "./queryMeshDrawRange";
+import {useOptionsStore} from "@/state/optionsStore";
 import {perform_selection} from "./perform_selection";
 import {query_ws_server_mesh_info} from "./handlers/send_mesh_selected_info_callback";
 import {useTreeViewStore} from "@/state/treeViewStore";
@@ -27,6 +28,16 @@ export async function handleClickMesh(
     const clickPosition = intersect.point.clone();
     if (translation) clickPosition.sub(translation);
     useObjectInfoStore.getState().setClickCoordinate(clickPosition);
+
+    // Face-level picking (opt-in): resolve the clicked triangle to its source face region (STEP/IFC
+    // #id). Needs a real triangle index — available on the raycast path (setupPointerHandler forces it
+    // when face picking is on); the GPU-pick path has no faceIndex, so face info clears there.
+    if (useOptionsStore.getState().faceLevelPicking && typeof intersect.faceIndex === "number") {
+        const fi = await queryFaceInfo(mesh.unique_key, mesh.name, intersect.faceIndex);
+        useObjectInfoStore.getState().setClickedFace(fi ? {faceId: fi.faceId, seq: fi.seq} : null);
+    } else {
+        useObjectInfoStore.getState().setClickedFace(null);
+    }
 
     if (!mesh.is_design && mesh.ada_ext_data != null) {
         simulationDataRef.current = (mesh.ada_ext_data as SimulationDataExtensionMetadata);

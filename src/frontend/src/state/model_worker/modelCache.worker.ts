@@ -7,10 +7,13 @@ export interface ModelData {
     key: string;
     hierarchy: Record<string, [string, string | number]>;
     drawRanges: Record<string, Record<number, [number, number]>>;
+    faceRanges?: FaceRangesMap;
 }
 
 // In-worker, we’ll keep an in-memory map from key → its drawRanges
 type DrawRangesMap = Record<string, Record<number, [number, number]>>;
+// meshName → rangeId → list of [relStart, len, faceId, seq] (start/len relative to the draw range)
+type FaceRangesMap = Record<string, Record<number, [number, number, number, number][]>>;
 type HierarchyMap = Record<string, [string, string | number]>;
 
 class ModelWorkerAPI {
@@ -18,6 +21,7 @@ class ModelWorkerAPI {
     private models!: Table<ModelData, string>;
     private memoryCacheDrawRange = new Map<string, DrawRangesMap>();
     private memoryCacheHierarchy = new Map<string, HierarchyMap>();
+    private memoryCacheFaceRange = new Map<string, FaceRangesMap>();
 
     constructor() {
         this.db = new Dexie("ModelCacheDB");
@@ -25,11 +29,52 @@ class ModelWorkerAPI {
         this.models = this.db.table("models") as Table<ModelData, string>;
     }
 
-    async add(key: string, hierarchy: Record<string, [string, string | number]>, drawRanges: Record<string, Record<number, [number, number]>>): Promise<void> {
-        await this.models.put({key, hierarchy, drawRanges});
+    async add(key: string, hierarchy: Record<string, [string, string | number]>, drawRanges: Record<string, Record<number, [number, number]>>, faceRanges?: FaceRangesMap): Promise<void> {
+        await this.models.put({key, hierarchy, drawRanges, faceRanges});
         // keep in memory for super-fast lookups
         this.memoryCacheDrawRange.set(key, drawRanges);
         this.memoryCacheHierarchy.set(key, hierarchy);
+        if (faceRanges) this.memoryCacheFaceRange.set(key, faceRanges);
+    }
+
+    /** True iff this model carries per-face clickable regions (opt-in face_ranges_node extras). */
+    async hasFaceRanges(key: string): Promise<boolean> {
+        const fr = this.memoryCacheFaceRange.get(key);
+        return !!fr && Object.keys(fr).length > 0;
+    }
+
+    /**
+     * Resolve a clicked triangle to its source face region. Finds the object's draw range
+     * (faceStart ∈ [start,start+len)) then the face sub-range within it (offsets are relative to
+     * the draw-range start). Returns {rangeId, faceId, seq} or null.
+     */
+    async getFaceInfo(
+        key: string,
+        meshName: string,
+        faceIndex: number
+    ): Promise<{rangeId: string; faceId: number; seq: number} | null> {
+        const faceRanges = this.memoryCacheFaceRange.get(key);
+        const drawRanges = this.memoryCacheDrawRange.get(key);
+        if (!faceRanges || !drawRanges) return null;
+        const facesForMesh = faceRanges[meshName];
+        const rangesForMesh = drawRanges[meshName];
+        if (!facesForMesh || !rangesForMesh) return null;
+
+        const faceStart = faceIndex * 3;
+        for (const [rangeId, [start, length]] of Object.entries(rangesForMesh)) {
+            if (faceStart >= start && faceStart < start + length) {
+                const subs = facesForMesh[rangeId as unknown as number];
+                if (!subs) return null;
+                const rel = faceStart - start; // face offsets are relative to the draw range
+                for (const [fStart, fLen, faceId, seq] of subs) {
+                    if (rel >= fStart && rel < fStart + fLen) {
+                        return {rangeId, faceId, seq};
+                    }
+                }
+                return null;
+            }
+        }
+        return null;
     }
 
     async get(key: string): Promise<ModelData | undefined> {

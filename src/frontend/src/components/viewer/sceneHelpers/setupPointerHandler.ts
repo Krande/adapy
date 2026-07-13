@@ -107,7 +107,11 @@ export function setupPointerHandler(
         //     through to the raycast block on miss so plain (non
         //     CustomBatchedMesh) meshes + empty-space clicks still work
         //     via the legacy path.
-        try {
+        //
+        //     Skipped when face-level picking is on: the GPU picker resolves
+        //     color→object with no triangle index, but face regions need the
+        //     clicked triangle, which only the raycast path below provides.
+        if (!useOptionsStore.getState().faceLevelPicking) try {
             const meshPick = gpuMeshPicker.pickAt(e.clientX, e.clientY);
             if (meshPick) {
                 // GPU picking identifies the object + a representative vertex (the draw range's

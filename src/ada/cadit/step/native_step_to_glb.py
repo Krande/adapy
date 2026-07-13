@@ -102,6 +102,13 @@ def native_step_to_glb(
         glb_kwargs["model_scale"] = model_scale
     elif model_scale > 0.0:
         logger.warning("adacpp build predates adaptive tessellation (no model_scale); using fixed angular_deg")
+    # Opt-in per-face clickable regions (scenes[0].extras face_ranges_node<m>): ADA_STREAM_TESS_FACE_REGIONS=1.
+    # Off by default — it bloats the GLB and forces serial face tessellation. Only forward to an adacpp
+    # build whose binding accepts it (older extensions would raise on the unknown kwarg).
+    fr_env = os.environ.get("ADA_STREAM_TESS_FACE_REGIONS")
+    face_regions = fr_env is not None and fr_env.strip().lower() not in {"0", "false", "no", "off", ""}
+    if face_regions and "face_regions" in (adacpp.cad.stream_step_to_glb.__doc__ or ""):
+        glb_kwargs["face_regions"] = True
     n = adacpp.cad.stream_step_to_glb(str(step_path), str(glb_path), **glb_kwargs)
     if n < 0:
         raise RuntimeError(f"adacpp native stream_step_to_glb failed for {step_path}")

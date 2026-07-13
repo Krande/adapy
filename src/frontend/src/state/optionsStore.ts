@@ -29,6 +29,13 @@ export type OptionsState = {
     // small model (a few mm across) needs more decimals before the displayed position
     // changes at all between nearby clicks; a building-scale model wants fewer.
     clickedCoordDecimals: number;
+    // Face-level picking (opt-in). When on, clicks resolve the exact source face region (STEP/IFC
+    // #id) via the raycast path instead of the fast GPU object-pick. Only meaningful for GLBs that
+    // carry face_ranges (the scene-info toggle is hidden otherwise).
+    faceLevelPicking: boolean;
+    // Runtime capability (not a user preference): the most recently loaded model carries per-face
+    // regions. Gates the solid/faces toggle so it only appears when face picking can actually work.
+    faceRegionsAvailable: boolean;
 
     setIsOptionsVisible: (value: boolean) => void;
     setShowPerf: (value: boolean) => void;
@@ -44,6 +51,8 @@ export type OptionsState = {
     setAutoFit: (value: boolean) => void;
     setAutoConvertOnUpload: (value: boolean) => void;
     setClickedCoordDecimals: (value: number) => void;
+    setFaceLevelPicking: (value: boolean) => void;
+    setFaceRegionsAvailable: (value: boolean) => void;
 };
 
 export const useOptionsStore = create<OptionsState>((set) => ({
@@ -61,6 +70,8 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     autoFit: true,
     autoConvertOnUpload: false,
     clickedCoordDecimals: 3,
+    faceLevelPicking: false,
+    faceRegionsAvailable: false,
 
     setIsOptionsVisible: (v) => set({isOptionsVisible: v}),
     setShowPerf: (v) => set({showPerf: v}),
@@ -76,4 +87,6 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     setAutoFit: (v) => set({autoFit: v}),
     setAutoConvertOnUpload: (v) => set({autoConvertOnUpload: v}),
     setClickedCoordDecimals: (v) => set({clickedCoordDecimals: v}),
+    setFaceLevelPicking: (v) => set({faceLevelPicking: v}),
+    setFaceRegionsAvailable: (v) => set({faceRegionsAvailable: v}),
 }));

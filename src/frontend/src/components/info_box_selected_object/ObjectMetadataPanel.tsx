@@ -250,6 +250,36 @@ const ClickedAtRow: React.FC = () => {
     );
 };
 
+// Source face of the last click — shown only when face-level picking is on and a region resolved.
+// The #id is the STEP ADVANCED_FACE / IFC IfcFace entity id, so a mis-tessellated face can be named
+// exactly (not just "somewhere on this solid"); copyable for pasting into a bug report.
+const ClickedFaceRow: React.FC = () => {
+    const {useObjectInfoStore} = useViewerStores();
+    const face = useObjectInfoStore((s) => s.clickedFace);
+    const [copied, setCopied] = useState(false);
+    if (!face) return null;
+    const label = `#${face.faceId} (face ${face.seq})`;
+    const onCopy = () => {
+        void writeToClipboard(`#${face.faceId}`).then((ok) => {
+            if (!ok) return;
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
+        });
+    };
+    return (
+        <Row label="Face:">
+            <button
+                type="button"
+                onClick={onCopy}
+                className="text-left text-gray-100 hover:text-white cursor-pointer"
+                title="Copy the source face id"
+            >
+                {copied ? `${label} ✓` : label}
+            </button>
+        </Row>
+    );
+};
+
 const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
     const {useObjectInfoStore, useLineageStore} = useViewerStores();
     const showMeshStats = useOptionsStore((s) => s.showMeshStats);
@@ -330,6 +360,7 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
                         </>
                     )}
                     <ClickedAtRow />
+                    <ClickedFaceRow />
                     {link && <LinkRow link={link} />}
                 </div>
             )}

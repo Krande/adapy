@@ -1,6 +1,7 @@
 // state/cacheModelUtils.ts
 import {modelStore} from "./modelStore";
 import {useTreeViewStore} from "../treeViewStore";
+import {useOptionsStore} from "@/state/optionsStore";
 import {TreeNodeData} from "@/components/tree_view/CustomNode";
 
 /**
@@ -51,9 +52,26 @@ export async function cacheAndBuildTree(
         >;
     }
 
+    // Opt-in per-face clickable regions: face_ranges_node<idx> = {rangeId: [[start,len,faceId,seq],...]}
+    // where start/len are relative to that solid's draw range. Present only for GLBs converted with
+    // face-region capture; absent otherwise (the faces toggle stays hidden).
+    const faceRanges: Record<string, Record<number, [number, number, number, number][]>> = {};
+    for (const k of Object.keys(rawUserData).filter((k) =>
+        k.startsWith("face_ranges_node")
+    )) {
+        const idx = k.slice("face_ranges_node".length);
+        faceRanges[`node${idx}`] = rawUserData[k] as Record<
+            number,
+            [number, number, number, number][]
+        >;
+    }
+
+    // Advertise face-region availability so the scene-info solid/faces toggle appears (or hides).
+    useOptionsStore.getState().setFaceRegionsAvailable(Object.keys(faceRanges).length > 0);
+
     // 2) cache → IndexedDB
     try {
-        await modelStore.add(key, hierarchy, drawRanges);
+        await modelStore.add(key, hierarchy, drawRanges, faceRanges);
     } catch (err: unknown) {
         console.error("Failed to cache model metadata", err);
         // you could even early-return here if caching is critical

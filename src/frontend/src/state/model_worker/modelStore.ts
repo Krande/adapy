@@ -15,7 +15,8 @@ export interface ModelStoreAPI {
     add(
         key: string,
         hierarchy: Record<string, [string, string | number]>,
-        drawRanges: Record<string, Record<number, [number, number]>>
+        drawRanges: Record<string, Record<number, [number, number]>>,
+        faceRanges?: Record<string, Record<number, [number, number, number, number][]>>
     ): Promise<void>;
 
     get(key: string): Promise<ModelData | undefined>;
@@ -60,6 +61,15 @@ export interface ModelStoreAPI {
         key: string,
         memberNames: string[]
     ): Promise<Array<[string, string]>>; // Returns [meshName, rangeId] pairs
+
+    // Opt-in per-face clickable regions
+    hasFaceRanges(key: string): Promise<boolean>;
+
+    getFaceInfo(
+        key: string,
+        meshName: string,
+        faceIndex: number
+    ): Promise<{rangeId: string; faceId: number; seq: number} | null>;
 }
 
 const worker = new Worker();
