@@ -5293,7 +5293,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     entry["profile_key"],
                     exc,
                 )
-                blob_errors.append(f"{entry['profile_key']}: {exc}")
+                # Report only the failed key to the client; the exception detail is logged
+                # above (avoid leaking backend/stack-trace text in the response).
+                blob_errors.append(entry["profile_key"])
         return JSONResponse(
             {
                 "rows_cleared": result["rows_cleared"],
@@ -5724,9 +5726,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # default raises ``copy-if-not-exists not supported``); the
                 # application-layer dst_keys pre-check is the real collision guard.
                 await storage.copy(src_scope, key, scope_obj, key, overwrite=True)
-            except Exception as exc:
+            except Exception:
+                # Full detail is logged; return a generic reason so backend/stack-trace
+                # text isn't exposed in the response (CodeQL py/stack-trace-exposure).
                 logger.exception("admin: copy failed for %s (%s -> %s)", key, src_raw, scope_obj.prefix())
-                failed.append({"key": key, "reason": str(exc)})
+                failed.append({"key": key, "reason": "copy failed"})
                 continue
             dst_keys.add(key)
             copied.append({"key": key})

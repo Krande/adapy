@@ -143,7 +143,9 @@ async def delete_blob_cascade(storage: Storage, scope_obj: Scope, key: str) -> d
                         k,
                         exc,
                     )
-                    tree_errors.append(f"{k}: {exc}")
+                    # Report only the failed key to the client; the exception detail is
+                    # logged above (avoid leaking backend/stack-trace text in the response).
+                    tree_errors.append(k)
             return {"deleted": deleted_tree, "errors": tree_errors}
 
         # Plain single-blob derived (legacy GLB, meta cache,
@@ -152,7 +154,7 @@ async def delete_blob_cascade(storage: Storage, scope_obj: Scope, key: str) -> d
             await storage.delete(scope_obj, clean)
         except Exception as exc:
             logger.exception("storage-op: delete failed for %s", clean)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise HTTPException(status_code=500, detail="delete failed") from exc
         return {"deleted": [clean], "errors": []}
 
     # Source delete: also reap every derived blob keyed off this
@@ -190,8 +192,11 @@ async def delete_blob_cascade(storage: Storage, scope_obj: Scope, key: str) -> d
                 continue
             if k == clean:
                 logger.exception("storage-op: delete failed for source %s", clean)
-                raise HTTPException(status_code=500, detail=str(exc)) from exc
-            errors.append(f"{k}: {exc}")
+                raise HTTPException(status_code=500, detail="delete failed") from exc
+            # Report only the failed key to the client; log the exception detail server-side
+            # (avoid leaking backend/stack-trace text in the response).
+            logger.warning("storage-op: failed to delete derived %s: %s", k, exc)
+            errors.append(k)
 
     return {"deleted": deleted, "errors": errors}
 
@@ -230,8 +235,10 @@ async def rename_key_cascade(
     try:
         await storage.rename(scope_obj, old_key, new_key, overwrite=True)
     except Exception as exc:
+        # Full detail logged; return a generic reason so backend/stack-trace text isn't
+        # exposed in the response (CodeQL py/stack-trace-exposure).
         logger.exception("storage-op: rename failed for %s -> %s", old_key, new_key)
-        return {"key": old_key, "reason": str(exc)}
+        return {"key": old_key, "reason": "rename failed"}
 
     live_keys.discard(old_key)
     live_keys.add(new_key)
@@ -274,7 +281,8 @@ async def rename_key_cascade(
                 sk_new,
                 exc,
             )
-            sibling_errors.append(f"{sk_old}: {exc}")
+            # Report only the failed key to the client; exception detail is logged above.
+            sibling_errors.append(sk_old)
 
     return {
         "old": old_key,
