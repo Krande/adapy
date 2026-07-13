@@ -25,6 +25,10 @@ export type OptionsState = {
     // upload shouldn't silently spend worker time / spawn a conversion the user
     // didn't ask for; they trigger conversion explicitly from the file row.
     autoConvertOnUpload: boolean;
+    // Decimal places shown for the "Clicked at" coordinate row. Adjustable because a
+    // small model (a few mm across) needs more decimals before the displayed position
+    // changes at all between nearby clicks; a building-scale model wants fewer.
+    clickedCoordDecimals: number;
 
     setIsOptionsVisible: (value: boolean) => void;
     setShowPerf: (value: boolean) => void;
@@ -39,6 +43,7 @@ export type OptionsState = {
     setUseGpuPointPicking: (value: boolean) => void;
     setAutoFit: (value: boolean) => void;
     setAutoConvertOnUpload: (value: boolean) => void;
+    setClickedCoordDecimals: (value: number) => void;
 };
 
 export const useOptionsStore = create<OptionsState>((set) => ({
@@ -55,6 +60,7 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     useGpuPointPicking: true,
     autoFit: true,
     autoConvertOnUpload: false,
+    clickedCoordDecimals: 3,
 
     setIsOptionsVisible: (v) => set({isOptionsVisible: v}),
     setShowPerf: (v) => set({showPerf: v}),
@@ -69,4 +75,5 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     setUseGpuPointPicking: (v) => set({useGpuPointPicking: v}),
     setAutoFit: (v) => set({autoFit: v}),
     setAutoConvertOnUpload: (v) => set({autoConvertOnUpload: v}),
+    setClickedCoordDecimals: (v) => set({clickedCoordDecimals: v}),
 }));
