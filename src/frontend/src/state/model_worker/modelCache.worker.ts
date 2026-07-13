@@ -178,7 +178,11 @@ class ModelWorkerAPI {
             if (parent === "*" || parent === null) {
                 root = nodes[string_id];
             } else {
-                let parent_id = id_rangeIdMap.get(parent);
+                // id_hierarchy keys are JSON strings, but the parent field is emitted as a NUMBER by
+                // the native C++ writer (build_scene_extras: `hier << parent`), so a raw Map.get(0)
+                // misses the "0" key and the whole tree flattens ("No parent found for X (0)").
+                // Coerce to string so numeric and string parents both resolve.
+                let parent_id = id_rangeIdMap.get(String(parent));
                 if (!parent_id) {
                     console.warn(
                         `ModelWorkerAPI: No parent found for ${string_id} (${parent})`
