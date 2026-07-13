@@ -87,6 +87,12 @@ export async function convertViaServer(
         if (payload.status === "error") {
             throw new Error(payload.error || "conversion failed");
         }
+        // A user-killed job (or a watchdog-reaped one that surfaced as cancelled) is terminal — stop
+        // polling and reject, so callers awaiting the conversion (e.g. the gallery reconvert's
+        // "Re-converting…" state) reset instead of hanging until the ~30 min poll ceiling.
+        if (payload.status === "cancelled") {
+            throw new Error(payload.error || "conversion cancelled");
+        }
     }
     throw new Error("conversion did not complete within the poll window");
 }
