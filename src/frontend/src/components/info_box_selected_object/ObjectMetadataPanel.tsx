@@ -241,7 +241,7 @@ const ClickedAtRow: React.FC = () => {
             <button
                 type="button"
                 onClick={onCopy}
-                className="text-left hover:text-white underline decoration-dotted underline-offset-2 cursor-pointer"
+                className="text-left text-gray-100 hover:text-white cursor-pointer"
                 title="Copy coordinates as comma-separated floats"
             >
                 {copied ? `${display} ✓` : display}

@@ -110,9 +110,15 @@ export function setupPointerHandler(
         try {
             const meshPick = gpuMeshPicker.pickAt(e.clientX, e.clientY);
             if (meshPick) {
+                // GPU picking identifies the object + a representative vertex (the draw range's
+                // first vertex), NOT the exact clicked point — so "Clicked at" would show the same
+                // coordinate for every click on one object (very noticeable on a small model). Refine
+                // it with a raycast against just the picked mesh; falls back to the vertex when the
+                // mesh is too large to raycast cheaply (keeps the huge-FEA fast path).
+                const refined = raycastPointOnMesh(e, camera, renderer, meshPick.mesh);
                 const fakeIntersection: THREE.Intersection = {
                     object: meshPick.mesh,
-                    point: meshPick.worldPosition.clone(),
+                    point: refined ?? meshPick.worldPosition.clone(),
                     distance: 0,
                 } as THREE.Intersection;
                 await handleClickMesh(fakeIntersection, e, meshPick.rangeId);
@@ -189,6 +195,37 @@ export function setupPointerHandler(
  *  landed essentially at the camera position and rotation degenerated
  *  into spinning in place — easiest to trigger on mobile, where you
  *  pinch in close before double-tapping. */
+// Raycast the clicked pixel against a SINGLE mesh to recover the exact world-space hit point.
+// Used to refine the GPU picker's representative-vertex position into the real clicked point.
+// Bounded by triangle count so a whole-model batched mesh (millions of tris) doesn't stall the
+// click — above the cap the caller keeps the fast approximate vertex.
+const MAX_REFINE_TRIS = 600_000;
+
+function raycastPointOnMesh(
+    e: MouseEvent,
+    camera: THREE.PerspectiveCamera,
+    renderer: THREE.WebGLRenderer,
+    mesh: THREE.Object3D,
+): THREE.Vector3 | null {
+    try {
+        const geom = (mesh as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+        if (!geom) return null;
+        const triCount = (geom.index ? geom.index.count : geom.attributes.position?.count ?? 0) / 3;
+        if (triCount > MAX_REFINE_TRIS) return null;
+        const rect = renderer.domElement.getBoundingClientRect();
+        const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        const ray = new THREE.Raycaster();
+        ray.layers.set(0);
+        ray.layers.disable(1);
+        ray.setFromCamera(new THREE.Vector2(nx, ny), camera);
+        const hit = ray.intersectObject(mesh, false)[0];
+        return hit?.point ? hit.point.clone() : null;
+    } catch {
+        return null;
+    }
+}
+
 function pickWorldPoint(
     e: MouseEvent,
     camera: THREE.PerspectiveCamera,
