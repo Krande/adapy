@@ -52,7 +52,7 @@ class ModelWorkerAPI {
         key: string,
         meshName: string,
         faceIndex: number
-    ): Promise<{rangeId: string; faceId: number; seq: number} | null> {
+    ): Promise<{rangeId: string; faceId: number; seq: number; start: number; length: number} | null> {
         const faceRanges = this.memoryCacheFaceRange.get(key);
         const drawRanges = this.memoryCacheDrawRange.get(key);
         if (!faceRanges || !drawRanges) return null;
@@ -68,7 +68,9 @@ class ModelWorkerAPI {
                 const rel = faceStart - start; // face offsets are relative to the draw range
                 for (const [fStart, fLen, faceId, seq] of subs) {
                     if (rel >= fStart && rel < fStart + fLen) {
-                        return {rangeId, faceId, seq};
+                        // start/length are ABSOLUTE index positions (draw-range start + face offset),
+                        // ready for CustomBatchedMesh.highlightFaceRange.
+                        return {rangeId, faceId, seq, start: start + fStart, length: fLen};
                     }
                 }
                 return null;

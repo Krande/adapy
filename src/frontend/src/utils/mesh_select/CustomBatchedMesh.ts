@@ -49,6 +49,10 @@ export class CustomBatchedMesh extends THREE.Mesh {
     private _usesVertexColorsFlag: boolean = false;
     private _baseColors?: Float32Array; // snapshot of current animated/base colors
     private _selectionOverlay?: THREE.Mesh;
+    // Independent overlay for per-face highlighting (opt-in face picking) — a single index sub-range
+    // drawn in a distinct colour on top of object selection. Separate from _selectionOverlay so the
+    // two never fight over materials/groups.
+    private _faceOverlay?: THREE.Mesh;
     private _overlaySourceIndices?: Uint32Array; // mapping: overlay vertex i -> base vertex index
 
     // Class properties for raycasting
@@ -403,6 +407,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
      * never falls. Idempotent; only disposes per-instance clones, never shared singletons. */
     dispose(): void {
         this._disposeSelectionOverlay();
+        this.clearFaceHighlight();
         if (this.edgeMesh) {
             (this.edgeMesh.geometry as THREE.BufferGeometry | undefined)?.dispose();
             this.edgeMesh = undefined;
@@ -434,6 +439,71 @@ export class CustomBatchedMesh extends THREE.Mesh {
             }
             this._selectionOverlay = undefined;
         }
+    }
+
+    /** Highlight a single index sub-range (one source face) in a distinct colour, on top of object
+     *  selection. start/length are absolute positions into this mesh's index buffer. Independent of
+     *  the object-selection overlay. Pass length<=0 (or call clearFaceHighlight) to remove it. */
+    public highlightFaceRange(start: number, length: number): void {
+        const srcGeom = this.geometry as THREE.BufferGeometry;
+        const idxAttr = srcGeom.getIndex();
+        const idxCount = idxAttr ? idxAttr.count : (srcGeom.attributes.position?.count ?? 0);
+        if (!(length > 0) || idxCount === 0 || start < 0 || start >= idxCount) {
+            this.clearFaceHighlight();
+            return;
+        }
+        const s = start;
+        const c = Math.min(length, idxCount - start);
+
+        let overlayGeom: THREE.BufferGeometry;
+        if (this._faceOverlay) {
+            overlayGeom = this._faceOverlay.geometry as THREE.BufferGeometry;
+        } else {
+            // Reference (do NOT clone) the base attributes/index + morphs so the GPU morphs it for free
+            // and no extra vertex memory is used — same approach as the selection overlay.
+            overlayGeom = new THREE.BufferGeometry();
+            if (srcGeom.index) overlayGeom.setIndex(srcGeom.index);
+            for (const name of Object.keys(srcGeom.attributes))
+                overlayGeom.setAttribute(name, srcGeom.getAttribute(name));
+            overlayGeom.morphAttributes = {} as any;
+            if (srcGeom.morphAttributes)
+                for (const mName of Object.keys(srcGeom.morphAttributes))
+                    (overlayGeom.morphAttributes as any)[mName] = (srcGeom.morphAttributes as any)[mName];
+            overlayGeom.morphTargetsRelative = srcGeom.morphTargetsRelative === true;
+
+            const visMat = new THREE.MeshStandardMaterial({
+                color: 0xff7a1a, emissive: 0x552200, side: THREE.DoubleSide,
+            });
+            (visMat as any).morphTargets = true;
+            (visMat as any).polygonOffset = true;
+            (visMat as any).polygonOffsetFactor = -2; // in front of the (-1) selection overlay
+            (visMat as any).polygonOffsetUnits = -2;
+            const invMat = new THREE.MeshBasicMaterial({visible: false});
+            (invMat as any).morphTargets = true;
+
+            this._faceOverlay = new THREE.Mesh(overlayGeom, [visMat, invMat]);
+            this._faceOverlay.matrixAutoUpdate = true;
+            this._faceOverlay.layers.mask = this.layers.mask;
+            this.add(this._faceOverlay);
+        }
+        (this._faceOverlay as any).morphTargetInfluences = (this as any).morphTargetInfluences;
+        (this._faceOverlay as any).morphTargetDictionary = (this as any).morphTargetDictionary;
+
+        // groups: [0,s) invisible, [s,s+c) the visible face, [s+c,end) invisible
+        overlayGeom.clearGroups();
+        if (s > 0) overlayGeom.addGroup(0, s, 1);
+        overlayGeom.addGroup(s, c, 0);
+        if (s + c < idxCount) overlayGeom.addGroup(s + c, idxCount - (s + c), 1);
+    }
+
+    /** Remove the per-face highlight overlay. Disposes only the cloned materials (the geometry shares
+     *  base attributes — disposing it would free the base mesh's GPU buffers). */
+    public clearFaceHighlight(): void {
+        if (!this._faceOverlay) return;
+        this.remove(this._faceOverlay);
+        const m = this._faceOverlay.material as THREE.Material | THREE.Material[];
+        (Array.isArray(m) ? m : [m]).forEach((x) => x && x.dispose());
+        this._faceOverlay = undefined;
     }
 
     private _rebuildSelectionOverlay(rangeIds: string[]): void {

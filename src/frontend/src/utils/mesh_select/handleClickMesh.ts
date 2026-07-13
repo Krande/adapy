@@ -5,6 +5,7 @@ import {useModelState} from "@/state/modelState";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {queryMeshDrawRange, queryNameFromRangeId, queryFaceInfo} from "./queryMeshDrawRange";
 import {useOptionsStore} from "@/state/optionsStore";
+import {setFaceHighlight, clearFaceHighlight} from "./faceHighlight";
 import {perform_selection} from "./perform_selection";
 import {query_ws_server_mesh_info} from "./handlers/send_mesh_selected_info_callback";
 import {useTreeViewStore} from "@/state/treeViewStore";
@@ -66,8 +67,11 @@ export async function handleClickMesh(
     if (useOptionsStore.getState().faceLevelPicking && typeof intersect.faceIndex === "number") {
         const fi = await queryFaceInfo(mesh.unique_key, resolvedMeshName, intersect.faceIndex);
         useObjectInfoStore.getState().setClickedFace(fi ? {faceId: fi.faceId, seq: fi.seq} : null);
+        if (fi) setFaceHighlight(mesh, fi.start, fi.length);
+        else clearFaceHighlight();
     } else {
         useObjectInfoStore.getState().setClickedFace(null);
+        clearFaceHighlight();
     }
 
     await perform_selection(mesh, shiftKey, rangeId);

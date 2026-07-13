@@ -2,6 +2,8 @@
 import {modelStore} from "./modelStore";
 import {useTreeViewStore} from "../treeViewStore";
 import {useOptionsStore} from "@/state/optionsStore";
+import {clearFaceHighlight} from "@/utils/mesh_select/faceHighlight";
+import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {TreeNodeData} from "@/components/tree_view/CustomNode";
 
 /**
@@ -72,7 +74,11 @@ export async function cacheAndBuildTree(
     opts.setFaceRegionsAvailable(hasFaceRegions);
     // Loading a model that can't do face picking snaps the mode back to Solid, so the toggle (now
     // hidden) can't leave clicks stuck on the raycast path with no face id ever resolving.
-    if (!hasFaceRegions && opts.faceLevelPicking) opts.setFaceLevelPicking(false);
+    if (!hasFaceRegions && opts.faceLevelPicking) {
+        opts.setFaceLevelPicking(false);
+        clearFaceHighlight();
+        useObjectInfoStore.getState().setClickedFace(null);
+    }
 
     // 2) cache → IndexedDB
     try {

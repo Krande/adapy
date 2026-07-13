@@ -69,7 +69,7 @@ export interface ModelStoreAPI {
         key: string,
         meshName: string,
         faceIndex: number
-    ): Promise<{rangeId: string; faceId: number; seq: number} | null>;
+    ): Promise<{rangeId: string; faceId: number; seq: number; start: number; length: number} | null>;
 }
 
 const worker = new Worker();

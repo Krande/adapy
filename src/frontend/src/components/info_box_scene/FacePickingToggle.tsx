@@ -1,5 +1,7 @@
 import React from "react";
 import {useOptionsStore} from "@/state/optionsStore";
+import {clearFaceHighlight} from "@/utils/mesh_select/faceHighlight";
+import {useObjectInfoStore} from "@/state/objectInfoStore";
 
 // Solid/Faces picking mode. Only rendered when the loaded model carries per-face regions
 // (face_ranges extras). "Faces" routes clicks through the raycast path so the exact source face
@@ -19,7 +21,16 @@ const FacePickingToggle: React.FC = () => {
         <div className="flex items-center gap-2 py-1">
             <span className="text-xs text-gray-300">Click picks:</span>
             <div className="flex gap-1 flex-1" role="group" aria-label="Click picking mode">
-                <button type="button" className={btn(!faces)} onClick={() => setFaces(false)} aria-pressed={!faces}>
+                <button
+                    type="button"
+                    className={btn(!faces)}
+                    onClick={() => {
+                        setFaces(false);
+                        clearFaceHighlight();
+                        useObjectInfoStore.getState().setClickedFace(null);
+                    }}
+                    aria-pressed={!faces}
+                >
                     Solid
                 </button>
                 <button type="button" className={btn(faces)} onClick={() => setFaces(true)} aria-pressed={faces}>

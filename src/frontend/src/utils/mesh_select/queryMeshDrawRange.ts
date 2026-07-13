@@ -40,7 +40,7 @@ export async function queryFaceInfo(
     key: string,
     meshName: string,
     faceIndex: number
-): Promise<{rangeId: string; faceId: number; seq: number} | null> {
+): Promise<{rangeId: string; faceId: number; seq: number; start: number; length: number} | null> {
     return await modelStore.getFaceInfo(key, meshName, faceIndex);
 }
 
