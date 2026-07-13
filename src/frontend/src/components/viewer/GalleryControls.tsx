@@ -12,6 +12,7 @@ import type {SerializerSelection} from "@/services/conversion/serializerMatrix";
 import {canLoadIntoSceneLegacy, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
+import FilePickerModal from "@/components/common/FilePickerModal";
 
 // Gallery HUD. Three "walk" types (dropdown):
 //   - "files": cycles the current scope's loadable files (clear → load).
@@ -262,6 +263,22 @@ const GalleryControls: React.FC = () => {
         }
     }, []);
 
+    // Clicking the "N / M" counter opens a single-file picker (the shared storage-browser tree) to jump
+    // straight to a file instead of stepping Prev/Next through a long scope. The picker returns a blob
+    // key; map it back to the gallery's file list (by exact name or basename) and load it via `go` —
+    // which works in both walks (in the geoms walk, loading a new file rebuilds the geom list).
+    const [filePickerOpen, setFilePickerOpen] = useState(false);
+    const jumpToFile = useCallback(
+        (key: string) => {
+            setFilePickerOpen(false);
+            const base = key.split("/").pop() ?? key;
+            let at = files.indexOf(key);
+            if (at < 0) at = files.findIndex((n) => (n.split("/").pop() ?? n) === base);
+            if (at >= 0) void go(at);
+        },
+        [files, go],
+    );
+
     if (!enabled) return null;
 
     const count = isGeomWalk ? geomEntries.length : files.length;
@@ -384,9 +401,15 @@ const GalleryControls: React.FC = () => {
                     >
                         ‹ Prev
                     </button>
-                    <span className="tabular-nums text-gray-400">
+                    <button
+                        type="button"
+                        onClick={() => setFilePickerOpen(true)}
+                        disabled={files.length === 0}
+                        title="Jump to a file…"
+                        className="tabular-nums text-gray-400 hover:text-gray-100 hover:underline disabled:cursor-default disabled:no-underline"
+                    >
                         {empty ? "0 / 0" : `${activeIndex + 1} / ${count}`}
-                    </span>
+                    </button>
                     <button
                         type="button"
                         aria-label="Next"
@@ -433,9 +456,14 @@ const GalleryControls: React.FC = () => {
                         >
                             {nameCopied ? "✓ copied" : primaryLabel}
                         </button>
-                        <div className="tabular-nums text-[10px] text-gray-500">
+                        <button
+                            type="button"
+                            onClick={() => setFilePickerOpen(true)}
+                            disabled={files.length === 0}
+                            className="tabular-nums text-[10px] text-gray-500 hover:text-gray-300 disabled:cursor-default"
+                        >
                             {empty ? "0 / 0" : `${activeIndex + 1} / ${count}`}
-                        </div>
+                        </button>
                     </div>
                     <button
                         type="button"
@@ -450,6 +478,16 @@ const GalleryControls: React.FC = () => {
                 {geomControls}
                 {toolsDrawer}
             </div>
+
+            <FilePickerModal
+                open={filePickerOpen}
+                scope={scopeKey}
+                title="Jump to file"
+                initialKey={current ?? undefined}
+                filter={(f) => isStreamingFEAResult(f.key) || canLoadIntoSceneLegacy(f.key)}
+                onCancel={() => setFilePickerOpen(false)}
+                onPick={jumpToFile}
+            />
         </>
     );
 };
