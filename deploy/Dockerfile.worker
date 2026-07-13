@@ -8,12 +8,13 @@
 # meaningfully shrink things.
 #
 # Rebuild marker (bump to re-pull the ADACPP_BRANCH overlay fresh):
-#   2026-07-13d — adacpp feat/lazy-shape-store @ 826e347: tessellate linear-extrusion (tabulated
-#   cylinder) faces — the surface is semi-infinite along its axis, so the swept-profile inverter no
-#   longer clamps v to the vector magnitude (which dropped faces) and stays on one profile fold
-#   (removes over-filled/beyond-limits artifacts). Still carries the dropped-face health counter,
-#   IFC linear placement + opening voids, the bogus-SI-prefix guard (empty tanks), GLB-spill RAM
-#   buffering, tls model_scale fix, tri-count logging, parent malloc_trim.
+#   2026-07-13e — adacpp feat/lazy-shape-store @ 3e18e9f: curved-surface fidelity fixes. Respects the
+#   curved trim on near-rectangular B-spline faces (bevels no longer render as straight-edged
+#   rectangles) and adds scale-invariant angular refinement so curved interiors aren't faceted
+#   (cylinders/holes were tessellating as prisms/squares; bevels were internally inconsistent). Also
+#   opt-in per-face clickable regions (face_ranges_node via ADA_STREAM_TESS_FACE_REGIONS). Still carries
+#   the linear-extrusion face fix, dropped-face health counter, IFC linear placement + opening voids,
+#   the bogus-SI-prefix guard (empty tanks), GLB-spill RAM buffering, tri-count logging, parent malloc_trim.
 
 ARG PIXI_VERSION=0.68.0
 # CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the worker can publish
