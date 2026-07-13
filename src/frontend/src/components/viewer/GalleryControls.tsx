@@ -250,12 +250,9 @@ const GalleryControls: React.FC = () => {
         }
     }, [current, reconverting, serializerSel]);
 
-    if (!enabled) return null;
-
-    const count = isGeomWalk ? geomEntries.length : files.length;
-    const activeIndex = isGeomWalk ? geomIndex : index;
-    const empty = count === 0;
-    const navBusy = !isGeomWalk && !!loadBusy;
+    // NOTE: every hook must be declared before the `if (!enabled) return null` early return below —
+    // React counts hooks per render, so a hook after the return changes the count when the gallery is
+    // toggled on/off and crashes the app ("rendered more hooks than during the previous render").
     const [nameCopied, setNameCopied] = useState(false);
     const copyName = useCallback(async (text: string) => {
         if (!text) return;
@@ -264,6 +261,13 @@ const GalleryControls: React.FC = () => {
             window.setTimeout(() => setNameCopied(false), 1200);
         }
     }, []);
+
+    if (!enabled) return null;
+
+    const count = isGeomWalk ? geomEntries.length : files.length;
+    const activeIndex = isGeomWalk ? geomIndex : index;
+    const empty = count === 0;
+    const navBusy = !isGeomWalk && !!loadBusy;
     const curEntry = isGeomWalk ? geomEntries[geomIndex] : undefined;
     const spikeSuffix =
         geomOrder === "distorted" && curEntry
