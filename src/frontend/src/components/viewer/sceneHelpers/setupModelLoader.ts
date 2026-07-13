@@ -15,6 +15,7 @@ import {AnimationController} from "@/utils/scene/animations/AnimationController"
 import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
 import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
 import {fastSceneBox} from "@/utils/scene/boundsFast";
+import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 
 /** Optional hook to mutate the freshly-loaded gltf scene (typically
  * to inject ``userData["draw_ranges_<meshName>"]`` and
@@ -173,6 +174,19 @@ export async function setupModelLoaderAsync(
     if (animations.length > 0) {
         // Set the hasAnimation flag to true in the store
         animationStore.setHasAnimation(true);
+    }
+
+    // Adapt near/far clipping to the loaded model's size so small models can be zoomed into without
+    // near-plane clipping — independent of autoFit (zoomToAll re-applies it, but this covers the
+    // autoFit-off case too). Uses the model bounding box captured above / in the store.
+    {
+        const cam = cameraRef.current;
+        const ctl = controlsRef.current;
+        const box = useModelState.getState().boundingBox; // fresh — setBoundingBox ran above
+        if (cam && box && !box.isEmpty()) {
+            const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
+            applyAdaptiveClipping(cam as THREE.PerspectiveCamera, ctl, radius);
+        }
     }
 
     // Auto fit-to-all after the model is in the scene (scene-config toggle, default on) —

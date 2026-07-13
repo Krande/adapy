@@ -8,6 +8,7 @@ import {useTreeViewStore} from "@/state/treeViewStore";
 import CameraControls from "camera-controls";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
 import {hideSelectedRanges, unhideAllRanges} from "@/utils/scene/visibility";
+import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 
 export function setupCameraControlsHandlers(
     scene: THREE.Scene,
@@ -141,6 +142,9 @@ export const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, c
 
     const center = sphere.center.clone();
     const radius = sphere.radius;
+
+    // Adapt near/far to model size so small models can be zoomed into without near-plane clipping.
+    applyAdaptiveClipping(camera, controls, radius);
 
     // Compute required distance so the sphere fits both vertically and horizontally
     const vFov = THREE.MathUtils.degToRad(camera.fov);
