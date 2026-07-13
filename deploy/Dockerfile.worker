@@ -8,12 +8,11 @@
 # meaningfully shrink things.
 #
 # Rebuild marker (bump to re-pull the ADACPP_BRANCH overlay fresh):
-#   2026-07-12 — adacpp feat/lazy-shape-store @ b83a8f9: fix the thread_local
-#   model_scale bug (spawned face-worker threads tessellated at full density ->
-#   tri count scaled with thread count + was nondeterministic; now thread-invariant)
-#   + toggleable face-merge batching. Also carries the adapy tri-count audit logging
-#   (convert_meta.tri_stats) and the worker-parent malloc_trim between jobs (bounds the
-#   fork-inherited RSS behind the 469826 obj/stl watchdog OOM).
+#   2026-07-13 — adacpp feat/lazy-shape-store @ fb9284a: buffer GLB spill lanes in RAM
+#   until a lane-total threshold (ADA_GLB_SPILL_THRESHOLD_MB, default 96) so small/medium
+#   models do ZERO spill disk writes — cuts the nvme write saturation (worker spill = 72%
+#   of disk writes) behind the audit small-file 1s->52s stalls. Byte-identical GLB.
+#   Also still carries the tls model_scale fix, tri-count audit logging, parent malloc_trim.
 
 ARG PIXI_VERSION=0.68.0
 # CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the worker can publish
