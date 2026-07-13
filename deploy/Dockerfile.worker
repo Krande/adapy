@@ -8,11 +8,11 @@
 # meaningfully shrink things.
 #
 # Rebuild marker (bump to re-pull the ADACPP_BRANCH overlay fresh):
-#   2026-07-13 — adacpp feat/lazy-shape-store @ fb9284a: buffer GLB spill lanes in RAM
-#   until a lane-total threshold (ADA_GLB_SPILL_THRESHOLD_MB, default 96) so small/medium
-#   models do ZERO spill disk writes — cuts the nvme write saturation (worker spill = 72%
-#   of disk writes) behind the audit small-file 1s->52s stalls. Byte-identical GLB.
-#   Also still carries the tls model_scale fix, tri-count audit logging, parent malloc_trim.
+#   2026-07-13b — adacpp feat/lazy-shape-store @ 50e8148: IFC linear placement
+#   (IfcLinearPlacement CartesianPosition, fixes geoms stacked at origin) + IFC opening voids
+#   (IfcRelVoidsElement boolean subtraction) + ignore bogus large SI unit prefixes in the STEP
+#   reader (EXA-metre -> empty storage-tank scenes). Still carries the GLB-spill RAM buffering,
+#   tls model_scale fix, tri-count logging, parent malloc_trim.
 
 ARG PIXI_VERSION=0.68.0
 # CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the worker can publish
