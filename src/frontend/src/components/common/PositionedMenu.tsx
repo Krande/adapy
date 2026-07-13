@@ -75,10 +75,19 @@ export const PositionedMenu: React.FC<PositionedMenuProps> = ({
             if (anchor.kind === "rect") {
                 const rect = anchor.getRect();
                 if (!rect) return;
-                setStyle({
-                    top: rect.bottom + 4,
-                    right: window.innerWidth - rect.right,
-                });
+                const menu = menuRef.current;
+                const w = menu?.offsetWidth ?? 180;
+                const h = menu?.offsetHeight ?? 160;
+                // Right-align the menu to the button (opens leftward) by default, but clamp the left
+                // edge into the viewport so a button near the left edge — e.g. the Properties kebab in
+                // the left-anchored info box — doesn't spill off-screen. Same for the right edge.
+                let left = rect.right - w;
+                left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+                // Below the button unless there's no room, then flip above.
+                let top = rect.bottom + 4;
+                if (top + h > window.innerHeight - 8)
+                    top = Math.max(8, rect.top - h - 4);
+                setStyle({top, left});
                 return;
             }
             // Point anchor: clamp to the viewport so a right-click near
