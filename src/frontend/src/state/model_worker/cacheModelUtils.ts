@@ -67,7 +67,12 @@ export async function cacheAndBuildTree(
     }
 
     // Advertise face-region availability so the scene-info solid/faces toggle appears (or hides).
-    useOptionsStore.getState().setFaceRegionsAvailable(Object.keys(faceRanges).length > 0);
+    const hasFaceRegions = Object.keys(faceRanges).length > 0;
+    const opts = useOptionsStore.getState();
+    opts.setFaceRegionsAvailable(hasFaceRegions);
+    // Loading a model that can't do face picking snaps the mode back to Solid, so the toggle (now
+    // hidden) can't leave clicks stuck on the raycast path with no face id ever resolving.
+    if (!hasFaceRegions && opts.faceLevelPicking) opts.setFaceLevelPicking(false);
 
     // 2) cache → IndexedDB
     try {

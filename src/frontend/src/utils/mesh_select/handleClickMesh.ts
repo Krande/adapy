@@ -29,16 +29,6 @@ export async function handleClickMesh(
     if (translation) clickPosition.sub(translation);
     useObjectInfoStore.getState().setClickCoordinate(clickPosition);
 
-    // Face-level picking (opt-in): resolve the clicked triangle to its source face region (STEP/IFC
-    // #id). Needs a real triangle index — available on the raycast path (setupPointerHandler forces it
-    // when face picking is on); the GPU-pick path has no faceIndex, so face info clears there.
-    if (useOptionsStore.getState().faceLevelPicking && typeof intersect.faceIndex === "number") {
-        const fi = await queryFaceInfo(mesh.unique_key, mesh.name, intersect.faceIndex);
-        useObjectInfoStore.getState().setClickedFace(fi ? {faceId: fi.faceId, seq: fi.seq} : null);
-    } else {
-        useObjectInfoStore.getState().setClickedFace(null);
-    }
-
     if (!mesh.is_design && mesh.ada_ext_data != null) {
         simulationDataRef.current = (mesh.ada_ext_data as SimulationDataExtensionMetadata);
     }
@@ -47,15 +37,19 @@ export async function handleClickMesh(
     // faceIndex → rangeId worker round-trip entirely; the raycast
     // fallback still uses it.
     let rangeId: string;
+    // The mesh-name key the metadata cache actually uses — mesh.name usually, but the native GLB path
+    // keys by node<node_id>, so the draw-range lookup falls back to it. Track which one resolved so
+    // face-level picking below queries the SAME key (its earlier bug was using mesh.name unconditionally).
+    let resolvedMeshName = mesh.name;
     if (prefilledRangeId !== undefined) {
         rangeId = prefilledRangeId;
     } else {
         // ← await the worker lookup
-        const meshName = mesh.name; // e.g. "node0"
-        let drawRange = await queryMeshDrawRange(mesh.unique_key, meshName, faceIndex);
+        let drawRange = await queryMeshDrawRange(mesh.unique_key, resolvedMeshName, faceIndex);
         if (!drawRange) {
-            if (mesh.userData?.node_id) {
-                drawRange = await queryMeshDrawRange(mesh.unique_key, `node${mesh.userData?.node_id}`, faceIndex);
+            if (mesh.userData?.node_id != null) {
+                resolvedMeshName = `node${mesh.userData?.node_id}`;
+                drawRange = await queryMeshDrawRange(mesh.unique_key, resolvedMeshName, faceIndex);
             }
             if (!drawRange) {
                 console.warn("selected mesh has no draw range");
@@ -63,6 +57,17 @@ export async function handleClickMesh(
             }
         }
         [rangeId] = drawRange;
+    }
+
+    // Face-level picking (opt-in): resolve the clicked triangle to its source face region (STEP/IFC
+    // #id) using the SAME mesh-name key the draw range resolved with. Needs a real triangle index —
+    // available on the raycast path (setupPointerHandler forces it when face picking is on); the
+    // GPU-pick path has no faceIndex, so face info clears there.
+    if (useOptionsStore.getState().faceLevelPicking && typeof intersect.faceIndex === "number") {
+        const fi = await queryFaceInfo(mesh.unique_key, resolvedMeshName, intersect.faceIndex);
+        useObjectInfoStore.getState().setClickedFace(fi ? {faceId: fi.faceId, seq: fi.seq} : null);
+    } else {
+        useObjectInfoStore.getState().setClickedFace(null);
     }
 
     await perform_selection(mesh, shiftKey, rangeId);
