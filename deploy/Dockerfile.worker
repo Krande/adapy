@@ -8,6 +8,14 @@
 # meaningfully shrink things.
 #
 # Rebuild marker (bump to re-pull the ADACPP_BRANCH overlay fresh):
+#   2026-07-14b — adacpp feat/tess-track-watertight @ a359782: adds the `cdt` track (vendored
+#   detria constrained Delaunay). Trim loops become constraint edges and the curvature grid becomes
+#   interior Steiner points — one boundary-first path with no UV-grid fast path, which is what OCC
+#   and truck do. Ventilator: boundary edges 19,067 -> 432 (-98%), non-manifold 12 -> 0, and 4% FEWER
+#   triangles (the grid path was never cheap, it was wrong). Costs ~+30%, so it is OPT-IN and NOT
+#   reachable from the worker yet — the pipeline token isn't threaded through adapy's converter.
+#   What this worker DOES pick up is the 2026-07-14a default change: boundary pinning ON.
+#
 #   2026-07-14a — adacpp feat/tess-track-watertight @ f19e626: selectable tessellation tracks +
 #   boundary pinning ON by default. Boundary vertices are now emitted at their SHARED-EDGE point
 #   instead of each face's own surface.point(uv) re-projection, so the two faces of an edge land on
