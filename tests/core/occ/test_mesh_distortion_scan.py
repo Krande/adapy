@@ -31,7 +31,11 @@ def test_distortion_counts_slivers_only():
     accumulate_mesh_distortion(pos, idx)
     s = consume_mesh_distortion_stats()
     assert s["n_tris"] == 3
-    assert s["distorted_tris"] == 2  # sliver + degenerate, not the healthy one
+    # The flag targets visible crows-nest spikes: a distorted triangle must touch a spatial outlier
+    # vertex (here the sliver reaches out to the far (10,0,0) corner). The in-place degenerate
+    # (repeated-vertex, zero-area) triangle is invisible and — like the clean/thin cases in
+    # test_mesh_distortion.py — is deliberately NOT flagged, so it would only pollute the metric.
+    assert s["distorted_tris"] == 1  # the sliver only
     assert consume_mesh_distortion_stats()["n_tris"] == 0  # reset on read
 
 

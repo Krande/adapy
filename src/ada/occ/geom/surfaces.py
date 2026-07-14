@@ -3,7 +3,7 @@ from collections import Counter
 
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRep import BRep_Builder, BRep_Tool
-from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
@@ -127,11 +127,51 @@ def make_face_from_circle(circle: geo_cu.Circle):
     return BRepBuilderAPI_MakeFace(circle_wire).Shape()
 
 
+# Above this face count the imprinting fuse below is skipped: beam shells and other structural
+# plate sets have a handful of faces, while a tessellated IfcFaceBasedSurfaceModel can carry many —
+# it must not pay O(n) sequential booleans and, being an already-conforming tessellation, needs no
+# imprinting.
+_FBSM_IMPRINT_MAX_FACES = 24
+
+
+def _single_polyloop_of_face(cfs_face) -> "PolyLoop | None":
+    """Outer ``PolyLoop`` of a hole-free planar ``Face``, else ``None``. A beam shell's plates (an
+    I-beam's web + flanges) are exactly these; a tessellated face with holes or a non-PolyLoop bound
+    is left to the faithful compound path."""
+    if type(cfs_face) is not geo_su.Face:
+        return None
+    if len(cfs_face.bounds) != 1:
+        return None
+    outer = cfs_face.bounds[0].bound
+    return outer if isinstance(outer, PolyLoop) else None
+
+
 def make_shell_from_face_based_surface_geom(surface: FaceBasedSurfaceModel) -> TopoDS_Shape:
-    """Build an IfcFaceBasedSurfaceModel — a set of IfcConnectedFaceSets — into an OCC compound of
-    shells, mirroring make_shell_from_shell_based_surface_geom. Each connected face set is built by
-    the shared face-set builder (which reads each Face's ``bounds`` correctly), so an n-face surface
-    model renders and exports instead of erroring on the old ``cfs_face.bound`` assumption."""
+    """Build an IfcFaceBasedSurfaceModel — a set of IfcConnectedFaceSets — into an OCC shape.
+
+    A small hole-free planar plate set (a parametric beam's disconnected web/flange plates) is
+    *imprinted*: ``BRepAlgoAPI_Fuse`` of the coincident planar plates splits each flange along the
+    web line where they meet (3 plates -> 5 faces), which is what a conforming shell FEM mesh needs
+    (no hanging nodes at the web/flange T-junctions). Disjoint plates fuse to a plain compound, so
+    this only changes touching geometry.
+
+    Everything else (a large / non-planar / holed IfcFaceBasedSurfaceModel from the reader) builds
+    as a faithful compound of per-connected-set shells — each Face read via its ``bounds`` — so an
+    n-face surface model renders and exports without paying the boolean cost or needing imprinting.
+    """
+    faces = [f for cfs in surface.fbsm_faces for f in cfs.cfs_faces]
+    loops = [_single_polyloop_of_face(f) for f in faces]
+    if 0 < len(faces) <= _FBSM_IMPRINT_MAX_FACES and all(loop is not None for loop in loops):
+        try:
+            fused = None
+            for loop in loops:
+                face = make_face_from_poly_loop(loop)
+                fused = face if fused is None else BRepAlgoAPI_Fuse(face, fused).Shape()
+            if fused is not None:
+                return fused
+        except Exception:  # noqa: BLE001 - any boolean failure falls back to the faithful compound
+            pass
+
     builder = BRep_Builder()
     compound = TopoDS_Compound()
     builder.MakeCompound(compound)

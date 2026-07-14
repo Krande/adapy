@@ -21,15 +21,15 @@ def test_ipe_beam():
 
     # Check face1 (top flange) geometry
     face1 = geo_xyz.geometry.fbsm_faces[0].cfs_faces[0]
-    assert len(face1.bound.polygon) == 4
+    assert len(face1.bounds[0].bound.polygon) == 4
 
-    p1 = face1.bound.polygon[0]
+    p1 = face1.bounds[0].bound.polygon[0]
 
     assert pytest.approx(p1.x) == -x
     assert pytest.approx(p1.y) == -w / 2
     assert pytest.approx(p1.z) == z
 
-    p2 = face1.bound.polygon[1]
+    p2 = face1.bounds[0].bound.polygon[1]
     assert pytest.approx(p2.x) == -x
     assert pytest.approx(p2.y) == w / 2
     assert pytest.approx(p2.z) == z
