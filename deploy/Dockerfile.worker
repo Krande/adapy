@@ -8,6 +8,20 @@
 # meaningfully shrink things.
 #
 # Rebuild marker (bump to re-pull the ADACPP_BRANCH overlay fresh):
+#   2026-07-14a — adacpp feat/tess-track-watertight @ f19e626: selectable tessellation tracks +
+#   boundary pinning ON by default. Boundary vertices are now emitted at their SHARED-EDGE point
+#   instead of each face's own surface.point(uv) re-projection, so the two faces of an edge land on
+#   the same position and the per-solid weld stitches the seam. Halves shared-edge cracks (ventilator
+#   19,067 -> 9,880 open edges, non-manifold 12 -> 9) for ~3% time, with the triangle count UNCHANGED
+#   and the crane GLB 0.7% SMALLER (pinned verts actually weld); no geometry lost (crane solids
+#   7291=7291, dropped faces 78=78). This is what OCC/gmsh/truck all do — OCC's BRepMesh takes the
+#   boundary node's 3D straight from the shared edge curve and never evaluates the face surface
+#   there. Disable with pin_boundary=false if a byte-compatible mesh is needed.
+#   Also: TessTrack/Libtess2Opts abstraction (default libtess2 output byte-identical when pinning is
+#   off), stream_step_to_glb gains a `pipeline` arg, ADA_TESS_DIAG per-face UV-residual diagnostic.
+#   NOT watertight yet — ~8.8k residual edges remain on the UV-grid path (53/305 ventilator faces),
+#   which needs the CDT track.
+#
 #   2026-07-13f — adacpp feat/lazy-shape-store @ 5a84825: cone semi-angle plane-angle-unit fix. A
 #   CONICAL_SURFACE stores its semi-angle in the model's declared plane-angle unit (frequently DEGREE);
 #   the reader was reading it as radians, so a 45-degree cone became a 45-radian cone that tessellated
