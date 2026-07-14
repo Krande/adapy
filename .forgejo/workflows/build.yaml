@@ -408,7 +408,7 @@ jobs:
             # a cleared secret can't fall back to a stale emscripten-3.1.58
             # base. Override via the secret only to point at a different
             # registry/tag (>=0.9.0 = pyodide_2025_0 / emscripten 4.0.9).
-            ADACPP_BASE_IMAGE="${ADACPP_BASE_IMAGE:-ghcr.io/krande/adacpp-wasm-base:0.9.0}"
+            ADACPP_BASE_IMAGE="${ADACPP_BASE_IMAGE:-ghcr.io/krande/adacpp-wasm-base:0.13.2}"
             # Pull the base ahead of the viewer build so a missing tag
             # fails loudly here, not buried in BuildKit output.
             docker pull "${ADACPP_BASE_IMAGE}"
