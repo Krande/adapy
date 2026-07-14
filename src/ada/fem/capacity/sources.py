@@ -22,6 +22,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 import numpy as np
+
 from ada.config import logger
 from ada.fem.capacity.model import CapSection
 
@@ -852,7 +853,11 @@ def _beams_bordering_plates(mesh, beam_ids: list[int], plate_members: set[int]) 
         plate_node_set = set(plate_nodes)
         for nid in plate_nodes:
             for elem in idx.node_elems.get(nid, ()):
-                if elem in beam_set and elem not in out and len(plate_node_set.intersection(idx.elem_nodes.get(elem, ()))) >= 2:
+                if (
+                    elem in beam_set
+                    and elem not in out
+                    and len(plate_node_set.intersection(idx.elem_nodes.get(elem, ()))) >= 2
+                ):
                     out.add(elem)
     return out
 
@@ -903,7 +908,11 @@ def _merge_panels(mesh, specs: list[PanelGroupSpec], aux=None) -> list[PanelGrou
     never spans (e.g.) 8/20/40 mm plate regions. ``aux`` supplies the GELTH
     thickness per geono; when absent, thickness is not gated (legacy behaviour).
     """
-    from ada.fem.capacity.extract import beam_axis_and_span, element_node_coords, geono_of
+    from ada.fem.capacity.extract import (
+        beam_axis_and_span,
+        element_node_coords,
+        geono_of,
+    )
 
     def _plate_thickness(pids: list[int]) -> float:
         if aux is None or not pids:

@@ -207,9 +207,9 @@ def test_sin_source_full_mini_models_are_unique_rectangular_panels():
     for model in models:
         for plate in model.plates:
             for element_id in plate.element_ids:
-                assert element_id not in owners, (
-                    f"shell element {element_id} belongs to both {owners[element_id]} and {model.name}"
-                )
+                assert (
+                    element_id not in owners
+                ), f"shell element {element_id} belongs to both {owners[element_id]} and {model.name}"
                 owners[element_id] = model.name
 
     # The geometric merge fuses the per-cell concept fields into maximal

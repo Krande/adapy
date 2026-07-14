@@ -430,7 +430,9 @@ def _build_stiff_geom(
     # chain (no 4-node plate spans every node of a 6-element run). Union the
     # per-element edge plates so a finely-meshed/multi-bay stiffener still gets
     # its bordering plate field — otherwise its plate stresses resolve to zero.
-    edge_trib = sorted({pe for be in st.element_ids for pe in extract.tributary_plate_ids(mesh, (be,), candidate_plates)})
+    edge_trib = sorted(
+        {pe for be in st.element_ids for pe in extract.tributary_plate_ids(mesh, (be,), candidate_plates)}
+    )
     field_trib = _adjacent_plate_field_ids(model, edge_trib)
 
     origin = _beam_origin(mesh, st.element_ids)
@@ -501,8 +503,7 @@ def _resolve_stiffener(
     # edge fields. ``edge_trib ⊆ field_trib``, so resolve each element's points
     # once and slice both views from it.
     points_by_element = {
-        pe: _element_membrane_points(mesh, aux, stress_blocks, pe, axis, cs.get(pe))
-        for pe in field_trib
+        pe: _element_membrane_points(mesh, aux, stress_blocks, pe, axis, cs.get(pe)) for pe in field_trib
     }
     field_points_by_element = points_by_element
     field_points = [point for points in field_points_by_element.values() for point in points]
@@ -545,7 +546,8 @@ def _resolve_stiffener(
         + 0.2 * max(n_axial_positions[2], 0.0)
     )
 
-    section_area, section_centroid = geom.section_area, geom.section_centroid
+    # section_area, section_centroid = geom.section_area, geom.section_centroid
+    section_centroid = geom.section_centroid
     z_na = geom.z_na
     m_plate = [-float(n * z_na) for n in n_plate_positions]
     m_beam_force = [float(n * (section_centroid - z_na)) for n in n_beam_positions]
@@ -828,7 +830,9 @@ def resolve_cases(
             if factor:
                 _superpose_into(accums[case], res.results, float(factor))
         if step in direct_set:
-            out.extend(_resolve_step(mesh, aux, models, step, res.results, material_by_element, geom_cache, log=done == 0))
+            out.extend(
+                _resolve_step(mesh, aux, models, step, res.results, material_by_element, geom_cache, log=done == 0)
+            )
             done += 1
             if on_progress is not None:
                 on_progress(done, total)

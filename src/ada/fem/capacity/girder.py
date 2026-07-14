@@ -292,8 +292,7 @@ def build_girder_models(
                 other_gi != gi
                 # Ties (element exactly mid-way between two parallel girders)
                 # break on the girder index so exactly one side keeps it.
-                and (other_d, other_gi) < (distance, gi)
-                and abs(float(np.dot(prepared[other_gi].axis, axis))) > 0.7
+                and (other_d, other_gi) < (distance, gi) and abs(float(np.dot(prepared[other_gi].axis, axis))) > 0.7
                 for other_d, other_gi in entries
             )
             if not beaten:
@@ -496,9 +495,7 @@ def _prepare_girder(
     # contact — a small edge touch says nothing about what the girder carries.
     strip_panels = [info.model for info, _ in in_plane]
     flanking = [
-        info.model
-        for info, interval in in_plane
-        if interval[1] - interval[0] >= _MIN_LINE_CONTACT_FRACTION * span
+        info.model for info, interval in in_plane if interval[1] - interval[0] >= _MIN_LINE_CONTACT_FRACTION * span
     ]
     if not flanking:
         # No single panel dominates the bay (e.g. two half-bay panels): use
