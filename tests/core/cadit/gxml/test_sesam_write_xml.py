@@ -107,10 +107,208 @@ def test_streaming_xml_from_fem_byte_identical(fem_files, tmp_path):
     assert dom.read_bytes() == stream.read_bytes()
 
 
-def test_create_sesam_xml_with_plate(tmp_path):
-    pl = ada.Plate("pl", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.1)
-    a = ada.Assembly("a") / pl
-    a.to_genie_xml(tmp_path / "plate.xml", embed_sat=True)
+class TestEmbeddedSat:
+    """Genie stores the ACIS body under structure_domain/geometry as a
+    sat_embedded_sequence: zipped to one b64temp.sat member, the compressed
+    bytes cut into segments, each segment base64'd on its own inside CDATA.
+    Shapes asserted here were read off a Genie-authored export."""
+
+    @staticmethod
+    def _model():
+        deck = ada.Plate.from_3d_points("deck", [(0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0)], 0.01)
+        bulk = ada.Plate.from_3d_points("bulk", [(0, 5, 0), (10, 5, 0), (10, 5, 5), (0, 5, 5)], 0.01)
+        return ada.Assembly("a") / (ada.Part("p") / [deck, bulk])
+
+    def test_embed_sat_is_the_default(self, tmp_path):
+        """Without SAT, Genie rebuilds every plate's ACIS on import — the thing
+        that made a large model take minutes to open."""
+        out = self._model().to_genie_xml(tmp_path / "plate.xml")
+        raw = out.read_text()
+        assert "<sat_embedded_sequence" in raw
+        assert "<polygons>" not in raw
+
+    def test_geometry_is_the_last_child_of_structure_domain(self, tmp_path):
+        out = self._model().to_genie_xml(tmp_path / "plate.xml")
+        sd = ET.parse(str(out)).getroot().find("./model/structure_domain")
+        assert [c.tag for c in sd][-1] == "geometry"
+
+    def test_sequence_attributes_and_cdata(self, tmp_path):
+        out = self._model().to_genie_xml(tmp_path / "plate.xml")
+        seq = ET.parse(str(out)).getroot().find(".//geometry/sat_embedded_sequence")
+        assert seq.attrib == {"encoding": "base64", "compression": "zip", "tag_name": "dnvscp"}
+        assert len(seq.findall("cdata_segment")) >= 1
+        raw = out.read_text()
+        assert "<cdata_segment><![CDATA[" in raw
+        assert "__ADA_CDATA_SEGMENT" not in raw  # every placeholder spliced
+
+    def test_sat_reads_back_out_of_the_xml(self, tmp_path):
+        from ada.cadit.gxml.sat_helpers import get_sat_text_from_xml
+
+        out = self._model().to_genie_xml(tmp_path / "plate.xml")
+        sat = get_sat_text_from_xml(out)
+        assert sat.startswith("2000 0 1 0")
+        assert sat.rstrip().endswith("End-of-ACIS-data")
+
+    def test_plate_references_every_face_it_was_split_into(self, tmp_path):
+        """The bulkhead cuts the deck in two, so the deck's sheet must name both
+        halves — Genie writes up to 10 faces for one plate on a real model."""
+        out = self._model().to_genie_xml(tmp_path / "plate.xml")
+        refs = {
+            fp.get("name"): [f.get("face_ref") for f in fp.iterfind(".//sat_reference/face")]
+            for fp in ET.parse(str(out)).getroot().iterfind(".//structure/flat_plate")
+        }
+        assert len(refs["deck"]) == 2
+        assert len(refs["bulk"]) == 1
+        assert not set(refs["deck"]) & set(refs["bulk"])  # no face claimed twice
+
+    def test_segments_split_the_zipped_body_at_1mib(self):
+        """Each segment is base64 of its own 1 MiB slice of the *compressed*
+        stream, so a reader must join the decoded bytes, not the base64 text."""
+        import base64
+
+        from ada.cadit.gxml.write.write_sat_embedded import (
+            SEGMENT_BYTES,
+            sat_to_base64_segments,
+        )
+
+        segments = sat_to_base64_segments("x" * (6 * SEGMENT_BYTES))  # compresses small
+        assert len(segments) >= 1
+        decoded = [base64.b64decode(s) for s in segments]
+        assert all(len(d) == SEGMENT_BYTES for d in decoded[:-1])
+        assert 0 < len(decoded[-1]) <= SEGMENT_BYTES
+
+    def test_multi_segment_body_round_trips(self, tmp_path):
+        """A body larger than one segment must reassemble exactly."""
+        import base64
+        import io
+        import zipfile
+
+        from ada.cadit.gxml.write.write_sat_embedded import (
+            SEGMENT_BYTES,
+            ZIP_MEMBER,
+            sat_to_base64_segments,
+        )
+
+        # incompressible payload, so the zip is comfortably over one segment
+        body = base64.b64encode(np.random.default_rng(0).bytes(3 * SEGMENT_BYTES)).decode()
+        segments = sat_to_base64_segments(body)
+        assert len(segments) > 1
+
+        blob = b"".join(base64.b64decode(s) for s in segments)
+        with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+            assert zf.namelist() == [ZIP_MEMBER]
+            assert zf.read(ZIP_MEMBER).decode() == body
+
+    def test_beams_only_model_omits_geometry(self, tmp_path):
+        """No plates means no ACIS body — emitting an empty one is not valid."""
+        a = ada.Assembly("a") / (ada.Part("p") / ada.Beam("bm", (0, 0, 0), (1, 0, 0), "IPE200"))
+        out = a.to_genie_xml(tmp_path / "beams.xml")
+        assert ET.parse(str(out)).getroot().find(".//geometry/sat_embedded_sequence") is None
+
+
+class TestBeamSatReference:
+    """A beam's <wire> must name the SAT edges its axis became.
+
+    Left empty, Genie rebuilds every beam's ACIS wire on import. On a large
+    frame that is the single dominant import cost — far more than the plates —
+    so an empty reference here is a performance bug, not a cosmetic one.
+    """
+
+    @staticmethod
+    def _model():
+        deck = ada.Plate.from_3d_points("deck", [(0, 0, 0), (3.9, 0, 0), (3.9, 1.3, 0), (0, 1.3, 0)], 0.01)
+        # crosses the stiffeners at y=0.65, so each stiffener axis splits in two
+        bulk = ada.Plate.from_3d_points("bulk", [(0, 0.65, 0), (3.9, 0.65, 0), (3.9, 0.65, 1.0), (0, 0.65, 1.0)], 0.01)
+        stiff = [ada.Beam(f"st{i}", (x, 0, 0), (x, 1.3, 0), "HP180x8") for i, x in enumerate([1.3, 2.6])]
+        return ada.Assembly("a") / (ada.Part("p") / ([deck, bulk] + stiff))
+
+    def _refs(self, out):
+        return {
+            sb.get("name"): [e.get("edge_ref") for e in sb.iterfind(".//wire/sat_reference/edge")]
+            for sb in ET.parse(str(out)).getroot().iterfind(".//structure/straight_beam")
+        }
+
+    def test_beam_references_every_edge_its_axis_became(self, tmp_path):
+        refs = self._refs(self._model().to_genie_xml(tmp_path / "b.xml"))
+        assert len(refs["st0"]) == 2  # split by the bulkhead
+        assert len(refs["st1"]) == 2
+        assert not set(refs["st0"]) & set(refs["st1"])  # no edge claimed twice
+
+    def test_every_edge_ref_resolves_to_a_named_sat_edge(self, tmp_path):
+        import re
+
+        from ada.cadit.gxml.sat_helpers import get_sat_text_from_xml
+
+        out = self._model().to_genie_xml(tmp_path / "b.xml")
+        named = set(re.findall(r"@12 (EDGE\d{8}) #", get_sat_text_from_xml(out)))
+        referenced = {r for v in self._refs(out).values() for r in v}
+        assert referenced and referenced <= named
+        assert named == referenced  # and no EDGE is named without being referenced
+
+    def test_beam_with_no_plate_under_it_gets_a_wire_body(self, tmp_path):
+        """Its axis bounds no face, so it cannot hang off a loop — ACIS carries
+        it as a wire body off the shell instead. Without one the beam has no
+        geometry to reference and Genie rebuilds it."""
+        from tests.core.cadit.sat.sat_topology import parse, ref_errors
+
+        from ada.cadit.gxml.sat_helpers import get_sat_text_from_xml
+
+        a = self._model()
+        a.parts["p"].add_beam(ada.Beam("floating", (0, 0, 9), (1, 0, 9), "IPE200"))
+        out = a.to_genie_xml(tmp_path / "b.xml")
+
+        refs = self._refs(out)
+        assert len(refs["floating"]) == 1
+        assert len(refs["st0"]) == 2  # the plate-bound beams are unaffected
+
+        sat = get_sat_text_from_xml(out)
+        assert ref_errors(sat) == []
+        ents = parse(sat)
+        wires = [i for i, (t, _) in ents.items() if t == "wire"]
+        assert len(wires) == 1
+        # the shell must actually point at it (field[7]), or it is unreachable
+        shell = next(f for t, f in ents.values() if t == "shell")
+        assert shell[7] == f"${wires[0]}"
+
+    def test_no_sat_means_no_edge_refs(self, tmp_path):
+        out = self._model().to_genie_xml(tmp_path / "b.xml", embed_sat=False)
+        assert all(v == [] for v in self._refs(out).values())
+
+
+class TestGenieXmlFlags:
+    @staticmethod
+    def _model():
+        pl = ada.Plate("pl", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.1)
+        return ada.Assembly("a") / (ada.Part("p") / pl)
+
+    def test_streaming_matches_dom_with_sat(self, tmp_path):
+        dom, stream = tmp_path / "dom.xml", tmp_path / "stream.xml"
+        self._model().to_genie_xml(dom, embed_sat=True)
+        self._model().to_genie_xml(stream, embed_sat=True, streaming=True)
+        assert dom.read_bytes() == stream.read_bytes()
+
+    def test_embed_sat_with_merge_strategy_raises(self, tmp_path):
+        """Contradictory: the SAT body is built from Plate objects, which the
+        merge_strategy face source never materialises. It used to silently drop
+        merge_strategy (DOM path) or embed_sat (streaming path)."""
+        with pytest.raises(ValueError, match="incompatible with merge_strategy"):
+            self._model().to_genie_xml(tmp_path / "x.xml", embed_sat=True, streaming=True, merge_strategy="coplanar")
+
+    def test_merge_strategy_without_streaming_raises(self, tmp_path):
+        """merge_strategy is only honoured on the streaming path; it used to be
+        accepted and ignored."""
+        with pytest.raises(ValueError, match="only honoured on the streaming path"):
+            self._model().to_genie_xml(tmp_path / "x.xml", merge_strategy="coplanar")
+
+    def test_merge_strategy_alone_falls_back_to_polygons(self, tmp_path):
+        out = self._model().to_genie_xml(tmp_path / "x.xml", streaming=True, merge_strategy="coplanar")
+        assert "<sat_embedded_sequence" not in out.read_text()
+
+    def test_embed_sat_false_writes_polygons(self, tmp_path):
+        out = self._model().to_genie_xml(tmp_path / "x.xml", embed_sat=False)
+        raw = out.read_text()
+        assert "<polygons>" in raw
+        assert "<sat_embedded_sequence" not in raw
 
 
 def test_create_groups_split_across_parts(tmp_path):

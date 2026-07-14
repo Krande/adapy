@@ -14,7 +14,7 @@ from ada.cad import Containment
 if TYPE_CHECKING:
     import numpy as np
 
-    from ada.cad import Mesh, ShapeHandle
+    from ada.cad import Mesh, PlanarImprint, ShapeHandle
     from ada.geom import Geometry
     from ada.geom.booleans import BoolOpEnum
     from ada.geom.direction import Direction
@@ -662,6 +662,212 @@ class OccBackend:
             if amap.FindFromIndex(i).Size() == 1:
                 out.append(amap.FindKey(i))
         return out
+
+    def imprint_planar_faces(
+        self,
+        outlines: "list[list[tuple[float, float, float]]]",
+        imprint_curves: "list[list[tuple[float, float, float]]] | None" = None,
+        tolerance: float = 1e-6,
+    ) -> "PlanarImprint":
+        # General Fuse (BOPAlgo_Builder, same kernel as non_manifold_merge) splits
+        # every outline against the others and welds coincident topology, so a
+        # deck crossed by a bulkhead comes back as two faces sharing the bulkhead
+        # line as ONE edge. Unlike non_manifold_merge this keeps the Modified()
+        # history, which is what maps an input outline to the faces it became.
+        #
+        # `imprint_curves` (e.g. beam axes) join the fuse as wire arguments: a
+        # stiffener lying on a plate splits it along its axis, and one merely
+        # crossing it drops a vertex on the boundary. That is where most of
+        # Genie's face count comes from — a 3.9 m panel with stiffeners every
+        # 0.65 m arrives as 6 faces, not 1.
+        #
+        # The whole model is imprinted and extracted in this single call: the
+        # abstraction boundary must not land inside a per-face/per-edge loop, so
+        # everything below stays kernel-side and only plain data is returned.
+        from OCC.Core.BOPAlgo import BOPAlgo_Builder
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
+        from OCC.Core.BRepBuilderAPI import (
+            BRepBuilderAPI_MakeEdge,
+            BRepBuilderAPI_MakeFace,
+            BRepBuilderAPI_MakePolygon,
+        )
+        from OCC.Core.BRepTools import BRepTools_WireExplorer, breptools
+        from OCC.Core.GeomAbs import GeomAbs_Plane
+        from OCC.Core.gp import gp_Pnt
+        from OCC.Core.TopAbs import (
+            TopAbs_EDGE,
+            TopAbs_FACE,
+            TopAbs_FORWARD,
+            TopAbs_REVERSED,
+            TopAbs_VERTEX,
+            TopAbs_WIRE,
+        )
+        from OCC.Core.TopExp import TopExp_Explorer, topexp
+        from OCC.Core.TopoDS import topods
+        from OCC.Core.TopTools import (
+            TopTools_IndexedDataMapOfShapeListOfShape,
+            TopTools_IndexedMapOfShape,
+        )
+
+        from ada.cad import ImprintedEdge, ImprintedFace, PlanarImprint
+
+        def _pnt(p):
+            c = list(p)
+            return gp_Pnt(float(c[0]), float(c[1]), float(c[2]))
+
+        def _mkface(pts):
+            poly = BRepBuilderAPI_MakePolygon()
+            for p in pts:
+                poly.Add(_pnt(p))
+            poly.Close()
+            return BRepBuilderAPI_MakeFace(poly.Wire(), True).Face()
+
+        def _mkedges(pts):
+            # One TopoDS_Edge per segment rather than a wire: BOPAlgo's history is
+            # per-argument, and edges give a direct Modified(edge) -> split edges
+            # map, which is what resolves a beam axis to the edges it became.
+            out = []
+            for a, b in zip(pts, pts[1:]):
+                pa, pb = _pnt(a), _pnt(b)
+                if pa.Distance(pb) <= max(tolerance, 1e-12):
+                    continue  # a zero-length segment would fail the edge build
+                out.append(BRepBuilderAPI_MakeEdge(pa, pb).Edge())
+            return out
+
+        inputs = [_mkface(o) for o in outlines]
+        if not inputs:
+            return PlanarImprint(vertices=[], edges=[], faces=[], sources=[], curve_sources=[])
+
+        # per curve, the argument edges it contributed
+        curve_edges = [_mkedges(c) for c in (imprint_curves or [])]
+        cutters = [e for edges_ in curve_edges for e in edges_]
+
+        if len(inputs) + len(cutters) < 2:
+            # General Fuse needs at least two arguments (it raises
+            # TooFewArguments otherwise). A lone outline has nothing to imprint
+            # against, so it passes straight through.
+            builder = None
+            res = inputs[0]
+        else:
+            builder = BOPAlgo_Builder()
+            for shape in inputs + cutters:
+                builder.AddArgument(shape)
+            if tolerance and tolerance > 0:
+                builder.SetFuzzyValue(tolerance)
+            builder.SetRunParallel(True)
+            builder.Perform()
+            if builder.HasErrors():
+                raise RuntimeError("imprint_planar_faces: BOPAlgo_Builder reported errors")
+            res = builder.Shape()
+
+        # Index every unique sub-shape. The map's hasher keys on TShape+Location
+        # and ignores orientation, so a FORWARD and a REVERSED use of the same
+        # edge collapse to one index — which is exactly the sharing we want.
+        #
+        # Index the whole result, faces and free edges alike: an imprint curve
+        # with no face under it survives as a free edge, and the caller still
+        # needs geometry for it (ACIS carries those as wire bodies). Which is
+        # which is reported via free_edges.
+        fmap, vmap, emap = (TopTools_IndexedMapOfShape() for _ in range(3))
+        topexp.MapShapes(res, TopAbs_FACE, fmap)
+        topexp.MapShapes(res, TopAbs_VERTEX, vmap)
+        topexp.MapShapes(res, TopAbs_EDGE, emap)
+
+        edge_faces = TopTools_IndexedDataMapOfShapeListOfShape()
+        topexp.MapShapesAndAncestors(res, TopAbs_EDGE, TopAbs_FACE, edge_faces)
+        free_edges = []
+        for i in range(1, emap.Size() + 1):
+            e = emap.FindKey(i)
+            if not edge_faces.Contains(e) or edge_faces.FindFromKey(e).Size() == 0:
+                free_edges.append(i - 1)
+
+        vertices = []
+        for i in range(1, vmap.Size() + 1):
+            p = BRep_Tool.Pnt(topods.Vertex(vmap.FindKey(i)))
+            vertices.append((p.X(), p.Y(), p.Z()))
+
+        edges = []
+        for i in range(1, emap.Size() + 1):
+            e = topods.Edge(emap.FindKey(i)).Oriented(TopAbs_FORWARD)
+            v0 = topexp.FirstVertex(e, True)
+            v1 = topexp.LastVertex(e, True)
+            edges.append(ImprintedEdge(start=vmap.FindIndex(v0) - 1, end=vmap.FindIndex(v1) - 1))
+
+        faces = []
+        for i in range(1, fmap.Size() + 1):
+            f = topods.Face(fmap.FindKey(i))
+            surf = BRepAdaptor_Surface(f, True)
+            if surf.GetType() != GeomAbs_Plane:
+                raise ValueError("imprint_planar_faces: result contains a non-planar face")
+            pln = surf.Plane()
+            loc, ax, xd = pln.Location(), pln.Axis().Direction(), pln.XAxis().Direction()
+            normal = (ax.X(), ax.Y(), ax.Z())
+            # A REVERSED face's true outward normal is the opposite of its
+            # surface's; flipping here keeps every loop below wound
+            # counter-clockwise about the normal we report.
+            if f.Orientation() == TopAbs_REVERSED:
+                normal = (-normal[0], -normal[1], -normal[2])
+
+            outer = breptools.OuterWire(f)
+            wires = []
+            wexp = TopExp_Explorer(f, TopAbs_WIRE)
+            while wexp.More():
+                wires.append(topods.Wire(wexp.Current()))
+                wexp.Next()
+            wires.sort(key=lambda w: 0 if w.IsSame(outer) else 1)  # outer loop first
+
+            loops = []
+            for w in wires:
+                loop = []
+                we = BRepTools_WireExplorer(w, f)
+                while we.More():
+                    edge = we.Current()
+                    loop.append((emap.FindIndex(edge) - 1, edge.Orientation() == TopAbs_FORWARD))
+                    we.Next()
+                loops.append(loop)
+            faces.append(
+                ImprintedFace(
+                    origin=(loc.X(), loc.Y(), loc.Z()),
+                    normal=normal,
+                    ref_direction=(xd.X(), xd.Y(), xd.Z()),
+                    loops=loops,
+                )
+            )
+
+        def _history(shape, index_map):
+            """The result sub-shapes ``shape`` became, as indices into ``index_map``.
+
+            Only ones present in the map count: an imprint curve with no plate
+            under it survives as a free edge, which bounds no face and is
+            deliberately absent from the map (and from the emitted body).
+            """
+            if builder is None:
+                return [index_map.FindIndex(shape) - 1] if index_map.Contains(shape) else []
+            mods = builder.Modified(shape)
+            if mods is not None and mods.Size() > 0:
+                return [index_map.FindIndex(s) - 1 for s in mods if index_map.Contains(s)]
+            if not builder.IsDeleted(shape) and index_map.Contains(shape):
+                return [index_map.FindIndex(shape) - 1]  # untouched: passes through as itself
+            return []
+
+        sources = [_history(f, fmap) for f in inputs]
+
+        curve_sources = []
+        for edges_ in curve_edges:
+            got = []
+            for e in edges_:
+                got.extend(i for i in _history(e, emap) if i not in got)
+            curve_sources.append(got)
+
+        return PlanarImprint(
+            vertices=vertices,
+            edges=edges,
+            faces=faces,
+            sources=sources,
+            curve_sources=curve_sources,
+            free_edges=free_edges,
+        )
 
     def point_in_solid(self, solid: ShapeHandle, point, tolerance: float = 1e-6) -> "Containment":
         from OCC.Core.BRepClass3d import BRepClass3d_SolidClassifier

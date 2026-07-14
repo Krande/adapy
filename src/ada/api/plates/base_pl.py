@@ -306,6 +306,27 @@ class Plate(BackendGeom):
     def material(self, value: Material):
         self._material = value
 
+    def outline_global(self) -> tuple[np.ndarray, Direction]:
+        """This plate's outline and normal in global coordinates.
+
+        ``poly.points3d`` is expressed in the plate's own frame, so a plate that
+        sits inside a placed :class:`~ada.Part` has to be pushed through the
+        accumulated placement before being written out. Exporters share this so
+        they cannot disagree on where a plate is (the Genie SAT body used to
+        ignore part placements entirely while the polygon writer honoured them).
+        """
+        from ada.api.transforms import Placement
+
+        abs_place = self.placement.get_absolute_placement(include_rotations=True)
+        ident = Placement()
+        outline = abs_place.transform_array_from_other_place(
+            np.asarray(self.poly.points3d, dtype=float), ident, ignore_translation=False
+        )
+        normal = abs_place.transform_array_from_other_place(
+            np.asarray([self.poly.normal], dtype=float), ident, ignore_translation=True
+        )[0]
+        return outline, Direction(*normal)
+
     @property
     def normal(self) -> Direction:
         """Normal vector"""

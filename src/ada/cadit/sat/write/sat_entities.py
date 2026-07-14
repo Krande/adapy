@@ -44,10 +44,38 @@ class Shell(SATEntity):
     face: Face
     lump: Lump
     bbox: list[float]
+    wire: Wire = None
 
     def to_string(self) -> str:
+        # ACIS `shell` record: $next_shell $subshell $first_face $first_wire $lump.
+        # The wire pointer heads the chain of wire bodies — the edges that bound
+        # no face (a beam with no plate under its axis).
         bbox_str = " ".join(str(coord) for coord in self.bbox)
-        return f"-{self.id} shell $-1 -1 -1 $-1 $-1 $-1 ${self.face.id} $-1 ${self.lump.id} T {bbox_str} #"
+        face = -1 if self.face is None else self.face.id
+        wire = -1 if self.wire is None else self.wire.id
+        return f"-{self.id} shell $-1 -1 -1 $-1 $-1 $-1 ${face} ${wire} ${self.lump.id} T {bbox_str} #"
+
+
+@dataclass
+class Wire(SATEntity):
+    """A connected collection of edges that bound no face (SAT v4.0 ch.7).
+
+    Genie emits one per group of beams whose axes lie on no plate, hung off the
+    shell's wire pointer, so those beams still have ACIS geometry to reference.
+    """
+
+    coedge: CoEdge
+    shell: Shell
+    bbox: list[float]
+    next_wire: Wire = None
+
+    def to_string(self) -> str:
+        # $next_wire $first_coedge $body_or_shell $subshell <containment>
+        bbox_str = " ".join(str(coord) for coord in self.bbox)
+        next_wire = -1 if self.next_wire is None else self.next_wire.id
+        return (
+            f"-{self.id} wire $-1 -1 -1 $-1 ${next_wire} ${self.coedge.id} " f"${self.shell.id} $-1 out T {bbox_str} #"
+        )
 
 
 @dataclass
@@ -56,24 +84,45 @@ class Face(SATEntity):
     shell: Shell
     name: StringAttribName
     surface: PlaneSurface
+    next_face: Face = None
 
     def to_string(self) -> str:
-        return f"-{self.id} face ${self.name.id} -1 -1 $-1 $-1 ${self.loop.id} ${self.shell.id} $-1 ${self.surface.id} forward double out F F #"
+        # ACIS `face` record (SAT v4.0 spec, ch.6): after the common ENTITY prefix
+        # ($attrib -1 -1 $owner) come next_face_in_shell, first_loop, shell,
+        # subshell, surface. A shell holds ONE face pointer; the rest of its faces
+        # are reached by following next_face, so the chain must be linked.
+        next_face = -1 if self.next_face is None else self.next_face.id
+        return (
+            f"-{self.id} face ${self.name.id} -1 -1 $-1 ${next_face} ${self.loop.id} "
+            f"${self.shell.id} $-1 ${self.surface.id} forward double out F F #"
+        )
 
 
 @dataclass
 class Loop(SATEntity):
     coedge: CoEdge
     bbox: list[float]
+    face: Face = None
+    next_loop: Loop = None
     periphery_plane: PlaneSurface = None
 
     def to_string(self) -> str:
+        # ACIS `loop` record: $next_loop $first_coedge $face — the last field is
+        # the face this loop bounds, NOT a constant. It used to be hardcoded to
+        # `$3`, which only ever happened to be right for a single-plate model
+        # (whose face is entity 3); every loop of every other model pointed at
+        # the wrong entity.
         bbox_str = " ".join(str(coord) for coord in self.bbox)
         periphery = "unknown"
         if self.periphery_plane is not None:
             periphery = f"periphery ${self.periphery_plane.id} F"
-
-        return f"-{self.id} loop $-1 -1 -1 $-1 $-1 ${self.coedge.id} $3 T {bbox_str} {periphery} #"
+        face_ref = -1 if self.face is None else self.face.id
+        # A face points at its first loop only; any hole loops hang off
+        # next_loop (an imprint can enclose a region and produce them).
+        next_loop = -1 if self.next_loop is None else self.next_loop.id
+        return (
+            f"-{self.id} loop $-1 -1 -1 $-1 ${next_loop} ${self.coedge.id} ${face_ref} " f"T {bbox_str} {periphery} #"
+        )
 
 
 @dataclass
@@ -99,11 +148,21 @@ class CoEdge(SATEntity):
     next_coedge: CoEdge
     prev_coedge: CoEdge
     edge: Edge
-    loop: Loop
-    orientation: Literal["forward", "reverse"]
+    loop: Loop | Wire  # a coedge is owned by a loop, or by a wire when it bounds no face
+    orientation: Literal["forward", "reversed"]
+    partner: CoEdge = None
 
     def to_string(self) -> str:
-        return f"-{self.id} coedge $-1 -1 -1 $-1 ${self.next_coedge.id} ${self.prev_coedge.id} $-1 ${self.edge.id} {self.orientation} ${self.loop.id} $-1 #"
+        # ACIS `coedge` record: $next_in_loop $prev_in_loop $next_coedge_on_edge
+        # $edge <sense> $loop $pcurve. The third pointer is the partner ring: all
+        # coedges lying on the same edge form a circular list through it. An edge
+        # used by a single face leaves it $-1 (as Genie writes it); an edge shared
+        # by two faces links the pair to each other.
+        partner = -1 if self.partner is None else self.partner.id
+        return (
+            f"-{self.id} coedge $-1 -1 -1 $-1 ${self.next_coedge.id} ${self.prev_coedge.id} "
+            f"${partner} ${self.edge.id} {self.orientation} ${self.loop.id} $-1 #"
+        )
 
 
 @dataclass
@@ -121,14 +180,21 @@ class Edge(SATEntity):
         attrib_ref = "-1"
         if self.attrib_name:
             attrib_ref = self.attrib_name.id
-        start_str = " ".join([str(x) for x in make_ints_if_possible(self.start_pt)])
-        end_str = " ".join([str(x) for x in make_ints_if_possible(self.end_pt)])
-        # pos_str = f"{self.start_pt[0]} {self.start_pt[1]} {self.start_pt[2]} {self.end_pt[0]} {self.end_pt[1]} {self.end_pt[2]}"
+        # The trailing `T <box>` is a bounding box, so it must run min-corner then
+        # max-corner. Emitting start_pt/end_pt verbatim inverted the box for any
+        # edge running backwards along an axis.
+        lo = [min(a, b) for a, b in zip(self.start_pt, self.end_pt)]
+        hi = [max(a, b) for a, b in zip(self.start_pt, self.end_pt)]
+        bbox_str = " ".join(str(x) for x in make_ints_if_possible([*lo, *hi]))
         vec = ada.Direction(self.end_pt - self.start_pt)
         length = vec.get_length()
         s1 = 0
         s2 = make_ints_if_possible([length])[0]
-        return f"-{self.id} edge ${attrib_ref} -1 -1 $-1 ${self.vertex_start.id} {s1} ${self.vertex_end.id} {s2} ${self.coedge.id} ${self.straight_curve.id} forward @7 unknown T {start_str} {end_str} #"
+        return (
+            f"-{self.id} edge ${attrib_ref} -1 -1 $-1 ${self.vertex_start.id} {s1} "
+            f"${self.vertex_end.id} {s2} ${self.coedge.id} ${self.straight_curve.id} "
+            f"forward @7 unknown T {bbox_str} #"
+        )
 
 
 @dataclass

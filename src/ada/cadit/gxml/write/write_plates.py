@@ -5,8 +5,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ada.api.transforms import Placement
-
 from ...sat.write.writer import SatWriter
 
 if TYPE_CHECKING:
@@ -44,7 +42,11 @@ def add_plate_sat(plate: Plate, thck_name: str, structures_elem, sw: SatWriter):
     geometry = ET.SubElement(flat_plate, "geometry")
     sheet = ET.SubElement(geometry, "sheet")
     sat_reference = ET.SubElement(sheet, "sat_reference")
-    ET.SubElement(sat_reference, "face", {"face_ref": sw.face_map.get(plate.guid)})
+    # A plate resolves to several faces once the imprint pass splits it at the
+    # T-junctions with its neighbours, so every name in the map gets an element
+    # (a densely stiffened panel reaches ten).
+    for face_ref in sw.face_map.get(plate.guid, []):
+        ET.SubElement(sat_reference, "face", {"face_ref": face_ref})
 
 
 def add_plate_polygon_data(
@@ -106,15 +108,8 @@ def add_plate_curved_polygon(plate, thck_name: str, structures_elem: ET.Element)
 
 
 def add_plate_polygon(plate: Plate, thck_name: str, structures_elem: ET.Element):
-    abs_place = plate.placement.get_absolute_placement(include_rotations=True)
-    ident = Placement()  # identity place
-    outline_global = [
-        abs_place.transform_array_from_other_place(np.asarray([pt], dtype=float), ident, ignore_translation=False)[0]
-        for pt in plate.poly.points3d
-    ]
-    add_plate_polygon_data(
-        plate.name, outline_global, plate.poly.normal, thck_name, plate.material.name, structures_elem
-    )
+    outline_global, normal = plate.outline_global()
+    add_plate_polygon_data(plate.name, outline_global, normal, thck_name, plate.material.name, structures_elem)
 
 
 def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):

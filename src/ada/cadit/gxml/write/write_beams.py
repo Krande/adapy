@@ -38,10 +38,10 @@ def add_beams(root: ET.Element, part: Part, sw: SatWriter = None):
                 f"gxml-write: {type(beam).__name__} {beam.name!r} written as a straight chord beam "
                 "(curved axis not supported by the Genie XML writer)"
             )
-        add_straight_beam(beam, root)
+        add_straight_beam(beam, root, sw)
 
 
-def add_straight_beam(beam: Beam, xml_root: ET.Element):
+def add_straight_beam(beam: Beam, xml_root: ET.Element, sw: SatWriter = None):
     import numpy as np
 
     from ada import Placement
@@ -66,7 +66,7 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
             up = ori_vectors[2]
 
     straight_beam.append(add_local_system(xvec, yvec, up))
-    straight_beam.append(add_segments(beam))
+    straight_beam.append(add_segments(beam, sw))
 
     if beam.hinge1 is not None:
         ET.SubElement(straight_beam, "end1", {"hinge_ref": beam.hinge1.name})
@@ -131,10 +131,8 @@ def add_curve_orientation(beam: Beam, straight_beam: ET.Element):
     ET.SubElement(local_system, "up_vector", {"x": str(beam.up[0]), "y": str(beam.up[1]), "z": str(beam.up[2])})
 
 
-def add_segments(beam: Beam):
-    import numpy as np
-
-    from ada import BeamTapered, Placement
+def add_segments(beam: Beam, sw: SatWriter = None):
+    from ada import BeamTapered
 
     segments = ET.Element("segments")
     props = dict(index="1", section_ref=beam.section.name, material_ref=beam.material.name)
@@ -144,21 +142,7 @@ def add_segments(beam: Beam):
     straight_segment = ET.SubElement(segments, "straight_segment", props)
 
     d = ["x", "y", "z"]
-    p1 = beam.n1.p
-    p2 = beam.n2.p
-    if beam.placement.is_identity() is False:
-        ident_place = Placement()
-        place_abs = beam.placement.get_absolute_placement(include_rotations=True)
-        place_abs_rot_mat = place_abs.rot_matrix
-        ident_rot_mat = ident_place.rot_matrix
-        # check if the 3x3 rotational np arrays are identical
-        if not np.allclose(place_abs_rot_mat, ident_rot_mat):
-            tra_vectors = place_abs.transform_array_from_other_place(np.asarray([p1, p2]), ident_place)
-            p1 = tra_vectors[0]
-            p2 = tra_vectors[1]
-        else:
-            p1 = place_abs.origin + p1
-            p2 = place_abs.origin + p2
+    p1, p2 = beam.axis_global()
 
     geom = ET.SubElement(straight_segment, "geometry")
     wire = ET.SubElement(geom, "wire")
@@ -168,10 +152,14 @@ def add_segments(beam: Beam):
         props.update(dict(end=str(i)))
         ET.SubElement(guide, "position", props)
 
-    ET.SubElement(wire, "sat_reference")
-
-    # TODO: add SAT embedded geometry and include the reference to the EDGE geometry here
-    # ET.SubElement(sat_ref, "edge_ref", dict(edge_ref=""))
+    sat_ref = ET.SubElement(wire, "sat_reference")
+    # Name the edges the beam's axis became in the embedded body. Left empty,
+    # Genie rebuilds the beam's ACIS wire itself on import, which on a large
+    # frame dominates load time. The axis is split wherever a plate crosses it,
+    # so a beam can reference several edges.
+    if sw is not None:
+        for edge_ref in sw.edge_map.get(beam.guid, []):
+            ET.SubElement(sat_ref, "edge", {"edge_ref": edge_ref})
 
     return segments
 

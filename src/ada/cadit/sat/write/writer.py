@@ -10,6 +10,7 @@ from ada.cadit.sat.write import sat_entities as se
 from ada.cadit.sat.write.sat_entities import SATEntity
 from ada.cadit.sat.write.utils import IDGenerator
 from ada.cadit.sat.write.write_plate import plate_to_sat_entities
+from ada.config import logger
 
 if TYPE_CHECKING:
     from ada import Assembly, Part
@@ -20,46 +21,130 @@ HEADER_STR = """2000 0 1 0
 """
 
 
-def part_to_sat_writer(part: Part | Assembly) -> SatWriter:
+def part_to_sat_writer(part: Part | Assembly, imprint: bool = True) -> SatWriter:
+    """Build the ACIS SAT body for every :class:`~ada.Plate` under ``part``.
+
+    Every plate face lives in ONE body / lump / shell, matching what Genie
+    itself writes (verified against ``files/sat_files/flat_plate*_sesam_*.sat``).
+    A shell records a single face pointer, so the remaining faces are reached by
+    walking ``next_face`` — hence the chaining pass at the end.
+
+    With ``imprint`` (the default) the plates are mutually split and welded by
+    the CAD backend first, so touching plates share vertices and edges and a
+    plate crossed by its neighbours resolves to several faces — the form Genie
+    writes, and the one it otherwise has to reconstruct on import. Set it False
+    for the unfused one-face-per-plate body (no CAD backend needed).
+    """
     from ada import Plate
 
     sw = SatWriter(part)
 
-    # Beams (not implemented, because it's not strictly necessary to embed in ACIS in order to import beams into Genie)
-    # for bm in part.get_all_physical_objects(by_type=Beam):
-    #     pass
+    # Only plates become faces — Genie imports beams from the concept XML alone
+    # and its own SAT carries no beam bodies. Beams still take part in the
+    # imprint though (see _add_imprinted_plates).
+    plates = list(part.get_all_physical_objects(by_type=Plate))
+    if not plates:
+        # No faces means no body: a body/lump/shell with nothing in it is not a
+        # meaningful ACIS record, and `is_empty` lets the caller drop the whole
+        # <geometry> element (a beams-only model simply has no SAT).
+        return sw
 
-    # Plates
-    for face_id, pl in enumerate(part.get_all_physical_objects(by_type=Plate), start=1):
+    _, _, shell = sw.init_body(plates)
+
+    if imprint:
+        _add_imprinted_plates(sw, plates)
+    else:
+        _add_plates_unfused(sw, plates)
+
+    # A shell points at its first face only; link the rest into the chain.
+    faces = sw.get_entities_by_type(se.Face)
+    if faces:
+        shell.face = faces[0]
+        for cur, nxt in zip(faces, faces[1:]):
+            cur.next_face = nxt
+
+    sw.renumber()
+    return sw
+
+
+def _add_plates_unfused(sw: SatWriter, plates) -> None:
+    """One independent face per plate — no shared topology."""
+    for face_id, pl in enumerate(plates, start=1):
         face_name = f"FACE{face_id:08d}"
-        sw.face_map[pl.guid] = face_name
-        new_entities = plate_to_sat_entities(pl, face_name, GeomRepr.SHELL, sw)
-        for entity in new_entities:
+        sw.face_map[pl.guid] = [face_name]
+        for entity in plate_to_sat_entities(pl, face_name, GeomRepr.SHELL, sw):
             sw.add_entity(entity)
 
-    # re-arrange entities and make sure all body, lump, shell and face elements are before any further elements
-    bodies = sw.get_entities_by_type(se.Body)
-    lumps = sw.get_entities_by_type(se.Lump)
-    shells = sw.get_entities_by_type(se.Shell)
-    faces = sw.get_entities_by_type(se.Face)
-    new_id = 0
 
-    first_entities = list(chain(bodies, lumps, shells, faces))
-    for i, entity in enumerate(first_entities):
-        if isinstance(entity, se.Lump) and len(lumps) > 1:
-            next_entity = first_entities[i + 1]
-            if isinstance(next_entity, se.Lump):
-                entity.next_lump = next_entity
+def _add_imprinted_plates(sw: SatWriter, plates) -> None:
+    """Imprint the plates against each other and the beams, then emit the topology."""
+    from ada.cad import select_backend
+    from ada.cadit.sat.write.from_imprint import imprint_to_sat_entities
+    from ada.cadit.sat.write.write_plate import outline_ccw_about
 
-        entity.id = new_id
-        new_id += 1
-    for rest in sw.entities.values():
-        if type(rest) not in [se.Body, se.Lump, se.Shell, se.Face]:
-            rest.id = new_id
-            new_id += 1
-    # update map
-    sw.entities = {entity.id: entity for entity in sorted(sw.entities.values(), key=lambda x: x.id)}
-    return sw
+    # Global coordinates (a plate inside a placed Part would otherwise be
+    # imprinted at the wrong position), oriented counter-clockwise about the
+    # plate's own normal: the backend derives each face's plane from the polygon
+    # it is given, so feeding CurvePoly2d's raw (possibly clockwise) order would
+    # flip every face normal away from the plate's declared one.
+    outlines = [outline_ccw_about(*pl.outline_global()) for pl in plates]
+    beams, curves = _beam_axes(sw.part)
+
+    result = select_backend().imprint_planar_faces(outlines, imprint_curves=curves)
+
+    entities, faces, edges = imprint_to_sat_entities(result, sw)
+    for entity in entities:
+        sw.add_entity(entity)
+
+    for i, face in enumerate(faces, start=1):
+        face.name.name = f"FACE{i:08d}"
+
+    for pl, src in zip(plates, result.sources):
+        sw.face_map[pl.guid] = [faces[i].name.name for i in src]
+        if not src:
+            logger.warning(f"sat-write: plate {pl.name!r} produced no face in the imprint and is not referenced")
+
+    _name_beam_edges(sw, beams, edges, result.curve_sources)
+
+    logger.info(
+        f"sat-write: imprinted {len(plates)} plates against {len(curves)} beam axes -> "
+        f"{len(faces)} faces, {sum(len(v) for v in sw.edge_map.values())} named edges"
+    )
+
+
+def _name_beam_edges(sw: SatWriter, beams, edges, curve_sources) -> None:
+    """Name each beam's imprinted axis edges and record the beam -> EDGE map.
+
+    Without this a beam's ``<sat_reference/>`` is empty and Genie rebuilds that
+    beam's ACIS wire on import — on a large frame that dominates load time, far
+    more than the plates do. Genie's own exports name every edge a beam resolves
+    to and reference each one from the beam's ``<wire>``.
+    """
+    edge_name_of: dict[int, str] = {}
+    unresolved = 0
+    for beam, src in zip(beams, curve_sources or []):
+        names = []
+        for edge_idx in src:
+            edge = edges[edge_idx]
+            if edge.coedge is None:
+                continue  # pruned: bounds no face, so it is not in the body
+            name = edge_name_of.get(edge_idx)
+            if name is None:
+                name = f"EDGE{sw.edge_name_id:08d}"
+                sw.edge_name_id += 1
+                edge_name_of[edge_idx] = name
+                attrib = se.StringAttribName(sw.id_generator.next_id(), name, edge)
+                edge.attrib_name = attrib
+                sw.add_entity(attrib)
+            names.append(name)
+        if names:
+            sw.edge_map[beam.guid] = names
+        else:
+            unresolved += 1
+    if unresolved:
+        # A beam whose axis lies on no plate leaves no edge in the body (Genie
+        # emits those as standalone `wire` bodies, which we do not author yet).
+        logger.info(f"sat-write: {unresolved} beam(s) have no plate under their axis; left without a SAT edge")
 
 
 @dataclass
@@ -70,26 +155,61 @@ class SatWriter:
     header: str = HEADER_STR
     bbox: list[float] = field(default_factory=list)
     id_generator: IDGenerator = field(default_factory=IDGenerator)
-    face_map: dict[str, str] = field(default_factory=dict)  # face_name -> plate guid
+    # plate guid -> the FACE names that plate resolves to. A plate maps to
+    # several faces once the imprint pass splits it, so this is a list even
+    # though the un-imprinted writer only ever puts one name in it.
+    face_map: dict[str, list[str]] = field(default_factory=dict)
+    # beam guid -> the EDGE names its axis resolves to (imprinted path only).
+    # Empty for a beam whose axis lies on no plate.
+    edge_map: dict[str, list[str]] = field(default_factory=dict)
+
+    body: se.Body = None
+    lump: se.Lump = None
+    shell: se.Shell = None
 
     edge_name_id: int = 1
 
-    def __post_init__(self):
-        bboxes = []
-        for part in self.part.get_all_parts_in_assembly(include_self=True):
-            if len(part.nodes.nodes) == 0:
-                continue
-            bboxes.append(list(chain.from_iterable(zip(*part.nodes.bbox()))))
-        # Find the minimum values for the first 3 and the maximum values for the last 3
-        if len(bboxes) == 0:
-            raise ValueError("No nodes found in the part")
+    def init_body(self, plates) -> tuple[se.Body, se.Lump, se.Shell]:
+        """Create the single body/lump/shell that owns every face."""
+        self.bbox = _plates_bbox(plates)
+        body = se.Body(self.id_generator.next_id(), None, list(self.bbox))
+        lump = se.Lump(self.id_generator.next_id(), None, body, list(self.bbox))
+        shell = se.Shell(self.id_generator.next_id(), None, lump, list(self.bbox))
+        body.lump = lump
+        lump.shell = shell
+        self.body, self.lump, self.shell = body, lump, shell
+        for entity in (body, lump, shell):
+            self.add_entity(entity)
+        return body, lump, shell
 
-        bbox_min = [min([bbox[i] for bbox in bboxes]) for i in range(3)]
-        bbox_max = [max([bbox[i + 3] for bbox in bboxes]) for i in range(3)]
-        self.bbox = bbox_min + bbox_max
+    @property
+    def is_empty(self) -> bool:
+        """No faces to embed — the caller should omit ``<geometry>`` entirely."""
+        return not self.entities
 
     def add_entity(self, entity: SATEntity) -> None:
         self.entities[entity.id] = entity
+
+    def renumber(self) -> None:
+        """Re-index entities so body/lump/shell/face lead, then everything else.
+
+        Record ids are positional, so only their relative order matters to ACIS;
+        leading with the topology roots mirrors how Genie lays its files out and
+        keeps diffs against the reference files readable.
+        """
+        first = list(
+            chain(
+                self.get_entities_by_type(se.Body),
+                self.get_entities_by_type(se.Lump),
+                self.get_entities_by_type(se.Shell),
+                self.get_entities_by_type(se.Face),
+            )
+        )
+        leading = {id(e) for e in first}
+        rest = [e for e in self.entities.values() if id(e) not in leading]
+        for new_id, entity in enumerate(chain(first, rest)):
+            entity.id = new_id
+        self.entities = {e.id: e for e in sorted(self.entities.values(), key=lambda x: x.id)}
 
     def write(self, file_path: str | pathlib.Path) -> None:
         with open(file_path, "w") as f:
@@ -101,3 +221,48 @@ class SatWriter:
 
     def get_entities_by_type(self, by_type) -> list[SATEntity]:
         return list(filter(lambda x: type(x) is by_type, self.entities.values()))
+
+
+def _beam_axes(part) -> tuple[list, list[list[tuple[float, float, float]]]]:
+    """Every beam and its axis, as a 2-point polyline, to imprint onto the plates.
+
+    Returned index-aligned so the imprint's ``curve_sources`` maps straight back
+    to the beam that produced each edge.
+
+    A stiffener lying on a plate splits it along its axis; a member merely
+    crossing one drops a vertex on the boundary. This is where most of Genie's
+    face count comes from — its own export splits a 3.9 m panel carrying
+    stiffeners at 0.65 m spacing into 6 faces, one per bay.
+
+    Positioned exactly as :func:`~ada.cadit.gxml.write.write_beams.add_segments`
+    writes the beam's guide into the XML — full transform when the placement
+    rotates, translation only otherwise — so the imprinted edge lands on the
+    concept beam the ``<wire>`` will reference.
+    """
+    from ada import Beam
+
+    beams, axes = [], []
+    for bm in part.get_all_physical_objects(by_type=Beam):
+        p1, p2 = bm.axis_global()
+        a = tuple(float(c) for c in p1)
+        b = tuple(float(c) for c in p2)
+        if a != b:
+            beams.append(bm)
+            axes.append([a, b])
+    return beams, axes
+
+
+def _plates_bbox(plates) -> list[float]:
+    """[xmin, ymin, zmin, xmax, ymax, zmax] over every plate outline.
+
+    Genie sets the body/lump/shell box to the union of the plate extents; an
+    empty plate set degenerates to a zero box rather than failing.
+    """
+    import numpy as np
+
+    from ada.cadit.sat.utils import make_ints_if_possible
+
+    if not plates:
+        return [0.0] * 6
+    pts = np.concatenate([np.asarray(pl.poly.points3d, dtype=float) for pl in plates])
+    return make_ints_if_possible([*np.min(pts, axis=0), *np.max(pts, axis=0)])
