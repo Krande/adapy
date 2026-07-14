@@ -146,6 +146,14 @@ class Config:
             [
                 ConfigEntry("read_curve_ignore_bspline", bool, False),
                 ConfigEntry("import_raise_exception_on_failed_advanced_face", bool, False),
+                # A flat plate's boundary keeps only its edge ENDPOINTS, so an edge that follows a
+                # curve (intcurve/ellipse) collapses to the chord between its corners — e.g. a deck
+                # plate meeting a curved hull skin renders straight while the skin beside it curves.
+                # On => sample the curve and carry the samples as extra outline points, so the plate
+                # follows the curve. STOPGAP: Plate/CurvePoly2d has only line+arc segments, so the
+                # samples are ours, not the neighbour's, and the seam still isn't shared. Off =>
+                # the pre-2026-07-14 chord. See dap plan/v3/notes_plate_bspline_edges.md.
+                ConfigEntry("plate_curved_edges", bool, True),
             ],
         ),
         ConfigSection(
