@@ -148,6 +148,34 @@ def _count_step_instances(path: str | Path) -> int:
     return sum(len(g.transforms) if g.transforms else 1 for g in ada.iter_from_step(path, reader="tolerant"))
 
 
+def _count_step_product_instances(path: str | Path) -> int | None:
+    """Placed *product* instances in a STEP file — the round-trip count that matches
+    how the source object model and the IFC leg count elements.
+
+    A writer may split one object's multi-body geometry into several geometry roots
+    under a single product (OCC's ``to_stp`` writes one SHELL_BASED_SURFACE_MODEL per
+    shell of a sewn multi-shell body; a mapped IFC representation becomes one brep per
+    mapped item) — the object is still ONE element per placed instance, so roots that
+    share their owning product's representation are grouped before counting. Roots
+    without assembly metadata (flat/baked files) group by their own id, i.e. count
+    exactly as :func:`_count_step_instances`. None when the native parser is
+    unavailable (caller falls back to the reload count)."""
+    from ada.cadit.step.read.native_reader import native_adacpp_step_available
+
+    if not native_adacpp_step_available():
+        return None
+    import adacpp
+
+    groups: dict[tuple, int] = {}
+    for _nbytes, meta in adacpp.cad.StepNgeomStream(str(path)):
+        ip = meta.instance_paths
+        # the deepest path level is the solid's own (rep_id, product_name)
+        key = tuple(ip[0][-1]) if (ip and ip[0]) else ("root", meta.id)
+        n = len(meta.transforms) or 1
+        groups[key] = max(groups.get(key, 0), n)
+    return sum(groups.values())
+
+
 def _count_ifc_proxies(path: str | Path) -> int:
     """Count ``IfcBuildingElementProxy`` entities in an IFC file via a bounded text
     scan — the streaming STEP→IFC writer emits exactly one per placed solid instance,
@@ -160,6 +188,64 @@ def _count_ifc_proxies(path: str | Path) -> int:
     return n
 
 
+def _native_step_parity(path: str | Path, formats: tuple[str, ...]) -> "ParityResult | None":
+    """Cross-format parity in ONE native parse via ``adacpp.cad.step_parity`` — resolve
+    each root once and run both the STEP->IFC and STEP->STEP emitters over it, counting
+    placed instances + faces WITHOUT writing any output. Returns None (caller falls back
+    to the per-writer path) when adacpp / the verb is unavailable or errors.
+
+    The metric is unchanged from the per-writer path: ``expected`` is the source
+    placed-instance count (``total_instances``) and each format's count is the instances
+    it emitted, so a dropped solid shows as a mismatch. A format that emits a solid but
+    loses faces (``faces_dropped`` > 0) is flagged as an error even if its instance count
+    matches — the finer-grained 'no geometry left behind' guard the counts alone can't see.
+    """
+    try:
+        from ada.cadit.step.read.native_reader import native_adacpp_step_available
+
+        if not native_adacpp_step_available():
+            return None
+        import adacpp
+
+        if not hasattr(adacpp.cad, "step_parity"):
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+
+    try:
+        d = adacpp.cad.step_parity(str(path))
+    except Exception as ex:  # noqa: BLE001 - fall back to the per-writer path on any native error
+        logger.warning(f"native step_parity failed ({ex}); falling back to per-writer parity")
+        return None
+
+    baseline = int(d.get("total_instances") or d.get("solids_in") or 0)
+    counts: dict[str, int] = {"source": baseline}
+    errors: dict[str, str] = {}
+    skipped: dict[str, str] = {}
+    fmt_stats = {"ifc": d.get("ifc"), "step": d.get("step")}
+    for fmt in formats:
+        if fmt in fmt_stats and fmt_stats[fmt] is not None:
+            fd = fmt_stats[fmt]
+            counts[fmt] = int(fd.get("instances") or 0)
+            dropped = int(fd.get("faces_dropped") or 0)
+            if dropped:
+                errors[fmt] = f"{dropped} faces dropped: {dict(fd.get('drop_reasons') or {})}"
+        elif fmt == "xml":
+            skipped["xml"] = "raw CAD B-rep has no Genie-XML concept representation"
+        else:
+            errors[fmt] = f"unknown format {fmt!r}"
+
+    mismatches = {k: v for k, v in counts.items() if k != "source" and v != baseline}
+    return ParityResult(
+        counts=counts,
+        expected=baseline,
+        consistent=not mismatches and not errors,
+        mismatches=mismatches,
+        errors=errors,
+        skipped=skipped,
+    )
+
+
 def parity_for_step_file(
     path: str | Path,
     formats: tuple[str, ...] = ("ifc", "xml", "step"),
@@ -167,15 +253,30 @@ def parity_for_step_file(
     work_dir: str | Path | None = None,
 ) -> ParityResult:
     """Streaming cross-format parity for a STEP source — never loads or tessellates
-    the whole model (the OOM/timeout path was 1 source tessellation + 3×(export +
-    whole re-read + re-tessellation)). The metric is the placed-instance count, which
-    the bounded per-solid readers/writers produce directly:
+    the whole model. The metric is the placed-instance count, which the streaming
+    writers now report directly from their single native parse (``instances`` = solids
+    they emitted, ``total_instances`` = every source instance they saw), so parity no
+    longer re-parses the multi-GB outputs to count them:
 
-    * source — count instances off the native parse (no hydrate).
-    * step   — stream-write (``stream_step_to_step``), then count the output's instances.
-    * ifc    — stream-write (``stream_step_to_ifc``), then count its IfcBuildingElementProxy.
+    * source — the writers' ``total_instances`` (the source-side count from the same
+      native parse that drives the export; a separate ``_count_step_instances`` pass
+      is only the fallback when no writer runs).
+    * step   — ``stream_step_to_step`` returns the instances it wrote.
+    * ifc    — ``stream_step_to_ifc`` returns the IfcBuildingElementProxy it wrote.
     * xml    — skipped: raw CAD B-rep has no Genie-XML concept representation.
+
+    A writer that drops a solid (unsupported geometry) reports ``instances <
+    total_instances``, which surfaces as a mismatch — the exact case parity exists to
+    catch — without the whole-model re-read + re-tessellation that OOM'd / timed out.
+
+    Fast path: ``adacpp.cad.step_parity`` does all of the above in ONE native parse
+    (both emitters share the per-solid resolve, nothing is serialised to disk) — ~17x
+    faster than driving the two Python writers. Falls back to them when unavailable.
     """
+    native = _native_step_parity(path, formats)
+    if native is not None:
+        return native
+
     import tempfile
 
     from ada.cadit.step.write.stream_step_to_ifc import stream_step_to_ifc
@@ -187,21 +288,21 @@ def parity_for_step_file(
         work_dir = tmp_ctx.name
     work_dir = Path(work_dir)
 
-    baseline = _count_step_instances(path)
-    counts: dict[str, int] = {"source": baseline}
+    counts: dict[str, int] = {}
     errors: dict[str, str] = {}
     skipped: dict[str, str] = {}
+    seen: int | None = None  # source instance count, taken from the writers' single parse
     try:
         for fmt in formats:
             try:
                 if fmt == "step":
-                    out = work_dir / "parity.step"
-                    stream_step_to_step(path, out)
-                    counts["step"] = _count_step_instances(out)
+                    stats = stream_step_to_step(path, work_dir / "parity.step")
+                    counts["step"] = stats["instances"]
+                    seen = stats["total_instances"] if seen is None else seen
                 elif fmt == "ifc":
-                    out = work_dir / "parity.ifc"
-                    stream_step_to_ifc(path, out)
-                    counts["ifc"] = _count_ifc_proxies(out)
+                    stats = stream_step_to_ifc(path, work_dir / "parity.ifc")
+                    counts["ifc"] = stats["instances"]
+                    seen = stats["total_instances"] if seen is None else seen
                 elif fmt == "xml":
                     skipped["xml"] = "raw CAD B-rep has no Genie-XML concept representation"
                 else:
@@ -213,6 +314,10 @@ def parity_for_step_file(
         if tmp_ctx is not None:
             tmp_ctx.cleanup()
 
+    # Fall back to an explicit native source count only when no writer produced one
+    # (e.g. formats == ("xml",)); otherwise reuse the writers' parse (no extra pass).
+    baseline = seen if seen is not None else _count_step_instances(path)
+    counts = {"source": baseline, **counts}
     mismatches = {k: v for k, v in counts.items() if k != "source" and v != baseline}
     return ParityResult(
         counts=counts,
@@ -416,7 +521,14 @@ def cross_format_parity(
             out = work_dir / f"parity{suffix}"
             try:
                 writer(assembly, out)
-                counts[fmt] = assembly_element_count(reader(out))
+                # STEP: count placed product instances from the file's metadata rather
+                # than reloading — a reload makes one Shape per geometry ROOT, so an
+                # object whose body the writer split into several roots under one
+                # product (multi-shell SBSM, mapped-item breps) over-counts vs the
+                # source and the IFC leg. Grouping by owning product restores the
+                # one-element-per-object convention both other legs use.
+                n = _count_step_product_instances(out) if fmt == "step" else None
+                counts[fmt] = n if n is not None else assembly_element_count(reader(out))
             except Exception as ex:  # noqa: BLE001 - record and continue with the other formats
                 errors[fmt] = f"{type(ex).__name__}: {ex}"
                 logger.warning(f"cross_format_parity: {fmt} round-trip failed: {ex}")

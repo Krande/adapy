@@ -96,6 +96,66 @@ def test_seam_crossing_arc_wire_yields_bounded_face():
     assert pos[:, 1].min() >= -R - pad and pos[:, 1].max() <= R + pad
     assert pos[:, 2].min() >= -pad and pos[:, 2].max() <= H + pad
 
+    # Every meshed vertex must lie ON the cylinder wall (radius ~R). A collapsed/flat mesh —
+    # the arc edges built as straight chords (the adacpp encoder dropping a trim-less Circle to
+    # a chord) — dips well inside R. This is the assertion that catches the collapse on either
+    # backend; the bounded-box check above passes even when the face degenerates to a flat plane.
+    radii = np.hypot(pos[:, 0], pos[:, 1])
+    assert radii.min() >= R - pad, f"vertices collapsed toward the axis (min radius {radii.min():.2f} << {R})"
+
+
+def test_planar_face_with_polyloop_hole_builds_on_backend():
+    """A flat AdvancedFace bounded by PolyLoop outer + PolyLoop hole (how the analytic
+    flat faces + their cut-outs arrive) builds + tessellates on the active backend, with
+    the hole a real void. Regression for the adacpp encoder dropping PolyLoop bounds to an
+    empty edge list (build_advanced_face_planar wire-build failure)."""
+    from ada.cad import active_backend
+    from ada.geom import Geometry
+    from ada.geom.curves import PolyLoop
+    from ada.geom.placement import Axis2Placement3D
+    from ada.geom.points import Point
+    from ada.geom.surfaces import (
+        AdvancedFace,
+        FaceBound,
+        OpenShell,
+        Plane,
+        ShellBasedSurfaceModel,
+    )
+
+    outer = [(0, 0, 0), (3, 0, 0), (3, 3, 0), (0, 3, 0)]
+    hole = [(1, 1, 0), (1, 2, 0), (2, 2, 0), (2, 1, 0)]
+    plane = Plane(position=Axis2Placement3D(location=Point(0, 0, 0), axis=Direction(0, 0, 1)))
+    bounds = [
+        FaceBound(bound=PolyLoop(polygon=[Point(*p) for p in outer]), orientation=True),
+        FaceBound(bound=PolyLoop(polygon=[Point(*p) for p in hole]), orientation=True),
+    ]
+    face = AdvancedFace(bounds=bounds, face_surface=plane, same_sense=True)
+    shell = ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=[face])])
+
+    be = active_backend()
+    mesh = be.tessellate(be.build(Geometry(id="hole", geometry=shell, color=None, transforms=None)))
+    pos = np.asarray(mesh.positions, dtype=float).reshape(-1, 3)
+    assert pos.size, "planar face-with-hole produced no vertices (wire build failed)"
+    tri = next(getattr(mesh, a) for a in ("indices", "faces", "index") if getattr(mesh, a, None) is not None)
+    idx = np.asarray(tri).reshape(-1, 3)
+    cen = pos[idx].mean(axis=1)
+    in_hole = ((cen[:, 0] > 1.0) & (cen[:, 0] < 2.0) & (cen[:, 1] > 1.0) & (cen[:, 1] < 2.0)).sum()
+    assert in_hole == 0, f"{in_hole} triangles inside the hole — void not honoured"
+
+
+def test_circle_param_recovers_arc_angles():
+    """_circle_param recovers a point's angular parameter on a circle (from ref about axis) —
+    the math the adacpp encoder uses to turn a trim-less Circle arc into a real trimmed circle
+    instead of a chord."""
+    from ada.cad import _circle_param
+
+    loc, axis, ref = (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0)
+    assert abs(_circle_param((R, 0, 0), loc, axis, ref) - 0.0) < 1e-9
+    assert abs(_circle_param((0, R, 0), loc, axis, ref) - math.pi / 2) < 1e-9
+    assert abs(_circle_param((-R, 0, 0), loc, axis, ref) - math.pi) < 1e-9
+    # ref rotation shifts the origin: with ref=+y, the +y point is param 0
+    assert abs(_circle_param((0, R, 0), loc, axis, (0.0, 1.0, 0.0)) - 0.0) < 1e-9
+
 
 def test_runaway_triangles_dropped_from_tessellation():
     """The tessellation-level safety net: a triangle soup with vertices far outside

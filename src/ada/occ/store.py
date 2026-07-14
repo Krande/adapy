@@ -23,6 +23,35 @@ if TYPE_CHECKING:
     from ada.occ.step.writer import StepWriter
 
 
+def _apply_parent_placement(occ_geom, obj_, name_ref):
+    """Apply the object's parent-placement translation to a backend body — the same
+    final-handle transform the solid/shell paths apply (see safe_geom below). Returns
+    None (logged) on failure when general_occ_silent_fail is set."""
+    import numpy as np
+
+    from ada.cad import active_backend
+
+    position = obj_.parent.placement.to_axis2placement3d(use_absolute_placement=True)
+    try:
+        loc = position.location
+        mat = np.array(
+            [
+                [1.0, 0.0, 0.0, float(loc[0])],
+                [0.0, 1.0, 0.0, float(loc[1])],
+                [0.0, 0.0, 1.0, float(loc[2])],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        return active_backend().transform(occ_geom, mat, True)
+    except (RuntimeError, BaseException) as e:
+        exc = traceback.format_exc()
+        err_msg = f"Failed to transform geometry for {obj_.name} due to {e} from {name_ref} in {exc}"
+        if Config().general_occ_silent_fail:
+            logger.warning(err_msg)
+            return None
+        raise UnableToTransformOCCShape(err_msg)
+
+
 class OCCStore:
     @staticmethod
     def get_step_writer() -> StepWriter:
@@ -61,6 +90,24 @@ class OCCStore:
         def safe_geom(obj_, name_ref=None):
             geo_repr = render_override.get(obj_.guid, geom_repr)
             if geo_repr == GeomRepr.SOLID:
+                # A Shape carrying a bare curve geometry (sectionless SAT wire body, open
+                # wireframe) has no solid to build — export the wire itself rather than
+                # silently dropping the object (mirrors the tessellator's SOLID->LINE
+                # downgrade). STEP carries wires natively (GEOMETRIC_CURVE_SET).
+                from ada.geom.curves import CURVE_GEOM_TUPLE
+
+                _g = getattr(obj_, "geom", None)
+                if _g is not None and isinstance(getattr(_g, "geometry", None), CURVE_GEOM_TUPLE):
+                    try:
+                        from ada.occ.geom.curves import make_wire_from_curve
+
+                        occ_geom = make_wire_from_curve(_g.geometry)
+                    except (NotImplementedError, ImportError) as e:
+                        logger.warning(f"Skipping {getattr(obj_, 'name', obj_)!r} in STEP export: {e}")
+                        return None
+                    # fall through to the shared placement transform below
+                    occ_geom = _apply_parent_placement(occ_geom, obj_, name_ref)
+                    return occ_geom
                 try:
                     occ_geom = obj_.solid_occ()
                 except NotImplementedError as e:

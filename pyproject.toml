@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ada-py"
-version = "0.27.0"
+version = "0.28.0"
 license = "GPL-3.0-or-later"
 authors = [
     { name = "Kristoffer H. Andersen", email = "kristoffer_andersen@outlook.com" },
@@ -46,6 +46,7 @@ fea_artefact_bundle = "ada.fem.results.docs:register_paradoc_block_sugar"
 [project.urls]
 "Homepage" = "https://github.com/Krande/adapy"
 "Bug Tracker" = "https://github.com/Krande/adapy/issues"
+
 
 
 
@@ -130,6 +131,12 @@ skip_glob = ["**/node_modules/**", "**/temp/**", "**/_build/**"]
 asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    # REST tests whose assertions specifically exercise the adacpp NGEOM streaming tessellator
+    # (tessellate_stream). Run under the viewer-api-tests-adacpp env (`test-rest-adacpp`); they
+    # also pass under OCC via the object-path fallback in the plain viewer-api-tests leg.
+    "adacpp_stream: REST test exercising the adacpp streaming tessellation path",
+]
 # This is meant to stop and catch any unintended hangs
 timeout = 600
 timeout_method = "thread"

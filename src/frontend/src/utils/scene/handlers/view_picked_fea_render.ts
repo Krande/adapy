@@ -36,10 +36,16 @@ export async function view_picked_fea_render(
     const blob = new Blob([buf], {type: "model/gltf-binary"});
     const url = URL.createObjectURL(blob);
     try {
-        await replace_model(url);
+        const group = await replace_model(url);
         const ms = useModelState.getState();
         ms.setModelUrl(url, SceneOperations.REPLACE);
         ms.setLoadedSourceName(sourceName);
+        // Register the loaded group AFTER setLoadedSourceName (which clears
+        // loadedSourceGroups) so the FEA result mesh gets a working visibility
+        // toggle in the loaded-models list instead of a static "streaming" eye.
+        if (group && sourceName) {
+            ms.registerLoadedSource(sourceName, group);
+        }
     } catch (err) {
         URL.revokeObjectURL(url);
         throw err;

@@ -97,6 +97,13 @@ def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GE
         # Covers IfcBooleanClippingResult (a subtype). Returns a wrapped Geometry carrying
         # the cut(s) as bool_operations, not a raw geom — callers handle both (read_shapes).
         return boolean_result(geom_repr)
+    elif geom_repr.is_a("IfcCurve"):
+        # Curve-only body (Curve3D representation) — e.g. a SAT wire body round-tripped
+        # through write_shapes. IfcCurve is the supertype of every concrete curve entity;
+        # get_curve dispatches to the matching ada.geom curve.
+        from .curves import get_curve
+
+        return get_curve(geom_repr)
     else:
         raise NotImplementedError(f"Geometry type {geom_repr.is_a()} not implemented")
 

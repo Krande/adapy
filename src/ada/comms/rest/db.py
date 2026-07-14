@@ -1432,7 +1432,7 @@ async def list_audit_run_jobs(
         """
         SELECT id, ts, key, target_format, status, error,
                duration_ms, cpu_user_ms, cpu_sys_ms, peak_rss_kb,
-               read_bytes, write_bytes, job_id, worker_image_tag
+               read_bytes, write_bytes, job_id, worker_image_tag, convert_meta
         FROM audit_log
         WHERE audit_run_id = $1
         ORDER BY id ASC
@@ -1455,6 +1455,7 @@ async def list_audit_run_jobs(
             "write_bytes": r["write_bytes"],
             "job_id": r["job_id"],
             "worker_image_tag": r["worker_image_tag"],
+            "convert_meta": _loads_jsonb(r["convert_meta"]),
         }
         for r in rows
     ]

@@ -497,6 +497,103 @@ def _polygon_scale_2d(pts2d) -> float:
     return max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
 
 
+def _rdp_keep_mask(pts2d, tol: float):
+    """Ramer–Douglas–Peucker on an OPEN polyline (list of 2D pts). Returns a bool keep-mask
+    (endpoints always kept). Iterative (no recursion-depth limit on long boundaries)."""
+    import numpy as _np
+
+    n = len(pts2d)
+    keep = [False] * n
+    if n == 0:
+        return keep
+    keep[0] = keep[-1] = True
+    stack = [(0, n - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        a = pts2d[i]
+        b = pts2d[j]
+        abx, aby = b[0] - a[0], b[1] - a[1]
+        L = _np.hypot(abx, aby)
+        dmax, idx = -1.0, -1
+        for k in range(i + 1, j):
+            px, py = pts2d[k]
+            if L < 1e-12:
+                d = _np.hypot(px - a[0], py - a[1])
+            else:
+                d = abs(abx * (a[1] - py) - aby * (a[0] - px)) / L
+            if d > dmax:
+                dmax, idx = d, k
+        if dmax > tol and idx > i:
+            keep[idx] = True
+            stack.append((i, idx))
+            stack.append((idx, j))
+    return keep
+
+
+def simplify_closed_polygon(points3d, rel_tol: float = 0.01, max_area_change: float = 0.02):
+    """Douglas–Peucker simplification of a CLOSED planar polygon. Collapses zigzag/staircase
+    runs (a merged flat plate's boundary traced facet-by-facet) down to their essential corners
+    — a rectangle becomes 4 points — while preserving real corners within ``rel_tol`` × the
+    polygon's 2D scale. Keeps the original 3D coords of retained vertices (no reprojection drift).
+    """
+    import numpy as _np
+
+    pts = list(points3d)
+    if len(pts) < 4:
+        return pts
+    try:
+        p2, _ = project_points_to_local_2d(pts)
+    except Exception:
+        return pts
+    p2 = _np.asarray(p2)
+
+    def _area(poly2d):
+        m = len(poly2d)
+        s = 0.0
+        for i in range(m):
+            x1, y1 = poly2d[i]
+            x2, y2 = poly2d[(i + 1) % m]
+            s += x1 * y2 - x2 * y1
+        return abs(s) * 0.5
+
+    tol = rel_tol * _polygon_scale_2d(p2)
+    if tol <= 0:
+        return pts
+    n = len(p2)
+    # Split the closed loop at two hull-extreme vertices (min-x, max-x) — always real corners, so
+    # RDP never anchors mid-edge and drops a genuine corner. Then RDP each open chain.
+    i0 = int(p2[:, 0].argmin())
+    i1 = int(p2[:, 0].argmax())
+    if i0 == i1:
+        i1 = int(p2[:, 1].argmax())
+    if i0 == i1:
+        return pts
+    a, b = (i0, i1) if i0 < i1 else (i1, i0)
+    idx_a = list(range(a, b + 1))
+    idx_b = list(range(b, n)) + list(range(0, a + 1))
+    ka = _rdp_keep_mask([p2[t] for t in idx_a], tol)
+    kb = _rdp_keep_mask([p2[t] for t in idx_b], tol)
+    keep = [False] * n
+    for t, gi in enumerate(idx_a):
+        if ka[t]:
+            keep[gi] = True
+    for t, gi in enumerate(idx_b):
+        if kb[t]:
+            keep[gi] = True
+    out_idx = [i for i in range(n) if keep[i]]
+    if len(out_idx) < 3:
+        return pts
+    # Guard: reject a simplification that moved the area appreciably (a self-intersection or a
+    # collapsed real corner) — keep the faithful boundary rather than a distorted one.
+    a0 = _area(p2)
+    a1 = _area(p2[out_idx])
+    if a0 > 1e-12 and abs(a1 - a0) / a0 > max_area_change:
+        return pts
+    return [pts[i] for i in out_idx]
+
+
 def remove_near_collinear_points(points3d, tol_factor: float = 1e-8):
     """Drop vertices of a closed planar polygon that are (near-)collinear with their neighbors.
 
@@ -552,6 +649,277 @@ def has_reflex_vertex(pts2d, tol: float = 1e-9) -> bool:
         if cross * orientation < -tol:
             return True
     return False
+
+
+def boundary_cycles_3d(facet_loops, ndigits: int = 9):
+    """Oriented boundary loops of a set of facet loops as raw 3D point rings — the
+    surface-agnostic core of :func:`extract_boundary_loops` (no planar projection), for
+    boundaries that live on a curved surface (e.g. a cylinder's two end cuts). Facets are
+    oriented consistently (BFS flip over shared edges); the net directed boundary is traced
+    into cycles. Returns ``list[list[point3d]]`` or None on a non-manifold pinch (degree>2).
+    """
+    from collections import defaultdict, deque
+
+    def _rnd(p):
+        return (round(float(p[0]), ndigits), round(float(p[1]), ndigits), round(float(p[2]), ndigits))
+
+    facets: list = []
+    prep: dict = {}
+    for pts in facet_loops:
+        pts = list(pts)
+        if len(pts) >= 2 and _rnd(pts[0]) == _rnd(pts[-1]):
+            pts = pts[:-1]
+        if len(pts) < 3:
+            continue
+        ring = [_rnd(p) for p in pts]
+        for p, k in zip(pts, ring):
+            prep.setdefault(k, p)
+        facets.append(ring)
+    if not facets:
+        return None
+
+    owners: dict = defaultdict(list)
+    for fi, f in enumerate(facets):
+        m = len(f)
+        for i in range(m):
+            a, b = f[i], f[(i + 1) % m]
+            owners[(a, b) if a <= b else (b, a)].append((fi, a, b))
+    adj: dict = defaultdict(list)
+    for lst in owners.values():
+        if len(lst) == 2:
+            (f0, a0, b0), (f1, a1, b1) = lst
+            adj[f0].append((f1, (a0, b0) == (a1, b1)))
+            adj[f1].append((f0, (a0, b0) == (a1, b1)))
+    flip: list = [None] * len(facets)
+    for s in range(len(facets)):
+        if flip[s] is not None:
+            continue
+        flip[s] = False
+        q = deque([s])
+        while q:
+            c = q.popleft()
+            for nb, same in adj[c]:
+                if flip[nb] is None:
+                    flip[nb] = flip[c] ^ same
+                    q.append(nb)
+
+    dc: dict = defaultdict(int)
+    for fi, f in enumerate(facets):
+        ring = f[::-1] if flip[fi] else f
+        m = len(ring)
+        for i in range(m):
+            dc[(ring[i], ring[(i + 1) % m])] += 1
+    out_star: dict = defaultdict(list)
+    total = 0
+    for (a, b), c in dc.items():
+        for _ in range(max(0, c - dc.get((b, a), 0))):
+            out_star[a].append(b)
+            total += 1
+    if total < 3:
+        return None
+
+    cycles: list = []
+    for sa in list(out_star):
+        while out_star[sa]:
+            loop = [sa]
+            cur = out_star[sa].pop()
+            guard = 0
+            while cur != sa:
+                loop.append(cur)
+                nxt = out_star.get(cur)
+                if not nxt or len(nxt) > 1:  # dangling or pinch (degree>2) — caller falls back
+                    return None
+                cur = nxt.pop()
+                guard += 1
+                if guard > total + 5:
+                    return None
+            cycles.append([prep[k] for k in loop])
+    return cycles or None
+
+
+def extract_boundary_loops(facet_loops, ndigits: int = 9):
+    """Robust boundary of a set of (near-)coplanar facet loops → a list of faces
+    ``[(outer, holes), ...]`` (each ``outer`` a CCW loop of 3D points, ``holes`` its CW
+    inner loops), or None if it can't be resolved.
+
+    Unlike :func:`merge_coplanar_loops_by_edge_cancellation` (single clean loop or None)
+    this recovers cut-outs (→ faces with voids) AND non-manifold pinches: facets are
+    oriented consistently (BFS flip over shared edges) so interior edges cancel and the
+    net directed boundary forms the region's oriented cycles; at a pinch vertex (degree>2)
+    the next edge is chosen by angle (hug the interior-on-left boundary), splitting the
+    region into its separate simple loops. Positive-area loops are outer boundaries (a
+    pinched region yields several), negative-area loops are holes, each assigned to its
+    smallest containing outer.
+    """
+    import math
+
+    import numpy as np
+
+    def _rnd(p):
+        return (round(float(p[0]), ndigits), round(float(p[1]), ndigits), round(float(p[2]), ndigits))
+
+    facets: list = []
+    prep: dict = {}
+    for pts in facet_loops:
+        pts = list(pts)
+        if len(pts) >= 2 and _rnd(pts[0]) == _rnd(pts[-1]):
+            pts = pts[:-1]
+        if len(pts) < 3:
+            continue
+        ring = [_rnd(p) for p in pts]
+        for p, k in zip(pts, ring):
+            prep.setdefault(k, p)
+        facets.append(ring)
+    if not facets:
+        return None
+
+    # ── 1. orient facets consistently (material on a common side) ──
+    from collections import defaultdict, deque
+
+    owners: dict = defaultdict(list)  # undirected edge -> [(facet_idx, a, b), ...]
+    for fi, f in enumerate(facets):
+        m = len(f)
+        for i in range(m):
+            a, b = f[i], f[(i + 1) % m]
+            owners[(a, b) if a <= b else (b, a)].append((fi, a, b))
+    adj: dict = defaultdict(list)
+    for lst in owners.values():
+        if len(lst) == 2:  # a manifold interior edge shared by two facets
+            (f0, a0, b0), (f1, a1, b1) = lst
+            same = (a0, b0) == (a1, b1)  # same direction in both rings => inconsistent winding
+            adj[f0].append((f1, same))
+            adj[f1].append((f0, same))
+    flip: list = [None] * len(facets)
+    for s in range(len(facets)):
+        if flip[s] is not None:
+            continue
+        flip[s] = False
+        q = deque([s])
+        while q:
+            c = q.popleft()
+            for nb, same in adj[c]:
+                want = flip[c] ^ same  # flip neighbour iff it traverses the shared edge the same way
+                if flip[nb] is None:
+                    flip[nb] = want
+                    q.append(nb)
+
+    # ── 2. net directed boundary edges (interior cancels) ──
+    dc: dict = defaultdict(int)
+    for fi, f in enumerate(facets):
+        ring = f[::-1] if flip[fi] else f
+        m = len(ring)
+        for i in range(m):
+            dc[(ring[i], ring[(i + 1) % m])] += 1
+    out_star: dict = defaultdict(list)
+    n_boundary = 0
+    for (a, b), c in dc.items():
+        net = c - dc.get((b, a), 0)
+        for _ in range(max(0, net)):
+            out_star[a].append(b)
+            n_boundary += 1
+    if n_boundary < 3:
+        return None
+
+    # ── 3. plane frame (for angular tie-breaks + signed area) ──
+    keys = list({k for ws in out_star.values() for k in ws} | set(out_star))
+    Pk = np.array([prep[k] for k in keys])
+    ctr = Pk.mean(axis=0)
+    _, _, vt = np.linalg.svd(Pk - ctr, full_matrices=False)
+    e1, e2 = vt[0], vt[1]
+    xy = {k: (float((np.array(prep[k]) - ctr) @ e1), float((np.array(prep[k]) - ctr) @ e2)) for k in keys}
+    two_pi = 2.0 * math.pi
+
+    def _ang(a, b):
+        return math.atan2(xy[b][1] - xy[a][1], xy[b][0] - xy[a][0])
+
+    # ── 4. trace oriented cycles; at a pinch pick the interior-on-left next edge ──
+    out_map: dict = {v: list(ws) for v, ws in out_star.items()}
+    avail: dict = defaultdict(int)
+    for v, ws in out_map.items():
+        for w in ws:
+            avail[(v, w)] += 1
+    loops_keys: list = []
+    for sa in list(out_map):
+        for sb in list(out_map[sa]):
+            while avail[(sa, sb)] > 0:
+                avail[(sa, sb)] -= 1
+                loop = [sa]
+                prev, cur = sa, sb
+                guard = 0
+                while cur != sa:
+                    loop.append(cur)
+                    cands = [w for w in out_map.get(cur, ()) if avail[(cur, w)] > 0]
+                    if not cands:
+                        return None
+                    if len(cands) == 1:
+                        w = cands[0]
+                    else:  # pinch: hug the interior-on-left boundary — largest CCW turn from
+                        # the reverse edge (sharpest right turn in traversal), never the U-turn back.
+                        a_rev = _ang(cur, prev)
+                        w = max(cands, key=lambda x: (_ang(cur, x) - a_rev) % two_pi)
+                    avail[(cur, w)] -= 1
+                    prev, cur = cur, w
+                    guard += 1
+                    if guard > n_boundary + 5:
+                        return None
+                loops_keys.append(loop)
+    if not loops_keys:
+        return None
+
+    # ── 5. classify: +area = outer boundary, -area = hole; assign holes to containers ──
+    def _signed_area(lp):
+        s = 0.0
+        for i in range(len(lp)):
+            x1, y1 = xy[lp[i]]
+            x2, y2 = xy[lp[(i + 1) % len(lp)]]
+            s += x1 * y2 - x2 * y1
+        return 0.5 * s
+
+    def _centroid(lp):
+        xs = [xy[k][0] for k in lp]
+        ys = [xy[k][1] for k in lp]
+        return sum(xs) / len(xs), sum(ys) / len(ys)
+
+    def _contains(lp, pt):  # ray-cast point-in-polygon in the plane
+        px, py = pt
+        inside = False
+        n = len(lp)
+        for i in range(n):
+            x1, y1 = xy[lp[i]]
+            x2, y2 = xy[lp[(i + 1) % n]]
+            if (y1 > py) != (y2 > py) and px < (x2 - x1) * (py - y1) / (y2 - y1 + 1e-30) + x1:
+                inside = not inside
+        return inside
+
+    scored: list = []  # (signed_area, loop_keys, pts3)
+    for lp in loops_keys:
+        pts3 = remove_near_collinear_points([prep[k] for k in lp])
+        if len(pts3) < 3:
+            continue
+        scored.append((_signed_area(lp), lp, pts3))
+    if not scored:
+        return None
+    # The plane frame's handedness (SVD e1×e2 sign) is arbitrary, so "positive area" is not
+    # reliably the outer — for ~half the patches every loop comes out negative. Anchor the
+    # global orientation on the largest-|area| loop (always an outer boundary): flip all signs
+    # so it reads positive, then +area = outer, -area = hole. Without this, a whole flat patch
+    # whose outer happened to trace CW returned None and shattered to per-facet.
+    if max(scored, key=lambda s: abs(s[0]))[0] < 0:
+        scored = [(-a, lp, p) for (a, lp, p) in scored]
+    outers: list = [(abs(a), lp, p) for (a, lp, p) in scored if a > 0]
+    holes: list = [(abs(a), lp, p) for (a, lp, p) in scored if a < 0]
+    if not outers:
+        return None
+    faces = [(pts3, []) for (_a, _lp, pts3) in outers]
+    for _ha, hlp, hp in holes:
+        hc = _centroid(hlp)
+        best = None
+        for oi, (oa, olp, _op) in enumerate(outers):
+            if _contains(olp, hc) and (best is None or oa < outers[best][0]):
+                best = oi
+        if best is not None:
+            faces[best][1].append(hp)
+    return faces
 
 
 def merge_coplanar_loops_by_edge_cancellation(loops, ndigits: int = 9):

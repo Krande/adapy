@@ -85,6 +85,7 @@ _EXTRUDED_AREA_SOLID = 50
 _REVOLVED_AREA_SOLID = 51
 _BOOLEAN_RESULT = 52
 _SPHERE_SOLID = 53
+_FIXED_REF_SWEPT_SOLID = 54
 _EDGE_CURVE = 60
 _ORIENTED_EDGE = 61
 _EDGE_LOOP = 62
@@ -494,6 +495,26 @@ class _Encoder:
         )
         return self._add(_REVOLVED_AREA_SOLID, body)
 
+    def fixed_reference_swept_area_solid(self, frs) -> int:
+        """FixedReferenceSweptAreaSolid (IFC4x3 alignment sweep) -> profile FACE + a precomputed
+        field of per-station frames (origin, dir_x, dir_y). The analytic directrix (line/clothoid/
+        arc + vertical gradient + fixed-reference frame) is evaluated here; adacpp's tessellate_sweep
+        rings + caps the frames via libtess2 (no OCC)."""
+        from ada.cadit.ngeom._alignment_sweep import directrix_frames
+
+        face = self._profile_face(frs.swept_area)
+        origins, dir_x, dir_y = directrix_frames(frs)
+        n = len(origins)
+        body = (
+            self.i32(face)
+            + self.i32(self.placement3(frs.position))
+            + self.i32(n)
+            + self._f64_raw(origins.ravel())
+            + self._f64_raw(dir_x.ravel())
+            + self._f64_raw(dir_y.ravel())
+        )
+        return self._add(_FIXED_REF_SWEPT_SOLID, body)
+
     def _xz_planar_face(self, pts3d) -> int:
         """Planar FACE_SURFACE in the local XZ plane (y=0; normal=+Y, ref=+X)."""
         place = self._add(_PLACEMENT3, self.v3((0.0, 0.0, 0.0)) + self.v3((0.0, 1.0, 0.0)) + self.v3((1.0, 0.0, 0.0)))
@@ -644,6 +665,8 @@ class _Encoder:
             return self.extruded_area_solid(geom)
         if isinstance(geom, _so.RevolvedAreaSolid):
             return self.revolved_area_solid(geom)
+        if isinstance(geom, _so.FixedReferenceSweptAreaSolid):
+            return self.fixed_reference_swept_area_solid(geom)
         if isinstance(geom, _so.Box):
             return self.box_solid(geom)
         if isinstance(geom, _so.Cylinder):

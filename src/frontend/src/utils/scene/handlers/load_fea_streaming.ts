@@ -1775,7 +1775,7 @@ export async function load_fea_streaming(args: {
         // valid after replace_model resolves.
         let feaRoot: THREE.Object3D | null = null;
         try {
-            await replace_model(url, async (gltf_scene) => {
+            const feaGroup = await replace_model(url, async (gltf_scene) => {
                 feaRoot = gltf_scene;
                 if (afemEntries.length > 0) {
                     installAfemUserData(gltf_scene, afemEntries);
@@ -1784,6 +1784,14 @@ export async function load_fea_streaming(args: {
             const ms = useModelState.getState();
             ms.setModelUrl(url, SceneOperations.REPLACE);
             ms.setLoadedSourceName(sourceName);
+            // Register the loaded group AFTER setLoadedSourceName (which clears
+            // loadedSourceGroups) so the FEA result mesh gets a working visibility
+            // toggle in the loaded-models list (hide it to inspect a sibling CAD
+            // overlay). fem_concepts glyphs live as separate scene children, so
+            // this only gates the result mesh — exactly what we want.
+            if (feaGroup && sourceName) {
+                ms.registerLoadedSource(sourceName, feaGroup);
+            }
             // Register CAD↔FEA lineage from the manifest. Mirrors the
             // glTF-extension registration that setupModelLoader does
             // for CAD GLBs — once a sibling CAD overlay carrying the
