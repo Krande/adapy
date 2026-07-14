@@ -82,3 +82,19 @@ body {
     box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.3);
     outline: 1px solid rgb(17, 17, 17);
 }
+
+/* Genie "UfTot" discrete UF bands (no fade) over a 0..1.2 bar: thresholds at
+   0.2/0.4/0.6/0.8/1.0 -> 16.67/33.33/50/66.67/83.33%. Matches
+   .local/reference/genie_uf_color_scheme/genie_uf_color_scheme.png and the
+   3D overlay's capacityUfColor. */
+.capacity-uf-gradient {
+    background: linear-gradient(
+        90deg,
+        #00beff 0%, #00beff 16.6667%,
+        #00ffff 16.6667%, #00ffff 33.3333%,
+        #007f00 33.3333%, #007f00 50%,
+        #ffff00 50%, #ffff00 66.6667%,
+        #ffa400 66.6667%, #ffa400 83.3333%,
+        #ff0000 83.3333%, #ff0000 100%
+    );
+}

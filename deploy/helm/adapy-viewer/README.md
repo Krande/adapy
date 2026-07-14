@@ -1,4 +1,4 @@
-# adapy-viewer Helm chart
+    # adapy-viewer Helm chart
 
 Deploys the hosted ada-py viewer: a single-pod web app that loads
 3D model files (FEA, CAD, GLB) from S3-compatible storage and renders
@@ -58,6 +58,53 @@ helm install viewer ./deploy/helm/adapy-viewer \
   --set storage.kind=local \
   --set storage.local.existingClaim=my-pvc
 ```
+
+## DNV-RP-C201 Capacity Result Sidecars
+
+The viewer can visualize DNV-RP-C201 capacity results for SIN-derived FEA
+models when a capacity sidecar is available. The normal SIN bake still provides
+the geometry and FE result fields; the sidecar adds capacity model membership,
+usage factors, check details, and per-element visual fields.
+
+Preferred colocated artefacts:
+
+```text
+model.SIN
+_derived/model.SIN.fea/fea.manifest.json
+_derived/model.SIN.fea/capacity.results.json
+```
+
+The manifest may also advertise a sidecar explicitly:
+
+```json
+{
+  "capacity": {
+    "version": 1,
+    "results_url": "capacity.results.json",
+    "default_run_id": "run-001",
+    "field_strategy": "json"
+  }
+}
+```
+
+If the manifest has no `capacity` section, the frontend tries these fallback
+locations:
+
+- `_derived/<source>.fea/capacity.results.json`
+- `<source-stem>.c201.json`
+- `<source-stem>.capacity.json`
+- `capacity.results.json` next to the source
+
+Generate the sidecar from the DNV-RP-C201 package:
+
+```bash
+run-codecheck --sin model.SIN --group Mini_area_dbl_btm --export-viewer out/
+```
+
+When the sidecar is found, the Capacity panel appears in the simulation
+controls. It supports Definition and Results modes, result-case and metric
+selection, failed-only filtering, usage-factor coloring, capacity boundary
+outlines, and element-pick to capacity-model selection.
 
 ## Ingress
 

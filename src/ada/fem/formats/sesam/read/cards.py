@@ -66,6 +66,17 @@ SEC_MAP = {
         BaseTypes.TUBULAR,
         (("dy", "r"), ("t", "wt")),
     ),
+    "GLSEC": (
+        BaseTypes.ANGULAR,
+        (
+            ("hz", "h"),
+            ("ty", "t_w"),
+            ("by", "w_top"),
+            ("tz", "t_ftop"),
+            ("by", "w_btn"),
+            ("tz", "t_fbtn"),
+        ),
+    ),
 }
 MAT_MAP = {
     "MISOSEL": (
@@ -146,6 +157,7 @@ re_gbeamg = get_ff_regex(
 GIORH = DataCard("GIORH", ("geono", "hz", "ty", "bt", "tt", "bb", "tb", "sfy", "sfz", "NLOBYT|", "NLOBYB|", "NLOBZ|"))
 GBOX = DataCard("GBOX", ("geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz"))
 GPIPE = DataCard("GPIPE", ("geono", "di", "dy", "t", "sfy", "sfz"))
+GLSEC = DataCard("GLSEC", ("geono", "hz", "ty", "by", "tz", "sfy", "sfz", "NLOBY|", "NLOBZ|"))
 # Generic beam properties — area + moments of inertia only, no
 # profile geometry. The streaming bake uses these to synthesise a
 # tubular approximation for elements that reference a sec_id with
@@ -263,6 +275,10 @@ re_rvnodrea = get_ff_regex(
     "RVNODREA", "nfield", "ires", "inod", "irrea|", "irboc|", "itrans|", "F1|", "F2|", "F3|", "F4|", "F5|", "F6|"
 )
 
+# Result-case combination definitions. ``bulk`` is ``nres`` triplets of
+# ``(component IRES, real factor, imag factor)`` — the combined result IRES
+# (``ires``) is a *factored superposition* of the listed basic result cases.
+RDRESCMB = DataCard("RDRESCMB", ["nfield", "ires", "complx", "nres", "bulk"])
 re_rdrescmb = get_ff_regex("RDRESCMB", "nfield", "ires", "complx", "nres", "bulk")
 
 TDRESREF = DataCard("TDRESREF", ("nfield", "ires", "codnam", "codtxt", "name"))

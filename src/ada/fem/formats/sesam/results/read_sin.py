@@ -39,7 +39,7 @@ _OTHER_CARDS = (
     cards.TDRESREF,
     cards.GBEAMG,
 )
-_SECTION_CARDS = (cards.GIORH, cards.GBOX, cards.GPIPE)
+_SECTION_CARDS = (cards.GIORH, cards.GBOX, cards.GPIPE, cards.GLSEC)
 _RESULT_CARDS = (
     cards.RVNODDIS,
     cards.RVSTRESS,
@@ -59,7 +59,7 @@ _RESULT_CARDS = (
 _TEXT_CARDS = {"TDSECT", "TDSETNAM", "TDMATER", "TDRESREF"}
 
 
-def _records_for(sin: SinFile, card, *, step: int | None = None) -> list[list]:
+def _records_for(sin: SinFile, card, *, step: int | None = None, elements: set[int] | None = None) -> list[list]:
     """Pull every record of one type into the SifReader-compatible
     list shape.
 
@@ -93,8 +93,12 @@ def _records_for(sin: SinFile, card, *, step: int | None = None) -> list[list]:
     # Only RV* records carry IRES in their first data word — apply the
     # step filter just there.
     rec_filter = step if (step is not None and type_name in _RV_TYPE_NAMES) else None
+    # ``elements`` narrows RVFORCES to the records whose IELNO (second data
+    # word) the caller needs — the capacity resolve only reads line forces for
+    # stiffener beam elements, a tiny subset of the model.
+    elem_filter = elements if type_name == cards.RVFORCES.name else None
     out_num: list[list] = []
-    for rec in sin.iter_records(type_name, where_first_word=rec_filter):
+    for rec in sin.iter_records(type_name, where_first_word=rec_filter, where_second_word=elem_filter):
         # NFIELD is len(rec) + 1 (the count includes itself); +1 for
         # the implicit prefix word that SIN stores but iter_records
         # strips.
@@ -249,7 +253,8 @@ class SinReader(SifReader):
             sh[0, : len(super_header)] = super_header
             rows = np.vstack((sh, arr)) if arr.shape[0] else sh
         else:
-            rows = _records_for(self.sin, card, step=step)
+            elements = getattr(self, "_forces_elements", None) if card.name == cards.RVFORCES.name else None
+            rows = _records_for(self.sin, card, step=step, elements=elements)
             rows = [super_header, *rows]
         # The card's record bytes are now copied into ``rows`` — drop the
         # mmap pages so the next (often equally large) RV* table doesn't
@@ -272,12 +277,27 @@ class SinMetadata:
     ``"RVSTRESS"``, ``"RVFORCES"``) — the GLB/picker layer maps them
     to display names. Values are sorted unique IRES (step / result-
     reference id) values seen in that type's records.
+
+    ``combinations`` maps a combination result IRES → ``{basic IRES:
+    factor}`` (read from RDRESCMB); ``result_names`` maps any result
+    IRES → its label (from TDRESREF). A combination IRES may *or may
+    not* also appear in ``field_steps`` — SESTRA "smart load
+    combinations" usually store only the basic cases, so combination
+    results must be reconstructed by superposing the basic fields.
     """
 
     types: list[str]
     node_count: int
     element_count: int
     field_steps: dict[str, list[int]]
+    combinations: dict[int, dict[int, float]] = None
+    result_names: dict[int, str] = None
+
+    def __post_init__(self) -> None:
+        if self.combinations is None:
+            self.combinations = {}
+        if self.result_names is None:
+            self.result_names = {}
 
     @property
     def steps(self) -> list[int]:
@@ -290,6 +310,62 @@ class SinMetadata:
     @property
     def fields(self) -> list[str]:
         return list(self.field_steps.keys())
+
+    @property
+    def combination_ids(self) -> list[int]:
+        """All defined combination result IRES, sorted."""
+        return sorted(self.combinations)
+
+    @property
+    def selectable_cases(self) -> list[int]:
+        """Every result case a check can request: basic RV* steps plus any
+        defined combinations (which superpose those basic steps)."""
+        return sorted(set(self.steps) | set(self.combinations))
+
+
+def read_result_combinations(sin: SinFile) -> dict[int, dict[int, float]]:
+    """Read result-case combination definitions from a SIN.
+
+    Returns ``{combination IRES: {basic IRES: factor}}``. Each RDRESCMB
+    record is ``[ires, complx, nres, *triplets]`` where ``triplets`` is
+    ``nres`` groups of ``(component IRES, real factor, imag factor)``. The
+    imaginary factor is ignored (real-valued static combinations); zero
+    factors are dropped (the basic case contributes nothing and need not be
+    read). Component IRES reference basic result cases whose first RV* data
+    word (``ires``) equals them, so they double as the streaming step id.
+    """
+    if "RDRESCMB" not in sin.type_blocks:
+        return {}
+    out: dict[int, dict[int, float]] = {}
+    for rec in sin.iter_records("RDRESCMB"):
+        if len(rec) < 3:
+            continue
+        ires = int(round(rec[0]))
+        nres = int(round(rec[2]))
+        triplets = rec[3:]
+        comps: dict[int, float] = {}
+        for i in range(nres):
+            base = 3 * i
+            if base + 1 >= len(triplets):
+                break
+            basic = int(round(triplets[base]))
+            factor = float(triplets[base + 1])
+            if factor != 0.0:
+                comps[basic] = comps.get(basic, 0.0) + factor
+        out[ires] = comps
+    return out
+
+
+def read_result_names(sin: SinFile) -> dict[int, str]:
+    """Map result IRES → label from the SIN's TDRESREF text records."""
+    if "TDRESREF" not in sin.type_blocks:
+        return {}
+    out: dict[int, str] = {}
+    for prefix, text in sin.iter_text_records("TDRESREF"):
+        if not prefix or not text:
+            continue
+        out[int(round(prefix[0]))] = text
+    return out
 
 
 _RV_TYPE_NAMES = ("RVNODDIS", "RVSTRESS", "RVFORCES")
@@ -336,6 +412,8 @@ def read_sin_metadata(sin_file: str | pathlib.Path) -> SinMetadata:
             node_count=node_count,
             element_count=element_count,
             field_steps=field_steps,
+            combinations=read_result_combinations(sin),
+            result_names=read_result_names(sin),
         )
     finally:
         sin.close()
@@ -370,6 +448,27 @@ def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "
     return s2m.convert(name_path)
 
 
+def iter_sin_step_results(sin_file: str | pathlib.Path, steps, *, forces_elements: set[int] | None = None):
+    """Yield ``(step, FEAResult)`` reading the SIN once and reusing the mesh.
+
+    On large multi-step SINs this is dramatically faster than calling
+    :func:`read_sin_file` per step: the file is opened and its type blocks
+    decoded **once**, the step-invariant static blocks and the mesh are read
+    **once**, and only each step's RV* tables are re-read. Each yielded
+    ``FEAResult`` shares the same cached :class:`~ada.fem.results.common.Mesh`
+    instance. No LIS/MLG enrichment (not needed for value extraction).
+
+    ``forces_elements``: when given, the per-step RVFORCES decode is narrowed to
+    these element ids (IELNO). The capacity resolve only reads line forces for
+    stiffener beam elements, so this skips decoding the whole model's forces
+    every step. Leave ``None`` (the bake / full-materialise paths) to read all.
+    """
+    sin = open_sin(sin_file)
+    with SinStreamReader(sin, forces_elements=forces_elements) as reader:
+        for step in steps:
+            yield int(step), reader._load_step(int(step))
+
+
 class SinStreamReader:
     """Memory-bounded ``FEAStreamReader`` for Sesam SIN.
 
@@ -391,7 +490,7 @@ class SinStreamReader:
     Accepts a :class:`SinFile` or any ``ByteSource`` (wrapped into one).
     """
 
-    def __init__(self, source) -> None:
+    def __init__(self, source, *, forces_elements: set[int] | None = None) -> None:
         from ada.fem.formats.sesam.results.sin_reader import SinFile
 
         self.sin = source if isinstance(source, SinFile) else SinFile(source=source)
@@ -399,6 +498,8 @@ class SinStreamReader:
         self._rep = None  # FEAResultStreamAdapter over the first step (geometry/specs/beams)
         self._mesh = None  # step-invariant Mesh, built once and reused across steps
         self._reader = None  # one SinReader; static blocks read once, RV* re-read per step
+        # Optional RVFORCES element-id narrowing for the capacity resolve path.
+        self._forces_elements = set(forces_elements) if forces_elements is not None else None
 
     # ── lifecycle ─────────────────────────────────────────────────────
     def close(self) -> None:
@@ -441,6 +542,7 @@ class SinStreamReader:
         # RDPOINTS blocks once, then only re-read this step's RV* tables.
         if self._reader is None:
             self._reader = SinReader(sin=self.sin)
+            self._reader._forces_elements = self._forces_elements
             self._reader._load_static()
         reader = self._reader
         reader.load_step(int(step), cards=cards)
@@ -555,4 +657,12 @@ class SinStreamReader:
         return None
 
 
-__all__ = ["SinMetadata", "SinReader", "SinStreamReader", "read_sin_file", "read_sin_metadata"]
+__all__ = [
+    "SinMetadata",
+    "SinReader",
+    "SinStreamReader",
+    "read_result_combinations",
+    "read_result_names",
+    "read_sin_file",
+    "read_sin_metadata",
+]

@@ -1,0 +1,1231 @@
+"""Panel-group *grouping* sources.
+
+A capacity model is a panel group = a set of plate elements bound by a set of
+stiffener (beam) elements. Genie's Capacity Manager identifies these groups from
+the concept model and mesh. ``SinSource`` uses the SIN concept records when
+available and falls back to mesh/profile geometry when they are not; the source
+stays pluggable behind the :class:`PanelGroupSource` interface.
+
+``ModelJsonSource`` reads the element-id grouping from a Genie ``model.json``.
+It remains useful as an oracle source for validating the SIN-native path against
+the matched reference dataset.
+"""
+
+from __future__ import annotations
+
+import itertools
+import json
+import pathlib
+import re
+from abc import ABC, abstractmethod
+from collections import defaultdict
+from dataclasses import dataclass, field
+
+import numpy as np
+
+from ada.config import logger
+from ada.fem.capacity.model import CapSection
+
+
+@dataclass(frozen=True)
+class PlateSpec:
+    name: str
+    element_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class StiffenerSpec:
+    name: str
+    element_ids: tuple[int, ...]
+    continuous: bool = True
+    # Section params the SIN reader cannot recover for bulb flats. ``None`` means
+    # "derive from the SIN section" (works for I/box profiles adapy parses).
+    section: CapSection | None = None
+    eccentricity: float | None = None
+
+
+@dataclass(frozen=True)
+class PanelGroupSpec:
+    """A panel group's membership: which plate/stiffener elements belong to it."""
+
+    name: str
+    plates: tuple[PlateSpec, ...] = ()
+    stiffeners: tuple[StiffenerSpec, ...] = ()
+
+
+class PanelGroupSource(ABC):
+    """Yields the panel-group membership for a model.
+
+    ``mesh`` is the SIN :class:`~ada.fem.results.common.Mesh`; a source may use it
+    (e.g. :class:`SinSource`) or ignore it (e.g. :class:`ModelJsonSource`).
+    """
+
+    @abstractmethod
+    def groups(self, mesh, aux=None) -> list[PanelGroupSpec]:  # pragma: no cover - interface
+        ...
+
+
+# --------------------------------------------------------------------------- #
+# Genie model.json grouping source (milestone 1)
+# --------------------------------------------------------------------------- #
+_DBL = -1.7976931348623157e308  # Genie's "unset" sentinel for section params
+
+
+def _section_from_genie(sec: dict) -> CapSection:
+    params = sec.get("SectionParameters", {})
+
+    def _val(key: str) -> float:
+        v = params.get(key, 0.0)
+        return 0.0 if (v is None or v <= _DBL) else float(v)
+
+    return CapSection(
+        name=sec.get("SectionName", ""),
+        section_type=int(sec.get("SectionType", -1)),
+        height=_val("Height"),
+        web_thickness=_val("WebThickness"),
+        flange_width=_val("FlangeWidth"),
+        flange_thickness=_val("FlangeThickness"),
+    )
+
+
+# Genie criterion-id → continuous?
+_CONTINUOUS_BY_SUPPORT = {0: True, 1: False}
+
+
+@dataclass
+class ModelJsonSource(PanelGroupSource):
+    """Read panel-group membership from a Genie ``model.json``."""
+
+    model_json: str | pathlib.Path
+    _data: dict = field(default_factory=dict, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._data = json.loads(pathlib.Path(self.model_json).read_text(encoding="utf-8"))
+
+    def groups(self, mesh=None, aux=None) -> list[PanelGroupSpec]:
+        out: list[PanelGroupSpec] = []
+        for bm in self._data.get("BucklingModels", []):
+            plates = tuple(
+                PlateSpec(
+                    name=p.get("Name", ""),
+                    element_ids=tuple(int(e) for e in p.get("FiniteElements", [])),
+                )
+                for p in bm.get("Plates", [])
+            )
+            stiffeners = tuple(
+                StiffenerSpec(
+                    name=s.get("Name", ""),
+                    element_ids=tuple(int(e) for e in s.get("FiniteElements", [])),
+                    continuous=self._is_continuous(s),
+                    section=_section_from_genie((s.get("Sections") or [{}])[0]),
+                )
+                for s in bm.get("Stiffeners", [])
+            )
+            out.append(PanelGroupSpec(name=bm.get("Name", ""), plates=plates, stiffeners=stiffeners))
+        return out
+
+    @staticmethod
+    def _is_continuous(stiffener: dict) -> bool:
+        # A stiffener supported at both ends is treated as simply supported
+        # ([6.10.1]); otherwise continuous ([6.10.2]). Genie encodes support at
+        # each cross-section; default to continuous when unknown.
+        s1 = int(stiffener.get("SupportAtFirstCrossSection", 0) or 0)
+        s2 = int(stiffener.get("SupportAtSecondCrossSection", 0) or 0)
+        return not (s1 and s2)
+
+
+# --------------------------------------------------------------------------- #
+# SIN-native grouping source (no Genie model.json required)
+# --------------------------------------------------------------------------- #
+@dataclass
+class SinSource(PanelGroupSource):
+    """Identify panel groups straight from the SIN mesh.
+
+    Beam candidates are taken from the scoped mesh/set, filtered to the
+    secondary-stiffener profile when primary girders are present, and grouped
+    with the plate elements that border them. With SIN concept names available
+    this reproduces Genie's panel-group names, stiffener names, and plate-field
+    element tuples, so the stiffened-plate check runs without a Genie capacity
+    run. Section dimensions come from the parsed mesh sections, with raw section
+    cards in :class:`~ada.fem.capacity.extract.AuxRecords` as fallback.
+
+    ``group`` optionally restricts the stiffeners to a named Sesam set/group
+    present in the SIN; bordering plates are always included. ``continuous``
+    sets the support assumption ([6.10.2] vs [6.10.1]) for every stiffener.
+
+    When concept names are absent, stiffener/plate names are synthesised from
+    element ids and multi-element stiffener chains are treated one beam element
+    at a time.
+
+    Genie's Capacity Manager does not keep one panel group per concept plate
+    cell: it fuses adjacent cells into the *maximal rectangular stiffened field*
+    a DNV-RP-C201 check operates on (e.g. the double bottom, where girders run in
+    two directions, is split by both girder families into cells that are then
+    re-merged across the longitudinal girders into full-width panels). With
+    ``merge_panels`` (default) the concept cells are merged the same way, by a
+    geometric rule rather than a per-region special case: coplanar, parallel,
+    same-profile, regularly-spaced stiffener strips that form one rectangle are
+    one panel. ``include_unstiffened`` additionally emits the plate fields that
+    carry no secondary stiffener as stiffener-less panel groups, ready for a
+    future unstiffened-plate check.
+    """
+
+    group: str | list[str] | None = None  # a SIN set name, or several (their union)
+    continuous: bool = True
+    classify_secondary: bool = True
+    merge_panels: bool = True
+    include_unstiffened: bool = False
+
+    def groups(self, mesh, aux=None) -> list[PanelGroupSpec]:
+        from ada.fem.shapes.definitions import LineShapes, ShellShapes
+
+        beam_ids: list[int] = []
+        shell_ids: list[int] = []
+        for block in mesh.elements:
+            etype = block.elem_info.type
+            ids = [int(x) for x in block.identifiers]
+            if isinstance(etype, LineShapes):
+                beam_ids.extend(ids)
+            elif isinstance(etype, ShellShapes):
+                shell_ids.extend(ids)
+
+        # Full, model-wide element sets — kept before any scoping so the support
+        # split can see transverse girders/frames and bulkhead plates that lie
+        # outside the scoped plate set but still terminate a stiffener's span.
+        all_line_ids = set(beam_ids)
+        all_shell_ids = set(shell_ids)
+
+        if self.group is not None:
+            members = self._scoped_set_members(mesh, self.group)
+            scoped = [b for b in beam_ids if b in members]
+            # A scope may be a plate set (e.g. ``Pl_T100`` — plates only, no
+            # stiffener beams). Pull in the stiffeners that border those plates
+            # so a plate set still produces its stiffened panels.
+            plate_members = members.intersection(shell_ids)
+            if plate_members:
+                scoped = sorted(set(scoped) | _beams_bordering_plates(mesh, beam_ids, plate_members))
+            beam_ids = scoped
+
+        from ada.fem.capacity.extract import tributary_plate_ids
+
+        trib_by_beam: dict[int, list[int]] = {}
+        for beam in beam_ids:
+            plate_els = tributary_plate_ids(mesh, (beam,), shell_ids)
+            if not plate_els:
+                continue  # a free beam (no bordering plate) is not a stiffener
+            trib_by_beam[beam] = plate_els
+
+        if self.group is not None:
+            # Restrict the plate side to the scoped region (its plate members plus
+            # the stiffeners' tributary plates). The plate-field bounding and the
+            # merge then work over the scope, not every shell in the model.
+            relevant = members.intersection(shell_ids)
+            relevant.update(p for plates in trib_by_beam.values() for p in plates)
+            shell_ids = sorted(relevant)
+
+        concept_names = getattr(aux, "concept_name_by_element", {}) if aux is not None else {}
+
+        if self.classify_secondary:
+            beam_ids = self._secondary_stiffener_ids(mesh, list(trib_by_beam))
+        else:
+            beam_ids = list(trib_by_beam)
+
+        stiffened = self._geometric_groups(
+            mesh, beam_ids, shell_ids, trib_by_beam, concept_names, all_line_ids, all_shell_ids
+        )
+
+        if self.merge_panels:
+            stiffened = _merge_panels(mesh, stiffened, aux)
+
+        # Subdivide each panel's plate into one field per inter-stiffener strip,
+        # the way Genie does (#fields = #stiffeners + 1). Done once on the final
+        # panel so the bays span its full width regardless of how the concept
+        # cells were merged.
+        stiffened = [_subdivide_plate_fields(mesh, spec) for spec in stiffened]
+
+        out = list(stiffened)
+        if self.include_unstiffened:
+            out.extend(_unstiffened_panels(mesh, shell_ids, stiffened, concept_names))
+        return out
+
+    @staticmethod
+    def _set_members(mesh, group: str) -> set[int]:
+        sets = mesh.sets or {}
+        fs = sets.get(group)
+        if fs is None:
+            if not sets:
+                raise KeyError(
+                    f"set/group {group!r} cannot be scoped: this SIN carries no set membership "
+                    "(GSETMEMB) records - it is a concept-model export with set names only. "
+                    "Run without a group to check the whole model."
+                )
+            available = ", ".join(sorted(sets))
+            raise KeyError(f"set/group {group!r} not found in SIN. Available: {available}")
+        ids = getattr(fs, "_member_ids", None)
+        if ids:
+            return {int(x) for x in ids}
+        return {int(getattr(m, "id", m)) for m in getattr(fs, "members", []) or []}
+
+    @staticmethod
+    def _scoped_set_members(mesh, group: str | list[str]) -> set[int]:
+        if not isinstance(group, str):
+            out: set[int] = set()
+            for one in group:
+                out |= SinSource._scoped_set_members(mesh, one)
+            return out
+        members = SinSource._set_members(mesh, group)
+        prefix, _, area = group.partition("_area_")
+        if not area:
+            return members
+
+        # Sesam concept models often carry broad area sets plus grid-plane sets.
+        # Genie's Capacity Manager scopes a named area to the active x-grid
+        # plane; in the Mini reference this is Mini_area_* ∩ Mini_grid_x100.
+        grid_sets = sorted(
+            name for name in (mesh.sets or {}) if name.startswith(f"{prefix}_grid_x") and name != f"{prefix}_grid_x"
+        )
+        for grid in grid_sets:
+            scoped = members & SinSource._set_members(mesh, grid)
+            if scoped:
+                return scoped
+        return members
+
+    @staticmethod
+    def _secondary_stiffener_ids(mesh, beam_ids: list[int]) -> list[int]:
+        """Filter out primary girders when several beam profiles share a set.
+
+        Purely geometric — independent of any concept-naming convention. The
+        secondary stiffener is the *dominant* plate-bordering profile: there are
+        far more stiffeners than girders or stub members, so the most frequent
+        section (plus any of essentially the same depth) is the stiffener. This
+        replaces the old ``*_sbmN`` concept-role test and the "shallowest
+        profile" rule (which mis-fired on models with tiny stub beams below the
+        real stiffeners).
+        """
+        if not beam_ids:
+            return []
+
+        from ada.fem.capacity.extract import geono_of
+
+        beams_by_geono: dict[int, list[int]] = {}
+        for beam in beam_ids:
+            beams_by_geono.setdefault(geono_of(mesh, beam), []).append(beam)
+        if len(beams_by_geono) == 1:
+            return beam_ids
+
+        dominant = max(beams_by_geono, key=lambda g: len(beams_by_geono[g]))
+        dominant_depth = SinSource._section_depth(mesh, dominant)
+        if dominant_depth <= 0.0:
+            return beam_ids
+        min_count = max(2, int(0.02 * len(beams_by_geono[dominant])))
+        keep_geonos = {
+            geono
+            for geono, beams in beams_by_geono.items()
+            if (
+                abs(SinSource._section_depth(mesh, geono) - dominant_depth) <= 0.05 * dominant_depth
+                or (
+                    len(beams) >= min_count
+                    and 0.25 * dominant_depth <= SinSource._section_depth(mesh, geono) <= 1.25 * dominant_depth
+                )
+            )
+        }
+        return [beam for beam in beam_ids if geono_of(mesh, beam) in keep_geonos]
+
+    @staticmethod
+    def _section_depth(mesh, geono: int) -> float:
+        sec = mesh.sections.get(geono)
+        name_depth = _flatbar_depth_from_name(str(getattr(sec, "name", "")))
+        if name_depth is not None:
+            return name_depth
+        for attr in ("h", "r", "w_top", "w_btn"):
+            value = getattr(sec, attr, None)
+            if value:
+                scale = 2.0 if attr == "r" else 1.0
+                return float(value) * scale
+        return 0.0
+
+    def _geometric_groups(
+        self,
+        mesh,
+        beam_ids: list[int],
+        shell_ids: list[int],
+        trib_by_beam: dict[int, list[int]],
+        concept_names: dict[int, str],
+        all_line_ids: set[int] | None = None,
+        all_shell_ids: set[int] | None = None,
+    ) -> list[PanelGroupSpec]:
+        """Atomic panels from geometry plus optional SIN concept-run identity.
+
+        Each stiffener run (a colinear, node-connected, same-profile chain of
+        beam elements, broken at girder lines) plus its bounded rectangular plate
+        strip is one atomic panel; :func:`_merge_panels` then fuses adjacent
+        strips into Genie's maximal panels. Concept names, when present, are used
+        only to *label* the panels/stiffeners — never to decide grouping.
+        """
+        # Concept names, when present, define support-aware multi-element
+        # stiffener runs; unnamed meshes keep a one-beam fallback.
+        runs = _stiffener_runs(mesh, beam_ids, concept_names)
+        # A SIN concept name spans the *whole physical stiffener*, crossing every
+        # transverse girder/frame/bulkhead it passes. The DNV-RP-C201 span is the
+        # bay between those supports, so split each named run there: a stiffener
+        # carried over a 19.5 m deck by five frames is six ~3.9 m spans, not one
+        # 19.5 m girder-scale span. Without it the check sees girder spans.
+        runs = _split_runs_at_supports(mesh, runs, set(beam_ids), all_line_ids, all_shell_ids)
+        shell_coords = _shell_coords(mesh, shell_ids)
+
+        out: list[PanelGroupSpec] = []
+        used_plate_ids: set[int] = set()
+        for run in sorted(runs, key=min):
+            edge_plate_ids = sorted({p for beam in run for p in trib_by_beam.get(beam, [])})
+            plate_ids = _bounded_plate_ids(mesh, shell_ids, shell_coords, list(run), edge_plate_ids)
+            unique_plate_ids = [plate_id for plate_id in plate_ids if plate_id not in used_plate_ids]
+            if not unique_plate_ids:
+                continue
+            if not _is_rectangular_plate_field(mesh, shell_coords, unique_plate_ids, list(run)):
+                continue
+            used_plate_ids.update(unique_plate_ids)
+            base = _run_label_base(run, concept_names)
+            out.append(
+                PanelGroupSpec(
+                    name=f"panelGroup({base})",
+                    # One raw field here; ``_subdivide_plate_fields`` splits it into
+                    # per-stiffener-bay fields once the panel is final (post-merge).
+                    plates=(PlateSpec(name=f"Plate({base})", element_ids=tuple(sorted(unique_plate_ids))),),
+                    stiffeners=(
+                        StiffenerSpec(
+                            name=_run_stiffener_label(run, concept_names),
+                            element_ids=tuple(run),
+                            continuous=self.continuous,
+                        ),
+                    ),
+                )
+            )
+        return out
+
+
+# Stiffener beam-segment suffix. Used ONLY to derive human-readable panel/
+# stiffener *labels* from concept names — never for a grouping decision.
+_BEAM_SUFFIX_RE = re.compile(r"_[sgr]bm\d+$", re.IGNORECASE)
+
+
+def _concept_base(name: str) -> str:
+    return _BEAM_SUFFIX_RE.sub("", name)
+
+
+def _stiffener_name(name: str) -> str:
+    if name.startswith("Stiffener_") or name.startswith("el"):
+        return name
+    return f"Stiffener_{name}"
+
+
+def _run_label_base(run: tuple[int, ...], concept_names: dict[int, str]) -> str:
+    """Label base for an atomic panel — the (alphabetically first) concept cell
+    its stiffener belongs to, or a synthetic ``elN`` when concepts are absent.
+    Cosmetic only; merged-panel names union these bases via ``_combine_specs``."""
+    bases = sorted({_concept_base(concept_names.get(beam, f"el{beam}")) for beam in run})
+    return bases[0] if bases else f"el{run[0]}"
+
+
+def _run_stiffener_label(run: tuple[int, ...], concept_names: dict[int, str]) -> str:
+    return _stiffener_name(concept_names.get(run[0], f"el{run[0]}"))
+
+
+def _stiffener_runs(
+    mesh,
+    beam_ids: list[int],
+    concept_names: dict[int, str] | None = None,
+) -> list[tuple[int, ...]]:
+    """Return support-aware stiffener runs when concept names are available.
+
+    The atomic unit is a single beam; :func:`_merge_panels` then fuses the
+    bordering strips into Genie's panels. Chaining colinear beams into a single
+    multi-element stiffener is deliberately *not* done here: a physical stiffener
+    is split by Genie at every support — girders **and** the perpendicular-plate
+    floors/bulkheads that the FE mesh does not expose as beams — so a purely
+    geometric chain (which can only see girder beams) over-merges across those
+    floor lines and changes the panel reconstruction. Per-beam keeps the panels
+    correct and the grouping fully naming-independent.
+    """
+    # The paragraph above documents the fallback. Named SIN beams carry a better
+    # support-aware identity, so group connected colinear segments by exact name.
+    if not concept_names:
+        return [(beam,) for beam in beam_ids]
+
+    by_name: dict[str, list[int]] = defaultdict(list)
+    unnamed: list[int] = []
+    for beam in beam_ids:
+        name = concept_names.get(beam)
+        if name:
+            by_name[name].append(beam)
+        else:
+            unnamed.append(beam)
+
+    runs: list[tuple[int, ...]] = []
+    for beams in by_name.values():
+        runs.extend(_connected_colinear_runs(mesh, beams))
+    runs.extend((beam,) for beam in unnamed)
+    return sorted(runs, key=lambda run: min(run))
+
+
+_FLATBAR_NAME_RE = re.compile(r"^(?:fbar|fb)(\d+(?:[._]\d+)?)x(\d+(?:[._]\d+)?)$", re.IGNORECASE)
+
+
+def _flatbar_depth_from_name(name: str) -> float | None:
+    match = _FLATBAR_NAME_RE.match(name.strip())
+    if match is None:
+        return None
+    return float(match.group(1).replace("_", ".")) / 1000.0
+
+
+def _connected_colinear_runs(mesh, beam_ids: list[int]) -> list[tuple[int, ...]]:
+    if len(beam_ids) <= 1:
+        return [tuple(beam_ids)] if beam_ids else []
+
+    from ada.fem.capacity.extract import _ensure_index, element_node_coords, geono_of
+
+    idx = _ensure_index(mesh)
+    axes: dict[int, np.ndarray] = {}
+    endpoints: dict[int, tuple[int, int]] = {}
+    by_node: dict[int, list[int]] = defaultdict(list)
+    geono: dict[int, int] = {}
+    for beam in beam_ids:
+        coords = element_node_coords(mesh, beam)
+        axis = coords[-1] - coords[0]
+        norm = np.linalg.norm(axis)
+        if norm <= 0.0:
+            continue
+        axes[beam] = axis / norm
+        nodes = idx.elem_nodes.get(beam)
+        if not nodes:
+            continue
+        endpoints[beam] = (nodes[0], nodes[-1])
+        by_node[nodes[0]].append(beam)
+        by_node[nodes[-1]].append(beam)
+        geono[beam] = geono_of(mesh, beam)
+
+    adjacent: dict[int, set[int]] = defaultdict(set)
+    for beam, nodes in endpoints.items():
+        for node in nodes:
+            for other in by_node[node]:
+                if other == beam:
+                    continue
+                if geono.get(other) != geono[beam]:
+                    continue
+                if abs(float(axes[beam] @ axes[other])) < _COLINEAR_TOL:
+                    continue
+                adjacent[beam].add(other)
+                adjacent[other].add(beam)
+
+    seen: set[int] = set()
+    out: list[tuple[int, ...]] = []
+    for beam in sorted(endpoints):
+        if beam in seen:
+            continue
+        stack = [beam]
+        seen.add(beam)
+        component: list[int] = []
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            for other in adjacent[current]:
+                if other not in seen:
+                    seen.add(other)
+                    stack.append(other)
+        out.append(_order_colinear_run(mesh, component))
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Support split — cut a named stiffener run into its per-bay spans
+# --------------------------------------------------------------------------- #
+# A Sesam concept name labels the *whole physical stiffener*, so a name-grouped,
+# colinear run runs the full length of the member and crosses every transverse
+# support it passes (girders, frames, and the floors/bulkheads the FE mesh
+# carries as perpendicular plates rather than beams). The DNV-RP-C201 stiffened-
+# plate span ``l`` is the distance between those supports, not the full member
+# length, so each run is cut at its interior support nodes. This works whether a
+# region has girders in one direction, in two, or terminates at a bulkhead — the
+# rule is geometric (a perpendicular member at the node), not naming-based.
+
+
+def _split_runs_at_supports(
+    mesh,
+    runs: list[tuple[int, ...]],
+    secondary_ids: set[int],
+    all_line_ids: set[int] | None,
+    all_shell_ids: set[int] | None,
+) -> list[tuple[int, ...]]:
+    if not all_line_ids and not all_shell_ids:
+        return runs
+    line_ids = all_line_ids or set()
+    shell_ids = all_shell_ids or set()
+    out: list[tuple[int, ...]] = []
+    for run in runs:
+        out.extend(_split_run_at_supports(mesh, run, secondary_ids, line_ids, shell_ids))
+    return sorted(out, key=min)
+
+
+def _split_run_at_supports(
+    mesh,
+    run: tuple[int, ...],
+    secondary_ids: set[int],
+    line_ids: set[int],
+    shell_ids: set[int],
+) -> list[tuple[int, ...]]:
+    if len(run) <= 1:
+        return [run]
+    from ada.fem.capacity.extract import _ensure_index, element_node_coords
+
+    idx = _ensure_index(mesh)
+    beams = list(_order_colinear_run(mesh, list(run)))
+    start = element_node_coords(mesh, beams[0])[0]
+    end = element_node_coords(mesh, beams[-1])[-1]
+    axis = end - start
+    norm = np.linalg.norm(axis)
+    if norm <= 0.0:
+        return [run]
+    axis = axis / norm
+
+    subs: list[tuple[int, ...]] = []
+    current: list[int] = [beams[0]]
+    for prev, beam in zip(beams, beams[1:]):
+        shared = set(idx.elem_nodes.get(prev, ())) & set(idx.elem_nodes.get(beam, ()))
+        node = next(iter(shared), None)
+        if node is not None and _is_support_node(mesh, node, axis, secondary_ids, line_ids, shell_ids):
+            subs.append(tuple(current))
+            current = [beam]
+        else:
+            current.append(beam)
+    subs.append(tuple(current))
+    return subs
+
+
+def _is_support_node(
+    mesh,
+    node: int,
+    run_axis: np.ndarray,
+    secondary_ids: set[int],
+    line_ids: set[int],
+    shell_ids: set[int],
+) -> bool:
+    """Does a transverse support terminate the stiffener span at this node?
+
+    A support is either a perpendicular *girder/frame* (a line element that is
+    not itself a secondary stiffener, crossing the run roughly at right angles)
+    or a perpendicular *plate junction* — a floor/bulkhead the mesh exposes as
+    shells in a second plane meeting the panel plate here.
+    """
+    from ada.fem.capacity.extract import _ensure_index, element_node_coords
+
+    idx = _ensure_index(mesh)
+    attached = idx.node_elems.get(node, ())
+
+    for elem in attached:
+        if elem in line_ids and elem not in secondary_ids:
+            coords = element_node_coords(mesh, elem)
+            vec = coords[-1] - coords[0]
+            n = np.linalg.norm(vec)
+            if n > 0.0 and abs(float((vec / n) @ run_axis)) < _COLINEAR_TOL:
+                return True
+
+    normals: set[tuple] = set()
+    for elem in attached:
+        if elem in shell_ids:
+            normal = _plane_normal(element_node_coords(mesh, elem))
+            if normal is not None:
+                normals.add(tuple(np.round(normal, 1)))
+                if len(normals) > 1:
+                    return True
+    return False
+
+
+def _order_colinear_run(mesh, beam_ids: list[int]) -> tuple[int, ...]:
+    if len(beam_ids) <= 1:
+        return tuple(beam_ids)
+
+    from ada.fem.capacity.extract import element_node_coords
+
+    first = element_node_coords(mesh, beam_ids[0])
+    axis = first[-1] - first[0]
+    axis = axis / (np.linalg.norm(axis) or 1.0)
+    origin = first[0]
+
+    def key(beam: int) -> float:
+        coords = element_node_coords(mesh, beam)
+        return float(np.min((coords - origin) @ axis))
+
+    return tuple(sorted(beam_ids, key=key))
+
+
+_STIFFENER_PERP_TOL = 0.02  # m, cluster colinear beam elements onto one stiffener line
+
+
+def _subdivide_plate_fields(mesh, spec: PanelGroupSpec) -> PanelGroupSpec:
+    """Split a panel's plate into one field per inter-stiffener strip.
+
+    Genie's plate fields are the strips a DNV-RP-C201 check averages over: one
+    between each pair of adjacent stiffeners, plus the two edge strips, so
+    ``#fields == #stiffeners + 1``. The split is geometric — a plate element
+    belongs to the bay its perpendicular centroid falls in — which works for any
+    orientation and mesh density without per-region rules.
+    """
+    plate_ids = [e for p in spec.plates for e in p.element_ids]
+    beams = [e for s in spec.stiffeners for e in s.element_ids]
+    if not plate_ids or not beams:
+        return spec
+    from ada.fem.capacity.extract import element_node_coords
+
+    coords = {e: element_node_coords(mesh, e) for e in plate_ids + beams}
+    fields = _plate_fields_by_bay(mesh, coords, plate_ids, beams)
+    match = _PANEL_NAME_RE.match(spec.name)
+    base = match.group(1).split(",")[0].strip() if match else spec.name
+    plates = tuple(PlateSpec(name=f"Plate({base}, {i})", element_ids=group) for i, group in enumerate(fields, start=1))
+    return PanelGroupSpec(name=spec.name, plates=plates, stiffeners=spec.stiffeners)
+
+
+def _plate_fields_by_bay(
+    mesh, coords: dict[int, np.ndarray], plate_ids: list[int], beams: list[int]
+) -> list[tuple[int, ...]]:
+    axes = _plate_field_axes(mesh, coords, plate_ids, beams)
+    if axes is None:
+        return [tuple(sorted(plate_ids))]
+    origin, _axis, perp, _normal = axes
+
+    # Distinct stiffener lines by perpendicular position (colinear beam segments
+    # of one stiffener collapse to a single line).
+    raw = sorted(float(((coords[b] - origin) @ perp).mean()) for b in beams)
+    lines: list[float] = []
+    for value in raw:
+        if not lines or value - lines[-1] > _STIFFENER_PERP_TOL:
+            lines.append(value)
+    if not lines:
+        return [tuple(sorted(plate_ids))]
+
+    bays: dict[int, list[int]] = defaultdict(list)
+    for plate_id in plate_ids:
+        position = float(((coords[plate_id] - origin) @ perp).mean())
+        bay = sum(1 for line in lines if line < position)
+        bays[bay].append(plate_id)
+    return [tuple(sorted(bays[bay])) for bay in sorted(bays)]
+
+
+def _shell_coords(mesh, shell_ids: list[int]) -> dict[int, np.ndarray]:
+    from ada.fem.capacity.extract import element_node_coords
+
+    return {element_id: element_node_coords(mesh, element_id) for element_id in shell_ids}
+
+
+def _bounded_plate_ids(
+    mesh,
+    shell_ids: list[int],
+    shell_coords: dict[int, np.ndarray],
+    beams: list[int],
+    edge_plate_ids: list[int],
+) -> list[int]:
+    """Fill a concept panel from its adjacent plate edges in local geometry.
+
+    The previous SIN-native fallback used a numeric element-id range between the
+    stiffeners and their edge plates. That happens to work for small scoped
+    references, but on larger sets it pulls in unrelated shell elements whose ids
+    are interleaved. Here the adjacent plates define the actual rectangular
+    panel envelope, and candidate shells are accepted only when all their nodes
+    lie on the same plane and inside that local envelope.
+    """
+    if not beams or not edge_plate_ids:
+        return sorted(edge_plate_ids)
+
+    axes = _plate_field_axes(mesh, shell_coords, edge_plate_ids, beams)
+    if axes is None:
+        return sorted(edge_plate_ids)
+    origin, axis, perp, normal = axes
+
+    edge_points = np.vstack([shell_coords[element_id] for element_id in edge_plate_ids])
+    rel = edge_points - origin
+    x = rel @ axis
+    y = rel @ perp
+    tol = 1e-6
+    xmin, xmax = float(x.min()) - tol, float(x.max()) + tol
+    ymin, ymax = float(y.min()) - tol, float(y.max()) + tol
+    plane_tol = 1e-4
+
+    out: list[int] = []
+    for element_id in shell_ids:
+        coords = shell_coords[element_id]
+        rel = coords - origin
+        if float(np.max(np.abs(rel @ normal))) > plane_tol:
+            continue
+        xe = rel @ axis
+        ye = rel @ perp
+        if float(xe.min()) >= xmin and float(xe.max()) <= xmax and float(ye.min()) >= ymin and float(ye.max()) <= ymax:
+            out.append(element_id)
+    return sorted(out)
+
+
+def _is_rectangular_plate_field(
+    mesh,
+    shell_coords: dict[int, np.ndarray],
+    plate_ids: list[int],
+    beams: list[int],
+    *,
+    min_area_ratio: float = 0.95,
+) -> bool:
+    if not plate_ids or not beams:
+        return False
+    from ada.fem.capacity.extract import element_area
+
+    axes = _plate_field_axes(mesh, shell_coords, plate_ids, beams)
+    if axes is None:
+        return False
+    origin, axis, perp, _normal = axes
+
+    # Plate area is frame-invariant → sum the cached per-plate areas instead of
+    # re-shoelacing every plate on every merge attempt. Only the bbox needs the
+    # in-plane projection.
+    area = sum(element_area(mesh, element_id) for element_id in plate_ids)
+    rel = np.vstack([shell_coords[element_id] for element_id in plate_ids]) - origin
+    # Elementwise dot (not ``@``) — the local pixi env's threaded BLAS faults
+    # (0xc06d007f) on batched matmuls of this shape.
+    bbox_area = float(np.ptp((rel * axis).sum(axis=1)) * np.ptp((rel * perp).sum(axis=1)))
+    if bbox_area <= 0.0:
+        return False
+    return area / bbox_area >= min_area_ratio
+
+
+def _plate_field_axes(
+    mesh,
+    shell_coords: dict[int, np.ndarray],
+    plate_ids: list[int],
+    beams: list[int],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
+    from ada.fem.capacity.extract import beam_axis_and_span
+
+    if not plate_ids or not beams:
+        return None
+    axis, _span = beam_axis_and_span(mesh, (beams[0],))
+    axis = np.asarray(axis, dtype=float)
+    axis_norm = np.linalg.norm(axis)
+    if axis_norm <= 0.0:
+        return None
+    axis = axis / axis_norm
+
+    first = shell_coords[plate_ids[0]]
+    if len(first) < 3:
+        return None
+    normal = np.cross(first[1] - first[0], first[2] - first[0])
+    normal_norm = np.linalg.norm(normal)
+    if normal_norm <= 0.0:
+        return None
+    normal = normal / normal_norm
+
+    perp = np.cross(normal, axis)
+    perp_norm = np.linalg.norm(perp)
+    if perp_norm <= 0.0:
+        return None
+    perp = perp / perp_norm
+
+    points = np.vstack([shell_coords[element_id] for element_id in plate_ids])
+    origin = points.mean(axis=0)
+    return origin, axis, perp, normal
+
+
+def _polygon_area_2d(xy: np.ndarray) -> float:
+    x = xy[:, 0]
+    y = xy[:, 1]
+    return 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
+
+
+def _beams_bordering_plates(mesh, beam_ids: list[int], plate_members: set[int]) -> set[int]:
+    """Stiffener beams sharing an edge (>=2 nodes) with one of ``plate_members``.
+
+    Lets a plate-only scope (e.g. ``Pl_T100``) pull in the stiffeners that border
+    its plates so the capacity models for that region can still be built. Uses the
+    cached node index, so it is O(plate nodes), not a per-beam scan.
+    """
+    from ada.fem.capacity.extract import _ensure_index
+
+    idx = _ensure_index(mesh)
+    beam_set = set(beam_ids)
+    out: set[int] = set()
+    for plate in plate_members:
+        plate_nodes = idx.elem_nodes.get(plate)
+        if not plate_nodes:
+            continue
+        plate_node_set = set(plate_nodes)
+        for nid in plate_nodes:
+            for elem in idx.node_elems.get(nid, ()):
+                if (
+                    elem in beam_set
+                    and elem not in out
+                    and len(plate_node_set.intersection(idx.elem_nodes.get(elem, ()))) >= 2
+                ):
+                    out.add(elem)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Geometric panel merge — reproduce Genie's maximal rectangular stiffened panels
+# --------------------------------------------------------------------------- #
+# Genie's concept model splits a plate at every supporting member, so a region
+# crossed by girders in two directions becomes a grid of small cells. A
+# DNV-RP-C201 capacity model is the *maximal rectangular stiffened field*, so the
+# cells are merged back together. Two cells are one panel when they are
+# coplanar, their stiffeners are parallel and of the same profile, and their
+# union is a rectangle reinforced at a regular spacing sitting side by side in
+# the same span bay (a lateral merge across a girder that runs parallel to the
+# stiffeners). A girder line that interrupts the field shows up as a doubled
+# lateral gap and stops the merge — which is why the double-bottom webs and the
+# deck cells separated by frames stay split. Cells stacked end to end along the
+# stiffener (different span bays) are deliberately *not* merged: whether the
+# stiffener is continuous over the intervening transverse girder ([6.10.2]) or
+# simply supported ([6.10.1]) is a property of Genie's concept model that the
+# shared FE mesh does not expose, and over-splitting is the conservative choice.
+
+_PANEL_NAME_RE = re.compile(r"^panelGroup\((.*)\)$")
+_COLINEAR_TOL = 0.999  # |u·v| above which two unit vectors count as parallel
+_PLANE_NORMAL_DECIMALS = 2
+_PLANE_OFFSET_DECIMALS = 2
+_WINDOW_TOL = 0.05  # m, span-window coincidence → strips share a bay
+_GAP_RATIO = 1.6  # a lateral gap above this × the regular spacing = a girder line / edge
+_BBOX_GAP = 1.0  # m, bbox-adjacency slack for the merge spatial prune
+
+
+def _bbox_adjacent(a: tuple[np.ndarray, np.ndarray], b: tuple[np.ndarray, np.ndarray]) -> bool:
+    """Do two plate bounding boxes overlap or touch within ``_BBOX_GAP`` on every axis?
+
+    A necessary (cheap) condition for two panels to be mergeable into one
+    rectangle; lets the merge skip the expensive geometry test on far pairs.
+    """
+    return bool(np.all(a[0] - _BBOX_GAP <= b[1]) and np.all(b[0] - _BBOX_GAP <= a[1]))
+
+
+def _merge_panels(mesh, specs: list[PanelGroupSpec], aux=None) -> list[PanelGroupSpec]:
+    """Fuse adjacent stiffened cells into maximal rectangular panels (Genie-style).
+
+    A plate-thickness change is a panel boundary: a buckling panel is a region of
+    constant plate thickness ([4]/[6]), and the stiffener axial force integrates
+    that thickness over the tributary (eq (5.1)). Cells of different plate
+    thickness are therefore put in different buckets and never merged, so a panel
+    never spans (e.g.) 8/20/40 mm plate regions. ``aux`` supplies the GELTH
+    thickness per geono; when absent, thickness is not gated (legacy behaviour).
+    """
+    from ada.fem.capacity.extract import (
+        beam_axis_and_span,
+        element_node_coords,
+        geono_of,
+    )
+
+    def _plate_thickness(pids: list[int]) -> float:
+        if aux is None or not pids:
+            return 0.0
+        return round(float(aux.thickness_by_geono.get(geono_of(mesh, pids[0]), 0.0)), 6)
+
+    specs = list(specs)
+    coords: dict[int, np.ndarray] = {}
+    for spec in specs:
+        for e in _spec_plate_ids(spec) + _spec_beam_ids(spec):
+            if e not in coords:
+                coords[e] = element_node_coords(mesh, e)
+
+    axis_by_spec: dict[int, np.ndarray] = {}
+    bucket_of: dict[int, tuple] = {}
+    for i, spec in enumerate(specs):
+        pids, bids = _spec_plate_ids(spec), _spec_beam_ids(spec)
+        if not pids or not bids:
+            continue  # not a stiffened panel (e.g. already an unstiffened field) — leave as is
+        normal = _plane_normal(coords[pids[0]])
+        if normal is None:
+            continue
+        axis, _ = beam_axis_and_span(mesh, (bids[0],))
+        axis = np.asarray(axis, float)
+        norm = np.linalg.norm(axis)
+        if norm <= 0.0:
+            continue
+        axis_by_spec[i] = axis / norm
+        offset = float(np.vstack([coords[e] for e in pids]).mean(0) @ normal)
+        bucket_of[i] = (
+            geono_of(mesh, bids[0]),
+            tuple(np.round(normal, _PLANE_NORMAL_DECIMALS)),
+            round(offset, _PLANE_OFFSET_DECIMALS),
+            _plate_thickness(pids),  # a thickness change is a panel boundary
+        )
+
+    # Plate bounding box per spec (global coords) — a merge only ever joins
+    # spatially adjacent panels, so a cheap bbox-adjacency test prunes the vast
+    # majority of pairs before the expensive rectangularity / spacing checks.
+    pbbox: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    for i in bucket_of:
+        pts = np.vstack([coords[e] for e in _spec_plate_ids(specs[i])])
+        pbbox[i] = (pts.min(axis=0), pts.max(axis=0))
+
+    parent = list(range(len(specs)))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    buckets: dict[tuple, list[int]] = defaultdict(list)
+    for i, key in bucket_of.items():
+        buckets[key].append(i)
+
+    for members in buckets.values():
+        changed = True
+        while changed:
+            changed = False
+            by_root: dict[int, list[int]] = defaultdict(list)
+            for i in members:
+                by_root[find(i)].append(i)
+            roots = list(by_root)
+            group_bbox = {
+                r: (
+                    np.min([pbbox[i][0] for i in by_root[r]], axis=0),
+                    np.max([pbbox[i][1] for i in by_root[r]], axis=0),
+                )
+                for r in roots
+            }
+            for ra, rb in itertools.combinations(roots, 2):
+                a, b = find(ra), find(rb)
+                if a == b:
+                    continue
+                if not _bbox_adjacent(group_bbox[a], group_bbox[b]):
+                    continue
+                if _can_merge(
+                    mesh, coords, axis_by_spec[a], _union_ids(specs, by_root[a]), _union_ids(specs, by_root[b])
+                ):
+                    parent[a] = b
+                    by_root[b] = by_root.pop(a) + by_root[b]
+                    group_bbox[b] = (
+                        np.minimum(group_bbox[a][0], group_bbox[b][0]),
+                        np.maximum(group_bbox[a][1], group_bbox[b][1]),
+                    )
+                    changed = True
+
+    by_root = defaultdict(list)
+    for i in range(len(specs)):
+        by_root[find(i)].append(i)
+
+    out: list[PanelGroupSpec] = []
+    for root in sorted(by_root, key=lambda r: min(by_root[r])):  # stable order by first constituent
+        idxs = sorted(by_root[root])
+        if len(idxs) == 1:
+            out.append(specs[idxs[0]])
+        else:
+            out.append(_combine_specs([specs[i] for i in idxs]))
+    return out
+
+
+def _spec_plate_ids(spec: PanelGroupSpec) -> list[int]:
+    return [e for p in spec.plates for e in p.element_ids]
+
+
+def _spec_beam_ids(spec: PanelGroupSpec) -> list[int]:
+    return [e for s in spec.stiffeners for e in s.element_ids]
+
+
+def _union_ids(specs: list[PanelGroupSpec], idxs: list[int]) -> tuple[list[int], list[int]]:
+    pids: list[int] = []
+    bids: list[int] = []
+    for i in idxs:
+        pids.extend(_spec_plate_ids(specs[i]))
+        bids.extend(_spec_beam_ids(specs[i]))
+    return pids, bids
+
+
+def _plane_normal(elem_coords: np.ndarray) -> np.ndarray | None:
+    if len(elem_coords) < 3:
+        return None
+    normal = np.cross(elem_coords[1] - elem_coords[0], elem_coords[2] - elem_coords[0])
+    n = np.linalg.norm(normal)
+    if n <= 0.0:
+        return None
+    normal = normal / n
+    if normal[int(np.argmax(np.abs(normal)))] < 0:  # canonical sign so coplanar normals compare equal
+        normal = -normal
+    return normal
+
+
+def _can_merge(
+    mesh,
+    coords: dict[int, np.ndarray],
+    axis: np.ndarray,
+    a: tuple[list[int], list[int]],
+    b: tuple[list[int], list[int]],
+) -> bool:
+    pids = sorted(set(a[0]) | set(b[0]))
+    bids = sorted(set(a[1]) | set(b[1]))
+    axes = _plate_field_axes(mesh, coords, pids, bids)
+    if axes is None:
+        return False
+    origin, ax, perp, _normal = axes
+    if abs(float(ax @ axis)) < _COLINEAR_TOL:
+        return False
+    if not _is_rectangular_plate_field(mesh, coords, pids, bids, min_area_ratio=0.95):
+        return False
+
+    # Only side-by-side strips in the *same* span bay are one panel. Two bays end
+    # to end along the stiffener (separated by a transverse girder) are kept apart
+    # even if the stiffener lines align: whether such a stiffener is continuous
+    # ([6.10.2]) or terminates ([6.10.1]) is a property of Genie's concept model,
+    # not recoverable from the mesh (the FE nodes are shared at the girder line
+    # either way). Over-splitting there is the safe, conservative direction.
+    if not _windows_match(_axis_window(coords, a[0], origin, ax), _axis_window(coords, b[0], origin, ax)):
+        return False
+
+    # A doubled lateral gap means a girder line was swallowed → not one panel.
+    lat = np.array(
+        sorted(_lateral_positions(coords, a[1], origin, perp) + _lateral_positions(coords, b[1], origin, perp))
+    )
+    if len(lat) >= 2:
+        gaps = np.diff(lat)
+        gmin = float(gaps.min())
+        if gmin > 1e-9 and float(gaps.max()) > _GAP_RATIO * gmin:
+            return False
+    return True
+
+
+def _lateral_positions(coords: dict[int, np.ndarray], bids: list[int], origin, perp) -> list[float]:
+    return [float(((coords[e] - origin) @ perp).mean()) for e in bids]
+
+
+def _axis_window(coords: dict[int, np.ndarray], pids: list[int], origin, axis) -> tuple[float, float]:
+    lo = hi = None
+    for e in pids:
+        proj = (coords[e] - origin) @ axis
+        emin, emax = float(proj.min()), float(proj.max())
+        lo = emin if lo is None else min(lo, emin)
+        hi = emax if hi is None else max(hi, emax)
+    return (lo or 0.0, hi or 0.0)
+
+
+def _windows_match(a: tuple[float, float], b: tuple[float, float]) -> bool:
+    return abs(a[0] - b[0]) < _WINDOW_TOL and abs(a[1] - b[1]) < _WINDOW_TOL
+
+
+def _combine_specs(specs: list[PanelGroupSpec]) -> PanelGroupSpec:
+    bases: set[str] = set()
+    for spec in specs:
+        match = _PANEL_NAME_RE.match(spec.name)
+        if match:
+            bases.update(part.strip() for part in match.group(1).split(",") if part.strip())
+        else:
+            bases.add(spec.name)
+    name = f"panelGroup({', '.join(sorted(bases))})"
+    plates = tuple(p for spec in specs for p in spec.plates)
+    stiffeners = tuple(s for spec in specs for s in spec.stiffeners)
+    return PanelGroupSpec(name=name, plates=plates, stiffeners=stiffeners)
+
+
+# --------------------------------------------------------------------------- #
+# Unstiffened plate fields — bounded plate that carries no secondary stiffener
+# --------------------------------------------------------------------------- #
+# Emitted opt-in (``SinSource(include_unstiffened=True)``) so a future
+# unstiffened-plate check ([DNV-RP-C201 Sec. 6 / Sec. 5]) has its panels. A field
+# is a maximal run of unclaimed shell elements connected across *plate* edges
+# only: a shared edge that carries a beam (girder or stiffener) bounds the field,
+# so a field never grows past a girder line into the next bay. Rectangular fields
+# are emitted; irregular remnants (around openings, brackets) are skipped with a
+# warning rather than emitted as malformed panels.
+
+
+def _unstiffened_panels(
+    mesh,
+    shell_ids: list[int],
+    stiffened: list[PanelGroupSpec],
+    concept_names: dict[int, str],
+) -> list[PanelGroupSpec]:
+    from ada.fem.capacity.extract import element_node_coords, element_node_ids
+    from ada.fem.shapes.definitions import LineShapes
+
+    claimed = {e for spec in stiffened for e in _spec_plate_ids(spec)}
+    remaining = [e for e in shell_ids if e not in claimed]
+    if not remaining:
+        return []
+
+    # An edge (unordered node pair) that a beam runs along bounds a plate field.
+    beam_edges: set[frozenset] = set()
+    for block in mesh.elements:
+        if not isinstance(block.elem_info.type, LineShapes):
+            continue
+        for e in block.identifiers:
+            ns = element_node_ids(mesh, int(e))
+            if len(ns) >= 2:
+                beam_edges.add(frozenset((ns[0], ns[-1])))
+
+    coords = {e: element_node_coords(mesh, e) for e in remaining}
+    nodes_by_elem = {e: element_node_ids(mesh, e) for e in remaining}
+    edge_to_elems: dict[frozenset, list[int]] = defaultdict(list)
+    for e, ns in nodes_by_elem.items():
+        for a, b in zip(ns, ns[1:] + ns[:1]):
+            edge_to_elems[frozenset((a, b))].append(e)
+
+    adjacent: dict[int, set[int]] = defaultdict(set)
+    for edge, elems in edge_to_elems.items():
+        if len(elems) == 2 and edge not in beam_edges:
+            adjacent[elems[0]].add(elems[1])
+            adjacent[elems[1]].add(elems[0])
+
+    seen: set[int] = set()
+    out: list[PanelGroupSpec] = []
+    for start in remaining:
+        if start in seen:
+            continue
+        stack = [start]
+        seen.add(start)
+        component: list[int] = []
+        while stack:
+            e = stack.pop()
+            component.append(e)
+            for nb in adjacent[e]:
+                if nb not in seen:
+                    seen.add(nb)
+                    stack.append(nb)
+        if not _is_coplanar_rectangle(coords, component):
+            logger.warning("capacity: skipped unstiffened plate field of %d elements (not rectangular)", len(component))
+            continue
+        name = _unstiffened_name(component, concept_names)
+        out.append(
+            PanelGroupSpec(
+                name=name,
+                plates=(PlateSpec(name=f"Plate({name})", element_ids=tuple(sorted(component))),),
+                stiffeners=(),
+            )
+        )
+    return out
+
+
+def _is_coplanar_rectangle(coords: dict[int, np.ndarray], elems: list[int], *, min_area_ratio: float = 0.95) -> bool:
+    first = coords[elems[0]]
+    normal = _plane_normal(first)
+    if normal is None:
+        return False
+    # In-plane axis from the first element edge (mesh is grid-aligned, so this
+    # hugs the rectangle without a PCA/SVD that is fragile on some LAPACK builds).
+    axis = first[1] - first[0]
+    axis = axis - (axis @ normal) * normal
+    an = np.linalg.norm(axis)
+    if an <= 0.0:
+        return False
+    axis = axis / an
+    perp = np.cross(normal, axis)
+
+    centre = np.vstack([coords[e] for e in elems]).mean(0)
+    area = 0.0
+    xy_all: list[np.ndarray] = []
+    for e in elems:
+        rel = coords[e] - centre
+        xy = np.column_stack((rel @ axis, rel @ perp))
+        xy_all.append(xy)
+        area += _polygon_area_2d(xy)
+    xy = np.vstack(xy_all)
+    bbox = float(np.ptp(xy[:, 0]) * np.ptp(xy[:, 1]))
+    if bbox <= 0.0:
+        return False
+    return area / bbox >= min_area_ratio
+
+
+def _unstiffened_name(elems: list[int], concept_names: dict[int, str]) -> str:
+    bases = sorted({_concept_base(concept_names[e]) for e in elems if e in concept_names})
+    if bases:
+        return f"unstiffenedPanel({', '.join(bases)})"
+    return f"unstiffenedPanel(el{min(elems)})"

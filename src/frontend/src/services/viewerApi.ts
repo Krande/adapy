@@ -309,6 +309,9 @@ export interface FeaManifestField {
 export interface FeaManifest {
     version: number;
     src: string;
+    /** Optional SHA-256 of the original FEA source. Used to reject stale
+     *  capacity-result sidecars when both sides provide the hash. */
+    source_sha256?: string | null;
     mesh: {
         url: string;
         n_points: number;
@@ -382,7 +385,32 @@ export interface FeaManifest {
      *  so the frontend feeds these into useSceneInfoStore for the Scene > FEM groups picker.
      *  Members are tagged EL{id} / P{id} to resolve against the AFEM element ranges. */
     groups?: {name: string; members: string[]; fe_object_type?: "node" | "element"}[];
+    /** Optional DNV/code-check capacity result sidecar. The sidecar is loaded
+     *  lazily by the FEA streaming path after geometry is visible. */
+    capacity?: CapacityManifest;
     legacy_glb?: {url_template: string};
+}
+
+export interface CapacityManifestField {
+    name: string;
+    label: string;
+    support: "element" | "node" | string;
+    range?: [number, number];
+    blob_url?: string;
+}
+
+export interface CapacityManifestOverlay {
+    name: string;
+    url: string;
+}
+
+export interface CapacityManifest {
+    version: number;
+    results_url: string;
+    default_run_id?: string;
+    field_strategy?: string;
+    fields?: CapacityManifestField[];
+    overlays?: CapacityManifestOverlay[];
 }
 
 export interface FeaManifestLineage {

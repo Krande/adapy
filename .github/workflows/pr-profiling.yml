@@ -1,7 +1,7 @@
 name: PR Profiling
 
 on:
-  pull_request_target:
+  pull_request:
     branches:
       - main
     paths:
@@ -19,8 +19,8 @@ jobs:
     name: Profile and Track Performance
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: write
       contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -29,7 +29,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Pixi
-        uses: prefix-dev/setup-pixi@v0.9.6
+        uses: prefix-dev/setup-pixi@v0.10.0
         with:
           pixi-version: v0.68.0
           environments: profile
@@ -53,7 +53,7 @@ jobs:
 
       - name: Save Profiling History
         uses: actions/cache/save@v6
-        if: always()
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository
         with:
           path: output/profiling_history.json
           key: profiling-history-${{ github.event.pull_request.number }}-${{ github.run_id }}
@@ -72,6 +72,7 @@ jobs:
 
       - name: Post Comment
         uses: thollander/actions-comment-pull-request@v3
+        if: github.event.pull_request.head.repo.full_name == github.repository
         with:
           file-path: output/profiling_comment.md
           comment-tag: profiling-results
