@@ -545,6 +545,8 @@ def _resolve_stiffener(
         + 0.6 * max(n_axial_positions[1], 0.0)
         + 0.2 * max(n_axial_positions[2], 0.0)
     )
+    axial_area = t * s_spacing + geom.section_area
+    sigma_x_sd = n_sd / axial_area if axial_area else 0.0
 
     # section_area, section_centroid = geom.section_area, geom.section_centroid
     section_centroid = geom.section_centroid
@@ -568,6 +570,9 @@ def _resolve_stiffener(
         "Naxial": float(n_axial),
         "AxialLoadsBeam": float(n_beam),
         "AxialLoadsPlate": float(n_plate),
+        "SigmaXSd": float(sigma_x_sd),
+        "SigmaXSd1": float(sigma_x_sd),
+        "SigmaXSd2": float(sigma_x_sd),
     }
     vectors = {
         "AverageLongitudinalMembraneStresses": [float(x) for x in long_pos],

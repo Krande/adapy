@@ -408,6 +408,26 @@ def test_plate_axial_force_matches_membrane_stress_times_tributary(manager):
     assert checked > 0
 
 
+def test_axial_stress_scalars_are_emitted_from_resolved_compression_force(manager):
+    """RP scalar inputs carry the resolved axial stress, not an absent/zero value."""
+    from ada.fem.capacity.stress_resolve import _section_area_and_centroid
+
+    models = {(m.id or m.name): m for m in manager.capacity_models()}
+    checked = 0
+    for rc in manager.resolve_cases():
+        model = models.get(rc.capacity_model_id)
+        if model is None or not model.plates:
+            continue
+        section_area, _centroid = _section_area_and_centroid(model.stiffener(rc.stiffener).section)
+        area = model.plates[0].thickness * model.plates[0].width + section_area
+        expected = rc.variables["Nsd"] / area if area else 0.0
+        assert rc.variables["SigmaXSd"] == pytest.approx(expected, rel=1e-12, abs=1e-9)
+        assert rc.variables["SigmaXSd1"] == pytest.approx(expected, rel=1e-12, abs=1e-9)
+        assert rc.variables["SigmaXSd2"] == pytest.approx(expected, rel=1e-12, abs=1e-9)
+        checked += 1
+    assert checked > 0
+
+
 def test_section_5_moment_components_are_resolved(manager, genie_variables):
     """Beam moment/force vectors are emitted for q_FE in the Section-6 check."""
     import statistics
