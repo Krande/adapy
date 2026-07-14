@@ -913,7 +913,9 @@ class BatchTessellator:
         _record_tess_fallback(reason, gt)
         # Strict mode: a fall back to OCC is a hard failure, so a conversion can enforce/measure
         # 100% stream-kernel (libtess2/adacpp-*) coverage rather than silently completing on OCC.
-        if os.environ.get("ADA_STREAM_TESS_STRICT", "").strip().lower() not in ("", "0", "false", "no", "off"):
+        from ada.cad.registry import stream_tess_strict
+
+        if stream_tess_strict():
             logger.warning(msg)
             raise TessellationFallbackError(msg)
         if os.environ.get("ADA_TESS_FALLBACK_DEBUG"):

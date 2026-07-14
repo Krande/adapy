@@ -32,41 +32,96 @@ from functools import lru_cache
 DEFAULT_STREAM_TESS_DEFLECTION = 2.0
 DEFAULT_STREAM_TESS_ANGULAR_DEG = 10.0
 
-# Angular density mode. OFF (default): ``angular_deg`` is a fixed global ceiling for every curved
-# surface (explicit-global-angle mode, backward compatible). ON: the ceiling is applied ADAPTIVELY
-# per surface — a model-relative reference (``model_scale``, the model bbox diagonal) lets tiny
-# curved features (bolts/pins in a large assembly, whose facets are sub-pixel) coarsen while large
-# visible surfaces keep the fine angle. The relaxation itself lives in adacpp (angle_step); adapy
-# only decides the mode and supplies ``model_scale``. Toggle with ADA_STREAM_TESS_ADAPTIVE.
+# Angular density mode. OFF: ``angular_deg`` is a fixed global ceiling for every curved surface
+# (explicit-global-angle mode, backward compatible). ON: the ceiling is applied ADAPTIVELY per
+# surface — a model-relative reference (``model_scale``, the model bbox diagonal) lets tiny curved
+# features (bolts/pins in a large assembly, whose facets are sub-pixel) coarsen while large visible
+# surfaces keep the fine angle. The relaxation itself lives in adacpp (angle_step); adapy only
+# decides the mode and supplies ``model_scale``. Toggle with ADA_STREAM_TESS_ADAPTIVE.
+#
+# The default DIFFERS BY CALL PATH, deliberately — pass it explicitly via ``stream_tess_adaptive(default=)``:
+#   * OFF for the per-object stream path (BatchTessellator): a library API whose mesh density must
+#     not shift under callers who never asked for adaptive.
+#   * ON for the whole-file native converters (STEP->GLB / ->OBJ / ->STL): dense curved assemblies
+#     over-tessellate at a fixed fine angle, and these are the transfer-size- and timeout-sensitive
+#     products (the crane's 107M-tri OBJ/STL blew the 5-min timeout).
 DEFAULT_STREAM_TESS_ADAPTIVE = False
+DEFAULT_STREAM_TESS_ADAPTIVE_NATIVE = True
+
+# One falsy spelling for every ADA_STREAM_TESS_* boolean. Note "" is FALSY: an explicitly-empty env
+# var means "off", not "on" (before this was centralised, scene_from_step_stream omitted "" from its
+# set and so read an explicit ADA_STREAM_TESS_ADAPTIVE="" as ON while every other path read it OFF).
+_TESS_ENV_FALSY = frozenset({"0", "false", "no", "off", ""})
+
+
+def _tess_env_flag(name: str, default: bool) -> bool:
+    """Read an ADA_STREAM_TESS_* boolean: unset => ``default``, else any non-falsy spelling => True."""
+    v = os.environ.get(name)
+    if v is None:
+        return default
+    return v.strip().lower() not in _TESS_ENV_FALSY
 
 
 def stream_tess_defaults() -> tuple[float, float]:
-    """(deflection, angular_deg) for the NGEOM stream path: env override else the corpus default."""
+    """(deflection, angular_deg) for the NGEOM stream path: env override else the corpus default.
+
+    The single source of these two numbers — every stream/native tessellation entry point reads them
+    through here so one nominal config can't mean different densities on different call paths.
+    """
     defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", str(DEFAULT_STREAM_TESS_DEFLECTION)))
     ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
     return defl, ang
 
 
-def stream_tess_adaptive() -> bool:
-    """Whether adaptive per-surface angular density is enabled (env override else the default OFF)."""
-    v = os.environ.get("ADA_STREAM_TESS_ADAPTIVE")
-    if v is None:
-        return DEFAULT_STREAM_TESS_ADAPTIVE
-    return v.strip().lower() not in {"0", "false", "no", "off", ""}
+def stream_tess_adaptive(default: bool = DEFAULT_STREAM_TESS_ADAPTIVE) -> bool:
+    """Whether adaptive per-surface angular density is enabled (env override else ``default``).
+
+    ``default`` is the caller's mode when ADA_STREAM_TESS_ADAPTIVE is unset — it differs by call
+    path on purpose (see DEFAULT_STREAM_TESS_ADAPTIVE / _NATIVE), so state it rather than relying on
+    this signature's default.
+    """
+    return _tess_env_flag("ADA_STREAM_TESS_ADAPTIVE", default)
 
 
-def stream_tess_model_scale() -> float:
-    """The model reference scale (world units) for adaptive density on the object stream path, or
-    0.0 (off). Adaptive is meaningful only with a model scale, so this returns 0 unless adaptive is
-    enabled AND a scale is supplied via ADA_STREAM_TESS_MODEL_SCALE (the caller sets it once per
-    model — the native STEP->GLB path estimates its own; see ada.cadit.step.model_scale)."""
-    if not stream_tess_adaptive():
-        return 0.0
+def stream_tess_face_regions() -> bool:
+    """Whether to emit per-face clickable regions (face_ranges_node<m> in scenes[0].extras).
+
+    Opt-in (ADA_STREAM_TESS_FACE_REGIONS=1): it bloats the GLB and forces serial face tessellation.
+    """
+    return _tess_env_flag("ADA_STREAM_TESS_FACE_REGIONS", False)
+
+
+def stream_tess_strict() -> bool:
+    """Whether a NGEOM->OCC tessellation fallback should raise instead of silently degrading
+    (ADA_STREAM_TESS_STRICT=1) — enforces 100% stream-kernel coverage."""
+    return _tess_env_flag("ADA_STREAM_TESS_STRICT", False)
+
+
+def stream_tess_model_scale_env() -> float:
+    """The raw ADA_STREAM_TESS_MODEL_SCALE (world units), 0.0 if unset/invalid — NO adaptive gating.
+
+    For consumers *downstream* of the adaptive decision: the parent estimates the scale once per
+    model and exports it, so its presence is itself the adaptive signal. A pool worker must not
+    re-gate on ADA_STREAM_TESS_ADAPTIVE — it may not have inherited it, and re-gating would silently
+    return 0.0 (fixed-angle) in every worker while the parent believed adaptive was on.
+    Use ``stream_tess_model_scale`` when *you* are the one deciding.
+    """
     try:
         return float(os.environ.get("ADA_STREAM_TESS_MODEL_SCALE", "0") or 0.0)
     except ValueError:
         return 0.0
+
+
+def stream_tess_model_scale(default: bool = DEFAULT_STREAM_TESS_ADAPTIVE) -> float:
+    """The model reference scale (world units) for adaptive density, or 0.0 (off).
+
+    Adaptive is meaningful only with a model scale, so this returns 0 unless adaptive is enabled
+    (env else ``default``) AND a scale is supplied via ADA_STREAM_TESS_MODEL_SCALE (the caller sets
+    it once per model — the native STEP->GLB path estimates its own; see ada.cadit.step.model_scale).
+    """
+    if not stream_tess_adaptive(default=default):
+        return 0.0
+    return stream_tess_model_scale_env()
 
 
 class CadBackendName(str, Enum):

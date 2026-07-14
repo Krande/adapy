@@ -184,15 +184,19 @@ def _tessellate_geom_worker(geom):
         # ADA_EXT_data + picking) is unchanged, so it stays memory-bounded and contract-compliant.
         _pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE")
         if _pipeline and hasattr(be, "tessellate_stream"):
-            defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
-            from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+            from ada.cad.registry import (
+                stream_tess_defaults,
+                stream_tess_model_scale_env,
+            )
 
-            ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
+            defl, ang = stream_tess_defaults()
             # Adaptive coarsening: relax the angular ceiling on features small vs the whole model, so a
             # large assembly (e.g. the boiler's asm_22) doesn't over-tessellate every small pipe/torus
             # into a slivery "crows nest". model_scale (the model bbox diagonal) is estimated once by
             # the parent and passed via env; 0 => off (fixed angular), matching native_step_to_glb.
-            mscale = float(os.environ.get("ADA_STREAM_TESS_MODEL_SCALE", "0") or "0")
+            # _env (ungated): the parent already made the adaptive decision before exporting the scale,
+            # and this runs in a pool worker that may not have inherited ADA_STREAM_TESS_ADAPTIVE.
+            mscale = stream_tess_model_scale_env()
             gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
             bm = be.tessellate_stream(
                 [(gid or "0", gi)], pipeline=_pipeline, deflection=defl, angular_deg=ang, model_scale=mscale
@@ -505,13 +509,12 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     import os
 
     if os.environ.get("ADA_STREAM_TESS_PIPELINE") and "ADA_STREAM_TESS_MODEL_SCALE" not in os.environ:
-        _adaptive = (os.environ.get("ADA_STREAM_TESS_ADAPTIVE") or "").strip().lower() not in {
-            "0",
-            "false",
-            "no",
-            "off",
-        }
-        if _adaptive:
+        from ada.cad.registry import (
+            DEFAULT_STREAM_TESS_ADAPTIVE_NATIVE,
+            stream_tess_adaptive,
+        )
+
+        if stream_tess_adaptive(default=DEFAULT_STREAM_TESS_ADAPTIVE_NATIVE):
             try:
                 from ada.cadit.step.model_scale import estimate_step_model_scale
 

@@ -15,7 +15,6 @@ ANGULAR`` env as the STEP native path.
 
 from __future__ import annotations
 
-import os
 import pathlib
 
 from ada.config import logger
@@ -41,19 +40,20 @@ def native_ifc_to_glb(
 ) -> dict:
     """Convert ``ifc_path`` to a GLB at ``glb_path`` with the native adacpp IFC pipeline.
 
-    ``deflection`` / ``angular_deg`` default to the ``ADA_STREAM_TESS_DEFLECTION`` (2.0) /
-    ``ADA_STREAM_TESS_ANGULAR`` (20.0) env, matching the streaming path. ``meshopt`` (default on) bakes
+    ``deflection`` / ``angular_deg`` default to the ``ADA_STREAM_TESS_DEFLECTION`` /
+    ``ADA_STREAM_TESS_ANGULAR`` env via ``ada.cad.registry.stream_tess_defaults`` (the single source
+    of the corpus defaults), matching the streaming path. ``meshopt`` (default on) bakes
     ``EXT_meshopt_compression`` inline in the C++ writer. Returns ``{solids, total, skipped}``. Raises
     if adacpp is unavailable or the conversion fails (the converter falls back per its fallback chain).
     """
     import adacpp
 
-    if deflection is None:
-        deflection = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
-    if angular_deg is None:
-        from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+    if deflection is None or angular_deg is None:
+        from ada.cad.registry import stream_tess_defaults
 
-        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
+        _defl, _ang = stream_tess_defaults()
+        deflection = _defl if deflection is None else deflection
+        angular_deg = _ang if angular_deg is None else angular_deg
 
     if on_progress is not None:
         on_progress("adacpp-native-ifc", 0.1)

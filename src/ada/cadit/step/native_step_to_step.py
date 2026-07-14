@@ -9,7 +9,6 @@ per-solid Python ``Ap242StreamWriter`` stays as the fallback when adacpp lacks t
 
 from __future__ import annotations
 
-import os
 import pathlib
 
 from ada.config import logger
@@ -37,12 +36,12 @@ def native_step_to_step(
     adacpp is unavailable or no solid converted."""
     import adacpp
 
-    if deflection is None:
-        deflection = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
-    if angular_deg is None:
-        from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+    if deflection is None or angular_deg is None:
+        from ada.cad.registry import stream_tess_defaults
 
-        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
+        _defl, _ang = stream_tess_defaults()
+        deflection = _defl if deflection is None else deflection
+        angular_deg = _ang if angular_deg is None else angular_deg
     if num_threads <= 0:
         try:
             from ada.visit.scene_handling.scene_from_step_stream import _stream_workers
