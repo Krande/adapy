@@ -16,10 +16,15 @@ def get_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CURVE_GEOM_TYP
         return b_spline_curve_with_knots(ifc_entity)
     elif ifc_entity.is_a("IfcTrimmedCurve"):
         return trimmed_curve(ifc_entity)
+    elif ifc_entity.is_a("IfcGradientCurve"):
+        # Subtype of IfcCompositeCurve — must precede it.
+        return gradient_curve(ifc_entity)
     elif ifc_entity.is_a("IfcCompositeCurve"):
         return composite_curve(ifc_entity)
     elif ifc_entity.is_a("IfcLine"):
         return line(ifc_entity)
+    elif ifc_entity.is_a("IfcClothoid"):
+        return clothoid(ifc_entity)
     elif ifc_entity.is_a("IfcCircle"):
         return circle(ifc_entity)
     elif ifc_entity.is_a("IfcEllipse"):
@@ -37,9 +42,61 @@ def line(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Line:
 
 
 def circle(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Circle:
-    from .placement import axis3d
+    from .placement import axis2d_as_3d, axis3d
 
-    return geo_cu.Circle(position=axis3d(ifc_entity.Position), radius=ifc_entity.Radius)
+    pos = ifc_entity.Position
+    position = axis2d_as_3d(pos) if pos.is_a("IfcAxis2Placement2D") else axis3d(pos)
+    return geo_cu.Circle(position=position, radius=ifc_entity.Radius)
+
+
+def clothoid(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Clothoid:
+    """IfcClothoid — 2D Euler spiral about its Position, signed ClothoidConstant A."""
+    pos = ifc_entity.Position
+    loc = pos.Location.Coordinates
+    rd = pos.RefDirection.DirectionRatios if pos.RefDirection is not None else (1.0, 0.0)
+    return geo_cu.Clothoid(
+        location=(float(loc[0]), float(loc[1])),
+        ref_direction=(float(rd[0]), float(rd[1])),
+        clothoid_constant=float(ifc_entity.ClothoidConstant),
+    )
+
+
+def _measure(v) -> float:
+    return float(v.wrappedValue if hasattr(v, "wrappedValue") else v)
+
+
+def curve_segment(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CurveSegment:
+    """IfcCurveSegment — a parent curve over [SegmentStart, SegmentStart+SegmentLength] (arc length),
+    positioned by a 2D placement. The placement is IfcAxis2Placement2D or IfcAxis2PlacementLinear;
+    we read its planar Location + RefDirection (the linear placement's distance-along is resolved
+    when the segment is evaluated along its parent base curve)."""
+    pl = ifc_entity.Placement
+    if pl.is_a("IfcAxis2Placement2D"):
+        loc = pl.Location.Coordinates
+        rd = pl.RefDirection.DirectionRatios if pl.RefDirection is not None else (1.0, 0.0)
+        location = (float(loc[0]), float(loc[1]))
+        ref_direction = (float(rd[0]), float(rd[1]))
+    else:  # IfcAxis2PlacementLinear — planar location resolved at evaluation; carry the ref dir
+        rd = pl.RefDirection.DirectionRatios if pl.RefDirection is not None else (1.0, 0.0)
+        location = (0.0, 0.0)
+        ref_direction = (float(rd[0]), float(rd[1]))
+    return geo_cu.CurveSegment(
+        transition=ifc_entity.Transition,
+        location=location,
+        ref_direction=ref_direction,
+        segment_start=_measure(ifc_entity.SegmentStart),
+        segment_length=_measure(ifc_entity.SegmentLength),
+        parent_curve=get_curve(ifc_entity.ParentCurve),
+    )
+
+
+def gradient_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.GradientCurve:
+    """IfcGradientCurve — vertical gradient (Segments, distance->height) over a horizontal BaseCurve."""
+    return geo_cu.GradientCurve(
+        base_curve=composite_curve(ifc_entity.BaseCurve),
+        segments=[curve_segment(s) for s in ifc_entity.Segments],
+        self_intersect=bool(ifc_entity.SelfIntersect),
+    )
 
 
 def ellipse(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Ellipse:
@@ -62,11 +119,17 @@ def _trim_select(trim) -> "Point | float":
 
 
 def composite_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CompositeCurve:
+    # IFC4x3 alignment composite curves carry IfcCurveSegment (placement + parametric range, no
+    # SameSense); classic composites carry IfcCompositeCurveSegment.
     segments = [
-        geo_cu.CompositeCurveSegment(
-            parent_curve=get_curve(seg.ParentCurve),
-            same_sense=seg.SameSense,
-            transition=seg.Transition,
+        (
+            curve_segment(seg)
+            if seg.is_a("IfcCurveSegment")
+            else geo_cu.CompositeCurveSegment(
+                parent_curve=get_curve(seg.ParentCurve),
+                same_sense=seg.SameSense,
+                transition=seg.Transition,
+            )
         )
         for seg in ifc_entity.Segments
     ]

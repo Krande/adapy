@@ -75,6 +75,36 @@ def add_plate_polygon_data(
         ET.SubElement(polygon, "position", {"x": str(pt[0]), "y": str(pt[1]), "z": str(pt[2])})
 
 
+def add_plate_curved_polygon(plate, thck_name: str, structures_elem: ET.Element) -> bool:
+    """Emit a :class:`PlateCurved` as a ``<flat_plate>`` boundary polygon.
+
+    Genie XML has no curved-plate element short of embedding the B-spline face
+    in a SAT blob, which the SAT writer can't author yet — so the curved face
+    degrades to its boundary polygon (position/extent-faithful, curvature
+    lost). Uses the reader-attached flat-fallback points when present (the SAT
+    loop-edge endpoints), else the face's boundary nodes. Returns False when no
+    usable boundary can be derived, so the caller can log the drop."""
+    pts = getattr(plate, "_flat_fallback_pts", None)
+    if not pts:
+        pts = [n.p for n in plate.nodes]
+    if pts is None or len(pts) < 3:
+        return False
+    arr = np.asarray([[float(p[0]), float(p[1]), float(p[2])] for p in pts], dtype=float)
+    # Newell's method: robust polygon normal for an ordered, possibly
+    # non-planar boundary loop.
+    nrm = np.zeros(3)
+    for i in range(len(arr)):
+        a, b = arr[i], arr[(i + 1) % len(arr)]
+        nrm[0] += (a[1] - b[1]) * (a[2] + b[2])
+        nrm[1] += (a[2] - b[2]) * (a[0] + b[0])
+        nrm[2] += (a[0] - b[0]) * (a[1] + b[1])
+    length = np.linalg.norm(nrm)
+    if length < 1e-12:
+        return False
+    add_plate_polygon_data(plate.name, arr, nrm / length, thck_name, plate.material.name, structures_elem)
+    return True
+
+
 def add_plate_polygon(plate: Plate, thck_name: str, structures_elem: ET.Element):
     abs_place = plate.placement.get_absolute_placement(include_rotations=True)
     ident = Placement()  # identity place
@@ -108,3 +138,18 @@ def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):
             add_plate_sat(plate, thck_name, structures_elem, sw)
         else:
             add_plate_polygon(plate, thck_name, structures_elem)
+
+    from ada.api.plates import PlateCurved
+    from ada.config import logger
+
+    for plate in part.get_all_physical_objects(by_type=PlateCurved):
+        # Curved plates can't go through the SAT writer (no spline-face
+        # authoring) — degrade to the boundary polygon rather than silently
+        # dropping the plate (see add_plate_curved_polygon).
+        if plate.t not in thickness:
+            thickness[plate.t] = thickness_name(plate.t)
+            tck_elem = ET.Element("thickness", {"name": thickness[plate.t], "default": "true"})
+            tck_elem.append(ET.Element("constant_thickness", {"th": str(plate.t)}))
+            thickness_elem.append(tck_elem)
+        if not add_plate_curved_polygon(plate, thickness[plate.t], structures_elem):
+            logger.warning(f"gxml-write: PlateCurved {plate.name!r} has no usable boundary; dropped")

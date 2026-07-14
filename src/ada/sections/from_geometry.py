@@ -135,13 +135,18 @@ def _recognize_i_or_t(name, outer, units, tol):
         ybtn, y_mid, ytop = ys
         if not _is_symmetric(outer, tol):
             return None
+        # Collapsed-bottom-flange TPROFILE encoding (w_btn = t_w, t_fbtn = t_ftop)
+        # — matches string_to_section; None here breaks the section writers'
+        # arithmetic (Genie XML unsymmetrical_i_section).
         return Section(
             name=name,
             sec_type=BaseTypes.TPROFILE,
             h=ytop - ybtn,
             w_top=_x_span(levels[ytop]),
+            w_btn=_x_span(levels[ybtn]),
             t_w=_x_span(levels[ybtn]),
             t_ftop=ytop - y_mid,
+            t_fbtn=ytop - y_mid,
             units=units,
         )
 

@@ -165,7 +165,11 @@ def section_to_arbitrary_profile_def_with_voids(section: Section, solid=True) ->
     inner_curves = []
     if section.type == section.TYPES.TUBULAR:
         outer_curve = Circle(Axis2Placement3D(), section.r)
-        if section.wt < section.r:
+        # Tolerance, not exact `<`: real data models solid circular bars as pipes
+        # with th = od/2 up to float noise (r - wt ~ 5e-12), and a near-zero inner
+        # circle is a degenerate edge that aborts the whole solid build downstream
+        # (edge_from_record: degenerate circle radius). Below 1 µm there is no void.
+        if section.r - section.wt > 1e-6:
             inner_curves += [Circle(Axis2Placement3D(), section.r - section.wt)]
     elif section.type == section.TYPES.CIRCULAR:
         outer_curve = Circle(Axis2Placement3D(), section.r)

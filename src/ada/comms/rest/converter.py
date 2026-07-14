@@ -479,6 +479,16 @@ def is_derived_key(key: str) -> bool:
     return key.lstrip("/").startswith("_derived/")
 
 
+# Internal namespaces hidden from file listings / the storage explorer. ``_derived/`` is the
+# admin-managed convert-output cache; ``_overlays/`` is the auto-disposed utility overlay bucket
+# (merge-preview / diff GLBs). Neither is a user file. Use this for DISPLAY filtering; keep
+# is_derived_key for derived-product logic (rename/cleanup/grouping), which must not treat an
+# ephemeral overlay as a source's derived product.
+def is_hidden_key(key: str) -> bool:
+    k = key.lstrip("/")
+    return k.startswith("_derived/") or k.startswith("_overlays/")
+
+
 def is_versions_artefact_key(key: str) -> bool:
     """``versions/<branch>/<commit>/<file>`` blobs are pre-built outputs
     pushed by CI rather than conversion sources, so the supported-source
@@ -773,15 +783,20 @@ def _export_with_ada(
         import os
 
         streaming = os.environ.get("ADA_IFC_STREAMING", "").strip().lower() not in _FALSE
-        # On the streaming path, fold FEM shells via the shared object-free face
-        # engine instead of emitting one plate per element (matches the Genie-XML
-        # and STEP streamers). merge_fem_objects -> coplanar/none; falls back to
-        # 1:1 for non-FEM sources or curved-plate reconstruction.
+        # On the streaming path, fold FEM shells via the shared object-free face engine
+        # instead of emitting one plate per element (matches the Genie-XML and STEP
+        # streamers). Default is analytic auto-detect ("cylinder": tubular members ->
+        # IfcCylindricalSurface, flat panels -> merged IfcPlane faces), same as FEM->STEP;
+        # a string merge_fem_objects overrides verbatim, False opts out to 1:1.
         ms = None
         recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
         if streaming and source_ext is not None and source_ext.lower() in _FEM_SOURCE_EXTS and not recon:
-            merge = True if merge_fem_objects is None else bool(merge_fem_objects)
-            ms = "coplanar" if merge else "none"
+            if isinstance(merge_fem_objects, str):
+                ms = merge_fem_objects
+            elif merge_fem_objects is False:
+                ms = "none"
+            else:
+                ms = "cylinder"  # analytic auto-detect
         model.to_ifc(destination=str(out_path), streaming=streaming, merge_strategy=ms)
     elif target_format == "xml":
         on_progress("writing-xml", 0.55)
@@ -1315,6 +1330,7 @@ def _via_fea_result(
     *,
     step: int | None = None,
     field: str | None = None,
+    source_uri: str | None = None,
 ) -> bytes:
     """Sesam SIF / SIN result deck → GLB tessellated visualisation.
 
@@ -1325,6 +1341,11 @@ def _via_fea_result(
     coloured/warped GLB. When the caller leaves step/field unset we
     fall back to the first available pair so an auto-convert at
     upload time still produces something viewable.
+
+    ``source_uri`` (SIN only): a range-fetchable URI for the deck —
+    ``open_sin`` reads pages of it straight from object storage, so a
+    multi-GB deck is never downloaded in full and ``src_path`` may be an
+    empty stub. The suffix routing still keys off ``src_path``.
     """
     if target_format != "glb":
         raise UnsupportedFormat(f"Sesam results can only target glb, got {target_format!r}")
@@ -1337,13 +1358,16 @@ def _via_fea_result(
             read_sin_metadata,
         )
 
+        # ``open_sin`` routes by scheme, so a presigned URI reads pages of
+        # the deck straight from object storage instead of a local copy.
+        sin_src = source_uri or str(src_path)
         # When the caller didn't pick a step, use the cheap metadata
         # path to pick one — avoids materialising every step's records
         # just to throw them away (a hundreds-of-modes eigen deck
         # would blow the 4 GiB worker budget). Then load only that
         # step.
         if step is None or field is None:
-            meta = read_sin_metadata(str(src_path))
+            meta = read_sin_metadata(sin_src)
             if not meta.fields or not meta.steps:
                 raise UnsupportedFormat(f"SIN {src_path.name} has no RV* result fields")
             if step is None:
@@ -1353,7 +1377,7 @@ def _via_fea_result(
                 # exposes the SIN names verbatim; the downstream
                 # display layer remaps them.
                 field = meta.fields[0]
-        result = read_sin_file(str(src_path), step=int(step))
+        result = read_sin_file(sin_src, step=int(step))
     else:
         from ada.fem.formats.sesam.results.read_sif import read_sif_file
 
@@ -1484,6 +1508,39 @@ def _seed_empty_scene(scene) -> None:
     scene.add_geometry(placeholder, node_name="empty", geom_name="empty")
 
 
+# STEP solid-root keywords — mirrors adacpp's StepNgeomStream root taxonomy
+# (cadit/step/step_reader.h). Used only to detect a fully-empty OCC re-export so
+# the IFC->STEP path can fall back to the faceted streaming writer.
+_STEP_SOLID_ROOTS: tuple[bytes, ...] = (
+    b"MANIFOLD_SOLID_BREP",
+    b"SHELL_BASED_SURFACE_MODEL",
+    b"BREP_WITH_VOIDS",
+    b"EXTRUDED_AREA_SOLID",
+    b"REVOLVED_AREA_SOLID",
+    b"BOOLEAN_RESULT",
+)
+
+
+def _step_has_solids(path: pathlib.Path) -> bool:
+    """True if the STEP file at ``path`` contains at least one solid root entity.
+    Chunk-scanned (overlapping the longest keyword) so a large file isn't slurped
+    whole."""
+    overlap = max(len(k) for k in _STEP_SOLID_ROOTS) - 1
+    tail = b""
+    try:
+        with open(path, "rb") as fh:
+            while True:
+                chunk = fh.read(1 << 20)
+                if not chunk:
+                    return False
+                window = tail + chunk
+                if any(k in window for k in _STEP_SOLID_ROOTS):
+                    return True
+                tail = window[-overlap:]
+    except OSError:
+        return False
+
+
 def _via_ada_to_step(
     src_path: pathlib.Path,
     source_ext: str,
@@ -1492,6 +1549,7 @@ def _via_ada_to_step(
     fem_to_objects: bool | None = None,
     merge_fem_objects: bool | None = None,
     reconstruct_surfaces: bool | None = None,
+    fem_merge_strategy: str | None = None,
 ) -> pathlib.Path:
     """Ada-loadable source → STEP via the OCC writer.
 
@@ -1528,8 +1586,19 @@ def _via_ada_to_step(
             recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
             ms = None
             if not recon:
-                merge = True if merge_fem_objects is None else bool(merge_fem_objects)
-                ms = "coplanar" if merge else "none"
+                # Auto-detect analytic primitives by DEFAULT (no human guidance): tubular
+                # members -> exact cylinder surfaces, flat panels -> plates. Legacy overrides:
+                # a string merge_fem_objects is the strategy verbatim; merge_fem_objects=False
+                # opts out of merging entirely; fem_merge_strategy 'coplanar'/'none' force those.
+                strat = (fem_merge_strategy or "auto").lower()
+                if isinstance(merge_fem_objects, str):
+                    ms = merge_fem_objects
+                elif merge_fem_objects is False:
+                    ms = "none"
+                elif strat == "auto":
+                    ms = "cylinder"  # analytic auto-detect
+                else:
+                    ms = strat  # coplanar | none | cylinder
             stats = model.to_stp(
                 str(out_path), writer="stream", fuse_fem=(fem_to_objects is not False), merge_strategy=ms
             )
@@ -1538,6 +1607,15 @@ def _via_ada_to_step(
                 logger.warning(f"streaming STEP writer skipped {skipped} non-extrudable object(s)")
         else:
             model.to_stp(str(out_path))
+            if not _step_has_solids(out_path):
+                # The OCC/adacpp writer emitted no solid root — e.g. an alignment
+                # IfcFixedReferenceSweptAreaSolid swept over an IfcGradientCurve,
+                # which has no analytic AP242 form and isn't ported to the adacpp
+                # B-rep builder, so every object was skipped. Retry via the
+                # kernel-free streaming writer, which tessellates such solids to a
+                # faceted MANIFOLD_SOLID_BREP so no geometry is left behind.
+                logger.info("OCC ifc->step produced no solids; retrying via streaming faceted writer")
+                model.to_stp(str(out_path), writer="stream", fuse_fem=False)
         on_progress("ready", 1.0)
         returned_path = True
         return out_path
@@ -1902,6 +1980,7 @@ def convert(
     step: int | None = None,
     field: str | None = None,
     options: dict | None = None,
+    source_uri: str | None = None,
 ) -> bytes | pathlib.Path:
     """Convert a local source file to the requested target format.
 
@@ -1925,6 +2004,13 @@ def convert(
     ``step`` / ``field`` only apply to FEA result sources (.sif /
     .sin). When unset the FEA handler picks the first available pair,
     matching the behavior of the auto-convert at upload time.
+
+    ``source_uri`` is a range-fetchable URI (presigned GET / ``s3://``)
+    for the source blob. Only readers with a paged byte source honour it
+    (today: ``.sin`` via ``open_sin``); when set, the handler reads pages
+    straight from object storage and ``src_path`` may be an empty stub.
+    Forwarded only when present so handlers without the kwarg are
+    untouched.
 
     ``options`` is a per-job knob dict — keys match option ``name``
     fields declared at the ``@converter(options=[...])`` site for the
@@ -1959,7 +2045,8 @@ def convert(
             f"viable targets: {ConverterRegistry.targets_for(src_ext) or 'none'}"
         )
     opts = options or {}
-    return handler(src_path, progress, step=step, field=field, **opts)
+    extra: dict = {"source_uri": source_uri} if source_uri is not None else {}
+    return handler(src_path, progress, step=step, field=field, **extra, **opts)
 
 
 def result_bytes(result: bytes | pathlib.Path) -> bytes:
@@ -2190,6 +2277,20 @@ def _register_ada_loadable() -> None:
                 "flat plates."
             ),
         },
+        {
+            "name": "fem_merge_strategy",
+            "type": "enum",
+            "default": "auto",
+            "enum": ["auto", "coplanar", "none"],
+            "description": (
+                "How FEM shells fold into CAD faces (STEP target). 'auto' (default) "
+                "recognises each region as an analytic primitive with NO human guidance "
+                "— tubular members become exact CYLINDRICAL_SURFACE faces, flat panels "
+                "merge into plates (a jacket collapses from ~100k plates to a handful of "
+                "cylinders in seconds). 'coplanar' forces flat-plate merging only; 'none' "
+                "keeps one face per element."
+            ),
+        },
     ]
 
     # Original three targets (glb/ifc/xml) via the long-standing ada
@@ -2256,7 +2357,15 @@ def _register_ada_loadable() -> None:
             ConverterRegistry.register(ext, tgt, _h)
 
         def _step(
-            src, on_progress, *, _ext=ext, fem_to_objects=None, merge_fem_objects=None, reconstruct_surfaces=None, **_kw
+            src,
+            on_progress,
+            *,
+            _ext=ext,
+            fem_to_objects=None,
+            merge_fem_objects=None,
+            reconstruct_surfaces=None,
+            fem_merge_strategy=None,
+            **_kw,
         ):
             return _via_ada_to_step(
                 src,
@@ -2265,6 +2374,7 @@ def _register_ada_loadable() -> None:
                 fem_to_objects=fem_to_objects,
                 merge_fem_objects=merge_fem_objects,
                 reconstruct_surfaces=reconstruct_surfaces,
+                fem_merge_strategy=fem_merge_strategy,
             )
 
         ConverterRegistry.register(
@@ -2278,13 +2388,14 @@ def _register_ada_loadable() -> None:
 def _register_fea_result_to_glb() -> None:
     for ext in _FEA_RESULT_EXTS:
 
-        def _h(src, on_progress, *, _ext=ext, step=None, field=None, **_kw):
+        def _h(src, on_progress, *, _ext=ext, step=None, field=None, source_uri=None, **_kw):
             return _via_fea_result(
                 src,
                 "glb",
                 on_progress,
                 step=step,
                 field=field,
+                source_uri=source_uri,
             )
 
         ConverterRegistry.register(ext, "glb", _h)

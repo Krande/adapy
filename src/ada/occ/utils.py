@@ -627,8 +627,12 @@ def sweep_pipe(edge, xvec, r, wt, geom_repr=ElemType.SOLID):
     wire = makeWire.Wire()
     try:
         if geom_repr == ElemType.SOLID:
-            i = make_circular_sec_face(point, direction, r - wt)
-            elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
+            # wt >= r (up to float noise) = solid bar modeled as a pipe: no inner
+            # void to sweep/cut — a near-zero inner circle is a degenerate edge.
+            elbow_i = None
+            if r - wt > 1e-6:
+                i = make_circular_sec_face(point, direction, r - wt)
+                elbow_i = BRepOffsetAPI_MakePipe(wire, i).Shape()
             o = make_circular_sec_face(point, direction, r)
             elbow_o = BRepOffsetAPI_MakePipe(wire, o).Shape()
         else:
@@ -638,7 +642,7 @@ def sweep_pipe(edge, xvec, r, wt, geom_repr=ElemType.SOLID):
     except RuntimeError as e:
         logger.error(f'Pipe sweep failed: "{e}"')
         return wire
-    if geom_repr == ElemType.SOLID:
+    if geom_repr == ElemType.SOLID and elbow_i is not None:
         boolean_result = BRepAlgoAPI_Cut(elbow_o, elbow_i).Shape()
         if boolean_result.IsNull():
             logger.debug("Boolean returns None")

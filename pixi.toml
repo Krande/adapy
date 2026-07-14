@@ -112,6 +112,11 @@ viewer-api = { features = ["viewer-api", "prod", "pyocc", "adacpp-runtime"], sol
 # occt/pythonocc/numpy closure stays out.
 viewer-api-slim = { features = ["viewer-api", "viewer-slim"], no-default-feature = true }
 viewer-api-tests = { features = ["viewer-api", "tests-core", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
+# Same as viewer-api-tests but adds ada-cpp (adacpp-runtime) so the REST streaming-path tests run
+# against the AdacppBackend (tessellate_stream / NGEOM libtess2) instead of the OCC object-path
+# fallback. Mirrors the production `viewer-api` env's closure (pyocc + adacpp-runtime share occt
+# 7.9.3, solve-group prod) — NOT the `adacpp` feature (separate solve-group, drops pyocc by design).
+viewer-api-tests-adacpp = { features = ["viewer-api", "tests-core", "prod", "pyocc", "adacpp-runtime"], solve-group = "prod", no-default-feature = true }
 meshio-bridge = { features = ["meshio-bridge", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 
@@ -141,7 +146,7 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # for every other path (IFC/XML/FEM, occ-builtin fallback). Shares occt 7.9.3 with
 # pyocc (see above) so both coexist in one env.
 [feature.adacpp-runtime.dependencies]
-ada-cpp = "0.11.0.*"
+ada-cpp = "0.12.0.*"
 
 # ada-cpp CAD backend (AdacppBackend) — native CPython build of the
 # wasm-capable kernel. Brings its own occt 7.9.3 + gmsh + ifcopenshell,
@@ -150,10 +155,11 @@ ada-cpp = "0.11.0.*"
 # (no pythonocc fallback by design).
 [feature.adacpp.dependencies]
 # 0.10.x carries the NGEOM libtess2 tessellator + meshopt EXT-compression codecs
-# (cad.meshopt_encode_*) + ifc-taxonomy kernel; adapy's meshopt/NGEOM paths need it. 0.10.1 adds
-# the circle ref/anchor + planar AdvancedFace builds, the degenerate-radius guard, the fast
-# (non-optimal) bbox, and the libtess2 curved-surface coverage (was the ADACPP_BRANCH overlay).
-ada-cpp = "0.11.0.*"
+# (cad.meshopt_encode_*) + ifc-taxonomy kernel; adapy's meshopt/NGEOM paths need it. 0.11 adds
+# the native STEP/IFC B-rep emitters + step_parity. 0.12 adds SAT pcurve trim records (kind-6
+# tail), plain-SHAPE_REPRESENTATION product linkage, $-surface face recovery, the sew face-count
+# cap, and the cgroup-aware concurrency clamp — adapy's pcurve/parity paths here require it.
+ada-cpp = "0.12.0.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
@@ -283,6 +289,10 @@ httpx = "*"
 asyncpg = "*"
 psutil = "*"
 croniter = "*"
+# parallel gzip: derived outputs (obj/stl/step/ifc/xml/glb) are gzipped at-rest, and
+# single-threaded zlib at level 9 was ~85% of the crane STEP->obj job wall. pigz emits
+# a standard gzip stream (Content-Encoding: gzip) across all cores — see storage._gzip_file.
+pigz = "*"
 
 # Pin the slim API image's python (it has no `prod`, so it would otherwise float to
 # the newest cpython). Pinned to what it currently resolves to (3.14) for a
@@ -301,6 +311,11 @@ python = "3.14.*"
 viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "/opt/adacpp-overlay:$PIXI_PROJECT_ROOT/src" } }
 viewer-worker = { cmd = "python -m ada.comms.rest.worker", env = { "PYTHONPATH" = "/opt/adacpp-overlay:$PIXI_PROJECT_ROOT/src" } }
 test-rest = { cmd = "pytest tests/comms/rest --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# Streaming-path REST coverage against the native ada-cpp backend: forces ADAPY_CAD_BACKEND=adacpp so
+# merge-preview generate exercises tessellate_stream (NGEOM libtess2), not the OCC object-path fallback
+# that test-rest hits in the (adacpp-less) viewer-api-tests env. Run in the viewer-api-tests-adacpp env.
+# No Postgres needed — these tests use an in-memory fake store.
+test-rest-adacpp = { cmd = "pytest tests/comms/rest -m adacpp_stream --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "ADAPY_CAD_BACKEND" = "adacpp" } }
 ada = { cmd = "python -m ada_cli.main", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 audit-fetch = { cmd = "python scripts/audit_fetch.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 audit-repro = { cmd = "python scripts/audit_repro.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }

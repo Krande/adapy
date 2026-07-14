@@ -37,7 +37,7 @@ from ada.comms.fb_wrap_model_gen import (
 from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.config import logger
 
-from .converter import derived_key_for, is_derived_key, is_supported_source
+from .converter import derived_key_for, is_hidden_key, is_supported_source
 from .scope import Scope
 from .storage import Storage
 
@@ -125,8 +125,8 @@ async def _handle_list_file_objects(
     files = await storage.list(scope)
     file_objects: list[FileObjectDC] = []
     for entry in files:
-        # Hide internal derived blobs from the user-facing file list.
-        if is_derived_key(entry.key):
+        # Hide internal blobs (derived cache + auto-disposed overlays) from the file list.
+        if is_hidden_key(entry.key):
             continue
         ftype = _infer_file_type(entry.key, extra_source_exts)
         if ftype is None:

@@ -9,6 +9,15 @@
 
 
 
+## v0.28.0 (2026-07-03)
+
+### Feature
+
+* feat: native geometry coverage, FEM-CAD merge, and cross-format parity fixes (#234)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`d488379`](https://github.com/Krande/adapy/commit/d4883799d4e965b81dcdc29abfae049fa8fe0afd))
+
+
 ## v0.27.0 (2026-06-30)
 
 ### Feature

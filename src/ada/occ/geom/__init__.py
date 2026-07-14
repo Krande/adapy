@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import ada.geom.booleans as bo
 import ada.geom.curves as cu
 import ada.geom.solids as so
 import ada.geom.surfaces as su
@@ -63,6 +64,29 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
         occ_geom = geo_su.make_shell_from_shell_based_surface_geom(geometry)
     elif isinstance(geometry, su.PolygonalFaceSet):
         occ_geom = geo_su.make_shell_from_polygonal_face_set_geom(geometry)
+
+    # Standalone boolean tree (ada.geom.booleans.BooleanResult): recursively build both operands
+    # (each may itself be a BooleanResult) and apply the OCC boolean. This is the root-geometry form
+    # adacpp/NGEOM uses; the Geometry.bool_operations path (applied below) is the other form.
+    elif isinstance(geometry, bo.BooleanResult):
+        from OCC.Core.BRepAlgoAPI import (
+            BRepAlgoAPI_Common,
+            BRepAlgoAPI_Cut,
+            BRepAlgoAPI_Fuse,
+        )
+
+        from ada.core.guid import create_guid
+
+        first = geom_to_occ_geom(Geometry(create_guid(), geometry.first_operand, None))
+        second = geom_to_occ_geom(Geometry(create_guid(), geometry.second_operand, None))
+        if geometry.operator == bo.BoolOpEnum.DIFFERENCE:
+            occ_geom = BRepAlgoAPI_Cut(first, second).Shape()
+        elif geometry.operator == bo.BoolOpEnum.UNION:
+            occ_geom = BRepAlgoAPI_Fuse(first, second).Shape()
+        elif geometry.operator == bo.BoolOpEnum.INTERSECTION:
+            occ_geom = BRepAlgoAPI_Common(first, second).Shape()
+        else:
+            raise NotImplementedError(f"Boolean operator {geometry.operator} not implemented")
 
     # Bare curves (no surface): sectionless wire bodies / construction wireframes. Build an OCC
     # wire so the tessellator renders them as glTF line geometry. See ada.geom.curves.

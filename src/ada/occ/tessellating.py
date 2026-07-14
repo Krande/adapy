@@ -670,6 +670,24 @@ class BatchTessellator:
             # than calling geom_to_occ_geom directly (= OccBackend.build under
             # the default backend). Same funnel as ada.occ.geom.cache.
             occ_geom = active_backend().build(geom)
+        except NotImplementedError as e:
+            # Geometry kinds the interactive edge-record builder can't express (e.g. a
+            # FixedReferenceSweptAreaSolid over an alignment GradientCurve directrix —
+            # clothoids have no analytic edge record) can still tessellate through the
+            # NGEOM stream kernel (SweepN), the same path the glb converter uses. Try it
+            # before failing the conversion.
+            if mesh_type != MeshType.LINES:
+                stream_ms = self._tessellate_geom_via_stream(geom, node_ref, force_pipeline="libtess2")
+                if stream_ms is not None:
+                    return stream_ms
+            logger.error(
+                "tessellation failed for %s name=%r guid=%r: %s",
+                type(obj).__name__,
+                getattr(obj, "name", None),
+                getattr(obj, "guid", None),
+                e,
+            )
+            raise
         except Exception as e:
             section = getattr(obj, "section", None)
             logger.error(
@@ -704,8 +722,10 @@ class BatchTessellator:
         else:
             logger.debug(msg)
 
-    def _tessellate_geom_via_stream(self, geom: Geometry, node_ref) -> MeshStore | None:
-        pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE")
+    def _tessellate_geom_via_stream(self, geom: Geometry, node_ref, force_pipeline: str = None) -> MeshStore | None:
+        # ``force_pipeline`` runs the stream kernel even without the env opt-in — used as a
+        # last-resort fallback for geometry kinds the interactive builder can't express.
+        pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE") or force_pipeline
         if not pipeline:
             return None
         be = active_backend()
@@ -1022,8 +1042,22 @@ class BatchTessellator:
                                 "raw-OCC body has no parametric solid_geom for the stream kernel",
                                 None,
                             )
+                    # A face-less raw body (wire/edge-only — e.g. a SAT wire body or a STEP
+                    # GEOMETRIC_CURVE_SET reload) has nothing to triangulate; render its
+                    # edges as GL_LINES instead of yielding an empty triangle mesh (which
+                    # downstream treats as a crash-y zero-vertex Trimesh). isinstance-free
+                    # sniff guarded for non-OCC handles.
+                    raw_mesh_type = MeshType.TRIANGLES
                     try:
-                        yield self.tessellate_occ_geom(raw, node_ref, obj.color, MeshType.TRIANGLES)
+                        from OCC.Core.TopAbs import TopAbs_FACE
+                        from OCC.Core.TopExp import TopExp_Explorer
+
+                        if not TopExp_Explorer(raw, TopAbs_FACE).More():
+                            raw_mesh_type = MeshType.LINES
+                    except Exception:  # noqa: BLE001 - opaque non-OCC handle: keep triangles
+                        pass
+                    try:
+                        yield self.tessellate_occ_geom(raw, node_ref, obj.color, raw_mesh_type)
                     except UnableToCreateTesselationFromSolidOCCGeom as e:
                         logger.error(e)
                     continue

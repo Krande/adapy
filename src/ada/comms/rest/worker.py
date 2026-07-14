@@ -768,8 +768,8 @@ class _SyncStorageFacade:
     def get_bytes(self, key: str) -> bytes:
         return self._run(self._s.get_bytes(self._scope, key))
 
-    def put_bytes(self, key: str, data: bytes) -> None:
-        self._run(self._s.put_bytes(self._scope, key, data))
+    def put_bytes(self, key: str, data: bytes, content_encoding: "str | None" = None) -> None:
+        self._run(self._s.put_bytes(self._scope, key, data, content_encoding=content_encoding))
 
 
 async def _run_utility_job(
@@ -812,13 +812,24 @@ async def _run_utility_job(
     loop = asyncio.get_running_loop()
     sync_storage = _SyncStorageFacade(storage, scope, loop)
 
+    # run_utility calls on_progress SYNCHRONOUSLY from the executor thread, but _on_progress
+    # is an async coroutine (it writes the KV queue). Schedule it onto the loop so utility
+    # stage/progress updates actually land in the job row — the same channel model loading /
+    # conversions drive the global toast from. Fire-and-forget: we don't block the utility.
+    def _sync_on_progress(stage: str, frac: float) -> None:
+        try:
+            asyncio.run_coroutine_threadsafe(_on_progress(stage, frac), loop)
+        except Exception:  # noqa: BLE001 — a progress hiccup must never sink the utility
+            pass
+
     def _invoke() -> dict:
         return run_utility(
             uname,
             src_path,
             storage=sync_storage,
             scope=scope,
-            on_progress=_on_progress,
+            on_progress=_sync_on_progress,
+            source_key=job.source_key,  # real model key — src_path is a random temp name
             kwargs=ukwargs,
         )
 
@@ -913,6 +924,33 @@ async def _try_reduced_sif_source(
         100.0 * fetched / max(idx.size, 1),
     )
     return True
+
+
+async def _try_sin_stream_uri(storage: Storage, scope: Scope, source_key: str) -> str | None:
+    """Presigned GET URL for reading a ``.sin`` deck straight from object storage.
+
+    The SIN reader (:func:`ada.fem.formats.sesam.results.sin_reader.open_sin`)
+    range-fetches through a paged byte source, so a conversion touches only the
+    pointer tables plus the target step's records — no multi-GB full download,
+    and resident bytes stay capped by the reader's page cache. Returns None
+    (caller falls back to the full streaming download) when the store can't
+    presign (LocalStore), the blob is gzip-at-rest (range offsets address the
+    uncompressed file), or the source is missing (so the download path raises
+    the proper FileNotFoundError instead of the child 404ing mid-read).
+    """
+    try:
+        if not storage.supports_presigned_uploads:
+            return None
+        if await storage.is_gzip_stored(scope, source_key):
+            return None
+        if not await storage.exists(scope, source_key):
+            return None
+        # TTL must outlive the conversion — the child fetches pages throughout
+        # its run, not just at open. 4 h covers the longest bakes.
+        return await storage.presigned_get_url(scope, source_key, expires_in_seconds=4 * 3600, internal=True)
+    except Exception:
+        logger.exception("worker: presigning SIN source %s failed (non-fatal); full download", source_key)
+        return None
 
 
 async def _ensure_sif_index(storage: Storage, scope: Scope, source_key: str, src_path: pathlib.Path) -> None:
@@ -1057,11 +1095,20 @@ async def _process_one(
     # back to the full stream when there's no index / it's gzip-stored / fetch
     # fails. ``sif_reduced`` gates the post-convert index build below.
     sif_reduced = False
+    # A ``.sin`` result deck is read straight from object storage via a
+    # presigned URL — the reader's paged range-fetch touches only the pointer
+    # tables + one step's records, so the multi-GB download is skipped
+    # entirely. glb is the only registry target for ``.sin`` (the FEA-result
+    # route); None falls back to the full stream below.
+    sin_source_uri: str | None = None
+    fetch_t0 = time.monotonic()
     try:
         try:
             if src_suffix.lower() == ".sif":
                 sif_reduced = await _try_reduced_sif_source(storage, scope, job.source_key, job.step, src_path)
-            if not sif_reduced:
+            elif src_suffix.lower() == ".sin" and job.target_format == "glb":
+                sin_source_uri = await _try_sin_stream_uri(storage, scope, job.source_key)
+            if not sif_reduced and sin_source_uri is None:
                 await storage.stream_to_path(scope, job.source_key, src_path)
         except FileNotFoundError as exc:
             logger.warning("worker: source %s missing for job %s", job.source_key, job_id)
@@ -1091,6 +1138,16 @@ async def _process_one(
                     sib_key,
                     job_id,
                 )
+
+        # Source (+ sidecar) download is done — snapshot the slice so the audit
+        # can attribute it. ``convert_ms`` spans started_at → post-convert, so a
+        # slow object-storage stream (a multi-GB SIN deck takes 50–100 s) would
+        # otherwise read as a slow conversion.
+        fetch_ms = round((time.monotonic() - fetch_t0) * 1000)
+        try:
+            fetch_bytes = src_path.stat().st_size
+        except OSError:
+            fetch_bytes = None
 
         # Conversion settings flip via the admin panel and are read
         # fresh per job — admins can flip one on, send a
@@ -1397,7 +1454,14 @@ async def _process_one(
 
         # Engine + options provenance for the audit row (which tessellator ran,
         # incl. an adacpp→occ-builtin fallback, and the effective toggles).
-        convert_meta = _convert_meta_for(job, env_overrides)
+        convert_meta = dict(_convert_meta_for(job, env_overrides) or {})
+        convert_meta["fetch_ms"] = fetch_ms
+        if fetch_bytes is not None:
+            convert_meta["fetch_bytes"] = fetch_bytes
+        if sin_source_uri is not None:
+            # No local copy — the child range-fetches pages on demand, so the
+            # download cost shows up inside convert_ms, not fetch_ms.
+            convert_meta["fetch_mode"] = "sin-range-stream"
 
         # Record the pod's CPU allotment (cgroup quota, else host cores) so the metrics chart can
         # render CPU as % utilization across all cores instead of the cumulative-time ramp.
@@ -1436,6 +1500,7 @@ async def _process_one(
                     "step": job.step,
                     "field": job.field,
                     "options": convert_options or None,
+                    "source_uri": sin_source_uri,
                 },
                 on_progress=_on_progress,
                 on_sample=_on_sample,
@@ -1565,7 +1630,16 @@ async def _process_one(
             # Stream the output file straight to object storage (multipart) —
             # never reading it into a parent-side bytes buffer. cleanup_output()
             # drops the tmpfile + work dir once the upload settles either way.
-            await storage.put_path(scope, job.derived_key, upload_path, content_encoding=derived_encoding)
+            # put_path returns the at-rest gzip vs upload split so the audit can
+            # attribute the post-conversion tail (gzip-at-rest was ~85% of the
+            # crane STEP->obj wall — see storage._gzip_level).
+            put_timing = await storage.put_path(scope, job.derived_key, upload_path, content_encoding=derived_encoding)
+            if isinstance(convert_meta, dict) and isinstance(put_timing, dict):
+                # Distinct from the GLB meshopt ``compress_ms`` above: ``gzip_ms`` is
+                # the at-rest gzip pass, ``upload_ms`` the multipart PUT.
+                convert_meta["gzip_ms"] = put_timing.get("compress_ms")
+                convert_meta["upload_ms"] = put_timing.get("upload_ms")
+                convert_meta["stored_bytes"] = put_timing.get("stored_bytes")
         except Exception as exc:
             logger.exception("worker: upload failed for %s", job.derived_key)
             trace = tb_module.format_exc()

@@ -65,8 +65,13 @@ def stream_step_to_step(
 ) -> dict:
     """Stream a STEP file to a new AP242 STEP file, one solid at a time.
 
-    Returns stats ``{emitted, skipped, total, reasons}``. ``reasons`` maps the
-    first unsupported surface/curve type to its skip count.
+    Returns stats ``{emitted, skipped, total, instances, total_instances, reasons}``.
+    ``emitted``/``skipped``/``total`` count *solids*; ``instances`` is the number of
+    placed instances written (one NAUO placement per occurrence — a mapped solid used
+    N times counts N) and ``total_instances`` every placed instance seen in the source
+    (emitted + skipped). The instance counts are the cross-format parity metric, so a
+    caller never has to re-parse the output to count it. ``reasons`` maps the first
+    unsupported surface/curve type to its skip count.
     """
     import numpy as np
 
@@ -75,6 +80,7 @@ def stream_step_to_step(
 
     prog = on_progress or (lambda *_: None)
     emitted = skipped = total = 0
+    instances = total_instances = 0
     reasons: Counter = Counter()
 
     prog("streaming-step", 0.1)
@@ -99,9 +105,11 @@ def stream_step_to_step(
                     tf = None if m is None else [float(v) for v in np.asarray(m).reshape(-1)]
                     pp = list(paths[k][:-1]) if (paths and k < len(paths) and paths[k]) else None
                     inst.append((tf, pp))
+                total_instances += len(inst)
                 n = writer.add_solid_instances(gi, name=base_name, color=color, instances=inst)
                 if n:
                     emitted += 1
+                    instances += n
                 else:
                     skipped += 1
                     reasons[_unsupported_kind(gi)] += 1
@@ -111,4 +119,11 @@ def stream_step_to_step(
     if skipped:
         logger.warning("stream_step_to_step: %d/%d solids skipped (unsupported): %s", skipped, total, dict(reasons))
     prog("ready", 1.0)
-    return {"emitted": emitted, "skipped": skipped, "total": total, "reasons": dict(reasons)}
+    return {
+        "emitted": emitted,
+        "skipped": skipped,
+        "total": total,
+        "instances": instances,
+        "total_instances": total_instances,
+        "reasons": dict(reasons),
+    }

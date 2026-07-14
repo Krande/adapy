@@ -22,7 +22,13 @@ def _captured_writer(monkeypatch, source_ext: str) -> str:
 
     def fake_to_stp(self, dest, *args, writer="occ", **kwargs):
         recorded["writer"] = writer
-        pathlib.Path(dest).write_text("ISO-10303-21;\nENDSEC;\nEND-ISO-10303-21;\n")
+        # Emit a deck carrying a solid ROOT — the non-FEM path now re-checks the OCC
+        # output and only falls back to the streaming faceted writer when it emitted
+        # NO solid (e.g. an alignment sweep adacpp can't build). A realistic writer
+        # produces a solid, so the occ routing must stick.
+        pathlib.Path(dest).write_text(
+            "ISO-10303-21;\nDATA;\n#1=MANIFOLD_SOLID_BREP('s',#2);\nENDSEC;\nEND-ISO-10303-21;\n"
+        )
         return {"emitted": 1, "skipped": 0}
 
     monkeypatch.setattr(Part, "to_stp", fake_to_stp)

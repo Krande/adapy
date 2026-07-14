@@ -8,5 +8,8 @@ utilities are advertised to the frontend.
 from __future__ import annotations
 
 from . import diff  # noqa: F401  (import for @utility registration side-effect)
+from . import (  # noqa: F401  (import for @utility registration side-effect)
+    merge_preview,
+)
 
-__all__ = ["diff"]
+__all__ = ["diff", "merge_preview"]

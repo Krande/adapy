@@ -182,12 +182,16 @@ def run_utility(
     storage,
     scope,
     on_progress: ProgressFn | None = None,
+    source_key: str | None = None,
     kwargs: dict | None = None,
 ) -> dict:
     """Dispatch a utility by name and return its viewer-ops payload.
 
     Thin wrapper the worker calls; keeps the lookup + invocation contract in one
-    place so the worker's job loop stays a one-liner.
+    place so the worker's job loop stays a one-liner. ``source_key`` is the ORIGINAL
+    storage key of the source (the worker streams it to a random temp path, so a
+    handler that needs the real model name — e.g. to name a persisted overlay after the
+    model — must use this, not ``scene_glb_path.stem``). Handlers swallow it via **_.
     """
     progress = on_progress or (lambda _stage, _frac: None)
     handler = UtilityRegistry.lookup(name)
@@ -196,6 +200,7 @@ def run_utility(
         storage=storage,
         scope=scope,
         on_progress=progress,
+        source_key=source_key,
         **(kwargs or {}),
     )
     if not isinstance(payload, dict) or "ops" not in payload:

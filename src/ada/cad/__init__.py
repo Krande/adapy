@@ -21,6 +21,7 @@ least one backend.
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -45,6 +46,23 @@ if TYPE_CHECKING:
     from ada.geom.direction import Direction
     from ada.geom.points import Point
     from ada.occ.backend import OccBackend  # re-exported at runtime via __getattr__
+
+
+def _circle_param(pt, loc, axis, ref) -> float:
+    """Angular parameter (radians) of ``pt`` on a circle at ``loc`` with normal ``axis``
+    and angular origin ``ref`` — measured from ref about axis, matching OCC's gp_Circ. Used
+    to recover a circular arc's trim extent from its endpoints for the adacpp edge encoder."""
+    ax = [float(x) for x in axis]
+    an = math.sqrt(sum(c * c for c in ax)) or 1.0
+    ax = [c / an for c in ax]
+    r0 = [float(x) for x in ref]
+    dp = sum(r0[i] * ax[i] for i in range(3))
+    r0 = [r0[i] - dp * ax[i] for i in range(3)]  # ref orthogonalised to axis
+    rn = math.sqrt(sum(c * c for c in r0)) or 1.0
+    r0 = [c / rn for c in r0]
+    perp = [ax[1] * r0[2] - ax[2] * r0[1], ax[2] * r0[0] - ax[0] * r0[2], ax[0] * r0[1] - ax[1] * r0[0]]
+    d = [float(pt[i]) - float(loc[i]) for i in range(3)]
+    return math.atan2(sum(d[i] * perp[i] for i in range(3)), sum(d[i] * r0[i] for i in range(3)))
 
 
 class Containment(Enum):
@@ -723,7 +741,16 @@ class AdacppBackend:
                 return [2.0, *loc, *axis, *ref, r, *start]
             if has_trim:
                 return [5.0, *loc, *axis, *ref, r, float(t_start), float(t_end)]
-            return [0.0, *start, *end]  # no trim params recoverable → chord
+            # No explicit trim: recover the arc's angular extent from the endpoints (CCW from
+            # start to end, matching OccBackend's two-point arc). WITHOUT this the arc collapsed
+            # to a chord ([0, start, end]) → the face lost the surface and BRepMesh tessellated it
+            # flat (a cylinder wall meshed toward its axis). Emitting the real arc keeps the
+            # boundary on the cylinder so the analytic face meshes correctly on the adacpp backend.
+            t0 = _circle_param(start, loc, axis, ref)
+            t1 = _circle_param(end, loc, axis, ref)
+            while t1 <= t0 + 1e-12:
+                t1 += 2.0 * math.pi
+            return [5.0, *loc, *axis, *ref, r, t0, t1]
         if isinstance(curve, cu.Ellipse):
             pos = curve.position
             loc, axis, ref = self._xyz(pos.location), self._xyz(pos.axis), self._xyz(pos.ref_direction)
@@ -760,9 +787,28 @@ class AdacppBackend:
         return [0.0, *start, *end]
 
     @staticmethod
-    def _encode_pcurve(pc) -> list[float]:
+    def _encode_pcurve(
+        pc,
+        t_start: float | None = None,
+        t_end: float | None = None,
+        p_start=None,
+        p_end=None,
+    ) -> list[float]:
         """Encode a Pcurve2dBSpline (2D UV curve on the face surface) as a
-        kind-6 edge record for adacpp.cad.build_advanced_face_bspline."""
+        kind-6 edge record for adacpp.cad.build_advanced_face_bspline.
+
+        ``t_start``/``t_end`` are the owning edge's parametric trim on the
+        underlying curve; ``p_start``/``p_end`` its declared 3D vertices. SAT
+        pcurves typically span the FULL underlying curve, not just the edge's
+        segment — without a trim adacpp built the edge over the whole pcurve,
+        the wire endpoints landed metres apart and the face failed with "wire
+        build failed". The t-params alone aren't enough either: an ACIS bs2
+        pcurve is a fit approximation with its OWN parameterization, so the
+        edge's curve-params land slightly off on the pcurve (cm-scale 3D error
+        on this data). The 3D vertices let adacpp trim geometrically
+        (point → surface UV → pcurve param). Appended as an optional
+        [2.0, t0, t1, sx, sy, sz, ex, ey, ez] tail (flag-detected,
+        back-compatible; flag 1.0 = params-only legacy tail)."""
         cps = pc.control_points_2d
         knots = [float(k) for k in pc.knots]
         mults = [float(m) for m in pc.knot_multiplicities]
@@ -773,19 +819,44 @@ class AdacppBackend:
         rec += [float(len(knots)), *knots, *mults]
         if rational:
             rec += [float(w) for w in pc.weights]
+        if t_start is not None and t_end is not None:
+            if p_start is not None and p_end is not None:
+                rec += [2.0, float(t_start), float(t_end)]
+                rec += [float(c) for c in list(p_start)[:3]] + [float(c) for c in list(p_end)[:3]]
+            else:
+                rec += [1.0, float(t_start), float(t_end)]
         return rec
 
     def _encode_face_bound(self, fb) -> list[list[float]]:
-        """Encode a FaceBound's edge loop: each OrientedEdge with a supplied
-        pcurve → a kind-6 (pcurve-on-surface) record; otherwise its 3D edge."""
+        """Encode a FaceBound's loop as adacpp edge records. An EdgeLoop maps each
+        OrientedEdge (pcurve → kind-6, else its 3D edge); a PolyLoop (a polygon of
+        points — how the analytic flat faces + their hole loops arrive) maps to straight
+        line edges between consecutive points, closing the loop. Without the PolyLoop arm
+        the bound encoded to an EMPTY edge list and build_advanced_face_planar failed the
+        wire build (flat faces-with-holes were unbuildable on the adacpp backend)."""
         import ada.geom.curves as cu
 
         bound = fb.bound
+        if isinstance(bound, cu.PolyLoop):
+            pts = [self._xyz(p) for p in bound.polygon]
+            n = len(pts)
+            return [[0.0, *pts[i], *pts[(i + 1) % n]] for i in range(n)]
         edge_list = bound.edge_list if isinstance(bound, cu.EdgeLoop) else []
         out = []
         for oe in edge_list:
             pc = getattr(oe, "pcurve", None)
-            out.append(self._encode_pcurve(pc) if pc is not None else self._encode_oriented_edge(oe))
+            if pc is not None:
+                out.append(
+                    self._encode_pcurve(
+                        pc,
+                        getattr(oe, "t_start", None),
+                        getattr(oe, "t_end", None),
+                        getattr(oe, "start", None),
+                        getattr(oe, "end", None),
+                    )
+                )
+            else:
+                out.append(self._encode_oriented_edge(oe))
         return out
 
     def make_wire(self, points: "list") -> ShapeHandle:
@@ -853,6 +924,7 @@ class AdacppBackend:
         deflection: float = 0.0,
         angular_deg: float = 20.0,
         settings: "dict | None" = None,
+        threads: int = 1,
     ) -> "BatchMesh":
         """Tessellate a stream of ``(id, ada.geom geometry)`` via adacpp's NGEOM pipeline.
 
@@ -872,18 +944,24 @@ class AdacppBackend:
         from ada.cadit.ngeom import serialize_geometries
 
         buffer = serialize_geometries(items)
-        # ``settings`` overrides the ifcopenshell ConversionSettings for the
-        # taxonomy paths (occ/cgal/hybrid); ignored by libtess2. Backward-
-        # compatible: adacpp builds predating the settings param raise
-        # TypeError, in which case we retry without it.
-        if settings:
-            try:
-                mesh = fn(buffer, pipeline, deflection, angular_deg, dict(settings))
-            except TypeError:
-                logger.warning("adacpp build has no taxonomy settings param; ignoring %r", settings)
+        # ``settings`` overrides the ifcopenshell ConversionSettings for the taxonomy paths
+        # (occ/cgal/hybrid); ignored by libtess2. ``threads`` (>1) parallelises a root's faces
+        # in the libtess2 path — opt-in, so the STEP->GLB process pool (which parallelises across
+        # solids) stays serial per call and doesn't oversubscribe. The signature grew
+        # (settings, then threads); try the fullest form and fall back for older adacpp builds.
+        try:
+            mesh = fn(buffer, pipeline, deflection, angular_deg, dict(settings or {}), int(threads))
+        except TypeError:
+            if int(threads) > 1:
+                logger.debug("adacpp build has no tessellate_stream threads param; running serial")
+            if settings:
+                try:
+                    mesh = fn(buffer, pipeline, deflection, angular_deg, dict(settings))
+                except TypeError:
+                    logger.warning("adacpp build has no taxonomy settings param; ignoring %r", settings)
+                    mesh = fn(buffer, pipeline, deflection, angular_deg)
+            else:
                 mesh = fn(buffer, pipeline, deflection, angular_deg)
-        else:
-            mesh = fn(buffer, pipeline, deflection, angular_deg)
         groups = [
             MeshGroup(node_id=g.node_id, start=g.start, length=g.length, vstart=g.vstart, vlength=g.vlength)
             for g in mesh.groups

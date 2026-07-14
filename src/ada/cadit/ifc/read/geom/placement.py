@@ -20,6 +20,18 @@ def axis3d(ifc_entity) -> Axis2Placement3D:
     )
 
 
+def axis2d_as_3d(ifc_entity) -> Axis2Placement3D:
+    """IfcAxis2Placement2D (Location + optional RefDirection, no Axis) lifted into the z=0 plane,
+    so 2D curve placements (alignment line/circle/clothoid parents) reuse the 3D geom types."""
+    loc = ifc_entity.Location.Coordinates
+    rd = ifc_entity.RefDirection.DirectionRatios if ifc_entity.RefDirection is not None else (1.0, 0.0)
+    return Axis2Placement3D(
+        location=Point(float(loc[0]), float(loc[1]), 0.0),
+        axis=Direction(0, 0, 1),
+        ref_direction=Direction(float(rd[0]), float(rd[1]), 0.0),
+    )
+
+
 def axis1placement(ifc_entity) -> Axis1Placement:
     axis = ifc_direction(ifc_entity.Axis) if ifc_entity.Axis is not None else Direction(0, 0, 1)
     return Axis1Placement(
