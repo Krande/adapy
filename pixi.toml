@@ -146,7 +146,7 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # for every other path (IFC/XML/FEM, occ-builtin fallback). Shares occt 7.9.3 with
 # pyocc (see above) so both coexist in one env.
 [feature.adacpp-runtime.dependencies]
-ada-cpp = "0.13.1.*"
+ada-cpp = "0.13.2.*"
 
 # ada-cpp CAD backend (AdacppBackend) — native CPython build of the
 # wasm-capable kernel. Brings its own occt 7.9.3 + gmsh + ifcopenshell,
@@ -162,7 +162,7 @@ ada-cpp = "0.13.1.*"
 # 0.13 adds the pure-C++ IFC reader/writer + zero-copy NGEOM streams (lazy ShapeStore), the cone
 # semi-angle plane-angle-unit drop fix, and tessellation perf work; adapy's native import/stream
 # paths graduate off the branch overlay onto this release.
-ada-cpp = "0.13.1.*"
+ada-cpp = "0.13.2.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
