@@ -334,9 +334,7 @@ class _Decoder:
         position = self.get(c.i32())
         direction = Direction(*c.v3())
         depth = c.f64()
-        return so.ExtrudedAreaSolid(
-            swept_area=profile, position=position, depth=depth, extruded_direction=direction
-        )
+        return so.ExtrudedAreaSolid(swept_area=profile, position=position, depth=depth, extruded_direction=direction)
 
     def _revolved_area_solid(self, c: _Cur):
         import math
@@ -359,9 +357,7 @@ class _Decoder:
         loc_w = rot @ np.asarray(axis_local.location, float) + origin
         dir_w = rot @ np.asarray(axis_local.axis, float)
         axis = Axis1Placement(Point(*loc_w), Direction(*dir_w))
-        return so.RevolvedAreaSolid(
-            swept_area=profile, position=position, axis=axis, angle=math.degrees(angle_rad)
-        )
+        return so.RevolvedAreaSolid(swept_area=profile, position=position, axis=axis, angle=math.degrees(angle_rad))
 
     def _sphere_solid(self, c: _Cur):
         import ada.geom.solids as so

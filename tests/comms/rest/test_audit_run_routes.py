@@ -147,12 +147,36 @@ def test_cells_duration_ms_is_sum_of_cells(db):
     pool, run = db
     r = run(db_module.create_audit_run(pool, scope="shared", worker_pool=None))
     run(db_module.set_audit_run_total(pool, r["id"], 2))
-    run(db_module.insert_audit(pool, user_sub=None, scope_kind="shared", scope_id=None, action="convert",
-                               key="a.step", target_format="glb", status="done", duration_ms=10,
-                               job_id="jobA", audit_run_id=r["id"]))
-    run(db_module.insert_audit(pool, user_sub=None, scope_kind="shared", scope_id=None, action="convert",
-                               key="b.step", target_format="glb", status="error", duration_ms=20,
-                               job_id="jobB", audit_run_id=r["id"]))
+    run(
+        db_module.insert_audit(
+            pool,
+            user_sub=None,
+            scope_kind="shared",
+            scope_id=None,
+            action="convert",
+            key="a.step",
+            target_format="glb",
+            status="done",
+            duration_ms=10,
+            job_id="jobA",
+            audit_run_id=r["id"],
+        )
+    )
+    run(
+        db_module.insert_audit(
+            pool,
+            user_sub=None,
+            scope_kind="shared",
+            scope_id=None,
+            action="convert",
+            key="b.step",
+            target_format="glb",
+            status="error",
+            duration_ms=20,
+            job_id="jobB",
+            audit_run_id=r["id"],
+        )
+    )
     after = run(db_module.get_audit_run(pool, r["id"]))
     assert after["cells_duration_ms"] == 30  # sum, not wall clock
     assert after["ok"] == 1 and after["failed"] == 1 and after["status"] == "finished"
@@ -162,12 +186,36 @@ def test_reset_audit_cell_for_rerun_undoes_counter_and_reopens(db):
     pool, run = db
     r = run(db_module.create_audit_run(pool, scope="shared", worker_pool=None))
     run(db_module.set_audit_run_total(pool, r["id"], 2))
-    run(db_module.insert_audit(pool, user_sub=None, scope_kind="shared", scope_id=None, action="convert",
-                               key="a.step", target_format="glb", status="done", duration_ms=10,
-                               job_id="jobA", audit_run_id=r["id"]))
-    run(db_module.insert_audit(pool, user_sub=None, scope_kind="shared", scope_id=None, action="convert",
-                               key="b.step", target_format="glb", status="error", duration_ms=20,
-                               job_id="jobB", audit_run_id=r["id"]))
+    run(
+        db_module.insert_audit(
+            pool,
+            user_sub=None,
+            scope_kind="shared",
+            scope_id=None,
+            action="convert",
+            key="a.step",
+            target_format="glb",
+            status="done",
+            duration_ms=10,
+            job_id="jobA",
+            audit_run_id=r["id"],
+        )
+    )
+    run(
+        db_module.insert_audit(
+            pool,
+            user_sub=None,
+            scope_kind="shared",
+            scope_id=None,
+            action="convert",
+            key="b.step",
+            target_format="glb",
+            status="error",
+            duration_ms=20,
+            job_id="jobB",
+            audit_run_id=r["id"],
+        )
+    )
 
     # Re-run cell B: the failed counter drops, the run reopens, and B's row is
     # re-pointed at a fresh job with its result timing cleared.

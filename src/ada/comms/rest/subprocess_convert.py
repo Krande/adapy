@@ -445,7 +445,10 @@ async def run_isolated_convert(
                 # (marker-line channel, same as the C++ [STEPPROF-JSON] profiler). Best-effort:
                 # a tally failure must never fail an otherwise-successful conversion.
                 try:
-                    from ada.occ.tessellating import consume_mesh_distortion_stats, consume_tess_fallback_stats
+                    from ada.occ.tessellating import (
+                        consume_mesh_distortion_stats,
+                        consume_tess_fallback_stats,
+                    )
 
                     fb = consume_tess_fallback_stats()
                     if fb.get("count"):
@@ -459,7 +462,10 @@ async def run_isolated_convert(
                 # Native mesh conversions record it directly; for GLB (no tri count in the return)
                 # parse the output's JSON chunk. Best-effort — never fail a good conversion.
                 try:
-                    from ada.cadit.step.tess_stats import consume_tri_stats, count_glb_tri_stats
+                    from ada.cadit.step.tess_stats import (
+                        consume_tri_stats,
+                        count_glb_tri_stats,
+                    )
 
                     ts = consume_tri_stats()
                     if not ts.get("n_tris") and target_format in ("glb", "gltf"):

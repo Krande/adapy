@@ -60,6 +60,7 @@ def native_step_to_glb(
         deflection = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
     if angular_deg is None:
         from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+
         angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
 
     # Adaptive per-surface angular density is ON BY DEFAULT for STEP->GLB: large curved CAD
@@ -93,9 +94,7 @@ def native_step_to_glb(
     if on_progress is not None:
         on_progress("adacpp-native", 0.1)
 
-    glb_kwargs = dict(
-        deflection=deflection, angular_deg=angular_deg, num_threads=num_threads, meshopt=meshopt
-    )
+    glb_kwargs = dict(deflection=deflection, angular_deg=angular_deg, num_threads=num_threads, meshopt=meshopt)
     # Only forward model_scale to an adacpp build that accepts it (nanobind embeds the signature in
     # __doc__); an older extension would raise on the unknown kwarg. Off (0.0) behaves as before.
     if "model_scale" in (adacpp.cad.stream_step_to_glb.__doc__ or ""):

@@ -186,6 +186,7 @@ def _tessellate_geom_worker(geom):
         if _pipeline and hasattr(be, "tessellate_stream"):
             defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
             from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+
             ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
             # Adaptive coarsening: relax the angular ceiling on features small vs the whole model, so a
             # large assembly (e.g. the boiler's asm_22) doesn't over-tessellate every small pipe/torus
@@ -504,7 +505,12 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     import os
 
     if os.environ.get("ADA_STREAM_TESS_PIPELINE") and "ADA_STREAM_TESS_MODEL_SCALE" not in os.environ:
-        _adaptive = (os.environ.get("ADA_STREAM_TESS_ADAPTIVE") or "").strip().lower() not in {"0", "false", "no", "off"}
+        _adaptive = (os.environ.get("ADA_STREAM_TESS_ADAPTIVE") or "").strip().lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }
         if _adaptive:
             try:
                 from ada.cadit.step.model_scale import estimate_step_model_scale

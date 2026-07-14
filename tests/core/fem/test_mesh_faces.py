@@ -122,7 +122,9 @@ def test_surface_strategy_flat_mesh_matches_coplanar(fem_files):
 
 def test_surface_strategy_detects_cylinder():
     a = _tube()
-    part = next(p_ for p_ in a.get_all_parts_in_assembly(include_self=True) if p_.fem is not None and len(p_.fem.elements))
+    part = next(
+        p_ for p_ in a.get_all_parts_in_assembly(include_self=True) if p_.fem is not None and len(p_.fem.elements)
+    )
     faces = list(iter_faces(part, MergeStrategy.SURFACE))
     analytic = [f for f in faces if f.geom_face is not None]
     # the 288-quad tube collapses to a handful of analytic cylinder faces
@@ -140,7 +142,9 @@ def test_surface_strategy_detects_cylinder():
 
 def test_surface_strategy_object_stream_yields_curved_plates():
     a = _tube()
-    part = next(p_ for p_ in a.get_all_parts_in_assembly(include_self=True) if p_.fem is not None and len(p_.fem.elements))
+    part = next(
+        p_ for p_ in a.get_all_parts_in_assembly(include_self=True) if p_.fem is not None and len(p_.fem.elements)
+    )
     objs = list(part.iter_objects_from_fem(beams=False, plates=True, merge_strategy="surface"))
     curved = [o for o in objs if isinstance(o, ada.PlateCurved)]
     assert 1 <= len(curved) <= 8

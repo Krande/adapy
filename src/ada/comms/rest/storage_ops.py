@@ -234,7 +234,7 @@ async def rename_key_cascade(
     # every move.
     try:
         await storage.rename(scope_obj, old_key, new_key, overwrite=True)
-    except Exception as exc:
+    except Exception:
         # Full detail logged; return a generic reason so backend/stack-trace text isn't
         # exposed in the response (CodeQL py/stack-trace-exposure).
         logger.exception("storage-op: rename failed for %s -> %s", old_key, new_key)

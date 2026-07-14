@@ -61,7 +61,7 @@ def test_baked_geometry_renders_placed_via_stream_and_occ():
 
     place = Placement.from_axis_angle([0, 0, 1], 90, origin=(5, 2, 0))
     sh = _box_shape(place)
-    sg = sh.solid_geom()
+    sh.solid_geom()  # bake placement into the analytic solid before solid_occ() reads it
 
     # local box (0,0,0)-(2,1,1) rotated 90 about Z at (5,2,0) -> x in [4,5], y in [2,4], z in [0,1]
     def _check_bbox(mn, mx):

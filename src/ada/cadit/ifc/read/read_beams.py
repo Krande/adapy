@@ -12,7 +12,7 @@ from ada.config import logger
 from ada.core.vector_utils import calc_yvec, unit_vector
 
 from .geom.geom_reader import get_product_definitions
-from .geom.placement import axis3d, placement_from_ifc_4x4
+from .geom.placement import placement_from_ifc_4x4
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
 from .reader_utils import (
@@ -110,7 +110,6 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
 
 
 def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) -> Beam:
-    from ada import Placement
     from ada.core.vector_transforms import transform3d
 
     logger.debug("Reading revolved IFC beam (swept along IfcTrimmedCurve)")

@@ -11,7 +11,6 @@ registry toggle / estimator, and that model_scale actually flows to the kernel a
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 
@@ -43,9 +42,8 @@ def test_registry_toggle_and_model_scale(monkeypatch):
 
 def test_estimate_step_model_scale_robust(tmp_path):
     """The estimator returns a positive scale and rejects a far-flung outlier point."""
-    from ada.cadit.step.model_scale import estimate_step_model_scale
-
     import ada
+    from ada.cadit.step.model_scale import estimate_step_model_scale
 
     src = tmp_path / "box.step"
     (ada.Assembly("a") / (ada.Part("p") / ada.PrimBox("b", (0, 0, 0), (2, 1, 1)))).to_stp(src)

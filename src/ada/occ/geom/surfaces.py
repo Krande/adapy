@@ -3,7 +3,7 @@ from collections import Counter
 
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRep import BRep_Builder, BRep_Tool
-from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
+from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,

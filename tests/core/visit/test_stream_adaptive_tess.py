@@ -9,7 +9,6 @@ no model_scale (unlike native_step_to_glb, which already coarsens by default).
 from __future__ import annotations
 
 import json
-import os
 import struct
 
 import pytest
@@ -18,7 +17,7 @@ import pytest
 def _glb_tris(path: str) -> int:
     d = open(path, "rb").read()
     jlen = struct.unpack("<I", d[12:16])[0]
-    g = json.loads(d[20:20 + jlen])
+    g = json.loads(d[20 : 20 + jlen])
     return sum(g["accessors"][p["indices"]]["count"] // 3 for m in g["meshes"] for p in m["primitives"])
 
 
@@ -29,7 +28,10 @@ def test_stream_model_scale_coarsens(tmp_path, monkeypatch):
 
     if not hasattr(active_backend(), "tessellate_stream"):
         pytest.skip("adacpp build has no tessellate_stream")
-    from ada.visit.scene_handling.scene_from_step_stream import StepStreamSource, convert_step_stream_to_glb
+    from ada.visit.scene_handling.scene_from_step_stream import (
+        StepStreamSource,
+        convert_step_stream_to_glb,
+    )
 
     # small cylinders (r=15) spread across a large extent -> features << model scale
     objs = [ada.PrimCyl(f"c{i}", (i * 2000, 0, 0), (i * 2000, 0, 200), 15) for i in range(5)]

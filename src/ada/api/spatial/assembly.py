@@ -113,7 +113,10 @@ class Assembly(Part):
         is the full typed reader.
         """
         if reader == "native":
-            from ada.cadit.ifc.read.native_reader import native_adacpp_ifc_available, native_read_ifc_into
+            from ada.cadit.ifc.read.native_reader import (
+                native_adacpp_ifc_available,
+                native_read_ifc_into,
+            )
 
             if not native_adacpp_ifc_available():
                 raise RuntimeError("reader='native' requires adacpp with IfcNgeomStream")
@@ -308,7 +311,10 @@ class Assembly(Part):
         if writer == "native":
             if destination == "object":
                 raise ValueError("to_ifc(writer='native') needs an on-disk destination")
-            from ada.cadit.ifc.write.native_ifc_writer import native_ifc_writer_available, native_write_ifc
+            from ada.cadit.ifc.write.native_ifc_writer import (
+                native_ifc_writer_available,
+                native_write_ifc,
+            )
 
             if not native_ifc_writer_available():
                 raise RuntimeError("writer='native' requires adacpp with blobs_to_ifc")

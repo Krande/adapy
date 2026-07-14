@@ -75,9 +75,7 @@ def native_read_ifc_into(assembly, ifc_path: str | pathlib.Path, *, product_tree
     for i, (blob, gid, color, mats, paths) in enumerate(native_stream_read_ifc_blobs(ifc_path)):
         name = gid if gid not in (None, "") else f"{assembly.name}_{i}"
         if store is not None:
-            idx = store.add_blob(
-                blob, gid=name, color=color, transforms=(mats or None), instance_paths=(paths or None)
-            )
+            idx = store.add_blob(blob, gid=name, color=color, transforms=(mats or None), instance_paths=(paths or None))
             shp = ShapeProxy(name, store, idx, color=color)
         else:
             from ada.api.primitives import Shape

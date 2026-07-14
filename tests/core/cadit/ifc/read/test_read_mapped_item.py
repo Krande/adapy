@@ -122,8 +122,12 @@ def test_merge_face_sets_triangulated_offsets_indices():
     from ada.geom.points import Point
 
     n = Direction(0, 0, 1)
-    a = su.TriangulatedFaceSet(coordinates=[Point(0, 0, 0), Point(1, 0, 0), Point(0, 1, 0)], normals=[n], indices=[1, 2, 3])
-    b = su.TriangulatedFaceSet(coordinates=[Point(2, 0, 0), Point(3, 0, 0), Point(2, 1, 0)], normals=[n], indices=[1, 2, 3])
+    a = su.TriangulatedFaceSet(
+        coordinates=[Point(0, 0, 0), Point(1, 0, 0), Point(0, 1, 0)], normals=[n], indices=[1, 2, 3]
+    )
+    b = su.TriangulatedFaceSet(
+        coordinates=[Point(2, 0, 0), Point(3, 0, 0), Point(2, 1, 0)], normals=[n], indices=[1, 2, 3]
+    )
 
     merged = _merge_face_sets([a, b])
     assert isinstance(merged, su.TriangulatedFaceSet)

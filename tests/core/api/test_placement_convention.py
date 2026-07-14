@@ -46,9 +46,7 @@ def test_transform_methods_agree_with_get_matrix4x4():
     for local in [(1, 0, 0), (0, 1, 0), (0, 0, 1), (0.3, -0.7, 1.2)]:
         truth = _M_at(local)
         via_pts = p.transform_local_points_to_global(np.array([[float(local[0]), local[1], local[2]]]))[0]
-        via_other = p.transform_array_from_other_place(
-            np.array([[float(local[0]), local[1], local[2]]]), _P()
-        )[0]
+        via_other = p.transform_array_from_other_place(np.array([[float(local[0]), local[1], local[2]]]), _P())[0]
         via_mat = (p.get_matrix4x4() @ np.array([local[0], local[1], local[2], 1.0]))[:3]
         assert np.allclose(via_pts, truth), f"transform_local_points_to_global {local}"
         assert np.allclose(via_other, truth), f"transform_array_from_other_place {local}"

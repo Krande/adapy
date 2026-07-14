@@ -751,9 +751,7 @@ class AdacppBackend:
                 n = max(8, int(abs(a1 - a0) / (2.0 * _np.pi) * 64))
                 ts = _np.linspace(a0, a1, n + 1)
                 pts = [c + sa1 * _np.cos(t) * x + sa2 * _np.sin(t) * y for t in ts]
-                return [
-                    [0.0, *[float(v) for v in p], *[float(v) for v in q]] for p, q in zip(pts[:-1], pts[1:])
-                ]
+                return [[0.0, *[float(v) for v in p], *[float(v) for v in q]] for p, q in zip(pts[:-1], pts[1:])]
             raise NotImplementedError(
                 f"AdacppBackend.build: TrimmedCurve basis {type(b).__name__!r} not yet ported to adacpp."
             )

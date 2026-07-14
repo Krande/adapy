@@ -12,7 +12,11 @@ from ada.base.changes import ChangeAction
 from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.cadit.ifc.units_conversion import convert_file_length_units
-from ada.cadit.ifc.utils import assembly_to_ifc_file, calculate_unit_scale, default_settings
+from ada.cadit.ifc.utils import (
+    assembly_to_ifc_file,
+    calculate_unit_scale,
+    default_settings,
+)
 from ada.cadit.ifc.write.write_user import create_owner_history_from_user
 from ada.config import Config, logger
 
@@ -20,6 +24,7 @@ if TYPE_CHECKING:
 
     from ada import Assembly, Section, User
     from ada.cadit.ifc.read.read_ifc import IfcReader
+    from ada.cadit.ifc.write.write_ifc import IfcWriter
 
 
 def open_ifc_file(ifc_file_path: str | os.PathLike) -> ifcopenshell.file:
@@ -36,7 +41,6 @@ def open_ifc_file(ifc_file_path: str | os.PathLike) -> ifcopenshell.file:
         with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
             return ifcopenshell.file.from_string(fh.read())
     return ifcopenshell.open(path)
-    from ada.cadit.ifc.write.write_ifc import IfcWriter
 
 
 @dataclass

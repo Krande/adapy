@@ -30,8 +30,9 @@ def _sample_arc(start, mid, end, n: int = 24) -> list:
     # dimension". Lift to 3D (z=0) so the cross products stay vector-valued.
     def _v3(p):
         p = np.asarray(p, float).ravel()
-        return p if p.shape[0] == 3 else np.array([p[0] if p.shape[0] > 0 else 0.0,
-                                                   p[1] if p.shape[0] > 1 else 0.0, 0.0])
+        return (
+            p if p.shape[0] == 3 else np.array([p[0] if p.shape[0] > 0 else 0.0, p[1] if p.shape[0] > 1 else 0.0, 0.0])
+        )
 
     start, mid, end = _v3(start), _v3(mid), _v3(end)
     p0, p1, p2 = start, mid, end
@@ -456,7 +457,9 @@ class _Encoder:
             ref = np.cross(axis, alt)
             rn = float(np.linalg.norm(ref))
         ref = ref / rn
-        plane = su.Plane(position=Axis2Placement3D(location=pts[0].tolist(), axis=axis.tolist(), ref_direction=ref.tolist()))
+        plane = su.Plane(
+            position=Axis2Placement3D(location=pts[0].tolist(), axis=axis.tolist(), ref_direction=ref.tolist())
+        )
         # Pin it: surface() memoizes by id(), and a transient inferred plane would be GC'd right
         # after — the next face's plane reusing the freed id() then collides in the memo and gets
         # the previous plane's record, mis-placing the face. Keep every inferred plane alive.
@@ -657,12 +660,7 @@ class _Encoder:
 
         face = self._profile_face(ras.swept_area)
         axis_rec = self._add(_PLACEMENT1, self.v3(tuple(local_loc)) + self.v3(tuple(local_dir)))
-        body = (
-            self.i32(face)
-            + self.i32(self.placement3(pos))
-            + self.i32(axis_rec)
-            + self.f64(math.radians(ras.angle))
-        )
+        body = self.i32(face) + self.i32(self.placement3(pos)) + self.i32(axis_rec) + self.f64(math.radians(ras.angle))
         return self._add(_REVOLVED_AREA_SOLID, body)
 
     def fixed_reference_swept_area_solid(self, frs) -> int:
@@ -709,7 +707,9 @@ class _Encoder:
             else:  # Rodrigues-rotate the frame by the tangent turn
                 ax /= s
                 ang = np.arctan2(s, float(np.dot(v1, v2)))
-                dir_x[i] = xp * np.cos(ang) + np.cross(ax, xp) * np.sin(ang) + ax * float(np.dot(ax, xp)) * (1 - np.cos(ang))
+                dir_x[i] = (
+                    xp * np.cos(ang) + np.cross(ax, xp) * np.sin(ang) + ax * float(np.dot(ax, xp)) * (1 - np.cos(ang))
+                )
             dir_x[i] -= float(np.dot(dir_x[i], t[i])) * t[i]  # re-orthogonalise against the tangent
             dir_x[i] /= np.linalg.norm(dir_x[i]) or 1.0
         return pts, dir_x, np.cross(t, dir_x)
@@ -724,7 +724,8 @@ class _Encoder:
         o = Axis2Placement3D(location=(0.0, 0.0, 0.0))
         inner = [cu.Circle(position=o, radius=float(sds.inner_radius))] if sds.inner_radius else []
         prof = su.ArbitraryProfileDef(
-            profile_type=su.ProfileType.AREA, outer_curve=cu.Circle(position=o, radius=float(sds.radius)),
+            profile_type=su.ProfileType.AREA,
+            outer_curve=cu.Circle(position=o, radius=float(sds.radius)),
             inner_curves=inner,
         )
         face = self._profile_face(prof)
@@ -1050,7 +1051,6 @@ def _loose_bbox(geom) -> tuple[tuple, tuple] | None:
     Returns ``((minx,miny,minz), (maxx,maxy,maxz))`` or ``None``."""
     import ada.geom.booleans as _bo
     import ada.geom.solids as _so
-    import ada.geom.surfaces as _su
 
     while hasattr(geom, "geometry") and hasattr(geom, "bool_operations"):
         geom = geom.geometry

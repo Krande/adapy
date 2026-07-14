@@ -128,6 +128,7 @@ def _touch_liveness() -> None:
     except OSError:
         logger.debug("worker: liveness touch failed", exc_info=True)
 
+
 # Per-source-suffix sidecar files that the worker co-downloads next to
 # the main payload so format-specific readers find them by basename.
 # Keep this conservative — a 404 on an absent sibling is silent, but

@@ -56,6 +56,7 @@ def native_step_to_ifc(
         deflection = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
     if angular_deg is None:
         from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+
         angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
     if num_threads <= 0:
         # Bound to the cgroup-aware allotment (not the node's core count) so we don't oversubscribe a

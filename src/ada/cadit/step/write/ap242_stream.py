@@ -740,6 +740,7 @@ class Ap242StreamWriter:
             return None, None
         defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
         from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+
         ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
         try:
             mesh = fn([("0", g)], pipeline="libtess2", deflection=defl, angular_deg=ang)
@@ -1644,9 +1645,7 @@ def write_step_stream(
                     from ada.geom import Geometry
 
                     P = np.asarray(obj.placement.get_matrix4x4(), dtype=float)
-                    base_ext = extrusion_from_geometry(
-                        Geometry(name, obj_geom.geometry), name=name, color=color
-                    )
+                    base_ext = extrusion_from_geometry(Geometry(name, obj_geom.geometry), name=name, color=color)
                     n_ok = 0
                     for m in transforms:
                         W = P @ np.asarray(m, dtype=float)
@@ -1654,9 +1653,12 @@ def write_step_stream(
                         if placed is not None:
                             writer.add_extrusion(placed)
                             n_ok += 1
-                        elif writer.add_baked_instances(
-                            obj_geom.geometry, name=name, color=color, transforms=[tuple(W.ravel())]
-                        ) > 0:
+                        elif (
+                            writer.add_baked_instances(
+                                obj_geom.geometry, name=name, color=color, transforms=[tuple(W.ravel())]
+                            )
+                            > 0
+                        ):
                             n_ok += 1
                     if n_ok > 0:
                         done = True

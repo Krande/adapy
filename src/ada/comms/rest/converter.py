@@ -2602,8 +2602,11 @@ def _register_ada_loadable() -> None:
                 # knobs (single-sourced by _apply_glb_serializer); explicit step_glb_pipeline /
                 # glb_tess_engine still work when serializer is unset.
                 step_glb_pipeline, glb_tess_engine, _force_python = _apply_glb_serializer(
-                    _ext, serializer, tessellator,
-                    step_glb_pipeline=step_glb_pipeline, glb_tess_engine=glb_tess_engine,
+                    _ext,
+                    serializer,
+                    tessellator,
+                    step_glb_pipeline=step_glb_pipeline,
+                    glb_tess_engine=glb_tess_engine,
                 )
                 return _via_ada(
                     src,
@@ -2711,9 +2714,11 @@ def _via_ifc_stream_to_glb(
 
     ``force_python`` (serializer='python') bypasses the pure-native path entirely so the chosen
     ``glb_tess_engine`` kernel actually drives the ifcopenshell import + BatchTessellator."""
+    from ada.cadit.ifc.native_ifc_to_glb import (
+        native_ifc_glb_available,
+        native_ifc_to_glb,
+    )
     from ada.config import logger
-
-    from ada.cadit.ifc.native_ifc_to_glb import native_ifc_glb_available, native_ifc_to_glb
 
     if not force_python and native_ifc_glb_available():
         try:
@@ -2783,9 +2788,7 @@ def _register_step_stream_exports() -> None:
                 return _via_ada(src, ".ifc", "step", on_progress)
             return _via_ifc_to_step(src, on_progress)
 
-        ConverterRegistry.register(
-            ".ifc", "step", _h_ifc2step, options=_conversion_path_options(".ifc", "step")
-        )
+        ConverterRegistry.register(".ifc", "step", _h_ifc2step, options=_conversion_path_options(".ifc", "step"))
 
     # IFC → GLB via the native adacpp IFC pipeline (no ifcopenshell/OCC), overriding the generic
     # from_ifc → GLB. Gated on the native verb; degrades to from_ifc per _via_ifc_stream_to_glb's
@@ -2798,21 +2801,26 @@ def _register_step_stream_exports() -> None:
         _native_ifc2glb = False
     if _native_ifc2glb:
 
-        def _h_ifc2glb(src, on_progress, *, glb_tess_engine=None, strict_tess=None,
-                       serializer=None, tessellator=None, **_kw):
+        def _h_ifc2glb(
+            src, on_progress, *, glb_tess_engine=None, strict_tess=None, serializer=None, tessellator=None, **_kw
+        ):
             _step_pipe, glb_tess_engine, force_python = _apply_glb_serializer(
-                ".ifc", serializer, tessellator,
-                step_glb_pipeline=None, glb_tess_engine=glb_tess_engine,
+                ".ifc",
+                serializer,
+                tessellator,
+                step_glb_pipeline=None,
+                glb_tess_engine=glb_tess_engine,
             )
             return _via_ifc_stream_to_glb(
-                src, on_progress, glb_tess_engine=glb_tess_engine,
-                strict_tess=strict_tess, force_python=force_python,
+                src,
+                on_progress,
+                glb_tess_engine=glb_tess_engine,
+                strict_tess=strict_tess,
+                force_python=force_python,
             )
 
         # Preserve the serializer/tessellator + engine options declared on the generic ifc→glb row.
-        ConverterRegistry.register(
-            ".ifc", "glb", _h_ifc2glb, options=ConverterRegistry.options_for(".ifc", "glb")
-        )
+        ConverterRegistry.register(".ifc", "glb", _h_ifc2glb, options=ConverterRegistry.options_for(".ifc", "glb"))
 
 
 def _register_glb_to_mesh() -> None:

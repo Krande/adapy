@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from ada.occ.tessellating import accumulate_mesh_distortion, consume_mesh_distortion_stats
+from ada.occ.tessellating import (
+    accumulate_mesh_distortion,
+    consume_mesh_distortion_stats,
+)
 
 
 def _grid(n: int = 11):
@@ -40,12 +43,20 @@ def test_deep_thin_extrusion_not_flagged():
     # A long thin box: side triangles are thin AND reach across the bbox, but no vertex is an
     # outlier (they're all on the body) — must NOT count as crows-nest distortion.
     x, y, z = 0.05, 0.05, 5.0
-    corners = np.array(
-        [[0, 0, 0], [x, 0, 0], [x, y, 0], [0, y, 0], [0, 0, z], [x, 0, z], [x, y, z], [0, y, z]], float
-    )
+    corners = np.array([[0, 0, 0], [x, 0, 0], [x, y, 0], [0, y, 0], [0, 0, z], [x, 0, z], [x, y, z], [0, y, z]], float)
     faces = [
-        [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6],
-        [3, 0, 4], [3, 4, 7], [0, 3, 2], [0, 2, 1], [4, 5, 6], [4, 6, 7],
+        [0, 1, 5],
+        [0, 5, 4],
+        [1, 2, 6],
+        [1, 6, 5],
+        [2, 3, 7],
+        [2, 7, 6],
+        [3, 0, 4],
+        [3, 4, 7],
+        [0, 3, 2],
+        [0, 2, 1],
+        [4, 5, 6],
+        [4, 6, 7],
     ]
     accumulate_mesh_distortion(corners, np.asarray(faces))
     assert consume_mesh_distortion_stats()["distorted_tris"] == 0

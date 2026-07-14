@@ -24,7 +24,9 @@ def _render_bbox(a):
     from ada.occ.tessellating import BatchTessellator
 
     objs = list(a.get_all_physical_objects())
-    p = np.vstack([np.asarray(m.position, float).reshape(-1, 3) for o in objs for m in BatchTessellator().batch_tessellate([o])])
+    p = np.vstack(
+        [np.asarray(m.position, float).reshape(-1, 3) for o in objs for m in BatchTessellator().batch_tessellate([o])]
+    )
     return p.min(0), p.max(0)
 
 

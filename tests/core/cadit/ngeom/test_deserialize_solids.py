@@ -9,21 +9,19 @@ serialize→deserialize→serialize is byte-identical. Only the baked-frame tag 
 
 from __future__ import annotations
 
-import math
-
 import pytest
 
 import ada.geom.curves as cu
 import ada.geom.solids as so
 import ada.geom.surfaces as su
 from ada import Beam
+from ada.cadit.ngeom.deserialize import NgeomDecodeError, deserialize_geometries
+from ada.cadit.ngeom.serialize import serialize_geometries
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanResult, BoolOpEnum
 from ada.geom.direction import Direction
 from ada.geom.placement import Axis1Placement, Axis2Placement3D
 from ada.geom.points import Point
-from ada.cadit.ngeom.deserialize import NgeomDecodeError, deserialize_geometries
-from ada.cadit.ngeom.serialize import serialize_geometries
 
 
 def _roundtrip(geom: Geometry):
@@ -73,7 +71,9 @@ def test_revolved_area_solid_roundtrip():
 def test_boolean_result_roundtrip():
     box = so.Box.from_2points(Point(0, 0, 0), Point(2, 2, 2))
     sph = so.Sphere(center=Point(1, 1, 1), radius=0.8)
-    out = _roundtrip(Geometry("bool", BooleanResult(first_operand=box, second_operand=sph, operator=BoolOpEnum.DIFFERENCE)))
+    out = _roundtrip(
+        Geometry("bool", BooleanResult(first_operand=box, second_operand=sph, operator=BoolOpEnum.DIFFERENCE))
+    )
     assert isinstance(out, BooleanResult)
     assert out.operator is BoolOpEnum.DIFFERENCE
     assert isinstance(out.first_operand, so.ExtrudedAreaSolid)  # Box serializes as an extrusion
@@ -82,11 +82,12 @@ def test_boolean_result_roundtrip():
 
 def test_fixed_reference_swept_is_lossy():
     """Tag 54 bakes the directrix into per-station frames — not invertible → a clear decode error."""
-    from ada.cadit.ngeom.serialize import _EXTRUDED_AREA_SOLID  # noqa: F401 - ensure module import ok
-
     # Build a minimal tag-54 buffer by serializing a fixed-ref swept solid if one is constructible;
     # otherwise assert the decoder rejects the tag directly.
     from ada.cadit.ngeom import deserialize as _d
+    from ada.cadit.ngeom.serialize import (  # noqa: F401 - ensure module import ok
+        _EXTRUDED_AREA_SOLID,
+    )
 
     dec = _d._Decoder([(_d._FIXED_REF_SWEPT_SOLID, memoryview(b""))])
     with pytest.raises(NgeomDecodeError, match="tag 54"):

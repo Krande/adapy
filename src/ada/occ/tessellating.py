@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections import Counter as _Counter
 from dataclasses import dataclass, field
 from itertools import groupby
 from typing import TYPE_CHECKING, Iterable
@@ -49,8 +50,6 @@ def _is_topods_shape(shape) -> bool:
 # actually selected — so every hit is a genuine "the OCC-free path fell back to OCC" event. The
 # convert subprocess reads + resets this at teardown and emits it to the audit (convert_meta), so a
 # conversion that quietly completed on OCC instead of libtess2 is flagged rather than invisible.
-from collections import Counter as _Counter
-
 TESS_FALLBACK_STATS: dict = {"count": 0, "reasons": _Counter(), "geoms": _Counter()}
 
 
@@ -113,7 +112,11 @@ def accumulate_mesh_distortion(positions, indices) -> None:
     e0 = tv[:, 1] - tv[:, 0]
     area2 = np.linalg.norm(np.cross(e0, tv[:, 2] - tv[:, 0]), axis=1)  # 2*area
     emax = np.maximum.reduce(
-        [np.linalg.norm(e0, axis=1), np.linalg.norm(tv[:, 2] - tv[:, 1], axis=1), np.linalg.norm(tv[:, 0] - tv[:, 2], axis=1)]
+        [
+            np.linalg.norm(e0, axis=1),
+            np.linalg.norm(tv[:, 2] - tv[:, 1], axis=1),
+            np.linalg.norm(tv[:, 0] - tv[:, 2], axis=1),
+        ]
     )
     with np.errstate(divide="ignore", invalid="ignore"):
         aspect = np.where(area2 > 1e-20, emax * emax / area2, np.inf)

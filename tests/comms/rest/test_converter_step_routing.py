@@ -106,20 +106,35 @@ def test_apply_glb_serializer_resolves_to_engine_knobs():
     ap = conv._apply_glb_serializer
     # cpp/STEP -> adacpp-native pipeline, server path
     assert ap(".step", "cpp", None, step_glb_pipeline=None, glb_tess_engine=None) == (
-        conv._STEP_GLB_PIPELINE_ADACPP_NATIVE, None, False)
+        conv._STEP_GLB_PIPELINE_ADACPP_NATIVE,
+        None,
+        False,
+    )
     # python/STEP kernels map to the STEP pipeline + force the python path
     assert ap(".step", "python", "pyocc", step_glb_pipeline=None, glb_tess_engine=None) == (
-        conv._STEP_GLB_PIPELINE_OCC, None, True)
+        conv._STEP_GLB_PIPELINE_OCC,
+        None,
+        True,
+    )
     assert ap(".step", "python", "cgal", step_glb_pipeline=None, glb_tess_engine=None) == (
-        conv._STEP_GLB_PIPELINE_ADACPP_CGAL, None, True)
+        conv._STEP_GLB_PIPELINE_ADACPP_CGAL,
+        None,
+        True,
+    )
     # python/IFC maps to the BatchTessellator engine + forces python (bypass native ifc->glb)
     assert ap(".ifc", "python", "ifc-hybrid", step_glb_pipeline=None, glb_tess_engine=None) == (
-        None, conv._STEP_GLB_PIPELINE_ADACPP_HYBRID, True)
+        None,
+        conv._STEP_GLB_PIPELINE_ADACPP_HYBRID,
+        True,
+    )
     # client serializer never resolves server-side (routed in-browser by the SPA)
     assert ap(".ifc", "wasm", "pyodide", step_glb_pipeline=None, glb_tess_engine=None) == (None, None, False)
     # unset serializer keeps explicit knobs + defaults
     assert ap(".step", None, None, step_glb_pipeline="occ-builtin", glb_tess_engine=None) == (
-        "occ-builtin", None, False)
+        "occ-builtin",
+        None,
+        False,
+    )
 
 
 def test_brep_target_exposes_serializer_writer_axis():

@@ -1,4 +1,5 @@
 import re
+
 import numpy as np
 import pytest
 
@@ -126,6 +127,6 @@ def test_read_varying_cardinal_points_world_positions(example_files):
     for nm, (emn, emx) in expected.items():
         assert nm in seen, f"{nm} not rendered"
         amn, amx = seen[nm]
-        assert np.allclose(amn, emn, atol=1e-3) and np.allclose(amx, emx, atol=1e-3), (
-            f"{nm}: cardinal offset wrong — got {np.round(amn,3)}..{np.round(amx,3)}, want {emn}..{emx}"
-        )
+        assert np.allclose(amn, emn, atol=1e-3) and np.allclose(
+            amx, emx, atol=1e-3
+        ), f"{nm}: cardinal offset wrong — got {np.round(amn,3)}..{np.round(amx,3)}, want {emn}..{emx}"

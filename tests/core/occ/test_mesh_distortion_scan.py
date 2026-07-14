@@ -7,14 +7,23 @@ import numpy as np
 
 
 def test_distortion_counts_slivers_only():
-    from ada.occ.tessellating import accumulate_mesh_distortion, consume_mesh_distortion_stats
+    from ada.occ.tessellating import (
+        accumulate_mesh_distortion,
+        consume_mesh_distortion_stats,
+    )
 
     consume_mesh_distortion_stats()  # reset
     pos = np.array(
         [
-            [0, 0, 0], [1, 0, 0], [0, 1, 0],       # healthy right triangle
-            [0, 0, 0], [10, 0, 0], [5, 1e-4, 0],   # extreme sliver
-            [0, 0, 0], [1, 0, 0], [1, 0, 0],       # degenerate (repeated vertex)
+            [0, 0, 0],
+            [1, 0, 0],
+            [0, 1, 0],  # healthy right triangle
+            [0, 0, 0],
+            [10, 0, 0],
+            [5, 1e-4, 0],  # extreme sliver
+            [0, 0, 0],
+            [1, 0, 0],
+            [1, 0, 0],  # degenerate (repeated vertex)
         ],
         float,
     )

@@ -23,11 +23,14 @@ from .solids import (
     sectioned_solid_horizontal,
     swept_disk_solid,
 )
-from .surfaces import advanced_face, curve_bounded_plane
-from .surfaces import face as read_face
 from .surfaces import (
+    advanced_face,
     closed_shell,
     connected_face_set,
+    curve_bounded_plane,
+)
+from .surfaces import face as read_face
+from .surfaces import (
     face_based_surface_model,
     half_space_solid,
     open_shell,
@@ -148,8 +151,8 @@ def mapped_item(geom_repr: ifcopenshell.entity_instance) -> GEOM:
     IfcPolygonalFaceSets) merges its faceted items into one geometry and carries the shared 4x4 as a
     mesh-level transform. Non-faceted multi-item sources raise NotImplementedError so the caller
     keeps the kernel fallback for that product."""
-    import numpy as np
     import ifcopenshell.util.placement as _placement
+    import numpy as np
 
     from ada.geom import Geometry
 
@@ -219,8 +222,8 @@ def mapped_instance_group(prod_def: ifcopenshell.entity_instance):
     ``transforms`` — rendered natively via mesh-level instancing instead of the multi-item kernel
     fallback. Returns None when the pattern doesn't hold (mixed item kinds, differing sources, or a
     source that isn't itself a single item)."""
-    import numpy as np
     import ifcopenshell.util.placement as _placement
+    import numpy as np
 
     from ada.geom import Geometry
 

@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import sys
 from contextlib import contextmanager
-from itertools import chain
 from typing import TYPE_CHECKING
 
 from ada.api.containers import Beams, Plates

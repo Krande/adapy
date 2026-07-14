@@ -52,7 +52,10 @@ def test_cosine_spiral_horizontal_matches_oracle(example_files):
     import ifcopenshell
 
     from ada.cadit.ifc.read.geom.curves import get_curve
-    from ada.cadit.ngeom._alignment_sweep import _cosine_spiral_theta, composite_curve_points
+    from ada.cadit.ngeom._alignment_sweep import (
+        _cosine_spiral_theta,
+        composite_curve_points,
+    )
 
     f = ifcopenshell.open(str(example_files / FIXTURE))
     # #65 is the FootPrint IfcCompositeCurve (cosine-spiral horizontal).
