@@ -377,12 +377,22 @@ def stream_assembly_to_ifc(
         else:
             # Part.iter_objects_from_fem builds one element's plate(s) at a time; being
             # ``detached`` they carry no material back-ref and free as soon as _emit drops
-            # them, so peak memory stays bounded.
+            # them, so peak memory stays bounded. Curved plates (the SURFACE/PANEL
+            # strategies' analytic cylinder/B-spline patches) can't be expressed by the
+            # hand-authored flat-plate text — they buffer (tens of objects by construction)
+            # and emit as B-rep products after the flat stream, since the B-rep emitter
+            # must own the id counter while it runs.
+            from ada import PlateCurved
+
+            curved_pending: list = []  # (owning part guid, PlateCurved)
             for part, n_shells in fused:
                 cnt = 0
                 for pl in part.iter_objects_from_fem(
                     beams=False, plates=True, detached=True, mat_cache=mat_cache, merge_strategy=merge_strategy
                 ):
+                    if isinstance(pl, PlateCurved):
+                        curved_pending.append((part.guid, pl))
+                        continue
                     _emit(pl)
                     cnt += 1
                     if cnt % 2000 == 0:
@@ -395,6 +405,42 @@ def stream_assembly_to_ifc(
                     lines.clear()
                 if progress_callback is not None:
                     progress_callback(n_shells, n_shells)
+
+            if curved_pending:
+                from ada.cadit.step.write.stream_step_to_ifc import _IfcBrepEmitter
+                from ada.geom.surfaces import OpenShell, ShellBasedSurfaceModel
+
+                be = _IfcBrepEmitter(emitter.nid - 1)
+                be._flush = lambda buf: (out.write("\n".join(buf) + "\n"), buf.clear())
+                ident_place = be._emit(
+                    lines, f"IfcLocalPlacement($,#{be._axis2(lines, (0, 0, 0), (0, 0, 1), (1, 0, 0))})"
+                )
+                for part_guid, pl in curved_pending:
+                    try:
+                        shell = ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=[pl.geom.geometry])])
+                        brep, rep_type = be.solid(lines, shell)
+                        if brep is None:
+                            skipped += 1
+                            continue
+                        rep = be._emit(lines, f"IfcShapeRepresentation(#{body_ctx_id},'Body','{rep_type}',(#{brep}))")
+                        pds = be._emit(lines, f"IfcProductDefinitionShape($,$,(#{rep}))")
+                        pid = be._emit(
+                            lines,
+                            f"IfcPlate('{create_guid()}',#{owner_id},{_spf_str(pl.name)},$,$,"
+                            f"#{ident_place},#{pds},$,$)",
+                        )
+                        total += 1
+                        _record_spatial(part_guid, pid)
+                        mat = getattr(pl, "material", None)
+                        if mat is not None:
+                            _record_material(mat.guid, pid)
+                    except Exception as exc:  # noqa: BLE001 — one bad plate shouldn't sink the file
+                        skipped += 1
+                        logger.warning(f"streaming IFC: skipped curved plate {getattr(pl, 'name', '?')!r}: {exc}")
+                if lines:
+                    out.write("\n".join(lines) + "\n")
+                    lines.clear()
+                emitter.nid = be.nid + 1  # continue the trailing-relationship ids past the B-rep entities
 
         # ── trailing relationships (hand-emitted from recorded ids) ──
         nid = emitter.nid

@@ -1,7 +1,15 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {Corpus, FileEntry, viewerApi} from "@/services/viewerApi";
-import {buildFileTree} from "@/utils/storage/fileTree";
-import FileTreeView from "./FileTreeView";
+import {
+    buildFileTree,
+    collectFolderPaths,
+    loadPendingFolders,
+    previewKeyList,
+    savePendingFolders,
+} from "@/utils/storage/fileTree";
+import FileTreeView, {FileTreeMutations} from "./FileTreeView";
+import FolderPickerModal from "@/components/common/FolderPickerModal";
+import {scopeUrlPart} from "@/state/scopeStore";
 
 // Admin tab — manage proprietary regression corpora (M3 of the audit
 // panel design in plan/v2/notes_admin_audit_panel.md).
@@ -14,6 +22,13 @@ import FileTreeView from "./FileTreeView";
 //
 // The trigger form on the Audit Runs tab picks a corpus by slug from
 // the same /admin/corpora list this tab maintains.
+//
+// Tree mode carries the storage panel's organize affordances (via the
+// shared FileTreeView mutations): rename / move / delete files and
+// folders, drag-and-drop moves, client-side pending folders, and a
+// checkbox / shift+arrow multi-select feeding a bulk Move/Delete
+// toolbar. Server ops go through the admin endpoints (corpus scopes
+// are admin-only on every axis).
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -23,6 +38,24 @@ function fmtBytes(n: number): string {
     if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
+
+function dirnameOf(key: string): string {
+    const i = key.lastIndexOf("/");
+    return i >= 0 ? key.slice(0, i) : "";
+}
+
+function basenameOf(key: string): string {
+    return key.split("/").pop() ?? key;
+}
+
+function normKey(key: string): string {
+    return key.replace(/^\/+/, "");
+}
+
+// Batch size for chunked server-side moves/copies. Every chunk is still
+// a Garage-side CopyObject (no file bytes through the browser) — the
+// chunking only exists so the progress counter ticks between requests.
+const OP_CHUNK = 8;
 
 // Flat-list ⇄ folder-tree representation switch. Storage is flat on the
 // server; tree mode just groups the keys' "/" segments. Shared by the
@@ -173,10 +206,7 @@ const CopyFromScopeModal: React.FC<{
                 const me = await viewerApi.me();
                 setScopes(
                     me.scopes
-                        .map((s) => ({
-                            name: s.name,
-                            url: s.kind === "user" ? "user:me" : s.kind === "shared" ? "shared" : `project:${s.id}`,
-                        }))
+                        .map((s) => ({name: s.name, url: scopeUrlPart(s)}))
                         .filter((s) => s.url !== dstScope),
                 );
             } catch (e) {
@@ -384,10 +414,35 @@ const CopyFromScopeModal: React.FC<{
     );
 };
 
-const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
+const CorpusFiles: React.FC<{
+    corpus: Corpus;
+    /** Name/description saved — the parent re-fetches the corpora list
+     * so the sidebar and this header pick up the new values. */
+    onMetaUpdated: () => void;
+}> = ({corpus, onMetaUpdated}) => {
     const scope = `corpus:${corpus.slug}`;
     const [files, setFiles] = useState<FileEntry[]>([]);
     const [err, setErr] = useState<string | null>(null);
+    // Transient success line (e.g. copy-to-personal outcome).
+    const [note, setNote] = useState<string | null>(null);
+    // In-flight batch operation (move / delete / copy) — rendered as a
+    // spinner status bar under the button row so a drag-drop move of
+    // many files visibly runs until the listing refreshes. The ref
+    // mirrors it so callbacks can reject overlapping batches without
+    // stale-closure issues (concurrent moves would race server-side).
+    const [busy, setBusy] = useState<string | null>(null);
+    const busyRef = useRef(false);
+    const beginOp = (msg: string): boolean => {
+        if (busyRef.current) return false;
+        busyRef.current = true;
+        setBusy(msg);
+        return true;
+    };
+    const updateOp = (msg: string) => setBusy(msg);
+    const endOp = () => {
+        busyRef.current = false;
+        setBusy(null);
+    };
     const [uploading, setUploading] = useState<string | null>(null);
     const [progress, setProgress] = useState(0);
     const [copyOpen, setCopyOpen] = useState(false);
@@ -421,36 +476,184 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
 
     useEffect(() => { void reload(); }, [reload]);
 
-    const onPick = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(e.target.files ?? []);
-        if (files.length === 0) return;
+    // Client-side "pending" empty folders — storage is prefix-based so
+    // they have no server representation until a file lands in them.
+    // Persisted per corpus scope; pruned once a real key appears
+    // underneath (same mechanics as StorageBrowser).
+    const [pendingFolders, setPendingFolders] = useState<string[]>(
+        () => loadPendingFolders("corpus", scope),
+    );
+    useEffect(() => {
+        savePendingFolders("corpus", scope, pendingFolders);
+    }, [scope, pendingFolders]);
+    useEffect(() => {
+        setPendingFolders((prev) => {
+            const next = prev.filter(
+                (p) => !files.some((f) => normKey(f.key).startsWith(p + "/")),
+            );
+            return next.length === prev.length ? prev : next;
+        });
+    }, [files]);
+    const removePendingFoldersUnder = (path: string) => {
+        setPendingFolders((prev) =>
+            prev.filter((p) => p !== path && !p.startsWith(path + "/")),
+        );
+    };
+    // Rename/move of a pending (empty) folder is pure client state.
+    const rekeyPendingFolders = (oldPath: string, newPath: string) => {
+        setPendingFolders((prev) => prev.map((p) => (
+            p === oldPath
+                ? newPath
+                : p.startsWith(oldPath + "/")
+                    ? newPath + p.slice(oldPath.length)
+                    : p
+        )));
+    };
+    const folderHasKeys = useCallback(
+        (path: string) => files.some((f) => normKey(f.key).startsWith(path + "/")),
+        [files],
+    );
+
+    // Inline name/description editor in the header. The slug is
+    // immutable (storage prefix + scope URLs hang off it), so only the
+    // display fields are editable. Seeded from the current corpus row
+    // each time the editor opens.
+    const [editingMeta, setEditingMeta] = useState(false);
+    const [metaName, setMetaName] = useState("");
+    const [metaDesc, setMetaDesc] = useState("");
+    const [metaBusy, setMetaBusy] = useState(false);
+    const openMetaEdit = () => {
+        setMetaName(corpus.name);
+        setMetaDesc(corpus.description ?? "");
+        setEditingMeta(true);
+    };
+    const saveMeta = async () => {
+        const name = metaName.trim();
+        if (!name) {
+            setErr("name required");
+            return;
+        }
+        setMetaBusy(true);
+        try {
+            await viewerApi.adminCorpusUpdate(corpus.slug, {
+                name,
+                description: metaDesc.trim() || null,
+            });
+            setEditingMeta(false);
+            setErr(null);
+            onMetaUpdated();
+        } catch (e) {
+            setErr((e as Error).message || "corpus update failed");
+        } finally {
+            setMetaBusy(false);
+        }
+    };
+
+    // Where the tree's "new folder" inline input shows ("" = top level).
+    const [newFolderAt, setNewFolderAt] = useState<string | null>(null);
+    // Destination-folder modal shared by the upload and move flows.
+    const [picker, setPicker] = useState<{
+        title: string;
+        allowRoot?: boolean;
+        submitLabel?: string;
+        onPick: (folder: string) => Promise<void> | void;
+    } | null>(null);
+
+    // Multi-select (tree mode): checkbox / shift+arrow selection set
+    // feeding the bulk Move/Delete toolbar. Dragging a selected row
+    // drags the whole set (FileTreeView handles that).
+    const [selected, setSelected] = useState<Set<string>>(() => new Set());
+    const setSelection = useCallback((keys: string[], select: boolean) => {
+        setSelected((prev) => {
+            const next = new Set(prev);
+            if (select) keys.forEach((k) => next.add(k));
+            else keys.forEach((k) => next.delete(k));
+            return next;
+        });
+    }, []);
+    const clearSelection = () => setSelected(new Set());
+    // Drop selection entries whose keys vanished (moved/renamed/deleted).
+    useEffect(() => {
+        setSelected((prev) => {
+            const live = new Set(files.map((f) => f.key));
+            const next = new Set(Array.from(prev).filter((k) => live.has(k)));
+            return next.size === prev.size ? prev : next;
+        });
+    }, [files]);
+
+    const existingFolderPaths = useMemo(
+        () => Array.from(new Set([
+            ...collectFolderPaths(files, (f) => f.key),
+            ...pendingFolders,
+        ])).sort((a, b) => a.localeCompare(b)),
+        [files, pendingFolders],
+    );
+
+    // Failed uploads from the last batch — drives the retry dialog.
+    // Holds the actual File objects so Retry can re-attempt without
+    // re-picking them from disk.
+    const [uploadFailures, setUploadFailures] = useState<{
+        folder?: string;
+        failed: Array<{file: File; reason: string}>;
+    } | null>(null);
+
+    // Upload a batch sequentially into an optional folder prefix. Pin
+    // autoConvert:false so we don't auto-generate derived blobs for
+    // corpus uploads — the audit dispatcher does that on demand when
+    // the sweep fires. Files whose destination key already exists in
+    // the corpus are skipped, never overwritten (same semantics as the
+    // copy flows). A failed file doesn't abort the batch — failures
+    // land in the retry dialog.
+    const uploadFilesTo = useCallback(async (list: File[], folder?: string) => {
+        if (list.length === 0) return;
         setErr(null);
-        // Reuse the existing per-scope upload path. Pin autoConvert:false so we
-        // don't auto-generate derived blobs for corpus uploads — the audit
-        // dispatcher does that on demand when the sweep fires. Sequential; a
-        // failed file is reported without aborting the batch.
+        setNote(null);
+        const existing = new Set(files.map((f) => normKey(f.key)));
+        const targetKey = (file: File) => (folder ? `${folder}/${file.name}` : file.name);
+        const skipped = list.filter((f) => existing.has(targetKey(f)));
+        const toUpload = list.filter((f) => !existing.has(targetKey(f)));
         const {uploadFile} = await import("@/utils/scene/handlers/upload_source_file");
-        const failures: string[] = [];
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            setUploading(files.length > 1 ? `${file.name} (${i + 1}/${files.length})` : file.name);
+        const failed: Array<{file: File; reason: string}> = [];
+        for (let i = 0; i < toUpload.length; i++) {
+            const file = toUpload[i];
+            setUploading(toUpload.length > 1 ? `${file.name} (${i + 1}/${toUpload.length})` : file.name);
             setProgress(0);
             try {
                 await uploadFile(file, {
                     autoConvert: false,
                     scope,
+                    folder,
                     onProgress: (loaded, total) => setProgress(total > 0 ? loaded / total : 0),
                 });
             } catch (e) {
-                failures.push(`${file.name}: ${(e as Error).message || "upload failed"}`);
+                failed.push({file, reason: (e as Error).message || "upload failed"});
             }
         }
         setUploading(null);
         setProgress(0);
-        if (inputRef.current) inputRef.current.value = "";
-        if (failures.length) setErr(failures.join("; "));
         await reload();
-    }, [scope, reload]);
+        const bits: string[] = [];
+        const uploaded = toUpload.length - failed.length;
+        if (uploaded > 0) bits.push(`uploaded ${uploaded}`);
+        if (skipped.length > 0) bits.push(`skipped ${skipped.length} (already in corpus)`);
+        if (bits.length > 0) setNote(bits.join(" · "));
+        if (failed.length > 0) setUploadFailures({folder, failed});
+    }, [files, scope, reload]);
+
+    // Upload button flow: pick the files first, then prompt for the
+    // destination folder — an existing folder, a new path, or the top
+    // level (the default).
+    const onPickUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const picked = Array.from(e.target.files ?? []);
+        if (inputRef.current) inputRef.current.value = "";
+        if (picked.length === 0) return;
+        setPicker({
+            title: `Upload ${picked.length} file${picked.length === 1 ? "" : "s"} to`,
+            allowRoot: true,
+            submitLabel: "Upload",
+            onPick: (folder) => void uploadFilesTo(picked, folder || undefined),
+        });
+    }, [uploadFilesTo]);
 
     const onDelete = useCallback(async (key: string) => {
         if (!confirm(`Delete ${key} from ${corpus.slug}? This can't be undone.`)) return;
@@ -462,24 +665,313 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
         }
     }, [scope, corpus.slug, reload]);
 
+    const alertFailures = (failed: Array<{key: string; reason: string}>) => {
+        if (failed.length > 0) {
+            window.alert(failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+        }
+    };
+
+    const runFolderMove = useCallback(async (folderPath: string, newPath: string) => {
+        if (newPath === folderPath) return;
+        const count = files.filter((f) => normKey(f.key).startsWith(folderPath + "/")).length;
+        if (!beginOp(
+            `Moving folder "${folderPath}" → "${newPath}" (${count} file${count === 1 ? "" : "s"})…`,
+        )) return;
+        try {
+            const allKeys = files.map((f) => f.key);
+            const r = await viewerApi.adminRenameOrMoveFolder(scope, folderPath, newPath, allKeys);
+            alertFailures(r.failed);
+            removePendingFoldersUnder(folderPath);
+            await reload();
+        } catch (e) {
+            setErr((e as Error).message || "folder move failed");
+        } finally {
+            endOp();
+        }
+    }, [files, scope, reload]);
+
+    const moveKeys = useCallback(async (keys: string[], destFolder: string) => {
+        const label = destFolder ? `${destFolder}/` : "root /";
+        if (!beginOp(`Moving 0/${keys.length} to ${label}…`)) return;
+        try {
+            if (destFolder === "") {
+                // Move-to-root: the move endpoint requires a non-empty
+                // folder, so root moves are per-key renames to the
+                // basename.
+                let done = 0;
+                for (const k of keys) {
+                    updateOp(`Moving ${done + 1}/${keys.length} to ${label}…`);
+                    await viewerApi.adminRenameKey(scope, k, basenameOf(k));
+                    done++;
+                }
+            } else {
+                const failed: Array<{key: string; reason: string}> = [];
+                for (let i = 0; i < keys.length; i += OP_CHUNK) {
+                    const chunk = keys.slice(i, i + OP_CHUNK);
+                    updateOp(`Moving ${Math.min(i + chunk.length, keys.length)}/${keys.length} to ${label}…`);
+                    const r = await viewerApi.adminMoveKeysToFolder(scope, chunk, destFolder);
+                    failed.push(...r.failed);
+                }
+                alertFailures(failed);
+            }
+            clearSelection();
+            await reload();
+        } catch (e) {
+            setErr((e as Error).message || "move failed");
+        } finally {
+            endOp();
+        }
+    }, [scope, reload]);
+
+    // Folder subtree lands at ``destFolder``/``basename`` ("" = root).
+    const moveFolderTo = (path: string, destFolder: string) => {
+        const base = basenameOf(path);
+        const newPath = destFolder ? `${destFolder}/${base}` : base;
+        if (!folderHasKeys(path)) {
+            rekeyPendingFolders(path, newPath);
+            return;
+        }
+        void runFolderMove(path, newPath);
+    };
+
+    // Shared by the bulk toolbar and the Delete key: confirm with an
+    // overview of exactly what goes, then delete sequentially.
+    const deleteKeysWithConfirm = useCallback(async (keys: string[]) => {
+        if (keys.length === 0) return;
+        if (!confirm(
+            `Delete ${keys.length} file${keys.length === 1 ? "" : "s"} from ${corpus.slug}? ` +
+            "This can't be undone.\n\n" +
+            previewKeyList(keys),
+        )) return;
+        if (!beginOp(`Deleting 0/${keys.length}…`)) return;
+        try {
+            let done = 0;
+            for (const k of keys) {
+                updateOp(`Deleting ${done + 1}/${keys.length}…`);
+                await viewerApi.adminDeleteBlob(scope, k);
+                done++;
+            }
+            setSelected(new Set());
+            await reload();
+        } catch (e) {
+            setErr((e as Error).message || "delete failed");
+        } finally {
+            endOp();
+        }
+    }, [scope, corpus.slug, reload]);
+
+    // Server-side copy (Garage CopyObject) corpus → the caller's
+    // personal scope, preserving keys. Existing keys are skipped, not
+    // overwritten — same semantics as the copy-into-corpus modal.
+    const copyToPersonal = useCallback(async (keys: string[]) => {
+        if (keys.length === 0) return;
+        if (!beginOp(`Copying 0/${keys.length} to your files…`)) return;
+        setNote(null);
+        try {
+            let copied = 0;
+            let skipped = 0;
+            const failed: Array<{key: string; reason: string}> = [];
+            for (let i = 0; i < keys.length; i += OP_CHUNK) {
+                const chunk = keys.slice(i, i + OP_CHUNK);
+                updateOp(`Copying ${Math.min(i + chunk.length, keys.length)}/${keys.length} to your files…`);
+                const r = await viewerApi.adminCopyKeysFromScope("user:me", scope, chunk);
+                copied += r.copied.length;
+                skipped += r.skipped.length;
+                failed.push(...r.failed);
+            }
+            alertFailures(failed);
+            setNote(
+                `copied ${copied} to your files` +
+                (skipped > 0 ? ` · skipped ${skipped} (already there)` : ""),
+            );
+        } catch (e) {
+            setErr((e as Error).message || "copy to personal scope failed");
+        } finally {
+            endOp();
+        }
+    }, [scope]);
+
+    const mutations: FileTreeMutations = {
+        renameFile: (key, newName) => {
+            const dir = dirnameOf(key);
+            const newKey = dir ? `${dir}/${newName}` : newName;
+            void (async () => {
+                try {
+                    await viewerApi.adminRenameKey(scope, key, newKey);
+                    await reload();
+                } catch (e) {
+                    setErr((e as Error).message || "rename failed");
+                }
+            })();
+        },
+        renameFolder: (path, newName) => {
+            const parent = dirnameOf(path);
+            const newPath = parent ? `${parent}/${newName}` : newName;
+            if (!folderHasKeys(path)) {
+                rekeyPendingFolders(path, newPath);
+                return;
+            }
+            void runFolderMove(path, newPath);
+        },
+        moveKeys: (keys, destFolder) => void moveKeys(keys, destFolder),
+        moveFolder: moveFolderTo,
+        deleteFile: (key) => void onDelete(key),
+        deleteFolder: (path, fileCount) => {
+            if (fileCount === 0) {
+                // Pending (empty) folder — pure client state.
+                removePendingFoldersUnder(path);
+                return;
+            }
+            const prefix = path + "/";
+            const targets = files.filter((f) => normKey(f.key).startsWith(prefix));
+            if (!confirm(
+                `Delete folder "${path}" and its ${fileCount} file${fileCount === 1 ? "" : "s"} ` +
+                `from ${corpus.slug}? This can't be undone.\n\n` +
+                previewKeyList(targets.map((t) => t.key)),
+            )) return;
+            void (async () => {
+                if (!beginOp(`Deleting 0/${targets.length} from "${path}"…`)) return;
+                try {
+                    // Sequential: deletes cascade derived blobs server-side
+                    // and parallel calls would race on the storage listing.
+                    let done = 0;
+                    for (const t of targets) {
+                        updateOp(`Deleting ${done + 1}/${targets.length} from "${path}"…`);
+                        await viewerApi.adminDeleteBlob(scope, t.key);
+                        done++;
+                    }
+                    removePendingFoldersUnder(path);
+                    await reload();
+                } catch (e) {
+                    setErr((e as Error).message || "folder delete failed");
+                } finally {
+                    endOp();
+                }
+            })();
+        },
+        createFolder: (parent, name) => {
+            // ``_derived`` is where the converter parks derived blobs —
+            // a user folder with that name would collide with the cache
+            // prefix.
+            if (!parent && name === "_derived") {
+                window.alert(`"${name}" is a reserved name`);
+                return;
+            }
+            const path = parent ? `${parent}/${name}` : name;
+            setPendingFolders((prev) => (prev.includes(path) ? prev : [...prev, path]));
+        },
+        requestMoveFile: (key) => setPicker({
+            title: `Move "${key}" to folder`,
+            onPick: (folder) => void moveKeys([key], folder),
+        }),
+        requestMoveFolder: (path) => setPicker({
+            title: `Move folder "${path}" into`,
+            onPick: (dest) => moveFolderTo(path, dest),
+        }),
+        deleteKeys: (keys) => void deleteKeysWithConfirm(keys),
+        uploadTo: (folder, list) => void uploadFilesTo(list, folder || undefined),
+        downloadFile: (key) => void viewerApi.downloadBlob(scope, key, basenameOf(key)),
+    };
+
+    const onMoveSelected = () => {
+        const keys = Array.from(selected);
+        if (keys.length === 0) return;
+        setPicker({
+            title: `Move ${keys.length} file${keys.length === 1 ? "" : "s"} to folder`,
+            onPick: (folder) => void moveKeys(keys, folder),
+        });
+    };
+
+    const showTree = viewMode === "tree" &&
+        (files.length > 0 || pendingFolders.length > 0 || newFolderAt !== null);
+
     return (
         <div className="flex flex-col h-full">
             <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between gap-3">
-                <div className="text-xs text-gray-300 min-w-0">
-                    <div className="font-mono truncate">{corpus.slug}</div>
-                    {corpus.description && (
-                        <div className="text-gray-500 truncate">{corpus.description}</div>
-                    )}
-                </div>
+                {!editingMeta ? (
+                    <div className="text-xs text-gray-300 min-w-0 flex items-start gap-1.5">
+                        <div className="min-w-0">
+                            <div className="font-mono truncate">
+                                {corpus.slug}
+                                <span className="text-gray-400 font-sans"> · {corpus.name}</span>
+                            </div>
+                            {corpus.description && (
+                                <div className="text-gray-500 truncate">{corpus.description}</div>
+                            )}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={openMetaEdit}
+                            title="Edit name / description (slug is immutable)"
+                            aria-label="Edit corpus name and description"
+                            className="shrink-0 text-gray-500 hover:text-gray-200 leading-none px-1"
+                        >
+                            ✎
+                        </button>
+                    </div>
+                ) : (
+                    <form
+                        className="flex flex-col gap-1 min-w-0 flex-1 max-w-md text-xs"
+                        onSubmit={(e) => {
+                            e.preventDefault();
+                            void saveMeta();
+                        }}
+                    >
+                        <div className="font-mono text-gray-500">{corpus.slug}</div>
+                        <input
+                            type="text"
+                            value={metaName}
+                            onChange={(e) => setMetaName(e.target.value)}
+                            placeholder="Name"
+                            autoFocus
+                            className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-gray-100"
+                        />
+                        <input
+                            type="text"
+                            value={metaDesc}
+                            onChange={(e) => setMetaDesc(e.target.value)}
+                            placeholder="Description (optional)"
+                            onKeyDown={(e) => {
+                                if (e.key === "Escape") setEditingMeta(false);
+                            }}
+                            className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-gray-100"
+                        />
+                        <div className="flex gap-2">
+                            <button
+                                type="submit"
+                                disabled={metaBusy}
+                                className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-2 py-0.5 rounded-sm"
+                            >
+                                {metaBusy ? "Saving…" : "Save"}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setEditingMeta(false)}
+                                disabled={metaBusy}
+                                className="text-gray-300 hover:bg-gray-800 px-2 py-0.5 rounded-sm"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                )}
                 <div className="flex items-center gap-2 shrink-0">
-                    {files.length > 0 && (
-                        <ViewModeToggle mode={viewMode} onChange={setViewMode}/>
+                    <ViewModeToggle mode={viewMode} onChange={setViewMode}/>
+                    {viewMode === "tree" && (
+                        <button
+                            type="button"
+                            onClick={() => setNewFolderAt("")}
+                            disabled={!!uploading}
+                            className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm px-3 py-1 rounded-sm"
+                        >
+                            New folder
+                        </button>
                     )}
                     <input
                         ref={inputRef}
                         type="file"
                         multiple
-                        onChange={onPick}
+                        onChange={onPickUpload}
                         className="hidden"
                         disabled={!!uploading}
                     />
@@ -511,11 +1003,59 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
                     onCopied={() => void reload()}
                 />
             )}
+            {busy && (
+                <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-800 bg-blue-900/20 text-xs text-blue-300">
+                    <span
+                        className="inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin shrink-0"
+                        aria-hidden="true"
+                    />
+                    <span className="truncate" role="status">{busy}</span>
+                </div>
+            )}
             {err && (
                 <div className="text-xs text-red-400 px-3 py-2">{err}</div>
             )}
+            {note && !err && !busy && (
+                <div className="text-xs text-emerald-400 px-3 py-2">{note}</div>
+            )}
+            {viewMode === "tree" && selected.size > 0 && (
+                <div className="mx-3 my-2 px-2 py-1.5 rounded-sm border border-gray-700 bg-gray-800/95 flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-white whitespace-nowrap">
+                        {selected.size} selected
+                    </span>
+                    <button
+                        type="button"
+                        onClick={onMoveSelected}
+                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-xs px-2 py-1 rounded-sm cursor-pointer"
+                    >
+                        Move…
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => void copyToPersonal(Array.from(selected))}
+                        title="Server-side copy into your personal scope (same keys; existing files are skipped)"
+                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-xs px-2 py-1 rounded-sm cursor-pointer"
+                    >
+                        Copy to my files
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => void deleteKeysWithConfirm(Array.from(selected))}
+                        className="bg-red-800 hover:bg-red-700 active:bg-red-900 text-white text-xs px-2 py-1 rounded-sm cursor-pointer"
+                    >
+                        Delete
+                    </button>
+                    <button
+                        type="button"
+                        onClick={clearSelection}
+                        className="ml-auto bg-gray-600 hover:bg-gray-500 text-white text-xs px-2 py-1 rounded-sm cursor-pointer"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            )}
             <div className="flex-1 min-h-0 overflow-auto">
-                {files.length === 0 && !err && (
+                {files.length === 0 && !err && pendingFolders.length === 0 && newFolderAt === null && (
                     <div className="text-xs text-gray-500 italic px-3 py-4">
                         No files yet. Upload representative source files (STEP /
                         IFC / RMED / etc.) to drive regression sweeps from the
@@ -547,7 +1087,7 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
                                     <td className="text-right px-3 py-1 border-b border-gray-800">
                                         <button
                                             type="button"
-                                            onClick={() => onDelete(f.key)}
+                                            onClick={() => void onDelete(f.key)}
                                             className="text-red-400 hover:text-red-300 text-xs"
                                         >
                                             delete
@@ -558,29 +1098,95 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
                         </tbody>
                     </table>
                 )}
-                {files.length > 0 && viewMode === "tree" && (
+                {showTree && (
                     <div className="px-1 py-1">
                         <FileTreeView
-                            nodes={buildFileTree(files, (f) => f.key)}
+                            nodes={buildFileTree(files, (f) => f.key, pendingFolders)}
                             getKey={(f) => f.key}
                             namespace="corpus"
                             scope={scope}
+                            selection={{selected, onSelect: setSelection}}
+                            mutations={mutations}
+                            extraFileMenuItems={(key) => [{
+                                key: "copy-to-personal",
+                                label: "Copy to my files",
+                                title: "Server-side copy into your personal scope (same key; skipped if it already exists)",
+                                onClick: () => void copyToPersonal([key]),
+                            }]}
+                            newFolderAt={newFolderAt}
+                            onNewFolderAtChange={setNewFolderAt}
                             renderFileTail={(f) => (
-                                <span className="flex items-center gap-3">
-                                    <span className="text-gray-400 font-mono">{fmtBytes(f.size)}</span>
-                                    <button
-                                        type="button"
-                                        onClick={() => onDelete(f.key)}
-                                        className="text-red-400 hover:text-red-300 text-xs"
-                                    >
-                                        delete
-                                    </button>
-                                </span>
+                                <span className="text-gray-400 font-mono">{fmtBytes(f.size)}</span>
                             )}
                         />
                     </div>
                 )}
             </div>
+            <FolderPickerModal
+                open={picker !== null}
+                title={picker?.title ?? ""}
+                existingFolders={existingFolderPaths}
+                allowRoot={picker?.allowRoot}
+                submitLabel={picker?.submitLabel}
+                onCancel={() => setPicker(null)}
+                onPick={(folder) => {
+                    const action = picker?.onPick;
+                    setPicker(null);
+                    if (action) void action(folder);
+                }}
+            />
+            {/* Failed-uploads overview + retry. Not portaled — like the
+                copy-from-scope modal it renders inside the admin panel's
+                stacking context, so z-50 suffices here. Retry re-runs
+                only the failed files (the skip-existing pre-check makes
+                a partially-succeeded upload a safe no-op). */}
+            {uploadFailures && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                    <div className="bg-gray-900 border border-gray-700 rounded-md w-full max-w-lg max-h-[70vh] flex flex-col">
+                        <div className="px-4 py-3 border-b border-gray-700 text-sm font-semibold text-gray-100">
+                            {uploadFailures.failed.length} upload{uploadFailures.failed.length === 1 ? "" : "s"} failed
+                            {uploadFailures.folder ? (
+                                <span className="text-gray-400 font-normal"> → {uploadFailures.folder}/</span>
+                            ) : null}
+                        </div>
+                        <div className="flex-1 min-h-0 overflow-auto px-4 py-2">
+                            <ul className="space-y-1 text-xs">
+                                {uploadFailures.failed.map(({file, reason}) => (
+                                    <li key={file.name} className="flex justify-between items-baseline gap-3">
+                                        <span className="font-mono text-gray-200 truncate" title={file.name}>
+                                            {file.name}
+                                        </span>
+                                        <span className="text-red-400 truncate shrink-0 max-w-[50%]" title={reason}>
+                                            {reason}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                        <div className="px-4 py-3 border-t border-gray-700 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setUploadFailures(null)}
+                                className="text-sm px-3 py-1 rounded-sm text-gray-300 hover:bg-gray-800"
+                            >
+                                Close
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!!uploading}
+                                onClick={() => {
+                                    const {folder, failed} = uploadFailures;
+                                    setUploadFailures(null);
+                                    void uploadFilesTo(failed.map((f) => f.file), folder);
+                                }}
+                                className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-sm px-3 py-1 rounded-sm"
+                            >
+                                Retry {uploadFailures.failed.length} file{uploadFailures.failed.length === 1 ? "" : "s"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -711,7 +1317,7 @@ const CorpusTab: React.FC = () => {
                                     ← corpora
                                 </button>
                             </div>
-                            <CorpusFiles key={selected.slug} corpus={selected}/>
+                            <CorpusFiles key={selected.slug} corpus={selected} onMetaUpdated={loadCorpora}/>
                         </>
                     )}
                 </div>

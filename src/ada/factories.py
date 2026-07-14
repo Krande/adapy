@@ -45,9 +45,18 @@ def from_pickle(pickle_file: str | os.PathLike) -> Assembly:
 
 
 def from_ifc(
-    ifc_file: os.PathLike | ifcopenshell.file, units=Units.M, name="Ada", cad_config: "CadConfig | None" = None
+    ifc_file: os.PathLike | ifcopenshell.file,
+    units=Units.M,
+    name="Ada",
+    cad_config: "CadConfig | None" = None,
+    reader: Literal["ifcopenshell", "native"] | None = None,
 ) -> Assembly:
-    """Create an Assembly object from an IFC file."""
+    """Create an Assembly object from an IFC file.
+
+    ``reader="native"`` uses adacpp's pure-C++ IFC reader (no ifcopenshell/OCC) to build a
+    geometry-shapes tree — pairs with ``Assembly.to_ifc(writer="native")`` for a fully native
+    round-trip. Default (``ifcopenshell``) is the full typed reader (Beam/Plate/Pipe/...).
+    """
     if isinstance(ifc_file, (os.PathLike, str)):
         ifc_file = pathlib.Path(ifc_file).resolve().absolute()
         logger.info(f'Reading "{ifc_file.name}"')
@@ -55,7 +64,7 @@ def from_ifc(
         logger.info("Reading IFC file object")
 
     a = Assembly(units=units, name=name, cad_config=cad_config)
-    a.read_ifc(ifc_file)
+    a.read_ifc(ifc_file, reader=reader)
     return a
 
 
@@ -70,7 +79,7 @@ def from_step(
     colour=None,
     opacity: float = 1.0,
     include_shells: bool = False,
-    reader: Literal["occ", "stream", "auto", "tolerant"] | None = None,
+    reader: Literal["occ", "stream", "auto", "tolerant", "native"] | None = None,
     product_tree: bool = False,
 ) -> Assembly:
     """Create an Assembly object from a STEP file.

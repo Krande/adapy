@@ -314,26 +314,29 @@ jobs:
 
           # Docs image is a Sphinx static site (deploy/Dockerfile.docs)
           # that also bundles the paradoc-backed FEA verification report.
-          # Rebuild on docs/**, the report source tree, pixi env files,
-          # the Dockerfile, or the workflow itself. Fast = only the doc
-          # sources changed (re-run fea-doc + sphinx on the env base);
-          # env/Dockerfile/workflow changes need the full build.
+          # It is by far the slowest image to build, so it is OPT-IN: it
+          # builds only when the head commit message carries a ``[docs]``
+          # marker, regardless of what changed. Viewer/worker builds are
+          # unaffected. Works for push and workflow_dispatch (GITHUB_SHA is
+          # the branch tip either way; fetch-depth:0 above makes the message
+          # available).
           docs=false
           docs_full=false
-          if match_scope "$DOCS_CHANGED" '^docs/' || \
-             match_scope "$DOCS_CHANGED" '^src/ada/' || \
-             match_scope "$DOCS_CHANGED" '^pixi\.(toml|lock)$' || \
-             match_scope "$DOCS_CHANGED" '^pyproject\.toml$' || \
-             match_scope "$DOCS_CHANGED" '^verification/' || \
-             match_scope "$DOCS_CHANGED" '^deploy/Dockerfile\.docs(-fast)?$' || \
-             match_scope "$DOCS_CHANGED" '^\.forgejo/workflows/build\.yaml$'; then
+          COMMIT_MSG=$(git log -1 --format=%B "$GITHUB_SHA" 2>/dev/null || echo "")
+          if printf '%s' "$COMMIT_MSG" | grep -qiF '[docs]'; then
             docs=true
-          fi
-          if match_scope "$DOCS_CHANGED" '^pixi\.(toml|lock)$' || \
-             match_scope "$DOCS_CHANGED" '^pyproject\.toml$' || \
-             match_scope "$DOCS_CHANGED" '^deploy/Dockerfile\.docs$' || \
-             match_scope "$DOCS_CHANGED" '^\.forgejo/workflows/build\.yaml$'; then
-            docs_full=true
+            # Fast build (re-run fea-doc + sphinx on the cached env base)
+            # unless the pixi env / Dockerfile / workflow changed — those
+            # need a full rebuild off a fresh env base.
+            if match_scope "$DOCS_CHANGED" '^pixi\.(toml|lock)$' || \
+               match_scope "$DOCS_CHANGED" '^pyproject\.toml$' || \
+               match_scope "$DOCS_CHANGED" '^deploy/Dockerfile\.docs$' || \
+               match_scope "$DOCS_CHANGED" '^\.forgejo/workflows/build\.yaml$'; then
+              docs_full=true
+            fi
+            echo "[docs] present in the head commit message — building docs (full=$docs_full)."
+          else
+            echo "docs build is opt-in — add [docs] to the head commit message to build it. Skipping."
           fi
 
           {
@@ -405,7 +408,7 @@ jobs:
             # a cleared secret can't fall back to a stale emscripten-3.1.58
             # base. Override via the secret only to point at a different
             # registry/tag (>=0.9.0 = pyodide_2025_0 / emscripten 4.0.9).
-            ADACPP_BASE_IMAGE="${ADACPP_BASE_IMAGE:-ghcr.io/krande/adacpp-wasm-base:0.9.0}"
+            ADACPP_BASE_IMAGE="${ADACPP_BASE_IMAGE:-ghcr.io/krande/adacpp-wasm-base:0.13.2}"
             # Pull the base ahead of the viewer build so a missing tag
             # fails loudly here, not buried in BuildKit output.
             docker pull "${ADACPP_BASE_IMAGE}"

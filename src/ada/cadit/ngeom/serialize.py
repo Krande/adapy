@@ -24,7 +24,18 @@ _BULK_MIN = 16
 def _sample_arc(start, mid, end, n: int = 24) -> list:
     """Sample a 3-point circular arc (IFC ArcLine) into an ordered polyline start->mid->end.
     Falls back to the 3 raw points if the points are (near-)collinear."""
-    p0, p1, p2 = np.asarray(start, float), np.asarray(mid, float), np.asarray(end, float)
+
+    # A profile's ArcLine (I/T/... section fillet) carries 2D points; np.cross of two 2D vectors is
+    # a SCALAR, and the circumcenter math below then does np.cross(vec, scalar) -> "array has zero
+    # dimension". Lift to 3D (z=0) so the cross products stay vector-valued.
+    def _v3(p):
+        p = np.asarray(p, float).ravel()
+        return (
+            p if p.shape[0] == 3 else np.array([p[0] if p.shape[0] > 0 else 0.0, p[1] if p.shape[0] > 1 else 0.0, 0.0])
+        )
+
+    start, mid, end = _v3(start), _v3(mid), _v3(end)
+    p0, p1, p2 = start, mid, end
     a, b = p1 - p0, p2 - p0
     n_vec = np.cross(a, b)
     nn = np.linalg.norm(n_vec)
@@ -58,6 +69,80 @@ def _sample_arc(start, mid, end, n: int = 24) -> list:
         pts.append(center + r * (np.cos(t) * uhat + np.sin(t) * vhat))
     pts[0], pts[-1] = np.asarray(start, float), np.asarray(end, float)
     return pts
+
+
+def _sample_trimmed_curve(tc, n: int = 24) -> list:
+    """Sample a TrimmedCurve — a conic arc (circle/ellipse) or a line segment — start->end into an
+    ordered point list. Conic trims are angles in radians (the reader normalized the file's plane
+    -angle unit); a Cartesian-point trim is projected back to its angle."""
+    import ada.geom.curves as _cu
+
+    basis = tc.basis_curve
+    if isinstance(basis, (_cu.Circle, _cu.Ellipse)):
+        pos = basis.position
+        loc = np.asarray(pos.location, float)
+        ref = np.asarray(pos.ref_direction, float)
+        ref = ref / (np.linalg.norm(ref) or 1.0)
+        axis = np.asarray(pos.axis, float)
+        axis = axis / (np.linalg.norm(axis) or 1.0)
+        y = np.cross(axis, ref)
+        a = float(getattr(basis, "radius", None) or basis.semi_axis1)
+        b = float(getattr(basis, "radius", None) or basis.semi_axis2)
+
+        def _angle(trim):
+            if isinstance(trim, (int, float)):
+                return float(trim)
+            d = np.asarray(trim, float) - loc  # Cartesian point -> its parametric angle
+            return float(np.arctan2((d @ y) / (b or 1.0), (d @ ref) / (a or 1.0)))
+
+        t1, t2 = _angle(tc.trim1), _angle(tc.trim2)
+        if tc.sense_agreement:
+            if t2 <= t1:
+                t2 += 2.0 * np.pi
+        elif t2 >= t1:
+            t2 -= 2.0 * np.pi
+        return [loc + a * np.cos(t) * ref + b * np.sin(t) * y for t in np.linspace(t1, t2, n + 1)]
+    if isinstance(basis, _cu.Line):
+        p0 = np.asarray(basis.pnt, float)
+        d = np.asarray(basis.dir, float)
+
+        def _pt(trim):
+            return (p0 + float(trim) * d) if isinstance(trim, (int, float)) else np.asarray(trim, float)
+
+        endpoints = [_pt(tc.trim1), _pt(tc.trim2)]
+        return endpoints if tc.sense_agreement else endpoints[::-1]  # False = reversed trim direction
+    raise _Unsupported(f"trimmed-curve basis {type(basis).__name__}")
+
+
+def _composite_curve_loop_points(cc) -> list:
+    """Ordered boundary points of an IfcCompositeCurve profile boundary — sample each segment's
+    parent curve (trimmed conic / line / polyline), honour ``same_sense``, and chain, dropping the
+    shared join point so the POLY_LOOP closes cleanly."""
+    import ada.geom.curves as _cu
+
+    def _p3(x):
+        x = np.asarray(x, float).ravel()
+        return np.array([x[0], x[1], x[2] if x.shape[0] > 2 else 0.0])
+
+    pts: list = []
+    for seg in cc.segments:
+        p = seg.parent_curve
+        if isinstance(p, _cu.TrimmedCurve):
+            spts = [_p3(x) for x in _sample_trimmed_curve(p)]
+        elif isinstance(p, _cu.PolyLine):
+            spts = [_p3(x) for x in p.points]
+        elif isinstance(p, _cu.ArcLine):
+            spts = [_p3(x) for x in _sample_arc(p.start, p.midpoint, p.end)]
+        else:
+            raise _Unsupported(f"composite-curve segment {type(p).__name__}")
+        if not getattr(seg, "same_sense", True):
+            spts = spts[::-1]
+        if pts and np.linalg.norm(pts[-1] - spts[0]) < 1e-7:
+            spts = spts[1:]
+        pts.extend(spts)
+    if len(pts) > 1 and np.linalg.norm(pts[0] - pts[-1]) < 1e-7:
+        pts.pop()
+    return [(float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 0.0) for p in pts]
 
 
 # tag catalog (spec §3)
@@ -110,6 +195,7 @@ class _Encoder:
     def __init__(self):
         self._records: list[tuple[int, bytes]] = []
         self._memo: dict[int, int] = {}  # id(obj) -> record index
+        self._pinned_inferred: list = []  # keep transient inferred planes alive (id()-memo safety)
 
     def _add(self, tag: int, payload: bytes) -> int:
         idx = len(self._records)
@@ -352,10 +438,39 @@ class _Encoder:
         lp = self.loop(fb.bound)
         return self._add(_FACE_BOUND, self.i32(lp) + self.i32(1 if fb.orientation else 0))
 
-    def face_surface(self, f: su.FaceSurface) -> int:
-        surf = self.surface(f.face_surface)
+    def _infer_plane(self, loop) -> su.Plane:
+        from ada.geom.placement import Axis2Placement3D
+
+        pts = np.asarray([list(p)[:3] for p in loop.polygon], float)
+        nrm = np.zeros(3)
+        for i in range(len(pts)):
+            nrm += np.cross(pts[i], pts[(i + 1) % len(pts)])
+        ln = float(np.linalg.norm(nrm))
+        if ln < 1e-12:
+            raise _Unsupported("degenerate planar face")
+        axis = nrm / ln
+        ref = pts[1] - pts[0]
+        ref = ref - float(np.dot(ref, axis)) * axis
+        rn = float(np.linalg.norm(ref))
+        if rn < 1e-9:
+            alt = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+            ref = np.cross(axis, alt)
+            rn = float(np.linalg.norm(ref))
+        ref = ref / rn
+        plane = su.Plane(
+            position=Axis2Placement3D(location=pts[0].tolist(), axis=axis.tolist(), ref_direction=ref.tolist())
+        )
+        # Pin it: surface() memoizes by id(), and a transient inferred plane would be GC'd right
+        # after — the next face's plane reusing the freed id() then collides in the memo and gets
+        # the previous plane's record, mis-placing the face. Keep every inferred plane alive.
+        self._pinned_inferred.append(plane)
+        return plane
+
+    def face_surface(self, f: su.Face) -> int:
+        fs = getattr(f, "face_surface", None)
+        surf = self.surface(fs if fs is not None else self._infer_plane(f.bounds[0].bound))
         bounds = [self.face_bound(b) for b in f.bounds]
-        body = self.i32(surf) + self.i32(1 if f.same_sense else 0) + self.i32(len(bounds))
+        body = self.i32(surf) + self.i32(1 if getattr(f, "same_sense", True) else 0) + self.i32(len(bounds))
         body += b"".join(self.i32(b) for b in bounds)  # 1-2 bounds/face: inline (per-face hot path)
         return self._add(_FACE_SURFACE, body)
 
@@ -374,16 +489,39 @@ class _Encoder:
     @staticmethod
     def _loop_points_3d(curve) -> list[tuple[float, float, float]]:
         """Ordered boundary points of a closed profile curve, lifted to z=0
-        (the profile lives in its local XY plane). IndexedPolyCurve / Polyline
-        expose ``get_points()``; fall back to ``.points``."""
+        (the profile lives in its local XY plane).
+
+        For an IndexedPolyCurve, walk the SEGMENTS so ``ArcLine`` fillets are sampled into
+        arc polylines — ``get_points()`` returns only each segment's start/end, chording every
+        arc. Chording a concave web/flange fillet fills the whole corner triangle instead of
+        the smaller arc region, so an IPE profile came out ~4% over-area with straight
+        chamfers instead of rounded fillets. Polyline / everything else falls back to
+        ``get_points()`` / ``.points``."""
+        import ada.geom.curves as cu
+
+        def _to3(p):
+            p = list(p)
+            return (float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 0.0)
+
+        if isinstance(curve, cu.CompositeCurve):  # trimmed-conic / line segments -> sampled loop
+            return _composite_curve_loop_points(curve)
+
+        segs = getattr(curve, "segments", None)
+        if segs and any(isinstance(s, cu.ArcLine) for s in segs):
+            pts: list[tuple[float, float, float]] = []
+            for s in segs:
+                if isinstance(s, cu.ArcLine):
+                    arc = _sample_arc(s.start, s.midpoint, s.end)
+                    pts.extend(_to3(p) for p in arc[:-1])  # end repeats the next segment's start
+                else:  # Edge / straight segment
+                    pts.append(_to3(s.start))
+            return pts
+
         getp = getattr(curve, "get_points", None)
         raw = getp() if callable(getp) else getattr(curve, "points", None)
         if raw is None:
             raise _Unsupported(f"profile curve {type(curve).__name__}")
-        pts: list[tuple[float, float, float]] = []
-        for p in raw:
-            p = list(p)
-            pts.append((float(p[0]), float(p[1]), float(p[2]) if len(p) > 2 else 0.0))
+        pts = [_to3(p) for p in raw]
         if len(pts) > 1 and pts[0] == pts[-1]:  # POLY_LOOP closes implicitly
             pts.pop()
         return pts
@@ -485,14 +623,44 @@ class _Encoder:
 
     def revolved_area_solid(self, ras) -> int:
         """RevolvedAreaSolid -> profile FACE + revolution axis (placement1) +
-        angle + placement. Decoded by adacpp into a BRepPrimAPI_MakeRevol."""
+        angle + placement. Decoded by adacpp into a BRepPrimAPI_MakeRevol.
+
+        Two frame/unit conventions must be reconciled with the NGEOM tessellator:
+
+        * ``RevolvedAreaSolid.angle`` is in DEGREES (the OCC build path converts it
+          ``angle_deg * pi/180``); the NGEOM field is RADIANS (``_revolve_z`` writes
+          ``2*pi`` for a full turn). Without the conversion a 87.2deg beam revolve
+          tessellated as 87.2 RADIANS (~14 turns), splattering the profile.
+
+        * ``tessellate_revolve`` rotates the (local) profile ring about the axis and
+          THEN transforms by the position frame (``F.to_world(rotate(ring, axo, axd))``)
+          — i.e. it expects the axis in the POSITION-LOCAL frame (as cylinders/cones
+          emit it: local +Z at the origin). But ``ras.axis`` is in GLOBAL coordinates
+          (the convention the OCC build path consumes). Left global, the axis and the
+          profile's own normal ended up parallel and the sweep collapsed flat. Rotation
+          commutes with the rigid position transform when the axis is expressed in that
+          frame, so transform the global axis into position-local here."""
+        import math
+
+        import numpy as np
+
+        pos = ras.position
+        xdir = np.asarray(pos.ref_direction if pos.ref_direction is not None else (1.0, 0.0, 0.0), dtype=float)
+        zdir = np.asarray(pos.axis if pos.axis is not None else (0.0, 0.0, 1.0), dtype=float)
+        xdir = xdir / (np.linalg.norm(xdir) or 1.0)
+        zdir = zdir / (np.linalg.norm(zdir) or 1.0)
+        ydir = np.cross(zdir, xdir)
+        rot = np.column_stack([xdir, ydir, zdir])  # local->world; rot.T is world->local
+        origin = np.asarray(pos.location, dtype=float)
+
+        ax_loc_world = np.asarray(ras.axis.location, dtype=float)
+        ax_dir_world = np.asarray(ras.axis.axis, dtype=float)
+        local_loc = rot.T @ (ax_loc_world - origin)
+        local_dir = rot.T @ ax_dir_world
+
         face = self._profile_face(ras.swept_area)
-        body = (
-            self.i32(face)
-            + self.i32(self.placement3(ras.position))
-            + self.i32(self.placement1(ras.axis))
-            + self.f64(ras.angle)
-        )
+        axis_rec = self._add(_PLACEMENT1, self.v3(tuple(local_loc)) + self.v3(tuple(local_dir)))
+        body = self.i32(face) + self.i32(self.placement3(pos)) + self.i32(axis_rec) + self.f64(math.radians(ras.angle))
         return self._add(_REVOLVED_AREA_SOLID, body)
 
     def fixed_reference_swept_area_solid(self, frs) -> int:
@@ -509,6 +677,65 @@ class _Encoder:
             self.i32(face)
             + self.i32(self.placement3(frs.position))
             + self.i32(n)
+            + self._f64_raw(origins.ravel())
+            + self._f64_raw(dir_x.ravel())
+            + self._f64_raw(dir_y.ravel())
+        )
+        return self._add(_FIXED_REF_SWEPT_SOLID, body)
+
+    def _sweep_frames(self, directrix):
+        """Per-station (origin, profile-x, profile-y) frames along a general 3D directrix, using a
+        rotation-minimising (parallel-transport) frame so the swept profile doesn't twist. profile-x
+        and profile-y are both perpendicular to the tangent; profile-x x profile-y = tangent."""
+        pts = np.asarray(self._loop_points_3d(directrix), float)
+        if len(pts) < 2:
+            return pts, np.zeros((0, 3)), np.zeros((0, 3))
+        t = np.gradient(pts, axis=0)
+        tn = np.linalg.norm(t, axis=1, keepdims=True)
+        t = t / np.where(tn < 1e-12, 1.0, tn)
+        ref = np.array([0.0, 0.0, 1.0]) if abs(t[0, 2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+        dir_x = np.zeros((len(pts), 3))
+        x0 = np.cross(ref, t[0])
+        dir_x[0] = x0 / (np.linalg.norm(x0) or 1.0)
+        for i in range(1, len(pts)):
+            v1, v2 = t[i - 1], t[i]
+            ax = np.cross(v1, v2)
+            s = float(np.linalg.norm(ax))
+            xp = dir_x[i - 1]
+            if s < 1e-9:  # no bend -> carry the frame
+                dir_x[i] = xp
+            else:  # Rodrigues-rotate the frame by the tangent turn
+                ax /= s
+                ang = np.arctan2(s, float(np.dot(v1, v2)))
+                dir_x[i] = (
+                    xp * np.cos(ang) + np.cross(ax, xp) * np.sin(ang) + ax * float(np.dot(ax, xp)) * (1 - np.cos(ang))
+                )
+            dir_x[i] -= float(np.dot(dir_x[i], t[i])) * t[i]  # re-orthogonalise against the tangent
+            dir_x[i] /= np.linalg.norm(dir_x[i]) or 1.0
+        return pts, dir_x, np.cross(t, dir_x)
+
+    def swept_disk_solid(self, sds) -> int:
+        """IfcSweptDiskSolid (rebar/pipe) -> a circular/annular profile swept along the directrix,
+        encoded like a FixedReferenceSweptAreaSolid (profile FACE + per-station frames). The
+        directrix is sampled + parallel-transport-framed here, so any directrix (polyline, arc,
+        composite) works — not just alignment GradientCurves."""
+        from ada.geom.placement import Axis2Placement3D
+
+        o = Axis2Placement3D(location=(0.0, 0.0, 0.0))
+        inner = [cu.Circle(position=o, radius=float(sds.inner_radius))] if sds.inner_radius else []
+        prof = su.ArbitraryProfileDef(
+            profile_type=su.ProfileType.AREA,
+            outer_curve=cu.Circle(position=o, radius=float(sds.radius)),
+            inner_curves=inner,
+        )
+        face = self._profile_face(prof)
+        origins, dir_x, dir_y = self._sweep_frames(sds.directrix)
+        if len(origins) < 2:
+            raise _Unsupported("swept-disk directrix has < 2 stations")
+        body = (
+            self.i32(face)
+            + self.i32(self.placement3(o))
+            + self.i32(len(origins))
             + self._f64_raw(origins.ravel())
             + self._f64_raw(dir_x.ravel())
             + self._f64_raw(dir_y.ravel())
@@ -608,9 +835,11 @@ class _Encoder:
         return self._add(_FACE_SURFACE, self.i32(plane) + self.i32(1) + self.i32(1) + self.i32(bnd))
 
     def _any_face(self, f) -> int:
-        # FaceSurface / AdvancedFace -> normal path; bare FaceBound (planar loop,
-        # no surface — Beam.shell_geom) -> synthesize a planar face.
-        if hasattr(f, "face_surface") and hasattr(f, "bounds"):
+        # FaceSurface / AdvancedFace / a plain IfcFace (bounds, but no surface attribute — e.g. an
+        # IfcFaceBasedSurfaceModel's polyloop faces) all go through face_surface, which infers a
+        # plane when no surface is carried. A bare FaceBound (planar loop — Beam.shell_geom) ->
+        # synthesize a planar face.
+        if hasattr(f, "bounds"):
             return self.face_surface(f)
         bound = getattr(f, "bound", None)
         if bound is not None:
@@ -652,6 +881,65 @@ class _Encoder:
         b = self._dispatch(br.second_operand)
         return self._add(_BOOLEAN_RESULT, self.i32(op) + self.i32(a) + self.i32(b))
 
+    def half_space_box(self, hs, ref_min, ref_max) -> int:
+        """HalfSpaceSolid -> a finite box (EXTRUDED_AREA_SOLID) on the material side
+        of the plane, sized to cover the reference bbox — the same lowering adacpp's
+        native STEP/IFC readers apply (``mk_halfspace``), so the neutral buffer needs
+        no half-space entity and the boolean evaluates identically everywhere.
+        ``agreement_flag=True`` keeps the material BELOW the plane (-normal side)."""
+        import math
+
+        pos = hs.base_surface.position
+        o, z, x_ref = _frame_vectors(pos)
+        agree = bool(getattr(hs, "agreement_flag", True))
+        hd = tuple(-c for c in z) if agree else z
+
+        c = tuple((mn + mx) / 2.0 for mn, mx in zip(ref_min, ref_max))
+        diag = math.sqrt(sum((mx - mn) ** 2 for mn, mx in zip(ref_min, ref_max)))
+        s = diag * 1.5 + 1e-6
+        # project the bbox centre onto the cutting plane -> box origin ON the plane
+        d = sum(zc * (cc - oc) for zc, cc, oc in zip(z, c, o))
+        cp = tuple(cc - zc * d for cc, zc in zip(c, z))
+        # frame: local Z = material side; X from the plane frame, orthonormalised
+        t = x_ref if abs(sum(a * b for a, b in zip(hd, x_ref))) < 0.9 else _perp_of(z, x_ref)
+        dt = sum(a * b for a, b in zip(hd, t))
+        fx = tuple(tc - hc * dt for tc, hc in zip(t, hd))
+        n = math.sqrt(sum(v * v for v in fx)) or 1.0
+        fx = tuple(v / n for v in fx)
+
+        pts = [(-s, -s, 0.0), (s, -s, 0.0), (s, s, 0.0), (-s, s, 0.0)]
+        loop = self._add(_POLY_LOOP, self.i32(4) + self._v3_raw(pts))
+        bound = self._add(_FACE_BOUND, self.i32(loop) + self.i32(1))
+        face = self._planar_face([bound])
+        place = self._add(_PLACEMENT3, self.v3(cp) + self.v3(hd) + self.v3(fx))
+        body = self.i32(face) + self.i32(place) + self.v3((0.0, 0.0, 1.0)) + self.f64(s)
+        return self._add(_EXTRUDED_AREA_SOLID, body)
+
+    def _fold_bool_ops(self, base_idx: int, base_geom, bool_ops) -> int:
+        """Chain a base solid's ``Geometry.bool_operations`` into nested
+        BOOLEAN_RESULT records (base as first operand, applied in order) so cuts
+        reach the neutral kernel instead of being dropped with the wrapper."""
+        idx = base_idx
+        bbox = None
+        for op in bool_ops:
+            og = op.second_operand
+            while hasattr(og, "geometry") and hasattr(og, "bool_operations"):
+                og = og.geometry  # unwrap core.Geometry
+            import ada.geom.surfaces as _su
+
+            if isinstance(og, _su.HalfSpaceSolid):
+                if bbox is None:
+                    bbox = _loose_bbox(base_geom)
+                if bbox is None:
+                    raise _Unsupported("HalfSpaceSolid operand without a boundable base solid")
+                op_idx = self.half_space_box(og, bbox[0], bbox[1])
+            else:
+                op_idx = self._dispatch(og)
+            op_name = getattr(op.operator, "value", op.operator)
+            opi = {"DIFFERENCE": 0, "UNION": 1, "INTERSECTION": 2}.get(str(op_name).upper(), 0)
+            idx = self._add(_BOOLEAN_RESULT, self.i32(opi) + self.i32(idx) + self.i32(op_idx))
+        return idx
+
     # --- root + finish -----------------------------------------------------------------
     def _dispatch(self, geom) -> int:
         """Serialize one geometry instance to its record index (used for both
@@ -667,6 +955,8 @@ class _Encoder:
             return self.revolved_area_solid(geom)
         if isinstance(geom, _so.FixedReferenceSweptAreaSolid):
             return self.fixed_reference_swept_area_solid(geom)
+        if isinstance(geom, _so.SweptDiskSolid):
+            return self.swept_disk_solid(geom)
         if isinstance(geom, _so.Box):
             return self.box_solid(geom)
         if isinstance(geom, _so.Cylinder):
@@ -687,11 +977,28 @@ class _Encoder:
             return self.face_surface(geom)
         if isinstance(geom, (su.ConnectedFaceSet, su.ClosedShell, su.OpenShell)):
             return self.connected_face_set(geom)
+        if isinstance(geom, _so.FacetedBrep):
+            # Render the outer shell's faces natively (each plain planar Face gets an inferred
+            # plane in face_surface). Voids (FacetedBrepWithVoids) need a boolean cut not yet in
+            # the stream path — the outer surface still renders, cavities simply not carved.
+            return self.connected_face_set(geom.outer)
         raise _Unsupported(f"geometry {type(geom).__name__}")
 
     def root(self, geom) -> int:
-        """Serialize a top-level geometry instance, returning its record index."""
-        return self._dispatch(geom)
+        """Serialize a top-level geometry instance, returning its record index.
+
+        Accepts a raw ``ada.geom`` type or a ``core.Geometry`` wrapper — the wrapper's
+        ``bool_operations`` are folded into a BOOLEAN_RESULT chain (previously every
+        caller stripped the wrapper, silently dropping IFC clipping cuts and API
+        booleans from the stream-tessellation/export paths)."""
+        ops = []
+        while hasattr(geom, "geometry") and hasattr(geom, "bool_operations"):
+            ops.extend(geom.bool_operations or [])
+            geom = geom.geometry
+        idx = self._dispatch(geom)
+        if ops:
+            idx = self._fold_bool_ops(idx, geom, ops)
+        return idx
 
     def finish(self, roots: list[tuple[int, str]]) -> bytes:
         out = bytearray(b"ADANGEOM")
@@ -707,6 +1014,130 @@ class _Encoder:
 
 class _Unsupported(Exception):
     pass
+
+
+def _frame_vectors(pos) -> tuple[tuple, tuple, tuple]:
+    """(origin, z, x) of an Axis2Placement3D with the usual defaults, as plain tuples."""
+    import math
+
+    o = tuple(float(v) for v in pos.location) if pos is not None else (0.0, 0.0, 0.0)
+    z = tuple(float(v) for v in pos.axis) if pos is not None and pos.axis is not None else (0.0, 0.0, 1.0)
+    n = math.sqrt(sum(v * v for v in z)) or 1.0
+    z = tuple(v / n for v in z)
+    if pos is not None and getattr(pos, "ref_direction", None) is not None:
+        x = tuple(float(v) for v in pos.ref_direction)
+    else:
+        x = _perp_of(z, (1.0, 0.0, 0.0))
+    return o, z, x
+
+
+def _perp_of(z, seed) -> tuple:
+    """A unit vector perpendicular to ``z``, seeded by ``seed`` (world X/Y fallback)."""
+    import math
+
+    d = sum(a * b for a, b in zip(z, seed))
+    if abs(d) > 0.9:
+        seed = (0.0, 1.0, 0.0)
+        d = sum(a * b for a, b in zip(z, seed))
+    v = tuple(s - zc * d for s, zc in zip(seed, z))
+    n = math.sqrt(sum(c * c for c in v)) or 1.0
+    return tuple(c / n for c in v)
+
+
+def _loose_bbox(geom) -> tuple[tuple, tuple] | None:
+    """Loose world-frame bbox of an ada.geom solid — over-estimate is fine, it only
+    sizes the finite box a HalfSpaceSolid operand is lowered to (mirrors adacpp's
+    ``solid_item_bbox``). Pure Python/ada.geom — the neutral path stays OCC-free.
+    Returns ``((minx,miny,minz), (maxx,maxy,maxz))`` or ``None``."""
+    import ada.geom.booleans as _bo
+    import ada.geom.solids as _so
+
+    while hasattr(geom, "geometry") and hasattr(geom, "bool_operations"):
+        geom = geom.geometry
+
+    def frame_pts(pos, local_pts):
+        o, z, x = _frame_vectors(pos)
+        y = (
+            z[1] * x[2] - z[2] * x[1],
+            z[2] * x[0] - z[0] * x[2],
+            z[0] * x[1] - z[1] * x[0],
+        )
+        return [tuple(o[i] + x[i] * p[0] + y[i] * p[1] + z[i] * p[2] for i in range(3)) for p in local_pts]
+
+    pts: list[tuple] = []
+    if isinstance(geom, _bo.BooleanResult):
+        return _loose_bbox(geom.first_operand)  # the result is contained in operand a
+    if isinstance(geom, _so.ExtrudedAreaSolid):
+        profile = geom.swept_area
+        outer = getattr(profile, "outer_curve", None)
+        if outer is None:
+            try:
+                from ada.api.beams.geom_beams import parametric_profile_to_arbitrary
+
+                outer = parametric_profile_to_arbitrary(profile).outer_curve
+            except Exception:  # noqa: BLE001
+                return None
+        base = _profile_curve_pts(outer)
+        if base is None:
+            return None
+        d = tuple(float(v) * float(geom.depth) for v in geom.extruded_direction)
+        local = base + [(p[0] + d[0], p[1] + d[1], p[2] + d[2]) for p in base]
+        pts = frame_pts(geom.position, local)
+    elif isinstance(geom, _so.RevolvedAreaSolid):
+        base = _profile_curve_pts(getattr(geom.swept_area, "outer_curve", None))
+        if base is None:
+            return None
+        r = max((p[0] ** 2 + p[1] ** 2 + p[2] ** 2) ** 0.5 for p in base)
+        world = frame_pts(geom.position, base)
+        pts = [tuple(c + s * r for c in p) for p in world for s in (-1.0, 1.0)]
+    elif isinstance(geom, _so.Box):
+        x, y, z = float(geom.x_length), float(geom.y_length), float(geom.z_length)
+        pts = frame_pts(geom.position, [(0, 0, 0), (x, 0, 0), (x, y, 0), (0, y, 0), (0, 0, z), (x, y, z)])
+    elif isinstance(geom, _so.Cylinder) or isinstance(geom, _so.Cone):
+        r = float(getattr(geom, "radius", 0.0) or getattr(geom, "bottom_radius", 0.0))
+        h = float(geom.height)
+        pts = frame_pts(geom.position, [(-r, -r, 0), (r, r, 0), (-r, -r, h), (r, r, h)])
+    elif isinstance(geom, _so.Sphere):
+        c, r = geom.center, float(geom.radius)
+        pts = [tuple(float(cc) + s * r for cc in c) for s in (-1.0, 1.0)]
+    else:
+        faces = getattr(geom, "cfs_faces", None)
+        if faces is None and hasattr(geom, "outer"):  # AdvancedBrep / FacetedBrep
+            faces = getattr(geom.outer, "cfs_faces", None)
+        if faces is None and hasattr(geom, "bounds"):  # a single face
+            faces = [geom]
+        if faces is None:
+            return None
+        for f in faces:
+            for b in getattr(f, "bounds", []) or []:
+                loop = getattr(b, "bound", None)
+                for oe in getattr(loop, "edge_list", None) or []:
+                    e = getattr(oe, "edge_element", oe)
+                    pts.append(tuple(float(v) for v in e.start))
+                    pts.append(tuple(float(v) for v in e.end))
+                for p in getattr(loop, "polygon", None) or []:
+                    pts.append(tuple(float(v) for v in p))
+    if not pts:
+        return None
+    mn = tuple(min(p[i] for p in pts) for i in range(3))
+    mx = tuple(max(p[i] for p in pts) for i in range(3))
+    return mn, mx
+
+
+def _profile_curve_pts(curve) -> list[tuple[float, float, float]] | None:
+    """Boundary points of a profile curve (shared with the encoder's poly path);
+    conics fall back to their bounding square."""
+    if curve is None:
+        return None
+    r = float(getattr(curve, "radius", 0.0) or getattr(curve, "semi_axis1", 0.0) or 0.0)
+    if r > 0.0:
+        pos = getattr(curve, "position", None)
+        o = tuple(float(v) for v in pos.location) if pos is not None else (0.0, 0.0, 0.0)
+        return [(o[0] + sx * r, o[1] + sy * r, o[2]) for sx in (-1, 1) for sy in (-1, 1)]
+    try:
+        return _Encoder._loop_points_3d(curve)
+    except _Unsupported:
+        return None
 
 
 def serialize_geometries(items: Iterable[tuple[str, object]]) -> bytes:

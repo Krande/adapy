@@ -16,15 +16,24 @@ def get_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CURVE_GEOM_TYP
         return b_spline_curve_with_knots(ifc_entity)
     elif ifc_entity.is_a("IfcTrimmedCurve"):
         return trimmed_curve(ifc_entity)
+    elif ifc_entity.is_a("IfcSegmentedReferenceCurve"):
+        # Subtype of IfcCompositeCurve (via IfcGradientCurve) — must precede both.
+        return segmented_reference_curve(ifc_entity)
     elif ifc_entity.is_a("IfcGradientCurve"):
         # Subtype of IfcCompositeCurve — must precede it.
         return gradient_curve(ifc_entity)
     elif ifc_entity.is_a("IfcCompositeCurve"):
         return composite_curve(ifc_entity)
+    elif ifc_entity.is_a("IfcCurveSegment"):
+        # A single alignment curve segment used directly as a representation item (an
+        # IfcAlignmentSegment's 'Axis'/'Segment' body).
+        return curve_segment(ifc_entity)
     elif ifc_entity.is_a("IfcLine"):
         return line(ifc_entity)
     elif ifc_entity.is_a("IfcClothoid"):
         return clothoid(ifc_entity)
+    elif ifc_entity.is_a("IfcCosineSpiral"):
+        return cosine_spiral(ifc_entity)
     elif ifc_entity.is_a("IfcCircle"):
         return circle(ifc_entity)
     elif ifc_entity.is_a("IfcEllipse"):
@@ -38,7 +47,15 @@ def get_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CURVE_GEOM_TYP
 
 
 def line(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Line:
-    return geo_cu.Line(pnt=Point(ifc_entity.Pnt.Coordinates), dir=Direction(ifc_entity.Dir.Orientation.DirectionRatios))
+    # IfcLine.Dir is an IfcVector — its Magnitude scales the curve's
+    # parameterization (P(t) = Pnt + t*Dir). Fold it into the stored
+    # direction so parameter trims (IfcTrimmedCurve on a line basis)
+    # evaluate correctly; consumers that only need the direction are
+    # magnitude-agnostic.
+    vec = ifc_entity.Dir
+    mag = float(getattr(vec, "Magnitude", 1.0) or 1.0)
+    ratios = tuple(float(x) * mag for x in vec.Orientation.DirectionRatios)
+    return geo_cu.Line(pnt=Point(ifc_entity.Pnt.Coordinates), dir=Direction(ratios))
 
 
 def circle(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Circle:
@@ -61,6 +78,21 @@ def clothoid(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Clothoid:
     )
 
 
+def cosine_spiral(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CosineSpiral:
+    """IfcCosineSpiral — 2D transition spiral about its Position; curvature varies as a cosine.
+    A1 = CosineTerm (required), A0 = ConstantTerm (optional)."""
+    pos = ifc_entity.Position
+    loc = pos.Location.Coordinates
+    rd = pos.RefDirection.DirectionRatios if pos.RefDirection is not None else (1.0, 0.0)
+    ct = ifc_entity.ConstantTerm
+    return geo_cu.CosineSpiral(
+        location=(float(loc[0]), float(loc[1])),
+        ref_direction=(float(rd[0]), float(rd[1])),
+        cosine_term=float(ifc_entity.CosineTerm),
+        constant_term=float(ct) if ct is not None else None,
+    )
+
+
 def _measure(v) -> float:
     return float(v.wrappedValue if hasattr(v, "wrappedValue") else v)
 
@@ -76,6 +108,14 @@ def curve_segment(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.CurveSegme
         rd = pl.RefDirection.DirectionRatios if pl.RefDirection is not None else (1.0, 0.0)
         location = (float(loc[0]), float(loc[1]))
         ref_direction = (float(rd[0]), float(rd[1]))
+    elif pl.is_a("IfcAxis2Placement3D"):
+        # Cant segments of an IfcSegmentedReferenceCurve are placed by a 3D axis placement; the
+        # extra (vertical) component of the location is the superelevation offset. Keep the full
+        # 3D location + ref direction — planar consumers slice [:2].
+        loc = pl.Location.Coordinates
+        rd = pl.RefDirection.DirectionRatios if pl.RefDirection is not None else (1.0, 0.0, 0.0)
+        location = tuple(float(c) for c in loc)
+        ref_direction = tuple(float(c) for c in rd)
     else:  # IfcAxis2PlacementLinear — planar location resolved at evaluation; carry the ref dir
         rd = pl.RefDirection.DirectionRatios if pl.RefDirection is not None else (1.0, 0.0)
         location = (0.0, 0.0)
@@ -99,11 +139,25 @@ def gradient_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.GradientC
     )
 
 
-def ellipse(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Ellipse:
-    from .placement import axis3d
+def segmented_reference_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.SegmentedReferenceCurve:
+    """IfcSegmentedReferenceCurve — cant (superelevation) segments over a BaseCurve (an
+    IfcGradientCurve). The base gives x,y,z; the segments add the vertical cant offset."""
+    return geo_cu.SegmentedReferenceCurve(
+        base_curve=get_curve(ifc_entity.BaseCurve),
+        segments=[curve_segment(s) for s in ifc_entity.Segments],
+        self_intersect=bool(ifc_entity.SelfIntersect),
+    )
 
+
+def ellipse(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Ellipse:
+    from .placement import axis2d_as_3d, axis3d
+
+    # Profile-plane ellipses (2D placement, no Axis attribute) lift into
+    # the z=0 plane — same treatment as circle() above.
+    pos = ifc_entity.Position
+    position = axis2d_as_3d(pos) if pos.is_a("IfcAxis2Placement2D") else axis3d(pos)
     return geo_cu.Ellipse(
-        position=axis3d(ifc_entity.Position),
+        position=position,
         semi_axis1=ifc_entity.SemiAxis1,
         semi_axis2=ifc_entity.SemiAxis2,
     )
@@ -136,11 +190,34 @@ def composite_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Composit
     return geo_cu.CompositeCurve(segments=segments, self_intersect=bool(ifc_entity.SelfIntersect))
 
 
+def _plane_angle_scale(f) -> float:
+    """Radians per file plane-angle unit (1.0 for SI radian files; 0.01745…
+    for files declaring a conversion-based DEGREE unit)."""
+    import ifcopenshell.util.unit as uu
+
+    try:
+        return float(uu.calculate_unit_scale(f, unit_type="PLANEANGLEUNIT"))
+    except Exception:  # noqa: BLE001 - missing/odd unit assignment: assume radians
+        return 1.0
+
+
 def trimmed_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.TrimmedCurve:
+    trim1 = _trim_select(ifc_entity.Trim1)
+    trim2 = _trim_select(ifc_entity.Trim2)
+    if ifc_entity.BasisCurve.is_a("IfcConic"):
+        # Parameter trims on conics are angles expressed in the file's
+        # plane-angle unit — normalize to radians at read time so
+        # downstream evaluators need no unit context (the buildingSMART
+        # curve-parameter samples ship one file in degrees, one in radians).
+        scale = _plane_angle_scale(ifc_entity.file)
+        if isinstance(trim1, float):
+            trim1 *= scale
+        if isinstance(trim2, float):
+            trim2 *= scale
     return geo_cu.TrimmedCurve(
         basis_curve=get_curve(ifc_entity.BasisCurve),
-        trim1=_trim_select(ifc_entity.Trim1),
-        trim2=_trim_select(ifc_entity.Trim2),
+        trim1=trim1,
+        trim2=trim2,
         sense_agreement=ifc_entity.SenseAgreement,
         master_representation=ifc_entity.MasterRepresentation,
     )
@@ -204,8 +281,12 @@ def indexed_poly_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Index
     for segment in ifc_entity.Segments:
         value = [x - 1 for x in segment.wrappedValue]
         if segment.is_a("IfcLineIndex"):
-            segments.append(geo_cu.Edge(pts[value[0]], pts[value[1]]))
-        else:
+            # IfcLineIndex is a POLYLINE through all its points (>=2) — one edge per
+            # consecutive pair. Taking only value[0]/value[1] dropped every intermediate
+            # vertex, collapsing multi-point runs (e.g. an I-section's flange outline).
+            for a, b in zip(value[:-1], value[1:]):
+                segments.append(geo_cu.Edge(pts[a], pts[b]))
+        else:  # IfcArcIndex: exactly (start, mid, end)
             segments.append(geo_cu.ArcLine(pts[value[0]], pts[value[1]], pts[value[2]]))
 
     return geo_cu.IndexedPolyCurve(segments, ifc_entity.SelfIntersect)

@@ -143,6 +143,20 @@ def iprofiles(sec: Section, return_solid) -> SectionProfile:
         p8 = (-tw / 2, -h / 2 + tfbtn)
         p9 = (-tw / 2, h / 2 - tftop)
         p10 = (-wtop / 2, h / 2 - tftop)
+        # Round the four web/flange junctions (p4,p5,p8,p9) when the section carries a fillet
+        # radius (IfcIShapeProfileDef.FilletRadius, stored in ``r``). CurvePoly2d reads the 3rd
+        # tuple element as a per-vertex fillet radius and inserts the arc. A radius that won't
+        # fit (>= the flange overhang or half the web depth) is skipped — it would self-
+        # intersect the outline.
+        r = getattr(sec, "r", None)
+        overhang = (wtop - tw) / 2
+        web_half = h / 2 - max(tftop, tfbtn)
+        if r and 0 < r < min(overhang, web_half):
+
+            def _fil(pt):
+                return (pt[0], pt[1], r)
+
+            p4, p5, p8, p9 = _fil(p4), _fil(p5), _fil(p8), _fil(p9)
         input_curve = [c1, c2, p3, p4, p5, p6, c4, c3, p7, p8, p9, p10]
         outer_curve = build_joined(input_curve)
 

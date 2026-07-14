@@ -132,6 +132,7 @@ class IfcReader:
         self.ifc_store.assembly.presentation_layers = PresentationLayers(layers)
 
     def load_objects(self, data_only=False, elements2part=None):
+        any_product_imported = False
         for product in self.ifc_store.f.by_type("IfcProduct"):
             if product.Representation is None or data_only is True:
                 logger.info(f'Passing product "{product}"')
@@ -159,5 +160,62 @@ class IfcReader:
                 continue
 
             obj.metadata = props
+            any_product_imported = True
 
             add_to_assembly(self.ifc_store.assembly, obj, parent, elements2part)
+
+        # Only when NO placed product carried geometry: a normal model with
+        # uninstantiated type definitions alongside real products must not
+        # grow phantom shapes at the origin.
+        if data_only is False and not any_product_imported:
+            self.load_instanceless_type_products()
+
+    def load_instanceless_type_products(self):
+        """Import geometry from type products in a type-library file.
+
+        Type-library files (e.g. the buildingSMART texture samples: a single
+        IfcBoilerType carrying an IfcTriangulatedFaceSet via a RepresentationMap,
+        with no IfcProduct placed anywhere) hold real geometry that the per-product
+        pass never sees — without this it silently renders as an empty scene.
+        Types WITH occurrences are skipped: their geometry arrives through the
+        placed products."""
+        from ada import Shape
+        from ada.cadit.ifc.read.geom.geom_reader import import_geometry_from_ifc_geom
+        from ada.cadit.ifc.read.read_color import get_product_color
+        from ada.geom import Geometry
+
+        f = self.ifc_store.f
+        for tp in f.by_type("IfcTypeProduct"):
+            if not tp.RepresentationMaps:
+                continue
+            # IFC4 inverse for "occurrences of this type" is Types (IfcRelDefinesByType);
+            # IFC2x3 calls it ObjectTypeOf.
+            rels = getattr(tp, "Types", None) or getattr(tp, "ObjectTypeOf", None) or []
+            if any(rel.RelatedObjects for rel in rels):
+                continue
+            name = tp.Name or tp.GlobalId
+            try:
+                color = get_product_color(tp, f)
+            except Exception:  # noqa: BLE001 - style resolution is best-effort for type maps
+                color = None
+            n_found = 0
+            for rep_map in tp.RepresentationMaps:
+                mapped_rep = rep_map.MappedRepresentation
+                if mapped_rep is None or mapped_rep.RepresentationIdentifier != "Body":
+                    continue
+                for item in mapped_rep.Items:
+                    try:
+                        res = import_geometry_from_ifc_geom(item)
+                    except NotImplementedError as e:
+                        logger.warning(f'Skipping type-product geometry for "{name}" (#{item.id()}): {e}')
+                        continue
+                    geom = res if isinstance(res, Geometry) else Geometry(tp.GlobalId, res, color)
+                    shape_name = name if n_found == 0 else f"{name}_{n_found}"
+                    # guid only on the first shape — one GlobalId can't be shared.
+                    guid = tp.GlobalId if n_found == 0 else None
+                    self.ifc_store.assembly.add_shape(
+                        Shape(shape_name, geom=geom, guid=guid, color=color, ifc_store=self.ifc_store)
+                    )
+                    n_found += 1
+            if n_found > 0:
+                logger.info(f'Imported {n_found} geometry item(s) from instance-less type "{name}"')

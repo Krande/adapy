@@ -430,6 +430,20 @@ def derived_key_for(
     return f"_derived/{src}.{fmt}"
 
 
+def reconvert_key_for(source_key: str, target_format: str = "glb") -> str:
+    """Output key for a user-triggered *re-conversion* (gallery "Re-convert" button).
+
+    Lives in a SEPARATE ``_reconvert/`` namespace from the ``_derived/`` convert cache, so a
+    re-convert never overwrites the audit-run product in a corpus scope — the derived cache
+    stays exactly as the audit produced it. One blob per (source, format): re-converting the
+    same file again overwrites its own ``_reconvert/`` blob (throwaway, not accumulating).
+    """
+    fmt = target_format.lstrip(".").lower()
+    if fmt not in TARGET_FORMATS:
+        raise UnsupportedFormat(f"unknown target format: {target_format!r}")
+    return f"_reconvert/{source_key.strip('/')}.{fmt}"
+
+
 # Suffix appended to derived keys for cached result-meta JSON. Lives in
 # the same _derived/ namespace, so it's hidden from the user file list
 # but still scoped to the source.
@@ -486,7 +500,7 @@ def is_derived_key(key: str) -> bool:
 # ephemeral overlay as a source's derived product.
 def is_hidden_key(key: str) -> bool:
     k = key.lstrip("/")
-    return k.startswith("_derived/") or k.startswith("_overlays/")
+    return k.startswith("_derived/") or k.startswith("_overlays/") or k.startswith("_reconvert/")
 
 
 def is_versions_artefact_key(key: str) -> bool:
@@ -942,13 +956,280 @@ _GLB_TESS_ENGINES = (
     _STEP_GLB_PIPELINE_ADACPP_CGAL,
     _STEP_GLB_PIPELINE_ADACPP_HYBRID,
 )
-_GLB_TESS_ENGINE_DEFAULT = _STEP_GLB_PIPELINE_OCC
+# Advertised default for the non-STEP →GLB engine option. Kept in lockstep with the RUNTIME default
+# (`_default_glb_tess_engine`, which returns libtess2 whenever adacpp is importable) so the SPA/audit
+# UI reflects the path actually taken. libtess2 gracefully degrades to OCC on an adacpp-less pool.
+_GLB_TESS_ENGINE_DEFAULT = _STEP_GLB_PIPELINE_LIBTESS2
 _GLB_ENGINE_TO_STREAM = {
     _STEP_GLB_PIPELINE_LIBTESS2: "libtess2",
     _STEP_GLB_PIPELINE_ADACPP_OCC: "occ",
     _STEP_GLB_PIPELINE_ADACPP_CGAL: "cgal",
     _STEP_GLB_PIPELINE_ADACPP_HYBRID: "hybrid",
 }
+
+
+# ---------------------------------------------------------------------------
+# Serializer × Tessellator matrix — SINGLE SOURCE OF TRUTH for the SPA's
+# reconvert dropdowns (gallery tools + ConversionRow). Two user-facing axes:
+#
+#   * serializer  — WHICH code path drives the →GLB conversion:
+#         cpp      pure-C++ adacpp  (STEP: adacpp-native; IFC: native_ifc_to_glb)
+#         python   Python-orchestrated (ada import + BatchTessellator/stream reader)
+#         wasm     client-side, runs entirely in the browser (no server round-trip)
+#   * tessellator — WHICH kernel meshes the geometry. It is DEPENDENT on the
+#                   serializer (enum_by): the server `python` serializer exposes
+#                   the full kernel choice; `cpp` pins libtess2; the client `wasm`
+#                   serializer exposes its two in-browser engines (native embind
+#                   module / Pyodide wheels).
+#
+# The frontend renders both dropdowns purely from the option schema advertised
+# on the conversion matrix (``labels`` + ``enum_by``) and sends back opaque
+# ``{serializer, tessellator}`` tokens — it hardcodes NONE of this vocabulary.
+# The backend resolver (:func:`_apply_glb_serializer`) folds those tokens into
+# the existing engine knobs (``step_glb_pipeline`` / ``glb_tess_engine``) plus
+# the native-vs-python routing. The client serializer carries ``runtime="client"``
+# so the SPA routes it to the in-browser pipeline instead of the worker; it
+# never reaches this resolver.
+_GLB_SERIALIZER_CPP = "cpp"
+_GLB_SERIALIZER_PYTHON = "python"
+_GLB_SERIALIZER_WASM = "wasm"
+
+# Human labels for every serializer token (superset; each row advertises only
+# the subset that applies to its source family).
+_GLB_SERIALIZER_LABELS = {
+    _GLB_SERIALIZER_CPP: "C++ (adacpp native)",
+    _GLB_SERIALIZER_PYTHON: "Python (ada)",
+    _GLB_SERIALIZER_WASM: "WASM (browser)",
+}
+# Serializers that execute in the browser — the SPA routes these to its
+# in-browser pipeline and gates them on client capability (wasmSupport).
+_GLB_CLIENT_SERIALIZERS = frozenset({_GLB_SERIALIZER_WASM})
+
+_GLB_TESS_LABELS = {
+    "native": "Native (libtess2)",
+    "pyocc": "PythonOCC (OCC)",
+    "adacpp-occ": "adacpp OCC",
+    "cgal": "adacpp CGAL",
+    "ifc-hybrid": "ifcOpenShell hybrid",
+    "occ": "OCC streaming reader",
+    # client-side (wasm serializer) engines:
+    "wasm-native": "Native (WASM module)",
+    "pyodide": "Pyodide (wasm wheels)",
+}
+
+# Per (serializer, source-family) the tessellator tokens offered. ``step`` =
+# STEP/STP sources (own streaming reader + OCC reader); ``generic`` = every
+# other →GLB source (ifc / xml / sat / fem / obj / stl) driven by to_gltf's
+# BatchTessellator. The lists ARE the enum_by mapping the frontend uses to
+# repopulate the tessellator dropdown when the serializer changes.
+_GLB_SERIALIZER_TESS = {
+    (_GLB_SERIALIZER_CPP, "step"): ["native"],
+    (_GLB_SERIALIZER_CPP, "generic"): ["native"],
+    (_GLB_SERIALIZER_PYTHON, "step"): ["native", "pyocc", "adacpp-occ", "cgal", "ifc-hybrid", "occ"],
+    (_GLB_SERIALIZER_PYTHON, "generic"): ["native", "pyocc", "adacpp-occ", "cgal", "ifc-hybrid"],
+    (_GLB_SERIALIZER_WASM, "step"): ["wasm-native", "pyodide"],
+    (_GLB_SERIALIZER_WASM, "generic"): ["wasm-native", "pyodide"],
+}
+# Serializer ordering per family (default is the first entry). cpp is the
+# default server path for both; the client serializer comes last.
+_GLB_SERIALIZER_ORDER = (
+    _GLB_SERIALIZER_CPP,
+    _GLB_SERIALIZER_PYTHON,
+    _GLB_SERIALIZER_WASM,
+)
+
+# tessellator token → effective engine knob, reusing the existing pipeline
+# identities so there is exactly one definition of each engine.
+_TESS_TO_STEP_PIPELINE = {
+    "native": _STEP_GLB_PIPELINE_LIBTESS2,
+    "pyocc": _STEP_GLB_PIPELINE_OCC,
+    "occ": _STEP_GLB_PIPELINE_OCC,
+    "adacpp-occ": _STEP_GLB_PIPELINE_ADACPP_OCC,
+    "cgal": _STEP_GLB_PIPELINE_ADACPP_CGAL,
+    "ifc-hybrid": _STEP_GLB_PIPELINE_ADACPP_HYBRID,
+}
+_TESS_TO_GLB_ENGINE = {
+    "native": _STEP_GLB_PIPELINE_LIBTESS2,
+    "pyocc": _STEP_GLB_PIPELINE_OCC,
+    "adacpp-occ": _STEP_GLB_PIPELINE_ADACPP_OCC,
+    "cgal": _STEP_GLB_PIPELINE_ADACPP_CGAL,
+    "ifc-hybrid": _STEP_GLB_PIPELINE_ADACPP_HYBRID,
+}
+
+
+def _glb_source_family(source_ext: str) -> str:
+    """'step' for STEP/STP sources, else 'generic' — selects the serializer
+    tessellator vocabulary + engine-knob axis."""
+    return "step" if source_ext.lower().lstrip(".") in ("step", "stp") else "generic"
+
+
+def _glb_serializer_options(source_ext: str) -> list[dict]:
+    """Build the ``serializer`` + dependent ``tessellator`` enum options for a
+    →GLB row. Single source: vocabulary, labels, defaults and the
+    serializer→tessellator dependency all come from the module spec above, so
+    the frontend can render the two dependent dropdowns without hardcoding any
+    of it. ``enum_by`` maps each serializer value to its allowed tessellator
+    tokens; ``runtime='client'`` flags the browser-side serializers."""
+    fam = _glb_source_family(source_ext)
+    serializers = [s for s in _GLB_SERIALIZER_ORDER if (s, fam) in _GLB_SERIALIZER_TESS]
+    enum_by = {s: list(_GLB_SERIALIZER_TESS[(s, fam)]) for s in serializers}
+    # Union of tessellator tokens across serializers, ordered by first appearance.
+    tess_tokens: list[str] = []
+    for s in serializers:
+        for tok in enum_by[s]:
+            if tok not in tess_tokens:
+                tess_tokens.append(tok)
+    default_ser = serializers[0]
+    return [
+        {
+            "name": "serializer",
+            "type": "enum",
+            "title": "Serializer",
+            "default": default_ser,
+            "enum": serializers,
+            "labels": {s: _GLB_SERIALIZER_LABELS[s] for s in serializers},
+            "runtime": {s: ("client" if s in _GLB_CLIENT_SERIALIZERS else "server") for s in serializers},
+            "description": (
+                "Conversion code path for →GLB. 'cpp' = pure-C++ adacpp (fastest, lowest memory); "
+                "'python' = Python-orchestrated (lets you pick the tessellation kernel below); "
+                "'wasm' / 'pyodide' run entirely in your browser (no server round-trip)."
+            ),
+        },
+        {
+            "name": "tessellator",
+            "type": "enum",
+            # Mesh target → this axis meshes the geometry ("Tessellator"). (For B-rep targets the
+            # analogous axis is titled "Writer" — same mechanism, set on those rows.)
+            "title": "Tessellator",
+            "default": enum_by[default_ser][0],
+            "enum": tess_tokens,
+            "labels": {t: _GLB_TESS_LABELS.get(t, t) for t in tess_tokens},
+            # Dependent dropdown: the valid tessellators for each serializer. The
+            # frontend repopulates + reselects when the serializer changes.
+            "enum_by": enum_by,
+            "depends_on": "serializer",
+            "description": (
+                "Tessellation kernel. Only the 'python' serializer exposes a choice; the other "
+                "serializers pin their own kernel."
+            ),
+        },
+    ]
+
+
+def _apply_glb_serializer(
+    source_ext: str,
+    serializer: str | None,
+    tessellator: str | None,
+    *,
+    step_glb_pipeline: str | None,
+    glb_tess_engine: str | None,
+) -> tuple[str | None, str | None, bool]:
+    """Fold ``serializer`` / ``tessellator`` tokens into the effective engine
+    knobs. Returns ``(step_glb_pipeline, glb_tess_engine, force_python)``.
+
+    ``force_python`` tells IFC→GLB to bypass the pure-native path and route
+    through the ifcopenshell import + BatchTessellator (so the chosen kernel
+    actually takes effect). When ``serializer`` is unset the explicit knobs
+    (and their env/defaults) are returned untouched — full back-compat with the
+    admin panel + ``ADAPY_*`` env selection. Client serializers never reach a
+    worker, so they are treated as no-ops here."""
+    if not serializer or serializer in _GLB_CLIENT_SERIALIZERS:
+        return step_glb_pipeline, glb_tess_engine, False
+    fam = _glb_source_family(source_ext)
+    if serializer == _GLB_SERIALIZER_CPP:
+        if fam == "step":
+            step_glb_pipeline = _STEP_GLB_PIPELINE_ADACPP_NATIVE
+        # generic/IFC 'cpp' = the native_ifc_to_glb default path — nothing to force.
+        return step_glb_pipeline, glb_tess_engine, False
+    if serializer == _GLB_SERIALIZER_PYTHON:
+        tok = tessellator or _GLB_SERIALIZER_TESS[(_GLB_SERIALIZER_PYTHON, fam)][0]
+        if fam == "step":
+            step_glb_pipeline = _TESS_TO_STEP_PIPELINE.get(tok, _STEP_GLB_PIPELINE_LIBTESS2)
+        else:
+            glb_tess_engine = _TESS_TO_GLB_ENGINE.get(tok, _GLB_TESS_ENGINE_DEFAULT)
+        return step_glb_pipeline, glb_tess_engine, True
+    return step_glb_pipeline, glb_tess_engine, False
+
+
+# ---------------------------------------------------------------------------
+# B-rep → B-rep (step→ifc, ifc→step) path options. Same shared frontend selector
+# as the →GLB rows, but the second axis is a WRITER (no tessellation happens),
+# titled "Writer" via the backend. The writer mirrors the serializer 1:1 — each
+# code path has exactly one B-rep emitter — so the writer dropdown is
+# informational (one entry per serializer), consistent with how cpp→glb pins its
+# tessellator. Client (wasm) B-rep writers run in-browser via the adacpp wasm
+# writer modules.
+_BREP_SERIALIZER_LABELS = {
+    _GLB_SERIALIZER_CPP: "C++ (adacpp native)",
+    _GLB_SERIALIZER_PYTHON: "Python (OCC)",
+    _GLB_SERIALIZER_WASM: "WASM (browser)",
+}
+# serializer -> (writer token, writer label). One writer per path.
+_BREP_SERIALIZER_WRITER = {
+    _GLB_SERIALIZER_CPP: ("native", "Native (adacpp B-rep)"),
+    _GLB_SERIALIZER_PYTHON: ("occ", "OCC / ifcopenshell"),
+    _GLB_SERIALIZER_WASM: ("wasm-native", "Native (WASM)"),
+}
+_BREP_SERIALIZER_ORDER = (_GLB_SERIALIZER_CPP, _GLB_SERIALIZER_PYTHON, _GLB_SERIALIZER_WASM)
+
+
+def _brep_serializer_options(source_ext: str, target: str) -> list[dict]:
+    """serializer + dependent ``writer`` options for a B-rep→B-rep row (single-sourced, like
+    :func:`_glb_serializer_options`). The writer axis is titled "Writer" and mirrors the serializer."""
+    serializers = list(_BREP_SERIALIZER_ORDER)
+    enum_by = {s: [_BREP_SERIALIZER_WRITER[s][0]] for s in serializers}
+    writer_tokens: list[str] = []
+    for s in serializers:
+        for tok in enum_by[s]:
+            if tok not in writer_tokens:
+                writer_tokens.append(tok)
+    writer_labels = {_BREP_SERIALIZER_WRITER[s][0]: _BREP_SERIALIZER_WRITER[s][1] for s in serializers}
+    default_ser = serializers[0]
+    return [
+        {
+            "name": "serializer",
+            "type": "enum",
+            "title": "Serializer",
+            "default": default_ser,
+            "enum": serializers,
+            "labels": {s: _BREP_SERIALIZER_LABELS[s] for s in serializers},
+            "runtime": {s: ("client" if s in _GLB_CLIENT_SERIALIZERS else "server") for s in serializers},
+            "description": (
+                f"Conversion code path for →{target.upper()}. 'cpp' = pure-C++ adacpp B-rep writer "
+                "(fastest, dep-free); 'python' = the OpenCASCADE / ifcopenshell writer; 'wasm' runs "
+                "the adacpp writer entirely in your browser (no server round-trip)."
+            ),
+        },
+        {
+            "name": "tessellator",  # wire key kept stable across targets; DISPLAYED as "Writer"
+            "type": "enum",
+            "title": "Writer",
+            "default": enum_by[default_ser][0],
+            "enum": writer_tokens,
+            "labels": writer_labels,
+            "enum_by": enum_by,
+            "depends_on": "serializer",
+            "description": "B-rep writer. Mirrors the serializer — each code path has one writer.",
+        },
+    ]
+
+
+def _conversion_path_options(source_ext: str, target: str) -> list[dict]:
+    """The shared serializer × (tessellator|writer) path options for a (source, target) row. Mesh
+    targets (glb) get the tessellator axis; B-rep targets (ifc/step) get the writer axis. Single
+    source of the vocabulary for the frontend selector."""
+    t = target.lstrip(".").lower()
+    if t == "glb":
+        return _glb_serializer_options(source_ext)
+    if t in ("ifc", "step"):
+        return _brep_serializer_options(source_ext, t)
+    return []
+
+
+def _brep_writer_is_python(serializer: str | None) -> bool:
+    """A B-rep→B-rep serializer that routes to the Python/OCC writer (vs the native adacpp emitter).
+    Client (wasm) serializers never reach the worker, so they are not 'python' here."""
+    return serializer == _GLB_SERIALIZER_PYTHON
 
 
 def _default_glb_tess_engine() -> str:
@@ -2209,15 +2490,16 @@ def _register_ada_loadable() -> None:
     }
 
     # Non-STEP →GLB tessellation engine (xml / ifc / sat / fem / obj / stl → glb). Same engines
-    # as STEP but driving to_gltf's BatchTessellator stream selector; default OCC (libtess2 opt-in).
+    # as STEP but driving to_gltf's BatchTessellator stream selector; default libtess2 (adacpp-aware,
+    # matching the runtime `_default_glb_tess_engine`), degrading to OCC on an adacpp-less pool.
     glb_tess_engine_option = {
         "name": "glb_tess_engine",
         "type": "enum",
         "default": _GLB_TESS_ENGINE_DEFAULT,
         "enum": list(_GLB_TESS_ENGINES),
         "description": (
-            "→GLB tessellation engine. 'occ-builtin' (default) is the OpenCASCADE tessellator. "
-            "'libtess2' is adacpp's OCC-free boundary tessellator — renders curved surfaces OCC "
+            "→GLB tessellation engine. 'libtess2' (default) is adacpp's OCC-free boundary "
+            "tessellator — renders curved surfaces OCC "
             "drops and avoids the OCC optimal-bbox cost on curved-heavy models (per-geom fallback "
             "to OCC when a geometry isn't yet NGEOM-serializable). 'adacpp-occ' / 'adacpp-cgal' / "
             "'adacpp-hybrid' use adacpp's taxonomy kernels. Engines needing adacpp fall back to OCC "
@@ -2312,8 +2594,20 @@ def _register_ada_loadable() -> None:
                 step_glb_pipeline=None,
                 glb_tess_engine=None,
                 strict_tess=None,
+                serializer=None,
+                tessellator=None,
                 **_kw,
             ):
+                # The friendly serializer/tessellator dropdowns resolve into the existing engine
+                # knobs (single-sourced by _apply_glb_serializer); explicit step_glb_pipeline /
+                # glb_tess_engine still work when serializer is unset.
+                step_glb_pipeline, glb_tess_engine, _force_python = _apply_glb_serializer(
+                    _ext,
+                    serializer,
+                    tessellator,
+                    step_glb_pipeline=step_glb_pipeline,
+                    glb_tess_engine=glb_tess_engine,
+                )
                 return _via_ada(
                     src,
                     _ext,
@@ -2333,10 +2627,12 @@ def _register_ada_loadable() -> None:
                 # STEP sources: streaming toggle + the STEP engine selector (incl. the OCC
                 # streaming reader). Other →glb sources: the BatchTessellator engine toggle.
                 # strict_tess (fail-on-OCC-fallback) applies to the non-STEP BatchTessellator path.
+                # The serializer/tessellator dropdowns are added on every →glb row.
                 if ext in {".step", ".stp"}:
                     row_options = glb_options + [step_streamer_option, step_glb_pipeline_option, strict_tess_option]
                 else:
                     row_options = glb_options + [glb_tess_engine_option, strict_tess_option]
+                row_options = row_options + _glb_serializer_options(ext)
             elif tgt in ("ifc", "xml") and ext in _FEM_SOURCE_EXTS:
                 row_options = fem_to_objects_options
             else:
@@ -2401,6 +2697,42 @@ def _register_fea_result_to_glb() -> None:
         ConverterRegistry.register(ext, "glb", _h)
 
 
+def _via_ifc_stream_to_glb(
+    src_path: pathlib.Path,
+    on_progress: ProgressFn,
+    *,
+    glb_tess_engine: str | None = None,
+    strict_tess: bool | None = None,
+    force_python: bool = False,
+) -> bytes | pathlib.Path:
+    """IFC → GLB, fully native (adacpp ``stream_ifc_to_glb``: pure-C++ IfcResolver → libtess2 →
+    merge-by-colour GLB, no ifcopenshell/OCC), with a graceful fallback to the ifcopenshell
+    ``from_ifc`` → GLB path. The native GLB carries geometry + per-mesh colour + the spatial tree +
+    names — viewer-equivalent (IFC property sets never live in the GLB; they are fetched on selection).
+    Falls back when adacpp's native entry is absent, the run raises, or it produces 0 products (e.g. an
+    IFC of only tessellated face-sets the analytic resolver skips).
+
+    ``force_python`` (serializer='python') bypasses the pure-native path entirely so the chosen
+    ``glb_tess_engine`` kernel actually drives the ifcopenshell import + BatchTessellator."""
+    from ada.cadit.ifc.native_ifc_to_glb import (
+        native_ifc_glb_available,
+        native_ifc_to_glb,
+    )
+    from ada.config import logger
+
+    if not force_python and native_ifc_glb_available():
+        try:
+            out_path = pathlib.Path(tempfile.mkstemp(suffix=".glb")[1])
+            stats = native_ifc_to_glb(src_path, out_path, on_progress=on_progress)
+            if stats.get("solids", 0) > 0:
+                logger.info("native IFC->GLB: %s", stats)
+                return out_path
+            logger.info("native IFC->GLB produced 0 products; falling back to from_ifc")
+        except Exception as exc:  # noqa: BLE001
+            logger.info("native IFC->GLB failed (%s); falling back to from_ifc", exc)
+    return _via_ada(src_path, ".ifc", "glb", on_progress, glb_tess_engine=glb_tess_engine, strict_tess=strict_tess)
+
+
 def _register_step_stream_exports() -> None:
     # STEP/STP exports that bypass the full-OCC Assembly (which OOM-kills / times
     # out on multi-GB CAD assemblies). Registered AFTER _register_ada_loadable so
@@ -2425,10 +2757,14 @@ def _register_step_stream_exports() -> None:
 
         ConverterRegistry.register(ext, "step", _h_step)
 
-        def _h_ifc(src, on_progress, *, _ext=ext, **_kw):
+        def _h_ifc(src, on_progress, *, _ext=ext, serializer=None, tessellator=None, **_kw):
+            # serializer=python routes to the OCC/ifcopenshell writer; cpp (default) uses the native
+            # streaming adacpp B-rep emitter. wasm serializers run client-side (never reach here).
+            if _brep_writer_is_python(serializer):
+                return _via_ada(src, _ext, "ifc", on_progress)
             return _via_step_stream_to_ifc(src, on_progress)
 
-        ConverterRegistry.register(ext, "ifc", _h_ifc)
+        ConverterRegistry.register(ext, "ifc", _h_ifc, options=_conversion_path_options(ext, "ifc"))
 
         def _h_xml(src, on_progress, *, _ext=ext, **_kw):
             return _via_step_stream_to_xml(src, on_progress)
@@ -2445,10 +2781,46 @@ def _register_step_stream_exports() -> None:
         _native_ifc2step = False
     if _native_ifc2step:
 
-        def _h_ifc2step(src, on_progress, **_kw):
+        def _h_ifc2step(src, on_progress, *, serializer=None, tessellator=None, **_kw):
+            # serializer=python routes to the OCC ifc→step writer; cpp (default) uses the native
+            # adacpp B-rep reader → AP242 writer. wasm serializers run client-side.
+            if _brep_writer_is_python(serializer):
+                return _via_ada(src, ".ifc", "step", on_progress)
             return _via_ifc_to_step(src, on_progress)
 
-        ConverterRegistry.register(".ifc", "step", _h_ifc2step)
+        ConverterRegistry.register(".ifc", "step", _h_ifc2step, options=_conversion_path_options(".ifc", "step"))
+
+    # IFC → GLB via the native adacpp IFC pipeline (no ifcopenshell/OCC), overriding the generic
+    # from_ifc → GLB. Gated on the native verb; degrades to from_ifc per _via_ifc_stream_to_glb's
+    # own fallback (absent verb / error / 0 products), so this is always safe to register.
+    try:
+        from ada.cadit.ifc.native_ifc_to_glb import native_ifc_glb_available
+
+        _native_ifc2glb = native_ifc_glb_available()
+    except Exception:  # noqa: BLE001
+        _native_ifc2glb = False
+    if _native_ifc2glb:
+
+        def _h_ifc2glb(
+            src, on_progress, *, glb_tess_engine=None, strict_tess=None, serializer=None, tessellator=None, **_kw
+        ):
+            _step_pipe, glb_tess_engine, force_python = _apply_glb_serializer(
+                ".ifc",
+                serializer,
+                tessellator,
+                step_glb_pipeline=None,
+                glb_tess_engine=glb_tess_engine,
+            )
+            return _via_ifc_stream_to_glb(
+                src,
+                on_progress,
+                glb_tess_engine=glb_tess_engine,
+                strict_tess=strict_tess,
+                force_python=force_python,
+            )
+
+        # Preserve the serializer/tessellator + engine options declared on the generic ifc→glb row.
+        ConverterRegistry.register(".ifc", "glb", _h_ifc2glb, options=ConverterRegistry.options_for(".ifc", "glb"))
 
 
 def _register_glb_to_mesh() -> None:

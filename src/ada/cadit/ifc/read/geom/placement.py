@@ -1,5 +1,17 @@
+import numpy as np
+
 from ada import Direction, Point
+from ada.api.transforms import Placement
 from ada.geom.placement import Axis1Placement, Axis2Placement3D
+
+
+def placement_from_ifc_4x4(matrix) -> Placement:
+    """Build a Placement from an IFC world transform (``get_local_placement`` / a standard 4x4
+    ``IfcObjectPlacement``). Now that ``Placement.from_4x4_matrix`` is self-consistent (row-based,
+    ``from_4x4_matrix(M).get_matrix4x4() == M``), this is a plain wrapper — the historic transpose
+    workaround is gone. Kept as a named entry point for the IFC readers (and a home for any
+    future IFC-specific placement handling)."""
+    return Placement.from_4x4_matrix(np.asarray(matrix, dtype=float))
 
 
 def ifc_direction(ifc_entity) -> Direction:

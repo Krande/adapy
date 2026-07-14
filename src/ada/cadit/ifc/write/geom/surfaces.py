@@ -179,6 +179,27 @@ def polygonal_face_set(pfs: geo_su.PolygonalFaceSet, f: ifcopenshell.file) -> if
     )
 
 
+def triangulated_face_set(tfs: geo_su.TriangulatedFaceSet, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a TriangulatedFaceSet back to an IfcTriangulatedFaceSet.
+
+    ``indices`` is stored flat and 1-based (the reader flattens CoordIndex);
+    IFC wants triples. A kernel build would be both lossy and unsupported for
+    a bare triangle mesh — this is the 1:1 emit."""
+    coordinates = f.create_entity(
+        "IfcCartesianPointList3D",
+        CoordList=[(float(p.x), float(p.y), float(p.z)) for p in tfs.coordinates],
+    )
+    idx = [int(i) for i in tfs.indices]
+    coord_index = [tuple(idx[i : i + 3]) for i in range(0, len(idx), 3)]
+    normals = [(float(n.x), float(n.y), float(n.z)) for n in tfs.normals] or None
+    return f.create_entity(
+        "IfcTriangulatedFaceSet",
+        Coordinates=coordinates,
+        Normals=normals,
+        CoordIndex=coord_index,
+    )
+
+
 def create_closed_shell(cs: geo_su.ClosedShell, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts a ClosedShell to an IFC representation.
 

@@ -46,6 +46,13 @@ def scene_from_object(physical_object: BackendGeom, converter: SceneConverter) -
 
     mesh_stores = list(bt.batch_tessellate(physical_objects))
 
+    # Tally distorted (degenerate/sliver) triangles for the per-cell audit flag — raw triangles
+    # here, before any GLB/meshopt encoding. Best-effort; never affects the scene.
+    from ada.occ.tessellating import accumulate_mesh_distortion
+
+    for _ms in mesh_stores:
+        accumulate_mesh_distortion(getattr(_ms, "position", None), getattr(_ms, "indices", None))
+
     mesh_map = []
     for mat_id, meshes in groupby(mesh_stores, lambda x: x.material):
         meshes = list(meshes)

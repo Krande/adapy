@@ -74,6 +74,45 @@ def make_face_from_poly_loop(poly_loop: PolyLoop) -> TopoDS_Shape:
     return BRepBuilderAPI_MakeFace(wire).Shape()
 
 
+def _loop_newell(loop: PolyLoop):
+    """Newell area-vector of a planar loop — magnitude 2*area, direction the winding normal.
+    Robust for non-convex polygons."""
+    import numpy as np
+
+    pts = np.asarray([list(p)[:3] for p in loop.polygon], float)
+    n = np.zeros(3)
+    for i in range(len(pts)):
+        n += np.cross(pts[i], pts[(i + 1) % len(pts)])
+    return n
+
+
+def make_planar_face_from_bounds(bounds) -> TopoDS_Shape:
+    """Planar (IfcFace / faceted-brep) face from its ``FaceBound`` list: the first loop is the
+    outer boundary, any further loops are cut as holes. The old faceted-brep path used only
+    ``bounds[0]`` and dropped inner bounds, so a face with an opening (e.g. a basin's rim, whose
+    IfcFaceOuterBound carries an IfcFaceBound hole for the mouth) built as a solid cap.
+
+    A hole wire must wind opposite to the outer for MakeFace to subtract it, and sources are
+    inconsistent about the inner loop's stored direction — so decide per inner loop from its
+    winding relative to the outer normal rather than trusting a fixed convention."""
+    import numpy as np
+
+    outer = bounds[0].bound
+    if not isinstance(outer, PolyLoop):
+        raise NotImplementedError(f"Only PolyLoop bounds supported for Face, not {type(outer)}")
+    onrm = _loop_newell(outer)
+    mk = BRepBuilderAPI_MakeFace(make_wire_from_poly_loop(outer), True)  # True: plane inferred from the wire
+    for fb in bounds[1:]:
+        inner = fb.bound
+        if not isinstance(inner, PolyLoop):
+            raise NotImplementedError(f"Only PolyLoop inner bounds supported for Face, not {type(inner)}")
+        inner_wire = make_wire_from_poly_loop(inner)
+        if float(np.dot(_loop_newell(inner), onrm)) > 0.0:  # inner winds like the outer -> reverse to cut a hole
+            inner_wire.Reverse()
+        mk.Add(inner_wire)
+    return mk.Face()
+
+
 def make_face_from_indexed_poly_curve_geom(curve: geo_cu.IndexedPolyCurve) -> TopoDS_Shape:
     wire = make_wire_from_indexed_poly_curve_geom(curve)
     return BRepBuilderAPI_MakeFace(wire).Shape()
@@ -88,20 +127,57 @@ def make_face_from_circle(circle: geo_cu.Circle):
     return BRepBuilderAPI_MakeFace(circle_wire).Shape()
 
 
-def make_shell_from_face_based_surface_geom(surface: FaceBasedSurfaceModel) -> TopoDS_Shape:
-    occ_face = None
-    for face in surface.fbsm_faces:
-        for cfs_face in face.cfs_faces:
-            if not isinstance(cfs_face.bound, PolyLoop):
-                raise NotImplementedError("Only PolyLoop bounds are supported")
-            new_face = make_face_from_poly_loop(cfs_face.bound)
-            if occ_face is None:
-                occ_face = new_face
-            else:
-                # Fuse the new face with the existing face
-                occ_face = BRepAlgoAPI_Fuse(new_face, occ_face).Shape()
+# Above this face count the imprinting fuse below is skipped: beam shells and other structural
+# plate sets have a handful of faces, while a tessellated IfcFaceBasedSurfaceModel can carry many —
+# it must not pay O(n) sequential booleans and, being an already-conforming tessellation, needs no
+# imprinting.
+_FBSM_IMPRINT_MAX_FACES = 24
 
-    return occ_face
+
+def _single_polyloop_of_face(cfs_face) -> "PolyLoop | None":
+    """Outer ``PolyLoop`` of a hole-free planar ``Face``, else ``None``. A beam shell's plates (an
+    I-beam's web + flanges) are exactly these; a tessellated face with holes or a non-PolyLoop bound
+    is left to the faithful compound path."""
+    if type(cfs_face) is not geo_su.Face:
+        return None
+    if len(cfs_face.bounds) != 1:
+        return None
+    outer = cfs_face.bounds[0].bound
+    return outer if isinstance(outer, PolyLoop) else None
+
+
+def make_shell_from_face_based_surface_geom(surface: FaceBasedSurfaceModel) -> TopoDS_Shape:
+    """Build an IfcFaceBasedSurfaceModel — a set of IfcConnectedFaceSets — into an OCC shape.
+
+    A small hole-free planar plate set (a parametric beam's disconnected web/flange plates) is
+    *imprinted*: ``BRepAlgoAPI_Fuse`` of the coincident planar plates splits each flange along the
+    web line where they meet (3 plates -> 5 faces), which is what a conforming shell FEM mesh needs
+    (no hanging nodes at the web/flange T-junctions). Disjoint plates fuse to a plain compound, so
+    this only changes touching geometry.
+
+    Everything else (a large / non-planar / holed IfcFaceBasedSurfaceModel from the reader) builds
+    as a faithful compound of per-connected-set shells — each Face read via its ``bounds`` — so an
+    n-face surface model renders and exports without paying the boolean cost or needing imprinting.
+    """
+    faces = [f for cfs in surface.fbsm_faces for f in cfs.cfs_faces]
+    loops = [_single_polyloop_of_face(f) for f in faces]
+    if 0 < len(faces) <= _FBSM_IMPRINT_MAX_FACES and all(loop is not None for loop in loops):
+        try:
+            fused = None
+            for loop in loops:
+                face = make_face_from_poly_loop(loop)
+                fused = face if fused is None else BRepAlgoAPI_Fuse(face, fused).Shape()
+            if fused is not None:
+                return fused
+        except Exception:  # noqa: BLE001 - any boolean failure falls back to the faithful compound
+            pass
+
+    builder = BRep_Builder()
+    compound = TopoDS_Compound()
+    builder.MakeCompound(compound)
+    for cfs in surface.fbsm_faces:
+        builder.Add(compound, make_shell_from_connected_face_set_geom(cfs))
+    return compound
 
 
 def make_shell_from_curve_bounded_plane_geom(surface: geo_su.CurveBoundedPlane) -> TopoDS_Shape:
@@ -1903,10 +1979,9 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
         elif type(cfs_face) is geo_su.Face:
             n_faces += 1
             try:
-                outer = cfs_face.bounds[0].bound
-                if not isinstance(outer, PolyLoop):
-                    raise NotImplementedError(f"Only PolyLoop bounds supported for Face, not {type(outer)}")
-                face = make_face_from_poly_loop(outer)
+                # bounds[0] is the outer loop; any further bounds are holes (openings)
+                # in this planar face — build them so an IfcFace with a hole doesn't cap.
+                face = make_planar_face_from_bounds(cfs_face.bounds)
                 builder.UpdateFace(face, 1e-6)
                 builder.Add(occ_shell, face)
             except Exception as ex:
@@ -1977,6 +2052,24 @@ def make_open_shell_from_geom(shell: geo_su.OpenShell) -> TopoDS_Shell:
     return occ_shell
 
 
+def make_shell_from_connected_face_set_geom(cfs: geo_su.ConnectedFaceSet) -> TopoDS_Shell:
+    """Bare CONNECTED_FACE_SET — the native NGEOM reader's B-rep root form (the buffer
+    does not record whether the source shell was closed). Build the faces like the
+    closed/open shells above and let OCC determine closedness, so a manifold solid
+    B-rep read natively behaves like the Python reader's ClosedShell downstream."""
+    builder = BRep_Builder()
+    occ_shell = TopoDS_Shell()
+    builder.MakeShell(occ_shell)
+    _add_cfs_faces_to_shell(builder, occ_shell, cfs.cfs_faces)
+    try:
+        from OCC.Core.BRep import BRep_Tool
+
+        occ_shell.Closed(BRep_Tool.IsClosed(occ_shell))
+    except Exception:  # noqa: BLE001 - closedness flag is an optimisation, not correctness
+        pass
+    return occ_shell
+
+
 def make_shell_from_polygonal_face_set_geom(pfs: geo_su.PolygonalFaceSet) -> TopoDS_Shape:
     """Build an IfcPolygonalFaceSet — a shared point list plus n-gon faces — into a sewn
     OCC shell. Each face is a planar polygon wire (1-based indices into the point list);
@@ -2007,6 +2100,38 @@ def make_shell_from_polygonal_face_set_geom(pfs: geo_su.PolygonalFaceSet) -> Top
     return sewing.SewedShape()
 
 
+def make_shell_from_triangulated_face_set_geom(tfs: geo_su.TriangulatedFaceSet) -> TopoDS_Shape:
+    """Build an IfcTriangulatedFaceSet — a shared point list plus flat 1-based index
+    triples — into a sewn OCC shell, same treatment as the polygonal face set. Needed
+    for B-rep exports (STEP/IFC) of mesh-native bodies; tessellation itself takes the
+    direct mesh path and never comes here."""
+    coords = tfs.coordinates
+    idx = [int(i) for i in tfs.indices]
+    sewing = BRepBuilderAPI_Sewing(1e-6)
+    n_faces = 0
+    for k in range(0, len(idx), 3):
+        tri = idx[k : k + 3]
+        poly = BRepBuilderAPI_MakePolygon()
+        for i in tri:
+            poly.Add(point3d(coords[i - 1]))
+        poly.Close()
+        if not poly.IsDone():
+            logger.warning("TriangulatedFaceSet: skipping triangle %s (could not build wire)", tri)
+            continue
+        face_maker = BRepBuilderAPI_MakeFace(poly.Wire(), True)
+        if not face_maker.IsDone():
+            logger.warning("TriangulatedFaceSet: skipping degenerate triangle %s", tri)
+            continue
+        sewing.Add(face_maker.Face())
+        n_faces += 1
+
+    if n_faces == 0:
+        raise UnableToCreateTesselationFromSolidOCCGeom("TriangulatedFaceSet produced no usable faces")
+
+    sewing.Perform()
+    return sewing.SewedShape()
+
+
 def make_shell_from_shell_based_surface_geom(sbsm: geo_su.ShellBasedSurfaceModel) -> TopoDS_Shape:
     """Build an IfcShellBasedSurfaceModel — a set of open/closed shells — into a single OCC
     compound of shells, so a multi-shell wall/cladding surface renders and exports."""
@@ -2029,7 +2154,13 @@ def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
     elif isinstance(outer_curve, geo_cu.Circle):
         return make_face_from_circle(outer_curve)
     else:
-        raise NotImplementedError("Only IndexedPolyCurve is implemented")
+        # Composite / trimmed / ellipse outlines (e.g. IFC profile curves
+        # stitched from IfcTrimmedCurve segments) — build the wire through
+        # the generic dispatcher and face it planar.
+        from ada.occ.geom.curves import make_wire_from_curve
+
+        wire = make_wire_from_curve(outer_curve)
+        return BRepBuilderAPI_MakeFace(wire, True).Shape()
 
 
 def make_profile_from_geom(area: geo_su.ProfileDef) -> TopoDS_Shape | TopoDS_Face:

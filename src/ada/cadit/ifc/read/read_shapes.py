@@ -7,8 +7,8 @@ import ifcopenshell.geom
 from ifcopenshell.util.placement import get_local_placement
 
 from ada import Shape
-from ada.api.transforms import Placement
 from ada.cadit.ifc.read.geom.geom_reader import get_product_definitions
+from ada.cadit.ifc.read.geom.placement import placement_from_ifc_4x4
 from ada.cadit.ifc.read.read_color import get_product_color
 from ada.config import Config, logger
 from ada.geom import Geometry
@@ -24,23 +24,25 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
 
     geom = None
     occ_body = None
+    blob_rec = None
     if Config().ifc_import_shape_geom or force_geom:
-        geom, occ_body = _read_shape_geometry(product, color)
+        geom, occ_body, blob_rec = _read_shape_geometry(product, color, ifc_store)
 
     extra_opts = {}
-    # Only apply the IFC local placement when we keep the native (parametric) geometry,
-    # which is expressed in the product's local coordinates. The kernel fallback below
-    # bakes world coordinates into the OCC body (``USE_WORLD_COORDS``), so re-applying
-    # the placement there would double-transform it.
+    # Only apply the IFC local placement when we keep the native (parametric) geometry, which is
+    # expressed in the product's local coordinates. The kernel fallback below bakes world
+    # coordinates into the OCC body (``USE_WORLD_COORDS``), so re-applying the placement there would
+    # double-transform it. ``get_local_placement`` returns the full world 4x4 regardless of whether
+    # the ObjectPlacement is relative (PlacementRelTo chain) or ABSOLUTE — an absolute placement can
+    # still carry a non-identity rotation (e.g. an IfcBeam that fell through to the shape importer,
+    # with its extrusion axis rotated into the world frame), so it must be applied too. Gating on
+    # PlacementRelTo dropped those rotations and rendered the product on the wrong world axis.
     if occ_body is None:
         obj_placement = product.ObjectPlacement
-        if obj_placement is not None and obj_placement.PlacementRelTo:
-            local_placement = get_local_placement(obj_placement)
-            extra_opts["placement"] = Placement.from_4x4_matrix(local_placement)
+        if obj_placement is not None:
+            extra_opts["placement"] = placement_from_ifc_4x4(get_local_placement(obj_placement))
 
-    shape = Shape(
-        name,
-        geom=geom,
+    common = dict(
         guid=product.GlobalId,
         ifc_store=ifc_store,
         units=ifc_store.assembly.units,
@@ -48,6 +50,39 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
         opacity=color.opacity if color is not None else 1.0,
         **extra_opts,
     )
+
+    if (geom is not None or blob_rec is not None) and Config().cad_lazy_shape_store:
+        # Lazy shape store (default on): keep the geometry as one compact blob and
+        # mint a ShapeProxy that hydrates on demand — large IFC imports stop holding
+        # every product's ada.geom tree. Python-native geometry pickles losslessly
+        # (bool_operations, half-space operands, parametric profiles); products the
+        # Python readers can't resolve keep the adacpp IfcNgeomStream NGEOM buffer
+        # as-arrived (zero-copy, tessellation fast-path capable). Kernel-fallback
+        # products (occ_body) stay eager Shapes: their geometry is the transient
+        # OCC body, and there is nothing heavy retained to avoid.
+        from ada.api.shapes import ShapeProxy, ShapeStore
+
+        store = getattr(ifc_store, "_lazy_shape_store", None)
+        if store is None:
+            store = ShapeStore(compress=Config().cad_shape_store_compress)
+            ifc_store._lazy_shape_store = store
+        if geom is not None:
+            idx = store.add_geometry(geom)
+        else:
+            blob, meta = blob_rec
+            # meta.transforms is the composed world placement (column-major 16-float,
+            # like the STEP path); a single instance becomes the Shape placement so
+            # downstream behaves exactly like the eager IFC path (local geometry +
+            # Placement). Multi-instance products were filtered out at lookup time.
+            if len(meta.transforms) == 1:
+                import numpy as np
+
+                mat = np.asarray(meta.transforms[0], dtype=float).reshape(4, 4, order="F")
+                common["placement"] = placement_from_ifc_4x4(mat)
+            idx = store.add_blob(blob, gid=product.GlobalId, color=color)
+        return ShapeProxy(name, store, idx, **common)
+
+    shape = Shape(name, geom=geom, **common)
 
     # Assign the kernel-built OCC body to the transient cache explicitly rather than via
     # the constructor: the constructor only routes ``geom`` to ``_occ_cache`` when the
@@ -60,18 +95,31 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
     return shape
 
 
-def _read_shape_geometry(product: ifcopenshell.entity_instance, color):
+def _read_shape_geometry(product: ifcopenshell.entity_instance, color, ifc_store: IfcStore = None):
     """Resolve a product's body geometry, preferring adapy's native (parametric) reader.
 
-    Returns ``(geom, occ_body)``: a native :class:`~ada.geom.Geometry` when every body
-    item is a type adapy reads natively, else ``(None, occ_body)`` where ``occ_body`` is a
-    world-placed OCC ``TopoDS`` built by the IfcOpenShell geometry kernel. The kernel
+    Returns ``(geom, occ_body, blob_rec)``: a native :class:`~ada.geom.Geometry` when
+    every body item is a type adapy reads natively; else ``blob_rec = (ngeom_buffer,
+    meta)`` from adacpp's dep-free ``IfcNgeomStream`` when it resolved the product
+    (B-reps and analytic solids, kernel-free and lazily storable); else ``occ_body``,
+    a world-placed OCC ``TopoDS`` built by the IfcOpenShell geometry kernel. The kernel
     fallback is what lets ``ifc.import_shape_geom`` be on by default: any IFC geometry
-    representation (swept/half-space/mapped/b-spline/...) still imports, just as a faceted
-    B-rep rather than a parametric one. Returns ``(None, None)`` only when no geometry can
-    be produced at all (logged)."""
+    representation still imports, just as a faceted B-rep rather than a parametric one.
+    ``(None, None, None)`` only when no geometry can be produced at all (logged)."""
     if product.Representation is None:
-        return None, None
+        return None, None, None
+
+    # Plain manifold-solid B-reps (IfcAdvancedBrep / IfcFacetedBrep, no boolean/CSG) are heavy and
+    # have an exact, kernel-free adacpp IfcNgeomStream form: under the lazy store, prefer that
+    # compact zero-copy ngeom blob over the Python reader's ClosedShell, which would pickle the whole
+    # ada.geom face tree into the store — exactly the object graph the store exists to avoid.
+    # Parametric / boolean / mapped products fall through to the Python-first path below so their
+    # bool_operations / profiles survive. If adacpp can't resolve it, blob_rec is None and we fall
+    # through unchanged.
+    if ifc_store is not None and Config().cad_lazy_shape_store and _is_plain_brep_body(product):
+        blob_rec = _native_geom_blob(product, ifc_store)
+        if blob_rec is not None:
+            return None, None, blob_rec
 
     try:
         geometries = get_product_definitions(product)
@@ -79,17 +127,30 @@ def _read_shape_geometry(product: ifcopenshell.entity_instance, color):
         logger.debug(f"native IFC geom reader unsupported for {product.is_a()}; using kernel fallback ({e})")
         geometries = []
 
+    if len(geometries) > 1:
+        # A product with several Body items (e.g. multiple IfcMappedItem instances) needs ALL of
+        # them — one Shape carries one geometry, so taking geometries[0] would silently drop the
+        # rest. When they're all instances of one shared mapping source, fold them into a single
+        # mesh-instanced Geometry (renders natively); otherwise keep the kernel fallback (the OCC
+        # kernel builds every item into one compound).
+        from ada.cadit.ifc.read.geom.geom_reader import mapped_instance_group
+
+        folded = mapped_instance_group(product)
+        if folded is not None:
+            geometries = [folded]
+        else:
+            logger.debug(f"product {product.is_a()} has {len(geometries)} Body geometries; kernel fallback")
+            geometries = []
+
     if geometries:
-        if len(geometries) > 1:
-            logger.warning(f"Multiple geometries on product {product}. Choosing geometry @ index=0")
         geometry = geometries[0]
         # A boolean result (e.g. IfcBooleanClippingResult) already comes back as a Geometry
         # carrying its bool_operations — adopt the product's guid/color rather than re-wrap.
         if isinstance(geometry, Geometry):
             geometry.id = product.GlobalId
             geometry.color = color
-            return geometry, None
-        return Geometry(product.GlobalId, geometry, color), None
+            return geometry, None, None
+        return Geometry(product.GlobalId, geometry, color), None, None
 
     # Only fall back to the kernel for products that carry a *Body* representation, i.e. an
     # actual solid/surface to render. Curve-only products (e.g. IfcAlignmentSegment, whose
@@ -99,12 +160,47 @@ def _read_shape_geometry(product: ifcopenshell.entity_instance, color):
     # break. The native reader already restricts itself to "Body" items, so this keeps the
     # fallback aligned with it.
     if not _has_body_representation(product):
-        return None, None
+        return None, None, None
+
+    # Between the Python-native readers and the OCC kernel: adacpp's dep-free native IFC
+    # resolver (advanced/faceted B-reps + analytic solids the Python readers don't cover).
+    blob_rec = _native_geom_blob(product, ifc_store)
+    if blob_rec is not None:
+        return None, None, blob_rec
 
     occ_body = _kernel_occ_shape(product)
     if occ_body is None:
         logger.warning(f"No geometry could be produced for product {product}")
-    return None, occ_body
+    return None, occ_body, None
+
+
+def _native_geom_blob(product: ifcopenshell.entity_instance, ifc_store: IfcStore):
+    """``(ngeom_buffer, meta)`` for a product from adacpp's ``IfcNgeomStream``, or
+    ``None``. The whole file is scanned ONCE per store on first need (guid-keyed map;
+    buffers retained zero-copy as they arrive). Multi-instance (mapped-item) products
+    are excluded — the lazy Shape path models one placement per Shape."""
+    if ifc_store is None or not Config().cad_lazy_shape_store:
+        return None
+    path = getattr(ifc_store, "ifc_file_path", None)
+    if path is None:
+        return None
+    cache = getattr(ifc_store, "_native_geom_blobs", None)
+    if cache is None:
+        cache = {}
+        try:
+            import adacpp
+
+            stream = adacpp.cad.IfcNgeomStream(str(path))
+            for blob, meta in stream:
+                if meta.guid and len(meta.transforms) <= 1:
+                    cache[meta.guid] = (blob, meta)
+        except (ImportError, AttributeError):
+            pass  # no adacpp / build predates IfcNgeomStream
+        except Exception as exc:  # noqa: BLE001 - a native scan failure must not break the import
+            logger.warning("native IFC NGEOM scan failed (%s); using the kernel fallback", exc)
+            cache = {}
+        ifc_store._native_geom_blobs = cache
+    return cache.get(product.GlobalId)
 
 
 def _has_body_representation(product: ifcopenshell.entity_instance) -> bool:
@@ -112,6 +208,26 @@ def _has_body_representation(product: ifcopenshell.entity_instance) -> bool:
     if rep is None:
         return False
     return any(r.RepresentationIdentifier == "Body" for r in rep.Representations)
+
+
+# IfcManifoldSolidBrep subtypes adacpp's IfcNgeomStream reproduces exactly and compactly. is_a()
+# matches the WithVoids subtypes too; if adacpp can't resolve one, _native_geom_blob returns None and
+# the caller falls through to the Python reader, so listing the base types is safe.
+_BREP_BODY_TYPES = ("IfcAdvancedBrep", "IfcFacetedBrep")
+
+
+def _is_plain_brep_body(product: ifcopenshell.entity_instance) -> bool:
+    """True when every item of the product's Body representation is a plain manifold-solid B-rep
+    (IfcAdvancedBrep / IfcFacetedBrep) — i.e. no boolean/CSG or parametric/mapped item that the
+    Python reader must own to preserve bool_operations / profiles. Such bodies route to the adacpp
+    ngeom blob instead of pickling a ClosedShell tree into the lazy store."""
+    rep = getattr(product, "Representation", None)
+    if rep is None:
+        return False
+    body = next((r for r in rep.Representations if r.RepresentationIdentifier == "Body"), None)
+    if body is None or not body.Items:
+        return False
+    return all(any(item.is_a(t) for t in _BREP_BODY_TYPES) for item in body.Items)
 
 
 def _kernel_occ_shape(product: ifcopenshell.entity_instance):
@@ -172,7 +288,7 @@ def import_ifc_sphere(product: ifcopenshell.entity_instance, name, ifc_store: If
     extra_opts = {}
     obj_placement = product.ObjectPlacement
     if obj_placement is not None and obj_placement.PlacementRelTo:
-        extra_opts["placement"] = Placement.from_4x4_matrix(get_local_placement(obj_placement))
+        extra_opts["placement"] = placement_from_ifc_4x4(get_local_placement(obj_placement))
 
     # A sphere-bodied product marked MassPoint reads back as MassPoint (mass from properties).
     if product.ObjectType == "MassPoint":

@@ -39,7 +39,9 @@ def native_ifc_to_step(
     if deflection is None:
         deflection = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
     if angular_deg is None:
-        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+        from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+
+        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
     if on_progress is not None:
         on_progress("adacpp-native-ifc2step", 0.1)
     stats = adacpp.cad.stream_ifc_to_step(str(ifc_path), str(out_path), deflection=deflection, angular_deg=angular_deg)

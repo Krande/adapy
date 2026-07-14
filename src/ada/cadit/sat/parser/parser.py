@@ -51,6 +51,41 @@ from ada.cadit.sat.parser.spline_parsers import (
 )
 from ada.config import logger
 
+# Non-numeric trailing flag tokens found in ACIS surface/curve records.
+_SAT_FLAG_TOKENS = frozenset(
+    {"I", "F", "#", "forward", "reversed", "both", "in", "out", "double", "single", "reverse_v", "forward_v"}
+)
+
+
+def _numeric_after_header(parts: list[str]) -> list[float]:
+    """Numeric geometry fields of an ACIS surface/curve record, past the entity header.
+
+    The header is ``$owner <int> <int> $attrib`` — those two bare integers are numeric, so a plain
+    float-filter over the whole record swallows them and shifts every coordinate by two (a plane then
+    gets a garbage frame and its face tessellates to a single triangle). Skip up to and including the
+    2nd ``$``-reference, then collect floats (dropping trailing flag words). Falls back to the whole
+    record if the expected two references aren't present.
+    """
+    start = 0
+    dollars = 0
+    for i, p in enumerate(parts):
+        if p.startswith("$"):
+            dollars += 1
+            if dollars == 2:
+                start = i + 1
+                break
+    if dollars < 2:
+        start = 0
+    out: list[float] = []
+    for p in parts[start:]:
+        if p in _SAT_FLAG_TOKENS:
+            continue
+        try:
+            out.append(float(p))
+        except ValueError:
+            continue
+    return out
+
 
 class AcisSatParser:
     """
@@ -555,16 +590,8 @@ class AcisSatParser:
     def _parse_straight_curve(self, index: int, data: str) -> AcisStraightCurve:
         """Parse straight-curve entity."""
         parts = data.split()
-        # straight-curve format: $attrib origin(x,y,z) direction(x,y,z) I I #
-        # Skip reference tokens (starting with $) and find numeric values
-        numeric_values = []
-        for part in parts:
-            if part.startswith("$") or part in ["I", "F", "#"]:
-                continue
-            try:
-                numeric_values.append(float(part))
-            except ValueError:
-                continue
+        # straight-curve format: <header> origin(x,y,z) direction(x,y,z) I I #
+        numeric_values = _numeric_after_header(parts)
 
         origin = numeric_values[0:3] if len(numeric_values) >= 3 else [0, 0, 0]
         direction = numeric_values[3:6] if len(numeric_values) >= 6 else [0, 0, 1]
@@ -630,27 +657,12 @@ class AcisSatParser:
     def _parse_plane_surface(self, index: int, data: str) -> AcisPlaneSurface:
         """Parse plane-surface entity."""
         parts = data.split()
-        # plane-surface format: $attrib origin(x,y,z) normal(x,y,z) u_direction(x,y,z) sense I I I I #
-        # Skip reference tokens (starting with $) and non-numeric flags
-        numeric_values = []
-        for part in parts:
-            if part.startswith("$") or part in [
-                "I",
-                "F",
-                "#",
-                "forward",
-                "reversed",
-                "both",
-                "in",
-                "out",
-                "double",
-                "single",
-            ]:
-                continue
-            try:
-                numeric_values.append(float(part))
-            except ValueError:
-                continue
+        # plane-surface format: <header> origin(x,y,z) normal(x,y,z) u_direction(x,y,z) sense I I I I #
+        # The ACIS record header is `$owner -1 -1 $attrib` — those two bare `-1` integers are numeric,
+        # so a plain float-filter swallowed them into the geometry and shifted origin/normal/u_dir by
+        # two (planes came out with a garbage frame → the face tessellated to a single triangle). Skip
+        # past the header (up to and including the 2nd $-reference) before reading the coordinates.
+        numeric_values = _numeric_after_header(parts)
 
         origin = numeric_values[0:3] if len(numeric_values) >= 3 else [0, 0, 0]
         normal = numeric_values[3:6] if len(numeric_values) >= 6 else [0, 0, 1]

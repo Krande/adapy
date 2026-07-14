@@ -1776,6 +1776,12 @@ _ROOT_BUILDERS = {
     "COMPLEX_TRIANGULATED_FACE_SET": _b_triangulated_face_set,
     "TESSELLATED_SHELL": _b_tessellated_shell,
     "TESSELLATED_SOLID": _b_tessellated_shell,
+    # Wireframe bodies (GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION
+    # items): loose curves are renderable line geometry — without these entries
+    # a wire-only STEP (e.g. adapy's own GEOMETRIC_CURVE_SET export of a
+    # sectionless SAT wire body) reads back as zero roots.
+    "GEOMETRIC_CURVE_SET": _b_geometric_set,
+    "GEOMETRIC_SET": _b_geometric_set,
 }
 
 

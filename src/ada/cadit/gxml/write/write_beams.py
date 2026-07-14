@@ -19,14 +19,25 @@ if TYPE_CHECKING:
 
 def add_beams(root: ET.Element, part: Part, sw: SatWriter = None):
     from ada import Beam, BeamTapered
+    from ada.api.beams import BeamRevolve, BeamSweep
 
     iter_beams = part.get_all_physical_objects(by_type=Beam)
     iter_taper = part.get_all_physical_objects(by_type=BeamTapered)
+    # Curved-axis beams: Genie XML's curved_beam element reads back as chord
+    # segments anyway (see read_beams.seg_to_beam), so emit the straight chord
+    # rather than silently dropping the member — mirrors stream_xml.
+    iter_revolve = part.get_all_physical_objects(by_type=BeamRevolve)
+    iter_sweep = part.get_all_physical_objects(by_type=BeamSweep)
 
-    for beam in itertools.chain(iter_beams, iter_taper):
+    for beam in itertools.chain(iter_beams, iter_taper, iter_revolve, iter_sweep):
         parent = beam.parent
         if isinstance(parent, Equipment) and parent.eq_repr != EquipRepr.AS_IS:
             continue
+        if isinstance(beam, (BeamRevolve, BeamSweep)):
+            logger.warning(
+                f"gxml-write: {type(beam).__name__} {beam.name!r} written as a straight chord beam "
+                "(curved axis not supported by the Genie XML writer)"
+            )
         add_straight_beam(beam, root)
 
 

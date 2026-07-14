@@ -1,7 +1,7 @@
 import math
 
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
-from OCC.Core.GC import GC_MakeArcOfCircle
+from OCC.Core.GC import GC_MakeArcOfCircle, GC_MakeArcOfEllipse
 from OCC.Core.Geom import Geom_BSplineCurve
 from OCC.Core.GeomAPI import GeomAPI_PointsToBSpline, GeomAPI_ProjectPointOnCurve
 from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Elips, gp_Pnt
@@ -365,21 +365,60 @@ def make_wire_from_ellipse(ellipse: geo_cu.Ellipse) -> TopoDS_Wire:
 def make_wire_from_trimmed_curve(tc: geo_cu.TrimmedCurve) -> TopoDS_Wire:
     """Build a bounded wire from a TrimmedCurve.
 
-    Supports the two common geometric cases with Cartesian-point trims: a Line basis (straight
-    segment between the trims) and a Circle basis (arc between the trims). Parameter-only trims
-    and other bases are not yet built into OCC geometry."""
+    Trims may be Cartesian points or parameter values (angles for conic bases,
+    normalized to radians at read time; line parameters scale the direction
+    vector, whose IfcVector magnitude the reader preserves). Bases: Line,
+    Circle, Ellipse."""
+    import numpy as np
+
     from ada.geom.points import Point
 
+    def _p3(v) -> list[float]:
+        vals = [float(x) for x in v]
+        return vals + [0.0] * (3 - len(vals))
+
     basis = tc.basis_curve
-    p1, p2 = tc.trim1, tc.trim2
-    if not (isinstance(p1, Point) and isinstance(p2, Point)):
-        raise NotImplementedError("TrimmedCurve OCC build currently requires Cartesian-point trims")
+    t1, t2 = tc.trim1, tc.trim2
+    sense = bool(tc.sense_agreement)
 
     if isinstance(basis, geo_cu.Line):
-        edge = BRepBuilderAPI_MakeEdge(point3d(p1), point3d(p2)).Edge()
-    elif isinstance(basis, geo_cu.Circle):
-        circ = gp_Circ(gp_Ax2(gp_Pnt(*basis.position.location), gp_Dir(*basis.position.axis)), float(basis.radius))
-        arc = GC_MakeArcOfCircle(circ, point3d(p1), point3d(p2), bool(tc.sense_agreement)).Value()
+
+        def _line_pt(t) -> gp_Pnt:
+            if isinstance(t, Point):
+                return point3d(t)
+            w = np.asarray(_p3(basis.pnt)) + float(t) * np.asarray(_p3(basis.dir))
+            return gp_Pnt(*[float(v) for v in w])
+
+        edge = BRepBuilderAPI_MakeEdge(_line_pt(t1), _line_pt(t2)).Edge()
+    elif isinstance(basis, (geo_cu.Circle, geo_cu.Ellipse)):
+        pos = basis.position
+        loc = np.asarray(_p3(pos.location))
+        z = np.asarray(_p3(pos.axis) if pos.axis is not None else [0, 0, 1])
+        x = np.asarray(_p3(pos.ref_direction) if getattr(pos, "ref_direction", None) is not None else [1, 0, 0])
+        z = z / (np.linalg.norm(z) or 1.0)
+        x = x / (np.linalg.norm(x) or 1.0)
+        y = np.cross(z, x)
+        # Parameter trims are measured from the position's x axis — build the
+        # gp frame with the explicit XDirection (the 2-arg gp_Ax2 picks an
+        # arbitrary one).
+        ax2 = gp_Ax2(gp_Pnt(*loc), gp_Dir(*z), gp_Dir(*x))
+        if isinstance(basis, geo_cu.Circle):
+            sa1 = sa2 = float(basis.radius)
+            conic = gp_Circ(ax2, sa1)
+        else:
+            sa1, sa2 = float(basis.semi_axis1), float(basis.semi_axis2)
+            conic = gp_Elips(ax2, sa1, sa2)
+
+        def _conic_pt(t) -> gp_Pnt:
+            if isinstance(t, Point):
+                return point3d(t)
+            w = loc + sa1 * np.cos(float(t)) * x + sa2 * np.sin(float(t)) * y
+            return gp_Pnt(*[float(v) for v in w])
+
+        if isinstance(basis, geo_cu.Circle):
+            arc = GC_MakeArcOfCircle(conic, _conic_pt(t1), _conic_pt(t2), sense).Value()
+        else:
+            arc = GC_MakeArcOfEllipse(conic, _conic_pt(t1), _conic_pt(t2), sense).Value()
         edge = BRepBuilderAPI_MakeEdge(arc).Edge()
     else:
         raise NotImplementedError(f"TrimmedCurve OCC build not implemented for basis {type(basis)}")
@@ -523,8 +562,66 @@ def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
         return make_wire_from_trimmed_curve(outer_curve)
     elif isinstance(outer_curve, geo_cu.CompositeCurve):
         return make_wire_from_composite_curve(outer_curve)
+    elif isinstance(outer_curve, geo_cu.GradientCurve):
+        return make_wire_from_gradient_curve(outer_curve)
+    elif isinstance(outer_curve, geo_cu.PolyLine):
+        return make_wire_from_polyline(outer_curve)
+    elif isinstance(outer_curve, geo_cu.GeometricCurveSet):
+        # Loose curve collection (STEP wireframe body): the members are
+        # independent curves, so build a compound of wires rather than
+        # forcing them into one connected wire.
+        from OCC.Core.BRep import BRep_Builder
+        from OCC.Core.TopoDS import TopoDS_Compound
+
+        builder = BRep_Builder()
+        compound = TopoDS_Compound()
+        builder.MakeCompound(compound)
+        for element in outer_curve.elements:
+            builder.Add(compound, make_wire_from_curve(element))
+        return compound
     else:
         raise NotImplementedError(f"Unsupported curve type {type(outer_curve)}")
+
+
+def make_wire_from_gradient_curve(curve: geo_cu.GradientCurve) -> TopoDS_Wire:
+    """Alignment directrix (IFC4x3 IfcGradientCurve): clothoid segments have no
+    analytic OCC curve, so build a polyline wire from the shared alignment
+    evaluator's sampling — the same discretization the adacpp backend sweeps."""
+    import numpy as np
+
+    from ada.cadit.ngeom._alignment_sweep import gradient_curve_points
+
+    pts = gradient_curve_points(curve, n_per=100)
+    wire_maker = BRepBuilderAPI_MakeWire()
+    for a, b in zip(pts[:-1], pts[1:]):
+        if float(np.linalg.norm(b - a)) < 1e-9:
+            continue
+        edge = BRepBuilderAPI_MakeEdge(
+            gp_Pnt(float(a[0]), float(a[1]), float(a[2])), gp_Pnt(float(b[0]), float(b[1]), float(b[2]))
+        ).Edge()
+        wire_maker.Add(edge)
+    return wire_maker.Wire()
+
+
+def make_wire_from_polyline(curve: geo_cu.PolyLine) -> TopoDS_Wire:
+    """A sampled polyline (e.g. an evaluated alignment reference curve) -> a polyline wire, so it
+    round-trips through the OCC B-rep exporters (STEP GEOMETRIC_CURVE_SET, IFC)."""
+    import numpy as np
+
+    pts = [np.asarray(p, dtype=float) for p in curve.points]
+    wire_maker = BRepBuilderAPI_MakeWire()
+    added = 0
+    for a, b in zip(pts[:-1], pts[1:]):
+        if float(np.linalg.norm(b - a)) < 1e-9:
+            continue
+        edge = BRepBuilderAPI_MakeEdge(
+            gp_Pnt(float(a[0]), float(a[1]), float(a[2])), gp_Pnt(float(b[0]), float(b[1]), float(b[2]))
+        ).Edge()
+        wire_maker.Add(edge)
+        added += 1
+    if added == 0:
+        raise NotImplementedError("PolyLine has no non-degenerate segments to build a wire from")
+    return wire_maker.Wire()
 
 
 def make_wire_from_face_bound(face_bound: geo_su.FaceBound) -> TopoDS_Wire:

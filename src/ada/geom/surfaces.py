@@ -12,12 +12,12 @@ from ada.geom.points import Point
 
 
 # STEP AP242 and IFC 4x3
-@dataclass
+@dataclass(slots=True)
 class Plane:
     position: Axis2Placement3D
 
 
-@dataclass
+@dataclass(slots=True)
 class CylindricalSurface:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCylindricalSurface.htm)
@@ -28,7 +28,7 @@ class CylindricalSurface:
     radius: float
 
 
-@dataclass
+@dataclass(slots=True)
 class ConicalSurface:
     """
     STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_conical_surface.html)
@@ -46,7 +46,7 @@ class ConicalSurface:
     semi_angle: float  # Cone half-angle in radians
 
 
-@dataclass
+@dataclass(slots=True)
 class SphericalSurface:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSphericalSurface.htm)
@@ -57,7 +57,7 @@ class SphericalSurface:
     radius: float
 
 
-@dataclass
+@dataclass(slots=True)
 class ToroidalSurface:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcToroidalSurface.htm)
@@ -83,12 +83,12 @@ class ProfileType(Enum):
             raise ValueError(f"Invalid profile type {profile_type}")
 
 
-@dataclass
+@dataclass(slots=True)
 class ProfileDef:
     profile_type: ProfileType
 
 
-@dataclass
+@dataclass(slots=True)
 class ArbitraryProfileDef(ProfileDef):
     """
     IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcArbitraryProfileDefWithVoids.htm
@@ -99,7 +99,7 @@ class ArbitraryProfileDef(ProfileDef):
     profile_name: str = None
 
 
-@dataclass
+@dataclass(slots=True)
 class FaceBound:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFaceBound.htm)
@@ -109,7 +109,7 @@ class FaceBound:
     orientation: bool
 
 
-@dataclass
+@dataclass(slots=True)
 class Face:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFace.htm)
@@ -118,7 +118,7 @@ class Face:
     bounds: list[FaceBound]
 
 
-@dataclass
+@dataclass(slots=True)
 class FaceSurface(Face):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFaceSurface.htm)
@@ -129,7 +129,7 @@ class FaceSurface(Face):
     same_sense: bool = True
 
 
-@dataclass
+@dataclass(slots=True)
 class ConnectedFaceSet:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcConnectedFaceSet.htm)
@@ -139,7 +139,7 @@ class ConnectedFaceSet:
     cfs_faces: list["Face | FaceSurface"]
 
 
-@dataclass
+@dataclass(slots=True)
 class FaceBasedSurfaceModel:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFaceBasedSurfaceModel.htm)
@@ -148,7 +148,7 @@ class FaceBasedSurfaceModel:
     fbsm_faces: list[ConnectedFaceSet]
 
 
-@dataclass
+@dataclass(slots=True)
 class CurveBoundedPlane:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCurveBoundedPlane.htm)
@@ -159,13 +159,13 @@ class CurveBoundedPlane:
     inner_boundaries: list[geo_cu.CURVE_GEOM_TYPES] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(slots=True)
 class HalfSpaceSolid:
     base_surface: Plane
     agreement_flag: bool = True
 
 
-@dataclass
+@dataclass(slots=True)
 class SurfaceOfLinearExtrusion:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurfaceOfLinearExtrusion.htm)
@@ -177,7 +177,7 @@ class SurfaceOfLinearExtrusion:
     depth: float
 
 
-@dataclass
+@dataclass(slots=True)
 class SurfaceOfRevolution:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurfaceOfRevolution.htm)
@@ -193,7 +193,7 @@ class SurfaceOfRevolution:
     position: Axis2Placement3D = None
 
 
-@dataclass
+@dataclass(slots=True)
 class RectangularTrimmedSurface:
     """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_rectangular_trimmed_surface.html
 
@@ -209,7 +209,7 @@ class RectangularTrimmedSurface:
     vsense: bool = True
 
 
-@dataclass
+@dataclass(slots=True)
 class OffsetSurface:
     """STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_offset_surface.html
 
@@ -221,7 +221,7 @@ class OffsetSurface:
     self_intersect: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class PointOnSurface:
     """STEP AP242 t_point_on_surface — a point at (u, v) on a basis surface."""
 
@@ -230,7 +230,7 @@ class PointOnSurface:
     v: float
 
 
-@dataclass
+@dataclass(slots=True)
 class RectangularCompositeSurface:
     """STEP AP242 t_rectangular_composite_surface — a grid of surface patches.
 
@@ -240,7 +240,7 @@ class RectangularCompositeSurface:
     segments: list
 
 
-@dataclass
+@dataclass(slots=True)
 class IShapeProfileDef(ProfileDef):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcIShapeProfileDef.htm)
@@ -255,7 +255,7 @@ class IShapeProfileDef(ProfileDef):
     flange_slope: float
 
 
-@dataclass
+@dataclass(slots=True)
 class TShapeProfileDef(ProfileDef):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcTShapeProfileDef.htm)
@@ -272,7 +272,7 @@ class TShapeProfileDef(ProfileDef):
     flange_slope: float
 
 
-@dataclass
+@dataclass(slots=True)
 class CircleProfileDef(ProfileDef):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCircleProfileDef.htm)
@@ -281,7 +281,7 @@ class CircleProfileDef(ProfileDef):
     radius: float
 
 
-@dataclass
+@dataclass(slots=True)
 class TriangulatedFaceSet:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcTriangulatedFaceSet.htm)
@@ -292,7 +292,7 @@ class TriangulatedFaceSet:
     indices: list[int]
 
 
-@dataclass
+@dataclass(slots=True)
 class PolygonalFaceSet:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPolygonalFaceSet.htm)
@@ -307,7 +307,7 @@ class PolygonalFaceSet:
     closed: bool = True
 
 
-@dataclass
+@dataclass(slots=True)
 class RectangleProfileDef(ProfileDef):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRectangleProfileDef.htm)
@@ -335,7 +335,7 @@ class BSplineSurfaceForm(Enum):
         return BSplineSurfaceForm(value)
 
 
-@dataclass
+@dataclass(slots=True)
 class BSplineSurface:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcBSplineSurface.htm)
@@ -350,7 +350,7 @@ class BSplineSurface:
     self_intersect: bool
 
 
-@dataclass
+@dataclass(slots=True)
 class BSplineSurfaceWithKnots(BSplineSurface):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcBSplineSurfaceWithKnots.htm)
@@ -385,7 +385,7 @@ class BSplineSurfaceWithKnots(BSplineSurface):
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRationalBSplineSurfaceWithKnots.htm)
@@ -394,7 +394,7 @@ class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
     weights_data: list[list[float]]
 
 
-@dataclass
+@dataclass(slots=True)
 class ClosedShell:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcClosedShell.htm)
@@ -403,7 +403,7 @@ class ClosedShell:
     cfs_faces: list[Face | FaceSurface | Plane]
 
 
-@dataclass
+@dataclass(slots=True)
 class OpenShell:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcClosedShell.htm)
@@ -412,7 +412,7 @@ class OpenShell:
     cfs_faces: list[Face | FaceSurface | Plane]
 
 
-@dataclass
+@dataclass(slots=True)
 class AdvancedFace:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcAdvancedFace.htm)
@@ -435,7 +435,7 @@ class AdvancedFace:
     same_sense: bool = True
 
 
-@dataclass
+@dataclass(slots=True)
 class WireFilledFace:
     """A face defined only by its boundary wire — filled by OCC.
 
@@ -451,7 +451,7 @@ class WireFilledFace:
     bounds: list[FaceBound]
 
 
-@dataclass
+@dataclass(slots=True)
 class ShellBasedSurfaceModel:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcShellBasedSurfaceModel.htm)

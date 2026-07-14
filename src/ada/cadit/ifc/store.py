@@ -10,8 +10,13 @@ import ifcopenshell.geom
 
 from ada.base.changes import ChangeAction
 from ada.base.types import GeomRepr
+from ada.base.units import Units
 from ada.cadit.ifc.units_conversion import convert_file_length_units
-from ada.cadit.ifc.utils import assembly_to_ifc_file, default_settings, get_unit_type
+from ada.cadit.ifc.utils import (
+    assembly_to_ifc_file,
+    calculate_unit_scale,
+    default_settings,
+)
 from ada.cadit.ifc.write.write_user import create_owner_history_from_user
 from ada.config import Config, logger
 
@@ -20,6 +25,22 @@ if TYPE_CHECKING:
     from ada import Assembly, Section, User
     from ada.cadit.ifc.read.read_ifc import IfcReader
     from ada.cadit.ifc.write.write_ifc import IfcWriter
+
+
+def open_ifc_file(ifc_file_path: str | os.PathLike) -> ifcopenshell.file:
+    """Open an IFC file, transparently decompressing a gzip-compressed model. Some exporters and
+    servers ship a gzip'd IFC under a plain ``.ifc`` name; ``ifcopenshell.open`` then fails with
+    'Unable to parse IFC SPF header'. Detect the gzip magic (0x1f 0x8b) and load the inflated SPF
+    text via ``from_string`` instead."""
+    import gzip
+
+    path = str(ifc_file_path)
+    with open(path, "rb") as fh:
+        is_gzip = fh.read(2) == b"\x1f\x8b"
+    if is_gzip:
+        with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
+            return ifcopenshell.file.from_string(fh.read())
+    return ifcopenshell.open(path)
 
 
 @dataclass
@@ -67,7 +88,7 @@ class IfcStore:
             if self.ifc_file_path is not None:
                 self.ifc_file_path = pathlib.Path(self.ifc_file_path)
                 if self.ifc_file_path.exists():
-                    self.f = ifcopenshell.open(str(self.ifc_file_path))
+                    self.f = open_ifc_file(self.ifc_file_path)
             elif self.assembly is not None:
                 self.f = assembly_to_ifc_file(self.assembly)
                 self.add_standard_contexts()
@@ -148,7 +169,28 @@ class IfcStore:
 
         matches = [x for x in contexts if x.ContextIdentifier == context_id and x.ContextType == "Model"]
         if len(matches) == 0:
-            raise ValueError(f'0 IfcGeometry Subcontexts found with "{context_id=}"')
+            # Imported files don't always carry the standard subcontexts (e.g.
+            # the buildingSMART type-library samples have '3D'/'2D' model+plan
+            # contexts and nothing else). Writing into such a store must not
+            # fail — create the missing subcontext under the model context,
+            # exactly as add_standard_contexts would for a fresh file.
+            model_ctxs = [
+                x
+                for x in contexts
+                if not x.is_a("IfcGeometricRepresentationSubContext") and (x.ContextType or "").upper() == "MODEL"
+            ]
+            if not model_ctxs:
+                raise ValueError(f'0 IfcGeometry Subcontexts found with "{context_id=}"')
+            target_view = {"Axis": "GRAPH_VIEW"}.get(context_id, "MODEL_VIEW")
+            sub = self.f.create_entity(
+                "IfcGeometricRepresentationSubContext",
+                ContextIdentifier=context_id,
+                ContextType="Model",
+                ParentContext=model_ctxs[0],
+                TargetView=target_view,
+            )
+            self._context_cache[context_id] = sub
+            return sub
         if len(matches) > 1:
             raise ValueError(f'Multiple Subcontexts found with "{context_id=}"')
 
@@ -251,9 +293,14 @@ class IfcStore:
         if projects and getattr(projects[0], "GlobalId", None):
             self.assembly._guid = projects[0].GlobalId
 
-        unit_type = get_unit_type(self.f)
-
-        if unit_type != self.assembly.units:
+        # Compare raw length scales rather than mapping to the Units
+        # enum — files in inches/feet (conversion-based units, e.g. the
+        # buildingSMART samples at scale 0.0254) have no enum member but
+        # convert_file_length_units handles them fine via ifcopenshell's
+        # unit entities.
+        unit_scale = calculate_unit_scale(self.f)  # meters per file length unit
+        target_scale = 0.001 if self.assembly.units == Units.MM else 1.0
+        if abs(unit_scale - target_scale) > 1e-9 * target_scale:
             self.f = convert_file_length_units(self.f, self.assembly.units)
 
         if elements2part is None:
@@ -431,7 +478,7 @@ class IfcStore:
         ifc_file = pathlib.Path(ifc_file).resolve().absolute()
         if ifc_file.exists() is False:
             raise FileNotFoundError(f'Unable to find "{ifc_file}"')
-        return ifcopenshell.open(str(ifc_file))
+        return open_ifc_file(ifc_file)
 
     @staticmethod
     def copy_ifc_obj(ifc_file: ifcopenshell.file) -> ifcopenshell.file:

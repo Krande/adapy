@@ -1,7 +1,9 @@
 import React, {useCallback, useEffect, useMemo, useState} from "react";
-import {convertViaServer} from "@/services/conversion/serverPipeline";
+import {convertWithSelection} from "@/services/conversion";
 import {viewerApi, TargetFormat} from "@/services/viewerApi";
 import {runtime, ConversionOption} from "@/runtime/config";
+import {SerializerTessellatorSelect} from "@/components/convert/SerializerTessellatorSelect";
+import type {SerializerSelection} from "@/services/conversion/serializerMatrix";
 import {useConversionStore} from "@/state/conversionStore";
 import {useConvertPageStore, ConvertRow} from "@/state/convertPageStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
@@ -148,6 +150,10 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
     // Reset whenever ``target`` changes since the option schema is
     // (from, to)-specific.
     const [optionValues, setOptionValues] = useState<Record<string, OptionValue>>({});
+    // Serializer/tessellator pick — rendered as its own paired dropdowns
+    // (SerializerTessellatorSelect), not through the generic OptionWidget loop,
+    // because the tessellator choices depend on the serializer.
+    const [serializerSel, setSerializerSel] = useState<SerializerSelection>({});
 
     // Use the row's `target` if set, else the best-guess default.
     const target: TargetFormat = row.target ?? suggestedTarget(ext);
@@ -186,6 +192,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
     // new target's option set.
     useEffect(() => {
         setOptionValues({});
+        setSerializerSel({});
     }, [target]);
 
     const onConvert = useCallback(async () => {
@@ -200,11 +207,15 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
             for (const [k, v] of Object.entries(optionValues)) {
                 if (v !== undefined) conversionOptions[k] = v;
             }
-            await convertViaServer(
+            // convertWithSelection routes the serializer pick to the server or
+            // the in-browser (WASM/Pyodide) pipeline and folds the remaining
+            // option widgets in as extraOptions.
+            await convertWithSelection(
                 scopeUrlPart(current), row.sourceKey, target,
-                Object.keys(conversionOptions).length
-                    ? {conversionOptions}
-                    : undefined,
+                {
+                    selection: serializerSel,
+                    extraOptions: Object.keys(conversionOptions).length ? conversionOptions : undefined,
+                },
             );
         } catch (e) {
             // convertViaServer already writes the error to the
@@ -215,7 +226,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
         } finally {
             setSubmitting(false);
         }
-    }, [current, row.sourceKey, target, optionValues]);
+    }, [current, row.sourceKey, target, optionValues, serializerSel]);
 
     const onDownload = useCallback(async () => {
         if (!current || !job?.derivedKey) return;
@@ -343,15 +354,26 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
                     <span className="text-[11px] uppercase tracking-wider text-gray-500">
                         options
                     </span>
-                    {optionSchema.map((opt) => (
-                        <OptionWidget
-                            key={opt.name}
-                            opt={opt}
-                            value={optionValues[opt.name]}
-                            onChange={(v) => setOptionValues((prev) => ({...prev, [opt.name]: v}))}
-                            disabled={isRunning || submitting}
-                        />
-                    ))}
+                    {/* serializer + tessellator are a dependent pair — rendered by the shared
+                        component, not the generic widget loop. */}
+                    <SerializerTessellatorSelect
+                        ext={ext}
+                        target={target}
+                        value={serializerSel}
+                        onChange={setSerializerSel}
+                        disabled={isRunning || submitting}
+                    />
+                    {optionSchema
+                        .filter((opt) => opt.name !== "serializer" && opt.name !== "tessellator")
+                        .map((opt) => (
+                            <OptionWidget
+                                key={opt.name}
+                                opt={opt}
+                                value={optionValues[opt.name]}
+                                onChange={(v) => setOptionValues((prev) => ({...prev, [opt.name]: v}))}
+                                disabled={isRunning || submitting}
+                            />
+                        ))}
                 </div>
             )}
 

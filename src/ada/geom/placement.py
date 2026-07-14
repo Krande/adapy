@@ -30,7 +30,7 @@ def ZV() -> Direction:  # noqa
     return Direction(0, 0, 1)
 
 
-@dataclass
+@dataclass(slots=True)
 class Axis2Placement3D:
 
     location: Point | Iterable = field(default_factory=O)
@@ -52,13 +52,13 @@ class Axis2Placement3D:
         return Direction(*np.cross(self.axis, self.ref_direction))
 
 
-@dataclass
+@dataclass(slots=True)
 class IfcLocalPlacement:
     relative_placement: Axis2Placement3D
     placement_rel_to: IfcLocalPlacement | None = None
 
 
-@dataclass
+@dataclass(slots=True)
 class Axis1Placement:
     location: Point
     axis: Direction

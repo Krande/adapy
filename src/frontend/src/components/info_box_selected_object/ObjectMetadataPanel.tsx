@@ -2,11 +2,23 @@ import React, {useState} from 'react';
 import {selectInOtherModel} from '@/utils/scene/crossModelSelect';
 import type {LinkResult} from '@/state/lineageStore';
 import {useViewerStores} from '@/state/AdaViewerContext';
+import {useOptionsStore} from '@/state/optionsStore';
+import RowKebabMenu, {KebabMenuItem} from '@/components/common/RowKebabMenu';
+import {writeToClipboard} from '@/utils/clipboard/copySelectionNames';
 import ConnectionsSection from './ConnectionsSection';
+import MeshStatsSection from './MeshStatsSection';
 
-// Decimal places for the "Clicked at" coordinates, matching the
-// precision the old standalone block used before the fold-in.
-const COORD_PREC = 3;
+// Decimal-place choices offered in the Properties kebab menu for the "Clicked at" row. A small
+// model (a few units across) needs more decimals before nearby clicks show a different position.
+const DECIMAL_CHOICES = [1, 2, 3, 4, 6, 8];
+const COPIED_FEEDBACK_MS = 1500;
+
+const CheckIcon: React.FC = () => (
+    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M3 8.5l3.5 3.5L13 4"/>
+    </svg>
+);
 
 const Chevron: React.FC<{open: boolean}> = ({open}) => (
     <svg
@@ -203,20 +215,74 @@ const ClickedAtRow: React.FC = () => {
     const {useObjectInfoStore, useModelState} = useViewerStores();
     const clickCoord = useObjectInfoStore((s) => s.clickCoordinate);
     const zIsUp = useModelState((s) => s.zIsUp);
+    const decimals = useOptionsStore((s) => s.clickedCoordDecimals);
+    const [copied, setCopied] = useState(false);
     if (!clickCoord) return null;
-    const x = clickCoord.x.toFixed(COORD_PREC);
-    const y = clickCoord.y.toFixed(COORD_PREC);
-    const z = clickCoord.z.toFixed(COORD_PREC);
+    const x = clickCoord.x.toFixed(decimals);
+    const y = clickCoord.y.toFixed(decimals);
+    const z = clickCoord.z.toFixed(decimals);
     // Mirror the original axis-swap convention from CoordinateDisplay:
     // viewer scene is y-up by default, but adapy's Z-up world is what
     // users think in — so when zIsUp is set, show the world tuple
     // (x, y, z) directly; otherwise re-order to compensate.
-    const display = zIsUp ? `(${x}, ${y}, ${z})` : `(${x}, ${z}, ${y})`;
-    return <Row label="Clicked at:">{display}</Row>;
+    const ordered = zIsUp ? [x, y, z] : [x, z, y];
+    const display = `(${ordered.join(', ')})`;
+    // Clipboard gets the same numbers in the same displayed order, but as bare
+    // comma-separated floats (no parentheses) so they paste straight into code.
+    const onCopy = () => {
+        void writeToClipboard(ordered.join(', ')).then((ok) => {
+            if (!ok) return;
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
+        });
+    };
+    return (
+        <Row label="Clicked at:">
+            <button
+                type="button"
+                onClick={onCopy}
+                className="text-left text-gray-100 hover:text-white cursor-pointer"
+                title="Copy coordinates as comma-separated floats"
+            >
+                {copied ? `${display} ✓` : display}
+            </button>
+        </Row>
+    );
+};
+
+// Source face of the last click — shown only when face-level picking is on and a region resolved.
+// The #id is the STEP ADVANCED_FACE / IFC IfcFace entity id, so a mis-tessellated face can be named
+// exactly (not just "somewhere on this solid"); copyable for pasting into a bug report.
+const ClickedFaceRow: React.FC = () => {
+    const {useObjectInfoStore} = useViewerStores();
+    const face = useObjectInfoStore((s) => s.clickedFace);
+    const [copied, setCopied] = useState(false);
+    if (!face) return null;
+    const label = `#${face.faceId} (face ${face.seq})`;
+    const onCopy = () => {
+        void writeToClipboard(`#${face.faceId}`).then((ok) => {
+            if (!ok) return;
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
+        });
+    };
+    return (
+        <Row label="Face:">
+            <button
+                type="button"
+                onClick={onCopy}
+                className="text-left text-gray-100 hover:text-white cursor-pointer"
+                title="Copy the source face id"
+            >
+                {copied ? `${label} ✓` : label}
+            </button>
+        </Row>
+    );
 };
 
 const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
     const {useObjectInfoStore, useLineageStore} = useViewerStores();
+    const showMeshStats = useOptionsStore((s) => s.showMeshStats);
     // Default collapsed: most clicks are just for selection / hide /
     // jump, not for inspecting properties. Folding keeps the info box
     // compact and the chevron tells the user where the data lives.
@@ -239,18 +305,35 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
     // coordinate row and the cross-model link buttons.
     const meta = (effectiveData ?? null) as BeamMeta | PlateMeta | CurvedPlateMeta | null;
     const known = meta?.type === 'Beam' || meta?.type === 'Plate' || meta?.type === 'PlateCurved';
+    const decimals = useOptionsStore((s) => s.clickedCoordDecimals);
+    const setDecimals = useOptionsStore((s) => s.setClickedCoordDecimals);
+    const decimalItems: KebabMenuItem[] = DECIMAL_CHOICES.map((d) => ({
+        key: `dec-${d}`,
+        label: `${d} decimal${d === 1 ? '' : 's'}`,
+        // A check on the active choice; a blank same-width spacer keeps the labels aligned.
+        icon: d === decimals ? <CheckIcon /> : <span className="inline-block w-3.5" />,
+        onClick: () => setDecimals(d),
+    }));
     return (
         <div className="mt-2">
-            <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                className="flex items-center gap-1 text-[12px] text-gray-100 hover:text-white"
-                aria-expanded={expanded}
-                aria-controls="object-properties"
-            >
-                <Chevron open={expanded} />
-                <span className="font-semibold">Properties</span>
-            </button>
+            <div className="flex items-center gap-1">
+                <button
+                    type="button"
+                    onClick={() => setExpanded((v) => !v)}
+                    className="flex items-center gap-1 text-[12px] text-gray-100 hover:text-white"
+                    aria-expanded={expanded}
+                    aria-controls="object-properties"
+                >
+                    <Chevron open={expanded} />
+                    <span className="font-semibold">Properties</span>
+                </button>
+                <RowKebabMenu
+                    ariaLabel="Properties display options"
+                    header="Clicked-at decimals"
+                    items={decimalItems}
+                    buttonClassName="h-5 w-5"
+                />
+            </div>
             {expanded && (
                 <div id="object-properties" className="mt-1 ml-4 table">
                     {meta && !known && <Row label="Type:">{(meta as any).type ?? 'Unknown'}</Row>}
@@ -277,7 +360,13 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
                         </>
                     )}
                     <ClickedAtRow />
+                    <ClickedFaceRow />
                     {link && <LinkRow link={link} />}
+                </div>
+            )}
+            {expanded && showMeshStats && (
+                <div className="ml-4">
+                    <MeshStatsSection />
                 </div>
             )}
             <ConnectionsSection fileName={fileName} objectName={clickedName} />

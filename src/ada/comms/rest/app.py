@@ -230,6 +230,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _worker_prune_loop(queue),
                 name="worker-prune",
             )
+        # Worker-registry snapshot refresher. Prime it once now (a single
+        # ~1s NATS scan at boot) so the very first /config.js is warm, then
+        # keep it fresh in the background — the config endpoints read the
+        # cached snapshot instead of hitting NATS on the request path.
+        app.state.worker_registry_task = None
+        if queue.enabled:
+            await _refresh_worker_registry()
+            app.state.worker_registry_task = asyncio.create_task(
+                _worker_registry_refresh_loop(),
+                name="worker-registry-refresh",
+            )
+        # Completed-job KV cleanup. Keeps the shared bucket lean (the KV is a
+        # transient progress cache; durable history lives in Postgres/S3) so
+        # keys() scans stay cheap and never storm NATS again.
+        app.state.job_cleanup_task = None
+        if queue.enabled:
+            app.state.job_cleanup_task = asyncio.create_task(
+                _job_cleanup_loop(queue),
+                name="job-kv-cleanup",
+            )
         yield
         # Cancel scheduler + issue bot first so a tick in flight
         # doesn't try to use a pool / queue that's about to be torn
@@ -239,6 +259,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "issue_bot_task",
             "profile_parser_task",
             "worker_prune_task",
+            "worker_registry_task",
+            "job_cleanup_task",
         ):
             task = getattr(app.state, attr, None)
             if task is not None and not task.done():
@@ -278,6 +300,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Public — load balancers + readiness probes hit this.
         return Response(status_code=200)
 
+    # Cached worker-registry snapshot, refreshed off the request path by
+    # ``_worker_registry_refresh_loop``. ``queue.list_workers()`` is an
+    # N+1 over NATS KV (list keys, then one round-trip per worker key);
+    # the SPA fetches ``/config.js`` (and later ``/api/config``) on its
+    # critical startup path, and each of those endpoints derived exts /
+    # conversions / utilities by calling ``list_workers()`` 2-3 times.
+    # That put 2.5-4s of blocking NATS latency on every page load. The
+    # helpers below now read this snapshot synchronously so page load
+    # never waits on NATS; the background task keeps it fresh (~3s). The
+    # snapshot changes on worker-heartbeat timescales, so a few seconds
+    # of staleness is immaterial to the picker / capability matrix.
+    # Empty until the first refresh tick (same observable state as a
+    # queue-disabled deploy — the SPA falls back to its static set).
+    _worker_registry: dict = {"workers": [], "image_tag": None, "ts": 0.0}
+
+    async def _refresh_worker_registry() -> None:
+        """Snapshot the worker registry + worker image tag into
+        ``_worker_registry``. Defensive: a failed NATS call is logged and
+        leaves the previous snapshot in place rather than blanking it."""
+        if not queue.enabled:
+            return
+        try:
+            workers = await queue.list_workers()
+        except Exception:
+            logger.exception("worker registry refresh: list_workers failed")
+            return
+        image_tag = _worker_registry.get("image_tag")
+        try:
+            image_tag = await queue.get_meta("worker_image_tag")
+        except Exception:
+            logger.exception("worker registry refresh: get_meta failed")
+        _worker_registry["workers"] = workers
+        _worker_registry["image_tag"] = image_tag
+        _worker_registry["ts"] = time.time()
+
     async def _is_accepted_source(key: str) -> bool:
         """``is_supported_source`` plus a check against the workers'
         advertised extra extensions. Use this on every upload / bake
@@ -311,11 +368,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         if not queue.enabled:
             return []
-        try:
-            workers = await queue.list_workers()
-        except Exception:
-            logger.exception("config: failed to read worker registry")
-            return []
+        workers = _worker_registry["workers"]
         out: set[str] = set()
         for w in workers:
             for raw in w.get("source_exts") or []:
@@ -348,11 +401,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         if not queue.enabled:
             return []
-        try:
-            workers = await queue.list_workers()
-        except Exception:
-            logger.exception("config: failed to read worker registry for matrix")
-            return []
+        workers = _worker_registry["workers"]
         merged: dict[str, set[str]] = {}
         # from → target → option-name → option-dict. Per-job knob schemas are unioned across workers:
         # for an enum option (e.g. step_glb_pipeline) the enum VALUES are unioned, so an engine that
@@ -414,11 +463,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         if not queue.enabled:
             return []
-        try:
-            workers = await queue.list_workers()
-        except Exception:
-            logger.exception("config: failed to read worker registry for utilities")
-            return []
+        workers = _worker_registry["workers"]
         by_name: dict[str, dict] = {}
         for w in workers:
             for spec in w.get("utilities") or []:
@@ -437,12 +482,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # publishes its tag on startup. Either may be missing in dev /
         # local runs; the SPA hides the row when both are empty.
         viewer_tag = os.environ.get("ADA_IMAGE_TAG", "").strip() or None
-        worker_tag: str | None = None
-        if queue.enabled:
-            try:
-                worker_tag = await queue.get_meta("worker_image_tag")
-            except Exception:
-                logger.exception("config: failed to read worker image tag")
+        # Cached snapshot — no NATS on the request path (see _worker_registry).
+        worker_tag: str | None = _worker_registry["image_tag"] if queue.enabled else None
         extra_source_exts = await _worker_advertised_exts()
         # Subset of stream-readable extensions that the legacy /convert
         # pipeline does NOT handle. The SPA uses this to pick between
@@ -641,17 +682,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload = await request.body()
         if not payload:
             raise HTTPException(status_code=400, detail="empty body")
-        # Pull the worker-advertised extension set so the file lister
-        # can flag plug-in formats (e.g. .odb when an abaqus-capability
-        # worker is online) instead of silently dropping them. Cheap
-        # NATS KV read; failures degrade to the static list.
+        # Hand dispatch a lazy provider for the worker-advertised extension
+        # set (used only by the file lister, to flag plug-in formats like
+        # .odb when an abaqus-capability worker is online). Passing it lazily
+        # keeps the worker-registry read off every non-LIST_FILE command —
+        # server-info, view-file, etc. no longer pay it — so worker-listing
+        # never gates file-finding. The read itself is a cached in-memory
+        # lookup (see _worker_registry) that degrades to the static list.
         try:
-            extra_source_exts = frozenset(await _worker_advertised_exts())
-        except Exception:
-            logger.exception("rpc: failed to read worker-advertised exts")
-            extra_source_exts = frozenset()
-        try:
-            reply = await dispatch(payload, storage, scope, extra_source_exts=extra_source_exts)
+            reply = await dispatch(payload, storage, scope, exts_provider=_worker_advertised_exts)
         except Exception as exc:
             logger.exception("rpc dispatch failed")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -683,6 +722,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ]
         for p in projects:
             scopes.append({"kind": "project", "id": p["id"], "name": p["name"]})
+
+        # Corpus scopes are admin-only (scope_can_access gates them). Advertise
+        # them here so an admin can browse + visualise corpus files straight from
+        # the main storage panel — the same list/convert flow every other scope
+        # uses. Non-admins never see them; the backend rejects the scope anyway.
+        if user.is_admin and pool is not None:
+            try:
+                for c in await db_module.list_corpora(pool):
+                    scopes.append({"kind": "corpus", "id": c["slug"], "name": c["name"]})
+            except Exception:
+                logger.exception("api_me: listing corpora failed")
 
         return JSONResponse(
             {
@@ -1811,11 +1861,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
 
+        # A re-conversion (gallery "Re-convert") always re-runs and writes to the SEPARATE
+        # ``_reconvert/`` namespace, so it never overwrites the ``_derived/`` audit product in a
+        # corpus scope. Regular converts keep the cached ``_derived/`` short-circuit below.
+        reconvert = bool(body.get("reconvert"))
         try:
-            derived_key = derived_key_for(source_key, target_format, step=step, field=field)
+            if reconvert:
+                from .converter import reconvert_key_for
+
+                derived_key = reconvert_key_for(source_key, target_format)
+            else:
+                derived_key = derived_key_for(source_key, target_format, step=step, field=field)
         except UnsupportedFormat as exc:
             raise HTTPException(status_code=415, detail=str(exc)) from exc
-        if await storage.exists(scope_obj, derived_key):
+        if not reconvert and await storage.exists(scope_obj, derived_key):
             await _audit(
                 request,
                 user,
@@ -1849,6 +1908,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 step=step,
                 field=field,
                 conversion_options=conversion_options,
+                derived_key=derived_key if reconvert else None,
+                force_rebuild=reconvert,
             )
         except Exception as exc:
             logger.exception("enqueue failed")
@@ -2845,6 +2906,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         base = after or datetime.now(timezone.utc)
         return croniter(cron_expr, base).get_next(datetime)
 
+    async def _worker_registry_refresh_loop() -> None:
+        """Background task: refresh the cached worker-registry snapshot
+        (:data:`_worker_registry`) every ``REFRESH_INTERVAL_S`` so the
+        config endpoints never call ``list_workers()`` (an N+1 over NATS
+        KV) on the request path. Defensive — a failed tick keeps the last
+        good snapshot; only ``asyncio.CancelledError`` exits (shutdown)."""
+        # 15s (was 3s): the refresh does a KV keys() scan, and worker
+        # capabilities/tags only change on a worker's ~15s heartbeat, so a
+        # tighter interval bought nothing but scan traffic. Cheap now that the
+        # KV is kept lean (see _job_cleanup_loop), but no reason to over-poll.
+        REFRESH_INTERVAL_S = 15.0
+        logger.info("worker registry refresh: starting (every %ss)", REFRESH_INTERVAL_S)
+        try:
+            while True:
+                await asyncio.sleep(REFRESH_INTERVAL_S)
+                await _refresh_worker_registry()
+        except asyncio.CancelledError:
+            logger.info("worker registry refresh: stopped")
+            raise
+
+    async def _job_cleanup_loop(q) -> None:
+        """Background task: periodically drop completed job entries from the KV
+        so the shared bucket stays small. The KV is a transient in-flight
+        progress cache only — the durable record lives in Postgres (audit) and
+        S3 (blobs/profiles). Without this, terminal job entries piled up
+        (observed: 47k), so every worker-registry keys() scan replayed the whole
+        bucket and stormed NATS. Grace keeps a completed job readable long
+        enough for a polling client to see its final state. Defensive per tick;
+        only CancelledError exits."""
+        CLEANUP_INTERVAL_S = 300.0
+        GRACE_S = 900.0  # keep terminal jobs ~15min so the frontend's final poll still resolves
+        logger.info("job KV cleanup: starting (every %ss, grace %ss)", CLEANUP_INTERVAL_S, GRACE_S)
+        try:
+            while True:
+                await asyncio.sleep(CLEANUP_INTERVAL_S)
+                try:
+                    await q.purge_completed_jobs(grace_s=GRACE_S)
+                except Exception:
+                    logger.exception("job KV cleanup: tick failed")
+        except asyncio.CancelledError:
+            logger.info("job KV cleanup: stopped")
+            raise
+
     async def _worker_prune_loop(q) -> None:
         """Background task: hourly, hard-prune worker registry entries unseen for
         ``WORKER_PRUNE_AFTER_S`` (2 days). Defensive — one failed tick is logged, not fatal; only
@@ -3371,20 +3475,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     async def _dispatch_auto_validation(pool, parent: dict) -> None:
-        """Append a validation (cross-format parity) pass to a finished
+        """Dispatch the validation (cross-format parity) pass of an
         ``auto_validate`` conversion run — *into the same run*, not a new one.
-        The run's total grows by the parity cell count and it reopens to
-        ``running`` until those cells land (then it re-finishes). The claim
-        already stamped the parent so this runs once; failures are logged but
-        never break the poller tick."""
+        Runs dispatched with an upfront reservation (``validate_total > 0``)
+        already count these cells in their total, so dispatch consumes the
+        reservation; pre-reservation runs get their total extended (and
+        reopen from ``finished``) as before. The claim already stamped the
+        parent so this runs once; failures are logged but never break the
+        poller tick."""
         try:
             s = _parse_scope(parent["scope"], _SystemUser())
             s = await _resolve_project_scope(pool, s)
         except Exception:
             logger.exception("auto-validate: scope resolution failed for run %s", parent["id"])
+            if (parent.get("validate_total") or 0) > 0:
+                # Release the reservation — no parity cells will ever be
+                # enqueued, so the run must not hang 'running' on them.
+                await db_module.consume_audit_run_validation_reserve(pool, parent["id"], 0)
             return
-        # Awaited (not fire-and-forget) so the run is reopened with its parity
-        # cells before the issue-bot drain in the same tick can claim it.
+        # Awaited (not fire-and-forget) so the run holds its parity cells
+        # before the issue-bot drain in the same tick can claim it.
         try:
             await _audit_dispatch(
                 parent["id"],
@@ -3395,6 +3505,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 False,
                 validate_only=True,
                 extend=True,
+                consume_reserve=(parent.get("validate_total") or 0) > 0,
             )
             logger.info("auto-validate: appended validation cells to run %s", parent["id"])
         except Exception:
@@ -3421,11 +3532,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             while True:
                 try:
-                    # Auto-validate first: a finished auto_validate run gets its
-                    # parity cells appended (reopening it to 'running'), so the
-                    # issue-bot below only claims a run once it's *truly* done —
-                    # conversions and validation together. Claimed once (the
-                    # claim stamps auto_validate_dispatched_at).
+                    # Auto-validate first: an auto_validate run whose conversion
+                    # cells have landed gets its parity cells dispatched (the
+                    # run stays 'running' on its upfront-reserved total; legacy
+                    # finished runs reopen), so the issue-bot below only claims
+                    # a run once it's *truly* done — conversions and validation
+                    # together. Claimed once (the claim stamps
+                    # auto_validate_dispatched_at).
                     while True:
                         parent = await db_module.claim_audit_run_for_auto_validate(pool)
                         if parent is None:
@@ -3454,23 +3567,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.info("issue-bot poller: stopped")
             raise
 
-    async def _audit_run_list_cells(
-        scope_obj: Scope,
+    def _audit_cells_for_files(
+        files,
         validate_only: bool,
     ) -> list[tuple[str, str]]:
-        """Enumerate the (source_key, target_format) cells for an audit
-        run over ``scope_obj`` — the scope's non-derived, supported
-        source files crossed with the converter matrix. ``validate_only``
-        emits only per-source ``parity`` cells. Shared by the NATS
-        dispatcher, the WASM dispatcher, and the cells endpoint so the
-        three never disagree on what a run covers. May raise on a scope
-        listing failure (caller decides how to surface it)."""
-        from .converter import ConverterRegistry, is_derived_key, is_supported_source
+        """Pure cell enumeration over an already-fetched file listing —
+        lets the dispatcher derive both the conversion grid and the
+        parity-cell reservation from ONE listing, so the two counts
+        can't disagree on what files existed at dispatch time."""
+        from .converter import ConverterRegistry, is_hidden_key, is_supported_source
 
-        files = await storage.list(scope_obj)
         cells: list[tuple[str, str]] = []
         for f in files:
-            if is_derived_key(f.key):
+            # Skip ALL internal namespaces, not just _derived/: _overlays/ (utility previews) and
+            # _reconvert/ (gallery throwaway re-conversions) are not corpus sources and must never
+            # become audit cells. is_hidden_key covers all three; is_derived_key did not match
+            # _reconvert/ (deliberately not a derived product), so it leaked into runs.
+            if is_hidden_key(f.key):
                 continue
             if not is_supported_source(f.key):
                 continue
@@ -3488,6 +3601,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     cells.append((f.key, target_format))
         return cells
 
+    async def _audit_run_list_cells(
+        scope_obj: Scope,
+        validate_only: bool,
+    ) -> list[tuple[str, str]]:
+        """Enumerate the (source_key, target_format) cells for an audit
+        run over ``scope_obj`` — the scope's non-derived, supported
+        source files crossed with the converter matrix. ``validate_only``
+        emits only per-source ``parity`` cells. Shared by the NATS
+        dispatcher, the WASM dispatcher, and the cells endpoint so the
+        three never disagree on what a run covers. May raise on a scope
+        listing failure (caller decides how to surface it)."""
+        files = await storage.list(scope_obj)
+        return _audit_cells_for_files(files, validate_only)
+
     async def _audit_dispatch(
         run_id: str,
         scope_obj: Scope,
@@ -3497,6 +3624,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         force_rebuild: bool = False,
         validate_only: bool = False,
         extend: bool = False,
+        reserve_validation: bool = False,
+        consume_reserve: bool = False,
     ) -> None:
         """Enumerate the scope's files × the converter matrix and
         enqueue one regular convert job per cell. Cached cells
@@ -3509,12 +3638,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         measurement runs where a 4-hour audit re-run mustn't
         short-circuit 80% of cells against prior outputs.
 
-        ``extend`` *appends* the enumerated cells to an already-finished run
-        (growing its total + reopening it) instead of setting the total from
-        scratch — the auto-validation pass uses this to fold its parity cells
-        into the conversion run rather than spawning a separate run. With
-        ``extend`` an empty cell set is a no-op (the finished run is left as
-        is) rather than a zero-total finish.
+        ``reserve_validation`` (auto-validate runs) counts the parity cells
+        into the run's total upfront — as ``validate_total`` — so the total
+        is complete from the very start instead of growing when the
+        validation pass begins. The parity cells themselves are enqueued
+        later by the auto-validate poller, which fires once the conversion
+        cells alone have landed.
+
+        ``extend`` *appends* the enumerated cells to an existing run instead
+        of setting the total from scratch — used by the validation pass.
+        With ``consume_reserve`` (a run dispatched with
+        ``reserve_validation``) the reserved count is swapped for the actual
+        parity cell count, so the total only moves by scope drift between
+        the two enumerations. Without it (manual Validate on a finished run,
+        or pre-reservation rows) the total grows by the parity cell count
+        and the run reopens; an empty cell set is then a no-op.
 
         Errors during enumeration / enqueue surface as a ``failed``
         audit row on the cell that tripped them — the run still
@@ -3528,19 +3666,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # if it gets zero, so a typo'd scope shows up immediately in
         # the UI rather than as a perpetually-running ghost.
         try:
-            cells = await _audit_run_list_cells(scope_obj, validate_only)
+            files = await storage.list(scope_obj)
         except Exception:
             logger.exception("audit run %s: scope listing failed", run_id)
-            if not extend:
-                await db_module.set_audit_run_total(pool, run_id, 0)
+            if extend:
+                if consume_reserve:
+                    # Release the reservation so the run can finish instead of
+                    # hanging forever on cells that will never be enqueued.
+                    await db_module.consume_audit_run_validation_reserve(pool, run_id, 0)
+                return
+            await db_module.set_audit_run_total(pool, run_id, 0)
             return
+        cells = _audit_cells_for_files(files, validate_only)
 
         if extend:
-            if not cells:
-                return  # nothing to append; leave the finished run untouched
-            await db_module.extend_audit_run_total(pool, run_id, len(cells))
+            if consume_reserve:
+                # Swap the upfront reservation for the actual parity cell
+                # count (finishes the run right here when that count is 0).
+                await db_module.consume_audit_run_validation_reserve(pool, run_id, len(cells))
+                if not cells:
+                    return
+            else:
+                if not cells:
+                    return  # nothing to append; leave the finished run untouched
+                await db_module.extend_audit_run_total(pool, run_id, len(cells))
         else:
-            await db_module.set_audit_run_total(pool, run_id, len(cells))
+            # Reserve the auto-validation parity cells in the total now — the
+            # counter-bump finish check compares against the full total, so
+            # the run stays 'running' through the gap between the last
+            # conversion cell and the poller dispatching the parity cells.
+            reserved = len(_audit_cells_for_files(files, True)) if reserve_validation else 0
+            await db_module.set_audit_run_total(pool, run_id, len(cells) + reserved, validate_total=reserved)
             if not cells:
                 return
 
@@ -3794,6 +3950,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 pool,
                 force_rebuild,
                 validate_only,
+                # Count the auto-validation parity cells into the run total
+                # from the start (dispatched later by the poller).
+                reserve_validation=auto_validate,
             )
         return JSONResponse(run, status_code=202)
 
@@ -3927,7 +4086,74 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 pool,
                 prior["force_rebuild"],
                 False,
+                reserve_validation=prior["auto_validate"],
             )
+        return JSONResponse(run, status_code=202)
+
+    @admin.post("/audit/runs/{run_id}/rerun-cell")
+    async def admin_audit_run_rerun_cell(
+        run_id: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Re-run one cell of an existing run in place (right-click → Rerun).
+
+        Enqueues a single force-rebuild conversion for ``{key, target}`` against
+        the run's own scope/pool, re-points the cell's audit row at the new job
+        and reopens the run (``db.reset_audit_cell_for_rerun``). The worker's
+        normal completion path updates the row and re-finishes the run, so the
+        counters, the sum-of-cells runtime and the grid cell all reflect the
+        fresh result — no full re-dispatch of the other 900+ cells."""
+        from .converter import derived_key_for
+
+        body = await request.json()
+        key = (body or {}).get("key")
+        target = (body or {}).get("target")
+        if not key or not target:
+            raise HTTPException(status_code=400, detail="key and target are required")
+        if target == "parity":
+            raise HTTPException(
+                status_code=400,
+                detail="parity cells have no derived product — use Re-validate on the run instead",
+            )
+
+        pool = _require_pool(request)
+        prior = await db_module.get_audit_run(pool, run_id)
+        if prior is None:
+            raise HTTPException(status_code=404, detail="audit run not found")
+        worker_pool = prior["worker_pool"]
+        if isinstance(worker_pool, str) and worker_pool.strip().lower() == _WASM_POOL:
+            raise HTTPException(status_code=400, detail="cannot re-run a single cell of a wasm run from the server")
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
+
+        s = _parse_scope(prior["scope"], user)
+        s = await _resolve_project_scope(pool, s)
+        if not await scope_can_access(user, s, pool):
+            raise HTTPException(status_code=403, detail="forbidden")
+
+        try:
+            derived_key_for(key, target)  # validate the target is convertible for this source
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"not a convertible cell: {exc}") from exc
+
+        try:
+            job = await queue.enqueue(
+                key,
+                target,
+                scope_kind=s.kind,
+                scope_id=s.id,
+                target_capability=worker_pool,
+                force_rebuild=True,
+            )
+        except Exception as exc:
+            logger.exception("rerun-cell enqueue failed for %s -> %s", key, target)
+            raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
+
+        found = await db_module.reset_audit_cell_for_rerun(pool, run_id, key, target, job.job_id)
+        if not found:
+            raise HTTPException(status_code=404, detail="cell not found in this run")
+        run = await db_module.get_audit_run(pool, run_id)
         return JSONResponse(run, status_code=202)
 
     @admin.post("/audit/runs/{run_id}/validate")
@@ -4122,6 +4348,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ) from exc
             raise
         return JSONResponse(row, status_code=201)
+
+    @admin.patch("/corpora/{slug}")
+    async def admin_corpora_update(slug: str, request: Request) -> JSONResponse:
+        """Update a corpus's display name / description.
+
+        Body: ``{"name": "...", "description": "..."}`` — name required
+        non-empty, empty description clears it. The slug itself is
+        immutable: it's baked into the storage prefix
+        (``corpus/<slug>/``) and scope URLs, so renaming it would
+        orphan the bucket bytes.
+        """
+        pool = _require_pool(request)
+        body = await request.json() if await request.body() else {}
+        name = (body.get("name") or "").strip()
+        description = (body.get("description") or "").strip() or None
+        if not name:
+            raise HTTPException(status_code=400, detail="name required")
+        row = await db_module.update_corpus(pool, slug, name=name, description=description)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"corpus {slug!r} not found")
+        return JSONResponse(row)
 
     @admin.delete("/corpora/{slug}")
     async def admin_corpora_archive(slug: str, request: Request) -> JSONResponse:
@@ -5046,7 +5293,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     entry["profile_key"],
                     exc,
                 )
-                blob_errors.append(f"{entry['profile_key']}: {exc}")
+                # Report only the failed key to the client; the exception detail is logged
+                # above (avoid leaking backend/stack-trace text in the response).
+                blob_errors.append(entry["profile_key"])
         return JSONResponse(
             {
                 "rows_cleared": result["rows_cleared"],
@@ -5063,6 +5312,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_id: str | None = None,
         action: str | None = None,
         target: str | None = None,
+        status: str | None = None,
         key: str | None = None,
         before_id: int | None = None,
         limit: int = 100,
@@ -5073,6 +5323,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         key_like = (key or "").strip() or None
         # ``target`` filters by the conversion's target format (glb / ifc / step / …).
         target_format = (target or "").strip().lstrip(".").lower() or None
+        # ``status`` filters by job state (queued / running / done / error).
+        status_norm = (status or "").strip().lower() or None
         rows = await db_module.list_audit(
             pool,
             user_sub=user_sub,
@@ -5080,6 +5332,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             scope_id=scope_id,
             action=action,
             target_format=target_format,
+            statuses=[status_norm] if status_norm else None,
             key_like=key_like,
             limit=limit,
             before_id=before_id,
@@ -5473,9 +5726,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # default raises ``copy-if-not-exists not supported``); the
                 # application-layer dst_keys pre-check is the real collision guard.
                 await storage.copy(src_scope, key, scope_obj, key, overwrite=True)
-            except Exception as exc:
+            except Exception:
+                # Full detail is logged; return a generic reason so backend/stack-trace
+                # text isn't exposed in the response (CodeQL py/stack-trace-exposure).
                 logger.exception("admin: copy failed for %s (%s -> %s)", key, src_raw, scope_obj.prefix())
-                failed.append({"key": key, "reason": str(exc)})
+                failed.append({"key": key, "reason": "copy failed"})
                 continue
             dst_keys.add(key)
             copied.append({"key": key})
@@ -5495,12 +5750,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         import json as _json
 
         viewer_tag = os.environ.get("ADA_IMAGE_TAG", "").strip() or None
-        worker_tag: str | None = None
-        if queue.enabled:
-            try:
-                worker_tag = await queue.get_meta("worker_image_tag")
-            except Exception:
-                logger.exception("config.js: failed to read worker image tag")
+        # Cached snapshot — no NATS on the request path (see _worker_registry).
+        worker_tag: str | None = _worker_registry["image_tag"] if queue.enabled else None
         extra_source_exts = await _worker_advertised_exts()
         streaming_only_exts = sorted(e for e in extra_source_exts if e not in LEGACY_CONVERT_EXTS)
         conversion_matrix = await _worker_advertised_conversions()

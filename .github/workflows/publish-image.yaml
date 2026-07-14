@@ -43,7 +43,7 @@ env:
   # micropip refuses against pyodide 0.29.4 ("Wheel was built with Emscripten
   # v3.1.58 but Pyodide was built with v4.0.9"). Keep in sync with the
   # ADACPP_BASE_IMAGE default in deploy/Dockerfile.viewer.
-  ADACPP_WASM_BASE: ghcr.io/krande/adacpp-wasm-base:0.10.0
+  ADACPP_WASM_BASE: ghcr.io/krande/adacpp-wasm-base:0.13.2
 
 jobs:
   viewer:

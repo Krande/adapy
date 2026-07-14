@@ -441,6 +441,39 @@ async def run_isolated_convert(
                     _move_into_result(os.fspath(out), result_path)
                 else:
                     raise TypeError(f"convert returned {type(out).__name__}, expected bytes or a path")
+                # Emit per-conversion quality tallies for the parent to fold into convert_meta
+                # (marker-line channel, same as the C++ [STEPPROF-JSON] profiler). Best-effort:
+                # a tally failure must never fail an otherwise-successful conversion.
+                try:
+                    from ada.occ.tessellating import (
+                        consume_mesh_distortion_stats,
+                        consume_tess_fallback_stats,
+                    )
+
+                    fb = consume_tess_fallback_stats()
+                    if fb.get("count"):
+                        _sys.stderr.write("[TESSFALLBACK-JSON] " + json.dumps(fb) + "\n")
+                    md = consume_mesh_distortion_stats()
+                    if md.get("distorted_tris"):
+                        _sys.stderr.write("[MESHHEALTH-JSON] " + json.dumps(md) + "\n")
+                except Exception:
+                    pass
+                # Triangle tally -> convert_meta["tri_stats"] (regression signal, see tess_stats).
+                # Native mesh conversions record it directly; for GLB (no tri count in the return)
+                # parse the output's JSON chunk. Best-effort — never fail a good conversion.
+                try:
+                    from ada.cadit.step.tess_stats import (
+                        consume_tri_stats,
+                        count_glb_tri_stats,
+                    )
+
+                    ts = consume_tri_stats()
+                    if not ts.get("n_tris") and target_format in ("glb", "gltf"):
+                        ts = count_glb_tri_stats(result_path)
+                    if ts.get("n_tris"):
+                        _sys.stderr.write("[TRISTATS-JSON] " + json.dumps(ts) + "\n")
+                except Exception:
+                    pass
                 _flush_std()
                 os._exit(0)
             except BaseException as exc:  # noqa: BLE001 — propagate verbatim

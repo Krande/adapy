@@ -143,6 +143,114 @@ def test_extend_folds_idle_gap(db):
     assert 3_400_000 < after["idle_ms"] < 3_800_000
 
 
+def test_cells_duration_ms_is_sum_of_cells(db):
+    pool, run = db
+    r = run(db_module.create_audit_run(pool, scope="shared", worker_pool=None))
+    run(db_module.set_audit_run_total(pool, r["id"], 2))
+    run(
+        db_module.insert_audit(
+            pool,
+            user_sub=None,
+            scope_kind="shared",
+            scope_id=None,
+            action="convert",
+            key="a.step",
+            target_format="glb",
+            status="done",
+            duration_ms=10,
+            job_id="jobA",
+            audit_run_id=r["id"],
+        )
+    )
+    run(
+        db_module.insert_audit(
+            pool,
+            user_sub=None,
+            scope_kind="shared",
+            scope_id=None,
+            action="convert",
+            key="b.step",
+            target_format="glb",
+            status="error",
+            duration_ms=20,
+            job_id="jobB",
+            audit_run_id=r["id"],
+        )
+    )
+    after = run(db_module.get_audit_run(pool, r["id"]))
+    assert after["cells_duration_ms"] == 30  # sum, not wall clock
+    assert after["ok"] == 1 and after["failed"] == 1 and after["status"] == "finished"
+
+
+def test_reset_audit_cell_for_rerun_undoes_counter_and_reopens(db):
+    pool, run = db
+    r = run(db_module.create_audit_run(pool, scope="shared", worker_pool=None))
+    run(db_module.set_audit_run_total(pool, r["id"], 2))
+    run(
+        db_module.insert_audit(
+            pool,
+            user_sub=None,
+            scope_kind="shared",
+            scope_id=None,
+            action="convert",
+            key="a.step",
+            target_format="glb",
+            status="done",
+            duration_ms=10,
+            job_id="jobA",
+            audit_run_id=r["id"],
+        )
+    )
+    run(
+        db_module.insert_audit(
+            pool,
+            user_sub=None,
+            scope_kind="shared",
+            scope_id=None,
+            action="convert",
+            key="b.step",
+            target_format="glb",
+            status="error",
+            duration_ms=20,
+            job_id="jobB",
+            audit_run_id=r["id"],
+        )
+    )
+
+    # Re-run cell B: the failed counter drops, the run reopens, and B's row is
+    # re-pointed at a fresh job with its result timing cleared.
+    ok = run(db_module.reset_audit_cell_for_rerun(pool, r["id"], "b.step", "glb", "jobB2"))
+    assert ok is True
+    mid = run(db_module.get_audit_run(pool, r["id"]))
+    assert mid["failed"] == 0 and mid["ok"] == 1
+    assert mid["status"] == "running" and mid["finished_at"] is None
+    assert mid["cells_duration_ms"] == 10  # B's 20ms cleared until it re-completes
+
+    # The worker completes the new job → B goes green, run re-finishes, runtime
+    # reflects the new per-cell timing.
+    run(db_module.update_audit_by_job(pool, job_id="jobB2", status="done", duration_ms=15))
+    end = run(db_module.get_audit_run(pool, r["id"]))
+    assert end["ok"] == 2 and end["failed"] == 0
+    assert end["status"] == "finished"
+    assert end["cells_duration_ms"] == 25  # 10 + the re-run's 15
+
+    # Unknown cell → no-op, returns False.
+    assert run(db_module.reset_audit_cell_for_rerun(pool, r["id"], "nope.step", "glb", "x")) is False
+
+
+def test_reset_audit_cell_folds_idle_gap(db):
+    pool, run = db
+    r = run(_finish_run(pool, n=1))  # one done cell, run finished
+    # Backdate the finish so the re-run sees a ~1h gap since the original run.
+    run(pool.execute("UPDATE audit_runs SET finished_at = NOW() - INTERVAL '1 hour' WHERE id = $1", r["id"]))
+    run(db_module.reset_audit_cell_for_rerun(pool, r["id"], "models/f0.step", "glb", "job0b"))
+    after = run(db_module.get_audit_run(pool, r["id"]))
+    assert after["status"] == "running" and after["finished_at"] is None
+    # The ~1h gap is folded into idle_ms so wall clock won't swallow it when the
+    # cell re-completes — the re-run only adds its own delta.
+    assert 3_400_000 < after["idle_ms"] < 3_800_000
+
+
 def test_claim_run_for_validation_is_once(db):
     pool, run = db
     r = run(_finish_run(pool, n=1))
@@ -165,6 +273,80 @@ def test_claim_auto_validate_only_flagged_runs(db):
     claimed = run(db_module.claim_audit_run_for_auto_validate(pool))
     assert claimed is not None and claimed["id"] == flagged["id"]
     assert run(db_module.claim_audit_run_for_auto_validate(pool)) is None
+
+
+def _close_cell(p, run_id, *, key, target_format="glb", action="convert"):
+    return db_module.insert_audit(
+        p,
+        user_sub=None,
+        scope_kind="shared",
+        scope_id=None,
+        action=action,
+        key=key,
+        target_format=target_format,
+        status="done",
+        duration_ms=10,
+        audit_run_id=run_id,
+    )
+
+
+def test_reserved_validation_counts_upfront(db):
+    """An auto-validate run advertises conversions + parity in ``total`` from
+    the start; the validation dispatch consumes the reservation instead of
+    growing the total."""
+    pool, run = db
+    r = run(db_module.create_audit_run(pool, scope="shared", worker_pool=None, auto_validate=True))
+    # 2 conversion cells + 1 reserved parity cell.
+    run(db_module.set_audit_run_total(pool, r["id"], 3, validate_total=1))
+    fresh = run(db_module.get_audit_run(pool, r["id"]))
+    assert fresh["total"] == 3 and fresh["validate_total"] == 1
+
+    # Not claimable while conversion cells are still outstanding.
+    run(_close_cell(pool, r["id"], key="models/f0.step"))
+    assert run(db_module.claim_audit_run_for_auto_validate(pool)) is None
+
+    # All conversion cells landed: the reserve keeps the run 'running',
+    # and the poller can now claim it for validation.
+    run(_close_cell(pool, r["id"], key="models/f1.step"))
+    mid = run(db_module.get_audit_run(pool, r["id"]))
+    assert mid["status"] == "running" and mid["finished_at"] is None
+    claimed = run(db_module.claim_audit_run_for_auto_validate(pool))
+    assert claimed is not None and claimed["id"] == r["id"]
+
+    # Dispatch swaps the reservation for the actual parity count — total unchanged.
+    run(db_module.consume_audit_run_validation_reserve(pool, r["id"], 1))
+    consumed = run(db_module.get_audit_run(pool, r["id"]))
+    assert consumed["total"] == 3 and consumed["validate_total"] == 0
+    assert consumed["status"] == "running"
+    assert consumed["idle_ms"] == 0  # never finished, so no idle gap folded in
+
+    # Parity cell lands → run finishes at the originally-advertised total.
+    run(_close_cell(pool, r["id"], key="models/f0.step", target_format="parity", action="validate"))
+    done = run(db_module.get_audit_run(pool, r["id"]))
+    assert done["status"] == "finished" and done["total"] == 3
+
+
+def test_consume_reserve_handles_drift_and_zero(db):
+    """Scope drift between the two enumerations moves the total by the
+    difference; zero actual parity cells finishes the run on the spot."""
+    pool, run = db
+    # Drift up: reserved 1, actual 2.
+    a = run(db_module.create_audit_run(pool, scope="shared", worker_pool=None, auto_validate=True))
+    run(db_module.set_audit_run_total(pool, a["id"], 2, validate_total=1))
+    run(_close_cell(pool, a["id"], key="models/f0.step"))
+    run(db_module.consume_audit_run_validation_reserve(pool, a["id"], 2))
+    drifted = run(db_module.get_audit_run(pool, a["id"]))
+    assert drifted["total"] == 3 and drifted["validate_total"] == 0
+    assert drifted["status"] == "running"
+
+    # Zero actual: reservation released, run finishes (no bump will arrive).
+    b = run(db_module.create_audit_run(pool, scope="shared", worker_pool=None, auto_validate=True))
+    run(db_module.set_audit_run_total(pool, b["id"], 2, validate_total=1))
+    run(_close_cell(pool, b["id"], key="models/f0.step"))
+    run(db_module.consume_audit_run_validation_reserve(pool, b["id"], 0))
+    released = run(db_module.get_audit_run(pool, b["id"]))
+    assert released["total"] == 1 and released["validate_total"] == 0
+    assert released["status"] == "finished" and released["finished_at"] is not None
 
 
 def test_delete_audit_run_removes_log_rows(db):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import pathlib
-from typing import TYPE_CHECKING, Callable, Union
+from typing import TYPE_CHECKING, Callable, Literal, Union
 
 from ada.api.spatial.part import Part
 from ada.api.user import User
@@ -98,8 +98,32 @@ class Assembly(Part):
     def __setstate__(self, state):
         self.__dict__.update(state)
 
-    def read_ifc(self, ifc_file: str | os.PathLike | ifcopenshell.file, data_only=False, elements2part=None):
-        """Import from IFC file."""
+    def read_ifc(
+        self,
+        ifc_file: str | os.PathLike | ifcopenshell.file,
+        data_only=False,
+        elements2part=None,
+        reader: Literal["ifcopenshell", "native"] | None = None,
+    ):
+        """Import from IFC file.
+
+        ``reader="native"`` uses adacpp's pure-C++ IFC reader (IfcNgeomStream) to build a
+        geometry-shapes Part/ShapeProxy tree (no ifcopenshell/OCC) — colour + spatial hierarchy from
+        the C++ resolver; does NOT reconstruct typed Beam/Plate objects. Default (``ifcopenshell``)
+        is the full typed reader.
+        """
+        if reader == "native":
+            from ada.cadit.ifc.read.native_reader import (
+                native_adacpp_ifc_available,
+                native_read_ifc_into,
+            )
+
+            if not native_adacpp_ifc_available():
+                raise RuntimeError("reader='native' requires adacpp with IfcNgeomStream")
+            native_read_ifc_into(self, ifc_file)
+            if isinstance(ifc_file, (str, os.PathLike)):
+                self.ifc_store.ifc_file_path = pathlib.Path(ifc_file)
+            return
         self.ifc_store.load_ifc_content_from_file(ifc_file, data_only=data_only, elements2part=elements2part)
 
     def read_fem(
@@ -272,6 +296,7 @@ class Assembly(Part):
         geom_repr_override: dict[str, GeomRepr] = None,
         streaming=False,
         merge_strategy=None,
+        writer: Literal["ifcopenshell", "native"] | None = None,
     ) -> ifcopenshell.file:
         import ifcopenshell.validate
 
@@ -279,6 +304,26 @@ class Assembly(Part):
             destination = "object"
         else:
             destination = pathlib.Path(destination).resolve().absolute()
+
+        # Native pure-C++ writer (adacpp blobs_to_ifc): emit analytic IFC solids from each shape's
+        # NGEOM blob — no ifcopenshell/OCC. Needs an on-disk destination + lazy ShapeProxy shapes
+        # (pairs with from_ifc(reader="native")). Raises if no shape carries a blob.
+        if writer == "native":
+            if destination == "object":
+                raise ValueError("to_ifc(writer='native') needs an on-disk destination")
+            from ada.cadit.ifc.write.native_ifc_writer import (
+                native_ifc_writer_available,
+                native_write_ifc,
+            )
+
+            if not native_ifc_writer_available():
+                raise RuntimeError("writer='native' requires adacpp with blobs_to_ifc")
+            os.makedirs(destination.parent, exist_ok=True)
+            native_write_ifc(self, destination)
+            if validate:
+                ifcopenshell.validate.validate(str(destination), logger)
+            logger.info("IFC file creation complete (native)")
+            return None
 
         logger.info(f'Beginning writing to IFC file "{destination}" using IfcOpenShell')
 

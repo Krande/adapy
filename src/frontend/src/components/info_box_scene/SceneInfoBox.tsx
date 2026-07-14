@@ -6,8 +6,10 @@ import LoadedModelsSection from "./LoadedModelsSection";
 import StatsSection from "./StatsSection";
 import GroupsSection from "./GroupsSection";
 import UtilitiesSection from "./UtilitiesSection";
+import FacePickingToggle from "./FacePickingToggle";
 import SectionPlanesPanel from "./SectionPlanesPanel";
 import FemConceptsPanel from "./FemConceptsPanel";
+import MeshDistortionSection from "./MeshDistortionSection";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 
 // Container for everything that talks about the currently-loaded scene
@@ -26,12 +28,13 @@ const SceneInfoBox = () => {
                 <select
                     className="text-sm rounded-sm px-1 py-0.5 bg-gray-700 text-gray-100 border border-gray-600"
                     value={mode}
-                    onChange={(e) => setMode(e.target.value as "info" | "utilities" | "section" | "fem")}
+                    onChange={(e) => setMode(e.target.value as "info" | "utilities" | "section" | "fem" | "mesh")}
                 >
                     <option value="info">Info</option>
                     <option value="utilities">Utilities</option>
                     <option value="section">Section</option>
                     <option value="fem">FEM</option>
+                    <option value="mesh">Mesh</option>
                 </select>
             </div>
             {/* Flat list of every loaded model, whatever storage folder
@@ -42,6 +45,7 @@ const SceneInfoBox = () => {
             </CollapsibleSection>
             {mode === "info" ? (
                 <>
+                    <FacePickingToggle/>
                     <CollapsibleSection title="Stats" defaultOpen>
                         <StatsSection/>
                     </CollapsibleSection>
@@ -53,6 +57,8 @@ const SceneInfoBox = () => {
                 <UtilitiesSection/>
             ) : mode === "section" ? (
                 <SectionPlanesPanel/>
+            ) : mode === "mesh" ? (
+                <MeshDistortionSection/>
             ) : (
                 <FemConceptsPanel/>
             )}

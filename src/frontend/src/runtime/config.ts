@@ -10,6 +10,26 @@ export interface ConversionOption {
     default?: boolean | string | number | null;
     description?: string;
     enum?: readonly string[];
+    // Data-driven extras carried by dependent enum options (serializer /
+    // tessellator dropdowns). The backend is the single source of this
+    // vocabulary; the frontend renders straight from these fields and never
+    // hardcodes the choices:
+    //   labels    — human label per enum value.
+    //   depends_on — name of the option this one's choices depend on.
+    //   enum_by   — for each value of the depends_on option, the subset of
+    //               THIS option's enum that applies (drives the dependent
+    //               dropdown; empty/absent = static enum).
+    //   runtime   — per enum value, "client" (runs in the browser: WASM /
+    //               Pyodide) vs "server" (worker). Lets the SPA route + gate.
+    labels?: Readonly<Record<string, string>>;
+    depends_on?: string;
+    enum_by?: Readonly<Record<string, readonly string[]>>;
+    runtime?: Readonly<Record<string, "client" | "server">>;
+    // Human display name for the axis this option represents (distinct from the
+    // per-value `labels`). Lets the backend name the 2nd path-dropdown per target
+    // — "Tessellator" for mesh targets, "Writer" for B-rep targets — without the
+    // frontend hardcoding it.
+    title?: string;
 }
 
 //

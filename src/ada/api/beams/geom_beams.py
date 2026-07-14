@@ -228,6 +228,28 @@ def parametric_profile_to_arbitrary(area: geo_su.ProfileDef) -> geo_su.Arbitrary
             t_w=area.web_thickness,
             t_ftop=area.flange_thickness,
         )
+    elif isinstance(area, geo_su.RectangleProfileDef):
+        # IFC semantics: the rectangle is centred on the profile position.
+        # adapy's RectangleProfileDef carries no Position (readers only see
+        # the default $), so an explicit centred outline is exact — no
+        # Section detour needed.
+        from ada.geom.curves import Edge, IndexedPolyCurve
+        from ada.geom.points import Point
+
+        dx, dy = area.x_dim / 2.0, area.y_dim / 2.0
+        corners = [
+            Point(-dx, -dy),
+            Point(dx, -dy),
+            Point(dx, dy),
+            Point(-dx, dy),
+        ]
+        segments = [Edge(corners[i], corners[(i + 1) % 4]) for i in range(4)]
+        return geo_su.ArbitraryProfileDef(
+            area.profile_type,
+            IndexedPolyCurve(segments),
+            [],
+            profile_name=getattr(area, "profile_name", None),
+        )
     else:
         raise NotImplementedError(f"Profile def {type(area).__name__} is not implemented")
 
@@ -292,7 +314,11 @@ def profile_disconnected_to_face_geom(beam: Beam) -> Geometry:
         points = np.concatenate([p1, p2, p3, p4]).reshape(-1, 3)
         new_points = np.matmul(rotation_matrix, points.T).T + beam.n1.p
         poly_loop = ada.geom.curves.PolyLoop(polygon=[Point(*p) for p in new_points])
-        connected_faces += [geo_su.ConnectedFaceSet([geo_su.FaceBound(bound=poly_loop, orientation=True)])]
+        # cfs_faces holds Faces (per IfcConnectedFaceSet), each carrying its FaceBound(s) — not a
+        # bare FaceBound. Wrapping keeps this consistent with the IFC face-set reader so the shared
+        # face-set OCC/NGEOM builders handle both.
+        loop_face = geo_su.Face(bounds=[geo_su.FaceBound(bound=poly_loop, orientation=True)])
+        connected_faces += [geo_su.ConnectedFaceSet([loop_face])]
 
     geom = geo_su.FaceBasedSurfaceModel(connected_faces)
     return Geometry(beam.guid, geom, beam.color)

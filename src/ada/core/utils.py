@@ -197,8 +197,10 @@ def to_real(v) -> float | list[float]:
 
 
 def round_array(arr: np.ndarray) -> np.ndarray:
-    # roundoff only on nonzero entries, zeros stay exact
-    mask = arr != 0
-    out = arr.copy()
-    out[mask] = np.vectorize(roundoff)(arr[mask])
-    return out
+    # Same roundoff (Decimal, HALF_EVEN) per element — replacing it with
+    # np.round shifts borderline values enough to drop ~59 of 104k FEM shells
+    # in plate conversion, so the semantics must stay. Every caller passes a
+    # 3-vector, where constructing an np.vectorize per call was ~70% of the
+    # cost (637k calls on a 100k-shell model spent ~28s here) — a plain loop
+    # keeps the exact values at a fraction of the overhead.
+    return np.array([roundoff(x) if x != 0 else x for x in np.asarray(arr, dtype=float)], dtype=float)

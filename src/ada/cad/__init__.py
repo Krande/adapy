@@ -28,6 +28,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from ada.cad.registry import (  # noqa: E402 - registry is stdlib-only, no ada.cad cycle
+    DEFAULT_STREAM_TESS_ANGULAR_DEG,
     CadBackendName,
     CadConfig,
     StepReader,
@@ -115,6 +116,9 @@ class BatchMesh:
     indices: Any  # flat uint32,  length = 3 * num_triangles
     groups: "list[MeshGroup]"
     normals: Any = None  # flat float32, len == positions, or None if not supplied
+    mesh_type: int = 4  # glTF primitive mode of ``indices`` — 4=TRIANGLES (default),
+    # 1=LINES for curve-only bodies (alignment axes, trimmed/segmented curves). A single
+    # stream blob is one homogeneous root, so one mode covers the whole BatchMesh.
 
 
 def tessellate_batch_via_loop(backend, shapes, linear_deflection: float = -1.0) -> "BatchMesh":
@@ -243,6 +247,7 @@ class AdacppBackend:
         # being ported to adacpp C++ incrementally; types not yet ported raise
         # NotImplementedError rather than borrowing pythonocc. End goal: full
         # parity with OccBackend. See dap plan/v3 Phase 7.
+        import ada.geom.curves as gcu
         import ada.geom.solids as so
         import ada.geom.surfaces as su
         from ada.api.beams.geom_beams import parametric_profile_to_arbitrary
@@ -388,20 +393,24 @@ class AdacppBackend:
 
             polygons = []
             for cfs in g.fbsm_faces:
-                for fb in cfs.cfs_faces:
-                    if not isinstance(fb.bound, cu.PolyLoop):
-                        raise NotImplementedError(
-                            f"AdacppBackend.build: FaceBasedSurfaceModel bound "
-                            f"{type(fb.bound).__name__!r} not yet ported to adacpp."
-                        )
-                    polygons.append([self._xyz(p) for p in fb.bound.polygon])
+                for face in cfs.cfs_faces:  # geo_su.Face, each carrying one or more FaceBound
+                    for fb in face.bounds:
+                        if not isinstance(fb.bound, cu.PolyLoop):
+                            raise NotImplementedError(
+                                f"AdacppBackend.build: FaceBasedSurfaceModel bound "
+                                f"{type(fb.bound).__name__!r} not yet ported to adacpp."
+                            )
+                        polygons.append([self._xyz(p) for p in fb.bound.polygon])
             shape = self._cad.build_face_based_surface_model(polygons)
-        elif isinstance(g, (su.ShellBasedSurfaceModel, su.OpenShell, su.ClosedShell)):
+        elif isinstance(g, (su.ShellBasedSurfaceModel, su.OpenShell, su.ClosedShell, su.ConnectedFaceSet)):
             # Sew the member faces into one shell handle. Each face is built through the
             # AdvancedFace path; open shells (IfcShellBasedSurfaceModel) don't bound a
             # volume, so sew_faces (BRepBuilderAPI_Sewing) is used rather than
             # make_volumes_from_faces. Mirrors OccBackend's make_shell_from_shell_based_
-            # surface_geom / make_open_shell_from_geom.
+            # surface_geom / make_open_shell_from_geom. Bare ConnectedFaceSet is the
+            # native NGEOM reader's B-rep root form (closedness not recorded in the
+            # buffer; hydration promotes verified-closed sets to ClosedShell, the rest
+            # arrive here) — same face-sew as the shells.
             from ada.geom import Geometry as _Geometry
 
             boundary_shells = g.sbsm_boundary if isinstance(g, su.ShellBasedSurfaceModel) else [g]
@@ -409,12 +418,15 @@ class AdacppBackend:
             if not face_handles:
                 raise NotImplementedError("AdacppBackend.build: shell model has no faces")
             shape = self._cad.sew_faces(face_handles)
-        elif isinstance(g, su.AdvancedFace):
+        elif isinstance(g, (su.AdvancedFace, su.FaceSurface)):
             # B-spline (PlateCurved / loft-derived / SAT) faces. With bounds, the
             # surface is trimmed to the boundary wire(s) — each OrientedEdge with
             # a supplied pcurve drives its edge from surface(pcurve(t)) (the
             # SAT-pcurve path of OccBackend.make_face_from_geom). Without bounds,
             # the natural-UV face. Analytic surfaces aren't ported yet.
+            # FaceSurface is AdvancedFace's structurally-identical sibling (same
+            # face_surface/bounds/same_sense, NOT a subclass) — it is what NGEOM
+            # hydration yields for native-read B-rep faces.
             surf = g.face_surface
             if isinstance(surf, su.Plane) and g.bounds:
                 # Planar AdvancedFace (flat SAT/IFC plates): plane inferred from the boundary
@@ -534,6 +546,15 @@ class AdacppBackend:
                 self._cad.polygon_face([self._xyz(g.coordinates[i - 1]) for i in face_idx]) for face_idx in g.faces
             ]
             shape = self._cad.sew_faces(faces)
+        elif isinstance(g, su.TriangulatedFaceSet):
+            # Triangle mesh (IfcTriangulatedFaceSet): one planar face per 1-based
+            # index triple, sewn into a shell — same treatment as PolygonalFaceSet.
+            idx = [int(i) for i in g.indices]
+            faces = [
+                self._cad.polygon_face([self._xyz(g.coordinates[i - 1]) for i in idx[k : k + 3]])
+                for k in range(0, len(idx), 3)
+            ]
+            shape = self._cad.sew_faces(faces)
         elif isinstance(g, so.RectangularPyramid):
             # Rectangular base + 4 triangular sides (apex centred above), placed at the frame.
             x, y, z = g.x_length, g.y_length, g.z_length
@@ -570,6 +591,12 @@ class AdacppBackend:
             if len(edge_list) < 3:
                 raise NotImplementedError("AdacppBackend.build: WireFilledFace needs >=3 boundary edges")
             shape = self._cad.build_filled_face([self._encode_oriented_edge(oe) for oe in edge_list])
+        elif isinstance(g, gcu.CURVE_GEOM_TUPLE):
+            # Bare curve bodies (sectionless SAT wire bodies, construction
+            # wireframes): build the wire so B-rep exports carry them — STEP
+            # writes wires natively (GEOMETRIC_CURVE_SET). Mirrors
+            # geom_to_occ_geom's CURVE_GEOM_TUPLE arm.
+            shape = self._cad.build_wire(self._encode_curve(g))
         else:
             raise NotImplementedError(
                 f"AdacppBackend.build: ada.geom type {type(g).__name__!r} is not yet ported to "
@@ -645,18 +672,86 @@ class AdacppBackend:
         if isinstance(curve, cu.Circle):
             axis = self._xyz(curve.position.axis) if curve.position.axis is not None else [0.0, 0.0, 1.0]
             return [[2.0, *self._xyz(curve.position.location), *axis, float(curve.radius)]]
+        if isinstance(curve, cu.Edge) and not isinstance(curve, cu.ArcLine):
+            # Bare line segment (sectionless SAT wire body).
+            return [[0.0, *self._xyz(curve.start), *self._xyz(curve.end)]]
+        if isinstance(curve, cu.ArcLine):
+            return [[1.0, *self._xyz(curve.start), *self._xyz(curve.midpoint), *self._xyz(curve.end)]]
         if isinstance(curve, cu.PolyLine):
             pts = curve.points
             return [[0.0, *self._xyz(a), *self._xyz(b)] for a, b in zip(pts[:-1], pts[1:])]
         if isinstance(curve, cu.TrimmedCurve):
+            import numpy as _np
+
             from ada.geom.points import Point as _Point
 
             b, t1, t2 = curve.basis_curve, curve.trim1, curve.trim2
-            if isinstance(b, cu.Line) and isinstance(t1, _Point) and isinstance(t2, _Point):
-                return [[0.0, *self._xyz(t1), *self._xyz(t2)]]
-            if isinstance(b, cu.Circle) and isinstance(t1, _Point) and isinstance(t2, _Point):
-                mid = self._arc_midpoint(b, t1, t2, curve.sense_agreement)
-                return [[1.0, *self._xyz(t1), *mid, *self._xyz(t2)]]
+            if isinstance(b, cu.Line):
+                # Parameter trims evaluate on P(t) = pnt + t*dir — the reader
+                # keeps the IfcVector magnitude in ``dir`` so t is unscaled.
+                def _line_pt(t):
+                    if isinstance(t, _Point):
+                        return self._xyz(t)
+                    p = _np.asarray(self._xyz(b.pnt), dtype=float)
+                    d = _np.asarray(self._xyz(b.dir), dtype=float)
+                    return [float(v) for v in p + float(t) * d]
+
+                return [[0.0, *_line_pt(t1), *_line_pt(t2)]]
+            if isinstance(b, cu.Circle):
+                # Parameter trims are angles (radians, normalized at read) in
+                # the circle's own x/y frame — the same frame _arc_midpoint
+                # measures in, so sense/wrap handling is shared.
+                def _circle_pt(t):
+                    if isinstance(t, _Point):
+                        return self._xyz(t)
+                    c = _np.asarray(self._xyz(b.position.location), dtype=float)
+                    z = _np.asarray(
+                        self._xyz(b.position.axis) if b.position.axis is not None else [0, 0, 1], dtype=float
+                    )
+                    x = _np.asarray(
+                        self._xyz(b.position.ref_direction) if b.position.ref_direction is not None else [1, 0, 0],
+                        dtype=float,
+                    )
+                    z = z / (_np.linalg.norm(z) or 1.0)
+                    x = x / (_np.linalg.norm(x) or 1.0)
+                    y = _np.cross(z, x)
+                    w = c + float(b.radius) * (_np.cos(float(t)) * x + _np.sin(float(t)) * y)
+                    return [float(v) for v in w]
+
+                p1, p2 = _circle_pt(t1), _circle_pt(t2)
+                mid = self._arc_midpoint(b, p1, p2, curve.sense_agreement)
+                return [[1.0, *p1, *mid, *p2]]
+            if isinstance(b, cu.Ellipse):
+                # adacpp has no ellipse edge record — sample the trimmed arc
+                # (parametric angle; trims normalized to radians at read) into
+                # a fine polyline. Profile use only, so chord error at 64
+                # segments/full-turn is well under tessellation deflection.
+                c = _np.asarray(self._xyz(b.position.location), dtype=float)
+                z = _np.asarray(self._xyz(b.position.axis) if b.position.axis is not None else [0, 0, 1], dtype=float)
+                x = _np.asarray(
+                    self._xyz(b.position.ref_direction) if b.position.ref_direction is not None else [1, 0, 0],
+                    dtype=float,
+                )
+                z = z / (_np.linalg.norm(z) or 1.0)
+                x = x / (_np.linalg.norm(x) or 1.0)
+                y = _np.cross(z, x)
+                sa1, sa2 = float(b.semi_axis1), float(b.semi_axis2)
+
+                def _param_of(t):
+                    if not isinstance(t, _Point):
+                        return float(t)
+                    d = _np.asarray(self._xyz(t), dtype=float) - c
+                    return float(_np.arctan2(float(d @ y) / sa2, float(d @ x) / sa1))
+
+                a0, a1 = _param_of(t1), _param_of(t2)
+                if curve.sense_agreement and a1 <= a0:
+                    a1 += 2.0 * _np.pi
+                elif not curve.sense_agreement and a1 >= a0:
+                    a1 -= 2.0 * _np.pi
+                n = max(8, int(abs(a1 - a0) / (2.0 * _np.pi) * 64))
+                ts = _np.linspace(a0, a1, n + 1)
+                pts = [c + sa1 * _np.cos(t) * x + sa2 * _np.sin(t) * y for t in ts]
+                return [[0.0, *[float(v) for v in p], *[float(v) for v in q]] for p, q in zip(pts[:-1], pts[1:])]
             raise NotImplementedError(
                 f"AdacppBackend.build: TrimmedCurve basis {type(b).__name__!r} not yet ported to adacpp."
             )
@@ -665,6 +760,27 @@ class AdacppBackend:
             for seg in curve.segments:
                 edges.extend(self._encode_curve(seg.parent_curve))
             return edges
+        if isinstance(curve, cu.GeometricCurveSet):
+            # Loose curve collection (STEP wireframe body) — concatenate the
+            # member encodings; the records stay independent edges.
+            edges = []
+            for element in curve.elements:
+                edges.extend(self._encode_curve(element))
+            return edges
+        if isinstance(curve, cu.GradientCurve):
+            # Alignment directrix (IFC4x3): clothoid segments have no analytic
+            # edge record — encode the sampled polyline (shared with the
+            # NGEOM SweepN tessellation path, which uses the same evaluator).
+            import numpy as _np
+
+            from ada.cadit.ngeom._alignment_sweep import gradient_curve_points
+
+            pts = gradient_curve_points(curve, n_per=100)
+            return [
+                [0.0, *[float(v) for v in a], *[float(v) for v in b]]
+                for a, b in zip(pts[:-1], pts[1:])
+                if float(_np.linalg.norm(b - a)) > 1e-9
+            ]
         raise NotImplementedError(
             f"AdacppBackend.build: profile curve {type(curve).__name__!r} not yet ported to adacpp."
         )
@@ -902,11 +1018,17 @@ class AdacppBackend:
             for g in mesh.groups
         ]
         nrm = np.asarray(mesh.normals)
+        # mesh_type: glTF primitive mode (4=TRIANGLES, 1=LINES for curve-only bodies). Older
+        # adacpp builds' Mesh has no mesh_type attr → default TRIANGLES. The binding returns a
+        # MeshType enum whose int value already equals the glTF mode.
+        mt = getattr(mesh, "mesh_type", None)
+        mesh_type = int(getattr(mt, "value", mt)) if mt is not None else 4
         return BatchMesh(
             positions=np.asarray(mesh.positions),
             indices=np.asarray(mesh.indices),
             groups=groups,
             normals=nrm if nrm.size else None,
+            mesh_type=mesh_type,
         )
 
     def ifc_taxonomy_settings(self) -> "list[dict]":
@@ -922,9 +1044,10 @@ class AdacppBackend:
         items: "list[tuple[str, object]]",
         pipeline: str = "libtess2",
         deflection: float = 0.0,
-        angular_deg: float = 20.0,
+        angular_deg: float = DEFAULT_STREAM_TESS_ANGULAR_DEG,
         settings: "dict | None" = None,
         threads: int = 1,
+        model_scale: float = 0.0,
     ) -> "BatchMesh":
         """Tessellate a stream of ``(id, ada.geom geometry)`` via adacpp's NGEOM pipeline.
 
@@ -932,8 +1055,36 @@ class AdacppBackend:
         per-object ``build``/ShapeHandle round-trip) and tessellates it in one C++ call,
         returning a combined ``BatchMesh`` with a group per input id (``node_id`` = the
         item's position). ``pipeline``: ``libtess2`` (OCC-free) | ``occ`` | ``cgal``
-        (ifcopenshell taxonomy kernels). ``geometry`` is an ``ada.geom`` ``FaceSurface`` or
-        ``ConnectedFaceSet`` (unmappable items are skipped by the serializer)."""
+        (ifcopenshell taxonomy kernels). ``geometry`` is an ``ada.geom`` solid/face-set,
+        or a ``core.Geometry`` wrapper — the wrapper's ``bool_operations`` are folded
+        into the buffer as a BOOLEAN_RESULT chain (unmappable items are skipped)."""
+        from ada.cadit.ngeom import serialize_geometries
+
+        return self.tessellate_stream_buffer(
+            serialize_geometries(items),
+            pipeline=pipeline,
+            deflection=deflection,
+            angular_deg=angular_deg,
+            settings=settings,
+            threads=threads,
+            model_scale=model_scale,
+        )
+
+    def tessellate_stream_buffer(
+        self,
+        buffer,
+        *,
+        pipeline: str = "libtess2",
+        deflection: float = 0.0,
+        angular_deg: float = DEFAULT_STREAM_TESS_ANGULAR_DEG,
+        settings: "dict | None" = None,
+        threads: int = 1,
+        model_scale: float = 0.0,
+    ) -> "BatchMesh":
+        """Tessellate a pre-encoded NGEOM buffer — the fast path for blobs already in
+        the neutral form (a lazy ``ShapeStore``'s stored solid, a cached ``.ngeom``
+        file): no hydration and no re-serialization, the buffer goes straight to the
+        C++ kernel."""
         fn = getattr(self._cad, "tessellate_stream", None)
         if fn is None:
             raise NotImplementedError(
@@ -941,16 +1092,26 @@ class AdacppBackend:
             )
         import numpy as np
 
-        from ada.cadit.ngeom import serialize_geometries
-
-        buffer = serialize_geometries(items)
+        if not isinstance(buffer, (bytes, bytearray)):
+            # adacpp's binding currently takes nb::bytes only; drop this coercion once
+            # the buffer-protocol/zero-copy adacpp change lands.
+            buffer = bytes(buffer)
         # ``settings`` overrides the ifcopenshell ConversionSettings for the taxonomy paths
         # (occ/cgal/hybrid); ignored by libtess2. ``threads`` (>1) parallelises a root's faces
         # in the libtess2 path — opt-in, so the STEP->GLB process pool (which parallelises across
         # solids) stays serial per call and doesn't oversubscribe. The signature grew
         # (settings, then threads); try the fullest form and fall back for older adacpp builds.
         try:
-            mesh = fn(buffer, pipeline, deflection, angular_deg, dict(settings or {}), int(threads))
+            # model_scale (>0 => adaptive per-surface density) is the newest param; try it first
+            # and fall back for older adacpp builds (which drop it along with threads/settings).
+            try:
+                mesh = fn(
+                    buffer, pipeline, deflection, angular_deg, dict(settings or {}), int(threads), float(model_scale)
+                )
+            except TypeError:
+                if float(model_scale) > 0.0:
+                    logger.debug("adacpp build has no tessellate_stream model_scale param; fixed angular_deg")
+                mesh = fn(buffer, pipeline, deflection, angular_deg, dict(settings or {}), int(threads))
         except TypeError:
             if int(threads) > 1:
                 logger.debug("adacpp build has no tessellate_stream threads param; running serial")
@@ -967,11 +1128,17 @@ class AdacppBackend:
             for g in mesh.groups
         ]
         nrm = np.asarray(mesh.normals)
+        # mesh_type: glTF primitive mode (4=TRIANGLES, 1=LINES for curve-only bodies). Older
+        # adacpp builds' Mesh has no mesh_type attr → default TRIANGLES. The binding returns a
+        # MeshType enum whose int value already equals the glTF mode.
+        mt = getattr(mesh, "mesh_type", None)
+        mesh_type = int(getattr(mt, "value", mt)) if mt is not None else 4
         return BatchMesh(
             positions=np.asarray(mesh.positions),
             indices=np.asarray(mesh.indices),
             groups=groups,
             normals=nrm if nrm.size else None,
+            mesh_type=mesh_type,
         )
 
     def bbox(

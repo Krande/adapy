@@ -40,7 +40,9 @@ def native_step_to_step(
     if deflection is None:
         deflection = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
     if angular_deg is None:
-        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+        from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+
+        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
     if num_threads <= 0:
         try:
             from ada.visit.scene_handling.scene_from_step_stream import _stream_workers

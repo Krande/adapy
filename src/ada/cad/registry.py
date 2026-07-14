@@ -23,6 +23,51 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
 
+# Corpus-wide defaults for the NGEOM stream (libtess2/adacpp) tessellator. angular_deg caps
+# the arc-segment span for any curved geometry (revolves, pipes, cylinders, B-splines) — the
+# linear deflection alone can't keep a large-radius arc smooth because its sag tolerance grows
+# with radius. 10 deg (was 20) keeps a 7 m-radius revolved beam's bulge apex within ~1% of true;
+# it roughly matches the OCC path's 0.2 rad. Override per-run with ADA_STREAM_TESS_ANGULAR /
+# ADA_STREAM_TESS_DEFLECTION or per-model via CadConfig.
+DEFAULT_STREAM_TESS_DEFLECTION = 2.0
+DEFAULT_STREAM_TESS_ANGULAR_DEG = 10.0
+
+# Angular density mode. OFF (default): ``angular_deg`` is a fixed global ceiling for every curved
+# surface (explicit-global-angle mode, backward compatible). ON: the ceiling is applied ADAPTIVELY
+# per surface — a model-relative reference (``model_scale``, the model bbox diagonal) lets tiny
+# curved features (bolts/pins in a large assembly, whose facets are sub-pixel) coarsen while large
+# visible surfaces keep the fine angle. The relaxation itself lives in adacpp (angle_step); adapy
+# only decides the mode and supplies ``model_scale``. Toggle with ADA_STREAM_TESS_ADAPTIVE.
+DEFAULT_STREAM_TESS_ADAPTIVE = False
+
+
+def stream_tess_defaults() -> tuple[float, float]:
+    """(deflection, angular_deg) for the NGEOM stream path: env override else the corpus default."""
+    defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", str(DEFAULT_STREAM_TESS_DEFLECTION)))
+    ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
+    return defl, ang
+
+
+def stream_tess_adaptive() -> bool:
+    """Whether adaptive per-surface angular density is enabled (env override else the default OFF)."""
+    v = os.environ.get("ADA_STREAM_TESS_ADAPTIVE")
+    if v is None:
+        return DEFAULT_STREAM_TESS_ADAPTIVE
+    return v.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def stream_tess_model_scale() -> float:
+    """The model reference scale (world units) for adaptive density on the object stream path, or
+    0.0 (off). Adaptive is meaningful only with a model scale, so this returns 0 unless adaptive is
+    enabled AND a scale is supplied via ADA_STREAM_TESS_MODEL_SCALE (the caller sets it once per
+    model — the native STEP->GLB path estimates its own; see ada.cadit.step.model_scale)."""
+    if not stream_tess_adaptive():
+        return 0.0
+    try:
+        return float(os.environ.get("ADA_STREAM_TESS_MODEL_SCALE", "0") or 0.0)
+    except ValueError:
+        return 0.0
+
 
 class CadBackendName(str, Enum):
     OCC = "occ"  # pythonocc-core (native BRepMesh)
@@ -87,12 +132,14 @@ class StepReader(str, Enum):
     for the common case and as robust/complete as OCC for the rest (no geometry skipped). ``STREAM``
     is streaming-only (raises on out-of-scope entities). ``TOLERANT`` streams and *skips* the
     unsupported solids (never OOMs, but drops geometry — avoid as a default). ``OCC`` forces the
-    whole-file OCC reader (needed for scale/transform/rotate-on-import)."""
+    whole-file OCC reader (needed for scale/transform/rotate-on-import). ``NATIVE`` forces
+    adacpp's C++ NGEOM parser (fastest; ``AUTO`` probes it first when adacpp is available)."""
 
     AUTO = "auto"
     STREAM = "stream"
     TOLERANT = "tolerant"
     OCC = "occ"
+    NATIVE = "native"
 
 
 @dataclass
@@ -102,8 +149,8 @@ class CadConfig:
     ``ada.from_step(..., cad_config=cfg)``)."""
 
     path: TessellationPath = TessellationPath.OCC
-    deflection: float = 2.0
-    angular_deg: float = 20.0
+    deflection: float = DEFAULT_STREAM_TESS_DEFLECTION
+    angular_deg: float = DEFAULT_STREAM_TESS_ANGULAR_DEG
     simplify: bool = False  # meshopt cleanup (step2glb merge parity); adacpp paths only
     # The STEP read path the factories default to. AUTO = constant-memory streaming with an OCC
     # fallback for out-of-scope files — the most memory-efficient + robust default. Override per

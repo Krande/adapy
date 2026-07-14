@@ -7,6 +7,10 @@ type ObjectInfoState = {
     setFaceIndex: (faceIndex: number | null) => void;
     clickCoordinate: { x: number; y: number, z: number } | null;
     setClickCoordinate: (clickCoordinate: { x: number; y: number, z: number } | null) => void;
+    // Source face region of the last click (opt-in face-level picking): STEP/IFC entity id + the
+    // 0-based face index within the solid. null when face picking is off or unavailable.
+    clickedFace: { faceId: number; seq: number } | null;
+    setClickedFace: (clickedFace: { faceId: number; seq: number } | null) => void;
     jsonData: any | null;
     setJsonData: (jsonData: any | null) => void;
     // Source file owning the currently-selected object. Passed back
@@ -25,6 +29,8 @@ export const useObjectInfoStore = create<ObjectInfoState>((set) => ({
     setFaceIndex: (faceIndex) => set(() => ({faceIndex})),
     clickCoordinate: null,
     setClickCoordinate: (clickCoordinate) => set(() => ({clickCoordinate})),
+    clickedFace: null,
+    setClickedFace: (clickedFace) => set(() => ({clickedFace})),
     jsonData: null,
     setJsonData: (jsonData) => set(() => ({jsonData})),
     fileName: null,

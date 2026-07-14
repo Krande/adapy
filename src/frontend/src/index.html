@@ -12,6 +12,18 @@
           Hosted viewer mode injects window.COMMS_MODE / window.API_BASE
           via /config.js. In Vite dev or embedded mode the request 404s
           and the comms picker falls back to the WS default.
+
+          MUST stay a blocking (non-defer) classic script. Vite emits the
+          SPA entry as a module in <head> (<script type="module">), which is
+          implicitly deferred. Deferred scripts (modules + `defer` classics)
+          run in DOCUMENT ORDER after parsing, so a `defer` here would run
+          config.js AFTER the head entry module — the SPA would read
+          window.AUTH_*/COMMS_MODE before config.js set them and bootstrap
+          with no auth config (empty "signed in as", no admin button, comms
+          falling back). A blocking classic script instead runs during parse
+          (in the body, before the deferred head module executes), so the
+          globals are in place when the SPA reads them. /config.js is served
+          in ~20ms, so blocking is not a meaningful render cost anyway.
         -->
         <script src="/config.js" onerror="this.remove()"></script>
         <script type="module" src="index.tsx"></script>

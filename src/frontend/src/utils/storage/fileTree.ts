@@ -98,6 +98,15 @@ export function buildFileTree<T>(
     return root.children;
 }
 
+// Short bullet list of keys for delete-confirmation dialogs — first
+// ``max`` entries, then an "…and N more" line. Keeps the confirm()
+// readable when the selection (or folder) holds hundreds of files.
+export function previewKeyList(keys: readonly string[], max = 15): string {
+    const shown = keys.slice(0, max).map((k) => `  • ${k}`);
+    if (keys.length > max) shown.push(`  …and ${keys.length - max} more`);
+    return shown.join("\n");
+}
+
 // Persisted per-scope so expand state survives reloads but doesn't
 // leak across scopes. Caller passes a ``namespace`` (e.g. "storage"
 // for the regular browser, "admin-storage" for the admin table) so

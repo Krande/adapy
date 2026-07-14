@@ -3,7 +3,8 @@ import {prepareLoadedModel} from "./prepareLoadedModel";
 import {useModelState} from "@/state/modelState";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useAnimationStore} from "@/state/animationStore";
-import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef, adaExtensionRef} from "@/state/refs";
+import {animationControllerRef, cameraRef, controlsRef, modelKeyMapRef, sceneRef, simulationDataRef, adaExtensionRef} from "@/state/refs";
+import {zoomToAll} from "./setupCameraControlsHandlers";
 import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 import {requestRender} from "@/state/perfStore";
 import {FilePurpose} from "@/flatbuffers/base/file-purpose";
@@ -14,6 +15,7 @@ import {AnimationController} from "@/utils/scene/animations/AnimationController"
 import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
 import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
 import {fastSceneBox} from "@/utils/scene/boundsFast";
+import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 
 /** Optional hook to mutate the freshly-loaded gltf scene (typically
  * to inject ``userData["draw_ranges_<meshName>"]`` and
@@ -172,6 +174,31 @@ export async function setupModelLoaderAsync(
     if (animations.length > 0) {
         // Set the hasAnimation flag to true in the store
         animationStore.setHasAnimation(true);
+    }
+
+    // Adapt near/far clipping to the loaded model's size so small models can be zoomed into without
+    // near-plane clipping — independent of autoFit (zoomToAll re-applies it, but this covers the
+    // autoFit-off case too). Uses the model bounding box captured above / in the store.
+    {
+        const cam = cameraRef.current;
+        const ctl = controlsRef.current;
+        const box = useModelState.getState().boundingBox; // fresh — setBoundingBox ran above
+        if (cam && box && !box.isEmpty()) {
+            const radius = box.getBoundingSphere(new THREE.Sphere()).radius;
+            applyAdaptiveClipping(cam as THREE.PerspectiveCamera, ctl, radius);
+        }
+    }
+
+    // Auto fit-to-all after the model is in the scene (scene-config toggle, default on) —
+    // frames a freshly loaded model, and each geom cycled through in gallery mode, without a
+    // manual Shift+A. Deferred a frame so the just-added meshes' world bounds are current.
+    if (optionsStore.autoFit) {
+        const cam = cameraRef.current;
+        const ctl = controlsRef.current;
+        const scn = sceneRef.current;
+        if (cam && ctl && scn) {
+            requestAnimationFrame(() => zoomToAll(scn, cam as THREE.PerspectiveCamera, ctl));
+        }
     }
     return modelGroup;
 }

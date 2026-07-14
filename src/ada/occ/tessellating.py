@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections import Counter as _Counter
 from dataclasses import dataclass, field
 from itertools import groupby
 from typing import TYPE_CHECKING, Iterable
@@ -42,6 +43,96 @@ def _is_topods_shape(shape) -> bool:
     except ModuleNotFoundError:
         return False
     return isinstance(shape, TopoDS_Shape)
+
+
+# Per-conversion tally of silent NGEOM(libtess2/adacpp-*)->OCC tessellation fallbacks. Incremented
+# at the single choke point (_log_tess_fallback), which is only reached when a stream pipeline was
+# actually selected — so every hit is a genuine "the OCC-free path fell back to OCC" event. The
+# convert subprocess reads + resets this at teardown and emits it to the audit (convert_meta), so a
+# conversion that quietly completed on OCC instead of libtess2 is flagged rather than invisible.
+TESS_FALLBACK_STATS: dict = {"count": 0, "reasons": _Counter(), "geoms": _Counter()}
+
+
+def _record_tess_fallback(reason: str, geom_type: str) -> None:
+    TESS_FALLBACK_STATS["count"] += 1
+    # Keep the reason label short + bounded (the strings are fixed call-site literals).
+    TESS_FALLBACK_STATS["reasons"][reason.split(":")[0][:40]] += 1
+    TESS_FALLBACK_STATS["geoms"][geom_type] += 1
+
+
+def consume_tess_fallback_stats() -> dict:
+    """Return the accumulated fallback tally and reset it (per-conversion scope)."""
+    s = {
+        "count": int(TESS_FALLBACK_STATS["count"]),
+        "reasons": dict(TESS_FALLBACK_STATS["reasons"]),
+        "geoms": dict(TESS_FALLBACK_STATS["geoms"]),
+    }
+    TESS_FALLBACK_STATS["count"] = 0
+    TESS_FALLBACK_STATS["reasons"].clear()
+    TESS_FALLBACK_STATS["geoms"].clear()
+    return s
+
+
+# Per-conversion tally of "crows-nest" spike triangles across every tessellated mesh. Fed by the
+# scene builders as they collect meshes (raw triangles, so no meshopt decode) and read out at
+# teardown into convert_meta for a per-cell audit flag. A spike is a thin (needle: aspect =
+# emax^2 / 2*area large) triangle that touches an OUTLIER vertex — one whose distance from the mesh's
+# robust (median) centroid exceeds _SPIKE_OUTLIER_K × the median vertex distance, i.e. a vertex shot
+# out past the body. The outlier test is what separates a real spike from benign geometry that a
+# raw aspect/reach test over-flags: a deep thin extrusion's side slivers, or a coarse curved surface,
+# are thin and reach across the bbox but their vertices sit ON the body, not outside it. Mirrors the
+# frontend meshStats "maxSpike" metric that drives the "distorted" gallery walk.
+_DISTORTION_ASPECT = 8.0  # emax^2/(2*area) above this = thin/needle (equilateral ~= 3.5)
+_SPIKE_OUTLIER_K = 4.0  # vertex dist > this × median vertex dist from the centroid = an outlier
+_DISTORTION_SAMPLE_CAP = 300_000  # sample huge meshes so the scan stays sub-ms; count is scaled back
+MESH_DISTORTION_STATS: dict = {"n_tris": 0, "distorted": 0}
+
+
+def accumulate_mesh_distortion(positions, indices) -> None:
+    """Tally crows-nest spike triangles in one mesh (best-effort, vectorized, sampled)."""
+    try:
+        v = np.asarray(positions, dtype=float).reshape(-1, 3)
+        idx = np.asarray(indices, dtype=np.int64).reshape(-1, 3)
+    except Exception:  # noqa: BLE001 - a malformed buffer must never fail a conversion
+        return
+    n = len(idx)
+    if n == 0 or len(v) == 0:
+        return
+    # Outlier vertices: distance from the median-per-axis centroid > K × the median distance.
+    centroid = np.median(v, axis=0)
+    vdist = np.linalg.norm(v - centroid, axis=1)
+    med = float(np.median(vdist))
+    is_outlier = (vdist > _SPIKE_OUTLIER_K * med) if med > 1e-9 else np.zeros(len(v), dtype=bool)
+    scale = 1.0
+    if n > _DISTORTION_SAMPLE_CAP:
+        step = n // _DISTORTION_SAMPLE_CAP + 1
+        idx = idx[::step]
+        scale = n / max(len(idx), 1)
+    tv = v[idx]
+    e0 = tv[:, 1] - tv[:, 0]
+    area2 = np.linalg.norm(np.cross(e0, tv[:, 2] - tv[:, 0]), axis=1)  # 2*area
+    emax = np.maximum.reduce(
+        [
+            np.linalg.norm(e0, axis=1),
+            np.linalg.norm(tv[:, 2] - tv[:, 1], axis=1),
+            np.linalg.norm(tv[:, 0] - tv[:, 2], axis=1),
+        ]
+    )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        aspect = np.where(area2 > 1e-20, emax * emax / area2, np.inf)
+    touches_outlier = is_outlier[idx].any(axis=1)  # any of the tri's 3 vertices is an outlier
+    distorted = int(((aspect > _DISTORTION_ASPECT) & touches_outlier & (emax > 1e-9)).sum())
+    MESH_DISTORTION_STATS["n_tris"] += int(n)
+    MESH_DISTORTION_STATS["distorted"] += int(round(distorted * scale))
+
+
+def consume_mesh_distortion_stats() -> dict:
+    """Return the distortion tally and reset it (per-conversion scope)."""
+    n = int(MESH_DISTORTION_STATS["n_tris"])
+    d = int(MESH_DISTORTION_STATS["distorted"])
+    MESH_DISTORTION_STATS["n_tris"] = 0
+    MESH_DISTORTION_STATS["distorted"] = 0
+    return {"n_tris": n, "distorted_tris": d, "distorted_frac": (d / n if n else 0.0)}
 
 
 def _mesh_store_area(ms) -> float:
@@ -152,6 +243,36 @@ def _vertex_normals(positions: np.ndarray, faces: np.ndarray) -> np.ndarray:
     return (normals / lengths).reshape(-1).astype("float32")
 
 
+def _emit_with_geom_transforms(ms: "MeshStore", ada_obj):
+    """Yield ``ms`` once per world transform on the object's Geometry wrapper, baking each 4x4
+    into the vertex positions (and inverse-transpose into the normals, so non-uniform scale renders
+    correctly). ``Geometry.transforms`` carries per-instance placements the geometry itself can't
+    hold — e.g. an IfcMappedItem instanced N times, or a mapped item with a non-rigid (scale/shear)
+    transform that can't be baked into an analytic solid. No transforms → yield ``ms`` unchanged."""
+    transforms = getattr(getattr(ada_obj, "geom", None), "transforms", None)
+    if not transforms:
+        yield ms
+        return
+    base = np.asarray(ms.position, dtype=np.float64).reshape(-1, 3)
+    base_n = None
+    if ms.normal is not None and len(ms.normal):
+        base_n = np.asarray(ms.normal, dtype=np.float64).reshape(-1, 3)
+    for mat in transforms:
+        m = np.asarray(mat, dtype=np.float64)
+        pos = (np.c_[base, np.ones(len(base))] @ m.T)[:, :3].astype(np.float32).reshape(-1)
+        nrm = None
+        if base_n is not None:
+            try:
+                nm = np.linalg.inv(m[:3, :3]).T  # inverse-transpose: correct under non-uniform scale
+            except np.linalg.LinAlgError:
+                nm = m[:3, :3]
+            n = base_n @ nm.T
+            ln = np.linalg.norm(n, axis=1, keepdims=True)
+            ln[ln == 0] = 1.0
+            nrm = (n / ln).astype(np.float32).reshape(-1)
+        yield MeshStore(ms.index, ms.matrix, pos, ms.indices, nrm, ms.material, ms.type, ms.node_ref)
+
+
 def _thicken_face_mesh(positions: np.ndarray, faces: np.ndarray, thickness: float):
     """Extrude an open face mesh into a closed thin solid along a single vector — the
     area-weighted average surface normal × ``thickness`` — matching OCC's
@@ -200,7 +321,10 @@ def tessellate_edges(shape: TopoDS_Edge, deflection=0.01) -> LineMesh:
     if shape.ShapeType() == TopAbs_EDGE:
         edges = [shape]
     else:
-        edges = list(TopologyExplorer(shape).edges()) or [shape]
+        # A shape with no edges at all (e.g. an empty compound from a
+        # geometry-less STEP product) has nothing to discretize — passing the
+        # shape itself would trip discretize_edge's TopoDS_Edge assert.
+        edges = list(TopologyExplorer(shape).edges())
 
     verts: list = []
     indices: list = []
@@ -590,6 +714,20 @@ class BatchTessellator:
                 if fixed is not None:
                     tess_shape = tessellate_shape(fixed, self.quality, self.render_edges, self.parallel)
                     indices = tess_shape.faces
+            if len(indices) == 0:
+                # Wire-only body (e.g. a GEOMETRIC_CURVE_SET STEP wireframe read
+                # back through the OCC fallback reader): there is no face to
+                # mesh, but the edges are real geometry — downgrade to line
+                # rendering instead of returning an empty mesh. Guarded so a
+                # non-OCC handle just keeps the empty result.
+                try:
+                    edge_tess = tessellate_edges(occ_geom)
+                except Exception:  # noqa: BLE001
+                    edge_tess = None
+                if edge_tess is not None and len(edge_tess.positions):
+                    tess_shape = edge_tess
+                    indices = edge_tess.indices
+                    mesh_type = MeshType.LINES
 
         mat_id = self.material_store.get(geom_color, None)
         if mat_id is None:
@@ -613,20 +751,30 @@ class BatchTessellator:
         ada.geom.curve_discretize sampler — parity-tested against OCC discretize_edge). Also lets
         line geometry render on wasm (no pythonocc). Returns None for curve kinds with no native
         sampler (e.g. B-spline), which fall through to the OCC discretization path."""
+        import ada.geom.curves as geo_cu
         from ada.geom.curve_discretize import discretize_curve
 
         deflection = float(os.environ.get("ADA_LINE_DEFLECTION", "0.01"))
-        pts = discretize_curve(geom.geometry, deflection=deflection)
-        if not pts or len(pts) < 2:
+        # A GeometricCurveSet is several independent curves in one body — each
+        # element gets its own polyline (no connector segment between them).
+        curves = geom.geometry.elements if isinstance(geom.geometry, geo_cu.GeometricCurveSet) else [geom.geometry]
+        pts: list = []
+        idx: list = []
+        for c in curves:
+            c_pts = discretize_curve(c, deflection=deflection)
+            if not c_pts or len(c_pts) < 2:
+                return None  # unsupported element — fall back to the OCC path
+            off = len(pts)
+            pts.extend(c_pts)
+            # GL_LINES endpoint pairs: (0,1),(1,2),... — connected polyline (the
+            # glTF store reshapes indices to (n/2, 2) segments).
+            for i in range(len(c_pts) - 1):
+                idx.extend((off + i, off + i + 1))
+        if len(pts) < 2:
             return None
 
         # Flat xyz buffer (the gltf store does position.reshape(len/3, 3)).
         position = np.array([c for p in pts for c in (float(p[0]), float(p[1]), float(p[2]))], dtype=np.float32)
-        # GL_LINES endpoint pairs: (0,1),(1,2),... — connected polyline (the glTF store reshapes
-        # indices to (n/2, 2) segments).
-        idx: list = []
-        for i in range(len(pts) - 1):
-            idx.extend((i, i + 1))
         mat_id = self.material_store.get(geom.color, None)
         if mat_id is None:
             mat_id = len(self.material_store)
@@ -634,6 +782,50 @@ class BatchTessellator:
         return MeshStore(
             node_ref, None, position, np.array(idx, dtype=np.uint32), None, mat_id, MeshType.LINES, node_ref
         )
+
+    def _direct_triangulated_meshstore(self, geom: Geometry, node_ref) -> MeshStore | None:
+        """Face-set geometry that already IS (or trivially becomes) a triangle mesh — emit it
+        directly instead of round-tripping through a kernel build + re-tessellation:
+
+          * TriangulatedFaceSet (IfcTriangulatedFaceSet) — coords + triangle index list as-is.
+          * PolygonalFaceSet (IfcPolygonalFaceSet) — shared coords + n-gon faces; fan-triangulate
+            each face in 3D. This keeps the ORIGINAL vertices (unlike inferring a plane and
+            projecting, which flattens non-planar faces and wrecks the mesh), and no backend has a
+            B-rep build for it — so without this it falls back to OCC.
+
+        Returns None for every other kind."""
+        import ada.geom.surfaces as geo_su
+
+        g = geom.geometry
+        normal = None
+        if isinstance(g, geo_su.TriangulatedFaceSet):
+            if not g.coordinates or not g.indices:
+                return None
+            position = np.asarray(g.coordinates, dtype=np.float32).reshape(-1)
+            indices = np.asarray(g.indices, dtype=np.uint32) - 1  # IFC indices are 1-based
+            if g.normals and len(g.normals) == len(g.coordinates):
+                normal = np.asarray(g.normals, dtype=np.float32).reshape(-1)
+        elif isinstance(g, geo_su.PolygonalFaceSet):
+            if not g.coordinates or not g.faces:
+                return None
+            position = np.asarray([list(p)[:3] for p in g.coordinates], dtype=np.float32).reshape(-1)
+            n_coords = len(g.coordinates)
+            tri: list[int] = []
+            for face in g.faces:
+                f = [i - 1 for i in face if 0 < i <= n_coords]  # IFC 1-based -> 0-based
+                for k in range(1, len(f) - 1):  # fan-triangulate the n-gon (keeps 3D vertices)
+                    tri += (f[0], f[k], f[k + 1])
+            if not tri:
+                return None
+            indices = np.asarray(tri, dtype=np.uint32)
+        else:
+            return None
+
+        mat_id = self.material_store.get(geom.color, None)
+        if mat_id is None:
+            mat_id = len(self.material_store)
+            self.material_store[geom.color] = mat_id
+        return MeshStore(node_ref, None, position, indices, normal, mat_id, MeshType.TRIANGLES, node_ref)
 
     def tessellate_geom(
         self,
@@ -653,6 +845,12 @@ class BatchTessellator:
         # without a native sampler (e.g. B-spline) return None and fall to the OCC path below.
         if mesh_type == MeshType.LINES:
             direct = self._direct_line_meshstore(geom, node_ref)
+            if direct is not None:
+                return direct
+
+        # Pre-tessellated geometry: pass the triangles straight through.
+        if mesh_type == MeshType.TRIANGLES:
+            direct = self._direct_triangulated_meshstore(geom, node_ref)
             if direct is not None:
                 return direct
 
@@ -712,6 +910,7 @@ class BatchTessellator:
             inner = getattr(geom, "geometry", geom)
             gt = type(getattr(inner, "geometry", inner)).__name__
         msg = f"NGEOM pipeline {pipeline!r} fell back to OCC for {node_ref!r} (geom={gt}): {reason}"
+        _record_tess_fallback(reason, gt)
         # Strict mode: a fall back to OCC is a hard failure, so a conversion can enforce/measure
         # 100% stream-kernel (libtess2/adacpp-*) coverage rather than silently completing on OCC.
         if os.environ.get("ADA_STREAM_TESS_STRICT", "").strip().lower() not in ("", "0", "false", "no", "off"):
@@ -728,32 +927,81 @@ class BatchTessellator:
         pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE") or force_pipeline
         if not pipeline:
             return None
+        # A pre-triangulated / polygonal face set is already a mesh — emit it directly (3D
+        # fan-triangulation, original vertices). libtess2 can't take it and inferring a plane per
+        # face would flatten non-planar faces; this keeps it OCC-free without that distortion.
+        direct = self._direct_triangulated_meshstore(geom, node_ref)
+        if direct is not None:
+            return direct
         be = active_backend()
         if not hasattr(be, "tessellate_stream"):
             self._log_tess_fallback(node_ref, pipeline, "active backend has no tessellate_stream", geom)
             return None
-        gi = geom.geometry.geometry if hasattr(geom.geometry, "geometry") else geom.geometry
-        defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
-        ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+        # Pass the Geometry wrapper through: the serializer unwraps it and folds any
+        # bool_operations into a BOOLEAN_RESULT chain, so IFC clipping cuts and API
+        # booleans reach the stream kernel instead of being dropped with the wrapper.
+        from ada.cad.registry import stream_tess_defaults, stream_tess_model_scale
+
+        defl, ang = stream_tess_defaults()
         try:
-            bm = be.tessellate_stream([(str(node_ref), gi)], pipeline=pipeline, deflection=defl, angular_deg=ang)
+            bm = be.tessellate_stream(
+                [(str(node_ref), geom)],
+                pipeline=pipeline,
+                deflection=defl,
+                angular_deg=ang,
+                model_scale=stream_tess_model_scale(),
+            )
         except Exception as e:  # noqa: BLE001 - fall back to the OCC build path on any stream failure
             self._log_tess_fallback(node_ref, pipeline, f"tessellate_stream raised {type(e).__name__}: {e}", geom)
             return None
+        ms = self._mesh_store_from_batch(bm, node_ref, geom.color)
+        if ms is None:
+            self._log_tess_fallback(node_ref, pipeline, "empty mesh (geom type not NGEOM-serializable)", geom)
+        return ms
+
+    def _tessellate_blob_via_stream(self, blob, node_ref, color) -> MeshStore | None:
+        """Tessellate a lazy shape's stored NGEOM buffer directly — no hydration, no
+        re-serialization: the ShapeStore blob goes straight to the C++ kernel."""
+        pipeline = os.environ.get("ADA_STREAM_TESS_PIPELINE")
+        if not pipeline:
+            return None
+        be = active_backend()
+        if not hasattr(be, "tessellate_stream_buffer"):
+            return None
+        from ada.cad.registry import stream_tess_defaults, stream_tess_model_scale
+
+        defl, ang = stream_tess_defaults()
+        try:
+            bm = be.tessellate_stream_buffer(
+                blob, pipeline=pipeline, deflection=defl, angular_deg=ang, model_scale=stream_tess_model_scale()
+            )
+        except Exception as e:  # noqa: BLE001 - fall back to the hydrate path on any stream failure
+            self._log_tess_fallback(
+                node_ref, pipeline, f"tessellate_stream_buffer raised {type(e).__name__}: {e}", None
+            )
+            return None
+        return self._mesh_store_from_batch(bm, node_ref, color)
+
+    def _mesh_store_from_batch(self, bm, node_ref, color) -> MeshStore | None:
         pos = getattr(bm, "positions", None)
         idx = getattr(bm, "indices", None)
         if pos is None or idx is None or len(idx) == 0:
-            self._log_tess_fallback(node_ref, pipeline, "empty mesh (geom type not NGEOM-serializable)", geom)
             return None
         pos = np.ascontiguousarray(pos, dtype=np.float32)
         idx = np.ascontiguousarray(idx, dtype=np.uint32)
         nrm = getattr(bm, "normals", None)
         nrm = np.ascontiguousarray(nrm, dtype=np.float32) if nrm is not None and len(nrm) else None
-        mat_id = self.material_store.get(geom.color, None)
+        mat_id = self.material_store.get(color, None)
         if mat_id is None:
             mat_id = len(self.material_store)
-            self.material_store[geom.color] = mat_id
-        return MeshStore(node_ref, None, pos, idx, nrm, mat_id, MeshType.TRIANGLES, node_ref)
+            self.material_store[color] = mat_id
+        # Curve-only bodies (alignment axes, trimmed/segmented curves) tessellate to LINES;
+        # the batch carries the glTF primitive mode so they render as lines, not triangles.
+        try:
+            mtype = MeshType.from_int(getattr(bm, "mesh_type", 4))
+        except ValueError:
+            mtype = MeshType.TRIANGLES
+        return MeshStore(node_ref, None, pos, idx, nrm, mat_id, mtype, node_ref)
 
     def batch_tessellate(
         self,
@@ -766,15 +1014,34 @@ class BatchTessellator:
 
         for obj in objects:
             if isinstance(obj, BackendGeom):
+                from ada.api.shapes import ShapeProxy
+
                 ada_obj = obj
                 geom_repr = render_override.get(obj.guid, GeomRepr.SOLID)
                 # A Shape carrying a bare curve geometry (sectionless SAT wire body, open
-                # wireframe) has no solid/shell — render it as glTF line geometry.
+                # wireframe — incl. one round-tripped through IFC into the lazy store) has
+                # no solid/shell — render it as glTF line geometry. Lazy proxies answer
+                # from their store record instead of hydrating the whole tree.
                 if geom_repr == GeomRepr.SOLID:
-                    _g = getattr(obj, "geom", None)
-                    if _g is not None and isinstance(getattr(_g, "geometry", None), _CURVE_GEOM_TUPLE):
-                        geom_repr = GeomRepr.LINE
+                    if isinstance(obj, ShapeProxy):
+                        if obj.is_bare_curve():
+                            geom_repr = GeomRepr.LINE
+                    else:
+                        _g = getattr(obj, "geom", None)
+                        if _g is not None and isinstance(getattr(_g, "geometry", None), _CURVE_GEOM_TUPLE):
+                            geom_repr = GeomRepr.LINE
                 node_ref = graph_store.hash_map.get(obj.guid) if graph_store is not None else getattr(obj, "guid", None)
+
+                # Lazy-blob fast path: a ShapeProxy backed by an NGEOM buffer tessellates
+                # straight from the stored blob when the stream kernel is selected — no
+                # ada.geom hydration and no re-serialization for the whole model.
+                if geom_repr == GeomRepr.SOLID and isinstance(obj, ShapeProxy):
+                    blob = obj.ngeom_blob()
+                    if blob is not None:
+                        ms_blob = self._tessellate_blob_via_stream(blob, node_ref, obj.color)
+                        if ms_blob is not None:
+                            yield ms_blob
+                            continue
 
                 # PlateCurved: prism-extrude the BSpline face by
                 # thickness so the GLB ships a solid (matching what
@@ -1090,6 +1357,19 @@ class BatchTessellator:
                 logger.error(e)
             except UnableToCreateCurveOCCGeom as e:
                 logger.error(e)
+            except TessellationFallbackError:
+                raise  # strict mode: a kernel fallback must fail the conversion, not skip a shape
+            except Exception as e:  # noqa: BLE001
+                # A single unbuildable shape (e.g. a B-rep face whose trim wire
+                # won't reconstruct) must not sink the whole export — log loudly
+                # and continue with the rest of the model. tessellate_geom has
+                # already logged the full context at ERROR before re-raising.
+                logger.error(
+                    "skipping %s %r after tessellation failure: %s",
+                    type(ada_obj).__name__ if ada_obj is not None else "geometry",
+                    getattr(ada_obj, "name", None),
+                    e,
+                )
             if ms is not None:
                 # Treat an empty MeshStore the same as a thrown
                 # tessellation error: BRepMesh produced 0 triangles
@@ -1103,7 +1383,7 @@ class BatchTessellator:
                 pos_n = 0 if pos is None else (len(pos) if hasattr(pos, "__len__") else 0)
                 idx_n = 0 if idx is None else (len(idx) if hasattr(idx, "__len__") else 0)
                 if pos_n > 0 and idx_n > 0:
-                    yield ms
+                    yield from _emit_with_geom_transforms(ms, ada_obj)
                     continue
                 logger.error(
                     "PlateCurved %r: tessellation produced empty mesh (pos=%d idx=%d)",
@@ -1204,15 +1484,19 @@ class BatchTessellator:
     ) -> trimesh.Scene:
         import trimesh
 
-        all_shapes = sorted(shapes_tess_iter, key=lambda x: x.material)
+        # Group by (material, mesh type): a merged glTF primitive is a single type, and
+        # concatenate_stores can't mix triangle stores (with normals) and line/point stores
+        # (without) — a scene carrying both solids and line geometry (e.g. an alignment reference
+        # curve alongside a swept solid) would otherwise crash the normal concatenation.
+        all_shapes = sorted(shapes_tess_iter, key=lambda x: (x.material, x.type.value))
 
         # filter out all shapes associated with an animation,
         base_frame = graph.top_level.name if graph is not None else "root"
 
         scene = trimesh.Scene(base_frame=base_frame)
-        for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
+        for (mat_id, _mtype), meshes in groupby(all_shapes, lambda x: (x.material, x.type)):
             if merge_meshes:
-                merged_store = concatenate_stores(meshes)
+                merged_store = concatenate_stores(list(meshes))
                 merged_mesh_to_trimesh_scene(
                     scene, merged_store, self.get_mat_by_id(mat_id), mat_id, graph, apply_transform=apply_transform
                 )
@@ -1247,8 +1531,15 @@ class BatchTessellator:
             graph_store=graph,
         )
 
+        # Tally distorted (degenerate/sliver) triangles for the per-cell audit flag as meshes
+        # stream past — raw triangles, before GLB/meshopt encoding. Best-effort, never alters output.
+        def _scanned(it):
+            for ms in it:
+                accumulate_mesh_distortion(getattr(ms, "position", None), getattr(ms, "indices", None))
+                yield ms
+
         scene = self.meshes_to_trimesh(
-            shapes_tess_iter, graph, merge_meshes=params.merge_meshes, apply_transform=params.apply_transform
+            _scanned(shapes_tess_iter), graph, merge_meshes=params.merge_meshes, apply_transform=params.apply_transform
         )
 
         return scene

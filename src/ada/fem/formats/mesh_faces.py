@@ -56,13 +56,20 @@ class MergeStrategy(str, Enum):
 
 @dataclass
 class FaceData:
-    """A single planar CAD face, as raw data (no Plate object)."""
+    """A single CAD face, as raw data (no Plate object).
+
+    Planar faces carry their ``outline``; the analytic strategies (SURFACE /
+    PANEL) additionally emit recognised curved patches with ``geom_face`` set
+    to the analytic ``ada.geom`` AdvancedFace (trimmed cylinder / B-spline
+    panel) — ``outline`` is empty for those and consumers that can only take
+    polygons must request ``allow_analytic=False`` instead."""
 
     name: str
     outline: np.ndarray  # (k, 3) global coordinates
     normal: np.ndarray  # (3,) unit normal
     material: str
     thickness: float
+    geom_face: object | None = None  # ada.geom.surfaces.AdvancedFace for analytic patches
 
 
 # ── substrate ───────────────────────────────────────────────────────────────
@@ -1163,6 +1170,102 @@ def iter_fem_analytic_faces(
                     yield _facet_flat_face(prims, j)
 
 
+def _analytic_face_data(
+    fem,
+    ndigits: int,
+    *,
+    reconstruct_curved: bool,
+    allow_analytic: bool,
+    angle_tol: float = 30.0,
+    min_patch_quads: int = 12,
+) -> Iterator[FaceData]:
+    """SURFACE/PANEL strategies as :class:`FaceData` (the plate-metadata form).
+
+    Same patch machinery as :func:`iter_fem_analytic_faces`, with one addition it
+    doesn't need: every analytic face must carry a valid (material, thickness)
+    pair — the analytic iterator feeds a surface model where that metadata is
+    irrelevant, but a FaceData consumer builds plates from it. Cylinder patches
+    are therefore subdivided by (material, thickness) before fitting; a tube
+    whose wall thickness changes mid-length becomes one analytic face per
+    uniform segment. Patches that fail the fit — or all of them when
+    ``allow_analytic`` is False — fall to the coplanar flat merge, so geometry
+    is never dropped."""
+    prims = _combined_shell_primitives(fem)
+    if prims is None or len(prims) == 0:
+        return
+
+    patches = list(_surface_patches(prims, angle_tol, ndigits))
+    patch_cls = [(pt, classify_patch(prims, pt) if len(pt) >= min_patch_quads else "planar") for pt in patches]
+
+    consumed_elids: set = set()
+    if reconstruct_curved:
+        # Structured-quad B-spline pass (PANEL): per quad block, split into uniform
+        # (material, thickness) sub-blocks so each recovered panel face carries
+        # plate metadata; cylinder patches stay analytic below.
+        cyl_elids = {_elid_of(prims.names[j]) for pt, c in patch_cls if c == "cylinder" for j in pt}
+        for blk in _shell_blocks(fem):
+            if blk.conn.shape[1] != 4:
+                continue
+            groups: dict[tuple, list[int]] = {}
+            for r in range(blk.conn.shape[0]):
+                groups.setdefault((blk.materials[r], round(float(blk.thicknesses[r]), ndigits)), []).append(r)
+            for (mat, _tq), rows in groups.items():
+                idx = np.asarray(rows, dtype=np.int64)
+                sub = _ShellBlock(
+                    coords=blk.coords,
+                    conn=blk.conn[idx],
+                    el_ids=blk.el_ids[idx],
+                    materials=[blk.materials[r] for r in rows],
+                    thicknesses=blk.thicknesses[idx],
+                )
+                t = float(blk.thicknesses[rows[0]])
+                for face, panel_elids in _reconstruct_curved_panels(
+                    sub, cyl_elids, ndigits, angle_tol, min_patch_quads
+                ):
+                    if allow_analytic:
+                        yield FaceData(
+                            f"panel_e{min(panel_elids)}", np.empty((0, 3)), np.zeros(3), mat, t, geom_face=face
+                        )
+                        consumed_elids.update(panel_elids)
+                    # allow_analytic=False: leave the elements in the flat remainder.
+
+    cyl_prims: set = set()
+    if allow_analytic:
+        for patch, cls in patch_cls:
+            if cls != "cylinder":
+                continue
+            groups2: dict[tuple, list[int]] = {}
+            for j in patch:
+                if _elid_of(prims.names[j]) in consumed_elids:
+                    continue
+                groups2.setdefault((prims.mats[j], round(float(prims.ts[j]), ndigits)), []).append(j)
+            for (mat, _tq), sub_patch in groups2.items():
+                if len(sub_patch) < min_patch_quads:
+                    continue  # too small a uniform segment — flat merge handles it
+                cf = fit_cylinder_params(prims, sub_patch)
+                if cf is None:
+                    continue
+                # Joint-cut trimmed faces: bounded to the patch's real extent (a brace
+                # cut at a joint stops at the cut, not the full tube). Each edge carries
+                # a UV pcurve, which the IFC B-rep emitter now writes as
+                # IfcSurfaceCurve/IfcPcurve and the reader recovers — so these round-trip.
+                # Fall back to the full seam-template tube only if the trim won't resolve.
+                faces = cylinder_trim_faces(prims, sub_patch, cf, ndigits) or cylinder_fit_to_faces(cf)
+                t = float(prims.ts[sub_patch[0]])
+                base = _elid_of(prims.names[sub_patch[0]])
+                for i, face in enumerate(faces):
+                    yield FaceData(f"cyl_e{base}_{i}", np.empty((0, 3)), np.zeros(3), mat, t, geom_face=face)
+                cyl_prims.update(sub_patch)
+
+    remainder = [
+        j
+        for j in range(len(prims))
+        if j not in cyl_prims and (not consumed_elids or _elid_of(prims.names[j]) not in consumed_elids)
+    ]
+    if remainder:
+        yield from _coplanar_subset(prims, remainder, ndigits)
+
+
 @dataclass
 class _Tube:
     """One tube member for the solids path: a fitted cylinder's mid-surface radius ``r`` + wall
@@ -1512,7 +1615,12 @@ def classify_patch(prims: "_Primitives", patch: list[int], *, plane_tol: float =
 
 
 def faces_from_fem(
-    fem, strategy=MergeStrategy.COPLANAR, ndigits: int = 6, *, max_dev: float | None = None
+    fem,
+    strategy=MergeStrategy.COPLANAR,
+    ndigits: int = 6,
+    *,
+    max_dev: float | None = None,
+    allow_analytic: bool = True,
 ) -> Iterator[FaceData]:
     """Yield merged CAD faces for a single ``FEM`` mesh (one part).
 
@@ -1523,11 +1631,27 @@ def faces_from_fem(
     ``PLANAR`` grows flat patches (within ``max_dev``, auto if None) and emits one
     flat face per patch — the near-term FEM→CAD plate-count reducer that recovers
     large flat panels coplanar's exact bucketing misses and piecewise-flattens curved
-    skin. ``SURFACE`` (curved → one B-spline face) is not wired into the writer yet."""
+    skin.
+
+    ``SURFACE`` runs the analytic auto-detect over the whole mesh: cylinder
+    patches (split by material+thickness so each face carries valid plate
+    metadata) emit as trimmed analytic AdvancedFaces via ``geom_face``; the
+    remainder falls to the coplanar merge. ``PANEL`` adds the structured-quad
+    B-spline curved-panel pass on top (its grid recovery can over-merge folded
+    regions — see :func:`iter_fem_analytic_faces` — so it stays opt-in).
+    ``allow_analytic=False`` keeps those strategies polygon-only for consumers
+    that can't express curved surfaces (Genie XML): recognised patches then
+    merge as their coplanar flats instead — geometry is never dropped."""
     strategy = MergeStrategy.from_value(strategy)
-    if strategy in (MergeStrategy.SURFACE, MergeStrategy.PANEL):
-        raise NotImplementedError(f"merge strategy {strategy.value!r} not yet wired into the vectorized face source")
     if fem is None or len(fem.elements) == 0:
+        return
+    if strategy in (MergeStrategy.SURFACE, MergeStrategy.PANEL):
+        yield from _analytic_face_data(
+            fem,
+            ndigits,
+            reconstruct_curved=strategy == MergeStrategy.PANEL,
+            allow_analytic=allow_analytic,
+        )
         return
     for blk in _shell_blocks(fem):
         prims = _block_primitives(blk)
@@ -1552,16 +1676,24 @@ def faces_from_fem(
 
 
 def iter_faces(
-    part, strategy=MergeStrategy.COPLANAR, ndigits: int = 6, *, max_dev: float | None = None
+    part,
+    strategy=MergeStrategy.COPLANAR,
+    ndigits: int = 6,
+    *,
+    max_dev: float | None = None,
+    allow_analytic: bool = True,
 ) -> Iterator[FaceData]:
     """Yield merged CAD faces for every FEM mesh under ``part`` (Part or Assembly).
 
     Object-free: walks each sub-part's array-backed shell mesh, never building
-    Plate/Elem objects.
+    Plate/Elem objects. ``allow_analytic=False`` keeps the SURFACE/PANEL
+    strategies polygon-only (see :func:`faces_from_fem`).
     """
     parts = part.get_all_parts_in_assembly(include_self=True) if hasattr(part, "get_all_parts_in_assembly") else [part]
     for p in parts:
-        yield from faces_from_fem(getattr(p, "fem", None), strategy, ndigits, max_dev=max_dev)
+        yield from faces_from_fem(
+            getattr(p, "fem", None), strategy, ndigits, max_dev=max_dev, allow_analytic=allow_analytic
+        )
 
 
 def _coplanar_block(prims: _Primitives, ndigits: int) -> Iterator[FaceData]:

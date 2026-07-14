@@ -19,14 +19,14 @@ class BoolOpEnum(Enum):
         return enum_map.get(value.lower())
 
 
-@dataclass
+@dataclass(slots=True)
 class BooleanResult:
     first_operand: Any
     second_operand: Any
     operator: BoolOpEnum
 
 
-@dataclass
+@dataclass(slots=True)
 class BooleanOperation:
     second_operand: Geometry
     operator: BoolOpEnum

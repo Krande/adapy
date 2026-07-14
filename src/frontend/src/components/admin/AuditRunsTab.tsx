@@ -1,6 +1,9 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {viewerApi, AuditRun, AuditRunJob, AuditCellHistoryRow, Corpus} from "@/services/viewerApi";
 import {runWasmAuditSweep, WasmSweepProgress} from "@/services/audit/wasmSweep";
+import {runtime} from "@/runtime/config";
+import {useAuditToastStore} from "@/state/auditToastStore";
+import {view_in_3d} from "@/utils/scene/handlers/view_in_3d";
 
 // Synthetic worker-pool value routing a run to the in-browser WASM engine.
 const WASM_POOL = "wasm";
@@ -56,13 +59,27 @@ function fmtMs(n: number | null | undefined): string {
     return `${(n / 1000).toFixed(1)} s`;
 }
 
-function fmtRunDuration(run: AuditRun): string {
-    if (!run.started_at) return "—";
-    const start = new Date(run.started_at).getTime();
-    const end = run.finished_at ? new Date(run.finished_at).getTime() : Date.now();
-    // Subtract idle time (the gap before a validation pass appended hours
-    // later) so the duration is active-block time, not wall clock.
-    const ms = Math.max(0, end - start - (run.idle_ms ?? 0));
+type RuntimeMode = "cells" | "wall";
+
+// Two equally-relevant views of a run's runtime, switched by the overview toggle:
+//   "cells" — SUM of every cell's own duration_ms: the real compute cost. Immune
+//             to worker parallelism and to a single-cell re-run reopening the run
+//             (which would inflate wall clock with the idle gap since the first
+//             run). Recomputes server-side whenever a cell's row changes.
+//   "wall"  — active wall clock (finished−started−idle): how long the operator
+//             actually waited, which parallelism compresses below the cell sum.
+// "cells" falls back to wall clock for older runs / in-flight rows with no sum yet.
+function fmtRunDuration(run: AuditRun, mode: RuntimeMode): string {
+    const sum = run.cells_duration_ms;
+    let ms: number;
+    if (mode === "cells" && sum != null && sum > 0) {
+        ms = sum;
+    } else {
+        if (!run.started_at) return "—";
+        const start = new Date(run.started_at).getTime();
+        const end = run.finished_at ? new Date(run.finished_at).getTime() : Date.now();
+        ms = Math.max(0, end - start - (run.idle_ms ?? 0));
+    }
     if (ms < 60_000) return `${(ms / 1000).toFixed(0)}s`;
     if (ms < 3600_000) return `${(ms / 60_000).toFixed(0)}m`;
     return `${(ms / 3600_000).toFixed(1)}h`;
@@ -152,12 +169,77 @@ const METRIC_COLOR_BUCKETS: {cls: string}[] = [
     {cls: "bg-red-900/60 border-red-600 text-red-100"},              // outlier
 ];
 
+// The derived-blob key a cell produced. Mirrors the server's
+// derived_key_for convention: _derived/<source>.<target>, except a glb
+// target of a source that is already a .glb has no derivation.
+function cellDerivedKey(file: string, target: string): string {
+    if (target === "glb" && file.toLowerCase().endsWith(".glb")) return file;
+    return `_derived/${file}.${target}`;
+}
+
+// Whether a cell's product can be opened in the 3D viewer. The viewer mounts
+// GLB directly and converts any target the converter can turn into GLB
+// (ifc/step/xml/...); parity has no artifact, and a non-done cell has nothing
+// cached to open. Mirrors ConversionRow's canPreview gate.
+function cellViewable(job: AuditRunJob | undefined): boolean {
+    if (!job || !job.key || !job.target_format) return false;
+    if (!(job.status === "done" || job.status === "ok")) return false;
+    const t = job.target_format;
+    if (t === "glb") return true;
+    if (t === "parity") return false;
+    return runtime.conversionTargetsFor(t).includes("glb");
+}
+
+type CellFlag = {key: string; label: string; title: string; cls: string};
+
+// Per-source quality flags, aggregated across the row's cells' convert_meta. Mirrors the
+// PerformanceTab "streaming" pill idea: a compact badge per detected issue.
+//   occ_fallback — the NGEOM/libtess2 (OCC-free) tessellation silently fell back to OCC.
+//   distorted    — a converted mesh has heavily distorted (degenerate/sliver) triangles.
+function sourceFlags(cells: Map<string, AuditRunJob>, targets: string[], file: string): CellFlag[] {
+    let occ = 0;
+    let distorted = 0;
+    let dropped = 0;
+    for (const t of targets) {
+        const cm = cells.get(`${file}::${t}`)?.convert_meta;
+        if (!cm) continue;
+        occ += cm.occ_fallback?.count ?? 0;
+        distorted += cm.mesh_flags?.distorted_tris ?? 0;
+        dropped = Math.max(dropped, cm.geom_health?.dropped_faces ?? 0);
+    }
+    const flags: CellFlag[] = [];
+    if (dropped > 0)
+        flags.push({
+            key: "dropped",
+            label: "dropped faces",
+            title: `${dropped} face(s) with a trim boundary tessellated to zero triangles — silently dropped geometry (e.g. a swept/extruded surface the kernel couldn't mesh)`,
+            cls: "bg-red-900/50 border-red-700 text-red-200",
+        });
+    if (occ > 0)
+        flags.push({
+            key: "occ",
+            label: "occ fallback",
+            title: `${occ} object(s) fell back from the libtess2 stream kernel to OCC`,
+            cls: "bg-amber-900/50 border-amber-700 text-amber-200",
+        });
+    if (distorted > 0)
+        flags.push({
+            key: "distorted",
+            label: "distorted tris",
+            title: `${distorted} heavily distorted (degenerate/sliver) triangle(s) in a converted mesh`,
+            cls: "bg-red-900/50 border-red-700 text-red-200",
+        });
+    return flags;
+}
+
 const RunGrid: React.FC<{
     jobs: AuditRunJob[];
     metric: MetricKey;
     onCellHistory: (file: string, target: string) => void;
     onCellDetails: (file: string, target: string) => void;
-}> = ({jobs, metric, onCellHistory, onCellDetails}) => {
+    onCellOpen: (file: string, target: string) => void;
+    onCellRerun: (file: string, target: string) => void;
+}> = ({jobs, metric, onCellHistory, onCellDetails, onCellOpen, onCellRerun}) => {
     const grid = useMemo(() => buildGrid(jobs), [jobs]);
 
     // Right-click (desktop) / long-press (touch) context menu for a cell.
@@ -301,6 +383,9 @@ const RunGrid: React.FC<{
                                 .{t}
                             </th>
                         ))}
+                        <th className="px-2 py-1 border-b border-gray-700 font-medium text-gray-300 text-left" title="Per-source quality flags (OCC fallback, distorted triangles)">
+                            flags
+                        </th>
                     </tr>
                 </thead>
                 <tbody>
@@ -331,6 +416,17 @@ const RunGrid: React.FC<{
                                     </td>
                                 );
                             })}
+                            <td className="px-2 py-1 border-b border-gray-800 whitespace-nowrap">
+                                {sourceFlags(grid.cells, grid.targets, file).map((f) => (
+                                    <span
+                                        key={f.key}
+                                        className={`inline-block mr-1 px-1.5 py-0.5 rounded-sm border text-[10px] ${f.cls}`}
+                                        title={f.title}
+                                    >
+                                        {f.label}
+                                    </span>
+                                ))}
+                            </td>
                         </tr>
                     ))}
                 </tbody>
@@ -346,6 +442,18 @@ const RunGrid: React.FC<{
                     <div className="px-3 py-1 text-[10px] text-gray-500 font-mono truncate max-w-[240px]">
                         {menu.file} · .{menu.target}
                     </div>
+                    {cellViewable(grid.cells.get(`${menu.file}::${menu.target}`)) && (
+                        <button
+                            type="button"
+                            className="w-full text-left px-3 py-1 text-emerald-300 hover:bg-gray-700"
+                            onClick={() => {
+                                onCellOpen(menu.file, menu.target);
+                                setMenu(null);
+                            }}
+                        >
+                            Open in viewer ↗
+                        </button>
+                    )}
                     <button
                         type="button"
                         className="w-full text-left px-3 py-1 text-gray-200 hover:bg-gray-700"
@@ -366,6 +474,18 @@ const RunGrid: React.FC<{
                     >
                         Show history
                     </button>
+                    {menu.target !== "parity" && (
+                        <button
+                            type="button"
+                            className="w-full text-left px-3 py-1 text-sky-300 hover:bg-gray-700"
+                            onClick={() => {
+                                onCellRerun(menu.file, menu.target);
+                                setMenu(null);
+                            }}
+                        >
+                            Rerun cell ↻
+                        </button>
+                    )}
                 </div>
             )}
         </div>
@@ -1004,6 +1124,18 @@ const AuditRunsTab: React.FC = () => {
     const [selectedRun, setSelectedRun] = useState<AuditRun | null>(null);
     const [selectedJobs, setSelectedJobs] = useState<AuditRunJob[]>([]);
     const [metric, setMetric] = useState<MetricKey>("status");
+    // Runtime shown in the overview: sum-of-cell-times vs active wall clock.
+    // Persisted so the operator's choice sticks across visits.
+    const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
+        () => (localStorage.getItem("auditRuntimeMode") === "wall" ? "wall" : "cells"),
+    );
+    useEffect(() => { localStorage.setItem("auditRuntimeMode", runtimeMode); }, [runtimeMode]);
+    // Ambient "audit sweep in progress" toast (shown over the viewer) — operators can hide it here.
+    const toastHidden = useAuditToastStore((s) => s.hidden);
+    const toggleToast = useAuditToastStore((s) => s.toggle);
+    // New-run form: collapsible on mobile (always visible on md+). Auto-collapses
+    // when a run is opened so the run detail owns the small screen.
+    const [formOpen, setFormOpen] = useState(true);
     const [listError, setListError] = useState<string | null>(null);
     const [detailError, setDetailError] = useState<string | null>(null);
     // Cell whose cross-run history modal is open (from the grid context menu).
@@ -1050,6 +1182,9 @@ const AuditRunsTab: React.FC = () => {
 
     const onSelectRun = useCallback((runId: string) => {
         setSelectedId(runId);
+        // Collapse the new-run form on mobile so the selected run's grid gets
+        // the viewport (no-op visually on md+, where the form is always shown).
+        setFormOpen(false);
         void loadDetail(runId);
     }, [loadDetail]);
 
@@ -1062,7 +1197,21 @@ const AuditRunsTab: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full">
-            <TriggerForm onCreated={loadRuns}/>
+            {/* Mobile-only collapse header for the new-run form. On md+ the form
+                is always shown (this button is hidden), matching desktop where
+                screen space isn't scarce. */}
+            <button
+                type="button"
+                onClick={() => setFormOpen((o) => !o)}
+                className="md:hidden flex items-center justify-between w-full px-3 py-2 border-b border-gray-800 bg-gray-900/40 text-xs text-gray-200"
+                aria-expanded={formOpen}
+            >
+                <span>New audit run</span>
+                <span className="text-gray-400">{formOpen ? "▾ hide" : "▸ show"}</span>
+            </button>
+            <div className={(formOpen ? "block" : "hidden") + " md:block"}>
+                <TriggerForm onCreated={loadRuns}/>
+            </div>
 
             <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
                 {/* History list. Side-by-side w-80 on md+; full-width
@@ -1083,6 +1232,45 @@ const AuditRunsTab: React.FC = () => {
                     "flex-1 min-h-0 border-b border-gray-800 overflow-auto " +
                     (showHistory ? "block" : "hidden md:block")
                 }>
+                    {/* Overview toggle: show each run's runtime as the sum of its
+                        cell times or as active wall clock. Both are relevant —
+                        cells = compute cost, wall = time waited. Sticky so it
+                        stays put while the list scrolls. */}
+                    <div className="sticky top-0 z-10 flex items-center justify-between gap-2 px-3 py-1.5 border-b border-gray-800 bg-gray-900/80 backdrop-blur text-[11px] text-gray-400">
+                        <div className="flex items-center gap-1.5">
+                            <span>Runtime</span>
+                            <div className="inline-flex rounded-sm border border-gray-700 overflow-hidden">
+                                <button
+                                    type="button"
+                                    onClick={() => setRuntimeMode("cells")}
+                                    className={"px-2 py-0.5 " + (runtimeMode === "cells"
+                                        ? "bg-blue-700 text-white" : "text-gray-300 hover:bg-gray-800")}
+                                    title="Sum of every cell's own runtime — the real compute cost, immune to worker parallelism and single-cell re-runs."
+                                >
+                                    Σ cells
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setRuntimeMode("wall")}
+                                    className={"px-2 py-0.5 border-l border-gray-700 " + (runtimeMode === "wall"
+                                        ? "bg-blue-700 text-white" : "text-gray-300 hover:bg-gray-800")}
+                                    title="Active wall-clock time (finished − started − idle) — how long the run actually took to watch."
+                                >
+                                    wall
+                                </button>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={toggleToast}
+                            className={"px-2 py-0.5 rounded-sm border " + (toastHidden
+                                ? "border-gray-700 text-gray-400 hover:bg-gray-800"
+                                : "border-blue-700 bg-blue-900/40 text-blue-200 hover:bg-blue-900/60")}
+                            title="Show/hide the ambient 'audit sweep in progress' toast over the viewer."
+                        >
+                            {toastHidden ? "◌ toast off" : "● toast on"}
+                        </button>
+                    </div>
                     {listError && (
                         <div className="text-xs text-red-400 px-3 py-2">{listError}</div>
                     )}
@@ -1127,7 +1315,9 @@ const AuditRunsTab: React.FC = () => {
                                     </div>
                                     <div className="text-gray-400 mt-0.5 flex justify-between">
                                         <span>{run.ok + run.failed + run.skipped} / {run.total}</span>
-                                        <span>{fmtRunDuration(run)}</span>
+                                        <span title={runtimeMode === "cells" ? "sum of cell runtimes" : "active wall clock"}>
+                                            {fmtRunDuration(run, runtimeMode)}
+                                        </span>
                                     </div>
                                     {run.total > 0 && (
                                         <div className="h-1 bg-gray-700 rounded-sm overflow-hidden mt-1">
@@ -1253,6 +1443,24 @@ const AuditRunsTab: React.FC = () => {
                                     metric={metric}
                                     onCellHistory={(file, target) => setHistoryCell({key: file, target})}
                                     onCellDetails={(file, target) => setDetailsCell({file, target})}
+                                    onCellOpen={(file, target) => {
+                                        // Load the cell's cached product into the
+                                        // underlying scene, from the RUN's scope
+                                        // (may differ from the browsed one).
+                                        void view_in_3d(file, cellDerivedKey(file, target), selectedRun.scope);
+                                    }}
+                                    onCellRerun={(file, target) => {
+                                        // Re-run just this cell in place (force rebuild). Reopens
+                                        // the run; the poller then streams the fresh result in.
+                                        void (async () => {
+                                            try {
+                                                await viewerApi.adminAuditRunRerunCell(selectedRun.id, file, target);
+                                                await loadDetail(selectedRun.id);
+                                            } catch (e) {
+                                                window.alert(`Rerun failed: ${(e as Error).message}`);
+                                            }
+                                        })();
+                                    }}
                                 />
                             </div>
                         </>

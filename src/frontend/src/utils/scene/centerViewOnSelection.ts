@@ -5,6 +5,7 @@ import {useModelState} from '@/state/modelState';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
 import CameraControls from 'camera-controls';
 import {selectedPointRef} from "@/state/refs";
+import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 
 export const centerViewOnSelection = (
     controls: OrbitControls | CameraControls,
@@ -137,6 +138,11 @@ function center_on_bounding_box(boundingBox: THREE.Box3, camera: Camera, fillFac
     if (radius === 0 || isNaN(radius)) {
         console.warn('Selection has zero size or invalid radius.');
         return;
+    }
+
+    // Adapt near/far to the framed selection size so zooming into a small selection doesn't clip.
+    if (camera instanceof THREE.PerspectiveCamera) {
+        applyAdaptiveClipping(camera, controls, radius);
     }
 
     let distance = 0;

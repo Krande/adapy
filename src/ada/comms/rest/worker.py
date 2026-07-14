@@ -15,6 +15,7 @@ worker reconverts (deterministic output, so this is safe).
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import functools
 import os
 import pathlib
@@ -58,6 +59,36 @@ def _scope_of(job: Job) -> Scope:
     return Scope.shared()
 
 
+_LIBC_MALLOC_TRIM: object = None  # cached glibc malloc_trim, or False when unavailable
+
+
+def _trim_parent_memory() -> None:
+    """Return glibc's freed-but-retained arena memory to the OS in the long-lived worker PARENT
+    after each job. The parent forks per conversion; the freed per-job allocations it makes itself
+    (reading the child's captured log, parsing the marker JSON / cpp profile, building convert_meta,
+    the metrics-sample lists) pile up in glibc's arena free-lists rather than returning to the OS, so
+    parent RSS creeps up across a run (measured on a 23h prod worker: 218 MB fresh -> 540-840 MB idle,
+    higher mid-run). Because every conversion is a fork, the child INHERITS the parent's address space
+    (COW, counted in the child's RSS), so a bloated parent lifts EVERY conversion's baseline — enough
+    to push a big-model fork (469826) over the per-job memory watchdog, and the parent+child sum over
+    the 6 GiB pod limit (the run-90 pod OOM / Exit 137). Trimming after each job keeps the parent flat.
+    glibc-only; a best-effort no-op elsewhere. Disable with ADA_WORKER_NO_MALLOC_TRIM."""
+    global _LIBC_MALLOC_TRIM
+    if _LIBC_MALLOC_TRIM is None:
+        if os.environ.get("ADA_WORKER_NO_MALLOC_TRIM"):
+            _LIBC_MALLOC_TRIM = False
+        else:
+            try:
+                _LIBC_MALLOC_TRIM = ctypes.CDLL("libc.so.6").malloc_trim
+            except (OSError, AttributeError):
+                _LIBC_MALLOC_TRIM = False
+    if _LIBC_MALLOC_TRIM:
+        try:
+            _LIBC_MALLOC_TRIM(0)
+        except Exception:  # noqa: BLE001 — memory hygiene must never fail a job
+            pass
+
+
 # How long the pull-subscriber waits per fetch round before re-issuing.
 # Short enough to react to shutdown; long enough not to spam NATS.
 FETCH_TIMEOUT = 5.0
@@ -81,6 +112,22 @@ MAX_DELIVERIES = 3
 # than ack_wait; the conversion runs in a child process so the parent event loop
 # stays free to fire these.
 IN_PROGRESS_REFRESH_SECONDS = 30
+
+# Liveness heartbeat. The worker touches this file whenever its JetStream pull loop iterates
+# (idle / between jobs) or an in-flight conversion reports progress. A k8s livenessProbe checks the
+# file's mtime is fresh: if the pull loop stalls — e.g. the durable consumer wedged after a NATS
+# restart, leaving the pod "Running" but no longer fetching (num_waiting=0) — the file goes stale and
+# k8s restarts the pod, instead of it sitting silently broken while jobs pile up unconsumed.
+WORKER_LIVENESS_FILE = os.environ.get("WORKER_LIVENESS_FILE", "/tmp/worker-alive")
+
+
+def _touch_liveness() -> None:
+    try:
+        with open(WORKER_LIVENESS_FILE, "w") as fh:
+            fh.write(str(time.time()))
+    except OSError:
+        logger.debug("worker: liveness touch failed", exc_info=True)
+
 
 # Per-source-suffix sidecar files that the worker co-downloads next to
 # the main payload so format-specific readers find them by basename.
@@ -199,6 +246,95 @@ def _convert_meta_for(job: "Job", env_overrides: dict | None) -> dict | None:
         except Exception:
             logger.exception("worker: convert_meta tessellator resolution failed for %s", job.source_key)
     return meta or None
+
+
+def _attach_cpp_profiles(convert_meta: dict | None, log_bytes: bytes | None) -> None:
+    """Parse the adacpp pipeline profiler's machine-readable summaries out of the
+    captured child output into ``convert_meta["cpp_profile"]``.
+
+    When the ``profile_conversions`` toggle is on, the child runs with
+    ``ADACPP_STEP_PROFILE=1`` and each instrumented C++ pipeline prints ONE
+    ``[STEPPROF-JSON] {...}`` line at teardown (phase wall/RSS, VmHWM peak,
+    per-solid stats, parallelism/IO pressure, per-thread utilisation). Attaching
+    them to convert_meta puts the C++ side in the audit Metrics panel with the
+    same visibility as the Python timings. No-op when profiling was off (no
+    marker lines) or the log is empty."""
+    if not isinstance(convert_meta, dict) or not log_bytes:
+        return
+    import json
+
+    marker = b"[STEPPROF-JSON] "
+    profiles: list[dict] = []
+    for line in log_bytes.splitlines():
+        i = line.find(marker)
+        if i < 0:
+            continue
+        try:
+            profiles.append(json.loads(line[i + len(marker) :].decode("utf-8", "replace")))
+        except (ValueError, UnicodeDecodeError):
+            continue  # a torn/interleaved line must not fail the job
+    if profiles:
+        convert_meta["cpp_profile"] = profiles
+
+    # Per-conversion quality flags emitted by the child (subprocess_convert). Currently the
+    # NGEOM(libtess2/adacpp)->OCC fallback tally — a conversion that silently completed on OCC
+    # instead of the selected stream kernel. Surfaced as a cell flag in the audit grid.
+    fb_marker = b"[TESSFALLBACK-JSON] "
+    for line in log_bytes.splitlines():
+        i = line.find(fb_marker)
+        if i < 0:
+            continue
+        try:
+            fb = json.loads(line[i + len(fb_marker) :].decode("utf-8", "replace"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(fb, dict) and fb.get("count"):
+            convert_meta["occ_fallback"] = fb  # {count, reasons, geoms}
+        break
+
+    mh_marker = b"[MESHHEALTH-JSON] "
+    for line in log_bytes.splitlines():
+        i = line.find(mh_marker)
+        if i < 0:
+            continue
+        try:
+            mh = json.loads(line[i + len(mh_marker) :].decode("utf-8", "replace"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(mh, dict) and mh.get("distorted_tris"):
+            convert_meta["mesh_flags"] = mh  # {n_tris, distorted_tris, distorted_frac}
+        break
+
+    # Triangle tally — total output triangles (+ primitive/solid counts when known). The primary
+    # run-to-run regression signal: a tessellation-density change or a dropped solid moves n_tris.
+    ts_marker = b"[TRISTATS-JSON] "
+    for line in log_bytes.splitlines():
+        i = line.find(ts_marker)
+        if i < 0:
+            continue
+        try:
+            ts = json.loads(line[i + len(ts_marker) :].decode("utf-8", "replace"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(ts, dict) and ts.get("n_tris"):
+            convert_meta["tri_stats"] = ts  # {n_tris, engine?, n_primitives?, n_solids?, ...}
+        break
+
+    # Geometry health — faces with a real trim boundary that tessellated to zero triangles (silently
+    # dropped geometry, e.g. the SURFACE_OF_LINEAR_EXTRUSION drops). Flagged in the audit grid so this
+    # class of bug is caught without visual inspection.
+    gh_marker = b"[GEOMHEALTH-JSON] "
+    for line in log_bytes.splitlines():
+        i = line.find(gh_marker)
+        if i < 0:
+            continue
+        try:
+            gh = json.loads(line[i + len(gh_marker) :].decode("utf-8", "replace"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(gh, dict) and gh.get("dropped_faces"):
+            convert_meta["geom_health"] = gh  # {dropped_faces, total_faces}
+        break
 
 
 def _capture_worker_packages() -> list[dict]:
@@ -1161,6 +1297,10 @@ async def _process_one(
         # sibling jobs / the parent worker keep their pristine env.
         profile_enabled = False
         env_overrides: dict[str, str] = {}
+        # Initialised here (not only inside the ``db_pool is not None`` block below) so a worker
+        # that came up without a DB pool — e.g. it raced Postgres during a restart — still converts
+        # with code defaults instead of crashing every job with UnboundLocalError on ``timeout_s``.
+        timeout_s: float | None = None
         if db_pool is not None:
 
             async def _read_bool_setting(key: str) -> str | None:
@@ -1172,6 +1312,14 @@ async def _process_one(
 
             v = await _read_bool_setting("profile_conversions")
             profile_enabled = (v or "").strip().lower() in {"1", "true", "yes", "on"}
+            if profile_enabled:
+                # The C++ sibling of the cProfile artefact: adacpp's env-gated
+                # [STEPPROF] pipeline profiler (phase wall times, RSS at phase
+                # boundaries, VmHWM peak, per-solid stats, parallelism/IO
+                # pressure) prints to stderr, which the captured job Log keeps.
+                # Applied inside the child fork only, so sibling jobs and the
+                # parent worker keep their pristine env.
+                env_overrides["ADACPP_STEP_PROFILE"] = "1"
 
             # Optional per-job wall-clock budget. Empty / 0 / non-
             # numeric leaves the watchdog off so legitimately-long
@@ -1181,7 +1329,6 @@ async def _process_one(
             # convert subprocess after the deadline and SIGKILLs
             # 30 s later if it's still alive.
             timeout_minutes_raw = await _read_bool_setting("conversion_timeout_minutes")
-            timeout_s: float | None = None
             try:
                 tm = float((timeout_minutes_raw or "").strip())
                 if tm > 0:
@@ -1293,6 +1440,7 @@ async def _process_one(
 
         async def _on_progress(stage: str, frac: float) -> None:
             nonlocal last_kv_write
+            _touch_liveness()  # a long conversion blocks the pull loop; progress keeps liveness fresh
             now = time.monotonic()
             if now - last_kv_write < 0.25 and frac < 1.0:
                 return
@@ -1307,6 +1455,7 @@ async def _process_one(
         # behind for post-mortem instead of an empty metrics_samples
         # column.
         async def _on_sample(sample: ConvertSample) -> None:
+            _touch_liveness()  # fires every ~2s during a subprocess conversion
             if db_pool is None:
                 return
             try:
@@ -1556,6 +1705,7 @@ async def _process_one(
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
             metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
+            _attach_cpp_profiles(convert_meta, iresult.log_bytes)
             metrics["convert_meta"] = convert_meta
             await _audit_done(
                 db_pool,
@@ -1647,6 +1797,7 @@ async def _process_one(
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
             metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
+            _attach_cpp_profiles(convert_meta, iresult.log_bytes)
             metrics["convert_meta"] = convert_meta
             await _audit_done(
                 db_pool,
@@ -1673,6 +1824,7 @@ async def _process_one(
         metrics = dict(iresult.final_metrics)
         metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
         metrics["log_key"] = await _maybe_upload_log_bytes(iresult.log_bytes)
+        _attach_cpp_profiles(convert_meta, iresult.log_bytes)
         metrics["convert_meta"] = convert_meta
 
         await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
@@ -1691,14 +1843,61 @@ async def _process_one(
             pass
 
 
+def _warm_convert_imports() -> None:
+    """Pre-import the heavy CAD C-extensions in the worker PARENT so every
+    ``os.fork()``ed conversion child (see subprocess_convert) inherits them
+    copy-on-write instead of re-importing per job.
+
+    Without this, an IFC child faults in ifcopenshell(.geom) and a SAT child
+    faults in OCC.Core — hundreds of MB of ``.so`` pages — on EVERY job; on a
+    cold/pressured page cache that measured ~20-40s of near-zero-CPU I/O-wait
+    per conversion (STEP's native adacpp reader was unaffected). Pre-importing
+    keeps the pages referenced by the long-lived parent and out of every child's
+    hot path. Per-module guard: a slim/scoped pool lacking a backend just skips it.
+
+    NOTE: the durable fix is routing IFC/SAT conversions through adacpp + the
+    native C++ IFC reader/writer so these deps aren't loaded at all (native STEP
+    already is). Until every target format is wired natively, IFC->{stl,obj,xml}
+    and SAT still go through ada.from_ifc / ada.from_acis; this removes their
+    per-fork re-import tax in the meantime.
+    """
+    import importlib
+
+    for mod, why in (
+        ("ada.cadit.ifc.store", "ifcopenshell + ifcopenshell.geom"),
+        ("ada.occ.tessellating", "OCC.Core tessellation + backends"),
+    ):
+        t0 = time.perf_counter()
+        try:
+            importlib.import_module(mod)
+        except Exception as exc:  # scoped/slim pool without this backend — skip
+            logger.info("worker: warm-import skipped %s (%s): %s", mod, why, exc)
+            continue
+        logger.info("worker: warm-imported %s (%s) in %.2fs", mod, why, time.perf_counter() - t0)
+
+
 async def _run() -> None:
+    # Make the worker's own lifecycle logs visible. The "ada" logger otherwise
+    # inherits root's WARNING level, which silently drops every worker: INFO
+    # line (booting / connected / registered / subscribing / ready) — leaving a
+    # healthy idle worker indistinguishable from a hung one in `kubectl logs`.
+    # This is the worker process only; the viewer configures its own logging.
+    # ADA_WORKER_LOG_LEVEL overrides (e.g. WARNING to quiet a chatty pool).
+    from ada.config import configure_logger
+
+    configure_logger()  # attach the stdout StreamHandler (no-op if already attached)
+    logger.setLevel(os.environ.get("ADA_WORKER_LOG_LEVEL", "INFO").upper())
+
     settings = load_settings()
     if settings.queue.url is None:
         raise SystemExit("ADA_VIEWER_NATS_URL not set; nothing for the worker to do")
 
+    logger.info("worker: booting capabilities=%s", os.environ.get("ADA_WORKER_CAPABILITIES", "base"))
     storage = Storage.from_settings(settings)
     queue = JobQueue(settings.queue)
+    logger.info("worker: connecting to NATS subject=%s", settings.queue.subject)
     await queue.connect()
+    logger.info("worker: connected to NATS")
 
     # Optional importer hook: capability workers built FROM the base
     # image often need to populate the connection-spec registry (or
@@ -1899,6 +2098,15 @@ async def _run() -> None:
     )
     sub = await queue.pull_subscribe(primary_capability)
 
+    # Warm the heavy CAD imports in this (parent) process before the per-job fork
+    # loop below, so forked children inherit them copy-on-write instead of paying
+    # a cold re-import per conversion. Base pool only — capability pools
+    # (weld-gen/abaqus) run foreign images with their own deps. Run in a thread so
+    # a slow cold import (OCC/ifcopenshell off a cold page cache) doesn't stall the
+    # event loop's NATS keepalive while the worker is still starting up.
+    if "base" in {c.lower() for c in capabilities}:
+        await asyncio.get_running_loop().run_in_executor(None, _warm_convert_imports)
+
     stop = asyncio.Event()
 
     def _signal_handler() -> None:
@@ -1932,8 +2140,10 @@ async def _run() -> None:
     # Keep the parameter on _process_one for now (callers may still
     # pass it) but no longer create one here.
     logger.info("worker: ready, polling %s", settings.queue.subject)
+    _touch_liveness()  # seed the heartbeat before the first fetch so the probe has a fresh mtime
     try:
         while not stop.is_set():
+            _touch_liveness()  # each pull round — a stalled fetch lets this go stale -> livenessProbe restart
             try:
                 msgs = await sub.fetch(batch=FETCH_BATCH, timeout=FETCH_TIMEOUT)
             except asyncio.TimeoutError:
@@ -2066,6 +2276,9 @@ async def _run() -> None:
                     except Exception:
                         pass
                     await msg.ack()
+                    # Release the freed-but-retained arena memory this job left in the parent, so it
+                    # doesn't accumulate across the run and inflate the next conversion's fork baseline.
+                    _trim_parent_memory()
     finally:
         heartbeat_task.cancel()
         try:

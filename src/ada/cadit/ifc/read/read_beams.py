@@ -12,7 +12,7 @@ from ada.config import logger
 from ada.core.vector_utils import calc_yvec, unit_vector
 
 from .geom.geom_reader import get_product_definitions
-from .geom.placement import axis3d
+from .geom.placement import placement_from_ifc_4x4
 from .read_beam_section import import_section_from_ifc
 from .read_materials import read_material
 from .reader_utils import (
@@ -68,20 +68,24 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
         raise ValueError("Number of body objects attached to element is not 1")
     body = bodies[0]
 
-    rel_place = Placement.from_axis3d(axis3d(ifc_elem.ObjectPlacement.RelativePlacement))
-
-    extrude_dir = unit_vector(rel_place.transform_vector(body.position.axis, inverse=True))
-    ref_dir = unit_vector(rel_place.transform_vector(body.position.ref_direction))
+    extra_opts = {}
+    obj_placement = ifc_elem.ObjectPlacement
+    if obj_placement is not None:
+        # n1/n2 stay in the beam's LOCAL frame (the extrusion's own position/direction — this is
+        # also where the cardinal-point offset lives, baked into ExtrudedAreaSolid.Position by the
+        # authoring tool), and the FULL ObjectPlacement world transform becomes the beam placement.
+        # get_local_placement composes the whole chain, so this covers BOTH a parent chain
+        # (beam-standard-case.ifc) AND a bare RelativePlacement with no parent
+        # (beam-varying-cardinal-points.ifc) — the old no-parent path baked rel_place into the
+        # extrude DIRECTION but left the location + origin untransformed, dropping the placement
+        # entirely and rendering the beam at the wrong spot. placement_from_ifc_4x4 reconciles the
+        # column<->row transpose in Placement.get_matrix4x4 so the scene applies the intended matrix.
+        extra_opts["placement"] = placement_from_ifc_4x4(get_local_placement(obj_placement))
+    extrude_dir = unit_vector(body.position.axis)
+    ref_dir = unit_vector(body.position.ref_direction)
     p1 = body.position.location
     local_y = calc_yvec(ref_dir, extrude_dir)
     p2 = p1 + extrude_dir * body.depth
-
-    extra_opts = {}
-    obj_placement = ifc_elem.ObjectPlacement
-    if obj_placement.PlacementRelTo:
-        local_placement = get_local_placement(obj_placement)
-        place = Placement.from_4x4_matrix(local_placement)
-        extra_opts["placement"] = place
 
     common = dict(
         sec=sec,
@@ -106,7 +110,6 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
 
 
 def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) -> Beam:
-    from ada import Placement
     from ada.core.vector_transforms import transform3d
 
     logger.debug("Reading revolved IFC beam (swept along IfcTrimmedCurve)")

@@ -12,7 +12,7 @@
 # CI passes the full image reference as a build-arg so this Dockerfile
 # stays registry-agnostic. Pin a different adacpp by pointing the
 # build-arg at a different version tag.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.10.0
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.13.2
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
@@ -47,10 +47,11 @@ RUN npm run build:serve
 COPY --from=adacpp-wheel /out/ /build/dist/wheels/
 COPY --from=adapy-wheel  /out/ /build/dist/wheels/
 
-# The no-pyodide STEP->GLB embind module (adacpp_step_glb.js + .wasm) ships in the same adacpp base
-# image under /out/wasm/, so the copy above lands it at dist/wheels/wasm/. Promote it to /wasm/ — where
-# the in-browser "Load STEP" converter (LocalStepLoader -> stepConverter.worker) fetches it. Guarded so
-# the build still works against older base images that predate the module.
+# The no-pyodide embind modules (adacpp_step_glb / adacpp_ifc_glb / adacpp_brep_writer / adacpp_glb_diff
+# .js + .wasm) ship in the same adacpp base image under /out/wasm/, so the copy above lands them at
+# dist/wheels/wasm/. Promote the whole dir to /wasm/ — where the in-browser converters (cadGlbConverter
+# / brepWriterConverter workers) and the diff utility fetch them. Guarded + globbed so the build works
+# against older base images that predate any given module.
 RUN mkdir -p /build/dist/wasm && \
     if [ -d /build/dist/wheels/wasm ]; then \
         mv /build/dist/wheels/wasm/* /build/dist/wasm/ && rmdir /build/dist/wheels/wasm; \

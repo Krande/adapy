@@ -18,7 +18,11 @@ if TYPE_CHECKING:
 def open_ifc(ifc_file_path: Union[str, pathlib.Path, StringIO]):
     if type(ifc_file_path) is StringIO:
         return ifcopenshell.file.from_string(str(ifc_file_path.read()))
-    return ifcopenshell.open(str(ifc_file_path))
+    # Transparently inflate a gzip-compressed IFC shipped under a plain .ifc name (see
+    # ada.cadit.ifc.store.open_ifc_file).
+    from ada.cadit.ifc.store import open_ifc_file
+
+    return open_ifc_file(ifc_file_path)
 
 
 def get_ifc_property_sets(ifc_elem) -> dict:
@@ -140,6 +144,14 @@ def get_org(f, org_id):
 
 def add_to_assembly(assembly: Assembly, obj, ifc_parent, elements2part):
     from ada import Pipe
+
+    if ifc_parent is None:
+        # IFC4x3 alignment-hosted products (e.g. a signal on an
+        # IfcLinearPlacement) may have no spatial containment relation
+        # at all — attach to the assembly root instead of crashing.
+        logger.info(f'No spatial parent for {type(obj)} "{obj.name}". Adding to Assembly root')
+        assembly.add_shape(obj)
+        return
 
     pp_name = ifc_parent.Name
 

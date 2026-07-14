@@ -4,6 +4,7 @@ import ColorLegend from "./ColorLegend";
 import ThreeCanvas from "./ThreeCanvas";
 import SectionPlanesController from "./SectionPlanesController";
 import FemConceptsController from "./FemConceptsController";
+import GalleryControls from "./GalleryControls";
 
 const CanvasWrapper: React.FC = () => {
   return (
@@ -15,6 +16,8 @@ const CanvasWrapper: React.FC = () => {
       <div id="canvasParent" className="absolute w-full h-full">
         <ThreeCanvas />
       </div>
+      {/* Gallery HUD (opt-in via Theme options): prev/next over the scope's files. */}
+      <GalleryControls />
       {/* Headless: reconciles section-plane clipping/caps/gizmo with the scene. */}
       <SectionPlanesController />
       {/* Headless: draws the FEM-concept glyph overlay (masses / BCs / loads). */}

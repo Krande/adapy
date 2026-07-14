@@ -456,3 +456,114 @@ def compute_orientation_vec(
 
     # Convert back to tuples for caching
     return tuple(xvec), tuple(yvec), tuple(zvec)
+
+
+def _round_rows_unique(a: np.ndarray) -> np.ndarray:
+    """round_array over the rows of ``a`` (m,3), Decimal-rounding each UNIQUE row once.
+
+    FEM meshes repeat orientations heavily (co-planar plate patches share their
+    frame), so deduplicating before the per-component ``roundoff`` keeps the exact
+    scalar semantics at a fraction of the Decimal cost."""
+    from ada.core.utils import roundoff
+
+    uniq, inv = np.unique(a, axis=0, return_inverse=True)
+    out = np.empty_like(uniq)
+    for i in range(uniq.shape[0]):
+        row = uniq[i]
+        out[i] = [roundoff(x) if x != 0 else x for x in row]
+    return out[inv.reshape(-1)]
+
+
+def shell_orientations_bulk(pts: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Vectorized orientation math for ``m`` flat FEM shell k-gons (m, k, 3).
+
+    Replicates, array-wise and in the same floating-point operation order, the
+    scalar chain CurvePoly2d.from_fem_shell runs per element:
+    ``normal_to_points_in_plane`` -> ``calc_yvec`` ->
+    ``compute_orientation_vec(x, y, z)`` -> ``compute_orientation_vec(x, None, z)``
+    (each vector normalized once on construction and once inside
+    compute_orientation_vec, then Decimal-rounded via round_array — see
+    :func:`_round_rows_unique`).
+
+    Returns ``(ok, rot1, rotf)``: ``ok (m,)`` False for rows the scalar path must
+    handle (duplicate points, (near-)parallel edge vectors, zero-length axes —
+    the scalar code has dedupe/rescan branches there), ``rot1``/``rotf`` (m,3,3)
+    with rows (xdir, ydir, zdir) — the projection and final frames.
+    """
+    pts = np.asarray(pts, dtype=float)
+    m, k, _ = pts.shape
+
+    def _cross(a, b):
+        # component order identical to normal_to_points_in_plane / fast_cross
+        out = np.empty_like(a)
+        out[:, 0] = a[:, 1] * b[:, 2] - a[:, 2] * b[:, 1]
+        out[:, 1] = a[:, 2] * b[:, 0] - a[:, 0] * b[:, 2]
+        out[:, 2] = a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
+        return out
+
+    def _norm(a):
+        # np.linalg.norm(v) for a 1-D length-3 vector == sqrt(v.v), summed in
+        # component order
+        return np.sqrt(a[:, 0] * a[:, 0] + a[:, 1] * a[:, 1] + a[:, 2] * a[:, 2])
+
+    # normal_to_points_in_plane: v1 = p3 - p1, v2 = p2 - p1, normal = v1 x v2
+    v1 = pts[:, 2] - pts[:, 0]
+    v2 = pts[:, 1] - pts[:, 0]
+    normal = _cross(v1, v2)
+    n_len = _norm(normal)
+    v1_len = _norm(v1)
+    v2_len = _norm(v2)
+
+    # Degenerate-row escape (handled by the scalar path's dedupe / parallel-rescan
+    # branches): any duplicated corner, edge vectors (near-)parallel, or a
+    # zero-length first edge. The parallel test is a conservative superset of the
+    # scalar ``is_parallel`` (sin(angle) < tol): escaping a borderline row to the
+    # scalar path only costs time, never correctness.
+    dup = np.zeros(m, dtype=bool)
+    for i in range(k):
+        for j in range(i + 1, k):
+            dup |= np.all(pts[:, i] == pts[:, j], axis=1)
+    denom = v1_len * v2_len
+    # sin(angle) == |v1 x v2| / (|v1||v2|); escape at 2x the scalar is_parallel
+    # tolerance so every row the scalar rescan branch would touch goes scalar.
+    from ada.config import Config
+
+    par_tol = 2.0 * float(Config().general_point_tol)
+    near_parallel = n_len <= par_tol * np.where(denom > 0, denom, 1.0)
+    x_raw = pts[:, 1] - pts[:, 0]
+    x_len = _norm(x_raw)
+    ok = ~(dup | near_parallel | (denom == 0) | (x_len == 0) | (n_len == 0))
+
+    safe = lambda d: np.where(d == 0, 1.0, d)  # noqa: E731 - masked rows are already not-ok
+    n_hat = normal / safe(n_len)[:, None]
+    x_hat = x_raw / safe(x_len)[:, None]
+    y_raw = _cross(n_hat, x_hat)  # calc_yvec(x, z) == fast_cross(z, x)
+    y_len = _norm(y_raw)
+    # compute_orientation_vec rebuilds the frame from a global reference when a
+    # derived yvec degenerates (norm < 1e-9) — those rows must go scalar.
+    ok &= y_len >= 1e-9
+    y_hat = y_raw / safe(y_len)[:, None]
+
+    # compute_orientation_vec(x_hat, y_hat, n_hat): all three supplied -> each is
+    # re-normalized (Direction.get_normalized divides by its own norm again) and
+    # Decimal-rounded.
+    def _renorm_round(a):
+        ln = _norm(a)
+        return _round_rows_unique(a / safe(ln)[:, None])
+
+    x1 = _renorm_round(x_hat)
+    y1 = _renorm_round(y_hat)
+    z1 = _renorm_round(n_hat)
+
+    # compute_orientation_vec(x1, None, z1): y = calc_yvec(x1, z1) = z1 x x1, then
+    # all three re-normalized + rounded.
+    yf_raw = _cross(z1, x1)
+    yf_len = _norm(yf_raw)
+    ok &= yf_len >= 1e-9
+    xf = _renorm_round(x1)
+    yf = _round_rows_unique(yf_raw / safe(yf_len)[:, None])
+    zf = _renorm_round(z1)
+
+    rot1 = np.stack([x1, y1, z1], axis=1)
+    rotf = np.stack([xf, yf, zf], axis=1)
+    return ok, rot1, rotf

@@ -707,34 +707,114 @@ class Part(BackendGeom):
                 parent = p
             return parent
 
-        # "native": adacpp's C++ NGEOM parser hydrated to Geometry (no Python tokenizer); same yield
-        # contract, so the Shape-wrap + product-tree below is identical.
-        if reader == "native":
-            from ada.cadit.step.read.native_reader import (
-                native_adacpp_step_available,
-                native_stream_read_step,
-            )
+        from ada.config import Config
 
-            if not native_adacpp_step_available():
-                raise StepStreamUnsupported("reader='native' requires the adacpp stream_step_to_ngeom entry point")
-            geom_iter = native_stream_read_step(step_path)
-        else:
-            geom_iter = stream_read_step(step_path, local_pool=local_pool, tolerant=tolerant)
+        # Lazy shape store (default on): retain each solid as its compact blob and mint
+        # ShapeProxy objects that hydrate on demand, instead of holding the whole model
+        # as ada.geom trees (~10x resident memory on large assemblies). Opt out via
+        # ADA_CAD_LAZY_SHAPE_STORE=false.
+        store = None
+        if Config().cad_lazy_shape_store:
+            from ada.api.shapes import ShapeProxy, ShapeStore
 
-        new_shapes = []  # (parent_part, shape)
-        try:
-            for i, geometry in enumerate(geom_iter):
-                shp_name = str(geometry.id) if geometry.id not in (None, "") else f"{ada_name}_{i}"
-                shp = Shape(
+            store = ShapeStore(compress=Config().cad_shape_store_compress)
+
+        def _mint_shape(shp_name, geometry) -> Shape:
+            if store is None:
+                return Shape(
                     shp_name, geom=geometry, color=colour or geometry.color, opacity=opacity, units=source_units
                 )
-                parent = _tree_parent(geometry.instance_paths) if product_tree else self
-                new_shapes.append((parent, shp))
-        except StepStreamUnsupported:
-            if reader != "auto":
-                raise
-            logger.info("read_step_file: streaming reader hit an unsupported entity; falling back to OCC reader")
-            return False
+            idx = store.add_geometry(geometry)
+            return ShapeProxy(shp_name, store, idx, color=colour or geometry.color, opacity=opacity, units=source_units)
+
+        new_shapes = []  # (parent_part, shape)
+
+        # "native": adacpp's C++ NGEOM parser. "auto" also probes it first (matching
+        # iter_from_step's read_solids): the native parse is faster and, with the lazy
+        # store, keeps the per-solid NGEOM buffer as-is — no hydration at import at all.
+        # A first-solid hydrate probe guards against files whose buffers the Python
+        # decode path can't handle; those fall back to the pure-Python reader ("auto")
+        # or raise ("native").
+        use_native = False
+        if reader in ("native", "auto"):
+            from ada.cadit.step.read.native_reader import native_adacpp_step_available
+
+            if native_adacpp_step_available():
+                use_native = True
+            elif reader == "native":
+                raise StepStreamUnsupported("reader='native' requires the adacpp stream_step_to_ngeom entry point")
+
+        # The native reader is solid-only; for "auto" a file carrying loose curve/geometric-set
+        # roots (wireframe bodies — SAT wire bodies, evaluated alignment reference curves) would
+        # silently lose them. Route such files to the lossless pure-Python reader instead so
+        # "auto" keeps its no-geometry-left-behind contract. ("native" stays as asked.)
+        if use_native and reader == "auto":
+            from ada.cadit.step.write._solid_source import step_has_curve_set_roots
+
+            if step_has_curve_set_roots(step_path):
+                use_native = False
+                tolerant = True  # the pure-Python fallback must read the curve sets, not raise
+
+        if use_native:
+            from ada.cadit.ngeom.deserialize import (
+                deserialize_geometries,
+                promote_closed_shell,
+            )
+            from ada.cadit.step.read.native_reader import native_stream_read_step_blobs
+            from ada.cadit.step.write._solid_source import NATIVE_DECODE_ERRORS
+            from ada.geom import Geometry
+
+            try:
+                for i, (blob, gid, color, mats, paths) in enumerate(native_stream_read_step_blobs(step_path)):
+                    if i == 0:
+                        deserialize_geometries(blob)  # hydrate-probe (result discarded)
+                    shp_name = gid if gid not in (None, "") else f"{ada_name}_{i}"
+                    if store is not None:
+                        idx = store.add_blob(
+                            blob, gid=shp_name, color=color, transforms=(mats or None), instance_paths=(paths or None)
+                        )
+                        shp = ShapeProxy(
+                            shp_name, store, idx, color=colour or color, opacity=opacity, units=source_units
+                        )
+                    else:
+                        # Eager Shapes get the ClosedShell promotion here (the lazy
+                        # store applies it at hydration) — the streaming reader itself
+                        # yields bare face-sets to keep the exporters' hot loop lean.
+                        geometry = Geometry(
+                            id=shp_name,
+                            geometry=promote_closed_shell(deserialize_geometries(blob)[0][1]),
+                            color=color,
+                            transforms=(mats or None),
+                            instance_paths=(paths or None),
+                        )
+                        shp = _mint_shape(shp_name, geometry)
+                    parent = _tree_parent(paths) if product_tree else self
+                    new_shapes.append((parent, shp))
+            except (*NATIVE_DECODE_ERRORS, RuntimeError) as exc:
+                if reader == "native" or new_shapes:
+                    # native was forced, or solids were already committed (a mid-stream
+                    # failure can't be un-yielded) — fail loudly over silent truncation.
+                    raise
+                logger.info("read_step_file: native STEP reader failed (%s); using the pure-Python reader", exc)
+                use_native = False
+            if use_native and not new_shapes and reader == "auto":
+                # Native recognised no solids; the pure-Python reader supports entity
+                # kinds the native one skips, so give it the file before the OCC fallback.
+                use_native = False
+
+        if not use_native:
+            geom_iter = stream_read_step(step_path, local_pool=local_pool, tolerant=tolerant)
+            try:
+                for i, geometry in enumerate(geom_iter):
+                    shp_name = str(geometry.id) if geometry.id not in (None, "") else f"{ada_name}_{i}"
+                    shp = _mint_shape(shp_name, geometry)
+                    parent = _tree_parent(geometry.instance_paths) if product_tree else self
+                    new_shapes.append((parent, shp))
+            except StepStreamUnsupported:
+                if reader != "auto":
+                    raise
+                logger.info("read_step_file: streaming reader hit an unsupported entity; falling back to OCC reader")
+                return False
 
         # A zero-yield on a non-empty file means the streaming reader didn't
         # recognise the structure — fall back to OCC rather than silently
@@ -934,13 +1014,20 @@ class Part(BackendGeom):
         else:
             yield from self._iter_merged_plates_from_fem(merge_strategy, detached, mat_cache)
 
-    def _iter_merged_plates_from_fem(self, merge_strategy, detached: bool, mat_cache: dict | None):
-        """Wrap each object-free merged :class:`FaceData` in one transient Plate.
+    def _iter_merged_plates_from_fem(self, merge_strategy, detached: bool, mat_cache: dict | None, chunk: int = 2048):
+        """Wrap the object-free merged :class:`FaceData` records in transient Plates.
 
-        Bounded: builds and yields a single Plate at a time. Tri/quad faces take
-        the fast ``Plate.from_fem_shell`` path; merged N-gons use the general
-        ``from_3d_points``."""
+        Tri/quad faces are buffered into bounded chunks and built through the
+        vectorized :meth:`CurvePoly2d.from_fem_shells_batch` (bitwise-identical to
+        the per-face ``Plate.from_fem_shell`` — the batch path escapes degenerate
+        rows back to it). ``chunk`` bounds the buffered face count, keeping the
+        streaming exporters' peak memory bounded; yield order matches the face
+        engine's stream order exactly. Merged N-gons use the general
+        ``from_3d_points`` path."""
+        import numpy as np
+
         from ada import Plate
+        from ada.api.curves import CurvePoly2d
         from ada.fem.formats.mesh_faces import faces_from_fem
 
         # name -> Material, resolved once from this part's shell sections so the
@@ -951,14 +1038,57 @@ class Part(BackendGeom):
             if mat is not None and mat.name not in mats:
                 mats[mat.name] = mat
 
+        buf: list = []  # pending tri/quad FaceData, flushed as one vectorized batch
+
+        def _flush():
+            if not buf:
+                return
+            by_k: dict[int, list[int]] = {}
+            for i, f in enumerate(buf):
+                by_k.setdefault(len(f.outline), []).append(i)
+            polys: list = [None] * len(buf)
+            for _k, idxs in by_k.items():
+                pts = np.stack([np.asarray(buf[i].outline, dtype=float) for i in idxs])
+                for i, poly in zip(idxs, CurvePoly2d.from_fem_shells_batch(pts, parent=self)):
+                    polys[i] = poly
+            for f, poly in zip(buf, polys):
+                mat = mats.get(f.material, f.material)
+                if poly is None:
+                    yield Plate.from_fem_shell(f.name, f.outline, f.thickness, mat=mat, parent=self, detached=detached)
+                else:
+                    yield Plate(f.name, poly, f.thickness, mat=mat, parent=self, detached=detached)
+            buf.clear()
+
         for face in faces_from_fem(self.fem, merge_strategy):
-            mat = mats.get(face.material, face.material)
-            if len(face.outline) <= 4:
-                yield Plate.from_fem_shell(
-                    face.name, face.outline, face.thickness, mat=mat, parent=self, detached=detached
+            if face.geom_face is not None:
+                # Analytic patch (SURFACE/PANEL: trimmed cylinder or B-spline
+                # panel) → one curved-plate concept, mirroring the FEM surface
+                # reconstruction path. Flush pending tri/quads first so the
+                # stream order is unchanged.
+                yield from _flush()
+                from ada import PlateCurved
+                from ada.core.guid import create_guid
+                from ada.geom import Geometry
+
+                mat = mats.get(face.material, face.material)
+                yield PlateCurved(
+                    face.name,
+                    Geometry(create_guid(), face.geom_face, None),
+                    float(face.thickness),
+                    mat=mat,
+                    extrude_as_solid=True,
+                    parent=self,
                 )
+            elif len(face.outline) <= 4:
+                buf.append(face)
+                if len(buf) >= chunk:
+                    yield from _flush()
             else:
+                # Flush pending tri/quads first so the stream order is unchanged.
+                yield from _flush()
+                mat = mats.get(face.material, face.material)
                 yield Plate.from_3d_points(face.name, face.outline, face.thickness, mat=mat, parent=self)
+        yield from _flush()
 
     def get_part(self, name: str, search_all_parts_in_assembly=False) -> Part | None:
         """Get part by name."""
@@ -1181,9 +1311,21 @@ class Part(BackendGeom):
             physical_objects.append(all_as_iterable)
 
         if by_type is not None:
+            from ada.api.shapes import ShapeProxy
+
             if not isinstance(by_type, (list, tuple)):
                 by_type = (by_type,)
-            res = filter(lambda x: type(x) in by_type, chain.from_iterable(physical_objects))
+
+            def _match_type(x, _by=tuple(by_type)):
+                # Exact-type filter, but a lazy ShapeProxy counts as its public type
+                # Shape (a proxy is an implementation detail of the import path, not
+                # a distinct kind — Shape subclasses like PrimBox stay excluded).
+                t = type(x)
+                if t is ShapeProxy:
+                    t = Shape
+                return t in _by
+
+            res = filter(_match_type, chain.from_iterable(physical_objects))
         elif by_metadata is not None:
             res = filter(
                 lambda x: all(x.metadata.get(key) == value for key, value in by_metadata.items()),

@@ -3,6 +3,7 @@ import * as THREE from "three";
 import {handleClickEmptySpace} from "@/utils/mesh_select/handleClickEmptySpace";
 import {handleClickMesh} from "@/utils/mesh_select/handleClickMesh";
 import {handleClickPoints} from "@/utils/mesh_select/handleClickPoints";
+import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 // handleClickMesh signature change accommodates a prefilledRangeId
 // from the GPU mesh picker; the raycast fallback still passes only
 // the intersection.
@@ -109,9 +110,18 @@ export function setupPointerHandler(
         try {
             const meshPick = gpuMeshPicker.pickAt(e.clientX, e.clientY);
             if (meshPick) {
+                // GPU picking identifies the object + a representative vertex (the draw range's
+                // first vertex), NOT the exact clicked point — so "Clicked at" would show the same
+                // coordinate for every click on one object (very noticeable on a small model). Refine
+                // it with a raycast against just the picked mesh; that also yields the exact triangle
+                // index for face-level picking (the full-scene raycast would hit the edge overlay first
+                // and require zooming way in). Falls back to the vertex when the mesh is too large to
+                // raycast cheaply (keeps the huge-FEA fast path — face picking then unavailable there).
+                const refined = raycastPointOnMesh(e, camera, renderer, meshPick.mesh);
                 const fakeIntersection: THREE.Intersection = {
                     object: meshPick.mesh,
-                    point: meshPick.worldPosition.clone(),
+                    point: refined?.point ?? meshPick.worldPosition.clone(),
+                    faceIndex: refined?.faceIndex,
                     distance: 0,
                 } as THREE.Intersection;
                 await handleClickMesh(fakeIntersection, e, meshPick.rangeId);
@@ -149,8 +159,14 @@ export function setupPointerHandler(
         }
 
         if (nearestMesh) {
-            // Clear any highlighted point if not multi-select
-            await handleClickMesh(nearestMesh, e);
+            // Only imported geometry (CustomBatchedMesh) is selectable. If the first opaque
+            // hit is anything else — a section-plane cap, a helper, a non-shape mesh — treat
+            // the click as a deselect, not a no-op: clicking off a shape clears the selection.
+            if (nearestMesh.object instanceof CustomBatchedMesh) {
+                await handleClickMesh(nearestMesh, e);
+            } else {
+                handleClickEmptySpace(e);
+            }
             return;
         }
 
@@ -182,6 +198,39 @@ export function setupPointerHandler(
  *  landed essentially at the camera position and rotation degenerated
  *  into spinning in place — easiest to trigger on mobile, where you
  *  pinch in close before double-tapping. */
+// Raycast the clicked pixel against a SINGLE mesh to recover the exact world-space hit point.
+// Used to refine the GPU picker's representative-vertex position into the real clicked point.
+// Bounded by triangle count so a whole-model batched mesh (millions of tris) doesn't stall the
+// click — above the cap the caller keeps the fast approximate vertex.
+const MAX_REFINE_TRIS = 600_000;
+
+function raycastPointOnMesh(
+    e: MouseEvent,
+    camera: THREE.PerspectiveCamera,
+    renderer: THREE.WebGLRenderer,
+    mesh: THREE.Object3D,
+): {point: THREE.Vector3; faceIndex: number | undefined} | null {
+    try {
+        const geom = (mesh as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+        if (!geom) return null;
+        const triCount = (geom.index ? geom.index.count : geom.attributes.position?.count ?? 0) / 3;
+        if (triCount > MAX_REFINE_TRIS) return null;
+        const rect = renderer.domElement.getBoundingClientRect();
+        const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        const ray = new THREE.Raycaster();
+        ray.layers.set(0);
+        ray.layers.disable(1);
+        ray.setFromCamera(new THREE.Vector2(nx, ny), camera);
+        // Only the picked mesh — never the edge/wireframe overlays — so the triangle index is reliable
+        // regardless of zoom (the full-scene raycast would hit an edge line first when zoomed out).
+        const hit = ray.intersectObject(mesh, false)[0];
+        return hit?.point ? {point: hit.point.clone(), faceIndex: hit.faceIndex ?? undefined} : null;
+    } catch {
+        return null;
+    }
+}
+
 function pickWorldPoint(
     e: MouseEvent,
     camera: THREE.PerspectiveCamera,

@@ -53,7 +53,9 @@ def native_step_to_mesh(
     if deflection is None:
         deflection = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
     if angular_deg is None:
-        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+        from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+
+        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
     if num_threads <= 0:
         # Mirror the native GLB path: bound threads to the cgroup-aware allotment, not the node's
         # core count, so we don't oversubscribe a CPU-capped pod or bloat per-thread malloc arenas.
@@ -64,13 +66,33 @@ def native_step_to_mesh(
         except Exception:  # noqa: BLE001
             num_threads = 0
 
+    # Adaptive per-surface density is ON BY DEFAULT for STEP->OBJ/STL too (same rationale as
+    # STEP->GLB: dense curved assemblies over-tessellate, and the text OBJ/STL are the largest,
+    # slowest products — the crane's 107M-tri OBJ/STL blew the 5-min timeout). ADA_STREAM_TESS_
+    # ADAPTIVE=0/false forces the fixed-angle path.
+    adaptive_env = os.environ.get("ADA_STREAM_TESS_ADAPTIVE")
+    adaptive = True if adaptive_env is None else adaptive_env.strip().lower() not in {"0", "false", "no", "off", ""}
+    model_scale = 0.0
+    if adaptive:
+        from ada.cadit.step.model_scale import estimate_step_model_scale
+
+        model_scale = estimate_step_model_scale(step_path)
+
     if on_progress is not None:
         on_progress("adacpp-native-mesh", 0.1)
-    n = adacpp.cad.stream_step_to_mesh(
-        str(step_path), str(out_path), fmt, deflection=deflection, angular_deg=angular_deg, num_threads=num_threads
-    )
+    mesh_kwargs = dict(deflection=deflection, angular_deg=angular_deg, num_threads=num_threads)
+    if "model_scale" in (adacpp.cad.stream_step_to_mesh.__doc__ or ""):
+        mesh_kwargs["model_scale"] = model_scale
+    elif model_scale > 0.0:
+        logger.warning("adacpp build predates adaptive tessellation (no model_scale); using fixed angular_deg")
+    n = adacpp.cad.stream_step_to_mesh(str(step_path), str(out_path), fmt, **mesh_kwargs)
     if n < 0:
         raise RuntimeError(f"adacpp native stream_step_to_mesh failed for {step_path}")
+    # Record the triangle tally for the audit (convert_meta["tri_stats"]) so a tessellation-output
+    # change (density drift, the adaptive thread bug, a dropped solid) is caught run-to-run.
+    from ada.cadit.step.tess_stats import record_tri_stats
+
+    record_tri_stats(n_tris=n, engine="adacpp:libtess2")
     logger.info("adacpp-native STEP->%s: %s triangles -> %s", fmt.upper(), n, out_path)
     print(
         f"[adacpp-native] {n} triangles -> {out_path} (fmt={fmt}, threads={num_threads}, "

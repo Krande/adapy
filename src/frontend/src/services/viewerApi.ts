@@ -66,7 +66,7 @@ export interface MeResponse {
     email: string;
     displayName: string;
     isAdmin: boolean;
-    scopes: Array<{kind: "shared" | "user" | "project"; id: string | null; name: string}>;
+    scopes: Array<{kind: "shared" | "user" | "project" | "corpus"; id: string | null; name: string}>;
     projects: Array<{id: string; slug: string; name: string; role: string}>;
 }
 
@@ -595,6 +595,39 @@ export interface ConvertMeta {
     // as % utilization across all cores rather than a cumulative ramp.
     cpu_cores?: number | null;
     options?: Record<string, string>;
+    // adacpp [STEPPROF-JSON] pipeline summaries, parsed from the captured child log when
+    // the profile_conversions toggle was on — one entry per instrumented C++ pipeline run.
+    cpp_profile?: CppProfile[];
+}
+
+export interface CppProfilePhase {
+    name: string;
+    ms: number;
+    rss_mb: number;
+}
+
+export interface CppProfileThread {
+    tid: number;
+    solids: number;
+    busy_ms: number;
+}
+
+export interface CppProfile {
+    label: string;
+    wall_ms: number;
+    peak_rss_mb: number;
+    cpu_s?: number;
+    parallelism?: number;
+    vctx?: number;
+    nvctx?: number;
+    disk_read_mb?: number;
+    majflt?: number;
+    solids?: number;
+    tris?: number;
+    max_tris_solid?: number;
+    phases: CppProfilePhase[];
+    notes?: Record<string, number>;
+    threads?: CppProfileThread[];
 }
 
 export interface WorkerPackage {
@@ -617,6 +650,9 @@ export interface AuditRun {
     // Idle time (ms) excluded from the active duration — the gap before a
     // later validation pass folded into the run. UI subtracts it.
     idle_ms?: number | null;
+    // Sum of every cell's own duration_ms — the run's active compute time,
+    // independent of wall clock. The UI shows this as the run's total runtime.
+    cells_duration_ms?: number | null;
     scope: string;
     worker_pool: string | null;
     trigger: string;
@@ -625,6 +661,10 @@ export interface AuditRun {
     status: string;
     note: string | null;
     total: number;
+    // Auto-validation parity cells counted into `total` upfront but not yet
+    // enqueued (the poller dispatches them once the conversion cells land).
+    // 0 once the validation pass starts, and for non-auto-validate runs.
+    validate_total?: number;
     ok: number;
     failed: number;
     skipped: number;
@@ -761,6 +801,16 @@ export interface AuditRunJob {
     // Empty for cells finished before migration 013 / cells that
     // hit the dispatcher's cached short-circuit.
     worker_image_tag: string | null;
+    // Per-conversion provenance + quality flags (JSONB). Includes
+    // ``occ_fallback`` ({count, reasons, geoms}) when the NGEOM/libtess2 path
+    // silently fell back to OCC, and ``mesh_flags`` for distorted triangles.
+    convert_meta?: {
+        occ_fallback?: {count: number; reasons?: Record<string, number>; geoms?: Record<string, number>};
+        mesh_flags?: {distorted_tris?: number; distorted_frac?: number; n_tris?: number};
+        // Faces with a trim boundary that tessellated to zero triangles (silently dropped geometry).
+        geom_health?: {dropped_faces?: number; total_faces?: number};
+        [k: string]: unknown;
+    } | null;
 }
 
 export interface ProfileStatsRow {
@@ -859,6 +909,8 @@ export interface AuditFilters {
     action?: string;
     /** Conversion target format (glb / ifc / step / …). */
     target?: string;
+    /** Job state (queued / running / done / error). */
+    status?: string;
     /** Case-insensitive substring filter on the source filepath/filename. */
     key?: string;
     before_id?: number;
@@ -1458,6 +1510,9 @@ export const viewerApi = {
             // ``null`` clears any global override; otherwise the
             // type matches the option's declared ``type``.
             conversionOptions?: Record<string, boolean | string | number | null>;
+            // Re-convert: always re-run and write to the separate ``_reconvert/`` namespace so
+            // a corpus scope's ``_derived/`` audit product is never overwritten.
+            reconvert?: boolean;
         },
     ): Promise<ConvertResponse> {
         const body: Record<string, unknown> = {
@@ -1470,6 +1525,9 @@ export const viewerApi = {
         }
         if (opts?.conversionOptions && Object.keys(opts.conversionOptions).length) {
             body.conversion_options = opts.conversionOptions;
+        }
+        if (opts?.reconvert) {
+            body.reconvert = true;
         }
         const r = await authedFetch(
             `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/convert`,
@@ -1664,6 +1722,24 @@ export const viewerApi = {
         return jsonOrThrow(r, "adminCorpusCreate");
     },
 
+    /** Admin: update a corpus's display name / description. The slug
+     * is immutable (baked into the storage prefix + scope URLs). An
+     * empty description clears it. */
+    async adminCorpusUpdate(
+        slug: string,
+        body: {name: string; description: string | null},
+    ): Promise<Corpus> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/corpora/${encodeURIComponent(slug)}`,
+            {
+                method: "PATCH",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(body),
+            },
+        );
+        return jsonOrThrow(r, "adminCorpusUpdate");
+    },
+
     /** Admin: soft-delete a corpus by slug. Storage bytes survive —
      * the operator clears those out-of-band. The slug becomes
      * immediately available for reuse. */
@@ -1712,6 +1788,22 @@ export const viewerApi = {
             {method: "POST"},
         );
         return jsonOrThrow(r, `adminAuditRunReDispatch(${runId})`);
+    },
+
+    /** Admin: re-run a single cell of a run in place (right-click → Rerun).
+     * Enqueues one force-rebuild conversion for (key, target) against the run's
+     * own scope/pool and reopens the run; the other cells are untouched.
+     * Returns the (reopened) run. */
+    async adminAuditRunRerunCell(runId: string, key: string, target: string): Promise<AuditRun> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}/rerun-cell`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({key, target}),
+            },
+        );
+        return jsonOrThrow(r, `adminAuditRunRerunCell(${runId})`);
     },
 
     /** Admin: append a validation (cross-format parity) pass to a finished

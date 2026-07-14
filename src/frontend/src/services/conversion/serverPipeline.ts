@@ -33,6 +33,9 @@ export async function convertViaServer(
         // (``runtime.conversionOptionsFor(ext, target)``); ConversionRow
         // collects them from the rendered option widgets.
         conversionOptions?: Record<string, boolean | string | number | null>;
+        // Force a fresh re-conversion into the ``_reconvert/`` namespace (never touches the
+        // ``_derived/`` audit product). The returned derived_key points at ``_reconvert/…``.
+        reconvert?: boolean;
     },
 ): Promise<string> {
     // Track jobs per (source, format) so a parallel ifc + xml conversion
@@ -43,7 +46,7 @@ export async function convertViaServer(
         opts?.step !== undefined && opts?.field !== undefined
             ? `::s${opts.step}.${opts.field}`
             : "";
-    const storeKey = `${sourceKey}::${targetFormat}${pickSuffix}`;
+    const storeKey = `${sourceKey}::${targetFormat}${pickSuffix}${opts?.reconvert ? "::reconvert" : ""}`;
     const store = useConversionStore.getState();
 
     const initial = await viewerApi.convert(scope, sourceKey, targetFormat, opts);
@@ -83,6 +86,12 @@ export async function convertViaServer(
         }
         if (payload.status === "error") {
             throw new Error(payload.error || "conversion failed");
+        }
+        // A user-killed job (or a watchdog-reaped one that surfaced as cancelled) is terminal — stop
+        // polling and reject, so callers awaiting the conversion (e.g. the gallery reconvert's
+        // "Re-converting…" state) reset instead of hanging until the ~30 min poll ceiling.
+        if (payload.status === "cancelled") {
+            throw new Error(payload.error || "conversion cancelled");
         }
     }
     throw new Error("conversion did not complete within the poll window");

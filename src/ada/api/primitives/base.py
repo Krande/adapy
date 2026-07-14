@@ -20,6 +20,107 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
 
+def _bake_placement_into_geometry(geom_wrapper: Geometry, placement: Placement) -> Geometry | None:
+    """Return a COPY of ``geom_wrapper`` with ``placement`` folded into the underlying solid's
+    ``position``, so a placement-agnostic tessellator renders the shape in world coordinates.
+
+    Only analytic solids (those carrying an ``Axis2Placement3D`` / ``Axis1Placement``
+    ``position`` — Box, Sphere, Cylinder, Cone, Extruded/Revolved/Swept area solids) are
+    supported; anything else (face sets, B-reps) returns ``None`` so the caller keeps the
+    unplaced geometry (a follow-up). Uses the public ``transform_local_points_to_global`` /
+    ``transform_vector`` helpers, which encode the (now self-consistent) Placement rotation
+    convention — ``transform_local_points_to_global(p) == rot_matrix @ p + origin`` — so the
+    location, axis and ref_direction land on the same world frame the tessellator expects.
+    """
+    import copy
+
+    import numpy as np
+
+    from ada import Direction
+    from ada.geom.placement import Axis1Placement, Axis2Placement3D
+
+    abs_p = placement.get_absolute_placement(include_rotations=True)
+
+    def _pt(p):
+        q = abs_p.transform_local_points_to_global(np.asarray([[float(p[0]), float(p[1]), float(p[2])]]))[0]
+        return Point(q[0], q[1], q[2])
+
+    def _vec(v):
+        return abs_p.transform_vector(np.asarray([float(v[0]), float(v[1]), float(v[2])]))
+
+    solid = geom_wrapper.geometry
+    pos = getattr(solid, "position", None)
+    if isinstance(pos, (Axis2Placement3D, Axis1Placement)):
+        new_solid = copy.copy(solid)  # shallow: only ``position`` is replaced
+        loc = _pt(pos.location)
+        axis = _vec(pos.axis)
+        if isinstance(pos, Axis2Placement3D):
+            ref = _vec(pos.ref_direction)
+            new_solid.position = Axis2Placement3D(loc, Direction(*axis), Direction(*ref))
+        else:
+            new_solid.position = Axis1Placement(loc, Direction(*axis))
+        return Geometry(geom_wrapper.id, new_solid, geom_wrapper.color, bool_operations=geom_wrapper.bool_operations)
+
+    # Point-based / face-set geometries (no ``position``): transform their vertices. Covers
+    # tessellated & polygonal face sets and the face-set / surface-model hierarchy
+    # (FaceBasedSurfaceModel -> ConnectedFaceSet -> Face -> FaceBound -> PolyLoop). Anything with a
+    # non-poly-loop bound (EdgeLoop) or a carried surface returns None (unplaced — a follow-up).
+    placed = _bake_placement_into_facelike(solid, _pt)
+    if placed is not None:
+        return Geometry(geom_wrapper.id, placed, geom_wrapper.color, bool_operations=geom_wrapper.bool_operations)
+    return None
+
+
+def _bake_placement_into_facelike(geom, pt):
+    """Return a COPY of a point-based/face-set geometry with every vertex mapped through ``pt``, or
+    None if the geometry carries structure we can't transform by moving vertices alone."""
+    import ada.geom.curves as geo_cu
+    import ada.geom.surfaces as geo_su
+
+    def loop(lp):
+        return geo_cu.PolyLoop([pt(p) for p in lp.polygon]) if isinstance(lp, geo_cu.PolyLoop) else None
+
+    def face(f):
+        if type(f) is not geo_su.Face:  # a FaceSurface carries a surface we'd also have to move
+            return None
+        bounds = []
+        for b in f.bounds:
+            lp = loop(b.bound)
+            if lp is None:
+                return None
+            bounds.append(geo_su.FaceBound(lp, b.orientation))
+        return geo_su.Face(bounds=bounds)
+
+    def faces(fs):
+        out = []
+        for f in fs:
+            nf = face(f)
+            if nf is None:
+                return None
+            out.append(nf)
+        return out
+
+    if isinstance(geom, geo_su.TriangulatedFaceSet):
+        return geo_su.TriangulatedFaceSet([pt(p) for p in geom.coordinates], geom.normals, geom.indices)
+    if isinstance(geom, geo_su.PolygonalFaceSet):
+        return geo_su.PolygonalFaceSet([pt(p) for p in geom.coordinates], geom.faces, geom.closed)
+    if isinstance(geom, geo_su.FaceBasedSurfaceModel):
+        cfs = []
+        for c in geom.fbsm_faces:
+            nf = faces(c.cfs_faces)
+            if nf is None:
+                return None
+            cfs.append(geo_su.ConnectedFaceSet(nf))
+        return geo_su.FaceBasedSurfaceModel(cfs)
+    if isinstance(geom, geo_su.ConnectedFaceSet):
+        nf = faces(geom.cfs_faces)
+        return geo_su.ConnectedFaceSet(nf) if nf is not None else None
+    if isinstance(geom, (geo_su.ClosedShell, geo_su.OpenShell)):
+        nf = faces(geom.cfs_faces)
+        return type(geom)(nf) if nf is not None else None
+    return None
+
+
 class Shape(BackendGeom):
     IFC_CLASSES = ShapeTypes
 
@@ -168,6 +269,15 @@ class Shape(BackendGeom):
         if self.geom is None:
             raise NotImplementedError(f"solid_geom() not implemented for {self.__class__.__name__}")
 
+        # Carry the Shape's colour onto its Geometry when the wrapper was built
+        # without one (SAT/STEP imports pass ``Geometry(i, geom)`` with no colour,
+        # so the tessellator — which reads ``geom.color`` — otherwise gets None and
+        # renders the body black). ``self.color`` defaults to light-gray, matching
+        # what Plate.solid_geom already injects. A colour the geom already carries
+        # (e.g. an IFC style) is left untouched.
+        if self.geom.color is None and self.color is not None:
+            self.geom.color = self.color
+
         import ada.geom.solids as geo_so
         import ada.geom.surfaces as geo_su
 
@@ -177,7 +287,12 @@ class Shape(BackendGeom):
                 geo_su.AdvancedFace,
                 geo_su.ClosedShell,
                 geo_su.OpenShell,
+                geo_su.ConnectedFaceSet,  # the native NGEOM reader's B-rep root form
                 geo_su.ShellBasedSurfaceModel,
+                geo_su.FaceBasedSurfaceModel,
+                geo_su.TriangulatedFaceSet,  # pre-tessellated (IfcTriangulatedFaceSet) — direct mesh path
+                geo_su.PolygonalFaceSet,  # IfcPolygonalFaceSet — shared point list + n-gon faces
+                geo_so.FacetedBrep,
                 geo_so.Box,
                 geo_so.Sphere,
                 geo_so.Cylinder,
@@ -186,6 +301,7 @@ class Shape(BackendGeom):
                 geo_so.ExtrudedAreaSolidTapered,
                 geo_so.RevolvedAreaSolid,
                 geo_so.FixedReferenceSweptAreaSolid,
+                geo_so.SweptDiskSolid,  # pipes/rods (IfcSweptDiskSolid) — OCC + NGEOM builders exist
             ),
         ):
 
@@ -197,6 +313,20 @@ class Shape(BackendGeom):
                 self.geom.bool_operations = [
                     BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans
                 ]
+
+            # Bake a non-identity placement into the geometry. The tessellator/exporters are
+            # placement-agnostic for generic Shapes (unlike Beam, whose straight_beam_to_geom
+            # bakes it in, and the Prim* subclasses, which override solid_geom) — so an IFC/
+            # native shape read in LOCAL representation coords with its world transform held in
+            # ``self.placement`` would otherwise render unplaced (rotation dropped; translation
+            # only happened to work when it was already baked into the geom). Returns a COPY so
+            # repeat calls don't compound; ``self.geom``/``self.placement`` are never mutated.
+            # Only analytic (positioned) solids are handled today — face-set / B-rep placement
+            # baking is a follow-up (helper returns None → keep the unplaced geom).
+            if not self.placement.is_identity():
+                placed = _bake_placement_into_geometry(self.geom, self.placement)
+                if placed is not None:
+                    return placed
             return self.geom
         else:
             raise NotImplementedError(f"solid_geom() not implemented for {self.geom=}")

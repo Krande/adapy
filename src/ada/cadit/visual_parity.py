@@ -28,9 +28,24 @@ if TYPE_CHECKING:
     from ada import Assembly
 
 # Structure-preserving formats: (writer(assembly, path), reader(path) -> Assembly, suffix).
-# STEP is written via the OCC writer (full geometry, not just extrusions) and
-# read via the streaming reader with an OCC fallback (reader="auto").
+# STEP is written via the non-OCC stream writer (the kernel-free AP242 path prod uses), which
+# preserves mapped/instanced shapes the OCC writer drops; it falls back to OCC per-file only for
+# solids the analytic stream writer can't yet author (swept/revolved/tapered). Read via the
+# streaming reader with an OCC fallback (reader="auto").
 _FORMAT_IO: dict[str, tuple[Callable, Callable, str]] = {}
+
+
+def _write_step_parity(assembly, path) -> None:
+    """Write STEP for the parity round-trip via the non-OCC stream writer (matches the prod
+    ifc/step→step converter path, and preserves multi-instance mapped shapes the OCC writer
+    collapses). If the stream writer skipped any solid it can't author analytically
+    (swept/revolved/tapered), re-write the whole file with the OCC writer, which covers those —
+    so the leg stays lossless either way. (A model mixing mapped instances AND swept solids would
+    lose the mapped instances to the OCC rewrite; none exist in the corpus and the stream writer's
+    coverage is being extended to remove even that.)"""
+    stats = assembly.to_stp(path, writer="stream")
+    if isinstance(stats, dict) and stats.get("skipped", 0) > 0:
+        assembly.to_stp(path, writer="occ")
 
 
 def _register_default_formats() -> None:
@@ -40,7 +55,7 @@ def _register_default_formats() -> None:
 
     _FORMAT_IO["ifc"] = (lambda a, p: a.to_ifc(p), lambda p: ada.from_ifc(p), ".ifc")
     _FORMAT_IO["xml"] = (lambda a, p: a.to_genie_xml(p), lambda p: ada.from_genie_xml(p), ".xml")
-    _FORMAT_IO["step"] = (lambda a, p: a.to_stp(p), lambda p: ada.from_step(p, reader="auto"), ".step")
+    _FORMAT_IO["step"] = (_write_step_parity, lambda p: ada.from_step(p, reader="auto"), ".step")
 
 
 def visualized_element_count(scene: "trimesh.Scene") -> int:
@@ -48,7 +63,9 @@ def visualized_element_count(scene: "trimesh.Scene") -> int:
 
     Counts mesh / polyline entries one-per-object (build the scene with
     ``merge_meshes=False``); excludes the placeholder point cloud the converter
-    seeds for otherwise-empty scenes.
+    seeds for otherwise-empty scenes, and zero-vertex entries (the OCC STEP
+    fallback reader materializes one empty Shape from a geometry-less file —
+    it renders nothing, so it must not count as an element).
     """
     import trimesh
 
@@ -56,13 +73,39 @@ def visualized_element_count(scene: "trimesh.Scene") -> int:
     for geom in scene.geometry.values():
         if isinstance(geom, trimesh.PointCloud):
             continue  # empty-scene placeholder
+        if len(getattr(geom, "vertices", ())) == 0:
+            continue  # degenerate/empty body — renders nothing
         n += 1
     return n
 
 
 def assembly_element_count(assembly: "Assembly") -> int:
-    """Visualized-element count for an adapy Assembly (unmerged scene)."""
-    return visualized_element_count(assembly.to_trimesh_scene(merge_meshes=False))
+    """Visualized-element count for an adapy Assembly.
+
+    Counted from the raw tessellation stream — one MeshStore per renderable
+    object, the exact set ``meshes_to_trimesh(merge_meshes=False)`` turns into
+    scene entries — WITHOUT assembling a trimesh scene. Scene assembly
+    (trimesh objects, materials, normals) was ~1/3 of a parity cell's wall
+    time and contributes nothing to the count. Same exclusions as
+    :func:`visualized_element_count`: point clouds (the empty-scene
+    placeholder) and zero-vertex stores (degenerate bodies render nothing)."""
+    from itertools import chain
+
+    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.gltf.meshes import MeshType
+
+    bt = BatchTessellator()
+    # Mirror tessellate_part's object set: physical objects (pipes as
+    # segments) + welds, which live in their own per-Part container.
+    objects = chain(assembly.get_all_physical_objects(pipe_to_segments=True), assembly.get_all_welds())
+    n = 0
+    for ms in bt.batch_tessellate(objects):
+        if ms is None or ms.type == MeshType.POINTS:
+            continue
+        if len(ms.position) == 0:
+            continue
+        n += 1
+    return n
 
 
 @dataclass
@@ -127,6 +170,23 @@ def load_assembly_auto(path: str | Path) -> "Assembly":
     raise ValueError(f"visual_parity: no loader for source suffix {ext!r}")
 
 
+def _count_curve_set_roots(path: str | Path, size_limit: int = 64_000_000) -> int:
+    """Number of loose curve/geometric-set roots (one per placed curve body — e.g. an evaluated
+    alignment reference curve) in a STEP file. The solid-only native reader skips these; each is a
+    distinct GEOMETRIC_CURVE_SET / GEOMETRIC_SET entity definition. Size-bounded (such wireframe
+    bodies are tiny; a multi-GB solid assembly carries none worth a full scan)."""
+    try:
+        p = Path(path)
+        if p.stat().st_size > size_limit:
+            return 0
+        data = p.read_bytes()
+    except OSError:
+        return 0
+    # "GEOMETRIC_CURVE_SET(" does not contain "GEOMETRIC_SET(" as a substring, so counting both
+    # names never double-counts.
+    return data.count(b"GEOMETRIC_CURVE_SET(") + data.count(b"GEOMETRIC_SET(")
+
+
 def _count_step_instances(path: str | Path) -> int:
     """Number of placed solid instances in a STEP file. Counted by streaming the
     native parser and reading each solid's transform list from the metadata —
@@ -134,6 +194,9 @@ def _count_step_instances(path: str | Path) -> int:
     the count). Falls back to the pure-Python streaming reader."""
     from ada.cadit.step.read.native_reader import native_adacpp_step_available
 
+    # Native StepNgeomStream counts the solids; add the loose curve/geometric-set roots it can't
+    # see (one per placed curve body). This keeps native grouping/transform semantics instead of a
+    # whole-model reload, which would ungroup an OCC-exploded multi-face solid and over-count.
     if native_adacpp_step_available():
         import adacpp
 
@@ -141,7 +204,7 @@ def _count_step_instances(path: str | Path) -> int:
         for _nbytes, meta in adacpp.cad.StepNgeomStream(str(path)):
             tf = meta.transforms
             total += len(tf) if tf else 1
-        return total
+        return total + _count_curve_set_roots(path)
 
     import ada
 
@@ -173,7 +236,12 @@ def _count_step_product_instances(path: str | Path) -> int | None:
         key = tuple(ip[0][-1]) if (ip and ip[0]) else ("root", meta.id)
         n = len(meta.transforms) or 1
         groups[key] = max(groups.get(key, 0), n)
-    return sum(groups.values())
+    # The native StepNgeomStream is solid-only but GROUPS a multi-face solid (OCC's to_stp splits a
+    # sectioned/swept or sewn multi-shell solid into many SHELL_BASED_SURFACE_MODEL roots) back into
+    # its one owning product. A whole-model reload would UNGROUP that explosion and massively
+    # over-count, so instead of deferring we keep the grouped solid count and ADD the loose
+    # curve/geometric-set roots (one per placed curve body) the native reader can't see.
+    return sum(groups.values()) + _count_curve_set_roots(path)
 
 
 def _count_ifc_proxies(path: str | Path) -> int:
@@ -528,6 +596,13 @@ def cross_format_parity(
                 # source and the IFC leg. Grouping by owning product restores the
                 # one-element-per-object convention both other legs use.
                 n = _count_step_product_instances(out) if fmt == "step" else None
+                if fmt == "step" and n == 0:
+                    # The native stream counter sees only solid/B-rep roots — a
+                    # wireframe-only output (GEOMETRIC_CURVE_SET wire bodies)
+                    # counts 0 there even though the geometry is present. A
+                    # 0-count file is small by construction, so the exact reload
+                    # count is affordable.
+                    n = None
                 counts[fmt] = n if n is not None else assembly_element_count(reader(out))
             except Exception as ex:  # noqa: BLE001 - record and continue with the other formats
                 errors[fmt] = f"{type(ex).__name__}: {ex}"

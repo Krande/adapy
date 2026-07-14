@@ -451,6 +451,73 @@ class CurvePoly2d(CurveOpen2d):
         self._nodes = [Node(p) for p in points3d_pts]
         return self
 
+    @classmethod
+    def from_fem_shells_batch(cls, pts: np.ndarray, parent=None, tol=1e-3) -> list[CurvePoly2d | None]:
+        """Vectorized :meth:`from_fem_shell` for ``m`` same-arity k-gons (m, k, 3).
+
+        The per-element orientation/projection math runs once over arrays
+        (:func:`ada.core.vector_transforms.shell_orientations_bulk` — same
+        floating-point operation order and Decimal rounding as the scalar
+        chain); only the output objects (Point/LineSegment/Node) are built per
+        element. Rows the bulk math can't take (degenerate corners/edges)
+        return ``None`` — the caller runs those through ``from_fem_shell``.
+        """
+        from ada.core.vector_transforms import shell_orientations_bulk
+
+        pts = np.asarray(pts, dtype=float)
+        m, k, _ = pts.shape
+        ok, rot1, rotf = shell_orientations_bulk(pts)
+        origin = pts[:, 0]
+
+        # 3D -> 2D via rot1 (transform_3x3: pos @ rot.T), batched — matmul runs
+        # the same (k,3)@(3,3) product per element as the scalar np.dot.
+        rel = pts - origin[:, None, :]
+        local = np.matmul(rel, np.transpose(rot1, (0, 2, 1)))[:, :, :2]
+
+        # winding: keep first point + reverse the rest when is_clockwise is False.
+        # is_clockwise sums (x2-x1)(y2+y1) over consecutive pairs and closes with
+        # (x[-1]-x[0])(y[-1]+y[0]) — NOT the wrapped shoelace closing edge —
+        # replicated verbatim so the reorder decision matches bit for bit.
+        x, y = local[:, :, 0], local[:, :, 1]
+        psum = ((x[:, 1:] - x[:, :-1]) * (y[:, 1:] + y[:, :-1])).sum(axis=1)
+        psum = psum + (x[:, -1] - x[:, 0]) * (y[:, -1] + y[:, 0])
+        ccw = psum < 0  # is_clockwise returns `not psum < 0`
+        reordered = local.copy()
+        reordered[:, 1:, :] = local[:, :0:-1, :]
+        wound = np.where(ccw[:, None, None], reordered, local)
+
+        # back to 3D via the final frame (transform_3x3 inverse: pos @ rot) + origin
+        wound3 = np.concatenate([wound, np.zeros((m, k, 1))], axis=2)
+        back = np.matmul(wound3, rotf) + origin[:, None, :]
+
+        out: list[CurvePoly2d | None] = []
+        for i in range(m):
+            if not ok[i]:
+                out.append(None)
+                continue
+            points2d = [Point(wound[i, j, 0], wound[i, j, 1]) for j in range(k)]
+            points3d_pts = [Point(back[i, j]) for j in range(k)]
+            segs2d = [LineSegment(points2d[j - 1], points2d[j]) for j in range(k)]
+            segs3d = [LineSegment(points3d_pts[j - 1], points3d_pts[j]) for j in range(k)]
+            seg_global_points, seg_index = segments_to_indexed_lists(segs3d)
+            xf, yf, zf = Direction(rotf[i, 0]), Direction(rotf[i, 1]), Direction(rotf[i, 2])
+
+            self = cls.__new__(cls)
+            self._tol = tol
+            self._parent = parent
+            self._orientation = Placement.from_dirs_precomputed(origin[i], xf, yf, zf)
+            self._placement = Placement()
+            self._radiis = {}
+            self._points2d = points2d
+            self._points3d = points3d_pts
+            self._segments = segs2d
+            self._segments3d = segs3d
+            self._seg_global_points = seg_global_points
+            self._seg_index = seg_index
+            self._nodes = [Node(p) for p in points3d_pts]
+            out.append(self)
+        return out
+
     def get_face_geom(self) -> ArbitraryProfileDef:
         outer_curve = self.curve_geom()
         return ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])

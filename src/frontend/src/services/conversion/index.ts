@@ -7,6 +7,7 @@ import {runtime} from "@/runtime/config";
 import {viewerApi, TargetFormat, ScopeUrl} from "@/services/viewerApi";
 import {convertViaServer} from "./serverPipeline";
 import {wasmSupportsConversion, isWasmFeaSource} from "./wasmSupport";
+import {serializerSchemaFor, normalizeSelection, SerializerSelection} from "./serializerMatrix";
 
 // NOTE: the Pyodide pipeline is imported lazily (inside ensureConverted), not
 // at module top. It pulls a `new Worker(new URL(...))` that Vite emits as a
@@ -61,6 +62,83 @@ export async function ensureConverted(
         throw new Error("conversion not enabled on this deployment");
     }
     return convertViaServer(scope, sourceKey, targetFormat, opts);
+}
+
+function extOf(name: string): string {
+    const i = name.lastIndexOf(".");
+    return i === -1 ? "" : name.slice(i).toLowerCase();
+}
+
+/**
+ * Convert routing the serializer/tessellator selection (from the reconvert
+ * dropdowns) to the right pipeline: a client serializer (runtime="client",
+ * i.e. the in-browser WASM/Pyodide path) goes to the Pyodide pipeline, any
+ * server serializer forwards ``{serializer, tessellator}`` as conversion
+ * options to the worker where :func:`_apply_glb_serializer` folds them into the
+ * engine knobs. Returns the derived storage key. Shared by the gallery
+ * reconvert tool and the /convert page so both honour the same matrix.
+ */
+export async function convertWithSelection(
+    scope: ScopeUrl,
+    sourceKey: string,
+    targetFormat: TargetFormat,
+    opts?: {
+        selection?: SerializerSelection;
+        extraOptions?: Record<string, boolean | string | number | null>;
+        reconvert?: boolean;
+    },
+): Promise<string> {
+    const ext = extOf(sourceKey);
+    const schema = serializerSchemaFor(ext, targetFormat);
+    const selection = opts?.selection ?? {};
+    const resolved = schema ? normalizeSelection(schema, selection) : null;
+
+    if (resolved?.isClient) {
+        // In-browser path — no server round-trip. Two client engines, picked by
+        // the tessellator token:
+        //   wasm-native → the OCC-free, no-pyodide adacpp_step_glb embind module
+        //                 (STEP → GLB only, 2.3 MB, no Python runtime).
+        //   pyodide     → the Pyodide pipeline (ifc / step / mesh, wasm wheels).
+        if (resolved.tessellator === "wasm-native") {
+            // CAD→GLB (step/ifc → glb) via the native embind GLB modules.
+            const {convertViaWasmNativeAndUpload, nativeCadGlbSupported} = await import(
+                "./nativeCadGlbPipeline"
+            );
+            if (nativeCadGlbSupported(sourceKey, targetFormat)) {
+                return convertViaWasmNativeAndUpload(scope, sourceKey, targetFormat);
+            }
+            // B-rep→B-rep (step→ifc / ifc→step) via the native embind writer module.
+            const {convertViaWasmBrepAndUpload, nativeBrepWriterSupported} = await import(
+                "./nativeBrepWriterPipeline"
+            );
+            if (nativeBrepWriterSupported(sourceKey, targetFormat)) {
+                return convertViaWasmBrepAndUpload(scope, sourceKey, targetFormat);
+            }
+            // No native module covers this (source, target) — fall through to Pyodide.
+        }
+        if (!wasmSupportsConversion(sourceKey, targetFormat)) {
+            throw new Error(
+                `in-browser conversion doesn't support ${ext || sourceKey} → ${targetFormat}`,
+            );
+        }
+        const {convertViaPyodideAndUpload} = await import("./pyodidePipeline");
+        return convertViaPyodideAndUpload(scope, sourceKey, targetFormat);
+    }
+
+    if (!runtime.convertEnabled()) {
+        throw new Error("conversion not enabled on this deployment");
+    }
+    const conversionOptions: Record<string, boolean | string | number | null> = {
+        ...(opts?.extraOptions ?? {}),
+    };
+    if (resolved) {
+        conversionOptions.serializer = resolved.serializer;
+        conversionOptions.tessellator = resolved.tessellator;
+    }
+    return convertViaServer(scope, sourceKey, targetFormat, {
+        conversionOptions: Object.keys(conversionOptions).length ? conversionOptions : undefined,
+        reconvert: opts?.reconvert,
+    });
 }
 
 // Backwards-compatible wrapper for the GLB-for-viewing flow. ``opts.streamer``

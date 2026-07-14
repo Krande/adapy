@@ -5,6 +5,7 @@ import {
     ThemePresetId,
     useThemeStore,
 } from "@/state/themeStore";
+import {useGalleryStore} from "@/state/galleryStore";
 
 // Theme picker for the menu-row panels. Four preset cards (each a
 // live mini-preview of its chrome) plus custom swatches for panel
@@ -22,11 +23,28 @@ const ThemeOptions: React.FC = () => {
     const setBgOpacity = useThemeStore((s) => s.setBgOpacity);
     const resetCustom = useThemeStore((s) => s.resetCustom);
 
+    const galleryEnabled = useGalleryStore((s) => s.enabled);
+    const setGalleryEnabled = useGalleryStore((s) => s.setEnabled);
+
     const hasCustom = customBg !== null || customText !== null;
     const effective = effectivePanelTheme({preset, customBg, customText, bgOpacity});
 
     return (
         <div className="space-y-3 text-xs">
+            <label className="flex items-center justify-between gap-2 cursor-pointer">
+                <span>
+                    Gallery mode
+                    <span className="block text-[10px] text-gray-400">
+                        Prev/next HUD cycling this scope's files
+                    </span>
+                </span>
+                <input
+                    type="checkbox"
+                    checked={galleryEnabled}
+                    onChange={(e) => setGalleryEnabled(e.target.checked)}
+                    className="h-4 w-4 cursor-pointer accent-blue-500"
+                />
+            </label>
             <div className="grid grid-cols-2 gap-2">
                 {(Object.keys(THEME_PRESETS) as ThemePresetId[]).map((id) => {
                     const p = THEME_PRESETS[id];

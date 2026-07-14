@@ -141,11 +141,17 @@ class Placement:
 
     @staticmethod
     def from_4x4_matrix(matrix: np.ndarray) -> Placement:
+        # Extract the axes from the matrix ROWS, matching from_axis_angle / from_quaternion /
+        # rotate / get_absolute_placement (all row-based) and ``rot_matrix`` itself. Reading
+        # COLUMNS here (the old behaviour) stored the TRANSPOSE — for a rotation the inverse —
+        # so a rotated IFC ObjectPlacement rendered on the wrong world axis and the round-trip
+        # ``from_4x4_matrix(M).get_matrix4x4() == M`` was broken. See test_placement_convention.
+        matrix = np.asarray(matrix)
         return Placement(
             origin=matrix[:3, 3],
-            xdir=matrix[:3, 0],
-            ydir=matrix[:3, 1],
-            zdir=matrix[:3, 2],
+            xdir=matrix[0, :3],
+            ydir=matrix[1, :3],
+            zdir=matrix[2, :3],
         )
 
     def get_absolute_placement(self, include_rotations=False) -> Placement:

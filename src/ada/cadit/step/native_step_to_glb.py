@@ -59,7 +59,22 @@ def native_step_to_glb(
     if deflection is None:
         deflection = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
     if angular_deg is None:
-        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", "20.0"))
+        from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+
+        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
+
+    # Adaptive per-surface angular density is ON BY DEFAULT for STEP->GLB: large curved CAD
+    # assemblies (crane: 7291 solids, thousands of sub-cm bolts/pins) over-tessellate at a fixed
+    # fine angle, and the GLB is the transfer-size-sensitive product. We estimate a model reference
+    # scale so adacpp coarsens tiny features while keeping large surfaces fine. ADA_STREAM_TESS_
+    # ADAPTIVE=0/false forces the fixed-angle path (model_scale 0 => angular_deg governs everything).
+    adaptive_env = os.environ.get("ADA_STREAM_TESS_ADAPTIVE")
+    adaptive = True if adaptive_env is None else adaptive_env.strip().lower() not in {"0", "false", "no", "off", ""}
+    model_scale = 0.0
+    if adaptive:
+        from ada.cadit.step.model_scale import estimate_step_model_scale
+
+        model_scale = estimate_step_model_scale(step_path)
 
     if num_threads <= 0:
         # ``num_threads=0`` lets the C++ pick std::thread::hardware_concurrency(), which reports the
@@ -79,14 +94,21 @@ def native_step_to_glb(
     if on_progress is not None:
         on_progress("adacpp-native", 0.1)
 
-    n = adacpp.cad.stream_step_to_glb(
-        str(step_path),
-        str(glb_path),
-        deflection=deflection,
-        angular_deg=angular_deg,
-        num_threads=num_threads,
-        meshopt=meshopt,
-    )
+    glb_kwargs = dict(deflection=deflection, angular_deg=angular_deg, num_threads=num_threads, meshopt=meshopt)
+    # Only forward model_scale to an adacpp build that accepts it (nanobind embeds the signature in
+    # __doc__); an older extension would raise on the unknown kwarg. Off (0.0) behaves as before.
+    if "model_scale" in (adacpp.cad.stream_step_to_glb.__doc__ or ""):
+        glb_kwargs["model_scale"] = model_scale
+    elif model_scale > 0.0:
+        logger.warning("adacpp build predates adaptive tessellation (no model_scale); using fixed angular_deg")
+    # Opt-in per-face clickable regions (scenes[0].extras face_ranges_node<m>): ADA_STREAM_TESS_FACE_REGIONS=1.
+    # Off by default — it bloats the GLB and forces serial face tessellation. Only forward to an adacpp
+    # build whose binding accepts it (older extensions would raise on the unknown kwarg).
+    fr_env = os.environ.get("ADA_STREAM_TESS_FACE_REGIONS")
+    face_regions = fr_env is not None and fr_env.strip().lower() not in {"0", "false", "no", "off", ""}
+    if face_regions and "face_regions" in (adacpp.cad.stream_step_to_glb.__doc__ or ""):
+        glb_kwargs["face_regions"] = True
+    n = adacpp.cad.stream_step_to_glb(str(step_path), str(glb_path), **glb_kwargs)
     if n < 0:
         raise RuntimeError(f"adacpp native stream_step_to_glb failed for {step_path}")
 
@@ -96,7 +118,8 @@ def native_step_to_glb(
     # capture (the worker adds wall-time + peak RSS to the row's metrics separately).
     print(
         f"[adacpp-native] {n} solids -> {glb_path} "
-        f"(threads={num_threads}, deflection={deflection}, angular={angular_deg}, meshopt={meshopt})",
+        f"(threads={num_threads}, deflection={deflection}, angular={angular_deg}, meshopt={meshopt}, "
+        f"adaptive={'off' if model_scale <= 0 else f'model_scale={model_scale:.0f}'})",
         flush=True,
     )
     if on_progress is not None:

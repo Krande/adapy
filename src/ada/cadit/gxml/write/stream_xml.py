@@ -233,7 +233,10 @@ def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_
     else:
         from ada.fem.formats.mesh_faces import iter_faces
 
-        for face in iter_faces(part, merge_strategy):
+        # Genie XML has no curved-surface concept — keep the analytic strategies
+        # polygon-only so cylinder/panel patches merge as their coplanar flats
+        # instead of arriving as unrepresentable geom faces.
+        for face in iter_faces(part, merge_strategy, allow_analytic=False):
             tmp = ET.Element("structures")
             add_plate_polygon_data(
                 face.name, face.outline, face.normal, thickness_map[face.thickness], face.material, tmp

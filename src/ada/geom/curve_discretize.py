@@ -126,4 +126,17 @@ def discretize_curve(curve, deflection: float = 0.1, max_angle: float = 0.35) ->
                 return None
             _append(out, seg_pts)
         return out
+    if type(curve) is cu.TrimmedCurve and isinstance(curve.basis_curve, cu.Line):
+        # Line basis: point trims are the endpoints; parameter trims evaluate on
+        # P(t) = pnt + t*dir (the reader keeps the vector magnitude in ``dir``).
+        b = curve.basis_curve
+
+        def _pt(t):
+            if not isinstance(t, (int, float)):
+                return tuple(np.asarray(t, float))
+            p = np.asarray(b.pnt, float)
+            d = np.asarray(b.dir, float)
+            return tuple(float(v) for v in p + float(t) * d)
+
+        return [_pt(curve.trim1), _pt(curve.trim2)]
     return None

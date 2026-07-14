@@ -33,6 +33,14 @@ const STORAGE_PKCE = "ada-oidc-pkce";
 const STORAGE_RETURN = "ada-oidc-return";
 const STORAGE_REFRESH = "ada-oidc-refresh";
 const STORAGE_STATE = "ada-oidc-state";
+// Persistent cache of the OIDC discovery doc. The endpoints (authorize/token/
+// jwks) are public and effectively static, so caching across page reloads
+// removes a ~260ms authentik round-trip (plus a possible slow TLS handshake)
+// from the token-refresh path that runs on every load. Keyed by issuer so a
+// config change invalidates it; short-ish TTL so a genuine endpoint move is
+// picked up within the day.
+const STORAGE_DISCOVERY = "ada-oidc-discovery";
+const DISCOVERY_TTL_MS = 24 * 60 * 60 * 1000;
 
 let discovery: DiscoveryDoc | null = null;
 let accessToken: string | null = null;
@@ -70,9 +78,29 @@ async function loadDiscovery(): Promise<DiscoveryDoc> {
     if (discovery) return discovery;
     const issuer = runtime.authIssuer();
     if (!issuer) throw new Error("AUTH_ISSUER not configured");
+    // Persistent cache (survives reloads), validated against the current issuer
+    // and TTL. Wrapped in try/catch so a disabled/full localStorage (private
+    // mode, embedded iframe) silently falls back to fetching.
+    try {
+        const raw = localStorage.getItem(STORAGE_DISCOVERY);
+        if (raw) {
+            const c = JSON.parse(raw) as {doc: DiscoveryDoc; at: number; issuer: string};
+            if (c.doc && c.issuer === issuer && Date.now() - c.at < DISCOVERY_TTL_MS) {
+                discovery = c.doc;
+                return discovery;
+            }
+        }
+    } catch {
+        /* corrupt / unavailable cache — fall through and refetch */
+    }
     const r = await fetch(`${issuer}/.well-known/openid-configuration`);
     if (!r.ok) throw new Error(`oidc discovery failed: ${r.status}`);
     discovery = await r.json();
+    try {
+        localStorage.setItem(STORAGE_DISCOVERY, JSON.stringify({doc: discovery, at: Date.now(), issuer}));
+    } catch {
+        /* storage unavailable — the in-memory module cache still applies */
+    }
     return discovery!;
 }
 
