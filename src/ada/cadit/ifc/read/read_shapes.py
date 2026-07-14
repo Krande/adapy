@@ -109,6 +109,18 @@ def _read_shape_geometry(product: ifcopenshell.entity_instance, color, ifc_store
     if product.Representation is None:
         return None, None, None
 
+    # Plain manifold-solid B-reps (IfcAdvancedBrep / IfcFacetedBrep, no boolean/CSG) are heavy and
+    # have an exact, kernel-free adacpp IfcNgeomStream form: under the lazy store, prefer that
+    # compact zero-copy ngeom blob over the Python reader's ClosedShell, which would pickle the whole
+    # ada.geom face tree into the store — exactly the object graph the store exists to avoid.
+    # Parametric / boolean / mapped products fall through to the Python-first path below so their
+    # bool_operations / profiles survive. If adacpp can't resolve it, blob_rec is None and we fall
+    # through unchanged.
+    if ifc_store is not None and Config().cad_lazy_shape_store and _is_plain_brep_body(product):
+        blob_rec = _native_geom_blob(product, ifc_store)
+        if blob_rec is not None:
+            return None, None, blob_rec
+
     try:
         geometries = get_product_definitions(product)
     except NotImplementedError as e:
@@ -196,6 +208,26 @@ def _has_body_representation(product: ifcopenshell.entity_instance) -> bool:
     if rep is None:
         return False
     return any(r.RepresentationIdentifier == "Body" for r in rep.Representations)
+
+
+# IfcManifoldSolidBrep subtypes adacpp's IfcNgeomStream reproduces exactly and compactly. is_a()
+# matches the WithVoids subtypes too; if adacpp can't resolve one, _native_geom_blob returns None and
+# the caller falls through to the Python reader, so listing the base types is safe.
+_BREP_BODY_TYPES = ("IfcAdvancedBrep", "IfcFacetedBrep")
+
+
+def _is_plain_brep_body(product: ifcopenshell.entity_instance) -> bool:
+    """True when every item of the product's Body representation is a plain manifold-solid B-rep
+    (IfcAdvancedBrep / IfcFacetedBrep) — i.e. no boolean/CSG or parametric/mapped item that the
+    Python reader must own to preserve bool_operations / profiles. Such bodies route to the adacpp
+    ngeom blob instead of pickling a ClosedShell tree into the lazy store."""
+    rep = getattr(product, "Representation", None)
+    if rep is None:
+        return False
+    body = next((r for r in rep.Representations if r.RepresentationIdentifier == "Body"), None)
+    if body is None or not body.Items:
+        return False
+    return all(any(item.is_a(t) for t in _BREP_BODY_TYPES) for item in body.Items)
 
 
 def _kernel_occ_shape(product: ifcopenshell.entity_instance):
