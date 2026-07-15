@@ -77,13 +77,38 @@ def add_plate_polygon_data(
         ET.SubElement(polygon, "position", {"x": str(pt[0]), "y": str(pt[1]), "z": str(pt[2])})
 
 
+def add_curved_shell_sat(plate, thck_name: str, structures_elem: ET.Element, face_refs: list[str]):
+    """Emit a :class:`PlateCurved` as a ``<curved_shell>`` naming its SAT face.
+
+    The element Genie itself writes for a curved plate, and the only form that
+    carries the B-spline patch rather than an outline: the geometry lives in
+    the SAT blob and the XML just points at the face by name. Shaped after a
+    Genie-authored hull export, whose curved shells carry exactly this."""
+    structure = ET.SubElement(structures_elem, "structure")
+    curved_shell = ET.SubElement(
+        structure, "curved_shell", {"name": plate.name, "thickness_ref": thck_name, "material_ref": plate.material.name}
+    )
+    ET.SubElement(curved_shell, "segmentation")
+    ET.SubElement(curved_shell, "front")
+    ET.SubElement(curved_shell, "back")
+    local_sys = ET.SubElement(curved_shell, "local_system")
+    # A curved shell has no single normal to hand a <vector>; Genie orients it
+    # with a sense flag against the face's own surface normal instead.
+    ET.SubElement(local_sys, "sense_flag", {"sense": "true"})
+    geometry = ET.SubElement(curved_shell, "geometry")
+    sheet = ET.SubElement(geometry, "sheet")
+    sat_reference = ET.SubElement(sheet, "sat_reference")
+    for face_ref in face_refs:
+        ET.SubElement(sat_reference, "face", {"face_ref": face_ref})
+
+
 def add_plate_curved_polygon(plate, thck_name: str, structures_elem: ET.Element) -> bool:
     """Emit a :class:`PlateCurved` as a ``<flat_plate>`` boundary polygon.
 
-    Genie XML has no curved-plate element short of embedding the B-spline face
-    in a SAT blob, which the SAT writer can't author yet — so the curved face
-    degrades to its boundary polygon (position/extent-faithful, curvature
-    lost). Uses the reader-attached flat-fallback points when present (the SAT
+    The fallback for a curved face the SAT writer cannot author (see
+    :func:`add_curved_shell_sat` for the real path): the face degrades to its
+    boundary polygon, position- and extent-faithful with the curvature lost.
+    Uses the reader-attached flat-fallback points when present (the SAT
     loop-edge endpoints), else the face's boundary nodes. Returns False when no
     usable boundary can be derived, so the caller can log the drop."""
     pts = getattr(plate, "_flat_fallback_pts", None)
@@ -138,13 +163,15 @@ def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):
     from ada.config import logger
 
     for plate in part.get_all_physical_objects(by_type=PlateCurved):
-        # Curved plates can't go through the SAT writer (no spline-face
-        # authoring) — degrade to the boundary polygon rather than silently
-        # dropping the plate (see add_plate_curved_polygon).
         if plate.t not in thickness:
             thickness[plate.t] = thickness_name(plate.t)
             tck_elem = ET.Element("thickness", {"name": thickness[plate.t], "default": "true"})
             tck_elem.append(ET.Element("constant_thickness", {"th": str(plate.t)}))
             thickness_elem.append(tck_elem)
-        if not add_plate_curved_polygon(plate, thickness[plate.t], structures_elem):
+
+        face_refs = sw.face_map.get(plate.guid, []) if sw is not None else []
+        if face_refs:
+            add_curved_shell_sat(plate, thickness[plate.t], structures_elem, face_refs)
+        elif not add_plate_curved_polygon(plate, thickness[plate.t], structures_elem):
+            # No SAT face and no usable boundary — nothing left to emit.
             logger.warning(f"gxml-write: PlateCurved {plate.name!r} has no usable boundary; dropped")

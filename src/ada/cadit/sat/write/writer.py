@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+from collections import Counter
 from dataclasses import dataclass, field
 from itertools import chain
 from typing import TYPE_CHECKING
@@ -13,7 +14,8 @@ from ada.cadit.sat.write.write_plate import plate_to_sat_entities
 from ada.config import logger
 
 if TYPE_CHECKING:
-    from ada import Assembly, Part
+    from ada import Assembly, Part, Plate
+    from ada.api.plates import PlateCurved
 
 HEADER_STR = """2000 0 1 0
 18 SESAM - gmGeometry 14 ACIS 33.0.1 NT 24 Tue Jan 17 20:39:08 2023
@@ -34,8 +36,13 @@ def part_to_sat_writer(part: Part | Assembly, imprint: bool = True) -> SatWriter
     plate crossed by its neighbours resolves to several faces — the form Genie
     writes, and the one it otherwise has to reconstruct on import. Set it False
     for the unfused one-face-per-plate body (no CAD backend needed).
+
+    A :class:`~ada.api.plates.PlateCurved` becomes a spline face (or a plane
+    face with curved edges) and is always unfused: the imprint splits *planar*
+    outlines and has nothing to say about a B-spline patch.
     """
     from ada import Plate
+    from ada.api.plates import PlateCurved
 
     sw = SatWriter(part)
 
@@ -43,18 +50,21 @@ def part_to_sat_writer(part: Part | Assembly, imprint: bool = True) -> SatWriter
     # and its own SAT carries no beam bodies. Beams still take part in the
     # imprint though (see _add_imprinted_plates).
     plates = list(part.get_all_physical_objects(by_type=Plate))
-    if not plates:
+    curved = list(part.get_all_physical_objects(by_type=PlateCurved))
+    if not plates and not curved:
         # No faces means no body: a body/lump/shell with nothing in it is not a
         # meaningful ACIS record, and `is_empty` lets the caller drop the whole
         # <geometry> element (a beams-only model simply has no SAT).
         return sw
 
-    _, _, shell = sw.init_body(plates)
+    _, _, shell = sw.init_body(plates, curved)
 
-    if imprint:
-        _add_imprinted_plates(sw, plates)
-    else:
-        _add_plates_unfused(sw, plates)
+    if plates:
+        if imprint:
+            _add_imprinted_plates(sw, plates)
+        else:
+            _add_plates_unfused(sw, plates)
+    _add_curved_plates(sw, curved)
 
     # A shell points at its first face only; link the rest into the chain.
     faces = sw.get_entities_by_type(se.Face)
@@ -67,13 +77,49 @@ def part_to_sat_writer(part: Part | Assembly, imprint: bool = True) -> SatWriter
     return sw
 
 
-def _add_plates_unfused(sw: SatWriter, plates) -> None:
+def _add_plates_unfused(sw: SatWriter, plates: list[Plate]) -> None:
     """One independent face per plate — no shared topology."""
     for face_id, pl in enumerate(plates, start=1):
         face_name = f"FACE{face_id:08d}"
         sw.face_map[pl.guid] = [face_name]
         for entity in plate_to_sat_entities(pl, face_name, GeomRepr.SHELL, sw):
             sw.add_entity(entity)
+
+
+def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved]) -> None:
+    """One independent spline (or curved-edged plane) face per curved plate.
+
+    Numbered on from the planar faces so the two sets share one FACE namespace.
+    A plate whose geometry this writer cannot author is skipped and logged
+    rather than dropped silently — it leaves no entry in ``face_map``, so the
+    gxml writer falls back to its boundary polygon for that plate alone.
+    """
+    from ada.cadit.sat.write.write_curved_plate import (
+        UnsupportedCurvedFace,
+        curved_plate_to_sat_entities,
+    )
+
+    if not curved:
+        return
+
+    face_id = len(sw.get_entities_by_type(se.Face)) + 1
+    skipped = Counter()
+    for pl in curved:
+        face_name = f"FACE{face_id:08d}"
+        try:
+            entities = curved_plate_to_sat_entities(pl, face_name, sw)
+        except UnsupportedCurvedFace as ex:
+            skipped[str(ex)] += 1
+            continue
+        for entity in entities:
+            sw.add_entity(entity)
+        sw.face_map[pl.guid] = [face_name]
+        face_id += 1
+
+    if skipped:
+        total = sum(skipped.values())
+        detail = "; ".join(f"{reason} ({n})" for reason, n in skipped.most_common(3))
+        logger.warning(f"sat-write: {total} of {len(curved)} curved plates are not authored as SAT faces: {detail}")
 
 
 def _add_imprinted_plates(sw: SatWriter, plates) -> None:
@@ -169,9 +215,9 @@ class SatWriter:
 
     edge_name_id: int = 1
 
-    def init_body(self, plates) -> tuple[se.Body, se.Lump, se.Shell]:
+    def init_body(self, plates: list[Plate], curved: list[PlateCurved]) -> tuple[se.Body, se.Lump, se.Shell]:
         """Create the single body/lump/shell that owns every face."""
-        self.bbox = _plates_bbox(plates)
+        self.bbox = _plates_bbox(plates, curved)
         body = se.Body(self.id_generator.next_id(), None, list(self.bbox))
         lump = se.Lump(self.id_generator.next_id(), None, body, list(self.bbox))
         shell = se.Shell(self.id_generator.next_id(), None, lump, list(self.bbox))
@@ -252,17 +298,21 @@ def _beam_axes(part) -> tuple[list, list[list[tuple[float, float, float]]]]:
     return beams, axes
 
 
-def _plates_bbox(plates) -> list[float]:
+def _plates_bbox(plates: list[Plate], curved: list[PlateCurved]) -> list[float]:
     """[xmin, ymin, zmin, xmax, ymax, zmax] over every plate outline.
 
     Genie sets the body/lump/shell box to the union of the plate extents; an
-    empty plate set degenerates to a zero box rather than failing.
+    empty plate set degenerates to a zero box rather than failing. A curved
+    plate has no ``poly``, so it contributes its boundary nodes instead — the
+    same loop-edge endpoints the face is built from.
     """
     import numpy as np
 
     from ada.cadit.sat.utils import make_ints_if_possible
 
-    if not plates:
+    groups = [np.asarray(pl.poly.points3d, dtype=float) for pl in plates]
+    groups += [np.asarray([n.p for n in pl.nodes], dtype=float) for pl in curved if pl.nodes]
+    if not groups:
         return [0.0] * 6
-    pts = np.concatenate([np.asarray(pl.poly.points3d, dtype=float) for pl in plates])
+    pts = np.concatenate(groups)
     return make_ints_if_possible([*np.min(pts, axis=0), *np.max(pts, axis=0)])

@@ -190,6 +190,10 @@ class CoEdge(SATEntity):
     loop: Loop | Wire  # a coedge is owned by a loop, or by a wire when it bounds no face
     orientation: Literal["forward", "reversed"]
     partner: CoEdge = None
+    # The coedge's curve in its face's parameter space. Stays None on a planar
+    # face, whose edges need none; a coedge on a spline face is unusable without
+    # one (see PCurve).
+    pcurve: PCurve = None
 
     def to_string(self) -> str:
         # ACIS `coedge` record: $next_in_loop $prev_in_loop $next_coedge_on_edge
@@ -198,9 +202,10 @@ class CoEdge(SATEntity):
         # used by a single face leaves it $-1 (as Genie writes it); an edge shared
         # by two faces links the pair to each other.
         partner = -1 if self.partner is None else self.partner.id
+        pcurve = -1 if self.pcurve is None else self.pcurve.id
         return (
             f"-{self.id} coedge $-1 -1 -1 $-1 ${self.next_coedge.id} ${self.prev_coedge.id} "
-            f"${partner} ${self.edge.id} {self.orientation} ${self.loop.id} $-1 #"
+            f"${partner} ${self.edge.id} {self.orientation} ${self.loop.id} ${pcurve} #"
         )
 
 
@@ -214,6 +219,14 @@ class Edge(SATEntity):
     start_pt: ada.Point
     end_pt: ada.Point
     attrib_name: StringAttribName = None
+    # The curve's parameters at the two vertices. A straight-curve is
+    # parameterised by arc length from its start, so 0..length is right and is
+    # the default; nothing else is. On a circle it is the angle, on a b-spline
+    # the knot value, and guessing it from the endpoints is ambiguous — a closed
+    # curve passes through any two points twice. SAT records them on every edge,
+    # so pass the authored pair through rather than re-deriving it.
+    t_start: float = None
+    t_end: float = None
 
     def to_string(self) -> str:
         attrib_ref = "-1"
@@ -225,10 +238,13 @@ class Edge(SATEntity):
         lo = [min(a, b) for a, b in zip(self.start_pt, self.end_pt)]
         hi = [max(a, b) for a, b in zip(self.start_pt, self.end_pt)]
         bbox_str = " ".join(str(x) for x in make_ints_if_possible([*lo, *hi]))
-        vec = ada.Direction(self.end_pt - self.start_pt)
-        length = vec.get_length()
-        s1 = 0
-        s2 = make_ints_if_possible([length])[0]
+        if self.t_start is None or self.t_end is None:
+            vec = ada.Direction(self.end_pt - self.start_pt)
+            s1 = 0
+            s2 = make_ints_if_possible([vec.get_length()])[0]
+        else:
+            s1 = make_ints_if_possible([self.t_start])[0]
+            s2 = make_ints_if_possible([self.t_end])[0]
         return (
             f"-{self.id} edge ${attrib_ref} -1 -1 $-1 ${self.vertex_start.id} {s1} "
             f"${self.vertex_end.id} {s2} ${self.coedge.id} ${self.straight_curve.id} "
@@ -264,6 +280,21 @@ def _num(x: float) -> str:
     """A real, as ACIS writes them: repr, but integral values without the '.0'."""
     f = float(x)
     return str(int(f)) if f == int(f) and abs(f) < 1e15 else repr(f)
+
+
+def _lines(*segments: str) -> str:
+    """Join a subtype body's fields the way ACIS lays one out on disk.
+
+    The three records that carry a ``{ ... }`` body are not written on one line:
+    the header, the knot vector, each control point and each trailing field get
+    a line of their own, tab-indented, with a trailing space. That is what every
+    Genie export looks like, and it is not cosmetic — the reader is line-
+    oriented (``extract_data_lines`` collects lines until one carries a ``}``,
+    then indexes the knots and control points by line), so a body squeezed onto
+    one line reads back as no data at all. The single-line records (edge,
+    coedge, ellipse-curve, straight-curve) have no body and stay as they are.
+    """
+    return " \n\t".join(segments)
 
 
 def _acis_knots(knots: list[float], multiplicities: list[int], degree: int) -> str:
@@ -325,10 +356,14 @@ class SplineSurface(SATEntity):
                 w = weights[iu][iv] if weights is not None else 1.0
                 pts.append(f"{_num(p[0])} {_num(p[1])} {_num(p[2])} {_num(w)}")
 
-        return (
+        return _lines(
             f"{{ exactsur full nurbs {s.u_degree} {s.v_degree} both open open none none "
-            f"{len(s.u_knots)} {len(s.v_knots)} {u_knots} {v_knots} "
-            f"{' '.join(pts)} 0 0 0 0 0 0 0 F 1 F 0 F 1 F 0 }}"
+            f"{len(s.u_knots)} {len(s.v_knots)}",
+            u_knots,
+            v_knots,
+            *pts,
+            *(["0"] * 7),
+            "F 1 F 0 F 1 F 0 }",
         )
 
     def to_string(self) -> str:
@@ -419,17 +454,32 @@ class IntCurve(SATEntity):
 
         knots = _acis_knots(c.knots, c.knot_multiplicities, c.degree)
         if weights:
-            pts = " ".join(
-                f"{_num(p[0])} {_num(p[1])} {_num(p[2])} {_num(w)}" for p, w in zip(c.control_points_list, weights)
-            )
+            pts = [f"{_num(p[0])} {_num(p[1])} {_num(p[2])} {_num(w)}" for p, w in zip(c.control_points_list, weights)]
         else:
-            pts = " ".join(f"{_num(p[0])} {_num(p[1])} {_num(p[2])}" for p in c.control_points_list)
+            pts = [f"{_num(p[0])} {_num(p[1])} {_num(p[2])}" for p in c.control_points_list]
 
-        return (
+        # The two surface slots stay null: this curve is the spline, not an
+        # approximation of a curve on a surface. Genie's own exactcurs name the
+        # surface they lie on in the first slot; ours has none to name.
+        return _lines(
             f"-{self.id} intcurve-curve $-1 -1 -1 $-1 {self.sense} "
-            f"{{ exactcur full {'nurbs' if weights else 'nubs'} {c.degree} open {len(c.knots)} {knots} {pts} "
-            f"{_num(self.fit_tolerance)} null_surface null_surface nullbs nullbs -1 -1 I I 0 0 0 -1 "
-            f"none F F 1 F 0 }} I I #"
+            f"{{ exactcur full {'nurbs' if weights else 'nubs'} {c.degree} open {len(c.knots)}",
+            knots,
+            *pts,
+            _num(self.fit_tolerance),
+            "null_surface",
+            "null_surface",
+            "nullbs",
+            "nullbs",
+            "-1",
+            "-1",
+            "I I",
+            "0",
+            "0",
+            "0",
+            "",
+            "-1",
+            "none F F 1 F 0 } I I #",
         )
 
 
@@ -474,17 +524,20 @@ class PCurve(SATEntity):
 
     def to_string(self) -> str:
         pc = self.pcurve
-        pts = " ".join(f"{_num(u)} {_num(v)}" for u, v in pc.control_points_2d)
+        pts = [f"{_num(u)} {_num(v)}" for u, v in pc.control_points_2d]
         knots = _acis_knots(pc.knots, pc.knot_multiplicities, pc.degree)
         # `nubs`: a rational pcurve would be `nurbs` and carry weights. The
         # reader has never produced one, so refuse rather than drop the weights.
         if getattr(pc, "weights", None):
             raise NotImplementedError("rational pcurve (weights) is not supported yet")
-        return (
-            f"-{self.id} pcurve $-1 -1 -1 $-1 0 {self.sense} "
-            f"{{ exppc nubs {pc.degree} open {len(pc.knots)} {knots} {pts} "
-            f"{_num(pc.fit_tolerance)} -1 "
-            f"spline {self.surface.sense} {self.surface.subtype()} I I I I }} 0 0 #"
+        return _lines(
+            f"-{self.id} pcurve $-1 -1 -1 $-1 0 {self.sense} {{ exppc nubs {pc.degree} open {len(pc.knots)}",
+            knots,
+            *pts,
+            _num(pc.fit_tolerance),
+            "-1",
+            f"spline {self.surface.sense} {self.surface.subtype()} I I I I",
+            "} 0 0 #",
         )
 
 
