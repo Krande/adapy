@@ -9,10 +9,21 @@
 # adacpp's own publish-wasm-base workflow and runs only on adacpp
 # releases.
 #
-# CI passes the full image reference as a build-arg so this Dockerfile
-# stays registry-agnostic. Pin a different adacpp by pointing the
-# build-arg at a different version tag.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.14.0
+# THIS LINE IS THE PIN — the single source of the adacpp wasm base version.
+# Both CI systems derive it from here (github publish-image.yaml lets this
+# default stand; forgejo build.yaml seds it out to pre-pull); override the
+# build-arg only to point at a different registry/tag.
+#
+# It did not used to be. Both workflows restated the version as their own
+# literal with a "keep in sync with deploy/Dockerfile.viewer" comment, and both
+# drifted to 0.13.2 while this line said 0.14.0 — and since a passed build-arg
+# overrides an ARG default, THEIR value is what shipped. Bumping this line alone
+# changed nothing about the built image. Hence: derived, not restated.
+#
+# MUST stay >=0.9.0 — older bases ship an emscripten 3.1.58 wheel that micropip
+# refuses against pyodide 0.29.4 ("Wheel was built with Emscripten v3.1.58 but
+# Pyodide was built with v4.0.9").
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.15.0
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser

@@ -39,11 +39,7 @@ permissions:
 # adapy repo read access) for the GITHUB_TOKEN pull below to resolve it.
 env:
   # 0.9.0: pyodide_2025_0 ABI (emscripten 4.0.9) + OCCT symbol isolation.
-  # MUST stay >=0.9.0 — older bases ship an emscripten 3.1.58 wheel that
-  # micropip refuses against pyodide 0.29.4 ("Wheel was built with Emscripten
-  # v3.1.58 but Pyodide was built with v4.0.9"). Keep in sync with the
-  # ADACPP_BASE_IMAGE default in deploy/Dockerfile.viewer.
-  ADACPP_WASM_BASE: ghcr.io/krande/adacpp-wasm-base:0.13.2
+  # (The adacpp wasm base version is NOT pinned here — see the viewer build step.)
 
 jobs:
   viewer:
@@ -78,9 +74,14 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # ADACPP_BASE_IMAGE is deliberately NOT passed: the pin is the ARG default in
+          # deploy/Dockerfile.viewer, and an unpassed build-arg lets that default stand.
+          # This used to restate the version as ADACPP_WASM_BASE, which drifted to 0.13.2
+          # while the Dockerfile said 0.14.0 — and a passed build-arg WINS over the ARG
+          # default, so the stale value is what shipped and bumping the Dockerfile did
+          # nothing. Pass this arg only to build against something other than the pin.
           build-args: |
             IMAGE_TAG=${{ steps.meta.outputs.version }}
-            ADACPP_BASE_IMAGE=${{ env.ADACPP_WASM_BASE }}
           cache-from: type=gha,scope=viewer
           cache-to: type=gha,mode=max,scope=viewer
 

@@ -403,12 +403,22 @@ jobs:
               .
           else
             echo "Full viewer build (FULL=$FULL)"
-            # Default to the repo-pinned base when the secret is unset, so the
-            # version lives in ONE place (matches deploy/Dockerfile.viewer) and
-            # a cleared secret can't fall back to a stale emscripten-3.1.58
-            # base. Override via the secret only to point at a different
-            # registry/tag (>=0.9.0 = pyodide_2025_0 / emscripten 4.0.9).
-            ADACPP_BASE_IMAGE="${ADACPP_BASE_IMAGE:-ghcr.io/krande/adacpp-wasm-base:0.13.2}"
+            # Default to the repo-pinned base when the secret is unset. READ the pin out
+            # of deploy/Dockerfile.viewer rather than restating it: this line used to
+            # carry its own literal with a "matches deploy/Dockerfile.viewer" comment,
+            # and it drifted to 0.13.2 while the Dockerfile said 0.14.0 — so the hosted
+            # viewer shipped on a base two releases old, and bumping the Dockerfile
+            # changed nothing. Now the version genuinely lives in ONE place.
+            # Override via the secret only to point at a different registry/tag
+            # (>=0.9.0 = pyodide_2025_0 / emscripten 4.0.9).
+            if [ -z "$ADACPP_BASE_IMAGE" ]; then
+              ADACPP_BASE_IMAGE="$(sed -n 's/^ARG ADACPP_BASE_IMAGE=//p' deploy/Dockerfile.viewer)"
+            fi
+            if [ -z "$ADACPP_BASE_IMAGE" ]; then
+              echo "::error::could not read the ADACPP_BASE_IMAGE pin from deploy/Dockerfile.viewer"
+              exit 1
+            fi
+            echo "adacpp wasm base: ${ADACPP_BASE_IMAGE}"
             # Pull the base ahead of the viewer build so a missing tag
             # fails loudly here, not buried in BuildKit output.
             docker pull "${ADACPP_BASE_IMAGE}"
