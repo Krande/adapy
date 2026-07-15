@@ -145,7 +145,18 @@ class Config:
                 # It is a heuristic over the *control points*, which for a
                 # b-spline need not lie near the surface, so it can fire on a
                 # face that is perfectly good. Off means trust the peel.
-                ConfigEntry("reject_deformed_curved_faces", bool, True),
+                #
+                # Off by default: it was a fallback from when the reader could
+                # not yet take these faces and imports crashed, and it now costs
+                # more than it saves. A face it flattens keeps its corners and
+                # loses its curved edges, so it no longer shares an edge with
+                # the curved neighbours it was cut from — on a hull export it
+                # flattened 119 good faces, and the SAT writer then wrote 24
+                # non-manifold vertices and split one shell into six islands
+                # that ACIS rejects. With it off the same model welds into the
+                # two connected lumps Genie itself writes. Kept as an escape
+                # hatch pending confidence that nothing needs it.
+                ConfigEntry("reject_deformed_curved_faces", bool, False),
             ],
         ),
         ConfigSection(

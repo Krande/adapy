@@ -24,9 +24,12 @@ def test_sesam_xml(example_files, tmp_path, monkeypatch):
     # curved face it was cut against.
     assert len(objects) == 9
     kinds = Counter(type(o).__name__ for o in objects)
-    # two still fall back to a flat Plate, caught by the stretched-surface guard
-    # rather than by having straight edges
-    assert kinds == {"PlateCurved": 7, "Plate": 2}, kinds
+    # Two of these used to fall back to a flat Plate on the stretched-surface
+    # guard, which is now off by default: it fires on the control points, which
+    # for a b-spline need not lie near the surface, so it flattened faces that
+    # were perfectly good — and a flattened face no longer shares an edge with
+    # the curved one it was cut against (see reject_deformed_curved_faces).
+    assert kinds == {"PlateCurved": 9}, kinds
 
     from ada.api.plates import PlateCurved
 

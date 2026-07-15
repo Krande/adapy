@@ -74,15 +74,109 @@ def part_to_sat_writer(part: Part | Assembly, imprint: bool = True) -> SatWriter
         else:
             _add_plates_unfused(sw, plates)
 
-    # A shell points at its first face only; link the rest into the chain.
-    faces = sw.get_entities_by_type(se.Face)
-    if faces:
-        shell.face = faces[0]
-        for cur, nxt in zip(faces, faces[1:]):
-            cur.next_face = nxt
+    _assign_faces_to_shells(sw, shell)
 
     sw.renumber()
     return sw
+
+
+def _face_components(faces: list[se.Face]) -> list[list[se.Face]]:
+    """Group faces into the connected sets they form.
+
+    Joined by a shared *vertex*, not merely a shared edge: Genie's own exports
+    put two plates meeting at a single corner in one lump
+    (``flat_plate_x2_sesam_10x10_shared_vertex.sat``) and two that touch nowhere
+    in two (``..._offset_no_shared.sat``). A vertex is the weaker claim and the
+    one that matches.
+    """
+    parent: dict[int, int] = {}
+
+    def find(x: int) -> int:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    # Keyed on where a vertex IS, not which object it is: the unfused path mints
+    # a vertex per face, so two plates meeting at a corner hold distinct objects
+    # at one position and would read as disconnected.
+    faces_at_vertex: dict[tuple, list[se.Face]] = {}
+    for face in faces:
+        find(id(face))
+        loop = face.loop
+        while loop is not None:
+            coedge = loop.coedge
+            seen = set()
+            while coedge is not None and id(coedge) not in seen:
+                seen.add(id(coedge))
+                edge = coedge.edge
+                if edge is not None:
+                    for vertex in (edge.vertex_start, edge.vertex_end):
+                        if vertex is not None:
+                            key = tuple(round(float(c), 7) for c in vertex.point.point)
+                            faces_at_vertex.setdefault(key, []).append(face)
+                coedge = coedge.next_coedge
+            loop = loop.next_loop
+
+    for sharing in faces_at_vertex.values():
+        for other in sharing[1:]:
+            union(id(sharing[0]), id(other))
+
+    grouped: dict[int, list[se.Face]] = {}
+    for face in faces:
+        grouped.setdefault(find(id(face)), []).append(face)
+    # ordered by the first face of each, so the layout is stable between runs
+    order = {id(f): i for i, f in enumerate(faces)}
+    return sorted(grouped.values(), key=lambda g: order[id(g[0])])
+
+
+def _assign_faces_to_shells(sw: SatWriter, shell: se.Shell) -> None:
+    """One lump and shell per connected set of faces, as Genie writes them.
+
+    A shell is a connected sheet, and ACIS says so — a shell holding faces that
+    cannot be reached from one another fails verification with "entities in
+    shell are not connected". A body carries the disjoint pieces as separate
+    lumps instead, chained off the body: a hull export splits its 5470 faces
+    into two lumps of 2910 and 2560.
+
+    Within a shell the faces chain through ``next_face``, since a shell records
+    only the first.
+    """
+    faces = sw.get_entities_by_type(se.Face)
+    if not faces:
+        return
+
+    components = _face_components(faces)
+    lumps: list[se.Lump] = []
+    for i, group in enumerate(components):
+        if i == 0:
+            lump, group_shell = sw.lump, shell
+        else:
+            lump = se.Lump(sw.id_generator.next_id(), None, sw.body, list(sw.bbox))
+            group_shell = se.Shell(sw.id_generator.next_id(), None, lump, list(sw.bbox))
+            lump.shell = group_shell
+            sw.add_entity(lump)
+            sw.add_entity(group_shell)
+        group_shell.face = group[0]
+        for face in group:
+            face.shell = group_shell
+            face.next_face = None
+        for cur, nxt in zip(group, group[1:]):
+            cur.next_face = nxt
+        lumps.append(lump)
+
+    for cur, nxt in zip(lumps, lumps[1:]):
+        cur.next_lump = nxt
+    sw.body.lump = lumps[0]
+
+    if len(lumps) > 1:
+        logger.info(f"sat-write: {len(faces)} faces form {len(lumps)} disconnected lumps")
 
 
 def _add_plates_unfused(sw: SatWriter, plates: list[Plate]) -> None:

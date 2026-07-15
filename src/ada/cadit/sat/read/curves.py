@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import Iterable
 
 from ada import Direction, Point
-from ada.cadit.sat.exceptions import ACISReferenceDataError, ACISUnsupportedCurveType
+from ada.cadit.sat.exceptions import (
+    ACISDegenerateEdge,
+    ACISReferenceDataError,
+    ACISUnsupportedCurveType,
+)
 from ada.cadit.sat.read.bsplinecurves import (
     create_bspline_curve_from_sat,
     create_pcurve_2d_from_sat_record,
@@ -118,7 +122,17 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
     point_idx = 7
 
     edge = sat_store.get(coedge.chunks[edge_idx])
-    curve_record = sat_store.get(edge.chunks[curve_idx])
+    # An edge naming no curve is a degenerate one: ACIS marks a singularity on
+    # the surface that way, and its two vertices are the same point. Reading its
+    # `.type` was an AttributeError on None, which took the whole face down to a
+    # flat polygon (9 faces of a hull export). It bounds nothing, so the caller
+    # steps over it and the loop still closes.
+    curve_chunk = edge.chunks[curve_idx]
+    if not curve_chunk or curve_chunk == "$-1":
+        raise ACISDegenerateEdge(f"edge {edge.chunks[0]} names no curve")
+    curve_record = sat_store.get(curve_chunk)
+    if curve_record is None:
+        raise ACISDegenerateEdge(f"edge {edge.chunks[0]} names a curve that is not in the file")
     edge_direction = edge.chunks[12]
     coedge_direction = coedge.chunks[coedge_sense_idx]
     coedge_dir_bool = coedge_direction == "forward"
@@ -255,8 +269,23 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
 
 
 def iter_loop_coedges(loop_record: AcisRecord) -> Iterable[geo_cu.OrientedEdge]:
-    """Iterates over the edges of the face."""
+    """Iterates over the edges of the face.
+
+    A degenerate coedge is stepped over rather than allowed to take the face
+    down with it: it stands for a point where the surface collapses, bounds
+    nothing, and the loop closes without it (the edge before it ends where the
+    edge after it starts). Skipping keeps the face's real geometry, where the
+    AttributeError it used to raise dropped the whole face to a flat polygon.
+    """
     sat_store = loop_record.sat_store
+
+    def _edge_or_none(coedge_record):
+        try:
+            return get_edge(coedge_record)
+        except ACISDegenerateEdge as ex:
+            logger.debug("skipping degenerate coedge %s: %s", coedge_record.chunks[0], ex)
+            return None
+
     # Coedge indices
     coedge_ref = 7
     coedge_start_id = loop_record.chunks[coedge_ref]
@@ -264,7 +293,9 @@ def iter_loop_coedges(loop_record: AcisRecord) -> Iterable[geo_cu.OrientedEdge]:
     next_coedge_idx = 6  # if coedge_first_direction == "forward" else 7
     coedge_next_id = coedge_first.chunks[next_coedge_idx]
 
-    yield get_edge(coedge_first)
+    edge = _edge_or_none(coedge_first)
+    if edge is not None:
+        yield edge
 
     max_iter = 100
     i = 0
@@ -272,7 +303,9 @@ def iter_loop_coedges(loop_record: AcisRecord) -> Iterable[geo_cu.OrientedEdge]:
     while next_coedge is True:
         coedge = sat_store.get(coedge_next_id)
 
-        yield get_edge(coedge)
+        edge = _edge_or_none(coedge)
+        if edge is not None:
+            yield edge
 
         coedge_next_id = coedge.chunks[next_coedge_idx]
         if coedge_next_id == coedge_start_id:

@@ -52,8 +52,16 @@ def test_every_loop_points_at_its_own_face():
     assert ref_errors(sat) == []  # a wrong face pointer resolves to a non-face
 
 
-def test_all_faces_share_one_body_lump_shell():
-    """Genie puts every plate face in ONE body/lump/shell, chained via next_face."""
+def test_disconnected_plates_get_a_lump_each():
+    """A shell is a connected sheet; Genie carries disjoint pieces as lumps.
+
+    This used to assert one lump for every plate whatever their arrangement,
+    generalised from the reference files where the plates touch. The one where
+    they don't says otherwise — ``flat_plate_x2_sesam_10x10_offset_no_shared.sat``
+    is 2 faces in 2 lumps — and a shell holding faces that cannot be reached
+    from one another fails ACIS verification with "entities in shell are not
+    connected".
+    """
     plates = [_plate_10x10(f"pl{i}", origin=(0, 0, 2 * i)) for i in range(4)]
     a = ada.Assembly() / plates
 
@@ -61,10 +69,30 @@ def test_all_faces_share_one_body_lump_shell():
     sat = sw.to_str()
     d = digest(sat)
 
-    assert d["counts"]["body"] == d["counts"]["lump"] == d["counts"]["shell"] == 1
+    assert d["counts"]["body"] == 1
+    assert d["counts"]["lump"] == d["counts"]["shell"] == 4
     assert d["counts"]["face"] == 4
-    # all four reachable by walking the chain from the shell's single face pointer
-    assert d["faces_walked"] == 4
+    assert ref_errors(sat) == []
+
+
+def test_plates_sharing_a_vertex_stay_in_one_lump():
+    """Genie's ``flat_plate_x2_sesam_10x10_shared_vertex.sat`` is 2 faces, 1 lump.
+
+    A corner is enough — the pieces are reachable from each other, so they are
+    one connected sheet even though they share no edge.
+    """
+    a = ada.Assembly() / (
+        _plate_10x10("pl"),
+        _plate_10x10("pl2", origin=(10, 10, 0)),
+    )
+
+    sw = part_to_sat_writer(a, imprint=False)
+    sat = sw.to_str()
+    d = digest(sat)
+
+    assert d["counts"]["face"] == 2
+    assert d["counts"]["lump"] == d["counts"]["shell"] == 1
+    assert d["faces_walked"] == 2
     assert ref_errors(sat) == []
 
 
