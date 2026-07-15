@@ -42,6 +42,8 @@ def _reverse_pcurve_2d(pc: geo_cu.Pcurve2dBSpline) -> geo_cu.Pcurve2dBSpline:
         knot_multiplicities=new_mults,
         weights=new_weights,
         closed=pc.closed,
+        # reversing changes the direction, not how well the curve fits
+        fit_tolerance=pc.fit_tolerance,
     )
 
 

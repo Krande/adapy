@@ -478,13 +478,16 @@ def create_pcurve_2d_from_sat_record(pcurve_record: AcisRecord) -> geo_cu.Pcurve
     # 2D control points — collect 2-or-3-float rows up to expected count.
     cps: list[list[float]] = []
     weights: list[float] | None = []
+    after_cps = len(data_lines)
     for i in range(knot_end_idx, len(data_lines)):
         if len(cps) >= expected_n_poles:
+            after_cps = i
             break
         toks = data_lines[i].split()
         try:
             row = [float(t) for t in toks]
         except ValueError:
+            after_cps = i
             break
         if len(row) == 2:
             cps.append(row)
@@ -494,6 +497,7 @@ def create_pcurve_2d_from_sat_record(pcurve_record: AcisRecord) -> geo_cu.Pcurve
             if weights is not None:
                 weights.append(row[2])
         else:
+            after_cps = i
             break
     if len(cps) != expected_n_poles:
         logger.debug(
@@ -505,6 +509,19 @@ def create_pcurve_2d_from_sat_record(pcurve_record: AcisRecord) -> geo_cu.Pcurve
         )
         return None
 
+    # The lone real after the control points is the fit tolerance — how far the
+    # pcurve may sit from the true curve-on-surface (SAT v4.0 ch.5). Keep it:
+    # dropping it and writing 0 back out would assert an exactness the author
+    # never claimed. Genie writes 0.001 on roughly a quarter of its pcurves.
+    fit_tolerance = 0.0
+    if after_cps < len(data_lines):
+        toks = data_lines[after_cps].split()
+        if len(toks) == 1:
+            try:
+                fit_tolerance = float(toks[0])
+            except ValueError:
+                pass
+
     return geo_cu.Pcurve2dBSpline(
         degree=degree,
         control_points_2d=cps,
@@ -512,6 +529,7 @@ def create_pcurve_2d_from_sat_record(pcurve_record: AcisRecord) -> geo_cu.Pcurve
         knot_multiplicities=mults,
         weights=weights if (rational and weights) else None,
         closed=closed,
+        fit_tolerance=fit_tolerance,
     )
 
 

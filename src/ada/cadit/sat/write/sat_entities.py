@@ -260,6 +260,112 @@ class PlaneSurface(SATEntity):
         return f"-{self.id} plane-surface $-1 -1 -1 $-1 {centroid_str} {normal_str} {xvec_str} forward_v I I I I #"
 
 
+def _num(x: float) -> str:
+    """A real, as ACIS writes them: repr, but integral values without the '.0'."""
+    f = float(x)
+    return str(int(f)) if f == int(f) and abs(f) < 1e15 else repr(f)
+
+
+def _acis_knots(knots: list[float], multiplicities: list[int], degree: int) -> str:
+    """``value mult`` pairs, in ACIS's knot convention.
+
+    IFC (and STEP) give a knot vector of ``n_ctrl + degree + 1`` entries. ACIS
+    stores ``n_ctrl + degree - 1``: it drops one knot from each end, so the end
+    multiplicities are one lower — degree rather than degree+1 for a clamped
+    curve. Checked against a Genie export: a degree-2 u with IFC mults [3, 3] is
+    written [2, 2], a degree-3 v with [4, 4] is written [3, 3], and its own
+    control-point count only comes out right under this reading
+    (``n_ctrl = sum(mults) - degree + 1``).
+    """
+    if len(knots) != len(multiplicities):
+        raise ValueError(f"{len(knots)} knots but {len(multiplicities)} multiplicities")
+    mults = list(multiplicities)
+    mults[0] -= 1
+    mults[-1] -= 1
+    if any(m < 1 for m in mults):
+        raise ValueError(f"knot multiplicities {multiplicities} too low for degree {degree}")
+    return " ".join(f"{_num(k)} {m}" for k, m in zip(knots, mults))
+
+
+@dataclass
+class SplineSurface(SATEntity):
+    """A NURBS patch — ACIS ``spline-surface``, an ``exactsur`` spl_sur.
+
+    Written to carry a :class:`~ada.geom.surfaces.RationalBSplineSurfaceWithKnots`
+    (what the SAT reader hands back for a Genie ``curved_shell``) unchanged, so a
+    curved plate survives a round trip instead of degrading to its boundary
+    polygon.
+
+    The non-data tokens are fixed exactly as Genie writes them — ``both open open
+    none none`` and the trailing ``0 0 0 0 0 0 0 F 1 F 0 F 1 F 0`` are identical
+    across every surface in a reference export, whatever the degree or grid.
+    """
+
+    surface: object  # RationalBSplineSurfaceWithKnots
+    sense: Literal["forward", "reversed"] = "forward"
+
+    def subtype(self) -> str:
+        """The ``{ ... }`` spl_sur body, also embedded inside a pcurve."""
+        s = self.surface
+        n_u = len(s.control_points_list)
+        n_v = len(s.control_points_list[0])
+
+        u_knots = _acis_knots(s.u_knots, s.u_multiplicities, s.u_degree)
+        v_knots = _acis_knots(s.v_knots, s.v_multiplicities, s.v_degree)
+
+        weights = getattr(s, "weights_data", None)
+        # Control points as `x y z w`, u varying fastest — the transpose of the
+        # [u][v] grid the geometry holds. Checked against a Genie export: its
+        # first run of points is n_u long and carries the 1, cos(t/2), 1 weights
+        # of a degree-2 rational arc, which is the u direction.
+        pts = []
+        for iv in range(n_v):
+            for iu in range(n_u):
+                p = s.control_points_list[iu][iv]
+                w = weights[iu][iv] if weights is not None else 1.0
+                pts.append(f"{_num(p[0])} {_num(p[1])} {_num(p[2])} {_num(w)}")
+
+        return (
+            f"{{ exactsur full nurbs {s.u_degree} {s.v_degree} both open open none none "
+            f"{len(s.u_knots)} {len(s.v_knots)} {u_knots} {v_knots} "
+            f"{' '.join(pts)} 0 0 0 0 0 0 0 F 1 F 0 F 1 F 0 }}"
+        )
+
+    def to_string(self) -> str:
+        return f"-{self.id} spline-surface $-1 -1 -1 $-1 {self.sense} {self.subtype()} I I I I #"
+
+
+@dataclass
+class PCurve(SATEntity):
+    """A coedge's curve in its face's parameter space — ACIS ``pcurve``/``exppc``.
+
+    A coedge on a spline face names one in the slot that stays ``$-1`` on a
+    planar face: without it ACIS has no 2D curve for the edge and the face is not
+    usable. The surface the curve lives on is embedded in the record; Genie emits
+    ``{ ref n }`` to share one between pcurves, which this does not do yet — the
+    surface is written out in full each time, which is larger but self-contained.
+    """
+
+    pcurve: object  # Pcurve2dBSpline
+    surface: SplineSurface
+    sense: Literal["forward", "reversed"] = "forward"
+
+    def to_string(self) -> str:
+        pc = self.pcurve
+        pts = " ".join(f"{_num(u)} {_num(v)}" for u, v in pc.control_points_2d)
+        knots = _acis_knots(pc.knots, pc.knot_multiplicities, pc.degree)
+        # `nubs`: a rational pcurve would be `nurbs` and carry weights. The
+        # reader has never produced one, so refuse rather than drop the weights.
+        if getattr(pc, "weights", None):
+            raise NotImplementedError("rational pcurve (weights) is not supported yet")
+        return (
+            f"-{self.id} pcurve $-1 -1 -1 $-1 0 {self.sense} "
+            f"{{ exppc nubs {pc.degree} open {len(pc.knots)} {knots} {pts} "
+            f"{_num(pc.fit_tolerance)} -1 "
+            f"spline {self.surface.sense} {self.surface.subtype()} I I I I }} 0 0 #"
+        )
+
+
 @dataclass
 class StringAttribName(SATEntity):
     name: str

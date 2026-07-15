@@ -483,6 +483,13 @@ class Pcurve2dBSpline:
 
     Control points are 2D ``[u, v]`` pairs. Optional ``weights`` makes
     the curve rational; ``None`` means non-rational.
+
+    ``fit_tolerance`` is how closely the curve approximates the true
+    curve-on-surface, as the author measured it (ACIS ``exppc`` carries
+    it; SAT v4.0 ch.5 calls it "Fit tolerance"). ``0.0`` asserts the
+    pcurve is exact, so it is a claim rather than a neutral default —
+    keep the authored value when there is one instead of re-asserting
+    exactness a reprojection cannot support.
     """
 
     degree: int
@@ -491,6 +498,7 @@ class Pcurve2dBSpline:
     knot_multiplicities: list[int]
     weights: list[float] | None = None
     closed: bool = False
+    fit_tolerance: float = 0.0
 
 
 @dataclass(slots=True)
