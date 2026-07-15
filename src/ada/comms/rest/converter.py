@@ -498,9 +498,15 @@ def is_derived_key(key: str) -> bool:
 # (merge-preview / diff GLBs). Neither is a user file. Use this for DISPLAY filtering; keep
 # is_derived_key for derived-product logic (rename/cleanup/grouping), which must not treat an
 # ephemeral overlay as a source's derived product.
+# Internal namespaces that are not user files. ONE definition: is_hidden_key answers "is this key
+# hidden?", and storage.list(skip_prefixes=...) uses the same tuple to avoid ENUMERATING them —
+# a listing that skipped a different set than it filtered would be a silent correctness bug (a real
+# file vanishing from the browser), so the two must not drift.
+HIDDEN_PREFIXES: tuple[str, ...] = ("_derived/", "_overlays/", "_reconvert/")
+
+
 def is_hidden_key(key: str) -> bool:
-    k = key.lstrip("/")
-    return k.startswith("_derived/") or k.startswith("_overlays/") or k.startswith("_reconvert/")
+    return key.lstrip("/").startswith(HIDDEN_PREFIXES)
 
 
 def is_versions_artefact_key(key: str) -> bool:

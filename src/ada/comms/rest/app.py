@@ -766,19 +766,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_obj: Scope = Depends(_scope_from_path),
         include_derived: bool = False,
     ) -> JSONResponse:
-        from .converter import is_derived_key, is_hidden_key, supported_targets_for
-
-        files = await storage.list(scope_obj)
+        from .converter import (
+            HIDDEN_PREFIXES,
+            is_derived_key,
+            is_hidden_key,
+            supported_targets_for,
+        )
 
         if not include_derived:
             # Default — hide internal namespaces (_derived/ convert cache + _overlays/
             # auto-disposed utility overlays). Those blobs aren't user files. Convert +
             # download surfaces the derived ones explicitly when needed.
+            #
+            # Skip them in the STORAGE layer rather than filtering here: an audited scope holds
+            # far more derived blobs than files (the corpus: ~28k against 141), so filtering after
+            # a full listing made this endpoint O(audit history) — ~1.6 s to return 9 KB, against
+            # 30 ms for an unaudited scope with the same file count. is_hidden_key still runs; it
+            # is now cheap agreement rather than the mechanism.
+            files = await storage.list(scope_obj, skip_prefixes=HIDDEN_PREFIXES)
             return JSONResponse(
                 {
                     "files": [{"key": f.key, "size": f.size} for f in files if not is_hidden_key(f.key)],
                 }
             )
+
+        files = await storage.list(scope_obj)
 
         # Convert-page mode — group every derived blob under its
         # source so the page can list pre-existing conversions next

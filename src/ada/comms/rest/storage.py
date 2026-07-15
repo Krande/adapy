@@ -34,6 +34,7 @@ import shutil
 import subprocess
 import time
 import zlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import AsyncIterator
@@ -268,26 +269,54 @@ class Storage:
             return full[len(prefix) + 1 :]
         return full
 
-    async def list(self, scope: Scope) -> list[FileEntry]:
-        entries: list[FileEntry] = []
+    def _entry(self, scope: Scope, meta) -> FileEntry:
+        lm = meta.get("last_modified") if isinstance(meta, dict) else getattr(meta, "last_modified", None)
+        lm_iso = lm.isoformat() if hasattr(lm, "isoformat") else (str(lm) if lm else None)
+        return FileEntry(
+            key=self._strip_scope_prefix(scope, meta["path"]),
+            size=int(meta["size"]),
+            last_modified=lm_iso,
+        )
+
+    async def list(self, scope: Scope, *, skip_prefixes: Sequence[str] = ()) -> list[FileEntry]:
+        """Every object under ``scope``, or only those outside ``skip_prefixes``.
+
+        ``skip_prefixes`` (e.g. ``("_derived/",)``) is a PERFORMANCE contract, not just a filter:
+        those top-level namespaces are never enumerated. Filtering after a full listing costs the
+        whole namespace — the audit corpus carries ~28k derived blobs against 163 real sources, so
+        the file browser walked 28k keys to show 141 and took ~1.6 s, where a scope with the same
+        file count but no audit history answered in 30 ms. Callers that need EVERY key (the
+        orphan/derived cleanup in storage_ops) simply don't pass it, and are unaffected.
+        """
+        prefix = self._scope_prefix(scope)
+        if not skip_prefixes:
+            return await self._list_under(scope, prefix)
+
+        # Walk one level with a delimiter so a skipped namespace costs a name in the response
+        # rather than a full enumeration, then list only the prefixes we actually want.
+        # is_hidden_key matches on the key's START, so top-level is the only level that can hide
+        # anything — one delimited call is enough to find them all.
+        skip = tuple(s if s.endswith("/") else f"{s}/" for s in skip_prefixes)
+        root = await obs.list_with_delimiter_async(self._store, prefix=prefix or None)
+        entries: list[FileEntry] = [self._entry(scope, m) for m in root["objects"]]
+        for cp in root["common_prefixes"]:
+            rel = self._strip_scope_prefix(scope, str(cp))
+            rel = rel if rel.endswith("/") else f"{rel}/"
+            if rel.startswith(skip):
+                continue
+            entries.extend(await self._list_under(scope, str(cp)))
+        return entries
+
+    async def _list_under(self, scope: Scope, prefix: str) -> list[FileEntry]:
         # obs.list returns a ListStream of pages; each page is a Sequence
         # of ObjectMeta dicts with keys "path", "size", "last_modified",
         # "e_tag" (last_modified is a datetime when present). The scope
         # prefix bounds the listing — a project list never sees user
         # files and vice versa.
-        prefix = self._scope_prefix(scope)
+        entries: list[FileEntry] = []
         stream = obs.list(self._store, prefix=prefix or None)
         async for page in stream:
-            for meta in page:
-                lm = meta.get("last_modified") if isinstance(meta, dict) else getattr(meta, "last_modified", None)
-                lm_iso = lm.isoformat() if hasattr(lm, "isoformat") else (str(lm) if lm else None)
-                entries.append(
-                    FileEntry(
-                        key=self._strip_scope_prefix(scope, meta["path"]),
-                        size=int(meta["size"]),
-                        last_modified=lm_iso,
-                    )
-                )
+            entries.extend(self._entry(scope, meta) for meta in page)
         return entries
 
     async def delete(self, scope: Scope, key: str) -> None:
