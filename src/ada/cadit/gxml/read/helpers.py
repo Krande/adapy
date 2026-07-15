@@ -108,6 +108,33 @@ def _project_to_best_fit_plane(pts):
     return [tuple(p) for p in projected]
 
 
+def _plate_from_3d_points(name, points, t, desired_normal, **kwargs):
+    """``Plate.from_3d_points``, wound to face the way the XML says it does.
+
+    A ``flat_plate`` states its normal outright as a ``<vector>``; the
+    constructor ignores it and derives one from the point order instead. The two
+    disagree about half the time — the points come off the SAT face's loop,
+    whose winding is its own business — and the plate then goes back out facing
+    the other way, which Genie draws inside-out.
+
+    Build it, compare, and rebuild flipped when they disagree. Cheaper would be
+    to reason about the winding up front, but ``CurvePoly2d`` re-orders the
+    outline during construction, so its own answer is the only reliable one.
+    """
+    from ada import Plate
+
+    plate = Plate.from_3d_points(name, points, t, **kwargs)
+    if desired_normal is None:
+        return plate
+    import numpy as _np
+
+    got = _np.asarray(plate.poly.normal, dtype=float)
+    want = _np.asarray(desired_normal, dtype=float)
+    if float(_np.dot(got, want)) < 0:
+        plate = Plate.from_3d_points(name, points, t, flip_normal=True, **kwargs)
+    return plate
+
+
 def _sense_against_face(sat_data, desired_normal, authored_sense: bool) -> bool:
     """The curved_shell sense flag: does ``desired_normal`` agree with the face?
 
@@ -136,8 +163,6 @@ def _sense_against_face(sat_data, desired_normal, authored_sense: bool) -> bool:
 
 
 def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fallback_d=None):
-    from ada import Plate
-
     base_name = plate_elem.attrib["name"]
     mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
     t = thick_map.get(plate_elem.attrib.get("thickness_ref"))
@@ -176,10 +201,11 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                 merged_points = merge_coplanar_loops_by_edge_cancellation(face_point_sets)
                 if merged_points is not None:
                     try:
-                        yield Plate.from_3d_points(
+                        yield _plate_from_3d_points(
                             base_name,
                             merged_points,
                             t,
+                            desired_normal,
                             mat=mat,
                             metadata=dict(props=dict(gxml_face_refs=face_refs)),
                             parent=parent,
@@ -293,10 +319,11 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                                     name,
                                     mismatch,
                                 )
-                                yield Plate.from_3d_points(
+                                yield _plate_from_3d_points(
                                     name,
                                     _project_to_best_fit_plane(fallback_pts),
                                     t,
+                                    desired_normal,
                                     mat=mat,
                                     metadata=dict(props=dict(gxml_face_ref=face_ref)),
                                     parent=parent,
@@ -348,10 +375,11 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                 if fb and len(fb) >= 3:
                     try:
                         projected = _project_to_best_fit_plane(fb)
-                        yield Plate.from_3d_points(
+                        yield _plate_from_3d_points(
                             name,
                             projected,
                             t,
+                            desired_normal,
                             mat=mat,
                             metadata=dict(props=dict(gxml_face_ref=face_ref)),
                             parent=parent,
@@ -363,10 +391,11 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                 continue
 
             try:
-                yield Plate.from_3d_points(
+                yield _plate_from_3d_points(
                     name,
                     sat_data,
                     t,
+                    desired_normal,
                     mat=mat,
                     metadata=dict(props=dict(gxml_face_ref=face_ref)),
                     parent=parent,
@@ -387,10 +416,11 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
 
         name = base_name if i == 1 else f"{base_name}_{i:02d}"
         try:
-            yield Plate.from_3d_points(
+            yield _plate_from_3d_points(
                 name,
                 pts,
                 t,
+                desired_normal,
                 mat=mat,
                 metadata=dict(props=dict(gxml_polygon_index=i)),
                 parent=parent,
