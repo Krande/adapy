@@ -362,7 +362,7 @@ jobs:
           mkdir -p ~/.docker
           printf '%s' '${{ secrets.REGISTRY_DOCKER_CONFIG }}' > ~/.docker/config.json
 
-      - name: Build and push viewer image
+      - name: Build viewer image
         env:
           REGISTRY_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
           # Full reference to the prebuilt adacpp pyodide wasm base image
@@ -389,6 +389,9 @@ jobs:
           # the gitops bump below pins that exact tag.
           TAG="sha-${GITHUB_SHA::7}-${GITHUB_RUN_NUMBER:-0}"
           BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
+          # Hand both tags to the smoke-test + push steps below.
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "BRANCH_TAG=$BRANCH_TAG" >> "$GITHUB_ENV"
           # Fast path: only the curated ada subset changed AND a prior
           # branch image exists. It FROMs that image, so the adacpp wasm
           # base / SPA / pixi env are all inherited — no adacpp pull.
@@ -430,6 +433,26 @@ jobs:
               -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
               .
           fi
+
+      # Gate the push on the image actually being able to start. The viewer runtime ships a CURATED
+      # subset of ada (see the COPY block in deploy/Dockerfile.viewer), and nothing else checks that
+      # the subset is complete: the test suite and the worker image both have all of src/ada on the
+      # path, so an import the REST app makes at startup can be missing here while every other check
+      # is green. 0.30.0 shipped exactly that and crashlooped on `No module named 'ada.cad'`, with
+      # the same-commit worker image healthy. Cheap enough to run on every build (one import).
+      - name: Smoke-test the viewer image
+        env:
+          REGISTRY_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
+        run: |
+          docker run --rm -i --entrypoint sh "${REGISTRY_IMAGE}:${TAG}" \
+            -c 'exec /env/bin/python -' < deploy/viewer-smoke.py
+
+      # Only now: a build that fails the smoke test never reaches the registry, so the branch tag
+      # the next fast build FROMs (and the tag the gitops bump pins) stays on the last good image.
+      - name: Push viewer image
+        env:
+          REGISTRY_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
+        run: |
           docker push "${REGISTRY_IMAGE}:${TAG}"
           docker push "${REGISTRY_IMAGE}:${BRANCH_TAG}"
 

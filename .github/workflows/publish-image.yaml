@@ -64,14 +64,16 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
 
-      - name: Build and push
+      # Built locally first so the smoke test below can gate the push. The publish itself is the
+      # step after next; this one loads the image into the runner's docker instead.
+      - name: Build viewer image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./deploy/Dockerfile.viewer
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          push: false
+          load: true
+          tags: adapy-viewer:smoke
           # ADACPP_BASE_IMAGE is deliberately NOT passed: the pin is the ARG default in
           # deploy/Dockerfile.viewer, and an unpassed build-arg lets that default stand.
           # This used to restate the version as ADACPP_WASM_BASE, which drifted to 0.13.2
@@ -82,6 +84,29 @@ jobs:
             IMAGE_TAG=${{ steps.meta.outputs.version }}
           cache-from: type=gha,scope=viewer
           cache-to: type=gha,mode=max,scope=viewer
+
+      # The viewer runtime ships a CURATED subset of ada, and nothing else verifies the subset is
+      # complete — the test suite and the worker image both have all of src/ada on the path. 0.30.0
+      # released a viewer that crashlooped on `No module named 'ada.cad'` with every check green.
+      # See deploy/viewer-smoke.py.
+      - name: Smoke-test the viewer image
+        run: |
+          docker run --rm -i --entrypoint sh adapy-viewer:smoke \
+            -c 'exec /env/bin/python -' < deploy/viewer-smoke.py
+
+      # Re-runs the same build to publish it: every layer is a gha cache hit, so this is an export,
+      # not a rebuild — and a tag whose image can't start never gets published.
+      - name: Push viewer image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./deploy/Dockerfile.viewer
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            IMAGE_TAG=${{ steps.meta.outputs.version }}
+          cache-from: type=gha,scope=viewer
 
   worker:
     runs-on: ubuntu-latest
