@@ -79,22 +79,48 @@ def _maybe_trim() -> None:
 _TEST_ALLOCS: list = []
 
 
+# Namespace for the flattened per-reason face-drop tallies on the worker->parent counter channel.
+_FACE_DROP_PREFIX = "face_drop:"
+
+
 def _rebuild_stats():
-    """This solid's face-repair counters from the OCC backend (param-extent rebuilds,
-    re-added/dropped holes, area-gate drops), or None on backends without the module
-    (adacpp-only installs have no ada.occ)."""
+    """This solid's face-repair + face-coverage counters, or None if it produced none.
+
+    Collected from BOTH kernels' counters, because either may have built this solid and only the
+    one that ran reports anything: the OCC backend's (param-extent rebuilds, re-added/dropped
+    holes, area-gate drops, per-face build coverage) and the NGEOM serializer's (per-face
+    coverage on the adacpp stream path). Gathering only OCC's — as this did — meant the default
+    path reported no faces at all, which the summary then rounded up to 100% coverage.
+
+    A solid that FELL BACK from the stream path to OCC is counted by both, on purpose: its faces
+    really were attempted twice, and hiding the first attempt is what got us here.
+    """
+    stats: dict = {}
     try:
         from ada.occ.geom.surfaces import (
             consume_face_coverage_stats,
             consume_param_rebuild_stats,
         )
     except ImportError:
-        return None
-    stats = consume_param_rebuild_stats()
-    # Fold the per-face build coverage (total/built/dropped) in under faces_* keys so
-    # it aggregates into the run summary's face_coverage without a second build.
-    for k, v in consume_face_coverage_stats().items():
+        pass  # adacpp-only install: no ada.occ, so no OCC counters to collect
+    else:
+        stats = consume_param_rebuild_stats()
+        # Fold the per-face build coverage (total/built/dropped) in under faces_* keys so
+        # it aggregates into the run summary's face_coverage without a second build.
+        for k, v in consume_face_coverage_stats().items():
+            stats[f"faces_{k}"] = stats.get(f"faces_{k}", 0) + v
+
+    from ada.cadit.ngeom.serialize import consume_face_drop_reasons, consume_face_stats
+
+    for k, v in consume_face_stats().items():
         stats[f"faces_{k}"] = stats.get(f"faces_{k}", 0) + v
+    # Reasons ride as flat ``face_drop:<reason>`` -> count keys: this dict is aggregated by a
+    # Counter.update in the parent, which sums ints and would raise on a nested mapping. The
+    # summary splits them back out; keeping them on this channel avoids widening the worker's
+    # result tuple for a diagnostic.
+    for reason, n in consume_face_drop_reasons().items():
+        key = f"{_FACE_DROP_PREFIX}{reason}"
+        stats[key] = stats.get(key, 0) + n
     return stats or None
 
 
@@ -991,19 +1017,37 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     )
     f_total = rebuild_totals.get("faces_total", 0)
     f_built = rebuild_totals.get("faces_built", 0)
+    drop_reasons = {
+        k[len(_FACE_DROP_PREFIX) :]: v for k, v in rebuild_totals.items() if k.startswith(_FACE_DROP_PREFIX)
+    }
     face_coverage = {
         "total": f_total,
         "built": f_built,
         "dropped": rebuild_totals.get("faces_dropped", 0),
-        "pct": round(100.0 * f_built / f_total, 2) if f_total else 100.0,
+        # None, NOT 100.0, when nothing was counted. "We measured no faces" and "we meshed every
+        # face" are opposite findings, and reporting the second for the first is how a third of a
+        # model went missing under a green check: the adacpp stream path populated no counters, so
+        # every run of the DEFAULT path claimed perfect coverage it had never looked for.
+        "pct": round(100.0 * f_built / f_total, 2) if f_total else None,
+        "drop_reasons": drop_reasons,
     }
+    if drop_reasons:
+        logger.warning(
+            "scene_from_step_stream: %s — dropped %d/%d faces: %s",
+            source.path,
+            face_coverage["dropped"],
+            f_total,
+            drop_reasons,
+        )
     return {
         "meshed": n_total - n_skipped,
         "total": n_total,
         "skipped": n_skipped,
         "materials": len(bt.material_store),
         "reasons": dict(reasons),
-        "rebuilds": dict(rebuild_totals),
+        # The per-reason face-drop keys are reported under face_coverage.drop_reasons; keep them
+        # out of here so `rebuilds` stays the repair-counter dict it has always been.
+        "rebuilds": {k: v for k, v in rebuild_totals.items() if not k.startswith(_FACE_DROP_PREFIX)},
         "face_coverage": face_coverage,
         "pool": dict(pool_events),
     }

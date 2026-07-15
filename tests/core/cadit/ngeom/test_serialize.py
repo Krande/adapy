@@ -228,3 +228,44 @@ def test_linear_extrusion_with_position_still_emits_placement():
     assert 46 in tags
     assert 1 in tags, "expected a PLACEMENT3 record for the IFC-form surface"
     assert len(roots) == 1
+
+
+def test_face_coverage_counters_tally_built_and_dropped():
+    """Every face this path skips must be COUNTED and attributed.
+
+    connected_face_set skips a face it can't map — right for a whole-file conversion, and wrong to
+    do silently. Nothing counted the skips on this path, so the run summary saw no faces at all and
+    reported perfect coverage; 26 of the Ventilator's 305 faces went missing under that green check.
+    """
+    from ada.cadit.ngeom.serialize import consume_face_drop_reasons, consume_face_stats
+
+    consume_face_stats(), consume_face_drop_reasons()  # reset any residue from another test
+
+    class _Unmappable:
+        """A surface type the serializer has no branch for -> _Unsupported -> a skipped face."""
+
+    bad = _square_face()
+    bad.face_surface = _Unmappable()
+    shell = su.OpenShell(cfs_faces=[_square_face(), bad, _square_face()])
+    serialize_geometries([("shell", shell)])
+
+    stats = consume_face_stats()
+    assert stats["total"] == 3, "every face attempted is counted, not just the ones that worked"
+    assert stats["built"] == 2
+    assert stats["dropped"] == 1
+
+    reasons = consume_face_drop_reasons()
+    assert sum(reasons.values()) == 1
+    reason = next(iter(reasons))
+    assert "_Unmappable" in reason, f"the reason must name the surface type: {reason}"
+
+
+def test_face_coverage_counters_reset_on_consume():
+    """Consume-and-reset: the counters are per-process and per-solid, so a solid must not inherit
+    the previous one's tally."""
+    from ada.cadit.ngeom.serialize import consume_face_stats
+
+    consume_face_stats()
+    serialize_geometries([("shell", su.OpenShell(cfs_faces=[_square_face()]))])
+    assert consume_face_stats()["total"] == 1
+    assert consume_face_stats() == {}, "a second consume must see a cleared counter"
