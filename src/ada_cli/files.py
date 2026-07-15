@@ -27,7 +27,7 @@ _TRANSFER_TIMEOUT_SECONDS = 30 * 60
 # Extensions worth gzipping at rest. The presigned PUT goes STRAIGHT to object storage, bypassing the
 # API's server-side gzip — so without a client-side pass these land uncompressed and every download
 # pays full size. Includes .glb/.gltf to match the worker's gzip-at-rest for derived GLBs (a meshopt
-# crane GLB still gzips ~0.46x). Safe because the viewer loads geometry WHOLE-FILE (no Range) and the
+# large-assembly GLB still gzips ~0.46x). Safe because the viewer loads geometry WHOLE-FILE (no Range) and the
 # browser decompresses transparently; the blob GET advertises `Accept-Ranges: none` for gzip objects so
 # nothing Range-fetches them, and the download-progress overshoot is capped viewer-side. (Field `.bin`
 # artefacts stay raw precisely because they ARE Range-fetched per step — see the FEA field-blob note.)

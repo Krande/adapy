@@ -731,7 +731,7 @@ def detect_step_length_unit_scale(filepath) -> float:
     (logged at warning in the latter case).
 
     Scanned with chunked ``os.pread`` rather than a whole-file mmap: ``LENGTH_UNIT``
-    routinely sits at the very END of the DATA section (e.g. ~99.7% into a 778 MB crane
+    routinely sits at the very END of the DATA section (e.g. ~99.7% into a 778 MB reference
     assembly), so an ``mmap.find`` would fault the entire file into RSS — a ~700 MB+
     transient spike right in the middle of the streaming reader's setup. pread keeps the
     pages in the reclaimable OS page cache, off this process's VmRSS."""

@@ -410,7 +410,7 @@ def _stream_workers() -> int:
 
     The cap is a *memory* bound, not a throughput one: each worker holds a chunk of the
     model's tessellated mesh in flight back to the parent, so peak RSS scales ~linearly
-    with worker count. On the crane (26 M tris) 8 workers peaked ~6.2 GB and 4 ~4.7 GB;
+    with worker count. On the large reference assembly (26 M tris) 8 workers peaked ~6.2 GB and 4 ~4.7 GB;
     3 keeps it near a ~4 GB pod ceiling (the spill-bounded parent alone is ~2.1 GB). Bump
     ``ADA_STEP_STREAM_WORKERS`` on a roomier pod to trade RAM for speed.
 
@@ -745,7 +745,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
             )
             # Dispatch order. Default: index order (arbitrary). With ADA_STEP_STREAM_LPT=1,
             # longest-processing-time-first — sort solids heaviest (most shell faces) first
-            # so a few very slow solids (e.g. dense engine blocks, ~70 s each on the crane)
+            # so a few very slow solids (e.g. dense engine blocks, ~70 s each on the large reference assembly)
             # overlap the bulk instead of being grabbed last while other workers idle. The
             # weight is a cheap shell-face-count (~2 preads/solid, no full build); the
             # original ``seq`` is preserved for stable solid_N naming regardless of order.

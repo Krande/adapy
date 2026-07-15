@@ -44,7 +44,7 @@ DEFAULT_STREAM_TESS_ANGULAR_DEG = 10.0
 #     not shift under callers who never asked for adaptive.
 #   * ON for the whole-file native converters (STEP->GLB / ->OBJ / ->STL): dense curved assemblies
 #     over-tessellate at a fixed fine angle, and these are the transfer-size- and timeout-sensitive
-#     products (the crane's 107M-tri OBJ/STL blew the 5-min timeout).
+#     products (the reference assembly's 107M-tri OBJ/STL blew the 5-min timeout).
 DEFAULT_STREAM_TESS_ADAPTIVE = False
 DEFAULT_STREAM_TESS_ADAPTIVE_NATIVE = True
 

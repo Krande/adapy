@@ -61,7 +61,7 @@ def test_representation_length_scale_none_when_no_unit():
 
 def _step_with_unit_at_end(tmp_path, unit_stmt: str, pad_bytes: int) -> str:
     # A STEP file whose LENGTH_UNIT record sits at the very END of the DATA section,
-    # past a large body — the real-world layout (e.g. ~99.7% into a 778 MB crane file)
+    # past a large body — the real-world layout (e.g. ~99.7% into a 778 MB reference file)
     # that made the old whole-file mmap.find fault the entire file into RSS.
     head = "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n"
     body = "".join(f"#{i}=CARTESIAN_POINT('p',(0.,0.,0.));\n" for i in range(1, pad_bytes // 40 + 2))

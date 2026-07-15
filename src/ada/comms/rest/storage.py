@@ -86,7 +86,7 @@ def _gzip_level() -> int:
     """gzip level for derived-output at-rest compression. Default 6, NOT the zlib/
     ``gzip.open`` default of 9: on large repetitive ASCII (a multi-GB OBJ/STEP export)
     level 9 costs ~8x the CPU of level 6 for a <1% smaller file — the level-9 pathology
-    that made the crane STEP->obj job spend ~900 s of its ~1070 s wall in gzip alone.
+    that made the large-assembly STEP->obj job spend ~900 s of its ~1070 s wall in gzip alone.
     ``ADA_DERIVED_GZIP_LEVEL`` overrides (clamped to 1..9)."""
     raw = os.environ.get("ADA_DERIVED_GZIP_LEVEL", "").strip()
     if raw:

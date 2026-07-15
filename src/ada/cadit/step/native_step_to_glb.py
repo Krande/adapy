@@ -6,7 +6,7 @@ and in-process: a Part-21 reader (offset index + per-statement pread, bounded me
 resolve -> libtess2 tessellation across a C++ thread pool -> a merge-by-colour GLB writer with on-disk
 spill. No Python reader, no pickle, no worker pool, no GIL.
 
-On the crane (778 MB, 7291 solids, 26 M tris) this is ~2.9x faster than the Python 6-worker path at
+On the large reference assembly (778 MB, 7291 solids, 26 M tris) this is ~2.9x faster than the Python 6-worker path at
 ~20% lower peak memory, in one process. It honours the same ``ADA_STREAM_TESS_DEFLECTION`` /
 ``ADA_STREAM_TESS_ANGULAR`` env as the streaming path so deflection options carry over.
 
@@ -14,7 +14,7 @@ The native GLB carries the full viewer picking contract: merge-by-colour materia
 ``draw_ranges_node<matidx>`` and a per-instance, product-named ``id_hierarchy`` in
 ``scenes[0].extras``, plus an ``ADA_EXT_data`` extension. Each placement is individually pickable and
 the assembly tree is reconstructed from the reader's instance paths — validated 1:1 with the Python
-streaming path on the crane (same products, placements, triangle counts, names, and full tree).
+streaming path on the large reference assembly (same products, placements, triangle counts, names, and full tree).
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def native_step_to_glb(
         angular_deg = _ang if angular_deg is None else angular_deg
 
     # Adaptive per-surface angular density is ON BY DEFAULT for STEP->GLB: large curved CAD
-    # assemblies (crane: 7291 solids, thousands of sub-cm bolts/pins) over-tessellate at a fixed
+    # assemblies (reference assembly: 7291 solids, thousands of sub-cm bolts/pins) over-tessellate at a fixed
     # fine angle, and the GLB is the transfer-size-sensitive product. We estimate a model reference
     # scale so adacpp coarsens tiny features while keeping large surfaces fine. ADA_STREAM_TESS_
     # ADAPTIVE=0/false forces the fixed-angle path (model_scale 0 => angular_deg governs everything).
@@ -85,7 +85,7 @@ def native_step_to_glb(
         # 3.2 GB-capped pod oversubscribes the CPUs AND bloats glibc's per-thread malloc arenas past
         # the RSS watchdog (observed: 3.12 GB peak → reaped at 31 s). Bound it to the streaming path's
         # cgroup-aware allotment (reads ADA_STEP_STREAM_WORKERS, else the cgroup cpu.max quota → cpu-1,
-        # capped at 3) — the same allotment libtess2 runs the crane under at ~1 GB. Falls back to the
+        # capped at 3) — the same allotment libtess2 runs the reference assembly under at ~1 GB. Falls back to the
         # C++ auto-pick only if that helper can't be imported.
         try:
             from ada.visit.scene_handling.scene_from_step_stream import _stream_workers
@@ -127,7 +127,7 @@ def native_step_to_glb(
     )
     if on_progress is not None:
         on_progress("ready", 1.0)
-    # Native coverage is 100% on the crane (all surface types + BREP_WITH_VOIDS resolved); the binding
+    # Native coverage is 100% on the reference assembly (all surface types + BREP_WITH_VOIDS resolved); the binding
     # returns solids actually written, so skipped is reported 0 here. (A future binding return of the
     # total-root count would let this report exact skips.)
     return {"solids": n, "total": n, "skipped": 0}

@@ -10,7 +10,7 @@ Python ``stream_step_to_mesh`` on giant-solid / FEM-export STEP (469826: 72s nat
 Coordinates are scaled to metres (the adapy / viewer unit convention, same as the native GLB path).
 
 OBJ output welds vertices (each instance's unique tessellated verts written once + indexed faces),
-~2.3x smaller than per-triangle unshared verts (crane 8.25 GB -> 3.53 GB) — the file size drove the
+~2.3x smaller than per-triangle unshared verts (reference assembly 8.25 GB -> 3.53 GB) — the file size drove the
 write + gzip-at-rest + upload time that dominated STEP->obj in the capped worker pod.
 """
 
@@ -72,7 +72,7 @@ def native_step_to_mesh(
 
     # Adaptive per-surface density is ON BY DEFAULT for STEP->OBJ/STL too (same rationale as
     # STEP->GLB: dense curved assemblies over-tessellate, and the text OBJ/STL are the largest,
-    # slowest products — the crane's 107M-tri OBJ/STL blew the 5-min timeout). ADA_STREAM_TESS_
+    # slowest products — the reference assembly's 107M-tri OBJ/STL blew the 5-min timeout). ADA_STREAM_TESS_
     # ADAPTIVE=0/false forces the fixed-angle path.
     adaptive = stream_tess_adaptive(default=DEFAULT_STREAM_TESS_ADAPTIVE_NATIVE)
     model_scale = 0.0

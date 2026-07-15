@@ -886,7 +886,7 @@ _STEP_GLB_PIPELINE_ADACPP_HYBRID = "adacpp-hybrid"
 # Fully-native: adacpp does the whole STEP->GLB in-process (C++ reader + thread pool + GLB writer),
 # replacing the Python reader + multiprocess pool. Fastest + lowest memory, and now byte-faithful to
 # the Python path — geometry, product names, per-instance picking, and the full assembly tree are
-# validated 1:1 on the crane (see native_step_to_glb / validate_native_vs_python.py). This is the
+# validated 1:1 on the large reference assembly (see native_step_to_glb / validate_native_vs_python.py). This is the
 # default; it degrades gracefully to libtess2 if adacpp's native entry point is missing or the
 # conversion raises.
 _STEP_GLB_PIPELINE_ADACPP_NATIVE = "adacpp-native"

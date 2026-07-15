@@ -3,7 +3,7 @@
 The adaptive angular density (see ``ada.cad.registry.stream_tess_adaptive``) relaxes the fine
 angular ceiling for curved surfaces small *relative to the model*. That needs a model length
 scale. A raw min/max bounding box is unusable: CAD STEP files routinely carry a handful of
-far-flung reference/construction points (the crane spans ±500 m of stray points yet its real
+far-flung reference/construction points (the large reference assembly spans ±500 m of stray points yet its real
 geometry is ~13-45 m), which inflate the diagonal ~30x and would coarsen every surface.
 
 So we use an OUTLIER-ROBUST estimate: sample CARTESIAN_POINT coordinates and take ~2x the 99th

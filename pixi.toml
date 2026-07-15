@@ -292,7 +292,7 @@ asyncpg = "*"
 psutil = "*"
 croniter = "*"
 # parallel gzip: derived outputs (obj/stl/step/ifc/xml/glb) are gzipped at-rest, and
-# single-threaded zlib at level 9 was ~85% of the crane STEP->obj job wall. pigz emits
+# single-threaded zlib at level 9 was ~85% of the large-assembly STEP->obj job wall. pigz emits
 # a standard gzip stream (Content-Encoding: gzip) across all cores — see storage._gzip_file.
 pigz = "*"
 

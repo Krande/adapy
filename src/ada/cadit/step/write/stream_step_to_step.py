@@ -1,6 +1,6 @@
 """Streaming STEP → STEP (AP242) re-export — per-solid, no full Assembly.
 
-Large CAD STEP assemblies (the multi-GB crane) OOM-kill / time out through the
+Large CAD STEP assemblies (a multi-GB reference assembly) OOM-kill / time out through the
 full-OCC ``ada.from_step`` → ``to_stp`` path: OCC builds the whole compound + an
 XCAF document in memory before writing. This streams instead — the native NGEOM
 reader yields one ``ada.geom.Geometry`` per solid (analytic B-rep incl. B-spline

@@ -1,7 +1,7 @@
 """OIDC JWT verification for the hosted REST viewer.
 
 Provider-agnostic: a single implementation serves both Authentik
-(homelab) and Azure AD direct (enterprise). Both expose a
+(self-hosted) and Azure AD direct (enterprise). Both expose a
 ``.well-known/openid-configuration`` discovery doc and a JWKS
 endpoint, so configuration is purely env-driven (issuer, client_id,
 audience, admin_group).

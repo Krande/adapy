@@ -33,7 +33,7 @@ ARG IMAGE_TAG=dev
 # The feat/lazy-shape-store overlay HEAD carries: the z=0 face-set plane-fit (IfcFacetedBrep /
 # Triangulated- + PolygonalFaceSet no longer render as a flat sheet), parallel native IFC→GLB,
 # a B-spline-weighted LPT cost estimate + per-solid audit instrumentation (spearman_est_ms/tris),
-# the NAUO-gate fix for the crane STEP→GLB regression, and a moderate 4 MB malloc mmap/trim that
+# the NAUO-gate fix for the large-assembly STEP→GLB regression, and a moderate 4 MB malloc mmap/trim that
 # trims streaming-tessellation peak RSS.
 ARG ADACPP_BRANCH=""
 

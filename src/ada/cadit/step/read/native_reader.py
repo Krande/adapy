@@ -8,8 +8,8 @@ per-representation mixed-unit scaling), and assembly instance paths match the Py
 
 The C++ side emits one NGEOM root per solid plus a parallel ``StepRootMeta`` (id / has_color / color /
 transforms / instance_paths); this rebuilds each as a ``Geometry``. NOTE ``stream_step_to_ngeom``
-currently full-parses the file (not memory-bounded) — fine for small/medium models; large files (the
-crane) need the streaming GLB path until the ngeom emitter is made streaming too.
+currently full-parses the file (not memory-bounded) — fine for small/medium models; large files (a
+multi-GB reference assembly) need the streaming GLB path until the ngeom emitter is made streaming too.
 """
 
 from __future__ import annotations

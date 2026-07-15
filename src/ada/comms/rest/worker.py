@@ -1733,7 +1733,7 @@ async def _process_one(
         # still uncompressed; this is transport compression, transparent to the
         # GLTF loader. Whole-file load only — gzip-at-rest is not Range-safe.)
         # OBJ / STL / STEP exports are also gzip-at-rest: the native STEP→mesh writer
-        # emits unsimplified geometry (the crane obj is ~7.7 GB raw, 73 M tris), and
+        # emits unsimplified geometry (the reference assembly's obj is ~7.7 GB raw, 73 M tris), and
         # storing it raw made the UPLOAD ~57% of that job's wall time. obj/step are
         # ASCII (compress dramatically); binary STL less so but still a net win. These
         # are whole-file export downloads (never Range-fetched, unlike FEA field blobs
@@ -1782,7 +1782,7 @@ async def _process_one(
             # drops the tmpfile + work dir once the upload settles either way.
             # put_path returns the at-rest gzip vs upload split so the audit can
             # attribute the post-conversion tail (gzip-at-rest was ~85% of the
-            # crane STEP->obj wall — see storage._gzip_level).
+            # large-assembly STEP->obj wall — see storage._gzip_level).
             put_timing = await storage.put_path(scope, job.derived_key, upload_path, content_encoding=derived_encoding)
             if isinstance(convert_meta, dict) and isinstance(put_timing, dict):
                 # Distinct from the GLB meshopt ``compress_ms`` above: ``gzip_ms`` is

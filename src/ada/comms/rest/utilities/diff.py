@@ -21,7 +21,7 @@ Diff types:
 
 Identity modes (byName/byCentroid/byProperty) prefer the native adacpp core
 (``adacpp.cad.glb_diff``): it parses one model at a time (never both full models
-resident) + extracts the removed overlay in C++ — the memory fix for crane-scale
+resident) + extracts the removed overlay in C++ — the memory fix for large-assembly-scale
 diffs. The pure-Python parser below is the fallback (and powers byCoverage). The
 GLB structure produced by adapy is::
 
@@ -438,7 +438,7 @@ def build_removed_overlay_glb(ref_glb: bytes, removed_names: list[str]) -> bytes
 
 # --------------------------------------------------------------------------- #
 # Native core (adacpp.cad.glb_diff): parse+match+overlay in C++, one model at a  #
-# time (never both full models resident) — the memory fix for crane-scale diffs. #
+# time (never both full models resident) — the memory fix for large-assembly-scale diffs. #
 # --------------------------------------------------------------------------- #
 # Overlays are throwaway diff artefacts → an EPHEMERAL prefix that a storage
 # lifecycle rule auto-disposes (vs the persistent, admin-managed _derived/). A
@@ -554,7 +554,7 @@ def diff(
 
     # Identity modes (byName/byCentroid/byProperty): prefer the native core — it
     # summarises one model at a time (never both, geometry not retained) and extracts
-    # the overlay in C++, keeping crane-scale diffs under the worker memory cap. Both
+    # the overlay in C++, keeping large-assembly-scale diffs under the worker memory cap. Both
     # GLBs stay on disk (path-based) so nothing copies through Python. byCoverage has
     # no native equivalent (per-cell binning) and stays on the Python path.
     glb_diff = _native_glb_diff() if diff_type in _NATIVE_MODE else None
