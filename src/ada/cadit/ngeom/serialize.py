@@ -231,7 +231,7 @@ class _Encoder:
     # below ``_BULK_MIN`` keep the per-scalar path. Crucially, the *per-face* tiny index lists
     # (a face's 1-2 bounds, an edge-loop's handful of edge refs) are joined inline at the call site
     # rather than via these helpers — on a B-rep model that path runs millions of times and the
-    # helper's call+guard overhead was measured to slightly *regress* the crane (the bulk win only
+    # helper's call+guard overhead was measured to slightly *regress* the large reference assembly (the bulk win only
     # materializes on genuinely large arrays / NURBS-heavy geometry).
     @staticmethod
     def _f64_raw(xs) -> bytes:

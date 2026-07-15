@@ -148,3 +148,55 @@ def test_add_parser_routes_subcommands():
     ]:
         ns = parser.parse_args(["audit", name] + (["1"] if name == "profile" else []))
         assert ns.func is fn
+
+
+# ── wasm-sweep: --adacpp-image ────────────────────────────────────────────
+
+
+def test_wasm_sweep_honours_the_adacpp_image_default(monkeypatch, tmp_path):
+    """`--adacpp-image` IS live, and its default decides which engine a sweep validates.
+
+    Worth pinning because it is reasonable to assume otherwise: nearly every `ada audit` subcommand
+    (runs / run / log / perf / profile) reports on work the WORKERS did, so the engine is whatever
+    the pool happens to run and no client-side image pin could matter. `wasm-sweep` is the one that
+    inverts that — it re-runs a prior run's cells LOCALLY under node+pyodide to validate the
+    in-browser engine, and the wheel it loads comes from this image. That is why the default has to
+    track the viewer's base (tests/core/test_deploy_pins.py pins the equality): it sat at 0.9.0
+    while the viewer moved on, so a default sweep validated a wheel six releases behind what shipped
+    — silently, since a stale-but-valid wheel sweeps perfectly happily.
+    """
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command")
+    ac.add_parser(sub)
+    ns = parser.parse_args(["audit", "wasm-sweep", "run-1"])
+    assert ns.func is ac.cmd_wasm_sweep
+    assert ns.adacpp_image == ac.ADACPP_DEFAULT_IMAGE
+
+    # Neither --adacpp-wheel nor $ADACPP_WHEEL set => the image is what gets extracted.
+    monkeypatch.delenv("ADACPP_WHEEL", raising=False)
+    wheel = tmp_path / "ada_cpp-0.15.0-cp313-cp313-pyodide_2025_0_wasm32.whl"
+    wheel.touch()
+    seen = {}
+
+    def _fake_extract(image, dest):
+        seen["image"] = image
+        return wheel
+
+    monkeypatch.setattr(ac, "_extract_adacpp_from_image", _fake_extract)
+    ns.out = str(tmp_path)
+    assert ac._resolve_adacpp_wheel(ns) == str(wheel)
+    assert seen["image"] == ac.ADACPP_DEFAULT_IMAGE, "the --adacpp-image default never reached the extraction"
+
+
+def test_wasm_sweep_explicit_wheel_beats_the_image(monkeypatch, tmp_path):
+    """An explicit --adacpp-wheel short-circuits the image, so a local build can be swept."""
+    wheel = tmp_path / "ada_cpp-0.15.0-cp313-cp313-pyodide_2025_0_wasm32.whl"
+    wheel.touch()
+
+    def _boom(image, dest):  # pragma: no cover - must not run
+        raise AssertionError("must not extract from the image when a wheel is given")
+
+    monkeypatch.setattr(ac, "_extract_adacpp_from_image", _boom)
+    monkeypatch.delenv("ADACPP_WHEEL", raising=False)
+    ns = argparse.Namespace(adacpp_wheel=str(wheel), adacpp_image="unused", out=str(tmp_path))
+    assert ac._resolve_adacpp_wheel(ns) == str(wheel)

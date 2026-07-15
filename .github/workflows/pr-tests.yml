@@ -25,7 +25,10 @@ jobs:
               cache: true
               environments: lint
 
-          - run: pixi run lint
+          # NOT `pixi run lint`: that is black + `ruff check --fix` + isort, which all MUTATE the
+          # runner's checkout and exit 0 — so this job reformatted a throwaway copy and passed
+          # unconditionally. lint-check reports instead of rewriting.
+          - run: pixi run lint-check
 
     test:
         runs-on: ${{ matrix.os }}

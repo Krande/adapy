@@ -47,7 +47,7 @@ class QueueConfig:
 class AuthConfig:
     """Provider-agnostic OIDC settings.
 
-    One implementation handles both Authentik (homelab) and Azure AD
+    One implementation handles both Authentik (self-hosted) and Azure AD
     direct (enterprise) — both expose a `.well-known/openid-configuration`
     discovery doc and a JWKS endpoint.
 

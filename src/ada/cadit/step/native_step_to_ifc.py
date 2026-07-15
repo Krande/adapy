@@ -9,14 +9,13 @@ the writer parallelizes across the cgroup-aware thread allotment. Peak memory is
 worker. The per-solid Python ``stream_step_to_ifc`` stays as the fallback when adacpp lacks the verb.
 
 Output is ifcopenshell.validate-clean (IFC4X3_ADD2) across flat + instanced models — verified on
-fixtures, 469826 (1308 solids) and the instanced crane (proxy/header GlobalIds are disjoint). The
+fixtures, 469826 (1308 solids) and the instanced reference assembly (proxy/header GlobalIds are disjoint). The
 file declares its real length unit (mm files → MILLIMETRE) and names instanced proxies by their
 assembly path (navigable hierarchy in IFC viewers).
 """
 
 from __future__ import annotations
 
-import os
 import pathlib
 
 from ada.config import logger
@@ -52,12 +51,12 @@ def native_step_to_ifc(
     """
     import adacpp
 
-    if deflection is None:
-        deflection = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
-    if angular_deg is None:
-        from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+    if deflection is None or angular_deg is None:
+        from ada.cad.registry import stream_tess_defaults
 
-        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
+        _defl, _ang = stream_tess_defaults()
+        deflection = _defl if deflection is None else deflection
+        angular_deg = _ang if angular_deg is None else angular_deg
     if num_threads <= 0:
         # Bound to the cgroup-aware allotment (not the node's core count) so we don't oversubscribe a
         # CPU-capped pod — same rule as the native GLB/mesh paths.

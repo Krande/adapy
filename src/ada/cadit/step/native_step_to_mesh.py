@@ -10,13 +10,12 @@ Python ``stream_step_to_mesh`` on giant-solid / FEM-export STEP (469826: 72s nat
 Coordinates are scaled to metres (the adapy / viewer unit convention, same as the native GLB path).
 
 OBJ output welds vertices (each instance's unique tessellated verts written once + indexed faces),
-~2.3x smaller than per-triangle unshared verts (crane 8.25 GB -> 3.53 GB) — the file size drove the
+~2.3x smaller than per-triangle unshared verts (reference assembly 8.25 GB -> 3.53 GB) — the file size drove the
 write + gzip-at-rest + upload time that dominated STEP->obj in the capped worker pod.
 """
 
 from __future__ import annotations
 
-import os
 import pathlib
 
 from ada.config import logger
@@ -42,20 +41,25 @@ def native_step_to_mesh(
     on_progress=None,
 ) -> int:
     """Convert ``step_path`` to ``out_path`` as ``fmt`` ('stl' | 'obj') with the native adacpp mesh
-    pipeline. ``deflection`` / ``angular_deg`` default to the ``ADA_STREAM_TESS_DEFLECTION`` (2.0) /
-    ``ADA_STREAM_TESS_ANGULAR`` (20.0) env. ``num_threads`` 0 = the cgroup-aware streaming allotment.
+    pipeline. ``deflection`` / ``angular_deg`` default to the ``ADA_STREAM_TESS_DEFLECTION`` /
+    ``ADA_STREAM_TESS_ANGULAR`` env via ``ada.cad.registry.stream_tess_defaults``. ``num_threads``
+    0 = the cgroup-aware streaming allotment.
     Returns the triangle count; raises if adacpp is unavailable or the conversion fails."""
     import adacpp
 
     fmt = fmt.lower().lstrip(".")
     if fmt not in ("stl", "obj"):
         raise ValueError(f"native_step_to_mesh: unsupported format {fmt!r}")
-    if deflection is None:
-        deflection = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
-    if angular_deg is None:
-        from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+    from ada.cad.registry import (
+        DEFAULT_STREAM_TESS_ADAPTIVE_NATIVE,
+        stream_tess_adaptive,
+        stream_tess_defaults,
+    )
 
-        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
+    if deflection is None or angular_deg is None:
+        _defl, _ang = stream_tess_defaults()
+        deflection = _defl if deflection is None else deflection
+        angular_deg = _ang if angular_deg is None else angular_deg
     if num_threads <= 0:
         # Mirror the native GLB path: bound threads to the cgroup-aware allotment, not the node's
         # core count, so we don't oversubscribe a CPU-capped pod or bloat per-thread malloc arenas.
@@ -68,10 +72,9 @@ def native_step_to_mesh(
 
     # Adaptive per-surface density is ON BY DEFAULT for STEP->OBJ/STL too (same rationale as
     # STEP->GLB: dense curved assemblies over-tessellate, and the text OBJ/STL are the largest,
-    # slowest products — the crane's 107M-tri OBJ/STL blew the 5-min timeout). ADA_STREAM_TESS_
+    # slowest products — the reference assembly's 107M-tri OBJ/STL blew the 5-min timeout). ADA_STREAM_TESS_
     # ADAPTIVE=0/false forces the fixed-angle path.
-    adaptive_env = os.environ.get("ADA_STREAM_TESS_ADAPTIVE")
-    adaptive = True if adaptive_env is None else adaptive_env.strip().lower() not in {"0", "false", "no", "off", ""}
+    adaptive = stream_tess_adaptive(default=DEFAULT_STREAM_TESS_ADAPTIVE_NATIVE)
     model_scale = 0.0
     if adaptive:
         from ada.cadit.step.model_scale import estimate_step_model_scale

@@ -3,7 +3,14 @@ channels = ["conda-forge"]
 platforms = ["win-64", "linux-64", "osx-64"]
 
 [feature.lint.tasks]
-lint = "black . --config pyproject.toml && ruff check . --fix && isort ."
+# Local dev: rewrite the tree in place. Exclusions are config-driven (pyproject's [tool.black] via
+# .gitignore, [tool.ruff] exclude, [tool.isort] skip), so these are safe to point at ".".
+lint = { cmd = "black . --config pyproject.toml && ruff check . --fix && isort .", description = "Format + lint Python in place" }
+# The CI gate — NOT `lint`. black, `ruff check --fix` and isort all MUTATE and exit 0, so a lint job
+# running `lint` reformats the runner's throwaway checkout and passes unconditionally: it cannot
+# fail, whatever the PR contains. Same tools, same config, same order — check mode reports instead
+# of rewriting.
+lint-check = { cmd = "black . --check --config pyproject.toml && ruff check . && isort . --check-only", description = "CI gate: fail on any unformatted/unlinted Python" }
 flat = { cmd = "python src/flatbuffers/update_flatbuffers.py && pixi run lint", cwd = "./" }
 
 json-code-gen-py = { cmd = [
@@ -146,7 +153,7 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # for every other path (IFC/XML/FEM, occ-builtin fallback). Shares occt 7.9.3 with
 # pyocc (see above) so both coexist in one env.
 [feature.adacpp-runtime.dependencies]
-ada-cpp = "0.13.2.*"
+ada-cpp = "0.15.0.*"
 
 # ada-cpp CAD backend (AdacppBackend) — native CPython build of the
 # wasm-capable kernel. Brings its own occt 7.9.3 + gmsh + ifcopenshell,
@@ -161,8 +168,12 @@ ada-cpp = "0.13.2.*"
 # cap, and the cgroup-aware concurrency clamp — adapy's pcurve/parity paths here require it.
 # 0.13 adds the pure-C++ IFC reader/writer + zero-copy NGEOM streams (lazy ShapeStore), the cone
 # semi-angle plane-angle-unit drop fix, and tessellation perf work; adapy's native import/stream
-# paths graduate off the branch overlay onto this release.
-ada-cpp = "0.13.2.*"
+# paths graduate off the branch overlay onto this release. 0.14 adds tess_tracks() — the track
+# vocabulary adacpp declares and ada.cad.registry discovers — plus boundary pinning on by default
+# and the watertight `cdt` track. REQUIRED, not merely nice: the discovery tests skip outright
+# against an older ada-cpp, so a lower pin makes them silently vacuous. 0.15 adds
+# imprint_planar_faces plus win-64 build and cad-API-generator encoding fixes.
+ada-cpp = "0.15.0.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
@@ -289,7 +300,7 @@ asyncpg = "*"
 psutil = "*"
 croniter = "*"
 # parallel gzip: derived outputs (obj/stl/step/ifc/xml/glb) are gzipped at-rest, and
-# single-threaded zlib at level 9 was ~85% of the crane STEP->obj job wall. pigz emits
+# single-threaded zlib at level 9 was ~85% of the large-assembly STEP->obj job wall. pigz emits
 # a standard gzip stream (Content-Encoding: gzip) across all cores — see storage._gzip_file.
 pigz = "*"
 

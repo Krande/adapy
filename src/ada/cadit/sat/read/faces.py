@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from ada.cadit.sat.exceptions import ACISInsufficientPointsError
 from ada.cadit.sat.read.sat_entities import AcisRecord
-from ada.config import logger
+from ada.config import Config, logger
 from ada.core.vector_utils import remove_near_collinear_points
 
 if TYPE_CHECKING:
@@ -134,7 +134,71 @@ class PlateFactory:
         if coedge_first_direction == "reversed":
             points.reverse()
 
+        # Curved boundary edges (intcurve/ellipse) otherwise collapse to the chord between their two
+        # corners — a deck plate meeting a curved hull skin renders straight while the skin beside it
+        # curves (measured on OP1_v1007_hullskin FACE00004482: a 0.072 m bulge flattened out of a
+        # 1.4 m plate). Splice the sampled curve into the FINISHED corner polygon, between the two
+        # corners that edge joins. Done here, after the corner sequence is complete, precisely because
+        # `edges` is NOT in geometric chain order — the loop above works by collecting far-endpoints
+        # and deduping, not by walking the chain, so there is no "insert before edge i" position to
+        # write into. A straight-only loop splices nothing and keeps its exact historic point list.
+        if Config().sat_plate_curved_edges:
+            points = self._splice_curved_edges(points, edges)
+
         return points
+
+    def _splice_curved_edges(self, points: list[tuple[float]], edges: list[AcisRecord]) -> list[tuple[float]]:
+        """Insert each curved edge's sampled interior between the two corners it joins.
+
+        Purely additive: every original corner stays, in its original order. An edge whose two
+        corners aren't adjacent in `points` (or which we couldn't sample) is skipped and keeps its
+        chord — so the worst case is exactly today's output.
+        """
+        curved = self._curved_edge_interiors(edges)
+        if not curved:
+            return points
+
+        pts = list(points)
+        for i, coedge in enumerate(edges):
+            interior = curved.get(i)
+            if not interior:
+                continue
+            p1, p2 = self.get_points_from_edge(coedge)
+            near, far = (p1, p2) if str(coedge.chunks[-4]) == "forward" else (p2, p1)
+            n = len(pts)
+            for k in range(n):
+                a, b = pts[k], pts[(k + 1) % n]
+                if a == near and b == far:
+                    pts[k + 1 : k + 1] = interior
+                    break
+                if a == far and b == near:
+                    pts[k + 1 : k + 1] = list(reversed(interior))
+                    break
+            else:
+                logger.debug(f"curved edge {i}: corners not adjacent in the outline; keeping its chord")
+        return pts
+
+    def _curved_edge_interiors(self, edges: list[AcisRecord]) -> dict[int, list[tuple[float, float, float]]]:
+        """{edge index -> interior points, ordered near->far along the coedge's own direction}.
+
+        Best-effort by design: any edge we can't read or sample simply isn't in the dict, and the
+        caller keeps today's chord for it. A curved boundary that silently stays straight is the bug
+        we're fixing; a curved boundary that fails to sample is only as bad as the status quo.
+        """
+        from ada.cadit.sat.read.plate_edge_curves import edge_interior_points
+
+        out: dict[int, list[tuple[float, float, float]]] = {}
+        for i, coedge in enumerate(edges):
+            try:
+                p1, p2 = self.get_points_from_edge(coedge)
+                near, far = (p1, p2) if str(coedge.chunks[-4]) == "forward" else (p2, p1)
+                pts = edge_interior_points(coedge, self.sat_store, near, far)
+            except Exception as exc:  # noqa: BLE001 - never let a curve read drop a whole plate
+                logger.debug(f"curved edge sample failed on coedge {i}: {exc}")
+                continue
+            if pts:
+                out[i] = pts
+        return out
 
     def get_edges(self, face_data_list: list[str]) -> list[AcisRecord]:
         loop = self._get_primary_loop(face_data_list)

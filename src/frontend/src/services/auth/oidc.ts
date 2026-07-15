@@ -1,5 +1,5 @@
 // OIDC PKCE code-flow client. Provider-agnostic: works against
-// Authentik (homelab) and Azure AD direct (enterprise) — both expose
+// Authentik (self-hosted) and Azure AD direct (enterprise) — both expose
 // `.well-known/openid-configuration` and a token endpoint that accepts
 // the standard PKCE exchange.
 //

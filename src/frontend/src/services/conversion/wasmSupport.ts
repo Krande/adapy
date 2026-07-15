@@ -38,7 +38,19 @@ export interface WasmFormat {
 //   - step/stp: GLB only — from_step defaults to the OCC reader (not wasm-safe);
 //     non-GLB targets wait on routing read_step_file through the CadBackend.
 //   - mesh:     trimesh → glb (mesh→mesh round-trips aren't worker-registry pairs).
-// Mirrors the worker's converter.py registry for the wasm-loadable sources.
+//
+// NOT sourced from window.CONVERSION_MATRIX, and deliberately so. That matrix is
+// what the WORKER pools advertise; this is what THIS BROWSER can do, and the two
+// are different questions with different answers — the notes above are limits of
+// the wasm build (pyodide wheels, embind modules) that no worker has or reports.
+// Driving this off the matrix would also invert the dependency: it is empty when
+// the queue is disabled (dev / desktop / embed) or when no worker is live, which
+// is exactly when the in-browser engine is the ONLY one — the SPA would forget
+// its own capabilities because a server pool was down.
+//
+// The serializer/tessellator DROPDOWN is a separate axis and *is* schema-driven
+// from the matrix (see serializerMatrix.ts); this table only decides which
+// (source, target) cells the browser can be handed at all.
 const WASM_TARGETS_BY_FORMAT: Record<PyodideSourceFormat, readonly string[]> = {
     sat: ["glb", "obj", "stl", "step", "xml", "ifc"],
     ifc: ["glb", "obj", "stl", "step", "xml", "ifc"],

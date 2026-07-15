@@ -8,16 +8,15 @@
 # meaningfully shrink things.
 #
 # Rebuild marker (bump to re-pull the ADACPP_BRANCH overlay fresh):
-#   2026-07-13f — adacpp feat/lazy-shape-store @ 5a84825: cone semi-angle plane-angle-unit fix. A
-#   CONICAL_SURFACE stores its semi-angle in the model's declared plane-angle unit (frequently DEGREE);
-#   the reader was reading it as radians, so a 45-degree cone became a 45-radian cone that tessellated
-#   to nothing and was silently dropped — nearly every conical face on degree-unit assemblies. Now
-#   collects CONVERSION_BASED_UNIT records and scales the semi-angle to radians. Also carries the
-#   curved-surface fidelity fixes (curved trim on near-rectangular B-spline faces; scale-invariant
-#   angular refinement so cylinders/holes aren't faceted into prisms/squares), opt-in per-face
-#   clickable regions (face_ranges_node via ADA_STREAM_TESS_FACE_REGIONS), the linear-extrusion face
-#   fix, dropped-face health counter, IFC linear placement + opening voids, the bogus-SI-prefix guard
-#   (empty tanks), GLB-spill RAM buffering, tri-count logging, parent malloc_trim.
+#   2026-07-15 — overlay retired. Everything the previous markers were previewing (selectable
+#   tessellation tracks, boundary pinning ON by default, the watertight `cdt` track) shipped in
+#   ada-cpp 0.14.0, which pixi.toml now pins. The worker takes it from conda.
+#
+#   NOTE: unsetting this file's default is NOT enough to stop the overlay — it is driven by the
+#   forgejo repo variable ADACPP_BRANCH (Settings -> Actions -> Variables). While that variable
+#   names a branch, the overlay is built and put on PYTHONPATH AHEAD of the conda ada-cpp, so the
+#   worker silently runs the branch build and the pinned 0.14.0 is never exercised. Clear the
+#   variable when a preview is no longer wanted.
 
 ARG PIXI_VERSION=0.68.0
 # CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the worker can publish
@@ -34,7 +33,7 @@ ARG IMAGE_TAG=dev
 # The feat/lazy-shape-store overlay HEAD carries: the z=0 face-set plane-fit (IfcFacetedBrep /
 # Triangulated- + PolygonalFaceSet no longer render as a flat sheet), parallel native IFC→GLB,
 # a B-spline-weighted LPT cost estimate + per-solid audit instrumentation (spearman_est_ms/tris),
-# the NAUO-gate fix for the crane STEP→GLB regression, and a moderate 4 MB malloc mmap/trim that
+# the NAUO-gate fix for the large-assembly STEP→GLB regression, and a moderate 4 MB malloc mmap/trim that
 # trims streaming-tessellation peak RSS.
 ARG ADACPP_BRANCH=""
 

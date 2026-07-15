@@ -728,7 +728,6 @@ class Ap242StreamWriter:
         triples already carrying the active instance transform ``self._tf``; ``tri_
         indices`` an (M,3) list of int triples. Returns ``(None, None)`` if adacpp is
         unavailable or the solid yields no triangles."""
-        import os
 
         try:
             from ada.cad import active_backend
@@ -738,10 +737,9 @@ class Ap242StreamWriter:
         fn = getattr(backend, "tessellate_stream", None)
         if fn is None:
             return None, None
-        defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
-        from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+        from ada.cad.registry import stream_tess_defaults
 
-        ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
+        defl, ang = stream_tess_defaults()
         try:
             mesh = fn([("0", g)], pipeline="libtess2", deflection=defl, angular_deg=ang)
         except Exception as exc:  # noqa: BLE001 - tessellation can't cover this solid

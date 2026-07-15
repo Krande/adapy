@@ -32,41 +32,96 @@ from functools import lru_cache
 DEFAULT_STREAM_TESS_DEFLECTION = 2.0
 DEFAULT_STREAM_TESS_ANGULAR_DEG = 10.0
 
-# Angular density mode. OFF (default): ``angular_deg`` is a fixed global ceiling for every curved
-# surface (explicit-global-angle mode, backward compatible). ON: the ceiling is applied ADAPTIVELY
-# per surface — a model-relative reference (``model_scale``, the model bbox diagonal) lets tiny
-# curved features (bolts/pins in a large assembly, whose facets are sub-pixel) coarsen while large
-# visible surfaces keep the fine angle. The relaxation itself lives in adacpp (angle_step); adapy
-# only decides the mode and supplies ``model_scale``. Toggle with ADA_STREAM_TESS_ADAPTIVE.
+# Angular density mode. OFF: ``angular_deg`` is a fixed global ceiling for every curved surface
+# (explicit-global-angle mode, backward compatible). ON: the ceiling is applied ADAPTIVELY per
+# surface — a model-relative reference (``model_scale``, the model bbox diagonal) lets tiny curved
+# features (bolts/pins in a large assembly, whose facets are sub-pixel) coarsen while large visible
+# surfaces keep the fine angle. The relaxation itself lives in adacpp (angle_step); adapy only
+# decides the mode and supplies ``model_scale``. Toggle with ADA_STREAM_TESS_ADAPTIVE.
+#
+# The default DIFFERS BY CALL PATH, deliberately — pass it explicitly via ``stream_tess_adaptive(default=)``:
+#   * OFF for the per-object stream path (BatchTessellator): a library API whose mesh density must
+#     not shift under callers who never asked for adaptive.
+#   * ON for the whole-file native converters (STEP->GLB / ->OBJ / ->STL): dense curved assemblies
+#     over-tessellate at a fixed fine angle, and these are the transfer-size- and timeout-sensitive
+#     products (the reference assembly's 107M-tri OBJ/STL blew the 5-min timeout).
 DEFAULT_STREAM_TESS_ADAPTIVE = False
+DEFAULT_STREAM_TESS_ADAPTIVE_NATIVE = True
+
+# One falsy spelling for every ADA_STREAM_TESS_* boolean. Note "" is FALSY: an explicitly-empty env
+# var means "off", not "on" (before this was centralised, scene_from_step_stream omitted "" from its
+# set and so read an explicit ADA_STREAM_TESS_ADAPTIVE="" as ON while every other path read it OFF).
+_TESS_ENV_FALSY = frozenset({"0", "false", "no", "off", ""})
+
+
+def _tess_env_flag(name: str, default: bool) -> bool:
+    """Read an ADA_STREAM_TESS_* boolean: unset => ``default``, else any non-falsy spelling => True."""
+    v = os.environ.get(name)
+    if v is None:
+        return default
+    return v.strip().lower() not in _TESS_ENV_FALSY
 
 
 def stream_tess_defaults() -> tuple[float, float]:
-    """(deflection, angular_deg) for the NGEOM stream path: env override else the corpus default."""
+    """(deflection, angular_deg) for the NGEOM stream path: env override else the corpus default.
+
+    The single source of these two numbers — every stream/native tessellation entry point reads them
+    through here so one nominal config can't mean different densities on different call paths.
+    """
     defl = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", str(DEFAULT_STREAM_TESS_DEFLECTION)))
     ang = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
     return defl, ang
 
 
-def stream_tess_adaptive() -> bool:
-    """Whether adaptive per-surface angular density is enabled (env override else the default OFF)."""
-    v = os.environ.get("ADA_STREAM_TESS_ADAPTIVE")
-    if v is None:
-        return DEFAULT_STREAM_TESS_ADAPTIVE
-    return v.strip().lower() not in {"0", "false", "no", "off", ""}
+def stream_tess_adaptive(default: bool = DEFAULT_STREAM_TESS_ADAPTIVE) -> bool:
+    """Whether adaptive per-surface angular density is enabled (env override else ``default``).
+
+    ``default`` is the caller's mode when ADA_STREAM_TESS_ADAPTIVE is unset — it differs by call
+    path on purpose (see DEFAULT_STREAM_TESS_ADAPTIVE / _NATIVE), so state it rather than relying on
+    this signature's default.
+    """
+    return _tess_env_flag("ADA_STREAM_TESS_ADAPTIVE", default)
 
 
-def stream_tess_model_scale() -> float:
-    """The model reference scale (world units) for adaptive density on the object stream path, or
-    0.0 (off). Adaptive is meaningful only with a model scale, so this returns 0 unless adaptive is
-    enabled AND a scale is supplied via ADA_STREAM_TESS_MODEL_SCALE (the caller sets it once per
-    model — the native STEP->GLB path estimates its own; see ada.cadit.step.model_scale)."""
-    if not stream_tess_adaptive():
-        return 0.0
+def stream_tess_face_regions() -> bool:
+    """Whether to emit per-face clickable regions (face_ranges_node<m> in scenes[0].extras).
+
+    Opt-in (ADA_STREAM_TESS_FACE_REGIONS=1): it bloats the GLB and forces serial face tessellation.
+    """
+    return _tess_env_flag("ADA_STREAM_TESS_FACE_REGIONS", False)
+
+
+def stream_tess_strict() -> bool:
+    """Whether a NGEOM->OCC tessellation fallback should raise instead of silently degrading
+    (ADA_STREAM_TESS_STRICT=1) — enforces 100% stream-kernel coverage."""
+    return _tess_env_flag("ADA_STREAM_TESS_STRICT", False)
+
+
+def stream_tess_model_scale_env() -> float:
+    """The raw ADA_STREAM_TESS_MODEL_SCALE (world units), 0.0 if unset/invalid — NO adaptive gating.
+
+    For consumers *downstream* of the adaptive decision: the parent estimates the scale once per
+    model and exports it, so its presence is itself the adaptive signal. A pool worker must not
+    re-gate on ADA_STREAM_TESS_ADAPTIVE — it may not have inherited it, and re-gating would silently
+    return 0.0 (fixed-angle) in every worker while the parent believed adaptive was on.
+    Use ``stream_tess_model_scale`` when *you* are the one deciding.
+    """
     try:
         return float(os.environ.get("ADA_STREAM_TESS_MODEL_SCALE", "0") or 0.0)
     except ValueError:
         return 0.0
+
+
+def stream_tess_model_scale(default: bool = DEFAULT_STREAM_TESS_ADAPTIVE) -> float:
+    """The model reference scale (world units) for adaptive density, or 0.0 (off).
+
+    Adaptive is meaningful only with a model scale, so this returns 0 unless adaptive is enabled
+    (env else ``default``) AND a scale is supplied via ADA_STREAM_TESS_MODEL_SCALE (the caller sets
+    it once per model — the native STEP->GLB path estimates its own; see ada.cadit.step.model_scale).
+    """
+    if not stream_tess_adaptive(default=default):
+        return 0.0
+    return stream_tess_model_scale_env()
 
 
 class CadBackendName(str, Enum):
@@ -74,12 +129,92 @@ class CadBackendName(str, Enum):
     ADACPP = "adacpp"  # the adacpp extension (NGEOM / libtess2 + linked OCCT/CGAL/ifc kernels)
 
 
-class TessellationPath(str, Enum):
-    """A selectable (backend, tessellation-algorithm) pair.
+@dataclass(frozen=True)
+class TessTrack:
+    """One selectable tessellation track: a (backend, algorithm) pair plus how to describe it.
 
-    ``OCC`` is pythonocc's BRepMesh; the ``ADACPP_*`` paths map to adacpp ``tessellate_stream``
-    pipelines (``libtess2`` is the OCC-free boundary CDT; ``occ``/``cgal``/``hybrid`` use adacpp's
-    linked OCCT / ifcopenshell-taxonomy kernels)."""
+    **adapy does not own this vocabulary.** adapy declares only its OWN track (pythonocc's
+    BRepMesh); every adacpp track is DISCOVERED from ``adacpp.cad.tess_tracks()``, which reports
+    what that build actually compiled. Adding a track is therefore a change in adacpp alone — nothing
+    here, in the converter, or in the frontend enumerates track names.
+    """
+
+    name: str  # stable token, e.g. "occ" or "adacpp:cdt"
+    label: str  # human-readable, for a dropdown
+    description: str  # one line, for a tooltip
+    watertight: bool  # does it close shared-edge seams?
+    backend: CadBackendName
+    pipeline: str | None  # the adacpp `pipeline` arg; None => pythonocc BRepMesh
+    is_default: bool = False
+
+
+# adapy's own track. This is the ONE we are entitled to hardcode: it is pythonocc's BRepMesh, which
+# adapy owns and adacpp knows nothing about.
+_OCC_TRACK = TessTrack(
+    name="occ",
+    label="OCC BRepMesh (pythonocc)",
+    description="pythonocc's BRepMesh. adapy's built-in tessellator; no adacpp required.",
+    watertight=False,
+    backend=CadBackendName.OCC,
+    pipeline=None,
+)
+
+
+def _adacpp_tracks() -> list[TessTrack]:
+    """Tracks declared BY adacpp, for this build. Empty when adacpp isn't importable.
+
+    Tolerates an older adacpp with no ``tess_tracks`` binding by falling back to the pipeline names
+    that predate the self-declaration, so a mixed install degrades instead of losing every track.
+    """
+    if not _module_available("adacpp"):
+        return []
+    try:
+        import adacpp
+    except Exception:  # noqa: BLE001 - a broken adacpp must not take the registry down
+        return []
+    decl = getattr(adacpp.cad, "tess_tracks", None)
+    if decl is None:
+        return [
+            TessTrack(f"adacpp:{n}", f"adacpp {n}", "", False, CadBackendName.ADACPP, n)
+            for n in ("libtess2", "occ", "cgal", "hybrid")
+        ]
+    out: list[TessTrack] = []
+    for t in decl():
+        name = t["name"]
+        out.append(
+            TessTrack(
+                name=f"adacpp:{name}",
+                label=t.get("label") or name,
+                description=t.get("description") or "",
+                watertight=bool(t.get("watertight")),
+                backend=CadBackendName.ADACPP,
+                pipeline=name,
+                is_default=bool(t.get("default")),
+            )
+        )
+    return out
+
+
+def available_tess_tracks() -> list[TessTrack]:
+    """Every tessellation track usable in THIS environment: adapy's own + whatever adacpp declares.
+
+    This is the single source of truth for the vocabulary. Publish it; don't re-list it.
+    """
+    tracks = [_OCC_TRACK] if backend_available(CadBackendName.OCC) else []
+    return tracks + _adacpp_tracks()
+
+
+def tess_track_by_name(name: str) -> TessTrack | None:
+    return next((t for t in available_tess_tracks() if t.name == name), None)
+
+
+class TessellationPath(str, Enum):
+    """LEGACY, kept for back-compat with existing configs and callers.
+
+    Prefer :func:`available_tess_tracks` — it is discovered from adacpp rather than enumerated here,
+    so it sees tracks (``adacpp:cdt``, ...) that this enum predates and will never grow. A
+    ``CadConfig.path`` accepts either an enum member or any discovered track name.
+    """
 
     OCC = "occ"
     ADACPP_LIBTESS2 = "adacpp:libtess2"
@@ -148,7 +283,10 @@ class CadConfig:
     or pass to a factory function (e.g. ``stream_step_to_glb(..., cad_config=cfg)`` or
     ``ada.from_step(..., cad_config=cfg)``)."""
 
-    path: TessellationPath = TessellationPath.OCC
+    # Either a legacy TessellationPath member or any discovered track name (see
+    # available_tess_tracks). The enum cannot name a track added after it was written, so a plain
+    # string is the forward-compatible spelling: CadConfig(path="adacpp:cdt").
+    path: TessellationPath | str = TessellationPath.OCC
     deflection: float = DEFAULT_STREAM_TESS_DEFLECTION
     angular_deg: float = DEFAULT_STREAM_TESS_ANGULAR_DEG
     simplify: bool = False  # meshopt cleanup (step2glb merge parity); adacpp paths only
@@ -156,6 +294,12 @@ class CadConfig:
     # fallback for out-of-scope files — the most memory-efficient + robust default. Override per
     # config to force a specific reader.
     step_reader: StepReader = StepReader.AUTO
+
+    @property
+    def track(self) -> TessTrack | None:
+        """The resolved track for ``path`` (enum member or discovered name), or None if unavailable."""
+        name = self.path.value if isinstance(self.path, TessellationPath) else str(self.path)
+        return tess_track_by_name(name)
 
     @classmethod
     def default(cls) -> "CadConfig":
@@ -166,19 +310,28 @@ class CadConfig:
         return cls(path=TessellationPath.OCC)
 
     def validate(self) -> None:
-        if self.path not in available_paths():
+        # Discovered tracks are the authority; the legacy enum list is only a fallback for members
+        # that predate discovery in an env without adacpp.
+        if self.track is None and self.path not in available_paths():
+            name = self.path.value if isinstance(self.path, TessellationPath) else str(self.path)
             raise ValueError(
-                f"tessellation path {self.path.value!r} is not available in this environment; "
-                f"available: {[p.value for p in available_paths()]}"
+                f"tessellation path {name!r} is not available in this environment; "
+                f"available: {[t.name for t in available_tess_tracks()]}"
             )
         # Accept a bare string for ergonomics, but it must be a known reader.
         StepReader(self.step_reader)
 
     def env(self) -> dict[str, str]:
         """The streaming-export env vars this config maps to (read by the conversion worker)."""
-        e = {"ADAPY_CAD_BACKEND": self.path.backend.value}
-        if self.path.pipeline is not None:
-            e["ADA_STREAM_TESS_PIPELINE"] = self.path.pipeline
+        track = self.track
+        if track is None:  # unavailable/unknown: fall back to the legacy enum's own view
+            backend = self.path.backend if isinstance(self.path, TessellationPath) else CadBackendName.OCC
+            pipeline = self.path.pipeline if isinstance(self.path, TessellationPath) else None
+        else:
+            backend, pipeline = track.backend, track.pipeline
+        e = {"ADAPY_CAD_BACKEND": backend.value}
+        if pipeline is not None:
+            e["ADA_STREAM_TESS_PIPELINE"] = pipeline
             e["ADA_STREAM_TESS_DEFLECTION"] = repr(self.deflection)
             e["ADA_STREAM_TESS_ANGULAR"] = repr(self.angular_deg)
             if self.simplify:

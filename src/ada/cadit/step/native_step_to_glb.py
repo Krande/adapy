@@ -6,7 +6,7 @@ and in-process: a Part-21 reader (offset index + per-statement pread, bounded me
 resolve -> libtess2 tessellation across a C++ thread pool -> a merge-by-colour GLB writer with on-disk
 spill. No Python reader, no pickle, no worker pool, no GIL.
 
-On the crane (778 MB, 7291 solids, 26 M tris) this is ~2.9x faster than the Python 6-worker path at
+On the large reference assembly (778 MB, 7291 solids, 26 M tris) this is ~2.9x faster than the Python 6-worker path at
 ~20% lower peak memory, in one process. It honours the same ``ADA_STREAM_TESS_DEFLECTION`` /
 ``ADA_STREAM_TESS_ANGULAR`` env as the streaming path so deflection options carry over.
 
@@ -14,12 +14,11 @@ The native GLB carries the full viewer picking contract: merge-by-colour materia
 ``draw_ranges_node<matidx>`` and a per-instance, product-named ``id_hierarchy`` in
 ``scenes[0].extras``, plus an ``ADA_EXT_data`` extension. Each placement is individually pickable and
 the assembly tree is reconstructed from the reader's instance paths — validated 1:1 with the Python
-streaming path on the crane (same products, placements, triangle counts, names, and full tree).
+streaming path on the large reference assembly (same products, placements, triangle counts, names, and full tree).
 """
 
 from __future__ import annotations
 
-import os
 import pathlib
 
 from ada.config import logger
@@ -46,8 +45,9 @@ def native_step_to_glb(
 ) -> dict:
     """Convert ``step_path`` to a GLB at ``glb_path`` with the native adacpp pipeline.
 
-    ``deflection`` / ``angular_deg`` default to the ``ADA_STREAM_TESS_DEFLECTION`` (2.0) /
-    ``ADA_STREAM_TESS_ANGULAR`` (20.0) env, matching the streaming path. ``num_threads`` 0 = auto
+    ``deflection`` / ``angular_deg`` default to the ``ADA_STREAM_TESS_DEFLECTION`` /
+    ``ADA_STREAM_TESS_ANGULAR`` env via ``ada.cad.registry.stream_tess_defaults`` (the single source
+    of the corpus defaults), matching the streaming path. ``num_threads`` 0 = auto
     (hardware concurrency). ``meshopt`` (default on) bakes ``EXT_meshopt_compression`` inline in the
     C++ writer — no Python re-pack of the (potentially GB-scale) GLB, and the worker's compress_glb
     detects the already-packed GLB and skips it (gzip-at-rest still applies on upload). Returns a
@@ -56,20 +56,23 @@ def native_step_to_glb(
     """
     import adacpp
 
-    if deflection is None:
-        deflection = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
-    if angular_deg is None:
-        from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+    from ada.cad.registry import (
+        DEFAULT_STREAM_TESS_ADAPTIVE_NATIVE,
+        stream_tess_adaptive,
+        stream_tess_defaults,
+    )
 
-        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
+    if deflection is None or angular_deg is None:
+        _defl, _ang = stream_tess_defaults()
+        deflection = _defl if deflection is None else deflection
+        angular_deg = _ang if angular_deg is None else angular_deg
 
     # Adaptive per-surface angular density is ON BY DEFAULT for STEP->GLB: large curved CAD
-    # assemblies (crane: 7291 solids, thousands of sub-cm bolts/pins) over-tessellate at a fixed
+    # assemblies (reference assembly: 7291 solids, thousands of sub-cm bolts/pins) over-tessellate at a fixed
     # fine angle, and the GLB is the transfer-size-sensitive product. We estimate a model reference
     # scale so adacpp coarsens tiny features while keeping large surfaces fine. ADA_STREAM_TESS_
     # ADAPTIVE=0/false forces the fixed-angle path (model_scale 0 => angular_deg governs everything).
-    adaptive_env = os.environ.get("ADA_STREAM_TESS_ADAPTIVE")
-    adaptive = True if adaptive_env is None else adaptive_env.strip().lower() not in {"0", "false", "no", "off", ""}
+    adaptive = stream_tess_adaptive(default=DEFAULT_STREAM_TESS_ADAPTIVE_NATIVE)
     model_scale = 0.0
     if adaptive:
         from ada.cadit.step.model_scale import estimate_step_model_scale
@@ -82,7 +85,7 @@ def native_step_to_glb(
         # 3.2 GB-capped pod oversubscribes the CPUs AND bloats glibc's per-thread malloc arenas past
         # the RSS watchdog (observed: 3.12 GB peak → reaped at 31 s). Bound it to the streaming path's
         # cgroup-aware allotment (reads ADA_STEP_STREAM_WORKERS, else the cgroup cpu.max quota → cpu-1,
-        # capped at 3) — the same allotment libtess2 runs the crane under at ~1 GB. Falls back to the
+        # capped at 3) — the same allotment libtess2 runs the reference assembly under at ~1 GB. Falls back to the
         # C++ auto-pick only if that helper can't be imported.
         try:
             from ada.visit.scene_handling.scene_from_step_stream import _stream_workers
@@ -104,9 +107,9 @@ def native_step_to_glb(
     # Opt-in per-face clickable regions (scenes[0].extras face_ranges_node<m>): ADA_STREAM_TESS_FACE_REGIONS=1.
     # Off by default — it bloats the GLB and forces serial face tessellation. Only forward to an adacpp
     # build whose binding accepts it (older extensions would raise on the unknown kwarg).
-    fr_env = os.environ.get("ADA_STREAM_TESS_FACE_REGIONS")
-    face_regions = fr_env is not None and fr_env.strip().lower() not in {"0", "false", "no", "off", ""}
-    if face_regions and "face_regions" in (adacpp.cad.stream_step_to_glb.__doc__ or ""):
+    from ada.cad.registry import stream_tess_face_regions
+
+    if stream_tess_face_regions() and "face_regions" in (adacpp.cad.stream_step_to_glb.__doc__ or ""):
         glb_kwargs["face_regions"] = True
     n = adacpp.cad.stream_step_to_glb(str(step_path), str(glb_path), **glb_kwargs)
     if n < 0:
@@ -124,7 +127,7 @@ def native_step_to_glb(
     )
     if on_progress is not None:
         on_progress("ready", 1.0)
-    # Native coverage is 100% on the crane (all surface types + BREP_WITH_VOIDS resolved); the binding
+    # Native coverage is 100% on the reference assembly (all surface types + BREP_WITH_VOIDS resolved); the binding
     # returns solids actually written, so skipped is reported 0 here. (A future binding return of the
     # total-root count would let this report exact skips.)
     return {"solids": n, "total": n, "skipped": 0}

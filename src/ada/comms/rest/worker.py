@@ -184,27 +184,113 @@ async def _audit_done(
         logger.exception("worker: audit update failed for job %s", job_id)
 
 
+def _gate_enum_option(opt: dict | None, allowed: set[str] | frozenset[str]) -> None:
+    """Filter one enum option's values to ``allowed`` and repair its default in place.
+
+    An option that would filter to EMPTY is left untouched: a stale-but-selectable dropdown beats an
+    empty one, and an empty enum reads to the API's union as "this pool advertises nothing" rather
+    than "this pool couldn't tell".
+    """
+    if not opt or not isinstance(opt.get("enum"), list):
+        return
+    kept = [e for e in opt["enum"] if e in allowed]
+    if not kept:
+        return
+    opt["enum"] = kept
+    if opt.get("default") not in kept:
+        opt["default"] = kept[0]
+
+
+def _gate_serializer_axis(ser: dict | None, tess: dict | None, allowed: frozenset[str]) -> None:
+    """Gate the serializer × tessellator pair to the kernels this worker has, in place.
+
+    CLIENT serializers pass through ungated. ``wasm`` executes in the user's browser, so this
+    worker lacking adacpp says nothing about whether the browser can run it; filtering it here
+    would make the SPA lose the in-browser option because a *server* pool was thin. That is why the
+    runtime map — not a name check — decides: :func:`converter.available_tess_tokens` deliberately
+    omits the client tokens, so gating them against it would drop every one of them.
+
+    A server serializer whose kernels all vanish is dropped entirely (with its label/runtime entry),
+    and the tessellator enum is rebuilt as the union of what survived. B-rep rows ride the same
+    path: their second axis is a WRITER, but "can this process run it" is the same question about
+    the same backends, so the same token set answers it.
+    """
+    from .converter import _GLB_CLIENT_SERIALIZERS
+
+    if not ser or not tess or not isinstance(tess.get("enum_by"), dict):
+        return
+    enum_by: dict[str, list[str]] = {}
+    for s, toks in tess["enum_by"].items():
+        if not isinstance(toks, list):
+            continue
+        if s in _GLB_CLIENT_SERIALIZERS:
+            enum_by[s] = list(toks)
+            continue
+        kept = [t for t in toks if t in allowed]
+        if kept:
+            enum_by[s] = kept
+    if not enum_by:
+        return
+    tess["enum_by"] = enum_by
+
+    if isinstance(ser.get("enum"), list):
+        ser["enum"] = [s for s in ser["enum"] if s in enum_by]
+        if ser.get("default") not in ser["enum"] and ser["enum"]:
+            ser["default"] = ser["enum"][0]
+        for key in ("labels", "runtime"):
+            if isinstance(ser.get(key), dict):
+                ser[key] = {s: v for s, v in ser[key].items() if s in enum_by}
+
+    order = [s for s in (ser.get("enum") or []) if s in enum_by] or list(enum_by)
+    toks: list[str] = []
+    for s in order:
+        for t in enum_by[s]:
+            if t not in toks:
+                toks.append(t)
+    tess["enum"] = toks
+    # Mirror _glb_serializer_options' own rule (the default tessellator is the default serializer's
+    # first) so a serializer dropped above takes its default with it.
+    default_ser = ser.get("default")
+    if default_ser in enum_by and enum_by[default_ser]:
+        tess["default"] = enum_by[default_ser][0]
+    elif toks and tess.get("default") not in toks:
+        tess["default"] = toks[0]
+    for key in ("labels", "descriptions"):
+        if isinstance(tess.get(key), dict):
+            tess[key] = {t: v for t, v in tess[key].items() if t in toks}
+
+
 def _gate_advertised_engines(conversions: list[dict]) -> list[dict]:
-    """Restrict each conversion's ``step_glb_pipeline`` enum (and its default) to the engines this
-    worker can actually run, so the API's per-worker union + engine routing reflect real capability.
+    """Restrict every advertised engine/kernel enum to what this worker can actually run, so the
+    API's per-worker union and its engine routing reflect real capability.
     Deep-copies so the shared ConverterRegistry option dicts aren't mutated.
 
-    The runnable set comes from ``available_step_glb_pipelines()``, which gates the adacpp engines on
-    find_spec presence (overlay-robust) rather than an import-based native probe — see the note there."""
+    Gates THREE axes, not one. Gating only ``step_glb_pipeline`` (as this did) left the
+    ``serializer``/``tessellator`` dropdowns — the ones the SPA actually renders — advertising every
+    kernel the registry knows, including ones this pool has no build of. A job then routed here on
+    the strength of that advert and silently fell back, so the user picked a track and got a
+    different one. ``glb_tess_engine`` carries the same engine vocabulary for non-STEP sources and
+    was equally ungated.
+
+    The runnable sets come from ``available_step_glb_pipelines()`` / ``available_tess_tokens()``,
+    which gate the adacpp engines on find_spec presence (overlay-robust) rather than an
+    import-based native probe — see the note there.
+    """
     import copy
 
-    from .converter import available_step_glb_pipelines
+    from .converter import available_step_glb_pipelines, available_tess_tokens
 
-    avail = set(available_step_glb_pipelines())
+    engines = set(available_step_glb_pipelines())
+    tokens = available_tess_tokens()
     gated = copy.deepcopy(conversions)
     for row in gated:
         for opts in (row.get("options") or {}).values():
-            for opt in opts:
-                if opt.get("name") != "step_glb_pipeline" or not isinstance(opt.get("enum"), list):
-                    continue
-                opt["enum"] = [e for e in opt["enum"] if e in avail]
-                if isinstance(opt.get("default"), str) and opt["default"] not in avail and opt["enum"]:
-                    opt["default"] = opt["enum"][0]
+            if not isinstance(opts, list):
+                continue
+            by_name = {o.get("name"): o for o in opts if isinstance(o, dict)}
+            for name in ("step_glb_pipeline", "glb_tess_engine"):
+                _gate_enum_option(by_name.get(name), engines)
+            _gate_serializer_axis(by_name.get("serializer"), by_name.get("tessellator"), tokens)
     return gated
 
 
@@ -1733,7 +1819,7 @@ async def _process_one(
         # still uncompressed; this is transport compression, transparent to the
         # GLTF loader. Whole-file load only — gzip-at-rest is not Range-safe.)
         # OBJ / STL / STEP exports are also gzip-at-rest: the native STEP→mesh writer
-        # emits unsimplified geometry (the crane obj is ~7.7 GB raw, 73 M tris), and
+        # emits unsimplified geometry (the reference assembly's obj is ~7.7 GB raw, 73 M tris), and
         # storing it raw made the UPLOAD ~57% of that job's wall time. obj/step are
         # ASCII (compress dramatically); binary STL less so but still a net win. These
         # are whole-file export downloads (never Range-fetched, unlike FEA field blobs
@@ -1782,7 +1868,7 @@ async def _process_one(
             # drops the tmpfile + work dir once the upload settles either way.
             # put_path returns the at-rest gzip vs upload split so the audit can
             # attribute the post-conversion tail (gzip-at-rest was ~85% of the
-            # crane STEP->obj wall — see storage._gzip_level).
+            # large-assembly STEP->obj wall — see storage._gzip_level).
             put_timing = await storage.put_path(scope, job.derived_key, upload_path, content_encoding=derived_encoding)
             if isinstance(convert_meta, dict) and isinstance(put_timing, dict):
                 # Distinct from the GLB meshopt ``compress_ms`` above: ``gzip_ms`` is

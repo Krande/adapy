@@ -886,11 +886,57 @@ _STEP_GLB_PIPELINE_ADACPP_HYBRID = "adacpp-hybrid"
 # Fully-native: adacpp does the whole STEP->GLB in-process (C++ reader + thread pool + GLB writer),
 # replacing the Python reader + multiprocess pool. Fastest + lowest memory, and now byte-faithful to
 # the Python path — geometry, product names, per-instance picking, and the full assembly tree are
-# validated 1:1 on the crane (see native_step_to_glb / validate_native_vs_python.py). This is the
+# validated 1:1 on the large reference assembly (see native_step_to_glb / validate_native_vs_python.py). This is the
 # default; it degrades gracefully to libtess2 if adacpp's native entry point is missing or the
 # conversion raises.
 _STEP_GLB_PIPELINE_ADACPP_NATIVE = "adacpp-native"
-_STEP_GLB_PIPELINES = (
+
+
+# The four historic (adacpp track pipeline <-> `step_glb_pipeline` token) identities. Pinned in
+# BOTH directions from one dict so the two mappings cannot drift; everything else is structural
+# (``adacpp:X`` <-> ``adacpp-X``), which is what lets a track added later in adacpp resolve
+# end-to-end without an edit here.
+_HISTORIC_TRACK_PIPELINE = {
+    "libtess2": _STEP_GLB_PIPELINE_LIBTESS2,
+    "occ": _STEP_GLB_PIPELINE_ADACPP_OCC,
+    "cgal": _STEP_GLB_PIPELINE_ADACPP_CGAL,
+    "hybrid": _STEP_GLB_PIPELINE_ADACPP_HYBRID,
+}
+_HISTORIC_PIPELINE_TRACK = {v: f"adacpp:{k}" for k, v in _HISTORIC_TRACK_PIPELINE.items()}
+
+
+def _pipeline_to_track_name(pipe: str) -> str | None:
+    """`step_glb_pipeline` token -> adacpp track name, or None for the paths that aren't a track
+    (occ-builtin, adacpp-native).
+
+    VOCABULARY, not capability: this says what a token *means*, never whether this process can run
+    it. Availability is checked one layer up, in :func:`_cad_config_for_pipeline`, which warns and
+    degrades. Keeping the two apart is what makes the answer identical in the API, the worker and
+    the test envs — see :func:`_tess_token_to_pipeline` for what the conflation cost.
+    """
+    if pipe in _HISTORIC_PIPELINE_TRACK:
+        return _HISTORIC_PIPELINE_TRACK[pipe]
+    if pipe.startswith("adacpp-") and pipe != _STEP_GLB_PIPELINE_ADACPP_NATIVE:
+        return f"adacpp:{pipe[len('adacpp-'):]}"
+    return None  # occ-builtin / adacpp-native / unknown → not a stream CadConfig
+
+
+def _adacpp_stream_pipelines() -> tuple[str, ...]:
+    """Every `step_glb_pipeline` token backed by a DISCOVERED adacpp track (adacpp-native excluded:
+    it is a whole-file code path, not a tessellator)."""
+    from ada.cad.registry import CadBackendName, available_tess_tracks
+
+    out = []
+    for t in available_tess_tracks():
+        if t.backend is not CadBackendName.ADACPP:
+            continue
+        tok = _tess_token_to_pipeline(t.name)
+        if tok not in out:
+            out.append(tok)
+    return tuple(out)
+
+
+_STEP_GLB_PIPELINES_STATIC = (
     _STEP_GLB_PIPELINE_LIBTESS2,
     _STEP_GLB_PIPELINE_OCC,
     _STEP_GLB_PIPELINE_ADACPP_OCC,
@@ -898,6 +944,18 @@ _STEP_GLB_PIPELINES = (
     _STEP_GLB_PIPELINE_ADACPP_HYBRID,
     _STEP_GLB_PIPELINE_ADACPP_NATIVE,
 )
+
+
+def _step_glb_pipelines() -> tuple[str, ...]:
+    """The accepted `step_glb_pipeline` vocabulary: adapy's own tokens + every discovered adacpp
+    track. Derived, so a new track is accepted without touching this module."""
+    out = list(_STEP_GLB_PIPELINES_STATIC)
+    for tok in _adacpp_stream_pipelines():
+        if tok not in out:
+            out.append(tok)
+    return tuple(out)
+
+
 _STEP_GLB_PIPELINE_DEFAULT = _STEP_GLB_PIPELINE_ADACPP_NATIVE
 # Where the native path degrades to when adacpp is absent or a conversion raises. Kept separate from
 # the default so the native branch's fallback is never circular.
@@ -928,44 +986,90 @@ def available_step_glb_pipelines() -> tuple[str, ...]:
         # the import check spuriously reports False at worker-startup advert time. find_spec is resolved
         # at call time against sys.path and isn't poisoned by an earlier import; the worker's runtime
         # fallback (native → libtess2 → occ-builtin) still covers a pool that turns out not to run it.
-        runnable.update(
-            {
-                _STEP_GLB_PIPELINE_LIBTESS2,
-                _STEP_GLB_PIPELINE_ADACPP_OCC,
-                _STEP_GLB_PIPELINE_ADACPP_CGAL,
-                _STEP_GLB_PIPELINE_ADACPP_HYBRID,
-                _STEP_GLB_PIPELINE_ADACPP_NATIVE,
-            }
-        )
+        # Discovered, not listed: adacpp reports which tracks IT compiled, so a build without the
+        # taxonomy kernels (or with a new one) advertises the truth rather than this module's guess.
+        runnable.update(_adacpp_stream_pipelines())
+        runnable.add(_STEP_GLB_PIPELINE_ADACPP_NATIVE)  # a whole-file code path, not a track
     if _have("OCP") or _have("OCC"):
         runnable.add(_STEP_GLB_PIPELINE_OCC)
-    avail = tuple(p for p in _STEP_GLB_PIPELINES if p in runnable)
-    return avail or _STEP_GLB_PIPELINES
+    avail = tuple(p for p in _step_glb_pipelines() if p in runnable)
+    return avail or _step_glb_pipelines()
+
+
+def available_tess_tokens() -> frozenset[str]:
+    """The `tessellator` tokens THIS process can actually run — the serializer×tessellator analogue
+    of :func:`available_step_glb_pipelines`, for per-worker capability advertisement.
+
+    Every discovered track name (``occ``, ``adacpp:libtess2``, ``adacpp:cdt``, ...) plus the ``cpp``
+    serializer's pinned ``native`` token, which is adacpp's in-process writer and so rides on adacpp
+    being importable.
+
+    Client tokens (``wasm-native`` / ``pyodide``) are deliberately ABSENT: they run in the browser,
+    so no server-side probe can answer for them and they must never be gated on what a worker has
+    installed — see ``worker._gate_advertised_engines``.
+    """
+    from ada.cad.registry import (
+        CadBackendName,
+        available_tess_tracks,
+        backend_available,
+    )
+
+    toks = {t.name for t in available_tess_tracks()}
+    if backend_available(CadBackendName.ADACPP):
+        toks.add("native")
+    return frozenset(toks)
 
 
 # Non-STEP →GLB engine toggle (xml / ifc / sat / fem / obj / stl → glb via to_gltf's
-# BatchTessellator). Reuses the STEP option's names so the admin panel reads consistently,
-# but maps to the BatchTessellator stream selector (ADA_STREAM_TESS_PIPELINE = libtess2|occ|
-# cgal|hybrid); "occ-builtin" = the default OCC BatchTessellator (no stream override). The OCC
-# *streaming* reader is STEP-source-specific, so it isn't offered here. Default stays OCC
-# (libtess2 is opt-in).
-_GLB_TESS_ENGINES = (
-    _STEP_GLB_PIPELINE_OCC,  # "occ-builtin" — default
+# BatchTessellator). Reuses the STEP option's names so the admin panel reads consistently, but maps
+# to the BatchTessellator stream selector (ADA_STREAM_TESS_PIPELINE); "occ-builtin" = the default
+# OCC BatchTessellator (no stream override).
+_GLB_TESS_ENGINES_STATIC = (
+    _STEP_GLB_PIPELINE_OCC,  # "occ-builtin"
     _STEP_GLB_PIPELINE_LIBTESS2,
     _STEP_GLB_PIPELINE_ADACPP_OCC,
     _STEP_GLB_PIPELINE_ADACPP_CGAL,
     _STEP_GLB_PIPELINE_ADACPP_HYBRID,
 )
+
+
+def _glb_tess_engines() -> tuple[str, ...]:
+    """The `glb_tess_engine` vocabulary: adapy's own tokens + every discovered adacpp track.
+
+    ``adacpp-native`` is excluded — it is a whole-file STEP code path, not a BatchTessellator
+    kernel. Derived rather than listed for the same reason as :func:`_step_glb_pipelines`: the tuple
+    this replaced could not grow a track added later in adacpp.
+
+    Shaped like _step_glb_pipelines() — a static base that discovery only ADDS to — so the answer
+    is the same in every process. Returning just what adacpp reports would make the VOCABULARY
+    env-dependent (an adacpp-less API would stop knowing the word "adacpp-cgal" rather than knowing
+    it and not offering it), which is the conflation _tess_token_to_pipeline exists to avoid.
+    Capability is applied by ``worker._gate_advertised_engines``.
+    """
+    out = list(_GLB_TESS_ENGINES_STATIC)
+    for tok in _adacpp_stream_pipelines():
+        if tok not in out:
+            out.append(tok)
+    return tuple(out)
+
+
 # Advertised default for the non-STEP →GLB engine option. Kept in lockstep with the RUNTIME default
 # (`_default_glb_tess_engine`, which returns libtess2 whenever adacpp is importable) so the SPA/audit
 # UI reflects the path actually taken. libtess2 gracefully degrades to OCC on an adacpp-less pool.
 _GLB_TESS_ENGINE_DEFAULT = _STEP_GLB_PIPELINE_LIBTESS2
-_GLB_ENGINE_TO_STREAM = {
-    _STEP_GLB_PIPELINE_LIBTESS2: "libtess2",
-    _STEP_GLB_PIPELINE_ADACPP_OCC: "occ",
-    _STEP_GLB_PIPELINE_ADACPP_CGAL: "cgal",
-    _STEP_GLB_PIPELINE_ADACPP_HYBRID: "hybrid",
-}
+
+
+def _glb_engine_to_stream(engine: str) -> str | None:
+    """`glb_tess_engine` token -> the ``ADA_STREAM_TESS_PIPELINE`` value, or None for the OCC
+    BatchTessellator default (``occ-builtin`` / unknown).
+
+    Derived from the engine token, not a table: the table this replaced listed exactly the four
+    engines that existed when it was written, so a track discovered later (``adacpp-cdt``) missed
+    it, resolved to None, and SILENTLY ran the OCC BatchTessellator — the user picked a kernel and
+    got a different one, with nothing logged.
+    """
+    track = _pipeline_to_track_name(engine)
+    return None if track is None else track.split(":", 1)[1]
 
 
 # ---------------------------------------------------------------------------
@@ -1005,31 +1109,106 @@ _GLB_SERIALIZER_LABELS = {
 # in-browser pipeline and gates them on client capability (wasmSupport).
 _GLB_CLIENT_SERIALIZERS = frozenset({_GLB_SERIALIZER_WASM})
 
-_GLB_TESS_LABELS = {
-    "native": "Native (libtess2)",
+# The two in-browser engines the `wasm` serializer offers, most-preferred first. adapy's OWN
+# vocabulary, unlike the python serializer's (discovered from adacpp): these name browser pipelines
+# — the adacpp embind module and the Pyodide wheel stack — that no adacpp build reports and no
+# worker runs. The SPA matches "wasm-native" to pick the embind pipeline, so this tuple and
+# services/conversion/index.ts share one contract; test_wasm_engine_tokens_are_the_spa_contract
+# pins it.
+_WASM_ENGINE_NATIVE = "wasm-native"
+_WASM_ENGINE_PYODIDE = "pyodide"
+_WASM_GLB_ENGINES = (_WASM_ENGINE_NATIVE, _WASM_ENGINE_PYODIDE)
+
+# Labels adapy OWNS: its own serializer-pinned token and the two in-browser engines, none of which
+# adacpp knows about. Every adacpp track's label + description comes from the track itself
+# (_glb_tess_label / _glb_tess_description), so a new track arrives fully described.
+_GLB_TESS_OWN_LABELS = {
+    "native": "Native (libtess2)",  # the cpp serializer's pinned tessellator
+    # client-side (wasm serializer) engines:
+    "wasm-native": "Native (WASM module)",
+    "pyodide": "Pyodide (wasm wheels)",
+    # legacy tokens, still resolvable for stored configs / older SPA builds:
     "pyocc": "PythonOCC (OCC)",
     "adacpp-occ": "adacpp OCC",
     "cgal": "adacpp CGAL",
     "ifc-hybrid": "ifcOpenShell hybrid",
-    "occ": "OCC streaming reader",
-    # client-side (wasm serializer) engines:
-    "wasm-native": "Native (WASM module)",
-    "pyodide": "Pyodide (wasm wheels)",
 }
 
-# Per (serializer, source-family) the tessellator tokens offered. ``step`` =
-# STEP/STP sources (own streaming reader + OCC reader); ``generic`` = every
-# other →GLB source (ifc / xml / sat / fem / obj / stl) driven by to_gltf's
-# BatchTessellator. The lists ARE the enum_by mapping the frontend uses to
-# repopulate the tessellator dropdown when the serializer changes.
-_GLB_SERIALIZER_TESS = {
-    (_GLB_SERIALIZER_CPP, "step"): ["native"],
-    (_GLB_SERIALIZER_CPP, "generic"): ["native"],
-    (_GLB_SERIALIZER_PYTHON, "step"): ["native", "pyocc", "adacpp-occ", "cgal", "ifc-hybrid", "occ"],
-    (_GLB_SERIALIZER_PYTHON, "generic"): ["native", "pyocc", "adacpp-occ", "cgal", "ifc-hybrid"],
-    (_GLB_SERIALIZER_WASM, "step"): ["wasm-native", "pyodide"],
-    (_GLB_SERIALIZER_WASM, "generic"): ["wasm-native", "pyodide"],
+
+def _glb_tess_label(tok: str) -> str:
+    """Human label for a tessellator token. Discovered tracks describe themselves."""
+    from ada.cad.registry import tess_track_by_name
+
+    track = tess_track_by_name(_LEGACY_TESS_ALIASES.get(tok, tok))
+    if track is not None:
+        return track.label
+    return _GLB_TESS_OWN_LABELS.get(tok, tok)
+
+
+def _glb_tess_description(tok: str) -> str:
+    """One-line tooltip for a tessellator token, from the track's own declaration ('' if it has
+    none). This is why a track can explain its own cost/benefit in the UI without adapy knowing
+    anything about it."""
+    from ada.cad.registry import tess_track_by_name
+
+    track = tess_track_by_name(_LEGACY_TESS_ALIASES.get(tok, tok))
+    return track.description if track is not None else ""
+
+
+# LEGACY tessellator tokens -> track name. The python serializer's vocabulary used to be a
+# hand-written list; it is now DISCOVERED (see _python_tess_tokens), which is the only reason
+# `adacpp:cdt` can reach the UI at all — a hand-written list cannot grow a track added later in
+# adacpp. These aliases keep stored configs, the admin panel and older SPA builds resolving.
+#
+# `pyocc` and `occ` BOTH land on adapy's own OCC track, because they always were the same engine:
+# the pre-discovery table mapped both to `occ-builtin` and merely labelled them differently
+# ("PythonOCC (OCC)" vs "OCC streaming reader"), so the STEP dropdown listed one engine twice.
+_LEGACY_TESS_ALIASES = {
+    "native": "adacpp:libtess2",
+    "pyocc": "occ",
+    "occ": "occ",
+    "adacpp-occ": "adacpp:occ",
+    "cgal": "adacpp:cgal",
+    "ifc-hybrid": "adacpp:hybrid",
 }
+
+
+def _python_tess_tokens() -> list[str]:
+    """The `python` serializer's tessellator tokens — DISCOVERED from adacpp, not enumerated here.
+
+    Adding a track in adacpp makes it appear in this dropdown with no change in adapy. The order puts
+    the declared default first (the dropdown's default is enum_by[...][0]).
+
+    Takes no source family ON PURPOSE. The pre-discovery table split step/generic, but only to list
+    the duplicate `occ` alias on STEP (see _LEGACY_TESS_ALIASES) — every real kernel was offered to
+    both. Each track reaches both families: STEP via `step_glb_pipeline`, everything else via
+    `glb_tess_engine` -> ADA_STREAM_TESS_PIPELINE, and adapy's own OCC track is the BatchTessellator
+    default on generic. So there is no family split left to honour, and a `fam` argument here would
+    be a lie about a distinction that no longer exists.
+    """
+    from ada.cad.registry import available_tess_tracks
+
+    tracks = available_tess_tracks()
+    ranked = sorted(tracks, key=lambda t: (not t.is_default, t.backend.value != "adacpp", t.name))
+    return [t.name for t in ranked]
+
+
+def _glb_serializer_tess(serializer: str) -> list[str] | None:
+    """Tessellator tokens for a serializer, or None if it isn't offered.
+
+    `cpp` pins its own tessellator and `wasm` runs in-browser engines adacpp doesn't know about, so
+    both stay declared here — they are adapy's own. Only the `python` serializer, which is the one
+    that actually dispatches to adacpp, is discovered.
+    """
+    if serializer == _GLB_SERIALIZER_CPP:
+        return ["native"]
+    if serializer == _GLB_SERIALIZER_WASM:
+        return list(_WASM_GLB_ENGINES)
+    if serializer == _GLB_SERIALIZER_PYTHON:
+        return _python_tess_tokens()
+    return None
+
+
 # Serializer ordering per family (default is the first entry). cpp is the
 # default server path for both; the client serializer comes last.
 _GLB_SERIALIZER_ORDER = (
@@ -1038,23 +1217,33 @@ _GLB_SERIALIZER_ORDER = (
     _GLB_SERIALIZER_WASM,
 )
 
+
 # tessellator token → effective engine knob, reusing the existing pipeline
 # identities so there is exactly one definition of each engine.
-_TESS_TO_STEP_PIPELINE = {
-    "native": _STEP_GLB_PIPELINE_LIBTESS2,
-    "pyocc": _STEP_GLB_PIPELINE_OCC,
-    "occ": _STEP_GLB_PIPELINE_OCC,
-    "adacpp-occ": _STEP_GLB_PIPELINE_ADACPP_OCC,
-    "cgal": _STEP_GLB_PIPELINE_ADACPP_CGAL,
-    "ifc-hybrid": _STEP_GLB_PIPELINE_ADACPP_HYBRID,
-}
-_TESS_TO_GLB_ENGINE = {
-    "native": _STEP_GLB_PIPELINE_LIBTESS2,
-    "pyocc": _STEP_GLB_PIPELINE_OCC,
-    "adacpp-occ": _STEP_GLB_PIPELINE_ADACPP_OCC,
-    "cgal": _STEP_GLB_PIPELINE_ADACPP_CGAL,
-    "ifc-hybrid": _STEP_GLB_PIPELINE_ADACPP_HYBRID,
-}
+def _tess_token_to_pipeline(tok: str) -> str:
+    """Tessellator token -> the `step_glb_pipeline` knob. Resolves legacy tokens and any track name,
+    including ones that postdate this module (e.g. ``adacpp:cdt`` -> ``adacpp-cdt``).
+
+    VOCABULARY, not capability — deliberately: this used to resolve the token by LOOKING THE TRACK
+    UP in ``available_tess_tracks()`` and falling back to libtess2 when it wasn't found, which made
+    the same stored token mean different engines in different processes (``cgal`` -> ``adacpp-cgal``
+    where adacpp is importable, ``libtess2`` where it isn't). Worse, the fallback was itself an
+    adacpp engine, so it could not be what an adacpp-less pool meant. Resolution is now purely
+    structural and identical everywhere; whether the resolved engine can actually RUN is decided by
+    ``available_step_glb_pipelines`` / ``_gate_advertised_engines`` / ``_cad_config_for_pipeline``.
+    """
+    name = _LEGACY_TESS_ALIASES.get(tok, tok)
+    if name == "occ":
+        return _STEP_GLB_PIPELINE_OCC  # adapy's own BRepMesh (no stream override)
+    if not name.startswith("adacpp:"):
+        return _STEP_GLB_PIPELINE_LIBTESS2  # unknown token → the OCC-free default
+    return _HISTORIC_TRACK_PIPELINE.get(name.split(":", 1)[1], f"adacpp-{name.split(':', 1)[1]}")
+
+
+def _tess_token_to_glb_engine(tok: str) -> str:
+    """Tessellator token -> the `glb_tess_engine` knob (the non-STEP BatchTessellator selector).
+    Same structural resolution as _tess_token_to_pipeline."""
+    return _tess_token_to_pipeline(tok)
 
 
 def _glb_source_family(source_ext: str) -> str:
@@ -1069,10 +1258,14 @@ def _glb_serializer_options(source_ext: str) -> list[dict]:
     serializer→tessellator dependency all come from the module spec above, so
     the frontend can render the two dependent dropdowns without hardcoding any
     of it. ``enum_by`` maps each serializer value to its allowed tessellator
-    tokens; ``runtime='client'`` flags the browser-side serializers."""
-    fam = _glb_source_family(source_ext)
-    serializers = [s for s in _GLB_SERIALIZER_ORDER if (s, fam) in _GLB_SERIALIZER_TESS]
-    enum_by = {s: list(_GLB_SERIALIZER_TESS[(s, fam)]) for s in serializers}
+    tokens; ``runtime='client'`` flags the browser-side serializers.
+
+    ``source_ext`` no longer selects the tessellator vocabulary (every kernel reaches every source
+    family — see :func:`_python_tess_tokens`); it is kept because it names the row this schema is
+    attached to and because the resolver still splits on family to pick the ENGINE KNOB.
+    """
+    serializers = [s for s in _GLB_SERIALIZER_ORDER if _glb_serializer_tess(s)]
+    enum_by = {s: list(_glb_serializer_tess(s)) for s in serializers}
     # Union of tessellator tokens across serializers, ordered by first appearance.
     tess_tokens: list[str] = []
     for s in serializers:
@@ -1103,7 +1296,10 @@ def _glb_serializer_options(source_ext: str) -> list[dict]:
             "title": "Tessellator",
             "default": enum_by[default_ser][0],
             "enum": tess_tokens,
-            "labels": {t: _GLB_TESS_LABELS.get(t, t) for t in tess_tokens},
+            "labels": {t: _glb_tess_label(t) for t in tess_tokens},
+            # Per-token tooltips, sourced from each track's own declaration. Empty for adapy's own
+            # tokens, which the frontend renders without a tooltip.
+            "descriptions": {t: _glb_tess_description(t) for t in tess_tokens if _glb_tess_description(t)},
             # Dependent dropdown: the valid tessellators for each serializer. The
             # frontend repopulates + reselects when the serializer changes.
             "enum_by": enum_by,
@@ -1114,6 +1310,56 @@ def _glb_serializer_options(source_ext: str) -> list[dict]:
             ),
         },
     ]
+
+
+# Option-dict keys that are per-value MAPPINGS rather than scalars: each key is an enum value (or,
+# for enum_by, a value of the option it depends_on). Two pools advertising the same option each
+# carry entries only for the values THEY advertise, so these merge key-by-key.
+_OPTION_MAP_KEYS = ("labels", "descriptions", "runtime")
+
+
+def merge_option_into(cur: dict, incoming: dict) -> None:
+    """Union one worker's advertisement of an option into the accumulated one, in place.
+
+    Lives here, next to the code that BUILDS these dicts (_glb_serializer_options), because how two
+    advertisements of a schema combine is a fact about the schema.
+
+    First-writer-wins on everything but ``enum`` — which is what the API's merge used to be —
+    silently loses data as soon as two pools differ. A thin pool advertising
+    ``enum_by={'python': ['occ']}`` pinned that for the whole cluster, while the adacpp pool's
+    tracks, already unioned into ``enum``, reached the dropdown with no serializer offering them:
+    rendered and unselectable. The per-value maps fail the same way — whichever pool registered
+    first decides, and tokens only the other pool knows arrive unlabelled.
+
+    So: union ``enum`` and each ``enum_by`` list, fill in the per-value maps, and leave scalars
+    (``default``/``title``/``description``/``type``/``depends_on``) to the first writer — those
+    describe the option itself rather than its values, and every pool derives them from this module.
+    """
+    import copy
+
+    if isinstance(incoming.get("enum"), list) and isinstance(cur.get("enum"), list):
+        cur["enum"] = cur["enum"] + [v for v in incoming["enum"] if v not in cur["enum"]]
+    if isinstance(incoming.get("enum_by"), dict):
+        by = cur.get("enum_by")
+        if not isinstance(by, dict):
+            cur["enum_by"] = copy.deepcopy(incoming["enum_by"])
+        else:
+            for key, vals in incoming["enum_by"].items():
+                if not isinstance(vals, list):
+                    continue
+                have = by.get(key)
+                by[key] = have + [v for v in vals if v not in have] if isinstance(have, list) else list(vals)
+    for key in _OPTION_MAP_KEYS:
+        if not isinstance(incoming.get(key), dict):
+            continue
+        have = cur.get(key)
+        if isinstance(have, dict):
+            # setdefault, not update: a pool contributes descriptions for the values it knows and
+            # can never blank out another pool's.
+            for k, v in incoming[key].items():
+                have.setdefault(k, v)
+        else:
+            cur[key] = dict(incoming[key])
 
 
 def _apply_glb_serializer(
@@ -1142,11 +1388,11 @@ def _apply_glb_serializer(
         # generic/IFC 'cpp' = the native_ifc_to_glb default path — nothing to force.
         return step_glb_pipeline, glb_tess_engine, False
     if serializer == _GLB_SERIALIZER_PYTHON:
-        tok = tessellator or _GLB_SERIALIZER_TESS[(_GLB_SERIALIZER_PYTHON, fam)][0]
+        tok = tessellator or _glb_serializer_tess(_GLB_SERIALIZER_PYTHON)[0]
         if fam == "step":
-            step_glb_pipeline = _TESS_TO_STEP_PIPELINE.get(tok, _STEP_GLB_PIPELINE_LIBTESS2)
+            step_glb_pipeline = _tess_token_to_pipeline(tok)
         else:
-            glb_tess_engine = _TESS_TO_GLB_ENGINE.get(tok, _GLB_TESS_ENGINE_DEFAULT)
+            glb_tess_engine = _tess_token_to_glb_engine(tok)
         return step_glb_pipeline, glb_tess_engine, True
     return step_glb_pipeline, glb_tess_engine, False
 
@@ -1258,7 +1504,7 @@ def _glb_engine_stream_value(engine: str | None) -> str | None:
     import os
 
     choice = (engine or os.environ.get("ADAPY_GLB_TESS_ENGINE", "") or _default_glb_tess_engine()).strip().lower()
-    return _GLB_ENGINE_TO_STREAM.get(choice)
+    return _glb_engine_to_stream(choice)
 
 
 def _resolve_step_glb_pipeline(step_glb_pipeline: str | None) -> str:
@@ -1280,7 +1526,7 @@ def _resolve_step_glb_pipeline(step_glb_pipeline: str | None) -> str:
         .strip()
         .lower()
     )
-    if choice not in _STEP_GLB_PIPELINES:
+    if choice not in _step_glb_pipelines():
         logger.warning("unknown ADAPY_STEP_GLB_PIPELINE %r; falling back to %s", choice, _STEP_GLB_PIPELINE_DEFAULT)
         return _STEP_GLB_PIPELINE_DEFAULT
     return choice
@@ -1304,22 +1550,16 @@ def _cad_config_for_pipeline(pipe: str):
     """Map a STEP→GLB pipeline to a ``CadConfig`` for the streaming converter, or
     ``None`` for the OCC-builtin path (and as a graceful fallback when the requested
     adacpp tessellation path isn't available in this environment)."""
-    from ada.cad.registry import CadConfig, TessellationPath, available_paths
+    from ada.cad.registry import CadConfig, tess_track_by_name
     from ada.config import logger
 
-    mapping = {
-        _STEP_GLB_PIPELINE_LIBTESS2: TessellationPath.ADACPP_LIBTESS2,
-        _STEP_GLB_PIPELINE_ADACPP_OCC: TessellationPath.ADACPP_OCC,
-        _STEP_GLB_PIPELINE_ADACPP_CGAL: TessellationPath.ADACPP_CGAL,
-        _STEP_GLB_PIPELINE_ADACPP_HYBRID: TessellationPath.ADACPP_HYBRID,
-    }
-    tp = mapping.get(pipe)
-    if tp is None:
+    name = _pipeline_to_track_name(pipe)
+    if name is None:
         return None  # occ-builtin → OCC streaming default
-    if tp not in available_paths():
-        logger.warning("step-glb pipeline %r unavailable (adacpp missing); using occ-builtin", pipe)
+    if tess_track_by_name(name) is None:
+        logger.warning("step-glb pipeline %r unavailable in this environment; using occ-builtin", pipe)
         return None
-    return CadConfig(path=tp)
+    return CadConfig(path=name)
 
 
 def _via_ada(
@@ -2476,7 +2716,7 @@ def _register_ada_loadable() -> None:
         "name": "step_glb_pipeline",
         "type": "enum",
         "default": _STEP_GLB_PIPELINE_DEFAULT,
-        "enum": list(_STEP_GLB_PIPELINES),
+        "enum": list(_step_glb_pipelines()),
         "description": (
             "STEP→GLB tessellation engine. 'adacpp-native' (default) runs the whole STEP→GLB in "
             "adacpp C++ (reader + thread pool + GLB writer) — fastest + lowest-memory, and 1:1 with "
@@ -2496,7 +2736,7 @@ def _register_ada_loadable() -> None:
         "name": "glb_tess_engine",
         "type": "enum",
         "default": _GLB_TESS_ENGINE_DEFAULT,
-        "enum": list(_GLB_TESS_ENGINES),
+        "enum": list(_glb_tess_engines()),
         "description": (
             "→GLB tessellation engine. 'libtess2' (default) is adacpp's OCC-free boundary "
             "tessellator — renders curved surfaces OCC "

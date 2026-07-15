@@ -62,9 +62,16 @@ WASM_TARGETS_BY_FORMAT = {
 }
 # adacpp wheels below this version predate the OCCT symbol-isolation fix
 # (-fvisibility=hidden) + serialize_brep — a sweep with one validates the OLD
-# broken engine, so we refuse it unless explicitly overridden.
+# broken engine, so we refuse it unless explicitly overridden. This is a FLOOR,
+# not the default: see ADACPP_DEFAULT_IMAGE.
 ADACPP_MIN_VERSION = (0, 9, 0)
-ADACPP_DEFAULT_IMAGE = "ghcr.io/krande/adacpp-wasm-base:0.9.0"
+# The sweep exists to validate the in-browser engine users actually get, so this must track the
+# viewer's base — deploy/Dockerfile.viewer's ARG ADACPP_BASE_IMAGE, which is the single source of
+# that pin. It sat at 0.9.0 (== the floor above) while the viewer moved on, so a default sweep
+# validated a wheel six releases older than the one it shipped.
+# Duplicated as a literal because it cannot be derived: ada_cli ships in a wheel that carries no
+# deploy/ tree. tests/core/test_deploy_pins.py fails if the two drift.
+ADACPP_DEFAULT_IMAGE = "ghcr.io/krande/adacpp-wasm-base:0.15.0"
 IFC_WASM_WHEEL = (
     "https://ifcopenshell.github.io/wasm-wheels/" "ifcopenshell-0.8.5-cp313-cp313-pyodide_2025_0_wasm32.whl"
 )

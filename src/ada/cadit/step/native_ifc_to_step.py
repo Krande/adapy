@@ -10,7 +10,6 @@ when adacpp lacks the verb).
 
 from __future__ import annotations
 
-import os
 import pathlib
 
 from ada.config import logger
@@ -36,12 +35,12 @@ def native_ifc_to_step(
     Returns the losslessness audit dict; raises if adacpp is unavailable or no solid converted."""
     import adacpp
 
-    if deflection is None:
-        deflection = float(os.environ.get("ADA_STREAM_TESS_DEFLECTION", "2.0"))
-    if angular_deg is None:
-        from ada.cad.registry import DEFAULT_STREAM_TESS_ANGULAR_DEG
+    if deflection is None or angular_deg is None:
+        from ada.cad.registry import stream_tess_defaults
 
-        angular_deg = float(os.environ.get("ADA_STREAM_TESS_ANGULAR", str(DEFAULT_STREAM_TESS_ANGULAR_DEG)))
+        _defl, _ang = stream_tess_defaults()
+        deflection = _defl if deflection is None else deflection
+        angular_deg = _ang if angular_deg is None else angular_deg
     if on_progress is not None:
         on_progress("adacpp-native-ifc2step", 0.1)
     stats = adacpp.cad.stream_ifc_to_step(str(ifc_path), str(out_path), deflection=deflection, angular_deg=angular_deg)
