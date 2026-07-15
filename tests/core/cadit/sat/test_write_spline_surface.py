@@ -208,10 +208,18 @@ class TestIntCurve:
     def test_fit_tolerance_is_written(self):
         assert " 3 0 0 0.001 null_surface" in IntCurve(1, self._bspline(), fit_tolerance=0.001).to_string()
 
-    def test_rational_curve_refuses_rather_than_dropping_weights(self):
-        """nubs has nowhere to put a weight; writing one anyway moves the curve."""
-        with pytest.raises(NotImplementedError, match="rational edge curve"):
-            IntCurve(1, self._bspline(rational=True)).to_string()
+    def test_a_rational_curve_is_written_nurbs_with_its_weights(self):
+        """Genie's parcur edges are rational; nubs has nowhere to put a weight."""
+        rec = IntCurve(1, self._bspline(rational=True)).to_string()
+        assert "{ exactcur full nurbs 3 open 2 0 3 2.33 3 " in rec
+        # x y z w per control point, in order
+        assert " 0 0 0 1 1 1 0 0.9 2 1 0 0.9 3 0 0 1 " in rec
+
+    def test_mismatched_weights_raise(self):
+        c = self._bspline(rational=True)
+        c.weights_data = [1.0, 0.9]
+        with pytest.raises(ValueError, match="weights for"):
+            IntCurve(1, c).to_string()
 
 
 class TestCircleParamOf:

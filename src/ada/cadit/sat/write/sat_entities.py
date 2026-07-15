@@ -399,24 +399,35 @@ class IntCurve(SATEntity):
     ``lawintcur``, which encodes a procedural curve as a law expression and is
     not synthesised here).
 
-    Non-rational only. Genie's exactcurs are all ``nubs``, and a rational curve
-    would need ``nurbs`` and per-point weights; writing one as nubs would drop
-    them silently and move the curve, so it raises instead.
+    A rational curve is written ``nurbs``, with a weight after each control
+    point, the way a rational surface carries its weights. Genie's own exactcurs
+    are all ``nubs``, but its ``parcur`` records — a curve in the parameter space
+    of a surface — are rational, and reach here as a
+    ``RationalBSplineCurveWithKnots`` with real weights (the 1, cos(t/2), 1 of a
+    degree-2 arc). Writing one as nubs would drop them and move the curve.
     """
 
-    curve: object  # geom.curves.BSplineCurveWithKnots
+    curve: object  # geom.curves.BSplineCurveWithKnots | RationalBSplineCurveWithKnots
     sense: Literal["forward", "reversed"] = "forward"
     fit_tolerance: float = 0.0
 
     def to_string(self) -> str:
         c = self.curve
-        if getattr(c, "weights_data", None):
-            raise NotImplementedError(f"rational edge curve ({type(c).__name__}) cannot be written as an exactcur nubs")
+        weights = getattr(c, "weights_data", None)
+        if weights and len(weights) != len(c.control_points_list):
+            raise ValueError(f"{len(weights)} weights for {len(c.control_points_list)} control points")
+
         knots = _acis_knots(c.knots, c.knot_multiplicities, c.degree)
-        pts = " ".join(f"{_num(p[0])} {_num(p[1])} {_num(p[2])}" for p in c.control_points_list)
+        if weights:
+            pts = " ".join(
+                f"{_num(p[0])} {_num(p[1])} {_num(p[2])} {_num(w)}" for p, w in zip(c.control_points_list, weights)
+            )
+        else:
+            pts = " ".join(f"{_num(p[0])} {_num(p[1])} {_num(p[2])}" for p in c.control_points_list)
+
         return (
             f"-{self.id} intcurve-curve $-1 -1 -1 $-1 {self.sense} "
-            f"{{ exactcur full nubs {c.degree} open {len(c.knots)} {knots} {pts} "
+            f"{{ exactcur full {'nurbs' if weights else 'nubs'} {c.degree} open {len(c.knots)} {knots} {pts} "
             f"{_num(self.fit_tolerance)} null_surface null_surface nullbs nullbs -1 -1 I I 0 0 0 -1 "
             f"none F F 1 F 0 }} I I #"
         )
