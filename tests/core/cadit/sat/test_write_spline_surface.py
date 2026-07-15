@@ -13,6 +13,7 @@ import pytest
 
 from ada.cadit.sat.write.sat_entities import (
     EllipseCurve,
+    IntCurve,
     PCurve,
     SplineSurface,
     _acis_knots,
@@ -164,6 +165,53 @@ class TestEllipseCurve:
         """The coedge sense carries direction; the curve's range always ascends."""
         with pytest.raises(ValueError, match="must ascend"):
             EllipseCurve(1, self._circle(), 0.3926990816987237, 0.0)
+
+
+class TestIntCurve:
+    @staticmethod
+    def _bspline(rational=False):
+        pts = [(0.0, 0.0, 0.0), (1.0, 1.0, 0.0), (2.0, 1.0, 0.0), (3.0, 0.0, 0.0)]
+        kw = dict(
+            degree=3,
+            control_points_list=pts,
+            curve_form=geo_cu.BSplineCurveFormEnum.UNSPECIFIED,
+            closed_curve=False,
+            self_intersect=False,
+            knot_multiplicities=[4, 4],
+            knots=[0.0, 2.33],
+            knot_spec=geo_cu.KnotType.UNSPECIFIED,
+        )
+        if rational:
+            return geo_cu.RationalBSplineCurveWithKnots(**kw, weights_data=[1.0, 0.9, 0.9, 1.0])
+        return geo_cu.BSplineCurveWithKnots(**kw)
+
+    def test_record_matches_genie(self):
+        rec = IntCurve(1, self._bspline()).to_string()
+        # degree 3, IFC mults [4, 4] -> ACIS [3, 3], then 4 control points
+        assert rec.startswith(
+            "-1 intcurve-curve $-1 -1 -1 $-1 forward { exactcur full nubs 3 open 2 0 3 2.33 3 "
+            "0 0 0 1 1 0 2 1 0 3 0 0 0 "
+        )
+        # lies on no surface, and needs no approximating data
+        assert "null_surface null_surface nullbs nullbs -1 -1 I I 0 0 0 -1 none F F 1 F 0 } I I #" in rec
+
+    def test_control_point_count_follows_the_knots(self):
+        """ACIS reads n_ctrl back as sum(mults) - degree + 1; it must give 4."""
+        rec = IntCurve(1, self._bspline()).to_string()
+        mults = [3, 3]  # what _acis_knots emits for [4, 4] at degree 3
+        assert sum(mults) - 3 + 1 == 4
+        assert rec.count(" 0 0 0 1 1 0 2 1 0 3 0 0 ") == 1
+
+    def test_sense_is_written(self):
+        assert " reversed { exactcur" in IntCurve(1, self._bspline(), sense="reversed").to_string()
+
+    def test_fit_tolerance_is_written(self):
+        assert " 3 0 0 0.001 null_surface" in IntCurve(1, self._bspline(), fit_tolerance=0.001).to_string()
+
+    def test_rational_curve_refuses_rather_than_dropping_weights(self):
+        """nubs has nowhere to put a weight; writing one anyway moves the curve."""
+        with pytest.raises(NotImplementedError, match="rational edge curve"):
+            IntCurve(1, self._bspline(rational=True)).to_string()
 
 
 class TestCircleParamOf:

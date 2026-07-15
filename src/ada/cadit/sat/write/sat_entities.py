@@ -388,6 +388,40 @@ class EllipseCurve(SATEntity):
         )
 
 
+@dataclass
+class IntCurve(SATEntity):
+    """A B-spline edge curve — ACIS ``intcurve-curve``, an ``exactcur`` int_cur.
+
+    "Exact" means the spline IS the curve, rather than an approximation of some
+    other construction: the ``null_surface``/``nullbs`` run says it lies on no
+    surface and needs no approximating data. Genie writes the same form for the
+    great majority of its edges (5134 of 6284 in a hull export; the rest are
+    ``lawintcur``, which encodes a procedural curve as a law expression and is
+    not synthesised here).
+
+    Non-rational only. Genie's exactcurs are all ``nubs``, and a rational curve
+    would need ``nurbs`` and per-point weights; writing one as nubs would drop
+    them silently and move the curve, so it raises instead.
+    """
+
+    curve: object  # geom.curves.BSplineCurveWithKnots
+    sense: Literal["forward", "reversed"] = "forward"
+    fit_tolerance: float = 0.0
+
+    def to_string(self) -> str:
+        c = self.curve
+        if getattr(c, "weights_data", None):
+            raise NotImplementedError(f"rational edge curve ({type(c).__name__}) cannot be written as an exactcur nubs")
+        knots = _acis_knots(c.knots, c.knot_multiplicities, c.degree)
+        pts = " ".join(f"{_num(p[0])} {_num(p[1])} {_num(p[2])}" for p in c.control_points_list)
+        return (
+            f"-{self.id} intcurve-curve $-1 -1 -1 $-1 {self.sense} "
+            f"{{ exactcur full nubs {c.degree} open {len(c.knots)} {knots} {pts} "
+            f"{_num(self.fit_tolerance)} null_surface null_surface nullbs nullbs -1 -1 I I 0 0 0 -1 "
+            f"none F F 1 F 0 }} I I #"
+        )
+
+
 def circle_param_of(circle, point) -> float:
     """The ACIS parameter of ``point`` on ``circle`` — its angle, in radians.
 
