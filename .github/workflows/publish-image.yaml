@@ -33,13 +33,11 @@ permissions:
   packages: write
 
 # The prebuilt adacpp pyodide wasm base the viewer FROMs. Published by adacpp's
-# own publish-wasm-base workflow on tag (wheel + manifest under /out/). Pinned
-# to a release so viewer builds are reproducible — bump on adacpp adoption.
+# own publish-wasm-base workflow on tag (wheel + manifest under /out/). Pinned to
+# a release so viewer builds are reproducible — the pin is the ADACPP_BASE_IMAGE
+# ARG default in deploy/Dockerfile.viewer, not here; see the viewer build step.
 # NOTE: this is a cross-repo ghcr package; it must be public (or grant the
 # adapy repo read access) for the GITHUB_TOKEN pull below to resolve it.
-env:
-  # 0.9.0: pyodide_2025_0 ABI (emscripten 4.0.9) + OCCT symbol isolation.
-  # (The adacpp wasm base version is NOT pinned here — see the viewer build step.)
 
 jobs:
   viewer:
