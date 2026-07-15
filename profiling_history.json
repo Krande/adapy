@@ -7879,5 +7879,116 @@
         "duration": 2.369588749
       }
     ]
+  },
+  {
+    "commit": "53b7e63ef3e25cb9e7e608d7b3ea60ed03e169e1",
+    "commit_short": "53b7e63",
+    "message": "feat: Emit real ACIS SAT in the Genie XML writer so Genie stops rebuilding it on import (#238)",
+    "author": "Kristoffer Andersen",
+    "date": "2026-07-15T16:15:16+02:00",
+    "total_duration": 120.0578,
+    "total_calls": 737286,
+    "stats": [
+      {
+        "function": "<built-in method builtins.exec> (~:0)",
+        "calls": 2084,
+        "duration": 22.107082043000002
+      },
+      {
+        "function": "<module> (<string>:1)",
+        "calls": 1,
+        "duration": 22.107038538
+      },
+      {
+        "function": "test_build_big_ifc_pipe (tests/profiling/test_ifc_creation.py:48)",
+        "calls": 1,
+        "duration": 6.1436089560000005
+      },
+      {
+        "function": "__truediv__ (src/ada/api/spatial/part.py:2009)",
+        "calls": 8,
+        "duration": 5.586205645000001
+      },
+      {
+        "function": "to_ifc (src/ada/api/spatial/assembly.py:289)",
+        "calls": 5,
+        "duration": 5.352203044
+      },
+      {
+        "function": "test_bench_batch_tessellate (tests/profiling/test_cad_backend_bench.py:63)",
+        "calls": 1,
+        "duration": 5.213860348000001
+      },
+      {
+        "function": "run (tests/profiling/test_cad_backend_bench.py:73)",
+        "calls": 6,
+        "duration": 5.013551066000001
+      },
+      {
+        "function": "batch_tessellate (src/ada/occ/tessellating.py:1008)",
+        "calls": 1446,
+        "duration": 5.012202938000001
+      },
+      {
+        "function": "sync (src/ada/cadit/ifc/store.py:200)",
+        "calls": 5,
+        "duration": 5.000968348000001
+      },
+      {
+        "function": "sync_added_physical_objects (src/ada/cadit/ifc/write/write_ifc.py:92)",
+        "calls": 5,
+        "duration": 4.830793999
+      },
+      {
+        "function": "add (src/ada/cadit/ifc/write/write_ifc.py:505)",
+        "calls": 2200,
+        "duration": 4.7582571830000004
+      },
+      {
+        "function": "add_object (src/ada/api/spatial/part.py:309)",
+        "calls": 1201,
+        "duration": 4.029606810000001
+      },
+      {
+        "function": "add_pipe (src/ada/api/spatial/part.py:164)",
+        "calls": 200,
+        "duration": 4.010380599
+      },
+      {
+        "function": "add_section (src/ada/api/spatial/part.py:294)",
+        "calls": 801,
+        "duration": 3.393361375
+      },
+      {
+        "function": "add (src/ada/api/containers/sections.py:139)",
+        "calls": 805,
+        "duration": 3.3919135920000003
+      },
+      {
+        "function": "tessellate_geom (src/ada/occ/tessellating.py:830)",
+        "calls": 1440,
+        "duration": 3.341577378
+      },
+      {
+        "function": "equal_props (src/ada/sections/concept.py:100)",
+        "calls": 241399,
+        "duration": 3.0748943640000004
+      },
+      {
+        "function": "unique_props (src/ada/sections/concept.py:107)",
+        "calls": 482798,
+        "duration": 2.774012088
+      },
+      {
+        "function": "tessellate_occ_geom (src/ada/occ/tessellating.py:684)",
+        "calls": 1440,
+        "duration": 2.471035463
+      },
+      {
+        "function": "tessellate_shape (src/ada/occ/tessellating.py:554)",
+        "calls": 1440,
+        "duration": 2.445263556
+      }
+    ]
   }
 ]
