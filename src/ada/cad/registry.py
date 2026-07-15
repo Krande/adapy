@@ -146,6 +146,12 @@ class TessTrack:
     backend: CadBackendName
     pipeline: str | None  # the adacpp `pipeline` arg; None => pythonocc BRepMesh
     is_default: bool = False
+    # Does the track mesh NEUTRAL surfaces (the OCC-free path the native readers and the NGEOM wire
+    # feed)? Declared by adacpp; the taxonomy tracks are not neutral and mesh as though no track were
+    # selected there rather than erroring, so anything offering a track choice for a native/neutral
+    # path must filter on this. Defaults True: adapy's own OCC track and any adacpp too old to
+    # declare the field are both offered exactly where they were before.
+    neutral: bool = True
 
 
 # adapy's own track. This is the ONE we are entitled to hardcode: it is pythonocc's BRepMesh, which
@@ -190,6 +196,10 @@ def _adacpp_tracks() -> list[TessTrack]:
                 backend=CadBackendName.ADACPP,
                 pipeline=name,
                 is_default=bool(t.get("default")),
+                # Absent before adacpp 0.16. Default True rather than False so an older build keeps
+                # advertising exactly what it always did; the native path gates separately on its own
+                # binding's capability, so an undeclared track can't reach it regardless.
+                neutral=bool(t.get("neutral", True)),
             )
         )
     return out

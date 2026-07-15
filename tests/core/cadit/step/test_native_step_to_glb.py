@@ -17,6 +17,7 @@ import ada
 from ada.cadit.step.native_step_to_glb import (
     native_adacpp_available,
     native_step_to_glb,
+    native_track_selection_available,
 )
 
 pytestmark = pytest.mark.skipif(not native_adacpp_available(), reason="adacpp native STEP->GLB not available")
@@ -101,3 +102,48 @@ def test_native_step_to_glb_unit_cube(tmp_path):
     # a cube is 12 triangles -> 36 indices, on the single (default-colour) material
     total_idx = sum(gltf["accessors"][p["indices"]]["count"] for m in gltf["meshes"] for p in m["primitives"])
     assert total_idx == 36, f"unit cube should tessellate to 12 triangles (36 indices), got {total_idx}"
+
+
+def _curved_step(tmp_path):
+    """A curved solid: the tracks differ on curved trims, not on a box's planar faces."""
+    c = ada.PrimCyl("c", (0, 0, 0), (0, 0, 2), 1.0)
+    src = tmp_path / "curved.step"
+    (ada.Assembly("m") / (ada.Part("p") / [c])).to_stp(src)
+    return src
+
+
+@pytest.mark.skipif(
+    not native_track_selection_available(), reason="adacpp build predates native track selection (pipeline kwarg)"
+)
+def test_native_track_selection_reaches_the_kernel(tmp_path):
+    """A selected track must CHANGE the mesh.
+
+    The C++ core always accepted `pipeline`, but the python binding never forwarded it, so every
+    native conversion ran libtess2 whatever the caller chose — accepted and ignored, the failure
+    mode that reads as success. Comparing two tracks' output is the only assertion that catches a
+    regression back to that: asserting the call merely succeeds would pass against it.
+    """
+    src = _curved_step(tmp_path)
+    counts = {}
+    for track in ("libtess2", "cdt"):
+        out = tmp_path / f"{track}.glb"
+        native_step_to_glb(src, out, deflection=0.05, angular_deg=10.0, meshopt=False, pipeline=track)
+        gltf = _glb_json(out)
+        counts[track] = sum(
+            gltf["accessors"][p["indices"]]["count"] for m in gltf["meshes"] for p in m["primitives"]
+        )
+
+    assert all(v > 0 for v in counts.values()), f"both tracks must mesh the solid: {counts}"
+    assert counts["libtess2"] != counts["cdt"], f"track ignored — both produced {counts['libtess2']} indices"
+
+
+@pytest.mark.skipif(
+    not native_track_selection_available(), reason="adacpp build predates native track selection (pipeline kwarg)"
+)
+def test_native_refuses_a_taxonomy_track(tmp_path):
+    """The taxonomy kernels need ifcopenshell geometry the C++ STEP reader never builds. adacpp does
+    not error on them here — it meshes as though untracked — so adapy must refuse rather than return
+    a GLB attributed to a kernel that never ran."""
+    src = _curved_step(tmp_path)
+    with pytest.raises(RuntimeError, match="taxonomy track"):
+        native_step_to_glb(src, tmp_path / "occ.glb", deflection=0.05, pipeline="occ")

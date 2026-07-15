@@ -1122,8 +1122,13 @@ _WASM_GLB_ENGINES = (_WASM_ENGINE_NATIVE, _WASM_ENGINE_PYODIDE)
 # Labels adapy OWNS: its own serializer-pinned token and the two in-browser engines, none of which
 # adacpp knows about. Every adacpp track's label + description comes from the track itself
 # (_glb_tess_label / _glb_tess_description), so a new track arrives fully described.
+_GLB_TESS_NATIVE_PINNED = "native"
+
 _GLB_TESS_OWN_LABELS = {
-    "native": "Native (libtess2)",  # the cpp serializer's pinned tessellator
+    # The cpp serializer's fallback token, used only against an adacpp whose native binding can't
+    # take a track (< 0.16). Newer builds advertise the discovered adacpp:* tracks instead, so this
+    # stays resolvable for stored configs rather than naming a choice we still offer.
+    _GLB_TESS_NATIVE_PINNED: "Native (libtess2)",
     # client-side (wasm serializer) engines:
     "wasm-native": "Native (WASM module)",
     "pyodide": "Pyodide (wasm wheels)",
@@ -1193,15 +1198,39 @@ def _python_tess_tokens() -> list[str]:
     return [t.name for t in ranked]
 
 
+def _cpp_tess_tokens() -> list[str]:
+    """The `cpp` serializer's tessellator tokens — the same adacpp tracks the `python` serializer
+    discovers, because both dispatch to the same kernel; the native path just reaches it through
+    the C++ reader instead of the NGEOM wire.
+
+    Two gates, both asked rather than assumed. The binding must accept a track at all (adacpp < 0.16
+    ignores ``pipeline`` and runs libtess2), and the track must be one adacpp declares NEUTRAL — the
+    taxonomy kernels need ifcopenshell geometry the C++ STEP reader never builds, and on this path
+    they mesh as if nothing were selected instead of erroring. Gating the ADVERTISEMENT on the same
+    facts the conversion checks is the point: an offer we can't honour reports a track we never ran.
+    """
+    from ada.cad.registry import CadBackendName, tess_track_by_name
+    from ada.cadit.step.native_step_to_glb import native_track_selection_available
+
+    if not native_track_selection_available():
+        return [_GLB_TESS_NATIVE_PINNED]
+    tracks = []
+    for tok in _python_tess_tokens():
+        t = tess_track_by_name(tok)
+        if t is not None and t.backend is CadBackendName.ADACPP and t.neutral:
+            tracks.append(tok)
+    return tracks or [_GLB_TESS_NATIVE_PINNED]
+
+
 def _glb_serializer_tess(serializer: str) -> list[str] | None:
     """Tessellator tokens for a serializer, or None if it isn't offered.
 
-    `cpp` pins its own tessellator and `wasm` runs in-browser engines adacpp doesn't know about, so
-    both stay declared here — they are adapy's own. Only the `python` serializer, which is the one
-    that actually dispatches to adacpp, is discovered.
+    `wasm` runs in-browser engines adacpp doesn't know about, so it stays declared here — it is
+    adapy's own. `python` and `cpp` both dispatch to adacpp and so both DISCOVER their tracks;
+    `cpp` degrades to its historic pinned token against an adacpp whose binding can't select one.
     """
     if serializer == _GLB_SERIALIZER_CPP:
-        return ["native"]
+        return _cpp_tess_tokens()
     if serializer == _GLB_SERIALIZER_WASM:
         return list(_WASM_GLB_ENGINES)
     if serializer == _GLB_SERIALIZER_PYTHON:
@@ -1244,6 +1273,22 @@ def _tess_token_to_glb_engine(tok: str) -> str:
     """Tessellator token -> the `glb_tess_engine` knob (the non-STEP BatchTessellator selector).
     Same structural resolution as _tess_token_to_pipeline."""
     return _tess_token_to_pipeline(tok)
+
+
+def _native_track_for_engine(glb_tess_engine: str | None) -> str | None:
+    """The adacpp `pipeline` name for the native STEP->GLB path, or None to leave adacpp's default.
+
+    The cpp serializer parks its chosen track on the tess-engine axis (see _apply_glb_serializer),
+    so this reverses that: 'adacpp-cdt' -> 'cdt', the token adacpp's own binding takes. VOCABULARY,
+    not capability — native_step_to_glb re-checks its binding and refuses rather than substituting.
+    Engines that aren't an adacpp track (occ-builtin, adacpp-native itself) yield None.
+    """
+    if not glb_tess_engine:
+        return None
+    track_name = _pipeline_to_track_name(glb_tess_engine)
+    if not track_name:
+        return None
+    return track_name.split(":", 1)[1] or None
 
 
 def _glb_source_family(source_ext: str) -> str:
@@ -1385,6 +1430,12 @@ def _apply_glb_serializer(
     if serializer == _GLB_SERIALIZER_CPP:
         if fam == "step":
             step_glb_pipeline = _STEP_GLB_PIPELINE_ADACPP_NATIVE
+            # The track rides the tess-engine axis: `step_glb_pipeline` is already spent naming the
+            # native CODE PATH, and the two are independent axes (which reader vs which kernel), so
+            # folding the track into that token would conflate them. `adacpp-native` resolves to no
+            # CadConfig, so nothing else reads glb_tess_engine on this branch.
+            if tessellator and tessellator != _GLB_TESS_NATIVE_PINNED:
+                glb_tess_engine = _tess_token_to_glb_engine(tessellator)
         # generic/IFC 'cpp' = the native_ifc_to_glb default path — nothing to force.
         return step_glb_pipeline, glb_tess_engine, False
     if serializer == _GLB_SERIALIZER_PYTHON:
@@ -1608,7 +1659,12 @@ def _via_ada(
 
                 if native_adacpp_available():
                     try:
-                        native_step_to_glb(src_path, out_path, on_progress=on_progress)
+                        native_step_to_glb(
+                            src_path,
+                            out_path,
+                            on_progress=on_progress,
+                            pipeline=_native_track_for_engine(glb_tess_engine),
+                        )
                         result = out_path
                         return result
                     except Exception as exc:

@@ -24,12 +24,36 @@ import pathlib
 from ada.config import logger
 
 
+# The track the native binding runs when ``pipeline`` is left unset — adacpp's own default
+# ("" parses to libtess2). Named here only so the capability probe and the refusal below agree on
+# which single track an older, pipeline-less build can still be trusted to deliver.
+_NATIVE_DEFAULT_TRACK = "libtess2"
+
+
 def native_adacpp_available() -> bool:
     """True if the adacpp native STEP->GLB entry point is importable."""
     try:
         import adacpp  # noqa: F401
 
         return hasattr(adacpp.cad, "stream_step_to_glb")
+    except Exception:
+        return False
+
+
+def native_track_selection_available() -> bool:
+    """True if THIS adacpp build's native binding accepts a tessellation track.
+
+    The threaded C++ core always could; the binding only started forwarding ``pipeline`` in
+    adacpp 0.16. Callers must gate on this before OFFERING a track choice for the native path —
+    an older build ignores the absent kwarg and runs libtess2, so advertising 'cdt' against it
+    would promise a track the conversion never runs.
+    """
+    if not native_adacpp_available():
+        return False
+    try:
+        import adacpp
+
+        return "pipeline" in (adacpp.cad.stream_step_to_glb.__doc__ or "")
     except Exception:
         return False
 
@@ -42,6 +66,7 @@ def native_step_to_glb(
     num_threads: int = 0,
     meshopt: bool = True,
     on_progress=None,
+    pipeline: str | None = None,
 ) -> dict:
     """Convert ``step_path`` to a GLB at ``glb_path`` with the native adacpp pipeline.
 
@@ -111,6 +136,34 @@ def native_step_to_glb(
 
     if stream_tess_face_regions() and "face_regions" in (adacpp.cad.stream_step_to_glb.__doc__ or ""):
         glb_kwargs["face_regions"] = True
+    # Tessellation track (adacpp's own vocabulary — see adacpp.cad.tess_tracks()). Same __doc__
+    # capability probe as above. REFUSING is deliberate when the build predates the parameter: it
+    # ignores the kwarg's absence and runs libtess2, so quietly proceeding would render a 'cdt'
+    # request as libtess2 and report success — the caller would have no way to tell. Only the
+    # default track is safe to leave implicit.
+    if pipeline:
+        if "pipeline" not in (adacpp.cad.stream_step_to_glb.__doc__ or ""):
+            if pipeline != _NATIVE_DEFAULT_TRACK:
+                raise RuntimeError(
+                    f"adacpp build predates native track selection (stream_step_to_glb takes no "
+                    f"'pipeline'); cannot honour tessellator {pipeline!r} — it would silently run "
+                    f"{_NATIVE_DEFAULT_TRACK!r}"
+                )
+        else:
+            # Non-neutral (taxonomy) tracks need ifcopenshell geometry the C++ STEP reader never
+            # builds. adacpp doesn't reject them here — it meshes as if no track were selected — so
+            # refuse rather than return a GLB labelled with a kernel that never ran. The API filters
+            # these out of the cpp dropdown; this catches a stored config or a direct call.
+            from ada.cad.registry import tess_track_by_name
+
+            track = tess_track_by_name(f"adacpp:{pipeline}")
+            if track is not None and not track.neutral:
+                raise RuntimeError(
+                    f"tessellator {pipeline!r} is a taxonomy track and cannot run on the native "
+                    f"STEP path (it would silently mesh as if untracked); use the 'python' "
+                    f"serializer for it, or a neutral track here"
+                )
+            glb_kwargs["pipeline"] = pipeline
     n = adacpp.cad.stream_step_to_glb(str(step_path), str(glb_path), **glb_kwargs)
     if n < 0:
         raise RuntimeError(f"adacpp native stream_step_to_glb failed for {step_path}")
