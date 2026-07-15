@@ -12,7 +12,7 @@
 # CI passes the full image reference as a build-arg so this Dockerfile
 # stays registry-agnostic. Pin a different adacpp by pointing the
 # build-arg at a different version tag.
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.13.2
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.14.0
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
