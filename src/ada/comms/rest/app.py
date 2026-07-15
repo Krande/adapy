@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import pathlib
@@ -44,6 +45,7 @@ from .converter import (
     is_fea_artefact_source,
     is_fea_result_key,
     is_supported_source,
+    merge_option_into,
     supported_targets_for,
 )
 from .handlers import dispatch
@@ -403,10 +405,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return []
         workers = _worker_registry["workers"]
         merged: dict[str, set[str]] = {}
-        # from → target → option-name → option-dict. Per-job knob schemas are unioned across workers:
-        # for an enum option (e.g. step_glb_pipeline) the enum VALUES are unioned, so an engine that
-        # only some worker pool can run still appears in the list. (Pair with capability routing so the
-        # job lands on a pool that actually advertises that engine — see queue source-ext routing.)
+        # from → target → option-name → option-dict. Per-job knob schemas are unioned across workers
+        # by merge_option_into: enum VALUES, each enum_by list, and the per-value label/runtime maps
+        # all union, so an engine only one pool can run still appears — fully described — in the list.
+        # (Pair with capability routing so the job lands on a pool that actually advertises that
+        # engine — see queue source-ext routing.)
         merged_opts: dict[str, dict[str, dict[str, dict]]] = {}
         now = time.time()
         for w in workers:
@@ -440,9 +443,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         slot = merged_opts.setdefault(frm, {}).setdefault(target, {})
                         cur = slot.get(opt["name"])
                         if cur is None:
-                            slot[opt["name"]] = dict(opt)
-                        elif isinstance(opt.get("enum"), list) and isinstance(cur.get("enum"), list):
-                            cur["enum"] = cur["enum"] + [v for v in opt["enum"] if v not in cur["enum"]]
+                            slot[opt["name"]] = copy.deepcopy(opt)
+                        else:
+                            merge_option_into(cur, opt)
         return [
             {
                 "from": frm,
