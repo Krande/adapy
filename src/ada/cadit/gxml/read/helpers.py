@@ -168,7 +168,11 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                 # flat perimeter centroid, skip the PlateCurved
                 # path entirely and yield a Plate.from_3d_points
                 # at the correct world location instead.
-                if fallback_pts is not None and len(fallback_pts) >= 3:
+                if (
+                    fallback_pts is not None
+                    and len(fallback_pts) >= 3
+                    and Config().gxml_reject_deformed_curved_faces is True
+                ):
                     try:
                         import numpy as _np
 

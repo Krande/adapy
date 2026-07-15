@@ -35,3 +35,21 @@ def test_sesam_xml(example_files, tmp_path, monkeypatch):
     assert surfaces["Plane"] > 0, surfaces
 
     a.to_ifc(tmp_path / "sesam_test.ifc", validate=True)
+
+
+def test_deformed_face_rejection_can_be_turned_off(example_files, monkeypatch):
+    """The guard is a heuristic over control points, so it must be escapable.
+
+    A b-spline's control points need not lie near the surface, so a patch can be
+    called "stretched" on a face that is perfectly good — and the cost of a false
+    positive is silent: the plate keeps its position and loses its boundary.
+    """
+    xml_file = (example_files / "fem_files/sesam/curved_plates.xml").resolve().absolute()
+    monkeypatch.setenv("ADA_GXML_IMPORT_ADVANCED_FACES", "true")
+    monkeypatch.setenv("ADA_GXML_REJECT_DEFORMED_CURVED_FACES", "false")
+
+    a = ada.from_genie_xml(xml_file)
+    objects = list(a.get_all_subparts()[0].get_all_physical_objects())
+
+    # the two the guard rejects are kept as advanced faces instead
+    assert Counter(type(o).__name__ for o in objects) == {"PlateCurved": 9}
