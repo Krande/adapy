@@ -27,6 +27,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from ada.cad.plan import (  # noqa: E402 - plan imports only registry + stdlib at module scope
+    ConversionPlan,
+    PlanError,
+    Serializer,
+    Tessellator,
+)
 from ada.cad.registry import (  # noqa: E402 - registry is stdlib-only, no ada.cad cycle
     DEFAULT_STREAM_TESS_ANGULAR_DEG,
     CadBackendName,
@@ -1719,4 +1725,9 @@ __all__ = [
     "available_backends",
     "available_paths",
     "backend_available",
+    # composable conversion plans (layer above CadConfig, which they lower to)
+    "ConversionPlan",
+    "PlanError",
+    "Serializer",
+    "Tessellator",
 ]
