@@ -219,6 +219,37 @@ class SatReaderFactory:
             if sat_record.type == "face":
                 yield sat_record
 
+    def face_has_curved_edge(self, face_record: AcisRecord) -> bool:
+        """Does any of the face's edges run on something other than a line?
+
+        A planar face is only a polygon if its edges are straight. A flat plate
+        bounded by a b-spline or an arc cannot be carried by ``ada.Plate``, whose
+        outline is a point list — the edge would survive as a polyline, which
+        silently changes the plate's area and stops it sharing an edge with the
+        curved neighbour it was cut against.
+
+        Walks loop -> coedge ring -> edge -> curve. Chunk indices are the record
+        body offset by the leading id and type tokens.
+        """
+        loop = self.sat_store.get(face_record.chunks[7])
+        seen_loops = set()
+        while loop is not None and loop.type == "loop" and id(loop) not in seen_loops:
+            seen_loops.add(id(loop))
+            first = self.sat_store.get(loop.chunks[7])
+            coedge, seen = first, set()
+            while coedge is not None and coedge.type == "coedge" and id(coedge) not in seen:
+                seen.add(id(coedge))
+                edge = self.sat_store.get(coedge.chunks[9])
+                if edge is not None and edge.type == "edge":
+                    curve = self.sat_store.get(edge.chunks[11])
+                    if curve is not None and curve.type != "straight-curve":
+                        return True
+                coedge = self.sat_store.get(coedge.chunks[6])
+                if coedge is first:
+                    break
+            loop = self.sat_store.get(loop.chunks[6])
+        return False
+
     def iter_flat_plates(self) -> Iterable[tuple[str, list[tuple[float, float, float]]]]:
         for face_record in self.iter_faces():
             # face_surface = self.sat_store.get(face_record.chunks[10])
@@ -286,7 +317,15 @@ class SatReaderFactory:
         try:
             for face_record in self.iter_faces():
                 face_surface = self.sat_store.get(face_record.chunks[10])
-                if face_surface.type != "spline-surface":
+                if face_surface.type == "plane-surface":
+                    # A flat face is not necessarily a polygon. Take it as an
+                    # advanced face when any edge is curved, so the boundary
+                    # survives as the curves it is; leave a genuinely
+                    # straight-edged one to the flat path, where ada.Plate
+                    # represents it exactly and more cheaply.
+                    if not self.face_has_curved_edge(face_record):
+                        continue
+                elif face_surface.type != "spline-surface":
                     continue
                 attempted += 1
                 try:

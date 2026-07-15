@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import base64
 import pathlib
 import xml.etree.ElementTree as ET
-import zipfile
-from io import BytesIO
 from typing import TYPE_CHECKING, Callable
 
 from ...sat.write.writer import part_to_sat_writer
@@ -16,7 +13,11 @@ from .write_load_case import add_loads
 from .write_masses import add_masses
 from .write_materials import add_materials
 from .write_plates import add_plates
-from .write_sat_embedded import embed_sat_geometry
+from .write_sat_embedded import (
+    embed_sat_geometry,
+    sat_to_base64_segments,
+    splice_cdata_segments,
+)
 from .write_sections import add_sections
 from .write_sets import add_sets
 
@@ -46,11 +47,9 @@ def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Calla
     add_materials(properties, part)
     add_hinges(properties, part)
 
-    # Add SAT geometry (maybe only applicable for plate geometry)
-    sw = None
-    if embed_sat:
-        sw = part_to_sat_writer(part)
-        embed_sat_geometry(structure_domain)
+    # Build the ACIS body up front: add_plates needs its plate -> FACE name map
+    # to emit each <sheet>'s <sat_reference>.
+    sw = part_to_sat_writer(part) if embed_sat else None
 
     # Add structural elements
     add_beams(structures_elem, part, sw)
@@ -69,23 +68,16 @@ def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Calla
         writer_postprocessor(root, part)
 
     xml_file.parent.mkdir(exist_ok=True, parents=True)
-    if embed_sat:
-        # Compress the SAT data
-        sat_bytes = bytes(sw.to_str(), encoding="utf-8")
-        compressed_io = BytesIO()
-        with zipfile.ZipFile(compressed_io, mode="w", compression=zipfile.ZIP_DEFLATED) as zipf:
-            zipf.writestr("b64temp.sat", sat_bytes)
-        compressed_data = compressed_io.getvalue()
-
-        # Encode the compressed data in base64
-        encoded_data = base64.b64encode(compressed_data).decode()
-        xml_str = ET.tostring(tree.getroot(), encoding="unicode")
-        cdata_section = f"<![CDATA[{encoded_data}]]>"
-        xml_str = xml_str.replace("__CDATA_PLACEHOLDER__", cdata_section)
-
-        # Write the modified XML string to the file
-        with open(xml_file, "w", encoding="utf-8") as file:
-            file.write(xml_str)
-    else:
-        # Write the modified XML back to the file
+    # A model with no plates has no ACIS body, so there is nothing to embed.
+    if not embed_sat or sw.is_empty:
         tree.write(str(xml_file), encoding="utf-8")
+        return
+
+    # <geometry> goes last, after <sets>, matching Genie's own export.
+    segments = sat_to_base64_segments(sw.to_str())
+    embed_sat_geometry(structure_domain, len(segments))
+
+    xml_str = ET.tostring(tree.getroot(), encoding="unicode")
+    xml_str = splice_cdata_segments(xml_str, segments)
+    with open(xml_file, "w", encoding="utf-8") as file:
+        file.write(xml_str)

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -88,6 +88,63 @@ class Mesh(Protocol):
 
     positions: Any  # flat float buffer, length = 3 * num_vertices
     indices: Any  # flat int buffer,   length = 3 * num_triangles
+
+
+@dataclass(frozen=True)
+class ImprintedEdge:
+    """A straight edge of a :class:`PlanarImprint`, as indices into its ``vertices``."""
+
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class ImprintedFace:
+    """A planar face of a :class:`PlanarImprint`.
+
+    ``loops[0]`` is the outer boundary and the rest are holes. Each loop is an
+    ordered list of ``(edge index, forward)`` pairs — ``forward`` False means the
+    loop traverses that edge from its ``end`` vertex to its ``start`` vertex.
+    Every loop is wound counter-clockwise about ``normal``.
+    """
+
+    origin: tuple[float, float, float]
+    normal: tuple[float, float, float]
+    ref_direction: tuple[float, float, float]
+    loops: "list[list[tuple[int, bool]]]"
+
+
+@dataclass(frozen=True)
+class PlanarImprint:
+    """The imprinted (mutually split, topologically shared) form of planar outlines.
+
+    Backend-neutral plain data: no kernel handles cross this boundary, so one
+    call covers a whole model rather than re-entering the backend per element
+    (see the perf guardrail on ``vertex_points``). Coincident vertices are
+    merged and an edge shared by several faces appears once, referenced by each
+    — which is what lets a consumer emit shared topology.
+
+    ``sources[i]`` lists the faces the i-th input outline became; an outline
+    crossed by its neighbours splits into several, and one consumed entirely
+    yields an empty list.
+
+    ``curve_sources[i]`` likewise lists the edges the i-th imprint curve became.
+    A beam axis lying on a plate is split wherever another plate crosses it, so
+    it resolves to several edges — Genie's own export references up to 11 for one
+    beam.
+
+    ``free_edges`` indexes the edges that bound no face — an imprint curve with
+    no face under it. They are still reported (and still reachable through
+    ``curve_sources``) because a consumer needs geometry for them; ACIS carries
+    them as wire bodies rather than as face boundaries.
+    """
+
+    vertices: "list[tuple[float, float, float]]"
+    edges: "list[ImprintedEdge]"
+    faces: "list[ImprintedFace]"
+    sources: "list[list[int]]"
+    curve_sources: "list[list[int]]" = field(default_factory=list)
+    free_edges: "list[int]" = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -225,6 +282,12 @@ class CadBackend(Protocol):
     def wires(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
     def wire_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]: ...
     def unify_coplanar_faces(self, shape: ShapeHandle) -> ShapeHandle: ...
+    def imprint_planar_faces(
+        self,
+        outlines: "list[list[tuple[float, float, float]]]",
+        imprint_curves: "list[list[tuple[float, float, float]]] | None" = None,
+        tolerance: float = 1e-6,
+    ) -> "PlanarImprint": ...
 
 
 class AdacppBackend:
@@ -1494,6 +1557,45 @@ class AdacppBackend:
         if fn is None:
             raise NotImplementedError("adacpp.cad.unify_coplanar_faces is not available in this build")
         return fn(shape)
+
+    def imprint_planar_faces(
+        self,
+        outlines: "list[list[tuple[float, float, float]]]",
+        imprint_curves: "list[list[tuple[float, float, float]]] | None" = None,
+        tolerance: float = 1e-6,
+    ) -> "PlanarImprint":
+        # adacpp.cad.imprint_planar_faces mirrors OccBackend's: BOPAlgo_Builder
+        # General Fuse + Modified() history, returning plain topology data. An
+        # older ada-cpp build without it raises rather than borrowing pythonocc
+        # (see the no-fallback note on `build`).
+        fn = getattr(self._cad, "imprint_planar_faces", None)
+        if fn is None:
+            raise NotImplementedError(
+                "adacpp.cad.imprint_planar_faces is not available in this build — "
+                "rebuild ada-cpp, or use ADAPY_CAD_BACKEND=occ for the imprinted Genie SAT export."
+            )
+        from ada.cad import ImprintedEdge, ImprintedFace, PlanarImprint
+
+        def _pts(seq):
+            return [[float(c) for c in p] for p in seq]
+
+        raw = fn([_pts(o) for o in outlines], [_pts(c) for c in (imprint_curves or [])], float(tolerance))
+        return PlanarImprint(
+            vertices=[tuple(v) for v in raw.vertices],
+            edges=[ImprintedEdge(start=e.start, end=e.end) for e in raw.edges],
+            faces=[
+                ImprintedFace(
+                    origin=tuple(f.origin),
+                    normal=tuple(f.normal),
+                    ref_direction=tuple(f.ref_direction),
+                    loops=[[(int(i), bool(fwd)) for i, fwd in loop] for loop in f.loops],
+                )
+                for f in raw.faces
+            ],
+            sources=[list(s) for s in raw.sources],
+            curve_sources=[list(s) for s in getattr(raw, "curve_sources", [])],
+            free_edges=list(getattr(raw, "free_edges", [])),
+        )
 
 
 def select_backend(prefer: str | None = None) -> CadBackend:

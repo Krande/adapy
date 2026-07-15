@@ -12,12 +12,14 @@ then each beam/plate ``<structure>`` is serialised one at a time and written,
 holding only one object's subtree at a time instead of the whole tree.
 
 The per-object elements are produced by the *exact* same builders the DOM
-writer uses (:func:`add_straight_beam`, :func:`add_plate_polygon`), so the
-output is geometry-identical — only the assembly strategy differs.
+writer uses (:func:`add_straight_beam`, :func:`add_plate_polygon` /
+:func:`add_plate_sat`), so the output is byte-identical — only the assembly
+strategy differs.
 
-Scope: the parametric (``embed_sat=False``) path only. The SAT-embedded path
-shares one cross-referenced CDATA body and is inherently whole-model, so it
-stays on :func:`write_xml`.
+``embed_sat`` composes with this: the ACIS body is one cross-referenced,
+imprinted whole-model blob and is necessarily built in memory in one piece, but
+the concept ``<structure>`` entries — the part that scales with model size —
+still stream.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import pathlib
 import xml.etree.ElementTree as ET
 from typing import Callable
 
+from ...sat.write.writer import part_to_sat_writer
 from .write_bcs import add_concept_constraints, add_fem_boundary_conditions
 from .write_equipments import add_equipments
 from .write_hinges import add_hinges
@@ -36,7 +39,13 @@ from .write_plates import (
     add_plate_curved_polygon,
     add_plate_polygon,
     add_plate_polygon_data,
+    add_plate_sat,
     thickness_name,
+)
+from .write_sat_embedded import (
+    embed_sat_geometry,
+    sat_to_base64_segments,
+    splice_cdata_segments,
 )
 from .write_sections import add_sections
 from .write_sets import add_sets
@@ -53,6 +62,7 @@ def write_xml_stream(
     xml_file,
     writer_postprocessor: Callable[[ET.Element, "object"], None] = None,
     merge_strategy=None,
+    embed_sat: bool = False,
 ) -> None:
     """Stream a Genie XML.
 
@@ -62,6 +72,12 @@ def write_xml_stream(
     object-free vectorized FEM-shell face engine
     (:func:`ada.fem.formats.mesh_faces.iter_faces`) instead — no Plate objects
     are ever materialised. Beams still come from the part's (bounded) beam set.
+
+    ``embed_sat`` writes the plates as references into an embedded ACIS body
+    instead of as polygons. The body is shared and imprinted across the whole
+    model, so it is necessarily built in memory in one piece — only the concept
+    ``<structure>`` entries stream. It is incompatible with ``merge_strategy``
+    (no Plate objects to build the body from); the caller checks that.
     """
     from ada import Beam, BeamTapered, Plate
 
@@ -69,6 +85,8 @@ def write_xml_stream(
         xml_file = pathlib.Path(xml_file)
 
     use_faces = merge_strategy is not None
+    if embed_sat and use_faces:
+        raise ValueError("write_xml_stream: embed_sat is incompatible with merge_strategy")
     if use_faces:
         # plate materials live on the FEM shell sections; register them so
         # add_materials emits them and the streamed face material_refs resolve.
@@ -76,6 +94,10 @@ def write_xml_stream(
 
     part.consolidate_sections()
     part.consolidate_materials()
+
+    # The ACIS body must exist before the plates stream: each <sheet> references
+    # its faces by the name the SAT writer minted for them.
+    sw = part_to_sat_writer(part) if embed_sat else None
 
     tree = ET.parse(_XML_TEMPLATE)
     root = tree.getroot()
@@ -120,7 +142,16 @@ def write_xml_stream(
     if writer_postprocessor:
         writer_postprocessor(root, part)
 
+    # <geometry> goes last, after <sets> — matching Genie's own export. A model
+    # with no plates has no ACIS body, so there is nothing to embed (and no
+    # plate will ask sw for a face name either).
+    segments = [] if sw is None or sw.is_empty else sat_to_base64_segments(sw.to_str())
+    if segments:
+        embed_sat_geometry(structure_domain, len(segments))
+
     scaffold = ET.tostring(root, encoding="unicode")
+    if segments:
+        scaffold = splice_cdata_segments(scaffold, segments)
     # ElementTree serialises a childless element as ``<tag />`` (with the space).
     marker = f"<{_MARKER} />"
     if marker not in scaffold:  # be liberal about the serialisation variant
@@ -132,7 +163,7 @@ def write_xml_stream(
         # Match the DOM writer byte-for-byte: tree.write(encoding="utf-8")
         # suppresses the XML declaration, so we emit none either.
         fh.write(head)
-        _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_strategy)
+        _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_strategy, sw)
         fh.write(tail)
 
 
@@ -168,7 +199,7 @@ def _register_shell_materials(part) -> None:
                 p.materials.add(mat)
 
 
-def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_strategy) -> None:
+def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_strategy, sw=None) -> None:
     """Serialise one ``<structure>`` subtree at a time and write it out.
 
     Beams precede plates, matching the add_beams → add_plates order of the DOM
@@ -176,7 +207,8 @@ def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_
     written, and dropped, so peak memory is one object's element tree.
 
     Plates come from the part's Plate objects (``merge_strategy is None``) or,
-    for any strategy value, from the object-free vectorized face source.
+    for any strategy value, from the object-free vectorized face source. With
+    ``sw`` they are written as SAT face references instead of polygons.
     """
     import itertools
 
@@ -207,7 +239,7 @@ def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_
                 "(curved axis not supported by the Genie XML writer)"
             )
         tmp = ET.Element("structures")
-        add_straight_beam(beam, tmp)
+        add_straight_beam(beam, tmp, sw)
         for child in list(tmp):
             fh.write(ET.tostring(child, encoding="unicode"))
 
@@ -217,7 +249,10 @@ def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_
 
         for plate in part.get_all_physical_objects(by_type=Plate):
             tmp = ET.Element("structures")
-            add_plate_polygon(plate, thickness_map[plate.t], tmp)
+            if sw is not None:
+                add_plate_sat(plate, thickness_map[plate.t], tmp, sw)
+            else:
+                add_plate_polygon(plate, thickness_map[plate.t], tmp)
             for child in list(tmp):
                 fh.write(ET.tostring(child, encoding="unicode"))
         for plate in part.get_all_physical_objects(by_type=PlateCurved):

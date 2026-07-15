@@ -139,6 +139,24 @@ class Config:
                 # Eliminates the rotated-flat fallback for these faces;
                 # sacrifices the original ACIS surface parameterisation.
                 ConfigEntry("curved_fallback_via_fill", bool, True),
+                # Reject a peeled surface whose centre lands outside the flat
+                # boundary's box, or which is parameterised over a much larger
+                # patch than that boundary, and use the flat points instead.
+                # It is a heuristic over the *control points*, which for a
+                # b-spline need not lie near the surface, so it can fire on a
+                # face that is perfectly good. Off means trust the peel.
+                #
+                # Off by default: it was a fallback from when the reader could
+                # not yet take these faces and imports crashed, and it now costs
+                # more than it saves. A face it flattens keeps its corners and
+                # loses its curved edges, so it no longer shares an edge with
+                # the curved neighbours it was cut from — on a hull export it
+                # flattened 119 good faces, and the SAT writer then wrote 24
+                # non-manifold vertices and split one shell into six islands
+                # that ACIS rejects. With it off the same model welds into the
+                # two connected lumps Genie itself writes. Kept as an escape
+                # hatch pending confidence that nothing needs it.
+                ConfigEntry("reject_deformed_curved_faces", bool, False),
             ],
         ),
         ConfigSection(

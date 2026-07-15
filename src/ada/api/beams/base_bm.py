@@ -503,6 +503,28 @@ class Beam(BackendGeom):
     def n1(self) -> Node:
         return self._n1
 
+    def axis_global(self) -> tuple[np.ndarray, np.ndarray]:
+        """This beam's (start, end) in global coordinates.
+
+        The nodes are expressed in the beam's own frame, so a beam inside a
+        placed :class:`~ada.Part` has to be pushed through the accumulated
+        placement. Exporters share this so they cannot disagree on where a beam
+        is — the Genie SAT body imprints the axis onto the plates and the XML
+        references the resulting edge, and the two must land on each other.
+        """
+        from ada.api.transforms import Placement
+
+        p1, p2 = np.asarray(self._n1.p, dtype=float), np.asarray(self._n2.p, dtype=float)
+        if self.placement.is_identity():
+            return p1, p2
+
+        ident = Placement()
+        abs_place = self.placement.get_absolute_placement(include_rotations=True)
+        if not np.allclose(abs_place.rot_matrix, ident.rot_matrix):
+            moved = abs_place.transform_array_from_other_place(np.asarray([p1, p2]), ident)
+            return moved[0], moved[1]
+        return abs_place.origin + p1, abs_place.origin + p2
+
     @n1.setter
     def n1(self, new_node: Node):
         self._n1.remove_obj_from_refs(self)

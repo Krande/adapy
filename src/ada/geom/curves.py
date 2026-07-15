@@ -483,6 +483,21 @@ class Pcurve2dBSpline:
 
     Control points are 2D ``[u, v]`` pairs. Optional ``weights`` makes
     the curve rational; ``None`` means non-rational.
+
+    ``fit_tolerance`` is how closely the curve approximates the true
+    curve-on-surface, as the author measured it (ACIS ``exppc`` carries
+    it; SAT v4.0 ch.5 calls it "Fit tolerance"). ``0.0`` asserts the
+    pcurve is exact, so it is a claim rather than a neutral default —
+    keep the authored value when there is one instead of re-asserting
+    exactness a reprojection cannot support.
+
+    ``same_sense`` is the ACIS ``pcurve`` record's own forward/reversed
+    flag: whether this 2D curve runs along its edge's 3D curve or
+    against it. It is authored data and not derivable from the rest —
+    in a Genie export it splits 13722/5184 with no correlation to the
+    knots — so a reader that drops it leaves the writer defaulting to
+    forward, and ACIS then rejects the face with "pcurve's range doesn't
+    include coedge's range" on every one it got wrong.
     """
 
     degree: int
@@ -491,6 +506,8 @@ class Pcurve2dBSpline:
     knot_multiplicities: list[int]
     weights: list[float] | None = None
     closed: bool = False
+    fit_tolerance: float = 0.0
+    same_sense: bool = True
 
 
 @dataclass(slots=True)

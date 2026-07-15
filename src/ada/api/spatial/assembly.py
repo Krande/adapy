@@ -375,24 +375,60 @@ class Assembly(Part):
         self,
         destination_xml,
         writer_postprocessor: Callable[[ET.Element, Part], None] = None,
-        embed_sat=False,
-        streaming=False,
+        embed_sat: bool | None = None,
+        streaming: bool = False,
         merge_strategy=None,
     ):
-        # ``streaming`` emits the per-object <structure> entries straight to the
-        # file instead of building the whole ElementTree DOM, cutting peak RSS on
-        # large FEM-derived models. Geometry-identical to the DOM writer. Not
-        # available with embed_sat (the SAT path shares one whole-model CDATA
-        # body), so fall back there.
-        #
-        # ``merge_strategy`` (None | "none" | "coplanar" | ...) sources plates
-        # from the object-free vectorized FEM-shell face engine instead of
-        # materialising Plate objects — only honoured on the streaming path.
-        if streaming and not embed_sat:
+        """Write a Genie (DNV) concept XML.
+
+        ``embed_sat`` embeds the plate geometry as a ready-built ACIS SAT body
+        that each ``<flat_plate>`` references by face name. Without it the plates
+        are written as bare polygons and Genie must rebuild — and imprint — the
+        ACIS itself on import, which dominates load time on a large model. It
+        needs a CAD backend (see ``CadBackend.imprint_planar_faces``).
+
+        Defaults to ``None`` = on whenever it can be produced. It can't be with
+        ``merge_strategy``, which sources plates from the FEM-shell face engine
+        without ever materialising the ``Plate`` objects the SAT body is built
+        from; asking for both explicitly is contradictory and raises rather than
+        quietly dropping one.
+
+        ``streaming`` emits the per-object ``<structure>`` entries straight to
+        the file instead of building the whole DOM, cutting peak RSS on large
+        FEM-derived models. It composes with ``embed_sat`` (the SAT body itself
+        is inherently whole-model, so only the concept entries stream).
+
+        ``merge_strategy`` (None | "none" | "coplanar" | ...) sources plates from
+        the object-free vectorized FEM-shell face engine — streaming path only.
+        """
+        if merge_strategy is not None:
+            if embed_sat:
+                raise ValueError(
+                    "to_genie_xml: embed_sat=True is incompatible with merge_strategy="
+                    f"{merge_strategy!r} — the SAT body is built from Plate objects, which the "
+                    "merge_strategy face source never materialises. Pass one or the other."
+                )
+            if embed_sat is None:
+                embed_sat = False
+                logger.info("to_genie_xml: merge_strategy set, so plates are written as polygons (no SAT)")
+        elif embed_sat is None:
+            embed_sat = True
+
+        if merge_strategy is not None and not streaming:
+            raise ValueError(
+                f"to_genie_xml: merge_strategy={merge_strategy!r} is only honoured on the streaming "
+                "path; pass streaming=True (it was previously ignored here)."
+            )
+
+        if streaming:
             from ada.cadit.gxml.write.stream_xml import write_xml_stream
 
             write_xml_stream(
-                self, destination_xml, writer_postprocessor=writer_postprocessor, merge_strategy=merge_strategy
+                self,
+                destination_xml,
+                writer_postprocessor=writer_postprocessor,
+                merge_strategy=merge_strategy,
+                embed_sat=embed_sat,
             )
         else:
             from ada.cadit.gxml.write.write_xml import write_xml

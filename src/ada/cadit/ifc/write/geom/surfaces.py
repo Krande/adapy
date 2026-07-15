@@ -231,6 +231,12 @@ def advanced_face(af: geo_su.AdvancedFace, f: ifcopenshell.file) -> ifcopenshell
     """Converts an AdvancedFace to an IFC representation"""
     if type(af.face_surface) in (geo_su.BSplineSurfaceWithKnots, geo_su.RationalBSplineSurfaceWithKnots):
         face_surface = bspline_surface_with_knots(af.face_surface, f)
+    elif isinstance(af.face_surface, geo_su.Plane):
+        # An advanced face can be flat: a plate cut with a curved edge has a
+        # plane surface and b-spline bounds. The surface being simple says
+        # nothing about the boundary, which is why the face is an AdvancedFace
+        # at all rather than a polygon.
+        face_surface = create_plane(af.face_surface, f)
     else:
         raise NotImplementedError(f"Unsupported face surface type: {type(af.face_surface)}")
 

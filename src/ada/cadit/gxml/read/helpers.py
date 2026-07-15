@@ -108,14 +108,87 @@ def _project_to_best_fit_plane(pts):
     return [tuple(p) for p in projected]
 
 
-def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fallback_d=None):
+def _plate_from_3d_points(name, points, t, desired_normal, **kwargs):
+    """``Plate.from_3d_points``, wound to face the way the XML says it does.
+
+    A ``flat_plate`` states its normal outright as a ``<vector>``; the
+    constructor ignores it and derives one from the point order instead. The two
+    disagree about half the time — the points come off the SAT face's loop,
+    whose winding is its own business — and the plate then goes back out facing
+    the other way, which Genie draws inside-out.
+
+    Build it, compare, and rebuild flipped when they disagree. Cheaper would be
+    to reason about the winding up front, but ``CurvePoly2d`` re-orders the
+    outline during construction, so its own answer is the only reliable one.
+    """
     from ada import Plate
 
+    plate = Plate.from_3d_points(name, points, t, **kwargs)
+    if desired_normal is None:
+        return plate
+    import numpy as _np
+
+    got = _np.asarray(plate.poly.normal, dtype=float)
+    want = _np.asarray(desired_normal, dtype=float)
+    if float(_np.dot(got, want)) < 0:
+        plate = Plate.from_3d_points(name, points, t, flip_normal=True, **kwargs)
+    return plate
+
+
+def _sense_against_face(sat_data, desired_normal, authored_sense: bool) -> bool:
+    """The curved_shell sense flag: does ``desired_normal`` agree with the face?
+
+    Only used for a plate the source stated a normal for rather than a flag (a
+    ``flat_plate`` whose edges curve, so it reads as an advanced face and has to
+    leave as a ``curved_shell``). The face's own normal is its surface's,
+    flipped when the ACIS senses disagree — see ``get_face_same_sense``. Falls
+    back to the authored flag when there is nothing to compare.
+    """
+    import numpy as _np
+
+    from ada.geom import surfaces as _su
+
+    if desired_normal is None:
+        return authored_sense
+    geom = getattr(sat_data, "geometry", None)
+    if not isinstance(geom, _su.AdvancedFace) or not isinstance(geom.face_surface, _su.Plane):
+        return authored_sense
+    axis = _np.asarray(geom.face_surface.position.axis, dtype=float)
+    if not geom.same_sense:
+        axis = -axis
+    dot = float(_np.dot(_np.asarray(desired_normal, dtype=float), axis))
+    if abs(dot) < 1e-12:  # perpendicular: the comparison says nothing
+        return authored_sense
+    return dot > 0
+
+
+def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fallback_d=None):
     base_name = plate_elem.attrib["name"]
     mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
     t = thick_map.get(plate_elem.attrib.get("thickness_ref"))
     if flat_fallback_d is None:
         flat_fallback_d = {}
+
+    # A curved shell has no single normal to state as a vector, so Genie
+    # orients it with a flag against its face's own surface normal. It is
+    # authored, and mostly false (4413 of 4746 in a hull export) — defaulting
+    # it to true on the way out draws the model inside-out.
+    sense_flag = plate_elem.find("./local_system/sense_flag")
+    sense = True
+    if sense_flag is not None:
+        sense = str(sense_flag.attrib.get("sense", "true")).strip().lower() != "false"
+    # A flat_plate states its normal outright instead. Those still reach here as
+    # PlateCurved when the face's edges curve (a flat face with a spline
+    # boundary is not a polygon), and they leave as a curved_shell, which has
+    # only the flag to say the same thing — so derive it rather than default it.
+    desired_normal = None
+    if sense_flag is None:
+        vec = plate_elem.find("./local_system/vector")
+        if vec is not None:
+            try:
+                desired_normal = tuple(float(vec.attrib[k]) for k in ("x", "y", "z"))
+            except (KeyError, ValueError):
+                desired_normal = None
 
     face_elems = list(plate_elem.findall(".//face"))
     if face_elems:
@@ -128,10 +201,11 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                 merged_points = merge_coplanar_loops_by_edge_cancellation(face_point_sets)
                 if merged_points is not None:
                     try:
-                        yield Plate.from_3d_points(
+                        yield _plate_from_3d_points(
                             base_name,
                             merged_points,
                             t,
+                            desired_normal,
                             mat=mat,
                             metadata=dict(props=dict(gxml_face_refs=face_refs)),
                             parent=parent,
@@ -168,7 +242,11 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                 # flat perimeter centroid, skip the PlateCurved
                 # path entirely and yield a Plate.from_3d_points
                 # at the correct world location instead.
-                if fallback_pts is not None and len(fallback_pts) >= 3:
+                if (
+                    fallback_pts is not None
+                    and len(fallback_pts) >= 3
+                    and Config().gxml_reject_deformed_curved_faces is True
+                ):
                     try:
                         import numpy as _np
 
@@ -241,10 +319,11 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                                     name,
                                     mismatch,
                                 )
-                                yield Plate.from_3d_points(
+                                yield _plate_from_3d_points(
                                     name,
                                     _project_to_best_fit_plane(fallback_pts),
                                     t,
+                                    desired_normal,
                                     mat=mat,
                                     metadata=dict(props=dict(gxml_face_ref=face_ref)),
                                     parent=parent,
@@ -257,7 +336,12 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                     sat_data,
                     t=t,
                     mat=mat,
-                    metadata=dict(props=dict(gxml_face_ref=face_ref)),
+                    metadata=dict(
+                        props=dict(
+                            gxml_face_ref=face_ref,
+                            gxml_sense_flag=_sense_against_face(sat_data, desired_normal, sense),
+                        )
+                    ),
                     parent=parent,
                 )
                 # Attach the planar fallback points (the SAT face's
@@ -291,10 +375,11 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                 if fb and len(fb) >= 3:
                     try:
                         projected = _project_to_best_fit_plane(fb)
-                        yield Plate.from_3d_points(
+                        yield _plate_from_3d_points(
                             name,
                             projected,
                             t,
+                            desired_normal,
                             mat=mat,
                             metadata=dict(props=dict(gxml_face_ref=face_ref)),
                             parent=parent,
@@ -306,10 +391,11 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                 continue
 
             try:
-                yield Plate.from_3d_points(
+                yield _plate_from_3d_points(
                     name,
                     sat_data,
                     t,
+                    desired_normal,
                     mat=mat,
                     metadata=dict(props=dict(gxml_face_ref=face_ref)),
                     parent=parent,
@@ -330,10 +416,11 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
 
         name = base_name if i == 1 else f"{base_name}_{i:02d}"
         try:
-            yield Plate.from_3d_points(
+            yield _plate_from_3d_points(
                 name,
                 pts,
                 t,
+                desired_normal,
                 mat=mat,
                 metadata=dict(props=dict(gxml_polygon_index=i)),
                 parent=parent,
