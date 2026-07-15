@@ -52,3 +52,80 @@ jobs:
 
         - name: Runs Tests
           run: pixi run -e tests test
+
+    # Build the viewer image and start the server inside it. Nothing else in this workflow can catch
+    # a viewer that won't boot: lint and the test matrix run against the full src/ada tree, but the
+    # viewer runtime ships a CURATED subset of it (see the COPY block in deploy/Dockerfile.viewer),
+    # so a module the REST app imports at startup can be missing from the image with every job here
+    # green. 0.30.0 shipped exactly that and crashlooped on `No module named 'ada.cad'` — and the
+    # worker image from the same commit was healthy, which is what hid it. The tag-only publish
+    # workflow gates the same thing, but that is a release-time backstop; this is the one that keeps
+    # it out of main.
+    viewer-image:
+        runs-on: ubuntu-latest
+        permissions:
+          contents: read
+          # deploy/Dockerfile.viewer FROMs the adacpp wasm base on ghcr (a cross-repo package).
+          packages: read
+        steps:
+        - uses: actions/checkout@v7
+          with:
+            ref: ${{ github.event.pull_request.head.sha || github.ref }}
+            # The scope check below diffs against the PR base, which needs real history.
+            fetch-depth: 0
+
+        # This build is the expensive one in the repo (SPA + pixi solve + the adacpp wasm base), so
+        # a docs-only PR shouldn't pay for it — but anything that can change what lands in the image
+        # must. Mirrors the viewer scope in .forgejo/workflows/build.yaml's detect job. Done inline
+        # rather than as an `on: pull_request: paths:` filter so the job always reports a status:
+        # a path-filtered workflow that never runs leaves a required check pending forever.
+        - name: Does this PR affect the viewer image?
+          id: scope
+          env:
+            BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          run: |
+            CHANGED="$(git diff --name-only "$BASE_SHA"...HEAD || true)"
+            if printf '%s\n' "$CHANGED" | grep -qE '^(src/ada/|src/frontend/|deploy/Dockerfile\.viewer(-fast)?$|deploy/viewer-(ada-init|smoke)\.py$|pixi\.(toml|lock)$|pyproject\.toml$|\.github/workflows/pr-tests\.yml$)'; then
+              echo "build=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "build=false" >> "$GITHUB_OUTPUT"
+              echo "No viewer-affecting paths in this PR; skipping the image build."
+            fi
+
+        - uses: docker/setup-buildx-action@v4
+          if: steps.scope.outputs.build == 'true'
+
+        - name: Log in to GitHub Container Registry
+          if: steps.scope.outputs.build == 'true'
+          uses: docker/login-action@v4
+          with:
+            registry: ghcr.io
+            username: ${{ github.actor }}
+            password: ${{ secrets.GITHUB_TOKEN }}
+
+        - name: Build viewer image
+          if: steps.scope.outputs.build == 'true'
+          uses: docker/build-push-action@v7
+          with:
+            context: .
+            file: ./deploy/Dockerfile.viewer
+            # Never pushed — built only to be started. ADACPP_BASE_IMAGE is deliberately not passed
+            # so the pin in deploy/Dockerfile.viewer stands; see publish-image.yaml.
+            push: false
+            load: true
+            tags: adapy-viewer:pr
+            build-args: |
+              IMAGE_TAG=pr-${{ github.event.pull_request.number }}
+            # Read the release cache when it's reachable, but write a PR-scoped one: a PR can only
+            # restore caches from its base branch or its own, so tag-built layers usually aren't
+            # visible here. First run on a PR is cold; later pushes to it hit this.
+            cache-from: |
+              type=gha,scope=viewer-pr
+              type=gha,scope=viewer
+            cache-to: type=gha,mode=max,scope=viewer-pr
+
+        - name: Smoke-test the viewer image
+          if: steps.scope.outputs.build == 'true'
+          run: |
+            docker run --rm -i --entrypoint sh adapy-viewer:pr \
+              -c 'exec /env/bin/python -' < deploy/viewer-smoke.py
