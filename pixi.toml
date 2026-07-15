@@ -3,7 +3,14 @@ channels = ["conda-forge"]
 platforms = ["win-64", "linux-64", "osx-64"]
 
 [feature.lint.tasks]
-lint = "black . --config pyproject.toml && ruff check . --fix && isort ."
+# Local dev: rewrite the tree in place. Exclusions are config-driven (pyproject's [tool.black] via
+# .gitignore, [tool.ruff] exclude, [tool.isort] skip), so these are safe to point at ".".
+lint = { cmd = "black . --config pyproject.toml && ruff check . --fix && isort .", description = "Format + lint Python in place" }
+# The CI gate — NOT `lint`. black, `ruff check --fix` and isort all MUTATE and exit 0, so a lint job
+# running `lint` reformats the runner's throwaway checkout and passes unconditionally: it cannot
+# fail, whatever the PR contains. Same tools, same config, same order — check mode reports instead
+# of rewriting.
+lint-check = { cmd = "black . --check --config pyproject.toml && ruff check . && isort . --check-only", description = "CI gate: fail on any unformatted/unlinted Python" }
 flat = { cmd = "python src/flatbuffers/update_flatbuffers.py && pixi run lint", cwd = "./" }
 
 json-code-gen-py = { cmd = [
