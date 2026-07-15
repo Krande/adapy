@@ -1362,7 +1362,14 @@ interface GirderCheckInputs {
     tf_mm?: number;
     section?: string;
   };
-  bay?: { LG_mm?: number; l_mm?: number; s_mm?: number; continuous?: boolean };
+  bay?: {
+    LG_mm?: number;
+    l_mm?: number;
+    l1_mm?: number;
+    l2_mm?: number;
+    s_mm?: number;
+    continuous?: boolean;
+  };
   plate?: { s_mm?: number; t_mm?: number };
   stiffener?: {
     As_mm2?: number;
@@ -1413,6 +1420,8 @@ function buildUiGirderValues(
   const bf = asNum(ci.girder?.bf_mm) ?? 0;
   const tf = asNum(ci.girder?.tf_mm) ?? 0;
   const lSpan = asNum(ci.bay?.l_mm) ?? 0;
+  const l1Span = asNum(ci.bay?.l1_mm) ?? lSpan;
+  const l2Span = asNum(ci.bay?.l2_mm) ?? lSpan;
   const t = asNum(ci.plate?.t_mm) ?? 0;
   const areaMm2 = hw * tw + bf * tf + lSpan * t;
   // N [N] / A [mm²] = sigma [MPa] exactly.
@@ -1452,6 +1461,8 @@ function buildUiGirderValues(
     continuous_through_girder: ci.stiffener?.continuous_through_girder !== false,
     LG: dr(asNum(ci.bay?.LG_mm)),
     l_span: dr(lSpan),
+    l1_span: dr(l1Span),
+    l2_span: dr(l2Span),
     // The sidecar run leaves the optional lengths at the engine defaults
     // (L_Gk = L_G, L_GT = L_G, no panel length): export explicit blanks so the
     // UI form does not substitute its own suggested defaults on import.
@@ -1693,6 +1704,8 @@ function buildGirderInputGroups(row: CapacityCaseResultLike): InputGroup[] {
   const bf = asNum(ci.girder?.bf_mm) ?? 0;
   const tf = asNum(ci.girder?.tf_mm) ?? 0;
   const lSpan = asNum(ci.bay?.l_mm) ?? 0;
+  const l1Span = asNum(ci.bay?.l1_mm) ?? lSpan;
+  const l2Span = asNum(ci.bay?.l2_mm) ?? lSpan;
   const t = asNum(ci.plate?.t_mm) ?? 0;
   const areaMm2 = hw * tw + bf * tf + lSpan * t;
   const sigmaY = (nG: unknown): number | null => {
@@ -1726,7 +1739,9 @@ function buildGirderInputGroups(row: CapacityCaseResultLike): InputGroup[] {
       title: "Girder bay",
       fields: [
         f("L_G", "Girder span", asNum(ci.bay?.LG_mm), "mm"),
-        f("l", "Stiffener span", asNum(ci.bay?.l_mm), "mm", undefined, "[7.4]"),
+        f("L_1", "Adjacent stiffener span", l1Span, "mm", undefined, "[5.3]"),
+        f("L_2", "Adjacent stiffener span", l2Span, "mm", undefined, "[5.3]"),
+        f("l", "Effective span", lSpan, "mm", undefined, "[7.4]"),
         f("s", "Stiffener spacing", asNum(ci.plate?.s_mm), "mm"),
         f("t", "Plate thickness", asNum(ci.plate?.t_mm), "mm"),
       ],

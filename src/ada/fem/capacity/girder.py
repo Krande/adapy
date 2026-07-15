@@ -87,7 +87,9 @@ class GirderCapacityModel:
     section: CapSection
     material: CapMaterial
     LG: float  # girder span (this bay) [m]
-    l: float  # stiffener span = tributary width across the girder [m]  # noqa: E741
+    l: float  # effective stiffener span = 0.5*(l1 + l2) [m]  # noqa: E741
+    l1: float  # adjacent stiffener span on one side of the girder [m]
+    l2: float  # adjacent stiffener span on the other side of the girder [m]
     s: float  # stiffener spacing of the flanking panels [m]
     t: float  # plate thickness [m]
     As: float  # aggregate stiffener area (excl. plate) [m^2]
@@ -315,6 +317,7 @@ def build_girder_models(
             logger.info("capacity girder: empty tributary strip for %s - skipped", pre.name)
             continue
         stations = extract.stiffener_stations(mesh, pre.run)
+        l1, l2 = _adjacent_stiffener_spans(pre.half_by_side, pre.l_span)
         out.append(
             GirderCapacityModel(
                 name=pre.name,
@@ -325,6 +328,8 @@ def build_girder_models(
                 material=_cap_material(mesh, pre.run[0]),
                 LG=float(pre.span),
                 l=pre.l_span,
+                l1=l1,
+                l2=l2,
                 s=pre.s_spacing,
                 t=pre.t,
                 As=pre.As,
@@ -336,6 +341,23 @@ def build_girder_models(
             )
         )
     return out
+
+
+def _adjacent_stiffener_spans(half_by_side: dict[int, float], fallback: float) -> tuple[float, float]:
+    """Return the two adjacent stiffener spans carried by a girder.
+
+    The capacity equations consume the effective width ``l``. Stipla DNV-G and
+    DNV-RP-C201 Figure 5-4 keep the two neighbouring panel spans separately as
+    L1/L2, with the effective plate flange width equal to their mean. For an
+    edge/single-sided girder, mirror the one available side so the effective
+    width stays unchanged and both exported spans remain positive.
+    """
+    spans = [2.0 * half_by_side[side] for side in sorted(half_by_side) if half_by_side[side] > 0.0]
+    if len(spans) >= 2:
+        return float(spans[0]), float(spans[1])
+    if len(spans) == 1:
+        return float(spans[0]), float(spans[0])
+    return float(fallback), float(fallback)
 
 
 def _supported_stiffener_lines(mesh: Mesh, pre: _PreparedGirder) -> tuple[tuple[tuple[float, float, float], ...], ...]:
@@ -540,7 +562,8 @@ def _prepare_girder(
     if not spans or not spacings or not thicknesses:
         logger.info("capacity girder: flanking panels of %s carry no usable plate dims - skipped", name)
         return None
-    l_span = float(np.mean(spans))
+    l1_span, l2_span = _adjacent_stiffener_spans(half_by_side, float(np.mean(spans)))
+    l_span = 0.5 * (l1_span + l2_span)
     s_spacing = float(np.mean(spacings))
     if span <= s_spacing:
         # A bay shorter than the stiffener spacing supports no stiffener — a stub
