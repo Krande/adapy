@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -21,6 +22,97 @@ class UnsupportedCurvedFace(NotImplementedError):
     Raised rather than approximated: a curved plate silently degraded to
     something else is worse than one the caller can log and fall back on.
     """
+
+
+def _vkey(p, nd: int) -> tuple:
+    return tuple(round(float(c), nd) for c in p)
+
+
+def _curve_key(curve, nd: int) -> tuple:
+    """A fingerprint that tells two curves between the same points apart.
+
+    Position alone is not enough to call two edges the same edge: two faces can
+    meet at a pair of vertices and still be bounded by different curves between
+    them (two arcs of a circle, most obviously).
+    """
+    if isinstance(curve, geo_cu.Line):
+        return ("line",)
+    if isinstance(curve, geo_cu.Circle):
+        return (
+            "circle",
+            round(float(curve.radius), nd),
+            _vkey(curve.position.location, nd),
+            _vkey(curve.position.axis, nd),
+        )
+    if isinstance(curve, geo_cu.Ellipse):
+        return (
+            "ellipse",
+            round(float(curve.semi_axis1), nd),
+            round(float(curve.semi_axis2), nd),
+            _vkey(curve.position.location, nd),
+            _vkey(curve.position.axis, nd),
+        )
+    if isinstance(curve, geo_cu.BSplineCurveWithKnots):
+        return ("bspline", curve.degree, tuple(_vkey(p, nd) for p in curve.control_points_list))
+    return ("?", type(curve).__name__, id(curve))
+
+
+class TopologyWeld:
+    """The vertices and edges shared by every curved face in the body.
+
+    A face built in isolation mints its own vertex at each corner, so two faces
+    meeting along an edge leave two coincident vertices and two coincident
+    edges in the same shell — which ACIS rejects as "duplicate vertex", once per
+    pair. Genie's own export shares them: 6159 vertices and 11627 edges for the
+    5470 faces where one-face-at-a-time produces 23186 of each.
+
+    The sharing is recoverable from what the reader hands over — welding by
+    position and curve gives 6111 vertices and 11573 edges, the difference being
+    the faces the reader could not convert. Faces are keyed on rounded
+    coordinates: two faces carry the same corner through separate reads and need
+    not agree in the last bit. 1e-7 m is far below any modelling tolerance and
+    far above that noise.
+    """
+
+    def __init__(self, id_gen, nd: int = 7):
+        self.id_gen = id_gen
+        self.nd = nd
+        self.entities: list[se.SATEntity] = []
+        self._vertices: dict[tuple, se.Vertex] = {}
+        self._edges: dict[tuple, se.Edge] = {}
+        # edge -> the coedges lying on it, with a vector pointing from the edge
+        # into each one's face (for the radial ordering ACIS wants)
+        self.coedges_on_edge: dict[int, list[tuple[se.CoEdge, np.ndarray]]] = defaultdict(list)
+        self.range_conflicts = 0
+
+    def vertex_at(self, p) -> se.Vertex:
+        key = _vkey(p, self.nd)
+        vertex = self._vertices.get(key)
+        if vertex is None:
+            sat_point = se.SatPoint(self.id_gen.next_id(), ada.Point(*p))
+            vertex = se.Vertex(self.id_gen.next_id(), None, sat_point)
+            self._vertices[key] = vertex
+            self.entities.extend([sat_point, vertex])
+        return vertex
+
+    def edge_key(self, p_lo, p_hi, curve_geom) -> tuple:
+        ka, kb = _vkey(p_lo, self.nd), _vkey(p_hi, self.nd)
+        return (min(ka, kb), max(ka, kb), _curve_key(curve_geom, self.nd))
+
+    def get_edge(self, key: tuple) -> se.Edge | None:
+        return self._edges.get(key)
+
+    def add_edge(self, key: tuple, edge: se.Edge, curve: se.SATEntity) -> None:
+        self._edges[key] = edge
+        self.entities.extend([curve, edge])
+
+    @property
+    def n_vertices(self) -> int:
+        return len(self._vertices)
+
+    @property
+    def n_edges(self) -> int:
+        return len(self._edges)
 
 
 def _surface_entity(id_gen, surface, same_sense: bool) -> tuple[se.SATEntity, str]:
@@ -66,13 +158,16 @@ def _curve_entity(id_gen, curve, t_lo: float, t_hi: float) -> se.SATEntity:
     raise UnsupportedCurvedFace(f"no ACIS curve record for {type(curve).__name__}")
 
 
-def curved_plate_to_sat_entities(pl: PlateCurved, face_name: str, sw: SatWriter) -> list[se.SATEntity]:
+def curved_plate_to_sat_entities(
+    pl: PlateCurved, face_name: str, sw: SatWriter, weld: TopologyWeld
+) -> list[se.SATEntity]:
     """Convert one :class:`~ada.api.plates.PlateCurved` into its ACIS face.
 
-    One independent face per plate: no shared topology, no partner ring. The
-    imprint path cannot take these — it splits *planar* outlines — so a curved
-    plate is emitted unfused whichever mode the writer runs in, and its coedges
-    leave the partner slot null the way Genie writes a face that stands alone.
+    Vertices and edges come from ``weld``, so a face shares them with its
+    neighbours instead of minting coincident copies (see :class:`TopologyWeld`).
+    The imprint path cannot take these — it splits *planar* outlines and has
+    nothing to say about a B-spline patch — so the sharing is recovered by
+    position and curve rather than by re-cutting the geometry.
 
     Senses are reconstructed from the edge's parameter range rather than
     guessed. Every edge in a Genie export is ``forward`` (18924 of 18924 in a
@@ -113,24 +208,11 @@ def curved_plate_to_sat_entities(pl: PlateCurved, face_name: str, sw: SatWriter)
     face.loop = loop
     entities.append(loop)
 
-    # One vertex per distinct position on this face. Rounded because the two
-    # edges meeting at a corner carry the same point through separate reads and
-    # need not agree in the last bit; 1e-9 m is far below any modelling
-    # tolerance and far above that noise.
-    vertex_map: dict[tuple, se.Vertex] = {}
-
-    def vertex_at(p) -> se.Vertex:
-        key = tuple(round(float(c), 9) for c in p)
-        v = vertex_map.get(key)
-        if v is None:
-            sat_point = se.SatPoint(id_gen.next_id(), ada.Point(*p))
-            v = se.Vertex(id_gen.next_id(), None, sat_point)
-            vertex_map[key] = v
-            entities.extend([sat_point, v])
-        return v
+    loop_points = [np.asarray(oe.start, dtype=float) for oe in edge_list]
 
     coedges: list[se.CoEdge] = []
-    for oriented_edge in edge_list:
+    face_vertices: list[se.Vertex] = []
+    for i, oriented_edge in enumerate(edge_list):
         edge_curve = oriented_edge.edge_element
         curve_geom = getattr(edge_curve, "edge_geometry", None)
         if curve_geom is None:
@@ -156,25 +238,36 @@ def curved_plate_to_sat_entities(pl: PlateCurved, face_name: str, sw: SatWriter)
             t_lo, t_hi = t_start, t_end
             p_lo, p_hi = p_start, p_end
 
-        curve = _curve_entity(id_gen, curve_geom, t_lo, t_hi)
-        entities.append(curve)
+        # The neighbour that already built this edge wrote the vertices, the
+        # curve and the range; only the coedge is ours.
+        key = weld.edge_key(p_lo, p_hi, curve_geom)
+        edge = weld.get_edge(key)
+        if edge is None:
+            curve = _curve_entity(id_gen, curve_geom, t_lo, t_hi)
+            v_start, v_end = weld.vertex_at(p_lo), weld.vertex_at(p_hi)
+            edge = se.Edge(
+                id_gen.next_id(),
+                v_start,
+                v_end,
+                None,
+                curve,
+                start_pt=ada.Point(*p_lo),
+                end_pt=ada.Point(*p_hi),
+                t_start=t_lo,
+                t_end=t_hi,
+            )
+            weld.add_edge(key, edge, curve)
+        elif t_lo is not None and edge.t_start is not None:
+            # Two faces on one edge must agree on where it starts and stops;
+            # they came from the same record, so this is a tolerance question
+            # rather than a real disagreement. Count it instead of picking one.
+            if abs(edge.t_start - t_lo) > 1e-6 or abs(edge.t_end - t_hi) > 1e-6:
+                weld.range_conflicts += 1
 
-        v_start, v_end = vertex_at(p_lo), vertex_at(p_hi)
-        edge = se.Edge(
-            id_gen.next_id(),
-            v_start,
-            v_end,
-            None,
-            curve,
-            start_pt=ada.Point(*p_lo),
-            end_pt=ada.Point(*p_hi),
-            t_start=t_lo,
-            t_end=t_hi,
-        )
-        entities.append(edge)
-        for v in (v_start, v_end):
+        for v in (edge.vertex_start, edge.vertex_end):
             if v.edge is None:
                 v.edge = edge
+            face_vertices.append(v)
 
         # A pcurve belongs to a spline face: it is the edge in that surface's
         # parameter space, and a plane has none to speak of. Genie agrees —
@@ -203,7 +296,11 @@ def curved_plate_to_sat_entities(pl: PlateCurved, face_name: str, sw: SatWriter)
             "reversed" if runs_backwards else "forward",
             pcurve=pcurve,
         )
-        edge.coedge = coedge
+        # An edge names ONE of its coedges; the others are reached round the
+        # partner ring, so the first face to claim it wins.
+        if edge.coedge is None:
+            edge.coedge = coedge
+        weld.coedges_on_edge[id(edge)].append((coedge, _into_face(p_lo, p_hi, loop_points)))
         entities.append(coedge)
         coedges.append(coedge)
 
@@ -212,7 +309,79 @@ def curved_plate_to_sat_entities(pl: PlateCurved, face_name: str, sw: SatWriter)
         coedge.prev_coedge = coedges[i - 1]
     loop.coedge = coedges[0]
 
-    pts = np.asarray([v.point.point for v in vertex_map.values()], dtype=float)
+    unique = {id(v): v for v in face_vertices}
+    pts = np.asarray([v.point.point for v in unique.values()], dtype=float)
     loop.bbox = make_ints_if_possible([*np.min(pts, axis=0), *np.max(pts, axis=0)])
 
     return sorted(entities, key=lambda x: x.id)
+
+
+def _into_face(p_lo, p_hi, loop_points: list[np.ndarray]) -> np.ndarray:
+    """A vector from the edge into the face it bounds, perpendicular to it.
+
+    Where an edge carries more than two coedges, ACIS wants them ordered by
+    where their faces sit radially about it, and this is what that angle is
+    measured on. The face's centroid stands in for the surface normal, which
+    would otherwise have to be evaluated on the patch; it only has to separate
+    the faces around the edge, and only 35 of a hull export's 11573 edges carry
+    more than two.
+    """
+    a = np.asarray(p_lo, dtype=float)
+    b = np.asarray(p_hi, dtype=float)
+    axis = b - a
+    length = float(np.linalg.norm(axis))
+    if length < 1e-12:
+        return np.zeros(3)
+    axis = axis / length
+    into = np.mean(np.asarray(loop_points, dtype=float), axis=0) - 0.5 * (a + b)
+    into = into - axis * float(into @ axis)
+    norm = float(np.linalg.norm(into))
+    return into / norm if norm > 1e-12 else np.zeros(3)
+
+
+def link_partner_rings(weld: TopologyWeld) -> None:
+    """Join the coedges lying on each edge into a ring, ordered about it.
+
+    An edge bounding one face leaves the slot null, as Genie writes it; two
+    faces link to each other. Beyond that ACIS wants them counter-clockwise
+    about the edge's own direction and says so ("coedges out of order about
+    edge") — the same rule the imprinted planar path sorts on.
+    """
+    for entries in weld.coedges_on_edge.values():
+        if len(entries) < 2:
+            continue
+        if len(entries) == 2:
+            # a 2-cycle reads the same either way round
+            ordered = [entries[0][0], entries[1][0]]
+        else:
+            ordered = _ordered_about_edge(entries)
+        for cur, nxt in zip(ordered, ordered[1:] + ordered[:1]):
+            cur.partner = nxt
+
+
+def _ordered_about_edge(entries) -> list[se.CoEdge]:
+    """The coedges on one edge, counter-clockwise about it."""
+    coedge = entries[0][0]
+    edge = coedge.edge
+    a = np.asarray(edge.start_pt, dtype=float)
+    b = np.asarray(edge.end_pt, dtype=float)
+    axis = b - a
+    length = float(np.linalg.norm(axis))
+    if length < 1e-12:
+        return [c for c, _ in entries]
+    axis = axis / length
+
+    # any pair perpendicular to the edge; (ref, ortho, axis) is right-handed, so
+    # the angle increases counter-clockwise about it
+    seed = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    ref = np.cross(axis, seed)
+    ref = ref / np.linalg.norm(ref)
+    ortho = np.cross(axis, ref)
+
+    def angle(entry) -> float:
+        _, into = entry
+        if float(np.linalg.norm(into)) < 1e-12:
+            return 0.0
+        return float(np.arctan2(into @ ortho, into @ ref))
+
+    return [c for c, _ in sorted(entries, key=angle)]

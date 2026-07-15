@@ -93,8 +93,11 @@ def add_curved_shell_sat(plate, thck_name: str, structures_elem: ET.Element, fac
     ET.SubElement(curved_shell, "back")
     local_sys = ET.SubElement(curved_shell, "local_system")
     # A curved shell has no single normal to hand a <vector>; Genie orients it
-    # with a sense flag against the face's own surface normal instead.
-    ET.SubElement(local_sys, "sense_flag", {"sense": "true"})
+    # with a sense flag against the face's own surface normal instead. It is
+    # authored data — mostly false (4413 of 4746 in a hull export), so hardcoding
+    # true here drew all but a handful of the plates inside-out.
+    sense = plate.metadata.get("props", {}).get("gxml_sense_flag", True)
+    ET.SubElement(local_sys, "sense_flag", {"sense": "true" if sense else "false"})
     geometry = ET.SubElement(curved_shell, "geometry")
     sheet = ET.SubElement(geometry, "sheet")
     sat_reference = ET.SubElement(sheet, "sat_reference")

@@ -87,27 +87,34 @@ def _add_plates_unfused(sw: SatWriter, plates: list[Plate]) -> None:
 
 
 def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved]) -> None:
-    """One independent spline (or curved-edged plane) face per curved plate.
+    """One spline (or curved-edged plane) face per curved plate, welded together.
 
     Numbered on from the planar faces so the two sets share one FACE namespace.
+    Neighbouring faces share their vertices and edges rather than minting
+    coincident copies — ACIS rejects those as "duplicate vertex" — and the
+    coedges on each shared edge are joined into a partner ring.
+
     A plate whose geometry this writer cannot author is skipped and logged
     rather than dropped silently — it leaves no entry in ``face_map``, so the
     gxml writer falls back to its boundary polygon for that plate alone.
     """
     from ada.cadit.sat.write.write_curved_plate import (
+        TopologyWeld,
         UnsupportedCurvedFace,
         curved_plate_to_sat_entities,
+        link_partner_rings,
     )
 
     if not curved:
         return
 
+    weld = TopologyWeld(sw.id_generator)
     face_id = len(sw.get_entities_by_type(se.Face)) + 1
     skipped = Counter()
     for pl in curved:
         face_name = f"FACE{face_id:08d}"
         try:
-            entities = curved_plate_to_sat_entities(pl, face_name, sw)
+            entities = curved_plate_to_sat_entities(pl, face_name, sw, weld)
         except UnsupportedCurvedFace as ex:
             skipped[str(ex)] += 1
             continue
@@ -116,6 +123,20 @@ def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved]) -> None:
         sw.face_map[pl.guid] = [face_name]
         face_id += 1
 
+    link_partner_rings(weld)
+    for entity in weld.entities:
+        sw.add_entity(entity)
+
+    logger.info(
+        f"sat-write: {face_id - 1} curved faces share {weld.n_vertices} vertices and {weld.n_edges} edges"
+    )
+    if weld.range_conflicts:
+        # Two faces on one edge disagreeing about its parameter range means the
+        # weld joined edges that are not the same edge.
+        logger.warning(
+            f"sat-write: {weld.range_conflicts} shared edges disagree on their parameter range; "
+            "the welded topology may be wrong there"
+        )
     if skipped:
         total = sum(skipped.values())
         detail = "; ".join(f"{reason} ({n})" for reason, n in skipped.most_common(3))

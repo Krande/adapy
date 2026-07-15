@@ -12,8 +12,10 @@ import pytest
 from ada.api.plates import PlateCurved
 from ada.cadit.sat.write import sat_entities as se
 from ada.cadit.sat.write.write_curved_plate import (
+    TopologyWeld,
     UnsupportedCurvedFace,
     curved_plate_to_sat_entities,
+    link_partner_rings,
 )
 from ada.cadit.sat.write.writer import SatWriter
 from ada.geom import Geometry
@@ -104,6 +106,14 @@ def _writer(pl) -> SatWriter:
     return sw
 
 
+def _build(pl, face_name="FACE00000001"):
+    """Build one face, with a weld of its own — the single-plate case."""
+    sw = _writer(pl)
+    weld = TopologyWeld(sw.id_generator)
+    entities = curved_plate_to_sat_entities(pl, face_name, sw, weld)
+    return entities + weld.entities
+
+
 def _by_type(entities, cls):
     return [e for e in entities if type(e) is cls]
 
@@ -111,7 +121,7 @@ def _by_type(entities, cls):
 class TestTopology:
     def test_one_face_one_loop_and_a_closed_coedge_ring(self):
         pl = _plate()
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
 
         assert len(_by_type(ents, se.Face)) == 1
         assert len(_by_type(ents, se.Loop)) == 1
@@ -130,14 +140,14 @@ class TestTopology:
     def test_a_shared_corner_is_one_vertex(self):
         """Four edges, four corners — not eight."""
         pl = _plate()
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
         assert len(_by_type(ents, se.Vertex)) == 4
         assert len(_by_type(ents, se.SatPoint)) == 4
 
     def test_the_face_is_named_and_owned_by_the_shell(self):
         pl = _plate()
         sw = _writer(pl)
-        ents = curved_plate_to_sat_entities(pl, "FACE00000042", sw)
+        ents = curved_plate_to_sat_entities(pl, "FACE00000042", sw, TopologyWeld(sw.id_generator))
         face = _by_type(ents, se.Face)[0]
         assert face.name.name == "FACE00000042"
         assert face.shell is sw.shell
@@ -145,7 +155,7 @@ class TestTopology:
 
     def test_every_vertex_names_an_edge(self):
         pl = _plate()
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
         for v in _by_type(ents, se.Vertex):
             assert v.edge is not None
 
@@ -168,7 +178,7 @@ class TestSenses:
 
     def test_a_descending_range_becomes_a_reversed_coedge(self):
         pl = _plate(self._face_with_backwards_edge())
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
         senses = [c.orientation for c in _by_type(ents, se.CoEdge)]
         assert senses.count("reversed") == 1
         assert senses.count("forward") == 3
@@ -176,14 +186,14 @@ class TestSenses:
     def test_the_edge_range_still_ascends(self):
         """ACIS reads an edge forward along its curve, so t must ascend."""
         pl = _plate(self._face_with_backwards_edge())
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
         for edge in _by_type(ents, se.Edge):
             assert edge.t_start < edge.t_end
             assert " forward " in edge.to_string()
 
     def test_a_reversed_edge_swaps_its_vertices(self):
         pl = _plate(self._face_with_backwards_edge())
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
         reversed_coedge = next(c for c in _by_type(ents, se.CoEdge) if c.orientation == "reversed")
         edge = reversed_coedge.edge
         # the loop runs (1,0,0) -> (1,1,0); the edge is written the other way
@@ -195,21 +205,21 @@ class TestSurfacesAndPCurves:
     def test_a_plane_surfaced_face_carries_no_pcurve(self):
         """A flat face with curved edges: Genie gives its coedges no pcurve."""
         pl = _plate(_square_face(surface=_plane_surface(), pcurve=_pcurve()))
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
         assert len(_by_type(ents, se.PlaneSurface)) == 1
         assert _by_type(ents, se.PCurve) == []
         assert all(c.pcurve is None for c in _by_type(ents, se.CoEdge))
 
     def test_a_spline_face_carries_one_pcurve_per_coedge(self):
         pl = _plate(_square_face(surface=_spline_surface(), pcurve=_pcurve()))
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
         assert len(_by_type(ents, se.SplineSurface)) == 1
         assert len(_by_type(ents, se.PCurve)) == 4
         assert all(c.pcurve is not None for c in _by_type(ents, se.CoEdge))
 
     def test_the_pcurve_names_the_face_surface(self):
         pl = _plate(_square_face(surface=_spline_surface(), pcurve=_pcurve()))
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
         surface = _by_type(ents, se.SplineSurface)[0]
         for pc in _by_type(ents, se.PCurve):
             assert pc.surface is surface
@@ -226,20 +236,20 @@ class TestNormals:
     def test_a_spline_face_puts_the_flip_on_the_surface(self):
         """A spline-surface has a sense of its own, so the face stays forward."""
         pl = _plate(_square_face(surface=_spline_surface(), pcurve=_pcurve(), same_sense=False))
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
         assert _by_type(ents, se.SplineSurface)[0].sense == "reversed"
         assert _by_type(ents, se.Face)[0].sense == "forward"
 
     def test_a_plane_face_puts_the_flip_on_the_face(self):
         """A plane-surface has no sense to carry it."""
         pl = _plate(_square_face(surface=_plane_surface(), same_sense=False))
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
         assert _by_type(ents, se.Face)[0].sense == "reversed"
 
     def test_an_agreeing_face_is_forward_either_way(self):
         for surface in (_spline_surface(), _plane_surface()):
             pl = _plate(_square_face(surface=surface, pcurve=_pcurve(), same_sense=True))
-            ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+            ents = _build(pl)
             assert _by_type(ents, se.Face)[0].sense == "forward"
             splines = _by_type(ents, se.SplineSurface)
             if splines:
@@ -247,7 +257,7 @@ class TestNormals:
 
     def test_the_face_sense_reaches_the_record(self):
         pl = _plate(_square_face(surface=_plane_surface(), same_sense=False))
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
         assert " reversed double out " in _by_type(ents, se.Face)[0].to_string()
 
 
@@ -262,14 +272,14 @@ class TestPCurveSense:
 
     def test_a_reversed_pcurve_is_written_reversed(self):
         pl = _plate(_square_face(surface=_spline_surface(), pcurve=_pcurve(same_sense=False)))
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
         pcurves = _by_type(ents, se.PCurve)
         assert pcurves and all(pc.sense == "reversed" for pc in pcurves)
         assert all(" 0 reversed { exppc " in pc.to_string() for pc in pcurves)
 
     def test_a_forward_pcurve_is_written_forward(self):
         pl = _plate(_square_face(surface=_spline_surface(), pcurve=_pcurve(same_sense=True)))
-        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        ents = _build(pl)
         pcurves = _by_type(ents, se.PCurve)
         assert pcurves and all(pc.sense == "forward" for pc in pcurves)
 
@@ -281,6 +291,101 @@ class TestPCurveSense:
         assert _reverse_pcurve_2d(_pcurve(same_sense=False)).same_sense is True
 
 
+class TestWeld:
+    """Neighbouring faces share their vertices and edges.
+
+    A face built alone mints its own vertex at each corner, so two faces meeting
+    along an edge leave coincident copies in the same shell — ACIS calls that
+    "duplicate vertex". Genie's export shares them: 6159 vertices for the 5470
+    faces where one-face-at-a-time gives 23186.
+    """
+
+    @staticmethod
+    def _two_squares():
+        """Two unit squares meeting along the x=1 edge."""
+
+        def square(x0, x1):
+            c = [(x0, 0.0, 0.0), (x1, 0.0, 0.0), (x1, 1.0, 0.0), (x0, 1.0, 0.0)]
+            edges = [_line_edge(c[i], c[(i + 1) % 4]) for i in range(4)]
+            return geo_su.AdvancedFace(
+                bounds=[geo_su.FaceBound(bound=geo_cu.EdgeLoop(edge_list=edges), orientation=True)],
+                face_surface=_plane_surface(),
+            )
+
+        return _plate(square(0.0, 1.0), name="a"), _plate(square(1.0, 2.0), name="b")
+
+    def _build_both(self):
+        pl_a, pl_b = self._two_squares()
+        sw = _writer(pl_a)
+        weld = TopologyWeld(sw.id_generator)
+        ents = curved_plate_to_sat_entities(pl_a, "FACE00000001", sw, weld)
+        ents += curved_plate_to_sat_entities(pl_b, "FACE00000002", sw, weld)
+        link_partner_rings(weld)
+        return ents + weld.entities, weld
+
+    def test_the_shared_corners_are_one_vertex_each(self):
+        ents, weld = self._build_both()
+        # 6 distinct corners across the two squares, not 8
+        assert weld.n_vertices == 6
+        assert len(_by_type(ents, se.Vertex)) == 6
+        assert len(_by_type(ents, se.SatPoint)) == 6
+
+    def test_no_two_points_are_coincident(self):
+        ents, _ = self._build_both()
+        pts = [tuple(round(float(c), 7) for c in p.point) for p in _by_type(ents, se.SatPoint)]
+        assert len(pts) == len(set(pts))
+
+    def test_the_shared_edge_is_one_record(self):
+        ents, weld = self._build_both()
+        # 7 edges: 3 on each square plus the one they share, not 8
+        assert weld.n_edges == 7
+        assert len(_by_type(ents, se.Edge)) == 7
+
+    def test_the_shared_edge_carries_two_coedges_that_partner_each_other(self):
+        ents, weld = self._build_both()
+        shared = [e for e in weld.coedges_on_edge.values() if len(e) == 2]
+        assert len(shared) == 1
+        (ca, _), (cb, _) = shared[0]
+        assert ca.partner is cb
+        assert cb.partner is ca
+        assert ca.edge is cb.edge
+
+    def test_an_edge_bounding_one_face_has_no_partner(self):
+        ents, weld = self._build_both()
+        for entries in weld.coedges_on_edge.values():
+            if len(entries) == 1:
+                assert entries[0][0].partner is None
+
+    def test_every_coedge_still_belongs_to_its_own_loop(self):
+        """Sharing an edge must not merge the two faces' loops."""
+        ents, _ = self._build_both()
+        loops = _by_type(ents, se.Loop)
+        assert len(loops) == 2
+        for loop in loops:
+            n, cur = 0, loop.coedge
+            while True:
+                assert cur.loop is loop
+                cur = cur.next_coedge
+                n += 1
+                if cur is loop.coedge or n > 8:
+                    break
+            assert n == 4
+
+    def test_a_differing_curve_between_the_same_points_is_not_the_same_edge(self):
+        """Two arcs can join one pair of vertices; position alone cannot tell."""
+        weld = TopologyWeld(_writer(_plate()).id_generator)
+        p1, p2 = (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)
+        line = geo_cu.Line(Point(*p1), (1.0, 0.0, 0.0))
+        circle = geo_cu.Circle(_plane_surface().position, 1.0)
+        assert weld.edge_key(p1, p2, line) != weld.edge_key(p1, p2, circle)
+
+    def test_the_key_ignores_which_way_the_edge_is_given(self):
+        weld = TopologyWeld(_writer(_plate()).id_generator)
+        p1, p2 = (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)
+        line = geo_cu.Line(Point(*p1), (1.0, 0.0, 0.0))
+        assert weld.edge_key(p1, p2, line) == weld.edge_key(p2, p1, line)
+
+
 class TestRefusals:
     """Refuse rather than approximate — the caller falls back to a polygon."""
 
@@ -289,14 +394,14 @@ class TestRefusals:
         face.bounds.append(face.bounds[0])
         pl = _plate(face)
         with pytest.raises(UnsupportedCurvedFace, match="bounds"):
-            curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+            _build(pl)
 
     def test_an_unknown_surface_is_refused(self):
         face = _square_face()
         face.face_surface = geo_su.CylindricalSurface(position=_plane_surface().position, radius=1.0)
         pl = _plate(face)
         with pytest.raises(UnsupportedCurvedFace, match="CylindricalSurface"):
-            curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+            _build(pl)
 
     def test_a_circle_without_parameters_is_refused(self):
         """A circle passes through two points twice; the range is not derivable."""
@@ -307,7 +412,7 @@ class TestRefusals:
         oe.t_start = oe.t_end = None
         pl = _plate(face)
         with pytest.raises(UnsupportedCurvedFace, match="without authored parameters"):
-            curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+            _build(pl)
 
 
 class TestWiring:
