@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import pathlib
 
+from ada.cad.registry import (
+    native_track_selection_available as _native_track_selection_available,
+)
 from ada.config import logger
-
 
 # The track the native binding runs when ``pipeline`` is left unset — adacpp's own default
 # ("" parses to libtess2). Named here only so the capability probe and the refusal below agree on
@@ -40,22 +42,11 @@ def native_adacpp_available() -> bool:
         return False
 
 
-def native_track_selection_available() -> bool:
-    """True if THIS adacpp build's native binding accepts a tessellation track.
-
-    The threaded C++ core always could; the binding only started forwarding ``pipeline`` in
-    adacpp 0.16. Callers must gate on this before OFFERING a track choice for the native path —
-    an older build ignores the absent kwarg and runs libtess2, so advertising 'cdt' against it
-    would promise a track the conversion never runs.
-    """
-    if not native_adacpp_available():
-        return False
-    try:
-        import adacpp
-
-        return "pipeline" in (adacpp.cad.stream_step_to_glb.__doc__ or "")
-    except Exception:
-        return False
+# Re-exported from ada.cad.registry, which owns the adacpp capability questions and is the only
+# part of this stack the slim viewer image ships (ada.comms.rest.converter asks this at module level
+# to build the published vocabulary, and that image has no ada.cadit). Kept importable from here
+# because this is the module whose binding the answer is about.
+native_track_selection_available = _native_track_selection_available
 
 
 def native_step_to_glb(

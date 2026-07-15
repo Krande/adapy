@@ -12,7 +12,9 @@ answerable without a kernel.
 
 from __future__ import annotations
 
+import ast
 import os
+import pathlib
 
 import pytest
 
@@ -120,3 +122,31 @@ def test_default_tessellator_is_the_declared_default():
         pytest.skip("no tessellation track available")
     expected = next((t for t in tracks if t.is_default), tracks[0])
     assert Tessellator.default().track == expected.name
+
+
+def test_track_selection_probe_needs_nothing_but_the_registry():
+    """The probe must not reach outside ``ada.cad``.
+
+    ``ada.comms.rest.converter`` asks this at MODULE level to build the published vocabulary, and
+    the viewer image ships a curated subset of ada — ``ada/cad`` but not ``ada/cadit``. Asking it
+    via ``ada.cadit`` crashlooped the API on startup, which no ordinary test catches because the
+    suite (and the worker image) have all of src/ada on the path. This pins the import surface so
+    the answer stays reachable from the subset the server actually ships.
+    """
+    import ada.cad.registry as reg
+
+    assert hasattr(reg, "native_track_selection_available")
+    # answerable without adacpp: absent kernel => no track selection, never an ImportError
+    assert isinstance(reg.native_track_selection_available(), bool)
+
+    # Check real IMPORTS via the AST, not a substring: the module legitimately MENTIONS ada.cadit
+    # in prose (a docstring cross-reference, and the comment recording why it must not import it).
+    tree = ast.parse(pathlib.Path(reg.__file__).read_text())
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module)
+    offenders = sorted(m for m in imported if m == "ada.cadit" or m.startswith("ada.cadit."))
+    assert not offenders, f"ada/cad/registry.py must not import {offenders} — the viewer image ships no ada.cadit"

@@ -178,10 +178,8 @@ class ConversionPlan:
         if self.serializer.name != SERIALIZER_CPP:
             return
 
-        from ada.cadit.step.native_step_to_glb import (
-            native_adacpp_available,
-            native_track_selection_available,
-        )
+        from ada.cad.registry import native_track_selection_available
+        from ada.cadit.step.native_step_to_glb import native_adacpp_available
 
         if not native_adacpp_available():
             raise PlanError("serializer 'cpp' needs adacpp's native STEP->GLB entry point, which is not importable")

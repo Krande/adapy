@@ -214,6 +214,32 @@ def available_tess_tracks() -> list[TessTrack]:
     return tracks + _adacpp_tracks()
 
 
+def native_track_selection_available() -> bool:
+    """True if THIS adacpp build's native STEP->GLB binding accepts a tessellation track.
+
+    The threaded C++ core always could; the binding only started forwarding ``pipeline`` in adacpp
+    0.16, and an older one ignores the absent kwarg and runs its default track. So callers must gate
+    on this before OFFERING a track choice for the native path, or they advertise a track the
+    conversion will not run.
+
+    Lives HERE, not next to ``native_step_to_glb``, because it is a question about adacpp — the same
+    kind this module already answers — and because ``ada.comms.rest.converter`` asks it at MODULE
+    level to build the published vocabulary. The slim viewer image ships ``ada/cad`` precisely
+    because that import must not drag anything heavier in; reaching into ``ada.cadit`` from here
+    crashlooped the API on startup (no such package in that image). This function imports adacpp
+    lazily and answers False when it is absent, which is the right answer for the API: it runs no
+    conversions, and the pools that do advertise their own tracks.
+    """
+    try:
+        import adacpp
+    except Exception:  # noqa: BLE001 - a broken/absent adacpp is simply "no track selection"
+        return False
+    try:
+        return "pipeline" in (adacpp.cad.stream_step_to_glb.__doc__ or "")
+    except Exception:  # noqa: BLE001 - no native entry point at all
+        return False
+
+
 def tess_track_by_name(name: str) -> TessTrack | None:
     return next((t for t in available_tess_tracks() if t.name == name), None)
 

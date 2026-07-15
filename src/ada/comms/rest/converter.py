@@ -1209,8 +1209,15 @@ def _cpp_tess_tokens() -> list[str]:
     they mesh as if nothing were selected instead of erroring. Gating the ADVERTISEMENT on the same
     facts the conversion checks is the point: an offer we can't honour reports a track we never ran.
     """
-    from ada.cad.registry import CadBackendName, tess_track_by_name
-    from ada.cadit.step.native_step_to_glb import native_track_selection_available
+    # From the registry, NOT ada.cadit: this runs at module import to build the published
+    # vocabulary, and the slim viewer image ships ada/cad but no ada/cadit — importing the latter
+    # here crashlooped the API on startup. The registry answers False with no adacpp, which is the
+    # right answer for the API: it runs no conversions, and the pools that do advertise their own.
+    from ada.cad.registry import (
+        CadBackendName,
+        native_track_selection_available,
+        tess_track_by_name,
+    )
 
     if not native_track_selection_available():
         return [_GLB_TESS_NATIVE_PINNED]
