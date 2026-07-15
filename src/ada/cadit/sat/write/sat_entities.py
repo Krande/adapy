@@ -85,6 +85,11 @@ class Face(SATEntity):
     name: StringAttribName
     surface: PlaneSurface
     next_face: Face = None
+    # Whether the face's normal runs with its surface's or against it. A
+    # spline-surface carries a sense of its own and Genie puts the flip there,
+    # leaving every spline face forward; a plane-surface has none, so a plane
+    # face carries its own (reversed on 112 of a hull export's).
+    sense: Literal["forward", "reversed"] = "forward"
 
     def to_string(self) -> str:
         # ACIS `face` record (SAT v4.0 spec, ch.6): after the common ENTITY prefix
@@ -94,7 +99,7 @@ class Face(SATEntity):
         next_face = -1 if self.next_face is None else self.next_face.id
         return (
             f"-{self.id} face ${self.name.id} -1 -1 $-1 ${next_face} ${self.loop.id} "
-            f"${self.shell.id} $-1 ${self.surface.id} forward double out F F #"
+            f"${self.shell.id} $-1 ${self.surface.id} {self.sense} double out F F #"
         )
 
 

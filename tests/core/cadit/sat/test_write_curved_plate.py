@@ -52,12 +52,13 @@ def _spline_surface():
     )
 
 
-def _pcurve():
+def _pcurve(same_sense=True):
     return geo_cu.Pcurve2dBSpline(
         degree=1,
         control_points_2d=[[0.0, 0.0], [1.0, 0.0]],
         knots=[0.0, 1.0],
         knot_multiplicities=[2, 2],
+        same_sense=same_sense,
     )
 
 
@@ -80,12 +81,13 @@ def _line_edge(p1, p2, t_start=None, t_end=None, pcurve=None):
     )
 
 
-def _square_face(surface=None, pcurve=None):
+def _square_face(surface=None, pcurve=None, same_sense=True):
     corners = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
     edges = [_line_edge(corners[i], corners[(i + 1) % 4], pcurve=pcurve) for i in range(4)]
     return geo_su.AdvancedFace(
         bounds=[geo_su.FaceBound(bound=geo_cu.EdgeLoop(edge_list=edges), orientation=True)],
         face_surface=surface if surface is not None else _plane_surface(),
+        same_sense=same_sense,
     )
 
 
@@ -211,6 +213,72 @@ class TestSurfacesAndPCurves:
         surface = _by_type(ents, se.SplineSurface)[0]
         for pc in _by_type(ents, se.PCurve):
             assert pc.surface is surface
+
+
+class TestNormals:
+    """ACIS splits the face normal across two records; Genie picks by surface.
+
+    Every one of these was written `forward` unconditionally at first, which
+    flipped 1248 spline surfaces and 112 plane faces of a hull export and had
+    Genie draw the model inside-out.
+    """
+
+    def test_a_spline_face_puts_the_flip_on_the_surface(self):
+        """A spline-surface has a sense of its own, so the face stays forward."""
+        pl = _plate(_square_face(surface=_spline_surface(), pcurve=_pcurve(), same_sense=False))
+        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        assert _by_type(ents, se.SplineSurface)[0].sense == "reversed"
+        assert _by_type(ents, se.Face)[0].sense == "forward"
+
+    def test_a_plane_face_puts_the_flip_on_the_face(self):
+        """A plane-surface has no sense to carry it."""
+        pl = _plate(_square_face(surface=_plane_surface(), same_sense=False))
+        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        assert _by_type(ents, se.Face)[0].sense == "reversed"
+
+    def test_an_agreeing_face_is_forward_either_way(self):
+        for surface in (_spline_surface(), _plane_surface()):
+            pl = _plate(_square_face(surface=surface, pcurve=_pcurve(), same_sense=True))
+            ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+            assert _by_type(ents, se.Face)[0].sense == "forward"
+            splines = _by_type(ents, se.SplineSurface)
+            if splines:
+                assert splines[0].sense == "forward"
+
+    def test_the_face_sense_reaches_the_record(self):
+        pl = _plate(_square_face(surface=_plane_surface(), same_sense=False))
+        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        assert " reversed double out " in _by_type(ents, se.Face)[0].to_string()
+
+
+class TestPCurveSense:
+    """The pcurve's sense is authored data, not a default.
+
+    It says whether the 2D curve runs along its edge's 3D curve, and nothing in
+    the knots or the coedge implies it — a Genie export splits 13722/5184 with
+    no correlation to either. Writing `forward` on all of them is what ACIS
+    rejects as "pcurve's range doesn't include coedge's range".
+    """
+
+    def test_a_reversed_pcurve_is_written_reversed(self):
+        pl = _plate(_square_face(surface=_spline_surface(), pcurve=_pcurve(same_sense=False)))
+        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        pcurves = _by_type(ents, se.PCurve)
+        assert pcurves and all(pc.sense == "reversed" for pc in pcurves)
+        assert all(" 0 reversed { exppc " in pc.to_string() for pc in pcurves)
+
+    def test_a_forward_pcurve_is_written_forward(self):
+        pl = _plate(_square_face(surface=_spline_surface(), pcurve=_pcurve(same_sense=True)))
+        ents = curved_plate_to_sat_entities(pl, "FACE00000001", _writer(pl))
+        pcurves = _by_type(ents, se.PCurve)
+        assert pcurves and all(pc.sense == "forward" for pc in pcurves)
+
+    def test_reversing_a_pcurve_flips_its_sense(self):
+        """Reversal inverts the direction, which is what the sense records."""
+        from ada.cadit.sat.read.curves import _reverse_pcurve_2d
+
+        assert _reverse_pcurve_2d(_pcurve(same_sense=True)).same_sense is False
+        assert _reverse_pcurve_2d(_pcurve(same_sense=False)).same_sense is True
 
 
 class TestRefusals:

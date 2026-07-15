@@ -23,7 +23,7 @@ class UnsupportedCurvedFace(NotImplementedError):
     """
 
 
-def _surface_entity(id_gen, surface) -> se.SATEntity:
+def _surface_entity(id_gen, surface, same_sense: bool) -> tuple[se.SATEntity, str]:
     """The ACIS surface record for an AdvancedFace's ``face_surface``.
 
     Both kinds occur under a Genie ``curved_shell``: the B-spline patch of a
@@ -31,12 +31,21 @@ def _surface_entity(id_gen, surface) -> se.SATEntity:
     the flat faces whose *edges* curve (924 of 5453 in a hull export — a flat
     plate with a spline boundary is not a polygon, so it reads as an advanced
     face even though its surface is planar).
+
+    Returns the record and the sense the *face* should carry, because ACIS
+    splits the normal across the two and Genie puts it on whichever record can
+    hold it: a spline-surface has a sense of its own, so the face stays forward
+    and the surface flips; a plane-surface has none, so the face flips instead.
+    Either way the composition is ``same_sense``, which is what IFC models and
+    the rest of adapy already consumes.
     """
     if isinstance(surface, geo_su.BSplineSurfaceWithKnots):
-        return se.SplineSurface(id_gen.next_id(), surface)
+        sense = "forward" if same_sense else "reversed"
+        return se.SplineSurface(id_gen.next_id(), surface, sense=sense), "forward"
     if isinstance(surface, geo_su.Plane):
         pos = surface.position
-        return se.PlaneSurface(id_gen.next_id(), pos.location, pos.axis, pos.ref_direction)
+        record = se.PlaneSurface(id_gen.next_id(), pos.location, pos.axis, pos.ref_direction)
+        return record, ("forward" if same_sense else "reversed")
     raise UnsupportedCurvedFace(f"no ACIS surface record for {type(surface).__name__}")
 
 
@@ -91,12 +100,12 @@ def curved_plate_to_sat_entities(pl: PlateCurved, face_name: str, sw: SatWriter)
     id_gen = sw.id_generator
     entities: list[se.SATEntity] = []
 
-    surface = _surface_entity(id_gen, geom.face_surface)
+    surface, face_sense = _surface_entity(id_gen, geom.face_surface, geom.same_sense)
     entities.append(surface)
 
     face_id = id_gen.next_id()
     name = se.StringAttribName(id_gen.next_id(), face_name, face_id)
-    face = se.Face(face_id, None, sw.shell, name, surface)
+    face = se.Face(face_id, None, sw.shell, name, surface, sense=face_sense)
     name.entity = face
     entities += [face, name]
 
@@ -173,7 +182,16 @@ def curved_plate_to_sat_entities(pl: PlateCurved, face_name: str, sw: SatWriter)
         # face does.
         pcurve = None
         if oriented_edge.pcurve is not None and isinstance(surface, se.SplineSurface):
-            pcurve = se.PCurve(id_gen.next_id(), oriented_edge.pcurve, surface)
+            # The sense is authored, not derived: it says whether the 2D curve
+            # runs along its edge's 3D curve, and nothing in the knots or the
+            # coedge implies it. Defaulting it to forward is what ACIS rejects
+            # as "pcurve's range doesn't include coedge's range".
+            pcurve = se.PCurve(
+                id_gen.next_id(),
+                oriented_edge.pcurve,
+                surface,
+                sense="forward" if oriented_edge.pcurve.same_sense else "reversed",
+            )
             entities.append(pcurve)
 
         coedge = se.CoEdge(

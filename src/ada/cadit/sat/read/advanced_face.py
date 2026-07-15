@@ -124,9 +124,33 @@ def create_planar_face_from_sat(face_record: AcisRecord) -> geo_su.ClosedShell:
     return geo_su.ClosedShell([geo_su.FaceSurface(bounds, face_surface, same_sense=True)])
 
 
+def get_face_same_sense(face_record: AcisRecord) -> bool:
+    """Does the face's normal agree with its surface's natural one?
+
+    ACIS splits this across two records: the ``face`` carries a
+    forward/reversed sense, and a ``spline-surface`` carries one of its own,
+    so the face normal is the composition of the two. IFC's ``SameSense`` is
+    that composition, which is what the OCC builder and the IFC/STEP writers
+    already consume.
+
+    This used to be hardcoded True, which is a claim rather than a reading: a
+    Genie export writes ``reversed`` on 1248 of 4532 spline surfaces and on 112
+    plane faces, and every one of those came back with its normal flipped.
+    """
+    face_sense = face_record.chunks[11] if len(face_record.chunks) > 11 else "forward"
+    surface_record = face_record.sat_store.get(face_record.chunks[10])
+    # A plane-surface has no sense of its own (its normal is a vector it
+    # states outright); only a spline-surface carries one.
+    surface_sense = "forward"
+    if surface_record.type == "spline-surface" and len(surface_record.chunks) > 6:
+        if surface_record.chunks[6] in ("forward", "reversed"):
+            surface_sense = surface_record.chunks[6]
+    return (face_sense == "forward") == (surface_sense == "forward")
+
+
 def create_advanced_face_from_sat(face_record: AcisRecord) -> geo_su.AdvancedFace:
     """Creates an AdvancedFace from the SAT object data."""
-    same_sense = True
+    same_sense = get_face_same_sense(face_record)
     bounds = get_face_bound(face_record)
 
     face_surface = get_face_surface(face_record)

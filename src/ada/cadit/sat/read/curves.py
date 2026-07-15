@@ -44,6 +44,10 @@ def _reverse_pcurve_2d(pc: geo_cu.Pcurve2dBSpline) -> geo_cu.Pcurve2dBSpline:
         closed=pc.closed,
         # reversing changes the direction, not how well the curve fits
         fit_tolerance=pc.fit_tolerance,
+        # ...but the direction is exactly what the sense records, so it flips.
+        # Only the non-default ADA_PCURVE_REVERSE modes get here; "never" (the
+        # validated one) leaves the authored sense alone.
+        same_sense=not pc.same_sense,
     )
 
 
@@ -206,6 +210,12 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
                             occ_edge_along_intcurve = edge_direction == coedge_direction
                             pcurve_along_intcurve = pcurve_sense == "forward"
                             do_reverse = occ_edge_along_intcurve != pcurve_along_intcurve
+                        # Keep the authored sense whatever the mode does to the
+                        # control points: it is not derivable from them (in a
+                        # Genie export it splits 13722/5184 with no correlation
+                        # to the knots or to the coedge), and the SAT writer
+                        # needs it to reproduce a face ACIS will accept.
+                        pcurve_geom.same_sense = pcurve_sense == "forward"
                         if do_reverse:
                             pcurve_geom = _reverse_pcurve_2d(pcurve_geom)
                 except Exception as ex:
