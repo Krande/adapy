@@ -11,7 +11,13 @@ import re
 
 import pytest
 
-from ada.cadit.sat.write.sat_entities import PCurve, SplineSurface, _acis_knots
+from ada.cadit.sat.write.sat_entities import (
+    EllipseCurve,
+    PCurve,
+    SplineSurface,
+    _acis_knots,
+    circle_param_of,
+)
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 
@@ -130,6 +136,65 @@ class TestPCurve:
         pc.weights = [1.0, 0.9]
         with pytest.raises(NotImplementedError, match="rational pcurve"):
             PCurve(2, pc, SplineSurface(1, _surface())).to_string()
+
+
+class TestEllipseCurve:
+    @staticmethod
+    def _circle(radius=3.5):
+        from ada import Direction, Point
+        from ada.geom.placement import Axis2Placement3D
+
+        pos = Axis2Placement3D(
+            location=Point(-89.3, -31.0, 3.5),
+            axis=Direction(0.0, 0.0, 1.0),
+            ref_direction=Direction(1.0, 0.0, 0.0),
+        )
+        return geo_cu.Circle(pos, radius)
+
+    def test_record_matches_genie(self):
+        rec = EllipseCurve(1, self._circle(), 0.0, 0.3926990816987237).to_string()
+        # centre, unit normal, major axis as a VECTOR of length radius, ratio 1
+        assert rec == ("-1 ellipse-curve $-1 -1 -1 $-1 -89.3 -31 3.5 0 0 1 3.5 0 0 1 F 0 F 0.3926990816987237 #")
+
+    def test_major_axis_carries_the_radius(self):
+        assert " 3.5 0 0 1 F " in EllipseCurve(1, self._circle(3.5), 0.0, 1.0).to_string()
+        assert " 7 0 0 1 F " in EllipseCurve(1, self._circle(7.0), 0.0, 1.0).to_string()
+
+    def test_a_descending_range_is_refused(self):
+        """The coedge sense carries direction; the curve's range always ascends."""
+        with pytest.raises(ValueError, match="must ascend"):
+            EllipseCurve(1, self._circle(), 0.3926990816987237, 0.0)
+
+
+class TestCircleParamOf:
+    """The angle convention: about the axis, from the reference direction."""
+
+    @staticmethod
+    def _circle():
+        from ada import Direction, Point
+        from ada.geom.placement import Axis2Placement3D
+
+        pos = Axis2Placement3D(
+            location=Point(0.0, 0.0, 0.0),
+            axis=Direction(0.0, 0.0, 1.0),
+            ref_direction=Direction(1.0, 0.0, 0.0),
+        )
+        return geo_cu.Circle(pos, 2.0)
+
+    def test_reference_direction_is_zero(self):
+        assert circle_param_of(self._circle(), (2.0, 0.0, 0.0)) == pytest.approx(0.0)
+
+    def test_quarter_turn(self):
+        import math
+
+        assert circle_param_of(self._circle(), (0.0, 2.0, 0.0)) == pytest.approx(math.pi / 2)
+
+    def test_wraps_rather_than_going_negative(self):
+        import math
+
+        # just short of the reference direction reads as ~2pi, not a small negative
+        p = circle_param_of(self._circle(), (2.0, -1e-9, 0.0))
+        assert p > math.pi, f"expected a wrap to ~2pi, got {p}"
 
 
 def test_fit_tolerance_survives_a_pcurve_reversal():

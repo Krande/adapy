@@ -336,6 +336,83 @@ class SplineSurface(SATEntity):
 
 
 @dataclass
+class EllipseCurve(SATEntity):
+    """A circle or ellipse — ACIS ``ellipse-curve``.
+
+    The major axis is a *vector*: its direction is the circle's reference
+    direction and its length the major radius. ``ratio`` is minor/major, so 1 is
+    a circle — which is all a Genie hull export contains (every one of its
+    ellipse-curves has ratio 1).
+
+    ``t_start``/``t_end`` are the angular range in radians about the axis,
+    measured from the reference direction, and must ASCEND: ACIS writes the
+    range in the curve's own direction and lets each coedge's sense say which
+    way its loop runs it, so an edge traversed backwards still records an
+    ascending range. Checked against a Genie export — every edge there ascends,
+    and the range on the curve equals the edge's own (4171 of 4241; the rest are
+    arcs that were split, where both halves keep the range of the arc they came
+    from). They are trim data rather than a property of the circle, so the caller
+    supplies them (see :func:`circle_param_of`).
+    """
+
+    circle: object  # geom.curves.Circle | Ellipse
+    t_start: float
+    t_end: float
+
+    def __post_init__(self):
+        if self.t_end < self.t_start:
+            raise ValueError(
+                f"ellipse range must ascend, got ({self.t_start}, {self.t_end}) — "
+                "the coedge sense carries the direction, not the curve"
+            )
+
+    def to_string(self) -> str:
+        import numpy as np
+
+        c = self.circle
+        pos = c.position
+        radius = getattr(c, "radius", None)
+        if radius is None:  # an ellipse: semi_axis1 is the major radius
+            radius = c.semi_axis1
+            ratio = c.semi_axis2 / c.semi_axis1
+        else:
+            ratio = 1.0
+        major = np.asarray(pos.ref_direction, dtype=float) * float(radius)
+
+        centre = " ".join(_num(x) for x in pos.location)
+        normal = " ".join(_num(x) for x in pos.axis)
+        major_s = " ".join(_num(x) for x in major)
+        return (
+            f"-{self.id} ellipse-curve $-1 -1 -1 $-1 {centre} {normal} {major_s} "
+            f"{_num(ratio)} F {_num(self.t_start)} F {_num(self.t_end)} #"
+        )
+
+
+def circle_param_of(circle, point) -> float:
+    """The ACIS parameter of ``point`` on ``circle`` — its angle, in radians.
+
+    Measured about the circle's axis from its reference direction, the same
+    convention the edge's start/end parameters use. Wrapped to [0, 2*pi) so a
+    point just short of the reference direction reads as ~2*pi rather than a
+    small negative.
+    """
+    import numpy as np
+
+    pos = circle.position
+    centre = np.asarray(pos.location, dtype=float)
+    axis = np.asarray(pos.axis, dtype=float)
+    ref = np.asarray(pos.ref_direction, dtype=float)
+    axis = axis / np.linalg.norm(axis)
+    ref = ref - axis * float(ref @ axis)  # the reference need not be orthogonal
+    ref = ref / np.linalg.norm(ref)
+    other = np.cross(axis, ref)
+
+    v = np.asarray(point, dtype=float) - centre
+    angle = float(np.arctan2(v @ other, v @ ref))
+    return angle + 2.0 * np.pi if angle < 0 else angle
+
+
+@dataclass
 class PCurve(SATEntity):
     """A coedge's curve in its face's parameter space — ACIS ``pcurve``/``exppc``.
 
