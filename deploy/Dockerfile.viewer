@@ -104,6 +104,14 @@ ENV SSL_CERT_FILE=/env/ssl/cert.pem \
 COPY deploy/viewer-ada-init.py /app/src/ada/__init__.py
 COPY src/ada/config.py /app/src/ada/config.py
 COPY src/ada/comms/ /app/src/ada/comms/
+# ada.cad — the tessellation-track registry. ada.comms.rest.converter imports it at MODULE level
+# (the published step_glb_pipeline/tessellator vocabulary is discovered, not listed), so leaving it
+# out crashlooped the API on startup. Safe to ship into the slim runtime: ada/cad/registry.py is
+# stdlib-only by construction and ada/cad/__init__ keeps numpy/OCC behind function-local imports and
+# a lazy __getattr__, so nothing native is dragged in. With no adacpp installed here, discovery
+# correctly reports no tracks and the API publishes the static vocabulary — the adacpp tracks reach
+# the dropdown from the pools that actually run them, via each worker's advertised enum.
+COPY src/ada/cad/ /app/src/ada/cad/
 # pyproject.toml is the single source of truth for the version. The viewer copies adapy source
 # (no installed-dist metadata) and a stripped ada/__init__ (no __version__), so config.js reads
 # the version from here for window.ADAPY_VERSION (see _resolve_adapy_version).
