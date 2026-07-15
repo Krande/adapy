@@ -47,6 +47,15 @@ const ROW: CapacityCaseResult = {
       advisory: true,
       warnings: ["Mesh density should be reviewed."],
     },
+    {
+      id: "failed-advisory",
+      label: "Failed advisory review",
+      clause: "8.1",
+      equations: ["(8.2)"],
+      usage: 1.2,
+      passed: false,
+      advisory: true,
+    },
   ],
 };
 
@@ -74,7 +83,7 @@ describe("CapacityResultsPanel", () => {
     assert.match(html, /OK/);
     assert.equal(html.match(/>Checks</g)?.length, 1);
     assert.doesNotMatch(html, /Detailed calculation trace/);
-    assert.equal(html.match(/<details/g)?.length, 2);
+    assert.equal(html.match(/<details/g)?.length, 3);
     assert.match(html, /<details open=""/);
     assert.match(html, /DNV-RP-C201 6\.4 \(6\.10\)/);
     assert.match(html, /DNV-RP-C201 6\.4\.3 \(6\.17\)/);
@@ -86,5 +95,7 @@ describe("CapacityResultsPanel", () => {
     assert.match(html, /Resistance/);
     assert.match(html, /20\.000 kN/);
     assert.match(html, /ADVISORY/);
+    assert.match(html, /Failed advisory review/);
+    assert.match(html, /border-red-500\/50 bg-red-900\/50 text-red-200/);
   });
 });

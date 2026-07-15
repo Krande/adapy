@@ -15,6 +15,7 @@ export interface CapacityCheckResult {
   usage: number | null;
   passed: boolean;
   advisory?: boolean;
+  status?: "OK" | "FAIL" | "ADVISORY" | string;
   demand?: number | null;
   resistance?: number | null;
   unit?: string;

@@ -143,7 +143,7 @@ export const CapacityResultsPanel: React.FC<CapacityResultsPanelProps> = ({
                     <span className={"font-mono " + ufTextClass(check.usage)}>
                       {formatUf(check.usage)}
                     </span>
-                    <StatusPill status={status} />
+                    <StatusPill status={status} passed={check.passed} />
                     <span
                       className="col-span-3 truncate text-[10px] text-gray-500"
                       title={reference}
@@ -262,14 +262,17 @@ const Metric: React.FC<{
   </div>
 );
 
-const StatusPill: React.FC<{ status: "OK" | "FAIL" | "ADVISORY" }> = ({
-  status,
-}) => {
+const StatusPill: React.FC<{
+  status: "OK" | "FAIL" | "ADVISORY";
+  passed?: boolean;
+}> = ({ status, passed = status !== "FAIL" }) => {
   const klass =
     status === "FAIL"
       ? "border-red-500/50 bg-red-900/50 text-red-200"
       : status === "ADVISORY"
-        ? "border-sky-500/50 bg-sky-900/50 text-sky-200"
+        ? passed
+          ? "border-emerald-500/50 bg-emerald-900/50 text-emerald-200"
+          : "border-red-500/50 bg-red-900/50 text-red-200"
         : "border-emerald-500/50 bg-emerald-900/50 text-emerald-200";
   return (
     <span
@@ -310,8 +313,8 @@ function pickGoverningCheckId(row: CapacityCaseResultLike): string | null {
 }
 
 function checkStatus(check: CapacityCheckResult): "OK" | "FAIL" | "ADVISORY" {
-  if (!check.passed) return "FAIL";
   if (check.advisory) return "ADVISORY";
+  if (!check.passed) return "FAIL";
   return "OK";
 }
 
