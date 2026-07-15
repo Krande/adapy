@@ -59,12 +59,20 @@ def part_to_sat_writer(part: Part | Assembly, imprint: bool = True) -> SatWriter
 
     _, _, shell = sw.init_body(plates, curved)
 
-    if plates:
+    if curved:
+        # A body has one topology, and the imprint can only build a planar one.
+        # Where curved faces are present the flat plates join their weld
+        # instead, so the two share vertices and edges where they meet — built
+        # apart they leave a coincident copy of every shared corner, which ACIS
+        # rejects as "duplicate vertex". They forgo the imprint's splitting to
+        # get it; on a hull export that costs nothing (the imprint returns the
+        # 17 flat plates as 17 faces, having split none of them).
+        _add_curved_plates(sw, curved, plates)
+    elif plates:
         if imprint:
             _add_imprinted_plates(sw, plates)
         else:
             _add_plates_unfused(sw, plates)
-    _add_curved_plates(sw, curved)
 
     # A shell points at its first face only; link the rest into the chain.
     faces = sw.get_entities_by_type(se.Face)
@@ -86,13 +94,18 @@ def _add_plates_unfused(sw: SatWriter, plates: list[Plate]) -> None:
             sw.add_entity(entity)
 
 
-def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved]) -> None:
-    """One spline (or curved-edged plane) face per curved plate, welded together.
+def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved], plates: list[Plate] = ()) -> None:
+    """One face per plate, curved and flat alike, welded into one topology.
 
-    Numbered on from the planar faces so the two sets share one FACE namespace.
     Neighbouring faces share their vertices and edges rather than minting
     coincident copies — ACIS rejects those as "duplicate vertex" — and the
     coedges on each shared edge are joined into a partner ring.
+
+    The curved plates go first: their edges carry the parameter range the file
+    authored, and a flat plate's straight edge has none to contribute, so
+    whichever builds an edge first decides its range. The other way round a
+    shared edge would be written 0..length and every curved face on it would
+    disagree.
 
     A plate whose geometry this writer cannot author is skipped and logged
     rather than dropped silently — it leaves no entry in ``face_map``, so the
@@ -101,7 +114,9 @@ def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved]) -> None:
     from ada.cadit.sat.write.write_curved_plate import (
         TopologyWeld,
         UnsupportedCurvedFace,
+        advanced_face_to_sat_entities,
         curved_plate_to_sat_entities,
+        flat_plate_to_advanced_face,
         link_partner_rings,
     )
 
@@ -111,6 +126,14 @@ def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved]) -> None:
     weld = TopologyWeld(sw.id_generator)
     face_id = len(sw.get_entities_by_type(se.Face)) + 1
     skipped = Counter()
+
+    def emit(pl, entities, face_name) -> None:
+        nonlocal face_id
+        for entity in entities:
+            sw.add_entity(entity)
+        sw.face_map[pl.guid] = [face_name]
+        face_id += 1
+
     for pl in curved:
         face_name = f"FACE{face_id:08d}"
         try:
@@ -118,17 +141,25 @@ def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved]) -> None:
         except UnsupportedCurvedFace as ex:
             skipped[str(ex)] += 1
             continue
-        for entity in entities:
-            sw.add_entity(entity)
-        sw.face_map[pl.guid] = [face_name]
-        face_id += 1
+        emit(pl, entities, face_name)
+
+    for pl in plates:
+        face_name = f"FACE{face_id:08d}"
+        try:
+            face = flat_plate_to_advanced_face(pl)
+            entities = advanced_face_to_sat_entities(face, face_name, sw, weld)
+        except UnsupportedCurvedFace as ex:
+            skipped[f"flat plate: {ex}"] += 1
+            continue
+        emit(pl, entities, face_name)
 
     link_partner_rings(weld)
     for entity in weld.entities:
         sw.add_entity(entity)
 
     logger.info(
-        f"sat-write: {face_id - 1} curved faces share {weld.n_vertices} vertices and {weld.n_edges} edges"
+        f"sat-write: {face_id - 1} faces ({len(curved)} curved, {len(plates)} flat) share "
+        f"{weld.n_vertices} vertices and {weld.n_edges} edges"
     )
     if weld.range_conflicts:
         # Two faces on one edge disagreeing about its parameter range means the

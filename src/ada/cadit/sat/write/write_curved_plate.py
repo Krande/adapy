@@ -158,10 +158,67 @@ def _curve_entity(id_gen, curve, t_lo: float, t_hi: float) -> se.SATEntity:
     raise UnsupportedCurvedFace(f"no ACIS curve record for {type(curve).__name__}")
 
 
+def flat_plate_to_advanced_face(pl) -> geo_su.AdvancedFace:
+    """An :class:`~ada.Plate` as the advanced face it already is.
+
+    A flat plate is a plane face bounded by straight edges, which is what a
+    curved plate with a planar surface is too — Genie writes them identically,
+    down to sharing all four edges with the neighbours (2 coedges each). Putting
+    it through the same builder is what lets it share vertices and edges with
+    the curved faces around it; built on its own it leaves a coincident copy of
+    every corner, which ACIS rejects as "duplicate vertex".
+
+    The outline is wound counter-clockwise about the plate's normal, as ACIS
+    reads the material side off the winding, and the surface is stated with that
+    normal — so ``same_sense`` is true by construction.
+    """
+    from ada.cadit.sat.write.write_plate import outline_ccw_about
+
+    points3d, normal = pl.outline_global()
+    outline = outline_ccw_about(points3d, normal)
+
+    edges = []
+    for i, p_start in enumerate(outline):
+        p_end = outline[(i + 1) % len(outline)]
+        direction = np.asarray(p_end, dtype=float) - np.asarray(p_start, dtype=float)
+        line = geo_cu.Line(ada.Point(*p_start), ada.Direction(*direction))
+        edges.append(
+            geo_cu.OrientedEdge(
+                start=ada.Point(*p_start),
+                end=ada.Point(*p_end),
+                edge_element=geo_cu.EdgeCurve(
+                    start=ada.Point(*p_start), end=ada.Point(*p_end), edge_geometry=line, same_sense=True
+                ),
+                orientation=True,
+            )
+        )
+
+    centroid = ada.Point(*np.mean(np.asarray(outline, dtype=float), axis=0))
+    plane = geo_su.Plane(
+        position=geo_su.Axis2Placement3D(
+            location=centroid,
+            axis=ada.Direction(*normal),
+            ref_direction=ada.Direction(*pl.poly.xdir),
+        )
+    )
+    return geo_su.AdvancedFace(
+        bounds=[geo_su.FaceBound(bound=geo_cu.EdgeLoop(edge_list=edges), orientation=True)],
+        face_surface=plane,
+        same_sense=True,
+    )
+
+
 def curved_plate_to_sat_entities(
     pl: PlateCurved, face_name: str, sw: SatWriter, weld: TopologyWeld
 ) -> list[se.SATEntity]:
-    """Convert one :class:`~ada.api.plates.PlateCurved` into its ACIS face.
+    """Convert one :class:`~ada.api.plates.PlateCurved` into its ACIS face."""
+    return advanced_face_to_sat_entities(pl.geom.geometry, face_name, sw, weld)
+
+
+def advanced_face_to_sat_entities(
+    geom, face_name: str, sw: SatWriter, weld: TopologyWeld
+) -> list[se.SATEntity]:
+    """Convert one :class:`~ada.geom.surfaces.AdvancedFace` into its ACIS face.
 
     Vertices and edges come from ``weld``, so a face shares them with its
     neighbours instead of minting coincident copies (see :class:`TopologyWeld`).
@@ -177,7 +234,6 @@ def curved_plate_to_sat_entities(
     two vertices swap. Deriving it from the range keeps the edge record's range
     ascending, as ACIS reads it.
     """
-    geom = pl.geom.geometry
     if not isinstance(geom, geo_su.AdvancedFace):
         raise UnsupportedCurvedFace(f"{type(geom).__name__} is not an AdvancedFace")
     # The reader gives one bound per face — it does not surface hole loops (16
@@ -268,6 +324,12 @@ def curved_plate_to_sat_entities(
             if v.edge is None:
                 v.edge = edge
             face_vertices.append(v)
+
+        # Which way this loop runs the edge, asked of the edge rather than of
+        # our own parameters: a neighbour may have built it, and the sense has
+        # to be read against the record as written. For the face that built it
+        # this says exactly what `runs_backwards` did.
+        runs_backwards = _vkey(p_start, weld.nd) != _vkey(edge.start_pt, weld.nd)
 
         # A pcurve belongs to a spline face: it is the edge in that surface's
         # parameter space, and a plane has none to speak of. Genie agrees —

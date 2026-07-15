@@ -14,7 +14,9 @@ from ada.cadit.sat.write import sat_entities as se
 from ada.cadit.sat.write.write_curved_plate import (
     TopologyWeld,
     UnsupportedCurvedFace,
+    advanced_face_to_sat_entities,
     curved_plate_to_sat_entities,
+    flat_plate_to_advanced_face,
     link_partner_rings,
 )
 from ada.cadit.sat.write.writer import SatWriter
@@ -384,6 +386,115 @@ class TestWeld:
         p1, p2 = (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)
         line = geo_cu.Line(Point(*p1), (1.0, 0.0, 0.0))
         assert weld.edge_key(p1, p2, line) == weld.edge_key(p2, p1, line)
+
+
+class TestFlatPlatesJoinTheWeld:
+    """A flat plate meeting a curved one must share its corners with it.
+
+    Built apart they leave a coincident copy of every shared corner, which ACIS
+    rejects as "duplicate vertex" — 54 positions on a hull export, every one of
+    them a flat plate meeting a curved face. Genie shares all four edges of such
+    a face with its neighbours.
+    """
+
+    @staticmethod
+    def _flat_plate(x0, x1, normal=(0.0, 0.0, 1.0)):
+        """A unit square facing ``normal``.
+
+        The normal is pinned because CurvePoly2d picks its own: these points
+        come back facing -z, and two faces facing opposite ways run a shared
+        edge the SAME way, which is correct and not what these tests are about.
+        """
+        import ada
+
+        pts = [(x0, 0.0, 0.0), (x1, 0.0, 0.0), (x1, 1.0, 0.0), (x0, 1.0, 0.0)]
+        pl = ada.Plate.from_3d_points(f"flat{x0}", pts, 0.01)
+        if np.dot(np.asarray(pl.poly.normal, dtype=float), np.asarray(normal, dtype=float)) < 0:
+            pl = ada.Plate.from_3d_points(f"flat{x0}", pts, 0.01, flip_normal=True)
+        return pl
+
+    def test_a_flat_plate_becomes_a_plane_face_with_a_loop(self):
+        face = flat_plate_to_advanced_face(self._flat_plate(0.0, 1.0))
+        assert isinstance(face, geo_su.AdvancedFace)
+        assert isinstance(face.face_surface, geo_su.Plane)
+        assert len(face.bounds) == 1
+        assert len(face.bounds[0].bound.edge_list) == 4
+
+    def test_the_surface_states_the_plates_own_normal(self):
+        pl = self._flat_plate(0.0, 1.0)
+        face = flat_plate_to_advanced_face(pl)
+        axis = np.asarray(face.face_surface.position.axis, dtype=float)
+        assert np.dot(axis, np.asarray(pl.poly.normal, dtype=float)) > 0
+        # stated with the plate's normal, so the face agrees with it
+        assert face.same_sense is True
+
+    def test_a_flat_plate_shares_the_curved_faces_corners(self):
+        """The whole point: one vertex where they meet, not two."""
+        pl_curved = _plate(name="curved")  # the unit square at x in [0, 1]
+        pl_flat = self._flat_plate(1.0, 2.0)  # meets it along x = 1
+
+        sw = _writer(pl_curved)
+        weld = TopologyWeld(sw.id_generator)
+        ents = curved_plate_to_sat_entities(pl_curved, "FACE00000001", sw, weld)
+        ents += advanced_face_to_sat_entities(flat_plate_to_advanced_face(pl_flat), "FACE00000002", sw, weld)
+        link_partner_rings(weld)
+        ents += weld.entities
+
+        assert weld.n_vertices == 6, "the two shared corners were duplicated"
+        pts = [tuple(round(float(c), 7) for c in p.point) for p in _by_type(ents, se.SatPoint)]
+        assert len(pts) == len(set(pts))
+
+    def test_a_flat_plate_shares_the_curved_faces_edge(self):
+        pl_curved = _plate(name="curved")
+        pl_flat = self._flat_plate(1.0, 2.0)
+
+        sw = _writer(pl_curved)
+        weld = TopologyWeld(sw.id_generator)
+        curved_plate_to_sat_entities(pl_curved, "FACE00000001", sw, weld)
+        advanced_face_to_sat_entities(flat_plate_to_advanced_face(pl_flat), "FACE00000002", sw, weld)
+        link_partner_rings(weld)
+
+        assert weld.n_edges == 7, "the shared edge was written twice"
+        shared = [e for e in weld.coedges_on_edge.values() if len(e) == 2]
+        assert len(shared) == 1
+        (ca, _), (cb, _) = shared[0]
+        assert ca.partner is cb and cb.partner is ca
+        # both faces face +z, so they run the edge between them opposite ways
+        assert {ca.orientation, cb.orientation} == {"forward", "reversed"}
+
+    def test_two_faces_facing_opposite_ways_run_the_edge_the_same_way(self):
+        """The sense follows the winding, and the winding follows the normal.
+
+        Not a curiosity: the flat plate above comes out of CurvePoly2d facing
+        -z unless asked otherwise, and then both coedges reading `forward` is
+        the correct answer rather than a bug.
+        """
+        pl_curved = _plate(name="curved")  # faces +z
+        pl_flat = self._flat_plate(1.0, 2.0, normal=(0.0, 0.0, -1.0))
+
+        sw = _writer(pl_curved)
+        weld = TopologyWeld(sw.id_generator)
+        curved_plate_to_sat_entities(pl_curved, "FACE00000001", sw, weld)
+        advanced_face_to_sat_entities(flat_plate_to_advanced_face(pl_flat), "FACE00000002", sw, weld)
+
+        shared = [e for e in weld.coedges_on_edge.values() if len(e) == 2]
+        assert len(shared) == 1
+        (ca, _), (cb, _) = shared[0]
+        assert ca.orientation == cb.orientation
+
+    def test_the_curved_faces_parameter_range_survives_the_sharing(self):
+        """A straight edge has no range to contribute; the curved face's stands."""
+        pl_curved = _plate(name="curved")
+        pl_flat = self._flat_plate(1.0, 2.0)
+
+        sw = _writer(pl_curved)
+        weld = TopologyWeld(sw.id_generator)
+        curved_plate_to_sat_entities(pl_curved, "FACE00000001", sw, weld)
+        advanced_face_to_sat_entities(flat_plate_to_advanced_face(pl_flat), "FACE00000002", sw, weld)
+
+        assert weld.range_conflicts == 0
+        for edge in _by_type(weld.entities, se.Edge):
+            assert edge.t_start is None or edge.t_start < edge.t_end
 
 
 class TestRefusals:
