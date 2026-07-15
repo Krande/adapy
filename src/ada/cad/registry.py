@@ -283,7 +283,10 @@ class CadConfig:
     or pass to a factory function (e.g. ``stream_step_to_glb(..., cad_config=cfg)`` or
     ``ada.from_step(..., cad_config=cfg)``)."""
 
-    path: TessellationPath = TessellationPath.OCC
+    # Either a legacy TessellationPath member or any discovered track name (see
+    # available_tess_tracks). The enum cannot name a track added after it was written, so a plain
+    # string is the forward-compatible spelling: CadConfig(path="adacpp:cdt").
+    path: TessellationPath | str = TessellationPath.OCC
     deflection: float = DEFAULT_STREAM_TESS_DEFLECTION
     angular_deg: float = DEFAULT_STREAM_TESS_ANGULAR_DEG
     simplify: bool = False  # meshopt cleanup (step2glb merge parity); adacpp paths only
@@ -291,6 +294,12 @@ class CadConfig:
     # fallback for out-of-scope files — the most memory-efficient + robust default. Override per
     # config to force a specific reader.
     step_reader: StepReader = StepReader.AUTO
+
+    @property
+    def track(self) -> TessTrack | None:
+        """The resolved track for ``path`` (enum member or discovered name), or None if unavailable."""
+        name = self.path.value if isinstance(self.path, TessellationPath) else str(self.path)
+        return tess_track_by_name(name)
 
     @classmethod
     def default(cls) -> "CadConfig":
@@ -301,19 +310,28 @@ class CadConfig:
         return cls(path=TessellationPath.OCC)
 
     def validate(self) -> None:
-        if self.path not in available_paths():
+        # Discovered tracks are the authority; the legacy enum list is only a fallback for members
+        # that predate discovery in an env without adacpp.
+        if self.track is None and self.path not in available_paths():
+            name = self.path.value if isinstance(self.path, TessellationPath) else str(self.path)
             raise ValueError(
-                f"tessellation path {self.path.value!r} is not available in this environment; "
-                f"available: {[p.value for p in available_paths()]}"
+                f"tessellation path {name!r} is not available in this environment; "
+                f"available: {[t.name for t in available_tess_tracks()]}"
             )
         # Accept a bare string for ergonomics, but it must be a known reader.
         StepReader(self.step_reader)
 
     def env(self) -> dict[str, str]:
         """The streaming-export env vars this config maps to (read by the conversion worker)."""
-        e = {"ADAPY_CAD_BACKEND": self.path.backend.value}
-        if self.path.pipeline is not None:
-            e["ADA_STREAM_TESS_PIPELINE"] = self.path.pipeline
+        track = self.track
+        if track is None:  # unavailable/unknown: fall back to the legacy enum's own view
+            backend = self.path.backend if isinstance(self.path, TessellationPath) else CadBackendName.OCC
+            pipeline = self.path.pipeline if isinstance(self.path, TessellationPath) else None
+        else:
+            backend, pipeline = track.backend, track.pipeline
+        e = {"ADAPY_CAD_BACKEND": backend.value}
+        if pipeline is not None:
+            e["ADA_STREAM_TESS_PIPELINE"] = pipeline
             e["ADA_STREAM_TESS_DEFLECTION"] = repr(self.deflection)
             e["ADA_STREAM_TESS_ANGULAR"] = repr(self.angular_deg)
             if self.simplify:
