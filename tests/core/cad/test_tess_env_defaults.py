@@ -119,7 +119,10 @@ def test_no_call_site_reimplements_the_env_parse():
     which is how the density silently diverged by call path.
     """
     src = pathlib.Path(__file__).resolve().parents[3] / "src" / "ada"
-    assert src.is_dir(), src
+    if not src.is_dir():
+        # Only a repo checkout has src/; when the suite runs against an installed package (the
+        # conda-forge feedstock copies tests/ alone) there is no source tree to lint.
+        pytest.skip(f"source-tree lint; no src/ada at {src}")
     offenders = []
     for py in src.rglob("*.py"):
         if py.name == "registry.py" and py.parent.name == "cad":
