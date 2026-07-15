@@ -215,9 +215,7 @@ def curved_plate_to_sat_entities(
     return advanced_face_to_sat_entities(pl.geom.geometry, face_name, sw, weld)
 
 
-def advanced_face_to_sat_entities(
-    geom, face_name: str, sw: SatWriter, weld: TopologyWeld
-) -> list[se.SATEntity]:
+def advanced_face_to_sat_entities(geom, face_name: str, sw: SatWriter, weld: TopologyWeld) -> list[se.SATEntity]:
     """Convert one :class:`~ada.geom.surfaces.AdvancedFace` into its ACIS face.
 
     Vertices and edges come from ``weld``, so a face shares them with its
