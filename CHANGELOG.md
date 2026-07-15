@@ -2,6 +2,15 @@
 
 
 
+## v0.30.1 (2026-07-15)
+
+### Fix
+
+* fix: drop the empty env block that invalidated publish-image (#240)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`a427771`](https://github.com/Krande/adapy/commit/a427771ea1f516ff5b3a03509adc4b0c47a16b15))
+
+
 ## v0.30.0 (2026-07-15)
 
 ### Feature
