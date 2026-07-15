@@ -129,12 +129,92 @@ class CadBackendName(str, Enum):
     ADACPP = "adacpp"  # the adacpp extension (NGEOM / libtess2 + linked OCCT/CGAL/ifc kernels)
 
 
-class TessellationPath(str, Enum):
-    """A selectable (backend, tessellation-algorithm) pair.
+@dataclass(frozen=True)
+class TessTrack:
+    """One selectable tessellation track: a (backend, algorithm) pair plus how to describe it.
 
-    ``OCC`` is pythonocc's BRepMesh; the ``ADACPP_*`` paths map to adacpp ``tessellate_stream``
-    pipelines (``libtess2`` is the OCC-free boundary CDT; ``occ``/``cgal``/``hybrid`` use adacpp's
-    linked OCCT / ifcopenshell-taxonomy kernels)."""
+    **adapy does not own this vocabulary.** adapy declares only its OWN track (pythonocc's
+    BRepMesh); every adacpp track is DISCOVERED from ``adacpp.cad.tess_tracks()``, which reports
+    what that build actually compiled. Adding a track is therefore a change in adacpp alone — nothing
+    here, in the converter, or in the frontend enumerates track names.
+    """
+
+    name: str  # stable token, e.g. "occ" or "adacpp:cdt"
+    label: str  # human-readable, for a dropdown
+    description: str  # one line, for a tooltip
+    watertight: bool  # does it close shared-edge seams?
+    backend: CadBackendName
+    pipeline: str | None  # the adacpp `pipeline` arg; None => pythonocc BRepMesh
+    is_default: bool = False
+
+
+# adapy's own track. This is the ONE we are entitled to hardcode: it is pythonocc's BRepMesh, which
+# adapy owns and adacpp knows nothing about.
+_OCC_TRACK = TessTrack(
+    name="occ",
+    label="OCC BRepMesh (pythonocc)",
+    description="pythonocc's BRepMesh. adapy's built-in tessellator; no adacpp required.",
+    watertight=False,
+    backend=CadBackendName.OCC,
+    pipeline=None,
+)
+
+
+def _adacpp_tracks() -> list[TessTrack]:
+    """Tracks declared BY adacpp, for this build. Empty when adacpp isn't importable.
+
+    Tolerates an older adacpp with no ``tess_tracks`` binding by falling back to the pipeline names
+    that predate the self-declaration, so a mixed install degrades instead of losing every track.
+    """
+    if not _module_available("adacpp"):
+        return []
+    try:
+        import adacpp
+    except Exception:  # noqa: BLE001 - a broken adacpp must not take the registry down
+        return []
+    decl = getattr(adacpp.cad, "tess_tracks", None)
+    if decl is None:
+        return [
+            TessTrack(f"adacpp:{n}", f"adacpp {n}", "", False, CadBackendName.ADACPP, n)
+            for n in ("libtess2", "occ", "cgal", "hybrid")
+        ]
+    out: list[TessTrack] = []
+    for t in decl():
+        name = t["name"]
+        out.append(
+            TessTrack(
+                name=f"adacpp:{name}",
+                label=t.get("label") or name,
+                description=t.get("description") or "",
+                watertight=bool(t.get("watertight")),
+                backend=CadBackendName.ADACPP,
+                pipeline=name,
+                is_default=bool(t.get("default")),
+            )
+        )
+    return out
+
+
+def available_tess_tracks() -> list[TessTrack]:
+    """Every tessellation track usable in THIS environment: adapy's own + whatever adacpp declares.
+
+    This is the single source of truth for the vocabulary. Publish it; don't re-list it.
+    """
+    tracks = [_OCC_TRACK] if backend_available(CadBackendName.OCC) else []
+    return tracks + _adacpp_tracks()
+
+
+def tess_track_by_name(name: str) -> TessTrack | None:
+    return next((t for t in available_tess_tracks() if t.name == name), None)
+
+
+class TessellationPath(str, Enum):
+    """LEGACY, kept for back-compat with existing configs and callers.
+
+    Prefer :func:`available_tess_tracks` — it is discovered from adacpp rather than enumerated here,
+    so it sees tracks (``adacpp:cdt``, ...) that this enum predates and will never grow. A
+    ``CadConfig.path`` accepts either an enum member or any discovered track name.
+    """
 
     OCC = "occ"
     ADACPP_LIBTESS2 = "adacpp:libtess2"
