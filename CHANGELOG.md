@@ -2,6 +2,13 @@
 
 
 
+## v0.31.0 (2026-07-15)
+
+### Feature
+
+* feat: Emit real ACIS SAT in the Genie XML writer so Genie stops rebuilding it on import (#238) ([`53b7e63`](https://github.com/Krande/adapy/commit/53b7e63ef3e25cb9e7e608d7b3ea60ed03e169e1))
+
+
 ## v0.30.1 (2026-07-15)
 
 ### Fix
