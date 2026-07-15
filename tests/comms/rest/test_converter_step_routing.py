@@ -7,6 +7,8 @@ sources and keep the default OCC writer for everything else.
 
 import pathlib
 
+import pytest
+
 import ada
 from ada.api.spatial.part import Part
 from ada.comms.rest import converter as conv
@@ -374,3 +376,26 @@ def test_api_merge_is_order_independent():
     full_first = _merged(_FULL_POOL_TESS, ["occ"])
     assert set(thin_first["enum_by"]["python"]) == set(full_first["enum_by"]["python"])
     assert set(thin_first["enum"]) == set(full_first["enum"])
+
+
+def test_wasm_engine_tokens_are_the_spa_contract():
+    """The wasm serializer's engine tokens are a cross-language contract, so pin both ends.
+
+    adapy declares them (_WASM_GLB_ENGINES) and the SPA branches on them as string literals —
+    `resolved.tessellator === "wasm-native"` picks the embind pipeline over Pyodide in
+    services/conversion/index.ts. Nothing else connects the two: rename the token here and the
+    comparison silently stops matching, so every in-browser job quietly routes to Pyodide instead of
+    the native module. That is a fallback, not an error, so no test would otherwise notice.
+    """
+    spa = pathlib.Path(__file__).parents[3] / "src/frontend/src/services/conversion/index.ts"
+    if not spa.is_file():  # sdist / wheel test envs ship no frontend tree
+        pytest.skip(f"frontend source not present at {spa}")
+    src = spa.read_text(encoding="utf-8")
+    assert f'=== "{conv._WASM_ENGINE_NATIVE}"' in src, (
+        f"the SPA no longer branches on {conv._WASM_ENGINE_NATIVE!r}; in-browser jobs would "
+        "silently fall through to Pyodide instead of the native embind module"
+    )
+    # Both tokens must reach the dropdown, and neither may collide with a discovered track name
+    # (which would make the resolver ambiguous about whether a job is client- or server-side).
+    assert conv._glb_serializer_tess("wasm") == list(conv._WASM_GLB_ENGINES)
+    assert not set(conv._WASM_GLB_ENGINES) & set(conv._python_tess_tokens())
