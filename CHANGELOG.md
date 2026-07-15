@@ -2,6 +2,15 @@
 
 
 
+## v0.30.0 (2026-07-15)
+
+### Feature
+
+* feat: discover tessellation tracks from adacpp and publish them to the API (#239)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`90e03a0`](https://github.com/Krande/adapy/commit/90e03a0d11c1fd4b58ce9b925df988031def2904))
+
+
 ## v0.29.0 (2026-07-14)
 
 ### Feature
