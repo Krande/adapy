@@ -178,6 +178,18 @@ class TestEmbeddedSat:
         assert all(len(d) == SEGMENT_BYTES for d in decoded[:-1])
         assert 0 < len(decoded[-1]) <= SEGMENT_BYTES
 
+    def test_the_same_body_always_zips_to_the_same_bytes(self):
+        """zipfile stamps members with localtime() unless told otherwise.
+
+        That made the embedded SAT differ between two writes of the same model —
+        and, because DOS timestamps have two-second resolution, only sometimes,
+        which is worse than always: it turned the streaming-vs-DOM comparison
+        into a rare flake rather than an honest failure.
+        """
+        from ada.cadit.gxml.write.write_sat_embedded import sat_to_base64_segments
+
+        assert sat_to_base64_segments("body") == sat_to_base64_segments("body")
+
     def test_multi_segment_body_round_trips(self, tmp_path):
         """A body larger than one segment must reassemble exactly."""
         import base64

@@ -129,9 +129,48 @@ class Loop(SATEntity):
 class Vertex(SATEntity):
     edge: Edge
     point: SatPoint
+    attrib: VertEdgeAttribute = None
 
     def to_string(self) -> str:
-        return f"-{self.id} vertex $-1 -1 -1 $-1 ${self.edge.id} ${self.point.id} #"
+        # A vertex names one of its edges — but only when that names the vertex
+        # unambiguously. Where its edges fall into separable regions there is no
+        # single right answer, so the pointer goes null and a VertEdgeAttribute
+        # names one edge per region instead (as Genie writes it).
+        attrib = -1 if self.attrib is None else self.attrib.id
+        edge = -1 if self.edge is None else self.edge.id
+        return f"-{self.id} vertex ${attrib} -1 -1 $-1 ${edge} ${self.point.id} #"
+
+
+@dataclass
+class VertEdgeAttribute(SATEntity):
+    """One edge pointer per separable manifold region at a non-manifold vertex.
+
+    SAT v4.0 ch.7 ``vertedge`` (ATTRIB_VERTEDGE : ATTRIB_SYS : ATTRIB): "Contains
+    a list of edge pointers ... At nonmanifold vertices, there should be a
+    pointer to an edge in each separable manifold region."
+
+    Where a beam's axis runs off the plate it lies on, the vertex at the plate
+    boundary carries both the plate's face edges and the wire edge for the free
+    run. Nothing joins those two regions, so ACIS cannot reach one from the
+    other and the model fails verification with "vertex has edge in multiple
+    groups" unless they are declared here.
+    """
+
+    vertex: Vertex
+    edges: list[Edge]
+
+    # Genie always writes four slots, padding with $-1, whatever the region
+    # count — matched rather than trimmed to len(edges), since this is an ACIS
+    # system attribute and its own exports are the only worked example.
+    slots: int = 4
+
+    def to_string(self) -> str:
+        slots = max(self.slots, len(self.edges))
+        refs = [f"${e.id}" for e in self.edges] + ["$-1"] * (slots - len(self.edges))
+        return (
+            f"-{self.id} vertedge-sys-attrib $-1 -1 $-1 $-1 ${self.vertex.id} "
+            f"1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 {slots} {' '.join(refs)} #"
+        )
 
 
 @dataclass

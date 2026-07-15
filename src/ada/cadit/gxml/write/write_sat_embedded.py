@@ -26,6 +26,13 @@ SEGMENT_BYTES = 1024 * 1024
 # (see ada.cadit.gxml.sat_helpers.xml_elem_to_sat_text).
 ZIP_MEMBER = "b64temp.sat"
 
+# Stamp the member with the DOS epoch rather than the wall clock. zipfile
+# defaults to localtime(), which would make the same model write different bytes
+# from one run to the next — and, since DOS timestamps have two-second
+# resolution, would leave the output *intermittently* reproducible, which is
+# worse than never. Genie only reads the member's contents.
+ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
+
 _PLACEHOLDER = "__ADA_CDATA_SEGMENT_{}__"
 
 
@@ -35,10 +42,15 @@ def sat_to_base64_segments(sat_body: str) -> list[str]:
     Each segment encodes its own slice of the compressed stream, so a reader
     concatenates the *decoded* bytes and unzips the result — it must not
     concatenate the base64 text (every segment is padded independently).
+
+    Byte-reproducible: the same body always gives the same segments.
     """
+    member = zipfile.ZipInfo(ZIP_MEMBER, date_time=ZIP_EPOCH)
+    member.compress_type = zipfile.ZIP_DEFLATED
+
     buf = BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zipf:
-        zipf.writestr(ZIP_MEMBER, sat_body.encode("utf-8"))
+        zipf.writestr(member, sat_body.encode("utf-8"))
     compressed = buf.getvalue()
 
     return [

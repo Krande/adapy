@@ -4,7 +4,7 @@ each case compares topology (via :mod:`sat_topology`) rather than raw lines —
 record numbering is positional and carries no meaning."""
 
 import pytest
-from tests.core.cadit.sat.sat_topology import digest, loop_as_cycle, ref_errors
+from tests.core.cadit.sat.sat_topology import digest, loop_as_cycle, parse, ref_errors
 
 import ada
 from ada.cadit.sat.write import sat_entities as se
@@ -186,6 +186,50 @@ class TestImprint:
         rings = partner_rings(part_to_sat_writer(a).to_str())
         assert rings[3] == {"sorted_ccw": 1}
         assert all(set(v) == {"sorted_ccw"} for v in rings.values()), rings
+
+    def test_beam_leaving_its_plate_declares_the_nonmanifold_vertex(self):
+        """Where a beam's axis runs off the plate, the boundary vertex is split.
+
+        It carries the plate's face edges AND the wire edge for the free run,
+        and nothing owns both, so neither is reachable from the other:
+        "vertex has edge in multiple groups". SAT v4.0 ch.7 `vertedge` wants an
+        edge pointer per separable region there, and the vertex itself to name
+        none — a single pointer could only ever reach one of the two.
+        """
+        deck = ada.Plate.from_3d_points("deck", [(0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0)], 0.01)
+        # starts on the deck, ends past its edge
+        bm = ada.Beam("bm", (5, 5, 0), (15, 5, 0), "IPE200")
+        a = ada.Assembly("t") / (ada.Part("p") / [deck, bm])
+
+        sat = part_to_sat_writer(a).to_str()
+        assert ref_errors(sat) == []
+
+        ents = parse(sat)
+        attribs = [(i, f) for i, (t, f) in ents.items() if t == "vertedge-sys-attrib"]
+        assert len(attribs) == 1, "the vertex where the axis crosses the deck edge"
+
+        aid, fields = attribs[0]
+        owner = int(fields[4][1:])
+        assert ents[owner][0] == "vertex"
+        # the vertex hands off to the attribute rather than naming one edge
+        assert ents[owner][1][0] == f"${aid}"
+        assert ents[owner][1][4] == "$-1"
+
+        # payload: a count, then that many edge pointers, the real ones first
+        payload = fields[5 + 18 :]
+        assert payload[0] == "4"
+        listed = [p for p in payload[1:] if p != "#"]
+        assert len(listed) == 4
+        named = [int(p[1:]) for p in listed if p != "$-1"]
+        assert len(named) == 2, "one edge per region: the deck's, and the free run's"
+        assert all(ents[e][0] == "edge" for e in named)
+
+    def test_a_plain_plate_has_no_vertedge_attribs(self):
+        """Nothing non-manifold about it — the attribute must not appear."""
+        a = ada.Assembly() / _plate_10x10(t=0.1)
+        sat = part_to_sat_writer(a).to_str()
+        assert "vertedge" not in sat
+        assert all(f[4] != "$-1" for t, f in parse(sat).values() if t == "vertex")
 
     def test_unfused_leaves_plates_unshared(self):
         """imprint=False keeps the old one-face-per-plate body (no CAD backend)."""

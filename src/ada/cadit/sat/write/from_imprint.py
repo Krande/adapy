@@ -73,6 +73,12 @@ def imprint_to_sat_entities(
     coedges_on_edge: dict[int, list[tuple[se.CoEdge, np.ndarray, bool]]] = {}
     faces: list[se.Face] = []
 
+    # What each edge is bounded by — the loops and wires owning its coedges,
+    # by entity id (not id(), whose ordering would vary between runs). Two edges
+    # at a vertex are in the same manifold region when something owns both; see
+    # the VertEdgeAttribute pass at the end.
+    owners_of_edge: dict[int, set[int]] = {}
+
     # Which input plate each face came from. All the faces a plate was split
     # into lie on that plate's single plane, and Genie has them share one
     # plane-surface and carry one cached-plane attribute between them — exactly
@@ -137,6 +143,7 @@ def imprint_to_sat_entities(
                 if edge.coedge is None:
                     edge.coedge = coedge
                 coedges_on_edge.setdefault(edge_idx, []).append((coedge, np.asarray(f.normal, dtype=float), forward))
+                owners_of_edge.setdefault(edge_idx, set()).add(loop.id)
                 ring.append(coedge)
             entities += ring
 
@@ -174,6 +181,7 @@ def imprint_to_sat_entities(
             edge = edges[edge_idx]
             coedge = se.CoEdge(id_gen.next_id(), None, None, edge, wire, "forward")
             coedge_of_edge[edge_idx] = coedge
+            owners_of_edge.setdefault(edge_idx, set()).add(wire.id)
             if edge.coedge is None:
                 edge.coedge = coedge
 
@@ -241,11 +249,85 @@ def imprint_to_sat_entities(
     live_points = [v.point for v in live_vertices]
     live_curves = [e.straight_curve for e in live_edges]
 
+    attribs = _declare_nonmanifold_vertices(imprint, sw, vertices, edges, owners_of_edge, live_edges)
+
     # points/vertices/edges lead so their ids stay below the faces referencing
     # them; SatWriter.renumber reorders anyway, this only keeps output tidy.
     # `edges` stays index-aligned with imprint.edges (pruned entries included) so
     # curve_sources still resolves; only live ones are emitted.
-    return live_points + live_vertices + live_edges + live_curves + entities, faces, edges
+    return live_points + live_vertices + live_edges + live_curves + entities + attribs, faces, edges
+
+
+def _declare_nonmanifold_vertices(
+    imprint: PlanarImprint,
+    sw: SatWriter,
+    vertices: list[se.Vertex],
+    edges: list[se.Edge],
+    owners_of_edge: dict[int, set[int]],
+    live_edges: list[se.Edge],
+) -> list[se.SATEntity]:
+    """Give every vertex whose edges fall into several regions a VertEdgeAttribute.
+
+    A vertex normally just names one of its edges, and everything else there is
+    reachable from it. That breaks where a beam's axis leaves the plate it lies
+    on: the vertex on the plate boundary carries the plate's face edges AND the
+    wire edge for the free run, and no loop or wire owns both, so from either
+    one the other is unreachable — "vertex has edge in multiple groups".
+
+    Two edges are in the same region when something (a loop, or a wire) owns
+    both. Where that leaves more than one region, the vertex names no edge at
+    all and the attribute names one per region instead. Checked against Genie's
+    own export: this picks out exactly the vertices it attributes, no more.
+    """
+    live = {id(e) for e in live_edges}
+    edges_at_vertex: dict[int, list[int]] = {}
+    for edge_idx, edge in enumerate(edges):
+        if id(edge) not in live:
+            continue
+        e = imprint.edges[edge_idx]
+        for v in (e.start, e.end):
+            edges_at_vertex.setdefault(v, []).append(edge_idx)
+
+    attribs: list[se.SATEntity] = []
+    for vertex_idx, edge_idxs in edges_at_vertex.items():
+        regions = _regions_at(edge_idxs, owners_of_edge)
+        if len(regions) < 2:
+            continue
+        vertex = vertices[vertex_idx]
+        # one edge per region, lowest index first — the spec asks only for "an
+        # edge in each separable manifold region", so any member would do
+        reps = [edges[min(region)] for region in regions]
+        attrib = se.VertEdgeAttribute(sw.id_generator.next_id(), vertex, reps)
+        vertex.attrib = attrib
+        vertex.edge = None
+        attribs.append(attrib)
+    return attribs
+
+
+def _regions_at(edge_idxs: list[int], owners_of_edge: dict[int, set[int]]) -> list[list[int]]:
+    """Group a vertex's edges by what bounds them, ordered by lowest index."""
+    parent = {e: e for e in edge_idxs}
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    first_for_owner: dict[int, int] = {}
+    for edge_idx in edge_idxs:
+        for owner in sorted(owners_of_edge.get(edge_idx, ())):
+            if owner in first_for_owner:
+                ra, rb = find(first_for_owner[owner]), find(edge_idx)
+                if ra != rb:
+                    parent[ra] = rb
+            else:
+                first_for_owner[owner] = edge_idx
+
+    grouped: dict[int, list[int]] = {}
+    for edge_idx in edge_idxs:
+        grouped.setdefault(find(edge_idx), []).append(edge_idx)
+    return sorted(grouped.values(), key=min)
 
 
 def _loop_bbox(imprint: PlanarImprint, loop_edges) -> list[float]:
