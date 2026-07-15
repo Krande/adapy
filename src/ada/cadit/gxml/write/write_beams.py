@@ -9,7 +9,6 @@ from ada.api.spatial.eq_types import EquipRepr
 from ada.api.spatial.equipment import Equipment
 from ada.cadit.sat.write.writer import SatWriter
 from ada.config import get_logger
-from ada.sections.categories import BaseTypes
 
 from .write_utils import add_local_system
 
@@ -73,52 +72,47 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element, sw: SatWriter = None):
     if beam.hinge2 is not None:
         ET.SubElement(straight_beam, "end2", {"hinge_ref": beam.hinge2.name})
 
-    # ---------------------------------------------------------------------
-    # Decide whether to write aligned_curve_offset (preferred) or constants
-    # ---------------------------------------------------------------------
-    force_constant_offsets = False  # set True for debugging if needed
+    add_curve_offset(beam, straight_beam)
 
-    curve_offset = ET.SubElement(straight_beam, "curve_offset")
+
+def add_curve_offset(beam: Beam, straight_beam: ET.Element) -> None:
+    """Write the beam's ``<curve_offset>``.
+
+    Genie rejects an empty ``<curve_offset/>`` ("Unable to build model from
+    element"), so the element is only created once it is known which child goes
+    in it. A beam with no offset still needs one: ``reparameterized_beam_curve_
+    offset`` names the same rule the exported journal sets as the default
+    (``GenieRules.BeamCreation.DefaultCurveOffset``, see gxml/utils.py).
+    """
     data = beam.offset_helper.curve_offset_local()
     (ox1, oy1, oz1) = data.end1
     (ox2, oy2, oz2) = data.end2
 
-    # 1) Varying offset: always explicit numeric
+    curve_offset = ET.Element("curve_offset")
+
     if data.is_varying:
+        # Ends differ: only explicit numerics can express that.
         lvo = ET.SubElement(curve_offset, "linear_varying_curve_offset", {"use_local_system": "true"})
         ET.SubElement(lvo, "offset_end1", {"x": f"{ox1:.12g}", "y": f"{oy1:.12g}", "z": f"{oz1:.12g}"})
         ET.SubElement(lvo, "offset_end2", {"x": f"{ox2:.12g}", "y": f"{oy2:.12g}", "z": f"{oz2:.12g}"})
-        return
-
-    # 2) Constant case: if justification requests FLUSH semantics, write aligned_curve_offset
-    #    IMPORTANT: do this BEFORE the "offset is zero" early-return.
-    if (not force_constant_offsets) and beam.justification in (
-        Justification.FLUSH_TOP,
-        Justification.FLUSH_BOTTOM,
-    ):
-
-        if beam.justification == Justification.FLUSH_TOP:
-            alignment = "flush_top"
-        elif beam.justification == Justification.FLUSH_BOTTOM:
-            alignment = "flush_bottom"
-        else:
-            # Legacy mapping (keep while you transition/verify)
-            # NOTE: Genie has no TPROFILE; your exporter writes unsymm I for T -> keep this legacy special-case.
-            alignment = "flush_bottom" if beam.section.type == BaseTypes.TPROFILE else "flush_top"
-
+    elif beam.justification in (Justification.FLUSH_TOP, Justification.FLUSH_BOTTOM):
+        # Flush is semantic — let Genie re-derive the numbers from the section,
+        # as its own exports do. Checked before the zero-offset case below:
+        # flush is meaningful even when the resolved offset is zero.
+        alignment = "flush_top" if beam.justification == Justification.FLUSH_TOP else "flush_bottom"
         ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
-        return
+    elif ox1 == oy1 == oz1 == 0:
+        # No offset to state. The default rule, named explicitly.
+        ET.SubElement(curve_offset, "reparameterized_beam_curve_offset")
+    else:
+        cco = ET.SubElement(curve_offset, "constant_curve_offset", {"use_local_system": "true"})
+        ET.SubElement(
+            cco,
+            "constant_offset",
+            {"x": f"{float(ox1):.12g}", "y": f"{float(oy1):.12g}", "z": f"{float(oz1):.12g}"},
+        )
 
-    # 3) Constant numeric offset: only write if non-zero
-    if ox1 == oy1 == oz1 == 0:
-        return
-
-    cco = ET.SubElement(curve_offset, "constant_curve_offset", {"use_local_system": "true"})
-    ET.SubElement(
-        cco,
-        "constant_offset",
-        {"x": f"{float(ox1):.12g}", "y": f"{float(oy1):.12g}", "z": f"{float(oz1):.12g}"},
-    )
+    straight_beam.append(curve_offset)
 
 
 def add_curve_orientation(beam: Beam, straight_beam: ET.Element):

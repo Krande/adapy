@@ -156,18 +156,47 @@ def imprint_to_sat_entities(
     # A beam whose axis lies on no plate leaves an edge with no face around it.
     # ACIS carries those as wire bodies hung off the shell's wire pointer; left
     # out, the beam has nothing to reference and Genie rebuilds its geometry.
+    #
+    # One wire per CONNECTED GROUP of such edges, not one per edge: every edge
+    # meeting at a vertex has to sit in the same wire. Split across wires, ACIS
+    # sees the vertex as joining several groups and the model fails verification
+    # with "vertex has edge in multiple groups" (a frame of beams meeting at a
+    # corner puts up to five wires on that corner). Genie groups them the same
+    # way — verified against its own export, one wire per connected group.
     wires: list[se.Wire] = []
-    for edge_idx in imprint.free_edges:
-        edge = edges[edge_idx]
-        wire = se.Wire(id_gen.next_id(), None, sw.shell, _edge_bbox(imprint, edge_idx))
-        coedge = se.CoEdge(id_gen.next_id(), None, None, edge, wire, "forward")
-        # A lone coedge is its own next and previous — the degenerate ring.
-        coedge.next_coedge = coedge
-        coedge.prev_coedge = coedge
-        wire.coedge = coedge
-        if edge.coedge is None:
-            edge.coedge = coedge
-        entities += [wire, coedge]
+    for group in _connected_edge_groups(imprint, imprint.free_edges):
+        vertex_idx = {v for edge_idx in group for v in (imprint.edges[edge_idx].start, imprint.edges[edge_idx].end)}
+        wire = se.Wire(id_gen.next_id(), None, sw.shell, _bbox_of(imprint, vertex_idx))
+
+        coedge_of_edge: dict[int, se.CoEdge] = {}
+        for edge_idx in group:
+            edge = edges[edge_idx]
+            coedge = se.CoEdge(id_gen.next_id(), None, None, edge, wire, "forward")
+            coedge_of_edge[edge_idx] = coedge
+            if edge.coedge is None:
+                edge.coedge = coedge
+
+        # A wire coedge's `next`/`prev` are not a linear list: `next` is the
+        # following coedge around this coedge's END vertex and `prev` the one
+        # around its START vertex, so a branched wire stays walkable. Each
+        # vertex's coedges therefore form one closed ring — with a single edge
+        # at a loose end, that ring is the coedge itself.
+        at_vertex: dict[int, list[tuple[se.CoEdge, bool]]] = {}
+        for edge_idx in group:
+            e = imprint.edges[edge_idx]
+            at_vertex.setdefault(e.start, []).append((coedge_of_edge[edge_idx], False))
+            at_vertex.setdefault(e.end, []).append((coedge_of_edge[edge_idx], True))
+
+        for fan in at_vertex.values():
+            for i, (coedge, is_end) in enumerate(fan):
+                around = fan[(i + 1) % len(fan)][0]
+                if is_end:
+                    coedge.next_coedge = around
+                else:
+                    coedge.prev_coedge = around
+
+        wire.coedge = coedge_of_edge[group[0]]
+        entities += [wire, *coedge_of_edge.values()]
         wires.append(wire)
 
     if wires:
@@ -221,9 +250,42 @@ def _loop_bbox(imprint: PlanarImprint, loop_edges) -> list[float]:
     return _bbox_of(imprint, idx)
 
 
-def _edge_bbox(imprint: PlanarImprint, edge_idx: int) -> list[float]:
-    e = imprint.edges[edge_idx]
-    return _bbox_of(imprint, {e.start, e.end})
+def _connected_edge_groups(imprint: PlanarImprint, edge_idxs) -> list[list[int]]:
+    """Split ``edge_idxs`` into groups that touch, sharing a vertex.
+
+    Order is kept stable (groups by first appearance, edges by index) so the
+    same model always writes the same file.
+    """
+    parent: dict[int, int] = {}
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    edge_idxs = list(edge_idxs)
+    for edge_idx in edge_idxs:
+        parent[edge_idx] = edge_idx
+
+    first_at_vertex: dict[int, int] = {}
+    for edge_idx in edge_idxs:
+        e = imprint.edges[edge_idx]
+        for v in (e.start, e.end):
+            if v in first_at_vertex:
+                union(first_at_vertex[v], edge_idx)
+            else:
+                first_at_vertex[v] = edge_idx
+
+    groups: dict[int, list[int]] = {}
+    for edge_idx in edge_idxs:
+        groups.setdefault(find(edge_idx), []).append(edge_idx)
+    return list(groups.values())
 
 
 def _bbox_of(imprint: PlanarImprint, vertex_idx) -> list[float]:

@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import ada
+from ada.api.beams.justification import Justification
 from ada.api.spatial.eq_types import EquipRepr
 
 
@@ -270,9 +271,112 @@ class TestBeamSatReference:
         shell = next(f for t, f in ents.values() if t == "shell")
         assert shell[7] == f"${wires[0]}"
 
+    def test_touching_free_beams_share_one_wire(self, tmp_path):
+        """Edges meeting at a vertex must all sit in the SAME wire.
+
+        One wire per edge puts that vertex in as many groups as there are edges
+        on it, and the model fails ACIS verification with "vertex has edge in
+        multiple groups". Genie groups them per connected run; so do we.
+        """
+        from tests.core.cadit.sat.sat_topology import parse, ref_errors, wire_groups
+
+        from ada.cadit.gxml.sat_helpers import get_sat_text_from_xml
+
+        a = self._model()
+        # a closed frame away from any plate, plus a spur off one corner: two
+        # runs that never touch each other -> two wires, whatever the edge count
+        corners = [(0, 0, 9), (4, 0, 9), (4, 4, 9), (0, 4, 9)]
+        for i in range(4):
+            a.parts["p"].add_beam(ada.Beam(f"fr{i}", corners[i], corners[(i + 1) % 4], "IPE200"))
+        a.parts["p"].add_beam(ada.Beam("spur", (4, 4, 9), (6, 6, 9), "IPE200"))
+        a.parts["p"].add_beam(ada.Beam("lonely", (0, 0, 20), (1, 0, 20), "IPE200"))
+
+        sat = get_sat_text_from_xml(a.to_genie_xml(tmp_path / "b.xml"))
+        assert ref_errors(sat) == []
+
+        groups = wire_groups(sat)
+        assert groups["wires"] == 2  # the 5-beam run, and the lonely one
+        assert groups["wires_per_component"] == {1: 2}
+        assert groups["vertices_in_multiple_wires"] == 0
+        # every vertex's coedges form one closed ring, including the loose ends
+        assert groups["fans_that_are_closed_rings"] == groups["fans"]
+
+        ents = parse(sat)
+        shell = next(f for t, f in ents.values() if t == "shell")
+        wires = [i for i, (t, _) in ents.items() if t == "wire"]
+        assert shell[7] == f"${wires[0]}"  # the chain still hangs off the shell
+
     def test_no_sat_means_no_edge_refs(self, tmp_path):
         out = self._model().to_genie_xml(tmp_path / "b.xml", embed_sat=False)
         assert all(v == [] for v in self._refs(out).values())
+
+
+class TestCurveOffset:
+    """Every <curve_offset> needs a child.
+
+    Genie rejects a bare <curve_offset/> outright ("Unable to build model from
+    element"), losing the beam. The default Justification.NA with no
+    eccentricity is the overwhelmingly common case, so an empty element there
+    takes out most of a model's beams at once.
+    """
+
+    @staticmethod
+    def _offsets(out):
+        return {
+            sb.get("name"): [c.tag for c in sb.find("curve_offset")]
+            for sb in ET.parse(str(out)).getroot().iterfind(".//structure/straight_beam")
+        }
+
+    def _write(self, tmp_path, beam):
+        a = ada.Assembly("a") / (ada.Part("p") / beam)
+        return self._offsets(a.to_genie_xml(tmp_path / "b.xml"))
+
+    def test_default_beam_states_the_default_rule(self, tmp_path):
+        """No offset and no flush intent still has to name a rule."""
+        offsets = self._write(tmp_path, ada.Beam("bm", (0, 0, 0), (1, 0, 0), "IPE300"))
+        assert offsets["bm"] == ["reparameterized_beam_curve_offset"]
+
+    @pytest.mark.parametrize(
+        "justification, expected",
+        [
+            (Justification.NA, "reparameterized_beam_curve_offset"),
+            (Justification.UNSET, "reparameterized_beam_curve_offset"),
+            (Justification.TOS, "constant_curve_offset"),
+            (Justification.FLUSH_TOP, "aligned_curve_offset"),
+            (Justification.FLUSH_BOTTOM, "aligned_curve_offset"),
+        ],
+    )
+    def test_every_justification_writes_exactly_one_child(self, tmp_path, justification, expected):
+        beam = ada.Beam("bm", (0, 0, 0), (1, 0, 0), "IPE300", justification=justification)
+        assert self._write(tmp_path, beam)["bm"] == [expected]
+
+    def test_varying_eccentricity_is_written_numerically(self, tmp_path):
+        beam = ada.Beam("bm", (0, 0, 0), (1, 0, 0), "IPE300", e1=(0, 0, 0.1))
+        assert self._write(tmp_path, beam)["bm"] == ["linear_varying_curve_offset"]
+
+    def test_flush_alignment_matches_the_justification(self, tmp_path):
+        for just, alignment in ((Justification.FLUSH_TOP, "flush_top"), (Justification.FLUSH_BOTTOM, "flush_bottom")):
+            beam = ada.Beam("bm", (0, 0, 0), (1, 0, 0), "IPE300", justification=just)
+            a = ada.Assembly("a") / (ada.Part("p") / beam)
+            out = a.to_genie_xml(tmp_path / f"{alignment}.xml")
+            el = ET.parse(str(out)).getroot().find(".//straight_beam/curve_offset/aligned_curve_offset")
+            assert el.get("alignment") == alignment
+
+    def test_no_beam_is_written_with_an_empty_curve_offset(self, tmp_path):
+        """The whole point, over a mixed model."""
+        beams = [
+            ada.Beam("default", (0, 0, 0), (1, 0, 0), "IPE300"),
+            ada.Beam("flush", (0, 1, 0), (1, 1, 0), "IPE300", justification=Justification.FLUSH_TOP),
+            ada.Beam("ecc", (0, 2, 0), (1, 2, 0), "IPE300", e1=(0, 0, 0.1)),
+            ada.Beam("tos", (0, 3, 0), (1, 3, 0), "IPE300", justification=Justification.TOS),
+        ]
+        a = ada.Assembly("a") / (ada.Part("p") / beams)
+        out = a.to_genie_xml(tmp_path / "b.xml")
+        offsets = self._offsets(out)
+        assert len(offsets) == 4
+        assert all(len(v) == 1 for v in offsets.values()), offsets
+        assert "<curve_offset/>" not in out.read_text()
+        assert "<curve_offset />" not in out.read_text()
 
 
 class TestGenieXmlFlags:

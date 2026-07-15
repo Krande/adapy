@@ -26,6 +26,7 @@ _EXPECTED = {
     "coedge": {4: ("coedge",), 5: ("coedge",), 6: ("coedge",), 7: ("edge",), 9: ("loop", "wire")},
     "edge": {4: ("vertex",), 6: ("vertex",), 8: ("coedge",), 9: ("straight-curve",)},
     "vertex": {4: ("edge",), 5: ("point",)},
+    "wire": {4: ("wire",), 5: ("coedge",), 6: ("body", "shell"), 7: ("subshell",)},
 }
 
 
@@ -63,6 +64,103 @@ def ref_errors(text: str) -> list[str]:
             elif ents[target][0] not in expected:
                 errors.append(f"-{idx} {etype}: field[{fi}]={fields[fi]} is {ents[target][0]!r}, expected {expected}")
     return errors
+
+
+def wire_groups(text: str) -> dict:
+    """How the wire (face-less) edges are grouped, and whether that is legal.
+
+    ACIS wants every edge meeting at a vertex reachable within one group, so a
+    connected run of edges has to live in a single wire; spread over several,
+    the model fails verification with "vertex has edge in multiple groups".
+
+    A wire coedge's ``next``/``prev`` are not a linear list — ``next`` is the
+    following coedge around its END vertex and ``prev`` the one around its START
+    vertex — so the coedges at each vertex form one closed ring, which is what
+    keeps a branched wire walkable. Reports:
+
+    ``wires``                      how many wire records
+    ``free_edges``                 edges carried by a wire rather than a loop
+    ``components``                 connected runs of those edges (shared vertex)
+    ``wires_per_component``        {wires spanned: how many components} — must be {1: n}
+    ``vertices_in_multiple_wires`` the failure itself; must be 0
+    ``fans`` / ``fans_that_are_closed_rings``   must be equal
+    """
+    ents = parse(text)
+    wires = {i for i, (t, _) in ents.items() if t == "wire"}
+    coedges = {i: f for i, (t, f) in ents.items() if t == "coedge"}
+    edges = {i: f for i, (t, f) in ents.items() if t == "edge"}
+    mine = {i: f for i, f in coedges.items() if _ref(f[9]) in wires}
+
+    def ends(cid):
+        """(start, end) vertex of the coedge's edge, in the coedge's own sense."""
+        e = edges[_ref(mine[cid][7])]
+        a, b = _ref(e[4]), _ref(e[6])
+        return (a, b) if mine[cid][8] == "forward" else (b, a)
+
+    def around(cid, v):
+        """The next coedge around vertex ``v``."""
+        start, end = ends(cid)
+        if v == end:
+            return _ref(mine[cid][4])  # next
+        if v == start:
+            return _ref(mine[cid][5])  # prev
+        return None
+
+    wire_of_edge = {_ref(f[7]): _ref(f[9]) for f in mine.values()}
+
+    parent = {e: e for e in wire_of_edge}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    seen_at = {}
+    for e in wire_of_edge:
+        for v in (_ref(edges[e][4]), _ref(edges[e][6])):
+            if v in seen_at:
+                ra, rb = find(seen_at[v]), find(e)
+                if ra != rb:
+                    parent[ra] = rb
+            else:
+                seen_at[v] = e
+    comps = {}
+    for e in wire_of_edge:
+        comps.setdefault(find(e), []).append(e)
+
+    fans = {}
+    for cid in mine:
+        start, end = ends(cid)
+        for v in {start, end}:
+            fans.setdefault(v, []).append(cid)
+
+    closed = 0
+    for v, cids in fans.items():
+        first, cur, walked = cids[0], cids[0], []
+        for _ in range(len(cids) + 1):
+            walked.append(cur)
+            cur = around(cur, v)
+            if cur is None or cur == first:
+                break
+        if cur == first and set(walked) == set(cids):
+            closed += 1
+
+    wires_at_vertex = {}
+    for e, w in wire_of_edge.items():
+        for v in (_ref(edges[e][4]), _ref(edges[e][6])):
+            wires_at_vertex.setdefault(v, set()).add(w)
+
+    return {
+        "wires": len(wires),
+        "free_edges": len(wire_of_edge),
+        "components": len(comps),
+        "component_sizes": dict(sorted(Counter(len(c) for c in comps.values()).items())),
+        "wires_per_component": dict(sorted(Counter(len({wire_of_edge[e] for e in c}) for c in comps.values()).items())),
+        "vertices_in_multiple_wires": sum(1 for w in wires_at_vertex.values() if len(w) > 1),
+        "fans": len(fans),
+        "fans_that_are_closed_rings": closed,
+    }
 
 
 def digest(text: str) -> dict:
