@@ -356,12 +356,16 @@ class _Encoder:
             idx = self._bspline_surface(s)
         elif isinstance(s, su.SurfaceOfLinearExtrusion):
             sc = self.curve(s.swept_curve)
+            # ``position`` is None for a STEP-sourced surface: SURFACE_OF_LINEAR_EXTRUSION carries
+            # only a swept curve + vector (the curve is already placed), while ada.geom models the
+            # IFC form, which has a Position. Emit the standard negative "no record" sentinel rather
+            # than dereferencing None — placement3(None) raised AttributeError, which
+            # connected_face_set's blanket except swallowed into a silently dropped FACE (26/305 =
+            # 32% of the Ventilator's surface, invisible because face_coverage never counted it).
+            pos = self.placement3(s.position) if s.position is not None else -1
             idx = self._add(
                 _SURF_LIN_EXTRUSION,
-                self.i32(sc)
-                + self.i32(self.placement3(s.position))
-                + self.v3(s.extrusion_direction)
-                + self.f64(s.depth),
+                self.i32(sc) + self.i32(pos) + self.v3(s.extrusion_direction) + self.f64(s.depth),
             )
         elif isinstance(s, su.SurfaceOfRevolution):
             sc = self.curve(s.swept_curve)

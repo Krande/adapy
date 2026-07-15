@@ -184,3 +184,47 @@ def test_vectorized_buffer_decodes_spec_shaped():
     assert 45 in tags  # BSPLINE_SURFACE
     assert 63 in tags  # POLY_LOOP (the >16-pt bound)
     assert len(roots) == 1
+
+
+def _linear_extrusion_face(position):
+    """A STEP-shaped SURFACE_OF_LINEAR_EXTRUSION: a swept curve + a sweep vector, no placement."""
+    p = [(0, 0, 0), (2, 0, 0), (2, 2, 0), (0, 2, 0)]
+    loop = cu.EdgeLoop(edge_list=[_line_oe(p[i], p[(i + 1) % 4]) for i in range(4)])
+    surf = su.SurfaceOfLinearExtrusion(
+        swept_curve=cu.Line(Point(0, 0, 0), Direction(1, 0, 0)),
+        position=position,
+        extrusion_direction=Direction(0, 0, 1),
+        depth=1.0,
+    )
+    return su.FaceSurface(bounds=[su.FaceBound(bound=loop, orientation=True)], face_surface=surf, same_sense=True)
+
+
+def test_linear_extrusion_without_position_reaches_the_wire():
+    """A STEP SURFACE_OF_LINEAR_EXTRUSION has no Position — the swept curve is already placed —
+    so a STEP-sourced ada.geom surface carries ``position=None``. The serializer must emit the
+    negative "no record" sentinel for it (the decoder ignores the field entirely) rather than
+    dereferencing None: ``placement3(None)`` raised AttributeError, and connected_face_set's
+    blanket ``except`` turned that into a silently DROPPED face. On the Ventilator that was
+    26/305 faces — 32% of its surface — reaching adacpp as nothing, with both tessellation
+    tracks equally blind because neither was ever handed the geometry."""
+    shell = su.OpenShell(cfs_faces=[_linear_extrusion_face(position=None)])
+    buf = serialize_geometries([("shell", shell)])
+
+    _, records, roots = _parse(buf)
+    tags = [t for t, _ in records]
+    assert 46 in tags, "SURF_LIN_EXTRUSION missing — the position=None face was dropped"
+    assert 65 in tags  # FACE_SURFACE — the face itself survived
+    assert len(roots) == 1
+
+
+def test_linear_extrusion_with_position_still_emits_placement():
+    """The IFC form does carry a Position; it must still be serialized (sentinel only when absent)."""
+    pos = Axis2Placement3D(Point(1, 0, 0), Direction(0, 0, 1), Direction(1, 0, 0))
+    shell = su.OpenShell(cfs_faces=[_linear_extrusion_face(position=pos)])
+    buf = serialize_geometries([("shell", shell)])
+
+    _, records, roots = _parse(buf)
+    tags = [t for t, _ in records]
+    assert 46 in tags
+    assert 1 in tags, "expected a PLACEMENT3 record for the IFC-form surface"
+    assert len(roots) == 1
