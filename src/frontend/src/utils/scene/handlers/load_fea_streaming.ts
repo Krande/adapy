@@ -822,6 +822,30 @@ export async function loadCapacityCaseDetail(caseId: string): Promise<void> {
  *  the "individual UF" view, where each stiffener's own line + tributary plate
  *  strip is coloured by that stiffener's UF, revealing the within-panel
  *  variation instead of the panel-governing maximum. */
+const capacityProvenanceCache = new Map<string, Promise<Record<string, unknown>>>();
+
+/** Lazy-load one row's input provenance. Newer sidecars keep this out of the
+ *  per-case detail file so selecting a case stays light; old sidecars may still
+ *  carry ``resolved_provenance`` inline and do not call this helper. */
+export async function loadCapacityProvenance(url: string): Promise<Record<string, unknown>> {
+    const ctx = active?.capacityFetch;
+    if (!ctx || !url) return {};
+    const cacheKey = `${ctx.cacheKey}:${url}`;
+    let pending = capacityProvenanceCache.get(cacheKey);
+    if (!pending) {
+        pending = (async () => {
+            const buf = await ctx.fetcher(url);
+            const payload = JSON.parse(new TextDecoder("utf-8").decode(buf)) as {
+                resolved_provenance?: Record<string, unknown>;
+                provenance?: Record<string, unknown>;
+            };
+            return payload.resolved_provenance ?? payload.provenance ?? {};
+        })();
+        capacityProvenanceCache.set(cacheKey, pending);
+    }
+    return pending;
+}
+
 export function applyCapacityIndividualField(
     values: Array<{element_id: number; value: number | null}>,
 ): boolean {

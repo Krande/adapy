@@ -35,12 +35,16 @@ import pathlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 
 from ada.fem.capacity import extract
 from ada.fem.capacity.model import CapacityModel, CapSection, ResolvedCase
 from ada.fem.results.common import Mesh
+
+
+_MAX_PROVENANCE_SOURCES = 8
 
 
 def _block_elem_index(block) -> dict[int, np.ndarray]:
@@ -95,6 +99,16 @@ def _element_stress_rows(stress_blocks, element_id: int) -> dict[int, np.ndarray
     return {point_id: np.vstack(values).mean(axis=0) for point_id, values in rows.items()}
 
 
+@dataclass(frozen=True)
+class _MembranePoint:
+    element_id: int
+    node_ids: tuple[int, ...]
+    result_points: tuple[int, ...]
+    xyz: np.ndarray
+    tensor: np.ndarray
+    calculation: str
+
+
 def _rotation_cossin(
     mesh: Mesh,
     element_id: int,
@@ -144,6 +158,72 @@ def _apply_rotation(cs: tuple[float, float], tensor: np.ndarray) -> np.ndarray:
     return np.array([s_long, s_trans, tau])
 
 
+def _element_membrane_point_records(
+    mesh: Mesh,
+    aux: extract.AuxRecords,
+    stress_blocks,
+    element_id: int,
+    axis: np.ndarray,
+    cs: tuple[float, float] | None = None,
+) -> list[_MembranePoint]:
+    rows = _element_stress_rows(stress_blocks, element_id)
+    if not rows:
+        return []
+
+    if cs is None:
+        transform = aux.element_transform_by_element.get(element_id)
+        cs = _rotation_cossin(mesh, element_id, axis, transform)
+
+    node_ids = tuple(extract.element_node_ids(mesh, element_id))
+    coords = aux.result_point_coords_by_element.get(element_id, {})
+    point_ids = sorted(rows)
+    if coords and len(point_ids) % 2 == 0:
+        half = len(point_ids) // 2
+        paired: list[_MembranePoint] = []
+        for a, b in zip(point_ids[:half], point_ids[half:]):
+            if a not in coords or b not in coords:
+                continue
+            tensor = (rows[a] + rows[b]) / 2.0
+            xyz = (coords[a] + coords[b]) / 2.0
+            paired.append(
+                _MembranePoint(
+                    element_id=element_id,
+                    node_ids=node_ids,
+                    result_points=(int(a), int(b)),
+                    xyz=xyz,
+                    tensor=_apply_rotation(cs, tensor),
+                    calculation=(
+                        "paired shell top/bottom STRESS result points averaged to membrane "
+                        "stress, then rotated into the stiffener frame"
+                    ),
+                )
+            )
+        if paired:
+            return paired
+
+    tensor = _element_membrane_tensor(stress_blocks, element_id)
+    if tensor is None:
+        return []
+    xyz = extract.element_node_coords(mesh, element_id).mean(axis=0)
+    return [
+        _MembranePoint(
+            element_id=element_id,
+            node_ids=node_ids,
+            result_points=tuple(int(p) for p in point_ids),
+            xyz=xyz,
+            tensor=_apply_rotation(cs, tensor),
+            calculation=(
+                "mean of available shell STRESS result rows at the element centroid, "
+                "then rotated into the stiffener frame"
+            ),
+        )
+    ]
+
+
+def _point_tuples(records: list[_MembranePoint]) -> list[tuple[np.ndarray, np.ndarray]]:
+    return [(r.xyz, r.tensor) for r in records]
+
+
 def _rotate_to_stiffener_frame(
     mesh: Mesh,
     element_id: int,
@@ -174,33 +254,7 @@ def _element_membrane_points(
     stiffener frame (step-invariant); pass it to skip recomputing the element
     basis on every result case. When ``None`` it is computed here.
     """
-    rows = _element_stress_rows(stress_blocks, element_id)
-    if not rows:
-        return []
-
-    if cs is None:
-        transform = aux.element_transform_by_element.get(element_id)
-        cs = _rotation_cossin(mesh, element_id, axis, transform)
-
-    coords = aux.result_point_coords_by_element.get(element_id, {})
-    point_ids = sorted(rows)
-    if coords and len(point_ids) % 2 == 0:
-        half = len(point_ids) // 2
-        paired = []
-        for a, b in zip(point_ids[:half], point_ids[half:]):
-            if a not in coords or b not in coords:
-                continue
-            tensor = (rows[a] + rows[b]) / 2.0
-            xyz = (coords[a] + coords[b]) / 2.0
-            paired.append((xyz, _apply_rotation(cs, tensor)))
-        if paired:
-            return paired
-
-    tensor = _element_membrane_tensor(stress_blocks, element_id)
-    if tensor is None:
-        return []
-    xyz = extract.element_node_coords(mesh, element_id).mean(axis=0)
-    return [(xyz, _apply_rotation(cs, tensor))]
+    return _point_tuples(_element_membrane_point_records(mesh, aux, stress_blocks, element_id, axis, cs))
 
 
 def _element_area(mesh: Mesh, element_id: int) -> float:
@@ -323,6 +377,230 @@ def _station_values(
     start = float(values[along <= along.min() + tol].mean())
     end = float(values[along >= along.max() - tol].mean())
     return [start, mid_value, end]
+
+
+def _station_records(
+    records: list[_MembranePoint],
+    origin: np.ndarray,
+    axis: np.ndarray,
+    position: int,
+) -> list[_MembranePoint]:
+    if not records:
+        return []
+    if position == 2:
+        return records
+    ax = np.asarray(axis, dtype=float)
+    ax = ax / (np.linalg.norm(ax) or 1.0)
+    along = np.array([float(np.dot(r.xyz - origin, ax)) for r in records])
+    span = float(np.ptp(along))
+    if span <= 1e-12:
+        return records
+    tol = max(span * 1e-6, 1e-6)
+    if position == 1:
+        return [r for r, a in zip(records, along) if a <= along.min() + tol]
+    return [r for r, a in zip(records, along) if a >= along.max() - tol]
+
+
+def _edge_point_records(
+    records: list[_MembranePoint],
+    origin: np.ndarray,
+    axis: np.ndarray,
+) -> list[_MembranePoint]:
+    if not records:
+        return []
+    ax = np.asarray(axis, dtype=float)
+    ax = ax / (np.linalg.norm(ax) or 1.0)
+    distances = []
+    for record in records:
+        offset = record.xyz - origin
+        line_vec = offset - ax * float(np.dot(offset, ax))
+        distances.append(float(np.linalg.norm(line_vec)))
+    min_dist = min(distances)
+    tol = max(1e-6, min_dist + 1e-5)
+    return [record for record, distance in zip(records, distances) if distance <= tol]
+
+
+def _round_source_value(value: float) -> float:
+    return float(f"{float(value):.8g}")
+
+
+def _source_payload(
+    record: _MembranePoint,
+    component: int,
+    *,
+    sign: float = 1.0,
+    absolute: bool = False,
+    unit: str = "Pa",
+) -> dict[str, Any]:
+    value = float(record.tensor[component]) * sign
+    if absolute:
+        value = abs(value)
+    return {
+        "element_id": int(record.element_id),
+        "node_ids": [int(n) for n in record.node_ids],
+        "result_points": [int(p) for p in record.result_points],
+        "value": _round_source_value(value),
+        "unit": unit,
+    }
+
+
+def _source_set_payload(
+    label: str,
+    records: list[_MembranePoint],
+    component: int,
+    *,
+    sign: float = 1.0,
+    absolute: bool = False,
+    unit: str = "Pa",
+) -> dict[str, Any]:
+    shown = records[:_MAX_PROVENANCE_SOURCES]
+    return {
+        "label": label,
+        "source_count": len(records),
+        "element_ids": sorted({int(r.element_id) for r in records}),
+        "sources": [
+            _source_payload(r, component, sign=sign, absolute=absolute, unit=unit)
+            for r in shown
+        ],
+        "truncated_source_count": max(0, len(records) - len(shown)),
+    }
+
+
+def _station_stress_provenance(
+    *,
+    records: list[_MembranePoint],
+    origin: np.ndarray,
+    axis: np.ndarray,
+    position: int,
+    component: int,
+    label: str,
+    calculation: str,
+    formula: str,
+    sign: float = 1.0,
+    absolute: bool = False,
+) -> dict[str, Any]:
+    source_records = _station_records(records, origin, axis, position)
+    return {
+        "label": label,
+        "position": position,
+        "calculation": calculation,
+        "formula": formula,
+        "source_sets": [
+            _source_set_payload("contributing shell membrane result points", source_records, component, sign=sign, absolute=absolute)
+        ],
+    }
+
+
+def _panel_sigma_x_provenance(
+    *,
+    all_records: list[_MembranePoint],
+    edge_records: list[_MembranePoint],
+    origin: np.ndarray,
+    axis: np.ndarray,
+    position: int,
+) -> dict[str, Any]:
+    return {
+        "label": f"Axial membrane stress position {position}",
+        "position": position,
+        "calculation": (
+            "Shell top/bottom STRESS result points are averaged to membrane stress, "
+            "rotated into the stiffener frame, converted to compression-positive "
+            "stress, then sampled at the Section 5 position. The displayed value is "
+            "the mean of the edge-tributary station value and the closest-to-stiffener "
+            "station value."
+        ),
+        "formula": "sigma_x,i = 0.5 * (all edge-tributary station mean + closest-edge station mean)",
+        "source_sets": [
+            _source_set_payload(
+                "edge-tributary shell membrane result points",
+                _station_records(all_records, origin, axis, position),
+                0,
+                sign=-1.0,
+            ),
+            _source_set_payload(
+                "closest-to-stiffener shell membrane result points",
+                _station_records(edge_records, origin, axis, position),
+                0,
+                sign=-1.0,
+            ),
+        ],
+    }
+
+
+def _beam_position_nodes(node_ids: list[int], position: int) -> list[int]:
+    if not node_ids:
+        return []
+    if position == 1:
+        return [int(node_ids[0])]
+    if position == 3:
+        return [int(node_ids[-1])]
+    if len(node_ids) >= 3:
+        return [int(node_ids[2])]
+    return [int(n) for n in node_ids]
+
+
+def _beam_component_position_data(
+    mesh: Mesh,
+    force_blocks,
+    element_ids: tuple[int, ...],
+    component: int,
+    *,
+    sign: float = 1.0,
+    unit: str,
+    component_label: str,
+) -> tuple[list[float], dict[int, dict[str, Any]]]:
+    by_pos: dict[int, list[dict[str, Any]]] = {1: [], 2: [], 3: []}
+    exact_by_pos: dict[int, list[float]] = {1: [], 2: [], 3: []}
+    for el in element_ids:
+        nodes = extract.element_node_ids(mesh, el)
+        for sub in _rows_for_element(force_blocks, el):
+            for row in sub:
+                pos = int(row[1])
+                if pos not in by_pos:
+                    continue
+                raw = float(row[2 + component])
+                signed = raw * sign
+                exact_by_pos[pos].append(signed)
+                by_pos[pos].append(
+                    {
+                        "element_id": int(el),
+                        "node_ids": _beam_position_nodes(nodes, pos),
+                        "force_position": pos,
+                        "raw_value": _round_source_value(raw),
+                        "value": _round_source_value(signed),
+                        "unit": unit,
+                    }
+                )
+
+    values = [float(np.mean(exact_by_pos[pos])) for pos in (1, 2, 3) if exact_by_pos[pos]]
+    fallback = float(np.mean(values)) if values else 0.0
+    out = [float(np.mean(exact_by_pos[pos])) if exact_by_pos[pos] else fallback for pos in (1, 2, 3)]
+    provenance = {
+        pos: {
+            "label": f"{component_label} position {pos}",
+            "position": pos,
+            "calculation": (
+                "Mean of matching Sesam beam FORCES rows at Section 5 result position "
+                f"{pos}. If that position has no rows, the mean of available positions is used."
+            ),
+            "formula": f"mean({component_label} FORCES rows at position {pos})",
+            "source_sets": [
+                {
+                    "label": "beam FORCE result rows",
+                    "source_count": len(by_pos[pos]),
+                    "element_ids": sorted({int(s["element_id"]) for s in by_pos[pos]}),
+                    "sources": by_pos[pos][:_MAX_PROVENANCE_SOURCES],
+                    "truncated_source_count": max(0, len(by_pos[pos]) - _MAX_PROVENANCE_SOURCES),
+                }
+            ],
+        }
+        for pos in (1, 2, 3)
+    }
+    return out, provenance
+
+
+def _term(label: str, value: float, unit: str) -> dict[str, Any]:
+    return {"label": label, "value": _round_source_value(value), "unit": unit}
 
 
 def _beam_component_positions(
@@ -502,11 +780,13 @@ def _resolve_stiffener(
     # Genie's Section-5 field integration on irregular triangular/quadrilateral
     # edge fields. ``edge_trib ⊆ field_trib``, so resolve each element's points
     # once and slice both views from it.
-    points_by_element = {
-        pe: _element_membrane_points(mesh, aux, stress_blocks, pe, axis, cs.get(pe)) for pe in field_trib
+    point_records_by_element = {
+        pe: _element_membrane_point_records(mesh, aux, stress_blocks, pe, axis, cs.get(pe)) for pe in field_trib
     }
+    points_by_element = {pe: _point_tuples(records) for pe, records in point_records_by_element.items()}
     field_points_by_element = points_by_element
     field_points = [point for points in field_points_by_element.values() for point in points]
+    field_records = [record for records in point_records_by_element.values() for record in records]
     field_weighted = _area_weighted_element_mean(mesh, field_points_by_element, areas)
     overall = -field_weighted if field_weighted is not None else np.zeros(3)
 
@@ -515,10 +795,13 @@ def _resolve_stiffener(
     # elements that share the stiffener line, then use result points closest to
     # that line for the calibrated Section-5 axial reconstruction.
     edge_points_by_element = {pe: points_by_element.get(pe, []) for pe in edge_trib}
+    edge_records_by_element = {pe: point_records_by_element.get(pe, []) for pe in edge_trib}
     long_points = [point for points in edge_points_by_element.values() for point in points]
+    long_records = [record for records in edge_records_by_element.values() for record in records]
     long_weighted = _area_weighted_element_mean(mesh, edge_points_by_element, areas)
     long_overall = -long_weighted if long_weighted is not None else overall
-    edge_points = _edge_points(long_points, origin, axis)
+    edge_records = _edge_point_records(long_records, origin, axis)
+    edge_points = _point_tuples(edge_records)
     edge_rotated = [tensor for _, tensor in edge_points]
     edge_mid = -float(np.array(edge_rotated).mean(axis=0)[0]) if edge_rotated else float(long_overall[0])
     all_long_pos = [-x for x in _station_values(long_points, origin, axis, 0, -float(long_overall[0]))]
@@ -535,7 +818,15 @@ def _resolve_stiffener(
     p_sd = _area_weighted_pressure(mesh, aux, result_case, field_trib, areas)
     q_dir = p_sd * s_spacing
     n_plate_positions = [float(x * t * s_spacing) for x in long_pos]
-    n_beam_positions = _beam_axial_positions(force_blocks, geom.element_ids)
+    n_beam_positions, n_beam_provenance = _beam_component_position_data(
+        mesh,
+        force_blocks,
+        geom.element_ids,
+        0,
+        sign=-1.0,
+        unit="N",
+        component_label="beam axial force NXX",
+    )
     n_axial_positions = [float(n_plate + n_beam) for n_plate, n_beam in zip(n_plate_positions, n_beam_positions)]
     n_axial = n_axial_positions[1]
     n_plate = long_mid * t * s_spacing
@@ -553,7 +844,15 @@ def _resolve_stiffener(
     z_na = geom.z_na
     m_plate = [-float(n * z_na) for n in n_plate_positions]
     m_beam_force = [float(n * (section_centroid - z_na)) for n in n_beam_positions]
-    m_beam = _beam_moment_positions(force_blocks, geom.element_ids)
+    m_beam, m_beam_provenance = _beam_component_position_data(
+        mesh,
+        force_blocks,
+        geom.element_ids,
+        4,
+        sign=-1.0,
+        unit="Nm",
+        component_label="beam moment MXY",
+    )
     moments = [float(a + b + c) for a, b, c in zip(m_plate, m_beam_force, m_beam)]
     span = geom.span
     q_fe = (0.5 * (moments[0] + moments[2]) - moments[1]) * 8.0 / (span * span) if span else 0.0
@@ -586,6 +885,74 @@ def _resolve_stiffener(
         "MomentsAboutNeutralAxisBeamForce": m_beam_force,
         "MomentsAboutNeutralAxisBeamMoment": m_beam,
     }
+    provenance: dict[str, Any] = {}
+    for pos in (1, 2, 3):
+        i = pos - 1
+        provenance[f"sigma_x_{pos}"] = _panel_sigma_x_provenance(
+            all_records=long_records,
+            edge_records=edge_records,
+            origin=origin,
+            axis=axis,
+            position=pos,
+        )
+        provenance[f"sigma_y{pos}"] = _station_stress_provenance(
+            records=field_records,
+            origin=origin,
+            axis=axis,
+            position=pos,
+            component=1,
+            label=f"Transverse stress position {pos}",
+            calculation=(
+                "Shell membrane stresses are area-resolved over the adjacent plate field, "
+                "rotated into the stiffener frame and converted to compression-positive "
+                "transverse stress. End positions use samples at the end station; the "
+                "mid position uses the area-weighted element mean."
+            ),
+            formula="sigma_y,i = - rotated transverse membrane stress at Section 5 position i",
+            sign=-1.0,
+        )
+        provenance[f"tau_{pos}"] = _station_stress_provenance(
+            records=field_records,
+            origin=origin,
+            axis=axis,
+            position=pos,
+            component=2,
+            label=f"Shear stress position {pos}",
+            calculation=(
+                "Shell membrane shear is resolved over the adjacent plate field, rotated "
+                "into the stiffener frame and reported as an absolute design shear stress. "
+                "End positions use samples at the end station; the mid position uses the "
+                "area-weighted element mean."
+            ),
+            formula="tau_i = abs(rotated membrane shear at Section 5 position i)",
+            absolute=True,
+        )
+        provenance[f"M_{pos}"] = {
+            "label": f"Moment position {pos}",
+            "position": pos,
+            "calculation": (
+                "Moment about the neutral axis is assembled from the plate membrane axial "
+                "force, beam axial-force eccentricity and Sesam beam moment rows."
+            ),
+            "formula": "M_i = -N_plate,i*z_NA + N_beam,i*(z_section-z_NA) + M_beam,i",
+            "terms": [
+                _term("plate membrane contribution", m_plate[i], "Nm"),
+                _term("beam axial eccentricity contribution", m_beam_force[i], "Nm"),
+                _term("beam moment contribution", m_beam[i], "Nm"),
+                _term("z_NA", z_na, "m"),
+                _term("z_section", section_centroid, "m"),
+            ],
+            "source_sets": [
+                _source_set_payload(
+                    "plate membrane stress sources used by N_plate",
+                    _station_records(long_records, origin, axis, pos),
+                    0,
+                    sign=-1.0,
+                ),
+                *n_beam_provenance[pos]["source_sets"],
+                *m_beam_provenance[pos]["source_sets"],
+            ],
+        }
     return ResolvedCase(
         result_case=0,
         stiffener=stiff_name,
@@ -594,6 +961,7 @@ def _resolve_stiffener(
         continuous=geom.continuous,
         variables=variables,
         vectors=vectors,
+        provenance=provenance,
     )
 
 
@@ -738,6 +1106,7 @@ def _resolve_step(
                     continuous=rc.continuous,
                     variables=rc.variables,
                     vectors=rc.vectors,
+                    provenance=rc.provenance,
                 )
             )
     return out

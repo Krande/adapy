@@ -20,6 +20,8 @@ import json
 import pathlib
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
+from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 
@@ -37,11 +39,16 @@ from ada.fem.capacity.stress_resolve import (
     _area_weighted_element_mean,
     _area_weighted_pressure,
     _element_area,
-    _element_membrane_points,
+    _element_membrane_point_records,
+    _point_tuples,
+    _recovered_stress_blocks,
     _rotation_cossin,
     _rows_for_element,
+    _round_source_value,
+    _station_stress_provenance,
     _station_values,
     _superpose_into,
+    _term,
 )
 from ada.fem.results.common import Mesh
 
@@ -61,6 +68,7 @@ _MIN_LINE_CONTACT_FRACTION = 0.5
 _FORCE_AXIAL = 0  # NXX
 _FORCE_SHEAR_Z = 2  # NXZ — shear normal to the plate (girder web plane)
 _FORCE_MOMENT_Y = 4  # MXY — bending in the plate-normal plane
+_MAX_PROVENANCE_SOURCES = 8
 
 
 @dataclass(frozen=True)
@@ -110,6 +118,7 @@ class ResolvedGirderCase:
     capacity_model_id: str = ""
     variables: dict[str, float] = field(default_factory=dict)
     vectors: dict[str, list[float]] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #
@@ -630,6 +639,17 @@ def _stiffener_As_Is(section: CapSection, s: float, t: float) -> tuple[float, fl
     return a_stiffener, inertia
 
 
+def _girder_section_area(section: CapSection) -> float:
+    h = float(section.height)
+    tw = float(section.web_thickness)
+    bf = float(section.flange_width)
+    tf = float(section.flange_thickness)
+    if h <= 0.0 or tw <= 0.0:
+        return 0.0
+    hw = max(h - tf, 0.0) if (bf > 0.0 and tf > 0.0) else h
+    return hw * tw + max(bf, 0.0) * max(tf, 0.0)
+
+
 # --------------------------------------------------------------------------- #
 # Section-7 load resolve
 # --------------------------------------------------------------------------- #
@@ -714,6 +734,111 @@ def _beam_run_stations(
     return [start, mid, end]
 
 
+def _beam_position_nodes(node_ids: list[int], position: int) -> list[int]:
+    if not node_ids:
+        return []
+    if position == 1:
+        return [int(node_ids[0])]
+    if position == 3:
+        return [int(node_ids[-1])]
+    if len(node_ids) >= 3:
+        return [int(node_ids[2])]
+    return [int(n) for n in node_ids]
+
+
+def _beam_run_station_data(
+    mesh: Mesh,
+    force_blocks,
+    geom: _GirderGeom,
+    component: int,
+    *,
+    sign: float = 1.0,
+    unit: str,
+    component_label: str,
+) -> tuple[list[float], dict[int, dict[str, Any]]]:
+    samples: list[dict[str, Any]] = []
+    for el in geom.element_ids:
+        a0, a1 = geom.elem_along.get(el, (0.0, 0.0))
+        nodes = extract.element_node_ids(mesh, el)
+        for sub in _rows_for_element(force_blocks, el):
+            for row in sub:
+                pos = int(row[1])
+                along = a0 if pos == 1 else (a1 if pos == 3 else 0.5 * (a0 + a1))
+                raw = float(row[2 + component])
+                samples.append(
+                    {
+                        "element_id": int(el),
+                        "node_ids": _beam_position_nodes(nodes, pos),
+                        "force_position": pos,
+                        "along_m": _round_source_value(along),
+                        "_along_exact": along,
+                        "raw_value": _round_source_value(raw),
+                        "value": _round_source_value(raw * sign),
+                        "_exact": raw * sign,
+                        "unit": unit,
+                    }
+                )
+    if not samples:
+        empty = {
+            pos: {
+                "label": f"{component_label} station {pos}",
+                "position": pos,
+                "calculation": "No matching beam FORCE rows were found; value resolved to zero.",
+                "formula": "0",
+                "source_sets": [],
+            }
+            for pos in (1, 2, 3)
+        }
+        return [0.0, 0.0, 0.0], empty
+
+    along = np.array([float(s["_along_exact"]) for s in samples])
+    values = np.array([float(s["_exact"]) for s in samples])
+    span = float(np.ptp(along))
+    if span <= 1e-12:
+        value_sets = {pos: samples for pos in (1, 2, 3)}
+        values_out = [float(values.mean())] * 3
+    else:
+        tol = max(span * 1e-6, 1e-6)
+        start_samples = [s for s, a in zip(samples, along) if a <= along.min() + tol]
+        end_samples = [s for s, a in zip(samples, along) if a >= along.max() - tol]
+        mid_coord = 0.5 * (float(along.min()) + float(along.max()))
+        mid_dist = np.abs(along - mid_coord)
+        min_mid_dist = float(mid_dist.min())
+        mid_samples = [s for s, d in zip(samples, mid_dist) if d == min_mid_dist]
+        value_sets = {1: start_samples, 2: mid_samples, 3: end_samples}
+        values_out = [
+            float(np.mean([float(s["_exact"]) for s in value_sets[pos]])) if value_sets[pos] else 0.0
+            for pos in (1, 2, 3)
+        ]
+
+    provenance = {}
+    for pos in (1, 2, 3):
+        src = [
+            {k: v for k, v in s.items() if k not in {"_exact", "_along_exact"}}
+            for s in value_sets[pos]
+        ]
+        provenance[pos] = {
+            "label": f"{component_label} station {pos}",
+            "position": pos,
+            "calculation": (
+                "FORCES rows are placed at their along-girder coordinate "
+                "(element start/mid/end for force positions 1/2/3). Station 1 and 3 "
+                "use rows at the run ends; station 2 uses rows nearest the run midpoint."
+            ),
+            "formula": f"mean({component_label} rows selected by along-girder station)",
+            "source_sets": [
+                {
+                    "label": "beam FORCE result rows",
+                    "source_count": len(src),
+                    "element_ids": sorted({int(s["element_id"]) for s in src}),
+                    "sources": src[:_MAX_PROVENANCE_SOURCES],
+                    "truncated_source_count": max(0, len(src) - _MAX_PROVENANCE_SOURCES),
+                }
+            ],
+        }
+    return values_out, provenance
+
+
 def _beam_run_max_abs(force_blocks, geom: _GirderGeom, component: int) -> float:
     values = [
         float(row[2 + component])
@@ -722,6 +847,51 @@ def _beam_run_max_abs(force_blocks, geom: _GirderGeom, component: int) -> float:
         for row in sub
     ]
     return max((abs(v) for v in values), default=0.0)
+
+
+def _beam_run_max_abs_data(
+    mesh: Mesh,
+    force_blocks,
+    geom: _GirderGeom,
+    component: int,
+    *,
+    unit: str,
+    component_label: str,
+) -> tuple[float, dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    values: list[float] = []
+    for el in geom.element_ids:
+        nodes = extract.element_node_ids(mesh, el)
+        for sub in _rows_for_element(force_blocks, el):
+            for row in sub:
+                pos = int(row[1])
+                raw = float(row[2 + component])
+                values.append(raw)
+                sources.append(
+                    {
+                        "element_id": int(el),
+                        "node_ids": _beam_position_nodes(nodes, pos),
+                        "force_position": pos,
+                        "raw_value": _round_source_value(raw),
+                        "value": _round_source_value(abs(raw)),
+                        "unit": unit,
+                    }
+                )
+    value = max((abs(v) for v in values), default=0.0)
+    return value, {
+        "label": component_label,
+        "calculation": "Maximum absolute value over all girder beam FORCE rows.",
+        "formula": f"max(abs({component_label} FORCES rows))",
+        "source_sets": [
+            {
+                "label": "beam FORCE result rows",
+                "source_count": len(sources),
+                "element_ids": sorted({int(s["element_id"]) for s in sources}),
+                "sources": sources[:_MAX_PROVENANCE_SOURCES],
+                "truncated_source_count": max(0, len(sources) - _MAX_PROVENANCE_SOURCES),
+            }
+        ],
+    }
 
 
 def _resolve_girder(
@@ -736,25 +906,124 @@ def _resolve_girder(
     # Membrane stresses over the tributary plates, rotated into the girder frame
     # (xx along the girder, yy = stiffener direction, xy shear). Negated to the
     # compression-positive design convention, as in the stiffened-panel resolve.
-    points_by_element = {
-        pe: _element_membrane_points(mesh, aux, stress_blocks, pe, geom.axis, geom.cs_by_element.get(pe))
+    point_records_by_element = {
+        pe: _element_membrane_point_records(mesh, aux, stress_blocks, pe, geom.axis, geom.cs_by_element.get(pe))
         for pe in geom.trib
     }
+    points_by_element = {pe: _point_tuples(records) for pe, records in point_records_by_element.items()}
     points = [pt for pts in points_by_element.values() for pt in pts]
+    point_records = [record for records in point_records_by_element.values() for record in records]
     weighted = _area_weighted_element_mean(mesh, points_by_element, geom.area_by_element)
     overall = -weighted if weighted is not None else np.zeros(3)
 
+    sigma_x_pos = [-x for x in _station_values(points, geom.origin, geom.axis, 1, -float(overall[1]))]
     tau_pos = [abs(x) for x in _station_values(points, geom.origin, geom.axis, 2, -float(overall[2]))]
-    sigma_x_sd = float(overall[1])  # stress in the stiffener direction, compression positive
+    # [7.8.5]: maximum compressive linearized value within 0.25*L_G of midspan.
+    sigma_x_sd = max(
+        sigma_x_pos[1] + 0.5 * (sigma_x_pos[0] - sigma_x_pos[1]),
+        sigma_x_pos[1],
+        sigma_x_pos[1] + 0.5 * (sigma_x_pos[2] - sigma_x_pos[1]),
+        0.0,
+    )
 
     # Girder beam force resultants. Axial: compression positive (sign -1 from the
     # FE tension-positive NXX). Moment: MXY sign-flipped to tension-in-plate-
     # flange positive — the same convention the stiffened-panel resolve is
     # calibrated to; verify per model (see further_work girder plan, item 4h).
-    n_g = _beam_run_stations(force_blocks, geom, _FORCE_AXIAL, sign=-1.0)
-    m_g = _beam_run_stations(force_blocks, geom, _FORCE_MOMENT_Y, sign=-1.0)
-    v_sd = _beam_run_max_abs(force_blocks, geom, _FORCE_SHEAR_Z)
+    n_g, n_g_provenance = _beam_run_station_data(
+        mesh,
+        force_blocks,
+        geom,
+        _FORCE_AXIAL,
+        sign=-1.0,
+        unit="N",
+        component_label="girder axial force NXX",
+    )
+    m_g, m_g_provenance = _beam_run_station_data(
+        mesh,
+        force_blocks,
+        geom,
+        _FORCE_MOMENT_Y,
+        sign=-1.0,
+        unit="Nm",
+        component_label="girder moment MXY",
+    )
+    v_sd, v_sd_provenance = _beam_run_max_abs_data(
+        mesh,
+        force_blocks,
+        geom,
+        _FORCE_SHEAR_Z,
+        unit="N",
+        component_label="girder web shear NXZ",
+    )
     p_sd = _area_weighted_pressure(mesh, aux, case, geom.trib, geom.area_by_element)
+
+    axial_area = _girder_section_area(gm.section) + gm.l * gm.t
+    provenance: dict[str, Any] = {
+        "V_Sd": v_sd_provenance,
+        "p_Sd": {
+            "label": "Lateral pressure",
+            "calculation": "Area-weighted mean shell pressure over the girder tributary plate elements.",
+            "formula": "p_Sd = area-weighted mean(BEUSLO pressure)",
+            "source_sets": [
+                {
+                    "label": "tributary plate elements",
+                    "source_count": len(geom.trib),
+                    "element_ids": [int(e) for e in geom.trib],
+                    "sources": [],
+                    "truncated_source_count": 0,
+                }
+            ],
+        },
+    }
+    for pos in (1, 2, 3):
+        i = pos - 1
+        provenance[f"sigma_x_{pos}"] = _station_stress_provenance(
+            records=point_records,
+            origin=geom.origin,
+            axis=geom.axis,
+            position=pos,
+            component=1,
+            label=f"Stiffener-direction stress position {pos}",
+            calculation=(
+                "Shell top/bottom STRESS result points on the girder tributary plate "
+                "elements are averaged to membrane stress, rotated into the girder frame, "
+                "and converted to compression-positive stiffener-direction stress."
+            ),
+            formula="sigma_x,i = - rotated tributary membrane stress component yy at station i",
+            sign=-1.0,
+        )
+        provenance[f"tau_{pos}"] = _station_stress_provenance(
+            records=point_records,
+            origin=geom.origin,
+            axis=geom.axis,
+            position=pos,
+            component=2,
+            label=f"Shear stress position {pos}",
+            calculation=(
+                "Shell membrane shear on the girder tributary plate elements is rotated "
+                "into the girder frame and reported as an absolute design shear stress."
+            ),
+            formula="tau_i = abs(rotated tributary membrane shear at station i)",
+            absolute=True,
+        )
+        provenance[f"N_G{pos}"] = n_g_provenance[pos]
+        provenance[f"M_G{pos}"] = m_g_provenance[pos]
+        provenance[f"sigma_y_{pos}"] = {
+            "label": f"Girder membrane stress position {pos}",
+            "position": pos,
+            "calculation": (
+                "Displayed girder-direction membrane stress is back-calculated from the "
+                "resolved girder axial force and the girder-plus-plate-flange area."
+            ),
+            "formula": "sigma_y,i = N_Gi / (A_G + l*t)",
+            "terms": [
+                _term("N_Gi", n_g[i], "N"),
+                _term("A_G + l*t", axial_area, "m^2"),
+                _term("sigma_y,i", n_g[i] / axial_area if axial_area else 0.0, "Pa"),
+            ],
+            "source_sets": n_g_provenance[pos]["source_sets"],
+        }
 
     return ResolvedGirderCase(
         result_case=case,
@@ -769,7 +1038,9 @@ def _resolve_girder(
             "NG": [float(x) for x in n_g],
             "MG": [float(x) for x in m_g],
             "Tau": [float(x) for x in tau_pos],
+            "AverageStiffenerDirectionMembraneStresses": [float(x) for x in sigma_x_pos],
         },
+        provenance=provenance,
     )
 
 
@@ -827,6 +1098,7 @@ def resolve_girder_cases(
 
     aux = extract.AuxRecords.from_sin(sin_path)
     forces_elements = {int(e) for gm in models for e in gm.element_ids}
+    material_by_element: dict[int, tuple[float, float]] | None = None
 
     out: list[ResolvedGirderCase] = []
     total = len(direct) + len(combo_plan)
@@ -835,8 +1107,20 @@ def resolve_girder_cases(
     geom_cache: dict[str, _GirderGeom] = {}
 
     def _resolve_step_girders(mesh, case: int, results) -> None:
+        nonlocal material_by_element
         stress_blocks = [r for r in results if r.name == "STRESS"]
         force_blocks = [r for r in results if r.name == "FORCES"]
+        if material_by_element is None:
+            material_by_element = {}
+            for gm in models:
+                for element_id in gm.tributary_plate_ids:
+                    mat = _cap_material(mesh, int(element_id))
+                    material_by_element[int(element_id)] = (mat.E, mat.poisson)
+        if not stress_blocks:
+            shim = SimpleNamespace(results=list(results))
+            stress_blocks = _recovered_stress_blocks(
+                mesh, aux, shim, case, material_by_element, log=done == 0
+            )
         for gm in models:
             geom = geom_cache.get(gm.id)
             if geom is None:

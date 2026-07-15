@@ -33,6 +33,7 @@ import {
   clearCapacityStations,
   clearCapacityVisualField,
   loadCapacityCaseDetail,
+  loadCapacityProvenance,
   loadCapacityWorstSummary,
   setFeaWireframeVisible,
 } from "@/utils/scene/handlers/load_fea_streaming";
@@ -800,11 +801,49 @@ interface InputField {
   unit?: string;
   pos?: number; // 1/2/3 → colour-coded to the 3D station marker
   ref?: string; // DNV-RP-C201 equation/clause tag, e.g. "(6.17)"
+  provenance?: InputProvenance;
+  provenanceKey?: string;
+  provenanceUrl?: string;
 }
 
 interface InputGroup {
   title: string;
   fields: InputField[];
+}
+
+interface InputProvenance {
+  label?: string;
+  calculation?: string;
+  formula?: string;
+  terms?: ProvenanceTerm[];
+  source_sets?: ProvenanceSourceSet[];
+  sources?: ProvenanceSource[];
+}
+
+interface ProvenanceTerm {
+  label?: string;
+  value?: number | string | null;
+  unit?: string;
+}
+
+interface ProvenanceSourceSet {
+  label?: string;
+  source_count?: number;
+  element_ids?: number[];
+  sources?: ProvenanceSource[];
+  truncated_source_count?: number;
+}
+
+interface ProvenanceSource {
+  element_id?: number;
+  node_ids?: number[];
+  result_points?: number[];
+  force_position?: number;
+  along_m?: number;
+  value?: number | string | null;
+  raw_value?: number | string | null;
+  unit?: string;
+  calculation?: string;
 }
 
 const CapacityInputDetails: React.FC<{
@@ -821,29 +860,172 @@ const CapacityInputDetails: React.FC<{
           </div>
           <div className="grid grid-cols-[auto_1fr_auto] gap-x-2 gap-y-0.5">
             {g.fields.map((f, i) => (
-              <React.Fragment key={i}>
-                <span className="font-mono text-gray-500 whitespace-nowrap">
-                  {f.pos != null && (
-                    <span
-                      style={{ color: STATION_COLORS[f.pos - 1] ?? "#94a3b8" }}
-                    >
-                      ●{" "}
-                    </span>
-                  )}
-                  {f.symbol ?? ""}
-                </span>
-                <span className="text-gray-400 truncate" title={f.label}>
-                  {f.label}
-                  {f.ref && <span className="text-gray-600"> {f.ref}</span>}
-                </span>
-                <span className="font-mono text-right text-gray-100 whitespace-nowrap">
-                  {fmtInputField(f)}
-                </span>
-              </React.Fragment>
+              <InputFieldRow key={`${caseResultKey(row)}:${g.title}:${i}`} field={f} />
             ))}
           </div>
         </div>
       ))}
+    </div>
+  );
+};
+
+const InputFieldRow: React.FC<{ field: InputField }> = ({ field: f }) => {
+  const [open, setOpen] = useState(false);
+  const [loadedProvenance, setLoadedProvenance] = useState<
+    InputProvenance | undefined
+  >(undefined);
+  const [loadingProvenance, setLoadingProvenance] = useState(false);
+  const [provenanceError, setProvenanceError] = useState<string | null>(null);
+  const provenance = f.provenance ?? loadedProvenance;
+  const canFetchProvenance = !!f.provenanceUrl && !!f.provenanceKey;
+  const hasProvenance = !!provenance || canFetchProvenance;
+
+  useEffect(() => {
+    setLoadedProvenance(undefined);
+    setLoadingProvenance(false);
+    setProvenanceError(null);
+    setOpen(false);
+  }, [f.provenanceUrl, f.provenanceKey]);
+
+  const toggleProvenance = async () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    if (provenance || !f.provenanceUrl || !f.provenanceKey) return;
+    setLoadingProvenance(true);
+    setProvenanceError(null);
+    try {
+      const payload = await loadCapacityProvenance(f.provenanceUrl);
+      const item = provenanceFor(payload, f.provenanceKey);
+      if (item) {
+        setLoadedProvenance(item);
+      } else {
+        setProvenanceError("No provenance recorded for this value.");
+      }
+    } catch (err) {
+      setProvenanceError("Could not load provenance.");
+      // eslint-disable-next-line no-console
+      console.warn(`[capacity] failed to load provenance ${f.provenanceUrl}:`, err);
+    } finally {
+      setLoadingProvenance(false);
+    }
+  };
+
+  return (
+    <>
+      <span className="font-mono text-gray-500 whitespace-nowrap">
+        {f.pos != null && (
+          <span style={{ color: STATION_COLORS[f.pos - 1] ?? "#94a3b8" }}>
+            {"\u25cf "}
+          </span>
+        )}
+        {f.symbol ?? ""}
+      </span>
+      <span className="text-gray-400 truncate" title={f.label}>
+        {f.label}
+        {f.ref && <span className="text-gray-600"> {f.ref}</span>}
+      </span>
+      <span className="font-mono text-right text-gray-100 whitespace-nowrap">
+        {hasProvenance ? (
+          <button
+            type="button"
+            className="text-right underline decoration-dotted decoration-gray-500 underline-offset-2 hover:text-white focus:outline-none focus:ring-1 focus:ring-sky-500/80"
+            aria-expanded={open}
+            onClick={() => void toggleProvenance()}
+          >
+            {fmtInputField(f)}
+          </button>
+        ) : (
+          fmtInputField(f)
+        )}
+      </span>
+      {open && hasProvenance && (
+        <div className="col-span-3 mb-1 border-l border-sky-500/40 pl-2 text-[10px] text-gray-400">
+          {loadingProvenance ? (
+            <div>Loading provenance...</div>
+          ) : provenance ? (
+            <InputProvenanceDetails provenance={provenance} />
+          ) : (
+            <div>{provenanceError ?? "No provenance recorded for this value."}</div>
+          )}
+        </div>
+      )}
+    </>
+  );
+};
+
+const InputProvenanceDetails: React.FC<{ provenance: InputProvenance }> = ({
+  provenance,
+}) => {
+  const sets = provenance.source_sets ?? [];
+  const directSources = provenance.sources ?? [];
+  return (
+    <div className="max-h-56 space-y-1 overflow-auto pr-1">
+      {provenance.calculation && <div>{provenance.calculation}</div>}
+      {provenance.formula && (
+        <div className="font-mono text-gray-300">{provenance.formula}</div>
+      )}
+      {provenance.terms?.length ? (
+        <div className="grid grid-cols-[1fr_auto] gap-x-2">
+          {provenance.terms.map((term, i) => (
+            <React.Fragment key={i}>
+              <span className="text-gray-500">{term.label ?? ""}</span>
+              <span className="font-mono text-gray-300">
+                {fmtProvenanceValue(term.value, term.unit)}
+              </span>
+            </React.Fragment>
+          ))}
+        </div>
+      ) : null}
+      {sets.map((set, i) => (
+        <ProvenanceSourceSetView key={i} sourceSet={set} />
+      ))}
+      {directSources.length ? (
+        <ProvenanceSourceSetView
+          sourceSet={{
+            label: "sources",
+            source_count: directSources.length,
+            sources: directSources,
+          }}
+        />
+      ) : null}
+    </div>
+  );
+};
+
+const ProvenanceSourceSetView: React.FC<{ sourceSet: ProvenanceSourceSet }> = ({
+  sourceSet,
+}) => {
+  const elements = sourceSet.element_ids ?? [];
+  const sources = sourceSet.sources ?? [];
+  return (
+    <div className="space-y-0.5">
+      <div className="text-gray-300">
+        {sourceSet.label ?? "sources"}
+        {sourceSet.source_count != null && (
+          <span className="text-gray-500"> ({sourceSet.source_count})</span>
+        )}
+      </div>
+      {elements.length ? (
+        <div>
+          <span className="text-gray-500">Elements </span>
+          <span className="font-mono text-gray-300">
+            {compactNumberList(elements)}
+          </span>
+        </div>
+      ) : null}
+      {sources.map((source, i) => (
+        <div key={i} className="font-mono text-gray-400">
+          {formatProvenanceSource(source)}
+        </div>
+      ))}
+      {sourceSet.truncated_source_count ? (
+        <div className="text-gray-500">
+          {sourceSet.truncated_source_count} more source rows
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -952,6 +1134,14 @@ function scaled(v: unknown, factor: number): number | null {
   return n == null ? null : n * factor;
 }
 
+function provenanceFor(
+  provenance: Record<string, unknown>,
+  key: string,
+): InputProvenance | undefined {
+  const value = provenance[key];
+  return value && typeof value === "object" ? (value as InputProvenance) : undefined;
+}
+
 /** Round a value to the precision the input sidecar shows (see fmtInputField):
  *  1 decimal for |v|>=100, 2 decimals for |v|>=1, else 3 significant figures.
  *  Used so the exported numbers match what the user reads in the sidebar
@@ -978,6 +1168,41 @@ function fmtInputField(f: InputField): string {
           ? v.toFixed(2)
           : v.toPrecision(3);
   return f.unit && f.unit !== "-" ? `${s} ${f.unit}` : s;
+}
+
+function fmtProvenanceValue(value: unknown, unit?: string): string {
+  if (typeof value === "string") return unit && unit !== "-" ? `${value} ${unit}` : value;
+  const n = asNum(value);
+  if (n == null) return "-";
+  const a = Math.abs(n);
+  const s =
+    a >= 1e6 || (a > 0 && a < 1e-3)
+      ? n.toExponential(3)
+      : a >= 100
+        ? n.toFixed(2)
+        : a >= 1 || a === 0
+          ? n.toFixed(4)
+          : n.toPrecision(4);
+  return unit && unit !== "-" ? `${s} ${unit}` : s;
+}
+
+function compactNumberList(values: number[], limit = 18): string {
+  const shown = values.slice(0, limit).join(", ");
+  return values.length > limit ? `${shown}, +${values.length - limit}` : shown;
+}
+
+function formatProvenanceSource(source: ProvenanceSource): string {
+  const parts: string[] = [];
+  if (source.element_id != null) parts.push(`el ${source.element_id}`);
+  if (source.node_ids?.length) parts.push(`nodes ${compactNumberList(source.node_ids, 8)}`);
+  if (source.result_points?.length) {
+    parts.push(`rp ${compactNumberList(source.result_points, 8)}`);
+  }
+  if (source.force_position != null) parts.push(`pos ${source.force_position}`);
+  if (source.along_m != null) parts.push(`x=${fmtProvenanceValue(source.along_m, "m")}`);
+  if (source.value != null) parts.push(`value ${fmtProvenanceValue(source.value, source.unit)}`);
+  if (source.raw_value != null) parts.push(`raw ${fmtProvenanceValue(source.raw_value, source.unit)}`);
+  return parts.join(" | ");
 }
 
 /** Map a capacity-model section to the UI's stiffener_type choice. */
@@ -1172,6 +1397,8 @@ function buildUiGirderValues(
 ): Record<string, number | string | boolean> {
   const ci = girderCheckInputs(row);
   const loads = (row.loads ?? {}) as Record<string, unknown>;
+  const vec = (row.resolved_vectors ?? {}) as Record<string, unknown>;
+  const sigmaXVec = (vec.AverageStiffenerDirectionMembraneStresses ?? []) as unknown[];
   const dr = (v: number | null, fallback = 0): number =>
     displayRound(v == null ? fallback : v);
   const num = (v: unknown, factor: number): number =>
@@ -1193,6 +1420,9 @@ function buildUiGirderValues(
     const n = asNum(nG);
     return displayRound(areaMm2 > 0 && n != null ? n / areaMm2 : 0);
   };
+  const sigmaX = num(loads.sigma_x_Sd, 1e-6);
+  const sigmaXAt = (index: number): number =>
+    sigmaXVec[index] != null ? num(sigmaXVec[index], 1e-6) : sigmaX;
   return {
     method: ci.method ?? "GCM3",
     effective_width_method: "auto",
@@ -1238,7 +1468,10 @@ function buildUiGirderValues(
     tau_1: num(loads.tau_1, 1e-6),
     tau_2: num(loads.tau_2, 1e-6),
     tau_3: num(loads.tau_3, 1e-6),
-    sigma_x: num(loads.sigma_x_Sd, 1e-6),
+    sigma_x: sigmaX,
+    sigma_x_1: sigmaXAt(0),
+    sigma_x_2: sigmaXAt(1),
+    sigma_x_3: sigmaXAt(2),
     shear_force: num(loads.V_Sd, 1e-3),
     lateral_pressure: num(loads.p_Sd, 1e-6),
     p_dir: num(loads.p_dir, 1e-6),
@@ -1308,6 +1541,7 @@ function buildInputGroups(
   const loads = (row.loads ?? {}) as Record<string, unknown>;
   const rv = (row.resolved_variables ?? {}) as Record<string, unknown>;
   const vec = (row.resolved_vectors ?? {}) as Record<string, unknown>;
+  const provenance = (row.resolved_provenance ?? {}) as Record<string, unknown>;
   const sigmaX = (vec.AverageLongitudinalMembraneStresses ?? []) as unknown[];
   // Show the geometry/material the check actually used (v8 check_inputs), so the
   // sidebar matches the result and the Export.
@@ -1327,7 +1561,18 @@ function buildInputGroups(
     unit?: string,
     pos?: number,
     ref?: string,
-  ): InputField => ({ symbol, label, value, unit, pos, ref });
+    provenanceKey?: string,
+  ): InputField => ({
+    symbol,
+    label,
+    value,
+    unit,
+    pos,
+    ref,
+    provenanceKey,
+    provenance: provenanceKey ? provenanceFor(provenance, provenanceKey) : undefined,
+    provenanceUrl: provenanceKey ? row.provenance_url : undefined,
+  });
   return [
     {
       title: "Geometry",
@@ -1360,39 +1605,39 @@ function buildInputGroups(
     {
       title: "Axial membrane stress",
       fields: [
-        f("σ_x1", "Position 1", scaled(sigmaX[0], 1e-6), "MPa", 1, "[5.3.2]"),
-        f("σ_x2", "Position 2", scaled(sigmaX[1], 1e-6), "MPa", 2),
-        f("σ_x3", "Position 3", scaled(sigmaX[2], 1e-6), "MPa", 3),
+        f("σ_x1", "Position 1", scaled(sigmaX[0], 1e-6), "MPa", 1, "[5.3.2]", "sigma_x_1"),
+        f("σ_x2", "Position 2", scaled(sigmaX[1], 1e-6), "MPa", 2, undefined, "sigma_x_2"),
+        f("σ_x3", "Position 3", scaled(sigmaX[2], 1e-6), "MPa", 3, undefined, "sigma_x_3"),
       ],
     },
     {
       title: "Transverse stress",
       fields: [
-        f("σ_y1", "Position 1", scaled(loads.sigma_y1, 1e-6), "MPa", 1, "[5.3.4]"),
-        f("σ_y2", "Position 2", scaled(loads.sigma_y2, 1e-6), "MPa", 2),
-        f("σ_y3", "Position 3", scaled(loads.sigma_y3, 1e-6), "MPa", 3),
+        f("σ_y1", "Position 1", scaled(loads.sigma_y1, 1e-6), "MPa", 1, "[5.3.4]", "sigma_y1"),
+        f("σ_y2", "Position 2", scaled(loads.sigma_y2, 1e-6), "MPa", 2, undefined, "sigma_y2"),
+        f("σ_y3", "Position 3", scaled(loads.sigma_y3, 1e-6), "MPa", 3, undefined, "sigma_y3"),
       ],
     },
     {
       title: "Shear",
       fields: [
-        f("τ_1", "Position 1", scaled(loads.tau_1, 1e-6), "MPa", 1, "[5.3.5]"),
-        f("τ_2", "Position 2", scaled(loads.tau_2, 1e-6), "MPa", 2),
-        f("τ_3", "Position 3", scaled(loads.tau_3, 1e-6), "MPa", 3),
+        f("τ_1", "Position 1", scaled(loads.tau_1, 1e-6), "MPa", 1, "[5.3.5]", "tau_1"),
+        f("τ_2", "Position 2", scaled(loads.tau_2, 1e-6), "MPa", 2, undefined, "tau_2"),
+        f("τ_3", "Position 3", scaled(loads.tau_3, 1e-6), "MPa", 3, undefined, "tau_3"),
       ],
     },
     {
       title: "Moment",
       fields: [
-        f("M_1", "Position 1", scaled(loads.M_1, 1e-3), "kN·m", 1, "[5.3.3]"),
-        f("M_2", "Position 2", scaled(loads.M_2, 1e-3), "kN·m", 2),
-        f("M_3", "Position 3", scaled(loads.M_3, 1e-3), "kN·m", 3),
+        f("M_1", "Position 1", scaled(loads.M_1, 1e-3), "kN·m", 1, "[5.3.3]", "M_1"),
+        f("M_2", "Position 2", scaled(loads.M_2, 1e-3), "kN·m", 2, undefined, "M_2"),
+        f("M_3", "Position 3", scaled(loads.M_3, 1e-3), "kN·m", 3, undefined, "M_3"),
       ],
     },
     {
       title: "Lateral load",
       fields: [
-        f("p_Sd", "Lateral pressure", scaled(loads.p_Sd, 1e-3), "kPa"),
+        f("p_Sd", "Lateral pressure", scaled(loads.p_Sd, 1e-3), "kPa", undefined, undefined, "p_Sd"),
       ],
     },
     {
@@ -1440,6 +1685,23 @@ function buildInputGroups(
 function buildGirderInputGroups(row: CapacityCaseResultLike): InputGroup[] {
   const ci = girderCheckInputs(row);
   const loads = (row.loads ?? {}) as Record<string, unknown>;
+  const vec = (row.resolved_vectors ?? {}) as Record<string, unknown>;
+  const provenance = (row.resolved_provenance ?? {}) as Record<string, unknown>;
+  const sigmaXVec = (vec.AverageStiffenerDirectionMembraneStresses ?? []) as unknown[];
+  const hw = asNum(ci.girder?.hw_mm) ?? 0;
+  const tw = asNum(ci.girder?.tw_mm) ?? 0;
+  const bf = asNum(ci.girder?.bf_mm) ?? 0;
+  const tf = asNum(ci.girder?.tf_mm) ?? 0;
+  const lSpan = asNum(ci.bay?.l_mm) ?? 0;
+  const t = asNum(ci.plate?.t_mm) ?? 0;
+  const areaMm2 = hw * tw + bf * tf + lSpan * t;
+  const sigmaY = (nG: unknown): number | null => {
+    const n = asNum(nG);
+    return areaMm2 > 0 && n != null ? displayRound(n / areaMm2) : null;
+  };
+  const sigmaX = scaled(loads.sigma_x_Sd, 1e-6);
+  const sigmaXAt = (index: number): number | null =>
+    sigmaXVec[index] != null ? scaled(sigmaXVec[index], 1e-6) : sigmaX;
   const f = (
     symbol: string,
     label: string,
@@ -1447,7 +1709,18 @@ function buildGirderInputGroups(row: CapacityCaseResultLike): InputGroup[] {
     unit?: string,
     pos?: number,
     ref?: string,
-  ): InputField => ({ symbol, label, value, unit, pos, ref });
+    provenanceKey?: string,
+  ): InputField => ({
+    symbol,
+    label,
+    value,
+    unit,
+    pos,
+    ref,
+    provenanceKey,
+    provenance: provenanceKey ? provenanceFor(provenance, provenanceKey) : undefined,
+    provenanceUrl: provenanceKey ? row.provenance_url : undefined,
+  });
   return [
     {
       title: "Girder bay",
@@ -1494,42 +1767,50 @@ function buildGirderInputGroups(row: CapacityCaseResultLike): InputGroup[] {
       ],
     },
     {
+      title: "Stiffener-direction stress",
+      fields: [
+        f("σ_x1", "Position 1", sigmaXAt(0), "MPa", 1, "[7.8.5]", "sigma_x_1"),
+        f("σ_x2", "Position 2", sigmaXAt(1), "MPa", 2, undefined, "sigma_x_2"),
+        f("σ_x3", "Position 3", sigmaXAt(2), "MPa", 3, undefined, "sigma_x_3"),
+      ],
+    },
+    {
+      title: "Girder membrane stress",
+      fields: [
+        f("σ_y1", "Position 1", sigmaY(loads.N_G1), "MPa", 1, "(5.2)", "sigma_y_1"),
+        f("σ_y2", "Position 2", sigmaY(loads.N_G2), "MPa", 2, undefined, "sigma_y_2"),
+        f("σ_y3", "Position 3", sigmaY(loads.N_G3), "MPa", 3, undefined, "sigma_y_3"),
+      ],
+    },
+    {
       title: "Girder axial force (compression +)",
       fields: [
-        f("N_G1", "Position 1", scaled(loads.N_G1, 1e-3), "kN", 1, "[7.8.2]"),
-        f("N_G2", "Position 2", scaled(loads.N_G2, 1e-3), "kN", 2),
-        f("N_G3", "Position 3", scaled(loads.N_G3, 1e-3), "kN", 3),
+        f("N_G1", "Position 1", scaled(loads.N_G1, 1e-3), "kN", 1, "[7.8.2]", "N_G1"),
+        f("N_G2", "Position 2", scaled(loads.N_G2, 1e-3), "kN", 2, undefined, "N_G2"),
+        f("N_G3", "Position 3", scaled(loads.N_G3, 1e-3), "kN", 3, undefined, "N_G3"),
       ],
     },
     {
       title: "Girder moment (tension in plate flange +)",
       fields: [
-        f("M_G1", "Position 1", scaled(loads.M_G1, 1e-3), "kN·m", 1, "(7.42)"),
-        f("M_G2", "Position 2", scaled(loads.M_G2, 1e-3), "kN·m", 2, "(7.43)"),
-        f("M_G3", "Position 3", scaled(loads.M_G3, 1e-3), "kN·m", 3, "(7.44)"),
+        f("M_G1", "Position 1", scaled(loads.M_G1, 1e-3), "kN·m", 1, "(7.42)", "M_G1"),
+        f("M_G2", "Position 2", scaled(loads.M_G2, 1e-3), "kN·m", 2, "(7.43)", "M_G2"),
+        f("M_G3", "Position 3", scaled(loads.M_G3, 1e-3), "kN·m", 3, "(7.44)", "M_G3"),
       ],
     },
     {
       title: "Shear stress",
       fields: [
-        f("τ_1", "Position 1", scaled(loads.tau_1, 1e-6), "MPa", 1, "(7.45)"),
-        f("τ_2", "Position 2", scaled(loads.tau_2, 1e-6), "MPa", 2),
-        f("τ_3", "Position 3", scaled(loads.tau_3, 1e-6), "MPa", 3),
+        f("τ_1", "Position 1", scaled(loads.tau_1, 1e-6), "MPa", 1, "(7.45)", "tau_1"),
+        f("τ_2", "Position 2", scaled(loads.tau_2, 1e-6), "MPa", 2, undefined, "tau_2"),
+        f("τ_3", "Position 3", scaled(loads.tau_3, 1e-6), "MPa", 3, undefined, "tau_3"),
       ],
     },
     {
       title: "Other loads",
       fields: [
-        f(
-          "σ_x,Sd",
-          "Stiffener-direction stress",
-          scaled(loads.sigma_x_Sd, 1e-6),
-          "MPa",
-          undefined,
-          "[7.8.5]",
-        ),
-        f("p_Sd", "Lateral pressure", scaled(loads.p_Sd, 1e-3), "kPa"),
-        f("V_Sd", "Web shear force", scaled(loads.V_Sd, 1e-3), "kN", undefined, "(7.68)"),
+        f("p_Sd", "Lateral pressure", scaled(loads.p_Sd, 1e-3), "kPa", undefined, undefined, "p_Sd"),
+        f("V_Sd", "Web shear force", scaled(loads.V_Sd, 1e-3), "kN", undefined, "(7.68)", "V_Sd"),
       ],
     },
     {

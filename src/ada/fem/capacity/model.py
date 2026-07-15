@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import pathlib
 from dataclasses import asdict, dataclass, field
+from typing import Any
 
 # Genie SectionType enum value for Holland-profile / bulb-flat sections.
 SECTION_TYPE_BULB = 7
@@ -149,6 +150,7 @@ class ResolvedCase:
     continuous: bool = True
     variables: dict[str, float] = field(default_factory=dict)
     vectors: dict[str, list[float]] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #
