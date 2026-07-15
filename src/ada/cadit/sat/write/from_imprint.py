@@ -67,9 +67,10 @@ def imprint_to_sat_entities(
         curves.append(curve)
 
     # --- faces, loops, coedges ----------------------------------------------
-    # Every coedge lying on a given edge, in creation order, so the partner
-    # rings can be closed once all faces are built.
-    coedges_on_edge: dict[int, list[se.CoEdge]] = {}
+    # Every coedge lying on a given edge, with the face normal and traversal
+    # direction its radial position about that edge is derived from, so the
+    # partner rings can be ordered once all the faces are built.
+    coedges_on_edge: dict[int, list[tuple[se.CoEdge, np.ndarray, bool]]] = {}
     faces: list[se.Face] = []
 
     # Which input plate each face came from. All the faces a plate was split
@@ -135,7 +136,7 @@ def imprint_to_sat_entities(
                 )
                 if edge.coedge is None:
                     edge.coedge = coedge
-                coedges_on_edge.setdefault(edge_idx, []).append(coedge)
+                coedges_on_edge.setdefault(edge_idx, []).append((coedge, np.asarray(f.normal, dtype=float), forward))
                 ring.append(coedge)
             entities += ring
 
@@ -210,11 +211,18 @@ def imprint_to_sat_entities(
     # writes it; an edge shared by N faces links its N coedges into a cycle. A
     # T-junction genuinely produces N > 2 (a deck split by a bulkhead gives the
     # imprint line three coedges).
-    for coedge_list in coedges_on_edge.values():
+    #
+    # The cycle has to run in radial order about the edge, or the model fails
+    # verification with "coedges out of order about edge" — ACIS reads the ring
+    # as the faces' angular order, which is what tells it which faces are
+    # neighbours around a non-manifold edge. Creation order says nothing about
+    # angle; it only ever looks right for N=2, where any cycle is sorted.
+    for edge_idx, coedge_list in coedges_on_edge.items():
         if len(coedge_list) < 2:
             continue
-        for i, coedge in enumerate(coedge_list):
-            coedge.partner = coedge_list[(i + 1) % len(coedge_list)]
+        ordered = _ordered_about_edge(imprint, edge_idx, coedge_list)
+        for i, coedge in enumerate(ordered):
+            coedge.partner = ordered[(i + 1) % len(ordered)]
 
     # --- prune topology that bounds nothing ---------------------------------
     # General Fuse can leave an edge on a face that no wire traverses (an
@@ -248,6 +256,46 @@ def _loop_bbox(imprint: PlanarImprint, loop_edges) -> list[float]:
         idx.add(e.start)
         idx.add(e.end)
     return _bbox_of(imprint, idx)
+
+
+def _ordered_about_edge(imprint: PlanarImprint, edge_idx: int, entries) -> list[se.CoEdge]:
+    """The coedges on an edge, counter-clockwise about it — the order ACIS wants.
+
+    A coedge's face lies to the left of the direction the coedge traverses the
+    edge, so ``normal x tangent`` points from the edge into that face. It is
+    perpendicular to the edge, and its angle about the edge axis is where that
+    face sits radially. Sorting on it reproduces the order Genie writes (checked
+    against its own export: every ring there is counter-clockwise about the
+    edge's own direction).
+    """
+    e = imprint.edges[edge_idx]
+    p0 = np.asarray(imprint.vertices[e.start], dtype=float)
+    p1 = np.asarray(imprint.vertices[e.end], dtype=float)
+    axis = p1 - p0
+    length = float(np.linalg.norm(axis))
+    if length < 1e-12:  # nothing to sort about
+        return [coedge for coedge, _, _ in entries]
+    axis = axis / length
+
+    # any pair of axes perpendicular to the edge; (ref, ortho, axis) is
+    # right-handed, so the angle below increases counter-clockwise about it
+    seed = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    ref = np.cross(axis, seed)
+    ref = ref / np.linalg.norm(ref)
+    ortho = np.cross(axis, ref)
+
+    def angle(entry) -> float:
+        _, normal, forward = entry
+        into_face = np.cross(normal, axis if forward else -axis)
+        norm = float(np.linalg.norm(into_face))
+        if norm < 1e-12:  # face degenerate along the edge; leave it put
+            return 0.0
+        into_face = into_face / norm
+        return float(np.arctan2(into_face @ ortho, into_face @ ref))
+
+    # stable, so coincident faces keep their creation order rather than swapping
+    # between runs
+    return [coedge for coedge, _, _ in sorted(entries, key=angle)]
 
 
 def _connected_edge_groups(imprint: PlanarImprint, edge_idxs) -> list[list[int]]:

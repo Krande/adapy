@@ -148,6 +148,45 @@ class TestImprint:
         assert d["counts"]["vertex"] == 8  # welded, not 4+4
         assert all(x > 0 for x in d["winding_dots"])
 
+    def test_partner_ring_runs_in_radial_order(self):
+        """The ring on an edge is the faces' angular order, so it must be sorted.
+
+        Two plates crossing put FOUR faces on the intersection line — the case
+        that exposes this, since a ring of two is sorted whatever the order and
+        one of three is at worst reversed. Unordered, the model fails
+        verification with "coedges out of order about edge".
+        """
+        from tests.core.cadit.sat.sat_topology import partner_rings
+
+        horiz = ada.Plate.from_3d_points("h", [(0, -5, 0), (10, -5, 0), (10, 5, 0), (0, 5, 0)], 0.01)
+        vert = ada.Plate.from_3d_points("v", [(0, 0, -5), (10, 0, -5), (10, 0, 5), (0, 0, 5)], 0.01)
+        a = ada.Assembly("t") / (ada.Part("p") / [horiz, vert])
+
+        sw = part_to_sat_writer(a)
+        sat = sw.to_str()
+        assert ref_errors(sat) == []
+
+        # each plate is cut in two by the other
+        assert len(sw.face_map[horiz.guid]) == 2
+        assert len(sw.face_map[vert.guid]) == 2
+
+        rings = partner_rings(sat)
+        assert 4 in rings, f"expected an edge carrying four coedges, got {rings}"
+        assert rings[4] == {"sorted_ccw": 1}
+        # and nothing anywhere in the body is out of order
+        assert all(set(v) == {"sorted_ccw"} for v in rings.values()), rings
+
+    def test_t_junction_partner_ring_is_ordered(self):
+        deck = ada.Plate.from_3d_points("deck", [(0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0)], 0.01)
+        bulk = ada.Plate.from_3d_points("bulk", [(0, 5, 0), (10, 5, 0), (10, 5, 5), (0, 5, 5)], 0.01)
+        a = ada.Assembly("t") / (ada.Part("p") / [deck, bulk])
+
+        from tests.core.cadit.sat.sat_topology import partner_rings
+
+        rings = partner_rings(part_to_sat_writer(a).to_str())
+        assert rings[3] == {"sorted_ccw": 1}
+        assert all(set(v) == {"sorted_ccw"} for v in rings.values()), rings
+
     def test_unfused_leaves_plates_unshared(self):
         """imprint=False keeps the old one-face-per-plate body (no CAD backend)."""
         deck = ada.Plate.from_3d_points("deck", [(0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0)], 0.01)
