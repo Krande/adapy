@@ -58,6 +58,9 @@ on:
       - 'deploy/Dockerfile.docs'
       - 'deploy/Dockerfile.docs-fast'
       - 'deploy/viewer-ada-init.py'
+      # Not baked into the image (it's piped in from the checkout), but a change to the startup
+      # gate should still rebuild the viewer so the new gate actually runs against one.
+      - 'deploy/viewer-smoke.py'
       - 'docs/**'
       - 'verification/**'
       - '.forgejo/workflows/build.yaml'
@@ -278,6 +281,7 @@ jobs:
              match_scope "$VIEWER_CHANGED" '^src/frontend/' || \
              match_scope "$VIEWER_CHANGED" '^deploy/Dockerfile\.viewer(-fast)?$' || \
              match_scope "$VIEWER_CHANGED" '^deploy/viewer-ada-init\.py$' || \
+             match_scope "$VIEWER_CHANGED" '^deploy/viewer-smoke\.py$' || \
              match_scope "$VIEWER_CHANGED" '^\.forgejo/workflows/build\.yaml$'; then
             viewer=true
           fi
