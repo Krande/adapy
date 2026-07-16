@@ -214,6 +214,7 @@ def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved], plates: list[Pl
         link_partner_rings,
         name_curved_beam_edges,
         name_imprinted_beam_edges,
+        name_straight_beam_edges,
     )
 
     if not curved:
@@ -295,6 +296,11 @@ def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved], plates: list[Pl
     # Arc beams (BeamRevolve) are not in the straight-beam imprint set; name the
     # curved-plate edge each of those lies on, as before.
     name_curved_beam_edges(sw, weld)
+    # Most stiffeners lie on edges the weld already holds: Genie pre-splits its
+    # panels along them and the reader hands those sub-faces back, so the edge
+    # exists once the faces are welded — no imprint needed. Name each remaining
+    # straight beam onto the existing welded edge(s) its axis coincides with.
+    name_straight_beam_edges(sw, weld)
     for entity in weld.entities:
         sw.add_entity(entity)
 

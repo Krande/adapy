@@ -85,6 +85,19 @@ class TopologyWeld:
         # into each one's face (for the radial ordering ACIS wants)
         self.coedges_on_edge: dict[int, list[tuple[se.CoEdge, np.ndarray]]] = defaultdict(list)
         self.range_conflicts = 0
+        # vertex-key -> axis-candidate edges incident to it, built lazily for the
+        # beam-edge naming walk (see find_axis_edges_on). Valid only once no more
+        # edges are added, which is the case by the time beams are named.
+        self._straight_adj: dict[tuple, list[se.Edge]] | None = None
+        # vertex-key -> incident curved (ellipse/intcurve) edges, for arc-beam
+        # naming (see find_arc_edge). Same lazy-build lifetime as _straight_adj.
+        self._curved_adj: dict[tuple, list[se.Edge]] | None = None
+        # Coarser rounding for beam-walk connectivity only (not vertex identity):
+        # two sub-faces meeting at a bay boundary come from separate reads and
+        # their shared corner can disagree at the 6th-7th decimal, which breaks an
+        # exact-key chain walk. 1e-5 m (0.01 mm) merges that noise while staying
+        # far below any real vertex spacing. Geometry checks still use full precision.
+        self._conn_nd: int = 5
 
     def vertex_at(self, p) -> se.Vertex:
         key = _vkey(p, self.nd)
@@ -115,7 +128,26 @@ class TopologyWeld:
     def n_edges(self) -> int:
         return len(self._edges)
 
-    def find_arc_edge(self, p1, p2) -> se.Edge | None:
+    def _curved_adjacency(self) -> dict[tuple, list[se.Edge]]:
+        """Vertex-key -> incident curved edges (ellipse or intcurve), cached.
+
+        A curved beam's arc is authored as an ellipse-curve when the reader read a
+        Circle/Ellipse, but as an intcurve-curve when it bounds a spline sub-face —
+        the source names both kinds for its curved beams (verified). Straight edges
+        are excluded so the arc is not confused with a chord between the same
+        corners.
+        """
+        if self._curved_adj is None:
+            adj: dict[tuple, list[se.Edge]] = defaultdict(list)
+            for edge in self._edges.values():
+                if not isinstance(edge.straight_curve, (se.EllipseCurve, se.IntCurve)):
+                    continue
+                adj[_vkey(edge.start_pt, self._conn_nd)].append(edge)
+                adj[_vkey(edge.end_pt, self._conn_nd)].append(edge)
+            self._curved_adj = adj
+        return self._curved_adj
+
+    def find_arc_edge(self, p1, p2, tol: float = 1e-4) -> se.Edge | None:
         """An already-built curved edge running between ``p1`` and ``p2``, or None.
 
         A curved beam's axis is not a standalone wire in a Genie export — it is a
@@ -124,17 +156,139 @@ class TopologyWeld:
         instead of authoring a separate wire body (which leaves a vertex shared
         between a face edge and a wire edge — ACIS rejects the non-manifold
         relink with error 21013 on import), find the existing shared edge and let
-        the caller name it. Matched on endpoints only; the curve being an
-        ellipse (arc) is required so a straight edge between the same corners is
-        not mistaken for the beam.
+        the caller name it. Matched on endpoints (a beam endpoint and the plate
+        corner it sits on round independently, so within ``tol``, not exact); the
+        curve being an ellipse or intcurve — not straight — keeps a chord between
+        the same corners from being mistaken for the beam.
         """
-        want = {_vkey(p1, self.nd), _vkey(p2, self.nd)}
-        for edge in self._edges.values():
-            if not isinstance(edge.straight_curve, se.EllipseCurve):
-                continue
-            if {_vkey(edge.start_pt, self.nd), _vkey(edge.end_pt, self.nd)} == want:
+        adj = self._curved_adjacency()
+        k1 = self._nearest_key(adj, p1, tol)
+        k2 = self._nearest_key(adj, p2, tol)
+        if k1 is None or k2 is None:
+            return None
+        want = {k1, k2}
+        for edge in adj.get(k1, ()):
+            if {_vkey(edge.start_pt, self._conn_nd), _vkey(edge.end_pt, self._conn_nd)} == want:
                 return edge
         return None
+
+    def _axis_adjacency(self) -> dict[tuple, list[se.Edge]]:
+        """Vertex-key -> incident axis-candidate edges, built once and cached.
+
+        Includes straight *and* intcurve edges, because a stiffener's edge is not
+        always a straight-curve: where it bounds a spline sub-face Genie authors
+        it as an ``intcurve-curve`` (curve-on-surface), and its own export names
+        exactly those for the beam (verified against the source — a straight beam
+        can reference an intcurve edge). Ellipse arcs are excluded; those are the
+        curved beams, named separately via :meth:`find_arc_edge`.
+
+        Lets the beam walk in :meth:`find_axis_edges_on` step vertex to vertex in
+        O(chain) instead of rescanning every weld edge per beam (O(beams x edges)
+        is minutes on a hull frame).
+        """
+        if self._straight_adj is None:
+            adj: dict[tuple, list[se.Edge]] = defaultdict(list)
+            for edge in self._edges.values():
+                if not isinstance(edge.straight_curve, (se.StraightCurve, se.IntCurve)):
+                    continue
+                adj[_vkey(edge.start_pt, self._conn_nd)].append(edge)
+                adj[_vkey(edge.end_pt, self._conn_nd)].append(edge)
+            self._straight_adj = adj
+        return self._straight_adj
+
+    def _nearest_key(self, adj: dict, p, tol: float) -> tuple | None:
+        """An adjacency vertex-key within ``tol`` of ``p`` (exact first).
+
+        A beam endpoint and the plate corner it sits on come from separate reads
+        and can disagree in the last rounded digit, so an exact ``_vkey`` lookup
+        misses a small tail of genuine matches. Only consulted when the exact key
+        misses, so the linear scan runs on that tail alone.
+        """
+        k = _vkey(p, self._conn_nd)
+        if k in adj:
+            return k
+        a = np.asarray(p, dtype=float)
+        best, best_d = None, tol
+        for key in adj:
+            dist = float(np.linalg.norm(np.asarray(key, dtype=float) - a))
+            if dist <= best_d:
+                best, best_d = key, dist
+        return best
+
+    def find_axis_edges_on(self, p1, p2, tol: float = 1e-4) -> list[se.Edge]:
+        """The already-built edges tiling the straight segment ``p1``–``p2``.
+
+        A stiffener on a plate is not a separate wire — its axis coincides with
+        the face edges the plate was split into along it (Genie's export is
+        pre-split, and the reader hands those sub-faces back, so the edges already
+        exist in the weld once the neighbouring faces are authored). So rather
+        than imprinting the beam (re-cutting an already-cut panel), find the weld
+        edges lying on the beam's axis and let the caller name them — no new
+        topology, no relink on import.
+
+        Walks vertex to vertex from ``p1`` toward ``p2``: at each vertex it takes
+        the incident edge whose far end stays on the line (laterally within
+        ``tol``) and advances along it, so a long stiffener crossing several bays
+        resolves to the chain of edges tiling its axis. Every intermediate vertex
+        must lie on the straight line, which is what keeps a curved boundary
+        (whose vertices leave the line) from being mistaken for the beam. The
+        beam's endpoints are panel corners, hence weld vertices; a beam whose ends
+        are not weld vertices (lies mid-face, off the split) yields nothing and is
+        left to fall back.
+        """
+        a = np.asarray(p1, dtype=float)
+        b = np.asarray(p2, dtype=float)
+        d = b - a
+        length = float(np.linalg.norm(d))
+        if length < 1e-9:
+            return []
+        u = d / length
+
+        adj = self._axis_adjacency()
+        # Walk from whichever endpoint is a weld vertex; both are panel corners,
+        # but round independently, so one may miss. If p1 misses, walk from p2
+        # toward p1 and the chain is the same set of edges.
+        start_key = self._nearest_key(adj, p1, tol)
+        if start_key is None:
+            start_key = self._nearest_key(adj, p2, tol)
+            if start_key is None:
+                return []
+            a, b = b, a
+            u = -u
+
+        chain: list[se.Edge] = []
+        visited: set[int] = set()
+        cur = a
+        cur_key = start_key
+        while float(np.linalg.norm(cur - b)) > tol:
+            t_cur = float(np.dot(cur - a, u))
+            best = None
+            best_off = tol
+            for edge in adj.get(cur_key, ()):
+                if id(edge) in visited:
+                    continue
+                other = edge.end_pt if _vkey(edge.start_pt, self._conn_nd) == cur_key else edge.start_pt
+                o = np.asarray(other, dtype=float)
+                w = o - a
+                t = float(np.dot(w, u))
+                # must advance toward b and stay within the segment
+                if t <= t_cur + 1e-9 or t > length + tol:
+                    continue
+                off = float(np.linalg.norm(w - t * u))
+                # among the edges leaving this vertex, take the one that hugs the
+                # beam line most tightly — with a loose tol two edges can both be
+                # "near" the axis and only the straightest is the stiffener's.
+                if off < best_off:
+                    best = (edge, o, _vkey(other, self._conn_nd))
+                    best_off = off
+            if best is None:
+                break
+            edge, o, o_key = best
+            visited.add(id(edge))
+            chain.append(edge)
+            cur = o
+            cur_key = o_key
+        return chain
 
 
 def _surface_entity(id_gen, surface, same_sense: bool) -> tuple[se.SATEntity, str]:
@@ -250,7 +404,7 @@ def name_curved_beam_edges(sw: SatWriter, weld: TopologyWeld) -> None:
     named = 0
     for bm in beams:
         p1, p2 = bm.axis_global()
-        edge = weld.find_arc_edge(p1, p2)
+        edge = weld.find_arc_edge(p1, p2, tol=1e-3)
         if edge is None:
             continue
         if edge.attrib_name is None:
@@ -263,6 +417,65 @@ def name_curved_beam_edges(sw: SatWriter, weld: TopologyWeld) -> None:
         named += 1
 
     logger.info(f"sat-write: named {named}/{len(beams)} curved-beam axes on shared curved-plate edges")
+
+
+def name_straight_beam_edges(sw: SatWriter, weld: TopologyWeld) -> int:
+    """Name the existing welded edges each straight beam's axis lies on.
+
+    A stiffener on a plate coincides with the face edges the plate is split into
+    along it. Genie's own export is pre-split and the reader hands those sub-faces
+    back, so once the neighbouring faces are welded the stiffener's edge already
+    exists — shared between the two sub-faces it separates. Naming it and pointing
+    the beam's ``<sat_reference>`` at it lets Genie reuse the edge instead of
+    re-imprinting the beam on import (which relinks a face edge and raises ACIS
+    21013). No fuse, no new topology — the edge Genie needs is already there.
+
+    A beam already named (e.g. a curved beam handled as an arc) is left alone. A
+    long stiffener spanning several bays resolves to a chain of collinear edges,
+    all named and referenced in order.
+    """
+    from ada import Beam, BeamTapered
+
+    beams = list(sw.part.get_all_physical_objects(by_type=(Beam, BeamTapered)))
+    if not beams:
+        return 0
+
+    named = 0
+    for bm in beams:
+        if bm.guid in sw.edge_map:
+            continue
+        p1, p2 = bm.axis_global()
+        # 1e-3 (1 mm): a beam endpoint and the plate corner it sits on come from
+        # separate reads and disagree by more than the 1e-4 default in a small
+        # tail; the min-lateral pick in the walk keeps the looser tol from taking
+        # a wrong edge.
+        edges = weld.find_axis_edges_on(p1, p2, tol=1e-3)
+        if not edges:
+            # A curved stiffener read as a straight chord (the reader only builds
+            # BeamRevolve from circular arcs) has an edge that curves along the
+            # skin, so the straight-line walk cannot follow it. If a single curved
+            # edge spans the chord's endpoints, it IS the beam's edge — name it
+            # (Genie references such intcurve edges for straight beams too).
+            arc = weld.find_arc_edge(p1, p2, tol=1e-3)
+            if arc is not None:
+                edges = [arc]
+        if not edges:
+            continue
+        names: list[str] = []
+        for edge in edges:
+            if edge.attrib_name is None:
+                name = f"EDGE{sw.edge_name_id:08d}"
+                sw.edge_name_id += 1
+                edge.attrib_name = se.StringAttribName(sw.id_generator.next_id(), name, edge)
+                sw.add_entity(edge.attrib_name)
+            if edge.attrib_name.name not in names:
+                names.append(edge.attrib_name.name)
+        if names:
+            sw.edge_map[bm.guid] = names
+            named += 1
+
+    logger.info(f"sat-write: named {named}/{len(beams)} straight-beam axes on existing welded edges")
+    return named
 
 
 def name_imprinted_beam_edges(sw: SatWriter, weld: TopologyWeld, beams, beam_edges) -> int:
