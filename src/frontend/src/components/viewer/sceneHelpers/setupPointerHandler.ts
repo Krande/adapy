@@ -198,11 +198,15 @@ export function setupPointerHandler(
  *  landed essentially at the camera position and rotation degenerated
  *  into spinning in place — easiest to trigger on mobile, where you
  *  pinch in close before double-tapping. */
-// Raycast the clicked pixel against a SINGLE mesh to recover the exact world-space hit point.
-// Used to refine the GPU picker's representative-vertex position into the real clicked point.
-// Bounded by triangle count so a whole-model batched mesh (millions of tris) doesn't stall the
-// click — above the cap the caller keeps the fast approximate vertex.
-const MAX_REFINE_TRIS = 600_000;
+// Raycast the clicked pixel against a SINGLE mesh to recover the exact world-space hit point AND
+// the triangle index face-level picking needs. This is the picked mesh only (not the whole scene),
+// so the cost is one ray against that mesh's tris — ~tens of ms even at a few million, since the
+// GPU picker already narrowed the click to this one mesh. The cap only exists to protect truly huge
+// FEA batches (tens of millions of tris) from a multi-hundred-ms stall; it must sit ABOVE a
+// merged-by-colour CAD mesh (a busy STEP colour group runs a few million tris) or face picking
+// silently no-ops there — which is exactly what happened on KR_6's orange group (~3.4M tris) at the
+// old 600k cap.
+const MAX_REFINE_TRIS = 8_000_000;
 
 function raycastPointOnMesh(
     e: MouseEvent,
