@@ -230,14 +230,46 @@ def native_track_selection_available() -> bool:
     lazily and answers False when it is absent, which is the right answer for the API: it runs no
     conversions, and the pools that do advertise their own tracks.
     """
+    return _native_binding_takes("stream_step_to_glb", "pipeline")
+
+
+def _native_binding_takes(fn: str, param: str) -> bool:
+    """Does adacpp's ``cad.<fn>`` binding accept ``param``?
+
+    nanobind embeds the signature in __doc__, which is the only way to ask an already-built
+    extension. Lives HERE, with the other adacpp capability questions, because
+    ``ada.comms.rest.converter`` asks these at MODULE level to build the published vocabulary and
+    the slim viewer image ships ``ada/cad`` but no ``ada/cadit`` — reaching into the converter
+    modules from there crashlooped the API on startup. False with no adacpp, which is the right
+    answer for the API: it runs no conversions, and the pools that do advertise their own.
+    """
     try:
         import adacpp
-    except Exception:  # noqa: BLE001 - a broken/absent adacpp is simply "no track selection"
+
+        return param in (getattr(adacpp.cad, fn).__doc__ or "")
+    except Exception:  # noqa: BLE001 - absent adacpp / no such binding => can't take it
         return False
-    try:
-        return "pipeline" in (adacpp.cad.stream_step_to_glb.__doc__ or "")
-    except Exception:  # noqa: BLE001 - no native entry point at all
-        return False
+
+
+def native_ifc_track_selection_available() -> bool:
+    """True if THIS adacpp's native IFC binding accepts a tessellation track.
+
+    Landed with face-region support in adacpp 0.16: the neutral tessellator and the GLB writer
+    always did both, but stream_ifc_to_glb forwarded neither.
+    """
+    return _native_binding_takes("stream_ifc_to_glb", "pipeline")
+
+
+def native_face_regions_available(family: str) -> bool:
+    """True if THIS adacpp's native converter for ``family`` ('step' | 'generic') takes
+    ``face_regions``.
+
+    Probed per family against the binding that would actually run: the STEP one has taken it for
+    some time, the IFC one only since 0.16, so a mixed/older install must not be offered a toggle
+    its converter would ignore.
+    """
+    fn = "stream_step_to_glb" if family == "step" else "stream_ifc_to_glb"
+    return _native_binding_takes(fn, "face_regions")
 
 
 def tess_track_by_name(name: str) -> TessTrack | None:

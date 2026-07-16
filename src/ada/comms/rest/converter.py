@@ -1235,6 +1235,28 @@ def _cpp_tess_tokens() -> list[str]:
     return tracks or [_GLB_TESS_NATIVE_PINNED]
 
 
+def _face_regions_serializers(fam: str, serializers: list[str]) -> list[str]:
+    """The serializers that can actually EMIT per-face regions for this source family.
+
+    Both native whole-file converters can: they feed the same neutral tessellator (which captures
+    the ranges) and the same C++ GLB writer (which emits face_ranges_node). Neither was ever a
+    STEP feature — until adacpp 0.16, stream_ifc_to_glb simply didn't forward the flag, so the
+    capability check is per-family against the binding that would run.
+
+    The python serializer is absent on purpose: it reaches the tessellator through the NGEOM wire,
+    and the ranges have no way across it (adacpp's Mesh doesn't carry them) nor into adapy's own
+    GLB writer. That is a real feature, not a forwarding fix.
+
+    Asks the REGISTRY, not ada.cadit: this runs at module import to build the published vocabulary,
+    and the slim viewer image ships ada/cad but no ada/cadit.
+    """
+    from ada.cad.registry import native_face_regions_available
+
+    if _GLB_SERIALIZER_CPP not in serializers:
+        return []
+    return [_GLB_SERIALIZER_CPP] if native_face_regions_available(fam) else []
+
+
 def _glb_serializer_tess(serializer: str) -> list[str] | None:
     """Tessellator tokens for a serializer, or None if it isn't offered.
 
@@ -1375,17 +1397,18 @@ def _glb_serializer_options(source_ext: str) -> list[dict]:
             "title": "Clickable surfaces",
             "default": False,
             "depends_on": "serializer",
-            # ONLY the native STEP->GLB path emits per-face regions: native_step_to_glb forwards
-            # face_regions to adacpp, which writes face_ranges_node into the GLB's scene extras.
-            # The python path never reads the flag, so advertising it there would offer a
-            # capability that silently doesn't happen. Empty list = offered nowhere on this row
-            # (e.g. an IFC source, whose native path has no face-region support), which the SPA
-            # renders as a disabled toggle rather than a lie.
-            "supported_by": ([_GLB_SERIALIZER_CPP] if fam == "step" and _GLB_SERIALIZER_CPP in serializers else []),
+            # The NATIVE paths emit per-face regions — STEP and IFC both forward face_regions to
+            # adacpp, which writes face_ranges_node into the GLB's scene extras. The python path
+            # never reads the flag, so advertising it there would offer a capability that silently
+            # doesn't happen. Empty list = offered nowhere on this row, which the SPA renders as a
+            # disabled toggle rather than a lie.
+            "supported_by": _face_regions_serializers(fam, serializers),
             "description": (
                 "Embed per-face pick regions (the source's face ids) in the GLB so individual "
                 "surfaces can be clicked. A debugging aid: it enlarges the GLB and forces serial "
-                "face tessellation, so it is off by default."
+                "face tessellation, so it is off by default. Only FACE-SET geometry has faces to "
+                "mark up — a model built from swept or CSG solids converts fine but has no regions "
+                "to click."
             ),
         },
     ]
@@ -1474,13 +1497,15 @@ def _apply_glb_serializer(
     if serializer == _GLB_SERIALIZER_CPP:
         if fam == "step":
             step_glb_pipeline = _STEP_GLB_PIPELINE_ADACPP_NATIVE
-            # The track rides the tess-engine axis: `step_glb_pipeline` is already spent naming the
-            # native CODE PATH, and the two are independent axes (which reader vs which kernel), so
-            # folding the track into that token would conflate them. `adacpp-native` resolves to no
-            # CadConfig, so nothing else reads glb_tess_engine on this branch.
-            if tessellator and tessellator != _GLB_TESS_NATIVE_PINNED:
-                glb_tess_engine = _tess_token_to_glb_engine(tessellator)
-        # generic/IFC 'cpp' = the native_ifc_to_glb default path — nothing to force.
+        # The track rides the tess-engine axis for BOTH families: `step_glb_pipeline` is already
+        # spent naming the native CODE PATH, and the two are independent axes (which reader vs
+        # which kernel), so folding the track into that token would conflate them. `adacpp-native`
+        # resolves to no CadConfig, so nothing else reads glb_tess_engine on this branch;
+        # generic/IFC 'cpp' is native_ifc_to_glb, which reverses it via _native_track_for_engine.
+        # Dropping it here (as the generic branch used to) meant a track picked for an IFC source
+        # silently ran the default while the UI reported the choice.
+        if tessellator and tessellator != _GLB_TESS_NATIVE_PINNED:
+            glb_tess_engine = _tess_token_to_glb_engine(tessellator)
         return step_glb_pipeline, glb_tess_engine, False
     if serializer == _GLB_SERIALIZER_PYTHON:
         tok = tessellator or _glb_serializer_tess(_GLB_SERIALIZER_PYTHON)[0]
@@ -3063,7 +3088,15 @@ def _via_ifc_stream_to_glb(
     if not force_python and native_ifc_glb_available():
         try:
             out_path = pathlib.Path(tempfile.mkstemp(suffix=".glb")[1])
-            stats = native_ifc_to_glb(src_path, out_path, on_progress=on_progress)
+            # Same track plumbing as the STEP native path: the cpp serializer parks its chosen
+            # track on the tess-engine axis, and this reverses it. Without forwarding it, picking a
+            # track for an IFC source ran the default and reported the caller's choice back.
+            stats = native_ifc_to_glb(
+                src_path,
+                out_path,
+                on_progress=on_progress,
+                pipeline=_native_track_for_engine(glb_tess_engine),
+            )
             if stats.get("solids", 0) > 0:
                 logger.info("native IFC->GLB: %s", stats)
                 return out_path

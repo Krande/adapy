@@ -17,6 +17,13 @@ from __future__ import annotations
 
 import pathlib
 
+from ada.cad.registry import (
+    native_ifc_track_selection_available as _native_ifc_track_selection_available,
+)
+
+# The track an unset ``pipeline`` runs (adacpp's own default). Shared with the STEP path rather than
+# restated: both forward the same token to the same neutral tessellator.
+from ada.cadit.step.native_step_to_glb import _NATIVE_DEFAULT_TRACK
 from ada.config import logger
 
 
@@ -30,6 +37,13 @@ def native_ifc_glb_available() -> bool:
         return False
 
 
+# Re-exported from ada.cad.registry, which owns the adacpp capability questions and is the only part
+# of this stack the slim viewer image ships (the REST converter asks it at module level to build the
+# published vocabulary, and that image has no ada.cadit). Kept importable from here because this is
+# the module whose binding the answer is about.
+native_ifc_track_selection_available = _native_ifc_track_selection_available
+
+
 def native_ifc_to_glb(
     ifc_path: str | pathlib.Path,
     glb_path: str | pathlib.Path,
@@ -37,6 +51,7 @@ def native_ifc_to_glb(
     angular_deg: float | None = None,
     meshopt: bool = True,
     on_progress=None,
+    pipeline: str | None = None,
 ) -> dict:
     """Convert ``ifc_path`` to a GLB at ``glb_path`` with the native adacpp IFC pipeline.
 
@@ -67,14 +82,31 @@ def native_ifc_to_glb(
     except Exception:
         num_threads = 0  # C++ falls back to cgroup-aware effective_concurrency()
 
-    n = adacpp.cad.stream_ifc_to_glb(
-        str(ifc_path),
-        str(glb_path),
+    kwargs = dict(
         deflection=deflection,
         angular_deg=angular_deg,
         meshopt=meshopt,
         num_threads=num_threads,
     )
+    # Track + per-face clickable regions, forwarded only to a build whose binding takes them
+    # (nanobind embeds the signature in __doc__; an older extension raises on an unknown kwarg).
+    # REFUSING a track it can't honour rather than running the default and reporting success is the
+    # same contract as the STEP path — the caller has no other way to tell.
+    if native_ifc_track_selection_available():
+        from ada.cad.registry import stream_tess_face_regions
+
+        if pipeline:
+            kwargs["pipeline"] = pipeline
+        if stream_tess_face_regions():
+            kwargs["face_regions"] = True
+    elif pipeline and pipeline != _NATIVE_DEFAULT_TRACK:
+        raise RuntimeError(
+            f"adacpp build predates native IFC track selection (stream_ifc_to_glb takes no "
+            f"'pipeline'); cannot honour tessellator {pipeline!r} — it would silently run "
+            f"{_NATIVE_DEFAULT_TRACK!r}"
+        )
+
+    n = adacpp.cad.stream_ifc_to_glb(str(ifc_path), str(glb_path), **kwargs)
     if n < 0:
         raise RuntimeError(f"adacpp native stream_ifc_to_glb failed for {ifc_path}")
 

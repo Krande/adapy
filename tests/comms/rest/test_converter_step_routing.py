@@ -406,19 +406,36 @@ def test_wasm_engine_tokens_are_the_spa_contract():
 # --------------------------------------------------------------------------- #
 
 
-def test_face_regions_offered_only_where_it_is_produced():
-    """Only the native STEP->GLB path forwards face_regions to adacpp; the python path never reads
-    the flag. Advertising it against a serializer that ignores it would offer a capability that
-    silently doesn't happen, so supported_by names the ones that can deliver it."""
-    step = {o["name"]: o for o in conv._glb_serializer_options(".stp")}["face_regions"]
-    assert step["type"] == "bool"
-    assert step["default"] is False
-    assert step["supported_by"] == [conv._GLB_SERIALIZER_CPP]
-    assert step["depends_on"] == "serializer"
+def test_face_regions_offered_only_where_it_is_produced(monkeypatch):
+    """Only a NATIVE path emits per-face regions; the python path never reads the flag, so offering
+    it there would advertise a capability that silently doesn't happen.
 
-    # An IFC source's native path has no face-region support at all -> offered nowhere.
-    ifc = {o["name"]: o for o in conv._glb_serializer_options(".ifc")}["face_regions"]
-    assert ifc["supported_by"] == []
+    Driven through the capability probe rather than asserting a fixed answer: the advertisement is
+    a fact about the RUNTIME (this env has no adacpp, so it honestly advertises nothing), and the
+    pools that can run it contribute their answer via the merge.
+    """
+    from ada.cad import registry
+
+    for fam_ext in (".stp", ".ifc"):
+        monkeypatch.setattr(registry, "native_face_regions_available", lambda _fam: True)
+        opt = {o["name"]: o for o in conv._glb_serializer_options(fam_ext)}["face_regions"]
+        assert opt["type"] == "bool"
+        assert opt["default"] is False
+        assert opt["depends_on"] == "serializer"
+        assert opt["supported_by"] == [conv._GLB_SERIALIZER_CPP], f"{fam_ext}: native can emit regions"
+
+        monkeypatch.setattr(registry, "native_face_regions_available", lambda _fam: False)
+        opt = {o["name"]: o for o in conv._glb_serializer_options(fam_ext)}["face_regions"]
+        assert opt["supported_by"] == [], f"{fam_ext}: a build whose binding ignores the flag offers nothing"
+
+
+def test_face_regions_never_offered_to_the_python_serializer():
+    """Whatever the runtime, the python path can't carry ranges across the NGEOM wire — so it must
+    never appear here. Env-independent: an empty list is fine, 'python' never is."""
+    for ext in (".stp", ".ifc"):
+        opt = {o["name"]: o for o in conv._glb_serializer_options(ext)}["face_regions"]
+        assert conv._GLB_SERIALIZER_PYTHON not in opt["supported_by"]
+        assert set(opt["supported_by"]) <= {conv._GLB_SERIALIZER_CPP}
 
 
 def test_face_regions_is_never_supported_by_a_client_serializer():
@@ -445,3 +462,32 @@ def test_merge_unions_supported_by_across_pools():
     cur = dict(capable)
     conv.merge_option_into(cur, incapable)
     assert cur["supported_by"] == [conv._GLB_SERIALIZER_CPP]
+
+
+def test_cpp_track_reaches_the_native_ifc_path_too():
+    """A track picked for an IFC source must reach the converter.
+
+    The cpp serializer parks its track on the tess-engine axis and the native call reverses it.
+    The generic branch used to DROP the tessellator ("nothing to force"), so choosing cdt for an
+    IFC ran the default while the UI reported the choice — the silent-substitution failure again.
+    """
+    _, engine, force_python = conv._apply_glb_serializer(
+        ".ifc", "cpp", "adacpp:cdt", step_glb_pipeline=None, glb_tess_engine=None
+    )
+    assert force_python is False
+    assert engine == "adacpp-cdt"
+    # ...and the native IFC call reverses it to adacpp's own token.
+    assert conv._native_track_for_engine(engine) == "cdt"
+
+
+def test_face_regions_probe_asks_the_binding_that_would_run():
+    """Per-family capability: the STEP binding has taken face_regions for a while, the IFC one only
+    since adacpp 0.16, so a build with one and not the other must not be offered both."""
+    from ada.cad import registry
+
+    assert registry.native_face_regions_available("step") == registry._native_binding_takes(
+        "stream_step_to_glb", "face_regions"
+    )
+    assert registry.native_face_regions_available("generic") == registry._native_binding_takes(
+        "stream_ifc_to_glb", "face_regions"
+    )
