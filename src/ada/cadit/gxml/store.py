@@ -47,12 +47,13 @@ class GxmlStore:
 
     def iter_beams_from_xml(self):
         p = self.p
+        resolver = self.sat_factory.get_named_edge_curve
 
         for bm in self.xml_root.iterfind(".//straight_beam"):
             yield from el_to_beam(bm, p)
 
         for curved_bm in self.xml_root.iterfind(".//curved_beam"):
-            yield from el_to_beam(curved_bm, p)
+            yield from el_to_beam(curved_bm, p, edge_curve_resolver=resolver)
 
     def iter_plate_shell_elem(self):
         for fp in self.xml_root.iterfind(".//flat_plate"):

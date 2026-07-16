@@ -192,6 +192,58 @@ class SatReaderFactory:
         self.plate_factory = PlateFactory(self.sat_store)
         self.header = ""
         self.failed_faces = []
+        # name (``EDGE00001234``) -> edge AcisRecord, built lazily. A curved
+        # beam's XML guide carries only its two endpoints; the arc it swept
+        # lives solely in the named ACIS edge, so resolving the name is the only
+        # way to recover a curved beam instead of a straight chord.
+        self._edge_name_map: dict[str, AcisRecord] | None = None
+
+    def get_named_edge_curve(self, edge_name: str):
+        """The geometry of a named SAT edge, or ``None``.
+
+        Returns an :class:`ada.geom.curves.Circle` / ``Ellipse`` for an
+        ``ellipse-curve`` edge (what a Genie curved beam's axis becomes) and an
+        :class:`ada.geom.curves.Line` for a ``straight-curve`` one. A B-spline
+        (``intcurve-curve``) axis returns ``None`` for now — the caller keeps its
+        straight-chord fallback rather than guess a swept profile.
+        """
+        from ada.cadit.sat.read.curves import (
+            create_line_from_sat,
+            get_ellipse_curve,
+        )
+
+        if len(self.sat_store.sat_records) == 0:
+            self.load_sat_data_from_file()
+
+        if self._edge_name_map is None:
+            name_map: dict[str, AcisRecord] = {}
+            for rec in self.sat_store.iter():
+                if rec.type != "edge":
+                    continue
+                try:
+                    nm = rec.get_name()
+                except Exception:
+                    nm = ""
+                if nm:
+                    name_map[nm] = rec
+            self._edge_name_map = name_map
+
+        edge_rec = self._edge_name_map.get(edge_name)
+        if edge_rec is None:
+            return None
+        # Edge record layout: ``-id edge $attrib -1 -1 $-1 $vstart t $vend t
+        # $coedge $curve ...`` — the curve pointer sits at index 11.
+        curve_rec = self.sat_store.get(edge_rec.chunks[11])
+        if curve_rec is None:
+            return None
+        try:
+            if curve_rec.type == "ellipse-curve":
+                return get_ellipse_curve(curve_rec)
+            if curve_rec.type == "straight-curve":
+                return create_line_from_sat(curve_rec)
+        except Exception as e:  # noqa: BLE001 - a malformed record must not abort the whole read
+            logger.debug(f"Failed reading curve of named edge {edge_name!r}: {e}")
+        return None
 
     def load_sat_data_from_file(self):
         # Always reset store before loading

@@ -7,6 +7,7 @@ import numpy as np
 
 import ada
 from ada.cadit.sat.utils import make_ints_if_possible
+from ada.config import logger
 from ada.cadit.sat.write import sat_entities as se
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
@@ -114,6 +115,27 @@ class TopologyWeld:
     def n_edges(self) -> int:
         return len(self._edges)
 
+    def find_arc_edge(self, p1, p2) -> se.Edge | None:
+        """An already-built curved edge running between ``p1`` and ``p2``, or None.
+
+        A curved beam's axis is not a standalone wire in a Genie export — it is a
+        face edge of the curved plate the beam lies along, which Genie names and
+        the beam references (its own SAT is one body / one lump / one shell). So
+        instead of authoring a separate wire body (which leaves a vertex shared
+        between a face edge and a wire edge — ACIS rejects the non-manifold
+        relink with error 21013 on import), find the existing shared edge and let
+        the caller name it. Matched on endpoints only; the curve being an
+        ellipse (arc) is required so a straight edge between the same corners is
+        not mistaken for the beam.
+        """
+        want = {_vkey(p1, self.nd), _vkey(p2, self.nd)}
+        for edge in self._edges.values():
+            if not isinstance(edge.straight_curve, se.EllipseCurve):
+                continue
+            if {_vkey(edge.start_pt, self.nd), _vkey(edge.end_pt, self.nd)} == want:
+                return edge
+        return None
+
 
 def _surface_entity(id_gen, surface, same_sense: bool) -> tuple[se.SATEntity, str]:
     """The ACIS surface record for an AdvancedFace's ``face_surface``.
@@ -208,6 +230,77 @@ def flat_plate_to_advanced_face(pl) -> geo_su.AdvancedFace:
     )
 
 
+def name_curved_beam_edges(sw: SatWriter, weld: TopologyWeld) -> None:
+    """Name the shared curved edges the arc beams run along and record the map.
+
+    A :class:`~ada.api.beams.BeamRevolve`'s axis coincides with a face edge of
+    the curved plate it lies on. Genie names that edge and points the curved beam
+    at it — no new topology. We do the same: find the weld edge between the
+    beam's two endpoints and give it a ``EDGE`` name, so the gxml writer can emit
+    a ``<curved_beam>`` whose ``<sat_reference>`` resolves on import. A beam whose
+    arc is not a single shared plate edge (spans several, or lies on no plate)
+    gets no name and falls back to a straight chord in the gxml writer.
+    """
+    from ada.api.beams import BeamRevolve
+
+    beams = list(sw.part.get_all_physical_objects(by_type=BeamRevolve))
+    if not beams:
+        return
+
+    named = 0
+    for bm in beams:
+        p1, p2 = bm.axis_global()
+        edge = weld.find_arc_edge(p1, p2)
+        if edge is None:
+            continue
+        if edge.attrib_name is None:
+            name = f"EDGE{sw.edge_name_id:08d}"
+            sw.edge_name_id += 1
+            attrib = se.StringAttribName(sw.id_generator.next_id(), name, edge)
+            edge.attrib_name = attrib
+            sw.add_entity(attrib)
+        sw.edge_map[bm.guid] = [edge.attrib_name.name]
+        named += 1
+
+    logger.info(f"sat-write: named {named}/{len(beams)} curved-beam axes on shared curved-plate edges")
+
+
+def name_imprinted_beam_edges(sw: SatWriter, weld: TopologyWeld, beams, beam_edges) -> int:
+    """Name the weld edges each beam was imprinted into and record beam -> [EDGE].
+
+    ``beam_edges`` is index-aligned with ``beams`` (see
+    :func:`~ada.cadit.sat.write.imprint_faces.imprint_advanced_faces`): each entry
+    is the endpoint pairs of the face-bounding edges that beam became. Naming them
+    and pointing the beam's ``<sat_reference>`` at them lets Genie reuse the edge
+    instead of re-imprinting the beam on import (which relinks and raises 21013).
+    An edge index built once keeps this off the O(beams x edges) diagonal.
+    """
+    index: dict[frozenset, se.Edge] = {}
+    for edge in weld._edges.values():
+        index[frozenset({_vkey(edge.start_pt, weld.nd), _vkey(edge.end_pt, weld.nd)})] = edge
+
+    named = 0
+    for bm, pairs in zip(beams, beam_edges):
+        names: list[str] = []
+        for p1, p2 in pairs:
+            edge = index.get(frozenset({_vkey(p1, weld.nd), _vkey(p2, weld.nd)}))
+            if edge is None:
+                continue
+            if edge.attrib_name is None:
+                name = f"EDGE{sw.edge_name_id:08d}"
+                sw.edge_name_id += 1
+                edge.attrib_name = se.StringAttribName(sw.id_generator.next_id(), name, edge)
+                sw.add_entity(edge.attrib_name)
+            if edge.attrib_name.name not in names:
+                names.append(edge.attrib_name.name)
+        if names:
+            sw.edge_map[bm.guid] = names
+            named += 1
+
+    logger.info(f"sat-write: named imprinted edges for {named}/{len(beams)} beams")
+    return named
+
+
 def curved_plate_to_sat_entities(
     pl: PlateCurved, face_name: str, sw: SatWriter, weld: TopologyWeld
 ) -> list[se.SATEntity]:
@@ -273,6 +366,16 @@ def advanced_face_to_sat_entities(geom, face_name: str, sw: SatWriter, weld: Top
             raise UnsupportedCurvedFace("edge carries no curve geometry")
 
         p_start, p_end = oriented_edge.start, oriented_edge.end
+
+        # A zero-length edge (coincident endpoints) has no direction to
+        # normalise and bounds nothing: a StraightCurve built on it blows up in
+        # ``Direction.get_normalized`` and takes the whole SAT write down with
+        # it. ACIS marks such singularities with a null curve and the reader
+        # steps over them (see ``ACISDegenerateEdge`` in read/curves.py); do the
+        # same here so the coedge ring simply closes over the survivors.
+        if _vkey(p_start, weld.nd) == _vkey(p_end, weld.nd):
+            logger.debug("advanced_face %r: skipping zero-length edge at %s", face_name, tuple(p_start))
+            continue
 
         t_start, t_end = oriented_edge.t_start, oriented_edge.t_end
         if t_start is None or t_end is None:

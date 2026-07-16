@@ -22,9 +22,6 @@ def add_beams(root: ET.Element, part: Part, sw: SatWriter = None):
 
     iter_beams = part.get_all_physical_objects(by_type=Beam)
     iter_taper = part.get_all_physical_objects(by_type=BeamTapered)
-    # Curved-axis beams: Genie XML's curved_beam element reads back as chord
-    # segments anyway (see read_beams.seg_to_beam), so emit the straight chord
-    # rather than silently dropping the member — mirrors stream_xml.
     iter_revolve = part.get_all_physical_objects(by_type=BeamRevolve)
     iter_sweep = part.get_all_physical_objects(by_type=BeamSweep)
 
@@ -32,12 +29,57 @@ def add_beams(root: ET.Element, part: Part, sw: SatWriter = None):
         parent = beam.parent
         if isinstance(parent, Equipment) and parent.eq_repr != EquipRepr.AS_IS:
             continue
+        # A curved-axis beam round-trips as a Genie <curved_beam> only when its
+        # arc was authored into the embedded SAT (an EDGE it can point at). The
+        # arc's curvature lives nowhere else — a <curved_beam> whose guide holds
+        # only two endpoints and names no edge is not a curve — so without that
+        # edge fall back to the straight chord rather than emit an ambiguous one.
         if isinstance(beam, (BeamRevolve, BeamSweep)):
+            edge_refs = sw.edge_map.get(beam.guid, []) if sw is not None else []
+            if edge_refs:
+                add_curved_beam(beam, root, edge_refs, sw)
+                continue
             logger.warning(
                 f"gxml-write: {type(beam).__name__} {beam.name!r} written as a straight chord beam "
-                "(curved axis not supported by the Genie XML writer)"
+                "(no SAT arc edge available; curved axis not preserved)"
             )
         add_straight_beam(beam, root, sw)
+
+
+def add_curved_beam(beam: Beam, xml_root: ET.Element, edge_refs: list[str], sw: SatWriter = None) -> None:
+    """Emit a Genie ``<curved_beam>`` that points at its arc's SAT edge(s).
+
+    Mirrors :func:`add_straight_beam` but writes a ``<curved_segment>`` whose
+    ``<wire>`` names the ACIS edge the arc was authored as (see
+    ``sat.write.write_beam_wire``). The guide still carries the two endpoints, as
+    Genie's own curved beams do — the edge is what makes it a curve on import.
+    """
+    structure_elem = ET.SubElement(xml_root, "structure")
+    curved_beam = ET.SubElement(structure_elem, "curved_beam", {"name": beam.name})
+
+    curved_beam.append(add_local_system(beam.xvec, beam.yvec, beam.up))
+
+    segments = ET.Element("segments")
+    props = dict(index="1", section_ref=beam.section.name, material_ref=beam.material.name)
+    curved_segment = ET.SubElement(segments, "curved_segment", props)
+
+    d = ["x", "y", "z"]
+    p1, p2 = beam.axis_global()
+    geom = ET.SubElement(curved_segment, "geometry")
+    wire = ET.SubElement(geom, "wire")
+    guide = ET.SubElement(wire, "guide")
+    for i, pos in enumerate([p1, p2], start=1):
+        pos_props = {d[j]: str(k) for j, k in enumerate(pos)}
+        pos_props.update(dict(end=str(i)))
+        ET.SubElement(guide, "position", pos_props)
+
+    sat_ref = ET.SubElement(wire, "sat_reference")
+    for edge_ref in edge_refs:
+        ET.SubElement(sat_ref, "edge", {"edge_ref": edge_ref})
+
+    curved_beam.append(segments)
+
+    add_curve_offset(beam, curved_beam)
 
 
 def add_straight_beam(beam: Beam, xml_root: ET.Element, sw: SatWriter = None):

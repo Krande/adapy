@@ -212,42 +212,89 @@ def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved], plates: list[Pl
         curved_plate_to_sat_entities,
         flat_plate_to_advanced_face,
         link_partner_rings,
+        name_curved_beam_edges,
+        name_imprinted_beam_edges,
     )
 
     if not curved:
         return
 
+    from ada.api.plates import PlateCurved
+    from ada.cadit.sat.write.imprint_faces import imprint_advanced_faces
+
     weld = TopologyWeld(sw.id_generator)
     face_id = len(sw.get_entities_by_type(se.Face)) + 1
     skipped = Counter()
 
-    def emit(pl, entities, face_name) -> None:
-        nonlocal face_id
-        for entity in entities:
-            sw.add_entity(entity)
-        sw.face_map[pl.guid] = [face_name]
-        face_id += 1
-
-    for pl in curved:
-        face_name = f"FACE{face_id:08d}"
+    # Build one AdvancedFace per plate. Curved plates carry the surface the file
+    # authored; flat plates become a plane face. Curved go first so a shared edge
+    # takes the curved face's parameter range (a straight edge has none).
+    ordered = list(curved) + list(plates)
+    afaces: list = []
+    for pl in ordered:
+        af = None
         try:
-            entities = curved_plate_to_sat_entities(pl, face_name, sw, weld)
+            af = pl.geom.geometry if isinstance(pl, PlateCurved) else flat_plate_to_advanced_face(pl)
         except UnsupportedCurvedFace as ex:
             skipped[str(ex)] += 1
-            continue
-        emit(pl, entities, face_name)
+        except Exception as ex:  # noqa: BLE001 - a bad face must not sink the whole write
+            skipped[f"advanced-face build: {ex}"] += 1
+        afaces.append(af)
 
-    for pl in plates:
+    # Imprint the beam axes onto the faces: a stiffener lying on a plate splits it
+    # along its axis, exactly as Genie's own export is split. Without this Genie
+    # re-imprints on import and relinks a monolithic face edge (ACIS 21013). The
+    # fuse is given only the faces that built; results are remapped back by plate.
+    beams, beam_axes = _beam_axes(sw.part)
+    # Imprint only FLAT plates for now: make_face_from_geom / the fuse can hard
+    # segfault (native, uncatchable) on some ill-conditioned B-spline patches, so
+    # curved plates are left monolithic until that path is hardened. Flat plates
+    # carry most stiffeners anyway.
+    flat_idx = [idx for idx, pl in enumerate(ordered) if not isinstance(pl, PlateCurved) and afaces[idx] is not None]
+    flat_faces = [afaces[idx] for idx in flat_idx]
+    imprint = imprint_advanced_faces(flat_faces, beam_axes) if (beam_axes and flat_faces) else None
+    imp_map: dict[int, "list | None"] = {}
+    if imprint is not None:
+        for k, idx in enumerate(flat_idx):
+            imp_map[idx] = imprint.sub_faces[k]
+
+    def author(pl, face_geom) -> None:
+        nonlocal face_id
         face_name = f"FACE{face_id:08d}"
         try:
-            face = flat_plate_to_advanced_face(pl)
-            entities = advanced_face_to_sat_entities(face, face_name, sw, weld)
+            entities = advanced_face_to_sat_entities(face_geom, face_name, sw, weld)
         except UnsupportedCurvedFace as ex:
-            skipped[f"flat plate: {ex}"] += 1
-            continue
-        emit(pl, entities, face_name)
+            skipped[str(ex)] += 1
+            return
+        for entity in entities:
+            sw.add_entity(entity)
+        sw.face_map.setdefault(pl.guid, []).append(face_name)
+        face_id += 1
+
+    n_imprinted = 0
+    for idx, pl in enumerate(ordered):
+        subs = imp_map.get(idx)
+        # Prefer the imprinted faces (they carry the beam-axis edges Genie needs
+        # to imprint against without relinking); fall back to the original face
+        # when the fuse could not produce a usable set for this plate.
+        if subs:
+            if len(subs) > 1:
+                n_imprinted += 1
+            for sub in subs:
+                author(pl, sub)
+        elif afaces[idx] is not None:
+            author(pl, afaces[idx])
 
     link_partner_rings(weld)
+    # Name the edges each beam was imprinted into and point the beam's
+    # <sat_reference> at them, so Genie reuses the edge instead of re-imprinting
+    # the beam on import (which relinks a face edge and raises 21013). Falls back
+    # to naming just the curved-beam arc edges when the imprint did not run.
+    if imprint is not None:
+        name_imprinted_beam_edges(sw, weld, beams, imprint.beam_edges)
+    # Arc beams (BeamRevolve) are not in the straight-beam imprint set; name the
+    # curved-plate edge each of those lies on, as before.
+    name_curved_beam_edges(sw, weld)
     for entity in weld.entities:
         sw.add_entity(entity)
 
