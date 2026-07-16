@@ -268,6 +268,13 @@ class CadBackend(Protocol):
     def step_bytes_to_glb_bytes(
         self, data: bytes, linear_deflection: float = 0.1, angular_deg: float = 20.0, unit: str = "M"
     ) -> bytes: ...
+    def step_to_face_tagged_meshes(
+        self,
+        step_path: str,
+        linear_deflection: float = 0.1,
+        angular_deflection: float = 0.5,
+        store_units: str = "m",
+    ) -> "list[tuple]": ...
     def write_step(
         self, shapes: list, names: list, colors: list, filename: str, unit: str = "m", schema: str = "AP214"
     ) -> None: ...

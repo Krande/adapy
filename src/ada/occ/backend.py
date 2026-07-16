@@ -616,6 +616,126 @@ class OccBackend:
         finally:
             os.unlink(path)
 
+    def step_to_face_tagged_meshes(
+        self,
+        step_path: str,
+        linear_deflection: float = 0.1,
+        angular_deflection: float = 0.5,
+        store_units: str = "m",
+    ) -> "list[tuple]":
+        """OCAF-read a STEP file and tessellate every solid/shell *per source face*.
+
+        This is the OCC-tessellation equivalent of the adacpp native path's face-region
+        capture: each ``TopoDS_Face`` is meshed and the output triangles it produced are
+        recorded, so the caller can subdivide the solid's draw-range into per-face
+        clickable sub-ranges (``face_ranges_node<m>``) that mirror the native contract.
+
+        Colours + names come from the OCAF (XCAF) reader, so the merge-by-colour grouping
+        matches ``write_glb_bytes``/step2glb. All per-face / per-solid OCC loops stay inside
+        the backend; only plain data (numpy buffers + int ranges) crosses the boundary.
+
+        Returns one tuple per meshed solid::
+
+            (name: str | None,
+             color: tuple[float, float, float] | None,   # 0..1 RGB, None -> default grey
+             positions: np.ndarray,   # flat float32 xyz, unwelded (3 verts / triangle)
+             indices: np.ndarray,     # flat uint32 (arange over the soup)
+             face_ranges: list[tuple[int, int, int]])  # (face_ordinal, index_start, index_len)
+
+        ``index_start`` / ``index_len`` are in *index* units, relative to THIS solid's own
+        buffer (0-based) — exactly the offsets the frontend expects face sub-ranges to be
+        relative to their solid's draw-range start. ``face_ordinal`` is the 0-based index of
+        the source face within its solid (this OCC path has no STEP entity ids per face).
+        """
+        import numpy as np
+        from OCC.Core.Bnd import Bnd_Box
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.BRepBndLib import brepbndlib
+        from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
+        from OCC.Core.TopExp import TopExp_Explorer
+        from OCC.Core.TopLoc import TopLoc_Location
+        from OCC.Core.TopoDS import topods
+
+        from ada.occ.step.store import StepStore
+
+        store = StepStore(step_path, verbosity=False, store_units=store_units)
+
+        out: list[tuple] = []
+        for occ_shape in store.iter_all_shapes(include_colors=True):
+            shape = occ_shape.shape
+            color = None
+            if occ_shape.color is not None:
+                color = (
+                    float(occ_shape.color.red),
+                    float(occ_shape.color.green),
+                    float(occ_shape.color.blue),
+                )
+
+            # Phantom-triangle clip box: an imported face whose wire failed to trim its
+            # (infinite) surface can mesh far outside the real solid. Reuse the guard from
+            # ada.occ.tessellating._tessellate_brepmesh — the shape's geometric bbox
+            # inflated 10% of its diagonal; anything past it is dropped.
+            ref = Bnd_Box()
+            try:
+                brepbndlib.Add(shape, ref, True)
+            except Exception:  # noqa: BLE001
+                pass
+            clip_lo = clip_hi = None
+            if not ref.IsVoid():
+                rx0, ry0, rz0, rx1, ry1, rz1 = ref.Get()
+                pad = 0.1 * ((rx1 - rx0) ** 2 + (ry1 - ry0) ** 2 + (rz1 - rz0) ** 2) ** 0.5 + 1e-6
+                clip_lo = (rx0 - pad, ry0 - pad, rz0 - pad)
+                clip_hi = (rx1 + pad, ry1 + pad, rz1 + pad)
+
+            self._BRepMesh_IncrementalMesh(shape, linear_deflection, False, angular_deflection, True)
+
+            verts: list[float] = []
+            face_ranges: list[tuple[int, int, int]] = []
+            n_indices = 0
+            face_ord = 0
+            exp = TopExp_Explorer(shape, TopAbs_FACE)
+            while exp.More():
+                face = topods.Face(exp.Current())
+                loc = TopLoc_Location()
+                tri = BRep_Tool.Triangulation(face, loc)
+                face_start = n_indices
+                if tri is not None:
+                    trsf = loc.Transformation()
+                    rev = face.Orientation() == TopAbs_REVERSED
+                    for i in range(1, tri.NbTriangles() + 1):
+                        a, b, c = tri.Triangle(i).Get()
+                        if rev:
+                            a, c = c, a
+                        pts = [tri.Node(ni).Transformed(trsf) for ni in (a, b, c)]
+                        if clip_lo is not None and any(
+                            p.X() < clip_lo[0]
+                            or p.X() > clip_hi[0]
+                            or p.Y() < clip_lo[1]
+                            or p.Y() > clip_hi[1]
+                            or p.Z() < clip_lo[2]
+                            or p.Z() > clip_hi[2]
+                            for p in pts
+                        ):
+                            continue  # phantom triangle outside the real solid — drop it
+                        for p in pts:
+                            verts.extend((p.X(), p.Y(), p.Z()))
+                        n_indices += 3
+                face_len = n_indices - face_start
+                if face_len > 0:
+                    # Only faces that actually produced triangles get a clickable sub-range.
+                    face_ranges.append((face_ord, face_start, face_len))
+                face_ord += 1
+                exp.Next()
+
+            if n_indices == 0:
+                continue  # solid meshed to nothing (empty / all-phantom) — skip it
+
+            positions = np.asarray(verts, dtype="float32")
+            indices = np.arange(positions.size // 3, dtype="uint32")
+            out.append((occ_shape.name, color, positions, indices, face_ranges))
+
+        return out
+
     def write_step(
         self, shapes: list, names: list, colors: list, filename: str, unit: str = "m", schema: str = "AP214"
     ) -> None:
