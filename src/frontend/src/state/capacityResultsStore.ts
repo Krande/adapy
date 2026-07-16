@@ -51,6 +51,8 @@ export interface CapacityCaseResult {
   resolved_vectors?: Record<string, unknown>;
   resolved_provenance?: Record<string, unknown>;
   provenance_url?: string;
+  /** v13 key selecting this row inside an aggregated per-case provenance file. */
+  provenance_key?: string;
   /** v8: the exact geometry/material/options the check consumed (mm/MPa). The
    *  input panel and Export prefer this over the display capacity_model dict so
    *  an exported case reproduces the engine — notably the stiffener span that

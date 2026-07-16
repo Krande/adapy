@@ -1,4 +1,7 @@
 import * as THREE from "three";
+import {LineMaterial} from "three/examples/jsm/lines/LineMaterial";
+import {LineSegments2} from "three/examples/jsm/lines/LineSegments2";
+import {LineSegmentsGeometry} from "three/examples/jsm/lines/LineSegmentsGeometry";
 
 import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
 import {runtime} from "@/runtime/config";
@@ -79,9 +82,9 @@ interface ActiveFeaStreaming {
     feaEdges?: THREE.LineSegments;
     /** Capacity-model boundary overlay built from AFEM element draw ranges. */
     capacityBoundaryOverlay?: THREE.LineSegments;
-    /** Amber polyline marking the girder line itself (girder-run models),
+    /** Thick dashed polyline marking the girder itself (girder-run models),
      *  drawn through each girder model's station points. */
-    capacityGirderLineOverlay?: THREE.LineSegments;
+    capacityGirderLineOverlay?: LineSegments2;
     /** Dashed near-black polylines marking the stiffeners of the panel
      *  capacity models (station-point lines). */
     capacityStiffenerLineOverlay?: THREE.LineSegments;
@@ -822,12 +825,21 @@ export async function loadCapacityCaseDetail(caseId: string): Promise<void> {
  *  the "individual UF" view, where each stiffener's own line + tributary plate
  *  strip is coloured by that stiffener's UF, revealing the within-panel
  *  variation instead of the panel-governing maximum. */
-const capacityProvenanceCache = new Map<string, Promise<Record<string, unknown>>>();
+interface CapacityProvenancePayload {
+    resolved_provenance?: Record<string, unknown>;
+    provenance?: Record<string, unknown>;
+    rows?: Record<string, Record<string, unknown>>;
+}
+
+const capacityProvenanceCache = new Map<string, Promise<CapacityProvenancePayload>>();
 
 /** Lazy-load one row's input provenance. Newer sidecars keep this out of the
  *  per-case detail file so selecting a case stays light; old sidecars may still
  *  carry ``resolved_provenance`` inline and do not call this helper. */
-export async function loadCapacityProvenance(url: string): Promise<Record<string, unknown>> {
+export async function loadCapacityProvenance(
+    url: string,
+    rowKey?: string,
+): Promise<Record<string, unknown>> {
     const ctx = active?.capacityFetch;
     if (!ctx || !url) return {};
     const cacheKey = `${ctx.cacheKey}:${url}`;
@@ -835,15 +847,15 @@ export async function loadCapacityProvenance(url: string): Promise<Record<string
     if (!pending) {
         pending = (async () => {
             const buf = await ctx.fetcher(url);
-            const payload = JSON.parse(new TextDecoder("utf-8").decode(buf)) as {
-                resolved_provenance?: Record<string, unknown>;
-                provenance?: Record<string, unknown>;
-            };
-            return payload.resolved_provenance ?? payload.provenance ?? {};
+            return JSON.parse(
+                new TextDecoder("utf-8").decode(buf),
+            ) as CapacityProvenancePayload;
         })();
         capacityProvenanceCache.set(cacheKey, pending);
     }
-    return pending;
+    const payload = await pending;
+    if (rowKey && payload.rows) return payload.rows[rowKey] ?? {};
+    return payload.resolved_provenance ?? payload.provenance ?? {};
 }
 
 export function applyCapacityIndividualField(
@@ -909,10 +921,10 @@ export function applyCapacityGirderLineUf(values: Map<string, number | null> | n
     rebuildCapacityGirderLineOverlay(run.capacity_models, lastGirderUf);
 }
 
-/** Girder-run models mark the girder member itself: a polyline through the
+/** Girder-run models mark the girder member itself with a thick dashed line
  *  model's station points (start/mid/end of the bay — the girder line). Amber
  *  in the definitions view; coloured by the girder's UF when result values are
- *  supplied. Panels have no such marker; the white boundary outline is theirs. */
+ *  supplied. Depth testing keeps hidden girders behind foreground geometry. */
 function rebuildCapacityGirderLineOverlay(
     models: Array<{id: string; type?: string; stiffeners?: Array<Record<string, unknown>>}>,
     ufByModelId?: Map<string, number | null> | null,
@@ -943,17 +955,27 @@ function rebuildCapacityGirderLineOverlay(
         }
     }
     if (positions.length === 0) return;
-    const geom = new THREE.BufferGeometry();
-    geom.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
-    geom.setAttribute("color", new THREE.BufferAttribute(new Float32Array(colors), 3));
-    const mat = new THREE.LineBasicMaterial({
+    const geom = new LineSegmentsGeometry();
+    geom.setPositions(positions);
+    geom.setColors(colors);
+    const mat = new LineMaterial({
+        color: 0xffffff,
         vertexColors: true,
-        depthTest: false,
+        linewidth: 3.5,
+        dashed: true,
+        dashScale: 1,
+        dashSize: 0.16,
+        gapSize: 0.08,
+        depthTest: true,
         depthWrite: false,
         transparent: true,
         opacity: 1.0,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
     });
-    const overlay = new THREE.LineSegments(geom, mat);
+    const overlay = new LineSegments2(geom, mat);
+    overlay.computeLineDistances();
     overlay.name = "capacity-girder-lines";
     overlay.layers.mask = active.mesh.layers.mask;
     overlay.renderOrder = 7; // above the boundary overlay

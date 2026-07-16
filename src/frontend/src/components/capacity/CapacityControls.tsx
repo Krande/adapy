@@ -208,8 +208,8 @@ const CapacityControls: React.FC = () => {
       // Always colour per stiffener strip ("individual UF"): each stiffener's
       // own line + tributary plate carries that stiffener's UF for the active
       // metric. The worst view colours by the worst-over-selected-cases UF; a
-      // specific case uses that case's rows. Girder models colour the girder
-      // line itself; their tributary plates light up only when selected.
+      // specific case uses that case's rows. Girder models colour only the
+      // dedicated thick dashed girder line, never the supporting plate faces.
       const rows = isWorst ? worstRows : activeRows;
       applyCapacityIndividualField(
         buildIndividualUfValues(rows, run, activeMetricId),
@@ -824,6 +824,7 @@ interface InputField {
   provenance?: InputProvenance;
   provenanceKey?: string;
   provenanceUrl?: string;
+  provenanceRowKey?: string;
 }
 
 interface InputGroup {
@@ -905,7 +906,7 @@ const InputFieldRow: React.FC<{ field: InputField }> = ({ field: f }) => {
     setLoadingProvenance(false);
     setProvenanceError(null);
     setOpen(false);
-  }, [f.provenanceUrl, f.provenanceKey]);
+  }, [f.provenanceUrl, f.provenanceKey, f.provenanceRowKey]);
 
   const toggleProvenance = async () => {
     if (open) {
@@ -917,7 +918,10 @@ const InputFieldRow: React.FC<{ field: InputField }> = ({ field: f }) => {
     setLoadingProvenance(true);
     setProvenanceError(null);
     try {
-      const payload = await loadCapacityProvenance(f.provenanceUrl);
+      const payload = await loadCapacityProvenance(
+        f.provenanceUrl,
+        f.provenanceRowKey,
+      );
       const item = provenanceFor(payload, f.provenanceKey);
       if (item) {
         setLoadedProvenance(item);
@@ -1073,6 +1077,9 @@ function buildIndividualUfValues(
   for (const r of rows) {
     const model = modelById.get(r.capacity_model_id);
     if (!model) continue;
+    // Girder results belong on the dedicated thick dashed line overlay. Do not
+    // paint the supporting plate or girder FE faces with the girder UF.
+    if ((model as { type?: string }).type === "girder") continue;
     let byName = stiffMaps.get(model.id);
     if (!byName) {
       const stiffeners = (model.stiffeners ?? []) as Array<
@@ -1085,9 +1092,6 @@ function buildIndividualUfValues(
     if (!stiff) continue;
     const uf = r.error ? 1.01 : rowMetricUf(r, checkId);
     if (uf == null) continue; // this check does not apply to the row
-    // Girder tributary plates use the same opaque UF overlay as stiffened-panel
-    // capacity models. Overlapping strips retain the governing value via the
-    // max merge below, so the view stays deterministic without looking faded.
     const ids = [
       ...((stiff.element_ids as number[] | undefined) ?? []),
       ...((stiff.tributary_plate_ids as number[] | undefined) ?? []),
@@ -1599,6 +1603,7 @@ function buildInputGroups(
     provenanceKey,
     provenance: provenanceKey ? provenanceFor(provenance, provenanceKey) : undefined,
     provenanceUrl: provenanceKey ? row.provenance_url : undefined,
+    provenanceRowKey: provenanceKey ? row.provenance_key : undefined,
   });
   return [
     {
@@ -1749,6 +1754,7 @@ function buildGirderInputGroups(row: CapacityCaseResultLike): InputGroup[] {
     provenanceKey,
     provenance: provenanceKey ? provenanceFor(provenance, provenanceKey) : undefined,
     provenanceUrl: provenanceKey ? row.provenance_url : undefined,
+    provenanceRowKey: provenanceKey ? row.provenance_key : undefined,
   });
   return [
     {

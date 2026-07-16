@@ -24,6 +24,8 @@ export const CAPACITY_RESULTS_FORMAT = "dnv-rp-c201-capacity-results";
 // per-case detail cache never collides with the stiffened-panel run).
 // v12: errored checks are first-class failed rows in per-case detail and compact
 // worst summaries; ERROR takes precedence over every numeric UF.
+// v13: provenance is indexed by row in one lazy file per case; detail rows carry
+// provenance_url + provenance_key instead of pointing at one file per row.
 // Kept in lockstep with viewer_export.py.
 export interface CapacityValidationContext {
     manifest?: Pick<FeaManifest, "source_sha256"> | null;
