@@ -447,33 +447,41 @@ class GpuMeshPicker {
         // the model-cache worker (fetched async); absent for GLBs without face_ranges → picker stays
         // per-solid exactly as before.
         if (usePerfStore.getState().gpuFacePicking) {
-            const {queryAllFaceRanges} = await import("./queryMeshDrawRange");
-            let faces = await queryAllFaceRanges(mesh.unique_key, mesh.name);
-            if (faces.length === 0 && mesh.userData?.node_id != null) {
-                faces = await queryAllFaceRanges(mesh.unique_key, `node${mesh.userData.node_id}`);
-            }
-            for (const f of faces) {
-                if (f.length <= 0) continue;
-                const id = this.idCounter++;
-                const fr = id & 0xff;
-                const fg = (id >> 8) & 0xff;
-                const fb = (id >> 16) & 0xff;
-                const startTri = (f.start / 3) | 0;
-                const triCount = (f.length / 3) | 0;
-                this.idToEntry.set(id, {
-                    mesh,
-                    rangeId: f.rangeId,
-                    firstVertexIndex: indices[f.start],
-                    faceId: f.faceId,
-                    seq: f.seq,
-                    faceStart: f.start,
-                    faceLen: f.length,
-                });
-                for (let t = 0; t < triCount; t++) {
-                    const ti = (startTri + t) * 3;
-                    triColor[ti] = fr;
-                    triColor[ti + 1] = fg;
-                    triColor[ti + 2] = fb;
+            const {queryHasFaceRanges, queryAllFaceRanges} = await import("./queryMeshDrawRange");
+            // Gate the whole per-face path on the model actually carrying face ranges. Face picking
+            // is default-on, so without this every mesh of every model runs the per-mesh worker
+            // round-trips below — even the common no-face-range case (e.g. a plain STEP GLB), where
+            // they only ever return empty. On mobile that wasted work is serialized through
+            // mobileQueue, so it also delays each mesh's picker build behind the others. One cheap
+            // cached boolean check skips it entirely; picker stays per-solid exactly as before.
+            if (await queryHasFaceRanges(mesh.unique_key)) {
+                let faces = await queryAllFaceRanges(mesh.unique_key, mesh.name);
+                if (faces.length === 0 && mesh.userData?.node_id != null) {
+                    faces = await queryAllFaceRanges(mesh.unique_key, `node${mesh.userData.node_id}`);
+                }
+                for (const f of faces) {
+                    if (f.length <= 0) continue;
+                    const id = this.idCounter++;
+                    const fr = id & 0xff;
+                    const fg = (id >> 8) & 0xff;
+                    const fb = (id >> 16) & 0xff;
+                    const startTri = (f.start / 3) | 0;
+                    const triCount = (f.length / 3) | 0;
+                    this.idToEntry.set(id, {
+                        mesh,
+                        rangeId: f.rangeId,
+                        firstVertexIndex: indices[f.start],
+                        faceId: f.faceId,
+                        seq: f.seq,
+                        faceStart: f.start,
+                        faceLen: f.length,
+                    });
+                    for (let t = 0; t < triCount; t++) {
+                        const ti = (startTri + t) * 3;
+                        triColor[ti] = fr;
+                        triColor[ti + 1] = fg;
+                        triColor[ti + 2] = fb;
+                    }
                 }
             }
         }
