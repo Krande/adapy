@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ada.cad import Containment
+from ada.cad import Containment, StepShapeData
 
 if TYPE_CHECKING:
     import numpy as np
@@ -469,6 +469,148 @@ class OccBackend:
             progress = self._Message_ProgressRange()
             if not writer.Perform(doc, file_info, progress):
                 raise RuntimeError("write_glb_bytes: RWGltf_CafWriter::Perform failed")
+            with open(path, "rb") as f:
+                return f.read()
+        finally:
+            os.unlink(path)
+
+    def read_step_shapes(self, data: bytes, unit: str = "M") -> list:
+        # Mirror of adacpp's read_step_shapes: STEPCAFControl_Reader (not the plain
+        # STEPControl_Reader read_step_bytes uses) is what resolves the presentation-style
+        # tree, so this is the only read that recovers per-shape names and colours.
+        import os
+        import tempfile
+
+        from OCC.Core.Interface import Interface_Static
+        from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
+        from OCC.Core.STEPCAFControl import STEPCAFControl_Reader
+        from OCC.Core.TDataStd import TDataStd_Name
+        from OCC.Core.TDF import TDF_LabelSequence
+        from OCC.Core.XCAFDoc import (
+            XCAFDoc_ColorCurv,
+            XCAFDoc_ColorGen,
+            XCAFDoc_ColorSurf,
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as f:
+            f.write(data)
+            path = f.name
+        try:
+            reader = STEPCAFControl_Reader()
+            reader.SetColorMode(True)
+            reader.SetNameMode(True)
+            # Set AFTER the ctor (which resets the static), before ReadFile — same order
+            # as adacpp's read_step_shapes and StepStore.create_step_reader.
+            Interface_Static.SetCVal("xstep.cascade.unit", unit)
+            if reader.ReadFile(path) != self._IFSelect_RetDone:
+                raise RuntimeError("read_step_shapes: STEPCAFControl_Reader could not parse the input")
+            doc = self._TDocStd_Document(self._TCollection_ExtendedString("MDTV-XCAF"))
+            if not reader.Transfer(doc):
+                raise RuntimeError("read_step_shapes: transfer to OCAF document failed")
+        finally:
+            os.unlink(path)
+
+        shape_tool = self._XCAFDoc_DocumentTool.ShapeTool(doc.Main())
+        color_tool = self._XCAFDoc_DocumentTool.ColorTool(doc.Main())
+        out: list[StepShapeData] = []
+
+        def read_one(lab, raw):
+            name = ""
+            nm = TDataStd_Name()
+            if lab.FindAttribute(TDataStd_Name.GetID(), nm):
+                name = nm.Get().ToExtString()
+            c = Quantity_Color(0.5, 0.5, 0.5, Quantity_TOC_RGB)
+            has_color = False
+            for target in (lab, raw):
+                if any(
+                    color_tool.GetColor(target, t, c) for t in (XCAFDoc_ColorGen, XCAFDoc_ColorSurf, XCAFDoc_ColorCurv)
+                ):
+                    has_color = True
+                    break
+            out.append(StepShapeData(raw, name, (c.Red(), c.Green(), c.Blue()), has_color))
+
+        def collect(lab):
+            if shape_tool.IsAssembly(lab):
+                comps = TDF_LabelSequence()
+                shape_tool.GetComponents(lab, comps)
+                for i in range(1, comps.Length() + 1):
+                    collect(comps.Value(i))
+            elif shape_tool.IsSimpleShape(lab):
+                read_one(lab, shape_tool.GetShape(lab))
+                # Sub-shape labels carry the per-face/per-solid overrides XCAF split out of
+                # the parent — without these a solid-coloured assembly reads as one colour.
+                subs = TDF_LabelSequence()
+                shape_tool.GetSubShapes(lab, subs)
+                for i in range(1, subs.Length() + 1):
+                    sl = subs.Value(i)
+                    read_one(sl, shape_tool.GetShape(sl))
+
+        free = TDF_LabelSequence()
+        shape_tool.GetFreeShapes(free)
+        for i in range(1, free.Length() + 1):
+            collect(free.Value(i))
+        return out
+
+    def step_bytes_to_glb_bytes(
+        self, data: bytes, linear_deflection: float = 0.1, angular_deg: float = 20.0, unit: str = "M"
+    ) -> bytes:
+        # Mirror of adacpp's step_bytes_to_glb_bytes: keep the OCAF document from reader to
+        # writer so names, the assembly tree and colours (solid-level AND per-face) reach the
+        # GLB's materials. Flattening to a shape list instead would re-emit a solid AND each of
+        # its faces; read_step_bytes + write_glb_bytes would drop colour entirely.
+        import math
+        import os
+        import tempfile
+
+        from OCC.Core.Interface import Interface_Static
+        from OCC.Core.STEPCAFControl import STEPCAFControl_Reader
+        from OCC.Core.TDF import TDF_LabelSequence
+
+        if linear_deflection <= 0.0:
+            linear_deflection = 0.1
+
+        with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as f:
+            f.write(data)
+            src = f.name
+        try:
+            reader = STEPCAFControl_Reader()
+            reader.SetColorMode(True)
+            reader.SetNameMode(True)
+            reader.SetLayerMode(True)
+            # Set AFTER the ctor (which resets the static), before ReadFile — same order as
+            # read_step_shapes and StepStore.create_step_reader.
+            Interface_Static.SetCVal("xstep.cascade.unit", unit)
+            if reader.ReadFile(src) != self._IFSelect_RetDone:
+                raise RuntimeError("step_bytes_to_glb_bytes: STEPCAFControl_Reader could not parse the input")
+            doc = self._TDocStd_Document(self._TCollection_ExtendedString("MDTV-XCAF"))
+            if not reader.Transfer(doc):
+                raise RuntimeError("step_bytes_to_glb_bytes: transfer to OCAF document failed")
+        finally:
+            os.unlink(src)
+
+        shape_tool = self._XCAFDoc_DocumentTool.ShapeTool(doc.Main())
+        labels = TDF_LabelSequence()
+        shape_tool.GetFreeShapes(labels)
+        for i in range(1, labels.Length() + 1):
+            shape = shape_tool.GetShape(labels.Value(i))
+            if shape is None or shape.IsNull():
+                continue
+            self._BRepMesh_IncrementalMesh(shape, linear_deflection, False, math.radians(angular_deg), True)
+
+        with tempfile.NamedTemporaryFile(suffix=".glb", delete=False) as f:
+            path = f.name
+        try:
+            writer = self._RWGltf_CafWriter(self._TCollection_AsciiString(path), True)
+            writer.ChangeCoordinateSystemConverter().SetInputCoordinateSystem(self._RWMesh_CoordinateSystem_Zup)
+            writer.SetTransformationFormat(self._RWGltf_WriterTrsfFormat_Compact)
+            file_info = self._TColStd_IndexedDataMapOfStringString()
+            file_info.Add(
+                self._TCollection_AsciiString("Authors"),
+                self._TCollection_AsciiString("adacpp"),
+            )
+            progress = self._Message_ProgressRange()
+            if not writer.Perform(doc, file_info, progress):
+                raise RuntimeError("step_bytes_to_glb_bytes: RWGltf_CafWriter::Perform failed")
             with open(path, "rb") as f:
                 return f.read()
         finally:

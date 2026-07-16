@@ -97,12 +97,18 @@ def _export_assembly(asm, target: str) -> bytes:
 
 
 def _step_to_glb(data: bytes) -> bytes:
-    """STEP→GLB fast path: straight through the adacpp backend (no ada loader)."""
+    """STEP→GLB fast path: straight through the backend's OCAF pipeline (no ada loader).
+
+    NOT ``read_step_bytes`` + ``write_glb_bytes``: those drop every colour between them
+    (the plain STEPControl_Reader has no XCAF layer, so STYLED_ITEM is never read, and the
+    writer builds a document with no ColorTool), yielding a GLB with zero materials that the
+    viewer paints in its own default grey. ``step_bytes_to_glb_bytes`` keeps the OCAF document
+    from reader to writer, so names, the assembly tree and colours survive into the materials.
+    """
     import ada.cad
 
     backend = ada.cad.select_backend(prefer="adacpp")
-    shape = backend.read_step_bytes(data)
-    return backend.write_glb_bytes(shape)
+    return backend.step_bytes_to_glb_bytes(data)
 
 
 def _ifc_to_glb(src: str) -> bytes:

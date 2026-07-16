@@ -3,6 +3,7 @@ import React from "react";
 
 import CollapsibleSection from "@/components/common/CollapsibleSection";
 import LoadedModelsSection from "./LoadedModelsSection";
+import SourceSection from "./SourceSection";
 import StatsSection from "./StatsSection";
 import GroupsSection from "./GroupsSection";
 import UtilitiesSection from "./UtilitiesSection";
@@ -28,9 +29,12 @@ const SceneInfoBox = () => {
                 <select
                     className="text-sm rounded-sm px-1 py-0.5 bg-gray-700 text-gray-100 border border-gray-600"
                     value={mode}
-                    onChange={(e) => setMode(e.target.value as "info" | "utilities" | "section" | "fem" | "mesh")}
+                    onChange={(e) =>
+                        setMode(e.target.value as "info" | "source" | "utilities" | "section" | "fem" | "mesh")
+                    }
                 >
                     <option value="info">Info</option>
+                    <option value="source">Source</option>
                     <option value="utilities">Utilities</option>
                     <option value="section">Section</option>
                     <option value="fem">FEM</option>
@@ -53,6 +57,10 @@ const SceneInfoBox = () => {
                         <GroupsSection/>
                     </CollapsibleSection>
                 </>
+            ) : mode === "source" ? (
+                <CollapsibleSection title="Source" defaultOpen>
+                    <SourceSection/>
+                </CollapsibleSection>
             ) : mode === "utilities" ? (
                 <UtilitiesSection/>
             ) : mode === "section" ? (

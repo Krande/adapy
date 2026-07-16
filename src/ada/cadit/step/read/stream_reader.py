@@ -943,11 +943,21 @@ def _parse_value(s: str, i: int) -> tuple[object, int]:
         return _STAR, i + 1
     if c == "$":
         return _DOLLAR, i + 1
-    # bare token: number or keyword
+    # bare token: number, keyword, or a typed parameter
     j = i
     while j < len(s) and s[j] not in ",()":
         j += 1
     tok = s[i:j].strip()
+    if j < len(s) and s[j] == "(" and tok and (tok[0].isalpha() or tok[0] == "_"):
+        # A STEP typed parameter — a select value that carries its own type name:
+        # PARAMETER_VALUE(0.), LENGTH_MEASURE(1.5), POSITIVE_LENGTH_MEASURE(2.).
+        # Without this the token stops at '(' and the type NAME leaks out as the
+        # value ('PARAMETER_VALUE'), with the payload trailing as a separate list —
+        # so a TRIMMED_CURVE's trim reads as a string and float() raises. The name is
+        # redundant (the holding entity already fixes the meaning), so unwrap to the
+        # payload; every measure type is single-valued and collapses to its scalar.
+        inner, k = _parse_seq(s, j + 1, ")")
+        return (inner[0] if len(inner) == 1 else inner), k
     return _parse_scalar(tok), j
 
 

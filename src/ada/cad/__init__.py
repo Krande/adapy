@@ -224,6 +224,22 @@ def tessellate_batch_via_loop(backend, shapes, linear_deflection: float = -1.0) 
     return BatchMesh(positions=positions, indices=indices, groups=groups, normals=normals)
 
 
+@dataclass
+class StepShapeData:
+    """One shape read from a STEP OCAF document, with its label name and colour.
+
+    The portable mirror of adacpp's bound ``StepShapeData`` — same four fields, so
+    ``read_step_shapes`` / ``write_glb_shapes_bytes`` are interchangeable across the
+    adacpp and OCC backends. ``has_color`` distinguishes "no colour in the file" from
+    "explicitly grey": only a shape with ``has_color`` gets a GLB material.
+    """
+
+    shape: ShapeHandle
+    name: str = ""
+    color: tuple[float, float, float] = (0.5, 0.5, 0.5)
+    has_color: bool = False
+
+
 class CadBackend(Protocol):
     """Backend contract. Each method returns a kernel-native value; callers
     treat the returned ShapeHandle as opaque and only consume Mesh fields."""
@@ -247,7 +263,11 @@ class CadBackend(Protocol):
     ) -> tuple[float, float, float, float, float, float]: ...
     def obb(self, shape: ShapeHandle) -> "tuple[tuple[float, float, float], tuple[float, float, float]]": ...
     def read_step_bytes(self, data: bytes) -> ShapeHandle: ...
+    def read_step_shapes(self, data: bytes, unit: str = "M") -> list: ...
     def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes: ...
+    def step_bytes_to_glb_bytes(
+        self, data: bytes, linear_deflection: float = 0.1, angular_deg: float = 20.0, unit: str = "M"
+    ) -> bytes: ...
     def write_step(
         self, shapes: list, names: list, colors: list, filename: str, unit: str = "m", schema: str = "AP214"
     ) -> None: ...
@@ -1234,10 +1254,31 @@ class AdacppBackend:
     def read_step_bytes(self, data: bytes) -> ShapeHandle:
         return self._cad.read_step_bytes(data)
 
+    def read_step_shapes(self, data: bytes, unit: str = "M") -> list:
+        # OCAF read — unlike read_step_bytes this resolves each shape's label name and
+        # STEP presentation-style colour. Note it yields SUB-shapes too (a solid AND each
+        # of its faces), so it is a metadata/introspection read, not a GLB source: use
+        # step_bytes_to_glb_bytes for that, or the faces re-emit the solid's geometry.
+        return list(self._cad.read_step_shapes(data, unit))
+
     def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes:
         # adacpp returns nb::bytes; bytes(...) coerces it cleanly to a CPython
         # bytes object so callers don't need to know about the underlying type.
         return bytes(self._cad.write_glb_bytes(shape, linear_deflection))
+
+    def step_bytes_to_glb_bytes(
+        self, data: bytes, linear_deflection: float = 0.1, angular_deg: float = 20.0, unit: str = "M"
+    ) -> bytes:
+        fn = getattr(self._cad, "step_bytes_to_glb_bytes", None)
+        if fn is None:
+            # Refuse rather than fall back to read_step_bytes + write_glb_bytes: that pair
+            # returns a materialless GLB, i.e. a silently colourless model reported as success.
+            raise NotImplementedError(
+                "adacpp.cad.step_bytes_to_glb_bytes is not available in this build — it is what "
+                "carries STEP colours into the GLB; the read_step_bytes + write_glb_bytes pair "
+                "would silently produce a materialless (grey) model"
+            )
+        return bytes(fn(data, linear_deflection, angular_deg, unit))
 
     def serialize_brep(self, shape: ShapeHandle) -> str:
         # OCCT BRepTools_ShapeSet text — the BREP string ifcopenshell.geom.serialise

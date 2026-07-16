@@ -186,6 +186,13 @@ ADAPY_CAD_BACKEND = "adacpp"
 [feature.adacpp-dev.activation.env]
 PYTHONPATH = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../adacpp/build/dist"
 
+# Windows takes ';' as the PYTHONPATH separator, not ':'. Without this override the line above
+# reaches python as ONE path ("C:\...\src:C:\...\build\dist"), which exists nowhere — so `ada`
+# fails to import AND the dev adacpp silently loses to the conda-installed ada-cpp in
+# site-packages, i.e. the bridge this env exists for quietly doesn't happen.
+[feature.adacpp-dev.target.win-64.activation.env]
+PYTHONPATH = "%PIXI_PROJECT_ROOT%/src;%PIXI_PROJECT_ROOT%/../adacpp/build/dist"
+
 [feature.adacpp.tasks]
 # ada-cpp leg of `test-all`. Runs the whole non-REST suite against the native
 # ada-cpp CAD backend. Excludes tests/fem/visualization (needs medcoupling,
