@@ -79,6 +79,32 @@ class ModelWorkerAPI {
         return null;
     }
 
+    /**
+     * All face regions of a mesh as ABSOLUTE index ranges — for the GPU face picker, which bakes a
+     * per-face pick id from these at registration (start = draw-range start + face offset). Empty
+     * array when the model carries no face regions.
+     */
+    async getAllFaceRanges(
+        key: string,
+        meshName: string,
+    ): Promise<{rangeId: string; faceId: number; seq: number; start: number; length: number}[]> {
+        const faceRanges = this.memoryCacheFaceRange.get(key);
+        const drawRanges = this.memoryCacheDrawRange.get(key);
+        if (!faceRanges || !drawRanges) return [];
+        const facesForMesh = faceRanges[meshName];
+        const rangesForMesh = drawRanges[meshName];
+        if (!facesForMesh || !rangesForMesh) return [];
+        const out: {rangeId: string; faceId: number; seq: number; start: number; length: number}[] = [];
+        for (const [rangeId, [start]] of Object.entries(rangesForMesh)) {
+            const subs = facesForMesh[rangeId as unknown as number];
+            if (!subs) continue;
+            for (const [fStart, fLen, faceId, seq] of subs) {
+                out.push({rangeId, faceId, seq, start: start + fStart, length: fLen});
+            }
+        }
+        return out;
+    }
+
     async get(key: string): Promise<ModelData | undefined> {
         return this.models.get(key);
     }

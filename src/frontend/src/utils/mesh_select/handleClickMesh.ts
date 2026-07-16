@@ -17,6 +17,9 @@ export async function handleClickMesh(
     intersect: THREE.Intersection,
     event: MouseEvent,
     prefilledRangeId?: string,
+    // GPU face picking supplies the resolved face directly (start/length ABSOLUTE), so the
+    // faceIndex→face worker round-trip (and the raycast that produced faceIndex) is skipped.
+    prefilledFace?: {faceId: number; seq: number; start: number; length: number},
 ): Promise<void> {
     if (event.button === 2) return;
 
@@ -66,7 +69,11 @@ export async function handleClickMesh(
     // #id) and highlight just that face in the selection colour. Try both mesh-name keys (mesh.name /
     // node<node_id>) since the GPU-pick path supplies a prefilled rangeId and skips the draw-range
     // lookup that would otherwise resolve the key. faceIndex comes from the refined single-mesh raycast.
-    if (facePicking && typeof intersect.faceIndex === "number") {
+    if (facePicking && prefilledFace) {
+        // GPU face picking already resolved the face — no worker query, no raycast.
+        useObjectInfoStore.getState().setClickedFace({faceId: prefilledFace.faceId, seq: prefilledFace.seq});
+        setFaceHighlight(mesh, prefilledFace.start, prefilledFace.length);
+    } else if (facePicking && typeof intersect.faceIndex === "number") {
         let fi = await queryFaceInfo(mesh.unique_key, mesh.name, intersect.faceIndex);
         if (!fi && mesh.userData?.node_id != null) {
             fi = await queryFaceInfo(mesh.unique_key, `node${mesh.userData?.node_id}`, intersect.faceIndex);

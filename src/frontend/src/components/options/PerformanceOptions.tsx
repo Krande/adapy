@@ -46,6 +46,7 @@ const PerformanceOptions: React.FC = () => {
         hideBeamSolids, setHideBeamSolids,
         hideElementEdges, setHideElementEdges,
         useFlatPicker, setUseFlatPicker,
+        gpuFacePicking, setGpuFacePicking,
         timeSlicedLoad, setTimeSlicedLoad,
     } = usePerfStore();
 
@@ -175,6 +176,12 @@ const PerformanceOptions: React.FC = () => {
                 onChange={() => setUseFlatPicker(!useFlatPicker)}
                 title="Flat-varying GPU picker"
                 blurb="Indexed picker with one provoking vertex per triangle (GLSL3 flat varying). Auto-applies only on meshes with high vertex sharing (α<1.55) — CAD models gain ~30-40%; FEA bakes with per-element vertex sets fall back to non-indexed since flat would cost more there. Takes effect on next model load."
+            />
+            <Row
+                checked={gpuFacePicking}
+                onChange={() => setGpuFacePicking(!gpuFacePicking)}
+                title="GPU face picking"
+                blurb="Resolve the clicked face directly from the GPU picker (per-face pick ids baked from the GLB's face_ranges) instead of a CPU raycast. Instant on merged-by-colour meshes with millions of triangles, where the raycast lags and above ~8M tris returns no face at all. Off = the raycast path. Takes effect on next model load."
             />
             <Row
                 checked={hideElementEdges}
