@@ -85,6 +85,7 @@ def imprint_advanced_faces(
         from OCC.Core.BOPAlgo import BOPAlgo_Builder
         from OCC.Core.BRep import BRep_Tool
         from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge
+        from OCC.Core.BRepCheck import BRepCheck_Analyzer
         from OCC.Core.gp import gp_Pnt
         from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE
         from OCC.Core.TopExp import topexp
@@ -109,7 +110,7 @@ def imprint_advanced_faces(
     margin = max(tolerance, 1e-6) * 10 + 1e-3
     sub_faces: list = [None] * len(advanced_faces)
     beam_edges: list = [[] for _ in (imprint_curves or [])]
-    n_split = n_err = 0
+    n_split = n_err = n_invalid = 0
 
     for i, af in enumerate(advanced_faces):
         try:
@@ -124,6 +125,14 @@ def imprint_advanced_faces(
             occ_face = make_face_from_geom(af)
         except Exception as e:  # noqa: BLE001
             logger.debug(f"imprint: could not build OCC face for plate {i}: {e}")
+            continue
+        # make_face_from_geom heals invalid faces at source now; a face still
+        # BRepCheck-invalid here would hard-segfault the General Fuse, so skip it.
+        try:
+            if not BRepCheck_Analyzer(occ_face).IsValid():
+                n_invalid += 1
+                continue
+        except Exception:  # noqa: BLE001
             continue
 
         curve_cutters: list[tuple[int, list]] = []
@@ -167,6 +176,9 @@ def imprint_advanced_faces(
         ok = True
         for sf in subs:
             try:
+                if not BRepCheck_Analyzer(sf).IsValid():
+                    ok = False
+                    break
                 conv = occ_face_to_ada_face(sf)
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"imprint: sub-face conversion raised for plate {i}: {e}")
@@ -200,7 +212,9 @@ def imprint_advanced_faces(
                     seen.add(k)
                     beam_edges[j].append((Point(p0.X(), p0.Y(), p0.Z()), Point(p1.X(), p1.Y(), p1.Z())))
 
-    if n_err:
-        logger.info(f"sat-write: imprint skipped {n_err} plate(s) whose fuse errored (left monolithic)")
+    if n_err or n_invalid:
+        logger.info(
+            f"sat-write: imprint left {n_err} fuse-errored + {n_invalid} BRepCheck-invalid plate(s) monolithic"
+        )
     logger.info(f"sat-write: imprint split {n_split} plate(s) along beam axes")
     return FaceImprint(sub_faces=sub_faces, beam_edges=beam_edges)

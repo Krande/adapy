@@ -36,6 +36,7 @@ from OCC.Core.gp import (
     gp_Sphere,
     gp_Torus,
 )
+from OCC.Core.BRepCheck import BRepCheck_Analyzer
 from OCC.Core.ShapeFix import ShapeFix_Face
 from OCC.Core.TColgp import TColgp_Array1OfPnt2d, TColgp_Array2OfPnt
 from OCC.Core.TColStd import (
@@ -1658,6 +1659,24 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
                 PARAM_REBUILD_STATS["rational_bspline_healed"] += 1
         except Exception as ex:  # noqa: BLE001 - healing is best-effort
             logger.debug("rational B-spline p-curve heal failed: %s", ex)
+
+    # Final validity guarantee: our wire builder can leave arc edges on a plane,
+    # or SAT-pcurve edges on a B-spline, without a usable 2D curve-on-surface —
+    # BRepCheck-invalid. Such a face renders as-is but hard-crashes any boolean
+    # (the beam-imprint General Fuse segfaults on it). ShapeFix rebuilds the
+    # missing p-curves and recovers ~100% of them. Gated to already-invalid faces
+    # (valid faces are untouched, so authored p-curves are preserved) and away
+    # from unbounded cone/cylinder/torus surfaces, where ShapeFix_Face segfaults.
+    if not isinstance(face_surface, (Geom_CylindricalSurface, Geom_ConicalSurface, Geom_ToroidalSurface)):
+        try:
+            if not BRepCheck_Analyzer(face).IsValid():
+                fixer = ShapeFix_Face(face)
+                fixer.Perform()
+                fixed = fixer.Face()
+                if not fixed.IsNull() and BRepCheck_Analyzer(fixed).IsValid():
+                    face = fixed
+        except Exception as ex:  # noqa: BLE001 - healing is best-effort
+            logger.debug("face validity heal failed: %s", ex)
 
     # Update the face tolerance
     builder = BRep_Builder()

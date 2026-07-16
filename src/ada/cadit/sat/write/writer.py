@@ -246,16 +246,16 @@ def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved], plates: list[Pl
     # re-imprints on import and relinks a monolithic face edge (ACIS 21013). The
     # fuse is given only the faces that built; results are remapped back by plate.
     beams, beam_axes = _beam_axes(sw.part)
-    # Imprint only FLAT plates for now: make_face_from_geom / the fuse can hard
-    # segfault (native, uncatchable) on some ill-conditioned B-spline patches, so
-    # curved plates are left monolithic until that path is hardened. Flat plates
-    # carry most stiffeners anyway.
-    flat_idx = [idx for idx, pl in enumerate(ordered) if not isinstance(pl, PlateCurved) and afaces[idx] is not None]
-    flat_faces = [afaces[idx] for idx in flat_idx]
-    imprint = imprint_advanced_faces(flat_faces, beam_axes) if (beam_axes and flat_faces) else None
+    # Imprint every plate whose face built. imprint_advanced_faces skips a
+    # BRepCheck-invalid face rather than risk the General Fuse segfaulting on it,
+    # so curved plates take part where they can and fall back to monolithic where
+    # they can't.
+    build_idx = [idx for idx in range(len(ordered)) if afaces[idx] is not None]
+    build_faces = [afaces[idx] for idx in build_idx]
+    imprint = imprint_advanced_faces(build_faces, beam_axes) if (beam_axes and build_faces) else None
     imp_map: dict[int, "list | None"] = {}
     if imprint is not None:
-        for k, idx in enumerate(flat_idx):
+        for k, idx in enumerate(build_idx):
             imp_map[idx] = imprint.sub_faces[k]
 
     def author(pl, face_geom) -> None:
