@@ -1506,6 +1506,12 @@ async def _process_one(
                 "tess_linear_deflection": "ADA_OCC_TESS_LINEAR_DEFLECTION",
                 "tess_angular_deg": "ADA_OCC_TESS_ANGULAR_DEG",
                 "tess_relative": "ADA_OCC_TESS_RELATIVE",
+                # Per-face pick regions in the GLB (face_ranges_node in scene extras). Per-JOB
+                # only, deliberately: it enlarges the GLB and forces serial face tessellation, so
+                # it is a debugging ask for one conversion, never a deployment-wide setting.
+                # Honoured by the native STEP->GLB path alone — which is why the API advertises it
+                # with supported_by=[cpp] rather than offering it against every serializer.
+                "face_regions": "ADA_STREAM_TESS_FACE_REGIONS",
             }
             for k, v in per_job.items():
                 env_name = _env_map_full.get(k)

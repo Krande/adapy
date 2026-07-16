@@ -25,6 +25,10 @@ export interface ConversionOption {
     depends_on?: string;
     enum_by?: Readonly<Record<string, readonly string[]>>;
     runtime?: Readonly<Record<string, "client" | "server">>;
+    //   supported_by — for a bool option that only SOME values of depends_on can honour: the
+    //                  values that can. Absent = every value can. A capability the backend can't
+    //                  deliver must render disabled, not silently do nothing.
+    supported_by?: readonly string[];
     // Human display name for the axis this option represents (distinct from the
     // per-value `labels`). Lets the backend name the 2nd path-dropdown per target
     // — "Tessellator" for mesh targets, "Writer" for B-rep targets — without the

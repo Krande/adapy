@@ -9,6 +9,7 @@ import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {convertWithSelection} from "@/services/conversion";
 import {SerializerTessellatorSelect} from "@/components/convert/SerializerTessellatorSelect";
 import type {SerializerSelection} from "@/services/conversion/serializerMatrix";
+import {boolOptionFor, boolOptionSupported} from "@/services/conversion/serializerMatrix";
 import {canLoadIntoSceneLegacy, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {collectGeomEntries, focusGeomEntry, endGeomWalk, type GeomEntry} from "@/utils/scene/galleryWalk";
 import {writeToClipboard} from "@/utils/clipboard/copySelectionNames";
@@ -225,9 +226,21 @@ const GalleryControls: React.FC = () => {
     // touches a dropdown; convertWithSelection then normalises against the
     // backend matrix (defaults to the cpp/native server path).
     const [serializerSel, setSerializerSel] = useState<SerializerSelection>({});
+    // Embed per-face pick regions in the reconverted GLB (a debugging aid — bigger GLB, serial face
+    // tessellation), so individual surfaces become clickable. Only some serializers can produce
+    // them; the backend says which via the option's supported_by, and the toggle disables itself
+    // rather than quietly converting without them.
+    const [faceRegions, setFaceRegions] = useState(false);
 
     const current = files[index] ?? null;
     const currentExt = current ? (current.slice(current.lastIndexOf(".")).toLowerCase()) : "";
+
+    // Whether the backend offers face regions for THIS source + the currently selected serializer.
+    // Checked, not assumed: it re-evaluates when the serializer changes, so switching to a path
+    // that can't emit them disables the toggle instead of silently dropping the request.
+    const faceRegionsOpt = boolOptionFor(currentExt, "glb", "face_regions");
+    const faceRegionsSupported = boolOptionSupported(currentExt, "glb", "face_regions", serializerSel);
+    const faceRegionsOn = faceRegions && faceRegionsSupported;
 
     const reconvert = useCallback(async () => {
         if (!current || reconverting) return;
@@ -238,6 +251,10 @@ const GalleryControls: React.FC = () => {
         try {
             const derivedKey = await convertWithSelection(scopePart, current, "glb", {
                 selection: serializerSel,
+                // Only send it when the chosen serializer can actually honour it — asking for face
+                // regions from a path that ignores the flag would return a GLB without them and
+                // report success.
+                extraOptions: faceRegionsOn ? {face_regions: true} : undefined,
                 reconvert: true,
             });
             await clear_loaded_model();
@@ -369,6 +386,25 @@ const GalleryControls: React.FC = () => {
                                 disabled={reconverting}
                                 compact
                             />
+                            {faceRegionsOpt && (
+                                <label
+                                    className={`flex items-center gap-1 ${faceRegionsSupported ? "" : "opacity-40"}`}
+                                    title={
+                                        faceRegionsSupported
+                                            ? (faceRegionsOpt.description ?? "")
+                                            : "The selected serializer can't embed face regions — pick one that can."
+                                    }
+                                >
+                                    <input
+                                        type="checkbox"
+                                        className="no-drag"
+                                        checked={faceRegionsOn}
+                                        disabled={reconverting || !faceRegionsSupported}
+                                        onChange={(e) => setFaceRegions(e.target.checked)}
+                                    />
+                                    <span>{faceRegionsOpt.title ?? "Clickable surfaces"}</span>
+                                </label>
+                            )}
                         </div>
                     )}
                     <button

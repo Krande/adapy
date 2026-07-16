@@ -399,3 +399,49 @@ def test_wasm_engine_tokens_are_the_spa_contract():
     # (which would make the resolver ambiguous about whether a job is client- or server-side).
     assert conv._glb_serializer_tess("wasm") == list(conv._WASM_GLB_ENGINES)
     assert not set(conv._WASM_GLB_ENGINES) & set(conv._python_tess_tokens())
+
+
+# --------------------------------------------------------------------------- #
+# face_regions — the "Clickable surfaces" reconvert toggle.
+# --------------------------------------------------------------------------- #
+
+
+def test_face_regions_offered_only_where_it_is_produced():
+    """Only the native STEP->GLB path forwards face_regions to adacpp; the python path never reads
+    the flag. Advertising it against a serializer that ignores it would offer a capability that
+    silently doesn't happen, so supported_by names the ones that can deliver it."""
+    step = {o["name"]: o for o in conv._glb_serializer_options(".stp")}["face_regions"]
+    assert step["type"] == "bool"
+    assert step["default"] is False
+    assert step["supported_by"] == [conv._GLB_SERIALIZER_CPP]
+    assert step["depends_on"] == "serializer"
+
+    # An IFC source's native path has no face-region support at all -> offered nowhere.
+    ifc = {o["name"]: o for o in conv._glb_serializer_options(".ifc")}["face_regions"]
+    assert ifc["supported_by"] == []
+
+
+def test_face_regions_is_never_supported_by_a_client_serializer():
+    """The in-browser serializers never reach the native path, so they can't produce regions."""
+    step = {o["name"]: o for o in conv._glb_serializer_options(".stp")}["face_regions"]
+    assert not (set(step["supported_by"]) & set(conv._GLB_CLIENT_SERIALIZERS))
+
+
+def test_merge_unions_supported_by_across_pools():
+    """A pool that can't produce face regions must not pin their absence for the cluster.
+
+    supported_by is a per-pool capability list, so it merges like `enum` — union, not
+    first-writer-wins. Registering the empty (incapable) pool FIRST is the case that broke
+    enum_by before: the capable pool's answer has to survive it.
+    """
+    incapable = {"name": "face_regions", "type": "bool", "supported_by": []}
+    capable = {"name": "face_regions", "type": "bool", "supported_by": [conv._GLB_SERIALIZER_CPP]}
+
+    cur = dict(incapable)
+    conv.merge_option_into(cur, capable)
+    assert cur["supported_by"] == [conv._GLB_SERIALIZER_CPP], "the capable pool's answer must survive"
+
+    # ...and the reverse order agrees (no duplicates).
+    cur = dict(capable)
+    conv.merge_option_into(cur, incapable)
+    assert cur["supported_by"] == [conv._GLB_SERIALIZER_CPP]

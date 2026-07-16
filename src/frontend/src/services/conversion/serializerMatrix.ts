@@ -63,3 +63,32 @@ export function selectionIsClient(ext: string, target: string, value: Serializer
     if (!schema) return false;
     return normalizeSelection(schema, value).isClient;
 }
+
+/** A bool conversion option (by name) for an (ext, target) row, or null when the backend doesn't
+ * advertise it here. Like the dropdowns, the vocabulary is the backend's — this only finds it. */
+export function boolOptionFor(ext: string, target: string, name: string): ConversionOption | null {
+    const opt = runtime.conversionOptionsFor(ext, target).find((o) => o.name === name);
+    return opt && opt.type === "bool" ? opt : null;
+}
+
+/** Can the CURRENTLY selected serializer honour this bool option?
+ *
+ * `supported_by` lists the depends_on values that can (absent = all can). Asking the backend
+ * rather than testing the serializer token here is the point: which path produces a capability is
+ * a backend fact, and a toggle offered against a path that ignores it reports something that never
+ * happened. */
+export function boolOptionSupported(
+    ext: string,
+    target: string,
+    name: string,
+    value: SerializerSelection,
+): boolean {
+    const opt = boolOptionFor(ext, target, name);
+    if (!opt) return false;
+    if (!opt.supported_by) return true;
+    const schema = serializerSchemaFor(ext, target);
+    if (!schema) return false;
+    const dep = opt.depends_on ?? "serializer";
+    if (dep !== "serializer") return false;
+    return opt.supported_by.includes(normalizeSelection(schema, value).serializer);
+}

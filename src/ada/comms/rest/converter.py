@@ -1322,6 +1322,7 @@ def _glb_serializer_options(source_ext: str) -> list[dict]:
     family — see :func:`_python_tess_tokens`); it is kept because it names the row this schema is
     attached to and because the resolver still splits on family to pick the ENGINE KNOB.
     """
+    fam = _glb_source_family(source_ext)
     serializers = [s for s in _GLB_SERIALIZER_ORDER if _glb_serializer_tess(s)]
     enum_by = {s: list(_glb_serializer_tess(s)) for s in serializers}
     # Union of tessellator tokens across serializers, ordered by first appearance.
@@ -1363,8 +1364,28 @@ def _glb_serializer_options(source_ext: str) -> list[dict]:
             "enum_by": enum_by,
             "depends_on": "serializer",
             "description": (
-                "Tessellation kernel. Only the 'python' serializer exposes a choice; the other "
-                "serializers pin their own kernel."
+                "Tessellation kernel. 'python' and 'cpp' both offer the tracks adacpp declares "
+                "(cpp only the ones its native reader can drive); 'wasm' pins its in-browser "
+                "engines."
+            ),
+        },
+        {
+            "name": "face_regions",
+            "type": "bool",
+            "title": "Clickable surfaces",
+            "default": False,
+            "depends_on": "serializer",
+            # ONLY the native STEP->GLB path emits per-face regions: native_step_to_glb forwards
+            # face_regions to adacpp, which writes face_ranges_node into the GLB's scene extras.
+            # The python path never reads the flag, so advertising it there would offer a
+            # capability that silently doesn't happen. Empty list = offered nowhere on this row
+            # (e.g. an IFC source, whose native path has no face-region support), which the SPA
+            # renders as a disabled toggle rather than a lie.
+            "supported_by": ([_GLB_SERIALIZER_CPP] if fam == "step" and _GLB_SERIALIZER_CPP in serializers else []),
+            "description": (
+                "Embed per-face pick regions (the source's face ids) in the GLB so individual "
+                "surfaces can be clicked. A debugging aid: it enlarges the GLB and forces serial "
+                "face tessellation, so it is off by default."
             ),
         },
     ]
@@ -1374,6 +1395,12 @@ def _glb_serializer_options(source_ext: str) -> list[dict]:
 # for enum_by, a value of the option it depends_on). Two pools advertising the same option each
 # carry entries only for the values THEY advertise, so these merge key-by-key.
 _OPTION_MAP_KEYS = ("labels", "descriptions", "runtime")
+
+# Option-dict keys that are LISTS of values a pool can honour. Each pool advertises only what IT
+# can run, so the cluster's answer is the union — first-writer-wins would let a pool that lacks a
+# capability pin its absence for everyone (the same way a thin pool's enum_by once pinned the whole
+# cluster's tessellator list).
+_OPTION_LIST_KEYS = ("enum", "supported_by")
 
 
 def merge_option_into(cur: dict, incoming: dict) -> None:
@@ -1389,14 +1416,18 @@ def merge_option_into(cur: dict, incoming: dict) -> None:
     rendered and unselectable. The per-value maps fail the same way — whichever pool registered
     first decides, and tokens only the other pool knows arrive unlabelled.
 
-    So: union ``enum`` and each ``enum_by`` list, fill in the per-value maps, and leave scalars
-    (``default``/``title``/``description``/``type``/``depends_on``) to the first writer — those
-    describe the option itself rather than its values, and every pool derives them from this module.
+    So: union the per-pool lists (``enum`` / ``supported_by``) and each ``enum_by`` list, fill in
+    the per-value maps, and leave scalars (``default``/``title``/``description``/``type``/
+    ``depends_on``) to the first writer — those describe the option itself rather than its values,
+    and every pool derives them from this module.
     """
     import copy
 
-    if isinstance(incoming.get("enum"), list) and isinstance(cur.get("enum"), list):
-        cur["enum"] = cur["enum"] + [v for v in incoming["enum"] if v not in cur["enum"]]
+    for key in _OPTION_LIST_KEYS:
+        if isinstance(incoming.get(key), list) and isinstance(cur.get(key), list):
+            cur[key] = cur[key] + [v for v in incoming[key] if v not in cur[key]]
+        elif isinstance(incoming.get(key), list) and cur.get(key) is None:
+            cur[key] = list(incoming[key])
     if isinstance(incoming.get("enum_by"), dict):
         by = cur.get("enum_by")
         if not isinstance(by, dict):
