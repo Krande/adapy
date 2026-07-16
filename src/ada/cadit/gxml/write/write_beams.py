@@ -50,9 +50,9 @@ def add_curved_beam(beam: Beam, xml_root: ET.Element, edge_refs: list[str], sw: 
     """Emit a Genie ``<curved_beam>`` that points at its arc's SAT edge(s).
 
     Mirrors :func:`add_straight_beam` but writes a ``<curved_segment>`` whose
-    ``<wire>`` names the ACIS edge the arc was authored as (see
-    ``sat.write.write_beam_wire``). The guide still carries the two endpoints, as
-    Genie's own curved beams do — the edge is what makes it a curve on import.
+    ``<wire>`` names the ACIS edge the arc was authored as. The guide still
+    carries the two endpoints, as Genie's own curved beams do — the edge is what
+    makes it a curve on import.
     """
     structure_elem = ET.SubElement(xml_root, "structure")
     curved_beam = ET.SubElement(structure_elem, "curved_beam", {"name": beam.name})
