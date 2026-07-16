@@ -37,3 +37,34 @@ def load_dotenv_cwd(path: str | os.PathLike | None = None) -> bool:
         if key and key not in os.environ:
             os.environ[key] = val
     return True
+
+
+def resolve_remote_config(
+    url: str | None = None,
+    token: str | None = None,
+    scope: str | None = None,
+) -> tuple[str, str, str]:
+    """Resolve viewer URL / token / scope from explicit args or the environment.
+
+    Accepts the env names the admin panel's *CLI token* dialog suggests
+    (``ADAPY_API_BASE`` / ``ADAPY_API_TOKEN`` / ``ADAPY_API_SCOPE``) as well as
+    the older ``ADAPY_VIEWER_*`` / ``ADAPY_BASE_URL`` names, preferring the
+    ``ADAPY_API_*`` pair so a straight copy-paste from the panel works across
+    every ``ada`` subcommand (``files``, ``build``, ``audit``). Explicit
+    arguments always win. Missing values come back as empty strings; callers
+    decide which are required and report what is absent.
+    """
+
+    def _first(explicit: str | None, *names: str) -> str:
+        if explicit:
+            return explicit.strip()
+        for name in names:
+            val = os.environ.get(name, "").strip()
+            if val:
+                return val
+        return ""
+
+    base = _first(url, "ADAPY_API_BASE", "ADAPY_BASE_URL", "ADAPY_VIEWER_URL").rstrip("/")
+    tok = _first(token, "ADAPY_API_TOKEN", "ADAPY_VIEWER_TOKEN")
+    scp = _first(scope, "ADAPY_API_SCOPE", "ADAPY_VIEWER_SCOPE")
+    return base, tok, scp

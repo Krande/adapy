@@ -41,16 +41,20 @@ def _should_gzip_upload(key: str) -> bool:
 
 
 def _config(args: argparse.Namespace) -> tuple[str, str, str]:
-    base_url = (getattr(args, "url", None) or os.environ.get("ADAPY_VIEWER_URL", "")).strip().rstrip("/")
-    token = (getattr(args, "token", None) or os.environ.get("ADAPY_VIEWER_TOKEN", "")).strip()
-    scope = (getattr(args, "scope", None) or os.environ.get("ADAPY_VIEWER_SCOPE", "")).strip()
+    from ada_cli import resolve_remote_config
+
+    base_url, token, scope = resolve_remote_config(
+        getattr(args, "url", None),
+        getattr(args, "token", None),
+        getattr(args, "scope", None),
+    )
     missing = []
     if not base_url:
-        missing.append("ADAPY_VIEWER_URL (or --url)")
+        missing.append("ADAPY_API_BASE (or --url)")
     if not token:
-        missing.append("ADAPY_VIEWER_TOKEN (or --token)")
+        missing.append("ADAPY_API_TOKEN (or --token)")
     if not scope:
-        missing.append("--scope (or ADAPY_VIEWER_SCOPE), e.g. project:my-slug")
+        missing.append("--scope (or ADAPY_API_SCOPE), e.g. project:my-slug or user:me")
     if missing:
         for m in missing:
             print(f"missing: {m}", file=sys.stderr)
