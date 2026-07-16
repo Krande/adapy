@@ -3,6 +3,36 @@ import pathlib
 import re
 import xml.etree.ElementTree as ET
 
+_VERSION_DIR_RE = re.compile(r"V(?P<major>\d+)\.(?P<minor>\d+)-(?P<patch>\d+)")
+
+
+def _find_latest_dnv_exe(product_prefix: str, exe_name: str) -> str | None:
+    """Newest ``<program files>/DNV/<product_prefix> Vxx.yy-zz/Program/<exe_name>``.
+
+    A fallback for when ApplicationVersions.xml points at an uninstalled default
+    (the manager leaves stale ``IsDefault`` entries): walk the DNV install root,
+    keep the version dirs whose exe actually exists, and return the highest
+    ``Vmajor.minor-patch``. ``product_prefix`` is e.g. ``"GeniE"``.
+    """
+    candidates: list[tuple[tuple[int, int, int], str]] = []
+    for root in {os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432"), r"C:\Program Files"}:
+        if not root:
+            continue
+        dnv = pathlib.Path(root) / "DNV"
+        if not dnv.is_dir():
+            continue
+        for ver_dir in dnv.glob(f"{product_prefix} V*"):
+            m = _VERSION_DIR_RE.search(ver_dir.name)
+            if m is None:
+                continue
+            exe = ver_dir / "Program" / exe_name
+            if exe.is_file():
+                key = (int(m.group("major")), int(m.group("minor")), int(m.group("patch")))
+                candidates.append((key, str(exe)))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda c: c[0])[1]
+
 
 def _get_versions_xml_root() -> ET.Element | None:
     appdata = os.environ.get("APPDATA")
@@ -40,6 +70,24 @@ def get_genie_default_exe_path() -> str | None:
         return genie_exe_env_var
 
     return _get_default_exe_path("GeniE")
+
+
+def get_genie_runtime_default_exe_path() -> str | None:
+    """Path to GenieRuntime.exe, the headless (no-GUI) Genie driver.
+
+    Prefers the ``ADA_GENIE_RUNTIME_EXE`` override, else the default version
+    registered under ``GenieRuntime`` in DNV's ApplicationVersions.xml. Used to
+    import/verify a concept XML without opening the GUI (see
+    ``ada.cadit.gxml.open_in_genie``).
+    """
+    genie_runtime_exe_env_var = os.getenv("ADA_GENIE_RUNTIME_EXE")
+    if genie_runtime_exe_env_var:
+        return genie_runtime_exe_env_var
+    registered = _get_default_exe_path("GenieRuntime")
+    if registered and pathlib.Path(registered).is_file():
+        return registered
+    # Registered default is stale/uninstalled — walk the DNV install root.
+    return _find_latest_dnv_exe("GeniE", "GenieRuntime.exe")
 
 
 def get_sestra_default_exe_path() -> str | None:
