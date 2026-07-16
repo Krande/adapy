@@ -9,8 +9,8 @@ Two entry points:
   through the importer, e.g. bisecting which plates make ACIS reject a file.
 
 Both build a ``startup.js`` that runs ``ImportConceptXml().DoImport(...)`` and
-save, mirroring how ``param_models``/``aigps`` drive GeniE. The only license
-feature a concept-geometry import needs is ``CurvedGeometry`` — the runtime
+save. The only license feature a concept-geometry import needs is
+``CurvedGeometry`` — the runtime
 otherwise tries to check out *every* feature (``--licenses`` default is ``all``)
 and fails on the first one the site is not entitled to.
 """

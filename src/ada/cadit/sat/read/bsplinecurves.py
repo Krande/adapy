@@ -564,8 +564,8 @@ def create_bspline_curve_from_sat(spline_record: AcisRecord) -> geo_cu.BSplineCu
         # exactcur parser stops before). The approximation carries a near-zero
         # fit tolerance (Genie writes 1e-11), so reusing it reproduces the edge
         # rather than re-intersecting the surfaces. Without this every plate
-        # bounded by such an edge falls back to a flat polygon (17% of T999's
-        # curved faces).
+        # bounded by such an edge falls back to a flat polygon — on a large
+        # substructure export that was ~17% of the curved faces.
         return create_bspline_curve_from_exactcur(data_lines)
     elif spl_type == "exppc":
         return create_pcurve_from_exppc(sub_type)
