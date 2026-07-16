@@ -130,7 +130,11 @@ const CapacityControls: React.FC = () => {
       for (const lr of bucket.rows) {
         const key = `${lr.m}::${lr.s ?? lr.pg}`;
         const prev = best.get(key);
-        if (!prev || (lr.u ?? -Infinity) > (prev.governing_usage ?? -Infinity)) {
+        const errorWins = !!lr.e && !prev?.error;
+        const sameStatusAndHigherUf =
+          !!lr.e === !!prev?.error &&
+          (lr.u ?? -Infinity) > (prev?.governing_usage ?? -Infinity);
+        if (!prev || errorWins || sameStatusAndHigherUf) {
           best.set(key, {
             id: key,
             case_id: caseId,
@@ -139,8 +143,9 @@ const CapacityControls: React.FC = () => {
             stiffener: lr.s ?? undefined,
             governing_usage: lr.u,
             passed: lr.p,
-            governing_check: lr.c ?? null,
+            governing_check: lr.e ? "error" : lr.c ?? null,
             governing_clause: lr.cl ?? null,
+            error: lr.e ?? null,
             checks: [],
             worstCaseLabel: bucket.label ?? caseId,
           });
@@ -149,9 +154,7 @@ const CapacityControls: React.FC = () => {
     }
     let arr = [...best.values()];
     if (failedOnly) arr = arr.filter((r) => !r.passed);
-    return arr.sort(
-      (a, b) => (b.governing_usage ?? -1) - (a.governing_usage ?? -1),
-    );
+    return arr.sort((a, b) => capacityRowScore(b) - capacityRowScore(a));
   }, [run, isWorst, worstSummary, worstCaseIds, failedOnly]);
 
   const rows = useMemo(() => {
@@ -160,7 +163,7 @@ const CapacityControls: React.FC = () => {
     return activeRows
       .filter((row) => !failedOnly || !row.passed)
       .slice()
-      .sort((a, b) => (b.governing_usage ?? -1) - (a.governing_usage ?? -1));
+      .sort((a, b) => capacityRowScore(b) - capacityRowScore(a));
   }, [isWorst, worstRows, activeRows, activeCaseId, failedOnly]);
 
   const selectedRow = useMemo(() => {
@@ -175,9 +178,7 @@ const CapacityControls: React.FC = () => {
     return (
       activeRows
         .filter((row) => row.capacity_model_id === selectedModelId)
-        .sort(
-          (a, b) => (b.governing_usage ?? -1) - (a.governing_usage ?? -1),
-        )[0] ?? null
+        .sort((a, b) => capacityRowScore(b) - capacityRowScore(a))[0] ?? null
     );
   }, [run, activeRows, selectedModelId, selectedResultId, activeCaseId]);
 
@@ -211,7 +212,7 @@ const CapacityControls: React.FC = () => {
       // line itself; their tributary plates light up only when selected.
       const rows = isWorst ? worstRows : activeRows;
       applyCapacityIndividualField(
-        buildIndividualUfValues(rows, run, activeMetricId, selectedModelId),
+        buildIndividualUfValues(rows, run, activeMetricId),
       );
       applyCapacityGirderLineUf(buildGirderUfMap(rows, run, activeMetricId));
     } else {
@@ -359,7 +360,7 @@ const CapacityControls: React.FC = () => {
           <summary className="cursor-pointer font-semibold text-red-300">
             {`⛔ ${run.errors.length} capacity check${
               run.errors.length === 1 ? "" : "s"
-            } failed with an error — no result is shown for the affected model/case`}
+            } failed with an error — affected rows are treated as failures`}
           </summary>
           <ul className="mt-2 space-y-1">
             {run.errors.map((err, i) => (
@@ -595,10 +596,13 @@ const CapacityControls: React.FC = () => {
                         {formatUf(row.governing_usage)}
                       </td>
                       <td
-                        className="px-2 py-1 truncate"
-                        title={row.governing_check ?? ""}
+                        className={
+                          "px-2 py-1 truncate " +
+                          (row.error ? "font-semibold text-red-400" : "")
+                        }
+                        title={row.error ?? row.governing_check ?? ""}
                       >
-                        {row.governing_check ?? ""}
+                        {row.error ? "error" : row.governing_check ?? ""}
                       </td>
                       {isWorst && (
                         <td
@@ -649,8 +653,23 @@ const CapacityControls: React.FC = () => {
                 <div>Clause</div>
                 <div>{selectedRow.governing_clause ?? ""}</div>
                 <div>Status</div>
-                <div>{selectedRow.passed ? "OK" : "FAIL"}</div>
+                <div
+                  className={
+                    selectedRow.error ? "font-semibold text-red-400" : ""
+                  }
+                >
+                  {selectedRow.error
+                    ? "ERROR"
+                    : selectedRow.passed
+                      ? "OK"
+                      : "FAIL"}
+                </div>
               </div>
+              {selectedRow.error && (
+                <div className="rounded-sm border border-red-700/60 bg-red-950/40 px-2 py-1 text-red-200">
+                  {selectedRow.error}
+                </div>
+              )}
               <div className="pt-1 space-y-1">
                 {selectedRow.checks.slice(0, 4).map((check) => (
                   <div
@@ -1037,11 +1056,15 @@ const ProvenanceSourceSetView: React.FC<{ sourceSet: ProvenanceSourceSet }> = ({
  *  maximum. A specific check metric uses that check's usage from the row; rows
  *  without per-check usages (the worst-summary rows) fall back to the governing
  *  UF. */
+function capacityRowScore(row: CapacityCaseResultLike): number {
+  // A missing engineering result is more severe than any finite utilization.
+  return row.error ? Number.MAX_VALUE : (row.governing_usage ?? -1);
+}
+
 function buildIndividualUfValues(
   rows: CapacityCaseResultLike[],
   run: CapacityRunLike,
   activeMetricId: string,
-  selectedModelId: string | null,
 ): Array<{ element_id: number; value: number | null }> {
   const checkId = metricCheckId(activeMetricId);
   const byElement = new Map<number, number>();
@@ -1060,19 +1083,14 @@ function buildIndividualUfValues(
     }
     const stiff = byName.get(String(r.stiffener));
     if (!stiff) continue;
-    const uf = rowMetricUf(r, checkId);
+    const uf = r.error ? 1.01 : rowMetricUf(r, checkId);
     if (uf == null) continue; // this check does not apply to the row
-    // Girder models colour the girder member itself (via the girder-line
-    // overlay); their tributary plates are painted only for the SELECTED
-    // girder, so the associated plates of one girder can be inspected
-    // without every rectangle overlapping in the scene.
-    const isGirder = (model as { type?: string }).type === "girder";
-    const includeTributary = !isGirder || model.id === selectedModelId;
+    // Girder tributary plates use the same opaque UF overlay as stiffened-panel
+    // capacity models. Overlapping strips retain the governing value via the
+    // max merge below, so the view stays deterministic without looking faded.
     const ids = [
       ...((stiff.element_ids as number[] | undefined) ?? []),
-      ...(includeTributary
-        ? ((stiff.tributary_plate_ids as number[] | undefined) ?? [])
-        : []),
+      ...((stiff.tributary_plate_ids as number[] | undefined) ?? []),
     ];
     for (const id of ids) {
       const prev = byElement.get(id);
@@ -1117,7 +1135,7 @@ function buildGirderUfMap(
   if (girderIds.size === 0) return out;
   for (const r of rows) {
     if (!girderIds.has(r.capacity_model_id)) continue;
-    const uf = rowMetricUf(r, checkId);
+    const uf = r.error ? 1.01 : rowMetricUf(r, checkId);
     if (uf == null) continue;
     const prev = out.get(r.capacity_model_id);
     if (prev == null || uf > prev) out.set(r.capacity_model_id, uf);

@@ -1,5 +1,8 @@
 import type {CapacityResults} from "@/state/capacityResultsStore";
 import type {FeaManifest} from "@/services/viewerApi";
+import {CAPACITY_RESULTS_VERSION} from "@/services/capacityResultsVersion";
+
+export {CAPACITY_RESULTS_VERSION} from "@/services/capacityResultsVersion";
 
 export const CAPACITY_RESULTS_FORMAT = "dnv-rp-c201-capacity-results";
 // v2: stations. v3: [6.4.3] discretization. v4/v5: per-stiffener tributary plates.
@@ -19,9 +22,9 @@ export const CAPACITY_RESULTS_FORMAT = "dnv-rp-c201-capacity-results";
 // v11: the bundle gains a second run — the DNV-RP-C201 Section-7 girder check
 // (scope "girder", capacity models of type "girder", g-prefixed case ids so the
 // per-case detail cache never collides with the stiffened-panel run).
+// v12: errored checks are first-class failed rows in per-case detail and compact
+// worst summaries; ERROR takes precedence over every numeric UF.
 // Kept in lockstep with viewer_export.py.
-export const CAPACITY_RESULTS_VERSION = 11;
-
 export interface CapacityValidationContext {
     manifest?: Pick<FeaManifest, "source_sha256"> | null;
 }

@@ -1,6 +1,8 @@
 import {execSync} from "child_process";
 import type {Plugin} from "vite";
 
+import {CAPACITY_RESULTS_VERSION} from "./src/services/capacityResultsVersion";
+
 // Replace the <!--UNIQUE_VERSION_PLACEHOLDER--> in index.html with the build id + frontend git
 // sha, for EVERY vite config (default / serve / embed). The cloud viewer builds via
 // vite.config.serve.ts, which doesn't run embed-script.cjs — so without this the hosted viewer
@@ -32,10 +34,15 @@ export function versionInjectPlugin(): Plugin {
                 sha = env ? env.slice(0, 8) : "";
             }
             const ts = Date.now();
-            return html.replace(
-                /<!--UNIQUE_VERSION_PLACEHOLDER-->/g,
-                `<script>window.UNIQUE_VERSION_ID = ${ts}; window.FRONTEND_SHA = ${JSON.stringify(sha)};</script>`,
-            );
+            return html
+                .replace(
+                    /<!--CAPACITY_RESULTS_VERSION_PLACEHOLDER-->/g,
+                    `<meta name="ada-capacity-results-version" content="${CAPACITY_RESULTS_VERSION}">`,
+                )
+                .replace(
+                    /<!--UNIQUE_VERSION_PLACEHOLDER-->/g,
+                    `<script>window.UNIQUE_VERSION_ID = ${ts}; window.FRONTEND_SHA = ${JSON.stringify(sha)};</script>`,
+                );
         },
     };
 }

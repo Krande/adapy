@@ -98,4 +98,28 @@ describe("CapacityResultsPanel", () => {
     assert.match(html, /Failed advisory review/);
     assert.match(html, /border-red-500\/50 bg-red-900\/50 text-red-200/);
   });
+
+  it("renders an errored check as a failed result with its cause", () => {
+    const errorRow: CapacityCaseResult = {
+      ...ROW,
+      governing_usage: null,
+      governing_check: "error",
+      governing_clause: null,
+      passed: false,
+      error: "FormulaDomainError: [6.21] invalid C_ys radicand",
+      checks: [],
+    };
+    const html = renderToStaticMarkup(
+      React.createElement(CapacityResultsPanel, {
+        run: RUN,
+        row: errorRow,
+        onClose: () => undefined,
+      }),
+    );
+
+    assert.match(html, /ERROR/);
+    assert.match(html, /Evaluation error/);
+    assert.match(html, /FormulaDomainError: \[6\.21\] invalid C_ys radicand/);
+    assert.match(html, /The check could not be evaluated/);
+  });
 });

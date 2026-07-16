@@ -43,6 +43,8 @@ export interface CapacityCaseResult {
   passed: boolean;
   governing_check?: string | null;
   governing_clause?: string | null;
+  /** Exception text when the check could not produce an engineering result. */
+  error?: string | null;
   checks: CapacityCheckResult[];
   loads?: Record<string, unknown>;
   resolved_variables?: Record<string, unknown>;
@@ -174,6 +176,8 @@ export interface CapacityWorstRow {
   c?: string | null;
   /** governing clause. */
   cl?: string | null;
+  /** Exception text; when present this row outranks every numeric UF. */
+  e?: string | null;
 }
 
 export interface CapacityWorstSummary {
@@ -182,9 +186,8 @@ export interface CapacityWorstSummary {
   cases: Record<string, { label?: string; rows: CapacityWorstRow[] }>;
 }
 
-/** One check that raised and was skipped (so it never reached the results). The
- *  capacity model is still listed in ``capacity_models`` with its geometry, but
- *  has no usage factor for this case. */
+/** One check that raised. It is also represented as a failed case-result row;
+ *  this compact spine entry drives the banner and red 3D definition edges. */
 export interface CapacityRunError {
   id?: string;
   case_id: string;

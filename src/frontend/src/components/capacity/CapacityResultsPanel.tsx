@@ -26,7 +26,7 @@ export const CapacityResultsPanel: React.FC<CapacityResultsPanelProps> = ({
 }) => {
   const checks = row.checks ?? [];
   const governingCheckId = useMemo(() => pickGoverningCheckId(row), [row]);
-  const overviewStatus = row.passed ? "OK" : "FAIL";
+  const overviewStatus = row.error ? "ERROR" : row.passed ? "OK" : "FAIL";
   const overviewStatusClass = row.passed
     ? "border-emerald-500/50 bg-emerald-900/50 text-emerald-200"
     : "border-red-500/50 bg-red-900/50 text-red-200";
@@ -110,6 +110,14 @@ export const CapacityResultsPanel: React.FC<CapacityResultsPanelProps> = ({
             <span className="text-gray-500">Clause</span>
             <span>{row.governing_clause ?? "-"}</span>
           </div>
+          {row.error && (
+            <div className="mt-3 rounded-sm border border-red-700/60 bg-red-950/50 px-2 py-2 text-red-200">
+              <div className="text-[10px] font-semibold uppercase text-red-400">
+                Evaluation error
+              </div>
+              <div className="mt-1 break-words">{row.error}</div>
+            </div>
+          )}
         </section>
 
         <section className="space-y-2">
@@ -121,7 +129,9 @@ export const CapacityResultsPanel: React.FC<CapacityResultsPanelProps> = ({
           </div>
           {checks.length === 0 && (
             <div className="rounded-sm border border-gray-700 px-3 py-2 text-gray-400">
-              No checks available.
+              {row.error
+                ? "The check could not be evaluated; see the error above."
+                : "No checks available."}
             </div>
           )}
           {checks.map((check) => {
