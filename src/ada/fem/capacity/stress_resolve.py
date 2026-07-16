@@ -1248,7 +1248,7 @@ def calibration_report(
     """Compare our resolved scalars against Genie's, per (case, stiffener).
 
     ``genie_cases`` items expose ``result_case``, ``stiffener`` and a
-    ``variables`` mapping (the shape ``aibel_dnv_rp_c201.reference.genie`` emits).
+    ``variables`` mapping (the shape ``codecheck.dnv_rp_c201.reference.genie`` emits).
     """
     index = {(c.result_case, c.stiffener): c for c in resolved}
     residuals: list[VarResidual] = []

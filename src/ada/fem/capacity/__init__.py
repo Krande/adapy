@@ -9,12 +9,12 @@ membrane stresses into the design variables a DNV-RP-C201 buckling check needs.
 The output is a *neutral*, serializable :class:`~ada.fem.capacity.model.CapacityModel`
 (plus per-result-case :class:`~ada.fem.capacity.model.ResolvedCase`). adapy does
 **not** run the code check itself and has **no dependency** on any code-check
-package; a downstream consumer (e.g. ``aibel_dnv_rp_c201``) reads the neutral
+package; a downstream consumer (e.g. ``codecheck.dnv_rp_c201``) reads the neutral
 output. A Genie-compatible ``model.json`` mirror can also be emitted for
 field-by-field validation.
 
 See ``further_work/capacity_manager_adapy_stiffened_plate.md`` in the
-``dnv-rp-c201`` repo for the design and progress tracker.
+``codecheck`` repo for the design and progress tracker.
 """
 
 from __future__ import annotations

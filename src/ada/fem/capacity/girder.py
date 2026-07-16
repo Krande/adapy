@@ -8,7 +8,7 @@ crossings with other girders / perpendicular plate junctions) — and resolves t
 Section-7 design loads (N_G, M_G, V, tau, sigma_x, p) for them per result case.
 
 Everything is SI (m, Pa, N). The DNV-RP-C201 check itself lives downstream (the
-``aibel-dnv-rp-c201`` package); this module only reconstructs its inputs from
+``structural-codecheck`` package); this module only reconstructs its inputs from
 the FE model + results, mirroring what :mod:`.stress_resolve` does for the
 stiffened-panel checks.
 """

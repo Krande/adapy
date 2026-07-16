@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import CapacityResultsPanel from "@/components/capacity/CapacityResultsPanel";
+import { buildCodecheckCasePayload } from "@/services/codecheckCase";
 import {
   CAPACITY_FLOATING_PANEL_RIGHT_PX,
   CAPACITY_INPUT_RIGHT_WITH_RESULTS_PX,
@@ -730,7 +731,7 @@ const FloatingInputPanel: React.FC<{
           <button
             className={modeButton(false) + " text-[11px]"}
             onClick={() => downloadUiCase(run, row)}
-            title="Export these inputs as a case file you can import into the aibel_dnv_rp_c201_ui app"
+            title="Export these inputs as a case file you can import into the codecheck.ui app"
           >
             Export
           </button>
@@ -1296,7 +1297,7 @@ function resolveGeometry(
   };
 }
 
-/** Build the aibel_dnv_rp_c201_ui ``fe_stiffened`` value map from a result row.
+/** Build the codecheck.ui ``fe_stiffened`` value map from a result row.
  *  Units match that check's fields (mm / MPa / kNm). Geometry/material come from
  *  the as-checked ``check_inputs`` (so an imported case reproduces the engine);
  *  stresses come from the same resolved vectors / loads the Input panel shows. */
@@ -1393,7 +1394,7 @@ function girderCheckInputs(row: CapacityCaseResultLike): GirderCheckInputs {
   return (row.check_inputs ?? {}) as unknown as GirderCheckInputs;
 }
 
-/** Build the aibel_dnv_rp_c201_ui ``fe_girder`` value map from a girder result
+/** Build the codecheck.ui ``fe_girder`` value map from a girder result
  *  row. Geometry comes from the as-checked ``check_inputs``; the loads invert
  *  ``GirderLoads.from_membrane_stress`` (eq. 5.2): the UI takes girder-direction
  *  membrane stresses, so sigma_y,i = N_Gi / (A_G + l·t) with A_G = hw·tw + bf·tf
@@ -1495,8 +1496,8 @@ function slugForFile(value: string): string {
   );
 }
 
-/** Download the current input as an aibel_dnv_rp_c201_ui case file. The schema
- *  (``aibel-dnv-c201-ui/case@1`` + ``check_id``/``values``) is exactly what that
+/** Download the current input as a codecheck.ui case file. The schema
+ *  (``codecheck/case@1`` + ``standard_id``/``check_id``/``values``) is what that
  *  app's "Import JSON…" expects. Girder rows export the Section-7 ``fe_girder``
  *  check; panel rows the ``fe_stiffened`` check. */
 function downloadUiCase(run: CapacityRunLike, row: CapacityCaseResultLike): void {
@@ -1507,18 +1508,15 @@ function downloadUiCase(run: CapacityRunLike, row: CapacityCaseResultLike): void
     run,
     row,
   )}`.trim();
-  const payload = {
-    schema: "aibel-dnv-c201-ui/case@1",
+  const payload = buildCodecheckCasePayload({
     name,
     check_id: isGirder ? "fe_girder" : "fe_stiffened",
-    source: "adapy-capacity-viewer",
     capacity_model_id: row.capacity_model_id,
     case_id: row.case_id,
     values: isGirder
       ? buildUiGirderValues(row)
       : buildUiCaseValues(run, row),
-    saved_at: new Date().toISOString(),
-  };
+  });
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
     type: "application/json",
   });

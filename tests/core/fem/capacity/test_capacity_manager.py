@@ -1,9 +1,9 @@
 """Tests for the capacity manager (DNV-RP-C201 capacity-model reconstruction).
 
 These validate against the matched Mini-topside reference dataset that lives in
-the sibling ``dnv-rp-c201`` repo (licensed; not vendored here), so every test
-skips when the reference is absent. Set ``ADA_CAPACITY_REF`` to override the
-reference ``.../temp/Assembly`` directory.
+the sibling ``codecheck`` repo (licensed; not vendored here), so every test
+skips when the reference is absent. Set ``CODECHECK_REFERENCE_DIR`` to the
+codecheck ``.local/reference`` directory.
 
 Validated gates:
 * geometry (thickness / length / width) of every plate field matches Genie's
@@ -22,10 +22,9 @@ import re
 
 import pytest
 
-_DEFAULT_REF = pathlib.Path(
-    r"C:\AibelProgs\projects\GitHub\dnv-rp-c201\.local\reference" r"\example_mini_topside_codecheck\temp\Assembly"
-)
-REF = pathlib.Path(os.environ.get("ADA_CAPACITY_REF", _DEFAULT_REF))
+_DEFAULT_REFERENCE_DIR = pathlib.Path(__file__).resolve().parents[5] / "codecheck" / ".local" / "reference"
+REFERENCE_DIR = pathlib.Path(os.environ.get("CODECHECK_REFERENCE_DIR", _DEFAULT_REFERENCE_DIR))
+REF = REFERENCE_DIR / "example_mini_topside_codecheck" / "temp" / "Assembly"
 SIN = REF / "Analysis_pm" / "20260617_122105_R1.SIN"
 MODEL_JSON = REF / "Cc2.run1" / "model.json"
 
@@ -38,10 +37,7 @@ pytestmark = pytest.mark.skipif(
 # covers the full double bottom — girders in two directions — where Genie merges
 # the per-cell concept fields into full-width stiffened panels. It exercises the
 # geometric merge that the small codecheck1 reference does not.
-_DEFAULT_REF2 = pathlib.Path(
-    r"C:\AibelProgs\projects\GitHub\dnv-rp-c201\.local\reference" r"\example_mini_topside_codecheck2\temp\Assembly"
-)
-REF2 = pathlib.Path(os.environ.get("ADA_CAPACITY_REF2", _DEFAULT_REF2))
+REF2 = REFERENCE_DIR / "example_mini_topside_codecheck2" / "temp" / "Assembly"
 SIN2 = REF2 / "Analysis_pm" / "20260620_150626_R1.SIN"
 MODEL_JSON2 = REF2 / "Cc2.run1" / "model.json"
 ref2 = pytest.mark.skipif(
