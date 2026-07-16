@@ -118,6 +118,42 @@ const isExcludedFromFit = (obj: THREE.Object3D): boolean => {
     return false;
 };
 
+// Frame the camera on an explicit world-space box (a single face, a sub-selection) reusing the same
+// FOV-based sphere fit as zoomToAll. distanceScale > 1 leaves breathing room around a tiny target so a
+// small face doesn't fill the whole viewport with the near surface.
+export const frameBox = (
+    box: THREE.Box3,
+    camera: THREE.PerspectiveCamera,
+    controls: OrbitControls | CameraControls,
+    distanceScale = 1.6,
+) => {
+    if (box.isEmpty()) return;
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    if (!sphere || !isFinite(sphere.radius) || sphere.radius === 0) return;
+    const center = sphere.center.clone();
+    const radius = Math.max(sphere.radius, 1e-4);
+    applyAdaptiveClipping(camera, controls, radius);
+    const vFov = THREE.MathUtils.degToRad(camera.fov);
+    const aspect = camera.aspect || 1;
+    const vDist = radius / Math.tan(vFov / 2);
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+    const hDist = radius / Math.tan(hFov / 2);
+    const distance = Math.max(vDist, hDist) * distanceScale;
+    const direction = new THREE.Vector3();
+    camera.getWorldDirection(direction).normalize();
+    const newPosition = center.clone().add(direction.clone().multiplyScalar(-distance));
+    if (controls instanceof OrbitControls) {
+        camera.position.copy(newPosition);
+        camera.lookAt(center);
+        controls.target.copy(center);
+        camera.updateProjectionMatrix();
+        controls.update();
+    } else if (controls instanceof CameraControls) {
+        controls.setLookAt(newPosition.x, newPosition.y, newPosition.z, center.x, center.y, center.z, true);
+        camera.updateProjectionMatrix();
+    }
+};
+
 export const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, controls: OrbitControls | CameraControls) => {
     // Compute bounding box only from imported/visible meshes, excluding helpers
     // like GridHelper, the section caps/stencil and the transform gizmo.

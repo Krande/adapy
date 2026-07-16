@@ -8,6 +8,7 @@ import StatsSection from "./StatsSection";
 import GroupsSection from "./GroupsSection";
 import UtilitiesSection from "./UtilitiesSection";
 import FacePickingToggle from "./FacePickingToggle";
+import FaceSearchSection from "./FaceSearchSection";
 import SectionPlanesPanel from "./SectionPlanesPanel";
 import FemConceptsPanel from "./FemConceptsPanel";
 import MeshDistortionSection from "./MeshDistortionSection";
@@ -50,6 +51,7 @@ const SceneInfoBox = () => {
             {mode === "info" ? (
                 <>
                     <FacePickingToggle/>
+                    <FaceSearchSection/>
                     <CollapsibleSection title="Stats" defaultOpen>
                         <StatsSection/>
                     </CollapsibleSection>
