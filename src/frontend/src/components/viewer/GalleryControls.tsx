@@ -266,7 +266,12 @@ const GalleryControls: React.FC = () => {
         } finally {
             setReconverting(false);
         }
-    }, [current, reconverting, serializerSel]);
+        // faceRegionsOn belongs here: without it useCallback hands back a closure that captured the
+        // value from an earlier render, so ticking the toggle re-renders but the memoized reconvert
+        // still sends the old answer — the request goes out without face_regions and the conversion
+        // reports success. react-hooks/exhaustive-deps would have caught it; eslint isn't wired up
+        // for this package, so these arrays are hand-maintained.
+    }, [current, reconverting, serializerSel, faceRegionsOn]);
 
     // NOTE: every hook must be declared before the `if (!enabled) return null` early return below —
     // React counts hooks per render, so a hook after the return changes the count when the gallery is
