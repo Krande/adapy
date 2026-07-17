@@ -623,118 +623,216 @@ class OccBackend:
         angular_deflection: float = 0.5,
         store_units: str = "m",
     ) -> "list[tuple]":
-        """OCAF-read a STEP file and tessellate every solid/shell *per source face*.
+        """OCAF-read a STEP file and tessellate it *per source face*, tagging each face with
+        its STEP entity id and its own colour.
 
-        This is the OCC-tessellation equivalent of the adacpp native path's face-region
-        capture: each ``TopoDS_Face`` is meshed and the output triangles it produced are
-        recorded, so the caller can subdivide the solid's draw-range into per-face
-        clickable sub-ranges (``face_ranges_node<m>``) that mirror the native contract.
+        This is the OCC-tessellation equivalent of the adacpp native ``face_regions`` path.
+        Two properties are read straight off the OCAF document so the OCC clickable model
+        lines up with native and with OCC's own step2glb benchmark:
 
-        Colours + names come from the OCAF (XCAF) reader, so the merge-by-colour grouping
-        matches ``write_glb_bytes``/step2glb. All per-face / per-solid OCC loops stay inside
-        the backend; only plain data (numpy buffers + int ranges) crosses the boundary.
+        * **face id** — resolved via the STEP transfer map
+          (``TransferReader.EntityFromShapeResult(face, 1)`` -> ``StepModel.IdentLabel``), which
+          returns the ``#NNNN`` ADVANCED_FACE entity id. This is the SAME id native stamps as
+          ``face->src_id``, so a face id means the same thing across both kernels. Faces that
+          fail to resolve (a handful) get a negative synthetic id so they stay clickable.
+        * **colour** — read per face with ``ColorTool.GetColor(shape, XCAFDoc_ColorSurf, c)``
+          (Surf, then Gen), falling back to the owning solid's colour. This recovers the full
+          per-face palette; ``GetInstanceColor`` (what the generic reader uses) returns grey
+          for style-per-face files like AP214 assemblies.
 
-        Returns one tuple per meshed solid::
+        Faces MUST be meshed off the original document shapes — not the
+        ``BRepBuilderAPI_Transform`` copies ``read_step_file_with_names_colors`` hands out,
+        whose faces no longer match the transfer binding (0% id resolution). The document has
+        no assembly instancing to place here, so the originals are already world-positioned.
+
+        Nodes group faces into pickable bodies: a face's owning solid, else its owning free
+        shell, else the loose face itself. Colour is carried per FACE (a node may therefore
+        span several materials, exactly as merge-by-colour already produces).
+
+        Returns one tuple per node::
 
             (name: str | None,
-             color: tuple[float, float, float] | None,   # 0..1 RGB, None -> default grey
-             positions: np.ndarray,   # flat float32 xyz, unwelded (3 verts / triangle)
-             indices: np.ndarray,     # flat uint32 (arange over the soup)
-             face_ranges: list[tuple[int, int, int]])  # (face_ordinal, index_start, index_len)
+             faces: list[tuple[int, tuple[float, float, float] | None, np.ndarray, np.ndarray]])
 
-        ``index_start`` / ``index_len`` are in *index* units, relative to THIS solid's own
-        buffer (0-based) — exactly the offsets the frontend expects face sub-ranges to be
-        relative to their solid's draw-range start. ``face_ordinal`` is the 0-based index of
-        the source face within its solid (this OCC path has no STEP entity ids per face).
+        where each face tuple is ``(face_id, rgb_0_1_or_None, positions, indices)`` — positions
+        a flat float32 xyz triangle soup (3 verts/triangle) and indices a flat uint32 arange.
         """
         import numpy as np
+        from OCC.Core.BRep import BRep_Builder, BRep_Tool
         from OCC.Core.Bnd import Bnd_Box
-        from OCC.Core.BRep import BRep_Tool
         from OCC.Core.BRepBndLib import brepbndlib
-        from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
-        from OCC.Core.TopExp import TopExp_Explorer
+        from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
+        from OCC.Core.TDF import TDF_LabelSequence
+        from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED, TopAbs_SHELL, TopAbs_SOLID
+        from OCC.Core.TopExp import TopExp_Explorer, topexp
         from OCC.Core.TopLoc import TopLoc_Location
-        from OCC.Core.TopoDS import topods
+        from OCC.Core.TopoDS import TopoDS_Compound, topods
+        from OCC.Core.TopTools import (
+            TopTools_IndexedDataMapOfShapeListOfShape,
+            TopTools_IndexedMapOfShape,
+        )
+        from OCC.Core.XCAFDoc import XCAFDoc_ColorGen, XCAFDoc_ColorSurf
 
         from ada.occ.step.store import StepStore
 
         store = StepStore(step_path, verbosity=False, store_units=store_units)
+        store.create_step_reader(use_ocaf=True)
+        shape_tool = store.shape_tool
+        color_tool = store.color_tool
+        # STEP transfer map (shape -> source entity) for per-face #NNNN ids.
+        inner = store.step_reader.ChangeReader()
+        transfer_reader = inner.WS().TransferReader()
+        step_model = inner.StepModel()
 
-        out: list[tuple] = []
-        for occ_shape in store.iter_all_shapes(include_colors=True):
-            shape = occ_shape.shape
-            color = None
-            if occ_shape.color is not None:
-                color = (
-                    float(occ_shape.color.red),
-                    float(occ_shape.color.green),
-                    float(occ_shape.color.blue),
-                )
+        roots = TDF_LabelSequence()
+        shape_tool.GetFreeShapes(roots)
+        root_shapes = [shape_tool.GetShape(roots.Value(i)) for i in range(1, roots.Length() + 1)]
+        if not root_shapes:
+            return []
+        if len(root_shapes) == 1:
+            root = root_shapes[0]
+        else:
+            root = TopoDS_Compound()
+            builder = BRep_Builder()
+            builder.MakeCompound(root)
+            for s in root_shapes:
+                builder.Add(root, s)
 
-            # Phantom-triangle clip box: an imported face whose wire failed to trim its
-            # (infinite) surface can mesh far outside the real solid. Reuse the guard from
-            # ada.occ.tessellating._tessellate_brepmesh — the shape's geometric bbox
-            # inflated 10% of its diagonal; anything past it is dropped.
-            ref = Bnd_Box()
-            try:
-                brepbndlib.Add(shape, ref, True)
-            except Exception:  # noqa: BLE001
-                pass
-            clip_lo = clip_hi = None
-            if not ref.IsVoid():
-                rx0, ry0, rz0, rx1, ry1, rz1 = ref.Get()
-                pad = 0.1 * ((rx1 - rx0) ** 2 + (ry1 - ry0) ** 2 + (rz1 - rz0) ** 2) ** 0.5 + 1e-6
-                clip_lo = (rx0 - pad, ry0 - pad, rz0 - pad)
-                clip_hi = (rx1 + pad, ry1 + pad, rz1 + pad)
+        # Model geometric bbox (no triangulation needed) — drives both the phantom-triangle
+        # clip box and, when the caller asks for it, an auto-scaled tessellation deflection.
+        ref = Bnd_Box()
+        try:
+            brepbndlib.Add(root, ref, True)
+        except Exception:  # noqa: BLE001
+            pass
+        clip_lo = clip_hi = None
+        diag = 0.0
+        if not ref.IsVoid():
+            rx0, ry0, rz0, rx1, ry1, rz1 = ref.Get()
+            diag = ((rx1 - rx0) ** 2 + (ry1 - ry0) ** 2 + (rz1 - rz0) ** 2) ** 0.5
+            pad = 0.1 * diag + 1e-6
+            clip_lo = (rx0 - pad, ry0 - pad, rz0 - pad)
+            clip_hi = (rx1 + pad, ry1 + pad, rz1 + pad)
 
-            self._BRepMesh_IncrementalMesh(shape, linear_deflection, False, angular_deflection, True)
+        # linear_deflection <= 0 means "auto": scale it to the model so quality is unit-agnostic
+        # (a metres model and the same model in mm both get a sensible chord tolerance).
+        if linear_deflection <= 0:
+            linear_deflection = max(diag * 5e-4, 1e-6) if diag > 0 else 0.1
 
-            verts: list[float] = []
-            face_ranges: list[tuple[int, int, int]] = []
-            n_indices = 0
-            face_ord = 0
-            exp = TopExp_Explorer(shape, TopAbs_FACE)
-            while exp.More():
-                face = topods.Face(exp.Current())
-                loc = TopLoc_Location()
-                tri = BRep_Tool.Triangulation(face, loc)
-                face_start = n_indices
-                if tri is not None:
-                    trsf = loc.Transformation()
-                    rev = face.Orientation() == TopAbs_REVERSED
-                    for i in range(1, tri.NbTriangles() + 1):
-                        a, b, c = tri.Triangle(i).Get()
-                        if rev:
-                            a, c = c, a
-                        pts = [tri.Node(ni).Transformed(trsf) for ni in (a, b, c)]
-                        if clip_lo is not None and any(
-                            p.X() < clip_lo[0]
-                            or p.X() > clip_hi[0]
-                            or p.Y() < clip_lo[1]
-                            or p.Y() > clip_hi[1]
-                            or p.Z() < clip_lo[2]
-                            or p.Z() > clip_hi[2]
-                            for p in pts
-                        ):
-                            continue  # phantom triangle outside the real solid — drop it
-                        for p in pts:
-                            verts.extend((p.X(), p.Y(), p.Z()))
-                        n_indices += 3
-                face_len = n_indices - face_start
-                if face_len > 0:
-                    # Only faces that actually produced triangles get a clickable sub-range.
-                    face_ranges.append((face_ord, face_start, face_len))
-                face_ord += 1
+        # Mesh the whole model once; per-face triangulation is read back below.
+        self._BRepMesh_IncrementalMesh(root, linear_deflection, False, angular_deflection, True)
+
+        # Ancestry for node grouping: which solid / shell a face belongs to.
+        solid_map = TopTools_IndexedMapOfShape()
+        topexp.MapShapes(root, TopAbs_SOLID, solid_map)
+        shell_map = TopTools_IndexedMapOfShape()
+        topexp.MapShapes(root, TopAbs_SHELL, shell_map)
+        face_solid = TopTools_IndexedDataMapOfShapeListOfShape()
+        topexp.MapShapesAndAncestors(root, TopAbs_FACE, TopAbs_SOLID, face_solid)
+        face_shell = TopTools_IndexedDataMapOfShapeListOfShape()
+        topexp.MapShapesAndAncestors(root, TopAbs_FACE, TopAbs_SHELL, face_shell)
+
+        def _color(shape) -> "tuple[float, float, float] | None":
+            for typ in (XCAFDoc_ColorSurf, XCAFDoc_ColorGen):
+                c = Quantity_Color(0.5, 0.5, 0.5, Quantity_TOC_RGB)
+                try:
+                    if color_tool.GetColor(shape, typ, c):
+                        return (float(c.Red()), float(c.Green()), float(c.Blue()))
+                except Exception:  # noqa: BLE001
+                    pass
+            return None
+
+        def _face_id(face) -> "int | None":
+            ent = transfer_reader.EntityFromShapeResult(face, 1)
+            if ent is not None:
+                try:
+                    n = step_model.IdentLabel(ent)
+                    if n and n > 0:
+                        return int(n)
+                except Exception:  # noqa: BLE001
+                    pass
+            return None
+
+        # node_key -> {"name": str, "faces": [(face_id, rgb|None, pos, idx)]}
+        nodes: dict = {}
+        order: list = []
+        fallback = 0
+
+        exp = TopExp_Explorer(root, TopAbs_FACE)
+        while exp.More():
+            face = topods.Face(exp.Current())
+
+            owning_solid = None
+            if face_solid.Contains(face):
+                lst = face_solid.FindFromKey(face)
+                if lst.Size() > 0:
+                    owning_solid = lst.First()
+            owning_shell = None
+            if owning_solid is None and face_shell.Contains(face):
+                lst = face_shell.FindFromKey(face)
+                if lst.Size() > 0:
+                    owning_shell = lst.First()
+
+            fid = _face_id(face)
+            if owning_solid is not None:
+                node_key = ("solid", solid_map.FindIndex(owning_solid))
+                node_name = f"solid_{node_key[1]}"
+            elif owning_shell is not None:
+                node_key = ("shell", shell_map.FindIndex(owning_shell))
+                node_name = f"shell_{node_key[1]}"
+            else:
+                node_key = ("face", fid if fid is not None else -(fallback + 1))
+                node_name = f"face_{node_key[1]}"
+
+            color = _color(face)
+            if color is None and owning_solid is not None:
+                color = _color(owning_solid)
+
+            loc = TopLoc_Location()
+            tri = BRep_Tool.Triangulation(face, loc)
+            if tri is None:
                 exp.Next()
+                continue
+            trsf = loc.Transformation()
+            rev = face.Orientation() == TopAbs_REVERSED
+            verts: list[float] = []
+            for i in range(1, tri.NbTriangles() + 1):
+                a, b, c = tri.Triangle(i).Get()
+                if rev:
+                    a, c = c, a
+                pts = [tri.Node(ni).Transformed(trsf) for ni in (a, b, c)]
+                if clip_lo is not None and any(
+                    p.X() < clip_lo[0]
+                    or p.X() > clip_hi[0]
+                    or p.Y() < clip_lo[1]
+                    or p.Y() > clip_hi[1]
+                    or p.Z() < clip_lo[2]
+                    or p.Z() > clip_hi[2]
+                    for p in pts
+                ):
+                    continue  # phantom triangle outside the real model — drop it
+                for p in pts:
+                    verts.extend((p.X(), p.Y(), p.Z()))
+            if not verts:
+                exp.Next()
+                continue
 
-            if n_indices == 0:
-                continue  # solid meshed to nothing (empty / all-phantom) — skip it
+            if fid is None:
+                fallback += 1
+                fid = -fallback  # negative marks an unresolved face; still clickable
 
             positions = np.asarray(verts, dtype="float32")
             indices = np.arange(positions.size // 3, dtype="uint32")
-            out.append((occ_shape.name, color, positions, indices, face_ranges))
 
-        return out
+            entry = nodes.get(node_key)
+            if entry is None:
+                entry = {"name": node_name, "faces": []}
+                nodes[node_key] = entry
+                order.append(node_key)
+            entry["faces"].append((fid, color, positions, indices))
+            exp.Next()
+
+        return [(nodes[k]["name"], nodes[k]["faces"]) for k in order]
 
     def write_step(
         self, shapes: list, names: list, colors: list, filename: str, unit: str = "m", schema: str = "AP214"
@@ -924,6 +1022,18 @@ class OccBackend:
             if amap.FindFromIndex(i).Size() == 1:
                 out.append(amap.FindKey(i))
         return out
+
+    def imprint_advanced_faces(
+        self,
+        advanced_faces: "list",
+        imprint_curves: "list[list[tuple[float, float, float]]]",
+        tolerance: float = 1e-6,
+    ) -> "tuple[list, list]":
+        # Curved-plate imprint (OCC General Fuse). The whole per-plate/per-edge loop stays
+        # kernel-side in ada.occ.imprint_faces_occ; only backend-neutral ada.geom data returns.
+        from ada.occ.imprint_faces_occ import imprint_advanced_faces_occ
+
+        return imprint_advanced_faces_occ(advanced_faces, imprint_curves, tolerance)
 
     def imprint_planar_faces(
         self,

@@ -407,35 +407,47 @@ def test_wasm_engine_tokens_are_the_spa_contract():
 
 
 def test_face_regions_offered_only_where_it_is_produced(monkeypatch):
-    """Only a NATIVE path emits per-face regions; the python path never reads the flag, so offering
-    it there would advertise a capability that silently doesn't happen.
+    """Two paths emit per-face regions: the NATIVE (cpp) whole-file converter (per-family
+    capability), and — for STEP only — the python serializer's OCC-clickable path
+    (convert_step_to_occ_clickable_glb), which OCC-tessellates each face and writes face_ranges
+    itself, gated on the OCC backend being importable.
 
-    Driven through the capability probe rather than asserting a fixed answer: the advertisement is
-    a fact about the RUNTIME (this env has no adacpp, so it honestly advertises nothing), and the
-    pools that can run it contribute their answer via the merge.
+    Driven through the capability probes rather than a fixed answer: the advertisement is a fact
+    about the RUNTIME, and the pools that can run it contribute their answer via the merge.
     """
     from ada.cad import registry
+    from ada.cad.registry import CadBackendName, backend_available
+
+    occ = backend_available(CadBackendName.OCC)  # STEP+python OCC-clickable is gated on this
 
     for fam_ext in (".stp", ".ifc"):
+        py = [conv._GLB_SERIALIZER_PYTHON] if (fam_ext == ".stp" and occ) else []
+
         monkeypatch.setattr(registry, "native_face_regions_available", lambda _fam: True)
         opt = {o["name"]: o for o in conv._glb_serializer_options(fam_ext)}["face_regions"]
         assert opt["type"] == "bool"
         assert opt["default"] is False
         assert opt["depends_on"] == "serializer"
-        assert opt["supported_by"] == [conv._GLB_SERIALIZER_CPP], f"{fam_ext}: native can emit regions"
+        assert opt["supported_by"] == [conv._GLB_SERIALIZER_CPP] + py, f"{fam_ext}: native + (STEP) OCC-clickable"
 
         monkeypatch.setattr(registry, "native_face_regions_available", lambda _fam: False)
         opt = {o["name"]: o for o in conv._glb_serializer_options(fam_ext)}["face_regions"]
-        assert opt["supported_by"] == [], f"{fam_ext}: a build whose binding ignores the flag offers nothing"
+        # A build whose native binding ignores the flag offers nothing on cpp; the STEP OCC-clickable
+        # python path is independent of that binding, so it still stands when OCC is present.
+        assert opt["supported_by"] == py, f"{fam_ext}: only the (STEP) OCC-clickable python path"
 
 
-def test_face_regions_never_offered_to_the_python_serializer():
-    """Whatever the runtime, the python path can't carry ranges across the NGEOM wire — so it must
-    never appear here. Env-independent: an empty list is fine, 'python' never is."""
-    for ext in (".stp", ".ifc"):
-        opt = {o["name"]: o for o in conv._glb_serializer_options(ext)}["face_regions"]
-        assert conv._GLB_SERIALIZER_PYTHON not in opt["supported_by"]
-        assert set(opt["supported_by"]) <= {conv._GLB_SERIALIZER_CPP}
+def test_face_regions_python_serializer_only_for_step_via_occ():
+    """The python serializer offers clickable faces ONLY for STEP — the dedicated OCC per-face path
+    (convert_step_to_occ_clickable_glb), which writes face_ranges itself rather than carrying them
+    across the NGEOM wire. It is never offered for IFC (no such path), and is gated on OCC."""
+    from ada.cad.registry import CadBackendName, backend_available
+
+    occ = backend_available(CadBackendName.OCC)
+    step = {o["name"]: o for o in conv._glb_serializer_options(".stp")}["face_regions"]
+    ifc = {o["name"]: o for o in conv._glb_serializer_options(".ifc")}["face_regions"]
+    assert (conv._GLB_SERIALIZER_PYTHON in step["supported_by"]) == occ
+    assert conv._GLB_SERIALIZER_PYTHON not in ifc["supported_by"]
 
 
 def test_face_regions_is_never_supported_by_a_client_serializer():

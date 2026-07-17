@@ -1238,23 +1238,32 @@ def _cpp_tess_tokens() -> list[str]:
 def _face_regions_serializers(fam: str, serializers: list[str]) -> list[str]:
     """The serializers that can actually EMIT per-face regions for this source family.
 
-    Both native whole-file converters can: they feed the same neutral tessellator (which captures
-    the ranges) and the same C++ GLB writer (which emits face_ranges_node). Neither was ever a
-    STEP feature — until adacpp 0.16, stream_ifc_to_glb simply didn't forward the flag, so the
-    capability check is per-family against the binding that would run.
-
-    The python serializer is absent on purpose: it reaches the tessellator through the NGEOM wire,
-    and the ranges have no way across it (adacpp's Mesh doesn't carry them) nor into adapy's own
-    GLB writer. That is a real feature, not a forwarding fix.
+    * ``cpp`` (both native whole-file converters): they feed the same neutral tessellator (which
+      captures the ranges) and the same C++ GLB writer (which emits face_ranges_node). Until adacpp
+      0.16 stream_ifc_to_glb simply didn't forward the flag, so the check is per-family against the
+      binding that would run.
+    * ``python`` (STEP only): the dedicated OCC-clickable track
+      (``OccBackend.step_to_face_tagged_meshes`` -> ``convert_step_to_occ_clickable_glb``). It
+      OCC-tessellates each face and writes ``face_ranges_node`` itself, so — unlike the generic
+      python →GLB path — it does NOT depend on the NGEOM wire carrying the ranges. It's the way to
+      get clickable faces on OCC tessellation (e.g. rational-B-spline surfaces the native
+      tessellator can mishandle). Gated on the OCC backend being importable in this pool.
 
     Asks the REGISTRY, not ada.cadit: this runs at module import to build the published vocabulary,
     and the slim viewer image ships ada/cad but no ada/cadit.
     """
-    from ada.cad.registry import native_face_regions_available
+    from ada.cad.registry import (
+        CadBackendName,
+        backend_available,
+        native_face_regions_available,
+    )
 
-    if _GLB_SERIALIZER_CPP not in serializers:
-        return []
-    return [_GLB_SERIALIZER_CPP] if native_face_regions_available(fam) else []
+    out: list[str] = []
+    if _GLB_SERIALIZER_CPP in serializers and native_face_regions_available(fam):
+        out.append(_GLB_SERIALIZER_CPP)
+    if fam == "step" and _GLB_SERIALIZER_PYTHON in serializers and backend_available(CadBackendName.OCC):
+        out.append(_GLB_SERIALIZER_PYTHON)
+    return out
 
 
 def _glb_serializer_tess(serializer: str) -> list[str] | None:
@@ -1696,6 +1705,7 @@ def _via_ada(
     step_glb_pipeline: str | None = None,
     glb_tess_engine: str | None = None,
     strict_tess: bool | None = None,
+    occ_clickable: bool = False,
 ) -> bytes:
     """Heavy path: load with ada, export to target format. Used for any
     non-trivial source/target combination that needs the full ada-py
@@ -1708,12 +1718,29 @@ def _via_ada(
     ``step_streamer`` (STEP→GLB only) forces the memory-bounded streaming
     converter; ``None`` auto-selects it for STEP files too large for the OCC
     loader to hold without OOM-killing the worker.
+
+    ``occ_clickable`` (STEP→GLB only) routes to the OCC per-face clickable path
+    (``convert_step_to_occ_clickable_glb``): OCC-tessellated geometry with
+    ``face_ranges_node`` keyed by STEP entity id. Set by the dispatch when the
+    ``python`` serializer is chosen with the ``face_regions`` toggle on.
     """
     suffix = ".glb" if target_format == "glb" else f".{target_format}"
     out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
     result: bytes | pathlib.Path = b""
     try:
         if source_ext in {".step", ".stp"} and target_format == "glb":
+            if occ_clickable:
+                # OCC per-face clickable track (the python serializer's face_regions path).
+                # OCC-tessellates every face and writes face_ranges_node itself, keyed by the
+                # STEP #NNNN entity id — the same id namespace the native path stamps.
+                from ada.cadit.step.occ_faces_to_glb import convert_step_to_occ_clickable_glb
+
+                on_progress("occ-clickable-faces", 0.1)
+                convert_step_to_occ_clickable_glb(src_path, out_path, linear_deflection=0.0)
+                on_progress("ready", 1.0)
+                result = out_path
+                return result
+
             pipe = _resolve_step_glb_pipeline(step_glb_pipeline)
 
             if pipe == _STEP_GLB_PIPELINE_ADACPP_NATIVE:
@@ -2961,6 +2988,7 @@ def _register_ada_loadable() -> None:
                 strict_tess=None,
                 serializer=None,
                 tessellator=None,
+                face_regions=None,
                 **_kw,
             ):
                 # The friendly serializer/tessellator dropdowns resolve into the existing engine
@@ -2972,6 +3000,14 @@ def _register_ada_loadable() -> None:
                     tessellator,
                     step_glb_pipeline=step_glb_pipeline,
                     glb_tess_engine=glb_tess_engine,
+                )
+                # STEP + python serializer + Clickable surfaces => the OCC per-face clickable track.
+                # (The cpp serializer routes face_regions through the native path via env, as before.)
+                occ_clickable = (
+                    _ext in {".step", ".stp"}
+                    and _tgt == "glb"
+                    and bool(face_regions)
+                    and serializer == _GLB_SERIALIZER_PYTHON
                 )
                 return _via_ada(
                     src,
@@ -2986,6 +3022,7 @@ def _register_ada_loadable() -> None:
                     step_glb_pipeline=step_glb_pipeline,
                     glb_tess_engine=glb_tess_engine,
                     strict_tess=strict_tess,
+                    occ_clickable=occ_clickable,
                 )
 
             if tgt == "glb":

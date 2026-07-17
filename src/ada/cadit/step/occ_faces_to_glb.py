@@ -18,10 +18,13 @@ Emitted ``scenes[0].extras`` (read by ``src/frontend/.../cacheModelUtils.ts``):
 * ``face_ranges_node<m>``    = ``{node_id: [[start, len, faceId, seq], ...]}``
 
 ``draw_ranges`` start/len are index-offsets into material ``m``'s merged buffer; each
-``face_ranges`` ``start``/``len`` subdivides that solid's draw-range and is **relative to
-the draw-range start** (0-based within the solid). ``faceId`` is the source face's ordinal
-within its solid; ``seq`` is a running sequence index across all faces of the model. Plus an
-``ADA_EXT_data`` extension so the frontend enables the design/picking path.
+``face_ranges`` ``start``/``len`` subdivides that node's draw-range and is **relative to
+the draw-range start** (0-based within the node/material group). ``faceId`` is the STEP
+``#NNNN`` entity id of the source ADVANCED_FACE — the SAME id the adacpp native path stamps
+as ``face->src_id`` — so a face id is consistent across the OCC and native models (a handful
+of unresolved faces get a negative synthetic id). ``seq`` is a running sequence index across
+all faces of the model. Plus an ``ADA_EXT_data`` extension so the frontend enables the
+design/picking path.
 """
 
 from __future__ import annotations
@@ -34,20 +37,22 @@ from ada.config import logger
 def convert_step_to_occ_clickable_glb(
     step_path: str | pathlib.Path,
     glb_path: str | pathlib.Path,
-    linear_deflection: float = 0.1,
+    linear_deflection: float = 0.0,
     angular_deflection: float = 0.5,
     store_units: str = "m",
 ) -> dict:
     """Convert ``step_path`` to an OCC-tessellated GLB at ``glb_path`` carrying per-face
     clickable regions. Returns a stats dict ``{solids, faces, materials}``.
 
-    Routes all OCC access through ``active_backend().step_to_face_tagged_meshes`` — the
-    single backend verb that reads + per-face-meshes the STEP. This function only merges the
-    result by colour and writes the GLB with the face-picking extras.
+    Routes all OCC access through the CadBackend's ``step_to_face_tagged_meshes`` verb — the
+    single backend call that reads + per-face-meshes the STEP. This function only merges the
+    result by colour and writes the GLB with the face-picking extras. The OCC backend is
+    selected explicitly (this IS the OCC-tessellation track); ``linear_deflection<=0`` lets
+    the backend auto-scale the chord tolerance to the model size.
     """
     import numpy as np
 
-    from ada.cad import active_backend
+    from ada.cad import select_backend
     from ada.cadit.step.glb_spill import GlbSpillStore, write_glb_from_spill
     from ada.core.guid import create_guid
     from ada.extension.design_and_analysis_extension_schema import (
@@ -57,11 +62,11 @@ def convert_step_to_occ_clickable_glb(
     from ada.visit.gltf.graph import GraphNode, GraphStore
     from ada.visit.gltf.meshes import MergedMesh, MeshType
 
-    be = active_backend()
+    be = select_backend("occ")
     if not hasattr(be, "step_to_face_tagged_meshes"):
         raise RuntimeError(
-            f"active backend {getattr(be, 'name', be)!r} has no step_to_face_tagged_meshes "
-            "(need the OCC backend — set ADAPY_CAD_BACKEND=occ)"
+            f"backend {getattr(be, 'name', be)!r} has no step_to_face_tagged_meshes "
+            "(the OCC-clickable track requires the pythonocc-core backend)"
         )
 
     tagged = be.step_to_face_tagged_meshes(
@@ -81,38 +86,50 @@ def convert_step_to_occ_clickable_glb(
     # face_ranges_by_mat[mat_id][node_id] = [[start, len, faceId, seq], ...]
     face_ranges_by_mat: dict[int, dict[str, list]] = {}
 
+    grey = Color(0.5, 0.5, 0.5)
     seq = 0  # running sequence index across every face of the model
-    n_solids = 0
+    n_nodes = 0
     n_faces = 0
     try:
-        for name, color_rgb, positions, indices, face_ranges in tagged:
-            if positions.size == 0 or indices.size == 0:
+        for name, faces in tagged:
+            if not faces:
                 continue
-            color = Color(*color_rgb) if color_rgb is not None else Color(0.5, 0.5, 0.5)
-            key = color.hex
-            mat_id = mat_of_color.get(key)
-            if mat_id is None:
-                mat_id = len(mat_of_color)
-                mat_of_color[key] = mat_id
-                color_by_mat[mat_id] = color
-
             node = graph.add_node(
-                GraphNode(name or f"solid_{n_solids}", graph.next_node_id(), hash=create_guid(), parent=root)
+                GraphNode(name or f"node_{n_nodes}", graph.next_node_id(), hash=create_guid(), parent=root)
             )
+            n_nodes += 1
 
-            # spill records the solid's draw-range (GroupReference) into material ``mat_id``.
-            # Its groups feed create_id_sequence -> draw_ranges_node<mat_id>. face_ranges are
-            # already index-offsets relative to THIS solid's buffer (0-based), so they map 1:1
-            # onto the frontend's "relative to the draw-range start" expectation.
-            spill.add(mat_id, node.hash, positions, indices)
-            n_solids += 1
+            # Colour is carried per FACE, so this node's faces may span several materials.
+            # Bucket them by colour; each (node, colour) becomes one contiguous draw-range —
+            # one spill.add call, so its GroupReference IS the node's range in that material
+            # and the per-face sub-offsets below are 0-based within it (no coalesce needed).
+            by_color: dict[str, tuple[Color, list]] = {}
+            for face_id, color_rgb, positions, indices in faces:
+                if positions.size == 0 or indices.size == 0:
+                    continue
+                color = Color(*color_rgb) if color_rgb is not None else grey
+                by_color.setdefault(color.hex, (color, []))[1].append((face_id, positions, indices))
 
-            sub = []
-            for face_ord, f_start, f_len in face_ranges:
-                sub.append([int(f_start), int(f_len), int(face_ord), int(seq)])
-                seq += 1
-                n_faces += 1
-            if sub:
+            for key, (color, flist) in by_color.items():
+                mat_id = mat_of_color.get(key)
+                if mat_id is None:
+                    mat_id = len(mat_of_color)
+                    mat_of_color[key] = mat_id
+                    color_by_mat[mat_id] = color
+
+                merged_pos = np.concatenate([f[1] for f in flist]) if len(flist) > 1 else flist[0][1]
+                merged_idx = np.arange(merged_pos.size // 3, dtype=np.uint32)
+
+                sub = []
+                offset = 0
+                for face_id, positions, indices in flist:
+                    f_len = int(indices.size)
+                    sub.append([int(offset), f_len, int(face_id), int(seq)])
+                    offset += f_len
+                    seq += 1
+                    n_faces += 1
+
+                spill.add(mat_id, node.hash, merged_pos, merged_idx)
                 face_ranges_by_mat.setdefault(mat_id, {})[node.node_id] = sub
 
         # Register each material's picking ranges so to_json_hierarchy emits draw_ranges_node<m>.
@@ -143,10 +160,10 @@ def convert_step_to_occ_clickable_glb(
         spill.cleanup()
 
     logger.info(
-        "occ-clickable STEP->GLB: %s solids, %s faces, %s material(s) -> %s",
-        n_solids,
+        "occ-clickable STEP->GLB: %s nodes, %s faces, %s material(s) -> %s",
+        n_nodes,
         n_faces,
         len(color_by_mat),
         glb_path,
     )
-    return {"solids": n_solids, "faces": n_faces, "materials": len(color_by_mat)}
+    return {"solids": n_nodes, "faces": n_faces, "materials": len(color_by_mat)}

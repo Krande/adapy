@@ -321,6 +321,17 @@ class CadBackend(Protocol):
         imprint_curves: "list[list[tuple[float, float, float]]] | None" = None,
         tolerance: float = 1e-6,
     ) -> "PlanarImprint": ...
+    def imprint_advanced_faces(
+        self,
+        advanced_faces: "list[Geometry]",
+        imprint_curves: "list[list[tuple[float, float, float]]]",
+        tolerance: float = 1e-6,
+    ) -> "tuple[list, list]":
+        # Split curved plate faces (ada.geom AdvancedFace) along the beam axes touching them,
+        # returning (sub_faces, beam_edges) as backend-neutral ada.geom data. Distinct from
+        # imprint_planar_faces (planar-outline only). Used by the SAT curved-plate writer to
+        # pre-split plates so Genie doesn't re-imprint + relink on import (ACIS 21013).
+        ...
 
 
 class AdacppBackend:
@@ -1287,6 +1298,27 @@ class AdacppBackend:
             )
         return bytes(fn(data, linear_deflection, angular_deg, unit))
 
+    def step_to_face_tagged_meshes(
+        self,
+        step_path: str,
+        linear_deflection: float = 0.1,
+        angular_deflection: float = 0.5,
+        store_units: str = "m",
+    ) -> "list[tuple]":
+        # OCC-only benchmark verb: returns per-face triangle SOUPS + STEP #ids + colours for the
+        # Python OCC-clickable assembler (convert_step_to_occ_clickable_glb). adacpp doesn't expose
+        # per-face mesh BUFFERS across the binding — but it doesn't need to: it produces the same
+        # clickable GLB directly in C++ via stream_step_to_glb(face_regions=True) (the face ranges
+        # and face->src_id are baked by the native writer, never round-tripped through Python). So
+        # rather than a lossy shim, redirect to the native path.
+        raise NotImplementedError(
+            "step_to_face_tagged_meshes is an OCC-only benchmark verb (per-face triangle soups for "
+            "the Python clickable-GLB assembler). On the adacpp backend, produce a clickable GLB "
+            "directly with native_step_to_glb(step_path, glb_path) and ADA_STREAM_TESS_FACE_REGIONS=1 "
+            "(adacpp.cad.stream_step_to_glb(face_regions=True)), which bakes face_ranges_node + the "
+            "STEP entity id into the GLB in C++."
+        )
+
     def serialize_brep(self, shape: ShapeHandle) -> str:
         # OCCT BRepTools_ShapeSet text — the BREP string ifcopenshell.geom.serialise
         # consumes for the IFC tessellation fallback. Lets *→ifc work under the
@@ -1650,6 +1682,24 @@ class AdacppBackend:
             curve_sources=[list(s) for s in getattr(raw, "curve_sources", [])],
             free_edges=list(getattr(raw, "free_edges", [])),
         )
+
+    def imprint_advanced_faces(
+        self,
+        advanced_faces: "list",
+        imprint_curves: "list[list[tuple[float, float, float]]]",
+        tolerance: float = 1e-6,
+    ) -> "tuple[list, list]":
+        # Curved-plate imprint (General Fuse of an AdvancedFace against beam-axis edges, returning
+        # ada.geom sub-faces). adacpp exposes imprint_planar_faces but not yet a curved-face imprint
+        # binding, so refuse rather than borrow pythonocc — the SAT writer's caller degrades to the
+        # OCC backend when pythonocc is installed, else authors plates monolithically.
+        fn = getattr(self._cad, "imprint_advanced_faces", None)
+        if fn is None:
+            raise NotImplementedError(
+                "adacpp.cad has no curved-face imprint binding yet — use ADAPY_CAD_BACKEND=occ (or "
+                "keep pythonocc installed) for the imprinted Genie SAT curved-plate export."
+            )
+        return fn(advanced_faces, imprint_curves, tolerance)
 
 
 def select_backend(prefer: str | None = None) -> CadBackend:
