@@ -130,7 +130,9 @@ def _face_components(faces: list[se.Face]) -> list[list[se.Face]]:
                 if edge is not None:
                     for vertex in (edge.vertex_start, edge.vertex_end):
                         if vertex is not None:
-                            key = tuple(round(float(c), 7) for c in vertex.point.point)
+                            # same rounding as the weld's vertex identity: corners
+                            # reached through separate reads disagree up to ~1e-5
+                            key = tuple(round(float(c), 5) for c in vertex.point.point)
                             faces_at_vertex.setdefault(key, []).append(face)
                 coedge = coedge.next_coedge
             loop = loop.next_loop

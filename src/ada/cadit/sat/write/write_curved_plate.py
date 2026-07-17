@@ -71,11 +71,13 @@ class TopologyWeld:
     position and curve gives 6111 vertices and 11573 edges, the difference being
     the faces the reader could not convert. Faces are keyed on rounded
     coordinates: two faces carry the same corner through separate reads and need
-    not agree in the last bit. 1e-7 m is far below any modelling tolerance and
-    far above that noise.
+    not agree in the last bit. 1e-5 m (0.01 mm) — measured against the imported
+    ground truth, 811 of a hull's shared corners disagree between 1e-7 and 1e-5
+    through separate reads, so the old 1e-7 key split them into duplicate
+    vertices; 0.01 mm still sits far below any real vertex spacing.
     """
 
-    def __init__(self, id_gen, nd: int = 7):
+    def __init__(self, id_gen, nd: int = 5):
         self.id_gen = id_gen
         self.nd = nd
         self.entities: list[se.SATEntity] = []
