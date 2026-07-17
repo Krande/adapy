@@ -47,12 +47,13 @@ class GxmlStore:
 
     def iter_beams_from_xml(self):
         p = self.p
+        resolver = self.sat_factory.get_named_edge_curve
 
         for bm in self.xml_root.iterfind(".//straight_beam"):
             yield from el_to_beam(bm, p)
 
         for curved_bm in self.xml_root.iterfind(".//curved_beam"):
-            yield from el_to_beam(curved_bm, p)
+            yield from el_to_beam(curved_bm, p, edge_curve_resolver=resolver)
 
     def iter_plate_shell_elem(self):
         for fp in self.xml_root.iterfind(".//flat_plate"):
@@ -84,11 +85,16 @@ class GxmlStore:
             res = thickn.find(".//constant_thickness")
             thick_map[thickn.attrib["name"]] = float(res.attrib["th"])
 
+        resolver = self.sat_factory.get_named_face_normal
         for fp in self.xml_root.iterfind(".//flat_plate"):
-            yield from yield_plate_elems_to_plate(fp, self.p, sat_d, thick_map, flat_fallback_d=flat_d)
+            yield from yield_plate_elems_to_plate(
+                fp, self.p, sat_d, thick_map, flat_fallback_d=flat_d, face_normal_resolver=resolver
+            )
 
         for fp in self.xml_root.iterfind(".//curved_shell"):
-            yield from yield_plate_elems_to_plate(fp, self.p, sat_d, thick_map, flat_fallback_d=flat_d)
+            yield from yield_plate_elems_to_plate(
+                fp, self.p, sat_d, thick_map, flat_fallback_d=flat_d, face_normal_resolver=resolver
+            )
 
     def to_part(self, extract_joints=False) -> Part:
         from ada.api.containers import Beams, Plates

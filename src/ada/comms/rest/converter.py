@@ -498,9 +498,15 @@ def is_derived_key(key: str) -> bool:
 # (merge-preview / diff GLBs). Neither is a user file. Use this for DISPLAY filtering; keep
 # is_derived_key for derived-product logic (rename/cleanup/grouping), which must not treat an
 # ephemeral overlay as a source's derived product.
+# Internal namespaces that are not user files. ONE definition: is_hidden_key answers "is this key
+# hidden?", and storage.list(skip_prefixes=...) uses the same tuple to avoid ENUMERATING them —
+# a listing that skipped a different set than it filtered would be a silent correctness bug (a real
+# file vanishing from the browser), so the two must not drift.
+HIDDEN_PREFIXES: tuple[str, ...] = ("_derived/", "_overlays/", "_reconvert/")
+
+
 def is_hidden_key(key: str) -> bool:
-    k = key.lstrip("/")
-    return k.startswith("_derived/") or k.startswith("_overlays/") or k.startswith("_reconvert/")
+    return key.lstrip("/").startswith(HIDDEN_PREFIXES)
 
 
 def is_versions_artefact_key(key: str) -> bool:
@@ -1122,8 +1128,13 @@ _WASM_GLB_ENGINES = (_WASM_ENGINE_NATIVE, _WASM_ENGINE_PYODIDE)
 # Labels adapy OWNS: its own serializer-pinned token and the two in-browser engines, none of which
 # adacpp knows about. Every adacpp track's label + description comes from the track itself
 # (_glb_tess_label / _glb_tess_description), so a new track arrives fully described.
+_GLB_TESS_NATIVE_PINNED = "native"
+
 _GLB_TESS_OWN_LABELS = {
-    "native": "Native (libtess2)",  # the cpp serializer's pinned tessellator
+    # The cpp serializer's fallback token, used only against an adacpp whose native binding can't
+    # take a track (< 0.16). Newer builds advertise the discovered adacpp:* tracks instead, so this
+    # stays resolvable for stored configs rather than naming a choice we still offer.
+    _GLB_TESS_NATIVE_PINNED: "Native (libtess2)",
     # client-side (wasm serializer) engines:
     "wasm-native": "Native (WASM module)",
     "pyodide": "Pyodide (wasm wheels)",
@@ -1193,15 +1204,77 @@ def _python_tess_tokens() -> list[str]:
     return [t.name for t in ranked]
 
 
+def _cpp_tess_tokens() -> list[str]:
+    """The `cpp` serializer's tessellator tokens — the same adacpp tracks the `python` serializer
+    discovers, because both dispatch to the same kernel; the native path just reaches it through
+    the C++ reader instead of the NGEOM wire.
+
+    Two gates, both asked rather than assumed. The binding must accept a track at all (adacpp < 0.16
+    ignores ``pipeline`` and runs libtess2), and the track must be one adacpp declares NEUTRAL — the
+    taxonomy kernels need ifcopenshell geometry the C++ STEP reader never builds, and on this path
+    they mesh as if nothing were selected instead of erroring. Gating the ADVERTISEMENT on the same
+    facts the conversion checks is the point: an offer we can't honour reports a track we never ran.
+    """
+    # From the registry, NOT ada.cadit: this runs at module import to build the published
+    # vocabulary, and the slim viewer image ships ada/cad but no ada/cadit — importing the latter
+    # here crashlooped the API on startup. The registry answers False with no adacpp, which is the
+    # right answer for the API: it runs no conversions, and the pools that do advertise their own.
+    from ada.cad.registry import (
+        CadBackendName,
+        native_track_selection_available,
+        tess_track_by_name,
+    )
+
+    if not native_track_selection_available():
+        return [_GLB_TESS_NATIVE_PINNED]
+    tracks = []
+    for tok in _python_tess_tokens():
+        t = tess_track_by_name(tok)
+        if t is not None and t.backend is CadBackendName.ADACPP and t.neutral:
+            tracks.append(tok)
+    return tracks or [_GLB_TESS_NATIVE_PINNED]
+
+
+def _face_regions_serializers(fam: str, serializers: list[str]) -> list[str]:
+    """The serializers that can actually EMIT per-face regions for this source family.
+
+    * ``cpp`` (both native whole-file converters): they feed the same neutral tessellator (which
+      captures the ranges) and the same C++ GLB writer (which emits face_ranges_node). Until adacpp
+      0.16 stream_ifc_to_glb simply didn't forward the flag, so the check is per-family against the
+      binding that would run.
+    * ``python`` (STEP only): the dedicated OCC-clickable track
+      (``OccBackend.step_to_face_tagged_meshes`` -> ``convert_step_to_occ_clickable_glb``). It
+      OCC-tessellates each face and writes ``face_ranges_node`` itself, so — unlike the generic
+      python →GLB path — it does NOT depend on the NGEOM wire carrying the ranges. It's the way to
+      get clickable faces on OCC tessellation (e.g. rational-B-spline surfaces the native
+      tessellator can mishandle). Gated on the OCC backend being importable in this pool.
+
+    Asks the REGISTRY, not ada.cadit: this runs at module import to build the published vocabulary,
+    and the slim viewer image ships ada/cad but no ada/cadit.
+    """
+    from ada.cad.registry import (
+        CadBackendName,
+        backend_available,
+        native_face_regions_available,
+    )
+
+    out: list[str] = []
+    if _GLB_SERIALIZER_CPP in serializers and native_face_regions_available(fam):
+        out.append(_GLB_SERIALIZER_CPP)
+    if fam == "step" and _GLB_SERIALIZER_PYTHON in serializers and backend_available(CadBackendName.OCC):
+        out.append(_GLB_SERIALIZER_PYTHON)
+    return out
+
+
 def _glb_serializer_tess(serializer: str) -> list[str] | None:
     """Tessellator tokens for a serializer, or None if it isn't offered.
 
-    `cpp` pins its own tessellator and `wasm` runs in-browser engines adacpp doesn't know about, so
-    both stay declared here — they are adapy's own. Only the `python` serializer, which is the one
-    that actually dispatches to adacpp, is discovered.
+    `wasm` runs in-browser engines adacpp doesn't know about, so it stays declared here — it is
+    adapy's own. `python` and `cpp` both dispatch to adacpp and so both DISCOVER their tracks;
+    `cpp` degrades to its historic pinned token against an adacpp whose binding can't select one.
     """
     if serializer == _GLB_SERIALIZER_CPP:
-        return ["native"]
+        return _cpp_tess_tokens()
     if serializer == _GLB_SERIALIZER_WASM:
         return list(_WASM_GLB_ENGINES)
     if serializer == _GLB_SERIALIZER_PYTHON:
@@ -1246,6 +1319,22 @@ def _tess_token_to_glb_engine(tok: str) -> str:
     return _tess_token_to_pipeline(tok)
 
 
+def _native_track_for_engine(glb_tess_engine: str | None) -> str | None:
+    """The adacpp `pipeline` name for the native STEP->GLB path, or None to leave adacpp's default.
+
+    The cpp serializer parks its chosen track on the tess-engine axis (see _apply_glb_serializer),
+    so this reverses that: 'adacpp-cdt' -> 'cdt', the token adacpp's own binding takes. VOCABULARY,
+    not capability — native_step_to_glb re-checks its binding and refuses rather than substituting.
+    Engines that aren't an adacpp track (occ-builtin, adacpp-native itself) yield None.
+    """
+    if not glb_tess_engine:
+        return None
+    track_name = _pipeline_to_track_name(glb_tess_engine)
+    if not track_name:
+        return None
+    return track_name.split(":", 1)[1] or None
+
+
 def _glb_source_family(source_ext: str) -> str:
     """'step' for STEP/STP sources, else 'generic' — selects the serializer
     tessellator vocabulary + engine-knob axis."""
@@ -1264,6 +1353,7 @@ def _glb_serializer_options(source_ext: str) -> list[dict]:
     family — see :func:`_python_tess_tokens`); it is kept because it names the row this schema is
     attached to and because the resolver still splits on family to pick the ENGINE KNOB.
     """
+    fam = _glb_source_family(source_ext)
     serializers = [s for s in _GLB_SERIALIZER_ORDER if _glb_serializer_tess(s)]
     enum_by = {s: list(_glb_serializer_tess(s)) for s in serializers}
     # Union of tessellator tokens across serializers, ordered by first appearance.
@@ -1305,8 +1395,29 @@ def _glb_serializer_options(source_ext: str) -> list[dict]:
             "enum_by": enum_by,
             "depends_on": "serializer",
             "description": (
-                "Tessellation kernel. Only the 'python' serializer exposes a choice; the other "
-                "serializers pin their own kernel."
+                "Tessellation kernel. 'python' and 'cpp' both offer the tracks adacpp declares "
+                "(cpp only the ones its native reader can drive); 'wasm' pins its in-browser "
+                "engines."
+            ),
+        },
+        {
+            "name": "face_regions",
+            "type": "bool",
+            "title": "Clickable surfaces",
+            "default": False,
+            "depends_on": "serializer",
+            # The NATIVE paths emit per-face regions — STEP and IFC both forward face_regions to
+            # adacpp, which writes face_ranges_node into the GLB's scene extras. The python path
+            # never reads the flag, so advertising it there would offer a capability that silently
+            # doesn't happen. Empty list = offered nowhere on this row, which the SPA renders as a
+            # disabled toggle rather than a lie.
+            "supported_by": _face_regions_serializers(fam, serializers),
+            "description": (
+                "Embed per-face pick regions (the source's face ids) in the GLB so individual "
+                "surfaces can be clicked. A debugging aid: it enlarges the GLB and forces serial "
+                "face tessellation, so it is off by default. Only FACE-SET geometry has faces to "
+                "mark up — a model built from swept or CSG solids converts fine but has no regions "
+                "to click."
             ),
         },
     ]
@@ -1316,6 +1427,12 @@ def _glb_serializer_options(source_ext: str) -> list[dict]:
 # for enum_by, a value of the option it depends_on). Two pools advertising the same option each
 # carry entries only for the values THEY advertise, so these merge key-by-key.
 _OPTION_MAP_KEYS = ("labels", "descriptions", "runtime")
+
+# Option-dict keys that are LISTS of values a pool can honour. Each pool advertises only what IT
+# can run, so the cluster's answer is the union — first-writer-wins would let a pool that lacks a
+# capability pin its absence for everyone (the same way a thin pool's enum_by once pinned the whole
+# cluster's tessellator list).
+_OPTION_LIST_KEYS = ("enum", "supported_by")
 
 
 def merge_option_into(cur: dict, incoming: dict) -> None:
@@ -1331,14 +1448,18 @@ def merge_option_into(cur: dict, incoming: dict) -> None:
     rendered and unselectable. The per-value maps fail the same way — whichever pool registered
     first decides, and tokens only the other pool knows arrive unlabelled.
 
-    So: union ``enum`` and each ``enum_by`` list, fill in the per-value maps, and leave scalars
-    (``default``/``title``/``description``/``type``/``depends_on``) to the first writer — those
-    describe the option itself rather than its values, and every pool derives them from this module.
+    So: union the per-pool lists (``enum`` / ``supported_by``) and each ``enum_by`` list, fill in
+    the per-value maps, and leave scalars (``default``/``title``/``description``/``type``/
+    ``depends_on``) to the first writer — those describe the option itself rather than its values,
+    and every pool derives them from this module.
     """
     import copy
 
-    if isinstance(incoming.get("enum"), list) and isinstance(cur.get("enum"), list):
-        cur["enum"] = cur["enum"] + [v for v in incoming["enum"] if v not in cur["enum"]]
+    for key in _OPTION_LIST_KEYS:
+        if isinstance(incoming.get(key), list) and isinstance(cur.get(key), list):
+            cur[key] = cur[key] + [v for v in incoming[key] if v not in cur[key]]
+        elif isinstance(incoming.get(key), list) and cur.get(key) is None:
+            cur[key] = list(incoming[key])
     if isinstance(incoming.get("enum_by"), dict):
         by = cur.get("enum_by")
         if not isinstance(by, dict):
@@ -1385,7 +1506,15 @@ def _apply_glb_serializer(
     if serializer == _GLB_SERIALIZER_CPP:
         if fam == "step":
             step_glb_pipeline = _STEP_GLB_PIPELINE_ADACPP_NATIVE
-        # generic/IFC 'cpp' = the native_ifc_to_glb default path — nothing to force.
+        # The track rides the tess-engine axis for BOTH families: `step_glb_pipeline` is already
+        # spent naming the native CODE PATH, and the two are independent axes (which reader vs
+        # which kernel), so folding the track into that token would conflate them. `adacpp-native`
+        # resolves to no CadConfig, so nothing else reads glb_tess_engine on this branch;
+        # generic/IFC 'cpp' is native_ifc_to_glb, which reverses it via _native_track_for_engine.
+        # Dropping it here (as the generic branch used to) meant a track picked for an IFC source
+        # silently ran the default while the UI reported the choice.
+        if tessellator and tessellator != _GLB_TESS_NATIVE_PINNED:
+            glb_tess_engine = _tess_token_to_glb_engine(tessellator)
         return step_glb_pipeline, glb_tess_engine, False
     if serializer == _GLB_SERIALIZER_PYTHON:
         tok = tessellator or _glb_serializer_tess(_GLB_SERIALIZER_PYTHON)[0]
@@ -1576,6 +1705,7 @@ def _via_ada(
     step_glb_pipeline: str | None = None,
     glb_tess_engine: str | None = None,
     strict_tess: bool | None = None,
+    occ_clickable: bool = False,
 ) -> bytes:
     """Heavy path: load with ada, export to target format. Used for any
     non-trivial source/target combination that needs the full ada-py
@@ -1588,12 +1718,31 @@ def _via_ada(
     ``step_streamer`` (STEP→GLB only) forces the memory-bounded streaming
     converter; ``None`` auto-selects it for STEP files too large for the OCC
     loader to hold without OOM-killing the worker.
+
+    ``occ_clickable`` (STEP→GLB only) routes to the OCC per-face clickable path
+    (``convert_step_to_occ_clickable_glb``): OCC-tessellated geometry with
+    ``face_ranges_node`` keyed by STEP entity id. Set by the dispatch when the
+    ``python`` serializer is chosen with the ``face_regions`` toggle on.
     """
     suffix = ".glb" if target_format == "glb" else f".{target_format}"
     out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
     result: bytes | pathlib.Path = b""
     try:
         if source_ext in {".step", ".stp"} and target_format == "glb":
+            if occ_clickable:
+                # OCC per-face clickable track (the python serializer's face_regions path).
+                # OCC-tessellates every face and writes face_ranges_node itself, keyed by the
+                # STEP #NNNN entity id — the same id namespace the native path stamps.
+                from ada.cadit.step.occ_faces_to_glb import (
+                    convert_step_to_occ_clickable_glb,
+                )
+
+                on_progress("occ-clickable-faces", 0.1)
+                convert_step_to_occ_clickable_glb(src_path, out_path, linear_deflection=0.0)
+                on_progress("ready", 1.0)
+                result = out_path
+                return result
+
             pipe = _resolve_step_glb_pipeline(step_glb_pipeline)
 
             if pipe == _STEP_GLB_PIPELINE_ADACPP_NATIVE:
@@ -1608,7 +1757,12 @@ def _via_ada(
 
                 if native_adacpp_available():
                     try:
-                        native_step_to_glb(src_path, out_path, on_progress=on_progress)
+                        native_step_to_glb(
+                            src_path,
+                            out_path,
+                            on_progress=on_progress,
+                            pipeline=_native_track_for_engine(glb_tess_engine),
+                        )
                         result = out_path
                         return result
                     except Exception as exc:
@@ -2836,6 +2990,7 @@ def _register_ada_loadable() -> None:
                 strict_tess=None,
                 serializer=None,
                 tessellator=None,
+                face_regions=None,
                 **_kw,
             ):
                 # The friendly serializer/tessellator dropdowns resolve into the existing engine
@@ -2847,6 +3002,14 @@ def _register_ada_loadable() -> None:
                     tessellator,
                     step_glb_pipeline=step_glb_pipeline,
                     glb_tess_engine=glb_tess_engine,
+                )
+                # STEP + python serializer + Clickable surfaces => the OCC per-face clickable track.
+                # (The cpp serializer routes face_regions through the native path via env, as before.)
+                occ_clickable = (
+                    _ext in {".step", ".stp"}
+                    and _tgt == "glb"
+                    and bool(face_regions)
+                    and serializer == _GLB_SERIALIZER_PYTHON
                 )
                 return _via_ada(
                     src,
@@ -2861,6 +3024,7 @@ def _register_ada_loadable() -> None:
                     step_glb_pipeline=step_glb_pipeline,
                     glb_tess_engine=glb_tess_engine,
                     strict_tess=strict_tess,
+                    occ_clickable=occ_clickable,
                 )
 
             if tgt == "glb":
@@ -2963,7 +3127,15 @@ def _via_ifc_stream_to_glb(
     if not force_python and native_ifc_glb_available():
         try:
             out_path = pathlib.Path(tempfile.mkstemp(suffix=".glb")[1])
-            stats = native_ifc_to_glb(src_path, out_path, on_progress=on_progress)
+            # Same track plumbing as the STEP native path: the cpp serializer parks its chosen
+            # track on the tess-engine axis, and this reverses it. Without forwarding it, picking a
+            # track for an IFC source ran the default and reported the caller's choice back.
+            stats = native_ifc_to_glb(
+                src_path,
+                out_path,
+                on_progress=on_progress,
+                pipeline=_native_track_for_engine(glb_tess_engine),
+            )
             if stats.get("solids", 0) > 0:
                 logger.info("native IFC->GLB: %s", stats)
                 return out_path

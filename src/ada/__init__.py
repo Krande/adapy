@@ -11,6 +11,7 @@ from ada import fem
 from ada._version import __version__  # noqa: F401 — re-exported as ada.__version__
 from ada.api.beams import (
     Beam,
+    BeamCurved,
     BeamHinge,
     BeamHingeDofType,
     BeamRevolve,
@@ -109,6 +110,7 @@ __all__ = [
     "BeamTapered",
     "BeamSweep",
     "BeamRevolve",
+    "BeamCurved",
     "BeamHinge",
     "BeamHingeDofType",
     "Boolean",

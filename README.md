@@ -28,6 +28,8 @@ Here are some of the goals with `ada-py`:
 
 * Feel free to start/join any informal topic related to adapy [here](https://github.com/Krande/adapy/discussions).
 * Issues related to adapy can be raised [here](https://github.com/Krande/adapy/issues)
+* Docs is located in https://krande.github.io/adapy
+* FEA verification documentation [FEA Verification Documentation](https://krande.github.io/adapy/_static/fea-report/index.html).
 
 
 ## Usage

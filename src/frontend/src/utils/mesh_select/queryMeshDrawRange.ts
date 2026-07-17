@@ -47,3 +47,12 @@ export async function queryFaceInfo(
 export async function queryHasFaceRanges(key: string): Promise<boolean> {
     return await modelStore.hasFaceRanges(key);
 }
+
+// All face regions of a mesh as absolute index ranges — the GPU face picker bakes per-face pick
+// ids from these. Empty when the model has no face regions (picker stays per-solid).
+export async function queryAllFaceRanges(
+    key: string,
+    meshName: string,
+): Promise<{rangeId: string; faceId: number; seq: number; start: number; length: number}[]> {
+    return await modelStore.getAllFaceRanges(key, meshName);
+}

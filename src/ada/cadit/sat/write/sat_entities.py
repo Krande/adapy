@@ -90,16 +90,33 @@ class Face(SATEntity):
     # leaving every spline face forward; a plane-surface has none, so a plane
     # face carries its own (reversed on 112 of a hull export's).
     sense: Literal["forward", "reversed"] = "forward"
+    # The face's 3D bounding box (6 floats) and, for a spline face, its UV
+    # parameter box (4 floats). When present they are stated explicitly — Genie
+    # rejects a face whose U/V range it cannot determine ("U or V range of the
+    # face cannot be determined or bad"), and states them on every one of its own.
+    bbox3d: list = None
+    param_box: list = None
 
     def to_string(self) -> str:
         # ACIS `face` record (SAT v4.0 spec, ch.6): after the common ENTITY prefix
         # ($attrib -1 -1 $owner) come next_face_in_shell, first_loop, shell,
         # subshell, surface. A shell holds ONE face pointer; the rest of its faces
-        # are reached by following next_face, so the chain must be linked.
+        # are reached by following next_face, so the chain must be linked. The tail
+        # is `out T <3D box> <T <param box> | F>` when the boxes are known, else the
+        # legacy `out F F` (ACIS then recomputes them, which it cannot always do).
         next_face = -1 if self.next_face is None else self.next_face.id
+        if self.bbox3d:
+            box = " ".join(str(x) for x in make_ints_if_possible(self.bbox3d))
+            if self.param_box:
+                pbox = "T " + " ".join(str(x) for x in make_ints_if_possible(self.param_box))
+            else:
+                pbox = "F"
+            tail = f"T {box} {pbox}"
+        else:
+            tail = "F F"
         return (
             f"-{self.id} face ${self.name.id} -1 -1 $-1 ${next_face} ${self.loop.id} "
-            f"${self.shell.id} $-1 ${self.surface.id} {self.sense} double out F F #"
+            f"${self.shell.id} $-1 ${self.surface.id} {self.sense} double out {tail} #"
         )
 
 
@@ -168,12 +185,16 @@ class VertEdgeAttribute(SATEntity):
     # count — matched rather than trimmed to len(edges), since this is an ACIS
     # system attribute and its own exports are the only worked example.
     slots: int = 4
+    # the previous attribute in the vertex's attribute chain (Genie chains the
+    # vertedge after the vertex's name attribute and back-links it here)
+    prev_attrib: SATEntity = None
 
     def to_string(self) -> str:
         slots = max(self.slots, len(self.edges))
         refs = [f"${e.id}" for e in self.edges] + ["$-1"] * (slots - len(self.edges))
+        prev = -1 if self.prev_attrib is None else self.prev_attrib.id
         return (
-            f"-{self.id} vertedge-sys-attrib $-1 -1 $-1 $-1 ${self.vertex.id} "
+            f"-{self.id} vertedge-sys-attrib $-1 -1 $-1 ${prev} ${self.vertex.id} "
             f"1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 {slots} {' '.join(refs)} #"
         )
 
@@ -208,8 +229,10 @@ class CoEdge(SATEntity):
         # by two faces links the pair to each other.
         partner = -1 if self.partner is None else self.partner.id
         pcurve = -1 if self.pcurve is None else self.pcurve.id
+        nxt = -1 if self.next_coedge is None else self.next_coedge.id
+        prv = -1 if self.prev_coedge is None else self.prev_coedge.id
         return (
-            f"-{self.id} coedge $-1 -1 -1 $-1 ${self.next_coedge.id} ${self.prev_coedge.id} "
+            f"-{self.id} coedge $-1 -1 -1 $-1 ${nxt} ${prv} "
             f"${partner} ${self.edge.id} {self.orientation} ${self.loop.id} ${pcurve} #"
         )
 

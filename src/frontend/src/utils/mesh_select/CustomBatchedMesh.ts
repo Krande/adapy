@@ -247,14 +247,23 @@ export class CustomBatchedMesh extends THREE.Mesh {
             const {geometry, rangeIdToIndex} =
                 buildEdgeGeometryWithRangeIds(this.originalGeometry, this.drawRanges);
             this.rangeIdToIndex = rangeIdToIndex;
-            this.updateWorldMatrix(true, false);
-            const worldMat = this.matrixWorld;
+            // The overlay is added as a SIBLING of this mesh (prepareLoadedModel adds both to the
+            // same parent; refreshEdgeOverlays re-adds to `old.parent ?? mesh.parent`), so bake
+            // only this mesh's LOCAL matrix — the scene graph contributes the ancestors when it
+            // renders. Baking matrixWorld double-counted every ancestor transform. That hid at
+            // load, where setupModelLoader centers the model by moving gltf_scene AFTER the meshes
+            // are prepared: the ancestors were still at the origin, so world == local. A LIVE
+            // rebuild (the Scene→Mesh panel's "Triangles" toggle -> refreshEdgeOverlays) bakes a
+            // world matrix that already contains the centering, and the graph applies it again —
+            // drawing the edges offset from their mesh by exactly the centering translation.
+            this.updateMatrix();
+            const localMat = this.matrix;
 
             this.edgeMaterial = makeEdgeShaderMaterial(renderer, rangeIdToIndex.size);
             this.edgeMesh = new THREE.LineSegments(geometry, this.edgeMaterial);
             this.edgeMesh.layers.set(1);
             // now *after* you’ve extracted the lines, bake the transform:
-            this.edgeMesh.applyMatrix4(worldMat);
+            this.edgeMesh.applyMatrix4(localMat);
         }
         return this.edgeMesh;
     }

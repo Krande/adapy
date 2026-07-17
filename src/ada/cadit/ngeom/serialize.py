@@ -7,6 +7,7 @@ dap/plan/v3/spec_neutral_geometry_schema.md for the wire format and tag catalog.
 from __future__ import annotations
 
 import struct
+from collections import Counter
 from typing import Iterable
 
 import numpy as np
@@ -15,6 +16,32 @@ import ada.geom.curves as cu
 import ada.geom.surfaces as su
 
 NGEOM_VERSION = 1
+
+# Per-face coverage for THIS path. The OCC backend has an equivalent counter
+# (ada.occ.geom.surfaces.FACE_COVERAGE_STATS), but it only fires when OCC builds the shell — on the
+# adacpp stream path (the default) nothing counted, so the run summary reported a face_coverage of
+# total=0 and called it 100%. A face that cannot be mapped is skipped for robustness
+# (connected_face_set), which is the right call for a whole-file conversion and the wrong one to do
+# SILENTLY: 26 of the Ventilator's 305 faces — a third of its surface — left on the floor under a
+# green check. Keys: "total", "built", "dropped"; drop reasons are counted separately so the caller
+# can summarize instead of logging per face.
+FACE_STATS: Counter = Counter()
+FACE_DROP_REASONS: Counter = Counter()
+
+
+def consume_face_stats() -> dict[str, int]:
+    """Return and reset this process's per-face serialization counters."""
+    out = dict(FACE_STATS)
+    FACE_STATS.clear()
+    return out
+
+
+def consume_face_drop_reasons() -> dict[str, int]:
+    """Return and reset the per-reason tally of faces this path could not serialize."""
+    out = dict(FACE_DROP_REASONS)
+    FACE_DROP_REASONS.clear()
+    return out
+
 
 # Arrays shorter than this serialize via per-scalar ``struct.pack`` (faster than building a numpy
 # array); longer arrays go through ``numpy.tobytes()`` (the B-spline / polyline bulk path).
@@ -356,12 +383,16 @@ class _Encoder:
             idx = self._bspline_surface(s)
         elif isinstance(s, su.SurfaceOfLinearExtrusion):
             sc = self.curve(s.swept_curve)
+            # ``position`` is None for a STEP-sourced surface: SURFACE_OF_LINEAR_EXTRUSION carries
+            # only a swept curve + vector (the curve is already placed), while ada.geom models the
+            # IFC form, which has a Position. Emit the standard negative "no record" sentinel rather
+            # than dereferencing None — placement3(None) raised AttributeError, which
+            # connected_face_set's blanket except swallowed into a silently dropped FACE (26/305 =
+            # 32% of the Ventilator's surface, invisible because face_coverage never counted it).
+            pos = self.placement3(s.position) if s.position is not None else -1
             idx = self._add(
                 _SURF_LIN_EXTRUSION,
-                self.i32(sc)
-                + self.i32(self.placement3(s.position))
-                + self.v3(s.extrusion_direction)
-                + self.f64(s.depth),
+                self.i32(sc) + self.i32(pos) + self.v3(s.extrusion_direction) + self.f64(s.depth),
             )
         elif isinstance(s, su.SurfaceOfRevolution):
             sc = self.curve(s.swept_curve)
@@ -479,9 +510,17 @@ class _Encoder:
         # the structurally-identical AdvancedFace). Skip any face that can't be mapped.
         faces = []
         for f in cfs.cfs_faces:
+            FACE_STATS["total"] += 1
             try:
                 faces.append(self.face_surface(f))
-            except Exception:  # noqa: BLE001 - skip any face that can't be mapped (robustness)
+                FACE_STATS["built"] += 1
+            except Exception as ex:  # noqa: BLE001 - skip any face that can't be mapped (robustness)
+                # Skipping stays the behaviour; being SILENT about it does not. Tally by
+                # (surface type, exception) rather than logging per face — a bad file can carry
+                # thousands, and the caller summarizes once per run.
+                FACE_STATS["dropped"] += 1
+                surf = getattr(f, "face_surface", None)
+                FACE_DROP_REASONS[f"{type(surf).__name__}: {type(ex).__name__}: {ex}"] += 1
                 continue
         return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + self._i32_raw(faces))
 

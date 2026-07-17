@@ -320,12 +320,34 @@ def from_sesam_cc(fem_file: str | pathlib.Path) -> dict[str, CCData]:
 
 
 def from_genie_xml(
-    xml_path, ifc_schema="IFC4", name: str = None, extract_joints=False, cad_config: "CadConfig | None" = None
+    xml_path,
+    ifc_schema="IFC4",
+    name: str = None,
+    extract_joints=False,
+    cad_config: "CadConfig | None" = None,
+    build_topology_store: bool = False,
 ) -> Assembly:
-    """Create an Assembly object from a Genie XML file."""
+    """Create an Assembly object from a Genie XML file.
+
+    With ``build_topology_store`` the source ACIS body is also read into a neutral
+    :class:`~ada.geom.brep.BRepStore` and attached, so a subsequent
+    ``to_genie_xml(embed_sat=True)`` re-exports the exact source topology (1 lump,
+    every shared edge) instead of re-welding the plate outlines — which keeps every
+    beam referenced and avoids Genie re-imprinting on import. Off by default (it
+    reads the SAT a second time).
+    """
     from ada.cadit.gxml.store import GxmlStore
 
     gxml = GxmlStore(xml_path)
     p = gxml.to_part(extract_joints=extract_joints)
     name = name if name is not None else p.name
-    return Assembly(name=name, schema=ifc_schema, cad_config=cad_config) / p
+    a = Assembly(name=name, schema=ifc_schema, cad_config=cad_config) / p
+    if build_topology_store:
+        from ada.cadit.sat.read.to_brep import sat_store_to_brep
+
+        if len(gxml.sat_factory.sat_store.sat_records) == 0:
+            gxml.sat_factory.load_sat_data_from_file()
+        store = sat_store_to_brep(gxml.sat_factory.sat_store)
+        a._topology_store = store
+        p._topology_store = store
+    return a

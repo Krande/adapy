@@ -34,6 +34,77 @@ def test_parcur_curve_parses_as_rational_3d_nurbs():
     assert curve.weights_data[1] == pytest.approx(0.98078528, abs=1e-6)
 
 
+def test_surfintcur_curve_parses_as_3d_nubs():
+    """A SESAM ``surfintcur`` (surface-surface intersection) edge curve leads
+    with its 3D approximating B-spline in the same layout as ``exactcur`` —
+    header, knot line, 3D control points, fit tolerance — and only then the two
+    intersecting surfaces. ``create_bspline_curve_from_sat`` must route it to the
+    exactcur parser and recover the 3D nubs curve rather than raise
+    ``ACISUnsupportedCurveType`` (which flattens the plate). Data is real record
+    #790 from a Genie substructure export."""
+    from ada.cadit.sat.read.bsplinecurves import create_bspline_curve_from_sat
+    from ada.cadit.sat.read.sat_entities import AcisRecord
+    from ada.geom.curves import BSplineCurveWithKnots
+
+    record = (
+        "-790 intcurve-curve $-1 -1 -1 $-1 forward { surfintcur full nubs 3 open 3\n"
+        "-0.65000000000000002 3 -0.32500000000000007 2 -0 3\n"
+        "-41.600000000000009 -23.834355436886909 0.65000000000000002\n"
+        "-41.600000000000009 -23.834355436886909 0.54166666666666674\n"
+        "-41.600000000000023 -23.834355436886923 0.43333333333333335\n"
+        "-41.600000000000023 -23.834355436886923 0.21666666666666673\n"
+        "-41.600000000000023 -23.834355436886916 0.10833333333333335\n"
+        "-41.600000000000023 -23.834355436886916 0\n"
+        "9.9999999999999994e-12\n"
+        "plane -41.6 -22.35 0.975 1 0 0 0 0 -1 reverse_v I I I I }"
+    )
+    curve = create_bspline_curve_from_sat(AcisRecord.from_string(record))
+    assert isinstance(curve, BSplineCurveWithKnots)
+    assert curve.degree == 3
+    # 6 control points recovered — the space curve, not a flat 2-point chord.
+    assert len(curve.control_points_list) == 6
+    # nubs (non-rational): no weights.
+    assert getattr(curve, "weights_data", None) is None
+
+
+def test_exactcur_multiline_knot_vector_parses():
+    """An ``exactcur full nubs`` curve whose (value, multiplicity) knot pairs
+    wrap onto a second physical line must still parse. The reader used to read
+    only the first knot line and mistake the knot continuation for the first
+    control-point line, reading 0 control points and returning None. Data is
+    real record -21513 from a Genie substructure export — 6 distinct knots
+    (``open 6``) spread over two lines, then 8 control points, then a ``0``."""
+    from ada.cadit.sat.read.bsplinecurves import create_bspline_curve_from_exactcur
+    from ada.geom.curves import BSplineCurveWithKnots
+
+    data_lines = [
+        "exactcur full nubs 3 open 6",
+        "0 3 3.1180923655337724 1 4.8421863304904402 1 5.9757647353659022 1 6.9048099441690027 1",
+        "8.1429638118284338 3",
+        "-24.699999999999999 -29.574999999999999 13.799999999999999",
+        "-24.470863329440036 -29.574999999999999 12.783229799989378",
+        "-24.115029593960038 -29.574999999999999 11.204254520692722",
+        "-23.191998853563181 -29.574999999999999 9.4053664216898003",
+        "-22.240186905554047 -29.574999999999999 8.5290046273872946",
+        "-21.205071361313831 -29.574999999999999 8.1271372418562411",
+        "-20.514521603117885 -29.574999999999999 7.918943982578635",
+        "-20.120000000000001 -29.574999999999999 7.8000000000000007",
+        "0",
+    ]
+    curve = create_bspline_curve_from_exactcur(data_lines)
+    assert curve is not None
+    assert isinstance(curve, BSplineCurveWithKnots)
+    assert curve.degree == 3
+    # 8 control points recovered across the multi-line knot vector.
+    assert len(curve.control_points_list) == 8
+    # 6 distinct knots, end multiplicities clamped to degree + 1 → sum == n_cp + degree + 1.
+    assert len(curve.knots) == 6
+    assert curve.knot_multiplicities == [4, 1, 1, 1, 1, 4]
+    assert sum(curve.knot_multiplicities) == len(curve.control_points_list) + curve.degree + 1
+    # nubs (non-rational): no weights.
+    assert getattr(curve, "weights_data", None) is None
+
+
 @pytest.mark.skip(reason="Not yet implemented")
 def test_read_b_spline_surf_w_knots_2_sat(example_files, tmp_path, monkeypatch):
     # OCC-only SAT/STEP read + validity check (lazy-imported so the module

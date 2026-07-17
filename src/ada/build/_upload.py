@@ -6,16 +6,16 @@ project-scoped CI bearer token. The relative key (
 ``versions/<branch>/<commit>/<filename>``) is the **stable contract**;
 adapy resolves it to its full S3 layout server-side.
 
-Environment:
-    ADAPY_VIEWER_URL   — base URL, e.g. https://example/.../viewer
-    ADAPY_VIEWER_TOKEN — 30-day CI bearer minted by the
-                         POST /api/admin/projects/{id}/ci-bot endpoint
+Environment (either the ADAPY_API_* names the admin panel suggests or the legacy
+ADAPY_VIEWER_* pair — see ``ada_cli.resolve_remote_config``):
+    ADAPY_API_BASE / ADAPY_VIEWER_URL    — base URL, e.g. https://example/.../viewer
+    ADAPY_API_TOKEN / ADAPY_VIEWER_TOKEN — 30-day CI bearer minted by the
+                                           POST /api/admin/projects/{id}/ci-bot endpoint
 """
 from __future__ import annotations
 
 import json
 import logging
-import os
 import pathlib
 from dataclasses import dataclass
 
@@ -43,8 +43,11 @@ class UploadConfig:
 
     @classmethod
     def from_env(cls) -> "UploadConfig | None":
-        url = os.environ.get("ADAPY_VIEWER_URL", "").strip().rstrip("/")
-        token = os.environ.get("ADAPY_VIEWER_TOKEN", "").strip()
+        # Accept the admin-panel ADAPY_API_* names as well as the legacy ADAPY_VIEWER_* pair
+        # (shared resolver, same as `ada files`), so a copy-paste from the CLI-token dialog works here.
+        from ada_cli import resolve_remote_config
+
+        url, token, _ = resolve_remote_config()
         if not url or not token:
             return None
         return cls(base_url=url, token=token)

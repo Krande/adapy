@@ -146,6 +146,12 @@ class TessTrack:
     backend: CadBackendName
     pipeline: str | None  # the adacpp `pipeline` arg; None => pythonocc BRepMesh
     is_default: bool = False
+    # Does the track mesh NEUTRAL surfaces (the OCC-free path the native readers and the NGEOM wire
+    # feed)? Declared by adacpp; the taxonomy tracks are not neutral and mesh as though no track were
+    # selected there rather than erroring, so anything offering a track choice for a native/neutral
+    # path must filter on this. Defaults True: adapy's own OCC track and any adacpp too old to
+    # declare the field are both offered exactly where they were before.
+    neutral: bool = True
 
 
 # adapy's own track. This is the ONE we are entitled to hardcode: it is pythonocc's BRepMesh, which
@@ -190,6 +196,10 @@ def _adacpp_tracks() -> list[TessTrack]:
                 backend=CadBackendName.ADACPP,
                 pipeline=name,
                 is_default=bool(t.get("default")),
+                # Absent before adacpp 0.16. Default True rather than False so an older build keeps
+                # advertising exactly what it always did; the native path gates separately on its own
+                # binding's capability, so an undeclared track can't reach it regardless.
+                neutral=bool(t.get("neutral", True)),
             )
         )
     return out
@@ -202,6 +212,64 @@ def available_tess_tracks() -> list[TessTrack]:
     """
     tracks = [_OCC_TRACK] if backend_available(CadBackendName.OCC) else []
     return tracks + _adacpp_tracks()
+
+
+def native_track_selection_available() -> bool:
+    """True if THIS adacpp build's native STEP->GLB binding accepts a tessellation track.
+
+    The threaded C++ core always could; the binding only started forwarding ``pipeline`` in adacpp
+    0.16, and an older one ignores the absent kwarg and runs its default track. So callers must gate
+    on this before OFFERING a track choice for the native path, or they advertise a track the
+    conversion will not run.
+
+    Lives HERE, not next to ``native_step_to_glb``, because it is a question about adacpp — the same
+    kind this module already answers — and because ``ada.comms.rest.converter`` asks it at MODULE
+    level to build the published vocabulary. The slim viewer image ships ``ada/cad`` precisely
+    because that import must not drag anything heavier in; reaching into ``ada.cadit`` from here
+    crashlooped the API on startup (no such package in that image). This function imports adacpp
+    lazily and answers False when it is absent, which is the right answer for the API: it runs no
+    conversions, and the pools that do advertise their own tracks.
+    """
+    return _native_binding_takes("stream_step_to_glb", "pipeline")
+
+
+def _native_binding_takes(fn: str, param: str) -> bool:
+    """Does adacpp's ``cad.<fn>`` binding accept ``param``?
+
+    nanobind embeds the signature in __doc__, which is the only way to ask an already-built
+    extension. Lives HERE, with the other adacpp capability questions, because
+    ``ada.comms.rest.converter`` asks these at MODULE level to build the published vocabulary and
+    the slim viewer image ships ``ada/cad`` but no ``ada/cadit`` — reaching into the converter
+    modules from there crashlooped the API on startup. False with no adacpp, which is the right
+    answer for the API: it runs no conversions, and the pools that do advertise their own.
+    """
+    try:
+        import adacpp
+
+        return param in (getattr(adacpp.cad, fn).__doc__ or "")
+    except Exception:  # noqa: BLE001 - absent adacpp / no such binding => can't take it
+        return False
+
+
+def native_ifc_track_selection_available() -> bool:
+    """True if THIS adacpp's native IFC binding accepts a tessellation track.
+
+    Landed with face-region support in adacpp 0.16: the neutral tessellator and the GLB writer
+    always did both, but stream_ifc_to_glb forwarded neither.
+    """
+    return _native_binding_takes("stream_ifc_to_glb", "pipeline")
+
+
+def native_face_regions_available(family: str) -> bool:
+    """True if THIS adacpp's native converter for ``family`` ('step' | 'generic') takes
+    ``face_regions``.
+
+    Probed per family against the binding that would actually run: the STEP one has taken it for
+    some time, the IFC one only since 0.16, so a mixed/older install must not be offered a toggle
+    its converter would ignore.
+    """
+    fn = "stream_step_to_glb" if family == "step" else "stream_ifc_to_glb"
+    return _native_binding_takes(fn, "face_regions")
 
 
 def tess_track_by_name(name: str) -> TessTrack | None:

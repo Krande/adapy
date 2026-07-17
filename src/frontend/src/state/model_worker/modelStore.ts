@@ -70,6 +70,11 @@ export interface ModelStoreAPI {
         meshName: string,
         faceIndex: number
     ): Promise<{rangeId: string; faceId: number; seq: number; start: number; length: number} | null>;
+
+    getAllFaceRanges(
+        key: string,
+        meshName: string
+    ): Promise<{rangeId: string; faceId: number; seq: number; start: number; length: number}[]>;
 }
 
 const worker = new Worker();

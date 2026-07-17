@@ -17,7 +17,7 @@ def get_beams(xml_root: ET.Element, parent: Part) -> Beams:
     return Beams(chain.from_iterable([el_to_beam(bm_el, parent) for bm_el in all_beams]), parent)
 
 
-def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
+def el_to_beam(bm_el: ET.Element, parent: Part, edge_curve_resolver=None) -> List[Beam]:
     name = bm_el.attrib["name"]
     xv, yv, zv = get_curve_orientation(bm_el)
     segs = []
@@ -31,7 +31,7 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
         segs += [cur_bm]
 
     for seg in bm_el.iterfind(".//curved_segment"):
-        cur_bm = seg_to_beam(name, seg, parent, prev_bm, zv)
+        cur_bm = seg_to_beam(name, seg, parent, prev_bm, zv, edge_curve_resolver=edge_curve_resolver)
         if cur_bm is None:
             continue
 
@@ -340,7 +340,7 @@ def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):
     return xv * o[0] + yv * o[1] + zv * o[2]
 
 
-def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
+def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv, edge_curve_resolver=None):
     metadata = dict()
 
     index = seg.attrib["index"]
@@ -363,9 +363,6 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
         if "cone" in seg.attrib["section_ref"].lower():
             sec = prev_bm.section
 
-    n1 = parent.nodes.add(Node(pos_to_floats(pos["1"])))
-    n2 = parent.nodes.add(Node(pos_to_floats(pos["2"])))
-
     # Genie expresses inverted T-sections (flange-down) as
     # ``unsymmetrical_i_section`` with a degenerate top flange. The
     # section reader re-encodes those into adapy's flange-up TPROFILE
@@ -376,6 +373,22 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
     if sec is not None and sec.metadata and sec.metadata.get("gxml_flange_down"):
         up = tuple(-v for v in zv)
 
+    # A curved segment references the ACIS edge its axis swept. When that edge
+    # is a (resolvable) circular arc, keep the curvature as a BeamRevolve rather
+    # than collapsing it to the straight chord between the two guide endpoints.
+    if seg.tag == "curved_segment" and edge_curve_resolver is not None:
+        revolve = _curved_seg_to_beam_revolve(name, seg, sec, mat, parent, metadata, up, pos, edge_curve_resolver)
+        if revolve is not None:
+            return revolve
+        # Not a circular arc — a spline arc. Keep the analytical curve (the exact
+        # ACIS intcurve) as a BeamCurved rather than collapsing it to the chord.
+        curved = _curved_seg_to_beam_curved(name, seg, sec, mat, parent, metadata, up, pos, edge_curve_resolver)
+        if curved is not None:
+            return curved
+
+    n1 = parent.nodes.add(Node(pos_to_floats(pos["1"])))
+    n2 = parent.nodes.add(Node(pos_to_floats(pos["2"])))
+
     try:
         bm = Beam(name, n1, n2, sec=sec, mat=mat, parent=parent, metadata=metadata, up=up)
     except VectorNormalizeError:
@@ -383,6 +396,125 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
         return None
 
     return bm
+
+
+def _curved_seg_to_beam_curved(name, seg, sec, mat, parent, metadata, up, pos, edge_curve_resolver):
+    """Build a :class:`BeamCurved` for a curved segment whose SAT edge is a spline
+    arc (an ``intcurve``). Returns ``None`` (caller falls back to a straight chord)
+    when there is no ``sat_reference`` edge or the edge resolves to no spline curve.
+    """
+    from ada.geom import curves as geo_cu
+
+    edge_el = seg.find(".//sat_reference/edge")
+    if edge_el is None:
+        return None
+    edge_ref = edge_el.attrib.get("edge_ref")
+    if not edge_ref:
+        return None
+
+    curve = edge_curve_resolver(edge_ref)
+    if not isinstance(curve, (geo_cu.BSplineCurveWithKnots, geo_cu.RationalBSplineCurveWithKnots)):
+        return None
+
+    from ada.api.beams import BeamCurved
+
+    n1 = parent.nodes.add(Node(pos_to_floats(pos["1"])))
+    n2 = parent.nodes.add(Node(pos_to_floats(pos["2"])))
+    try:
+        return BeamCurved(name, n1, n2, curve, sec, up=up, mat=mat, parent=parent, metadata=metadata)
+    except Exception as e:  # noqa: BLE001 - never let one bad arc abort the whole import
+        logger.warning(f"Curved beam '{name}': failed to build BeamCurved ({e}); using straight chord")
+        return None
+
+
+def _curved_seg_to_beam_revolve(name, seg, sec, mat, parent, metadata, up, pos, edge_curve_resolver):
+    """Build a :class:`BeamRevolve` for a curved segment whose SAT edge is an arc.
+
+    Returns ``None`` (so the caller falls back to a straight chord) when there is
+    no ``sat_reference`` edge, the edge is unresolved, the curve is not a circle/
+    ellipse, or the arc is degenerate.
+    """
+    from ada.geom import curves as geo_cu
+
+    edge_el = seg.find(".//sat_reference/edge")
+    if edge_el is None:
+        return None
+    edge_ref = edge_el.attrib.get("edge_ref")
+    if not edge_ref:
+        return None
+
+    curve = edge_curve_resolver(edge_ref)
+    if not isinstance(curve, (geo_cu.Circle, geo_cu.Ellipse)):
+        return None
+
+    p1 = pos_to_floats(pos["1"])
+    p2 = pos_to_floats(pos["2"])
+    center = list(curve.position.location)
+    axis = list(curve.position.axis)
+    radius = float(curve.radius) if isinstance(curve, geo_cu.Circle) else float(curve.semi_axis1)
+
+    rev_curve = _curve_revolve_from_arc(p1, p2, center, axis, radius)
+    if rev_curve is None:
+        return None
+
+    from ada import BeamRevolve
+
+    try:
+        return BeamRevolve(name, rev_curve, sec, up=up, mat=mat, parent=parent, metadata=metadata)
+    except Exception as e:  # noqa: BLE001 - never let one bad arc abort the whole import
+        logger.warning(f"Curved beam '{name}': failed to build BeamRevolve ({e}); using straight chord")
+        return None
+
+
+def _curve_revolve_from_arc(p1, p2, center, axis, radius):
+    """A :class:`~ada.api.curves.CurveRevolve` seated exactly on the SAT arc.
+
+    ``center``/``axis``/``radius`` come straight from the ACIS ellipse-curve, so
+    the arc is reproduced rather than re-fitted from three points. The rotation
+    axis is oriented so the right-handed sweep from ``p1`` to ``p2`` is positive,
+    which is what :meth:`BeamRevolve.solid_geom` revolves.
+    """
+    import math
+
+    from ada import Direction, Placement, Point
+    from ada.api.curves import CurveRevolve
+
+    a = np.asarray(center, dtype=float)
+    ax = np.asarray(axis, dtype=float)
+    n = float(np.linalg.norm(ax))
+    if n < 1e-12:
+        return None
+    ax = ax / n
+
+    v1 = np.asarray(p1, dtype=float) - a
+    v2 = np.asarray(p2, dtype=float) - a
+    sin_a = float(np.dot(np.cross(v1, v2), ax))
+    cos_a = float(np.dot(v1, v2))
+    ang = math.atan2(sin_a, cos_a)  # signed sweep about ax, (-pi, pi]
+    if abs(ang) < 1e-9:
+        return None
+    if ang < 0:  # orient axis so p1 -> p2 is a positive (right-handed) sweep
+        ax = -ax
+        ang = -ang
+
+    xvec1 = a - np.asarray(p1, dtype=float)
+    if float(np.linalg.norm(xvec1)) < 1e-12:
+        return None
+
+    curve = CurveRevolve(
+        Point(*p1),
+        Point(*p2),
+        radius=float(radius),
+        rot_axis=Direction(*ax),
+        rot_origin=Point(*a),
+        angle=float(np.rad2deg(ang)),
+    )
+    # The (rot_origin + angle) form skips the constructor branches that seat the
+    # profile frame, so set it here the way the radius branch would.
+    place = Placement(Point(*p1), xdir=Direction(*xvec1).get_normalized(), zdir=Direction(*ax))
+    curve._profile_normal = place.xdir
+    curve._profile_perpendicular = place.ydir
+    return curve
 
 
 def xyz_to_floats(p: ET.Element) -> Tuple[float]:

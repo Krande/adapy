@@ -399,3 +399,107 @@ def test_wasm_engine_tokens_are_the_spa_contract():
     # (which would make the resolver ambiguous about whether a job is client- or server-side).
     assert conv._glb_serializer_tess("wasm") == list(conv._WASM_GLB_ENGINES)
     assert not set(conv._WASM_GLB_ENGINES) & set(conv._python_tess_tokens())
+
+
+# --------------------------------------------------------------------------- #
+# face_regions — the "Clickable surfaces" reconvert toggle.
+# --------------------------------------------------------------------------- #
+
+
+def test_face_regions_offered_only_where_it_is_produced(monkeypatch):
+    """Two paths emit per-face regions: the NATIVE (cpp) whole-file converter (per-family
+    capability), and — for STEP only — the python serializer's OCC-clickable path
+    (convert_step_to_occ_clickable_glb), which OCC-tessellates each face and writes face_ranges
+    itself, gated on the OCC backend being importable.
+
+    Driven through the capability probes rather than a fixed answer: the advertisement is a fact
+    about the RUNTIME, and the pools that can run it contribute their answer via the merge.
+    """
+    from ada.cad import registry
+    from ada.cad.registry import CadBackendName, backend_available
+
+    occ = backend_available(CadBackendName.OCC)  # STEP+python OCC-clickable is gated on this
+
+    for fam_ext in (".stp", ".ifc"):
+        py = [conv._GLB_SERIALIZER_PYTHON] if (fam_ext == ".stp" and occ) else []
+
+        monkeypatch.setattr(registry, "native_face_regions_available", lambda _fam: True)
+        opt = {o["name"]: o for o in conv._glb_serializer_options(fam_ext)}["face_regions"]
+        assert opt["type"] == "bool"
+        assert opt["default"] is False
+        assert opt["depends_on"] == "serializer"
+        assert opt["supported_by"] == [conv._GLB_SERIALIZER_CPP] + py, f"{fam_ext}: native + (STEP) OCC-clickable"
+
+        monkeypatch.setattr(registry, "native_face_regions_available", lambda _fam: False)
+        opt = {o["name"]: o for o in conv._glb_serializer_options(fam_ext)}["face_regions"]
+        # A build whose native binding ignores the flag offers nothing on cpp; the STEP OCC-clickable
+        # python path is independent of that binding, so it still stands when OCC is present.
+        assert opt["supported_by"] == py, f"{fam_ext}: only the (STEP) OCC-clickable python path"
+
+
+def test_face_regions_python_serializer_only_for_step_via_occ():
+    """The python serializer offers clickable faces ONLY for STEP — the dedicated OCC per-face path
+    (convert_step_to_occ_clickable_glb), which writes face_ranges itself rather than carrying them
+    across the NGEOM wire. It is never offered for IFC (no such path), and is gated on OCC."""
+    from ada.cad.registry import CadBackendName, backend_available
+
+    occ = backend_available(CadBackendName.OCC)
+    step = {o["name"]: o for o in conv._glb_serializer_options(".stp")}["face_regions"]
+    ifc = {o["name"]: o for o in conv._glb_serializer_options(".ifc")}["face_regions"]
+    assert (conv._GLB_SERIALIZER_PYTHON in step["supported_by"]) == occ
+    assert conv._GLB_SERIALIZER_PYTHON not in ifc["supported_by"]
+
+
+def test_face_regions_is_never_supported_by_a_client_serializer():
+    """The in-browser serializers never reach the native path, so they can't produce regions."""
+    step = {o["name"]: o for o in conv._glb_serializer_options(".stp")}["face_regions"]
+    assert not (set(step["supported_by"]) & set(conv._GLB_CLIENT_SERIALIZERS))
+
+
+def test_merge_unions_supported_by_across_pools():
+    """A pool that can't produce face regions must not pin their absence for the cluster.
+
+    supported_by is a per-pool capability list, so it merges like `enum` — union, not
+    first-writer-wins. Registering the empty (incapable) pool FIRST is the case that broke
+    enum_by before: the capable pool's answer has to survive it.
+    """
+    incapable = {"name": "face_regions", "type": "bool", "supported_by": []}
+    capable = {"name": "face_regions", "type": "bool", "supported_by": [conv._GLB_SERIALIZER_CPP]}
+
+    cur = dict(incapable)
+    conv.merge_option_into(cur, capable)
+    assert cur["supported_by"] == [conv._GLB_SERIALIZER_CPP], "the capable pool's answer must survive"
+
+    # ...and the reverse order agrees (no duplicates).
+    cur = dict(capable)
+    conv.merge_option_into(cur, incapable)
+    assert cur["supported_by"] == [conv._GLB_SERIALIZER_CPP]
+
+
+def test_cpp_track_reaches_the_native_ifc_path_too():
+    """A track picked for an IFC source must reach the converter.
+
+    The cpp serializer parks its track on the tess-engine axis and the native call reverses it.
+    The generic branch used to DROP the tessellator ("nothing to force"), so choosing cdt for an
+    IFC ran the default while the UI reported the choice — the silent-substitution failure again.
+    """
+    _, engine, force_python = conv._apply_glb_serializer(
+        ".ifc", "cpp", "adacpp:cdt", step_glb_pipeline=None, glb_tess_engine=None
+    )
+    assert force_python is False
+    assert engine == "adacpp-cdt"
+    # ...and the native IFC call reverses it to adacpp's own token.
+    assert conv._native_track_for_engine(engine) == "cdt"
+
+
+def test_face_regions_probe_asks_the_binding_that_would_run():
+    """Per-family capability: the STEP binding has taken face_regions for a while, the IFC one only
+    since adacpp 0.16, so a build with one and not the other must not be offered both."""
+    from ada.cad import registry
+
+    assert registry.native_face_regions_available("step") == registry._native_binding_takes(
+        "stream_step_to_glb", "face_regions"
+    )
+    assert registry.native_face_regions_available("generic") == registry._native_binding_takes(
+        "stream_ifc_to_glb", "face_regions"
+    )

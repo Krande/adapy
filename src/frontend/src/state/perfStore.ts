@@ -44,6 +44,14 @@ export interface PerfState {
     // built with.
     useFlatPicker: boolean;
 
+    // Resolve the clicked FACE directly from the GPU picker (per-face pick ids
+    // baked from the GLB's face_ranges) instead of a CPU raycast against the
+    // picked mesh. O(1) pixel read vs an O(triangles) raycast, so face picking
+    // stays instant on merged-by-colour meshes with millions of triangles (the
+    // raycast path lags there and is capped by MAX_REFINE_TRIS). Default ON;
+    // flip OFF to fall back to the raycast path.
+    gpuFacePicking: boolean;
+
     // Loading ---------------------------------------------------------------
     // Time-slice the per-mesh model-prepare loop: process a few-ms budget of
     // meshes per animation frame, yielding to the browser between batches so
@@ -64,6 +72,7 @@ export interface PerfState {
     setHideBeamSolids: (v: boolean) => void;
     setHideElementEdges: (v: boolean) => void;
     setUseFlatPicker: (v: boolean) => void;
+    setGpuFacePicking: (v: boolean) => void;
     setTimeSlicedLoad: (v: boolean) => void;
 }
 
@@ -84,6 +93,7 @@ export const usePerfStore = create<PerfState>()(
             hideElementEdges: false,
 
             useFlatPicker: false,
+            gpuFacePicking: true,
 
             timeSlicedLoad: false,
 
@@ -98,6 +108,7 @@ export const usePerfStore = create<PerfState>()(
             setHideBeamSolids: (v) => set({hideBeamSolids: v}),
             setHideElementEdges: (v) => set({hideElementEdges: v}),
             setUseFlatPicker: (v) => set({useFlatPicker: v}),
+            setGpuFacePicking: (v) => set({gpuFacePicking: v}),
             setTimeSlicedLoad: (v) => set({timeSlicedLoad: v}),
         }),
         {name: "ada-perf"},

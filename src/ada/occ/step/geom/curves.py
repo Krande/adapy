@@ -295,13 +295,22 @@ def process_wire(
                 same_sense=True,
             )
             pcurve = _extract_pcurve(edge, face)
+            # Carry the curve's parameter range at the two endpoints. ``first`` /
+            # ``last`` are the natural (ascending) range; a REVERSED edge is walked
+            # end-to-start, so its endpoints map to (last, first). Consumers that
+            # re-author a non-line edge (the SAT weld) need this — without it a
+            # B-spline or arc boundary edge has no parameterisation to rebuild.
+            is_forward = edge.Orientation() == TopAbs_FORWARD
+            t_start, t_end = (first, last) if is_forward else (last, first)
             oriented_edges.append(
                 geo_cu.OrientedEdge(
                     start=edge_start,
                     end=edge_end,
                     edge_element=edge_curve_obj,
-                    orientation=(edge.Orientation() == TopAbs_FORWARD),
+                    orientation=is_forward,
                     pcurve=pcurve,
+                    t_start=t_start,
+                    t_end=t_end,
                 )
             )
         edge_explorer.Next()

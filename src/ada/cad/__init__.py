@@ -27,6 +27,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from ada.cad.plan import (  # noqa: E402 - plan imports only registry + stdlib at module scope
+    ConversionPlan,
+    PlanError,
+    Serializer,
+    Tessellator,
+)
 from ada.cad.registry import (  # noqa: E402 - registry is stdlib-only, no ada.cad cycle
     DEFAULT_STREAM_TESS_ANGULAR_DEG,
     CadBackendName,
@@ -218,6 +224,22 @@ def tessellate_batch_via_loop(backend, shapes, linear_deflection: float = -1.0) 
     return BatchMesh(positions=positions, indices=indices, groups=groups, normals=normals)
 
 
+@dataclass
+class StepShapeData:
+    """One shape read from a STEP OCAF document, with its label name and colour.
+
+    The portable mirror of adacpp's bound ``StepShapeData`` — same four fields, so
+    ``read_step_shapes`` / ``write_glb_shapes_bytes`` are interchangeable across the
+    adacpp and OCC backends. ``has_color`` distinguishes "no colour in the file" from
+    "explicitly grey": only a shape with ``has_color`` gets a GLB material.
+    """
+
+    shape: ShapeHandle
+    name: str = ""
+    color: tuple[float, float, float] = (0.5, 0.5, 0.5)
+    has_color: bool = False
+
+
 class CadBackend(Protocol):
     """Backend contract. Each method returns a kernel-native value; callers
     treat the returned ShapeHandle as opaque and only consume Mesh fields."""
@@ -241,7 +263,18 @@ class CadBackend(Protocol):
     ) -> tuple[float, float, float, float, float, float]: ...
     def obb(self, shape: ShapeHandle) -> "tuple[tuple[float, float, float], tuple[float, float, float]]": ...
     def read_step_bytes(self, data: bytes) -> ShapeHandle: ...
+    def read_step_shapes(self, data: bytes, unit: str = "M") -> list: ...
     def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes: ...
+    def step_bytes_to_glb_bytes(
+        self, data: bytes, linear_deflection: float = 0.1, angular_deg: float = 20.0, unit: str = "M"
+    ) -> bytes: ...
+    def step_to_face_tagged_meshes(
+        self,
+        step_path: str,
+        linear_deflection: float = 0.1,
+        angular_deflection: float = 0.5,
+        store_units: str = "m",
+    ) -> "list[tuple]": ...
     def write_step(
         self, shapes: list, names: list, colors: list, filename: str, unit: str = "m", schema: str = "AP214"
     ) -> None: ...
@@ -288,6 +321,17 @@ class CadBackend(Protocol):
         imprint_curves: "list[list[tuple[float, float, float]]] | None" = None,
         tolerance: float = 1e-6,
     ) -> "PlanarImprint": ...
+    def imprint_advanced_faces(
+        self,
+        advanced_faces: "list[Geometry]",
+        imprint_curves: "list[list[tuple[float, float, float]]]",
+        tolerance: float = 1e-6,
+    ) -> "tuple[list, list]":
+        # Split curved plate faces (ada.geom AdvancedFace) along the beam axes touching them,
+        # returning (sub_faces, beam_edges) as backend-neutral ada.geom data. Distinct from
+        # imprint_planar_faces (planar-outline only). Used by the SAT curved-plate writer to
+        # pre-split plates so Genie doesn't re-imprint + relink on import (ACIS 21013).
+        ...
 
 
 class AdacppBackend:
@@ -1228,10 +1272,52 @@ class AdacppBackend:
     def read_step_bytes(self, data: bytes) -> ShapeHandle:
         return self._cad.read_step_bytes(data)
 
+    def read_step_shapes(self, data: bytes, unit: str = "M") -> list:
+        # OCAF read — unlike read_step_bytes this resolves each shape's label name and
+        # STEP presentation-style colour. Note it yields SUB-shapes too (a solid AND each
+        # of its faces), so it is a metadata/introspection read, not a GLB source: use
+        # step_bytes_to_glb_bytes for that, or the faces re-emit the solid's geometry.
+        return list(self._cad.read_step_shapes(data, unit))
+
     def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes:
         # adacpp returns nb::bytes; bytes(...) coerces it cleanly to a CPython
         # bytes object so callers don't need to know about the underlying type.
         return bytes(self._cad.write_glb_bytes(shape, linear_deflection))
+
+    def step_bytes_to_glb_bytes(
+        self, data: bytes, linear_deflection: float = 0.1, angular_deg: float = 20.0, unit: str = "M"
+    ) -> bytes:
+        fn = getattr(self._cad, "step_bytes_to_glb_bytes", None)
+        if fn is None:
+            # Refuse rather than fall back to read_step_bytes + write_glb_bytes: that pair
+            # returns a materialless GLB, i.e. a silently colourless model reported as success.
+            raise NotImplementedError(
+                "adacpp.cad.step_bytes_to_glb_bytes is not available in this build — it is what "
+                "carries STEP colours into the GLB; the read_step_bytes + write_glb_bytes pair "
+                "would silently produce a materialless (grey) model"
+            )
+        return bytes(fn(data, linear_deflection, angular_deg, unit))
+
+    def step_to_face_tagged_meshes(
+        self,
+        step_path: str,
+        linear_deflection: float = 0.1,
+        angular_deflection: float = 0.5,
+        store_units: str = "m",
+    ) -> "list[tuple]":
+        # OCC-only benchmark verb: returns per-face triangle SOUPS + STEP #ids + colours for the
+        # Python OCC-clickable assembler (convert_step_to_occ_clickable_glb). adacpp doesn't expose
+        # per-face mesh BUFFERS across the binding — but it doesn't need to: it produces the same
+        # clickable GLB directly in C++ via stream_step_to_glb(face_regions=True) (the face ranges
+        # and face->src_id are baked by the native writer, never round-tripped through Python). So
+        # rather than a lossy shim, redirect to the native path.
+        raise NotImplementedError(
+            "step_to_face_tagged_meshes is an OCC-only benchmark verb (per-face triangle soups for "
+            "the Python clickable-GLB assembler). On the adacpp backend, produce a clickable GLB "
+            "directly with native_step_to_glb(step_path, glb_path) and ADA_STREAM_TESS_FACE_REGIONS=1 "
+            "(adacpp.cad.stream_step_to_glb(face_regions=True)), which bakes face_ranges_node + the "
+            "STEP entity id into the GLB in C++."
+        )
 
     def serialize_brep(self, shape: ShapeHandle) -> str:
         # OCCT BRepTools_ShapeSet text — the BREP string ifcopenshell.geom.serialise
@@ -1597,6 +1683,24 @@ class AdacppBackend:
             free_edges=list(getattr(raw, "free_edges", [])),
         )
 
+    def imprint_advanced_faces(
+        self,
+        advanced_faces: "list",
+        imprint_curves: "list[list[tuple[float, float, float]]]",
+        tolerance: float = 1e-6,
+    ) -> "tuple[list, list]":
+        # Curved-plate imprint (General Fuse of an AdvancedFace against beam-axis edges, returning
+        # ada.geom sub-faces). adacpp exposes imprint_planar_faces but not yet a curved-face imprint
+        # binding, so refuse rather than borrow pythonocc — the SAT writer's caller degrades to the
+        # OCC backend when pythonocc is installed, else authors plates monolithically.
+        fn = getattr(self._cad, "imprint_advanced_faces", None)
+        if fn is None:
+            raise NotImplementedError(
+                "adacpp.cad has no curved-face imprint binding yet — use ADAPY_CAD_BACKEND=occ (or "
+                "keep pythonocc installed) for the imprinted Genie SAT curved-plate export."
+            )
+        return fn(advanced_faces, imprint_curves, tolerance)
+
 
 def select_backend(prefer: str | None = None) -> CadBackend:
     """Pick a CAD backend.
@@ -1719,4 +1823,9 @@ __all__ = [
     "available_backends",
     "available_paths",
     "backend_available",
+    # composable conversion plans (layer above CadConfig, which they lower to)
+    "ConversionPlan",
+    "PlanError",
+    "Serializer",
+    "Tessellator",
 ]

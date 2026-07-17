@@ -163,13 +163,32 @@ def create_bsplinesurface_from_sat(
     # u_closure = dline[u_closure_idx]
     # v_closure = dline[v_closure_idx]
 
-    # Parse U knot vector (second line)
-    u_knot_data = [float(x) for x in data_lines[1].split()]
+    # The trailing header pair is the number of distinct U and V knots. Each
+    # (value, multiplicity) knot vector can wrap across several physical lines,
+    # so accumulate tokens line by line rather than assuming U sits wholly on
+    # line 1 and V on line 2 (same multi-line-knot bug fixed on the curve side
+    # in bsplinecurves.py). U knots always end on a line boundary before V
+    # begins, and V before the control points.
+    num_u_knots = int(dline[-2])
+    num_v_knots = int(dline[-1])
+
+    line_idx = 1
+    u_tokens: list[str] = []
+    while len(u_tokens) < 2 * num_u_knots and line_idx < len(data_lines):
+        u_tokens.extend(data_lines[line_idx].split())
+        line_idx += 1
+    v_tokens: list[str] = []
+    while len(v_tokens) < 2 * num_v_knots and line_idx < len(data_lines):
+        v_tokens.extend(data_lines[line_idx].split())
+        line_idx += 1
+
+    # Parse U knot vector
+    u_knot_data = [float(x) for x in u_tokens[: 2 * num_u_knots]]
     u_knots = u_knot_data[0::2]  # U knot values
     u_multiplicities = u_knot_data[1::2]  # U knot multiplicities
 
-    # Parse V knot vector (third line)
-    v_knot_data = [float(x) for x in data_lines[2].split()]
+    # Parse V knot vector
+    v_knot_data = [float(x) for x in v_tokens[: 2 * num_v_knots]]
     v_knots = v_knot_data[0::2]  # V knot values
     v_multiplicities = v_knot_data[1::2]  # V knot multiplicities
 
@@ -177,8 +196,8 @@ def create_bsplinesurface_from_sat(
     control_points_u = int(sum(u_multiplicities)) + 1 - u_degree
     control_points_v = int(sum(v_multiplicities)) + 1 - v_degree
 
-    # Parse control points starting from the 4th line onward
-    control_point_start_line = 3  # Line where control points begin
+    # Parse control points from the first line after the knot vectors
+    control_point_start_line = line_idx  # Line where control points begin
 
     # Initialize the control points as a list of tuples (U, V) where each tuple has two control points
     control_points = []

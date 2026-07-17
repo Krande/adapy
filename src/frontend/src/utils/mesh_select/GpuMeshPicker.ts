@@ -50,6 +50,13 @@ export type GpuMeshPickResult = {
     mesh: CustomBatchedMesh;
     rangeId: string;
     worldPosition: THREE.Vector3;
+    // Set only when the picked pixel decoded to a per-FACE id (gpuFacePicking on + the model has
+    // face_ranges): the clicked source face, ready to highlight without a CPU raycast. faceStart /
+    // faceLen are ABSOLUTE index positions into the mesh (CustomBatchedMesh.highlightFaceRange).
+    faceId?: number;
+    seq?: number;
+    faceStart?: number;
+    faceLen?: number;
 } | null;
 
 interface RegisteredMesh {
@@ -88,6 +95,12 @@ interface IdEntry {
     /** First original-geometry vertex referenced by this range —
      *  used as a stable reference for the click's world position. */
     firstVertexIndex: number;
+    /** Per-face fields, present only for face-level pick ids (gpuFacePicking). rangeId still holds
+     *  the owning solid so solid-mode selection works off the same entry. */
+    faceId?: number;
+    seq?: number;
+    faceStart?: number;
+    faceLen?: number;
 }
 
 // Layer 31: picker-only. Camera enables only this layer during the
@@ -424,6 +437,52 @@ class GpuMeshPicker {
                 triColor[ti] = r;
                 triColor[ti + 1] = g;
                 triColor[ti + 2] = b;
+            }
+        }
+
+        // Per-FACE pick ids (gpuFacePicking): overwrite the per-solid colours above with one id per
+        // source face, so a click decodes straight to the face — no CPU raycast for the triangle
+        // index. Triangles not covered by any face keep their solid id, so solid selection is
+        // unaffected. Each face entry still carries its owning solid rangeId. Face regions live in
+        // the model-cache worker (fetched async); absent for GLBs without face_ranges → picker stays
+        // per-solid exactly as before.
+        if (usePerfStore.getState().gpuFacePicking) {
+            const {queryHasFaceRanges, queryAllFaceRanges} = await import("./queryMeshDrawRange");
+            // Gate the whole per-face path on the model actually carrying face ranges. Face picking
+            // is default-on, so without this every mesh of every model runs the per-mesh worker
+            // round-trips below — even the common no-face-range case (e.g. a plain STEP GLB), where
+            // they only ever return empty. On mobile that wasted work is serialized through
+            // mobileQueue, so it also delays each mesh's picker build behind the others. One cheap
+            // cached boolean check skips it entirely; picker stays per-solid exactly as before.
+            if (await queryHasFaceRanges(mesh.unique_key)) {
+                let faces = await queryAllFaceRanges(mesh.unique_key, mesh.name);
+                if (faces.length === 0 && mesh.userData?.node_id != null) {
+                    faces = await queryAllFaceRanges(mesh.unique_key, `node${mesh.userData.node_id}`);
+                }
+                for (const f of faces) {
+                    if (f.length <= 0) continue;
+                    const id = this.idCounter++;
+                    const fr = id & 0xff;
+                    const fg = (id >> 8) & 0xff;
+                    const fb = (id >> 16) & 0xff;
+                    const startTri = (f.start / 3) | 0;
+                    const triCount = (f.length / 3) | 0;
+                    this.idToEntry.set(id, {
+                        mesh,
+                        rangeId: f.rangeId,
+                        firstVertexIndex: indices[f.start],
+                        faceId: f.faceId,
+                        seq: f.seq,
+                        faceStart: f.start,
+                        faceLen: f.length,
+                    });
+                    for (let t = 0; t < triCount; t++) {
+                        const ti = (startTri + t) * 3;
+                        triColor[ti] = fr;
+                        triColor[ti + 1] = fg;
+                        triColor[ti + 2] = fb;
+                    }
+                }
             }
         }
 
@@ -1034,7 +1093,15 @@ class GpuMeshPicker {
         if (!entry) return null;
 
         const worldPosition = this.computeWorldPosition(entry.mesh, entry.firstVertexIndex);
-        return {mesh: entry.mesh, rangeId: entry.rangeId, worldPosition};
+        return {
+            mesh: entry.mesh,
+            rangeId: entry.rangeId,
+            worldPosition,
+            faceId: entry.faceId,
+            seq: entry.seq,
+            faceStart: entry.faceStart,
+            faceLen: entry.faceLen,
+        };
     }
 }
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ada.cad import Containment
+from ada.cad import Containment, StepShapeData
 
 if TYPE_CHECKING:
     import numpy as np
@@ -474,6 +474,371 @@ class OccBackend:
         finally:
             os.unlink(path)
 
+    def read_step_shapes(self, data: bytes, unit: str = "M") -> list:
+        # Mirror of adacpp's read_step_shapes: STEPCAFControl_Reader (not the plain
+        # STEPControl_Reader read_step_bytes uses) is what resolves the presentation-style
+        # tree, so this is the only read that recovers per-shape names and colours.
+        import os
+        import tempfile
+
+        from OCC.Core.Interface import Interface_Static
+        from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
+        from OCC.Core.STEPCAFControl import STEPCAFControl_Reader
+        from OCC.Core.TDataStd import TDataStd_Name
+        from OCC.Core.TDF import TDF_LabelSequence
+        from OCC.Core.XCAFDoc import (
+            XCAFDoc_ColorCurv,
+            XCAFDoc_ColorGen,
+            XCAFDoc_ColorSurf,
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as f:
+            f.write(data)
+            path = f.name
+        try:
+            reader = STEPCAFControl_Reader()
+            reader.SetColorMode(True)
+            reader.SetNameMode(True)
+            # Set AFTER the ctor (which resets the static), before ReadFile — same order
+            # as adacpp's read_step_shapes and StepStore.create_step_reader.
+            Interface_Static.SetCVal("xstep.cascade.unit", unit)
+            if reader.ReadFile(path) != self._IFSelect_RetDone:
+                raise RuntimeError("read_step_shapes: STEPCAFControl_Reader could not parse the input")
+            doc = self._TDocStd_Document(self._TCollection_ExtendedString("MDTV-XCAF"))
+            if not reader.Transfer(doc):
+                raise RuntimeError("read_step_shapes: transfer to OCAF document failed")
+        finally:
+            os.unlink(path)
+
+        shape_tool = self._XCAFDoc_DocumentTool.ShapeTool(doc.Main())
+        color_tool = self._XCAFDoc_DocumentTool.ColorTool(doc.Main())
+        out: list[StepShapeData] = []
+
+        def read_one(lab, raw):
+            name = ""
+            nm = TDataStd_Name()
+            if lab.FindAttribute(TDataStd_Name.GetID(), nm):
+                name = nm.Get().ToExtString()
+            c = Quantity_Color(0.5, 0.5, 0.5, Quantity_TOC_RGB)
+            has_color = False
+            for target in (lab, raw):
+                if any(
+                    color_tool.GetColor(target, t, c) for t in (XCAFDoc_ColorGen, XCAFDoc_ColorSurf, XCAFDoc_ColorCurv)
+                ):
+                    has_color = True
+                    break
+            out.append(StepShapeData(raw, name, (c.Red(), c.Green(), c.Blue()), has_color))
+
+        def collect(lab):
+            if shape_tool.IsAssembly(lab):
+                comps = TDF_LabelSequence()
+                shape_tool.GetComponents(lab, comps)
+                for i in range(1, comps.Length() + 1):
+                    collect(comps.Value(i))
+            elif shape_tool.IsSimpleShape(lab):
+                read_one(lab, shape_tool.GetShape(lab))
+                # Sub-shape labels carry the per-face/per-solid overrides XCAF split out of
+                # the parent — without these a solid-coloured assembly reads as one colour.
+                subs = TDF_LabelSequence()
+                shape_tool.GetSubShapes(lab, subs)
+                for i in range(1, subs.Length() + 1):
+                    sl = subs.Value(i)
+                    read_one(sl, shape_tool.GetShape(sl))
+
+        free = TDF_LabelSequence()
+        shape_tool.GetFreeShapes(free)
+        for i in range(1, free.Length() + 1):
+            collect(free.Value(i))
+        return out
+
+    def step_bytes_to_glb_bytes(
+        self, data: bytes, linear_deflection: float = 0.1, angular_deg: float = 20.0, unit: str = "M"
+    ) -> bytes:
+        # Mirror of adacpp's step_bytes_to_glb_bytes: keep the OCAF document from reader to
+        # writer so names, the assembly tree and colours (solid-level AND per-face) reach the
+        # GLB's materials. Flattening to a shape list instead would re-emit a solid AND each of
+        # its faces; read_step_bytes + write_glb_bytes would drop colour entirely.
+        import math
+        import os
+        import tempfile
+
+        from OCC.Core.Interface import Interface_Static
+        from OCC.Core.STEPCAFControl import STEPCAFControl_Reader
+        from OCC.Core.TDF import TDF_LabelSequence
+
+        if linear_deflection <= 0.0:
+            linear_deflection = 0.1
+
+        with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as f:
+            f.write(data)
+            src = f.name
+        try:
+            reader = STEPCAFControl_Reader()
+            reader.SetColorMode(True)
+            reader.SetNameMode(True)
+            reader.SetLayerMode(True)
+            # Set AFTER the ctor (which resets the static), before ReadFile — same order as
+            # read_step_shapes and StepStore.create_step_reader.
+            Interface_Static.SetCVal("xstep.cascade.unit", unit)
+            if reader.ReadFile(src) != self._IFSelect_RetDone:
+                raise RuntimeError("step_bytes_to_glb_bytes: STEPCAFControl_Reader could not parse the input")
+            doc = self._TDocStd_Document(self._TCollection_ExtendedString("MDTV-XCAF"))
+            if not reader.Transfer(doc):
+                raise RuntimeError("step_bytes_to_glb_bytes: transfer to OCAF document failed")
+        finally:
+            os.unlink(src)
+
+        shape_tool = self._XCAFDoc_DocumentTool.ShapeTool(doc.Main())
+        labels = TDF_LabelSequence()
+        shape_tool.GetFreeShapes(labels)
+        for i in range(1, labels.Length() + 1):
+            shape = shape_tool.GetShape(labels.Value(i))
+            if shape is None or shape.IsNull():
+                continue
+            self._BRepMesh_IncrementalMesh(shape, linear_deflection, False, math.radians(angular_deg), True)
+
+        with tempfile.NamedTemporaryFile(suffix=".glb", delete=False) as f:
+            path = f.name
+        try:
+            writer = self._RWGltf_CafWriter(self._TCollection_AsciiString(path), True)
+            writer.ChangeCoordinateSystemConverter().SetInputCoordinateSystem(self._RWMesh_CoordinateSystem_Zup)
+            writer.SetTransformationFormat(self._RWGltf_WriterTrsfFormat_Compact)
+            file_info = self._TColStd_IndexedDataMapOfStringString()
+            file_info.Add(
+                self._TCollection_AsciiString("Authors"),
+                self._TCollection_AsciiString("adacpp"),
+            )
+            progress = self._Message_ProgressRange()
+            if not writer.Perform(doc, file_info, progress):
+                raise RuntimeError("step_bytes_to_glb_bytes: RWGltf_CafWriter::Perform failed")
+            with open(path, "rb") as f:
+                return f.read()
+        finally:
+            os.unlink(path)
+
+    def step_to_face_tagged_meshes(
+        self,
+        step_path: str,
+        linear_deflection: float = 0.1,
+        angular_deflection: float = 0.5,
+        store_units: str = "m",
+    ) -> "list[tuple]":
+        """OCAF-read a STEP file and tessellate it *per source face*, tagging each face with
+        its STEP entity id and its own colour.
+
+        This is the OCC-tessellation equivalent of the adacpp native ``face_regions`` path.
+        Two properties are read straight off the OCAF document so the OCC clickable model
+        lines up with native and with OCC's own step2glb benchmark:
+
+        * **face id** — resolved via the STEP transfer map
+          (``TransferReader.EntityFromShapeResult(face, 1)`` -> ``StepModel.IdentLabel``), which
+          returns the ``#NNNN`` ADVANCED_FACE entity id. This is the SAME id native stamps as
+          ``face->src_id``, so a face id means the same thing across both kernels. Faces that
+          fail to resolve (a handful) get a negative synthetic id so they stay clickable.
+        * **colour** — read per face with ``ColorTool.GetColor(shape, XCAFDoc_ColorSurf, c)``
+          (Surf, then Gen), falling back to the owning solid's colour. This recovers the full
+          per-face palette; ``GetInstanceColor`` (what the generic reader uses) returns grey
+          for style-per-face files like AP214 assemblies.
+
+        Faces MUST be meshed off the original document shapes — not the
+        ``BRepBuilderAPI_Transform`` copies ``read_step_file_with_names_colors`` hands out,
+        whose faces no longer match the transfer binding (0% id resolution). The document has
+        no assembly instancing to place here, so the originals are already world-positioned.
+
+        Nodes group faces into pickable bodies: a face's owning solid, else its owning free
+        shell, else the loose face itself. Colour is carried per FACE (a node may therefore
+        span several materials, exactly as merge-by-colour already produces).
+
+        Returns one tuple per node::
+
+            (name: str | None,
+             faces: list[tuple[int, tuple[float, float, float] | None, np.ndarray, np.ndarray]])
+
+        where each face tuple is ``(face_id, rgb_0_1_or_None, positions, indices)`` — positions
+        a flat float32 xyz triangle soup (3 verts/triangle) and indices a flat uint32 arange.
+        """
+        import numpy as np
+        from OCC.Core.Bnd import Bnd_Box
+        from OCC.Core.BRep import BRep_Builder, BRep_Tool
+        from OCC.Core.BRepBndLib import brepbndlib
+        from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
+        from OCC.Core.TDF import TDF_LabelSequence
+        from OCC.Core.TopAbs import (
+            TopAbs_FACE,
+            TopAbs_REVERSED,
+            TopAbs_SHELL,
+            TopAbs_SOLID,
+        )
+        from OCC.Core.TopExp import TopExp_Explorer, topexp
+        from OCC.Core.TopLoc import TopLoc_Location
+        from OCC.Core.TopoDS import TopoDS_Compound, topods
+        from OCC.Core.TopTools import (
+            TopTools_IndexedDataMapOfShapeListOfShape,
+            TopTools_IndexedMapOfShape,
+        )
+        from OCC.Core.XCAFDoc import XCAFDoc_ColorGen, XCAFDoc_ColorSurf
+
+        from ada.occ.step.store import StepStore
+
+        store = StepStore(step_path, verbosity=False, store_units=store_units)
+        store.create_step_reader(use_ocaf=True)
+        shape_tool = store.shape_tool
+        color_tool = store.color_tool
+        # STEP transfer map (shape -> source entity) for per-face #NNNN ids.
+        inner = store.step_reader.ChangeReader()
+        transfer_reader = inner.WS().TransferReader()
+        step_model = inner.StepModel()
+
+        roots = TDF_LabelSequence()
+        shape_tool.GetFreeShapes(roots)
+        root_shapes = [shape_tool.GetShape(roots.Value(i)) for i in range(1, roots.Length() + 1)]
+        if not root_shapes:
+            return []
+        if len(root_shapes) == 1:
+            root = root_shapes[0]
+        else:
+            root = TopoDS_Compound()
+            builder = BRep_Builder()
+            builder.MakeCompound(root)
+            for s in root_shapes:
+                builder.Add(root, s)
+
+        # Model geometric bbox (no triangulation needed) — drives both the phantom-triangle
+        # clip box and, when the caller asks for it, an auto-scaled tessellation deflection.
+        ref = Bnd_Box()
+        try:
+            brepbndlib.Add(root, ref, True)
+        except Exception:  # noqa: BLE001
+            pass
+        clip_lo = clip_hi = None
+        diag = 0.0
+        if not ref.IsVoid():
+            rx0, ry0, rz0, rx1, ry1, rz1 = ref.Get()
+            diag = ((rx1 - rx0) ** 2 + (ry1 - ry0) ** 2 + (rz1 - rz0) ** 2) ** 0.5
+            pad = 0.1 * diag + 1e-6
+            clip_lo = (rx0 - pad, ry0 - pad, rz0 - pad)
+            clip_hi = (rx1 + pad, ry1 + pad, rz1 + pad)
+
+        # linear_deflection <= 0 means "auto": scale it to the model so quality is unit-agnostic
+        # (a metres model and the same model in mm both get a sensible chord tolerance).
+        if linear_deflection <= 0:
+            linear_deflection = max(diag * 5e-4, 1e-6) if diag > 0 else 0.1
+
+        # Mesh the whole model once; per-face triangulation is read back below.
+        self._BRepMesh_IncrementalMesh(root, linear_deflection, False, angular_deflection, True)
+
+        # Ancestry for node grouping: which solid / shell a face belongs to.
+        solid_map = TopTools_IndexedMapOfShape()
+        topexp.MapShapes(root, TopAbs_SOLID, solid_map)
+        shell_map = TopTools_IndexedMapOfShape()
+        topexp.MapShapes(root, TopAbs_SHELL, shell_map)
+        face_solid = TopTools_IndexedDataMapOfShapeListOfShape()
+        topexp.MapShapesAndAncestors(root, TopAbs_FACE, TopAbs_SOLID, face_solid)
+        face_shell = TopTools_IndexedDataMapOfShapeListOfShape()
+        topexp.MapShapesAndAncestors(root, TopAbs_FACE, TopAbs_SHELL, face_shell)
+
+        def _color(shape) -> "tuple[float, float, float] | None":
+            for typ in (XCAFDoc_ColorSurf, XCAFDoc_ColorGen):
+                c = Quantity_Color(0.5, 0.5, 0.5, Quantity_TOC_RGB)
+                try:
+                    if color_tool.GetColor(shape, typ, c):
+                        return (float(c.Red()), float(c.Green()), float(c.Blue()))
+                except Exception:  # noqa: BLE001
+                    pass
+            return None
+
+        def _face_id(face) -> "int | None":
+            ent = transfer_reader.EntityFromShapeResult(face, 1)
+            if ent is not None:
+                try:
+                    n = step_model.IdentLabel(ent)
+                    if n and n > 0:
+                        return int(n)
+                except Exception:  # noqa: BLE001
+                    pass
+            return None
+
+        # node_key -> {"name": str, "faces": [(face_id, rgb|None, pos, idx)]}
+        nodes: dict = {}
+        order: list = []
+        fallback = 0
+
+        exp = TopExp_Explorer(root, TopAbs_FACE)
+        while exp.More():
+            face = topods.Face(exp.Current())
+
+            owning_solid = None
+            if face_solid.Contains(face):
+                lst = face_solid.FindFromKey(face)
+                if lst.Size() > 0:
+                    owning_solid = lst.First()
+            owning_shell = None
+            if owning_solid is None and face_shell.Contains(face):
+                lst = face_shell.FindFromKey(face)
+                if lst.Size() > 0:
+                    owning_shell = lst.First()
+
+            fid = _face_id(face)
+            if owning_solid is not None:
+                node_key = ("solid", solid_map.FindIndex(owning_solid))
+                node_name = f"solid_{node_key[1]}"
+            elif owning_shell is not None:
+                node_key = ("shell", shell_map.FindIndex(owning_shell))
+                node_name = f"shell_{node_key[1]}"
+            else:
+                node_key = ("face", fid if fid is not None else -(fallback + 1))
+                node_name = f"face_{node_key[1]}"
+
+            color = _color(face)
+            if color is None and owning_solid is not None:
+                color = _color(owning_solid)
+
+            loc = TopLoc_Location()
+            tri = BRep_Tool.Triangulation(face, loc)
+            if tri is None:
+                exp.Next()
+                continue
+            trsf = loc.Transformation()
+            rev = face.Orientation() == TopAbs_REVERSED
+            verts: list[float] = []
+            for i in range(1, tri.NbTriangles() + 1):
+                a, b, c = tri.Triangle(i).Get()
+                if rev:
+                    a, c = c, a
+                pts = [tri.Node(ni).Transformed(trsf) for ni in (a, b, c)]
+                if clip_lo is not None and any(
+                    p.X() < clip_lo[0]
+                    or p.X() > clip_hi[0]
+                    or p.Y() < clip_lo[1]
+                    or p.Y() > clip_hi[1]
+                    or p.Z() < clip_lo[2]
+                    or p.Z() > clip_hi[2]
+                    for p in pts
+                ):
+                    continue  # phantom triangle outside the real model — drop it
+                for p in pts:
+                    verts.extend((p.X(), p.Y(), p.Z()))
+            if not verts:
+                exp.Next()
+                continue
+
+            if fid is None:
+                fallback += 1
+                fid = -fallback  # negative marks an unresolved face; still clickable
+
+            positions = np.asarray(verts, dtype="float32")
+            indices = np.arange(positions.size // 3, dtype="uint32")
+
+            entry = nodes.get(node_key)
+            if entry is None:
+                entry = {"name": node_name, "faces": []}
+                nodes[node_key] = entry
+                order.append(node_key)
+            entry["faces"].append((fid, color, positions, indices))
+            exp.Next()
+
+        return [(nodes[k]["name"], nodes[k]["faces"]) for k in order]
+
     def write_step(
         self, shapes: list, names: list, colors: list, filename: str, unit: str = "m", schema: str = "AP214"
     ) -> None:
@@ -662,6 +1027,18 @@ class OccBackend:
             if amap.FindFromIndex(i).Size() == 1:
                 out.append(amap.FindKey(i))
         return out
+
+    def imprint_advanced_faces(
+        self,
+        advanced_faces: "list",
+        imprint_curves: "list[list[tuple[float, float, float]]]",
+        tolerance: float = 1e-6,
+    ) -> "tuple[list, list]":
+        # Curved-plate imprint (OCC General Fuse). The whole per-plate/per-edge loop stays
+        # kernel-side in ada.occ.imprint_faces_occ; only backend-neutral ada.geom data returns.
+        from ada.occ.imprint_faces_occ import imprint_advanced_faces_occ
+
+        return imprint_advanced_faces_occ(advanced_faces, imprint_curves, tolerance)
 
     def imprint_planar_faces(
         self,

@@ -26,7 +26,8 @@ def occ_face_to_ada_face(face: TopoDS_Face) -> geo_su.AdvancedFace | None:
     # returns True for unrelated surface types (notably Geom_Plane),
     # so we compare the dynamic type's name string directly — that's
     # the reliable identity check across the pythonocc bindings.
-    if surface.DynamicType().Name() == "Geom_BSplineSurface":
+    surf_name = surface.DynamicType().Name()
+    if surf_name == "Geom_BSplineSurface":
         edge_loops = get_wires_from_face(face, surface)
         bspline_surf = get_bsplinesurface_with_knots(surface)
         if bspline_surf and edge_loops:
@@ -40,8 +41,32 @@ def occ_face_to_ada_face(face: TopoDS_Face) -> geo_su.AdvancedFace | None:
             return geo_su.AdvancedFace(bounds=bounds, face_surface=bspline_surf)
         else:
             raise NotImplementedError("Failed to retrieve B-Spline surface with knots")
+    elif surf_name == "Geom_Plane":
+        # A planar face — e.g. a flat plate after the beam imprint split it into
+        # sub-faces. Same bound structure as the B-spline case; the surface is a
+        # plane taken straight off the OCC ``gp_Pln``. ``get_wires_from_face``
+        # already yields line/arc edges, so the AdvancedFace authors through the
+        # shared weld exactly like ``flat_plate_to_advanced_face`` does.
+        from OCC.Core.Geom import Geom_Plane
+
+        from ada import Direction, Point
+
+        edge_loops = get_wires_from_face(face, surface)
+        if not edge_loops:
+            return None
+        pln = Geom_Plane.DownCast(surface).Pln()
+        loc, ax, xd = pln.Location(), pln.Axis().Direction(), pln.XAxis().Direction()
+        plane = geo_su.Plane(
+            position=geo_su.Axis2Placement3D(
+                location=Point(loc.X(), loc.Y(), loc.Z()),
+                axis=Direction(ax.X(), ax.Y(), ax.Z()),
+                ref_direction=Direction(xd.X(), xd.Y(), xd.Z()),
+            )
+        )
+        bounds = [geo_su.FaceBound(bound=el, orientation=True) for el in edge_loops]
+        return geo_su.AdvancedFace(bounds=bounds, face_surface=plane, same_sense=True)
     else:
-        logger.error(f"Geometry type {surface.__class__} not implemented")
+        logger.error(f"Geometry type {surf_name} not implemented")
     return None
 
 

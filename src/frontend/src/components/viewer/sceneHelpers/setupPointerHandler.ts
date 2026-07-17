@@ -110,13 +110,36 @@ export function setupPointerHandler(
         try {
             const meshPick = gpuMeshPicker.pickAt(e.clientX, e.clientY);
             if (meshPick) {
-                // GPU picking identifies the object + a representative vertex (the draw range's
-                // first vertex), NOT the exact clicked point — so "Clicked at" would show the same
-                // coordinate for every click on one object (very noticeable on a small model). Refine
-                // it with a raycast against just the picked mesh; that also yields the exact triangle
-                // index for face-level picking (the full-scene raycast would hit the edge overlay first
-                // and require zooming way in). Falls back to the vertex when the mesh is too large to
-                // raycast cheaply (keeps the huge-FEA fast path — face picking then unavailable there).
+                if (meshPick.faceId !== undefined) {
+                    // GPU FACE picking (gpuFacePicking): the pixel decoded straight to the source
+                    // face, so we skip the whole-mesh CPU raycast — this is the whole point, it stays
+                    // instant on merged-by-colour meshes with millions of triangles where the raycast
+                    // lags (and above MAX_REFINE_TRIS returns no faceIndex at all). The exact click
+                    // point still comes from a raycast, but against ONLY the clicked face's triangles
+                    // (tens, not millions); on a morphed mesh that returns null and we keep the face's
+                    // representative vertex (which computeWorldPosition morphs).
+                    const exact =
+                        raycastPointOnFace(
+                            e, camera, renderer, meshPick.mesh, meshPick.faceStart ?? 0, meshPick.faceLen ?? 0,
+                        );
+                    const fakeIntersection: THREE.Intersection = {
+                        object: meshPick.mesh,
+                        point: exact ?? meshPick.worldPosition.clone(),
+                        faceIndex: undefined,
+                        distance: 0,
+                    } as THREE.Intersection;
+                    await handleClickMesh(fakeIntersection, e, meshPick.rangeId, {
+                        faceId: meshPick.faceId,
+                        seq: meshPick.seq ?? 0,
+                        start: meshPick.faceStart ?? 0,
+                        length: meshPick.faceLen ?? 0,
+                    });
+                    return;
+                }
+                // Per-solid pick (face picking off, or a GLB without face_ranges): the GPU picker
+                // gives the object + a representative vertex, NOT the exact clicked point. Refine it
+                // with a raycast against just the picked mesh; that also yields the triangle index the
+                // raycast face-picking path needs. Falls back to the vertex above MAX_REFINE_TRIS.
                 const refined = raycastPointOnMesh(e, camera, renderer, meshPick.mesh);
                 const fakeIntersection: THREE.Intersection = {
                     object: meshPick.mesh,
@@ -198,11 +221,63 @@ export function setupPointerHandler(
  *  landed essentially at the camera position and rotation degenerated
  *  into spinning in place — easiest to trigger on mobile, where you
  *  pinch in close before double-tapping. */
-// Raycast the clicked pixel against a SINGLE mesh to recover the exact world-space hit point.
-// Used to refine the GPU picker's representative-vertex position into the real clicked point.
-// Bounded by triangle count so a whole-model batched mesh (millions of tris) doesn't stall the
-// click — above the cap the caller keeps the fast approximate vertex.
-const MAX_REFINE_TRIS = 600_000;
+// Raycast the clicked pixel against a SINGLE mesh to recover the exact world-space hit point AND
+// the triangle index face-level picking needs. This is the picked mesh only (not the whole scene),
+// so the cost is one ray against that mesh's tris — ~tens of ms even at a few million, since the
+// GPU picker already narrowed the click to this one mesh. The cap only exists to protect truly huge
+// FEA batches (tens of millions of tris) from a multi-hundred-ms stall; it must sit ABOVE a
+// merged-by-colour CAD mesh (a busy STEP colour group runs a few million tris) or face picking
+// silently no-ops there — which is exactly what happened on KR_6's orange group (~3.4M tris) at the
+// old 600k cap.
+const MAX_REFINE_TRIS = 8_000_000;
+
+// Exact hit point for a GPU face pick, WITHOUT a whole-mesh raycast: the pick already told us the
+// face's triangle range, so we ray-test only those triangles (tens, not millions). Recovers the
+// pixel-exact "Clicked at" coordinate the whole-mesh raycast used to give, at negligible cost and
+// with no MAX_REFINE_TRIS cap. Returns null for morphed meshes (position attr lacks the deformation)
+// — the caller then keeps the face's representative vertex, which computeWorldPosition morphs.
+function raycastPointOnFace(
+    e: MouseEvent,
+    camera: THREE.PerspectiveCamera,
+    renderer: THREE.WebGLRenderer,
+    mesh: THREE.Mesh,
+    faceStart: number,
+    faceLen: number,
+): THREE.Vector3 | null {
+    try {
+        const geom = mesh.geometry as THREE.BufferGeometry;
+        const idx = geom.index;
+        const pos = geom.attributes.position as THREE.BufferAttribute | undefined;
+        if (!idx || !pos || faceLen <= 0) return null;
+        if ((geom.morphAttributes?.position?.length ?? 0) > 0) return null; // deformed — use vertex
+        const rect = renderer.domElement.getBoundingClientRect();
+        const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        const ray = new THREE.Raycaster();
+        ray.setFromCamera(new THREE.Vector2(nx, ny), camera);
+        const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), hit = new THREE.Vector3();
+        const mw = mesh.matrixWorld;
+        let best: THREE.Vector3 | null = null;
+        let bestD = Infinity;
+        const end = Math.min(faceStart + faceLen, idx.count);
+        for (let i = faceStart; i + 2 < end; i += 3) {
+            a.fromBufferAttribute(pos, idx.getX(i)).applyMatrix4(mw);
+            b.fromBufferAttribute(pos, idx.getX(i + 1)).applyMatrix4(mw);
+            c.fromBufferAttribute(pos, idx.getX(i + 2)).applyMatrix4(mw);
+            const p = ray.ray.intersectTriangle(a, b, c, false, hit);
+            if (p) {
+                const d = ray.ray.origin.distanceToSquared(p);
+                if (d < bestD) {
+                    bestD = d;
+                    best = p.clone();
+                }
+            }
+        }
+        return best;
+    } catch {
+        return null;
+    }
+}
 
 function raycastPointOnMesh(
     e: MouseEvent,
