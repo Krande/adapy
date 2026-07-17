@@ -114,8 +114,10 @@ class BRepStore:
             loop.coedges.append(c)
         return c
 
-    def add_loop(self, kind: LoopKind = LoopKind.OUTER, source_id: str | None = None) -> BLoop:
-        lp = BLoop(self.next_id(), kind, source_id=source_id)
+    def add_loop(
+        self, kind: LoopKind = LoopKind.OUTER, bbox: list[float] | None = None, source_id: str | None = None
+    ) -> BLoop:
+        lp = BLoop(self.next_id(), kind, bbox=bbox, source_id=source_id)
         self.loops[lp.id] = lp
         return lp
 
@@ -126,9 +128,21 @@ class BRepStore:
         outer: BLoop | None = None,
         inner: list[BLoop] | None = None,
         name: str | None = None,
+        bbox: list[float] | None = None,
+        param_box: list[float] | None = None,
         source_id: str | None = None,
     ) -> BFace:
-        f = BFace(self.next_id(), surface, sense, outer, list(inner or []), name=name, source_id=source_id)
+        f = BFace(
+            self.next_id(),
+            surface,
+            sense,
+            outer,
+            list(inner or []),
+            name=name,
+            bbox=bbox,
+            param_box=param_box,
+            source_id=source_id,
+        )
         self.faces[f.id] = f
         for lp in f.loops:
             lp.face = f

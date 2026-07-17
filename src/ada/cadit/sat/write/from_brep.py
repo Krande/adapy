@@ -139,7 +139,9 @@ def brep_store_to_sat_writer(store: BRepStore, part=None):
         surf_rec, face_sense = _surface_entity(idg, bf.surface, bf.sense)
         sw.add_entity(surf_rec)
         name = se.StringAttribName(idg.next_id(), bf.name or f"FACE{bf.id:08d}", None)
-        se_face = se.Face(idg.next_id(), None, shell, name, surf_rec, sense=face_sense)
+        se_face = se.Face(
+            idg.next_id(), None, shell, name, surf_rec, sense=face_sense, bbox3d=bf.bbox, param_box=bf.param_box
+        )
         name.entity = se_face
         sw.add_entity(name)
         sw.add_entity(se_face)
@@ -151,7 +153,13 @@ def brep_store_to_sat_writer(store: BRepStore, part=None):
             se_loop = se.Loop(idg.next_id(), None, [], face=se_face)
             coedges = build_coedges(bl.coedges, se_loop, surface_rec=surf_rec)
             se_loop.coedge = coedges[0]
-            se_loop.bbox = _bbox([list(ce.edge.start_pt)[:3] for ce in coedges])
+            # Prefer the source loop box (it includes the edges' curve bulge); fall
+            # back to the vertex extent using BOTH endpoints of every edge — a vertex
+            # that is the end (not start) of both its incident edges is missed by
+            # start_pt alone, which ACIS rejects as "loop box too small".
+            se_loop.bbox = bl.bbox or _bbox(
+                [list(ce.edge.start_pt)[:3] for ce in coedges] + [list(ce.edge.end_pt)[:3] for ce in coedges]
+            )
             sw.add_entity(se_loop)
             se_loops.append(se_loop)
         for i in range(len(se_loops) - 1):

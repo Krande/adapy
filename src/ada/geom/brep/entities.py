@@ -101,6 +101,9 @@ class BLoop:
     kind: LoopKind
     coedges: list[BCoEdge] = field(default_factory=list)
     face: BFace | None = None
+    # the source loop's 3D bounding box (6 floats) — captured rather than computed,
+    # because a curved loop's box must include the edges' bulge, not just corners.
+    bbox: list[float] | None = None
     source_id: str | None = None
     link: Any = None
 
@@ -121,6 +124,11 @@ class BFace:
     # The SAT string-attribute name (e.g. "FACE00001480"); a Genie plate's
     # ``face_ref`` resolves to it, so it must survive the roundtrip.
     name: str | None = None
+    # The source face's 3D bounding box (6 floats) and, for a spline face, its UV
+    # parameter box (4 floats: u_min u_max v_min v_max). ACIS rejects a face whose
+    # U/V range it cannot determine; the source states it explicitly, so carry it.
+    bbox: list[float] | None = None
+    param_box: list[float] | None = None
     source_id: str | None = None
     link: Any = None
 

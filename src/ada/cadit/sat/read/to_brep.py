@@ -40,6 +40,44 @@ if TYPE_CHECKING:
     from ada.cadit.sat.store import SatStore
 
 
+def _floats_after_T(toks: list[str], start: int, n: int) -> list[float] | None:
+    """The ``n`` floats following the ``T`` at/after ``toks[start]``, or None."""
+    if start >= len(toks) or toks[start] != "T":
+        return None
+    vals = toks[start + 1 : start + 1 + n]
+    if len(vals) != n:
+        return None
+    try:
+        return [float(x) for x in vals]
+    except (TypeError, ValueError):
+        return None
+
+
+def _face_boxes(face_rec) -> tuple[list[float] | None, list[float] | None]:
+    """(3D bbox 6 floats, UV param box 4 floats) from a face record's tail:
+    ``... out T <xmin ymin zmin xmax ymax zmax> [T <umin umax vmin vmax> | F]``."""
+    toks = face_rec.chunks
+    try:
+        i = toks.index("out")
+    except ValueError:
+        return None, None
+    bbox = _floats_after_T(toks, i + 1, 6)
+    if bbox is None:
+        return None, None
+    param = _floats_after_T(toks, i + 1 + 1 + 6, 4)  # T <6> then T <4>
+    return bbox, param
+
+
+def _loop_bbox(loop_rec) -> list[float] | None:
+    """The loop's 3D bbox (the 6 floats after its ``T``)."""
+    toks = loop_rec.chunks
+    try:
+        i = toks.index("T")
+    except ValueError:
+        return None
+    return _floats_after_T(toks, i, 6)
+
+
 def _walk_chain(store: SatStore, first_ref: str, next_idx: int, max_n: int = 2_000_000):
     """Yield records along a ``chunks[next_idx]`` linked list until ``$-1``."""
     rec = store.get(first_ref)
@@ -164,7 +202,7 @@ def sat_store_to_brep(sat_store: SatStore) -> BRepStore:
             return None
 
     def build_loop(loop_rec: AcisRecord, kind: LoopKind):
-        bloop = store.add_loop(kind, source_id=str(loop_rec.index))
+        bloop = store.add_loop(kind, bbox=_loop_bbox(loop_rec), source_id=str(loop_rec.index))
         for coedge_rec in _walk_chain_ring(sat_store, loop_rec.chunks[7]):
             edge = coedge_edge(coedge_rec)
             if edge is None:
@@ -211,7 +249,11 @@ def sat_store_to_brep(sat_store: SatStore) -> BRepStore:
             name = face_rec.get_name() or None
         except Exception:  # noqa: BLE001
             name = None
-        return store.add_face(surface, sense, outer=outer, inner=inner, name=name, source_id=str(face_rec.index))
+        bbox, param_box = _face_boxes(face_rec)
+        return store.add_face(
+            surface, sense, outer=outer, inner=inner, name=name, bbox=bbox, param_box=param_box,
+            source_id=str(face_rec.index),
+        )
 
     # coedges owned by each wire, bucketed by owner ref (coedge.chunks[11] -> wire)
     wire_coedges: dict[int, list] = {}
