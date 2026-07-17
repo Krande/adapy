@@ -172,6 +172,76 @@ class TopologyWeld:
                 return edge
         return None
 
+    def find_arc_edges_on(self, p1, p2, tol: float = 1e-4, max_depth: int = 8) -> list[se.Edge]:
+        """The already-built curved edges tiling the arc between ``p1`` and ``p2``.
+
+        A curved stiffener the reader read as a straight chord (it builds a
+        ``BeamRevolve`` only from a circular arc; a spline arc comes back as a
+        straight :class:`~ada.Beam`) still lies on a chain of curved face edges.
+        Genie's export splits such a stiffener into a short arc chain — typically
+        two ``intcurve`` edges meeting at a mid-span vertex — and names every one.
+        A straight-line walk (:meth:`find_axis_edges_on`) cannot follow the bulge
+        and :meth:`find_arc_edge` only matches a *single* edge spanning the ends,
+        so neither catches the two-edge case. This walks the curved adjacency
+        breadth-first and returns the shortest chain of curved edges whose ends
+        are ``p1`` and ``p2``.
+
+        The walk is confined to a corridor around the chord so it cannot wander
+        the whole skin; the true stiffener chain is the shortest path between the
+        two corners, so BFS returns it even where several arcs pass nearby.
+        """
+        from collections import deque
+
+        adj = self._curved_adjacency()
+        k1 = self._nearest_key(adj, p1, tol)
+        k2 = self._nearest_key(adj, p2, tol)
+        if k1 is None or k2 is None or k1 == k2:
+            return []
+        a = np.asarray(p1, dtype=float)
+        b = np.asarray(p2, dtype=float)
+        d = b - a
+        length = float(np.linalg.norm(d))
+        if length < 1e-9:
+            return []
+        u = d / length
+        # An arc's mid-span vertex sits a sagitta off the chord; allow a corridor
+        # that grows with span so a genuine chain is never clipped, while still
+        # bounding the search to the beam's neighbourhood.
+        corridor = max(0.5, 0.5 * length)
+
+        # BFS for the fewest-edge chain; prev maps a vertex-key to the (parent,
+        # edge) it was reached through, which reconstructs the chain at the end.
+        prev: dict[tuple, tuple] = {k1: (None, None)}
+        q = deque([(k1, 0)])
+        while q:
+            cur, depth = q.popleft()
+            if cur == k2:
+                break
+            if depth >= max_depth:
+                continue
+            for edge in adj.get(cur, ()):
+                sk = _vkey(edge.start_pt, self._conn_nd)
+                nk = _vkey(edge.end_pt, self._conn_nd) if sk == cur else sk
+                if nk in prev:
+                    continue
+                o = np.asarray(nk, dtype=float)
+                t = float(np.dot(o - a, u))
+                lat = float(np.linalg.norm((o - a) - t * u))
+                if t < -corridor or t > length + corridor or lat > corridor:
+                    continue
+                prev[nk] = (cur, edge)
+                q.append((nk, depth + 1))
+        if k2 not in prev:
+            return []
+        chain: list[se.Edge] = []
+        cur = k2
+        while prev[cur][1] is not None:
+            parent, edge = prev[cur]
+            chain.append(edge)
+            cur = parent
+        chain.reverse()
+        return chain
+
     def _axis_adjacency(self) -> dict[tuple, list[se.Edge]]:
         """Vertex-key -> incident axis-candidate edges, built once and cached.
 
@@ -387,13 +457,17 @@ def flat_plate_to_advanced_face(pl) -> geo_su.AdvancedFace:
 def name_curved_beam_edges(sw: SatWriter, weld: TopologyWeld) -> None:
     """Name the shared curved edges the arc beams run along and record the map.
 
-    A :class:`~ada.api.beams.BeamRevolve`'s axis coincides with a face edge of
-    the curved plate it lies on. Genie names that edge and points the curved beam
-    at it — no new topology. We do the same: find the weld edge between the
-    beam's two endpoints and give it a ``EDGE`` name, so the gxml writer can emit
-    a ``<curved_beam>`` whose ``<sat_reference>`` resolves on import. A beam whose
-    arc is not a single shared plate edge (spans several, or lies on no plate)
-    gets no name and falls back to a straight chord in the gxml writer.
+    A :class:`~ada.api.beams.BeamRevolve`'s axis coincides with the face edges of
+    the curved plate it lies on. Genie names those edges and points the curved
+    beam at them — no new topology. We do the same: find the weld edge(s) between
+    the beam's two endpoints and give each an ``EDGE`` name, so the gxml writer
+    can emit a ``<curved_beam>`` whose ``<sat_reference>`` resolves on import.
+
+    The arc is usually not a single edge: Genie splits a curved stiffener at each
+    frame it crosses, so its axis is a *chain* of curved edges (commonly two, at a
+    mid-span vertex). Try the single shared edge first, then walk the curved
+    adjacency for the whole chain. A beam whose arc is on no plate edge gets no
+    name and falls back to a straight chord in the gxml writer.
     """
     from ada.api.beams import BeamRevolve
 
@@ -405,15 +479,19 @@ def name_curved_beam_edges(sw: SatWriter, weld: TopologyWeld) -> None:
     for bm in beams:
         p1, p2 = bm.axis_global()
         edge = weld.find_arc_edge(p1, p2, tol=1e-3)
-        if edge is None:
+        edges = [edge] if edge is not None else weld.find_arc_edges_on(p1, p2, tol=1e-3)
+        if not edges:
             continue
-        if edge.attrib_name is None:
-            name = f"EDGE{sw.edge_name_id:08d}"
-            sw.edge_name_id += 1
-            attrib = se.StringAttribName(sw.id_generator.next_id(), name, edge)
-            edge.attrib_name = attrib
-            sw.add_entity(attrib)
-        sw.edge_map[bm.guid] = [edge.attrib_name.name]
+        names: list[str] = []
+        for edge in edges:
+            if edge.attrib_name is None:
+                name = f"EDGE{sw.edge_name_id:08d}"
+                sw.edge_name_id += 1
+                edge.attrib_name = se.StringAttribName(sw.id_generator.next_id(), name, edge)
+                sw.add_entity(edge.attrib_name)
+            if edge.attrib_name.name not in names:
+                names.append(edge.attrib_name.name)
+        sw.edge_map[bm.guid] = names
         named += 1
 
     logger.info(f"sat-write: named {named}/{len(beams)} curved-beam axes on shared curved-plate edges")
@@ -452,13 +530,12 @@ def name_straight_beam_edges(sw: SatWriter, weld: TopologyWeld) -> int:
         edges = weld.find_axis_edges_on(p1, p2, tol=1e-3)
         if not edges:
             # A curved stiffener read as a straight chord (the reader only builds
-            # BeamRevolve from circular arcs) has an edge that curves along the
-            # skin, so the straight-line walk cannot follow it. If a single curved
-            # edge spans the chord's endpoints, it IS the beam's edge — name it
-            # (Genie references such intcurve edges for straight beams too).
-            arc = weld.find_arc_edge(p1, p2, tol=1e-3)
-            if arc is not None:
-                edges = [arc]
+            # BeamRevolve from circular arcs) has edges that curve along the skin,
+            # so the straight-line walk cannot follow them. Genie splits such a
+            # stiffener into a short arc chain (usually two intcurve edges at a
+            # mid-span vertex) and references every one for the straight beam, so
+            # walk the curved edges and name the whole chain.
+            edges = weld.find_arc_edges_on(p1, p2, tol=1e-3)
         if not edges:
             continue
         names: list[str] = []
