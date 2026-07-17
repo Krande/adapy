@@ -162,7 +162,7 @@ def _sense_against_face(sat_data, desired_normal, authored_sense: bool) -> bool:
     return dot > 0
 
 
-def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fallback_d=None):
+def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fallback_d=None, face_normal_resolver=None):
     base_name = plate_elem.attrib["name"]
     mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
     t = thick_map.get(plate_elem.attrib.get("thickness_ref"))
@@ -190,6 +190,21 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
             except (KeyError, ValueError):
                 desired_normal = None
 
+    def normal_for_face(face_ref):
+        """The normal a flat plate on this face should carry.
+
+        A stated ``<vector>`` wins. Under a sense flag there is no vector — the
+        plate's normal IS the face's, flipped when the flag says so; deriving it
+        from outline winding instead sends roughly half of them out inside-out
+        (the winding is the SAT loop's own business).
+        """
+        if desired_normal is not None or face_normal_resolver is None:
+            return desired_normal
+        fn = face_normal_resolver(face_ref)
+        if fn is None:
+            return None
+        return fn if sense else tuple(-c for c in fn)
+
     face_elems = list(plate_elem.findall(".//face"))
     if face_elems:
         face_refs = [res.attrib["face_ref"] for res in face_elems]
@@ -205,7 +220,7 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                             base_name,
                             merged_points,
                             t,
-                            desired_normal,
+                            normal_for_face(face_refs[0]),
                             mat=mat,
                             metadata=dict(props=dict(gxml_face_refs=face_refs)),
                             parent=parent,
@@ -323,7 +338,7 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                                     name,
                                     _project_to_best_fit_plane(fallback_pts),
                                     t,
-                                    desired_normal,
+                                    normal_for_face(face_ref),
                                     mat=mat,
                                     metadata=dict(props=dict(gxml_face_ref=face_ref)),
                                     parent=parent,
@@ -379,7 +394,7 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                             name,
                             projected,
                             t,
-                            desired_normal,
+                            normal_for_face(face_ref),
                             mat=mat,
                             metadata=dict(props=dict(gxml_face_ref=face_ref)),
                             parent=parent,
@@ -395,7 +410,7 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                     name,
                     sat_data,
                     t,
-                    desired_normal,
+                    normal_for_face(face_ref),
                     mat=mat,
                     metadata=dict(props=dict(gxml_face_ref=face_ref)),
                     parent=parent,

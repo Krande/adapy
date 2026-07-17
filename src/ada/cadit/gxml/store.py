@@ -85,11 +85,16 @@ class GxmlStore:
             res = thickn.find(".//constant_thickness")
             thick_map[thickn.attrib["name"]] = float(res.attrib["th"])
 
+        resolver = self.sat_factory.get_named_face_normal
         for fp in self.xml_root.iterfind(".//flat_plate"):
-            yield from yield_plate_elems_to_plate(fp, self.p, sat_d, thick_map, flat_fallback_d=flat_d)
+            yield from yield_plate_elems_to_plate(
+                fp, self.p, sat_d, thick_map, flat_fallback_d=flat_d, face_normal_resolver=resolver
+            )
 
         for fp in self.xml_root.iterfind(".//curved_shell"):
-            yield from yield_plate_elems_to_plate(fp, self.p, sat_d, thick_map, flat_fallback_d=flat_d)
+            yield from yield_plate_elems_to_plate(
+                fp, self.p, sat_d, thick_map, flat_fallback_d=flat_d, face_normal_resolver=resolver
+            )
 
     def to_part(self, extract_joints=False) -> Part:
         from ada.api.containers import Beams, Plates

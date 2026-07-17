@@ -197,6 +197,10 @@ class SatReaderFactory:
         # lives solely in the named ACIS edge, so resolving the name is the only
         # way to recover a curved beam instead of a straight chord.
         self._edge_name_map: dict[str, AcisRecord] | None = None
+        # name (``FACE00001234``) -> face AcisRecord, same lazy pattern. A plate
+        # under a sense-flag local system has no stated normal — its normal IS
+        # the face's — so resolving the name is how the reader orients it.
+        self._face_name_map: dict[str, AcisRecord] | None = None
 
     def get_named_edge_curve(self, edge_name: str):
         """The geometry of a named SAT edge, or ``None``.
@@ -248,6 +252,47 @@ class SatReaderFactory:
         except Exception as e:  # noqa: BLE001 - a malformed record must not abort the whole read
             logger.debug(f"Failed reading curve of named edge {edge_name!r}: {e}")
         return None
+
+    def get_named_face_normal(self, face_ref: str) -> tuple[float, float, float] | None:
+        """The outward normal of a named PLANAR face, or ``None``.
+
+        A plate whose ``local_system`` is a sense flag has no stated normal — its
+        normal is the face's, optionally flipped by the flag. For a plane face
+        that normal is stated in the record: the plane-surface's normal composed
+        with the face record's forward/reversed sense. A spline face returns
+        ``None`` (those plates go out as ``curved_shell`` and carry the flag
+        itself, so no vector is needed).
+        """
+        if len(self.sat_store.sat_records) == 0:
+            self.load_sat_data_from_file()
+
+        if self._face_name_map is None:
+            name_map: dict[str, AcisRecord] = {}
+            for rec in self.sat_store.iter():
+                if rec.type != "face":
+                    continue
+                try:
+                    nm = rec.get_name()
+                except Exception:  # noqa: BLE001 - a malformed name attr is not this face's problem
+                    nm = ""
+                if nm:
+                    name_map[nm] = rec
+            self._face_name_map = name_map
+
+        face_rec = self._face_name_map.get(face_ref)
+        if face_rec is None:
+            return None
+        surf_rec = self.sat_store.get(face_rec.chunks[10])
+        if surf_rec is None or surf_rec.type != "plane-surface":
+            return None
+        try:
+            normal = tuple(float(x) for x in surf_rec.chunks[9:12])
+        except (ValueError, IndexError):
+            return None
+        sense = face_rec.chunks[11] if len(face_rec.chunks) > 11 else "forward"
+        if sense == "reversed":
+            normal = tuple(-c for c in normal)
+        return normal
 
     def load_sat_data_from_file(self):
         # Always reset store before loading
