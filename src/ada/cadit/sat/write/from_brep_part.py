@@ -53,13 +53,15 @@ class _StoreEdgeMatcher:
             return cache
         adj: dict[tuple, list] = defaultdict(list)
         for e in self.store.edges.values():
-            is_line = isinstance(e.curve, geo_cu.Line)
+            # a curve-on-surface behaves as its 3D curve for axis matching
+            crv = e.curve.curve_3d if isinstance(e.curve, geo_cu.SurfaceCurve) else e.curve
+            is_line = isinstance(crv, geo_cu.Line)
             # a stiffener's edge is a straight-curve OR an intcurve on a spline
             # sub-face; an arc beam's edge is an ellipse/bspline. Split accordingly.
             if straight and not is_line:
                 # include bsplines too? straight beams on spline faces get intcurve
                 # edges — keep those in the straight set (they run along the axis)
-                if not isinstance(e.curve, (geo_cu.BSplineCurveWithKnots,)):
+                if not isinstance(crv, (geo_cu.BSplineCurveWithKnots,)):
                     continue
             if (not straight) and is_line:
                 continue

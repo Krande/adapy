@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from itertools import chain
 from typing import TYPE_CHECKING, Iterable, Union
@@ -35,6 +35,7 @@ CURVE_GEOM_TYPES = Union[
     "GradientCurve",
     "SegmentedReferenceCurve",
     "PCurve",
+    "SurfaceCurve",
     "PointOnCurve",
     "OffsetCurve3D",
     "GeometricCurveSet",
@@ -424,6 +425,28 @@ class PCurve:
 
     basis_surface: SURFACE_GEOM_TYPES
     reference_curve: CURVE_GEOM_TYPES
+
+
+@dataclass(slots=True)
+class SurfaceCurve:
+    """A curve that lies on one or two surfaces — a curve-on-surface.
+
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurfaceCurve.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_surface_curve.html)
+    ACIS ``surfintcur`` (a surface-surface intersection curve).
+
+    ``curve_3d`` is the exact 3D B-spline; ``associated_pcurves`` are its images in
+    the parameter space of the surfaces it lies on — slot ``i`` aligns with ACIS
+    pcurve index ``i + 1`` (``None`` where the surface needs none, e.g. a plane).
+    The surfaces themselves are not duplicated here: they live on the faces the
+    curve bounds. Carrying the pcurves with the curve is what lets a coedge whose
+    SAT ``pcurve`` record is a *reference* (``±n $intcurve``) be reconstructed —
+    without them a spline face's boundary has no UV image and ACIS rejects it
+    ("coedge on spline surface has no PCURVE").
+    """
+
+    curve_3d: CURVE_GEOM_TYPES
+    associated_pcurves: list[Pcurve2dBSpline | None] = field(default_factory=list)
 
 
 @dataclass(slots=True)

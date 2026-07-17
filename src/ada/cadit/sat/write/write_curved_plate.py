@@ -401,6 +401,11 @@ def _curve_entity(id_gen, curve, t_lo: float, t_hi: float) -> se.SATEntity:
         # Covers RationalBSplineCurveWithKnots too — IntCurve picks nurbs off
         # the weights.
         return se.IntCurve(id_gen.next_id(), curve)
+    if isinstance(curve, geo_cu.SurfaceCurve):
+        # a curve-on-surface writes its exact 3D spline; the per-surface UV
+        # images travel on the coedges as pcurve records, which is the pairing
+        # ACIS validates ("coedge on spline surface has no PCURVE").
+        return se.IntCurve(id_gen.next_id(), curve.curve_3d)
     raise UnsupportedCurvedFace(f"no ACIS curve record for {type(curve).__name__}")
 
 

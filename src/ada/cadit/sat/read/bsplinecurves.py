@@ -587,3 +587,182 @@ def create_bspline_curve_from_sat(spline_record: AcisRecord) -> geo_cu.BSplineCu
         return create_pcurve_from_exppc(sub_type)
     else:
         raise ACISUnsupportedCurveType(f"Unsupported spline type: {spl_type}")
+
+
+def _consume_bs_block(toks: list[str], i: int, dim: int):
+    """Consume a ``nubs``/``nurbs``/``nullbs`` B-spline block from a token stream.
+
+    Returns ``(parsed | None, next_index)``. Control-point count follows the ACIS
+    convention: end knot multiplicities are implicitly ``degree + 1`` whatever the
+    stored values say (the same clamp ``create_bspline_curve_from_exactcur``
+    applies), so ``n_cp = sum(clamped mults) - degree - 1``.
+    """
+    kind = toks[i]
+    if kind == "nullbs":
+        return None, i + 1
+    if kind not in ("nubs", "nurbs"):
+        raise ACISUnsupportedCurveType(f"unexpected b-spline block head {kind!r}")
+    rational = kind == "nurbs"
+    degree = int(toks[i + 1])
+    closure = toks[i + 2]
+    n_knots = int(toks[i + 3])
+    i += 4
+    knots: list[float] = []
+    mults: list[int] = []
+    for _ in range(n_knots):
+        knots.append(float(toks[i]))
+        mults.append(int(toks[i + 1]))
+        i += 2
+    mults[0] = degree + 1
+    mults[-1] = degree + 1
+    n_cp = sum(mults) - degree - 1
+    width = dim + (1 if rational else 0)
+    cps: list[list[float]] = []
+    weights: list[float] | None = [] if rational else None
+    for _ in range(n_cp):
+        vals = [float(x) for x in toks[i : i + width]]
+        i += width
+        cps.append(vals[:dim])
+        if rational:
+            weights.append(vals[-1])
+    parsed = dict(
+        degree=degree,
+        closed=closure in ("closed", "periodic"),
+        knots=knots,
+        mults=mults,
+        cps=cps,
+        weights=weights,
+    )
+    return parsed, i
+
+
+def _consume_range4(toks: list[str], i: int) -> int:
+    """Step over a surface's four u/v range bounds: each is ``I`` (infinite, one
+    token) or ``F <value>`` (finite, two tokens)."""
+    for _ in range(4):
+        if i < len(toks) and toks[i] == "F":
+            i += 2
+        else:
+            i += 1
+    return i
+
+
+def _consume_surface_block(toks: list[str], i: int) -> int:
+    """Step over one surface inside a ``surfintcur`` (plane inline, spline by
+    brace block, or ``nullbs``) and return the next token index."""
+    kind = toks[i]
+    if kind == "nullbs":
+        return i + 1
+    if kind == "plane":
+        i += 1 + 9  # keyword + origin(3) + normal(3) + u-deriv(3)
+        if i < len(toks) and toks[i] in ("forward_v", "reverse_v"):
+            i += 1
+        return _consume_range4(toks, i)
+    if kind == "spline":
+        i += 1
+        if toks[i] in ("forward", "reversed"):
+            i += 1
+        if toks[i] != "{":
+            raise ACISUnsupportedCurveType("surfintcur spline surface without brace block")
+        depth = 0
+        while i < len(toks):
+            if toks[i] == "{":
+                depth += 1
+            elif toks[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    i += 1
+                    break
+            i += 1
+        return _consume_range4(toks, i)
+    raise ACISUnsupportedCurveType(f"unsupported surface kind in surfintcur: {kind!r}")
+
+
+def _pcurve_from_bs(parsed, fit_tolerance: float) -> geo_cu.Pcurve2dBSpline | None:
+    if parsed is None:
+        return None
+    return geo_cu.Pcurve2dBSpline(
+        degree=parsed["degree"],
+        control_points_2d=[tuple(cp) for cp in parsed["cps"]],
+        knots=parsed["knots"],
+        knot_multiplicities=parsed["mults"],
+        weights=parsed["weights"],
+        closed=parsed["closed"],
+        fit_tolerance=fit_tolerance,
+        same_sense=True,  # the caller applies the pcurve record's ±index sign
+    )
+
+
+def create_surface_curve_from_sat(spline_record: AcisRecord) -> geo_cu.SurfaceCurve | None:
+    """A ``surfintcur`` intcurve as a :class:`~ada.geom.curves.SurfaceCurve`.
+
+    Parses the *whole* subtype — the 3D B-spline plus the per-surface 2D pcurves —
+    so the curve-on-surface stays analytical. Slot ``i`` of ``associated_pcurves``
+    is ACIS pcurve index ``i + 1``, which is what a reference-form coedge ``pcurve``
+    record (``±n $intcurve``) selects. Returns ``None`` for non-``surfintcur``
+    subtypes (callers fall back to the plain 3D-curve read).
+    """
+    # Extract the record's outer brace block with balanced-brace walking:
+    # ``get_sub_type_str`` truncates at the FIRST ``}``, which cuts an inline
+    # ``surfintcur`` short at its nested ``{ ref N }`` surface and loses the
+    # pcurve blocks that follow.
+    toks_all = spline_record.get_as_string().split()
+    try:
+        start = toks_all.index("{")
+    except ValueError:
+        return None
+    depth = 0
+    end = None
+    for j in range(start, len(toks_all)):
+        if toks_all[j] == "{":
+            depth += 1
+        elif toks_all[j] == "}":
+            depth -= 1
+            if depth == 0:
+                end = j
+                break
+    if end is None:
+        return None
+    toks = toks_all[start + 1 : end]
+    if not toks:
+        return None
+    if toks[0] == "ref":
+        # a positional back-reference; the ref table already stores the balanced
+        # content of the definition it points at.
+        sub_type = get_ref_type(spline_record.get_sub_type())
+        toks = sub_type.chunks
+    if toks[0] != "surfintcur":
+        return None
+    i = 1
+    if toks[i] not in ("nubs", "nurbs", "nullbs"):
+        i += 1  # the optional 'full' interpolation token
+    curve3d_parsed, i = _consume_bs_block(toks, i, dim=3)
+    if curve3d_parsed is None:
+        return None
+    fit_tol = float(toks[i])
+    i += 1
+    i = _consume_surface_block(toks, i)  # surface 1
+    i = _consume_surface_block(toks, i)  # surface 2
+    pc1_parsed, i = _consume_bs_block(toks, i, dim=2)
+    pc2_parsed, i = _consume_bs_block(toks, i, dim=2)
+
+    weights = curve3d_parsed["weights"]
+    common = dict(
+        degree=curve3d_parsed["degree"],
+        control_points_list=curve3d_parsed["cps"],
+        curve_form=BSplineCurveFormEnum.UNSPECIFIED,
+        closed_curve=curve3d_parsed["closed"],
+        self_intersect=False,
+        knots=curve3d_parsed["knots"],
+        knot_multiplicities=curve3d_parsed["mults"],
+        knot_spec=KnotType.UNSPECIFIED,
+    )
+    if weights:
+        curve3d = geo_cu.RationalBSplineCurveWithKnots(**common, weights_data=weights)
+    else:
+        curve3d = geo_cu.BSplineCurveWithKnots(**common)
+
+    return geo_cu.SurfaceCurve(
+        curve_3d=curve3d,
+        associated_pcurves=[_pcurve_from_bs(pc1_parsed, fit_tol), _pcurve_from_bs(pc2_parsed, fit_tol)],
+    )

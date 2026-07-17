@@ -35,6 +35,11 @@ def curve_key(curve: CURVE_GEOM_TYPES, nd: int) -> tuple:
     bounded by different curves between them (two arcs of a circle, an arc vs its
     chord). The type plus its defining geometry is the discriminator.
     """
+    if isinstance(curve, geo_cu.SurfaceCurve):
+        # a curve-on-surface IS its 3D curve for identity purposes — a store that
+        # kept the surfintcur whole must still match one whose SAT round-tripped
+        # through a plain exactcur of the same 3D spline.
+        return curve_key(curve.curve_3d, nd)
     if isinstance(curve, geo_cu.Line):
         return ("line",)
     if isinstance(curve, geo_cu.Circle):

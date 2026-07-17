@@ -108,8 +108,19 @@ def _curve_from_edge(sat_store: SatStore, edge_rec: AcisRecord):
     if curve_rec.type == "ellipse-curve":
         return get_ellipse_curve(curve_rec)
     if curve_rec.type == "intcurve-curve":
-        from ada.cadit.sat.read.bsplinecurves import create_bspline_curve_from_sat
+        from ada.cadit.sat.read.bsplinecurves import (
+            create_bspline_curve_from_sat,
+            create_surface_curve_from_sat,
+        )
 
+        # a surfintcur is a curve-on-surface: keep it whole (3D spline + its 2D
+        # pcurves) as a SurfaceCurve, so reference-form coedge pcurves resolve.
+        try:
+            sc = create_surface_curve_from_sat(curve_rec)
+        except Exception:  # noqa: BLE001 — fall back to the plain 3D read
+            sc = None
+        if sc is not None:
+            return sc
         curve = create_bspline_curve_from_sat(curve_rec)
         if curve is None:
             raise ACISDegenerateEdge(f"edge {edge_rec.chunks[0]} intcurve unparsable")
@@ -120,7 +131,13 @@ def _curve_from_edge(sat_store: SatStore, edge_rec: AcisRecord):
 def _read_pcurve(sat_store: SatStore, coedge_rec: AcisRecord):
     """The coedge's UV pcurve as an ngeom ``Pcurve2dBSpline`` (authored sense
     preserved), or None. Captured raw — no OCC-oriented reversal — so it can be
-    re-emitted verbatim; a spline face needs it to be ACIS-valid."""
+    re-emitted verbatim; a spline face needs it to be ACIS-valid.
+
+    Two SAT forms exist. Inline: ``pcurve ... 0 <sense> { exppc ... }`` with the
+    2D data in the record. Reference: ``pcurve ... ±n $intcurve 0 0`` — the data
+    is pcurve ``|n|`` of the referenced intcurve's ``surfintcur`` (a curve-on-
+    surface), negative when it runs against the 3D curve.
+    """
     chunks = coedge_rec.chunks
     if len(chunks) <= 12:
         return None
@@ -130,6 +147,31 @@ def _read_pcurve(sat_store: SatStore, coedge_rec: AcisRecord):
     rec = sat_store.get(ref)
     if rec is None or getattr(rec, "type", None) != "pcurve":
         return None
+
+    try:
+        idx = int(rec.chunks[6])
+    except (ValueError, IndexError):
+        idx = 0
+    if idx != 0:
+        # reference form: pull pcurve |idx| out of the surfintcur it points at
+        from dataclasses import replace
+
+        from ada.cadit.sat.read.bsplinecurves import create_surface_curve_from_sat
+
+        curve_rec = sat_store.get(rec.chunks[7])
+        if curve_rec is None:
+            return None
+        try:
+            sc = create_surface_curve_from_sat(curve_rec)
+        except Exception:  # noqa: BLE001
+            return None
+        if sc is None or abs(idx) > len(sc.associated_pcurves):
+            return None
+        pc = sc.associated_pcurves[abs(idx) - 1]
+        if pc is None:
+            return None
+        return replace(pc, same_sense=idx > 0)
+
     from ada.cadit.sat.read.bsplinecurves import create_pcurve_2d_from_sat_record
 
     try:
