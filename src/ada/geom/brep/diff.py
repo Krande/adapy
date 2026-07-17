@@ -78,8 +78,8 @@ class StoreDiff:
 
     def classify(self) -> dict:
         """Bucket the diffs into the three fix-classes (see module docstring)."""
-        missing = sum(self.missing_vertices.values()) + sum(self.missing_edges.values()) + sum(
-            self.missing_faces.values()
+        missing = (
+            sum(self.missing_vertices.values()) + sum(self.missing_edges.values()) + sum(self.missing_faces.values())
         )
         extra = sum(self.extra_vertices.values()) + sum(self.extra_edges.values()) + sum(self.extra_faces.values())
         ring = len(self.ring_mismatch)

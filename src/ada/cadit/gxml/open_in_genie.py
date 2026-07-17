@@ -99,7 +99,11 @@ def verify_genie_import(
     exe = exe_path or get_genie_runtime_default_exe_path()
     if exe is None or not pathlib.Path(exe).is_file():
         return GenieImportResult(
-            False, None, "", "", "no-exe",
+            False,
+            None,
+            "",
+            "",
+            "no-exe",
             "GenieRuntime.exe not found; set ADA_GENIE_RUNTIME_EXE",
         )
 

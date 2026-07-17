@@ -12,6 +12,7 @@ from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeWire,
     BRepBuilderAPI_Sewing,
 )
+from OCC.Core.BRepCheck import BRepCheck_Analyzer
 from OCC.Core.BRepTools import BRepTools_WireExplorer, breptools
 from OCC.Core.Geom import (
     Geom_BSplineSurface,
@@ -36,7 +37,6 @@ from OCC.Core.gp import (
     gp_Sphere,
     gp_Torus,
 )
-from OCC.Core.BRepCheck import BRepCheck_Analyzer
 from OCC.Core.ShapeFix import ShapeFix_Face
 from OCC.Core.TColgp import TColgp_Array1OfPnt2d, TColgp_Array2OfPnt
 from OCC.Core.TColStd import (

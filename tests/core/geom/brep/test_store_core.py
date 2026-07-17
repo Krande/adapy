@@ -46,9 +46,11 @@ def test_two_faces_share_one_edge():
     assert s["faces"] == 2
 
     # the shared edge is the vertical one at x=1: it must have TWO coedges
-    shared = [e for e in st.edges.values()
-              if {tuple(e.start.point)[:3], tuple(e.end.point)[:3]} ==
-              {(1.0, 0.0, 0.0), (1.0, 1.0, 0.0)}]
+    shared = [
+        e
+        for e in st.edges.values()
+        if {tuple(e.start.point)[:3], tuple(e.end.point)[:3]} == {(1.0, 0.0, 0.0), (1.0, 1.0, 0.0)}
+    ]
     assert len(shared) == 1, "the (1,0)-(1,1) edge must be a single shared object"
     ring = st.coedges_on(shared[0])
     assert len(ring) == 2, "shared edge must carry both faces' coedges"
@@ -72,9 +74,7 @@ def test_arc_and_chord_are_distinct_edges():
     a, b = (1, 0, 0), (0, 1, 0)
     va, vb = st.vertex_at(Point(*a)), st.vertex_at(Point(*b))
     chord = st.edge_between(_line(a, b), va, vb)
-    arc = st.edge_between(
-        Circle(Axis2Placement3D(Point(0, 0, 0), Direction(0, 0, 1), Direction(1, 0, 0)), 1.0), va, vb
-    )
+    arc = st.edge_between(Circle(Axis2Placement3D(Point(0, 0, 0), Direction(0, 0, 1), Direction(1, 0, 0)), 1.0), va, vb)
     assert chord is not arc, "an arc and its chord between the same corners are different edges"
     assert len(st.edges) == 2
 

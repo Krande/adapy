@@ -29,9 +29,12 @@ def _bbox(points) -> tuple:
 
 def _overlap(a, b, m) -> bool:
     return (
-        a[0] <= b[3] + m and b[0] <= a[3] + m
-        and a[1] <= b[4] + m and b[1] <= a[4] + m
-        and a[2] <= b[5] + m and b[2] <= a[5] + m
+        a[0] <= b[3] + m
+        and b[0] <= a[3] + m
+        and a[1] <= b[4] + m
+        and b[1] <= a[4] + m
+        and a[2] <= b[5] + m
+        and b[2] <= a[5] + m
     )
 
 
@@ -178,16 +181,20 @@ def imprint_advanced_faces_occ(
                     e = topods.Edge(re_)
                     v0, v1 = topexp.FirstVertex(e, True), topexp.LastVertex(e, True)
                     p0, p1 = BRep_Tool.Pnt(v0), BRep_Tool.Pnt(v1)
-                    k = (round(p0.X(), 6), round(p0.Y(), 6), round(p0.Z(), 6),
-                         round(p1.X(), 6), round(p1.Y(), 6), round(p1.Z(), 6))
+                    k = (
+                        round(p0.X(), 6),
+                        round(p0.Y(), 6),
+                        round(p0.Z(), 6),
+                        round(p1.X(), 6),
+                        round(p1.Y(), 6),
+                        round(p1.Z(), 6),
+                    )
                     if k in seen:
                         continue
                     seen.add(k)
                     beam_edges[j].append((Point(p0.X(), p0.Y(), p0.Z()), Point(p1.X(), p1.Y(), p1.Z())))
 
     if n_err or n_invalid:
-        logger.info(
-            f"sat-write: imprint left {n_err} fuse-errored + {n_invalid} BRepCheck-invalid plate(s) monolithic"
-        )
+        logger.info(f"sat-write: imprint left {n_err} fuse-errored + {n_invalid} BRepCheck-invalid plate(s) monolithic")
     logger.info(f"sat-write: imprint split {n_split} plate(s) along beam axes")
     return sub_faces, beam_edges

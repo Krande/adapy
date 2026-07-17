@@ -7,8 +7,8 @@ import numpy as np
 
 import ada
 from ada.cadit.sat.utils import make_ints_if_possible
-from ada.config import logger
 from ada.cadit.sat.write import sat_entities as se
+from ada.config import logger
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 

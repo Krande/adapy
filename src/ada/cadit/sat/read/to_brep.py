@@ -299,7 +299,13 @@ def sat_store_to_brep(sat_store: SatStore) -> BRepStore:
             name = None
         bbox, param_box = _face_boxes(face_rec)
         return store.add_face(
-            surface, sense, outer=outer, inner=inner, name=name, bbox=bbox, param_box=param_box,
+            surface,
+            sense,
+            outer=outer,
+            inner=inner,
+            name=name,
+            bbox=bbox,
+            param_box=param_box,
             source_id=str(face_rec.index),
         )
 

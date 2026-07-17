@@ -20,11 +20,20 @@ contains.
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from dataclasses import dataclass
-
-from ada.geom.brep.entities import BCoEdge, BEdge, BFace, BLoop, BLump, BShell, BVertex, BWire, LoopKind
+from ada.geom.brep.entities import (
+    BCoEdge,
+    BEdge,
+    BFace,
+    BLoop,
+    BLump,
+    BShell,
+    BVertex,
+    BWire,
+    LoopKind,
+)
 from ada.geom.brep.geom_keys import curve_key, point_key
 
 if TYPE_CHECKING:

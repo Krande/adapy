@@ -129,9 +129,7 @@ def test_native_track_selection_reaches_the_kernel(tmp_path):
         out = tmp_path / f"{track}.glb"
         native_step_to_glb(src, out, deflection=0.05, angular_deg=10.0, meshopt=False, pipeline=track)
         gltf = _glb_json(out)
-        counts[track] = sum(
-            gltf["accessors"][p["indices"]]["count"] for m in gltf["meshes"] for p in m["primitives"]
-        )
+        counts[track] = sum(gltf["accessors"][p["indices"]]["count"] for m in gltf["meshes"] for p in m["primitives"])
 
     assert all(v > 0 for v in counts.values()), f"both tracks must mesh the solid: {counts}"
     assert counts["libtess2"] != counts["cdt"], f"track ignored — both produced {counts['libtess2']} indices"

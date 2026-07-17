@@ -213,10 +213,7 @@ class SatReaderFactory:
         instead of collapsing the arc to its chord.
         """
         from ada.cadit.sat.read.bsplinecurves import create_bspline_curve_from_sat
-        from ada.cadit.sat.read.curves import (
-            create_line_from_sat,
-            get_ellipse_curve,
-        )
+        from ada.cadit.sat.read.curves import create_line_from_sat, get_ellipse_curve
 
         if len(self.sat_store.sat_records) == 0:
             self.load_sat_data_from_file()

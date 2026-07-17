@@ -189,11 +189,9 @@ class _StoreEdgeMatcher:
 def part_store_to_sat_writer(part, store: BRepStore):
     """A :class:`SatWriter` serialised from ``store``, with face/edge maps recovered
     from the Part's plates (preserved refs) and beams (axis match)."""
-    from ada import Beam, BeamTapered
+    from ada import Beam, BeamTapered, Plate
     from ada.api.beams import BeamCurved, BeamRevolve
     from ada.api.plates import PlateCurved
-
-    from ada import Plate
 
     sw = brep_store_to_sat_writer(store, part)
 

@@ -1733,7 +1733,9 @@ def _via_ada(
                 # OCC per-face clickable track (the python serializer's face_regions path).
                 # OCC-tessellates every face and writes face_ranges_node itself, keyed by the
                 # STEP #NNNN entity id — the same id namespace the native path stamps.
-                from ada.cadit.step.occ_faces_to_glb import convert_step_to_occ_clickable_glb
+                from ada.cadit.step.occ_faces_to_glb import (
+                    convert_step_to_occ_clickable_glb,
+                )
 
                 on_progress("occ-clickable-faces", 0.1)
                 convert_step_to_occ_clickable_glb(src_path, out_path, linear_deflection=0.0)

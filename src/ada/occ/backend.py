@@ -658,12 +658,17 @@ class OccBackend:
         a flat float32 xyz triangle soup (3 verts/triangle) and indices a flat uint32 arange.
         """
         import numpy as np
-        from OCC.Core.BRep import BRep_Builder, BRep_Tool
         from OCC.Core.Bnd import Bnd_Box
+        from OCC.Core.BRep import BRep_Builder, BRep_Tool
         from OCC.Core.BRepBndLib import brepbndlib
         from OCC.Core.Quantity import Quantity_Color, Quantity_TOC_RGB
         from OCC.Core.TDF import TDF_LabelSequence
-        from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED, TopAbs_SHELL, TopAbs_SOLID
+        from OCC.Core.TopAbs import (
+            TopAbs_FACE,
+            TopAbs_REVERSED,
+            TopAbs_SHELL,
+            TopAbs_SOLID,
+        )
         from OCC.Core.TopExp import TopExp_Explorer, topexp
         from OCC.Core.TopLoc import TopLoc_Location
         from OCC.Core.TopoDS import TopoDS_Compound, topods

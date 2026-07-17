@@ -222,7 +222,6 @@ def _add_curved_plates(sw: SatWriter, curved: list[PlateCurved], plates: list[Pl
         TopologyWeld,
         UnsupportedCurvedFace,
         advanced_face_to_sat_entities,
-        curved_plate_to_sat_entities,
         flat_plate_to_advanced_face,
         link_partner_rings,
         name_curved_beam_edges,

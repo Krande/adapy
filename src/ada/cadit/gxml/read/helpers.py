@@ -162,7 +162,9 @@ def _sense_against_face(sat_data, desired_normal, authored_sense: bool) -> bool:
     return dot > 0
 
 
-def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fallback_d=None, face_normal_resolver=None):
+def yield_plate_elems_to_plate(
+    plate_elem, parent, sat_ref_d, thick_map, flat_fallback_d=None, face_normal_resolver=None
+):
     base_name = plate_elem.attrib["name"]
     mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
     t = thick_map.get(plate_elem.attrib.get("thickness_ref"))
