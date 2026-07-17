@@ -45,6 +45,11 @@ class BVertex:
     # The SAT string-attribute name (e.g. "VE..."); Genie names vertices as it
     # does edges/faces, and its beam-coordinate evaluation resolves against them.
     name: str | None = None
+    # At a non-manifold vertex whose edges fall into separable regions (a wire
+    # meeting a face body), ACIS wants one representative edge per region — the
+    # ``vertedge`` attribute — and the vertex's own edge pointer nulled ("vertex
+    # has edge in multiple groups" otherwise). None = an ordinary vertex.
+    region_edges: list[BEdge] | None = None
     source_id: str | None = None
     link: Any = None
 
@@ -91,6 +96,15 @@ class BCoEdge:
     # with its authored ``same_sense``. A spline face is unusable to ACIS without
     # it; a planar face carries none.
     pcurve: Any = None
+    # Authored connectivity, captured rather than recomputed. ``next``/``prev``
+    # walk the owning loop ring or wire chain (a wire coedge at a chain terminus
+    # points at ITSELF — that is how ACIS marks the end of an open chain, and no
+    # list-order relink can reinvent it). ``partner`` is the radial ring of
+    # coedges about the shared edge, whose order about a non-manifold junction
+    # is authored data ("Coedges out of order about edge" when guessed wrong).
+    next: BCoEdge | None = None
+    prev: BCoEdge | None = None
+    partner: BCoEdge | None = None
     source_id: str | None = None
     link: Any = None
 

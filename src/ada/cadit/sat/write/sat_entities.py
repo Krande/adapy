@@ -185,12 +185,16 @@ class VertEdgeAttribute(SATEntity):
     # count — matched rather than trimmed to len(edges), since this is an ACIS
     # system attribute and its own exports are the only worked example.
     slots: int = 4
+    # the previous attribute in the vertex's attribute chain (Genie chains the
+    # vertedge after the vertex's name attribute and back-links it here)
+    prev_attrib: SATEntity = None
 
     def to_string(self) -> str:
         slots = max(self.slots, len(self.edges))
         refs = [f"${e.id}" for e in self.edges] + ["$-1"] * (slots - len(self.edges))
+        prev = -1 if self.prev_attrib is None else self.prev_attrib.id
         return (
-            f"-{self.id} vertedge-sys-attrib $-1 -1 $-1 $-1 ${self.vertex.id} "
+            f"-{self.id} vertedge-sys-attrib $-1 -1 $-1 ${prev} ${self.vertex.id} "
             f"1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 {slots} {' '.join(refs)} #"
         )
 
@@ -225,8 +229,10 @@ class CoEdge(SATEntity):
         # by two faces links the pair to each other.
         partner = -1 if self.partner is None else self.partner.id
         pcurve = -1 if self.pcurve is None else self.pcurve.id
+        nxt = -1 if self.next_coedge is None else self.next_coedge.id
+        prv = -1 if self.prev_coedge is None else self.prev_coedge.id
         return (
-            f"-{self.id} coedge $-1 -1 -1 $-1 ${self.next_coedge.id} ${self.prev_coedge.id} "
+            f"-{self.id} coedge $-1 -1 -1 $-1 ${nxt} ${prv} "
             f"${partner} ${self.edge.id} {self.orientation} ${self.loop.id} ${pcurve} #"
         )
 

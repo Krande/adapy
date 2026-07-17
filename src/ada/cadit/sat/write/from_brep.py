@@ -102,6 +102,8 @@ def brep_store_to_sat_writer(store: BRepStore, part=None):
 
     # per-edge coedge collection for partner rings: se.Edge id -> [(coedge, into)]
     on_edge: dict[int, list] = defaultdict(list)
+    # BCoEdge id -> se.CoEdge, for the authored-connectivity pass
+    cemap: dict[int, se.CoEdge] = {}
 
     def build_coedges(bcoedges, owner, surface_rec=None) -> list[se.CoEdge]:
         loop_pts = [list(bc.edge.start.point)[:3] for bc in bcoedges]
@@ -126,8 +128,10 @@ def brep_store_to_sat_writer(store: BRepStore, part=None):
                 se_edge.coedge = ce
             sw.add_entity(ce)
             out.append(ce)
+            cemap[bc.id] = ce
             on_edge[id(se_edge)].append((ce, _into_face(se_edge.start_pt, se_edge.end_pt, loop_pts)))
-        # loop/wire ring (next/prev)
+        # loop/wire ring (next/prev) by list order — the fallback for a derived
+        # store; authored pointers, where captured, override this below.
         for i, ce in enumerate(out):
             ce.next_coedge = out[(i + 1) % len(out)]
             ce.prev_coedge = out[i - 1]
@@ -188,13 +192,50 @@ def brep_store_to_sat_writer(store: BRepStore, part=None):
         prev_wire = se_wire
     shell.wire = first_wire
 
-    # partner rings: link the coedges sharing each edge, ordered about it
+    # Authored connectivity 1:1 (import stores): next/prev — incl. a wire coedge's
+    # self-pointer at a chain terminus — and the partner ring, whose radial order
+    # about a non-manifold junction is authored data.
+    for bc_id, ce in cemap.items():
+        bc = store.coedges.get(bc_id)
+        if bc is None:
+            continue
+        if bc.next is not None and bc.next.id in cemap:
+            ce.next_coedge = cemap[bc.next.id]
+        if bc.prev is not None and bc.prev.id in cemap:
+            ce.prev_coedge = cemap[bc.prev.id]
+        if bc.partner is not None and bc.partner.id in cemap:
+            ce.partner = cemap[bc.partner.id]
+
+    # partner rings for edges WITHOUT authored partners (a derived store): link
+    # the coedges sharing each edge, ordered about it
     for entries in on_edge.values():
         if len(entries) < 2:
             continue
+        if any(c.partner is not None for c, _ in entries):
+            continue  # authored ring already applied
         ordered = [entries[0][0], entries[1][0]] if len(entries) == 2 else _ordered_about_edge(entries)
         for cur, nxt in zip(ordered, ordered[1:] + ordered[:1]):
             cur.partner = nxt
+
+    # vertedge attributes: a non-manifold vertex (separable regions) nulls its own
+    # edge pointer and names one edge per region, chained after its name attribute.
+    for bv in store.vertices.values():
+        if not bv.region_edges:
+            continue
+        sv = vmap.get(bv.id)
+        if sv is None:
+            continue
+        region = [emap[be.id] for be in bv.region_edges if be.id in emap]
+        if not region:
+            continue
+        sv.edge = None
+        vea = se.VertEdgeAttribute(idg.next_id(), sv, region)
+        if isinstance(sv.attrib, se.StringAttribName):
+            sv.attrib.attrib_ref = vea
+            vea.prev_attrib = sv.attrib
+        else:
+            sv.attrib = vea
+        sw.add_entity(vea)
 
     sw.renumber()
     return sw

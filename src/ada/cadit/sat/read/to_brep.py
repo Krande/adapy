@@ -243,6 +243,9 @@ def sat_store_to_brep(sat_store: SatStore) -> BRepStore:
             logger.debug("unresolved edge %s: %s", erec.chunks[0], ex)
             return None
 
+    # source coedge index -> BCoEdge, for the connectivity-linking second pass
+    cmap: dict[int, object] = {}
+
     def build_loop(loop_rec: AcisRecord, kind: LoopKind):
         bloop = store.add_loop(kind, bbox=_loop_bbox(loop_rec), source_id=str(loop_rec.index))
         for coedge_rec in _walk_chain_ring(sat_store, loop_rec.chunks[7]):
@@ -251,7 +254,8 @@ def sat_store_to_brep(sat_store: SatStore) -> BRepStore:
                 continue
             sense = coedge_rec.chunks[10] == "forward"
             pcurve = _read_pcurve(sat_store, coedge_rec)
-            store.add_coedge(edge, sense, bloop, pcurve=pcurve, source_id=str(coedge_rec.index))
+            bc = store.add_coedge(edge, sense, bloop, pcurve=pcurve, source_id=str(coedge_rec.index))
+            cmap[coedge_rec.index] = bc
         return bloop
 
     def build_wire(wire_rec: AcisRecord, shell, coedge_recs):
@@ -265,7 +269,9 @@ def sat_store_to_brep(sat_store: SatStore) -> BRepStore:
             if edge is None:
                 continue
             sense = coedge_rec.chunks[10] == "forward"
-            coedges.append(store.add_coedge(edge, sense, None, source_id=str(coedge_rec.index)))
+            bc = store.add_coedge(edge, sense, None, source_id=str(coedge_rec.index))
+            cmap[coedge_rec.index] = bc
+            coedges.append(bc)
         # (wire coedges carry no pcurve — they bound no surface)
         w = store.add_wire(coedges, source_id=str(wire_rec.index))
         w.shell = shell
@@ -334,6 +340,41 @@ def sat_store_to_brep(sat_store: SatStore) -> BRepStore:
                 get_edge(r)
             except ACISDegenerateEdge as ex:
                 store.mark_unresolved("edge", str(r.index), str(ex))
+
+    # Second pass: capture the authored coedge connectivity — next/prev (a wire
+    # coedge at a chain terminus points at itself) and the partner ring (whose
+    # radial order about a non-manifold junction is authored, not derivable).
+    def _cref(tok: str):
+        if not tok or not tok.startswith("$") or tok == "$-1":
+            return None
+        return cmap.get(int(tok[1:]))
+
+    for src_idx, bc in cmap.items():
+        rec = sat_store.get(src_idx)
+        bc.next = _cref(rec.chunks[6])
+        bc.prev = _cref(rec.chunks[7])
+        bc.partner = _cref(rec.chunks[8]) if len(rec.chunks) > 8 else None
+
+    # vertedge attributes: one representative edge per separable manifold region
+    # at a non-manifold vertex (a wire meeting the face body). The owning vertex
+    # nulls its own edge pointer; both must round-trip or ACIS reports "vertex
+    # has edge in multiple groups".
+    for r in sat_store.iter():
+        if r.type != "vertedge-sys-attrib":
+            continue
+        try:
+            vtx = vmap.get(sat_store.get(r.chunks[6]).index)
+            n_slots = int(r.chunks[25])
+            edges = []
+            for tok in r.chunks[26 : 26 + n_slots]:
+                if tok.startswith("$") and tok != "$-1":
+                    be = emap.get(int(tok[1:]))
+                    if be is not None:
+                        edges.append(be)
+            if vtx is not None and edges:
+                vtx.region_edges = edges
+        except (ValueError, IndexError, AttributeError) as ex:
+            logger.debug("vertedge attrib %s not captured: %s", r.chunks[0], ex)
 
     if skipped_faces or skipped_coedges:
         logger.info(f"sat->brep: {skipped_faces} unresolved faces, {skipped_coedges} unresolved coedges")
