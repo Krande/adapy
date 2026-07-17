@@ -2,6 +2,21 @@
 
 
 
+## v0.32.0 (2026-07-17)
+
+### Chore
+
+* chore: skip the tess-env source lint when there is no source tree (#241)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`a3d0066`](https://github.com/Krande/adapy/commit/a3d0066b3d160c365210cedf799da957df6c5e74))
+
+### Feature
+
+* feat: neutral B-rep connectivity store for lossless GeniE concept-XML roundtrips (#242)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`8813841`](https://github.com/Krande/adapy/commit/8813841b15819ea6628c5500bf27d490a7e955c7))
+
+
 ## v0.31.0 (2026-07-15)
 
 ### Feature
