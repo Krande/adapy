@@ -2,6 +2,15 @@
 
 
 
+## v0.32.1 (2026-07-17)
+
+### Fix
+
+* fix: bump adacpp pins to 0.16.1 (#243)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`dbf05f3`](https://github.com/Krande/adapy/commit/dbf05f385ed68c7c7692f8cf7e0e6826e0552eec))
+
+
 ## v0.32.0 (2026-07-17)
 
 ### Chore
