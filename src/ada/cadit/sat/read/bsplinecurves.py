@@ -145,8 +145,24 @@ def create_bspline_curve_from_exactcur(data_lines: list[str]) -> geo_cu.BSplineC
 
     degree, closed_curve = get_degree_and_closure(dline, should_bump)
 
-    # Extract knots and multiplicities
-    knots_in = [float(x) for x in data_lines[1].split()]
+    # The header ends with the number of distinct knots. Its (value,
+    # multiplicity) pairs can wrap across several physical lines, and only
+    # after all of them do the control points begin. Accumulate knot tokens
+    # line by line until we have all ``num_distinct_knots`` pairs, so the
+    # split is independent of where the source wraps — reading only
+    # ``data_lines[1]`` mis-read a multi-line knot vector as control points.
+    u_closure_idx = 5 if should_bump else 4
+    num_distinct_knots = int(dline[u_closure_idx + 1])
+
+    knot_tokens: list[str] = []
+    ctrl_point_line_idx = len(data_lines)
+    for i in range(1, len(data_lines)):
+        knot_tokens.extend(data_lines[i].split())
+        if len(knot_tokens) >= 2 * num_distinct_knots:
+            ctrl_point_line_idx = i + 1
+            break
+
+    knots_in = [float(x) for x in knot_tokens[: 2 * num_distinct_knots]]
     logger.debug(f"knots_in len: {len(knots_in)}")
     knots = knots_in[0::2]
     mult = [int(x) for x in knots_in[1::2]]
@@ -159,7 +175,7 @@ def create_bspline_curve_from_exactcur(data_lines: list[str]) -> geo_cu.BSplineC
     num_control_points = total_knots - degree - 1
 
     # Extract control points
-    control_point_lines = data_lines[2:]
+    control_point_lines = data_lines[ctrl_point_line_idx:]
     control_points = []
     for line in control_point_lines:
         if line.strip() == "0":  # End of control points
