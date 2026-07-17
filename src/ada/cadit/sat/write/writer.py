@@ -44,6 +44,17 @@ def part_to_sat_writer(part: Part | Assembly, imprint: bool = True) -> SatWriter
     from ada import Plate
     from ada.api.plates import PlateCurved
 
+    # A Part read from a Genie concept XML carries the source body as a neutral
+    # connectivity store. Exporting through it reproduces the source topology
+    # exactly (1 lump, every shared edge present) — so beams resolve to real
+    # named edges and Genie need not re-imprint. Falls through to the weld when
+    # no store is attached (adapy-authored geometry, or import without the store).
+    store = getattr(part, "_topology_store", None)
+    if store is not None:
+        from ada.cadit.sat.write.from_brep_part import part_store_to_sat_writer
+
+        return part_store_to_sat_writer(part, store)
+
     sw = SatWriter(part)
 
     # Only plates become faces — Genie imports beams from the concept XML alone
