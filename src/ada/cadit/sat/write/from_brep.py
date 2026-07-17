@@ -67,6 +67,11 @@ def brep_store_to_sat_writer(store: BRepStore, part=None):
         vmap[bv.id] = sv
         sw.add_entity(sp)
         sw.add_entity(sv)
+        # preserve the source vertex name (Genie's beam Coord evaluation reads it)
+        if bv.name:
+            vattrib = se.StringAttribName(idg.next_id(), bv.name, sv)
+            sv.attrib = vattrib
+            sw.add_entity(vattrib)
 
     # edges + curves (shared — one record per BEdge)
     emap: dict[int, se.Edge] = {}

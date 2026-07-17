@@ -80,8 +80,8 @@ class BRepStore:
         return self._id
 
     # ---- raw builders (identity-preserving; used by the import producer) ----
-    def add_vertex(self, point: Point, source_id: str | None = None) -> BVertex:
-        v = BVertex(self.next_id(), point, source_id=source_id)
+    def add_vertex(self, point: Point, name: str | None = None, source_id: str | None = None) -> BVertex:
+        v = BVertex(self.next_id(), point, name=name, source_id=source_id)
         self.vertices[v.id] = v
         return v
 

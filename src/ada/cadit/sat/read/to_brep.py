@@ -120,7 +120,11 @@ def sat_store_to_brep(sat_store: SatStore) -> BRepStore:
         if v is None:
             prec = sat_store.get(vrec.chunks[7])
             pt = Point(*[float(x) for x in prec.chunks[6:9]])
-            v = store.add_vertex(pt, source_id=str(vrec.index))
+            try:
+                name = vrec.get_name() or None
+            except Exception:  # noqa: BLE001
+                name = None
+            v = store.add_vertex(pt, name=name, source_id=str(vrec.index))
             vmap[vrec.index] = v
         return v
 

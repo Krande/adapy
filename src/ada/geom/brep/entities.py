@@ -42,6 +42,9 @@ class LoopKind(Enum):
 class BVertex:
     id: int
     point: Point
+    # The SAT string-attribute name (e.g. "VE..."); Genie names vertices as it
+    # does edges/faces, and its beam-coordinate evaluation resolves against them.
+    name: str | None = None
     source_id: str | None = None
     link: Any = None
 
