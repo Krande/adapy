@@ -174,7 +174,7 @@ def test_wasm_sweep_honours_the_adacpp_image_default(monkeypatch, tmp_path):
 
     # Neither --adacpp-wheel nor $ADACPP_WHEEL set => the image is what gets extracted.
     monkeypatch.delenv("ADACPP_WHEEL", raising=False)
-    wheel = tmp_path / "ada_cpp-0.15.0-cp313-cp313-pyodide_2025_0_wasm32.whl"
+    wheel = tmp_path / "ada_cpp-0.16.1-cp313-cp313-pyodide_2025_0_wasm32.whl"
     wheel.touch()
     seen = {}
 
@@ -190,7 +190,7 @@ def test_wasm_sweep_honours_the_adacpp_image_default(monkeypatch, tmp_path):
 
 def test_wasm_sweep_explicit_wheel_beats_the_image(monkeypatch, tmp_path):
     """An explicit --adacpp-wheel short-circuits the image, so a local build can be swept."""
-    wheel = tmp_path / "ada_cpp-0.15.0-cp313-cp313-pyodide_2025_0_wasm32.whl"
+    wheel = tmp_path / "ada_cpp-0.16.1-cp313-cp313-pyodide_2025_0_wasm32.whl"
     wheel.touch()
 
     def _boom(image, dest):  # pragma: no cover - must not run

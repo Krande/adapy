@@ -71,7 +71,7 @@ ADACPP_MIN_VERSION = (0, 9, 0)
 # validated a wheel six releases older than the one it shipped.
 # Duplicated as a literal because it cannot be derived: ada_cli ships in a wheel that carries no
 # deploy/ tree. tests/core/test_deploy_pins.py fails if the two drift.
-ADACPP_DEFAULT_IMAGE = "ghcr.io/krande/adacpp-wasm-base:0.15.0"
+ADACPP_DEFAULT_IMAGE = "ghcr.io/krande/adacpp-wasm-base:0.16.1"
 IFC_WASM_WHEEL = (
     "https://ifcopenshell.github.io/wasm-wheels/" "ifcopenshell-0.8.5-cp313-cp313-pyodide_2025_0_wasm32.whl"
 )
