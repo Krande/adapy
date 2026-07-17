@@ -172,6 +172,10 @@ class _StoreEdgeMatcher:
         return chain
 
     def names_on_axis(self, p1, p2) -> list[str]:
+        """The names of the store edges a beam axis lies on (straight chain or arc
+        chain). An ``intcurve`` edge here does NOT imply a curved beam — a straight
+        stiffener on a spline face also bounds intcurve edges; whether a beam is
+        curved is decided by its adapy class, not by the edge's curve type."""
         edges = self.axis_edges(p1, p2) or self.arc_edges(p1, p2)
         names = []
         for e in edges:
@@ -184,7 +188,7 @@ def part_store_to_sat_writer(part, store: BRepStore):
     """A :class:`SatWriter` serialised from ``store``, with face/edge maps recovered
     from the Part's plates (preserved refs) and beams (axis match)."""
     from ada import Beam, BeamTapered
-    from ada.api.beams import BeamRevolve
+    from ada.api.beams import BeamCurved, BeamRevolve
     from ada.api.plates import PlateCurved
 
     from ada import Plate
@@ -203,7 +207,7 @@ def part_store_to_sat_writer(part, store: BRepStore):
 
     matcher = _StoreEdgeMatcher(store)
     n_beam = n_ref = 0
-    for bm in part.get_all_physical_objects(by_type=(Beam, BeamTapered, BeamRevolve)):
+    for bm in part.get_all_physical_objects(by_type=(Beam, BeamTapered, BeamRevolve, BeamCurved)):
         n_beam += 1
         p1, p2 = bm.axis_global()
         names = matcher.names_on_axis(p1, p2)

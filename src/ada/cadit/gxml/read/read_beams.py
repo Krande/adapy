@@ -380,6 +380,11 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv, edg
         revolve = _curved_seg_to_beam_revolve(name, seg, sec, mat, parent, metadata, up, pos, edge_curve_resolver)
         if revolve is not None:
             return revolve
+        # Not a circular arc — a spline arc. Keep the analytical curve (the exact
+        # ACIS intcurve) as a BeamCurved rather than collapsing it to the chord.
+        curved = _curved_seg_to_beam_curved(name, seg, sec, mat, parent, metadata, up, pos, edge_curve_resolver)
+        if curved is not None:
+            return curved
 
     n1 = parent.nodes.add(Node(pos_to_floats(pos["1"])))
     n2 = parent.nodes.add(Node(pos_to_floats(pos["2"])))
@@ -391,6 +396,35 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv, edg
         return None
 
     return bm
+
+
+def _curved_seg_to_beam_curved(name, seg, sec, mat, parent, metadata, up, pos, edge_curve_resolver):
+    """Build a :class:`BeamCurved` for a curved segment whose SAT edge is a spline
+    arc (an ``intcurve``). Returns ``None`` (caller falls back to a straight chord)
+    when there is no ``sat_reference`` edge or the edge resolves to no spline curve.
+    """
+    from ada.geom import curves as geo_cu
+
+    edge_el = seg.find(".//sat_reference/edge")
+    if edge_el is None:
+        return None
+    edge_ref = edge_el.attrib.get("edge_ref")
+    if not edge_ref:
+        return None
+
+    curve = edge_curve_resolver(edge_ref)
+    if not isinstance(curve, (geo_cu.BSplineCurveWithKnots, geo_cu.RationalBSplineCurveWithKnots)):
+        return None
+
+    from ada.api.beams import BeamCurved
+
+    n1 = parent.nodes.add(Node(pos_to_floats(pos["1"])))
+    n2 = parent.nodes.add(Node(pos_to_floats(pos["2"])))
+    try:
+        return BeamCurved(name, n1, n2, curve, sec, up=up, mat=mat, parent=parent, metadata=metadata)
+    except Exception as e:  # noqa: BLE001 - never let one bad arc abort the whole import
+        logger.warning(f"Curved beam '{name}': failed to build BeamCurved ({e}); using straight chord")
+        return None
 
 
 def _curved_seg_to_beam_revolve(name, seg, sec, mat, parent, metadata, up, pos, edge_curve_resolver):

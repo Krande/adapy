@@ -202,11 +202,13 @@ class SatReaderFactory:
         """The geometry of a named SAT edge, or ``None``.
 
         Returns an :class:`ada.geom.curves.Circle` / ``Ellipse`` for an
-        ``ellipse-curve`` edge (what a Genie curved beam's axis becomes) and an
-        :class:`ada.geom.curves.Line` for a ``straight-curve`` one. A B-spline
-        (``intcurve-curve``) axis returns ``None`` for now — the caller keeps its
-        straight-chord fallback rather than guess a swept profile.
+        ``ellipse-curve`` edge (what a Genie curved beam's axis becomes), a
+        :class:`ada.geom.curves.Line` for a ``straight-curve`` one, and a
+        :class:`ada.geom.curves.BSplineCurveWithKnots` for an ``intcurve-curve``
+        (spline-arc) axis so the caller can carry it as a :class:`BeamCurved`
+        instead of collapsing the arc to its chord.
         """
+        from ada.cadit.sat.read.bsplinecurves import create_bspline_curve_from_sat
         from ada.cadit.sat.read.curves import (
             create_line_from_sat,
             get_ellipse_curve,
@@ -241,6 +243,8 @@ class SatReaderFactory:
                 return get_ellipse_curve(curve_rec)
             if curve_rec.type == "straight-curve":
                 return create_line_from_sat(curve_rec)
+            if curve_rec.type == "intcurve-curve":
+                return create_bspline_curve_from_sat(curve_rec)
         except Exception as e:  # noqa: BLE001 - a malformed record must not abort the whole read
             logger.debug(f"Failed reading curve of named edge {edge_name!r}: {e}")
         return None

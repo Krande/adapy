@@ -18,14 +18,15 @@ if TYPE_CHECKING:
 
 def add_beams(root: ET.Element, part: Part, sw: SatWriter = None):
     from ada import Beam, BeamTapered
-    from ada.api.beams import BeamRevolve, BeamSweep
+    from ada.api.beams import BeamCurved, BeamRevolve, BeamSweep
 
     iter_beams = part.get_all_physical_objects(by_type=Beam)
     iter_taper = part.get_all_physical_objects(by_type=BeamTapered)
     iter_revolve = part.get_all_physical_objects(by_type=BeamRevolve)
     iter_sweep = part.get_all_physical_objects(by_type=BeamSweep)
+    iter_curved = part.get_all_physical_objects(by_type=BeamCurved)
 
-    for beam in itertools.chain(iter_beams, iter_taper, iter_revolve, iter_sweep):
+    for beam in itertools.chain(iter_beams, iter_taper, iter_revolve, iter_sweep, iter_curved):
         parent = beam.parent
         if isinstance(parent, Equipment) and parent.eq_repr != EquipRepr.AS_IS:
             continue
@@ -34,7 +35,7 @@ def add_beams(root: ET.Element, part: Part, sw: SatWriter = None):
         # arc's curvature lives nowhere else — a <curved_beam> whose guide holds
         # only two endpoints and names no edge is not a curve — so without that
         # edge fall back to the straight chord rather than emit an ambiguous one.
-        if isinstance(beam, (BeamRevolve, BeamSweep)):
+        if isinstance(beam, (BeamRevolve, BeamSweep, BeamCurved)):
             edge_refs = sw.edge_map.get(beam.guid, []) if sw is not None else []
             if edge_refs:
                 add_curved_beam(beam, root, edge_refs, sw)
