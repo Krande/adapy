@@ -79,6 +79,34 @@ def _curve_from_edge(sat_store: SatStore, edge_rec: AcisRecord):
     raise ACISDegenerateEdge(f"unsupported curve type {curve_rec.type}")
 
 
+def _read_pcurve(sat_store: SatStore, coedge_rec: AcisRecord):
+    """The coedge's UV pcurve as an ngeom ``Pcurve2dBSpline`` (authored sense
+    preserved), or None. Captured raw — no OCC-oriented reversal — so it can be
+    re-emitted verbatim; a spline face needs it to be ACIS-valid."""
+    chunks = coedge_rec.chunks
+    if len(chunks) <= 12:
+        return None
+    ref = chunks[12]
+    if not ref or not ref.startswith("$") or ref == "$-1":
+        return None
+    rec = sat_store.get(ref)
+    if rec is None or getattr(rec, "type", None) != "pcurve":
+        return None
+    from ada.cadit.sat.read.bsplinecurves import create_pcurve_2d_from_sat_record
+
+    try:
+        pc = create_pcurve_2d_from_sat_record(rec)
+    except Exception:  # noqa: BLE001 — a malformed pcurve must not fail the coedge
+        return None
+    if pc is None:
+        return None
+    sense = "forward"
+    if len(rec.chunks) > 7 and rec.chunks[7] in ("forward", "reversed"):
+        sense = rec.chunks[7]
+    pc.same_sense = sense == "forward"
+    return pc
+
+
 def sat_store_to_brep(sat_store: SatStore) -> BRepStore:
     """Build a :class:`BRepStore` from a populated :class:`SatStore`."""
     store = BRepStore()
@@ -109,7 +137,11 @@ def sat_store_to_brep(sat_store: SatStore) -> BRepStore:
             t1 = float(erec.chunks[9])
         except (ValueError, IndexError, TypeError):
             pass
-        e = store.add_edge(curve, v0, v1, t0, t1, source_id=str(erec.index))
+        try:
+            name = erec.get_name() or None
+        except Exception:  # noqa: BLE001 — a malformed name attr must not fail the edge
+            name = None
+        e = store.add_edge(curve, v0, v1, t0, t1, name=name, source_id=str(erec.index))
         emap[erec.index] = e
         return e
 
@@ -134,7 +166,8 @@ def sat_store_to_brep(sat_store: SatStore) -> BRepStore:
             if edge is None:
                 continue
             sense = coedge_rec.chunks[10] == "forward"
-            store.add_coedge(edge, sense, bloop, source_id=str(coedge_rec.index))
+            pcurve = _read_pcurve(sat_store, coedge_rec)
+            store.add_coedge(edge, sense, bloop, pcurve=pcurve, source_id=str(coedge_rec.index))
         return bloop
 
     def build_wire(wire_rec: AcisRecord, shell, coedge_recs):
@@ -149,6 +182,7 @@ def sat_store_to_brep(sat_store: SatStore) -> BRepStore:
                 continue
             sense = coedge_rec.chunks[10] == "forward"
             coedges.append(store.add_coedge(edge, sense, None, source_id=str(coedge_rec.index)))
+        # (wire coedges carry no pcurve — they bound no surface)
         w = store.add_wire(coedges, source_id=str(wire_rec.index))
         w.shell = shell
         return w
@@ -169,7 +203,11 @@ def sat_store_to_brep(sat_store: SatStore) -> BRepStore:
             return None
         outer = build_loop(loops[0], LoopKind.OUTER)
         inner = [build_loop(lp, LoopKind.INNER) for lp in loops[1:]]
-        return store.add_face(surface, sense, outer=outer, inner=inner, source_id=str(face_rec.index))
+        try:
+            name = face_rec.get_name() or None
+        except Exception:  # noqa: BLE001
+            name = None
+        return store.add_face(surface, sense, outer=outer, inner=inner, name=name, source_id=str(face_rec.index))
 
     # coedges owned by each wire, bucketed by owner ref (coedge.chunks[11] -> wire)
     wire_coedges: dict[int, list] = {}

@@ -92,14 +92,22 @@ class BRepStore:
         end: BVertex,
         t_start: float | None = None,
         t_end: float | None = None,
+        name: str | None = None,
         source_id: str | None = None,
     ) -> BEdge:
-        e = BEdge(self.next_id(), curve, start, end, t_start, t_end, source_id=source_id)
+        e = BEdge(self.next_id(), curve, start, end, t_start, t_end, name=name, source_id=source_id)
         self.edges[e.id] = e
         return e
 
-    def add_coedge(self, edge: BEdge, sense: bool, loop: BLoop | None = None, source_id: str | None = None) -> BCoEdge:
-        c = BCoEdge(self.next_id(), edge, sense, loop, source_id=source_id)
+    def add_coedge(
+        self,
+        edge: BEdge,
+        sense: bool,
+        loop: BLoop | None = None,
+        pcurve=None,
+        source_id: str | None = None,
+    ) -> BCoEdge:
+        c = BCoEdge(self.next_id(), edge, sense, loop, pcurve=pcurve, source_id=source_id)
         self.coedges[c.id] = c
         self._coedges_on[edge.id].append(c)
         if loop is not None:
@@ -117,9 +125,10 @@ class BRepStore:
         sense: bool,
         outer: BLoop | None = None,
         inner: list[BLoop] | None = None,
+        name: str | None = None,
         source_id: str | None = None,
     ) -> BFace:
-        f = BFace(self.next_id(), surface, sense, outer, list(inner or []), source_id=source_id)
+        f = BFace(self.next_id(), surface, sense, outer, list(inner or []), name=name, source_id=source_id)
         self.faces[f.id] = f
         for lp in f.loops:
             lp.face = f

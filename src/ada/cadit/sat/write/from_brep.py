@@ -86,6 +86,11 @@ def brep_store_to_sat_writer(store: BRepStore, part=None):
         )
         emap[be.id] = se_edge
         sw.add_entity(se_edge)
+        # preserve the source edge name (a Genie beam's <sat_reference> resolves to it)
+        if be.name:
+            attrib = se.StringAttribName(idg.next_id(), be.name, se_edge)
+            se_edge.attrib_name = attrib
+            sw.add_entity(attrib)
         for sv in (vmap[be.start.id], vmap[be.end.id]):
             if sv.edge is None:
                 sv.edge = se_edge
@@ -93,13 +98,25 @@ def brep_store_to_sat_writer(store: BRepStore, part=None):
     # per-edge coedge collection for partner rings: se.Edge id -> [(coedge, into)]
     on_edge: dict[int, list] = defaultdict(list)
 
-    def build_coedges(bcoedges, owner) -> list[se.CoEdge]:
+    def build_coedges(bcoedges, owner, surface_rec=None) -> list[se.CoEdge]:
         loop_pts = [list(bc.edge.start.point)[:3] for bc in bcoedges]
         loop_pts += [list(bc.edge.end.point)[:3] for bc in bcoedges]
         out = []
         for bc in bcoedges:
             se_edge = emap[bc.edge.id]
-            ce = se.CoEdge(idg.next_id(), None, None, se_edge, owner, "forward" if bc.sense else "reversed")
+            # a spline face's coedge needs its UV pcurve or ACIS rejects the face
+            pcurve = None
+            if bc.pcurve is not None and isinstance(surface_rec, se.SplineSurface):
+                pcurve = se.PCurve(
+                    idg.next_id(),
+                    bc.pcurve,
+                    surface_rec,
+                    sense="forward" if getattr(bc.pcurve, "same_sense", True) else "reversed",
+                )
+                sw.add_entity(pcurve)
+            ce = se.CoEdge(
+                idg.next_id(), None, None, se_edge, owner, "forward" if bc.sense else "reversed", pcurve=pcurve
+            )
             if se_edge.coedge is None:
                 se_edge.coedge = ce
             sw.add_entity(ce)
@@ -116,7 +133,7 @@ def brep_store_to_sat_writer(store: BRepStore, part=None):
     for bf in store.faces.values():
         surf_rec, face_sense = _surface_entity(idg, bf.surface, bf.sense)
         sw.add_entity(surf_rec)
-        name = se.StringAttribName(idg.next_id(), f"FACE{bf.id:08d}", None)
+        name = se.StringAttribName(idg.next_id(), bf.name or f"FACE{bf.id:08d}", None)
         se_face = se.Face(idg.next_id(), None, shell, name, surf_rec, sense=face_sense)
         name.entity = se_face
         sw.add_entity(name)
@@ -127,7 +144,7 @@ def brep_store_to_sat_writer(store: BRepStore, part=None):
             if not bl.coedges:
                 continue
             se_loop = se.Loop(idg.next_id(), None, [], face=se_face)
-            coedges = build_coedges(bl.coedges, se_loop)
+            coedges = build_coedges(bl.coedges, se_loop, surface_rec=surf_rec)
             se_loop.coedge = coedges[0]
             se_loop.bbox = _bbox([list(ce.edge.start_pt)[:3] for ce in coedges])
             sw.add_entity(se_loop)

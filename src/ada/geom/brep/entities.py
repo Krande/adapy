@@ -63,6 +63,10 @@ class BEdge:
     end: BVertex
     t_start: float | None = None
     t_end: float | None = None
+    # The SAT string-attribute name (e.g. "EDGE00001234"), when the source named
+    # this edge — a Genie beam's ``<sat_reference>`` resolves to it, so it must
+    # survive the roundtrip.
+    name: str | None = None
     source_id: str | None = None
     link: Any = None
 
@@ -80,6 +84,10 @@ class BCoEdge:
     edge: BEdge
     sense: bool
     loop: BLoop | None = None
+    # The per-coedge UV curve on the face's surface (an ngeom ``Pcurve2dBSpline``),
+    # with its authored ``same_sense``. A spline face is unusable to ACIS without
+    # it; a planar face carries none.
+    pcurve: Any = None
     source_id: str | None = None
     link: Any = None
 
@@ -107,6 +115,9 @@ class BFace:
     outer: BLoop | None = None
     inner: list[BLoop] = field(default_factory=list)
     shell: BShell | None = None
+    # The SAT string-attribute name (e.g. "FACE00001480"); a Genie plate's
+    # ``face_ref`` resolves to it, so it must survive the roundtrip.
+    name: str | None = None
     source_id: str | None = None
     link: Any = None
 
