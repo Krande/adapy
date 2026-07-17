@@ -6,7 +6,7 @@ from ada.cadit.sat.read.bsplinecurves import create_surface_curve_from_sat
 from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.geom import curves as gc
 
-# Real records from a Genie hull export (T999), abbreviated ids. Two variants:
+# Real records from a Genie hull export, abbreviated ids. Two variants:
 # infinite surface ranges (I I I I) and finite ones (F <val> x4).
 _SURFINTCUR_INFINITE = """-100 intcurve-curve $-1 -1 -1 $-1 forward { surfintcur full nubs 3 open 3
 -0.99999999999999645 3 -0.49999999999999822 2 -0 3
