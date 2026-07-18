@@ -712,8 +712,11 @@ _CONV_UNIT_SCALE = {
 }
 
 # Both arg forms occur in the wild: SI_UNIT(.MILLI.,.METRE.) and SI_UNIT(.METRE.).
-_SI_LEN_RE = re.compile(r"SI_UNIT\(\s*(?:(\.\w+\.|\$)\s*,\s*)?\.METRE\.\s*\)")
-_CONV_NAME_RE = re.compile(r"CONVERSION_BASED_UNIT\(\s*'([^']*)'")
+# The ``\s*`` before ``(`` matters: some exporters pretty-print the record as
+# ``SI_UNIT ( .MILLI., .METRE. )`` (space between the keyword and its arg list), and
+# without it an mm file falls through to the ``assuming metres`` default — a 1000x scale error.
+_SI_LEN_RE = re.compile(r"SI_UNIT\s*\(\s*(?:(\.\w+\.|\$)\s*,\s*)?\.METRE\.\s*\)")
+_CONV_NAME_RE = re.compile(r"CONVERSION_BASED_UNIT\s*\(\s*'([^']*)'")
 
 
 # Chunk size for the ``os.pread`` scan that locates the LENGTH_UNIT record. Module-level
