@@ -290,7 +290,9 @@ class SceneConverter:
                     grp.members_buffer_view = mapping[pv]
 
     def tree_postprocessor(self, tree: OrderedDict):
-        for material in tree["materials"]:
+        # A material-less scene (e.g. line-only, or a re-tessellated import that
+        # carries no materials) has no "materials" key at all — don't KeyError.
+        for material in tree.get("materials") or []:
             material["doubleSided"] = True
 
         self._update_animations(tree)
