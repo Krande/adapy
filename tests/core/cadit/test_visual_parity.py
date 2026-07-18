@@ -278,6 +278,25 @@ def test_produced_verdict_area_floor_catches_gross_drop(monkeypatch):
     assert "step" in r.mismatches and "area" in r.mismatches["step"]
 
 
+def test_produced_verdict_area_floor_tolerates_inflated_representation(monkeypatch):
+    """A single format legitimately carrying several× the area (Genie-XML emits
+    thick solids that tessellate to ~5× the mid-surface area STEP/IFC carry) must
+    NOT trip the gross-loss floor. The floor references the MEDIAN concept area, so
+    the inflated xml can't penalise the correct mid-surface formats. bbox agrees
+    across all four (mirrors a real shell-FEM parity cell)."""
+    r = _run_verdict(
+        monkeypatch,
+        {
+            "glb": _gm(5622.0, 59.33, 82006),
+            "ifc": _gm(6288.0, 59.39, 87976),
+            "step": _gm(4671.0, 59.33, 29662),
+            "xml": _gm(29462.0, 59.63, 352856),  # ~5x — thick-solid representation
+        },
+    )
+    assert r.consistent is True, r.mismatches
+    assert r.mismatches == {}
+
+
 def test_produced_verdict_flags_empty(monkeypatch):
     """A format that produced no renderable geometry at all (empty scene / IFC that
     imported nothing) is flagged."""

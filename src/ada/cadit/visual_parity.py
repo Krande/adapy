@@ -28,6 +28,7 @@ STEP *sources* keep a separate streaming instance-count fast path
 
 from __future__ import annotations
 
+import statistics
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -392,7 +393,14 @@ def parity_from_produced_files(source_key: str, produced: dict[str, "Path | None
     if live:
         bbox_ref_fmt = max(live, key=lambda f: live[f].bbox)
         bbox_ref = live[bbox_ref_fmt].bbox
-        area_ref = max((m.area for f, m in live.items() if f in _AREA_FLOOR_FORMATS), default=0.0)
+        # Reference for the gross-loss area floor: the MEDIAN concept area, not the
+        # max. One format legitimately carries several× the area of the others —
+        # Genie-XML emits thick solids that tessellate to ~5× the mid-surface area
+        # STEP/IFC carry — so using the max would let that outlier inflate the floor
+        # and falsely flag the (correct) mid-surface formats. Median is robust to a
+        # single inflated representation while still catching a near-empty format.
+        _concept_areas = [m.area for f, m in live.items() if f in _AREA_FLOOR_FORMATS]
+        area_ref = statistics.median(_concept_areas) if _concept_areas else 0.0
         expected = int(live[bbox_ref_fmt].tris)
 
         for fmt, m in live.items():
