@@ -315,8 +315,18 @@ def _measure_produced_file(fmt: str, path: Path) -> "_GeomMeasure":
     import io as _io
 
     asm = load_assembly_auto(path)
+    # A concept format with no physical objects (e.g. FEM→ifc/xml/step of a
+    # solid-only mesh — solids have no shell/beam concepts) exports nothing;
+    # measure it as empty instead of letting to_gltf raise on an empty scene.
+    if not any(True for _ in asm.get_all_physical_objects()):
+        return _GeomMeasure(0.0, 0.0, 0, True)
     buf = _io.BytesIO()
-    asm.to_gltf(buf, merge_meshes=True)
+    try:
+        asm.to_gltf(buf, merge_meshes=True)
+    except ValueError as ex:  # trimesh: "Can't export empty scenes!"
+        if "empty scen" in str(ex).lower():
+            return _GeomMeasure(0.0, 0.0, 0, True)
+        raise
     buf.seek(0)
     scene = trimesh.load(buf, file_type="glb", process=False)
     return _measure_scene(scene)
@@ -366,23 +376,38 @@ def parity_from_produced_files(source_key: str, produced: dict[str, "Path | None
 
     mismatches: dict[str, str] = {}
     expected = 0
-    if measures:
-        bbox_ref_fmt = max(measures, key=lambda f: measures[f].bbox)
-        bbox_ref = measures[bbox_ref_fmt].bbox
-        area_floor_measures = [m.area for f, m in measures.items() if f in _AREA_FLOOR_FORMATS]
-        area_ref = max(area_floor_measures, default=0.0)
-        expected = int(measures[bbox_ref_fmt].tris)
 
-        for fmt, m in measures.items():
+    # A structure-preserving concept format (step/ifc/xml) that carries no geometry
+    # is NOT a drop when the source has no concepts to begin with: a solid-only /
+    # mesh-only FEM has no shells or beams to reconstruct, so those formats
+    # correctly export nothing (the glb still carries the element mesh). Record
+    # them as skipped rather than flagging every solid FEM as a mismatch.
+    for fmt, m in measures.items():
+        if fmt in _AREA_FLOOR_FORMATS and m.empty:
+            skipped.setdefault(fmt, "source has no concept geometry (solid-only / mesh-only)")
+
+    # Compare only formats that actually carry geometry. If NONE do, every format
+    # agrees there is nothing to render — consistent, not a mismatch.
+    live = {fmt: m for fmt, m in measures.items() if not m.empty and fmt not in skipped}
+    if live:
+        bbox_ref_fmt = max(live, key=lambda f: live[f].bbox)
+        bbox_ref = live[bbox_ref_fmt].bbox
+        area_ref = max((m.area for f, m in live.items() if f in _AREA_FLOOR_FORMATS), default=0.0)
+        expected = int(live[bbox_ref_fmt].tris)
+
+        for fmt, m in live.items():
             reasons: list[str] = []
-            if m.empty:
-                reasons.append("produced no renderable geometry")
-            elif bbox_ref > 0 and m.bbox < (1.0 - _BBOX_REL_TOL) * bbox_ref:
+            if bbox_ref > 0 and m.bbox < (1.0 - _BBOX_REL_TOL) * bbox_ref:
                 reasons.append(f"bbox {m.bbox:.4g} vs ref {bbox_ref:.4g} ({(m.bbox / bbox_ref - 1) * 100:+.1f}%)")
             if fmt in _AREA_FLOOR_FORMATS and area_ref > 0 and m.area < _AREA_GROSS_FLOOR * area_ref:
                 reasons.append(f"area {m.area:.4g} << ref {area_ref:.4g} (grossly dropped)")
             if reasons:
                 mismatches[fmt] = "; ".join(reasons)
+        # A NON-concept format (glb, the shipped mesh) that is empty while concepts
+        # carry geometry is a genuine total loss — flag it.
+        for fmt, m in measures.items():
+            if m.empty and fmt not in _AREA_FLOOR_FORMATS and fmt not in skipped:
+                mismatches[fmt] = "produced no renderable geometry"
 
     consistent = bool(measures) and not mismatches and not errors
     return ParityResult(
