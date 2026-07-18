@@ -77,18 +77,33 @@ def _bspline_points(curve, n: int) -> list[tuple[float, float, float]] | None:
         lo, hi = float(knots[deg]), float(knots[len(knots) - deg - 1])
         if not np.isfinite([lo, hi]).all() or hi <= lo:
             return None
-        out = []
-        for x in np.linspace(lo, hi, n):
-            p = _de_boor(float(x), knots, cp, deg)
-            if p.shape[0] == 4:  # rational: de-homogenize
-                if p[3] == 0:
-                    return None
-                p = p[:3] / p[3]
-            out.append(tuple(float(v) for v in p[:3]))
-        arr = np.asarray(out)
-        if not np.isfinite(arr).all():
+        # Vectorised de Boor: evaluate every sample point in one pass (the scalar per-point loop
+        # was the read's hot path — ~4.7s of a single Utror import). Same arithmetic as ``_de_boor``,
+        # batched over the sample axis, so the output is numerically equivalent (see
+        # test_bspline_points_equivalence).
+        xs = np.linspace(lo, hi, n)
+        ks = np.searchsorted(knots, xs, side="right") - 1
+        ks = np.clip(ks, deg, len(cp) - 1)
+        # d[j][i] is the j-th active control point for sample i; each entry is (n, dim).
+        d = [cp[j + ks - deg] for j in range(deg + 1)]
+        for r in range(1, deg + 1):
+            for j in range(deg, r - 1, -1):
+                lo_ = knots[j + ks - deg]  # (n,)
+                hi_ = knots[j + 1 + ks - r]  # (n,)
+                den = hi_ - lo_
+                a = np.divide(xs - lo_, den, out=np.zeros_like(den), where=den != 0)[:, None]
+                d[j] = (1.0 - a) * d[j - 1] + a * d[j]
+        pts = d[deg]  # (n, dim)
+        if pts.shape[1] == 4:  # rational: de-homogenize
+            w_last = pts[:, 3]
+            if np.any(w_last == 0):
+                return None
+            pts = pts[:, :3] / w_last[:, None]
+        else:
+            pts = pts[:, :3]
+        if not np.isfinite(pts).all():
             return None
-        return out
+        return [tuple(float(v) for v in p) for p in pts]
     except Exception as exc:  # noqa: BLE001 - a curve we can't sample falls back to the chord
         logger.debug(f"bspline sample failed: {exc}")
         return None
