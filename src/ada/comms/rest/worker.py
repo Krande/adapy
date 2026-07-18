@@ -729,7 +729,10 @@ def _parity_child(src_path, source_key, target_format, on_progress, *, produced=
     import json as _json
     import pathlib as _pl
 
-    from ada.cadit.visual_parity import parity_for_source_file, parity_from_produced_files
+    from ada.cadit.visual_parity import (
+        parity_for_source_file,
+        parity_from_produced_files,
+    )
 
     on_progress("parity", 0.2)
     if produced:
