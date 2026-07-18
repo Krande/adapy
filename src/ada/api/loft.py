@@ -27,7 +27,7 @@ from ada.geom.points import Point
 # / wire_points), so it works under adacpp as well as pythonocc with no OCC import
 # anywhere in this module. The transform helpers compose a 4x4 affine matrix and
 # hand it to ``CadBackend.transform``; ``planar_face_from_poly_loop`` builds a
-# ``CurveBoundedPlane`` through ``CadBackend.build``. See dap plan/v3 Phase 1/2.
+# ``CurveBoundedPlane`` through ``CadBackend.build``. See the internal design notes Phase 1/2.
 if TYPE_CHECKING:
     from ada.api.spatial.part import Part
     from ada.cad import ShapeHandle

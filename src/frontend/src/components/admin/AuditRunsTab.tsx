@@ -10,7 +10,7 @@ const WASM_POOL = "wasm";
 
 // Admin tab — kick off regression sweeps across the converter matrix
 // and drill into per-cell results. Layer 1 of the audit panel from
-// plan/v2/notes_admin_audit_panel.md:
+// the admin audit-panel design notes:
 //
 //   * "Run audit" form — pick a scope (M3 will add a corpus picker)
 //     and an optional worker pool, fire one POST to /admin/audit/runs.

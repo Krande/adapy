@@ -1,7 +1,7 @@
 """CAD-backend performance baseline.
 
 Purpose: a regression gate for the OCC -> backend-abstraction migration
-(see dap ``plan/v3/notes_occ_backend_abstraction.md``). Phase 1 reroutes
+(see dap ``the internal design notes``). Phase 1 reroutes
 the tessellation pipeline through ``ada.cad.active_backend()``; this file
 captures the *pre-Phase-1* cost of the hot paths so any per-shape overhead
 the seam introduces shows up as a measurable delta rather than a guess.

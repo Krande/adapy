@@ -6,7 +6,7 @@ WHY THIS EXISTS (and why it is a stopgap, not the right answer)
 ENDPOINTS. Whatever the edge's curve does between its two vertices is discarded,
 so a plate whose boundary follows a spline (e.g. a deck plate meeting a curved
 hull skin) comes out as a straight chord between its corners. Measured on
-``OP1_v1007_hullskin.xml`` face ``FACE00004482``: 4 coedges — 1 straight, 2
+``a hull-skin Genie-XML model`` face ``FACE00004482``: 4 coedges — 1 straight, 2
 ``intcurve``, 1 ``ellipse`` — collapsed to a 4-point polygon.
 
 The loss is doubled by the target type: ``CurvePoly2d`` (the ``Plate`` outline) is
@@ -23,7 +23,7 @@ adjacent ``curved_shell`` keeps its real spline (it goes through ``AdvancedFace`
 so the two faces still do not share edge points and the seam is still not
 watertight — it just looks right. A real fix is B-spline edge support in ``Plate``
 / ``CurvePoly2d``, or routing curved-boundary flat plates through ``AdvancedFace``
-like the curved shells. See dap ``plan/v3/notes_plate_bspline_edges.md``.
+like the curved shells. See the internal design notes.
 """
 
 from __future__ import annotations
@@ -77,9 +77,9 @@ def _bspline_points(curve, n: int) -> list[tuple[float, float, float]] | None:
         lo, hi = float(knots[deg]), float(knots[len(knots) - deg - 1])
         if not np.isfinite([lo, hi]).all() or hi <= lo:
             return None
-        # Vectorised de Boor: evaluate every sample point in one pass (the scalar per-point loop
-        # was the read's hot path — ~4.7s of a single Utror import). Same arithmetic as ``_de_boor``,
-        # batched over the sample axis, so the output is numerically equivalent (see
+        # Vectorised de Boor: evaluate every sample point in one pass (the scalar per-point loop was
+        # the read's hot path — ~4.7s of a single large Genie-XML import). Same arithmetic as
+        # ``_de_boor``, batched over the sample axis, so the output is numerically equivalent (see
         # test_bspline_points_equivalence).
         xs = np.linspace(lo, hi, n)
         ks = np.searchsorted(knots, xs, side="right") - 1

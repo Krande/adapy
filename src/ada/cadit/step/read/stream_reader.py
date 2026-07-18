@@ -39,7 +39,7 @@ from __future__ import annotations
 # (reclaimable, file-backed), the spilled id/offset index tmpfiles, anonymous
 # Python heap, plus a sizing of the ``colour_map`` / ``tmap`` dicts. This is the
 # measurement that decides where the ~2.1 GB parent peak actually lives before
-# we optimise (see dap plan: cut peak parent RSS of STEP->GLB).
+# we optimise (see internal notes: cut peak parent RSS of STEP->GLB).
 # ---------------------------------------------------------------------------
 import os as _os
 import re

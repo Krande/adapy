@@ -1,7 +1,7 @@
 """Serialize ``ada.geom`` geometry into the NGEOM binary buffer (spec v1).
 
 The buffer is the contract with adacpp's neutral geometry layer (no adacpp import here). See
-dap/plan/v3/spec_neutral_geometry_schema.md for the wire format and tag catalog.
+the neutral-geometry schema spec for the wire format and tag catalog.
 """
 
 from __future__ import annotations

@@ -8,8 +8,8 @@ whole plate failed to build (``build_advanced_face: wire build failed``), silent
 hull-skin plates from Genie-XML -> STEP/IFC audits. The fix walks ``loop.next`` and takes the outer
 (periphery) loop instead.
 
-Fixture ``degenerate_first_loop.sat`` is the minimal record closure of face ``FACE00000604`` from
-Utror_6k_pl_v2005_FAL_noCage_ULST11 (28 records).
+Fixture ``degenerate_first_loop.sat`` is the minimal record closure of face ``FACE00000604`` from a
+hull-skin Genie-XML SAT model (28 records).
 """
 
 import ada.geom.curves as geo_cu

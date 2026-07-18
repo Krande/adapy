@@ -37,7 +37,7 @@ def _is_topods_shape(shape) -> bool:
     """True if ``shape`` is a raw pythonocc ``TopoDS_Shape``. Returns False when
     pythonocc isn't installed (e.g. the adacpp-only environment) so the
     tessellation dispatch falls through to the active backend's tessellate verb
-    rather than blowing up on the import. See dap plan/v3 Phase 2."""
+    rather than blowing up on the import. See the internal design notes Phase 2."""
     try:
         from OCC.Core.TopoDS import TopoDS_Shape
     except ModuleNotFoundError:
@@ -694,8 +694,8 @@ class BatchTessellator:
 
         # The kind (line vs triangle mesh) is passed in by the caller rather
         # than sniffed off the OCC handle type — an opaque ShapeHandle under
-        # a non-OCC backend can't be isinstance-checked. See dap plan/v3
-        # notes_occ_backend_abstraction (Phase 1).
+        # a non-OCC backend can't be isinstance-checked. See the internal design notes
+        # the internal design notes (Phase 1).
         if mesh_type == MeshType.LINES:
             tess_shape = tessellate_edges(occ_geom)
             indices = tess_shape.indices

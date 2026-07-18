@@ -353,7 +353,7 @@ class AdacppBackend:
         # where pythonocc does not exist). The ada.geom construction funnel is
         # being ported to adacpp C++ incrementally; types not yet ported raise
         # NotImplementedError rather than borrowing pythonocc. End goal: full
-        # parity with OccBackend. See dap plan/v3 Phase 7.
+        # parity with OccBackend. See the internal design notes Phase 7.
         import ada.geom.curves as gcu
         import ada.geom.solids as so
         import ada.geom.surfaces as su
@@ -1427,7 +1427,7 @@ class AdacppBackend:
     def build_bspline_advanced_face_from_grid(self, grid: "list", tol: float):
         # Native grid→NURBS fit not yet ported to adacpp. Raising here makes the
         # surface-reconstruction caller fall back to flat plates (the safe
-        # default) rather than borrowing pythonocc. See dap plan/v3 Phase 7.
+        # default) rather than borrowing pythonocc. See the internal design notes Phase 7.
         raise NotImplementedError("adacpp.cad grid→bspline surface fit is not available yet")
 
     def face_to_advanced_face(self, shape: ShapeHandle):

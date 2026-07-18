@@ -1,7 +1,8 @@
 """Equivalence guard for the vectorised ``_bspline_points`` B-spline sampler.
 
 ``_bspline_points`` (ada.cadit.sat.read.plate_edge_curves) is the hot path of the Genie-XML / SAT
-plate-edge read (``_de_boor`` was ~4.7s of a single Utror import). It was a pure-Python per-point de
+plate-edge read (``_de_boor`` was ~4.7s of a single large Genie-XML import). It was a pure-Python
+per-point de
 Boor loop; the vectorised version must produce byte-for-byte-equivalent samples so plate geometry is
 unchanged. This test pins the vectorised output against an independent scalar de Boor reference (a
 copy of the original loop) plus a hand-computed quadratic Bézier golden.

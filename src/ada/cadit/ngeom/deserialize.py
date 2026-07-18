@@ -1,6 +1,6 @@
 """Decode an NGEOM buffer back into ``ada.geom`` geometry — the exact inverse of ``serialize.py``.
 
-Wire format (see ``serialize.py`` / dap/plan/v3/spec_neutral_geometry_schema.md): a header
+Wire format (see ``serialize.py`` / the neutral-geometry schema spec): a header
 ``b"ADANGEOM"`` + ``i32 version`` + ``i32 num_records``, then ``num_records`` records each
 ``i32 tag, i32 nbytes, payload``, then a roots trailer ``i32 root_count`` followed by
 ``i32 geom_record_index, i32 id_len, id_utf8`` per root. Records reference earlier records by their

@@ -665,7 +665,7 @@ class JobQueue:
         forced every worker to NAK messages from other pools — that
         NAK loop burned the per-message delivery budget and surfaced
         as ``worker exceeded 3 delivery attempts`` errors on perfectly
-        valid jobs (see plan/v2 audit-pool routing notes).
+        valid jobs (see the internal notes).
 
         Idempotent: ``pull_subscribe`` matches an existing durable by
         name if the config is compatible, so multiple pods in the

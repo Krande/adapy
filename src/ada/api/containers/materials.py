@@ -180,7 +180,7 @@ class Materials(NumericMapped):
             # calls funneling into the same ``existing`` material.
             # Rebuilding ``set(existing_refs)`` on every call was the
             # dominant O(N²) cost (5.8 BILLION FemSection.__hash__
-            # calls on the JackethybridFEM → Genie XML conversion).
+            # calls on a jacket FEM model → Genie XML conversion).
             # Cache an ``id()``-keyed set on the material itself so:
             #   * membership tests are pointer-equality, no __hash__
             #     overhead on FemSection / Beam / Plate refs

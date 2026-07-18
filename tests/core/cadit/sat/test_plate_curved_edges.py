@@ -3,9 +3,9 @@
 ``PlateFactory.get_points`` keeps only edge ENDPOINTS, so a plate whose boundary follows a curve
 (a deck plate meeting a curved hull skin) rendered as a straight chord between its corners while the
 skin beside it curved. ``Config().sat_plate_curved_edges`` samples the curve into extra outline
-points. See dap plan/v3/notes_plate_bspline_edges.md for why this is a stopgap.
+points. See the internal design notes.md for why this is a stopgap.
 
-Synthetic fixtures: the real reproducer (OP1_v1007_hullskin.xml, face FACE00004482 — a 0.072 m bulge
+Synthetic fixtures: the real reproducer (a hull-skin Genie-XML model, face FACE00004482 — a 0.072 m bulge
 flattened out of a 1.4 m plate) is a client model and is not committed.
 """
 

@@ -101,7 +101,7 @@ class Config:
                 # pcurves are redundant — CAD consumers recompute them from the
                 # 3D geometry on import — and OCCT's write.surfacecurve.mode=0
                 # roughly halves both STEP file size AND write time on plate-heavy
-                # models (validated ~-49% size / -60% time on Ship1T1). Enable for
+                # models (validated ~-49% size / -60% time on a large ship model). Enable for
                 # the rare strict consumer that needs pcurves written explicitly.
                 ConfigEntry("occ_step_write_pcurves", bool, False),
                 ConfigEntry("add_trace_to_exception", bool, False),
@@ -170,7 +170,7 @@ class Config:
                 # On => sample the curve and carry the samples as extra outline points, so the plate
                 # follows the curve. STOPGAP: Plate/CurvePoly2d has only line+arc segments, so the
                 # samples are ours, not the neighbour's, and the seam still isn't shared. Off =>
-                # the pre-2026-07-14 chord. See dap plan/v3/notes_plate_bspline_edges.md.
+                # the pre-2026-07-14 chord. See the internal design notes.
                 ConfigEntry("plate_curved_edges", bool, True),
             ],
         ),

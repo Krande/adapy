@@ -390,7 +390,7 @@ class OccBackend:
         # Walk every vertex and return all coordinates as one list. The
         # per-vertex loop stays inside the backend (the abstraction boundary
         # must never land inside a per-vertex loop — see the perf guardrail in
-        # dap plan/v3 notes_occ_backend_abstraction Phase 1/5).
+        # the internal design notes Phase 1/5).
         exp = self._TopologyExplorer(shape)
         pts = []
         for v in exp.vertices():

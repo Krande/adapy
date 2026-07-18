@@ -1610,7 +1610,7 @@ def _brep_writer_is_python(serializer: str | None) -> bool:
 def _default_glb_tess_engine() -> str:
     """Default engine for the non-STEP →GLB (scene) path: ``libtess2`` when adacpp is importable,
     else the OCC BatchTessellator. OCC's prism tessellation of curved B-spline plates is
-    NON-MANIFOLD — it drops the viewer's per-plate edge outlines (hullskin elev13 plates) — so
+    NON-MANIFOLD — it drops the viewer's per-plate edge outlines (hull-skin plates) — so
     libtess2 (manifold; non-NGEOM-serializable geom still falls back to OCC per-object) is
     preferred wherever it can run. Evaluated at conversion time so a slim/adacpp-less pool still
     gets OCC."""

@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 def resolve_ids_in_multiple(tags, tags_data, is_elem):
     """Find elements shared by multiple sets.
 
-    Hot path on the JackethybridFEM → Code_Aster (.med) conversion
+    Hot path on a jacket FEM model → Code_Aster (.med) conversion
     (~530 s of a ~660 s job before tuning). Three O(N²) issues in
     the original loop:
 

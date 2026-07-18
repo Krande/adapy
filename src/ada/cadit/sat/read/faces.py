@@ -136,7 +136,7 @@ class PlateFactory:
 
         # Curved boundary edges (intcurve/ellipse) otherwise collapse to the chord between their two
         # corners — a deck plate meeting a curved hull skin renders straight while the skin beside it
-        # curves (measured on OP1_v1007_hullskin FACE00004482: a 0.072 m bulge flattened out of a
+        # curves (measured on a hull-skin model FACE00004482: a 0.072 m bulge flattened out of a
         # 1.4 m plate). Splice the sampled curve into the FINISHED corner polygon, between the two
         # corners that edge joins. Done here, after the corner sequence is complete, precisely because
         # `edges` is NOT in geometric chain order — the loop above works by collecting far-endpoints

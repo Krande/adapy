@@ -4,7 +4,7 @@ at read time). The renumber must propagate to the sets, otherwise every set memb
 resolves to a now-missing id.
 
 This reproduced as ``ValueError: The elem id "787" is not found`` when exporting
-JacketHybrid.FEM (its elset members referenced internal ids that had been renumbered to
+a jacket Sesam FEM (its elset members referenced internal ids that had been renumbered to
 external ones). The object path stays correct for free because its sets hold Node/Elem
 objects whose ``.id`` is renumbered in place; only the array path needed the explicit
 remap.

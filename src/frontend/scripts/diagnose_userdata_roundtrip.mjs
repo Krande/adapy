@@ -6,7 +6,7 @@
 //   4. Parse the JSON chunk and dump sceneDef.extras
 //   5. Re-load via GLTFLoader and dump scene.userData + mesh.name
 //
-// Run from /home/kristoffer/code/adapy/src/frontend:
+// Run from the frontend directory:
 //   node --experimental-fetch scripts/diagnose_userdata_roundtrip.mjs
 
 import * as THREE from "three"

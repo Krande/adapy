@@ -10,7 +10,7 @@ import {
 } from "@/services/viewerApi";
 
 // Admin tab — cross-conversion performance dashboard (M6 of
-// plan/v2/notes_admin_audit_panel.md).
+// the admin audit-panel design notes).
 //
 // One row per (source_ext, target_format) cell aggregated over the
 // last N days of convert jobs (audit + prod combined by default).

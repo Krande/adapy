@@ -1221,7 +1221,7 @@ class Part(BackendGeom):
         # FEM → IFC / XML exports: every call re-scanned the target
         # material's (growing, tens-of-thousands-long) ``refs`` list,
         # turning consolidation into an O(sections × refs) blow-up
-        # (~7.4 billion id() calls, ~11 min on Ship1T1.FEM with 66k
+        # (~7.4 billion id() calls, ~11 min on a large ship FEM with 66k
         # sections sharing 2 materials). One add per distinct material is
         # identical in effect — repeat adds of an already-registered
         # material are no-ops.
