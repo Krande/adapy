@@ -141,3 +141,65 @@ def test_fem_conversion_uses_fast_path():
     for cpl in plates:
         g = cpl.solid_geom().geometry
         assert type(g).__name__ == "ExtrudedAreaSolid"
+
+
+def test_from_fem_shells_batch_matches_scalar():
+    """The vectorized batch builder is bitwise-identical to the per-element scalar
+    from_fem_shell — the streaming merge_strategy=None plate stream relies on this."""
+    import numpy as np
+
+    cases = list(CASES.values())
+    from collections import defaultdict
+
+    by_k = defaultdict(list)
+    for i, c in enumerate(cases):
+        by_k[len(c)].append(i)
+    batch = [None] * len(cases)
+    for _k, idxs in by_k.items():
+        arr = np.stack([np.array(cases[i], dtype=float) for i in idxs])
+        for i, poly in zip(idxs, CurvePoly2d.from_fem_shells_batch(arr)):
+            batch[i] = poly
+
+    for i, c in enumerate(cases):
+        scalar = CurvePoly2d.from_fem_shell(c)
+        b = batch[i]
+        assert b is not None
+        assert np.array_equal(np.asarray(b.points2d), np.asarray(scalar.points2d))
+        assert np.array_equal(np.asarray(b.points3d), np.asarray(scalar.points3d))
+        assert np.array_equal(np.asarray(b.seg_global_points), np.asarray(scalar.seg_global_points))
+        assert b.seg_index == scalar.seg_index
+
+
+def test_streaming_merge_none_matches_scalar_convert():
+    """iter_objects_from_fem(merge_strategy=None) now batches the CurvePoly2d build;
+    its plate outlines must stay identical to the per-element scalar
+    convert_shell_elem_to_plates path (mixed tri + quad + warped-quad-split mesh)."""
+    import numpy as np
+
+    import ada
+    from ada import Plate
+    from ada.fem.formats.utils import convert_shell_elem_to_plates
+
+    # a meshed plate -> exercises coplanar quads + material consolidation through the
+    # wired streaming path (the batch/scalar geometry equivalence for tri/quad/warped
+    # arities is covered directly by test_from_fem_shells_batch_matches_scalar).
+    pl = Plate("pl", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.02)
+    part = ada.Part("pp")
+    part.fem = pl.to_fem_obj(0.4, "shell")
+
+    streamed = list(part.iter_objects_from_fem(beams=False, plates=True, merge_strategy=None))
+
+    scalar_part = ada.Part("pp")
+    scalar_part.fem = part.fem  # same mesh
+    mat_dict: dict = {}
+    scalar = []
+    for elem in scalar_part.fem.elements.shell:
+        scalar.extend(convert_shell_elem_to_plates(elem, scalar_part, mat_dict))
+
+    assert len(streamed) == len(scalar) > 1
+    for a, b in zip(streamed, scalar):
+        assert a.name == b.name
+        assert np.array_equal(np.asarray(a.poly.points2d), np.asarray(b.poly.points2d))
+        assert np.array_equal(np.asarray(a.poly.points3d), np.asarray(b.poly.points3d))
+        assert a.poly.seg_index == b.poly.seg_index
+        assert a.t == b.t

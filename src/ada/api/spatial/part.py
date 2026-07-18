@@ -995,10 +995,7 @@ class Part(BackendGeom):
         materials so the streamed plates share the exporter's material identity
         (else a post-consolidation ``materials.add`` would mint a fresh copy).
         """
-        from ada.fem.formats.utils import (
-            convert_shell_elem_to_plates,
-            line_elem_to_beam,
-        )
+        from ada.fem.formats.utils import line_elem_to_beam
 
         if self.fem is None:
             return
@@ -1008,11 +1005,32 @@ class Part(BackendGeom):
         if not plates:
             return
         if merge_strategy is None:
-            mat_dict: dict = {} if mat_cache is None else mat_cache
-            for elem in self.fem.elements.shell:
-                yield from convert_shell_elem_to_plates(elem, self, mat_dict, detached=detached)
+            yield from self._iter_scalar_plates_from_fem(detached, mat_cache)
         else:
             yield from self._iter_merged_plates_from_fem(merge_strategy, detached, mat_cache)
+
+    def _iter_scalar_plates_from_fem(self, detached: bool, mat_cache: dict | None, chunk: int = 2048):
+        """Vectorised 1:1 element→plate stream (``merge_strategy=None``): gather one
+        shell element's plate entries at a time and batch-build the CurvePoly2d per
+        polygon arity in bounded chunks (never the whole set resident), yielding in
+        element order. Bitwise-identical plate outlines to the scalar per-element
+        ``convert_shell_elem_to_plates`` path — the orientation math is just run once
+        over arrays (:meth:`CurvePoly2d.from_fem_shells_batch`) instead of per element,
+        cutting the FEM→concept CPU cost dominated by ``from_fem_shell``."""
+        from ada.fem.formats.utils import (
+            build_plates_from_entries,
+            shell_elem_to_plate_entries,
+        )
+
+        mat_dict: dict = {} if mat_cache is None else mat_cache
+        buf: list = []
+        for elem in self.fem.elements.shell:
+            buf.extend(shell_elem_to_plate_entries(elem, self, mat_dict))
+            if len(buf) >= chunk:
+                yield from build_plates_from_entries(buf, self, detached=detached)
+                buf = []
+        if buf:
+            yield from build_plates_from_entries(buf, self, detached=detached)
 
     def _iter_merged_plates_from_fem(self, merge_strategy, detached: bool, mat_cache: dict | None, chunk: int = 2048):
         """Wrap the object-free merged :class:`FaceData` records in transient Plates.
