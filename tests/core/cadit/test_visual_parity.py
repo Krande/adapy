@@ -192,3 +192,41 @@ def test_native_step_parity_single_parse_matches(tmp_path):
     assert r.counts["source"] == r.counts["ifc"] == r.counts["step"] == r.expected
     assert "xml" in r.skipped
     assert r.consistent is True
+
+
+def _fem_mixed_inp(tmp_path):
+    """Write a small FEM (shells + line beams in one part) to Abaqus .inp and return
+    its path — the fused-from-mesh source parity_for_fem_file streams over."""
+    import glob
+
+    pl = Plate("P", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.02)
+    bm = Beam("B", (0, 0, 0), (3, 0, 0), "IPE300")
+    part = ada.Part("pp")
+    part.fem = pl.to_fem_obj(0.5, "shell")
+    part.fem += bm.to_fem_obj(0.5, "line")
+    (ada.Assembly("A") / part).to_fem("m", "abaqus", scratch_dir=str(tmp_path), overwrite=True)
+    return glob.glob(str(tmp_path / "**" / "*.inp"), recursive=True)[0]
+
+
+def test_parity_for_fem_file_streams_baseline(tmp_path):
+    """Criterion 1: the baseline is counted by STREAMING the FEM-fused object pass
+    (no create_objects_from_fem materialisation), and every streaming export
+    (ifc/xml/step) fuses the SAME objects straight from the mesh — so source == ifc
+    == xml == step with no false mismatch. Exercises a mixed shell+beam part, which
+    also guards the no-cross-format-mutation (fresh-reload) invariant."""
+    from ada.cadit.visual_parity import _streaming_baseline_count, parity_for_fem_file
+
+    inp = _fem_mixed_inp(tmp_path)
+
+    # the baseline never materialises the part's concept containers
+    asm = ada.from_fem(inp)
+    baseline = _streaming_baseline_count(asm)
+    assert baseline > 1
+    for p in asm.get_all_parts_in_assembly(include_self=True):
+        assert not len(p.plates) and not len(p.beams)  # streamed, never held whole
+
+    r = parity_for_fem_file(inp)
+    assert r.counts["source"] == baseline
+    assert r.counts["ifc"] == r.counts["xml"] == r.counts["step"] == baseline
+    assert r.errors == {} and r.skipped == {}
+    assert r.consistent is True

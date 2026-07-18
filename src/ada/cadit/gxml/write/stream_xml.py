@@ -91,9 +91,26 @@ def write_xml_stream(
         # plate materials live on the FEM shell sections; register them so
         # add_materials emits them and the streamed face material_refs resolve.
         _register_shell_materials(part)
+    else:
+        # merge_strategy is None but a part may still carry only a FEM mesh (no
+        # materialised Beam/Plate) — the streamer then fuses concepts straight from
+        # the mesh (mirroring the IFC/STEP streaming writers), so register the
+        # sections + materials those fused objects reference here, before the
+        # scaffolding + consolidation, so add_sections/add_materials emit them.
+        _register_fem_fused_scaffolding(part)
 
     part.consolidate_sections()
     part.consolidate_materials()
+
+    # embed_sat builds one shared ACIS body from the part's Plate objects — but a
+    # part that fuses its plates from the FEM mesh has none to build it from (and
+    # materialising them all would defeat the streaming). Fall back to polygon plates
+    # in that case rather than emitting <sheet>s that reference absent SAT faces.
+    if embed_sat and any(_fuses_from_fem(p) for p in part.get_all_parts_in_assembly(include_self=True)):
+        from ada.config import logger as _logger
+
+        _logger.info("write_xml_stream: a part streams plates from its FEM mesh; embed_sat disabled (polygon plates)")
+        embed_sat = False
 
     # The ACIS body must exist before the plates stream: each <sheet> references
     # its faces by the name the SAT writer minted for them.
@@ -117,11 +134,13 @@ def write_xml_stream(
     thicknesses_elem = ET.SubElement(properties, "thicknesses")
     from ada.api.plates import PlateCurved
 
-    distinct_thicknesses = (
-        _shell_thicknesses(part)
-        if use_faces
-        else [p.t for p in part.get_all_physical_objects(by_type=(Plate, PlateCurved))]
-    )
+    if use_faces:
+        distinct_thicknesses = _shell_thicknesses(part)
+    else:
+        # Materialised plates, plus the FEM shell thicknesses of any part that fuses
+        # its plates straight from the mesh (no-op unless a part fuses).
+        distinct_thicknesses = [p.t for p in part.get_all_physical_objects(by_type=(Plate, PlateCurved))]
+        distinct_thicknesses += _shell_thicknesses(part)
     for t in distinct_thicknesses:
         if t not in thickness_map:
             name = thickness_name(t)
@@ -181,6 +200,36 @@ def _shell_thicknesses(part) -> list:
                 seen.add(t)
                 out.append(t)
     return out
+
+
+def _fuses_from_fem(p) -> bool:
+    """True for a part whose Beam/Plate haven't been materialised but whose FEM mesh
+    carries elements — the streamer fuses its concepts straight from the mesh (same
+    predicate the IFC/STEP streaming writers use)."""
+    from ada.cadit.step.write.ap242_stream import _part_fuses_from_fem
+
+    return _part_fuses_from_fem(p)
+
+
+def _register_fem_fused_scaffolding(part) -> None:
+    """Register the sections + materials referenced by the Beam/Plate concepts a part
+    fuses from its FEM mesh, so add_sections/add_materials emit them and the streamed
+    section_ref/material_ref resolve. Sourced from the FEM sections (a handful of
+    distinct entries), so nothing geometry-bearing is materialised. No-op for a
+    part that already carries built concepts."""
+    for p in part.get_all_parts_in_assembly(include_self=True):
+        if not _fuses_from_fem(p):
+            continue
+        for fem_sec in p.fem.sections.lines:
+            sec = getattr(fem_sec, "section", None)
+            mat = getattr(fem_sec, "material", None)
+            if sec is not None and sec.name not in p.sections.name_map:
+                sec.parent = p
+                p.sections.add(sec)
+            if mat is not None and mat.name not in p.materials.name_map:
+                mat.parent = p
+                p.materials.add(mat)
+    _register_shell_materials(part)
 
 
 def _register_shell_materials(part) -> None:
@@ -243,6 +292,19 @@ def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_
         for child in list(tmp):
             fh.write(ET.tostring(child, encoding="unicode"))
 
+    # Beams fused straight from the FEM mesh (parts carrying only a mesh, no built
+    # concepts) — one transient Beam at a time, bounded memory, mirroring the
+    # IFC/STEP streaming writers. Emitted after the materialised beams so all beams
+    # still precede all plates.
+    for p in part.get_all_parts_in_assembly(include_self=True):
+        if not _fuses_from_fem(p):
+            continue
+        for beam in p.iter_objects_from_fem(beams=True, plates=False):
+            tmp = ET.Element("structures")
+            add_straight_beam(beam, tmp, sw)
+            for child in list(tmp):
+                fh.write(ET.tostring(child, encoding="unicode"))
+
     if merge_strategy is None:
         from ada.api.plates import PlateCurved
         from ada.config import logger
@@ -265,6 +327,19 @@ def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_
                 continue
             for child in list(tmp):
                 fh.write(ET.tostring(child, encoding="unicode"))
+        # Plates fused straight from the FEM mesh (1:1 element→plate, no merge) for
+        # parts that carry only a mesh — bounded, one transient Plate at a time.
+        for p in part.get_all_parts_in_assembly(include_self=True):
+            if not _fuses_from_fem(p):
+                continue
+            for plate in p.iter_objects_from_fem(beams=False, plates=True, merge_strategy=None):
+                tmp = ET.Element("structures")
+                if sw is not None:
+                    add_plate_sat(plate, thickness_map[plate.t], tmp, sw)
+                else:
+                    add_plate_polygon(plate, thickness_map[plate.t], tmp)
+                for child in list(tmp):
+                    fh.write(ET.tostring(child, encoding="unicode"))
     else:
         from ada.fem.formats.mesh_faces import iter_faces
 

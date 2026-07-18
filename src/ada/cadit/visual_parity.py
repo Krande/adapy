@@ -430,10 +430,22 @@ def _count_format_entities(fmt: str, path: str | Path) -> int:
     return n
 
 
-# Above this concept count the OCC STEP writer (a.to_stp) reliably runs the worker out
-# of memory (Standard_MMgrRaw malloc fail), so the step round-trip is skipped — ifc/xml
-# (the concept-native formats) still validate. Below it, OCC handles the export.
-_STEP_OCC_CONCEPT_LIMIT = 50_000
+# Shell-fold strategy shared by the baseline count and all three streaming exporters.
+# ``None`` keeps the legacy 1:1 element→plate mapping — the exact pass the writers emit,
+# so the count matches (a merge strategy here would over/under-count vs the exports).
+_PARITY_MERGE_STRATEGY = None
+
+
+def _streaming_baseline_count(assembly: "Assembly", merge_strategy=None) -> int:
+    """Baseline concept count computed by STREAMING the FEM-fused object pass — the
+    same source the ifc/xml/step streaming exporters consume — so nothing is held
+    whole and the count matches what each format emits. Delegates to the STEP
+    writer's ``_iter_stream_objects`` (Beam/Plate fused one at a time from each
+    part's FEM mesh, plus any already-built shapes), which is exactly the object
+    stream the exports iterate. ``merge_strategy`` must match the exports."""
+    from ada.cadit.step.write.ap242_stream import _iter_stream_objects
+
+    return sum(1 for _ in _iter_stream_objects(assembly, merge_strategy=merge_strategy))
 
 
 def parity_for_fem_file(
@@ -451,7 +463,6 @@ def parity_for_fem_file(
     import tempfile
 
     import ada
-    from ada.fem import FEM
 
     tmp_ctx = None
     if work_dir is None:
@@ -460,22 +471,30 @@ def parity_for_fem_file(
     work_dir = Path(work_dir)
 
     asm = ada.from_fem(path)
-    asm.create_objects_from_fem(merge=True)
-    # Drop the FEM mesh so the baseline counts the exported concept geometry, not the
-    # auxiliary mesh viz (mirrors load_assembly_auto).
-    for part in asm.get_all_parts_in_assembly(include_self=True):
-        if part.fem is not None and len(part.fem.elements) > 0:
-            part.fem = FEM(part.fem.name, parent=part)
-
-    baseline = _concept_count(asm)
+    # Do NOT materialise the concept objects (create_objects_from_fem) — on a 100k+
+    # plate FEM that is the memory peak that OOMed this cell. Instead keep the mesh
+    # and count the baseline by STREAMING the very same object pass the exporters use
+    # (one transient Beam/Plate at a time, bounded memory). The ifc/xml/step streaming
+    # writers all fuse Beam/Plate straight from the FEM mesh via
+    # Part.iter_objects_from_fem when no concepts are materialised, so the mesh must
+    # stay resident; the streamed count excludes the auxiliary mass/spring viz (only
+    # shell→plate + line→beam are yielded), so no FEM mesh drop is needed to avoid the
+    # over-count the concept path guarded against.
+    baseline = _streaming_baseline_count(asm, merge_strategy=_PARITY_MERGE_STRATEGY)
     # ifc/xml: the STREAMING writers (merge_strategy=None streams the already-built
-    # concepts — bounded, count-matches the baseline). step: the OCC writer, which
-    # doesn't scale past tens of thousands of plates (malloc fail), so it's guarded
-    # by concept count below.
+    # concepts — bounded, count-matches the baseline). step: the STREAMING AP242 writer
+    # (writer="stream") — authors B-rep text straight from the concept geometry with no
+    # OCC/adacpp shapes, so it stays memory-bounded and does not OOM on the large FEM
+    # models the OCC XCAF writer used to (the plate/beam concepts are extrusions the
+    # stream writer emits analytically).
+    ms = _PARITY_MERGE_STRATEGY
     writers: dict[str, tuple] = {
-        "ifc": (lambda a, p: a.to_ifc(p, streaming=True, merge_strategy=None), ".ifc"),
-        "xml": (lambda a, p: a.to_genie_xml(p, streaming=True, merge_strategy=None), ".xml"),
-        "step": (lambda a, p: a.to_stp(p), ".step"),
+        "ifc": (lambda a, p: a.to_ifc(p, streaming=True, merge_strategy=ms), ".ifc"),
+        # embed_sat=False: the parity streams plates straight from the FEM mesh, so
+        # there are no Plate objects to build a whole-model ACIS body from — and that
+        # body would be a memory peak anyway. Polygon plates keep the export bounded.
+        "xml": (lambda a, p: a.to_genie_xml(p, streaming=True, merge_strategy=ms, embed_sat=False), ".xml"),
+        "step": (lambda a, p: a.to_stp(p, writer="stream", merge_strategy=ms), ".step"),
     }
     counts: dict[str, int] = {"source": baseline}
     errors: dict[str, str] = {}
@@ -490,13 +509,16 @@ def parity_for_fem_file(
             if reason is not None:
                 skipped[fmt] = reason
                 continue
-            if fmt == "step" and baseline > _STEP_OCC_CONCEPT_LIMIT:
-                skipped["step"] = f"OCC STEP writer does not scale to {baseline} concepts"
-                continue
             writer, suffix = wsuf
             out = work_dir / f"parity{suffix}"
             try:
-                writer(asm, out)
+                # Reload a FRESH assembly per format: the streaming IFC writer fuses
+                # (and MATERIALISES) beams straight into the part, which flips a
+                # mixed shell+beam part off the fuse path — so a shared assembly
+                # would make whichever format runs next drop its still-unmaterialised
+                # shells. A fresh mesh-only load keeps peak memory bounded (one at a
+                # time) while giving every format the same unmutated source.
+                writer(ada.from_fem(path), out)
                 counts[fmt] = _count_format_entities(fmt, out)
             except Exception as ex:  # noqa: BLE001 - record and continue with the other formats
                 errors[fmt] = f"{type(ex).__name__}: {ex}"
@@ -638,4 +660,12 @@ def _unrepresentable_reason(fmt: str, assembly: "Assembly") -> str | None:
 
     if any(isinstance(o, (Beam, Plate)) for o in assembly.get_all_physical_objects()):
         return None
+    # A FEM source is streamed straight from the mesh (Part.iter_objects_from_fem):
+    # its Beam/Plate concepts are never materialised into the part containers, so the
+    # get_all_physical_objects() scan above sees none. A part carrying shell/line
+    # elements DOES stream to plates/beams, so it is representable in Genie XML.
+    for part in assembly.get_all_parts_in_assembly(include_self=True):
+        fem = getattr(part, "fem", None)
+        if fem is not None and (len(fem.elements.shell) or len(fem.elements.lines)):
+            return None
     return "Genie XML carries only Beam/Plate concepts, not generic solids"

@@ -210,13 +210,18 @@ def stream_assembly_to_ifc(
     fused: list = []  # (part, n_shells) — plates streamed from the FEM mesh
     for part in assembly.get_all_parts_in_assembly(include_self=True):
         fem = getattr(part, "fem", None)
-        if fem is None or len(part.plates):
+        if fem is None:
+            continue
+        # Fuse beams straight from the mesh whenever the part has line elements but no
+        # built beams — independent of whether it also carries shells, so a beam-only
+        # FEM part still emits its beams (1:1 line→beam, matching the STEP/XML stream).
+        if not len(part.beams) and len(list(fem.elements.lines)):
+            part._beams = convert_part_elem_bm_to_beams(part)
+        if len(part.plates):
             continue
         shells = list(fem.elements.shell)
         if not shells:
             continue
-        if not len(part.beams) and len(list(fem.elements.lines)):
-            part._beams = convert_part_elem_bm_to_beams(part)
         _register_plate_materials(part, shells, GeomRepr)
         fused.append((part, len(shells)))
 
