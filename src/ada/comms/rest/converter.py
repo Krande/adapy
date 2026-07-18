@@ -823,13 +823,19 @@ def _export_with_ada(
         recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
         if source_ext is not None and _gxml_face_streaming(source_ext, target_format, recon):
             # Object-free path: plates stream from the vectorized FEM-shell face
-            # source (no Plate objects, no DOM). merge_fem_objects -> strategy.
-            merge = True if merge_fem_objects is None else bool(merge_fem_objects)
-            model.to_genie_xml(
-                destination_xml=str(out_path),
-                streaming=True,
-                merge_strategy=("coplanar" if merge else "none"),
-            )
+            # source (no Plate objects, no DOM). Default is the analytic auto-detect
+            # ("cylinder": tubular members -> <curved_shell> over an embedded SAT
+            # body, flat panels -> merged <flat_plate>), matching FEM->STEP/IFC and
+            # collapsing a tube's shell facets instead of emitting thousands of
+            # coplanar polygons; a string merge_fem_objects overrides verbatim,
+            # False opts out to 1:1.
+            if isinstance(merge_fem_objects, str):
+                ms = merge_fem_objects
+            elif merge_fem_objects is False:
+                ms = "none"
+            else:
+                ms = "cylinder"
+            model.to_genie_xml(destination_xml=str(out_path), streaming=True, merge_strategy=ms)
         else:
             model.to_genie_xml(destination_xml=str(out_path))
     else:
