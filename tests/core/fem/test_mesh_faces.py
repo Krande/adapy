@@ -175,8 +175,11 @@ def test_analytic_cylinder_ifc_streaming_roundtrips(tmp_path, monkeypatch):
     b = ada.from_ifc(out)
     scene = b.to_trimesh_scene()
     tris = sum(g.faces.shape[0] for g in scene.geometry.values() if hasattr(g, "faces"))
-    # the re-imported cylinder tessellates to a real curved mesh, not a degenerate one
-    assert tris > 100
+    # the re-imported cylinder tessellates to a real curved mesh, not a degenerate
+    # sliver: one trimmed CYLINDRICAL_SURFACE -> ~52 tris (OCC) / ~144 (adacpp); a
+    # dropped/degenerate face would be a handful. (Was >100 only because a
+    # since-fixed get_all_parts_in_assembly duplicate emitted two overlapping tubes.)
+    assert tris > 40
 
 
 def _part_with_fem(fem_files):
