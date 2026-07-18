@@ -1,17 +1,29 @@
 """Cross-format visual-parity validation.
 
-The same model exported to different structure-preserving formats (GLB, IFC,
-Genie XML, STEP) and rendered must show the *same number of visualized
-elements*. A divergence means a converter silently dropped, merged, or invented
-geometry on the way through that format — exactly the class of audit failure
-that a count-only smoke test misses (e.g. an empty scene, an IFC that imports no
+The same model exported to different formats (GLB, IFC, Genie XML, STEP) must
+carry the *same geometry*. A divergence means a converter silently dropped,
+merged, or invented geometry on the way through that format — exactly the class
+of audit failure a smoke test misses (an empty scene, an IFC that imports no
 geometry, a STEP that loses solids).
 
-The metric is the number of renderable scene entries built with ``merge_meshes``
-disabled, so each physical object maps to one entry (placeholder point clouds
-that the converter seeds for empty scenes are not counted). Mesh-only formats
-(STL/OBJ/PLY) are intentionally excluded: they carry no per-object identity and
-always collapse to a single mesh soup, so they cannot preserve an element count.
+The AUDIT path (:func:`parity_from_produced_files`, driven by the worker) reads
+the ALREADY-PRODUCED output blobs — the ones the audit converted+uploaded with
+the production analytic (``cylinder``) strategy — and compares a FORMAT-AGNOSTIC
+GEOMETRY INVARIANT: bounding-box extent (strict gate) plus a coarse surface-area
+floor. It re-derives nothing, so it validates exactly what ships and does zero
+extra conversion.
+
+This replaced an earlier count-based design (re-derive with
+``merge_strategy=None``, compare per-object element counts) which had two bugs:
+it validated an UNMERGED model production never ships (~71k plates instead of a
+handful of analytic cylinder faces), and the ``None`` re-derivation wrote ~1 GB
+of temp files per model, stalling the audit worker on nvme write-contention.
+Entity-count equality also cannot work under the analytic model — one physical
+tube is a single CYLINDRICAL_SURFACE in STEP but several SAT faces in Genie XML —
+so a geometry measure, not a count, is the correct invariant.
+
+STEP *sources* keep a separate streaming instance-count fast path
+(:func:`parity_for_step_file`); they were never the memory/temp-file problem.
 """
 
 from __future__ import annotations
@@ -110,10 +122,17 @@ def assembly_element_count(assembly: "Assembly") -> int:
 
 @dataclass
 class ParityResult:
-    counts: dict[str, int]  # format label -> visualized element count ("source" is the baseline)
-    expected: int  # the baseline (source) count
-    consistent: bool  # True iff every format matches the baseline
-    mismatches: dict[str, int] = field(default_factory=dict)  # format -> count, for the ones that differ
+    # format label -> the per-format measure. Two shapes coexist: the legacy
+    # count-based paths (STEP/whole-model) store an int element count; the
+    # geometry-invariant path (:func:`parity_from_produced_files`) stores a small
+    # dict ``{"area": .., "bbox": .., "tris": ..}`` — a format-agnostic measure of
+    # the geometry that actually shipped. ``summary`` renders both.
+    counts: dict[str, "int | dict"]
+    expected: int  # baseline: legacy = source element count; geometry path = reference triangle count
+    consistent: bool  # True iff every compared format matches the baseline / consensus
+    # format -> the diverging value (legacy: the mismatching count; geometry path:
+    # a short "area/bbox vs ref" reason string). Non-empty => inconsistent.
+    mismatches: dict[str, "int | str"] = field(default_factory=dict)
     errors: dict[str, str] = field(
         default_factory=dict
     )  # format -> error message when that format failed to round-trip
@@ -124,7 +143,16 @@ class ParityResult:
 
     def summary(self) -> str:
         status = "OK" if self.consistent and not self.errors else "MISMATCH"
-        parts = [f"{k}={v}" for k, v in self.counts.items()]
+
+        def _fmt(v) -> str:
+            if isinstance(v, dict):
+                # geometry measure: show area (the primary invariant) compactly
+                if "area" in v:
+                    return f"{v['area']:.4g}m2"
+                return str(v)
+            return str(v)
+
+        parts = [f"{k}={_fmt(v)}" for k, v in self.counts.items()]
         if self.errors:
             parts += [f"{k}=ERR" for k in self.errors]
         if self.skipped:
@@ -168,6 +196,242 @@ def load_assembly_auto(path: str | Path) -> "Assembly":
                 part.fem = FEM(part.fem.name, parent=part)
         return asm
     raise ValueError(f"visual_parity: no loader for source suffix {ext!r}")
+
+
+# ── Geometry-invariant parity over ALREADY-PRODUCED output files ─────────────
+#
+# The audit converts each source to its production outputs (step/ifc/xml with the
+# analytic ``cylinder`` strategy, glb via to_gltf) and uploads them. This path
+# reads those SAME blobs back and compares a FORMAT-AGNOSTIC GEOMETRY MEASURE —
+# it never re-derives, so it validates exactly what ships and does zero extra
+# conversion. This replaces the old "re-derive with merge_strategy=None, compare
+# entity counts" design, which (a) validated an unmerged model production never
+# ships and (b) wrote ~1 GB of temp files per model, stalling on nvme contention.
+#
+# Entity-count equality cannot work under the analytic model: one physical tube is
+# a single CYLINDRICAL_SURFACE in STEP but several SAT faces in Genie XML, so the
+# counts legitimately differ while the geometry is identical.
+#
+# INVARIANT CHOICE (validated locally — see the commit): the BOUNDING-BOX EXTENT is
+# the strict cross-format gate; total surface AREA is a coarse secondary floor only.
+# Absolute area is NOT reliably comparable across adapy's writers because they use
+# different DIMENSIONAL representations of the same object: the STEP stream writer
+# emits a plate as a single mid-surface (area = one face) while Genie-XML/IFC can
+# emit it as a thin solid (area ~= both faces + edges = ~2x), and the shipped glb
+# renders FEM beams as zero-area *lines*. The bounding box is invariant to all of
+# that — a mid-surface, a thin solid and a line span the same extent — so a dropped
+# solid / region / empty output (the "geometry left behind" failure modes) shows as
+# a shrunk or zero bbox in every representation, with no false positive from the
+# solid-vs-surface split.
+_BBOX_REL_TOL = 0.02  # bbox diagonal extent within 2 % of the consensus (largest)
+# Secondary floor: a CAD/structural format retaining less than this fraction of the
+# largest CAD area has grossly dropped geometry (near-empty). Set well below the
+# legitimate solid-vs-mid-surface ratio (~0.5) so that representation difference
+# never trips it — only a real, large loss does.
+_AREA_GROSS_FLOOR = 0.34
+
+# Extensions measured DIRECTLY as a mesh (already tessellated). Everything else is
+# a CAD/structural format that we tessellate through the production ``to_gltf``
+# path before measuring.
+_MESH_MEASURE_EXTS = frozenset({".glb", ".gltf", ".obj", ".stl", ".ply", ".off"})
+
+# Formats whose area feeds the coarse area floor. The analytic CAD/structural trio
+# render solids/surfaces (comparable up to the ~2x solid-vs-surface factor). Mesh
+# formats (glb/obj/stl) are excluded from the area floor entirely: their beams are
+# zero-area lines, so their absolute area is not comparable — they are validated on
+# bbox alone (which DOES include the beam lines, see _measure_scene).
+_AREA_FLOOR_FORMATS = frozenset({"step", "stp", "ifc", "xml"})
+
+
+@dataclass
+class _GeomMeasure:
+    area: float  # total tessellated surface area (native model units, squared)
+    bbox: float  # bounding-box diagonal length (native model units)
+    tris: int  # triangle count (secondary; representation-dependent)
+    empty: bool  # True when the format produced no renderable geometry at all
+
+
+def _measure_scene(scene) -> "_GeomMeasure":
+    """Geometry measure of a trimesh scene:
+
+    * bbox diagonal — from ``scene.bounds``, which spans ALL geometry including
+      Path3D line entities (FEM beams render as lines), so a line-beam and a
+      solid-beam of the same member measure the same extent. Scene-graph transforms
+      are applied, so translated/rotated instances measure correctly.
+    * surface area + triangle count — from the concatenated mesh geometry only
+      (lines have no area); transforms baked in via ``dump(concatenate=True)``.
+
+    ``empty`` is True only when the scene has no spatial extent at all (no meshes
+    AND no lines) — a total geometry loss."""
+    import numpy as np
+
+    bounds = getattr(scene, "bounds", None)
+    if bounds is None:
+        return _GeomMeasure(0.0, 0.0, 0, True)
+    d = np.asarray(bounds[1], dtype=float) - np.asarray(bounds[0], dtype=float)
+    bbox = float(np.sqrt(float((d * d).sum())))
+
+    # Concatenate the mesh geometry (transforms baked in) for area/tris. Prefer the
+    # newer ``to_geometry`` and fall back to ``dump(concatenate=True)`` on older
+    # trimesh — lines have no area, so a line-only scene yields no mesh here.
+    dumped = None
+    if hasattr(scene, "to_geometry"):
+        try:
+            dumped = scene.to_geometry()
+        except Exception:  # noqa: BLE001 - only line/point geometry, or version quirk
+            dumped = None
+    if dumped is None:
+        try:
+            dumped = scene.dump(concatenate=True)
+        except Exception:  # noqa: BLE001 - a scene with only line/point geometry
+            dumped = None
+    if dumped is None or not hasattr(dumped, "area") or len(getattr(dumped, "vertices", ())) == 0:
+        # No meshes, but a finite bbox (e.g. a line-only export) is not "empty".
+        return _GeomMeasure(0.0, bbox, 0, bbox <= 0.0)
+    area = float(dumped.area)
+    tris = int(len(getattr(dumped, "faces", ())))
+    return _GeomMeasure(area, bbox, tris, bbox <= 0.0)
+
+
+def _measure_produced_file(fmt: str, path: Path) -> "_GeomMeasure":
+    """Load one produced output blob and measure its geometry.
+
+    Mesh formats (glb/obj/stl/…) are measured directly. CAD/structural formats
+    (step/ifc/xml) are tessellated through the SAME ``to_gltf`` path production
+    ships and then measured, so every format ends up in one consistent unit
+    system (all derive from one source; no unit conversion is injected, which
+    could itself manufacture a false mismatch). Runs inside the OOM-isolated
+    parity child, so a blow-up fails the cell, not the pod."""
+    import trimesh
+
+    ext = path.suffix.lower()
+    if ext in _MESH_MEASURE_EXTS:
+        scene = trimesh.load(str(path), file_type=ext.lstrip("."), process=False)
+        if isinstance(scene, trimesh.Trimesh):
+            scene = trimesh.Scene(scene)
+        return _measure_scene(scene)
+
+    # CAD/structural: tessellate via to_gltf (the production →GLB path), read back.
+    import io as _io
+
+    asm = load_assembly_auto(path)
+    buf = _io.BytesIO()
+    asm.to_gltf(buf, merge_meshes=True)
+    buf.seek(0)
+    scene = trimesh.load(buf, file_type="glb", process=False)
+    return _measure_scene(scene)
+
+
+def parity_from_produced_files(source_key: str, produced: dict[str, "Path | None"]) -> ParityResult:
+    """Cross-format geometry-invariant parity over already-produced output blobs.
+
+    ``produced`` maps each compared format (``step``/``ifc``/``xml``/``glb``) to the
+    local path of its produced blob, or ``None`` when that format's conversion
+    failed or was skipped (recorded, never re-derived). For each present format we
+    measure bbox diagonal + surface area + triangle count, then flag divergence:
+
+    * BBOX (strict gate, all formats, ``_BBOX_REL_TOL``): reference = the largest
+      bbox diagonal. A format that dropped a solid / region / everything — including
+      the shipped glb — shrinks (or zeroes) its bbox and is flagged. This is the
+      representation-independent invariant (mid-surface, thin solid and line-beam of
+      one member all span the same extent), so it never false-positives on the
+      solid-vs-surface representation split the way absolute area would.
+    * AREA (coarse secondary floor, CAD/structural trio only): a format retaining
+      less than ``_AREA_GROSS_FLOOR`` of the largest CAD area has grossly dropped
+      geometry (near-empty) — a backstop for a gross loss that somehow preserved the
+      bbox. The floor sits well below the legitimate ~0.5 solid-vs-mid-surface ratio
+      so that representation difference never trips it.
+
+    ``expected`` (the persisted baseline) is the reference format's triangle count —
+    an always-positive integer stand-in for the old element count. The per-format
+    ``{"area","bbox","tris"}`` measures go in ``counts``."""
+    measures: dict[str, _GeomMeasure] = {}
+    errors: dict[str, str] = {}
+    skipped: dict[str, str] = {}
+
+    for fmt in sorted(produced):
+        path = produced[fmt]
+        if path is None:
+            skipped[fmt] = "no produced blob (conversion failed or was skipped)"
+            continue
+        try:
+            measures[fmt] = _measure_produced_file(fmt, Path(path))
+        except Exception as ex:  # noqa: BLE001 - record and continue with the other formats
+            errors[fmt] = f"{type(ex).__name__}: {ex}"
+            logger.warning(f"parity_from_produced_files: measuring {fmt} failed: {ex}")
+
+    counts: dict[str, dict] = {
+        fmt: {"area": round(m.area, 3), "bbox": round(m.bbox, 4), "tris": m.tris} for fmt, m in measures.items()
+    }
+
+    mismatches: dict[str, str] = {}
+    expected = 0
+    if measures:
+        bbox_ref_fmt = max(measures, key=lambda f: measures[f].bbox)
+        bbox_ref = measures[bbox_ref_fmt].bbox
+        area_floor_measures = [m.area for f, m in measures.items() if f in _AREA_FLOOR_FORMATS]
+        area_ref = max(area_floor_measures, default=0.0)
+        expected = int(measures[bbox_ref_fmt].tris)
+
+        for fmt, m in measures.items():
+            reasons: list[str] = []
+            if m.empty:
+                reasons.append("produced no renderable geometry")
+            elif bbox_ref > 0 and m.bbox < (1.0 - _BBOX_REL_TOL) * bbox_ref:
+                reasons.append(f"bbox {m.bbox:.4g} vs ref {bbox_ref:.4g} ({(m.bbox / bbox_ref - 1) * 100:+.1f}%)")
+            if fmt in _AREA_FLOOR_FORMATS and area_ref > 0 and m.area < _AREA_GROSS_FLOOR * area_ref:
+                reasons.append(f"area {m.area:.4g} << ref {area_ref:.4g} (grossly dropped)")
+            if reasons:
+                mismatches[fmt] = "; ".join(reasons)
+
+    consistent = bool(measures) and not mismatches and not errors
+    return ParityResult(
+        counts=counts,
+        expected=expected,
+        consistent=consistent,
+        mismatches=mismatches,
+        errors=errors,
+        skipped=skipped,
+    )
+
+
+# Formats the audit compares geometry across (∩ with the source's viable targets).
+# STEP/IFC/Genie-XML carry analytic solids; GLB is the mesh the viewer loads. OBJ/
+# STL are deliberately out — they add no representation the compared set lacks.
+PARITY_GEOMETRY_FORMATS: tuple[str, ...] = ("step", "ifc", "xml", "glb")
+
+
+def _derive_produced_for_parity(path: str | Path, formats: tuple[str, ...], work_dir: Path) -> dict[str, "Path | None"]:
+    """Offline fallback for :func:`parity_from_produced_files`: derive the same
+    outputs the AUDIT would have uploaded, using the PRODUCTION strategy (analytic
+    ``cylinder`` for step/ifc/xml, ``to_gltf`` for glb) — NOT the retired
+    ``merge_strategy=None`` unmerged model. Used by the offline
+    ``parity_for_source_file`` when no produced blobs are available (local `ada`
+    usage); the audit worker fetches the real blobs instead of calling this."""
+    import ada
+
+    p = Path(path)
+    is_fem = p.suffix.lower() in _FEM_PARITY_EXTS
+    produced: dict[str, Path | None] = {}
+    for fmt in formats:
+        out = work_dir / f"produced.{fmt}"
+        try:
+            asm = ada.from_fem(p) if is_fem else load_assembly_auto(p)
+            if fmt == "glb":
+                asm.to_gltf(out, merge_meshes=True)
+            elif fmt in ("step", "stp"):
+                asm.to_stp(out, writer="stream", merge_strategy="cylinder", fuse_fem=True)
+            elif fmt == "ifc":
+                asm.to_ifc(destination=str(out), streaming=True, merge_strategy="cylinder")
+            elif fmt == "xml":
+                asm.to_genie_xml(destination_xml=str(out), streaming=True, merge_strategy="cylinder")
+            else:
+                continue
+            produced[fmt] = out if out.exists() and out.stat().st_size > 0 else None
+        except Exception as ex:  # noqa: BLE001 - a format that can't carry this source is recorded, not fatal
+            logger.warning(f"_derive_produced_for_parity: {fmt} derive failed: {ex}")
+            produced[fmt] = None
+    return produced
 
 
 def _count_curve_set_roots(path: str | Path, size_limit: int = 64_000_000) -> int:
@@ -397,183 +661,66 @@ def parity_for_step_file(
     )
 
 
-def _concept_count(assembly: "Assembly") -> int:
-    """Number of structure-preserving concept objects (beams + plates + shapes) in an
-    assembly — the parity metric, counted directly instead of tessellating each."""
-    n = 0
-    for part in assembly.get_all_parts_in_assembly(include_self=True):
-        n += len(part.beams) + len(part.plates) + len(part.shapes)
-    return n
-
-
-def _count_format_entities(fmt: str, path: str | Path) -> int:
-    """Count the structural elements in an exported file WITHOUT re-reading or
-    re-tessellating the whole model: a bounded text scan (ifc/xml) or the streaming
-    solid count (step). One entity per source concept on a clean round-trip."""
-    if fmt == "step":
-        return _count_step_instances(path)
-    n = 0
-    if fmt == "ifc":
-        # one IfcBeam / IfcPlate per concept; '(' after the type excludes IfcBeamType etc.
-        with open(path, errors="ignore") as f:
-            for line in f:
-                u = line.upper()
-                if "IFCBEAM(" in u or "IFCPLATE(" in u or "IFCBUILDINGELEMENTPROXY(" in u:
-                    n += 1
-    elif fmt == "xml":
-        # count the GEOMETRY-bearing elements specifically (each beam -> <straight_beam>,
-        # each plate -> <flat_plate>); the generic <structure> wrapper is shared with
-        # masses / BCs, which ifc/step don't emit as countable entities.
-        with open(path, errors="ignore") as f:
-            for line in f:
-                n += line.count("<straight_beam") + line.count("<flat_plate")
-    return n
-
-
-# Shell-fold strategy shared by the baseline count and all three streaming exporters.
-# ``None`` keeps the legacy 1:1 element→plate mapping — the exact pass the writers emit,
-# so the count matches (a merge strategy here would over/under-count vs the exports).
-_PARITY_MERGE_STRATEGY = None
-
-
-def _streaming_baseline_count(assembly: "Assembly", merge_strategy=None) -> int:
-    """Baseline concept count computed by STREAMING the FEM-fused object pass — the
-    same source the ifc/xml/step streaming exporters consume — so nothing is held
-    whole and the count matches what each format emits. Delegates to the STEP
-    writer's ``_iter_stream_objects`` (Beam/Plate fused one at a time from each
-    part's FEM mesh, plus any already-built shapes), which is exactly the object
-    stream the exports iterate. ``merge_strategy`` must match the exports."""
-    from ada.cadit.step.write.ap242_stream import _iter_stream_objects
-
-    return sum(1 for _ in _iter_stream_objects(assembly, merge_strategy=merge_strategy))
-
-
-def parity_for_fem_file(
-    path: str | Path,
-    formats: tuple[str, ...] = ("ifc", "xml", "step"),
-    *,
-    work_dir: str | Path | None = None,
-) -> ParityResult:
-    """Count-based cross-format parity for a FEM source — rebuild concept objects
-    (the converter does the same), export each format, and count the OUTPUT entities
-    by a bounded text scan / solid count instead of re-reading + re-tessellating the
-    (100k+ plate) model 4×. The whole-model tessellation that timed out the parity is
-    gone; only the (unavoidable) concept rebuild + per-format exports remain.
-    """
-    import tempfile
-
-    import ada
-
-    tmp_ctx = None
-    if work_dir is None:
-        tmp_ctx = tempfile.TemporaryDirectory()
-        work_dir = tmp_ctx.name
-    work_dir = Path(work_dir)
-
-    # Do NOT materialise the concept objects (create_objects_from_fem) — on a 100k+
-    # plate FEM that is the memory peak that OOMed this cell. The ifc/xml/step
-    # streaming writers each fuse Beam/Plate straight from the FEM mesh via
-    # Part.iter_objects_from_fem (one transient object at a time, bounded memory), so
-    # no whole-concept set is ever resident. A cheap mesh-only load serves the
-    # representability checks; each writer reloads its own fresh mesh (see below).
-    asm_meta = ada.from_fem(path)
-    # ifc/xml: the STREAMING writers stream the fused concepts (bounded, count-matches
-    # the baseline). step: the STREAMING AP242 writer (writer="stream") authors B-rep
-    # text straight from the concept geometry with no OCC/adacpp shapes, so it stays
-    # memory-bounded and does not OOM on the large FEM models the OCC XCAF writer did.
-    ms = _PARITY_MERGE_STRATEGY
-    writers: dict[str, tuple] = {
-        "ifc": (lambda a, p: a.to_ifc(p, streaming=True, merge_strategy=ms), ".ifc"),
-        # embed_sat=False: the parity streams plates straight from the FEM mesh, so
-        # there are no Plate objects to build a whole-model ACIS body from — and that
-        # body would be a memory peak anyway. Polygon plates keep the export bounded.
-        "xml": (lambda a, p: a.to_genie_xml(p, streaming=True, merge_strategy=ms, embed_sat=False), ".xml"),
-        "step": (lambda a, p: a.to_stp(p, writer="stream", merge_strategy=ms), ".step"),
-    }
-    # Run STEP first when present: write_step_stream returns {emitted, skipped} whose
-    # total IS the baseline concept count (every fused object is one or the other), so
-    # its export stream doubles as the baseline — no separate full concept-stream pass
-    # (a whole extra ~N-object iteration) just to count. Only fall back to a dedicated
-    # streaming count when STEP isn't exported or fails.
-    order = [f for f in formats if f == "step"] + [f for f in formats if f != "step"]
-    counts: dict[str, int] = {}
-    errors: dict[str, str] = {}
-    skipped: dict[str, str] = {}
-    baseline: int | None = None
-    try:
-        for fmt in order:
-            wsuf = writers.get(fmt)
-            if wsuf is None:
-                errors[fmt] = f"unknown format {fmt!r}"
-                continue
-            reason = _unrepresentable_reason(fmt, asm_meta)
-            if reason is not None:
-                skipped[fmt] = reason
-                continue
-            writer, suffix = wsuf
-            out = work_dir / f"parity{suffix}"
-            try:
-                # Reload a FRESH assembly per format: the streaming IFC writer fuses
-                # (and MATERIALISES) beams straight into the part, which flips a
-                # mixed shell+beam part off the fuse path — so a shared assembly
-                # would make whichever format runs next drop its still-unmaterialised
-                # shells. A fresh mesh-only load keeps peak memory bounded (one at a
-                # time) while giving every format the same unmutated source.
-                stats = writer(ada.from_fem(path), out)
-                counts[fmt] = _count_format_entities(fmt, out)
-                if fmt == "step" and isinstance(stats, dict):
-                    baseline = stats.get("emitted", 0) + stats.get("skipped", 0)
-            except Exception as ex:  # noqa: BLE001 - record and continue with the other formats
-                errors[fmt] = f"{type(ex).__name__}: {ex}"
-                logger.warning(f"parity_for_fem_file: {fmt} round-trip failed: {ex}")
-
-        if baseline is None:
-            # STEP wasn't exported (or errored) — count the baseline with one dedicated
-            # streaming pass (bounded memory), matching the exporters' merge strategy.
-            baseline = _streaming_baseline_count(ada.from_fem(path), merge_strategy=ms)
-        counts["source"] = baseline
-    finally:
-        if tmp_ctx is not None:
-            tmp_ctx.cleanup()
-
-    mismatches = {k: v for k, v in counts.items() if k != "source" and v != baseline}
-    return ParityResult(
-        counts=counts,
-        expected=baseline,
-        consistent=not mismatches and not errors,
-        mismatches=mismatches,
-        errors=errors,
-        skipped=skipped,
-    )
-
+# NOTE: The old count-based FEM parity (parity_for_fem_file + its
+# _streaming_baseline_count / _count_format_entities / _PARITY_MERGE_STRATEGY=None
+# helpers) has been RETIRED. It re-derived the source with merge_strategy=None (one
+# plate per FEM element) and compared entity counts for equality — validating an
+# unmerged model production never ships, and writing ~1 GB of temp files per model
+# (which stalled on nvme write-contention). The FEM parity now reads the
+# already-produced analytic (cylinder) output blobs and compares a geometry
+# invariant (parity_from_produced_files); the offline fallback derives those same
+# production outputs via _derive_produced_for_parity.
 
 _FEM_PARITY_EXTS = (".fem", ".inp", ".sif", ".sin")
 
 
 def parity_for_source_file(
     path: str | Path,
-    formats: tuple[str, ...] = ("ifc", "xml", "step"),
+    formats: tuple[str, ...] = PARITY_GEOMETRY_FORMATS,
     *,
     work_dir: str | Path | None = None,
 ) -> ParityResult:
-    """Load a source model from disk and run :func:`cross_format_parity` on it.
+    """OFFLINE cross-format parity for a source on disk — the fallback used when no
+    already-produced blobs are available (local `ada` usage). The audit worker does
+    NOT call this: it fetches the real produced blobs and calls
+    :func:`parity_from_produced_files` directly.
 
-    STEP and FEM sources take count-based fast paths (:func:`parity_for_step_file` /
-    :func:`parity_for_fem_file`) — bounded memory, no whole-model tessellation — since
-    those are exactly the multi-GB / 100k-plate models that OOM'd / timed out the
-    tessellation path. Each falls back to the whole-model path on any failure."""
+    For a FEM source this DERIVES the production outputs (analytic ``cylinder`` for
+    step/ifc/xml, ``to_gltf`` for glb — exactly what ships) and compares the
+    GEOMETRY INVARIANT, so local and audit agree. This replaces the retired
+    ``merge_strategy=None`` + entity-count design, which validated an unmerged model
+    production never ships and wrote ~1 GB of temp files per model. STEP sources keep
+    the streaming instance-count fast path (never a memory/temp-file problem)."""
     ext = Path(path).suffix.lower()
-    fast = None
+    # cross_format_parity is count-based over structure-preserving formats only (no
+    # glb); keep glb out of the formats it sees.
+    count_formats = tuple(f for f in formats if f in ("ifc", "xml", "step")) or ("ifc", "xml", "step")
+
     if ext in (".step", ".stp"):
-        fast = parity_for_step_file
-    elif ext in _FEM_PARITY_EXTS:
-        fast = parity_for_fem_file
-    if fast is not None:
         try:
-            return fast(path, formats, work_dir=work_dir)
+            return parity_for_step_file(path, count_formats, work_dir=work_dir)
         except Exception as ex:  # noqa: BLE001 - fall back to the whole-model path on any failure
-            logger.warning(f"parity_for_source_file: count-based parity failed ({ex}); using whole-model path")
-    return cross_format_parity(load_assembly_auto(path), formats, work_dir=work_dir)
+            logger.warning(f"parity_for_source_file: STEP fast-path failed ({ex}); using whole-model path")
+        return cross_format_parity(load_assembly_auto(path), count_formats, work_dir=work_dir)
+
+    if ext in _FEM_PARITY_EXTS:
+        import tempfile
+
+        geom_formats = tuple(f for f in formats if f in PARITY_GEOMETRY_FORMATS) or PARITY_GEOMETRY_FORMATS
+        tmp_ctx = None
+        if work_dir is None:
+            tmp_ctx = tempfile.TemporaryDirectory()
+            wd = Path(tmp_ctx.name)
+        else:
+            wd = Path(work_dir)
+        try:
+            produced = _derive_produced_for_parity(path, geom_formats, wd)
+            return parity_from_produced_files(str(path), produced)
+        finally:
+            if tmp_ctx is not None:
+                tmp_ctx.cleanup()
+
+    return cross_format_parity(load_assembly_auto(path), count_formats, work_dir=work_dir)
 
 
 def cross_format_parity(
