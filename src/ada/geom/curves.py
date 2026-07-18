@@ -591,6 +591,19 @@ class EdgeLoop:
     edge_list: list[OrientedEdge]
 
 
+@dataclass(slots=True)
+class VertexLoop:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcVertexLoop.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_vertex_loop.html)
+
+    A loop of a single vertex — the degenerate boundary a fully-closed periodic
+    surface (a whole sphere's spherical face) uses to anchor its one pole point.
+    """
+
+    loop_vertex: Point
+
+
 # Concrete tuple of bare-curve geometry classes (CURVE_GEOM_TYPES is a Union of forward-ref
 # strings, so it can't be used with isinstance). Used to detect a Geometry that carries a curve
 # rather than a surface/solid — e.g. a sectionless SAT wire body that must render as glTF line

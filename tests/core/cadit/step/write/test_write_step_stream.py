@@ -155,9 +155,10 @@ def test_stream_writer_emits_brep_shapes(tmp_path):
 
 
 def test_stream_writer_box_and_cylinder_primitives(tmp_path):
-    # Box and Cylinder primitives are extrusions (rectangle / circle swept by a
-    # length) and emit as watertight solids; Cone (tapered) and Sphere (periodic)
-    # are not yet supported and are skipped.
+    # All four CSG primitives emit as watertight ANALYTIC solids: Box + Cylinder are
+    # extrusions (rectangle / circle swept by a length); Cone + Sphere have an exact
+    # analytic B-rep (a CONICAL_SURFACE + planar cap, a single SPHERICAL_SURFACE face)
+    # built kernel-free — never tessellated.
     a = ada.Assembly("m") / (
         ada.Part("p")
         / [
@@ -170,8 +171,17 @@ def test_stream_writer_box_and_cylinder_primitives(tmp_path):
     out = tmp_path / "prims.stp"
     stats = a.to_stp(out, writer="stream")
 
-    assert stats == {"emitted": 2, "skipped": 2}  # box + cylinder; cone + sphere skipped
+    assert stats == {"emitted": 4, "skipped": 0}  # all four emit analytically
 
     n_solids, n_invalid = _roundtrip_solids(out)
-    assert n_solids == 2
+    assert n_solids == 4
     assert n_invalid == 0
+
+    txt = out.read_text()
+    # analytic surfaces, not a facet soup: a whole sphere is ONE spherical face
+    # bounded by a single pole vertex-loop; the cone carries a conical surface.
+    assert txt.count("SPHERICAL_SURFACE(") == 1
+    assert txt.count("VERTEX_LOOP(") == 1
+    assert txt.count("CONICAL_SURFACE(") == 1
+    # the sphere never degrades to thousands of planar triangle faces
+    assert txt.count("ADVANCED_FACE(") < 40

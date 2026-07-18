@@ -664,10 +664,84 @@ class Ap242StreamWriter:
         return item
 
     def _emit_brep_geometry(self, g, nm, color):
-        """Emit just the B-rep geometry item (+ optional colour) under the active
-        instance transform ``self._tf``; return its id or None if unsupported. No
-        product/assembly wrapping — shared by the flat ``add_brep`` and the
-        instanced ``add_solid_instances``."""
+        """Emit a B-rep geometry item (+ optional colour) under the active instance
+        transform ``self._tf``; return its id or None if unsupported. No product/
+        assembly wrapping — shared by the flat ``add_brep`` and the instanced
+        ``add_solid_instances``.
+
+        Analytic tiers, tried in order — a CSG primitive (Sphere/Cone) that isn't a
+        shell has an EXACT analytic B-rep, so tessellation is the last resort, never
+        the response to "not directly a shell":
+
+          1. ``g`` is already an analytic shell/face  → emit it directly.
+          2. ``g`` is a CSG primitive                 → pure-Python primitive→B-rep.
+          3.                                           → adacpp-native primitive→B-rep.
+          4. genuinely non-analytic swept solid       → faceted (tessellated) B-rep.
+
+        Every tier is buffered (a fresh ``StringIO`` swapped in, rolled back on
+        failure) so a partial write from a tier whose Nth face is unsupported is
+        discarded before the next tier runs."""
+        import ada.geom.solids as so
+
+        item = self._emit_shell_buffered(g, nm, color)
+        if item is not None:
+            return item
+
+        # CSG primitive solids (not shells): build their exact analytic B-rep shell —
+        # pure-Python first (kernel-free / wasm), then the adacpp-native track — and
+        # emit that. NEVER tessellate a shape that has an analytic form.
+        from ada.geom.primitive_brep import (
+            native_primitive_to_analytic_shell,
+            primitive_to_analytic_shell,
+        )
+
+        for converter in (primitive_to_analytic_shell, native_primitive_to_analytic_shell):
+            try:
+                shell = converter(g)
+            except Exception as exc:  # noqa: BLE001 - a converter must never sink the file
+                logger.warning("ap242 primitive->brep converter %s failed for %r: %s", converter.__name__, nm, exc)
+                shell = None
+            if shell is None:
+                continue
+            item = self._emit_shell_buffered(shell, nm, color)
+            if item is not None:
+                return item
+
+        # No analytic AP242 B-rep form at all (e.g. an alignment
+        # IfcFixedReferenceSweptAreaSolid swept over an IfcGradientCurve: the clothoid
+        # + vertical-gradient directrix has no STEP analytic curve). Rather than leave
+        # it behind, tessellate via the validated NGEOM path and emit the triangle
+        # mesh as one faceted MANIFOLD_SOLID_BREP.
+        if isinstance(g, so.FixedReferenceSweptAreaSolid):
+            return self._emit_faceted_brep(g, nm, color)
+        return None
+
+    def _emit_shell_buffered(self, g, nm, color):
+        """Emit ``g`` (a ClosedShell / ConnectedFaceSet / OpenShell /
+        ShellBasedSurfaceModel / AdvancedFace / FaceSurface) into a fresh buffer so a
+        partial write (a shell whose Nth face uses an unsupported surface writes the
+        earlier faces before returning None) is rolled back wholesale. Returns the
+        emitted item id, or None when ``g`` is not an analytic shell/face or a face is
+        unsupported."""
+        real_fh, saved_id = self.fh, self._id
+        self.fh = io.StringIO()
+        try:
+            item = self._emit_analytic_shell(g, nm, color)
+        except Exception:  # noqa: BLE001 - discard the partial buffer, reclaim ids
+            self.fh, self._id = real_fh, saved_id
+            raise
+        if item is None:
+            self.fh, self._id = real_fh, saved_id
+            return None
+        buffered = self.fh.getvalue()
+        self.fh = real_fh
+        real_fh.write(buffered)
+        return item
+
+    def _emit_analytic_shell(self, g, nm, color):
+        """Emit an analytic B-rep shell/face (no primitive conversion, no buffering,
+        no faceting) — the raw writer for the shapes ``_brep_surface`` covers. Returns
+        the item id, or None if ``g`` is not such a shape or a face is unsupported."""
         import ada.geom.surfaces as su
 
         self._vcache = {}  # coord -> VERTEX_POINT id (shared across all faces)
@@ -705,15 +779,6 @@ class Ap242StreamWriter:
             shell = self._w(f"OPEN_SHELL('',{self._refs(faces)})")
             item = self._w(f"SHELL_BASED_SURFACE_MODEL('{nm}',(#{shell}))")
         else:
-            # No analytic AP242 B-rep form (e.g. an alignment
-            # IfcFixedReferenceSweptAreaSolid swept over an IfcGradientCurve: the
-            # clothoid + vertical-gradient directrix has no STEP analytic curve).
-            # Rather than leave it behind, tessellate via the validated NGEOM path
-            # and emit the triangle mesh as one faceted MANIFOLD_SOLID_BREP.
-            import ada.geom.solids as so
-
-            if isinstance(g, so.FixedReferenceSweptAreaSolid):
-                return self._emit_faceted_brep(g, nm, color)
             return None
 
         if color is not None:
@@ -917,6 +982,7 @@ class Ap242StreamWriter:
         return out or None
 
     def _brep_face(self, face):
+        import ada.geom.curves as cu
         import ada.geom.surfaces as su
 
         # AdvancedFace and FaceSurface are structurally identical (same
@@ -932,7 +998,10 @@ class Ap242StreamWriter:
             loop = self._brep_loop(fb.bound)
             if loop is None:
                 return None
-            kw = "FACE_OUTER_BOUND" if i == 0 else "FACE_BOUND"
+            # A single-vertex (pole) loop is never an outer wire bound — a whole
+            # sphere's spherical face carries just a FACE_BOUND(VERTEX_LOOP).
+            is_vertex = isinstance(fb.bound, cu.VertexLoop)
+            kw = "FACE_OUTER_BOUND" if (i == 0 and not is_vertex) else "FACE_BOUND"
             bounds.append(self._w(f"{kw}('',#{loop},{'.T.' if fb.orientation else '.F.'})"))
         if not bounds:
             return None
@@ -981,6 +1050,10 @@ class Ap242StreamWriter:
     def _brep_loop(self, loop):
         import ada.geom.curves as cu
 
+        if isinstance(loop, cu.VertexLoop):
+            # A single-vertex loop — the degenerate boundary of a fully-closed
+            # periodic face (a whole sphere), anchoring its pole point.
+            return self._w(f"VERTEX_LOOP('',#{self._vfor(loop.loop_vertex)})")
         if isinstance(loop, cu.EdgeLoop):
             oriented = []
             for oe in loop.edge_list:
