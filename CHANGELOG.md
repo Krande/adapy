@@ -2,6 +2,15 @@
 
 
 
+## v0.33.0 (2026-07-18)
+
+### Feature
+
+* feat: worker detail modal in the admin Workers tab (#244)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`497c226`](https://github.com/Krande/adapy/commit/497c22691d999456a67c7540d189f192f6fc030f))
+
+
 ## v0.32.1 (2026-07-17)
 
 ### Fix

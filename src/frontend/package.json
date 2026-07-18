@@ -1,6 +1,6 @@
 {
   "name": "ada-py-viewer",
-  "version": "0.32.1",
+  "version": "0.33.0",
   "type": "module",
   "overrides": {
     "qs": ">=6.15.2",
