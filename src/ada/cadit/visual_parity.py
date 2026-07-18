@@ -28,6 +28,7 @@ STEP *sources* keep a separate streaming instance-count fast path
 
 from __future__ import annotations
 
+import json
 import statistics
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -294,26 +295,24 @@ def _measure_scene(scene) -> "_GeomMeasure":
     return _GeomMeasure(area, bbox, tris, bbox <= 0.0)
 
 
-def _measure_produced_file(fmt: str, path: Path) -> "_GeomMeasure":
-    """Load one produced output blob and measure its geometry.
+_MEASURE_TIMEOUT_S = 300  # per-format CAD measurement wall cap (fork-isolated)
 
-    Mesh formats (glb/obj/stl/…) are measured directly. CAD/structural formats
-    (step/ifc/xml) are tessellated through the SAME ``to_gltf`` path production
-    ships and then measured, so every format ends up in one consistent unit
-    system (all derive from one source; no unit conversion is injected, which
-    could itself manufacture a false mismatch). Runs inside the OOM-isolated
-    parity child, so a blow-up fails the cell, not the pod."""
-    import trimesh
 
-    ext = path.suffix.lower()
-    if ext in _MESH_MEASURE_EXTS:
-        scene = trimesh.load(str(path), file_type=ext.lstrip("."), process=False)
-        if isinstance(scene, trimesh.Trimesh):
-            scene = trimesh.Scene(scene)
-        return _measure_scene(scene)
+class _MeasureUnavailable(Exception):
+    """A produced blob could not be measured because its tessellation hard-crashed
+    (a native SIGSEGV that no ``try/except`` can catch) or timed out. Raised from a
+    forked measurement subprocess so the fault fails only that ONE format, not the
+    whole parity cell — the formats that DO measure still decide the verdict."""
 
-    # CAD/structural: tessellate via to_gltf (the production →GLB path), read back.
+
+def _measure_cad_scene(path: Path) -> "_GeomMeasure":
+    """In-process CAD/structural measurement: load the blob + tessellate via the
+    production ``to_gltf`` path + measure. The tessellation can hard-crash on some
+    produced analytic geometry, so this is only ever called inside a forked
+    subprocess (see :func:`_measure_cad_isolated`)."""
     import io as _io
+
+    import trimesh
 
     asm = load_assembly_auto(path)
     # A concept format with no physical objects (e.g. FEM→ifc/xml/step of a
@@ -331,6 +330,70 @@ def _measure_produced_file(fmt: str, path: Path) -> "_GeomMeasure":
     buf.seek(0)
     scene = trimesh.load(buf, file_type="glb", process=False)
     return _measure_scene(scene)
+
+
+# Isolation runs a FRESH interpreter (subprocess), not os.fork(): forking after
+# adacpp/numpy have started threads can deadlock in the child on a lock the parent
+# held at fork time (this hung the parity test suite). A clean subprocess has no
+# inherited lock state; a native crash surfaces as a negative return code.
+_MEASURE_MARKER = "__PARITY_MEASURE__"
+_MEASURE_SCRIPT = (
+    "import sys, json; from pathlib import Path;"
+    " from ada.cadit.visual_parity import _measure_cad_scene;"
+    " m = _measure_cad_scene(Path(sys.argv[1]));"
+    f" print('{_MEASURE_MARKER}' + json.dumps("
+    "{'area': m.area, 'bbox': m.bbox, 'tris': m.tris, 'empty': m.empty}))"
+)
+
+
+def _measure_cad_isolated(path: Path) -> "_GeomMeasure":
+    """Measure a CAD/structural blob in an isolated subprocess so a native
+    tessellation crash (SIGSEGV) is contained: the child dies with a negative
+    return code, the parent raises :class:`_MeasureUnavailable`, and the parity
+    keeps the formats that DID measure."""
+    import subprocess
+    import sys
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _MEASURE_SCRIPT, str(path)],
+            capture_output=True,
+            text=True,
+            timeout=_MEASURE_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired as ex:
+        raise _MeasureUnavailable(f"measurement timed out (>{_MEASURE_TIMEOUT_S}s)") from ex
+    if proc.returncode != 0:
+        tail = ((proc.stderr or "").strip().splitlines() or [""])[-1][:200]
+        raise _MeasureUnavailable(
+            f"measurement subprocess died (exit {proc.returncode} — likely a native tessellation crash): {tail}"
+        )
+    for line in proc.stdout.splitlines():
+        if line.startswith(_MEASURE_MARKER):
+            d = json.loads(line[len(_MEASURE_MARKER) :])
+            return _GeomMeasure(d["area"], d["bbox"], d["tris"], d["empty"])
+    raise _MeasureUnavailable(f"measurement subprocess produced no result (exit {proc.returncode})")
+
+
+def _measure_produced_file(fmt: str, path: Path) -> "_GeomMeasure":
+    """Load one produced output blob and measure its geometry.
+
+    Mesh formats (glb/obj/stl/…) are measured directly (cheap, no native crash
+    path). CAD/structural formats (step/ifc/xml) are tessellated through the SAME
+    ``to_gltf`` path production ships — but that adacpp tessellation can hard-crash
+    on some produced analytic geometry, so it is run FORK-ISOLATED so the fault
+    fails only that format. All formats derive from one source, so no unit
+    conversion is injected (which could manufacture a false mismatch)."""
+    import trimesh
+
+    ext = path.suffix.lower()
+    if ext in _MESH_MEASURE_EXTS:
+        scene = trimesh.load(str(path), file_type=ext.lstrip("."), process=False)
+        if isinstance(scene, trimesh.Trimesh):
+            scene = trimesh.Scene(scene)
+        return _measure_scene(scene)
+
+    return _measure_cad_isolated(path)
 
 
 def parity_from_produced_files(source_key: str, produced: dict[str, "Path | None"]) -> ParityResult:
@@ -367,6 +430,13 @@ def parity_from_produced_files(source_key: str, produced: dict[str, "Path | None
             continue
         try:
             measures[fmt] = _measure_produced_file(fmt, Path(path))
+        except _MeasureUnavailable as ex:
+            # A native tessellation crash / timeout measuring this blob (contained
+            # in a forked subprocess): not a geometry mismatch, just un-measurable.
+            # The formats that DO measure still decide the verdict; recorded so the
+            # crash is visible, not silently green.
+            skipped[fmt] = f"unmeasurable ({ex})"
+            logger.warning(f"parity_from_produced_files: {fmt} unmeasurable: {ex}")
         except Exception as ex:  # noqa: BLE001 - record and continue with the other formats
             errors[fmt] = f"{type(ex).__name__}: {ex}"
             logger.warning(f"parity_from_produced_files: measuring {fmt} failed: {ex}")

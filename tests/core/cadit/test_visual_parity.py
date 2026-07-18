@@ -297,6 +297,29 @@ def test_produced_verdict_area_floor_tolerates_inflated_representation(monkeypat
     assert r.mismatches == {}
 
 
+def test_produced_verdict_skips_unmeasurable_crash(monkeypatch):
+    """A format whose measurement HARD-crashes (a native SIGSEGV contained in the
+    isolated measurement subprocess -> _MeasureUnavailable) is recorded as skipped,
+    NOT an error: the formats that DO measure still decide the verdict. This is the
+    class that failed the two largest FEM parity cells (step/ifc re-tessellation
+    SIGSEGV in OCC)."""
+    from ada.cadit import visual_parity as vp
+
+    good = {"glb": _gm(100.0, 10.0), "xml": _gm(120.0, 10.05)}
+
+    def fake_measure(fmt, path):
+        if fmt in ("step", "ifc"):
+            raise vp._MeasureUnavailable("measurement subprocess died (exit -11 — a native tessellation crash)")
+        return good[fmt]
+
+    monkeypatch.setattr(vp, "_measure_produced_file", fake_measure)
+    produced = {f: Path(f"p.{f}") for f in ("glb", "xml", "step", "ifc")}
+    r = vp.parity_from_produced_files("m.fem", produced)
+    assert r.consistent is True
+    assert set(r.skipped) == {"step", "ifc"} and "unmeasurable" in r.skipped["step"]
+    assert r.mismatches == {} and r.errors == {}
+
+
 def test_produced_verdict_flags_empty(monkeypatch):
     """A format that produced no renderable geometry at all (empty scene / IFC that
     imported nothing) is flagged."""
