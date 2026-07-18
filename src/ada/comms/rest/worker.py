@@ -711,22 +711,32 @@ async def _run_fea_meta_compute(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
-def _parity_child(src_path, source_key, target_format, on_progress, *, formats=()):
+def _parity_child(src_path, source_key, target_format, on_progress, *, produced=None):
     """``convert_fn``-shaped wrapper that runs the cross-format parity check and
     returns its result as JSON bytes.
 
-    Parity re-derives the source to ifc/xml/step and reloads each — easily a
-    multi-GB peak on a large model. Running it through ``run_isolated_convert``
-    (this function in the forked child) instead of a worker threadpool means an
-    OOM is SIGKILLed by the per-job memory watchdog and fails the cell, rather
-    than taking the whole worker pod down."""
+    ``produced`` maps each compared format (step/ifc/xml/glb) to the local path of
+    the blob the audit ALREADY produced+uploaded with the production strategy (or
+    None when that conversion failed/was skipped). The check reads those blobs and
+    compares a format-agnostic geometry invariant — it re-derives nothing, so it
+    validates exactly what ships. It still tessellates step/ifc/xml to measure them;
+    running through ``run_isolated_convert`` (this function in the forked child)
+    means an OOM there is SIGKILLed by the per-job memory watchdog and fails the
+    cell, rather than taking the whole worker pod down.
+
+    Falls back to the offline re-derive path (``parity_for_source_file``) only when
+    no produced blobs were passed — never the case on the audit worker."""
     import json as _json
     import pathlib as _pl
 
-    from ada.cadit.visual_parity import parity_for_source_file
+    from ada.cadit.visual_parity import parity_for_source_file, parity_from_produced_files
 
     on_progress("parity", 0.2)
-    res = parity_for_source_file(_pl.Path(src_path), tuple(formats))
+    if produced:
+        pmap = {fmt: (_pl.Path(p) if p else None) for fmt, p in produced.items()}
+        res = parity_from_produced_files(source_key, pmap)
+    else:
+        res = parity_for_source_file(_pl.Path(src_path))
     on_progress("ready", 1.0)
     return _json.dumps(
         {
@@ -735,6 +745,7 @@ def _parity_child(src_path, source_key, target_format, on_progress, *, formats=(
             "consistent": res.consistent,
             "mismatches": res.mismatches,
             "errors": res.errors,
+            "skipped": res.skipped,
             "summary": res.summary(),
         }
     ).encode("utf-8")
@@ -745,6 +756,7 @@ async def _run_parity_validation(
     job: Job,
     src_path: pathlib.Path,
     scope,
+    storage: "Storage",
     queue: "JobQueue",
     db_pool: "asyncpg.Pool | None",
     started_at: float,
@@ -753,24 +765,31 @@ async def _run_parity_validation(
 ) -> None:
     """Cross-format visual-parity validation for one source (target_format=='parity').
 
-    Re-derives the source to each structure-preserving format, reloads, and
-    compares the visualized-element count (ada.cadit.visual_parity). Produces no
-    derived blob: the structured per-format result goes to the ``audit_parity``
-    table and the cell is audited done/error (a mismatch maps to ``error`` so it
-    surfaces in the run's failed cells). Never raises.
+    Reads the source's ALREADY-PRODUCED output blobs (step/ifc/xml/glb, converted +
+    uploaded earlier in the run with the production strategy) and compares a
+    format-agnostic GEOMETRY INVARIANT — surface area + bbox extent (see
+    ada.cadit.visual_parity.parity_from_produced_files). It re-derives nothing, so
+    it validates exactly what ships and does zero extra conversion; the parity cells
+    are only enqueued after every conversion cell for the source has landed, so the
+    blobs already exist. A format whose conversion failed/was skipped is recorded
+    (its blob is absent), never re-derived. Produces no derived blob: the structured
+    per-format result goes to the ``audit_parity`` table and the cell is audited
+    done/error (a mismatch maps to ``error`` so it surfaces in the run's failed
+    cells). Never raises.
 
     Runs in the same memory-capped forked child the convert path uses
-    (``run_isolated_convert``): re-deriving + reloading several formats can spike
+    (``run_isolated_convert``): tessellating step/ifc/xml to measure them can spike
     RAM, and a blow-up must die in isolation (cell fails as OOM) rather than
-    OOM-killing the worker pod. Re-deriving (rather than reading the stored GLB)
-    is deliberate: the stored GLB is mesh-merged, so its scene-entry count isn't
-    the object count — the check reloads with merging off.
+    OOM-killing the worker pod.
     """
     import json
 
+    from ada.cadit.visual_parity import PARITY_GEOMETRY_FORMATS
+
+    from .converter import derived_key_for
+
     job_id = job.job_id
     suffix = pathlib.PurePosixPath(job.source_key).suffix.lower()
-    formats = tuple(t for t in ("ifc", "xml", "step") if t in ConverterRegistry.targets_for(suffix))
 
     async def _cancel_check() -> bool:
         if db_pool is None:
@@ -780,13 +799,48 @@ async def _run_parity_validation(
         except Exception:
             return False
 
+    # FEM sources take the produced-files geometry-invariant path: fetch each already-
+    # produced output blob to a worker-local tempfile BEFORE forking (the child can't
+    # reach async storage; the fork shares the filesystem, so the child reads these
+    # paths). A missing blob (conversion failed/skipped) maps to None — recorded by
+    # parity_from_produced_files, never re-derived. This is the fix: it validates what
+    # actually ships (the analytic cylinder model) and does zero re-conversion, so it
+    # no longer stalls on nvme write-contention writing ~1 GB of temp files.
+    #
+    # Non-FEM (STEP/IFC/SAT) sources keep the streaming/whole-model re-derive path
+    # (produced left empty -> the child calls parity_for_source_file). Those were never
+    # the hang; and their Genie-XML output is legitimately empty for a raw-solid source
+    # (no Beam/Plate concept), which parity_for_source_file correctly SKIPS rather than
+    # flagging as dropped geometry.
+    _FEM_PARITY_SUFFIXES = (".fem", ".inp", ".sif", ".sin")
+    produced_dir = pathlib.Path(tempfile.mkdtemp(prefix="adapy-parity-"))
+    produced: dict[str, str | None] = {}
+    if suffix in _FEM_PARITY_SUFFIXES:
+        targets = set(ConverterRegistry.targets_for(suffix))
+        compare_formats = tuple(f for f in PARITY_GEOMETRY_FORMATS if f in targets)
+        for fmt in compare_formats:
+            try:
+                dkey = derived_key_for(job.source_key, fmt)
+            except Exception:
+                produced[fmt] = None
+                continue
+            dpath = produced_dir / f"produced.{fmt}"
+            try:
+                await storage.stream_to_path(scope, dkey, dpath)
+                produced[fmt] = str(dpath)
+            except FileNotFoundError:
+                produced[fmt] = None
+            except Exception:
+                logger.exception("worker: parity fetch of produced %s failed for %s", fmt, job.source_key)
+                produced[fmt] = None
+
     try:
         iresult: IsolatedConvertResult = await run_isolated_convert(
             _parity_child,
             src_path,
             job.source_key,
             "parity",
-            convert_kwargs={"formats": list(formats)},
+            convert_kwargs={"produced": produced},
             on_progress=_on_progress,
             timeout_s=timeout_s,
             cancel_check=_cancel_check,
@@ -796,6 +850,10 @@ async def _run_parity_validation(
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="parity", error=str(exc))
         await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
         return
+    finally:
+        # The forked child has read the produced blobs by the time the call returns
+        # (or raises); drop the fetched copies either way.
+        shutil.rmtree(produced_dir, ignore_errors=True)
 
     metrics = dict(iresult.final_metrics)
 
@@ -1659,6 +1717,7 @@ async def _process_one(
                 job=job,
                 src_path=src_path,
                 scope=scope,
+                storage=storage,
                 queue=queue,
                 db_pool=db_pool,
                 started_at=started_at,
