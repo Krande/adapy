@@ -286,6 +286,26 @@ def test_produced_verdict_flags_empty(monkeypatch):
     assert "glb" in r.mismatches and "no renderable geometry" in r.mismatches["glb"]
 
 
+def test_produced_verdict_skips_solid_only_concepts(monkeypatch):
+    """A solid-only / mesh-only FEM has no shells or beams to reconstruct, so its
+    step/ifc/xml exports are legitimately EMPTY while the glb still carries the
+    element mesh. The empty concept formats are SKIPPED (not flagged as a drop),
+    and the source is consistent — this is the class that erroneously failed every
+    solid FEM parity cell."""
+    r = _run_verdict(
+        monkeypatch,
+        {
+            "step": _gm(0.0, 0.0, 0, empty=True),
+            "ifc": _gm(0.0, 0.0, 0, empty=True),
+            "xml": _gm(0.0, 0.0, 0, empty=True),
+            "glb": _gm(1.2, 0.3, 6000),
+        },
+    )
+    assert r.consistent is True
+    assert r.mismatches == {} and r.errors == {}
+    assert set(r.skipped) == {"step", "ifc", "xml"}
+
+
 def test_produced_verdict_records_missing_format_without_rederiving(monkeypatch):
     """A format whose conversion failed/was skipped comes in as None: it is RECORDED
     in ``skipped`` (never re-derived) and excluded from the verdict — the present
