@@ -230,3 +230,33 @@ def test_parity_for_fem_file_streams_baseline(tmp_path):
     assert r.counts["ifc"] == r.counts["xml"] == r.counts["step"] == baseline
     assert r.errors == {} and r.skipped == {}
     assert r.consistent is True
+
+
+def test_parity_baseline_reuses_step_stream(tmp_path, monkeypatch):
+    """Task B: when STEP is exported, its stream's {emitted+skipped} total IS the
+    baseline, so no separate _streaming_baseline_count pass runs; without STEP the
+    dedicated count is the fallback. Result stays consistent either way."""
+    from ada.cadit import visual_parity
+
+    inp = _fem_mixed_inp(tmp_path)
+
+    calls = {"n": 0}
+    real = visual_parity._streaming_baseline_count
+
+    def _counting(asm, merge_strategy=None):
+        calls["n"] += 1
+        return real(asm, merge_strategy=merge_strategy)
+
+    monkeypatch.setattr(visual_parity, "_streaming_baseline_count", _counting)
+
+    # STEP present -> baseline comes from the STEP export, no extra counting pass
+    r = visual_parity.parity_for_fem_file(inp, formats=("ifc", "xml", "step"))
+    assert calls["n"] == 0
+    assert r.counts["source"] == r.counts["step"] == r.counts["ifc"] == r.counts["xml"]
+    assert r.consistent is True
+
+    # STEP absent -> the dedicated streaming count is the fallback (runs once)
+    r2 = visual_parity.parity_for_fem_file(inp, formats=("ifc", "xml"))
+    assert calls["n"] == 1
+    assert r2.counts["source"] == r2.counts["ifc"] == r2.counts["xml"]
+    assert r2.consistent is True

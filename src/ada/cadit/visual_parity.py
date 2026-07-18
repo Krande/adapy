@@ -470,23 +470,17 @@ def parity_for_fem_file(
         work_dir = tmp_ctx.name
     work_dir = Path(work_dir)
 
-    asm = ada.from_fem(path)
     # Do NOT materialise the concept objects (create_objects_from_fem) — on a 100k+
-    # plate FEM that is the memory peak that OOMed this cell. Instead keep the mesh
-    # and count the baseline by STREAMING the very same object pass the exporters use
-    # (one transient Beam/Plate at a time, bounded memory). The ifc/xml/step streaming
-    # writers all fuse Beam/Plate straight from the FEM mesh via
-    # Part.iter_objects_from_fem when no concepts are materialised, so the mesh must
-    # stay resident; the streamed count excludes the auxiliary mass/spring viz (only
-    # shell→plate + line→beam are yielded), so no FEM mesh drop is needed to avoid the
-    # over-count the concept path guarded against.
-    baseline = _streaming_baseline_count(asm, merge_strategy=_PARITY_MERGE_STRATEGY)
-    # ifc/xml: the STREAMING writers (merge_strategy=None streams the already-built
-    # concepts — bounded, count-matches the baseline). step: the STREAMING AP242 writer
-    # (writer="stream") — authors B-rep text straight from the concept geometry with no
-    # OCC/adacpp shapes, so it stays memory-bounded and does not OOM on the large FEM
-    # models the OCC XCAF writer used to (the plate/beam concepts are extrusions the
-    # stream writer emits analytically).
+    # plate FEM that is the memory peak that OOMed this cell. The ifc/xml/step
+    # streaming writers each fuse Beam/Plate straight from the FEM mesh via
+    # Part.iter_objects_from_fem (one transient object at a time, bounded memory), so
+    # no whole-concept set is ever resident. A cheap mesh-only load serves the
+    # representability checks; each writer reloads its own fresh mesh (see below).
+    asm_meta = ada.from_fem(path)
+    # ifc/xml: the STREAMING writers stream the fused concepts (bounded, count-matches
+    # the baseline). step: the STREAMING AP242 writer (writer="stream") authors B-rep
+    # text straight from the concept geometry with no OCC/adacpp shapes, so it stays
+    # memory-bounded and does not OOM on the large FEM models the OCC XCAF writer did.
     ms = _PARITY_MERGE_STRATEGY
     writers: dict[str, tuple] = {
         "ifc": (lambda a, p: a.to_ifc(p, streaming=True, merge_strategy=ms), ".ifc"),
@@ -496,16 +490,23 @@ def parity_for_fem_file(
         "xml": (lambda a, p: a.to_genie_xml(p, streaming=True, merge_strategy=ms, embed_sat=False), ".xml"),
         "step": (lambda a, p: a.to_stp(p, writer="stream", merge_strategy=ms), ".step"),
     }
-    counts: dict[str, int] = {"source": baseline}
+    # Run STEP first when present: write_step_stream returns {emitted, skipped} whose
+    # total IS the baseline concept count (every fused object is one or the other), so
+    # its export stream doubles as the baseline — no separate full concept-stream pass
+    # (a whole extra ~N-object iteration) just to count. Only fall back to a dedicated
+    # streaming count when STEP isn't exported or fails.
+    order = [f for f in formats if f == "step"] + [f for f in formats if f != "step"]
+    counts: dict[str, int] = {}
     errors: dict[str, str] = {}
     skipped: dict[str, str] = {}
+    baseline: int | None = None
     try:
-        for fmt in formats:
+        for fmt in order:
             wsuf = writers.get(fmt)
             if wsuf is None:
                 errors[fmt] = f"unknown format {fmt!r}"
                 continue
-            reason = _unrepresentable_reason(fmt, asm)
+            reason = _unrepresentable_reason(fmt, asm_meta)
             if reason is not None:
                 skipped[fmt] = reason
                 continue
@@ -518,11 +519,19 @@ def parity_for_fem_file(
                 # would make whichever format runs next drop its still-unmaterialised
                 # shells. A fresh mesh-only load keeps peak memory bounded (one at a
                 # time) while giving every format the same unmutated source.
-                writer(ada.from_fem(path), out)
+                stats = writer(ada.from_fem(path), out)
                 counts[fmt] = _count_format_entities(fmt, out)
+                if fmt == "step" and isinstance(stats, dict):
+                    baseline = stats.get("emitted", 0) + stats.get("skipped", 0)
             except Exception as ex:  # noqa: BLE001 - record and continue with the other formats
                 errors[fmt] = f"{type(ex).__name__}: {ex}"
                 logger.warning(f"parity_for_fem_file: {fmt} round-trip failed: {ex}")
+
+        if baseline is None:
+            # STEP wasn't exported (or errored) — count the baseline with one dedicated
+            # streaming pass (bounded memory), matching the exporters' merge strategy.
+            baseline = _streaming_baseline_count(ada.from_fem(path), merge_strategy=ms)
+        counts["source"] = baseline
     finally:
         if tmp_ctx is not None:
             tmp_ctx.cleanup()
