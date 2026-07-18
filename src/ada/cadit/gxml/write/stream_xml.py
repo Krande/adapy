@@ -36,6 +36,7 @@ from .write_load_case import add_loads
 from .write_masses import add_masses
 from .write_materials import add_materials
 from .write_plates import (
+    add_curved_shell_sat_data,
     add_plate_curved_polygon,
     add_plate_polygon,
     add_plate_polygon_data,
@@ -55,6 +56,26 @@ from .write_xml import _XML_TEMPLATE
 # streamed beam/plate structures land exactly where the DOM writer would emit
 # them — before the BC / mass entries, matching add_beams/add_plates order.
 _MARKER = "ADA__STREAMED_STRUCTURES__"
+
+
+def _analytic_merge_strategy(merge_strategy):
+    """The :class:`MergeStrategy` for an analytic request, or ``None``.
+
+    ``surface``/``panel`` are the analytic strategies; ``cylinder``/``analytic``
+    are the aliases the STEP/IFC FEM writers accept (both mean ``surface``). Any
+    other value (``coplanar``, ``none``, ``planar``) is not analytic — those
+    stream flat polygons — so this returns ``None`` for them.
+    """
+    from ada.fem.formats.mesh_faces import MergeStrategy
+
+    if merge_strategy is None or isinstance(merge_strategy, bool):
+        return None
+    s = str(merge_strategy).lower()
+    if s in ("surface", "cylinder", "analytic"):
+        return MergeStrategy.SURFACE
+    if s == "panel":
+        return MergeStrategy.PANEL
+    return None
 
 
 def write_xml_stream(
@@ -84,8 +105,15 @@ def write_xml_stream(
     if not isinstance(xml_file, pathlib.Path):
         xml_file = pathlib.Path(xml_file)
 
+    # The analytic strategies (surface/panel/cylinder/analytic) author their
+    # recognised cylinder/panel patches into the embedded SAT body and reference
+    # them as <curved_shell> — the only Genie-XML form that carries a curved
+    # surface. This is the one case where embed_sat composes with a face source.
+    analytic_strategy = _analytic_merge_strategy(merge_strategy) if embed_sat else None
+    analytic_mode = analytic_strategy is not None
+
     use_faces = merge_strategy is not None
-    if embed_sat and use_faces:
+    if embed_sat and use_faces and not analytic_mode:
         raise ValueError("write_xml_stream: embed_sat is incompatible with merge_strategy")
     if use_faces:
         # plate materials live on the FEM shell sections; register them so
@@ -106,7 +134,13 @@ def write_xml_stream(
     # part that fuses its plates from the FEM mesh has none to build it from (and
     # materialising them all would defeat the streaming). Fall back to polygon plates
     # in that case rather than emitting <sheet>s that reference absent SAT faces.
-    if embed_sat and any(_fuses_from_fem(p) for p in part.get_all_parts_in_assembly(include_self=True)):
+    # (The analytic path builds its SAT straight from the mesh faces, so it is
+    # exempt from this.)
+    if (
+        embed_sat
+        and not analytic_mode
+        and any(_fuses_from_fem(p) for p in part.get_all_parts_in_assembly(include_self=True))
+    ):
         from ada.config import logger as _logger
 
         _logger.info("write_xml_stream: a part streams plates from its FEM mesh; embed_sat disabled (polygon plates)")
@@ -114,7 +148,19 @@ def write_xml_stream(
 
     # The ACIS body must exist before the plates stream: each <sheet> references
     # its faces by the name the SAT writer minted for them.
-    sw = part_to_sat_writer(part) if embed_sat else None
+    analytic_records = None
+    if analytic_mode:
+        from ada.cadit.sat.write import sat_entities as se
+
+        from .write_analytic_faces import analytic_faces_to_sat_writer
+
+        sw, analytic_records = analytic_faces_to_sat_writer(part, analytic_strategy)
+        # No curved faces authored (an all-flat model): drop the empty body so the
+        # records stream as plain flat_plate polygons with no dangling <sheet> refs.
+        if not sw.get_entities_by_type(se.Face):
+            sw = None
+    else:
+        sw = part_to_sat_writer(part) if embed_sat else None
 
     tree = ET.parse(_XML_TEMPLATE)
     root = tree.getroot()
@@ -182,7 +228,9 @@ def write_xml_stream(
         # Match the DOM writer byte-for-byte: tree.write(encoding="utf-8")
         # suppresses the XML declaration, so we emit none either.
         fh.write(head)
-        _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_strategy, sw)
+        _stream_structures(
+            part, fh, thickness_map, Beam, BeamTapered, Plate, merge_strategy, sw, analytic_records=analytic_records
+        )
         fh.write(tail)
 
 
@@ -248,7 +296,9 @@ def _register_shell_materials(part) -> None:
                 p.materials.add(mat)
 
 
-def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_strategy, sw=None) -> None:
+def _stream_structures(
+    part, fh, thickness_map, Beam, BeamTapered, Plate, merge_strategy, sw=None, analytic_records=None
+) -> None:
     """Serialise one ``<structure>`` subtree at a time and write it out.
 
     Beams precede plates, matching the add_beams → add_plates order of the DOM
@@ -304,6 +354,23 @@ def _stream_structures(part, fh, thickness_map, Beam, BeamTapered, Plate, merge_
             add_straight_beam(beam, tmp, sw)
             for child in list(tmp):
                 fh.write(ET.tostring(child, encoding="unicode"))
+
+    if analytic_records is not None:
+        # Analytic FEM path: each record is a curved shell (SAT face refs, already
+        # authored into `sw`) or a flat plate (boundary polygon). This is what
+        # lets a tube's shell mesh arrive as a handful of <curved_shell>s instead
+        # of thousands of coplanar <flat_plate> facets.
+        for rec in analytic_records:
+            tmp = ET.Element("structures")
+            if rec.face_refs:
+                add_curved_shell_sat_data(
+                    rec.name, thickness_map[rec.thickness], rec.material, tmp, rec.face_refs
+                )
+            else:
+                add_plate_polygon_data(rec.name, rec.outline, rec.normal, thickness_map[rec.thickness], rec.material, tmp)
+            for child in list(tmp):
+                fh.write(ET.tostring(child, encoding="unicode"))
+        return
 
     if merge_strategy is None:
         from ada.api.plates import PlateCurved

@@ -402,13 +402,23 @@ class Assembly(Part):
         the object-free vectorized FEM-shell face engine — streaming path only.
         """
         if merge_strategy is not None:
-            if embed_sat:
+            from ada.cadit.gxml.write.stream_xml import _analytic_merge_strategy
+
+            is_analytic = _analytic_merge_strategy(merge_strategy) is not None
+            if is_analytic:
+                # The analytic strategies (surface/panel/cylinder/analytic) author
+                # their recognised cylinder/panel patches into the SAT body and
+                # reference them as <curved_shell> — so embed_sat is not only
+                # compatible, it is required for the curved faces. Default it on.
+                if embed_sat is None:
+                    embed_sat = True
+            elif embed_sat:
                 raise ValueError(
                     "to_genie_xml: embed_sat=True is incompatible with merge_strategy="
                     f"{merge_strategy!r} — the SAT body is built from Plate objects, which the "
                     "merge_strategy face source never materialises. Pass one or the other."
                 )
-            if embed_sat is None:
+            elif embed_sat is None:
                 embed_sat = False
                 logger.info("to_genie_xml: merge_strategy set, so plates are written as polygons (no SAT)")
         elif embed_sat is None:
