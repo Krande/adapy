@@ -41,6 +41,7 @@ from __future__ import annotations
 # measurement that decides where the ~2.1 GB parent peak actually lives before
 # we optimise (see internal notes: cut peak parent RSS of STEP->GLB).
 # ---------------------------------------------------------------------------
+import math
 import os as _os
 import re
 import threading
@@ -860,6 +861,109 @@ def _representation_length_scale(pool_get, rep_id: int) -> float | None:
     return None
 
 
+# Radians per named plane-angle unit — the fallback when a CONVERSION_BASED_UNIT names its
+# angle unit but its MEASURE_WITH_UNIT factor can't be resolved (the factor is normally read
+# straight off the referenced PLANE_ANGLE_MEASURE_WITH_UNIT record, which is exact).
+_PLANE_ANGLE_NAME_SCALE = {
+    "DEGREE": math.pi / 180.0,
+    "DEGREES": math.pi / 180.0,
+    "ARC_DEGREE": math.pi / 180.0,
+    "RADIAN": 1.0,
+    "RADIANS": 1.0,
+    "GRAD": math.pi / 200.0,
+    "GRADIAN": math.pi / 200.0,
+    "GON": math.pi / 200.0,
+}
+
+
+def _unit_plane_angle_scale(pool_get, unit_id: int) -> float | None:
+    """Radians-per-unit of a plane-angle unit entity, or None if it isn't one.
+
+    STEP tags every plane angle (notably ``CONICAL_SURFACE.semi_angle``) in the unit the
+    owning ``GLOBAL_UNIT_ASSIGNED_CONTEXT`` declares. ``ada.geom`` (and both the OCC and
+    adacpp kernels) want radians, so a file whose context is ``CONVERSION_BASED_UNIT('DEGREE')``
+    must have its angles multiplied by ``pi/180``. The plain SI form is the radian (factor 1).
+    """
+    rec = pool_get(unit_id)
+    if rec is None:
+        return None
+    if rec.type == _COMPLEX and isinstance(rec.args, dict):
+        if "PLANE_ANGLE_UNIT" not in rec.args:
+            return None
+        if rec.args.get("SI_UNIT") is not None:  # SI_UNIT($, .RADIAN.) — the base radian
+            return 1.0
+        cbu = rec.args.get("CONVERSION_BASED_UNIT")
+        if cbu:
+            for v in cbu:  # exact factor from the referenced PLANE_ANGLE_MEASURE_WITH_UNIT
+                if isinstance(v, _Ref):
+                    mrec = pool_get(v.id)
+                    if mrec is not None and mrec.type == "PLANE_ANGLE_MEASURE_WITH_UNIT" and mrec.args:
+                        try:
+                            return float(mrec.args[0])
+                        except (TypeError, ValueError):
+                            pass
+            if isinstance(cbu[0], str):  # fall back to the unit name
+                return _PLANE_ANGLE_NAME_SCALE.get(cbu[0].strip().upper())
+        return None
+    if rec.type == "SI_UNIT":  # bare SI_UNIT($, .RADIAN.)
+        if rec.args and _enum_name(rec.args[-1]).strip(".").upper() == "RADIAN":
+            return 1.0
+    return None
+
+
+def _context_plane_angle_scale(pool_get, ctx_rec) -> float | None:
+    """Radians-per-unit of the plane-angle unit assigned by a (possibly complex) context
+    record's ``GLOBAL_UNIT_ASSIGNED_CONTEXT`` unit list, or None."""
+    if ctx_rec is None:
+        return None
+    units = None
+    if ctx_rec.type == _COMPLEX and isinstance(ctx_rec.args, dict):
+        gua = ctx_rec.args.get("GLOBAL_UNIT_ASSIGNED_CONTEXT")
+        if gua and isinstance(gua[0], (list, tuple)):
+            units = gua[0]
+    elif ctx_rec.type == "GLOBAL_UNIT_ASSIGNED_CONTEXT" and ctx_rec.args and isinstance(ctx_rec.args[0], (list, tuple)):
+        units = ctx_rec.args[0]
+    if not units:
+        return None
+    for u in units:
+        if isinstance(u, _Ref):
+            s = _unit_plane_angle_scale(pool_get, u.id)
+            if s is not None:
+                return s
+    return None
+
+
+def _representation_plane_angle_scale(pool_get, rep_id: int) -> float | None:
+    """Radians-per-unit of the plane-angle unit of a representation's own context (its
+    trailing context ``_Ref``), mirroring :func:`_representation_length_scale`."""
+    rec = pool_get(rep_id)
+    if rec is None or not isinstance(rec.args, list):
+        return None
+    for v in reversed(rec.args):  # the context is the last _Ref arg (after the items list)
+        if isinstance(v, _Ref):
+            return _context_plane_angle_scale(pool_get, pool_get(v.id))
+    return None
+
+
+def _detect_plane_angle_scale(pool_get, rep_ids=(), all_recs=None) -> float:
+    """The file's radians-per-unit plane-angle factor (1.0 radian, ~0.01745 degree).
+
+    Resolved from a representation's context first (works for the lazy offset pool, which
+    can't be enumerated), then — dict pool only — by scanning every record for any
+    ``GLOBAL_UNIT_ASSIGNED_CONTEXT``. Defaults to 1.0 (radians) when undetectable, so files
+    that omit the unit (or the adapy emitter's own SI output) are unchanged."""
+    for rid in rep_ids:
+        s = _representation_plane_angle_scale(pool_get, rid)
+        if s is not None:
+            return s
+    if all_recs is not None:
+        for rec in all_recs:
+            s = _context_plane_angle_scale(pool_get, rec)
+            if s is not None:
+                return s
+    return 1.0
+
+
 _HEADER_RE = re.compile(r"^\s*#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(", re.S)
 _COMPLEX_RE = re.compile(r"^\s*#(\d+)\s*=\s*\(", re.S)  # #id=(NAME(..)NAME(..)..) complex record
 _COMPLEX = "__COMPLEX__"
@@ -985,9 +1089,13 @@ class _Resolver:
     """Resolves instance ids into adapy geom objects against an entity pool,
     memoizing within a single solid so shared points/edges are built once."""
 
-    def __init__(self, pool: dict[int, _Rec]):
+    def __init__(self, pool: dict[int, _Rec], angle_scale: float = 1.0):
         self._pool = pool
         self._cache: dict[int, object] = {}
+        # Radians per file plane-angle unit — applied to plane angles the file tags in its
+        # declared angle unit (e.g. CONICAL_SURFACE.semi_angle in a DEGREE context). 1.0 for
+        # a radian context (the default), ~0.01745 for degrees.
+        self.angle_scale = angle_scale
 
     def reset_cache(self):
         self._cache = {}
@@ -1094,12 +1202,24 @@ def _trim_value(r: _Resolver, item):
 
 def _b_trimmed_curve(r: _Resolver, a: list) -> TrimmedCurve:
     # TRIMMED_CURVE('', #basis_curve, (trim_1), (trim_2), sense_agreement, master_repr)
-    t1 = a[2][0] if a[2] else 0.0
-    t2 = a[3][0] if a[3] else 1.0
+    basis = r.deref(a[1])
+    t1 = _trim_value(r, a[2][0] if a[2] else 0.0)
+    t2 = _trim_value(r, a[3][0] if a[3] else 1.0)
+    # A PARAMETER_VALUE trim on a conic basis (circle / ellipse) is an angle in the file's
+    # plane-angle unit, so a DEGREE-context arc trimmed at "90" means 90 deg, not 90 rad. Scale
+    # numeric trims to radians (the serializer's arc sampler treats them as radians). Line and
+    # b-spline bases parameterize by length / knot value — the angle unit must not touch those,
+    # and CARTESIAN_POINT trims (Point objects) carry no unit here.
+    angle_scale = getattr(r, "angle_scale", 1.0)
+    if angle_scale != 1.0 and isinstance(basis, (Circle, Ellipse)):
+        if isinstance(t1, float):
+            t1 *= angle_scale
+        if isinstance(t2, float):
+            t2 *= angle_scale
     return TrimmedCurve(
-        basis_curve=r.deref(a[1]),
-        trim1=_trim_value(r, t1),
-        trim2=_trim_value(r, t2),
+        basis_curve=basis,
+        trim1=t1,
+        trim2=t2,
         sense_agreement=_enum_true(a[4]),
         master_representation=_enum_name(a[5]) if len(a) > 5 else "PARAMETER",
     )
@@ -1185,8 +1305,13 @@ def _b_cylindrical_surface(r: _Resolver, a: list) -> CylindricalSurface:
 
 
 def _b_conical_surface(r: _Resolver, a: list) -> ConicalSurface:
-    # CONICAL_SURFACE('', #position, radius, semi_angle)
-    return ConicalSurface(position=r.deref(a[1]), radius=float(a[2]), semi_angle=float(a[3]))
+    # CONICAL_SURFACE('', #position, radius, semi_angle). semi_angle is a plane angle in the
+    # file's declared angle unit — scale it to the radians ada.geom/adacpp expect. Without this
+    # a DEGREE-context cone (e.g. semi_angle 1.5 -> read as 1.5 rad ~= 86 deg) becomes a
+    # near-degenerate flat cone that libtess2 meshes to zero triangles, dropping the face.
+    return ConicalSurface(
+        position=r.deref(a[1]), radius=float(a[2]), semi_angle=float(a[3]) * getattr(r, "angle_scale", 1.0)
+    )
 
 
 def _b_spherical_surface(r: _Resolver, a: list) -> SphericalSurface:
@@ -2023,7 +2148,8 @@ def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped, on_total=Non
     )
     if on_total is not None:
         on_total(len(root_ids))
-    resolver = _Resolver(pool)
+    angle_scale = _detect_plane_angle_scale(pool.get, absr_ids, all_recs=pool.values())
+    resolver = _Resolver(pool, angle_scale=angle_scale)
     n_solids = 0
     for rid in root_ids:
         rec = pool[rid]
@@ -2265,11 +2391,22 @@ class StreamIndex:
         "tmap",
         "prod_names",
         "tolerant",
+        "angle_scale",
         "_owns",
     )
 
     def __init__(
-        self, step_path, idx_ids_path, idx_offs_path, file_size, roots, colour_map, tmap, prod_names, tolerant
+        self,
+        step_path,
+        idx_ids_path,
+        idx_offs_path,
+        file_size,
+        roots,
+        colour_map,
+        tmap,
+        prod_names,
+        tolerant,
+        angle_scale=1.0,
     ):
         self.step_path = str(step_path)
         self.idx_ids_path = idx_ids_path
@@ -2280,6 +2417,7 @@ class StreamIndex:
         self.tmap = tmap
         self.prod_names = prod_names
         self.tolerant = tolerant
+        self.angle_scale = angle_scale
         self._owns = True  # the creating process unlinks the tempfiles; pickled copies don't
 
     def __getstate__(self):
@@ -2305,7 +2443,7 @@ class StreamIndex:
             ids_mm = np.empty(0, dtype=np.int64)
             offs_mm = np.empty(0, dtype=np.int64)
         pool = _OffsetPool(ids_mm, offs_mm, fd=fd, file_size=self.file_size, owns_fd=True)
-        return pool, _Resolver(pool)
+        return pool, _Resolver(pool, angle_scale=self.angle_scale)
 
     def close(self):
         """Unlink the spilled index tempfiles (creating process only)."""
@@ -2392,6 +2530,7 @@ def prepare_stream_index(filepath, *, tolerant: bool, on_total=None) -> StreamIn
             idx_paths=idx_paths,
             sized={"tmap": tmap, "colour_map": colour_map},
         )
+        angle_scale = _detect_plane_angle_scale(pool.get, absr)
         if on_total is not None:
             on_total(len(roots))
         # Drop the prepare-local memmaps + pool; consumers rebind fresh ones via open_pool().
@@ -2400,7 +2539,9 @@ def prepare_stream_index(filepath, *, tolerant: bool, on_total=None) -> StreamIn
         if mm is not None:  # early error before the post-scan munmap
             mm.close()
         fh.close()  # the prepare fd; consumers reopen the file in open_pool()
-    return StreamIndex(filepath, p_i, p_o, file_size, roots, colour_map, tmap, prod_names, tolerant)
+    return StreamIndex(
+        filepath, p_i, p_o, file_size, roots, colour_map, tmap, prod_names, tolerant, angle_scale=angle_scale
+    )
 
 
 def build_one_solid(idx: StreamIndex, pool, resolver, rid: int, seq: int, *, skipped):
