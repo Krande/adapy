@@ -363,11 +363,11 @@ def _stream_structures(
         for rec in analytic_records:
             tmp = ET.Element("structures")
             if rec.face_refs:
-                add_curved_shell_sat_data(
-                    rec.name, thickness_map[rec.thickness], rec.material, tmp, rec.face_refs
-                )
+                add_curved_shell_sat_data(rec.name, thickness_map[rec.thickness], rec.material, tmp, rec.face_refs)
             else:
-                add_plate_polygon_data(rec.name, rec.outline, rec.normal, thickness_map[rec.thickness], rec.material, tmp)
+                add_plate_polygon_data(
+                    rec.name, rec.outline, rec.normal, thickness_map[rec.thickness], rec.material, tmp
+                )
             for child in list(tmp):
                 fh.write(ET.tostring(child, encoding="unicode"))
         return

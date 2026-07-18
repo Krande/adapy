@@ -75,9 +75,7 @@ def _edge_loop_from_points(points):
             geo_cu.OrientedEdge(
                 start=Point(*a),
                 end=Point(*b),
-                edge_element=geo_cu.EdgeCurve(
-                    start=Point(*a), end=Point(*b), edge_geometry=line, same_sense=True
-                ),
+                edge_element=geo_cu.EdgeCurve(start=Point(*a), end=Point(*b), edge_geometry=line, same_sense=True),
                 orientation=True,
             )
         )
@@ -225,9 +223,7 @@ def _bspline_grid_face(grid):
             geo_cu.OrientedEdge(
                 start=Point(*p0),
                 end=Point(*p1),
-                edge_element=geo_cu.EdgeCurve(
-                    start=Point(*p0), end=Point(*p1), edge_geometry=line, same_sense=True
-                ),
+                edge_element=geo_cu.EdgeCurve(start=Point(*p0), end=Point(*p1), edge_geometry=line, same_sense=True),
                 orientation=True,
                 pcurve=pcurve,
             )
@@ -302,9 +298,6 @@ def analytic_faces_to_sat_writer(part, strategy):
     **cylinder** (or B-spline) patch is authored into the ACIS body and
     referenced by a ``<curved_shell>``. No face is ever dropped.
     """
-    from ada.geom import curves as geo_cu
-    from ada.geom import surfaces as geo_su
-
     from ada.cadit.sat.utils import make_ints_if_possible
     from ada.cadit.sat.write import sat_entities as se
     from ada.cadit.sat.write.write_curved_plate import (
@@ -315,6 +308,8 @@ def analytic_faces_to_sat_writer(part, strategy):
     )
     from ada.cadit.sat.write.writer import SatWriter, _assign_faces_to_shells
     from ada.fem.formats.mesh_faces import MergeStrategy, iter_fem_analytic_faces
+    from ada.geom import curves as geo_cu
+    from ada.geom import surfaces as geo_su
 
     sw = SatWriter(part)
     idg = sw.id_generator
