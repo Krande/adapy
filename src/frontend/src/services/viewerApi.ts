@@ -956,6 +956,20 @@ export interface CompressionSweepState {
     orphaned: boolean;
 }
 
+/** One advertised conversion: a source extension and every target it can produce. */
+export interface WorkerConversion {
+    from: string;
+    to: string[];
+}
+
+/** One advertised @utility spec. Only `name`/`description` are rendered; extra keys are tolerated. */
+export interface WorkerUtilitySpec {
+    name?: string;
+    description?: string;
+
+    [key: string]: unknown;
+}
+
 /** One worker pod's self-reported registration entry. */
 export interface WorkerEntry {
     worker_id: string;
@@ -964,6 +978,11 @@ export interface WorkerEntry {
     started_at: number;
     last_heartbeat: number;
     online: boolean;
+    // The backend registration payload (worker.py) also advertises these; they are optional
+    // because the type historically dropped them and older workers may omit them.
+    source_exts?: string[];
+    conversions?: WorkerConversion[];
+    utilities?: WorkerUtilitySpec[];
 }
 
 export const viewerApi = {
