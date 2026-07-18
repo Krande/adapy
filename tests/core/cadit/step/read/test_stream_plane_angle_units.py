@@ -42,7 +42,10 @@ def _degree_unit_pool() -> dict[int, sr._Rec]:
                 "REPRESENTATION_CONTEXT": ["id", "kind"],
             },
         ),
-        20: sr._Rec(sr._COMPLEX, {"LENGTH_UNIT": [], "NAMED_UNIT": [sr._STAR], "SI_UNIT": [sr._Enum("MILLI"), sr._Enum("METRE")]}),
+        20: sr._Rec(
+            sr._COMPLEX,
+            {"LENGTH_UNIT": [], "NAMED_UNIT": [sr._STAR], "SI_UNIT": [sr._Enum("MILLI"), sr._Enum("METRE")]},
+        ),
         30: sr._Rec(
             sr._COMPLEX,
             {"CONVERSION_BASED_UNIT": ["DEGREE", sr._Ref(31)], "NAMED_UNIT": [sr._Ref(32)], "PLANE_ANGLE_UNIT": []},
@@ -62,8 +65,13 @@ def _radian_unit_pool() -> dict[int, sr._Rec]:
                 "REPRESENTATION_CONTEXT": ["id", "kind"],
             },
         ),
-        20: sr._Rec(sr._COMPLEX, {"LENGTH_UNIT": [], "NAMED_UNIT": [sr._STAR], "SI_UNIT": [sr._Enum("MILLI"), sr._Enum("METRE")]}),
-        30: sr._Rec(sr._COMPLEX, {"PLANE_ANGLE_UNIT": [], "NAMED_UNIT": [sr._STAR], "SI_UNIT": [sr._STAR, sr._Enum("RADIAN")]}),
+        20: sr._Rec(
+            sr._COMPLEX,
+            {"LENGTH_UNIT": [], "NAMED_UNIT": [sr._STAR], "SI_UNIT": [sr._Enum("MILLI"), sr._Enum("METRE")]},
+        ),
+        30: sr._Rec(
+            sr._COMPLEX, {"PLANE_ANGLE_UNIT": [], "NAMED_UNIT": [sr._STAR], "SI_UNIT": [sr._STAR, sr._Enum("RADIAN")]}
+        ),
     }
 
 
