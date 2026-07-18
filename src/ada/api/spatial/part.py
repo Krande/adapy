@@ -1293,7 +1293,11 @@ class Part(BackendGeom):
         parent = self.get_assembly()
         list_of_ps = []
         self._flatten_list_of_subparts(parent, list_of_ps)
-        if include_self:
+        # The flatten walks the whole tree from the assembly root, so a non-root
+        # ``self`` is already in the list — appending it again on ``include_self``
+        # duplicates it (and made every FEM consumer that iterates these parts
+        # process that part's mesh twice). Only add it when the walk didn't.
+        if include_self and not any(p is self for p in list_of_ps):
             list_of_ps += [self]
 
         if by_type is not None:
