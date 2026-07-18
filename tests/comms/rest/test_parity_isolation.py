@@ -28,7 +28,10 @@ def test_parity_child_runs_in_isolated_fork(fem_files):
             src,
             str(src),
             "parity",
-            convert_kwargs={"formats": formats},
+            # No ``produced`` blobs -> the child takes the offline re-derive path
+            # (parity_for_source_file). For a Genie-XML source that is the count-based
+            # cross_format_parity; the audit worker instead passes produced blobs.
+            convert_kwargs={},
             timeout_s=300,
         )
     )
