@@ -27,6 +27,56 @@ def _roundtrip_names(path):
     return {shp.name for shp in store.iter_all_shapes(True)}
 
 
+def _hierarchy_edges(path):
+    """Parse the streamed STEP's assembly tree into (parent_name, child_name) edges
+    by resolving each NEXT_ASSEMBLY_USAGE_OCCURRENCE's parent/child PRODUCT_DEFINITION
+    back to its PRODUCT name."""
+    import re
+
+    txt = open(path).read()
+    prods = dict(re.findall(r"#(\d+)\s*=\s*PRODUCT\('([^']*)'", txt))
+    pd_to_pdf = dict(re.findall(r"#(\d+)\s*=\s*PRODUCT_DEFINITION\('[^']*','[^']*',#(\d+)", txt))
+    pdf_to_prod = dict(re.findall(r"#(\d+)\s*=\s*PRODUCT_DEFINITION_FORMATION\('[^']*','[^']*',#(\d+)\)", txt))
+
+    def name_of_pd(pd):
+        return prods.get(pdf_to_prod.get(pd_to_pdf.get(pd)))
+
+    edges = set()
+    for m in re.finditer(r"NEXT_ASSEMBLY_USAGE_OCCURRENCE\('[^']*','[^']*','',#(\d+),#(\d+),", txt):
+        edges.add((name_of_pd(m.group(1)), name_of_pd(m.group(2))))
+    return edges
+
+
+def test_stream_writer_preserves_assembly_hierarchy(tmp_path):
+    # A nested Assembly/Part tree must round-trip its parent hierarchy through the
+    # streamed STEP (NEXT_ASSEMBLY_USAGE_OCCURRENCE tree), not land flat under the
+    # root — each member sits under its real owning part.
+    sub2 = ada.Part("sub2") / [
+        Beam("bm2", (0, 0, 0), (0, 0, 3), Section("s2", from_str="IPE300")),
+        Plate("pl2", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.02),
+    ]
+    sub1 = ada.Part("sub1") / [Beam("bm1", (1, 0, 0), (1, 0, 3), Section("s1", from_str="IPE300")), sub2]
+    a = ada.Assembly("root") / sub1
+
+    out = tmp_path / "hier.stp"
+    stats = a.to_stp(out, writer="stream")
+    assert stats == {"emitted": 3, "skipped": 0}
+
+    # member products all present
+    names = _roundtrip_names(out)
+    assert {"bm1", "bm2", "pl2"}.issubset(names)
+
+    # the exact nested hierarchy is carried in the STEP assembly tree
+    edges = _hierarchy_edges(out)
+    assert ("root", "sub1") in edges
+    assert ("sub1", "sub2") in edges
+    assert ("sub1", "bm1") in edges
+    assert ("sub2", "bm2") in edges
+    assert ("sub2", "pl2") in edges
+    # nothing lands flat directly under root except the top sub-assembly
+    assert {c for p, c in edges if p == "root"} == {"sub1"}
+
+
 def _model():
     tub = Beam("tub", (0, 0, 0), (0, 0, 3), Section("tub", from_str="TUB300x20"))  # hollow circle
     box = Beam("box", (1, 0, 0), (1, 0, 3), Section("box", from_str="BOX400x400x20x20"))

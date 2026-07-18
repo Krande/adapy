@@ -536,7 +536,7 @@ class Ap242StreamWriter:
             idx += 1
 
     # -- the main entry point ----------------------------------------------- #
-    def add_extrusion(self, ext: Extrusion) -> int:
+    def add_extrusion(self, ext: Extrusion, *, parent_path=None) -> int:
         if not self._began or self._ended:
             raise RuntimeError("add_extrusion() must be called between begin() and end()")
 
@@ -574,7 +574,7 @@ class Ap242StreamWriter:
             self._emit_color(brep, ext.color)
 
         if self.assembly:
-            self._emit_component(brep, name)
+            self._emit_component(brep, name, parent_path=parent_path)
         else:
             self._solids.append(brep)
         return brep
@@ -859,7 +859,7 @@ class Ap242StreamWriter:
             self._instances.append((pd, sr, nm, parent_rep, tuple(tf) if tf is not None else None))
         return len(instances)
 
-    def add_baked_instances(self, g, *, name="shape", color=None, transforms=()) -> int:
+    def add_baked_instances(self, g, *, name="shape", color=None, transforms=(), parent_path=None) -> int:
         """Emit one component per world 4x4 in ``transforms``, each BAKED into a faceted
         MANIFOLD_SOLID_BREP whose planar faces are recomputed from the transformed points — so
         ANY affine (including the non-uniform-scale mapped-item transforms an IfcMappedItem carries)
@@ -885,7 +885,7 @@ class Ap242StreamWriter:
             if item is None:
                 continue
             if self.assembly:
-                self._emit_component(item, nm)
+                self._emit_component(item, nm, parent_path=parent_path)
             else:
                 self._solids.append(item)
             emitted += 1
@@ -1625,6 +1625,9 @@ def write_step_stream(
             geom, name, color, translate = _object_geom_meta(obj)
             done = False
             if geom is not None:
+                # Assembly breadcrumb (owning Part chain up to the root) so each
+                # streamed object lands under its real part, not flat under the root.
+                parent_path = _object_parent_path(obj, part)
                 # transforms ride obj.geom (the mapped-item mesh-level instances); solid_geom()
                 # strips them. World order (matching the tessellation path + the ifcopenshell oracle)
                 # is placement @ transform[k] @ local — so bake the LOCAL geometry (obj.geom.geometry,
@@ -1649,11 +1652,15 @@ def write_step_stream(
                         W = P @ np.asarray(m, dtype=float)
                         placed = _transform_extrusion(base_ext, W) if base_ext is not None else None
                         if placed is not None:
-                            writer.add_extrusion(placed)
+                            writer.add_extrusion(placed, parent_path=parent_path)
                             n_ok += 1
                         elif (
                             writer.add_baked_instances(
-                                obj_geom.geometry, name=name, color=color, transforms=[tuple(W.ravel())]
+                                obj_geom.geometry,
+                                name=name,
+                                color=color,
+                                transforms=[tuple(W.ravel())],
+                                parent_path=parent_path,
                             )
                             > 0
                         ):
@@ -1665,9 +1672,14 @@ def write_step_stream(
                         geom, name=name, color=color, translate=translate
                     ) or _primitive_to_extrusion(geom, name=name, color=color, translate=translate)
                     if ext is not None:
-                        writer.add_extrusion(ext)
+                        writer.add_extrusion(ext, parent_path=parent_path)
                         done = True
-                    elif writer.add_brep(geom.geometry, name=name, color=color, translate=translate) is not None:
+                    elif (
+                        writer.add_brep(
+                            geom.geometry, name=name, color=color, translate=translate, parent_path=parent_path
+                        )
+                        is not None
+                    ):
                         # B-rep fallback: imported shapes, pure shells, analytic faces
                         done = True
             emitted += 1 if done else 0
@@ -1702,6 +1714,24 @@ def _edge_curve_value_sig(g):
     if cps is not None:
         return (tname, tuple(tuple(float(v) for v in p) for p in cps))
     return (tname, loc)
+
+
+def _object_parent_path(obj, root):
+    """Root-first ``(rep_id, name)`` breadcrumb of an object's owning Part chain,
+    up to but excluding the ``root`` product (which the writer emits as the assembly
+    root). ``None`` when the object sits directly under the root. ``rep_id`` is the
+    Part's ``id()`` — a stable key for the duration of one streamed write, enough for
+    ``_register_asm_path`` to rebuild the nested PRODUCT / NAUO tree. Names are left
+    unescaped; ``_register_asm_path`` escapes them."""
+    levels: list = []
+    node = getattr(obj, "parent", None)
+    while node is not None and node is not root:
+        rep_id = id(node)
+        name = getattr(node, "name", None) or f"asm_{rep_id}"
+        levels.append((rep_id, name))
+        node = getattr(node, "parent", None)
+    levels.reverse()
+    return levels or None
 
 
 def _object_geom_meta(obj):
