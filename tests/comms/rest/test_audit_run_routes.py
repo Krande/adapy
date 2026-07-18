@@ -396,9 +396,28 @@ def test_cell_history_newest_first(db):
             audit_run_id=r1["id"],
         )
     )
+    # An on-demand / viewer-triggered re-conversion (no audit_run_id) must NOT
+    # leak in: history is a cross-run comparison, so standalone rows are excluded.
+    run(
+        db_module.insert_audit(
+            pool,
+            user_sub=None,
+            scope_kind="shared",
+            scope_id=None,
+            action="convert",
+            key="models/a.step",
+            target_format="ifc",
+            status="done",
+            duration_ms=99,
+            audit_run_id=None,
+        )
+    )
     hist = run(db_module.audit_log_history_for_cell(pool, "models/a.step", "ifc"))
     assert [h["status"] for h in hist] == ["error", "done"]  # newest first
     assert hist[0]["error"] == "boom" and hist[0]["duration_ms"] == 22
+    # the standalone (audit_run_id NULL) row is filtered out
+    assert all(h["duration_ms"] != 99 for h in hist)
+    assert all(h["audit_run_id"] is not None for h in hist)
 
 
 # ── Routes (TestClient) ────────────────────────────────────────────
