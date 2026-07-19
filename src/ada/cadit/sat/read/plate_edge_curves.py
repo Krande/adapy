@@ -36,8 +36,6 @@ from ada.config import logger
 # remove_near_collinear_points (tol 1e-8*scale^2), so over-sampling a nearly
 # straight edge costs nothing; under-sampling a tight one is visible.
 DEFAULT_CURVE_SAMPLES = 24
-# Ring resolution for ellipse/circle sampling before clipping to the edge's arc.
-_ELLIPSE_RING_SAMPLES = 2048
 
 
 def _de_boor(x: float, knots, cp, deg: int):
@@ -103,14 +101,23 @@ def _bspline_points(curve, n: int) -> list[tuple[float, float, float]] | None:
             pts = pts[:, :3]
         if not np.isfinite(pts).all():
             return None
-        return [tuple(float(v) for v in p) for p in pts]
+        # tolist() converts the whole array in C; the old per-scalar float() genexpr was ~16s of the
+        # hull-skin import (69.6M boxed-scalar conversions). tuple() per row keeps the point type.
+        return [tuple(p) for p in pts.tolist()]
     except Exception as exc:  # noqa: BLE001 - a curve we can't sample falls back to the chord
         logger.debug(f"bspline sample failed: {exc}")
         return None
 
 
-def _ellipse_points(curve, n: int) -> list[tuple[float, float, float]] | None:
-    """Sample a full Ellipse/Circle. Trimming to the edge happens in _clip_to_endpoints."""
+def _ellipse_arc_points(curve, a, b, n: int) -> list[tuple[float, float, float]] | None:
+    """Interior points along the Ellipse/Circle ARC from vertex `a` to vertex `b`.
+
+    Analytic clip: a point on the ellipse is ``p = c + ra*cos(t)*x + rb*sin(t)*y``, so each vertex's
+    parameter angle ``t`` is recovered by projecting ``p - c`` onto the (x, y) frame. We then sample
+    the SHORT arc between the two angles directly — ~n points on the actual edge — instead of the old
+    2048-point full ring that ``_clip_to_endpoints`` immediately threw all but ~n of away (~27s of the
+    hull-skin import). Endpoints are dropped: the caller already holds the exact vertices.
+    """
     try:
         c = np.asarray(list(curve.position.location)[:3], dtype=float)
         z = np.asarray(list(curve.position.axis)[:3], dtype=float)
@@ -122,14 +129,24 @@ def _ellipse_points(curve, n: int) -> list[tuple[float, float, float]] | None:
         rb = float(getattr(curve, "semi_axis2", getattr(curve, "radius", 0.0)))
         if ra <= 0 or rb <= 0:
             return None
-        # Sample the FULL ring densely, not n*4: the edge is usually a small arc of it (measured:
-        # a 1.46 m edge spanning ~5 of 96 ring samples), so ring density must be high enough that
-        # the clipped arc still carries ~n points. 2048 vectorised points is free.
-        t = np.linspace(0.0, 2.0 * np.pi, _ELLIPSE_RING_SAMPLES, endpoint=False)
-        pts = c + np.outer(ra * np.cos(t), x) + np.outer(rb * np.sin(t), y)
-        return [tuple(float(v) for v in p) for p in pts]
+
+        def _angle(p) -> float:
+            d = np.asarray(p, dtype=float) - c
+            return float(np.arctan2(float(d @ y) / rb, float(d @ x) / ra))
+
+        ta = _angle(a)
+        # The edge is the short arc: sweep the signed angular delta wrapped into (-pi, pi]. A plate
+        # boundary edge is always the shorter way round its ring (measured: ~5 of 96 samples), and for
+        # such small sweeps short-angle == short-arc-length for an ellipse too, so this matches the
+        # old arclength-based clip without sampling the full ring.
+        delta = (_angle(b) - ta + np.pi) % (2.0 * np.pi) - np.pi
+        if abs(delta) < 1e-12:
+            return []
+        ts = ta + delta * np.linspace(0.0, 1.0, n + 2)[1:-1]
+        pts = c + np.outer(ra * np.cos(ts), x) + np.outer(rb * np.sin(ts), y)
+        return [tuple(p) for p in pts.tolist()]
     except Exception as exc:  # noqa: BLE001
-        logger.debug(f"ellipse sample failed: {exc}")
+        logger.debug(f"ellipse arc sample failed: {exc}")
         return None
 
 
@@ -193,13 +210,11 @@ def edge_interior_points(coedge, sat_store, a, b, n: int = DEFAULT_CURVE_SAMPLES
 
     if isinstance(curve, Line):
         return []
-    pts = None
-    closed = False
+    if isinstance(curve, (Ellipse, Circle)):
+        return _ellipse_arc_points(curve, a, b, n) or []  # analytic arc clip — no ring, no _clip
     if isinstance(curve, BSplineCurveWithKnots):
         pts = _bspline_points(curve, max(n * 4, 32))  # open: sampled across the knot span
-    elif isinstance(curve, (Ellipse, Circle)):
-        pts = _ellipse_points(curve, n)
-        closed = True  # sampled as a full ring; the edge is an arc of it
-    if not pts:
-        return []
-    return _clip_to_endpoints(pts, a, b, n, closed)
+        if not pts:
+            return []
+        return _clip_to_endpoints(pts, a, b, n, closed=False)  # open: slice, never wrap
+    return []

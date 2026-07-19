@@ -14,7 +14,47 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ada.cadit.sat.read.plate_edge_curves import _clip_to_endpoints, _de_boor
+from types import SimpleNamespace
+
+from ada.cadit.sat.read.plate_edge_curves import _clip_to_endpoints, _de_boor, _ellipse_arc_points
+
+
+def _circle(r=1.0, c=(0.0, 0.0, 0.0)):
+    pos = SimpleNamespace(location=c, axis=(0.0, 0.0, 1.0), ref_direction=(1.0, 0.0, 0.0))
+    return SimpleNamespace(position=pos, radius=r)
+
+
+def _ellipse(ra=2.0, rb=1.0, c=(0.0, 0.0, 0.0)):
+    pos = SimpleNamespace(location=c, axis=(0.0, 0.0, 1.0), ref_direction=(1.0, 0.0, 0.0))
+    return SimpleNamespace(position=pos, semi_axis1=ra, semi_axis2=rb)
+
+
+def test_ellipse_arc_is_analytic_short_arc_on_the_circle():
+    """The analytic sampler emits exactly ~n points on the edge's SHORT arc — no full ring, no clip."""
+    a, b = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)  # a quarter turn apart
+    inner = _ellipse_arc_points(_circle(r=1.0), a, b, n=24)
+    assert inner is not None
+    arr = np.array(inner)
+    assert len(arr) == 24  # exactly n interior points, endpoints dropped
+    assert np.allclose(np.linalg.norm(arr[:, :2], axis=1), 1.0, atol=1e-9)  # on the r=1 circle
+    assert (arr[:, 0] >= -1e-9).all() and (arr[:, 1] >= -1e-9).all()  # first quadrant = short arc
+    walk = np.vstack([[a], arr, [b]])
+    assert np.linalg.norm(np.diff(walk, axis=0), axis=1).sum() == pytest.approx(np.pi / 2, rel=2e-3)
+
+
+def test_ellipse_arc_respects_reversed_direction():
+    a, b = (0.0, 1.0, 0.0), (1.0, 0.0, 0.0)  # reversed vs the test above
+    inner = np.array(_ellipse_arc_points(_circle(r=1.0), a, b, n=24))
+    # First interior point must be nearer a than b — the walk runs a -> b.
+    assert np.linalg.norm(inner[0] - np.array(a)) < np.linalg.norm(inner[0] - np.array(b))
+
+
+def test_ellipse_arc_points_lie_on_the_ellipse():
+    ra, rb = 2.0, 1.0
+    a, b = (ra, 0.0, 0.0), (0.0, rb, 0.0)
+    arr = np.array(_ellipse_arc_points(_ellipse(ra, rb), a, b, n=24))
+    # (x/ra)^2 + (y/rb)^2 == 1 for every sample.
+    assert np.allclose((arr[:, 0] / ra) ** 2 + (arr[:, 1] / rb) ** 2, 1.0, atol=1e-9)
 
 
 def _circle_ring(n=2048, r=1.0):
