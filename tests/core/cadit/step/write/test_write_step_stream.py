@@ -185,3 +185,39 @@ def test_stream_writer_box_and_cylinder_primitives(tmp_path):
     assert txt.count("CONICAL_SURFACE(") == 1
     # the sphere never degrades to thousands of planar triangle faces
     assert txt.count("ADVANCED_FACE(") < 40
+
+
+def test_stream_writer_bspline_plate_is_an_analytic_valid_solid(tmp_path):
+    """A plate whose boundary follows a B-spline emits a real SURFACE_OF_LINEAR_EXTRUSION side face
+    (an analytic swept B-spline, NOT sampled into a fan of planar facets), and OCC reads it back as a
+    single valid solid. This is the guard for the ap242 analytic B-spline edge path."""
+    from ada.api.curves import CurvePoly2d, SplineEdge
+    from ada.geom.curves import BSplineCurveFormEnum, BSplineCurveWithKnots, KnotType
+
+    spline = BSplineCurveWithKnots(
+        degree=2,
+        control_points_list=[(1, 0, 0), (1.3, 0.5, 0), (1, 1, 0)],  # bulges out in +x
+        curve_form=BSplineCurveFormEnum.UNSPECIFIED,
+        closed_curve=False,
+        self_intersect=False,
+        knot_multiplicities=[3, 3],
+        knots=[0.0, 1.0],
+        knot_spec=KnotType.UNSPECIFIED,
+    )
+    segs = CurvePoly2d.build_edge_segments(
+        [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], [SplineEdge(a=(1, 0, 0), b=(1, 1, 0), curve=spline)]
+    )
+    pl = Plate.from_segments("bspline_pl", segs, 0.05)
+
+    out = tmp_path / "spline.stp"
+    stats = (ada.Assembly("root") / (ada.Part("p") / pl)).to_stp(out, writer="stream")
+    assert stats == {"emitted": 1, "skipped": 0}
+
+    n_solids, n_invalid = _roundtrip_solids(out)
+    assert (n_solids, n_invalid) == (1, 0)
+
+    txt = out.read_text()
+    assert txt.count("SURFACE_OF_LINEAR_EXTRUSION(") == 1  # one analytic swept side face for the spline
+    assert "B_SPLINE_CURVE_WITH_KNOTS(" in txt
+    # the spline never explodes into a sampled fan of planar side faces (3 lines + 1 spline + 2 caps)
+    assert txt.count("ADVANCED_FACE(") == 6

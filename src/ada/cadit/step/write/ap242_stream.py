@@ -36,10 +36,11 @@ logger = logging.getLogger(__name__)
 class Seg:
     """One boundary segment in 2D profile coordinates."""
 
-    kind: str  # "line" | "arc"
+    kind: str  # "line" | "arc" | "spline"
     start: tuple
     end: tuple
     mid: tuple | None = None  # on-curve midpoint, required for kind == "arc"
+    spline: object | None = None  # a 2D-profile BSplineCurveWithKnots, required for kind == "spline"
 
 
 @dataclass
@@ -360,6 +361,36 @@ class Ap242StreamWriter:
             return self._id
         return self._w(f"B_SPLINE_CURVE_WITH_KNOTS('',{c.degree},{cps},.{form}.,{closed},{si},{mult},{kn},.{spec}.)")
 
+    def _bspline_basis_from_cps(self, cps3d, spline):
+        """B_SPLINE_CURVE_WITH_KNOTS from ALREADY-LIFTED world 3D control points (unlike ``_bspline_curve``
+        which lifts 2D profile points via the active-instance offset). The basis for a swept boundary
+        edge and its SURFACE_OF_LINEAR_EXTRUSION side surface."""
+        cps = "(" + ",".join(f"#{self._pt(p)}" for p in cps3d) + ")"
+        form = spline.curve_form.value
+        closed = ".T." if spline.closed_curve else ".F."
+        si = ".T." if spline.self_intersect else ".F."
+        spec = spline.knot_spec.value
+        mult, kn = self._ilist(spline.knot_multiplicities), self._rlist(spline.knots)
+        weights = getattr(spline, "weights_data", None)
+        if weights:
+            body = (
+                f"BOUNDED_CURVE()B_SPLINE_CURVE({spline.degree},{cps},.{form}.,{closed},{si})"
+                f"B_SPLINE_CURVE_WITH_KNOTS({mult},{kn},.{spec}.)CURVE()GEOMETRIC_REPRESENTATION_ITEM()"
+                f"RATIONAL_B_SPLINE_CURVE({self._rlist(weights)})REPRESENTATION_ITEM('')"
+            )
+            self._id += 1
+            self.fh.write(f"#{self._id}=({body});\n")
+            return self._id
+        return self._w(
+            f"B_SPLINE_CURVE_WITH_KNOTS('',{spline.degree},{cps},.{form}.,{closed},{si},{mult},{kn},.{spec}.)"
+        )
+
+    def _bspline_edge(self, v0, v1, cps3d, spline):
+        """EDGE_CURVE on a B-spline basis (same_sense .T. — the segment is oriented start->end, and the
+        spline was reversed by _reverse when the loop winding demanded it)."""
+        basis = self._bspline_basis_from_cps(cps3d, spline)
+        return self._w(f"EDGE_CURVE('',#{v0},#{v1},#{basis},.T.)")
+
     def _axis1(self, loc, axis):
         return self._w(f"AXIS1_PLACEMENT('',#{self._pt(loc)},#{self._dir(axis)})")
 
@@ -412,9 +443,7 @@ class Ap242StreamWriter:
         fh.write("DATA;\n")
 
         app = self._w(f"APPLICATION_CONTEXT('{sch['app_context']}')")
-        self._w(
-            "APPLICATION_PROTOCOL_DEFINITION('international standard'," f"'{sch['protocol']}',{sch['year']},#{app})"
-        )
+        self._w(f"APPLICATION_PROTOCOL_DEFINITION('international standard','{sch['protocol']}',{sch['year']},#{app})")
         self._prod_ctx = self._w(f"PRODUCT_CONTEXT('',#{app},'mechanical')")
         self._pd_ctx = self._w(f"PRODUCT_DEFINITION_CONTEXT('part definition',#{app},'design')")
 
@@ -463,7 +492,7 @@ class Ap242StreamWriter:
         axis = self._identity_axis()
         items = [axis, *self._solids]
         rep = self._w(
-            f"ADVANCED_BREP_SHAPE_REPRESENTATION('{self.product_name}'," f"{self._refs(items)},#{self._geom_ctx})"
+            f"ADVANCED_BREP_SHAPE_REPRESENTATION('{self.product_name}',{self._refs(items)},#{self._geom_ctx})"
         )
         product = self._w(f"PRODUCT('{self.product_name}','{self.product_name}','',(#{self._prod_ctx}))")
         self._w(f"PRODUCT_RELATED_PRODUCT_CATEGORY('part',$,(#{product}))")
@@ -1264,6 +1293,21 @@ class Ap242StreamWriter:
                 et[i] = self._arc_edge(tv[i], bpos_top[i], tv[j], bpos_top[j], c3_top, xdir, radius, ccw, normal)
                 surf = self._cylinder(c3_base, normal, xdir, radius)
                 face_sense = is_outer
+            elif seg.kind == "spline":
+                # Analytic B-spline side face: the boundary spline (base + top edges) swept along the
+                # extrusion vector as a SURFACE_OF_LINEAR_EXTRUSION. The spline is clamped with its end
+                # control points snapped to the corners, so cps_base[0]/[-1] coincide with bv[i]/bv[j].
+                sp = seg.spline
+                cps_base = [to3d_base(_xy(cp)) for cp in sp.control_points_list]
+                cps_top = [to3d_top(_xy(cp)) for cp in sp.control_points_list]
+                eb[i] = self._bspline_edge(bv[i], bv[j], cps_base, sp)
+                et[i] = self._bspline_edge(tv[i], tv[j], cps_top, sp)
+                delta = _sub(to3d_top((0.0, 0.0)), to3d_base((0.0, 0.0)))  # = depth_vec
+                mag = math.sqrt(_dot(delta, delta))
+                swept = self._bspline_basis_from_cps(cps_base, sp)
+                vec = self._w(f"VECTOR('',#{self._dir(_unit(delta))},{self._r(mag)})")
+                surf = self._w(f"SURFACE_OF_LINEAR_EXTRUSION('',#{swept},#{vec})")
+                face_sense = is_outer
             else:
                 raise ValueError(f"unknown segment kind {seg.kind!r}")
 
@@ -1355,8 +1399,32 @@ def _signed_area(segs):
     return 0.5 * a
 
 
+def _reverse_bspline(c):
+    """Reverse a clamped B-spline's parametrization: reverse control points/weights and mirror the
+    knot vector, so the curve now runs end->start with an unchanged shape."""
+    from ada.geom.curves import RationalBSplineCurveWithKnots
+
+    total = c.knots[0] + c.knots[-1]
+    common = dict(
+        degree=c.degree,
+        control_points_list=list(reversed(c.control_points_list)),
+        curve_form=c.curve_form,
+        closed_curve=c.closed_curve,
+        self_intersect=c.self_intersect,
+        knot_multiplicities=list(reversed(c.knot_multiplicities)),
+        knots=[total - k for k in reversed(c.knots)],
+        knot_spec=c.knot_spec,
+    )
+    if isinstance(c, RationalBSplineCurveWithKnots):
+        return RationalBSplineCurveWithKnots(weights_data=list(reversed(c.weights_data)), **common)
+    return type(c)(**common)
+
+
 def _reverse(segs):
-    return [Seg(s.kind, s.end, s.start, s.mid) for s in reversed(segs)]
+    return [
+        Seg(s.kind, s.end, s.start, s.mid, spline=_reverse_bspline(s.spline) if s.spline is not None else None)
+        for s in reversed(segs)
+    ]
 
 
 def _orient(segs, *, ccw):
@@ -1380,15 +1448,12 @@ def _curve_to_segs(curve, *, is_outer):
             elif isinstance(seg, ArcLine):
                 segs.append(Seg("arc", _xy(seg.start), _xy(seg.end), mid=_xy(seg.midpoint)))
             elif isinstance(seg, BSplineCurveWithKnots):
-                # A true analytic B-spline boundary face (B_SPLINE edge + SURFACE_OF_LINEAR_EXTRUSION
-                # side surface) is invasive and easy to make an invalid B-rep; sample the edge into
-                # short line segs instead — a faceted but always-watertight boundary + planar caps.
-                try:
-                    pts = seg.sample(max(16, int(seg.degree) * 8))
-                except ValueError as exc:
-                    logger.warning("unhandled b-spline profile segment (%s)", exc)
-                    return None
-                segs.extend(Seg("line", _xy(a), _xy(b)) for a, b in zip(pts[:-1], pts[1:]))
+                # Analytic B-spline boundary edge: a B_SPLINE_CURVE_WITH_KNOTS EDGE_CURVE with a
+                # SURFACE_OF_LINEAR_EXTRUSION side face (built in _build_loop). The profile spline is
+                # clamped with its endpoints snapped to the corners, so its first/last control points
+                # ARE the edge vertices. Validated by an OCC round-trip (test_write_step_stream).
+                cps = seg.control_points_list
+                segs.append(Seg("spline", _xy(cps[0]), _xy(cps[-1]), spline=seg))
             else:
                 logger.warning("unhandled poly-curve segment %s", type(seg).__name__)
                 return None
