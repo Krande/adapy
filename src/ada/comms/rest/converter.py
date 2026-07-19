@@ -795,17 +795,14 @@ def _export_with_ada(
         return buf.getvalue()
     if target_format == "ifc":
         on_progress("writing-ifc", 0.55)
-        # Genie-XML fast path (default on, ADA_CAD_NATIVE_NGEOM_EXPORT=false to opt out):
-        # serialize each object's solid_geom() to an NGEOM blob and emit through adacpp's
-        # C++ record-stream writer instead of the per-entity ifcopenshell writer (~ms/face
-        # -> ~µs/face; the thickened-curved-shell hull dropped 31 s -> ~2 s). Falls back
-        # WHOLESALE to the Python writer when adacpp is absent or any object fails to
-        # serialize — a partially-native file missing solids is never produced.
-        # DISABLED for the ifc leg until the native writer emits TYPED products: it currently wraps
-        # every solid in an IfcBuildingElementProxy, so beams/plates read back as generic shapes —
-        # a round-trip regression vs the Python writer's IfcBeam/IfcPlate (+ axis/profile/material)
-        # parametric re-import. Opt in explicitly via ADA_CAD_NATIVE_NGEOM_EXPORT_IFC=true when the
-        # proxy-only form is acceptable (e.g. geometry-only handoff). The STEP leg stays native:
+        # The DEFAULT xml->ifc path is the streaming writer below (model.to_ifc(streaming=True)):
+        # it emits TYPED products (IfcBeam/IfcPlate with parametric round-trip) while curved and
+        # spline-boundary plates stream their heavy B-rep body graphs through adacpp's
+        # ngeom_to_ifc_body_spf C++ fragment emitter (~µs/face vs the per-entity ifcopenshell
+        # writer's ~ms/face that made the thickened-curved-shell hull take ~34 s).
+        # ADA_CAD_NATIVE_NGEOM_EXPORT_IFC=true remains a GEOMETRY-ONLY opt-in: the fully-native
+        # record-stream writer wraps every solid in an IfcBuildingElementProxy (no typed
+        # products), acceptable only for geometry handoff. The STEP leg stays native by default:
         # STEP products carry name-only semantics either way, so nothing is lost there.
         if source_ext is not None and source_ext.lower() == ".xml":
             import os as _os
