@@ -32,25 +32,33 @@ if TYPE_CHECKING:
 
 @dataclass
 class PlateEdgeCurve:
-    """An analytic curve carried on ONE boundary edge of a ``CurvePoly2d``, between corners ``a`` and ``b``.
+    """Base: an analytic curve carried on ONE boundary edge of a ``CurvePoly2d``, between corners ``a``/``b``.
 
-    A reader (e.g. the ACIS/SAT plate reader) emits these so a curved plate boundary stays analytic:
-    :meth:`CurvePoly2d.build_edge_segments` turns ordered corners + these specs into the real segment
-    list (arc/spline where a spec's ``a``/``b`` match a corner pair, else a line), which
-    ``Plate.from_segments`` carries verbatim — instead of the reader sampling the curve into extra
-    outline points at read time (which is both slow and lower fidelity: it reaches IFC/STEP as a
-    polyline).
-
-    ``kind`` is ``"arc"`` (circle/ellipse; ``midpoint`` is the point on the arc halfway between ``a``
-    and ``b`` — the only datum OCC/NGEOM/IFC/STEP need to reconstruct the arc) or ``"spline"``
-    (``curve`` is the analytic ``ada.geom.curves.BSplineCurveWithKnots``).
+    A reader (e.g. the ACIS/SAT plate reader) emits these — as the concrete :class:`ArcEdge` /
+    :class:`SplineEdge` — so a curved plate boundary stays analytic: :meth:`CurvePoly2d.build_edge_segments`
+    turns ordered corners + these specs into the real segment list (arc/spline where a spec's ``a``/``b``
+    match a corner pair, else a line), which ``Plate.from_segments`` carries verbatim — instead of the
+    reader sampling the curve into extra outline points at read time (slow, and lower fidelity: it reaches
+    IFC/STEP as a polyline).
     """
 
-    kind: str
     a: tuple[float, float, float]
     b: tuple[float, float, float]
-    midpoint: tuple[float, float, float] | None = None
-    curve: BSplineCurveWithKnots | None = None
+
+
+@dataclass
+class ArcEdge(PlateEdgeCurve):
+    """A circle/ellipse boundary edge. ``midpoint`` is the point on the arc halfway between ``a`` and
+    ``b`` — the only datum OCC/NGEOM/IFC/STEP need to reconstruct the arc."""
+
+    midpoint: tuple[float, float, float]
+
+
+@dataclass
+class SplineEdge(PlateEdgeCurve):
+    """A B-spline boundary edge carrying the analytic ``ada.geom.curves.BSplineCurveWithKnots``."""
+
+    curve: BSplineCurveWithKnots
 
 
 class CurveRevolve:
@@ -558,11 +566,9 @@ class CurvePoly2d(CurveOpen2d):
         for i in range(n):
             a, b = pts[i], pts[(i + 1) % n]
             spec = spec_by_key.get(_endpoint_key(a, b))
-            if spec is None:
-                segs.append(LineSegment(a, b))
-            elif spec.kind == "arc" and spec.midpoint is not None:
+            if isinstance(spec, ArcEdge):
                 segs.append(ArcSegment(a, b, midpoint=Point(np.asarray(spec.midpoint, dtype=float))))
-            elif spec.kind == "spline" and spec.curve is not None:
+            elif isinstance(spec, SplineEdge):
                 segs.append(SplineSegment(a, b, curve=spec.curve))
             else:
                 segs.append(LineSegment(a, b))

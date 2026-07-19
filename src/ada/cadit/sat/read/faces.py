@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada.api.curves import PlateEdgeCurve
+from ada.api.curves import ArcEdge, PlateEdgeCurve
 from ada.cadit.sat.exceptions import ACISInsufficientPointsError
 from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import Config, logger
@@ -209,7 +209,7 @@ class PlateFactory:
                 continue
             kind, payload = desc
             if kind == "arc":
-                arcs.append(PlateEdgeCurve("arc", a=near, b=far, midpoint=tuple(payload)))
+                arcs.append(ArcEdge(a=near, b=far, midpoint=tuple(payload)))
             elif kind == "points" and payload:
                 splines[i] = payload
         return splines, arcs

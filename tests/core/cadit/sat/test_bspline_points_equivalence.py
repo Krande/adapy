@@ -11,18 +11,24 @@ copy of the original loop) plus a hand-computed quadratic Bézier golden.
 import numpy as np
 
 from ada.cadit.sat.read.plate_edge_curves import _bspline_points, _de_boor
+from ada.geom.curves import BSplineCurveWithKnots, RationalBSplineCurveWithKnots
 
 
-class _Curve:
-    """Duck-typed stand-in carrying exactly the attributes ``_bspline_points`` reads."""
-
-    def __init__(self, degree, control_points, knots, mults, weights=None):
-        self.degree = degree
-        self.control_points_list = control_points
-        self.knots = knots
-        self.knot_multiplicities = mults
-        if weights is not None:
-            self.weights_data = weights
+def _Curve(degree, control_points, knots, mults, weights=None):
+    """A real ``BSplineCurveWithKnots`` (or rational subclass), whose ``sample`` ``_bspline_points`` wraps."""
+    common = dict(
+        degree=degree,
+        control_points_list=control_points,
+        curve_form=None,
+        closed_curve=False,
+        self_intersect=False,
+        knot_multiplicities=mults,
+        knots=knots,
+        knot_spec=None,
+    )
+    if weights is not None:
+        return RationalBSplineCurveWithKnots(weights_data=weights, **common)
+    return BSplineCurveWithKnots(**common)
 
 
 def _scalar_bspline_points(curve, n):

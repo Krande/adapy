@@ -58,52 +58,14 @@ def _de_boor(x: float, knots, cp, deg: int):
 
 
 def _bspline_points(curve, n: int) -> list[tuple[float, float, float]] | None:
-    """Sample a BSplineCurveWithKnots at n params across its knot span."""
+    """Sample a ``BSplineCurveWithKnots`` at n params across its knot span, or None if unsamplable.
+
+    Thin wrapper over :meth:`ada.geom.curves.BSplineCurveWithKnots.sample` (the single home of the de
+    Boor evaluator) that keeps this module's "unreadable curve => keep the chord" contract by returning
+    None instead of raising.
+    """
     try:
-        cp = np.asarray([list(p)[:3] for p in curve.control_points_list], dtype=float)
-        # SAT/IFC store knots + multiplicities separately; de Boor wants them expanded.
-        knots = np.repeat(np.asarray(curve.knots, dtype=float), np.asarray(curve.knot_multiplicities, dtype=int))
-        deg = int(curve.degree)
-        if deg < 1 or len(cp) <= deg or len(knots) != len(cp) + deg + 1:
-            # Malformed (or a form we don't model) — fall back to the chord.
-            return None
-        # Rational curves: weight the control points, then divide through after evaluation.
-        w = getattr(curve, "weights_data", None) or getattr(curve, "weights", None)
-        if w is not None and len(w) == len(cp):
-            wa = np.asarray(w, dtype=float).reshape(-1, 1)
-            cp = np.hstack([cp * wa, wa])
-        lo, hi = float(knots[deg]), float(knots[len(knots) - deg - 1])
-        if not np.isfinite([lo, hi]).all() or hi <= lo:
-            return None
-        # Vectorised de Boor: evaluate every sample point in one pass (the scalar per-point loop was
-        # the read's hot path — ~4.7s of a single large Genie-XML import). Same arithmetic as
-        # ``_de_boor``, batched over the sample axis, so the output is numerically equivalent (see
-        # test_bspline_points_equivalence).
-        xs = np.linspace(lo, hi, n)
-        ks = np.searchsorted(knots, xs, side="right") - 1
-        ks = np.clip(ks, deg, len(cp) - 1)
-        # d[j][i] is the j-th active control point for sample i; each entry is (n, dim).
-        d = [cp[j + ks - deg] for j in range(deg + 1)]
-        for r in range(1, deg + 1):
-            for j in range(deg, r - 1, -1):
-                lo_ = knots[j + ks - deg]  # (n,)
-                hi_ = knots[j + 1 + ks - r]  # (n,)
-                den = hi_ - lo_
-                a = np.divide(xs - lo_, den, out=np.zeros_like(den), where=den != 0)[:, None]
-                d[j] = (1.0 - a) * d[j - 1] + a * d[j]
-        pts = d[deg]  # (n, dim)
-        if pts.shape[1] == 4:  # rational: de-homogenize
-            w_last = pts[:, 3]
-            if np.any(w_last == 0):
-                return None
-            pts = pts[:, :3] / w_last[:, None]
-        else:
-            pts = pts[:, :3]
-        if not np.isfinite(pts).all():
-            return None
-        # tolist() converts the whole array in C; the old per-scalar float() genexpr was ~16s of the
-        # hull-skin import (69.6M boxed-scalar conversions). tuple() per row keeps the point type.
-        return [tuple(p) for p in pts.tolist()]
+        return curve.sample(n)
     except Exception as exc:  # noqa: BLE001 - a curve we can't sample falls back to the chord
         logger.debug(f"bspline sample failed: {exc}")
         return None

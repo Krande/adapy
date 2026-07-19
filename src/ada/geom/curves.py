@@ -416,6 +416,48 @@ class BSplineCurveWithKnots:
     knots: list[float]
     knot_spec: KnotType
 
+    def sample(self, n: int) -> list[tuple[float, float, float]]:
+        """Discretize the curve into ``n`` points evenly across its knot span (endpoints included).
+
+        Vectorised de Boor (numpy only — scipy is not a core dep); the subclass
+        :class:`RationalBSplineCurveWithKnots` is de-homogenised via ``weights_data``. This is where a
+        B-spline plate/section edge is turned into a polyline for tessellation, so the analytic curve
+        can be carried unsampled everywhere upstream and discretized only here. Raises ``ValueError``
+        on a malformed spec (degree/knot/control-point-count mismatch or a zero rational weight).
+        """
+        cp = np.asarray([list(p)[:3] for p in self.control_points_list], dtype=float)
+        # SAT/IFC store knots + multiplicities separately; de Boor wants them expanded.
+        knots = np.repeat(np.asarray(self.knots, dtype=float), np.asarray(self.knot_multiplicities, dtype=int))
+        deg = int(self.degree)
+        if deg < 1 or len(cp) <= deg or len(knots) != len(cp) + deg + 1:
+            raise ValueError("malformed B-spline (degree / knot / control-point-count mismatch)")
+        weights = getattr(self, "weights_data", None)
+        if weights is not None and len(weights) == len(cp):
+            wa = np.asarray(weights, dtype=float).reshape(-1, 1)
+            cp = np.hstack([cp * wa, wa])  # homogeneous; divided through after evaluation
+        lo, hi = float(knots[deg]), float(knots[len(knots) - deg - 1])
+        if not np.isfinite([lo, hi]).all() or hi <= lo:
+            raise ValueError("degenerate B-spline knot span")
+        xs = np.linspace(lo, hi, n)
+        ks = np.clip(np.searchsorted(knots, xs, side="right") - 1, deg, len(cp) - 1)
+        d = [cp[j + ks - deg] for j in range(deg + 1)]  # d[j][i] = j-th active ctrl pt for sample i
+        for r in range(1, deg + 1):
+            for j in range(deg, r - 1, -1):
+                lo_ = knots[j + ks - deg]
+                hi_ = knots[j + 1 + ks - r]
+                den = hi_ - lo_
+                a = np.divide(xs - lo_, den, out=np.zeros_like(den), where=den != 0)[:, None]
+                d[j] = (1.0 - a) * d[j - 1] + a * d[j]
+        pts = d[deg]
+        if pts.shape[1] == 4:  # rational: de-homogenize
+            w_last = pts[:, 3]
+            if np.any(w_last == 0):
+                raise ValueError("zero rational weight in B-spline evaluation")
+            pts = pts[:, :3] / w_last[:, None]
+        if not np.isfinite(pts).all():
+            raise ValueError("non-finite point in B-spline evaluation")
+        return [tuple(p) for p in pts.tolist()]
+
 
 @dataclass(slots=True)
 class PCurve:

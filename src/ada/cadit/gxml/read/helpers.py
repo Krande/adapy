@@ -124,17 +124,17 @@ def _project_onto_plane(pts, plane):
 
 def _project_edge_curves_onto_plane(edge_curves, plane):
     """Reproject arc ``PlateEdgeCurve`` endpoints + midpoint onto ``plane`` so they still match their
-    (now projected) segment in ``CurvePoly2d``. Splines are passed through unchanged (analytic spline
-    fallback is a follow-up). Returns ``None``/empty unchanged."""
-    from ada.api.curves import PlateEdgeCurve
+    (now projected) segment in ``CurvePoly2d``. Splines are passed through unchanged. Returns
+    ``None``/empty unchanged."""
+    from ada.api.curves import ArcEdge
 
     if not edge_curves or plane is None:
         return edge_curves
     out = []
     for ec in edge_curves:
-        if ec.kind == "arc" and ec.midpoint is not None:
+        if isinstance(ec, ArcEdge):
             a, b, m = _project_onto_plane([ec.a, ec.b, ec.midpoint], plane)
-            out.append(PlateEdgeCurve("arc", a=a, b=b, midpoint=m))
+            out.append(ArcEdge(a=a, b=b, midpoint=m))
         else:
             out.append(ec)
     return out

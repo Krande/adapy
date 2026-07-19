@@ -13,16 +13,17 @@ import pytest
 
 from ada import Plate
 from ada.api.curves import (
+    ArcEdge,
     ArcSegment,
     CurvePoly2d,
     LineSegment,
-    PlateEdgeCurve,
+    SplineEdge,
     SplineSegment,
 )
 from ada.geom.curves import ArcLine, BSplineCurveWithKnots, IndexedPolyCurve
 
 _SQUARE = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
-_ARC = PlateEdgeCurve("arc", a=(1.0, 0.0, 0.0), b=(1.0, 1.0, 0.0), midpoint=(1.1, 0.5, 0.0))
+_ARC = ArcEdge(a=(1.0, 0.0, 0.0), b=(1.0, 1.0, 0.0), midpoint=(1.1, 0.5, 0.0))
 
 
 def test_build_edge_segments_marks_only_the_arc_edge():
@@ -37,7 +38,7 @@ def test_build_edge_segments_marks_only_the_arc_edge():
 
 def test_build_edge_segments_is_winding_agnostic():
     """A spec whose a/b are reversed relative to the corner order still matches its edge."""
-    reversed_spec = PlateEdgeCurve("arc", a=(1.0, 1.0, 0.0), b=(1.0, 0.0, 0.0), midpoint=(1.1, 0.5, 0.0))
+    reversed_spec = ArcEdge(a=(1.0, 1.0, 0.0), b=(1.0, 0.0, 0.0), midpoint=(1.1, 0.5, 0.0))
     segs = CurvePoly2d.build_edge_segments(_SQUARE, [reversed_spec])
     assert sum(isinstance(s, ArcSegment) for s in segs) == 1
 
@@ -91,8 +92,52 @@ def test_build_edge_segments_carries_a_spline_edge():
         knots=[0.0, 1.0],
         knot_spec=None,
     )
-    spec = PlateEdgeCurve("spline", a=(1.0, 0.0, 0.0), b=(1.0, 1.0, 0.0), curve=spline)
+    spec = SplineEdge(a=(1.0, 0.0, 0.0), b=(1.0, 1.0, 0.0), curve=spline)
     segs = CurvePoly2d.build_edge_segments(_SQUARE, [spec])
     spline_segs = [s for s in segs if isinstance(s, SplineSegment)]
     assert len(spline_segs) == 1
     assert spline_segs[0].curve_geom() is spline
+
+
+def _degree1_spline(p0=(0.0, 0.0, 0.0), p1=(2.0, 0.0, 0.0)) -> BSplineCurveWithKnots:
+    return BSplineCurveWithKnots(
+        degree=1,
+        control_points_list=[p0, p1],
+        curve_form=None,
+        closed_curve=False,
+        self_intersect=False,
+        knot_multiplicities=[2, 2],
+        knots=[0.0, 1.0],
+        knot_spec=None,
+    )
+
+
+def test_bspline_curve_sample_is_the_sampler_home():
+    """A degree-1 B-spline between two points samples to evenly spaced points along the line."""
+    pts = np.asarray(_degree1_spline().sample(5))
+    assert pts.shape == (5, 3)
+    assert np.allclose(pts[:, 0], np.linspace(0.0, 2.0, 5))
+    assert np.allclose(pts[:, 1:], 0.0)
+
+
+def test_spline_segment_sample_delegates_to_the_curve():
+    spline = _degree1_spline()
+    seg = SplineSegment((0.0, 0.0, 0.0), (2.0, 0.0, 0.0), curve=spline)
+    pts = seg.sample(5)
+    assert len(pts) == 5
+    assert np.allclose([p[0] for p in pts], np.linspace(0.0, 2.0, 5))
+
+
+def test_bspline_sample_raises_on_malformed_spec():
+    bad = BSplineCurveWithKnots(
+        degree=3,  # degree >= number of control points => malformed
+        control_points_list=[(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)],
+        curve_form=None,
+        closed_curve=False,
+        self_intersect=False,
+        knot_multiplicities=[2, 2],
+        knots=[0.0, 1.0],
+        knot_spec=None,
+    )
+    with pytest.raises(ValueError):
+        bad.sample(5)
