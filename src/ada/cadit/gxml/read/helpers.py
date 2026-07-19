@@ -124,9 +124,14 @@ def _project_onto_plane(pts, plane):
 
 def _project_edge_curves_onto_plane(edge_curves, plane):
     """Reproject arc ``PlateEdgeCurve`` endpoints + midpoint onto ``plane`` so they still match their
-    (now projected) segment in ``CurvePoly2d``. Splines are passed through unchanged. Returns
-    ``None``/empty unchanged."""
-    from ada.api.curves import ArcEdge
+    (now projected) segment in ``CurvePoly2d``.
+
+    Used only on the curved-shell OCC-failure FALLBACK (a flat best-fit-plane approximation of a curved
+    plate). Arcs reproject cleanly and stay analytic. B-spline edges are DROPPED to a chord here: a
+    spline lives on the plate's curved surface, so forcing it onto the flat fallback plane produces
+    sliver/spike triangles — the flat-plate path (where the spline really is in-plane) keeps it analytic.
+    """
+    from ada.api.curves import ArcEdge, SplineEdge
 
     if not edge_curves or plane is None:
         return edge_curves
@@ -135,6 +140,8 @@ def _project_edge_curves_onto_plane(edge_curves, plane):
         if isinstance(ec, ArcEdge):
             a, b, m = _project_onto_plane([ec.a, ec.b, ec.midpoint], plane)
             out.append(ArcEdge(a=a, b=b, midpoint=m))
+        elif isinstance(ec, SplineEdge):
+            continue  # spline on a flat fallback -> chord (avoids off-plane tessellation slivers)
         else:
             out.append(ec)
     return out

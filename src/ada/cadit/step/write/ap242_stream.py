@@ -1367,7 +1367,7 @@ def _orient(segs, *, ccw):
 
 def _curve_to_segs(curve, *, is_outer):
     """Translate one adapy 2D profile curve into a closed list[Seg], or None."""
-    from ada.geom.curves import ArcLine, Circle, Edge, IndexedPolyCurve
+    from ada.geom.curves import ArcLine, BSplineCurveWithKnots, Circle, Edge, IndexedPolyCurve
 
     if isinstance(curve, Circle):
         return circle_loop(_xy(curve.position.location), float(curve.radius), ccw=is_outer)
@@ -1379,6 +1379,16 @@ def _curve_to_segs(curve, *, is_outer):
                 segs.append(Seg("line", _xy(seg.start), _xy(seg.end)))
             elif isinstance(seg, ArcLine):
                 segs.append(Seg("arc", _xy(seg.start), _xy(seg.end), mid=_xy(seg.midpoint)))
+            elif isinstance(seg, BSplineCurveWithKnots):
+                # A true analytic B-spline boundary face (B_SPLINE edge + SURFACE_OF_LINEAR_EXTRUSION
+                # side surface) is invasive and easy to make an invalid B-rep; sample the edge into
+                # short line segs instead — a faceted but always-watertight boundary + planar caps.
+                try:
+                    pts = seg.sample(max(16, int(seg.degree) * 8))
+                except ValueError as exc:
+                    logger.warning("unhandled b-spline profile segment (%s)", exc)
+                    return None
+                segs.extend(Seg("line", _xy(a), _xy(b)) for a, b in zip(pts[:-1], pts[1:]))
             else:
                 logger.warning("unhandled poly-curve segment %s", type(seg).__name__)
                 return None

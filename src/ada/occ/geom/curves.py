@@ -18,10 +18,34 @@ from ada.occ.utils import point3d
 OCC_RADIUS_TOL = 1e-9  # geometric tolerance in model units
 
 
+def _occ_bspline_curve_from_geom(curve_geom) -> Geom_BSplineCurve:
+    """Build an OCC ``Geom_BSplineCurve`` from an adapy ``BSplineCurveWithKnots`` (rational supported)."""
+    n_poles = len(curve_geom.control_points_list)
+    poles = TColgp_Array1OfPnt(1, n_poles)
+    for i, cp in enumerate(curve_geom.control_points_list, start=1):
+        poles.SetValue(i, point3d(cp))
+    n_knots = len(curve_geom.knots)
+    knots = TColStd_Array1OfReal(1, n_knots)
+    mults = TColStd_Array1OfInteger(1, n_knots)
+    for i, (k, m) in enumerate(zip(curve_geom.knots, curve_geom.knot_multiplicities), start=1):
+        knots.SetValue(i, float(k))
+        mults.SetValue(i, int(m))
+    degree = int(curve_geom.degree)
+    if isinstance(curve_geom, geo_cu.RationalBSplineCurveWithKnots):
+        weights = TColStd_Array1OfReal(1, n_poles)
+        for i, w in enumerate(curve_geom.weights_data, start=1):
+            weights.SetValue(i, float(w))
+        return Geom_BSplineCurve(poles, weights, knots, mults, degree, False)
+    return Geom_BSplineCurve(poles, knots, mults, degree, False)
+
+
 def make_edge_from_line(geom: geo_cu.Edge | geo_cu.ArcLine) -> TopoDS_Edge:
     if isinstance(geom, geo_cu.ArcLine):
         a_arc_of_circle = GC_MakeArcOfCircle(point3d(geom.start), point3d(geom.midpoint), point3d(geom.end))
         return BRepBuilderAPI_MakeEdge(a_arc_of_circle.Value()).Edge()
+    elif isinstance(geom, (geo_cu.BSplineCurveWithKnots, geo_cu.RationalBSplineCurveWithKnots)):
+        # A plate-boundary spline spans exactly corner->corner, so the full-curve edge is the edge.
+        return BRepBuilderAPI_MakeEdge(_occ_bspline_curve_from_geom(geom)).Edge()
     else:
         return BRepBuilderAPI_MakeEdge(point3d(geom.start), point3d(geom.end)).Edge()
 
@@ -330,7 +354,7 @@ def make_wire_from_circle(circle: geo_cu.Circle) -> TopoDS_Wire:
 
     if r <= OCC_RADIUS_TOL:
         raise ValueError(
-            f"Circle radius must be > {OCC_RADIUS_TOL}, got {r}. " f"Circle={circle}, origin={circle.position.location}"
+            f"Circle radius must be > {OCC_RADIUS_TOL}, got {r}. Circle={circle}, origin={circle.position.location}"
         )
 
     # ---- Build OCC circle ----

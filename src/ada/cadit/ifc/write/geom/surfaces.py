@@ -9,7 +9,7 @@ from ada.geom import surfaces as geo_su
 from .curves import (
     circle_curve,
     edge_loop,
-    indexed_poly_curve,
+    indexed_poly_curve_or_composite,
     poly_line,
     poly_loop,
     write_curve,
@@ -21,7 +21,7 @@ from .points import cpt
 def arbitrary_profile_def(apd: geo_su.ArbitraryProfileDef, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an ArbitraryProfileDefWithVoids to an IFC representation"""
     if isinstance(apd.outer_curve, geo_cu.IndexedPolyCurve):
-        outer_curve = indexed_poly_curve(apd.outer_curve, f)
+        outer_curve = indexed_poly_curve_or_composite(apd.outer_curve, f)
     elif isinstance(apd.outer_curve, geo_cu.Circle):
         outer_curve = circle_curve(apd.outer_curve, f)
     else:
@@ -30,7 +30,7 @@ def arbitrary_profile_def(apd: geo_su.ArbitraryProfileDef, f: ifcopenshell.file)
     inner_curves = []
     for ic in apd.inner_curves:
         if isinstance(ic, geo_cu.IndexedPolyCurve):
-            inner_curves.append(indexed_poly_curve(ic, f))
+            inner_curves.append(indexed_poly_curve_or_composite(ic, f))
         elif isinstance(ic, geo_cu.Circle):
             inner_curves.append(circle_curve(ic, f))
         else:
@@ -316,7 +316,7 @@ def _bounded_curve(curve: geo_cu.CURVE_GEOM_TYPES, f: ifcopenshell.file) -> ifco
     """Write a boundary curve to an IfcCurve (IfcCurveBoundedPlane boundaries are IfcCurve, not
     topological loops)."""
     if isinstance(curve, geo_cu.IndexedPolyCurve):
-        return indexed_poly_curve(curve, f)
+        return indexed_poly_curve_or_composite(curve, f)
     elif isinstance(curve, geo_cu.PolyLine):
         return poly_line(curve, f)
     elif isinstance(curve, geo_cu.Circle):

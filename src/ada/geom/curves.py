@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from itertools import chain
 from typing import TYPE_CHECKING, Iterable, Union
 
 import numpy as np
@@ -252,11 +251,24 @@ class IndexedPolyCurve:
         return points
 
     def get_unique_points_and_segment_indices(self) -> tuple[np.ndarray, list[list[int]]]:
-        points = list(chain.from_iterable([list(segment) for segment in self.segments]))
-        points_tuple = [tuple(x) for x in chain.from_iterable([list(segment) for segment in self.segments])]
-        unique_pts, pts_index = np.unique(points, axis=0, return_index=False, return_inverse=True)
-        indices = [[int(pts_index[points_tuple.index(tuple(s))]) + 1 for s in segment] for segment in self.segments]
-
+        # Per-segment point sequence: Edge -> 2 pts (line), ArcLine -> 3 pts (arc). A B-spline can't be
+        # indexed analytically here (IfcIndexedPolyCurve only has line/arc index), so it is sampled into
+        # a polyline -> a single IfcLineIndex of k>2 points. The analytic path routes spline outlines to
+        # an IfcCompositeCurve instead (see indexed_poly_curve_or_composite); this keeps every other
+        # get_unique consumer (e.g. the streaming IFC writer) working with a faceted-but-valid spline.
+        seg_point_lists = [
+            [tuple(p) for p in segment.sample(max(16, int(segment.degree) * 8))]
+            if isinstance(segment, BSplineCurveWithKnots)
+            else [tuple(p) for p in segment]
+            for segment in self.segments
+        ]
+        all_pts = [p for lst in seg_point_lists for p in lst]
+        unique_pts, inv = np.unique(all_pts, axis=0, return_inverse=True)
+        inv = np.asarray(inv).reshape(-1)  # np>=2 returns shape (n,1); flatten for indexing
+        indices, cursor = [], 0
+        for lst in seg_point_lists:
+            indices.append([int(inv[cursor + j]) + 1 for j in range(len(lst))])
+            cursor += len(lst)
         return unique_pts, indices
 
     def to_points2d(self):

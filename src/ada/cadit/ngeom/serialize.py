@@ -578,12 +578,15 @@ class _Encoder:
             return _composite_curve_loop_points(curve)
 
         segs = getattr(curve, "segments", None)
-        if segs and any(isinstance(s, cu.ArcLine) for s in segs):
+        if segs and any(isinstance(s, (cu.ArcLine, cu.BSplineCurveWithKnots)) for s in segs):
             pts: list[tuple[float, float, float]] = []
             for s in segs:
                 if isinstance(s, cu.ArcLine):
                     arc = _sample_arc(s.start, s.midpoint, s.end)
                     pts.extend(_to3(p) for p in arc[:-1])  # end repeats the next segment's start
+                elif isinstance(s, cu.BSplineCurveWithKnots):  # analytic spline edge -> polyline
+                    sp = s.sample(max(16, int(s.degree) * 8))
+                    pts.extend(_to3(p) for p in sp[:-1])  # end repeats the next segment's start
                 else:  # Edge / straight segment
                     pts.append(_to3(s.start))
             return pts

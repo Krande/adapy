@@ -335,21 +335,17 @@ class CurveOpen2d:
 
         poly_segments = self.segments3d if use_3d_segments else self.segments
 
-        if len(poly_segments) == 1:
-            seg = poly_segments[0]
+        def _to_geom(seg):
             if isinstance(seg, ArcSegment):
                 return ArcLine(seg.p1, seg.midpoint, seg.p2)
-            else:
-                return Edge(seg.p1, seg.p2)
+            if isinstance(seg, SplineSegment):
+                return seg.curve_geom()  # BSplineCurveWithKnots (2D-local or 3D per the segment)
+            return Edge(seg.p1, seg.p2)
 
-        segments = []
-        for seg in poly_segments:
-            if isinstance(seg, ArcSegment):
-                segments.append(ArcLine(seg.p1, seg.midpoint, seg.p2))
-            else:
-                segments.append(Edge(seg.p1, seg.p2))
+        if len(poly_segments) == 1:
+            return _to_geom(poly_segments[0])
 
-        return IndexedPolyCurve(segments)
+        return IndexedPolyCurve([_to_geom(seg) for seg in poly_segments])
 
     def occ_wire(self) -> ShapeHandle:
         from ada.occ.utils import make_wire
@@ -604,7 +600,16 @@ class CurvePoly2d(CurveOpen2d):
             if isinstance(seg, ArcSegment):
                 segs2d.append(ArcSegment(_to2d(seg.p1), _to2d(seg.p2), midpoint=_to2d(seg.midpoint)))
             elif isinstance(seg, SplineSegment):
-                segs2d.append(SplineSegment(_to2d(seg.p1), _to2d(seg.p2), curve=seg.curve))
+                # The extruded profile is 2D in the plate's local frame, so the B-spline's control
+                # points must be projected into that frame too (affine -> knots/degree/weights unchanged).
+                p1_2d, p2_2d = _to2d(seg.p1), _to2d(seg.p2)
+                curve2d = _project_bspline_2d(seg.curve, place)
+                # Snap the endpoints to the exact corner vertices so the outline wire closes: a plate
+                # boundary spline is clamped (end knot mult = degree+1), so its curve endpoints ARE its
+                # first/last control points, and the adjacent line edges join at these corners.
+                curve2d.control_points_list[0] = p1_2d
+                curve2d.control_points_list[-1] = p2_2d
+                segs2d.append(SplineSegment(p1_2d, p2_2d, curve=curve2d))
             else:
                 segs2d.append(LineSegment(_to2d(seg.p1), _to2d(seg.p2)))
 
@@ -909,6 +914,32 @@ class SplineSegment(LineSegment):
 
     def __repr__(self):
         return f"SplineSegment({self.p1}, {self.p2})"
+
+
+def _project_bspline_2d(curve, place):
+    """Project a ``BSplineCurveWithKnots``'s control points into ``place``'s local frame (as in-plane
+    3D points ``(x, y, 0)``), returning a same-kind curve with knots/degree/weights untouched — the
+    profile a plate extrudes is 2D-local, so its analytic B-spline edge must live there too."""
+    from ada.geom.curves import BSplineCurveWithKnots, RationalBSplineCurveWithKnots
+
+    cps3d = np.array([np.asarray(p, dtype=float)[:3] for p in curve.control_points_list])
+    local = place.transform_global_points_to_local(cps3d)
+    # 2D control points, matching the 2D line/arc points of the extruded profile (a 3D (x,y,0) here
+    # would make the outline point list inhomogeneous for get_unique / point3d).
+    cps2d = [Point(float(p[0]), float(p[1])) for p in local]
+    common = dict(
+        degree=curve.degree,
+        control_points_list=cps2d,
+        curve_form=curve.curve_form,
+        closed_curve=curve.closed_curve,
+        self_intersect=curve.self_intersect,
+        knot_multiplicities=curve.knot_multiplicities,
+        knots=curve.knots,
+        knot_spec=curve.knot_spec,
+    )
+    if isinstance(curve, RationalBSplineCurveWithKnots):
+        return RationalBSplineCurveWithKnots(weights_data=curve.weights_data, **common)
+    return BSplineCurveWithKnots(**common)
 
 
 def _endpoint_key(a, b, ndigits: int = 6):

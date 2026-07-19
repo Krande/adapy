@@ -99,6 +99,69 @@ def test_build_edge_segments_carries_a_spline_edge():
     assert spline_segs[0].curve_geom() is spline
 
 
+def _bulge_spline() -> BSplineCurveWithKnots:
+    """A quadratic B-spline edge from (1,0,0) to (1,1,0) bulging out in +x."""
+    from ada.geom.curves import BSplineCurveFormEnum, KnotType
+
+    return BSplineCurveWithKnots(
+        degree=2,
+        control_points_list=[(1.0, 0.0, 0.0), (1.3, 0.5, 0.0), (1.0, 1.0, 0.0)],
+        curve_form=BSplineCurveFormEnum.UNSPECIFIED,
+        closed_curve=False,
+        self_intersect=False,
+        knot_multiplicities=[3, 3],
+        knots=[0.0, 1.0],
+        knot_spec=KnotType.UNSPECIFIED,
+    )
+
+
+def _spline_plate() -> Plate:
+    segs = CurvePoly2d.build_edge_segments(
+        _SQUARE, [SplineEdge(a=(1.0, 0.0, 0.0), b=(1.0, 1.0, 0.0), curve=_bulge_spline())]
+    )
+    return Plate.from_segments("sp", segs, 0.05)
+
+
+def test_from_segments_keeps_the_spline_analytic_in_curve_geom():
+    cg = _spline_plate().poly.curve_geom(use_3d_segments=False)
+    assert isinstance(cg, IndexedPolyCurve)
+    splines = [s for s in cg.segments if isinstance(s, BSplineCurveWithKnots)]
+    assert len(splines) == 1
+    # 2D-local (extruded profile plane), endpoints snapped to the corners so the outline wire closes.
+    assert np.allclose(splines[0].control_points_list[0], (1.0, 0.0)) or np.allclose(
+        splines[0].control_points_list[0], (1.0, 0.0, 0.0)
+    )
+
+
+def test_spline_plate_ifc_outer_curve_is_a_composite_with_a_bspline():
+    import ifcopenshell
+
+    from ada.cadit.ifc.write.geom.surfaces import arbitrary_profile_def
+
+    f = ifcopenshell.file(schema="IFC4X3")
+    oc = arbitrary_profile_def(_spline_plate().solid_geom().geometry.swept_area, f).OuterCurve
+    assert oc.is_a("IfcCompositeCurve")
+    kinds = [s.ParentCurve.is_a() for s in oc.Segments]
+    assert "IfcBSplineCurveWithKnots" in kinds
+
+
+def test_spline_plate_builds_an_occ_solid_that_bulges():
+    from OCC.Core.BRepGProp import brepgprop
+    from OCC.Core.GProp import GProp_GProps
+
+    props = GProp_GProps()
+    brepgprop.VolumeProperties(_spline_plate().solid_occ(), props)
+    # A flat unit square x 0.05 thick = 0.05; the +x bulge must add volume (analytic curve, not chord).
+    assert props.Mass() > 0.05 + 1e-4
+
+
+def test_spline_plate_get_unique_samples_the_spline_to_a_polyline():
+    cg = _spline_plate().poly.curve_geom(use_3d_segments=False)
+    _pts, seg_idx = cg.get_unique_points_and_segment_indices()
+    # Three straight edges (2 indices each) + one sampled spline (a >3-index polyline).
+    assert sorted(len(i) for i in seg_idx)[-1] > 3
+
+
 def _degree1_spline(p0=(0.0, 0.0, 0.0), p1=(2.0, 0.0, 0.0)) -> BSplineCurveWithKnots:
     return BSplineCurveWithKnots(
         degree=1,

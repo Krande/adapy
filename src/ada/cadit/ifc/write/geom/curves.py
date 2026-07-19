@@ -28,6 +28,60 @@ def indexed_poly_curve_from_points_and_segments(
         return f.create_entity("IfcIndexedPolyCurve", Points=ifc_point_list, Segments=None, SelfIntersect=None)
 
 
+def _ipc_has_spline(ipc: geo_cu.IndexedPolyCurve) -> bool:
+    return any(isinstance(seg, geo_cu.BSplineCurveWithKnots) for seg in ipc.segments)
+
+
+def _ipc_to_composite_curve(ipc: geo_cu.IndexedPolyCurve) -> geo_cu.CompositeCurve:
+    """Lift an ``IndexedPolyCurve`` (that contains an analytic B-spline) to a ``CompositeCurve``.
+
+    ``IfcIndexedPolyCurve`` can only index line/arc segments, so a spline-bearing outline must be an
+    ``IfcCompositeCurve`` instead: each straight edge becomes a bounded ``PolyLine``, each arc a
+    ``TrimmedCurve`` on a ``Circle``, and each B-spline passes straight through (``write_curve`` emits
+    ``IfcBSplineCurveWithKnots``).
+    """
+    import numpy as np
+
+    from ada.core.curve_utils import calc_arc_radius_center_from_3points
+    from ada.geom.direction import Direction
+    from ada.geom.placement import Axis2Placement3D
+    from ada.geom.points import Point
+
+    def _arc_parent(seg: geo_cu.ArcLine):
+        s, m, e = (np.asarray(p, dtype=float) for p in (seg.start, seg.midpoint, seg.end))
+        center2d, radius = calc_arc_radius_center_from_3points(s[:2], m[:2], e[:2])
+        center = Point(float(center2d[0]), float(center2d[1]), 0.0)
+        ccw = float(np.cross((m - s)[:2], (e - s)[:2])) >= 0.0  # winding in the profile plane
+        axis = Direction(0.0, 0.0, 1.0 if ccw else -1.0)
+        ref = Direction(*(s - np.asarray(center, dtype=float))).get_normalized()
+        circle = geo_cu.Circle(Axis2Placement3D(center, axis=axis, ref_direction=ref), float(radius))
+        return geo_cu.TrimmedCurve(
+            basis_curve=circle,
+            trim1=Point(*s),
+            trim2=Point(*e),
+            sense_agreement=True,
+            master_representation="CARTESIAN",
+        )
+
+    segments = []
+    for seg in ipc.segments:
+        if isinstance(seg, geo_cu.BSplineCurveWithKnots):
+            parent = seg
+        elif isinstance(seg, geo_cu.ArcLine):
+            parent = _arc_parent(seg)
+        else:  # Edge / straight
+            parent = geo_cu.PolyLine(points=[seg.start, seg.end])
+        segments.append(geo_cu.CompositeCurveSegment(parent_curve=parent, same_sense=True, transition="CONTINUOUS"))
+    return geo_cu.CompositeCurve(segments=segments, self_intersect=ipc.self_intersect)
+
+
+def indexed_poly_curve_or_composite(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """``IfcCompositeCurve`` when the outline carries an analytic B-spline, else ``IfcIndexedPolyCurve``."""
+    if _ipc_has_spline(ipc):
+        return composite_curve(_ipc_to_composite_curve(ipc), f)
+    return indexed_poly_curve(ipc, f)
+
+
 def indexed_poly_curve(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an IndexedPolyCurve to an IFC representation"""
     has_arclines = any([isinstance(seg, geo_cu.ArcLine) for seg in ipc.segments])

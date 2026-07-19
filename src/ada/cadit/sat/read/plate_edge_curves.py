@@ -154,13 +154,13 @@ def _clip_to_endpoints(pts, a, b, n: int, closed: bool) -> list[tuple[float, flo
 def edge_curve_descriptor(coedge, sat_store, a, b, n: int = DEFAULT_CURVE_SAMPLES):
     """Analytic descriptor for a curved coedge from vertex `a` to vertex `b`, or None.
 
-    - ``("arc", midpoint)`` — circle/ellipse: the point on the arc halfway between `a` and `b`. The
-      caller carries this as a :class:`~ada.api.curves.PlateEdgeCurve` so the plate keeps a real,
-      analytic arc segment (exact in IFC/STEP, discretized downstream in tessellation) instead of
-      being sampled into straight outline points at read time.
-    - ``("points", [interior...])`` — B-spline: sampled interior points (analytic spline segments in
-      ``CurvePoly2d`` are a follow-up; for now the spline boundary is still discretized at read).
+    - ``("arc", midpoint)`` — circle/ellipse: the point on the arc halfway between `a` and `b`.
+    - ``("spline", curve)`` — B-spline: the analytic ``ada.geom.curves.BSplineCurveWithKnots`` itself.
     - ``None`` — straight, unreadable, or unsupported: the caller keeps the chord.
+
+    The caller carries the payload as an :class:`~ada.api.curves.ArcEdge` / ``SplineEdge`` so the plate
+    keeps a real analytic segment (arc exact in IFC/STEP; spline analytic in OCC/IFC, discretized in
+    NGEOM/STEP) instead of being sampled into straight outline points at read time.
     """
     # Local import: ada.cadit.sat.read.curves imports from this package's siblings.
     from ada.cadit.sat.read.curves import get_edge
@@ -183,10 +183,12 @@ def edge_curve_descriptor(coedge, sat_store, a, b, n: int = DEFAULT_CURVE_SAMPLE
             return None
         return ("arc", mid[0])
     if isinstance(curve, BSplineCurveWithKnots):
-        pts = _bspline_points(curve, max(n * 4, 32))  # open: sampled across the knot span
-        if not pts:
+        # Sanity-check the spec is samplable before committing to the analytic edge; else keep the chord.
+        try:
+            curve.sample(2)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"edge_curve_descriptor: unsamplable b-spline ({exc})")
             return None
-        clipped = _clip_to_endpoints(pts, a, b, n, closed=False)  # open: slice, never wrap
-        return ("points", clipped) if clipped else None
+        return ("spline", curve)
     return None
     return []
