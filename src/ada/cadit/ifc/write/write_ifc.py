@@ -144,9 +144,17 @@ class IfcWriter:
                 self.callback(i, num_new_objects)
 
         # Create relationships between materials and physical objects
+        from ada import Beam
+
         obj_map = defaultdict(list)
         for obj in new_objects:
             if not hasattr(obj, "material"):
+                continue
+            if isinstance(obj, Beam):
+                # A beam's material association is its IfcMaterialProfileSetUsage rel (written in
+                # add_material_assignment). Adding it to the bare per-material rel as well gives it
+                # TWO IfcRelAssociatesMaterial, violating the EXPRESS where-rule
+                # IfcBuiltElement.MaxOneMaterialAssociation (caught by ifcopenshell.validate).
                 continue
             obj_map[obj.material].append(obj)
 
@@ -183,7 +191,12 @@ class IfcWriter:
                 except RuntimeError:
                     pass
 
-            rel_mat.RelatedObjects = [*rel_mat.RelatedObjects, *ifc_elems, *ifc_elems_pipe_seg]
+            # De-dup: pipe segments are already associated directly by write_ifc_pipe
+            # (associate_elem_with_material), and RelatedObjects is a SET — a repeated
+            # entry is a schema violation, not a harmless append.
+            existing = set(rel_mat.RelatedObjects)
+            fresh = [e for e in [*ifc_elems, *ifc_elems_pipe_seg] if e not in existing]
+            rel_mat.RelatedObjects = [*rel_mat.RelatedObjects, *fresh]
 
         for spatial_elem_guid, relating_elements in contained_in_spatial.items():
             if len(relating_elements) == 0:
