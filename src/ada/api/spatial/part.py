@@ -1733,6 +1733,17 @@ class Part(BackendGeom):
         fuse_fem: bool = True,
         merge_strategy=None,
     ):
+        # The "native" writer serializes each object's solid_geom() to an NGEOM
+        # blob and emits AP242 through adacpp's C++ record-stream writer
+        # (stream_ngeom_to_step) — no OCC and no per-entity Python text writer
+        # (~ms/face -> ~µs/face). Full ada.geom coverage (B-rep shells incl.
+        # thickened curved shells, extrusions, revolves, sweeps, booleans);
+        # raises NativeExportUnsupported if adacpp is absent or any object
+        # fails to serialize, so callers can fall back to "occ"/"stream".
+        if writer == "native":
+            from ada.cadit.ngeom.export import native_to_stp
+
+            return native_to_stp(self, destination_file)
         # The "stream" writer authors AP242 B-rep text directly from parametric
         # geometry without building any OCC/adacpp shapes — constant memory, so
         # it does not OOM on large FEM models the way the OCC XCAF path does. It
@@ -1753,7 +1764,7 @@ class Part(BackendGeom):
                 merge_strategy=merge_strategy,
             )
         if writer != "occ":
-            raise ValueError(f"unknown writer {writer!r}; expected 'occ' or 'stream'")
+            raise ValueError(f"unknown writer {writer!r}; expected 'occ', 'stream' or 'native'")
 
         from ada.cad.doc import active_doc_backend
         from ada.occ.geom.cache import invalidate

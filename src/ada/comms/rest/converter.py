@@ -795,6 +795,29 @@ def _export_with_ada(
         return buf.getvalue()
     if target_format == "ifc":
         on_progress("writing-ifc", 0.55)
+        # Genie-XML fast path (default on, ADA_CAD_NATIVE_NGEOM_EXPORT=false to opt out):
+        # serialize each object's solid_geom() to an NGEOM blob and emit through adacpp's
+        # C++ record-stream writer instead of the per-entity ifcopenshell writer (~ms/face
+        # -> ~µs/face; the thickened-curved-shell hull dropped 31 s -> ~2 s). Falls back
+        # WHOLESALE to the Python writer when adacpp is absent or any object fails to
+        # serialize — a partially-native file missing solids is never produced.
+        if source_ext is not None and source_ext.lower() == ".xml":
+            from ada.cadit.ngeom.export import (
+                NativeExportUnsupported,
+                native_export_enabled,
+                native_ngeom_writers_available,
+                native_to_ifc,
+            )
+
+            if native_export_enabled() and native_ngeom_writers_available():
+                try:
+                    native_to_ifc(model, out_path)
+                    on_progress("ready", 1.0)
+                    return out_path
+                except NativeExportUnsupported as exc:
+                    from ada.config import logger
+
+                    logger.warning("native xml->ifc route unavailable (%s); using the Python writer", exc)
         # Memory-bounded writer is the default: it hand-authors Plate solids as
         # SPF text instead of holding the whole ifcopenshell.file, ~halving peak
         # RSS on large FEM→IFC and clearing the worker OOM cap. The admin "Stream
@@ -2287,6 +2310,25 @@ def _via_ada_to_step(
             if skipped:
                 logger.warning(f"streaming STEP writer skipped {skipped} non-extrudable object(s)")
         else:
+            # Genie-XML fast path (default on, ADA_CAD_NATIVE_NGEOM_EXPORT=false to opt
+            # out): NGEOM records -> adacpp's C++ AP242 writer instead of the OCC XCAF /
+            # per-entity Python writers. Wholesale fallback below when adacpp is absent
+            # or any object fails to serialize (mirrors the xml->ifc leg).
+            if source_ext.lower() == ".xml":
+                from ada.cadit.ngeom.export import (
+                    NativeExportUnsupported,
+                    native_export_enabled,
+                    native_ngeom_writers_available,
+                )
+
+                if native_export_enabled() and native_ngeom_writers_available():
+                    try:
+                        model.to_stp(str(out_path), writer="native")
+                        on_progress("ready", 1.0)
+                        returned_path = True
+                        return out_path
+                    except NativeExportUnsupported as exc:
+                        logger.warning("native xml->step route unavailable (%s); using the OCC writer", exc)
             model.to_stp(str(out_path))
             if not _step_has_solids(out_path):
                 # The OCC/adacpp writer emitted no solid root — e.g. an alignment

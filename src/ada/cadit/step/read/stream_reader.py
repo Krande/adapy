@@ -206,6 +206,7 @@ from ada.geom.solids import (  # noqa: E402
 )
 from ada.geom.surfaces import (  # noqa: E402
     AdvancedFace,
+    ArbitraryProfileDef,
     BSplineSurfaceForm,
     BSplineSurfaceWithKnots,
     ClosedShell,
@@ -1472,6 +1473,16 @@ def _b_torus(r: _Resolver, a: list) -> Torus:
     return Torus(position=r.deref(a[1]), major_radius=float(a[2]), minor_radius=float(a[3]))
 
 
+def _b_arbitrary_closed_profile_def(r: _Resolver, a: list) -> ArbitraryProfileDef:
+    # ARBITRARY_CLOSED_PROFILE_DEF(.AREA.,'',#outer_curve) — the profile form the adacpp
+    # native STEP writer (stream_ngeom_to_step / stream_step_to_step) emits for rigid
+    # EXTRUDED_AREA_SOLIDs; the Python ap242 writer only ever emitted baked B-reps, so the
+    # reader never needed it before.
+    from ada.geom.surfaces import ProfileType
+
+    return ArbitraryProfileDef(profile_type=ProfileType.from_str(_enum_name(a[0])), outer_curve=r.deref(a[2]))
+
+
 def _b_extruded_area_solid(r: _Resolver, a: list) -> ExtrudedAreaSolid:
     # EXTRUDED_AREA_SOLID('', #swept_area, #position, #extruded_direction, depth)
     return ExtrudedAreaSolid(
@@ -1848,6 +1859,7 @@ _BUILDERS = {
     "RIGHT_CIRCULAR_CONE": _b_right_circular_cone,
     "SPHERE": _b_sphere,
     "TORUS": _b_torus,
+    "ARBITRARY_CLOSED_PROFILE_DEF": _b_arbitrary_closed_profile_def,
     "EXTRUDED_AREA_SOLID": _b_extruded_area_solid,
     "REVOLVED_AREA_SOLID": _b_revolved_area_solid,
     "BOOLEAN_RESULT": _b_boolean_result,

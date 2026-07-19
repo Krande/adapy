@@ -188,6 +188,14 @@ class Config:
                 # decompress copy per hydration/fast-path access — trades the zero-copy
                 # property for a smaller resident floor.
                 ConfigEntry("shape_store_compress", bool, False, required=False),
+                # Native NGEOM-record export (adacpp stream_ngeom_to_step/ifc): serialize
+                # each object's solid_geom() to an NGEOM blob and emit STEP/IFC through the
+                # C++ writers instead of the per-entity Python ones (~ms/face -> ~µs/face;
+                # a 5.5k-curved-shell hull's thickened to_ifc drops 31 s -> seconds). Gates
+                # the Genie-XML converter legs (xml -> step/ifc); the Python writers remain
+                # the wholesale fallback whenever adacpp is absent or any object fails to
+                # serialize. Env: ADA_CAD_NATIVE_NGEOM_EXPORT.
+                ConfigEntry("native_ngeom_export", bool, True, required=False),
             ],
         ),
         ConfigSection(
