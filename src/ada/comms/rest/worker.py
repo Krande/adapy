@@ -733,12 +733,19 @@ def _parity_child(src_path, source_key, target_format, on_progress, *, produced=
     from ada.cadit.visual_parity import (
         parity_for_source_file,
         parity_from_produced_files,
+        parity_gxml_from_produced_files,
     )
 
     on_progress("parity", 0.2)
     if produced:
         pmap = {fmt: (_pl.Path(p) if p else None) for fmt, p in produced.items()}
-        res = parity_from_produced_files(source_key, pmap)
+        if str(source_key).lower().endswith(".xml"):
+            # Genie-XML: cheap per-format COUNT comparison over the produced blobs (the
+            # historical gxml invariant — catches a leg silently dropping N of M objects,
+            # which a bbox gate can miss) — zero re-derivation, zero tessellation.
+            res = parity_gxml_from_produced_files(source_key, pmap)
+        else:
+            res = parity_from_produced_files(source_key, pmap)
     else:
         res = parity_for_source_file(_pl.Path(src_path))
     on_progress("ready", 1.0)
@@ -811,15 +818,22 @@ async def _run_parity_validation(
     # actually ships (the analytic cylinder model) and does zero re-conversion, so it
     # no longer stalls on nvme write-contention writing ~1 GB of temp files.
     #
-    # Non-FEM (STEP/IFC/SAT) sources keep the streaming/whole-model re-derive path
+    # Genie-XML sources take a produced-files COUNT path (parity_gxml_from_produced_files):
+    # the old re-derive (load + export via parity's own Python writers + reload) tripled
+    # once curved shells thicken by default and dominated the sweep; every produced format
+    # has a cheap counter instead (xml structure scan, ifc SPF line scan, native C++ step
+    # stream index) so the whole check is seconds and validates exactly what shipped.
+    #
+    # Non-gxml CAD (STEP/IFC/SAT) sources keep the streaming/whole-model re-derive path
     # (produced left empty -> the child calls parity_for_source_file). Those were never
     # the hang; and their Genie-XML output is legitimately empty for a raw-solid source
     # (no Beam/Plate concept), which parity_for_source_file correctly SKIPS rather than
     # flagging as dropped geometry.
     _FEM_PARITY_SUFFIXES = (".fem", ".inp", ".sif", ".sin")
+    _PRODUCED_PARITY_SUFFIXES = _FEM_PARITY_SUFFIXES + (".xml",)
     produced_dir = pathlib.Path(tempfile.mkdtemp(prefix="adapy-parity-"))
     produced: dict[str, str | None] = {}
-    if suffix in _FEM_PARITY_SUFFIXES:
+    if suffix in _PRODUCED_PARITY_SUFFIXES:
         targets = set(ConverterRegistry.targets_for(suffix))
         compare_formats = tuple(f for f in PARITY_GEOMETRY_FORMATS if f in targets)
         for fmt in compare_formats:

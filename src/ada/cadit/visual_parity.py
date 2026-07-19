@@ -965,3 +965,96 @@ def _unrepresentable_reason(fmt: str, assembly: "Assembly") -> str | None:
         if fem is not None and (len(fem.elements.shell) or len(fem.elements.lines)):
             return None
     return "Genie XML carries only Beam/Plate concepts, not generic solids"
+
+
+# ── Genie-XML produced-files parity (count-based, zero re-derivation) ────────
+def _count_gxml_objects(path: "str | Path") -> int:
+    """Reader-visible object count of a Genie-XML file WITHOUT loading any geometry.
+
+    Mirrors ``GxmlStore``'s iteration: one plate per ``<face>`` under each
+    ``flat_plate``/``curved_shell`` (inline ``<polygon>`` sheets when no faces), plus one
+    beam per ``straight_beam``/``curved_beam``. A pure ElementTree pass — the SAT blob is
+    never touched, so a 16 MB hull counts in well under a second."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.parse(str(path)).getroot()
+    n = 0
+    for tag in ("flat_plate", "curved_shell"):
+        for el in root.iter(tag):
+            faces = el.findall(".//face")
+            if faces:
+                n += len(faces)
+            else:
+                n += len(el.findall(".//polygon"))
+    for tag in ("straight_beam", "curved_beam"):
+        n += sum(1 for _ in root.iter(tag))
+    return n
+
+
+def _count_ifc_products(path: "str | Path") -> int:
+    """Placed physical products in an IFC file via a bounded text scan (typed + proxy).
+
+    Products are one-per-line in SPF, so a line scan matches ``ifcopenshell`` counting at a
+    fraction of the parse cost (a 90 MB hull IFC scans in ~1 s)."""
+    kinds = ("=IFCPLATE(", "=IFCBEAM(", "=IFCMEMBER(", "=IFCBUILDINGELEMENTPROXY(", "=IFCPIPESEGMENT(")
+    n = 0
+    with open(path, "r", errors="ignore") as f:
+        for line in f:
+            u = line.upper()
+            if any(k in u for k in kinds):
+                n += 1
+    return n
+
+
+def parity_gxml_from_produced_files(source_key: str, produced: dict[str, "Path | None"]) -> ParityResult:
+    """Cross-format COUNT parity for a Genie-XML source over already-produced output blobs.
+
+    Genie-XML kept the old re-derive path (load + export via parity's own Python writers +
+    reload) long after FEM sources moved to produced-files measurement — and with thickened
+    curved shells the re-derive tripled, dominating the sweep. This is the produced-files
+    fix, but count-based rather than geometry-based: the historical gxml invariant is the
+    per-object count (it caught e.g. an ifc leg silently dropping 9 of 5470 plates, which a
+    bbox gate can miss), and every produced format has a cheap counter — xml via a text/ET
+    structure scan, ifc via an SPF line scan, step via the native C++ stream index. No
+    loading, no export, no tessellation: the whole check is a few seconds.
+
+    ``expected`` (the persisted baseline) is the produced-xml round-trip count when present
+    (the identity format), else the max across formats. Mesh formats (glb/obj/stl) carry no
+    product granularity and are recorded as skipped."""
+    counts: dict[str, int] = {}
+    errors: dict[str, str] = {}
+    skipped: dict[str, str] = {}
+
+    for fmt in sorted(produced):
+        path = produced[fmt]
+        if path is None:
+            skipped[fmt] = "no produced blob (conversion failed or was skipped)"
+            continue
+        try:
+            if fmt == "ifc":
+                counts[fmt] = _count_ifc_products(path)
+            elif fmt == "step":
+                n = _count_step_product_instances(path)
+                if n is None:
+                    skipped[fmt] = "native step counter unavailable"
+                else:
+                    counts[fmt] = n
+            elif fmt == "xml":
+                counts[fmt] = _count_gxml_objects(path)
+            else:  # glb / obj / stl — merged meshes, no per-product granularity
+                skipped[fmt] = "mesh format has no product granularity"
+        except Exception as ex:  # noqa: BLE001 - record and continue with the other formats
+            errors[fmt] = f"{type(ex).__name__}: {ex}"
+            logger.warning(f"parity_gxml_from_produced_files: counting {fmt} failed: {ex}")
+
+    expected = counts.get("xml", max(counts.values(), default=0))
+    mismatches: dict[str, "int | str"] = {f: c for f, c in counts.items() if c != expected}
+    consistent = not mismatches and bool(counts)
+    return ParityResult(
+        counts=dict(counts),
+        expected=int(expected),
+        consistent=consistent,
+        mismatches=mismatches,
+        errors=errors,
+        skipped=skipped,
+    )

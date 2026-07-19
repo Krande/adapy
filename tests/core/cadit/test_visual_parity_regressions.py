@@ -116,3 +116,50 @@ def test_meshopt_packed_glb_measures_like_uncompressed(tmp_path):
     assert m_packed.tris == m_plain.tris
     assert m_packed.area == pytest.approx(m_plain.area, rel=1e-6)
     assert m_packed.bbox == pytest.approx(m_plain.bbox, rel=1e-6)
+
+
+def test_gxml_produced_files_count_parity(tmp_path):
+    """Genie-XML parity runs over the ALREADY-PRODUCED blobs with cheap per-format counters
+    (no re-derive, no tessellation — the old load+export+reload path tripled once curved
+    shells thicken by default). The count invariant must still catch a leg silently dropping
+    an object."""
+    import ada
+    from ada.cadit.visual_parity import parity_gxml_from_produced_files
+
+    a = ada.Assembly("A") / (
+        ada.Part("p")
+        / [
+            ada.Plate("pl1", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01),
+            ada.Plate("pl2", [(2, 0), (3, 0), (3, 1), (2, 1)], 0.01),
+            ada.Beam("bm", (0, 0, 1), (3, 0, 1), "IPE200"),
+        ]
+    )
+    xml = tmp_path / "m.xml"
+    ifc = tmp_path / "m.ifc"
+    stp = tmp_path / "m.step"
+    a.to_genie_xml(xml)
+    a.to_ifc(ifc)
+    a.to_stp(stp, writer="stream")
+
+    produced = {"xml": xml, "ifc": ifc, "step": stp, "glb": None}
+    res = parity_gxml_from_produced_files("cad/gxml/m.xml", produced)
+    assert res.consistent, res.summary()
+    assert res.expected == 3
+    assert res.counts["ifc"] == res.counts["xml"] == 3
+    # the step counter needs the native adacpp stream index; absent (pyocc-only env) it is
+    # recorded as skipped, never guessed
+    assert res.counts.get("step", 3) == 3
+
+    # a leg that silently drops an object must flag
+    doctored = tmp_path / "dropped.ifc"
+    lines = ifc.read_text().splitlines()
+    kept, removed = [], 0
+    for ln in lines:
+        if not removed and "=IFCPLATE(" in ln.upper():
+            removed += 1
+            continue
+        kept.append(ln)
+    doctored.write_text("\n".join(kept))
+    res2 = parity_gxml_from_produced_files("cad/gxml/m.xml", {**produced, "ifc": doctored})
+    assert not res2.consistent
+    assert "ifc" in res2.mismatches and res2.mismatches["ifc"] == 2
