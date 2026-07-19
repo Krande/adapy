@@ -95,6 +95,7 @@ lint = { features = ["lint"], no-default-feature = true }
 profile = { features = ["profile", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 frontend = { features = ["frontend"], no-default-feature = true }
 jupyterlite = { features = ["jupyterlite"], no-default-feature = true }
+ifc-validation = { features = ["ifc-validation"], no-default-feature = true }
 tests-core = { features = ["tests-core"], no-default-feature = true }
 test-pyodide = { features = ["test-pyodide"], no-default-feature = true }
 tests = { features = ["tests", "tests-core", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
@@ -129,6 +130,35 @@ meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "pyoc
 
 [feature.jupyterlite.dependencies]
 jupyterlite-core = "*"
+
+# Official buildingSMART-aligned IFC validation, kept in a dedicated feature so
+# its closure stays out of the main envs. Covers the OFFLINE, installable parts
+# of the buildingSMART IFC Validation Service (https://github.com/buildingSMART/validate):
+#   * Syntax check       — ifcopenshell.open + log_internal_cpp_errors
+#   * Schema check       — ifcopenshell.validate (attribute/select/inverse rules)
+#   * Express/where-rules — ifcopenshell.validate(..., express_rules=True)
+#   * IDS check (opt-in)  — ifctester, when an .ids is passed to the task
+# The service's Gherkin normative rules (buildingSMART/ifc-gherkin-rules) are a
+# git repo of behave feature files, not a pip package, and pull a heavy closure
+# (Django/pyproj/rtree/shapely); they are deliberately NOT wired here — see
+# scripts/validate_ifc.py for how to run them separately.
+#
+# ifctester (the optional IDS pillar) is PyPI-only and NOT declared here on
+# purpose: it depends on `ifcopenshell`, and the conda-forge ifcopenshell ships
+# no .dist-info, so pixi/uv can't see it as satisfying that pypi requirement and
+# tries to pull a second (pypi) ifcopenshell — which has no wheel for this
+# manylinux baseline, breaking the solve. The env therefore stays conda-only and
+# resolves cleanly; enable IDS validation when needed with:
+#     pixi run -e ifc-validation python -m pip install --no-deps ifctester
+[feature.ifc-validation.dependencies]
+python = "3.12.*"
+ifcopenshell = "*"
+# ifcopenshell's generated EXPRESS where-rule modules `import pytest` (they use
+# pytest.approx for numeric tolerance), so express_rules=True needs pytest present.
+pytest = "*"
+
+[feature.ifc-validation.tasks]
+ifc-validate = { cmd = "python scripts/validate_ifc.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.meshio-bridge.dependencies]
 meshio = "*"
