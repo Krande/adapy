@@ -801,7 +801,15 @@ def _export_with_ada(
         # -> ~µs/face; the thickened-curved-shell hull dropped 31 s -> ~2 s). Falls back
         # WHOLESALE to the Python writer when adacpp is absent or any object fails to
         # serialize — a partially-native file missing solids is never produced.
+        # DISABLED for the ifc leg until the native writer emits TYPED products: it currently wraps
+        # every solid in an IfcBuildingElementProxy, so beams/plates read back as generic shapes —
+        # a round-trip regression vs the Python writer's IfcBeam/IfcPlate (+ axis/profile/material)
+        # parametric re-import. Opt in explicitly via ADA_CAD_NATIVE_NGEOM_EXPORT_IFC=true when the
+        # proxy-only form is acceptable (e.g. geometry-only handoff). The STEP leg stays native:
+        # STEP products carry name-only semantics either way, so nothing is lost there.
         if source_ext is not None and source_ext.lower() == ".xml":
+            import os as _os
+
             from ada.cadit.ngeom.export import (
                 NativeExportUnsupported,
                 native_export_enabled,
@@ -809,7 +817,8 @@ def _export_with_ada(
                 native_to_ifc,
             )
 
-            if native_export_enabled() and native_ngeom_writers_available():
+            _ifc_opt_in = _os.environ.get("ADA_CAD_NATIVE_NGEOM_EXPORT_IFC", "").strip().lower() in ("1", "true")
+            if _ifc_opt_in and native_export_enabled() and native_ngeom_writers_available():
                 try:
                     native_to_ifc(model, out_path)
                     on_progress("ready", 1.0)
