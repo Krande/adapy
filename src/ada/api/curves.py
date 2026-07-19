@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterable, Optional
 
 import numpy as np
@@ -26,7 +27,30 @@ from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 if TYPE_CHECKING:
     from ada import Beam
     from ada.cad import ShapeHandle
-    from ada.geom.curves import ArcLine, Edge, IndexedPolyCurve
+    from ada.geom.curves import ArcLine, BSplineCurveWithKnots, Edge, IndexedPolyCurve
+
+
+@dataclass
+class PlateEdgeCurve:
+    """An analytic curve carried on ONE boundary edge of a ``CurvePoly2d``, between corners ``a`` and ``b``.
+
+    A reader (e.g. the ACIS/SAT plate reader) emits these so a curved plate boundary stays analytic:
+    :meth:`CurvePoly2d.build_edge_segments` turns ordered corners + these specs into the real segment
+    list (arc/spline where a spec's ``a``/``b`` match a corner pair, else a line), which
+    ``Plate.from_segments`` carries verbatim — instead of the reader sampling the curve into extra
+    outline points at read time (which is both slow and lower fidelity: it reaches IFC/STEP as a
+    polyline).
+
+    ``kind`` is ``"arc"`` (circle/ellipse; ``midpoint`` is the point on the arc halfway between ``a``
+    and ``b`` — the only datum OCC/NGEOM/IFC/STEP need to reconstruct the arc) or ``"spline"``
+    (``curve`` is the analytic ``ada.geom.curves.BSplineCurveWithKnots``).
+    """
+
+    kind: str
+    a: tuple[float, float, float]
+    b: tuple[float, float, float]
+    midpoint: tuple[float, float, float] | None = None
+    curve: BSplineCurveWithKnots | None = None
 
 
 class CurveRevolve:
@@ -226,7 +250,7 @@ class CurveOpen2d:
 
         self._segments = seg_list2d
         self._segments3d = seg_list3d
-        self._seg_global_points, self._seg_index = segments_to_indexed_lists(seg_list3d)
+        self._seg_global_points, self._seg_index = segments_to_indexed_lists(self._segments3d)
         self._nodes = [
             Node(p, r=self.radiis[i]) if i in self.radiis.keys() else Node(p) for i, p in enumerate(self._points3d)
         ]
@@ -518,6 +542,83 @@ class CurvePoly2d(CurveOpen2d):
             out.append(self)
         return out
 
+    @staticmethod
+    def build_edge_segments(points3d, edge_curves=None) -> list[LineSegment]:
+        """Ordered, closed loop of 3D segments from ordered corner points + optional ``PlateEdgeCurve``.
+
+        Consecutive corners form each edge; an edge whose endpoints match a spec becomes an
+        ``ArcSegment`` (circle/ellipse) or ``SplineSegment``, otherwise a ``LineSegment``. Endpoint
+        match is winding-agnostic; an unmatched spec (e.g. a corner pruned as collinear) just leaves
+        that edge straight. Feed the result to :meth:`from_segments` / ``Plate.from_segments``.
+        """
+        pts = [Point(np.asarray(p, dtype=float)[:3]) for p in points3d]
+        n = len(pts)
+        spec_by_key = {_endpoint_key(s.a, s.b): s for s in (edge_curves or [])}
+        segs: list[LineSegment] = []
+        for i in range(n):
+            a, b = pts[i], pts[(i + 1) % n]
+            spec = spec_by_key.get(_endpoint_key(a, b))
+            if spec is None:
+                segs.append(LineSegment(a, b))
+            elif spec.kind == "arc" and spec.midpoint is not None:
+                segs.append(ArcSegment(a, b, midpoint=Point(np.asarray(spec.midpoint, dtype=float))))
+            elif spec.kind == "spline" and spec.curve is not None:
+                segs.append(SplineSegment(a, b, curve=spec.curve))
+            else:
+                segs.append(LineSegment(a, b))
+        return segs
+
+    @classmethod
+    def from_segments(cls, segments, tol=1e-3, parent=None, xdir=None, flip_n=False) -> CurvePoly2d:
+        """Construct directly from an ordered, closed loop of 3D segments (line/arc/spline).
+
+        Unlike :meth:`from_3d_points` this neither samples nor rebuilds the boundary via
+        ``build_polycurve``: each segment is carried through to both the 3D and the projected 2D
+        outline as-is (arc midpoints, spline curves preserved), so analytic edges survive to IFC/STEP
+        and are discretized only downstream at tessellation. Orientation is derived from the corner
+        points exactly like :meth:`from_3d_points` (``Placement.from_co_linear_points``), so a
+        segments-built plate sits in the same frame a points-built one would.
+        """
+        segments = list(segments)
+        if len(segments) < 3:
+            raise ValueError("At least three segments are required to define a plate outline.")
+
+        points3d = np.array([np.asarray(seg.p1, dtype=float)[:3] for seg in segments])
+        place = Placement.from_co_linear_points(points3d, xdir=xdir, flip_n=flip_n)
+        points2d_arr = place.transform_global_points_to_local(points3d)
+        points2d = [Point(p[0], p[1]) for p in points2d_arr]
+        points3d_pts = [Point(p) for p in points3d]
+
+        def _to2d(p) -> Point:
+            q = place.transform_global_points_to_local(np.array([np.asarray(p, dtype=float)[:3]]))[0]
+            return Point(q[0], q[1])
+
+        segs2d: list[LineSegment] = []
+        for seg in segments:
+            if isinstance(seg, ArcSegment):
+                segs2d.append(ArcSegment(_to2d(seg.p1), _to2d(seg.p2), midpoint=_to2d(seg.midpoint)))
+            elif isinstance(seg, SplineSegment):
+                segs2d.append(SplineSegment(_to2d(seg.p1), _to2d(seg.p2), curve=seg.curve))
+            else:
+                segs2d.append(LineSegment(_to2d(seg.p1), _to2d(seg.p2)))
+
+        seg_global_points, seg_index = segments_to_indexed_lists(segments)
+
+        self = cls.__new__(cls)
+        self._tol = tol
+        self._parent = parent
+        self._orientation = place
+        self._placement = Placement()
+        self._radiis = {}
+        self._points2d = points2d
+        self._points3d = points3d_pts
+        self._segments = segs2d
+        self._segments3d = segments
+        self._seg_global_points = seg_global_points
+        self._seg_index = seg_index
+        self._nodes = [Node(p) for p in points3d_pts]
+        return self
+
     def get_face_geom(self) -> ArbitraryProfileDef:
         outer_curve = self.curve_geom()
         return ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])
@@ -774,3 +875,40 @@ class ArcSegment(LineSegment):
 
     def __repr__(self):
         return f"ArcSegment({self.p1}, {self.midpoint}, {self.p2})"
+
+
+class SplineSegment(LineSegment):
+    """A boundary edge that follows an analytic B-spline (``ada.geom.curves.BSplineCurveWithKnots``).
+
+    Closes the gap the ``CurvePoly2d`` docstring notes: the outline had only line and arc segments, so
+    a spline plate edge had nowhere analytic to live and was sampled into straight outline points at
+    read time. The spline is carried here verbatim; discretization is a downstream (tessellation)
+    concern via :meth:`sample`, so the analytic form survives to IFC/STEP export.
+    """
+
+    def __init__(self, p1, p2, curve: BSplineCurveWithKnots = None, edge_geom=None, placement: Placement = None):
+        super().__init__(p1, p2, edge_geom=edge_geom, placement=placement)
+        self._curve = curve
+
+    @property
+    def curve(self) -> BSplineCurveWithKnots:
+        return self._curve
+
+    def curve_geom(self) -> BSplineCurveWithKnots:
+        return self._curve
+
+    def sample(self, n: int) -> list[Point]:
+        """Discretize the spline into ``n`` points along the curve (endpoints included)."""
+        return [Point(p) for p in self._curve.sample(n)]
+
+    def __repr__(self):
+        return f"SplineSegment({self.p1}, {self.p2})"
+
+
+def _endpoint_key(a, b, ndigits: int = 6):
+    """Order-independent key for an edge's two endpoints, so a ``PlateEdgeCurve`` spec can be matched to
+    the corner pair that bounds it regardless of winding. Rounded to microns — plate corners are far
+    enough apart that no two distinct corners collide."""
+    ka = tuple(round(float(v), ndigits) for v in np.asarray(a, dtype=float)[:3])
+    kb = tuple(round(float(v), ndigits) for v in np.asarray(b, dtype=float)[:3])
+    return frozenset((ka, kb))

@@ -1225,15 +1225,22 @@ class BatchTessellator:
                     fallback_pts = getattr(ada_obj, "_flat_fallback_pts", None)
                     if fallback_pts:
                         try:
-                            from ada import Plate
                             from ada.cadit.gxml.read.helpers import (
-                                _project_to_best_fit_plane,
+                                _fit_best_fit_plane,
+                                _plate_from_face,
+                                _project_edge_curves_onto_plane,
+                                _project_onto_plane,
                             )
 
-                            fb = Plate.from_3d_points(
+                            plane = _fit_best_fit_plane(fallback_pts)
+                            fb = _plate_from_face(
                                 getattr(ada_obj, "name", "fallback"),
-                                _project_to_best_fit_plane(fallback_pts),
+                                _project_onto_plane(fallback_pts, plane) if plane else list(fallback_pts),
+                                _project_edge_curves_onto_plane(
+                                    getattr(ada_obj, "_flat_fallback_edge_curves", None), plane
+                                ),
                                 getattr(ada_obj, "t", None) or 0.0,
+                                None,
                                 mat=getattr(ada_obj, "material", None),
                                 metadata=dict(
                                     props=dict(
@@ -1410,13 +1417,20 @@ class BatchTessellator:
             if not fallback_pts:
                 continue
             try:
-                from ada import Plate
-                from ada.cadit.gxml.read.helpers import _project_to_best_fit_plane
+                from ada.cadit.gxml.read.helpers import (
+                    _fit_best_fit_plane,
+                    _plate_from_face,
+                    _project_edge_curves_onto_plane,
+                    _project_onto_plane,
+                )
 
-                fallback = Plate.from_3d_points(
+                plane = _fit_best_fit_plane(fallback_pts)
+                fallback = _plate_from_face(
                     getattr(ada_obj, "name", "fallback"),
-                    _project_to_best_fit_plane(fallback_pts),
+                    _project_onto_plane(fallback_pts, plane) if plane else list(fallback_pts),
+                    _project_edge_curves_onto_plane(getattr(ada_obj, "_flat_fallback_edge_curves", None), plane),
                     getattr(ada_obj, "t", None) or 0.0,
+                    None,
                     mat=getattr(ada_obj, "material", None),
                     metadata=dict(
                         props=dict(

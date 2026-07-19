@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ada.api.curves import PlateEdgeCurve
 from ada.cadit.sat.exceptions import ACISInsufficientPointsError
 from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import Config, logger
@@ -45,14 +46,14 @@ class PlateFactory:
         edges = self._drop_whisker_coedges(edges)
 
         try:
-            points = self.get_points(edges)
+            points, edge_curves = self.get_points(edges)
         except ACISInsufficientPointsError as e:
             logger.warning(f"face: '{name}' failed to get points due to {e}. Skipping...")
             return None
 
         points = remove_near_collinear_points(points)
 
-        return name, points
+        return name, points, edge_curves
 
     def _loop_type(self, loop: AcisRecord) -> str | None:
         for token in loop.chunks:
@@ -137,30 +138,35 @@ class PlateFactory:
         # Curved boundary edges (intcurve/ellipse) otherwise collapse to the chord between their two
         # corners — a deck plate meeting a curved hull skin renders straight while the skin beside it
         # curves (measured on a hull-skin model FACE00004482: a 0.072 m bulge flattened out of a
-        # 1.4 m plate). Splice the sampled curve into the FINISHED corner polygon, between the two
-        # corners that edge joins. Done here, after the corner sequence is complete, precisely because
-        # `edges` is NOT in geometric chain order — the loop above works by collecting far-endpoints
-        # and deduping, not by walking the chain, so there is no "insert before edge i" position to
-        # write into. A straight-only loop splices nothing and keeps its exact historic point list.
+        # 1.4 m plate). Circle/ellipse edges are carried out ANALYTICALLY as PlateEdgeCurve arc specs
+        # (CurvePoly2d swaps in a real ArcSegment — exact in IFC/STEP, discretized downstream); only
+        # B-spline edges are still sampled into the FINISHED corner polygon, between the two corners
+        # that edge joins. Done here, after the corner sequence is complete, precisely because `edges`
+        # is NOT in geometric chain order — the loop above collects far-endpoints and dedupes rather
+        # than walking the chain, so there is no "insert before edge i" position. A straight-only loop
+        # produces nothing and keeps its exact historic point list.
+        edge_curves: list[PlateEdgeCurve] = []
         if Config().sat_plate_curved_edges:
-            points = self._splice_curved_edges(points, edges)
+            points, edge_curves = self._splice_curved_edges(points, edges)
 
-        return points
+        return points, edge_curves
 
-    def _splice_curved_edges(self, points: list[tuple[float]], edges: list[AcisRecord]) -> list[tuple[float]]:
-        """Insert each curved edge's sampled interior between the two corners it joins.
+    def _splice_curved_edges(
+        self, points: list[tuple[float]], edges: list[AcisRecord]
+    ) -> tuple[list[tuple[float]], list[PlateEdgeCurve]]:
+        """Split curved edges into analytic arc specs (circle/ellipse) and spliced B-spline samples.
 
-        Purely additive: every original corner stays, in its original order. An edge whose two
-        corners aren't adjacent in `points` (or which we couldn't sample) is skipped and keeps its
-        chord — so the worst case is exactly today's output.
+        Arc edges return a :class:`~ada.api.curves.PlateEdgeCurve` (matched to its segment by endpoint
+        in ``CurvePoly2d``); B-spline edges keep today's behaviour — their sampled interior is inserted
+        between the two corners they join. Purely additive for the point list: every original corner
+        stays, in its original order. An edge whose corners aren't adjacent (or which we couldn't read)
+        is skipped and keeps its chord — the worst case is exactly today's output.
         """
-        curved = self._curved_edge_interiors(edges)
-        if not curved:
-            return points
+        splines, arcs = self._curved_edge_data(edges)
 
         pts = list(points)
         for i, coedge in enumerate(edges):
-            interior = curved.get(i)
+            interior = splines.get(i)
             if not interior:
                 continue
             p1, p2 = self.get_points_from_edge(coedge)
@@ -176,29 +182,37 @@ class PlateFactory:
                     break
             else:
                 logger.debug(f"curved edge {i}: corners not adjacent in the outline; keeping its chord")
-        return pts
+        return pts, arcs
 
-    def _curved_edge_interiors(self, edges: list[AcisRecord]) -> dict[int, list[tuple[float, float, float]]]:
-        """{edge index -> interior points, ordered near->far along the coedge's own direction}.
+    def _curved_edge_data(
+        self, edges: list[AcisRecord]
+    ) -> tuple[dict[int, list[tuple[float, float, float]]], list[PlateEdgeCurve]]:
+        """``({edge index -> B-spline interior points}, [arc PlateEdgeCurve, ...])``.
 
-        Best-effort by design: any edge we can't read or sample simply isn't in the dict, and the
-        caller keeps today's chord for it. A curved boundary that silently stays straight is the bug
-        we're fixing; a curved boundary that fails to sample is only as bad as the status quo.
+        Best-effort by design: any edge we can't read or sample is simply absent, and the caller keeps
+        that edge's chord. A curved boundary that silently stays straight is the bug we're fixing; one
+        that fails to read is only as bad as the status quo.
         """
-        from ada.cadit.sat.read.plate_edge_curves import edge_interior_points
+        from ada.cadit.sat.read.plate_edge_curves import edge_curve_descriptor
 
-        out: dict[int, list[tuple[float, float, float]]] = {}
+        splines: dict[int, list[tuple[float, float, float]]] = {}
+        arcs: list[PlateEdgeCurve] = []
         for i, coedge in enumerate(edges):
             try:
                 p1, p2 = self.get_points_from_edge(coedge)
                 near, far = (p1, p2) if str(coedge.chunks[-4]) == "forward" else (p2, p1)
-                pts = edge_interior_points(coedge, self.sat_store, near, far)
+                desc = edge_curve_descriptor(coedge, self.sat_store, near, far)
             except Exception as exc:  # noqa: BLE001 - never let a curve read drop a whole plate
-                logger.debug(f"curved edge sample failed on coedge {i}: {exc}")
+                logger.debug(f"curved edge read failed on coedge {i}: {exc}")
                 continue
-            if pts:
-                out[i] = pts
-        return out
+            if desc is None:
+                continue
+            kind, payload = desc
+            if kind == "arc":
+                arcs.append(PlateEdgeCurve("arc", a=near, b=far, midpoint=tuple(payload)))
+            elif kind == "points" and payload:
+                splines[i] = payload
+        return splines, arcs
 
     def get_edges(self, face_data_list: list[str]) -> list[AcisRecord]:
         loop = self._get_primary_loop(face_data_list)

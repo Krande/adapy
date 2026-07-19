@@ -102,6 +102,18 @@ class Plate(BackendGeom):
         return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, **kwargs)
 
     @staticmethod
+    def from_segments(name, segments, t, mat="S420", color=None, metadata=None, flip_normal=False, **kwargs) -> Plate:
+        """Build a plate whose outline is an ordered list of ``LineSegment``/``ArcSegment``/``SplineSegment``.
+
+        Use this instead of ``from_3d_points`` when the boundary is genuinely a mix of line and analytic
+        curve edges (e.g. an ACIS/SAT plate with a circular or spline boundary): the segments are carried
+        verbatim rather than sampled into a point cloud and rebuilt, so arcs/splines survive analytically
+        into IFC/STEP and are discretized only downstream at tessellation.
+        """
+        poly = CurvePoly2d.from_segments(segments, flip_n=flip_normal, **kwargs)
+        return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, **kwargs)
+
+    @staticmethod
     def from_fem_shell(
         name, points, t, mat="S420", color=None, metadata=None, parent=None, detached=False, **kwargs
     ) -> Plate:

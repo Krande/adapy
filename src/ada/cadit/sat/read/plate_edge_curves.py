@@ -189,11 +189,16 @@ def _clip_to_endpoints(pts, a, b, n: int, closed: bool) -> list[tuple[float, flo
     return [tuple(float(v) for v in arr[i]) for i in inner]
 
 
-def edge_interior_points(coedge, sat_store, a, b, n: int = DEFAULT_CURVE_SAMPLES) -> list[tuple[float, float, float]]:
-    """Interior 3D points along `coedge`'s curve, ordered from vertex `a` to vertex `b`.
+def edge_curve_descriptor(coedge, sat_store, a, b, n: int = DEFAULT_CURVE_SAMPLES):
+    """Analytic descriptor for a curved coedge from vertex `a` to vertex `b`, or None.
 
-    Returns [] for straight edges, unreadable curves, or anything we can't sample —
-    the caller then keeps today's chord, so this can only add detail, never lose a plate.
+    - ``("arc", midpoint)`` — circle/ellipse: the point on the arc halfway between `a` and `b`. The
+      caller carries this as a :class:`~ada.api.curves.PlateEdgeCurve` so the plate keeps a real,
+      analytic arc segment (exact in IFC/STEP, discretized downstream in tessellation) instead of
+      being sampled into straight outline points at read time.
+    - ``("points", [interior...])`` — B-spline: sampled interior points (analytic spline segments in
+      ``CurvePoly2d`` are a follow-up; for now the spline boundary is still discretized at read).
+    - ``None`` — straight, unreadable, or unsupported: the caller keeps the chord.
     """
     # Local import: ada.cadit.sat.read.curves imports from this package's siblings.
     from ada.cadit.sat.read.curves import get_edge
@@ -201,20 +206,25 @@ def edge_interior_points(coedge, sat_store, a, b, n: int = DEFAULT_CURVE_SAMPLES
     try:
         oe = get_edge(coedge)
     except Exception as exc:  # noqa: BLE001 - unreadable curve => keep the chord
-        logger.debug(f"edge_interior_points: get_edge failed: {exc}")
-        return []
+        logger.debug(f"edge_curve_descriptor: get_edge failed: {exc}")
+        return None
     curve = getattr(oe, "edge_element", None) or getattr(oe, "edge_geometry", None) or oe
     curve = getattr(curve, "edge_geometry", curve)
 
     from ada.geom.curves import BSplineCurveWithKnots, Circle, Ellipse, Line
 
     if isinstance(curve, Line):
-        return []
+        return None
     if isinstance(curve, (Ellipse, Circle)):
-        return _ellipse_arc_points(curve, a, b, n) or []  # analytic arc clip — no ring, no _clip
+        mid = _ellipse_arc_points(curve, a, b, 1)  # n=1 -> the single arc midpoint
+        if not mid:
+            return None
+        return ("arc", mid[0])
     if isinstance(curve, BSplineCurveWithKnots):
         pts = _bspline_points(curve, max(n * 4, 32))  # open: sampled across the knot span
         if not pts:
-            return []
-        return _clip_to_endpoints(pts, a, b, n, closed=False)  # open: slice, never wrap
+            return None
+        clipped = _clip_to_endpoints(pts, a, b, n, closed=False)  # open: slice, never wrap
+        return ("points", clipped) if clipped else None
+    return None
     return []
