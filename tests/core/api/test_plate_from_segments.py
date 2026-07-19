@@ -146,13 +146,13 @@ def test_spline_plate_ifc_outer_curve_is_a_composite_with_a_bspline():
 
 
 def test_spline_plate_builds_an_occ_solid_that_bulges():
-    from OCC.Core.BRepGProp import brepgprop
-    from OCC.Core.GProp import GProp_GProps
+    from ada.cad import active_backend
 
-    props = GProp_GProps()
-    brepgprop.VolumeProperties(_spline_plate().solid_occ(), props)
+    be = active_backend()
+    solid = _spline_plate().solid_occ()
+    assert be.is_valid(solid)
     # A flat unit square x 0.05 thick = 0.05; the +x bulge must add volume (analytic curve, not chord).
-    assert props.Mass() > 0.05 + 1e-4
+    assert be.volume(solid) > 0.05 + 1e-4
 
 
 def test_spline_plate_get_unique_samples_the_spline_to_a_polyline():

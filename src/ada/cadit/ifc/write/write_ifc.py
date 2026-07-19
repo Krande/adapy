@@ -103,6 +103,20 @@ class IfcWriter:
             )
         }
 
+        # A previous sync's prune_empty_relationships may have dropped a material's (then-empty)
+        # eager rel — e.g. a beam-only material, since beams associate via their profile-set usage
+        # and never populate the bare rel. The rel doubles as the material's guid-lookup handle
+        # (add_material_assignment resolves the IfcMaterial through f.by_guid(mat.guid)), so
+        # recreate it here; the final prune removes it again if it stays empty.
+        missing = {guid: mat for guid, mat in mat_map.items() if guid not in rel_mats_map}
+        if missing:
+            ifc_mats_by_name = {im.Name: im for im in self.ifc_store.f.by_type("IfcMaterial")}
+            for guid, mat in missing.items():
+                ifc_mat = ifc_mats_by_name.get(mat.name)
+                if ifc_mat is None:
+                    continue  # material itself never written; eval_validity reports it properly
+                rel_mats_map[guid] = self.create_rel_associates_material(guid, ifc_mat)
+
         new_objects = list(filter(is_added, list(a.get_all_physical_objects())))
         num_new_objects = len(new_objects)
 

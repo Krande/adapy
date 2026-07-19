@@ -237,6 +237,9 @@ def advanced_face(af: geo_su.AdvancedFace, f: ifcopenshell.file) -> ifcopenshell
         # nothing about the boundary, which is why the face is an AdvancedFace
         # at all rather than a polygon.
         face_surface = create_plane(af.face_surface, f)
+    elif isinstance(af.face_surface, geo_su.CylindricalSurface):
+        # An arc boundary edge extruded through the plate thickness (extruded_loop_to_shell).
+        face_surface = create_cylindrical_surface(af.face_surface, f)
     else:
         raise NotImplementedError(f"Unsupported face surface type: {type(af.face_surface)}")
 

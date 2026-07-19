@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import weakref
+
 import ifcopenshell
 
 from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d, vector
 from ada.cadit.ifc.write.geom.points import cpt, vrtx
 from ada.config import Config, logger
 from ada.geom import curves as geo_cu
+
+# Per-file EdgeCurve dedupe: {id(EdgeCurve): (EdgeCurve, entity_id)} — see create_edge_curve.
+# The value stores the entity ID (an int), never the entity_instance: an entity holds a strong
+# reference back to its file, which would pin the WeakKeyDictionary key forever (a leak).
+_edge_curve_cache: "weakref.WeakKeyDictionary[ifcopenshell.file, dict]" = weakref.WeakKeyDictionary()
 
 
 def indexed_poly_curve_from_points_and_segments(
@@ -223,19 +230,31 @@ def create_edge_curve(
 
     When a UV ``pcurve`` and its ``basis_surface`` are supplied, the edge
     geometry is written as an IfcSurfaceCurve so the p-curve survives the
-    round-trip; otherwise just the bare 3D curve is written."""
+    round-trip; otherwise just the bare 3D curve is written.
+
+    The SAME ``EdgeCurve`` python object writes to the SAME IfcEdgeCurve entity: a manifold B-rep
+    uses each edge in exactly two faces, and the EXPRESS topology rules compare by instance — a
+    duplicated edge entity would break shell closure (see ``vrtx`` for the vertex analogue)."""
+    cache = _edge_curve_cache.setdefault(f, {})
+    hit = cache.get(id(ec))
+    if hit is not None:
+        return f.by_id(hit[1])
+
     if pcurve is not None and basis_surface is not None:
         edge_geometry = create_surface_curve(ec, pcurve, basis_surface, f)
     else:
         edge_geometry = _edge_geometry_3d(ec.edge_geometry, f)
 
-    return f.create_entity(
+    entity = f.create_entity(
         "IfcEdgeCurve",
         EdgeStart=vrtx(f, ec.start),
         EdgeEnd=vrtx(f, ec.end),
         EdgeGeometry=edge_geometry,
         SameSense=ec.same_sense,
     )
+    # Keep ``ec`` alive alongside the id so the id() key can never be reused.
+    cache[id(ec)] = (ec, entity.id())
+    return entity
 
 
 def create_ellipse(ellipse: geo_cu.Ellipse, f: ifcopenshell.file) -> ifcopenshell.entity_instance:

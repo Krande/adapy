@@ -207,3 +207,209 @@ def native_primitive_to_analytic_shell(geometry) -> su.ClosedShell | None:
         except OSError:
             pass
     return shell
+
+
+# ── extruded boundary-loop shells (analytic plate B-rep) ─────────────────────
+def _vsub(a, b):
+    return (float(a[0]) - float(b[0]), float(a[1]) - float(b[1]), float(a[2]) - float(b[2]))
+
+
+def _vadd(a, b):
+    return (float(a[0]) + float(b[0]), float(a[1]) + float(b[1]), float(a[2]) + float(b[2]))
+
+
+def _vscale(a, s):
+    return (float(a[0]) * s, float(a[1]) * s, float(a[2]) * s)
+
+
+def _vdot(a, b):
+    return float(a[0]) * float(b[0]) + float(a[1]) * float(b[1]) + float(a[2]) * float(b[2])
+
+
+def _circumcenter(p1, m, p2):
+    """Center of the circle through three 3D points, or None if collinear."""
+    u = _vsub(m, p1)
+    v = _vsub(p2, p1)
+    w = _cross(u, v)
+    w2 = _vdot(w, w)
+    if w2 < 1e-24:
+        return None
+    # c = p1 + (|v|^2 (w x u) + |u|^2 (v x w)) / (2 |w|^2)
+    t = _vadd(_vscale(_cross(w, u), _vdot(v, v)), _vscale(_cross(v, w), _vdot(u, u)))
+    return _vadd(p1, _vscale(t, 0.5 / w2))
+
+
+def _reversed_bspline(c: cu.BSplineCurveWithKnots) -> cu.BSplineCurveWithKnots:
+    """Reverse a B-spline's parametrization (reverse control points/weights, mirror knots)."""
+    total = c.knots[0] + c.knots[-1]
+    common = dict(
+        degree=c.degree,
+        control_points_list=list(reversed(c.control_points_list)),
+        curve_form=c.curve_form,
+        closed_curve=c.closed_curve,
+        self_intersect=c.self_intersect,
+        knot_multiplicities=list(reversed(c.knot_multiplicities)),
+        knots=[total - k for k in reversed(c.knots)],
+        knot_spec=c.knot_spec,
+    )
+    if isinstance(c, cu.RationalBSplineCurveWithKnots):
+        return cu.RationalBSplineCurveWithKnots(weights_data=list(reversed(c.weights_data)), **common)
+    return cu.BSplineCurveWithKnots(**common)
+
+
+def _translated_bspline(c: cu.BSplineCurveWithKnots, dvec) -> cu.BSplineCurveWithKnots:
+    common = dict(
+        degree=c.degree,
+        control_points_list=[Point(*_vadd(p, dvec)) for p in c.control_points_list],
+        curve_form=c.curve_form,
+        closed_curve=c.closed_curve,
+        self_intersect=c.self_intersect,
+        knot_multiplicities=c.knot_multiplicities,
+        knots=c.knots,
+        knot_spec=c.knot_spec,
+    )
+    if isinstance(c, cu.RationalBSplineCurveWithKnots):
+        return cu.RationalBSplineCurveWithKnots(weights_data=list(c.weights_data), **common)
+    return cu.BSplineCurveWithKnots(**common)
+
+
+def _extruded_bspline_surface(c: cu.BSplineCurveWithKnots, dvec) -> su.BSplineSurfaceWithKnots:
+    """The EXACT linear extrusion of a B-spline curve: u follows the curve (same degree/knots),
+    v is linear across the extrusion vector — two control rows per curve control point."""
+    grid = [[Point(*p), Point(*_vadd(p, dvec))] for p in c.control_points_list]
+    common = dict(
+        u_degree=int(c.degree),
+        v_degree=1,
+        control_points_list=grid,
+        surface_form=su.BSplineSurfaceForm.UNSPECIFIED,
+        u_closed=bool(c.closed_curve),
+        v_closed=False,
+        self_intersect=False,
+        u_multiplicities=list(c.knot_multiplicities),
+        v_multiplicities=[2, 2],
+        u_knots=list(c.knots),
+        v_knots=[0.0, 1.0],
+        knot_spec=c.knot_spec,
+    )
+    weights = getattr(c, "weights_data", None)
+    if weights:
+        return su.RationalBSplineSurfaceWithKnots(weights_data=[[float(w), float(w)] for w in weights], **common)
+    return su.BSplineSurfaceWithKnots(**common)
+
+
+def extruded_loop_to_shell(segments3d: list, extrude_dir, depth: float) -> su.ClosedShell | None:
+    """Analytic ``ClosedShell`` of ``AdvancedFace``s for a plate extruded from a boundary loop that
+    carries analytic curved segments (``ArcSegment`` / ``SplineSegment``).
+
+    ``IfcExtrudedAreaSolid`` cannot carry a B-spline boundary through the tools that matter —
+    ``IfcIndexedPolyCurve`` is line/arc-only and ifcopenshell's engine won't build a wire from a
+    B-spline ``IfcCompositeCurve`` segment — so a spline-boundary plate is emitted as an
+    ``IfcAdvancedBrep`` instead: planar caps + planar/cylindrical side faces, and the spline side
+    face as the EXACT degree-1-in-v B-spline surface of the linear extrusion. Topology mirrors the
+    (OCC-round-trip-proven) streaming AP242 STEP emitter: shared base/top boundary edges, vertical
+    connector edges, 4-edge quad side loops. Returns None for loops this builder cannot express.
+    """
+    from ada.api.curves import ArcSegment, LineSegment, SplineSegment
+
+    ez = _unit(extrude_dir)
+    dvec = _vscale(ez, float(depth))
+    n = len(segments3d)
+    if n < 3:
+        return None
+
+    # Normalize the loop to CCW about the extrusion axis so every face's same_sense is fixed.
+    area2 = (0.0, 0.0, 0.0)
+    for seg in segments3d:
+        area2 = _vadd(area2, _cross(tuple(map(float, seg.p1[:3])), tuple(map(float, seg.p2[:3]))))
+    if _vdot(area2, ez) < 0.0:
+        rev = []
+        for seg in reversed(segments3d):
+            if isinstance(seg, SplineSegment):
+                rev.append(SplineSegment(seg.p2, seg.p1, curve=_reversed_bspline(seg.curve)))
+            elif isinstance(seg, ArcSegment):
+                rev.append(ArcSegment(seg.p2, seg.p1, midpoint=seg.midpoint))
+            else:
+                rev.append(LineSegment(seg.p2, seg.p1))
+        segments3d = rev
+
+    base = [Point(*tuple(map(float, seg.p1[:3]))) for seg in segments3d]
+    top = [Point(*_vadd(b, dvec)) for b in base]
+
+    def line_ec(pa: Point, pb: Point) -> cu.EdgeCurve:
+        return cu.EdgeCurve(pa, pb, edge_geometry=cu.Line(pa, Direction(*_unit(_vsub(pb, pa)))), same_sense=True)
+
+    # Vertical connector edges, shared between adjacent side faces.
+    vert = [line_ec(base[i], top[i]) for i in range(n)]
+
+    eb: list = [None] * n
+    et: list = [None] * n
+    faces: list[su.AdvancedFace] = []
+
+    for i, seg in enumerate(segments3d):
+        j = (i + 1) % n
+        if isinstance(seg, SplineSegment):
+            eb[i] = cu.EdgeCurve(base[i], base[j], edge_geometry=seg.curve, same_sense=True)
+            et[i] = cu.EdgeCurve(top[i], top[j], edge_geometry=_translated_bspline(seg.curve, dvec), same_sense=True)
+            surf = _extruded_bspline_surface(seg.curve, dvec)
+            same_sense = True  # CCW loop: du x dv = tangent x extrude = outward
+        elif isinstance(seg, ArcSegment):
+            c = _circumcenter(seg.p1, seg.midpoint, seg.p2)
+            if c is None:
+                return None
+            r = math.sqrt(_vdot(_vsub(seg.p1, c), _vsub(seg.p1, c)))
+            # Axis such that travelling CCW about it from p1 passes the midpoint before p2.
+            axis = _unit(_cross(_vsub(seg.p1, c), _vsub(seg.midpoint, c)))
+            ref = _unit(_vsub(seg.p1, c))
+            circle = cu.Circle(_placement(c, axis, ref), r)
+            eb[i] = cu.EdgeCurve(base[i], base[j], edge_geometry=circle, same_sense=True)
+            c_top = _vadd(c, dvec)
+            et[i] = cu.EdgeCurve(
+                top[i], top[j], edge_geometry=cu.Circle(_placement(c_top, axis, ref), r), same_sense=True
+            )
+            surf = su.CylindricalSurface(position=_placement(c, ez, ref), radius=r)
+            # Cylinder normals point radially outward; a convex (outward-bulging) arc has its
+            # material inside the circle, so radial == outward. Concave: flipped.
+            chord_out = _cross(_unit(_vsub(seg.p2, seg.p1)), ez)
+            same_sense = _vdot(_vsub(seg.midpoint, c), chord_out) > 0.0
+        else:
+            eb[i] = line_ec(base[i], base[j])
+            et[i] = line_ec(top[i], top[j])
+            tangent = _unit(_vsub(base[j], base[i]))
+            out_n = _cross(tangent, ez)
+            surf = su.Plane(position=_placement(base[i], out_n, tangent))
+            same_sense = True
+
+        loop = cu.EdgeLoop(
+            edge_list=[
+                cu.OrientedEdge(eb[i].start, eb[i].end, edge_element=eb[i], orientation=True),
+                cu.OrientedEdge(vert[j].start, vert[j].end, edge_element=vert[j], orientation=True),
+                cu.OrientedEdge(et[i].start, et[i].end, edge_element=et[i], orientation=False),
+                cu.OrientedEdge(vert[i].start, vert[i].end, edge_element=vert[i], orientation=False),
+            ]
+        )
+        faces.append(
+            su.AdvancedFace(
+                bounds=[su.FaceBound(bound=loop, orientation=True)], face_surface=surf, same_sense=same_sense
+            )
+        )
+
+    xdir, _ = _right_hand(ez)
+    top_loop = cu.EdgeLoop(edge_list=[cu.OrientedEdge(e.start, e.end, edge_element=e, orientation=True) for e in et])
+    faces.append(
+        su.AdvancedFace(
+            bounds=[su.FaceBound(bound=top_loop, orientation=True)],
+            face_surface=su.Plane(position=_placement(top[0], ez, xdir)),
+            same_sense=True,
+        )
+    )
+    bot_loop = cu.EdgeLoop(
+        edge_list=[cu.OrientedEdge(e.start, e.end, edge_element=e, orientation=False) for e in reversed(eb)]
+    )
+    faces.append(
+        su.AdvancedFace(
+            bounds=[su.FaceBound(bound=bot_loop, orientation=True)],
+            face_surface=su.Plane(position=_placement(base[0], _vscale(ez, -1.0), xdir)),
+            same_sense=True,
+        )
+    )
+    return su.ClosedShell(cfs_faces=faces)

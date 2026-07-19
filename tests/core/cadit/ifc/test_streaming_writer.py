@@ -1,5 +1,7 @@
 """Tests for the memory-bounded streaming IFC writer (to_ifc(streaming=True))."""
 
+import pytest
+
 import ada
 
 
@@ -135,12 +137,12 @@ def _spline_plate():
 
 
 def test_streaming_spline_plate_is_valid_analytic_ifc(tmp_path):
-    """A B-spline-boundary plate streams as an analytic IfcCompositeCurve (a BARE IfcBSplineCurveWithKnots
-    — an IfcTrimmedCurve wrapper would render in ifcopenshell but violates NoTrimOfBoundedCurves). It is
-    valid IFC (schema + EXPRESS where-rules), keeps metre units, and round-trips through ada into a valid
-    OCC solid (ada's OCC harness). ifcopenshell's own engine can't tessellate a B-spline composite
-    segment — an upstream limitation, not an IFC validity issue — so that is deliberately not asserted."""
+    """A B-spline-boundary plate routes to the normal writer's analytic IfcAdvancedBrep (the streamed
+    SPF text path is for the ~100k plain FEM plates): valid IFC (schema + EXPRESS where-rules), metre
+    units, renders in ifcopenshell's own geometry engine, and round-trips through ada as a parametric
+    Plate whose OCC solid passes BRepCheck (ada's OCC harness, same as the STEP path)."""
     import ifcopenshell
+    import ifcopenshell.geom as ifc_geom
     from ifcopenshell.validate import json_logger, validate
 
     from ada.cad import active_backend
@@ -151,13 +153,23 @@ def test_streaming_spline_plate_is_valid_analytic_ifc(tmp_path):
     f = ifcopenshell.open(str(dest))
     lg = json_logger()
     validate(f, lg, express_rules=True)  # schema + EXPRESS WHERE/global rules
-    assert lg.statements == []  # valid IFC (incl. NoTrimOfBoundedCurves — the spline is not trimmed)
-    assert len(f.by_type("IfcCompositeCurve")) == 1  # analytic, not a sampled IfcIndexedPolyCurve
-    assert len(f.by_type("IfcBSplineCurveWithKnots")) == 1
-    assert len(f.by_type("IfcTrimmedCurve")) == 0  # bare spline, no invalid trim wrapper
+    assert lg.statements == []  # valid IFC
+    assert len(f.by_type("IfcAdvancedBrep")) == 1  # analytic B-rep, not a sampled extrusion
+    assert len(f.by_type("IfcBSplineSurfaceWithKnots")) == 1  # the exact extruded-spline side face
     assert [u.Name for u in f.by_type("IfcSIUnit") if u.UnitType == "LENGTHUNIT"] == ["METRE"]
 
-    # ada OCC harness: read back -> Plate -> OCC solid -> BRepCheck valid (same harness as the STEP path)
+    # ifcopenshell's own engine renders it (this is what third-party IFC viewers use)
+    n_shapes = 0
+    it = ifc_geom.iterator(ifc_geom.settings(), f)
+    if it.initialize():
+        while True:
+            n_shapes += 1
+            if not it.next():
+                break
+    assert n_shapes == 1
+
+    # ada OCC harness: read back -> parametric Plate -> OCC solid -> BRepCheck valid
     plate = ada.from_ifc(dest).get_by_name("spline_pl")
     assert isinstance(plate, ada.Plate)
+    assert plate.t == pytest.approx(0.05)
     assert active_backend().is_valid(plate.solid_occ())

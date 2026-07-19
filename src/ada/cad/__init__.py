@@ -773,6 +773,12 @@ class AdacppBackend:
             for seg in curve.segments:
                 if isinstance(seg, cu.ArcLine):
                     edges.append([1.0, *self._xyz(seg.start), *self._xyz(seg.midpoint), *self._xyz(seg.end)])
+                elif isinstance(seg, cu.BSplineCurveWithKnots):
+                    # adacpp's edge-record vocabulary is line/arc/circle — an analytic B-spline
+                    # boundary edge is sampled here, at the tessellation boundary (same policy as
+                    # the NGEOM serializer's _loop_points_3d).
+                    pts = seg.sample(max(16, int(seg.degree) * 8))
+                    edges.extend([0.0, *self._xyz(a), *self._xyz(b)] for a, b in zip(pts[:-1], pts[1:]))
                 else:  # Edge — straight line
                     edges.append([0.0, *self._xyz(seg.start), *self._xyz(seg.end)])
             return edges

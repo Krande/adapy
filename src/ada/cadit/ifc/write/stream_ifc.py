@@ -333,10 +333,20 @@ def stream_assembly_to_ifc(
     body_ctx_id = store.get_context("Body").id()
 
     # Pre-built plain Plates stream as text; everything else (beams, shapes, …)
-    # is built once via the normal writer.
+    # is built once via the normal writer. Spline-boundary plates also go to the
+    # normal writer: their body is an analytic IfcAdvancedBrep (see write_plates
+    # ._plate_body), which is not worth duplicating as hand-authored SPF — they
+    # are rare (never the ~100k FEM plates this writer exists for).
+    from ada.api.curves import SplineSegment
+
+    def _streams_as_text(obj) -> bool:
+        if type(obj) is not Plate:
+            return False
+        return not any(isinstance(s, SplineSegment) for s in obj.poly.segments3d)
+
     prebuilt_plates, others = [], []
     for obj in assembly.get_all_physical_objects():
-        (prebuilt_plates if type(obj) is Plate else others).append(obj)
+        (prebuilt_plates if _streams_as_text(obj) else others).append(obj)
 
     spatial_id = {}
     for part in assembly.get_all_parts_in_assembly(include_self=True):
