@@ -136,6 +136,8 @@ class _Emitter:
             lines.append(
                 f"#{bid}=IfcBSplineCurveWithKnots({sp.degree},({cps}),.{form}.,{closed},{si},{mult},{kn},.{spec}.);"
             )
+        # A bare bounded B-spline is the schema-valid ParentCurve; an IfcTrimmedCurve wrapper would
+        # violate IfcTrimmedCurve.NoTrimOfBoundedCurves. Mirrors the normal writer.
         return bid
 
     def _arc_parent(self, lines: list[str], arc) -> int:

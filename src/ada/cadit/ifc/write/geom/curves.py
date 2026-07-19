@@ -66,6 +66,10 @@ def _ipc_to_composite_curve(ipc: geo_cu.IndexedPolyCurve) -> geo_cu.CompositeCur
     segments = []
     for seg in ipc.segments:
         if isinstance(seg, geo_cu.BSplineCurveWithKnots):
+            # A bare bounded B-spline is the schema-valid ParentCurve (an IfcTrimmedCurve wrapper would
+            # render in ifcopenshell but violates IfcTrimmedCurve.NoTrimOfBoundedCurves). ada's reader
+            # samples it back; ifcopenshell's own geometry engine currently can't build a wire from a
+            # B-spline composite segment (an upstream engine limitation, not an IFC validity issue).
             parent = seg
         elif isinstance(seg, geo_cu.ArcLine):
             parent = _arc_parent(seg)
@@ -299,7 +303,8 @@ def _trim_select(trim, f: ifcopenshell.file) -> tuple:
 
     if isinstance(trim, Point):
         return (cpt(f, trim),)
-    return (float(trim),)
+    # A parameter trim is an IfcParameterValue (a defined type) inside the IfcTrimmingSelect aggregate.
+    return (f.create_entity("IfcParameterValue", float(trim)),)
 
 
 def create_trimmed_curve(tc: geo_cu.TrimmedCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:

@@ -186,6 +186,9 @@ class CompositeCurve:
                 return c.sample(max(16, int(c.degree) * 8))
             if isinstance(c, Edge):
                 return [c.start, c.end]
+            if isinstance(c, TrimmedCurve) and isinstance(c.basis_curve, BSplineCurveWithKnots):
+                # Parameter-trimmed over the full knot span (how the writer wraps a spline segment).
+                return c.basis_curve.sample(max(16, int(c.basis_curve.degree) * 8))
             if isinstance(c, TrimmedCurve) and isinstance(c.basis_curve, Circle):
                 return _sample_circle_arc(c.basis_curve, c.trim1, c.trim2, c.sense_agreement)
             if isinstance(c, Circle):

@@ -135,25 +135,29 @@ def _spline_plate():
 
 
 def test_streaming_spline_plate_is_valid_analytic_ifc(tmp_path):
-    """A B-spline-boundary plate streams as an analytic IfcCompositeCurve (IfcBSplineCurveWithKnots),
-    is valid IFC (schema + where-rules), keeps metre units, and round-trips as a Plate."""
+    """A B-spline-boundary plate streams as an analytic IfcCompositeCurve (a BARE IfcBSplineCurveWithKnots
+    — an IfcTrimmedCurve wrapper would render in ifcopenshell but violates NoTrimOfBoundedCurves). It is
+    valid IFC (schema + EXPRESS where-rules), keeps metre units, and round-trips through ada into a valid
+    OCC solid (ada's OCC harness). ifcopenshell's own engine can't tessellate a B-spline composite
+    segment — an upstream limitation, not an IFC validity issue — so that is deliberately not asserted."""
     import ifcopenshell
     from ifcopenshell.validate import json_logger, validate
 
-    p = ada.Part("p")
-    p.add_plate(_spline_plate())
-    p.add_plate(ada.Plate("plain", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.02))
+    from ada.cad import active_backend
+
     dest = tmp_path / "spline_stream.ifc"
-    (ada.Assembly("A") / p).to_ifc(dest, streaming=True)
+    (ada.Assembly("A") / (ada.Part("p") / _spline_plate())).to_ifc(dest, streaming=True)
 
     f = ifcopenshell.open(str(dest))
     lg = json_logger()
-    validate(f, lg)
-    assert lg.statements == []  # valid IFC: no schema / where-rule violations
+    validate(f, lg, express_rules=True)  # schema + EXPRESS WHERE/global rules
+    assert lg.statements == []  # valid IFC (incl. NoTrimOfBoundedCurves — the spline is not trimmed)
     assert len(f.by_type("IfcCompositeCurve")) == 1  # analytic, not a sampled IfcIndexedPolyCurve
     assert len(f.by_type("IfcBSplineCurveWithKnots")) == 1
+    assert len(f.by_type("IfcTrimmedCurve")) == 0  # bare spline, no invalid trim wrapper
     assert [u.Name for u in f.by_type("IfcSIUnit") if u.UnitType == "LENGTHUNIT"] == ["METRE"]
 
-    a = ada.from_ifc(dest)
-    assert isinstance(a.get_by_name("spline_pl"), ada.Plate)
-    assert isinstance(a.get_by_name("plain"), ada.Plate)
+    # ada OCC harness: read back -> Plate -> OCC solid -> BRepCheck valid (same harness as the STEP path)
+    plate = ada.from_ifc(dest).get_by_name("spline_pl")
+    assert isinstance(plate, ada.Plate)
+    assert active_backend().is_valid(plate.solid_occ())
