@@ -414,7 +414,10 @@ def _repro_parity(src: pathlib.Path, source_key: str) -> int:
     production converter, then run the same produced-files parity check the worker runs.
     (The worker measures the run's already-uploaded blobs; the repro re-produces them
     locally so the whole loop is debuggable on one machine.)"""
-    from ada.cadit.visual_parity import PARITY_GEOMETRY_FORMATS, parity_from_produced_files
+    from ada.cadit.visual_parity import (
+        PARITY_GEOMETRY_FORMATS,
+        parity_from_produced_files,
+    )
     from ada.comms.rest.converter import ConverterRegistry, convert, result_bytes
 
     targets = set(ConverterRegistry.targets_for(src.suffix.lower()))

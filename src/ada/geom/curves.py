@@ -327,9 +327,11 @@ class IndexedPolyCurve:
         # an IfcCompositeCurve instead (see indexed_poly_curve_or_composite); this keeps every other
         # get_unique consumer (e.g. the streaming IFC writer) working with a faceted-but-valid spline.
         seg_point_lists = [
-            [tuple(p) for p in segment.sample(max(16, int(segment.degree) * 8))]
-            if isinstance(segment, BSplineCurveWithKnots)
-            else [tuple(p) for p in segment]
+            (
+                [tuple(p) for p in segment.sample(max(16, int(segment.degree) * 8))]
+                if isinstance(segment, BSplineCurveWithKnots)
+                else [tuple(p) for p in segment]
+            )
             for segment in self.segments
         ]
         all_pts = [p for lst in seg_point_lists for p in lst]

@@ -1435,7 +1435,13 @@ def _orient(segs, *, ccw):
 
 def _curve_to_segs(curve, *, is_outer):
     """Translate one adapy 2D profile curve into a closed list[Seg], or None."""
-    from ada.geom.curves import ArcLine, BSplineCurveWithKnots, Circle, Edge, IndexedPolyCurve
+    from ada.geom.curves import (
+        ArcLine,
+        BSplineCurveWithKnots,
+        Circle,
+        Edge,
+        IndexedPolyCurve,
+    )
 
     if isinstance(curve, Circle):
         return circle_loop(_xy(curve.position.location), float(curve.radius), ccw=is_outer)

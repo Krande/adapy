@@ -11,12 +11,16 @@ flattened out of a 1.4 m plate) is a client model and is not committed.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
-from types import SimpleNamespace
-
-from ada.cadit.sat.read.plate_edge_curves import _clip_to_endpoints, _de_boor, _ellipse_arc_points
+from ada.cadit.sat.read.plate_edge_curves import (
+    _clip_to_endpoints,
+    _de_boor,
+    _ellipse_arc_points,
+)
 
 
 def _circle(r=1.0, c=(0.0, 0.0, 0.0)):
