@@ -23,7 +23,7 @@
 # MUST stay >=0.9.0 — older bases ship an emscripten 3.1.58 wheel that micropip
 # refuses against pyodide 0.29.4 ("Wheel was built with Emscripten v3.1.58 but
 # Pyodide was built with v4.0.9").
-ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.16.1
+ARG ADACPP_BASE_IMAGE=ghcr.io/krande/adacpp-wasm-base:0.17.1
 FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
 
 # Stage 0b: build the pure-python adapy wheel for pyodide. The browser
