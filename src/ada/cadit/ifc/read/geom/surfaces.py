@@ -245,11 +245,16 @@ def poly_loop(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.PolyLoop:
     return geo_cu.PolyLoop(polygon=[Point(p.Coordinates) for p in ifc_entity.Polygon])
 
 
-def face_bound(ifc_entity: ifcopenshell.entity_instance) -> geo_su.FaceBound:
+def face_bound(
+    ifc_entity: ifcopenshell.entity_instance,
+    basis_surface: ifcopenshell.entity_instance | None = None,
+) -> geo_su.FaceBound:
+    """``basis_surface`` is the parent face's FaceSurface entity, used to pick only the
+    p-curves that live on THAT surface (shared edges carry p-curves of both faces)."""
 
     ifc_bound = ifc_entity.Bound
     if ifc_bound.is_a("IfcEdgeLoop"):
-        bound = edge_loop(ifc_bound)
+        bound = edge_loop(ifc_bound, basis_surface=basis_surface)
     elif ifc_bound.is_a("IfcPolyLoop"):
         bound = poly_loop(ifc_bound)
     else:
@@ -342,15 +347,90 @@ def face_surface_geom(ifc_surface: ifcopenshell.entity_instance) -> geo_su.SURFA
         return toroidal_surface(ifc_surface)
     elif ifc_surface.is_a("IfcSurfaceOfRevolution"):
         return surface_of_revolution(ifc_surface)
+    elif ifc_surface.is_a("IfcSurfaceOfLinearExtrusion"):
+        return surface_of_linear_extrusion(ifc_surface)
     elif ifc_surface.is_a("IfcPlane"):
         return plane(ifc_surface)
     raise NotImplementedError(f"Face surface type {ifc_surface.is_a()} is not implemented")
 
 
+def surface_of_linear_extrusion(ifc_entity: ifcopenshell.entity_instance) -> geo_su.SurfaceOfLinearExtrusion:
+    """IfcSurfaceOfLinearExtrusion -> SurfaceOfLinearExtrusion.
+
+    The IFC form carries a TWO-dimensional profile curve in the XY plane of Position
+    plus an extrusion direction in the Position frame (the writer's inverse — see
+    ``ada.cadit.ifc.write.geom.surfaces.create_surface_of_linear_extrusion``). The
+    adapy form models a WORLD-space swept curve with ``position=None``, so the 2D
+    circle/ellipse is lifted through the Position frame here."""
+    import numpy as np
+
+    from ada.geom.direction import Direction
+    from ada.geom.placement import Axis2Placement3D
+
+    from .curves import get_curve
+    from .placement import axis3d
+
+    swept = ifc_entity.SweptCurve
+    curve_ent = swept.Curve if swept.is_a("IfcArbitraryOpenProfileDef") else swept
+    depth = float(ifc_entity.Depth) if ifc_entity.Depth is not None else 1.0
+    d = np.asarray(list(ifc_entity.ExtrudedDirection.DirectionRatios), dtype=float)
+    if d.shape[0] == 2:
+        d = np.append(d, 0.0)
+
+    pos = axis3d(ifc_entity.Position) if ifc_entity.Position is not None else None
+    if pos is None:
+        return geo_su.SurfaceOfLinearExtrusion(
+            swept_curve=get_curve(curve_ent),
+            position=None,
+            extrusion_direction=Direction(*(d / np.linalg.norm(d))),
+            depth=depth,
+        )
+
+    z = np.asarray(list(pos.axis), dtype=float)
+    x = np.asarray(list(pos.ref_direction), dtype=float)
+    z = z / np.linalg.norm(z)
+    x = x / np.linalg.norm(x)
+    y = np.cross(z, x)
+    loc = np.asarray(list(pos.location), dtype=float)
+    d_world = d[0] * x + d[1] * y + d[2] * z
+    d_world = d_world / np.linalg.norm(d_world)
+
+    if curve_ent.is_a("IfcCircle") or curve_ent.is_a("IfcEllipse"):
+        p2 = curve_ent.Position
+        c2 = np.asarray(list(p2.Location.Coordinates), dtype=float) if p2 is not None else np.zeros(2)
+        r2 = (
+            np.asarray(list(p2.RefDirection.DirectionRatios), dtype=float)
+            if p2 is not None and p2.RefDirection is not None
+            else np.array([1.0, 0.0])
+        )
+        center = loc + c2[0] * x + c2[1] * y
+        ref3 = r2[0] * x + r2[1] * y
+        placement = Axis2Placement3D(
+            location=Point(*center), axis=Direction(*z), ref_direction=Direction(*(ref3 / np.linalg.norm(ref3)))
+        )
+        if curve_ent.is_a("IfcCircle"):
+            curve = geo_cu.Circle(position=placement, radius=float(curve_ent.Radius))
+        else:
+            curve = geo_cu.Ellipse(
+                position=placement,
+                semi_axis1=float(curve_ent.SemiAxis1),
+                semi_axis2=float(curve_ent.SemiAxis2),
+            )
+    else:
+        raise NotImplementedError(
+            f"IfcSurfaceOfLinearExtrusion profile curve {curve_ent.is_a()} with a Position frame is not implemented"
+        )
+
+    return geo_su.SurfaceOfLinearExtrusion(
+        swept_curve=curve, position=None, extrusion_direction=Direction(*d_world), depth=depth
+    )
+
+
 def advanced_face(ifc_entity: ifcopenshell.entity_instance) -> geo_su.AdvancedFace:
     return geo_su.AdvancedFace(
-        bounds=[face_bound(x) for x in ifc_entity.Bounds],
+        bounds=[face_bound(x, basis_surface=ifc_entity.FaceSurface) for x in ifc_entity.Bounds],
         face_surface=face_surface_geom(ifc_entity.FaceSurface),
+        same_sense=bool(ifc_entity.SameSense) if ifc_entity.SameSense is not None else True,
     )
 
 

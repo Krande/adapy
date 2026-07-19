@@ -863,6 +863,28 @@ class BatchTessellator:
             if stream_ms is not None:
                 return stream_ms
 
+        # adacpp backend + multi-face B-rep shell (e.g. an IFC-reimported thickened
+        # curved plate): the backend's shell build sews the faces (BRepBuilderAPI_Sewing),
+        # and OCCT's sewing can wreck the pcurve trims of large B-spline patches — the
+        # sewn shape then meshes to a sliver of its true area. The stream kernel
+        # tessellates the same shell per-face OCC-free (no sew), so use it here even when
+        # ADA_STREAM_TESS_PIPELINE is unset.
+        if mesh_type != MeshType.LINES and active_backend().name == "adacpp":
+            import ada.geom.surfaces as _gsu
+
+            g_root = geom.geometry
+            is_shell = isinstance(g_root, (_gsu.ClosedShell, _gsu.OpenShell, _gsu.ConnectedFaceSet)) or isinstance(
+                g_root, _gsu.ShellBasedSurfaceModel
+            )
+            n_shell_faces = 0
+            if is_shell:
+                shells = g_root.sbsm_boundary if isinstance(g_root, _gsu.ShellBasedSurfaceModel) else [g_root]
+                n_shell_faces = sum(len(getattr(sh, "cfs_faces", [])) for sh in shells)
+            if n_shell_faces > 1 and not getattr(geom, "bool_operations", None):
+                stream_ms = self._tessellate_geom_via_stream(geom, node_ref, force_pipeline="libtess2")
+                if stream_ms is not None:
+                    return stream_ms
+
         try:
             # Construction seam: build through the active CAD backend rather
             # than calling geom_to_occ_geom directly (= OccBackend.build under
@@ -1069,13 +1091,19 @@ class BatchTessellator:
                         except Exception:  # noqa: BLE001 - no parametric geom → OCC prism path
                             cng = None
                         if cng is not None:
+                            import ada.geom.surfaces as _geo_su
+
+                            # A thickened curved shell (face_to_thick_shell ClosedShell) is
+                            # already a solid — tessellate it as-is. Only a BARE face still
+                            # gets the mesh-level thickness offset below.
+                            already_solid = isinstance(cng.geometry, _geo_su.ClosedShell)
                             ms_cs = self._tessellate_geom_via_stream(cng, node_ref)
                             if ms_cs is not None:
                                 # The stream tessellates only the bare curved face (a shell);
                                 # give it the plate thickness so it matches the OCC prism solid
                                 # (extrude_face_along_normal). t=0 (SurfaceCurved) stays a shell.
                                 t = getattr(obj, "t", None)
-                                if t:
+                                if t and not already_solid:
                                     pos2, idx2 = _thicken_face_mesh(ms_cs.position, ms_cs.indices, float(t))
                                     ms_cs = MeshStore(
                                         ms_cs.index,
@@ -1098,7 +1126,25 @@ class BatchTessellator:
                             )
                     ms_curved = None
                     try:
-                        shape = obj.extruded_solid_occ()
+                        # Thickened curved shell: build the SAME ada.geom ClosedShell through
+                        # the backend's normal geom conversion. The OCC prism
+                        # (extruded_solid_occ) remains only as the legacy fallback (config
+                        # off / unthickenable face / shell build failure).
+                        shape = None
+                        thick_fn = getattr(obj, "_thick_shell_geom", None)
+                        if callable(thick_fn):
+                            thick_geom = thick_fn()
+                            if thick_geom is not None:
+                                try:
+                                    shape = active_backend().build(thick_geom)
+                                except Exception as e:  # noqa: BLE001 - backend can't build this shell
+                                    logger.debug(
+                                        "PlateCurved %r: thick-shell build failed (%s); using prism fallback",
+                                        getattr(ada_obj, "name", "?"),
+                                        e,
+                                    )
+                        if shape is None:
+                            shape = obj.extruded_solid_occ()
                         ms_curved = self.tessellate_occ_geom(shape, node_ref, obj.color)
                     except UnableToCreateTesselationFromSolidOCCGeom as e:
                         logger.error(e)

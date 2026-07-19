@@ -191,6 +191,26 @@ class Config:
             ],
         ),
         ConfigSection(
+            "geom",
+            [
+                # Where the modeled reference surface sits within the thickness when a
+                # plate/shell is thickened to a solid (flat Plate extrusions AND the
+                # thickened PlateCurved shells alike). "as_is" = base at the modeled
+                # surface, material extruded along +normal (the historical behaviour —
+                # flat-plate output stays byte-identical); "flipped" = material extruded
+                # along -normal (base translated by -t*normal); "centerline" = the
+                # modeled surface is the mid-surface (base translated by -t/2*normal).
+                # Env: ADA_GEOM_THICKNESS_ANCHOR.
+                ConfigEntry("thickness_anchor", str, "as_is"),
+                # Export curved shells (PlateCurved) as real thickness-t solids — an
+                # analytic ClosedShell built kernel-free from the shell face (bottom =
+                # the modeled surface, top = the same surface translated t along the
+                # sense-corrected normal, one side face per boundary edge). Off => the
+                # historical zero-thickness bare face. Env: ADA_GEOM_THICKEN_CURVED_SHELLS.
+                ConfigEntry("thicken_curved_shells", bool, True),
+            ],
+        ),
+        ConfigSection(
             "occ_tess",
             [
                 # OCC tessellation quality. linear_deflection 0 → the default relative

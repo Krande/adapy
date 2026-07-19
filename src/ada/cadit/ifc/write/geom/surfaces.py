@@ -5,6 +5,8 @@ import ifcopenshell
 from ada import BoolHalfSpace
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
+from ada.geom.direction import Direction
+from ada.geom.placement import Axis2Placement3D
 
 from .curves import (
     circle_curve,
@@ -240,6 +242,9 @@ def advanced_face(af: geo_su.AdvancedFace, f: ifcopenshell.file) -> ifcopenshell
     elif isinstance(af.face_surface, geo_su.CylindricalSurface):
         # An arc boundary edge extruded through the plate thickness (extruded_loop_to_shell).
         face_surface = create_cylindrical_surface(af.face_surface, f)
+    elif isinstance(af.face_surface, geo_su.SurfaceOfLinearExtrusion):
+        # A curved boundary edge extruded through the plate thickness (face_to_thick_shell).
+        face_surface = create_surface_of_linear_extrusion(af.face_surface, f)
     else:
         raise NotImplementedError(f"Unsupported face surface type: {type(af.face_surface)}")
 
@@ -256,6 +261,64 @@ def advanced_face(af: geo_su.AdvancedFace, f: ifcopenshell.file) -> ifcopenshell
         Bounds=bounds,
         FaceSurface=face_surface,
         SameSense=af.same_sense,
+    )
+
+
+def create_surface_of_linear_extrusion(
+    sle: geo_su.SurfaceOfLinearExtrusion, f: ifcopenshell.file
+) -> ifcopenshell.entity_instance:
+    """Converts a SurfaceOfLinearExtrusion to an IfcSurfaceOfLinearExtrusion.
+
+    The IFC form types SweptCurve as an IfcProfileDef, and IfcArbitraryOpenProfileDef.WR12
+    requires the profile curve to be TWO-dimensional — so the swept curve must be expressed
+    in the XY plane of the surface Position. That is only possible for a planar swept curve
+    with a known frame: a Circle/Ellipse (its own placement becomes the Position, the curve
+    a 2D circle/ellipse at the origin, and the extrusion direction is rewritten in that
+    frame). Non-planar swept curves (the general 3D case) cannot be written as a VALID
+    IfcSurfaceOfLinearExtrusion — callers emit the exact ruled B-spline surface instead."""
+    import numpy as np
+
+    c = sle.swept_curve
+    if not isinstance(c, (geo_cu.Circle, geo_cu.Ellipse)):
+        raise NotImplementedError(
+            f"IfcSurfaceOfLinearExtrusion requires a 2D-expressible swept curve; got {type(c).__name__}"
+        )
+    pos = c.position
+    z = np.asarray(list(pos.axis), dtype=float)
+    z = z / np.linalg.norm(z)
+    if pos.ref_direction is not None:
+        x = np.asarray(list(pos.ref_direction), dtype=float)
+    else:
+        # A circle is rotation-invariant about its axis — any orthonormal ref works.
+        seed = np.array([1.0, 0.0, 0.0]) if abs(z[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+        x = np.cross(seed, z)
+        pos = Axis2Placement3D(location=pos.location, axis=pos.axis, ref_direction=Direction(*(x / np.linalg.norm(x))))
+    x = x / np.linalg.norm(x)
+    y = np.cross(z, x)
+    placement_2d = f.create_entity(
+        "IfcAxis2Placement2D",
+        Location=f.create_entity("IfcCartesianPoint", (0.0, 0.0)),
+        RefDirection=f.create_entity("IfcDirection", (1.0, 0.0)),
+    )
+    if isinstance(c, geo_cu.Circle):
+        curve_2d = f.create_entity("IfcCircle", Position=placement_2d, Radius=float(c.radius))
+    else:
+        curve_2d = f.create_entity(
+            "IfcEllipse",
+            Position=placement_2d,
+            SemiAxis1=float(c.semi_axis1),
+            SemiAxis2=float(c.semi_axis2),
+        )
+    profile = f.create_entity("IfcArbitraryOpenProfileDef", ProfileType="CURVE", Curve=curve_2d)
+    d = np.asarray(list(sle.extrusion_direction), dtype=float)
+    d = d / np.linalg.norm(d)
+    d_local = (float(d @ x), float(d @ y), float(d @ z))
+    return f.create_entity(
+        "IfcSurfaceOfLinearExtrusion",
+        SweptCurve=profile,
+        Position=ifc_placement_from_axis3d(pos, f),
+        ExtrudedDirection=f.create_entity("IfcDirection", d_local),
+        Depth=float(sle.depth or 1.0),
     )
 
 

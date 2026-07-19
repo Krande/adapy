@@ -11,7 +11,6 @@ from ada.cadit.ifc.write.geom.surfaces import advanced_face
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
-
 from ada.config import logger
 
 
@@ -30,11 +29,16 @@ def _plate_body(plate: Plate, f) -> "ifcopenshell.entity_instance":  # noqa: F82
     """
     from ada.api.curves import SplineSegment
     from ada.cadit.ifc.write.geom.surfaces import create_closed_shell
-    from ada.geom.primitive_brep import extruded_loop_to_shell
+    from ada.config import Config
+    from ada.geom.primitive_brep import (
+        extruded_loop_to_shell,
+        thickness_anchor_base_offset,
+    )
 
     segs = plate.poly.segments3d
     if any(isinstance(s, SplineSegment) for s in segs):
-        shell = extruded_loop_to_shell(segs, plate.poly.normal, plate.t)
+        base_off = thickness_anchor_base_offset(Config().geom_thickness_anchor, plate.t)
+        shell = extruded_loop_to_shell(segs, plate.poly.normal, plate.t, base_offset=base_off)
         if shell is not None:
             return f.create_entity("IfcAdvancedBrep", Outer=create_closed_shell(shell, f))
         logger.warning("plate %r: analytic B-rep build failed; falling back to the extruded solid", plate.name)
@@ -77,6 +81,30 @@ def write_ifc_plate(ifc_store: IfcStore, plate: Plate):
     return ifc_plate
 
 
+def _plate_curved_body(plate: PlateCurved, f) -> "ifcopenshell.entity_instance":  # noqa: F821 - typing-only name
+    """The curved plate's IFC body: an IfcAdvancedBrep of the thickness-t analytic
+    ClosedShell when curved-shell thickening is active (``solid_geom`` returns the
+    shell built by ``face_to_thick_shell``), else the historical bare IfcAdvancedFace.
+    Any failure emitting the thick shell falls back to the bare face — never lose
+    the plate."""
+    import ada.geom.surfaces as geo_su
+    from ada.cadit.ifc.write.geom.surfaces import create_closed_shell
+
+    geom = None
+    try:
+        geom = plate.solid_geom()
+    except Exception as e:  # noqa: BLE001 - degenerate face data
+        logger.warning("PlateCurved %r: solid_geom failed (%s); writing the bare face", plate.name, e)
+    if geom is not None and isinstance(geom.geometry, geo_su.ClosedShell):
+        try:
+            return f.create_entity("IfcAdvancedBrep", Outer=create_closed_shell(geom.geometry, f))
+        except Exception as e:  # noqa: BLE001 - unsupported surface/curve in this shell
+            logger.warning(
+                "PlateCurved %r: thick-shell IFC emit failed (%s); falling back to the bare face", plate.name, e
+            )
+    return advanced_face(plate.geom.geometry, f)
+
+
 def write_ifc_plate_curved(ifc_store: IfcStore, plate: PlateCurved):
     if plate.parent is None:
         raise ValueError("Ifc element cannot be built without any parent element")
@@ -89,7 +117,7 @@ def write_ifc_plate_curved(ifc_store: IfcStore, plate: PlateCurved):
 
     plate_placement = f.create_entity("IfcLocalPlacement", PlacementRelTo=None, RelativePlacement=axis2placement)
 
-    solid = advanced_face(plate.geom.geometry, f)
+    solid = _plate_curved_body(plate, f)
     body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SolidModel", [solid])
 
     product_shape = f.create_entity("IfcProductDefinitionShape", None, None, [body])

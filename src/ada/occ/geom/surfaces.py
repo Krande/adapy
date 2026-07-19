@@ -1825,6 +1825,43 @@ def make_toroidal_surface_from_geom(torus: geo_su.ToroidalSurface) -> Geom_Toroi
     return Geom_ToroidalSurface(gp_Torus(ax3, torus.major_radius, torus.minor_radius))
 
 
+def make_surface_of_linear_extrusion_from_geom(sle: geo_su.SurfaceOfLinearExtrusion):
+    """Build a ``Geom_SurfaceOfLinearExtrusion`` from the swept curve + extrusion
+    direction (the thickened curved-shell side faces from
+    :func:`ada.geom.primitive_brep.face_to_thick_shell`). Supports Line / Circle /
+    Ellipse / (Rational)BSplineCurveWithKnots basis curves."""
+    from OCC.Core.Geom import (
+        Geom_Circle,
+        Geom_Ellipse,
+        Geom_Line,
+        Geom_SurfaceOfLinearExtrusion,
+    )
+    from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Elips
+
+    from ada.occ.geom.curves import _occ_bspline_curve_from_geom
+
+    c = sle.swept_curve
+    if isinstance(c, geo_cu.SurfaceCurve):
+        c = c.curve_3d
+    if isinstance(c, geo_cu.BSplineCurveWithKnots):
+        basis = _occ_bspline_curve_from_geom(c)
+    elif isinstance(c, geo_cu.Line):
+        basis = Geom_Line(gp_Pnt(*c.pnt), gp_Dir(*c.dir))
+    elif isinstance(c, (geo_cu.Circle, geo_cu.Ellipse)):
+        pos = c.position
+        if pos.ref_direction is not None:
+            ax2 = gp_Ax2(gp_Pnt(*pos.location), gp_Dir(*pos.axis), gp_Dir(*pos.ref_direction))
+        else:
+            ax2 = gp_Ax2(gp_Pnt(*pos.location), gp_Dir(*pos.axis))
+        if isinstance(c, geo_cu.Circle):
+            basis = Geom_Circle(gp_Circ(ax2, float(c.radius)))
+        else:
+            basis = Geom_Ellipse(gp_Elips(ax2, float(c.semi_axis1), float(c.semi_axis2)))
+    else:
+        raise NotImplementedError(f"SurfaceOfLinearExtrusion swept curve {type(c)} not implemented")
+    return Geom_SurfaceOfLinearExtrusion(basis, gp_Dir(*sle.extrusion_direction))
+
+
 def make_surface_from_geom(face_surface):
     """
     Create an OCC surface from an adapy surface geometry definition.
@@ -1847,6 +1884,8 @@ def make_surface_from_geom(face_surface):
         return make_toroidal_surface_from_geom(face_surface)
     elif type(face_surface) is geo_su.SurfaceOfRevolution:
         return make_surface_of_revolution_from_geom(face_surface)
+    elif type(face_surface) is geo_su.SurfaceOfLinearExtrusion:
+        return make_surface_of_linear_extrusion_from_geom(face_surface)
     elif type(face_surface) in (geo_su.BSplineSurfaceWithKnots, geo_su.RationalBSplineSurfaceWithKnots):
         return make_bspline_surface_with_knots(face_surface)
     else:
