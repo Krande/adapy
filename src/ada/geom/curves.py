@@ -126,6 +126,39 @@ class CompositeCurveSegment:
     transition: str = "CONTINUOUS"
 
 
+def _sample_circle_arc(circle, t1, t2, sense_agreement, n: int = 24) -> list[tuple[float, float]]:
+    """Sample a 2D arc of ``circle`` between cartesian trims ``t1``/``t2`` (full ring if either is None).
+
+    Natural parametrization is CCW about the placement axis with x = ``ref_direction``; ``sense_agreement``
+    False sweeps CW instead. Used by :meth:`CompositeCurve.to_points2d` for the rare arc-in-composite."""
+    center = np.asarray(circle.position.location, dtype=float)[:2]
+    ref = np.asarray(circle.position.ref_direction, dtype=float)[:2]
+    rn = np.linalg.norm(ref)
+    xdir = ref / rn if rn else np.array([1.0, 0.0])
+    ydir = np.array([-xdir[1], xdir[0]])  # +90deg (CCW natural direction of an IfcCircle)
+    r = float(circle.radius)
+
+    def _ang(p):
+        d = np.asarray(p, dtype=float)[:2] - center
+        return float(np.arctan2(float(d @ ydir), float(d @ xdir)))
+
+    if t1 is None or t2 is None:
+        a0, a1 = 0.0, 2.0 * np.pi
+    else:
+        a0, a1 = _ang(t1), _ang(t2)
+        if sense_agreement:
+            while a1 <= a0:
+                a1 += 2.0 * np.pi
+        else:
+            while a1 >= a0:
+                a1 -= 2.0 * np.pi
+    out = []
+    for a in np.linspace(a0, a1, n):
+        p = center + r * np.cos(a) * xdir + r * np.sin(a) * ydir
+        out.append((float(p[0]), float(p[1])))
+    return out
+
+
 @dataclass(slots=True)
 class CompositeCurve:
     """
@@ -137,6 +170,40 @@ class CompositeCurve:
 
     segments: list[CompositeCurveSegment]
     self_intersect: bool = False
+
+    def to_points2d(self) -> list[tuple[float, float]]:
+        """Ordered, de-duplicated 2D outline points — line endpoints, sampled arcs/B-splines.
+
+        Lets a spline-bearing plate profile (an ``IfcCompositeCurve``, which ``IfcIndexedPolyCurve``
+        can't carry) be read back as a point-based ``Plate`` outline. The IFC file itself stays
+        analytic (the composite carries the real ``IfcBSplineCurveWithKnots``); only this reader-side
+        outline samples the curve."""
+
+        def _parent_points(c) -> list:
+            if isinstance(c, PolyLine):
+                return list(c.points)
+            if isinstance(c, BSplineCurveWithKnots):
+                return c.sample(max(16, int(c.degree) * 8))
+            if isinstance(c, Edge):
+                return [c.start, c.end]
+            if isinstance(c, TrimmedCurve) and isinstance(c.basis_curve, Circle):
+                return _sample_circle_arc(c.basis_curve, c.trim1, c.trim2, c.sense_agreement)
+            if isinstance(c, Circle):
+                return _sample_circle_arc(c, None, None, True)
+            raise NotImplementedError(f"CompositeCurve.to_points2d: unsupported parent curve {type(c).__name__}")
+
+        pts: list[tuple[float, float]] = []
+        for seg in self.segments:
+            seq = _parent_points(seg.parent_curve)
+            if not seg.same_sense:
+                seq = list(reversed(seq))
+            for p in seq:
+                xy = (float(p[0]), float(p[1]))
+                if not pts or abs(pts[-1][0] - xy[0]) > 1e-9 or abs(pts[-1][1] - xy[1]) > 1e-9:
+                    pts.append(xy)
+        if len(pts) > 2 and abs(pts[0][0] - pts[-1][0]) < 1e-9 and abs(pts[0][1] - pts[-1][1]) < 1e-9:
+            pts.pop()  # drop the closing duplicate
+        return pts
 
 
 @dataclass(slots=True)

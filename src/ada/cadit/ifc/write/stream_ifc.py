@@ -77,9 +77,18 @@ class _Emitter:
         return s[2]
 
     def _curve(self, lines: list[str], curve) -> int:
-        """Emit IfcCartesianPointList2D + IfcIndexedPolyCurve (with segment
-        indices, incl. IfcArcIndex for fillets) — the form ada's reader expects.
-        Returns the IfcIndexedPolyCurve id."""
+        """Emit the profile curve and return its id.
+
+        A B-spline-bearing outline is emitted analytically as an ``IfcCompositeCurve`` (line ->
+        IfcPolyline, arc -> IfcTrimmedCurve, spline -> IfcBSplineCurveWithKnots) — ``IfcIndexedPolyCurve``
+        can only index line/arc. Otherwise the compact ``IfcIndexedPolyCurve`` form ada's reader
+        expects (with ``IfcArcIndex`` for fillets)."""
+        from ada.geom.curves import BSplineCurveWithKnots
+
+        segs = getattr(curve, "segments", None)
+        if segs is not None and any(isinstance(s, BSplineCurveWithKnots) for s in segs):
+            return self._composite_curve(lines, curve)
+
         pts, seg_idx = curve.get_unique_points_and_segment_indices()
         pts = pts.tolist() if hasattr(pts, "tolist") else pts
         ptlist = self.nid
@@ -93,6 +102,91 @@ class _Emitter:
         lines.append(f"#{cid}=IfcIndexedPolyCurve(#{ptlist},({segs}),$);")
         self.nid = cid + 1
         return cid
+
+    def _pt2d(self, lines: list[str], xy) -> int:
+        pid = self.nid
+        self.nid += 1
+        lines.append(f"#{pid}=IfcCartesianPoint(({_f(xy[0])},{_f(xy[1])}));")
+        return pid
+
+    def _polyline_parent(self, lines: list[str], a, b) -> int:
+        p1, p2 = self._pt2d(lines, a), self._pt2d(lines, b)
+        pid = self.nid
+        self.nid += 1
+        lines.append(f"#{pid}=IfcPolyline((#{p1},#{p2}));")
+        return pid
+
+    def _bspline_parent(self, lines: list[str], sp) -> int:
+        cps = ",".join(f"#{self._pt2d(lines, cp)}" for cp in sp.control_points_list)
+        mult = "(" + ",".join(str(int(m)) for m in sp.knot_multiplicities) + ")"
+        kn = "(" + ",".join(_f(k) for k in sp.knots) + ")"
+        form, spec = sp.curve_form.value, sp.knot_spec.value
+        closed = ".T." if sp.closed_curve else ".F."
+        si = ".T." if sp.self_intersect else ".F."
+        bid = self.nid
+        self.nid += 1
+        weights = getattr(sp, "weights_data", None)
+        if weights:
+            w = "(" + ",".join(_f(x) for x in weights) + ")"
+            lines.append(
+                f"#{bid}=IfcRationalBSplineCurveWithKnots({sp.degree},({cps}),.{form}.,{closed},{si},"
+                f"{mult},{kn},.{spec}.,{w});"
+            )
+        else:
+            lines.append(
+                f"#{bid}=IfcBSplineCurveWithKnots({sp.degree},({cps}),.{form}.,{closed},{si},{mult},{kn},.{spec}.);"
+            )
+        return bid
+
+    def _arc_parent(self, lines: list[str], arc) -> int:
+        import numpy as np
+
+        from ada.core.curve_utils import calc_arc_radius_center_from_3points
+
+        s = np.asarray(arc.start, dtype=float)[:2]
+        m = np.asarray(arc.midpoint, dtype=float)[:2]
+        e = np.asarray(arc.end, dtype=float)[:2]
+        center, radius = calc_arc_radius_center_from_3points(s, m, e)
+        center = np.asarray(center, dtype=float)[:2]
+        ccw = float(np.cross(m - s, e - s)) >= 0.0
+        cpid = self._pt2d(lines, (center[0], center[1]))
+        ref = s - center
+        rn = np.linalg.norm(ref)
+        ref = ref / rn if rn else np.array([1.0, 0.0])
+        rdir = self.nid
+        lines.append(f"#{rdir}=IfcDirection(({_f(ref[0])},{_f(ref[1])}));")
+        a2p = rdir + 1
+        lines.append(f"#{a2p}=IfcAxis2Placement2D(#{cpid},#{rdir});")
+        circ = a2p + 1
+        lines.append(f"#{circ}=IfcCircle(#{a2p},{_f(radius)});")
+        self.nid = circ + 1
+        t1, t2 = self._pt2d(lines, (s[0], s[1])), self._pt2d(lines, (e[0], e[1]))
+        tc = self.nid
+        self.nid += 1
+        sense = ".T." if ccw else ".F."
+        lines.append(f"#{tc}=IfcTrimmedCurve(#{circ},(#{t1}),(#{t2}),{sense},.CARTESIAN.);")
+        return tc
+
+    def _composite_curve(self, lines: list[str], curve) -> int:
+        """Hand-author an IfcCompositeCurve for a spline-bearing outline (analytic, not sampled)."""
+        import ada.geom.curves as cu
+
+        seg_ids = []
+        for seg in curve.segments:
+            if isinstance(seg, cu.BSplineCurveWithKnots):
+                parent = self._bspline_parent(lines, seg)
+            elif isinstance(seg, cu.ArcLine):
+                parent = self._arc_parent(lines, seg)
+            else:  # Edge / straight
+                parent = self._polyline_parent(lines, seg.start, seg.end)
+            sid = self.nid
+            self.nid += 1
+            lines.append(f"#{sid}=IfcCompositeCurveSegment(.CONTINUOUS.,.T.,#{parent});")
+            seg_ids.append(sid)
+        cc = self.nid
+        self.nid += 1
+        lines.append(f"#{cc}=IfcCompositeCurve(({','.join(f'#{s}' for s in seg_ids)}),.F.);")
+        return cc
 
     def plate(self, pl, lines: list[str]) -> int:
         """Append the SPF lines for ``pl``; return its IfcPlate id."""

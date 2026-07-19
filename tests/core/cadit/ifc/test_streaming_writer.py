@@ -112,3 +112,48 @@ def test_streaming_falls_back_for_loaded_ifc(tmp_path):
     assert ret is not None  # fell back to the in-memory writer (returns the file)
     g = ifcopenshell.open(str(tmp_path / "out.ifc"))
     assert len(g.by_type("IfcBeam")) == 1 and len(g.by_type("IfcPlate")) == 2
+
+
+def _spline_plate():
+    from ada.api.curves import CurvePoly2d, SplineEdge
+    from ada.geom.curves import BSplineCurveFormEnum, BSplineCurveWithKnots, KnotType
+
+    sp = BSplineCurveWithKnots(
+        degree=2,
+        control_points_list=[(1, 0, 0), (1.3, 0.5, 0), (1, 1, 0)],
+        curve_form=BSplineCurveFormEnum.UNSPECIFIED,
+        closed_curve=False,
+        self_intersect=False,
+        knot_multiplicities=[3, 3],
+        knots=[0.0, 1.0],
+        knot_spec=KnotType.UNSPECIFIED,
+    )
+    segs = CurvePoly2d.build_edge_segments(
+        [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], [SplineEdge(a=(1, 0, 0), b=(1, 1, 0), curve=sp)]
+    )
+    return ada.Plate.from_segments("spline_pl", segs, 0.05)
+
+
+def test_streaming_spline_plate_is_valid_analytic_ifc(tmp_path):
+    """A B-spline-boundary plate streams as an analytic IfcCompositeCurve (IfcBSplineCurveWithKnots),
+    is valid IFC (schema + where-rules), keeps metre units, and round-trips as a Plate."""
+    import ifcopenshell
+    from ifcopenshell.validate import json_logger, validate
+
+    p = ada.Part("p")
+    p.add_plate(_spline_plate())
+    p.add_plate(ada.Plate("plain", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.02))
+    dest = tmp_path / "spline_stream.ifc"
+    (ada.Assembly("A") / p).to_ifc(dest, streaming=True)
+
+    f = ifcopenshell.open(str(dest))
+    lg = json_logger()
+    validate(f, lg)
+    assert lg.statements == []  # valid IFC: no schema / where-rule violations
+    assert len(f.by_type("IfcCompositeCurve")) == 1  # analytic, not a sampled IfcIndexedPolyCurve
+    assert len(f.by_type("IfcBSplineCurveWithKnots")) == 1
+    assert [u.Name for u in f.by_type("IfcSIUnit") if u.UnitType == "LENGTHUNIT"] == ["METRE"]
+
+    a = ada.from_ifc(dest)
+    assert isinstance(a.get_by_name("spline_pl"), ada.Plate)
+    assert isinstance(a.get_by_name("plain"), ada.Plate)
