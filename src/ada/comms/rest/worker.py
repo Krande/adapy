@@ -34,6 +34,7 @@ import asyncpg
 from ada.config import logger
 
 from . import db as db_module
+from . import source_cache
 from .config import load_settings
 from .converter import LEGACY_CONVERT_EXTS, ConverterRegistry, convert
 from .queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, JOB_STATUS_RUNNING, Job, JobQueue
@@ -1384,6 +1385,11 @@ async def _process_one(
     # entirely. glb is the only registry target for ``.sin`` (the FEA-result
     # route); None falls back to the full stream below.
     sin_source_uri: str | None = None
+    # How the source landed on disk: "cache-hit" / "cache-miss" / "direct"
+    # (None for the SIF-reduced / SIN-stream special paths). Recorded in
+    # convert_meta so audit timing analysis can see the cache working —
+    # fetch_ms drops to ~0 on hits.
+    source_fetch_mode: str | None = None
     fetch_t0 = time.monotonic()
     try:
         try:
@@ -1392,7 +1398,12 @@ async def _process_one(
             elif src_suffix.lower() == ".sin" and job.target_format == "glb":
                 sin_source_uri = await _try_sin_stream_uri(storage, scope, job.source_key)
             if not sif_reduced and sin_source_uri is None:
-                await storage.stream_to_path(scope, job.source_key, src_path)
+                # Cross-job source cache: an audit sweep converts the same
+                # source to many targets, and re-downloading a multi-hundred-
+                # MB source per target costs 30-60 s each time. Falls back to
+                # a plain stream on any cache error (never fails the job) and
+                # still raises FileNotFoundError for a missing source.
+                source_fetch_mode = await source_cache.default_cache().fetch(storage, scope, job.source_key, src_path)
         except FileNotFoundError as exc:
             logger.warning("worker: source %s missing for job %s", job.source_key, job_id)
             await queue.update(job_id, status=JOB_STATUS_ERROR, stage="loading", error=str(exc))
@@ -1761,6 +1772,10 @@ async def _process_one(
         convert_meta["fetch_ms"] = fetch_ms
         if fetch_bytes is not None:
             convert_meta["fetch_bytes"] = fetch_bytes
+        if source_fetch_mode is not None:
+            # "cache-hit" explains a ~0 fetch_ms; "direct" marks a cache
+            # bypass (disabled or fell back after a cache error).
+            convert_meta["source_fetch"] = source_fetch_mode
         if sin_source_uri is not None:
             # No local copy — the child range-fetches pages on demand, so the
             # download cost shows up inside convert_ms, not fetch_ms.
