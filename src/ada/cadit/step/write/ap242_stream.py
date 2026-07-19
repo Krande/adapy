@@ -1701,6 +1701,12 @@ def _iter_stream_objects(part, merge_strategy=None):
             yield _AnalyticShell(shell, f"{part.name or 'model'}_analytic")
         for p in part.get_all_parts_in_assembly(include_self=True):
             fused = _part_fuses_from_fem(p)
+            if fused:
+                # The analytic face engine covers SHELL elements only — LINE (beam) elements have
+                # no shell faces and were silently dropped here (a beam+plate FEM exported to STEP
+                # with the plate alone; parity flagged the bbox loss). Fuse beams the same way the
+                # non-analytic branch does; plates stay with the analytic shell above.
+                yield from p.iter_objects_from_fem(beams=True, plates=False, detached=True)
             for o in p.get_all_physical_objects(sub_elements_only=True, pipe_to_segments=True):
                 if not fused or not isinstance(o, (Beam, Plate)):
                     yield o

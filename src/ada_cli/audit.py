@@ -72,9 +72,7 @@ ADACPP_MIN_VERSION = (0, 9, 0)
 # Duplicated as a literal because it cannot be derived: ada_cli ships in a wheel that carries no
 # deploy/ tree. tests/core/test_deploy_pins.py fails if the two drift.
 ADACPP_DEFAULT_IMAGE = "ghcr.io/krande/adacpp-wasm-base:0.17.1"
-IFC_WASM_WHEEL = (
-    "https://ifcopenshell.github.io/wasm-wheels/" "ifcopenshell-0.8.5-cp313-cp313-pyodide_2025_0_wasm32.whl"
-)
+IFC_WASM_WHEEL = "https://ifcopenshell.github.io/wasm-wheels/ifcopenshell-0.8.5-cp313-cp313-pyodide_2025_0_wasm32.whl"
 
 
 # ── config / http ────────────────────────────────────────────────────────
@@ -411,6 +409,36 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     return 0
 
 
+def _repro_parity(src: pathlib.Path, source_key: str) -> int:
+    """Local re-run of a ``parity`` audit cell: produce every compared format with the
+    production converter, then run the same produced-files parity check the worker runs.
+    (The worker measures the run's already-uploaded blobs; the repro re-produces them
+    locally so the whole loop is debuggable on one machine.)"""
+    from ada.cadit.visual_parity import PARITY_GEOMETRY_FORMATS, parity_from_produced_files
+    from ada.comms.rest.converter import ConverterRegistry, convert, result_bytes
+
+    targets = set(ConverterRegistry.targets_for(src.suffix.lower()))
+    produced: dict[str, pathlib.Path | None] = {}
+    for fmt in (f for f in PARITY_GEOMETRY_FORMATS if f in targets):
+        try:
+            result = convert(src, source_key, fmt, lambda s, f: None)
+            out_path = src.with_suffix(f".out.{fmt}")
+            out_path.write_bytes(result_bytes(result))
+            produced[fmt] = out_path
+            print(f"  {fmt}: produced {out_path.stat().st_size} bytes -> {out_path}")
+        except Exception as ex:  # noqa: BLE001 - a failed leg is recorded, parity still runs
+            print(f"  {fmt}: CONVERT FAILED {type(ex).__name__}: {_short(str(ex), 140)}")
+            produced[fmt] = None
+
+    res = parity_from_produced_files(source_key, produced)
+    print(f"\n{res.summary()}")
+    for label, d in (("mismatches", res.mismatches), ("errors", res.errors), ("skipped", res.skipped)):
+        if d:
+            for k, v in d.items():
+                print(f"  {label[:-2]}: {k}: {v}")
+    return 0 if res.consistent and not res.errors else 1
+
+
 def cmd_repro(args: argparse.Namespace) -> int:
     base, token = _config(args)
     src, meta = fetch(base, token, args.audit_id, pathlib.Path(args.out))
@@ -418,6 +446,9 @@ def cmd_repro(args: argparse.Namespace) -> int:
 
     print(f"repro audit_id={args.audit_id} src={src} target={target}")
     print(f"original status={meta.get('status')} error={_short(meta.get('error'), 160)!r}")
+
+    if target == "parity":
+        return _repro_parity(src, meta.get("source_key") or str(src))
 
     # Lazy import — keeps the rest of `ada audit` free of the FEM/CAD stack.
     from ada.comms.rest.converter import convert, result_bytes
@@ -563,8 +594,7 @@ def _resolve_driver(args: argparse.Namespace) -> str:
     if fallback.exists():
         return str(fallback)
     print(
-        "error: could not find tools/pyodide-test/wasm_sweep_driver.js — run from the "
-        "adapy checkout or pass --driver",
+        "error: could not find tools/pyodide-test/wasm_sweep_driver.js — run from the adapy checkout or pass --driver",
         file=sys.stderr,
     )
     sys.exit(2)
@@ -856,7 +886,7 @@ def cmd_wasm_sweep(args: argparse.Namespace) -> int:
         cells = cells[: args.limit]
 
     print(
-        f"run {run.get('id') or args.run_id}: {len(jobs)} jobs → " f"{len(cells)} wasm cells, {len(skipped)} skipped",
+        f"run {run.get('id') or args.run_id}: {len(jobs)} jobs → {len(cells)} wasm cells, {len(skipped)} skipped",
         file=sys.stderr,
     )
 

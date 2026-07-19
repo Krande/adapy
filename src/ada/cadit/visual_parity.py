@@ -388,12 +388,49 @@ def _measure_produced_file(fmt: str, path: Path) -> "_GeomMeasure":
 
     ext = path.suffix.lower()
     if ext in _MESH_MEASURE_EXTS:
+        if ext == ".glb" and _glb_is_meshopt_packed(path):
+            # Production GLBs ship EXT_meshopt_compression, which trimesh's glTF loader cannot
+            # decode (it slices the fallback-buffer layout and IndexErrors). Unpack to a plain
+            # GLB first; a missing codec is "unmeasurable", not a geometry mismatch.
+            import tempfile
+
+            from ada.visit.gltf.meshopt import meshopt_decompress_glb
+
+            with tempfile.TemporaryDirectory(prefix="adapy-parity-meshopt-") as td:
+                unpacked = Path(td) / "unpacked.glb"
+                try:
+                    meshopt_decompress_glb(path, unpacked)
+                except Exception as ex:  # noqa: BLE001 - codec missing / unsupported filter
+                    raise _MeasureUnavailable(f"meshopt-packed glb undecodable: {ex}") from ex
+                scene = trimesh.load(str(unpacked), file_type="glb", process=False)
+                if isinstance(scene, trimesh.Trimesh):
+                    scene = trimesh.Scene(scene)
+                return _measure_scene(scene)
         scene = trimesh.load(str(path), file_type=ext.lstrip("."), process=False)
         if isinstance(scene, trimesh.Trimesh):
             scene = trimesh.Scene(scene)
         return _measure_scene(scene)
 
     return _measure_cad_isolated(path)
+
+
+def _glb_is_meshopt_packed(path: Path) -> bool:
+    """True when the GLB's JSON chunk declares EXT_meshopt_compression (header-only sniff)."""
+    import json
+    import struct
+
+    try:
+        with open(path, "rb") as f:
+            magic, _ver, _total = struct.unpack("<III", f.read(12))
+            if magic != 0x46546C67:
+                return False
+            jlen, jtype = struct.unpack("<II", f.read(8))
+            if jtype != 0x4E4F534A:
+                return False
+            j = json.loads(f.read(jlen).decode("utf-8"))
+        return "EXT_meshopt_compression" in (j.get("extensionsRequired") or j.get("extensionsUsed") or [])
+    except Exception:  # noqa: BLE001 - malformed header: let the normal loader produce the real error
+        return False
 
 
 def parity_from_produced_files(source_key: str, produced: dict[str, "Path | None"]) -> ParityResult:

@@ -66,3 +66,53 @@ def test_empty_source_counts_zero_everywhere(example_files, tmp_path):
     out = tmp_path / "wire.step"
     a.to_stp(out)
     assert assembly_element_count(ada.from_step(out, reader="auto")) == 1
+
+
+def test_fem_step_cylinder_strategy_keeps_beams(tmp_path):
+    """Audit regression (a beam+plate FEM): the analytic ``cylinder`` merge strategy fused only
+    SHELL elements — LINE (beam) elements were silently dropped from the FEM->STEP export (neither
+    emitted nor counted skipped), so the STEP bbox lost the beam's extent and parity flagged it."""
+    import ada
+
+    a = ada.Assembly("A") / (
+        ada.Part("p")
+        / [
+            ada.Beam("bm", (0, 0, 0), (0, 0, 2), "IPE200"),
+            ada.Plate("pl", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01),
+        ]
+    )
+    part = a.get_part("p")
+    part.fem = part.to_fem_obj(0.5)
+
+    fem_dir = tmp_path / "fem"
+    a.to_fem("beam_plate", "abaqus", scratch_dir=fem_dir)
+    b = ada.from_fem(fem_dir / "beam_plate" / "beam_plate.inp")
+
+    out = tmp_path / "out.step"
+    stats = b.to_stp(out, writer="stream", fuse_fem=True, merge_strategy="cylinder")
+    # the analytic shell (plate faces) AND the fused beam must both emit
+    assert stats["emitted"] >= 2, stats
+    txt = out.read_text()
+    assert "MANIFOLD_SOLID_BREP" in txt  # the beam's extruded solid — absent before the fix
+
+
+def test_meshopt_packed_glb_measures_like_uncompressed(tmp_path):
+    """Audit regression: production GLBs ship EXT_meshopt_compression, which trimesh cannot decode
+    (IndexError in _read_buffers) — 4 of 5 parity failures in one sweep were glb=ERR on otherwise
+    CONSISTENT geometry. The measurer must unpack meshopt before measuring."""
+    pytest.importorskip("adacpp")  # the meshopt codecs live in adacpp
+    import ada
+    from ada.cadit.visual_parity import _measure_produced_file
+    from ada.visit.gltf.meshopt import meshopt_compress_glb
+
+    plain = tmp_path / "plain.glb"
+    (ada.Assembly("A") / (ada.Part("p") / ada.Plate("pl", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01))).to_gltf(plain)
+
+    packed = tmp_path / "packed.glb"
+    assert meshopt_compress_glb(plain, packed, min_bytes=0) == packed  # actually packed, no fallback
+
+    m_plain = _measure_produced_file("glb", plain)
+    m_packed = _measure_produced_file("glb", packed)
+    assert m_packed.tris == m_plain.tris
+    assert m_packed.area == pytest.approx(m_plain.area, rel=1e-6)
+    assert m_packed.bbox == pytest.approx(m_plain.bbox, rel=1e-6)
