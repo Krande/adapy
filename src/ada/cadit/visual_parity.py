@@ -992,11 +992,16 @@ def _count_gxml_objects(path: "str | Path") -> int:
 
 
 def _count_ifc_products(path: "str | Path") -> int:
-    """Placed physical products in an IFC file via a bounded text scan (typed + proxy).
+    """TYPED structural products in an IFC file via a bounded text scan.
 
     Products are one-per-line in SPF, so a line scan matches ``ifcopenshell`` counting at a
-    fraction of the parse cost (a 90 MB hull IFC scans in ~1 s)."""
-    kinds = ("=IFCPLATE(", "=IFCBEAM(", "=IFCMEMBER(", "=IFCBUILDINGELEMENTPROXY(", "=IFCPIPESEGMENT(")
+    fraction of the parse cost (a 90 MB hull IFC scans in ~1 s). ``IfcBuildingElementProxy``
+    is deliberately NOT counted: for a Genie-XML source the IFC writer emits every structural
+    object typed (IfcPlate/IfcBeam — including thick curved shells), while proxies carry
+    CONCEPT objects (point/ballast masses) that the xml face-count and the STEP solid-count
+    structurally cannot represent — counting them flagged every mass-carrying model as an
+    ifc-leg surplus. The shared cross-format basis is the structural set."""
+    kinds = ("=IFCPLATE(", "=IFCBEAM(", "=IFCMEMBER(", "=IFCPIPESEGMENT(")
     n = 0
     with open(path, "r", errors="ignore") as f:
         for line in f:
