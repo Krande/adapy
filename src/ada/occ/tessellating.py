@@ -37,7 +37,7 @@ def _is_topods_shape(shape) -> bool:
     """True if ``shape`` is a raw pythonocc ``TopoDS_Shape``. Returns False when
     pythonocc isn't installed (e.g. the adacpp-only environment) so the
     tessellation dispatch falls through to the active backend's tessellate verb
-    rather than blowing up on the import. See dap plan/v3 Phase 2."""
+    rather than blowing up on the import. See the internal design notes Phase 2."""
     try:
         from OCC.Core.TopoDS import TopoDS_Shape
     except ModuleNotFoundError:
@@ -694,8 +694,8 @@ class BatchTessellator:
 
         # The kind (line vs triangle mesh) is passed in by the caller rather
         # than sniffed off the OCC handle type — an opaque ShapeHandle under
-        # a non-OCC backend can't be isinstance-checked. See dap plan/v3
-        # notes_occ_backend_abstraction (Phase 1).
+        # a non-OCC backend can't be isinstance-checked. See the internal design notes
+        # the internal design notes (Phase 1).
         if mesh_type == MeshType.LINES:
             tess_shape = tessellate_edges(occ_geom)
             indices = tess_shape.indices
@@ -862,6 +862,28 @@ class BatchTessellator:
             stream_ms = self._tessellate_geom_via_stream(geom, node_ref)
             if stream_ms is not None:
                 return stream_ms
+
+        # adacpp backend + multi-face B-rep shell (e.g. an IFC-reimported thickened
+        # curved plate): the backend's shell build sews the faces (BRepBuilderAPI_Sewing),
+        # and OCCT's sewing can wreck the pcurve trims of large B-spline patches — the
+        # sewn shape then meshes to a sliver of its true area. The stream kernel
+        # tessellates the same shell per-face OCC-free (no sew), so use it here even when
+        # ADA_STREAM_TESS_PIPELINE is unset.
+        if mesh_type != MeshType.LINES and active_backend().name == "adacpp":
+            import ada.geom.surfaces as _gsu
+
+            g_root = geom.geometry
+            is_shell = isinstance(g_root, (_gsu.ClosedShell, _gsu.OpenShell, _gsu.ConnectedFaceSet)) or isinstance(
+                g_root, _gsu.ShellBasedSurfaceModel
+            )
+            n_shell_faces = 0
+            if is_shell:
+                shells = g_root.sbsm_boundary if isinstance(g_root, _gsu.ShellBasedSurfaceModel) else [g_root]
+                n_shell_faces = sum(len(getattr(sh, "cfs_faces", [])) for sh in shells)
+            if n_shell_faces > 1 and not getattr(geom, "bool_operations", None):
+                stream_ms = self._tessellate_geom_via_stream(geom, node_ref, force_pipeline="libtess2")
+                if stream_ms is not None:
+                    return stream_ms
 
         try:
             # Construction seam: build through the active CAD backend rather
@@ -1069,13 +1091,19 @@ class BatchTessellator:
                         except Exception:  # noqa: BLE001 - no parametric geom → OCC prism path
                             cng = None
                         if cng is not None:
+                            import ada.geom.surfaces as _geo_su
+
+                            # A thickened curved shell (face_to_thick_shell ClosedShell) is
+                            # already a solid — tessellate it as-is. Only a BARE face still
+                            # gets the mesh-level thickness offset below.
+                            already_solid = isinstance(cng.geometry, _geo_su.ClosedShell)
                             ms_cs = self._tessellate_geom_via_stream(cng, node_ref)
                             if ms_cs is not None:
                                 # The stream tessellates only the bare curved face (a shell);
                                 # give it the plate thickness so it matches the OCC prism solid
                                 # (extrude_face_along_normal). t=0 (SurfaceCurved) stays a shell.
                                 t = getattr(obj, "t", None)
-                                if t:
+                                if t and not already_solid:
                                     pos2, idx2 = _thicken_face_mesh(ms_cs.position, ms_cs.indices, float(t))
                                     ms_cs = MeshStore(
                                         ms_cs.index,
@@ -1098,7 +1126,25 @@ class BatchTessellator:
                             )
                     ms_curved = None
                     try:
-                        shape = obj.extruded_solid_occ()
+                        # Thickened curved shell: build the SAME ada.geom ClosedShell through
+                        # the backend's normal geom conversion. The OCC prism
+                        # (extruded_solid_occ) remains only as the legacy fallback (config
+                        # off / unthickenable face / shell build failure).
+                        shape = None
+                        thick_fn = getattr(obj, "_thick_shell_geom", None)
+                        if callable(thick_fn):
+                            thick_geom = thick_fn()
+                            if thick_geom is not None:
+                                try:
+                                    shape = active_backend().build(thick_geom)
+                                except Exception as e:  # noqa: BLE001 - backend can't build this shell
+                                    logger.debug(
+                                        "PlateCurved %r: thick-shell build failed (%s); using prism fallback",
+                                        getattr(ada_obj, "name", "?"),
+                                        e,
+                                    )
+                        if shape is None:
+                            shape = obj.extruded_solid_occ()
                         ms_curved = self.tessellate_occ_geom(shape, node_ref, obj.color)
                     except UnableToCreateTesselationFromSolidOCCGeom as e:
                         logger.error(e)
@@ -1225,15 +1271,22 @@ class BatchTessellator:
                     fallback_pts = getattr(ada_obj, "_flat_fallback_pts", None)
                     if fallback_pts:
                         try:
-                            from ada import Plate
                             from ada.cadit.gxml.read.helpers import (
-                                _project_to_best_fit_plane,
+                                _fit_best_fit_plane,
+                                _plate_from_face,
+                                _project_edge_curves_onto_plane,
+                                _project_onto_plane,
                             )
 
-                            fb = Plate.from_3d_points(
+                            plane = _fit_best_fit_plane(fallback_pts)
+                            fb = _plate_from_face(
                                 getattr(ada_obj, "name", "fallback"),
-                                _project_to_best_fit_plane(fallback_pts),
+                                _project_onto_plane(fallback_pts, plane) if plane else list(fallback_pts),
+                                _project_edge_curves_onto_plane(
+                                    getattr(ada_obj, "_flat_fallback_edge_curves", None), plane
+                                ),
                                 getattr(ada_obj, "t", None) or 0.0,
+                                None,
                                 mat=getattr(ada_obj, "material", None),
                                 metadata=dict(
                                     props=dict(
@@ -1410,13 +1463,20 @@ class BatchTessellator:
             if not fallback_pts:
                 continue
             try:
-                from ada import Plate
-                from ada.cadit.gxml.read.helpers import _project_to_best_fit_plane
+                from ada.cadit.gxml.read.helpers import (
+                    _fit_best_fit_plane,
+                    _plate_from_face,
+                    _project_edge_curves_onto_plane,
+                    _project_onto_plane,
+                )
 
-                fallback = Plate.from_3d_points(
+                plane = _fit_best_fit_plane(fallback_pts)
+                fallback = _plate_from_face(
                     getattr(ada_obj, "name", "fallback"),
-                    _project_to_best_fit_plane(fallback_pts),
+                    _project_onto_plane(fallback_pts, plane) if plane else list(fallback_pts),
+                    _project_edge_curves_onto_plane(getattr(ada_obj, "_flat_fallback_edge_curves", None), plane),
                     getattr(ada_obj, "t", None) or 0.0,
+                    None,
                     mat=getattr(ada_obj, "material", None),
                     metadata=dict(
                         props=dict(

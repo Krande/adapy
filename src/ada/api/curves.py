@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterable, Optional
 
 import numpy as np
@@ -26,7 +27,38 @@ from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 if TYPE_CHECKING:
     from ada import Beam
     from ada.cad import ShapeHandle
-    from ada.geom.curves import ArcLine, Edge, IndexedPolyCurve
+    from ada.geom.curves import ArcLine, BSplineCurveWithKnots, Edge, IndexedPolyCurve
+
+
+@dataclass
+class PlateEdgeCurve:
+    """Base: an analytic curve carried on ONE boundary edge of a ``CurvePoly2d``, between corners ``a``/``b``.
+
+    A reader (e.g. the ACIS/SAT plate reader) emits these — as the concrete :class:`ArcEdge` /
+    :class:`SplineEdge` — so a curved plate boundary stays analytic: :meth:`CurvePoly2d.build_edge_segments`
+    turns ordered corners + these specs into the real segment list (arc/spline where a spec's ``a``/``b``
+    match a corner pair, else a line), which ``Plate.from_segments`` carries verbatim — instead of the
+    reader sampling the curve into extra outline points at read time (slow, and lower fidelity: it reaches
+    IFC/STEP as a polyline).
+    """
+
+    a: tuple[float, float, float]
+    b: tuple[float, float, float]
+
+
+@dataclass
+class ArcEdge(PlateEdgeCurve):
+    """A circle/ellipse boundary edge. ``midpoint`` is the point on the arc halfway between ``a`` and
+    ``b`` — the only datum OCC/NGEOM/IFC/STEP need to reconstruct the arc."""
+
+    midpoint: tuple[float, float, float]
+
+
+@dataclass
+class SplineEdge(PlateEdgeCurve):
+    """A B-spline boundary edge carrying the analytic ``ada.geom.curves.BSplineCurveWithKnots``."""
+
+    curve: BSplineCurveWithKnots
 
 
 class CurveRevolve:
@@ -226,7 +258,7 @@ class CurveOpen2d:
 
         self._segments = seg_list2d
         self._segments3d = seg_list3d
-        self._seg_global_points, self._seg_index = segments_to_indexed_lists(seg_list3d)
+        self._seg_global_points, self._seg_index = segments_to_indexed_lists(self._segments3d)
         self._nodes = [
             Node(p, r=self.radiis[i]) if i in self.radiis.keys() else Node(p) for i, p in enumerate(self._points3d)
         ]
@@ -303,21 +335,17 @@ class CurveOpen2d:
 
         poly_segments = self.segments3d if use_3d_segments else self.segments
 
-        if len(poly_segments) == 1:
-            seg = poly_segments[0]
+        def _to_geom(seg):
             if isinstance(seg, ArcSegment):
                 return ArcLine(seg.p1, seg.midpoint, seg.p2)
-            else:
-                return Edge(seg.p1, seg.p2)
+            if isinstance(seg, SplineSegment):
+                return seg.curve_geom()  # BSplineCurveWithKnots (2D-local or 3D per the segment)
+            return Edge(seg.p1, seg.p2)
 
-        segments = []
-        for seg in poly_segments:
-            if isinstance(seg, ArcSegment):
-                segments.append(ArcLine(seg.p1, seg.midpoint, seg.p2))
-            else:
-                segments.append(Edge(seg.p1, seg.p2))
+        if len(poly_segments) == 1:
+            return _to_geom(poly_segments[0])
 
-        return IndexedPolyCurve(segments)
+        return IndexedPolyCurve([_to_geom(seg) for seg in poly_segments])
 
     def occ_wire(self) -> ShapeHandle:
         from ada.occ.utils import make_wire
@@ -517,6 +545,90 @@ class CurvePoly2d(CurveOpen2d):
             self._nodes = [Node(p) for p in points3d_pts]
             out.append(self)
         return out
+
+    @staticmethod
+    def build_edge_segments(points3d, edge_curves=None) -> list[LineSegment]:
+        """Ordered, closed loop of 3D segments from ordered corner points + optional ``PlateEdgeCurve``.
+
+        Consecutive corners form each edge; an edge whose endpoints match a spec becomes an
+        ``ArcSegment`` (circle/ellipse) or ``SplineSegment``, otherwise a ``LineSegment``. Endpoint
+        match is winding-agnostic; an unmatched spec (e.g. a corner pruned as collinear) just leaves
+        that edge straight. Feed the result to :meth:`from_segments` / ``Plate.from_segments``.
+        """
+        pts = [Point(np.asarray(p, dtype=float)[:3]) for p in points3d]
+        n = len(pts)
+        spec_by_key = {_endpoint_key(s.a, s.b): s for s in (edge_curves or [])}
+        segs: list[LineSegment] = []
+        for i in range(n):
+            a, b = pts[i], pts[(i + 1) % n]
+            spec = spec_by_key.get(_endpoint_key(a, b))
+            if isinstance(spec, ArcEdge):
+                segs.append(ArcSegment(a, b, midpoint=Point(np.asarray(spec.midpoint, dtype=float))))
+            elif isinstance(spec, SplineEdge):
+                segs.append(SplineSegment(a, b, curve=spec.curve))
+            else:
+                segs.append(LineSegment(a, b))
+        return segs
+
+    @classmethod
+    def from_segments(cls, segments, tol=1e-3, parent=None, xdir=None, flip_n=False) -> CurvePoly2d:
+        """Construct directly from an ordered, closed loop of 3D segments (line/arc/spline).
+
+        Unlike :meth:`from_3d_points` this neither samples nor rebuilds the boundary via
+        ``build_polycurve``: each segment is carried through to both the 3D and the projected 2D
+        outline as-is (arc midpoints, spline curves preserved), so analytic edges survive to IFC/STEP
+        and are discretized only downstream at tessellation. Orientation is derived from the corner
+        points exactly like :meth:`from_3d_points` (``Placement.from_co_linear_points``), so a
+        segments-built plate sits in the same frame a points-built one would.
+        """
+        segments = list(segments)
+        if len(segments) < 3:
+            raise ValueError("At least three segments are required to define a plate outline.")
+
+        points3d = np.array([np.asarray(seg.p1, dtype=float)[:3] for seg in segments])
+        place = Placement.from_co_linear_points(points3d, xdir=xdir, flip_n=flip_n)
+        points2d_arr = place.transform_global_points_to_local(points3d)
+        points2d = [Point(p[0], p[1]) for p in points2d_arr]
+        points3d_pts = [Point(p) for p in points3d]
+
+        def _to2d(p) -> Point:
+            q = place.transform_global_points_to_local(np.array([np.asarray(p, dtype=float)[:3]]))[0]
+            return Point(q[0], q[1])
+
+        segs2d: list[LineSegment] = []
+        for seg in segments:
+            if isinstance(seg, ArcSegment):
+                segs2d.append(ArcSegment(_to2d(seg.p1), _to2d(seg.p2), midpoint=_to2d(seg.midpoint)))
+            elif isinstance(seg, SplineSegment):
+                # The extruded profile is 2D in the plate's local frame, so the B-spline's control
+                # points must be projected into that frame too (affine -> knots/degree/weights unchanged).
+                p1_2d, p2_2d = _to2d(seg.p1), _to2d(seg.p2)
+                curve2d = _project_bspline_2d(seg.curve, place)
+                # Snap the endpoints to the exact corner vertices so the outline wire closes: a plate
+                # boundary spline is clamped (end knot mult = degree+1), so its curve endpoints ARE its
+                # first/last control points, and the adjacent line edges join at these corners.
+                curve2d.control_points_list[0] = p1_2d
+                curve2d.control_points_list[-1] = p2_2d
+                segs2d.append(SplineSegment(p1_2d, p2_2d, curve=curve2d))
+            else:
+                segs2d.append(LineSegment(_to2d(seg.p1), _to2d(seg.p2)))
+
+        seg_global_points, seg_index = segments_to_indexed_lists(segments)
+
+        self = cls.__new__(cls)
+        self._tol = tol
+        self._parent = parent
+        self._orientation = place
+        self._placement = Placement()
+        self._radiis = {}
+        self._points2d = points2d
+        self._points3d = points3d_pts
+        self._segments = segs2d
+        self._segments3d = segments
+        self._seg_global_points = seg_global_points
+        self._seg_index = seg_index
+        self._nodes = [Node(p) for p in points3d_pts]
+        return self
 
     def get_face_geom(self) -> ArbitraryProfileDef:
         outer_curve = self.curve_geom()
@@ -774,3 +886,66 @@ class ArcSegment(LineSegment):
 
     def __repr__(self):
         return f"ArcSegment({self.p1}, {self.midpoint}, {self.p2})"
+
+
+class SplineSegment(LineSegment):
+    """A boundary edge that follows an analytic B-spline (``ada.geom.curves.BSplineCurveWithKnots``).
+
+    Closes the gap the ``CurvePoly2d`` docstring notes: the outline had only line and arc segments, so
+    a spline plate edge had nowhere analytic to live and was sampled into straight outline points at
+    read time. The spline is carried here verbatim; discretization is a downstream (tessellation)
+    concern via :meth:`sample`, so the analytic form survives to IFC/STEP export.
+    """
+
+    def __init__(self, p1, p2, curve: BSplineCurveWithKnots = None, edge_geom=None, placement: Placement = None):
+        super().__init__(p1, p2, edge_geom=edge_geom, placement=placement)
+        self._curve = curve
+
+    @property
+    def curve(self) -> BSplineCurveWithKnots:
+        return self._curve
+
+    def curve_geom(self) -> BSplineCurveWithKnots:
+        return self._curve
+
+    def sample(self, n: int) -> list[Point]:
+        """Discretize the spline into ``n`` points along the curve (endpoints included)."""
+        return [Point(p) for p in self._curve.sample(n)]
+
+    def __repr__(self):
+        return f"SplineSegment({self.p1}, {self.p2})"
+
+
+def _project_bspline_2d(curve, place):
+    """Project a ``BSplineCurveWithKnots``'s control points into ``place``'s local frame (as in-plane
+    3D points ``(x, y, 0)``), returning a same-kind curve with knots/degree/weights untouched — the
+    profile a plate extrudes is 2D-local, so its analytic B-spline edge must live there too."""
+    from ada.geom.curves import BSplineCurveWithKnots, RationalBSplineCurveWithKnots
+
+    cps3d = np.array([np.asarray(p, dtype=float)[:3] for p in curve.control_points_list])
+    local = place.transform_global_points_to_local(cps3d)
+    # 2D control points, matching the 2D line/arc points of the extruded profile (a 3D (x,y,0) here
+    # would make the outline point list inhomogeneous for get_unique / point3d).
+    cps2d = [Point(float(p[0]), float(p[1])) for p in local]
+    common = dict(
+        degree=curve.degree,
+        control_points_list=cps2d,
+        curve_form=curve.curve_form,
+        closed_curve=curve.closed_curve,
+        self_intersect=curve.self_intersect,
+        knot_multiplicities=curve.knot_multiplicities,
+        knots=curve.knots,
+        knot_spec=curve.knot_spec,
+    )
+    if isinstance(curve, RationalBSplineCurveWithKnots):
+        return RationalBSplineCurveWithKnots(weights_data=curve.weights_data, **common)
+    return BSplineCurveWithKnots(**common)
+
+
+def _endpoint_key(a, b, ndigits: int = 6):
+    """Order-independent key for an edge's two endpoints, so a ``PlateEdgeCurve`` spec can be matched to
+    the corner pair that bounds it regardless of winding. Rounded to microns — plate corners are far
+    enough apart that no two distinct corners collide."""
+    ka = tuple(round(float(v), ndigits) for v in np.asarray(a, dtype=float)[:3])
+    kb = tuple(round(float(v), ndigits) for v in np.asarray(b, dtype=float)[:3])
+    return frozenset((ka, kb))

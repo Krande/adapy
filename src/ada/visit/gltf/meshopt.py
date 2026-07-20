@@ -267,3 +267,93 @@ if __name__ == "__main__":
     src, dst = sys.argv[1], sys.argv[2]
     res = meshopt_compress_glb(src, dst)
     print(json.dumps({"out": str(res), "ok": str(res) == dst}))
+
+
+def meshopt_decompress_glb(in_path: str | Path, out_path: str | Path) -> Path:
+    """Unpack an ``EXT_meshopt_compression`` GLB into a plain uncompressed GLB.
+
+    The inverse of :func:`meshopt_compress_glb` for CONSUMERS that cannot decode the
+    extension (trimesh's glTF loader hits ``IndexError`` on the fallback-buffer layout
+    — this is what broke the audit's parity measurement of production FEM GLBs).
+    Each compressed bufferView is decoded with the same codecs the packer verified
+    against, raw views are copied, and everything is re-laid-out sequentially into a
+    fresh BIN (accessor byteOffsets are view-relative, so a new view layout is valid).
+
+    Raises on a missing codec or malformed input — the caller decides whether that is
+    an error or a skip."""
+    import adacpp.cad as mo  # EXT_meshopt_compression codecs (vendored meshoptimizer in adacpp)
+
+    in_path = Path(in_path)
+    out_path = Path(out_path)
+
+    with in_path.open("rb") as f:
+        magic, _ver, _total = struct.unpack("<III", f.read(12))
+        if magic != _GLB_MAGIC:
+            raise ValueError("not a GLB")
+        jlen, jtype = struct.unpack("<II", f.read(8))
+        if jtype != _CHUNK_JSON:
+            raise ValueError("expected JSON chunk first")
+        j = json.loads(f.read(jlen).decode("utf-8"))
+        blen, btype = struct.unpack("<II", f.read(8))
+        if btype != _CHUNK_BIN:
+            raise ValueError("expected BIN chunk")
+        bin_data = f.read(blen)
+
+    if "EXT_meshopt_compression" not in j.get("extensionsUsed", []):
+        raise ValueError("GLB carries no EXT_meshopt_compression")
+
+    _MODE_DECODERS = {
+        "ATTRIBUTES": lambda enc, count, stride: bytes(mo.meshopt_decode_vertex_buffer(enc, count, stride)),
+        "INDICES": lambda enc, count, stride: bytes(mo.meshopt_decode_index_sequence(enc, count, stride)),
+        "TRIANGLES": lambda enc, count, stride: bytes(mo.meshopt_decode_index_buffer(enc, count, stride)),
+    }
+
+    tmp_bin = out_path.with_suffix(".bintmp")
+    try:
+        with tmp_bin.open("wb") as fout:
+            off = 0
+
+            def _emit(b: bytes) -> int:
+                nonlocal off
+                o = off
+                fout.write(b)
+                off += len(b)
+                pad = _align4(off) - off
+                if pad:
+                    fout.write(b"\x00" * pad)
+                    off += pad
+                return o
+
+            for bv in j.get("bufferViews", []):
+                ext = (bv.get("extensions") or {}).pop("EXT_meshopt_compression", None)
+                if ext is not None:
+                    if ext.get("filter") not in (None, "NONE"):
+                        raise ValueError(f"unsupported meshopt filter {ext['filter']!r}")
+                    enc = bin_data[ext["byteOffset"] : ext["byteOffset"] + ext["byteLength"]]
+                    dec = _MODE_DECODERS[ext.get("mode", "ATTRIBUTES")](enc, ext["count"], ext["byteStride"])
+                    if len(dec) != bv["byteLength"]:
+                        raise ValueError("decoded bufferView length mismatch")
+                    bv["byteOffset"] = _emit(dec)
+                else:
+                    start = bv.get("byteOffset", 0)
+                    bv["byteOffset"] = _emit(bin_data[start : start + bv["byteLength"]])
+                bv["buffer"] = 0
+                if not bv.get("extensions"):
+                    bv.pop("extensions", None)
+            new_len = off
+
+        j["buffers"] = [{"byteLength": new_len}]
+        j["extensionsUsed"] = sorted(set(j.get("extensionsUsed", [])) - {"EXT_meshopt_compression"})
+        j["extensionsRequired"] = sorted(set(j.get("extensionsRequired", [])) - {"EXT_meshopt_compression"})
+        if not j["extensionsUsed"]:
+            j.pop("extensionsUsed")
+        if not j["extensionsRequired"]:
+            j.pop("extensionsRequired")
+
+        _write_glb_streaming(out_path, j, tmp_bin, new_len)
+        return out_path
+    finally:
+        try:
+            os.remove(tmp_bin)
+        except OSError:
+            pass

@@ -98,7 +98,7 @@ def _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ex
     # ``from_id`` against the still-internal store). The object path stays correct for
     # free because its sets hold Node/Elem objects whose ``.id`` is renumbered in place;
     # the array path must remap the captured ids explicitly or every NSET/ELSET member
-    # resolves to a now-missing id (e.g. JacketHybrid elset member 787 -> external 3052).
+    # resolves to a now-missing id (e.g. a jacket model elset member 787 -> external 3052).
     _remap_id_backed_sets(fem, node_map, ext_map)
 
 

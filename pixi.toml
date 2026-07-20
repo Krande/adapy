@@ -95,6 +95,7 @@ lint = { features = ["lint"], no-default-feature = true }
 profile = { features = ["profile", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 frontend = { features = ["frontend"], no-default-feature = true }
 jupyterlite = { features = ["jupyterlite"], no-default-feature = true }
+ifc-validation = { features = ["ifc-validation"], no-default-feature = true }
 tests-core = { features = ["tests-core"], no-default-feature = true }
 test-pyodide = { features = ["test-pyodide"], no-default-feature = true }
 tests = { features = ["tests", "tests-core", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
@@ -130,6 +131,35 @@ meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "pyoc
 [feature.jupyterlite.dependencies]
 jupyterlite-core = "*"
 
+# Official buildingSMART-aligned IFC validation, kept in a dedicated feature so
+# its closure stays out of the main envs. Covers the OFFLINE, installable parts
+# of the buildingSMART IFC Validation Service (https://github.com/buildingSMART/validate):
+#   * Syntax check       — ifcopenshell.open + log_internal_cpp_errors
+#   * Schema check       — ifcopenshell.validate (attribute/select/inverse rules)
+#   * Express/where-rules — ifcopenshell.validate(..., express_rules=True)
+#   * IDS check (opt-in)  — ifctester, when an .ids is passed to the task
+# The service's Gherkin normative rules (buildingSMART/ifc-gherkin-rules) are a
+# git repo of behave feature files, not a pip package, and pull a heavy closure
+# (Django/pyproj/rtree/shapely); they are deliberately NOT wired here — see
+# scripts/validate_ifc.py for how to run them separately.
+#
+# ifctester (the optional IDS pillar) is PyPI-only and NOT declared here on
+# purpose: it depends on `ifcopenshell`, and the conda-forge ifcopenshell ships
+# no .dist-info, so pixi/uv can't see it as satisfying that pypi requirement and
+# tries to pull a second (pypi) ifcopenshell — which has no wheel for this
+# manylinux baseline, breaking the solve. The env therefore stays conda-only and
+# resolves cleanly; enable IDS validation when needed with:
+#     pixi run -e ifc-validation python -m pip install --no-deps ifctester
+[feature.ifc-validation.dependencies]
+python = "3.12.*"
+ifcopenshell = "*"
+# ifcopenshell's generated EXPRESS where-rule modules `import pytest` (they use
+# pytest.approx for numeric tolerance), so express_rules=True needs pytest present.
+pytest = "*"
+
+[feature.ifc-validation.tasks]
+ifc-validate = { cmd = "python scripts/validate_ifc.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
 [feature.meshio-bridge.dependencies]
 meshio = "*"
 
@@ -153,7 +183,7 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # for every other path (IFC/XML/FEM, occ-builtin fallback). Shares occt 7.9.3 with
 # pyocc (see above) so both coexist in one env.
 [feature.adacpp-runtime.dependencies]
-ada-cpp = "0.16.1.*"
+ada-cpp = "0.18.0.*"
 
 # ada-cpp CAD backend (AdacppBackend) — native CPython build of the
 # wasm-capable kernel. Brings its own occt 7.9.3 + gmsh + ifcopenshell,
@@ -175,8 +205,10 @@ ada-cpp = "0.16.1.*"
 # imprint_planar_faces plus win-64 build and cad-API-generator encoding fixes. 0.16
 # adds native OCC-free STEP/IFC→GLB with tessellation tracks and colour/curved-surface
 # fidelity; 0.16.1 fixes per-face STEP colours without --face-regions plus CLI positional
-# args and pipeline validation.
-ada-cpp = "0.16.1.*"
+# args and pipeline validation. 0.18 adds AP242 mapped instancing, closed-B-spline
+# tessellation fixes, and the NGEOM record-stream emitters (stream_ngeom_to_step/ifc/glb/mesh
+# + ngeom_to_ifc_body_spf) — adapy's native Genie-XML export legs call these directly.
+ada-cpp = "0.18.0.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"

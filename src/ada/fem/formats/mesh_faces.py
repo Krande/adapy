@@ -1076,6 +1076,7 @@ def iter_fem_analytic_faces(
     reconstruct_curved: bool = False,
     skip_cylinders: bool = False,
     drop_on_tube=None,
+    with_meta: bool = False,
 ):
     """Yield analytic ``ada.geom`` faces for every FEM shell mesh under ``part``, auto-
     detecting each region-grown patch's primitive: a **cylinder** patch → analytic
@@ -1097,6 +1098,13 @@ def iter_fem_analytic_faces(
     with the walls (no penetration, no gap). Leave it False unless a caller specifically wants the
     B-spline reduction on clean grid-topology hull panels.
 
+    ``with_meta`` (default False) yields ``(face, material, thickness)`` tuples instead of bare
+    faces — the (material, thickness) of the patch each face came from. The strong flat merge
+    buckets by (material, thickness, normal), so a merged planar face has a single well-defined
+    pair; a cylinder patch is tagged with its seed facet's. This is what the Genie-XML analytic
+    writer needs to give each ``<curved_shell>`` / ``<flat_plate>`` a thickness_ref/material_ref
+    while reusing this strong merge. STEP/IFC call it without meta and are unaffected.
+
     Never worse than the plain coplanar merge (non-reconstructed regions fall through to it)
     and collapses a tube's thousands of shell facets to a handful of exact cylinders."""
     parts = part.get_all_parts_in_assembly(include_self=True) if hasattr(part, "get_all_parts_in_assembly") else [part]
@@ -1114,6 +1122,11 @@ def iter_fem_analytic_faces(
         patches = list(_surface_patches(prims, angle_tol, ndigits))
         patch_cls = [(pt, classify_patch(prims, pt) if len(pt) >= min_patch_quads else "planar") for pt in patches]
 
+        elid_to_prim = {_elid_of(prims.names[j]): j for j in range(len(prims))} if with_meta else None
+
+        def _tag(face, ref_j):
+            return (face, prims.mats[ref_j], float(prims.ts[ref_j])) if with_meta else face
+
         # Curved-panel B-spline pass over each QUAD block's structured grid (cylinder patches
         # excluded, kept analytic). Consumes only the curved rectangles; everything else falls to
         # the cylinder / planar / facet emit below, which skips the consumed elements.
@@ -1126,7 +1139,7 @@ def iter_fem_analytic_faces(
                 for face, panel_elids in _reconstruct_curved_panels(
                     blk, cyl_elids, ndigits, angle_tol, min_patch_quads
                 ):
-                    yield face
+                    yield _tag(face, elid_to_prim[panel_elids[0]]) if with_meta else face
                     consumed.update(panel_elids)
 
         # Cylinders emit as analytic tubes (region-grow finds them by swept normals); their prims
@@ -1143,7 +1156,8 @@ def iter_fem_analytic_faces(
                 # exact joint-cut trim only when asked (breaks adacpp meshing, see above);
                 # otherwise the viz-safe full tube with flat circular ends.
                 trimmed = cylinder_trim_faces(prims, patch, cf, ndigits) if trim_cylinders else None
-                yield from (trimmed if trimmed is not None else cylinder_fit_to_faces(cf))
+                for face in trimmed if trimmed is not None else cylinder_fit_to_faces(cf):
+                    yield _tag(face, patch[0])
 
         # Flat plates: group every remaining facet (not a cylinder, not consumed by a curved B-spline
         # panel) by plane bucket — (material, thickness, normal) + edge-connected components — and
@@ -1160,14 +1174,15 @@ def iter_fem_analytic_faces(
             flat = [j for j in flat if not drop_on_tube(prims.outline(j).mean(axis=0))]
         for comp in _plane_bucket_components(prims, flat, ndigits, plane_digits=3):
             if len(comp) == 1:
-                yield _facet_flat_face(prims, comp[0])
+                yield _tag(_facet_flat_face(prims, comp[0]), comp[0])
                 continue
             faces = _flat_faces_with_holes(prims, comp, ndigits)
             if faces:
-                yield from faces
+                for face in faces:
+                    yield _tag(face, comp[0])
             else:  # boundary wouldn't resolve → per-facet (never lose geometry)
                 for j in comp:
-                    yield _facet_flat_face(prims, j)
+                    yield _tag(_facet_flat_face(prims, j), j)
 
 
 def _analytic_face_data(

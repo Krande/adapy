@@ -27,6 +27,56 @@ def _roundtrip_names(path):
     return {shp.name for shp in store.iter_all_shapes(True)}
 
 
+def _hierarchy_edges(path):
+    """Parse the streamed STEP's assembly tree into (parent_name, child_name) edges
+    by resolving each NEXT_ASSEMBLY_USAGE_OCCURRENCE's parent/child PRODUCT_DEFINITION
+    back to its PRODUCT name."""
+    import re
+
+    txt = open(path).read()
+    prods = dict(re.findall(r"#(\d+)\s*=\s*PRODUCT\('([^']*)'", txt))
+    pd_to_pdf = dict(re.findall(r"#(\d+)\s*=\s*PRODUCT_DEFINITION\('[^']*','[^']*',#(\d+)", txt))
+    pdf_to_prod = dict(re.findall(r"#(\d+)\s*=\s*PRODUCT_DEFINITION_FORMATION\('[^']*','[^']*',#(\d+)\)", txt))
+
+    def name_of_pd(pd):
+        return prods.get(pdf_to_prod.get(pd_to_pdf.get(pd)))
+
+    edges = set()
+    for m in re.finditer(r"NEXT_ASSEMBLY_USAGE_OCCURRENCE\('[^']*','[^']*','',#(\d+),#(\d+),", txt):
+        edges.add((name_of_pd(m.group(1)), name_of_pd(m.group(2))))
+    return edges
+
+
+def test_stream_writer_preserves_assembly_hierarchy(tmp_path):
+    # A nested Assembly/Part tree must round-trip its parent hierarchy through the
+    # streamed STEP (NEXT_ASSEMBLY_USAGE_OCCURRENCE tree), not land flat under the
+    # root — each member sits under its real owning part.
+    sub2 = ada.Part("sub2") / [
+        Beam("bm2", (0, 0, 0), (0, 0, 3), Section("s2", from_str="IPE300")),
+        Plate("pl2", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.02),
+    ]
+    sub1 = ada.Part("sub1") / [Beam("bm1", (1, 0, 0), (1, 0, 3), Section("s1", from_str="IPE300")), sub2]
+    a = ada.Assembly("root") / sub1
+
+    out = tmp_path / "hier.stp"
+    stats = a.to_stp(out, writer="stream")
+    assert stats == {"emitted": 3, "skipped": 0}
+
+    # member products all present
+    names = _roundtrip_names(out)
+    assert {"bm1", "bm2", "pl2"}.issubset(names)
+
+    # the exact nested hierarchy is carried in the STEP assembly tree
+    edges = _hierarchy_edges(out)
+    assert ("root", "sub1") in edges
+    assert ("sub1", "sub2") in edges
+    assert ("sub1", "bm1") in edges
+    assert ("sub2", "bm2") in edges
+    assert ("sub2", "pl2") in edges
+    # nothing lands flat directly under root except the top sub-assembly
+    assert {c for p, c in edges if p == "root"} == {"sub1"}
+
+
 def _model():
     tub = Beam("tub", (0, 0, 0), (0, 0, 3), Section("tub", from_str="TUB300x20"))  # hollow circle
     box = Beam("box", (1, 0, 0), (1, 0, 3), Section("box", from_str="BOX400x400x20x20"))
@@ -105,9 +155,10 @@ def test_stream_writer_emits_brep_shapes(tmp_path):
 
 
 def test_stream_writer_box_and_cylinder_primitives(tmp_path):
-    # Box and Cylinder primitives are extrusions (rectangle / circle swept by a
-    # length) and emit as watertight solids; Cone (tapered) and Sphere (periodic)
-    # are not yet supported and are skipped.
+    # All four CSG primitives emit as watertight ANALYTIC solids: Box + Cylinder are
+    # extrusions (rectangle / circle swept by a length); Cone + Sphere have an exact
+    # analytic B-rep (a CONICAL_SURFACE + planar cap, a single SPHERICAL_SURFACE face)
+    # built kernel-free — never tessellated.
     a = ada.Assembly("m") / (
         ada.Part("p")
         / [
@@ -120,8 +171,53 @@ def test_stream_writer_box_and_cylinder_primitives(tmp_path):
     out = tmp_path / "prims.stp"
     stats = a.to_stp(out, writer="stream")
 
-    assert stats == {"emitted": 2, "skipped": 2}  # box + cylinder; cone + sphere skipped
+    assert stats == {"emitted": 4, "skipped": 0}  # all four emit analytically
 
     n_solids, n_invalid = _roundtrip_solids(out)
-    assert n_solids == 2
+    assert n_solids == 4
     assert n_invalid == 0
+
+    txt = out.read_text()
+    # analytic surfaces, not a facet soup: a whole sphere is ONE spherical face
+    # bounded by a single pole vertex-loop; the cone carries a conical surface.
+    assert txt.count("SPHERICAL_SURFACE(") == 1
+    assert txt.count("VERTEX_LOOP(") == 1
+    assert txt.count("CONICAL_SURFACE(") == 1
+    # the sphere never degrades to thousands of planar triangle faces
+    assert txt.count("ADVANCED_FACE(") < 40
+
+
+def test_stream_writer_bspline_plate_is_an_analytic_valid_solid(tmp_path):
+    """A plate whose boundary follows a B-spline emits a real SURFACE_OF_LINEAR_EXTRUSION side face
+    (an analytic swept B-spline, NOT sampled into a fan of planar facets), and OCC reads it back as a
+    single valid solid. This is the guard for the ap242 analytic B-spline edge path."""
+    from ada.api.curves import CurvePoly2d, SplineEdge
+    from ada.geom.curves import BSplineCurveFormEnum, BSplineCurveWithKnots, KnotType
+
+    spline = BSplineCurveWithKnots(
+        degree=2,
+        control_points_list=[(1, 0, 0), (1.3, 0.5, 0), (1, 1, 0)],  # bulges out in +x
+        curve_form=BSplineCurveFormEnum.UNSPECIFIED,
+        closed_curve=False,
+        self_intersect=False,
+        knot_multiplicities=[3, 3],
+        knots=[0.0, 1.0],
+        knot_spec=KnotType.UNSPECIFIED,
+    )
+    segs = CurvePoly2d.build_edge_segments(
+        [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], [SplineEdge(a=(1, 0, 0), b=(1, 1, 0), curve=spline)]
+    )
+    pl = Plate.from_segments("bspline_pl", segs, 0.05)
+
+    out = tmp_path / "spline.stp"
+    stats = (ada.Assembly("root") / (ada.Part("p") / pl)).to_stp(out, writer="stream")
+    assert stats == {"emitted": 1, "skipped": 0}
+
+    n_solids, n_invalid = _roundtrip_solids(out)
+    assert (n_solids, n_invalid) == (1, 0)
+
+    txt = out.read_text()
+    assert txt.count("SURFACE_OF_LINEAR_EXTRUSION(") == 1  # one analytic swept side face for the spline
+    assert "B_SPLINE_CURVE_WITH_KNOTS(" in txt
+    # the spline never explodes into a sampled fan of planar side faces (3 lines + 1 spline + 2 caps)
+    assert txt.count("ADVANCED_FACE(") == 6

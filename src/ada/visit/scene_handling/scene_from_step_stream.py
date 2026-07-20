@@ -110,7 +110,11 @@ def _rebuild_stats():
         for k, v in consume_face_coverage_stats().items():
             stats[f"faces_{k}"] = stats.get(f"faces_{k}", 0) + v
 
-    from ada.cadit.ngeom.serialize import consume_face_drop_reasons, consume_face_stats
+    from ada.cadit.ngeom.serialize import (
+        consume_face_drop_reasons,
+        consume_face_stats,
+        consume_root_drop_reasons,
+    )
 
     for k, v in consume_face_stats().items():
         stats[f"faces_{k}"] = stats.get(f"faces_{k}", 0) + v
@@ -120,6 +124,11 @@ def _rebuild_stats():
     # result tuple for a diagnostic.
     for reason, n in consume_face_drop_reasons().items():
         key = f"{_FACE_DROP_PREFIX}{reason}"
+        stats[key] = stats.get(key, 0) + n
+    # Whole-geometry (root) drops ride the same reason channel, tagged ``root:`` so an
+    # unmapped solid surfaces in the run's drop_reasons/warning rather than vanishing.
+    for reason, n in consume_root_drop_reasons().items():
+        key = f"{_FACE_DROP_PREFIX}root: {reason}"
         stats[key] = stats.get(key, 0) + n
     return stats or None
 

@@ -2033,13 +2033,19 @@ async def audit_log_history_for_cell(
 ) -> list[dict]:
     """Historic ``audit_log`` results for one ``(source key, target_format)``
     cell across every run — newest first. Powers the per-cell 'show history'
-    table so an operator can spot run-to-run regressions for one conversion."""
+    table so an operator can spot run-to-run regressions for one conversion.
+
+    Only rows tied to an audit run (``audit_run_id IS NOT NULL``) are returned:
+    history is a cross-run comparison, so on-demand / viewer-triggered
+    re-conversions (e.g. a GLB re-tessellation on file open, ``audit_run_id``
+    NULL) are excluded — otherwise a heavily-viewed source floods its glb cell
+    with standalone rows that push the actual per-run results past ``limit``."""
     rows = await pool.fetch(
         """
         SELECT id, ts, status, error, duration_ms, peak_rss_kb,
                worker_image_tag, audit_run_id
         FROM audit_log
-        WHERE key = $1 AND target_format = $2
+        WHERE key = $1 AND target_format = $2 AND audit_run_id IS NOT NULL
         ORDER BY id DESC
         LIMIT $3
         """,

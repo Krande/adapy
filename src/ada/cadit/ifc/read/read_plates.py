@@ -75,6 +75,116 @@ def _import_curved_plate(ifc_elem, name, advanced_face: geo_su.AdvancedFace, ifc
     return pc
 
 
+def _arc_midpoint(circle, p_start, p_end, same_sense: bool) -> tuple[float, float, float]:
+    """The point on the arc of ``circle`` halfway between the two trim points (positive direction)."""
+    import math
+
+    import numpy as np
+
+    center = np.asarray(circle.position.location, dtype=float)[:3]
+    axis = np.asarray(circle.position.axis, dtype=float)[:3]
+    axis = axis / np.linalg.norm(axis)
+    if not same_sense:
+        axis = -axis
+    xd = np.asarray(circle.position.ref_direction, dtype=float)[:3]
+    xd = xd - axis * float(xd @ axis)
+    xd = xd / np.linalg.norm(xd)
+    yd = np.cross(axis, xd)
+    r = float(circle.radius)
+
+    def _ang(p):
+        d = np.asarray(p, dtype=float)[:3] - center
+        return math.atan2(float(d @ yd), float(d @ xd))
+
+    a0, a1 = _ang(p_start), _ang(p_end)
+    while a1 <= a0:
+        a1 += 2.0 * math.pi
+    am = 0.5 * (a0 + a1)
+    m = center + r * math.cos(am) * xd + r * math.sin(am) * yd
+    return (float(m[0]), float(m[1]), float(m[2]))
+
+
+def _plate_from_extruded_brep(ifc_elem, name, shell: geo_su.ClosedShell, ifc_store: IfcStore) -> Plate | None:
+    """Reconstruct the parametric ``Plate`` from the analytic B-rep the writer emits for a
+    spline-boundary plate (``extruded_loop_to_shell``): planar caps + planar/cylindrical sides + one
+    or more B-spline side faces whose v-direction IS the extrusion vector. Returns None for any shell
+    that doesn't match that shape — the caller then falls back to a generic geometry Shape."""
+    import numpy as np
+
+    from ada.api.curves import ArcSegment, CurvePoly2d, LineSegment, SplineSegment
+    from ada.geom import curves as geo_cu
+
+    spline_faces = [fc for fc in shell.cfs_faces if isinstance(fc.face_surface, geo_su.BSplineSurfaceWithKnots)]
+    if not spline_faces:
+        return None
+    grid = spline_faces[0].face_surface.control_points_list
+    if len(grid[0]) != 2:  # the writer's surface is degree-1 in v: exactly two control columns
+        return None
+    dvec = np.asarray(grid[0][1], dtype=float)[:3] - np.asarray(grid[0][0], dtype=float)[:3]
+    depth = float(np.linalg.norm(dvec))
+    if depth < 1e-9:
+        return None
+    ez = dvec / depth
+
+    def _plane_axis(fc):
+        a = np.asarray(fc.face_surface.position.axis, dtype=float)[:3]
+        return a / np.linalg.norm(a)
+
+    caps = [fc for fc in shell.cfs_faces if isinstance(fc.face_surface, geo_su.Plane)]
+    bottom = next((fc for fc in caps if float(_plane_axis(fc) @ ez) < -0.999), None)
+    if bottom is None or not bottom.bounds:
+        return None
+    loop = bottom.bounds[0].bound
+    edge_list = getattr(loop, "edge_list", None)
+    if not edge_list:
+        return None
+
+    segments = []
+    for oe in edge_list:
+        ec = oe.edge_element
+        geom = getattr(ec, "edge_geometry", None)
+        p_start, p_end = (ec.start, ec.end) if oe.orientation else (ec.end, ec.start)
+        if isinstance(geom, geo_cu.BSplineCurveWithKnots):
+            curve = geom if oe.orientation else _reversed_bspline_curve(geom)
+            segments.append(SplineSegment(p_start, p_end, curve=curve))
+        elif isinstance(geom, geo_cu.Circle):
+            mid = _arc_midpoint(geom, p_start, p_end, getattr(ec, "same_sense", True))
+            segments.append(ArcSegment(p_start, p_end, midpoint=mid))
+        elif isinstance(geom, (geo_cu.Line, geo_cu.PolyLine)) or geom is None:
+            segments.append(LineSegment(p_start, p_end))
+        else:
+            return None
+    # contiguity sanity: each segment must start where the previous one ended
+    for i, seg in enumerate(segments):
+        nxt = segments[(i + 1) % len(segments)]
+        if float(np.linalg.norm(np.asarray(seg.p2, dtype=float) - np.asarray(nxt.p1, dtype=float))) > 1e-6:
+            return None
+
+    try:
+        poly = CurvePoly2d.from_segments(segments)
+        if float(np.asarray(poly.normal, dtype=float) @ ez) < 0.0:
+            poly = CurvePoly2d.from_segments(segments, flip_n=True)
+    except Exception as exc:  # noqa: BLE001 - fall back to the generic shape import
+        logger.debug(f"plate {name}: from_segments reconstruction failed ({exc})")
+        return None
+
+    return Plate(
+        name,
+        poly,
+        depth,
+        mat=_read_plate_material(ifc_elem, name, ifc_store),
+        guid=ifc_elem.GlobalId,
+        ifc_store=ifc_store,
+        units=ifc_store.assembly.units,
+    )
+
+
+def _reversed_bspline_curve(c):
+    from ada.geom.primitive_brep import _reversed_bspline
+
+    return _reversed_bspline(c)
+
+
 def import_ifc_plate(ifc_elem: ifcopenshell.entity_instance, name, ifc_store: IfcStore):
     logger.info(f"importing {name}")
     geometries = get_product_definitions(ifc_elem)
@@ -82,6 +192,13 @@ def import_ifc_plate(ifc_elem: ifcopenshell.entity_instance, name, ifc_store: If
     # A curved (B-spline) plate surface -> PlateCurved (with flat-plate fallback).
     if len(geometries) == 1 and isinstance(geometries[0], geo_su.AdvancedFace):
         return _import_curved_plate(ifc_elem, name, geometries[0], ifc_store)
+
+    # A spline-boundary plate is written as an analytic IfcAdvancedBrep (ClosedShell); rebuild the
+    # parametric Plate from its bottom cap loop.
+    if len(geometries) == 1 and isinstance(geometries[0], geo_su.ClosedShell):
+        pl = _plate_from_extruded_brep(ifc_elem, name, geometries[0], ifc_store)
+        if pl is not None:
+            return pl
 
     # Only an extruded arbitrary profile maps to a parametric Plate. Anything else
     # (e.g. another BREP form) is imported as a generic geometry-backed Shape so it

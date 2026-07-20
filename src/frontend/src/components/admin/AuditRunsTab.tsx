@@ -10,7 +10,7 @@ const WASM_POOL = "wasm";
 
 // Admin tab — kick off regression sweeps across the converter matrix
 // and drill into per-cell results. Layer 1 of the audit panel from
-// plan/v2/notes_admin_audit_panel.md:
+// the admin audit-panel design notes:
 //
 //   * "Run audit" form — pick a scope (M3 will add a corpus picker)
 //     and an optional worker pool, fire one POST to /admin/audit/runs.
@@ -244,6 +244,9 @@ const RunGrid: React.FC<{
 
     // Right-click (desktop) / long-press (touch) context menu for a cell.
     const [menu, setMenu] = useState<{x: number; y: number; file: string; target: string} | null>(null);
+    // Tapped quality-flag detail popover. The flag chip's ``title`` is a hover
+    // tooltip, invisible on touch — a tap opens this so mobile can read it.
+    const [flagInfo, setFlagInfo] = useState<{x: number; y: number; label: string; title: string} | null>(null);
     const longPress = useRef<number | null>(null);
     const openMenu = (x: number, y: number, file: string, target: string) =>
         setMenu({x, y, file, target});
@@ -274,6 +277,21 @@ const RunGrid: React.FC<{
             window.removeEventListener("keydown", onKey);
         };
     }, [menu]);
+
+    // Close the flag-detail popover on any outside tap / scroll / Escape.
+    useEffect(() => {
+        if (!flagInfo) return;
+        const close = () => setFlagInfo(null);
+        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFlagInfo(null); };
+        window.addEventListener("click", close);
+        window.addEventListener("scroll", close, true);
+        window.addEventListener("keydown", onKey);
+        return () => {
+            window.removeEventListener("click", close);
+            window.removeEventListener("scroll", close, true);
+            window.removeEventListener("keydown", onKey);
+        };
+    }, [flagInfo]);
 
     // Per-source cross-format parity result (the dispatcher emits one
     // ``parity`` cell per source). The "Validation" metric colours every cell
@@ -420,8 +438,15 @@ const RunGrid: React.FC<{
                                 {sourceFlags(grid.cells, grid.targets, file).map((f) => (
                                     <span
                                         key={f.key}
-                                        className={`inline-block mr-1 px-1.5 py-0.5 rounded-sm border text-[10px] ${f.cls}`}
+                                        className={`inline-block mr-1 px-1.5 py-0.5 rounded-sm border text-[10px] cursor-pointer ${f.cls}`}
                                         title={f.title}
+                                        onClick={(e) => {
+                                            // Tap opens the detail popover (mobile has no hover for ``title``).
+                                            e.stopPropagation();
+                                            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                            const x = Math.max(4, Math.min(r.left, window.innerWidth - 288));
+                                            setFlagInfo({x, y: r.bottom + 4, label: f.label, title: f.title});
+                                        }}
                                     >
                                         {f.label}
                                     </span>
@@ -486,6 +511,16 @@ const RunGrid: React.FC<{
                             Rerun cell ↻
                         </button>
                     )}
+                </div>
+            )}
+            {flagInfo && (
+                <div
+                    className="fixed z-50 max-w-[280px] rounded-sm border border-gray-600 bg-gray-900 shadow-lg p-2 text-xs"
+                    style={{left: flagInfo.x, top: flagInfo.y}}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="text-gray-200 font-medium mb-1">{flagInfo.label}</div>
+                    <div className="text-gray-400 leading-snug">{flagInfo.title}</div>
                 </div>
             )}
         </div>

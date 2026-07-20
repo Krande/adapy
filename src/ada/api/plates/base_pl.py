@@ -9,7 +9,7 @@ from ada.api.curves import CurvePoly2d
 from ada.api.nodes import Node
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
-from ada.config import Config
+from ada.config import Config, logger
 from ada.core.vector_utils import poly2d_center_of_gravity
 from ada.geom import Geometry
 from ada.geom.direction import Direction
@@ -99,6 +99,18 @@ class Plate(BackendGeom):
         name, points, t, mat="S420", xdir=None, color=None, metadata=None, flip_normal=False, **kwargs
     ) -> Plate:
         poly = CurvePoly2d.from_3d_points(points, xdir=xdir, flip_n=flip_normal, **kwargs)
+        return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, **kwargs)
+
+    @staticmethod
+    def from_segments(name, segments, t, mat="S420", color=None, metadata=None, flip_normal=False, **kwargs) -> Plate:
+        """Build a plate whose outline is an ordered list of ``LineSegment``/``ArcSegment``/``SplineSegment``.
+
+        Use this instead of ``from_3d_points`` when the boundary is genuinely a mix of line and analytic
+        curve edges (e.g. an ACIS/SAT plate with a circular or spline boundary): the segments are carried
+        verbatim rather than sampled into a point cloud and rebuilt, so arcs/splines survive analytically
+        into IFC/STEP and are discretized only downstream at tessellation.
+        """
+        poly = CurvePoly2d.from_segments(segments, flip_n=flip_normal, **kwargs)
         return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, **kwargs)
 
     @staticmethod
@@ -195,6 +207,14 @@ class Plate(BackendGeom):
                 xdir = new_vectors[1]
 
             origin = place_abs.origin + origin
+
+        # Global thickness anchor: offset the extrusion BASE along the plate normal
+        # ("as_is" = 0 keeps the historical output byte-identical).
+        from ada.geom.primitive_brep import thickness_anchor_base_offset
+
+        base_off = thickness_anchor_base_offset(Config().geom_thickness_anchor, self.t)
+        if base_off:
+            origin = Point(*(np.asarray(origin, dtype=float) + base_off * np.asarray(normal, dtype=float)))
 
         # Origin location is already included in the outer_curve definition
         place = Axis2Placement3D(location=origin, axis=normal, ref_direction=xdir)
@@ -410,6 +430,7 @@ class PlateCurved(BackendGeom):
         # (loft tool / gxml advanced faces render as the surface).
         self._extrude_as_solid = bool(extrude_as_solid)
         self._nodes_cache: list[Node] | None = None
+        self._thick_shell_cache = None
         self._bbox = None
         self._hash = None
         # Optional raw-OCC-face override; populated by
@@ -451,6 +472,7 @@ class PlateCurved(BackendGeom):
         instance._t = t
         instance._extrude_as_solid = False
         instance._nodes_cache = None
+        instance._thick_shell_cache = None
         instance._bbox = None
         instance._hash = None
         instance._occ_face_override = occ_face
@@ -530,7 +552,9 @@ class PlateCurved(BackendGeom):
 
             shape = self._occ_face_override
             if shape is None:
-                shape = active_backend().build(self.solid_geom())
+                # Always the bare face — boundary nodes are the shell's outer wire
+                # regardless of whether the SOLID representation is thickened.
+                shape = active_backend().build(self.geom)
             nodes = [Node(p) for p in boundary_points(shape)]
         except Exception:
             nodes = []
@@ -542,7 +566,74 @@ class PlateCurved(BackendGeom):
             self._bbox = BoundingBox(self)
         return self._bbox
 
+    def gxml_sense_flag(self) -> bool:
+        """The gxml ``curved_shell`` sense flag (does the desired shell normal agree
+        with the wrapped face's own normal). Authored data preserved by the gxml
+        reader in ``metadata["props"]["gxml_sense_flag"]``; defaults to True."""
+        props = self.metadata.get("props", {}) if isinstance(self.metadata, dict) else {}
+        return bool(props.get("gxml_sense_flag", True))
+
+    def thickness_direction(self) -> Direction | None:
+        """Sense-corrected unit thickness direction: the wrapped face's own oriented
+        normal (probed kernel-free at a representative parameter), flipped when the
+        gxml sense flag is false. None when the surface has no kernel-free probe."""
+        if self._geom is None:
+            return None
+        from ada.geom import surfaces as geo_su
+        from ada.geom.primitive_brep import face_mid_normal
+
+        geometry = self._geom.geometry
+        if not isinstance(geometry, (geo_su.AdvancedFace, geo_su.FaceSurface)):
+            return None
+        n = face_mid_normal(geometry)
+        if n is None:
+            return None
+        if not self.gxml_sense_flag():
+            n = (-n[0], -n[1], -n[2])
+        return Direction(*n)
+
+    def _thick_shell_geom(self) -> Geometry | None:
+        """Thickness-``t`` analytic ClosedShell Geometry (kernel-free, cached), or None
+        when thickening is disabled / not buildable for this face."""
+        cfg = Config()
+        if not cfg.geom_thicken_curved_shells or not self.t or self._geom is None:
+            return None
+        anchor = cfg.geom_thickness_anchor
+        key = (anchor, float(self.t))
+        cached = self._thick_shell_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+
+        from ada.geom import surfaces as geo_su
+        from ada.geom.primitive_brep import face_to_thick_shell
+
+        shell = None
+        geometry = self._geom.geometry
+        if isinstance(geometry, (geo_su.AdvancedFace, geo_su.FaceSurface)):
+            direction = self.thickness_direction()
+            if direction is not None:
+                try:
+                    shell = face_to_thick_shell(
+                        geometry,
+                        direction,
+                        self.t,
+                        anchor=anchor,
+                        direction_agrees_with_face=self.gxml_sense_flag(),
+                    )
+                except Exception:  # noqa: BLE001 - malformed face data -> bare-face fallback
+                    shell = None
+        result = Geometry(self.guid, shell, self.color) if shell is not None else None
+        self._thick_shell_cache = (key, result)
+        return result
+
     def solid_geom(self) -> Geometry:
+        """The plate's SOLID geometry: a thickness-``t`` analytic ClosedShell (built
+        kernel-free by :func:`ada.geom.primitive_brep.face_to_thick_shell`, honouring
+        ``Config().geom_thickness_anchor``) when ``Config().geom_thicken_curved_shells``
+        is on and the face is thickenable — else the bare face Geometry as before."""
+        thick = self._thick_shell_geom()
+        if thick is not None:
+            return thick
         return self.geom
 
     def _face_occ(self) -> ShapeHandle:
@@ -551,15 +642,25 @@ class PlateCurved(BackendGeom):
             return self._occ_face_override
         from ada.cad import active_backend
 
-        return active_backend().build(self.solid_geom())
+        return active_backend().build(self.geom)
 
     def solid_occ(self) -> ShapeHandle:
         # Reconstructed panels opt into a true thickness extrusion for the SOLID
-        # representation (so STEP/SOLID-repr export is a real solid); everything
-        # else keeps the historical bare-face behaviour. No recursion:
+        # representation (so STEP/SOLID-repr export is a real solid). No recursion:
         # extruded_solid_occ builds the face via _face_occ, not solid_occ.
         if self._extrude_as_solid and self.t:
             return self.extruded_solid_occ()
+        # Thickened curved shells build the SAME ada.geom ClosedShell through the
+        # backend's normal geom conversion (never the OCC prism, which stays for the
+        # FEM surface-reconstruction opt-in above). Bare face on any build failure.
+        thick = self._thick_shell_geom()
+        if thick is not None:
+            try:
+                from ada.cad import active_backend
+
+                return active_backend().build(thick)
+            except Exception as e:  # noqa: BLE001 - backend can't build this shell
+                logger.debug("PlateCurved %r: thick-shell backend build failed (%s); using bare face", self.name, e)
         return self._face_occ()
 
     def extruded_solid_occ(self) -> ShapeHandle:

@@ -12,7 +12,7 @@ import FolderPickerModal from "@/components/common/FolderPickerModal";
 import {scopeUrlPart} from "@/state/scopeStore";
 
 // Admin tab — manage proprietary regression corpora (M3 of the audit
-// panel design in plan/v2/notes_admin_audit_panel.md).
+// panel design in the admin audit-panel design notes).
 //
 // Each corpus is its own scope (``corpus:<slug>``) — the per-scope
 // /api/scopes/{scope}/files endpoints already exist, so file

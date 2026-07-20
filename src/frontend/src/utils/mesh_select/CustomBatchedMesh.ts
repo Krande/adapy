@@ -177,7 +177,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
 
         // THREE renders one draw call PER geometry.group, regardless of
         // material count. The previous implementation added one group per
-        // drawRange unconditionally — for a Ship1T1.FEM-style mesh with
+        // drawRange unconditionally — for a large ship FEM-style mesh with
         // ~48k selectable elements that's 48k draw calls and ~10 FPS,
         // even with nothing selected. Coalesce consecutive same-material
         // ranges into one group: in the common case (nothing selected,

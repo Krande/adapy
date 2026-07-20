@@ -65,15 +65,39 @@ def _bboxes_disjoint(a, b, tol: float = 1e-3) -> bool:
 
 
 def get_face_bound(acis_record: AcisRecord) -> list[geo_su.FaceBound]:
-    """Gets the edge loop from the SAT object data."""
+    """Gets the outer edge loop from the SAT object data.
 
-    loop_rec = acis_record.sat_store.get(acis_record.chunks[7])
-    edges = []
+    A face's loops are a linked list — ``loop.chunks[6]`` points to the next loop, ``chunks[7]``
+    to the loop's first coedge, and ``chunks[16]`` is the loop kind (``periphery`` = outer boundary,
+    ``hole`` = inner). The outer boundary is usually first, but ACIS sometimes orders a *degenerate*
+    hole loop ahead of it: a single zero-length, curve-less coedge marking a surface singularity
+    (its two vertices are the same point). ``iter_loop_coedges`` correctly steps over that coedge, so
+    reading only the face's first loop then yields an empty wire and the whole plate fails to build
+    (``build_advanced_face: wire build failed``) — dropping a valid plate.
 
-    for edge in iter_loop_coedges(loop_rec):
-        edges.append(edge)
+    Walk the chain and take the outer boundary: the ``periphery`` loop if one is marked, else the
+    first loop that actually carries edges. Inner holes are not represented here (the downstream
+    planar/advanced-face builders take a single bound), matching the prior single-loop behaviour.
+    """
+    loop_ptr = acis_record.chunks[7]
+    seen: set[str] = set()
+    first_nonempty: list | None = None
 
-    return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(edges), orientation=True)]
+    while loop_ptr and loop_ptr != "$-1" and loop_ptr not in seen:
+        seen.add(loop_ptr)
+        loop_rec = acis_record.sat_store.get(loop_ptr)
+        if loop_rec is None:
+            break
+        edges = list(iter_loop_coedges(loop_rec))
+        if edges:
+            if first_nonempty is None:
+                first_nonempty = edges
+            # Prefer the periphery (outer) loop over any non-degenerate hole loop.
+            if len(loop_rec.chunks) > 16 and loop_rec.chunks[16] == "periphery":
+                return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(edges), orientation=True)]
+        loop_ptr = loop_rec.chunks[6]
+
+    return [geo_su.FaceBound(bound=geo_cu.EdgeLoop(first_nonempty or []), orientation=True)]
 
 
 def get_face_surface(face_record: AcisRecord) -> geo_su.SURFACE_GEOM_TYPES | geo_su.Plane:

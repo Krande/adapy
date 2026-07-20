@@ -1,7 +1,7 @@
 """Serialize ``ada.geom`` geometry into the NGEOM binary buffer (spec v1).
 
 The buffer is the contract with adacpp's neutral geometry layer (no adacpp import here). See
-dap/plan/v3/spec_neutral_geometry_schema.md for the wire format and tag catalog.
+the neutral-geometry schema spec for the wire format and tag catalog.
 """
 
 from __future__ import annotations
@@ -28,6 +28,14 @@ NGEOM_VERSION = 1
 FACE_STATS: Counter = Counter()
 FACE_DROP_REASONS: Counter = Counter()
 
+# Root-level (whole-geometry) drops. ``connected_face_set`` counts individual faces, but an
+# entire root geometry whose top-level type isn't mappable (``_dispatch`` -> _Unsupported) was
+# skipped SILENTLY in ``serialize_geometries`` with no counter — a whole solid could leave the
+# stream with nothing recorded, the same silent-drop class the per-face counters exist to expose.
+# Keys: "total", "built", "dropped"; reasons tallied by (geometry type, exception).
+ROOT_STATS: Counter = Counter()
+ROOT_DROP_REASONS: Counter = Counter()
+
 
 def consume_face_stats() -> dict[str, int]:
     """Return and reset this process's per-face serialization counters."""
@@ -40,6 +48,20 @@ def consume_face_drop_reasons() -> dict[str, int]:
     """Return and reset the per-reason tally of faces this path could not serialize."""
     out = dict(FACE_DROP_REASONS)
     FACE_DROP_REASONS.clear()
+    return out
+
+
+def consume_root_stats() -> dict[str, int]:
+    """Return and reset this process's per-root (whole-geometry) serialization counters."""
+    out = dict(ROOT_STATS)
+    ROOT_STATS.clear()
+    return out
+
+
+def consume_root_drop_reasons() -> dict[str, int]:
+    """Return and reset the per-reason tally of root geometries this path could not serialize."""
+    out = dict(ROOT_DROP_REASONS)
+    ROOT_DROP_REASONS.clear()
     return out
 
 
@@ -505,23 +527,33 @@ class _Encoder:
         body += b"".join(self.i32(b) for b in bounds)  # 1-2 bounds/face: inline (per-face hot path)
         return self._add(_FACE_SURFACE, body)
 
+    def _count_mapped_face(self, f, build) -> int | None:
+        """Map one face to a record index via ``build``, tallying the outcome on the
+        shared FACE_STATS/FACE_DROP_REASONS counters. Skipping a face that can't be
+        mapped stays the behaviour; being SILENT about it does not — every face-set
+        path (connected_face_set / face_based / shell_based) routes through here so a
+        dropped OR merely un-counted face can never hide under a green coverage check.
+        Tally by (surface type, exception) rather than logging per face — a bad file
+        can carry thousands, and the caller summarizes once per run."""
+        FACE_STATS["total"] += 1
+        try:
+            idx = build(f)
+            FACE_STATS["built"] += 1
+            return idx
+        except Exception as ex:  # noqa: BLE001 - skip any face that can't be mapped (robustness)
+            FACE_STATS["dropped"] += 1
+            surf = getattr(f, "face_surface", None)
+            FACE_DROP_REASONS[f"{type(surf).__name__}: {type(ex).__name__}: {ex}"] += 1
+            return None
+
     def connected_face_set(self, cfs) -> int:
         # ConnectedFaceSet / ClosedShell / OpenShell all expose ``cfs_faces`` (FaceSurface or
         # the structurally-identical AdvancedFace). Skip any face that can't be mapped.
         faces = []
         for f in cfs.cfs_faces:
-            FACE_STATS["total"] += 1
-            try:
-                faces.append(self.face_surface(f))
-                FACE_STATS["built"] += 1
-            except Exception as ex:  # noqa: BLE001 - skip any face that can't be mapped (robustness)
-                # Skipping stays the behaviour; being SILENT about it does not. Tally by
-                # (surface type, exception) rather than logging per face — a bad file can carry
-                # thousands, and the caller summarizes once per run.
-                FACE_STATS["dropped"] += 1
-                surf = getattr(f, "face_surface", None)
-                FACE_DROP_REASONS[f"{type(surf).__name__}: {type(ex).__name__}: {ex}"] += 1
-                continue
+            idx = self._count_mapped_face(f, self.face_surface)
+            if idx is not None:
+                faces.append(idx)
         return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + self._i32_raw(faces))
 
     # --- solids ------------------------------------------------------------------------
@@ -546,12 +578,15 @@ class _Encoder:
             return _composite_curve_loop_points(curve)
 
         segs = getattr(curve, "segments", None)
-        if segs and any(isinstance(s, cu.ArcLine) for s in segs):
+        if segs and any(isinstance(s, (cu.ArcLine, cu.BSplineCurveWithKnots)) for s in segs):
             pts: list[tuple[float, float, float]] = []
             for s in segs:
                 if isinstance(s, cu.ArcLine):
                     arc = _sample_arc(s.start, s.midpoint, s.end)
                     pts.extend(_to3(p) for p in arc[:-1])  # end repeats the next segment's start
+                elif isinstance(s, cu.BSplineCurveWithKnots):  # analytic spline edge -> polyline
+                    sp = s.sample(max(16, int(s.degree) * 8))
+                    pts.extend(_to3(p) for p in sp[:-1])  # end repeats the next segment's start
                 else:  # Edge / straight segment
                     pts.append(_to3(s.start))
             return pts
@@ -891,10 +926,9 @@ class _Encoder:
         faces = []
         for cfs in fbsm.fbsm_faces:
             for f in getattr(cfs, "cfs_faces", []):
-                try:
-                    faces.append(self._any_face(f))
-                except Exception:  # noqa: BLE001
-                    continue
+                idx = self._count_mapped_face(f, self._any_face)
+                if idx is not None:
+                    faces.append(idx)
         return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + self._i32_raw(faces))
 
     def shell_based_surface_model(self, sbsm) -> int:
@@ -904,10 +938,9 @@ class _Encoder:
         faces = []
         for shell in sbsm.sbsm_boundary:
             for f in getattr(shell, "cfs_faces", []):
-                try:
-                    faces.append(self._any_face(f))
-                except Exception:  # noqa: BLE001
-                    continue
+                idx = self._count_mapped_face(f, self._any_face)
+                if idx is not None:
+                    faces.append(idx)
         return self._add(_CONNECTED_FACE_SET, self.i32(len(faces)) + self._i32_raw(faces))
 
     def boolean_result(self, br) -> int:
@@ -1189,8 +1222,16 @@ def serialize_geometries(items: Iterable[tuple[str, object]]) -> bytes:
     enc = _Encoder()
     roots: list[tuple[int, str]] = []
     for rid, geom in items:
+        ROOT_STATS["total"] += 1
         try:
             roots.append((enc.root(geom), rid))
-        except _Unsupported:
+            ROOT_STATS["built"] += 1
+        except _Unsupported as ex:
+            # A whole geometry that can't be mapped is skipped for robustness — but not
+            # silently: tally it (by geometry type) so the run summary flags an unmapped
+            # solid instead of it vanishing from the stream under a green check.
+            ROOT_STATS["dropped"] += 1
+            inner = getattr(geom, "geometry", geom)
+            ROOT_DROP_REASONS[f"{type(inner).__name__}: {ex}"] += 1
             continue
     return enc.finish(roots)

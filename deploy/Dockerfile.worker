@@ -8,6 +8,10 @@
 # meaningfully shrink things.
 #
 # Rebuild marker (bump to re-pull the ADACPP_BRANCH overlay fresh):
+#   2026-07-19 — ADACPP_BRANCH switched to feat/step-emit-mapped-instances (AP242 assembly
+#   instancing + the closed-B-spline-edge / periodic-domain tessellation fixes that zero the
+#   dropped-face warnings on the NURBS-heavy corpus files). The previous value
+#   (fix/step-emit-degenerate-loop) is fully contained in the pinned 0.17.1.
 #   2026-07-15 — overlay retired. Everything the previous markers were previewing (selectable
 #   tessellation tracks, boundary pinning ON by default, the watertight `cdt` track) shipped in
 #   ada-cpp 0.14.0, which pixi.toml now pins. The worker takes it from conda.

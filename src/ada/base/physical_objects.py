@@ -275,8 +275,8 @@ class BackendGeom(Root):
         clash, bbox, FEM all consume it). Treat it as opaque — its concrete
         type is backend-private (a ``TopoDS_Solid``/``TopoDS_Compound`` under
         the default OCC backend). Operate on it via the CAD backend verbs,
-        not by importing kernel types. See dap plan/v3
-        notes_occ_backend_abstraction (Phase 2)."""
+        not by importing kernel types. See the internal design notes
+        the internal design notes (Phase 2)."""
         raise NotImplementedError()
 
     def shell_occ(self) -> ShapeHandle:

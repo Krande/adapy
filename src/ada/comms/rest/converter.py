@@ -704,6 +704,69 @@ def _gxml_face_streaming(source_ext: str, target_format: str, reconstruct_surfac
     return os.environ.get("ADA_GXML_STREAMING", "").strip().lower() not in _FALSE
 
 
+def _native_ngeom_mesh_route(
+    model,
+    source_ext: str | None,
+    target_format: str,
+    out_path: pathlib.Path,
+    on_progress: ProgressFn,
+    *,
+    glb_tess_engine: str | None = None,
+) -> pathlib.Path | None:
+    """Fully-native mesh leg for ada-object sources: serialize each object's ``solid_geom()`` to
+    an NGEOM record and let adacpp tessellate + write the GLB / OBJ / STL in C++
+    (``stream_ngeom_to_glb`` / ``stream_ngeom_to_mesh``) — no Python scene assembly, no trimesh
+    writer (the hull's 137 s xml→obj becomes the same class as the native step→obj leg).
+
+    Returns ``out_path`` on success, or ``None`` to fall back WHOLESALE to the Python path:
+    Genie-XML sources only (concept objects with parametric ``solid_geom()``), gated by the same
+    ``Config().cad_native_ngeom_export`` switch as the xml→step/ifc legs, and only when the
+    requested tessellation engine is an adacpp record track. A model carrying FEM mesh content
+    falls back too — the Python ``to_gltf`` renders the FEM mesh itself (shell faces, beam
+    lines, the beam_solids sidecar), which the concept-object record walk cannot express. The
+    zero-renderable-object case also falls back (``collect_ngeom_records`` raises), preserving
+    the Python path's seeded empty-scene output.
+    """
+    if source_ext is None or source_ext.lower() != ".xml":
+        return None
+    # Engine choice must resolve to an adacpp record-stream track; occ-builtin / the taxonomy
+    # kernels (occ/cgal/hybrid) mean the user asked for a different tessellator — honour it.
+    stream = _glb_engine_stream_value(glb_tess_engine)
+    if stream not in ("libtess2", "cdt"):
+        return None
+    from ada.cadit.ngeom.export import (
+        NativeExportUnsupported,
+        native_export_enabled,
+        native_mesh_writers_available,
+        native_to_glb,
+        native_to_mesh,
+    )
+    from ada.config import logger
+
+    if not (native_export_enabled() and native_mesh_writers_available()):
+        return None
+    try:
+        # Renderable FEM = elements. Bare nodes (Genie support points / mass nodes) don't
+        # produce mesh geometry, so they must not disqualify the native route.
+        if any(len(p.fem.elements) > 0 for p in model.get_all_parts_in_assembly(include_self=True)):
+            return None
+    except Exception:  # noqa: BLE001 - a malformed FEM container must not kill the conversion
+        return None
+    try:
+        on_progress("native-ngeom-tessellating", 0.55)
+        if target_format == "glb":
+            native_to_glb(model, out_path, pipeline=stream)
+        else:
+            native_to_mesh(model, out_path, target_format, pipeline=stream)
+        on_progress("ready", 1.0)
+        return out_path
+    except NativeExportUnsupported as exc:
+        logger.warning("native xml->%s route unavailable (%s); using the Python writer", target_format, exc)
+    except Exception as exc:  # noqa: BLE001 - wholesale fallback: never fail the job on the fast path
+        logger.warning("native xml->%s route failed (%s); using the Python writer", target_format, exc)
+    return None
+
+
 def _export_with_ada(
     model,
     target_format: str,
@@ -742,6 +805,15 @@ def _export_with_ada(
 
             merge_env = (_os.environ.get("ADA_GLB_MERGE_MESHES") or "").strip().lower()
             merge_meshes = merge_env not in {"0", "false", "no", "off"}
+        # Fully-native record path (Genie-XML sources): adacpp tessellates and writes the GLB
+        # itself — no Python scene assembly. merge_meshes=False is the one-node-per-object debug
+        # layout, which the merge-by-colour native writer can't express; that stays on Python.
+        if merge_meshes:
+            native_out = _native_ngeom_mesh_route(
+                model, source_ext, "glb", out_path, on_progress, glb_tess_engine=glb_tess_engine
+            )
+            if native_out is not None:
+                return native_out
         # FEM beam (line) elements render as line geometry by default; the solid (swept-
         # profile) representation is delivered as a separate beam_solids sidecar the viewer
         # lazy-loads when the "show beams as solid" toggle is on (mirrors the FEA-results path).
@@ -795,6 +867,35 @@ def _export_with_ada(
         return buf.getvalue()
     if target_format == "ifc":
         on_progress("writing-ifc", 0.55)
+        # The DEFAULT xml->ifc path is the streaming writer below (model.to_ifc(streaming=True)):
+        # it emits TYPED products (IfcBeam/IfcPlate with parametric round-trip) while curved and
+        # spline-boundary plates stream their heavy B-rep body graphs through adacpp's
+        # ngeom_to_ifc_body_spf C++ fragment emitter (~µs/face vs the per-entity ifcopenshell
+        # writer's ~ms/face that made the thickened-curved-shell hull take ~34 s).
+        # ADA_CAD_NATIVE_NGEOM_EXPORT_IFC=true remains a GEOMETRY-ONLY opt-in: the fully-native
+        # record-stream writer wraps every solid in an IfcBuildingElementProxy (no typed
+        # products), acceptable only for geometry handoff. The STEP leg stays native by default:
+        # STEP products carry name-only semantics either way, so nothing is lost there.
+        if source_ext is not None and source_ext.lower() == ".xml":
+            import os as _os
+
+            from ada.cadit.ngeom.export import (
+                NativeExportUnsupported,
+                native_export_enabled,
+                native_ngeom_writers_available,
+                native_to_ifc,
+            )
+
+            _ifc_opt_in = _os.environ.get("ADA_CAD_NATIVE_NGEOM_EXPORT_IFC", "").strip().lower() in ("1", "true")
+            if _ifc_opt_in and native_export_enabled() and native_ngeom_writers_available():
+                try:
+                    native_to_ifc(model, out_path)
+                    on_progress("ready", 1.0)
+                    return out_path
+                except NativeExportUnsupported as exc:
+                    from ada.config import logger
+
+                    logger.warning("native xml->ifc route unavailable (%s); using the Python writer", exc)
         # Memory-bounded writer is the default: it hand-authors Plate solids as
         # SPF text instead of holding the whole ifcopenshell.file, ~halving peak
         # RSS on large FEM→IFC and clearing the worker OOM cap. The admin "Stream
@@ -823,13 +924,19 @@ def _export_with_ada(
         recon = bool(reconstruct_surfaces) if reconstruct_surfaces is not None else False
         if source_ext is not None and _gxml_face_streaming(source_ext, target_format, recon):
             # Object-free path: plates stream from the vectorized FEM-shell face
-            # source (no Plate objects, no DOM). merge_fem_objects -> strategy.
-            merge = True if merge_fem_objects is None else bool(merge_fem_objects)
-            model.to_genie_xml(
-                destination_xml=str(out_path),
-                streaming=True,
-                merge_strategy=("coplanar" if merge else "none"),
-            )
+            # source (no Plate objects, no DOM). Default is the analytic auto-detect
+            # ("cylinder": tubular members -> <curved_shell> over an embedded SAT
+            # body, flat panels -> merged <flat_plate>), matching FEM->STEP/IFC and
+            # collapsing a tube's shell facets instead of emitting thousands of
+            # coplanar polygons; a string merge_fem_objects overrides verbatim,
+            # False opts out to 1:1.
+            if isinstance(merge_fem_objects, str):
+                ms = merge_fem_objects
+            elif merge_fem_objects is False:
+                ms = "none"
+            else:
+                ms = "cylinder"
+            model.to_genie_xml(destination_xml=str(out_path), streaming=True, merge_strategy=ms)
         else:
             model.to_genie_xml(destination_xml=str(out_path))
     else:
@@ -1610,7 +1717,7 @@ def _brep_writer_is_python(serializer: str | None) -> bool:
 def _default_glb_tess_engine() -> str:
     """Default engine for the non-STEP →GLB (scene) path: ``libtess2`` when adacpp is importable,
     else the OCC BatchTessellator. OCC's prism tessellation of curved B-spline plates is
-    NON-MANIFOLD — it drops the viewer's per-plate edge outlines (hullskin elev13 plates) — so
+    NON-MANIFOLD — it drops the viewer's per-plate edge outlines (hull-skin plates) — so
     libtess2 (manifold; non-NGEOM-serializable geom still falls back to OCC per-object) is
     preferred wherever it can run. Evaluated at conversion time so a slim/adacpp-less pool still
     gets OCC."""
@@ -2101,22 +2208,26 @@ def _via_ada_to_trimesh(
     source_ext: str,
     target_ext: str,
     on_progress: ProgressFn,
-) -> bytes:
-    """Ada-loadable source → trimesh mesh export (``.stl`` / ``.obj``).
+) -> bytes | pathlib.Path:
+    """Ada-loadable source → mesh export (``.stl`` / ``.obj``).
 
-    Bridges the same ada-loadable formats ``_via_ada`` handles to
-    trimesh's mesh-only export targets. We go through
-    :meth:`Part.to_trimesh_scene` so tessellation honours adapy's
-    geom-repr / merge-meshes conventions; trimesh just serialises the
-    resulting scene.
-
-    No native STL/OBJ ada exporter is needed — trimesh's own writers
-    are mature and the GLB pipeline already proves the round-trip
-    works.
+    Genie-XML sources take the fully-native NGEOM-record route when available
+    (:func:`_native_ngeom_mesh_route`): adacpp tessellates and writes the OBJ/STL in C++,
+    returning the file path (ownership transfers to the caller). Everything else — and any
+    native fallback — bridges the same ada-loadable formats ``_via_ada`` handles to trimesh's
+    mesh-only export targets via :meth:`Part.to_trimesh_scene`, so tessellation honours adapy's
+    geom-repr / merge-meshes conventions and trimesh serialises the resulting scene.
     """
 
     on_progress("parsing", 0.15)
     model = _load_with_ada(src_path, source_ext)
+    fmt = target_ext.lstrip(".").lower()
+    if fmt in ("obj", "stl"):
+        native_path = pathlib.Path(tempfile.mkstemp(suffix=f".{fmt}")[1])
+        native_out = _native_ngeom_mesh_route(model, source_ext, fmt, native_path, on_progress)
+        if native_out is not None:
+            return native_out
+        native_path.unlink(missing_ok=True)  # fell back: drop the unused temp slot
     on_progress("tessellating", 0.55)
     scene = model.to_trimesh_scene()
     _strip_unexportable_for(scene, target_ext)
@@ -2281,6 +2392,25 @@ def _via_ada_to_step(
             if skipped:
                 logger.warning(f"streaming STEP writer skipped {skipped} non-extrudable object(s)")
         else:
+            # Genie-XML fast path (default on, ADA_CAD_NATIVE_NGEOM_EXPORT=false to opt
+            # out): NGEOM records -> adacpp's C++ AP242 writer instead of the OCC XCAF /
+            # per-entity Python writers. Wholesale fallback below when adacpp is absent
+            # or any object fails to serialize (mirrors the xml->ifc leg).
+            if source_ext.lower() == ".xml":
+                from ada.cadit.ngeom.export import (
+                    NativeExportUnsupported,
+                    native_export_enabled,
+                    native_ngeom_writers_available,
+                )
+
+                if native_export_enabled() and native_ngeom_writers_available():
+                    try:
+                        model.to_stp(str(out_path), writer="native")
+                        on_progress("ready", 1.0)
+                        returned_path = True
+                        return out_path
+                    except NativeExportUnsupported as exc:
+                        logger.warning("native xml->step route unavailable (%s); using the OCC writer", exc)
             model.to_stp(str(out_path))
             if not _step_has_solids(out_path):
                 # The OCC/adacpp writer emitted no solid root — e.g. an alignment

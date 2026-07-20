@@ -105,6 +105,32 @@ def add_curved_shell_sat(plate, thck_name: str, structures_elem: ET.Element, fac
         ET.SubElement(sat_reference, "face", {"face_ref": face_ref})
 
 
+def add_curved_shell_sat_data(
+    name: str, thck_name: str, material_name: str, structures_elem: ET.Element, face_refs: list[str]
+):
+    """Emit a ``<curved_shell>`` from raw data (no Plate object).
+
+    The object-free analytic FEM-shell path (:mod:`ada.cadit.gxml.write.write_analytic_faces`)
+    authors each curved patch into the embedded SAT body and hands back the face
+    names it minted; this writes the ``<curved_shell>`` that references them, the
+    same element shape as :func:`add_curved_shell_sat`. A FEM-derived face carries
+    no authored sense flag, so it defaults to ``true``."""
+    structure = ET.SubElement(structures_elem, "structure")
+    curved_shell = ET.SubElement(
+        structure, "curved_shell", {"name": name, "thickness_ref": thck_name, "material_ref": material_name}
+    )
+    ET.SubElement(curved_shell, "segmentation")
+    ET.SubElement(curved_shell, "front")
+    ET.SubElement(curved_shell, "back")
+    local_sys = ET.SubElement(curved_shell, "local_system")
+    ET.SubElement(local_sys, "sense_flag", {"sense": "true"})
+    geometry = ET.SubElement(curved_shell, "geometry")
+    sheet = ET.SubElement(geometry, "sheet")
+    sat_reference = ET.SubElement(sheet, "sat_reference")
+    for face_ref in face_refs:
+        ET.SubElement(sat_reference, "face", {"face_ref": face_ref})
+
+
 def add_plate_curved_polygon(plate, thck_name: str, structures_elem: ET.Element) -> bool:
     """Emit a :class:`PlateCurved` as a ``<flat_plate>`` boundary polygon.
 

@@ -19,7 +19,12 @@ Two plate sources are supported, both bounded:
     The converter leaves plates unbuilt (``create_objects_from_fem(skip_plates``
     ``=True)``) so this path is taken.
   * **pre-built**: a non-FEM model whose ``part.plates`` already exist (e.g. a
-    parametric CAD model) streams those objects as text.
+    parametric CAD model) streams those objects as text. Curved plates
+    (``PlateCurved``) and spline-boundary flat plates stream too when adacpp's
+    ``ngeom_to_ifc_body_spf`` is importable: their analytic B-rep body graphs
+    are emitted as C++ SPF fragments (~µs/face) under hand-authored TYPED
+    ``IfcPlate`` wrappers, replacing the ~ms/face per-entity ifcopenshell
+    writer that dominated large curved-shell hulls.
 
 Entry point: :func:`stream_assembly_to_ifc`, used by
 ``Assembly.to_ifc(streaming=True)``.
@@ -52,6 +57,21 @@ def _p(vec) -> str:
 _ID_LINE = re.compile(r"^#(\d+)=")
 
 
+def _ngeom_body_fragment():
+    """adacpp's C++ IFC geometry-body fragment emitter (``ngeom_to_ifc_body_spf``), or None.
+
+    When available, curved plates (and spline-boundary flat plates) stream their heavy B-rep
+    body graphs at C++ speed while the TYPED product wrapper (IfcPlate + placement + style)
+    stays hand-authored here — the per-entity ifcopenshell writer costs ~ms/face and dominated
+    large curved-shell models."""
+    try:
+        import adacpp
+
+        return getattr(adacpp.cad, "ngeom_to_ifc_body_spf", None)
+    except Exception:
+        return None
+
+
 class _Emitter:
     """Hand-authors the SPF lines for one Plate, allocating ids from a counter."""
 
@@ -77,9 +97,18 @@ class _Emitter:
         return s[2]
 
     def _curve(self, lines: list[str], curve) -> int:
-        """Emit IfcCartesianPointList2D + IfcIndexedPolyCurve (with segment
-        indices, incl. IfcArcIndex for fillets) — the form ada's reader expects.
-        Returns the IfcIndexedPolyCurve id."""
+        """Emit the profile curve and return its id.
+
+        A B-spline-bearing outline is emitted analytically as an ``IfcCompositeCurve`` (line ->
+        IfcPolyline, arc -> IfcTrimmedCurve, spline -> IfcBSplineCurveWithKnots) — ``IfcIndexedPolyCurve``
+        can only index line/arc. Otherwise the compact ``IfcIndexedPolyCurve`` form ada's reader
+        expects (with ``IfcArcIndex`` for fillets)."""
+        from ada.geom.curves import BSplineCurveWithKnots
+
+        segs = getattr(curve, "segments", None)
+        if segs is not None and any(isinstance(s, BSplineCurveWithKnots) for s in segs):
+            return self._composite_curve(lines, curve)
+
         pts, seg_idx = curve.get_unique_points_and_segment_indices()
         pts = pts.tolist() if hasattr(pts, "tolist") else pts
         ptlist = self.nid
@@ -93,6 +122,93 @@ class _Emitter:
         lines.append(f"#{cid}=IfcIndexedPolyCurve(#{ptlist},({segs}),$);")
         self.nid = cid + 1
         return cid
+
+    def _pt2d(self, lines: list[str], xy) -> int:
+        pid = self.nid
+        self.nid += 1
+        lines.append(f"#{pid}=IfcCartesianPoint(({_f(xy[0])},{_f(xy[1])}));")
+        return pid
+
+    def _polyline_parent(self, lines: list[str], a, b) -> int:
+        p1, p2 = self._pt2d(lines, a), self._pt2d(lines, b)
+        pid = self.nid
+        self.nid += 1
+        lines.append(f"#{pid}=IfcPolyline((#{p1},#{p2}));")
+        return pid
+
+    def _bspline_parent(self, lines: list[str], sp) -> int:
+        cps = ",".join(f"#{self._pt2d(lines, cp)}" for cp in sp.control_points_list)
+        mult = "(" + ",".join(str(int(m)) for m in sp.knot_multiplicities) + ")"
+        kn = "(" + ",".join(_f(k) for k in sp.knots) + ")"
+        form, spec = sp.curve_form.value, sp.knot_spec.value
+        closed = ".T." if sp.closed_curve else ".F."
+        si = ".T." if sp.self_intersect else ".F."
+        bid = self.nid
+        self.nid += 1
+        weights = getattr(sp, "weights_data", None)
+        if weights:
+            w = "(" + ",".join(_f(x) for x in weights) + ")"
+            lines.append(
+                f"#{bid}=IfcRationalBSplineCurveWithKnots({sp.degree},({cps}),.{form}.,{closed},{si},"
+                f"{mult},{kn},.{spec}.,{w});"
+            )
+        else:
+            lines.append(
+                f"#{bid}=IfcBSplineCurveWithKnots({sp.degree},({cps}),.{form}.,{closed},{si},{mult},{kn},.{spec}.);"
+            )
+        # A bare bounded B-spline is the schema-valid ParentCurve; an IfcTrimmedCurve wrapper would
+        # violate IfcTrimmedCurve.NoTrimOfBoundedCurves. Mirrors the normal writer.
+        return bid
+
+    def _arc_parent(self, lines: list[str], arc) -> int:
+        import numpy as np
+
+        from ada.core.curve_utils import calc_arc_radius_center_from_3points
+
+        s = np.asarray(arc.start, dtype=float)[:2]
+        m = np.asarray(arc.midpoint, dtype=float)[:2]
+        e = np.asarray(arc.end, dtype=float)[:2]
+        center, radius = calc_arc_radius_center_from_3points(s, m, e)
+        center = np.asarray(center, dtype=float)[:2]
+        ccw = float(np.cross(m - s, e - s)) >= 0.0
+        cpid = self._pt2d(lines, (center[0], center[1]))
+        ref = s - center
+        rn = np.linalg.norm(ref)
+        ref = ref / rn if rn else np.array([1.0, 0.0])
+        rdir = self.nid
+        lines.append(f"#{rdir}=IfcDirection(({_f(ref[0])},{_f(ref[1])}));")
+        a2p = rdir + 1
+        lines.append(f"#{a2p}=IfcAxis2Placement2D(#{cpid},#{rdir});")
+        circ = a2p + 1
+        lines.append(f"#{circ}=IfcCircle(#{a2p},{_f(radius)});")
+        self.nid = circ + 1
+        t1, t2 = self._pt2d(lines, (s[0], s[1])), self._pt2d(lines, (e[0], e[1]))
+        tc = self.nid
+        self.nid += 1
+        sense = ".T." if ccw else ".F."
+        lines.append(f"#{tc}=IfcTrimmedCurve(#{circ},(#{t1}),(#{t2}),{sense},.CARTESIAN.);")
+        return tc
+
+    def _composite_curve(self, lines: list[str], curve) -> int:
+        """Hand-author an IfcCompositeCurve for a spline-bearing outline (analytic, not sampled)."""
+        import ada.geom.curves as cu
+
+        seg_ids = []
+        for seg in curve.segments:
+            if isinstance(seg, cu.BSplineCurveWithKnots):
+                parent = self._bspline_parent(lines, seg)
+            elif isinstance(seg, cu.ArcLine):
+                parent = self._arc_parent(lines, seg)
+            else:  # Edge / straight
+                parent = self._polyline_parent(lines, seg.start, seg.end)
+            sid = self.nid
+            self.nid += 1
+            lines.append(f"#{sid}=IfcCompositeCurveSegment(.CONTINUOUS.,.T.,#{parent});")
+            seg_ids.append(sid)
+        cc = self.nid
+        self.nid += 1
+        lines.append(f"#{cc}=IfcCompositeCurve(({','.join(f'#{s}' for s in seg_ids)}),.F.);")
+        return cc
 
     def plate(self, pl, lines: list[str]) -> int:
         """Append the SPF lines for ``pl``; return its IfcPlate id."""
@@ -143,6 +259,49 @@ class _Emitter:
             lines.append(f"#{sitem}=IfcStyledItem(#{solid},(#{style_id}),$);")
             self.nid = sitem + 1
         return pid
+
+    def typed_plate_wrapper(self, pl, body_item: int, rep_type: str, lines: list[str]) -> int:
+        """Hand-author the typed product entities around an already-emitted body item: the SAME
+        wrapper the flat-plate path writes (placement + IfcShapeRepresentation +
+        IfcProductDefinitionShape + IfcPlate + shared-style IfcStyledItem), but referencing an
+        external body graph (C++ fragment or the Python B-rep emitter). Returns the IfcPlate id."""
+        op = pl.placement.to_axis2placement3d()
+        a = self.nid
+        lines.append(f"#{a}=IfcCartesianPoint({_p(op.location)});")
+        lines.append(f"#{a + 1}=IfcDirection({_p(op.axis)});")
+        lines.append(f"#{a + 2}=IfcDirection({_p(op.ref_direction)});")
+        lines.append(f"#{a + 3}=IfcAxis2Placement3D(#{a},#{a + 1},#{a + 2});")
+        lines.append(f"#{a + 4}=IfcLocalPlacement($,#{a + 3});")
+        body = a + 5
+        lines.append(f"#{body}=IfcShapeRepresentation(#{self.body_ctx_id},'Body','{rep_type}',(#{body_item}));")
+        pds = body + 1
+        lines.append(f"#{pds}=IfcProductDefinitionShape($,$,(#{body}));")
+        pid = pds + 1
+        nm = _spf_str(pl.name)
+        lines.append(f"#{pid}=IfcPlate('{pl.guid}',#{self.owner_id},{nm},{nm},$,#{a + 4},#{pds},$,$);")
+        self.nid = pid + 1
+        col = getattr(pl, "color", None)
+        if col is not None:
+            rgb = col.rgb
+            key = (float(rgb[0]), float(rgb[1]), float(rgb[2]), float(getattr(col, "transparency", 0.0) or 0.0))
+            style_id = self._surface_style(key)
+            sitem = self.nid
+            lines.append(f"#{sitem}=IfcStyledItem(#{body_item},(#{style_id}),$);")
+            self.nid = sitem + 1
+        return pid
+
+    def brep_plate(self, pl, blob: bytes, frag_fn, lines: list[str]) -> int:
+        """Emit ``pl`` as a typed IfcPlate whose geometry-body graph comes from adacpp's
+        ``ngeom_to_ifc_body_spf`` fragment emitter (~µs/face vs the ~ms/face per-entity
+        ifcopenshell writer). Raises when the fragment emit fails (unrepresentable root or any
+        dropped face) so the caller can take its Python fallback — a partial body is never
+        written."""
+        spf, next_id, body_item, rep_type = frag_fn(blob, self.nid)
+        if not body_item:
+            raise ValueError("adacpp body-fragment emit failed (unrepresentable geometry or dropped faces)")
+        lines.append(spf.rstrip("\n"))
+        self.nid = next_id
+        return self.typed_plate_wrapper(pl, body_item, rep_type, lines)
 
 
 def _spf_str(s) -> str:
@@ -210,13 +369,18 @@ def stream_assembly_to_ifc(
     fused: list = []  # (part, n_shells) — plates streamed from the FEM mesh
     for part in assembly.get_all_parts_in_assembly(include_self=True):
         fem = getattr(part, "fem", None)
-        if fem is None or len(part.plates):
+        if fem is None:
+            continue
+        # Fuse beams straight from the mesh whenever the part has line elements but no
+        # built beams — independent of whether it also carries shells, so a beam-only
+        # FEM part still emits its beams (1:1 line→beam, matching the STEP/XML stream).
+        if not len(part.beams) and len(list(fem.elements.lines)):
+            part._beams = convert_part_elem_bm_to_beams(part)
+        if len(part.plates):
             continue
         shells = list(fem.elements.shell)
         if not shells:
             continue
-        if not len(part.beams) and len(list(fem.elements.lines)):
-            part._beams = convert_part_elem_bm_to_beams(part)
         _register_plate_materials(part, shells, GeomRepr)
         fused.append((part, len(shells)))
 
@@ -232,10 +396,80 @@ def stream_assembly_to_ifc(
     body_ctx_id = store.get_context("Body").id()
 
     # Pre-built plain Plates stream as text; everything else (beams, shapes, …)
-    # is built once via the normal writer.
-    prebuilt_plates, others = [], []
+    # is built once via the normal writer. Curved plates (PlateCurved) and
+    # spline-boundary flat plates carry analytic IfcAdvancedBrep bodies — when
+    # adacpp's fragment emitter is available their body graphs stream as
+    # C++-emitted SPF text under a hand-authored typed IfcPlate wrapper (the
+    # per-entity ifcopenshell writer is ~ms/face and dominated large hulls);
+    # otherwise they keep the normal-writer path.
+    from ada import PlateCurved
+    from ada.api.curves import SplineSegment
+    from ada.geom import Geometry
+    from ada.geom import surfaces as geo_su
+
+    def _streams_as_text(obj) -> bool:
+        if type(obj) is not Plate:
+            return False
+        return not any(isinstance(s, SplineSegment) for s in obj.poly.segments3d)
+
+    frag_fn = _ngeom_body_fragment()
+
+    def _brep_stream_record(obj) -> tuple | None:
+        """``(shell Geometry, ngeom blob)`` when ``obj`` can stream as a typed B-rep plate
+        (body graph via the C++ fragment emitter), else None -> the normal ifcopenshell
+        writer keeps it. Serialization happens here, BEFORE the preamble is built, so a
+        non-serializable object falls back to the existing per-entity path untouched."""
+        if frag_fn is None:
+            return None
+        try:
+            if isinstance(obj, PlateCurved):
+                if obj.geom is None:  # from_occ_face plates carry no ada.geom tree
+                    return None
+                g = obj.solid_geom()
+                if g is None or not isinstance(g.geometry, geo_su.ClosedShell):
+                    # thickening off -> the Python writer's bare-face body is what keeps the
+                    # PlateCurved round-trip; don't wrap an open face in a "closed" shell.
+                    return None
+            elif type(obj) is Plate:
+                # spline-boundary flat plate: the same analytic extruded shell the normal
+                # writer emits (write_plates._plate_body), so the parametric Plate round-trip
+                # via _plate_from_extruded_brep is preserved.
+                from ada.config import Config
+                from ada.geom.primitive_brep import (
+                    extruded_loop_to_shell,
+                    thickness_anchor_base_offset,
+                )
+
+                base_off = thickness_anchor_base_offset(Config().geom_thickness_anchor, obj.t)
+                shell = extruded_loop_to_shell(obj.poly.segments3d, obj.poly.normal, obj.t, base_offset=base_off)
+                if shell is None:
+                    return None
+                g = Geometry(obj.guid, shell, getattr(obj, "color", None))
+            else:
+                return None
+            from ada.cadit.ngeom.serialize import _Encoder
+
+            enc = _Encoder()
+            idx = enc.root(g)
+            return g, enc.finish([(idx, str(obj.name))])
+        except Exception as exc:  # noqa: BLE001 — any failure -> the existing writer path
+            logger.debug(
+                "plate %r: B-rep stream serialize failed (%s); using the ifcopenshell writer",
+                getattr(obj, "name", "?"),
+                exc,
+            )
+            return None
+
+    prebuilt_plates, brep_stream, others = [], [], []
     for obj in assembly.get_all_physical_objects():
-        (prebuilt_plates if type(obj) is Plate else others).append(obj)
+        if _streams_as_text(obj):
+            prebuilt_plates.append(obj)
+            continue
+        rec = _brep_stream_record(obj)
+        if rec is not None:
+            brep_stream.append((obj, *rec))
+        else:
+            others.append(obj)
 
     spatial_id = {}
     for part in assembly.get_all_parts_in_assembly(include_self=True):
@@ -334,6 +568,51 @@ def stream_assembly_to_ifc(
             out.write("\n".join(lines) + "\n")
             lines.clear()
 
+        # 1b) pre-built curved / spline-boundary plates: typed IfcPlate wrappers around
+        # C++-emitted B-rep body fragments (per-object Python B-rep-emitter fallback).
+        if brep_stream:
+            from ada.cadit.step.write.stream_step_to_ifc import _IfcBrepEmitter
+
+            for i, (pl, shell_geom, blob) in enumerate(brep_stream, 1):
+                try:
+                    try:
+                        pid = emitter.brep_plate(pl, blob, frag_fn, lines)
+                    except Exception as frag_exc:  # noqa: BLE001 — per-object Python fallback
+                        logger.debug(
+                            "plate %r: C++ body fragment failed (%s); Python B-rep emitter",
+                            getattr(pl, "name", "?"),
+                            frag_exc,
+                        )
+                        be = _IfcBrepEmitter(emitter.nid - 1)
+                        try:
+                            brep, rep_type = be.solid(lines, shell_geom.geometry)
+                        finally:
+                            # Sync the id counter even when solid() RAISES mid-emit: a partial body
+                            # leaves already-appended (orphan, harmless) entities whose ids must
+                            # never be re-issued by later plates.
+                            emitter.nid = be.nid + 1
+                        if brep is None:
+                            raise ValueError("B-rep body not emittable") from frag_exc
+                        pid = emitter.typed_plate_wrapper(pl, brep, rep_type, lines)
+                except Exception as exc:  # noqa: BLE001 — a bad plate shouldn't sink the file
+                    skipped += 1
+                    if skipped <= 5:
+                        logger.warning(f"streaming IFC: skipped B-rep plate {getattr(pl, 'name', '?')!r}: {exc}")
+                    continue
+                total += 1
+                _record_spatial(pl.parent.guid, pid)
+                mat = getattr(pl, "material", None)
+                if mat is not None:
+                    _record_material(mat.guid, pid)
+                if i % 64 == 0 or i == len(brep_stream):
+                    out.write("\n".join(lines) + "\n")
+                    lines.clear()
+                    if progress_callback is not None:
+                        progress_callback(i, len(brep_stream))
+            if lines:
+                out.write("\n".join(lines) + "\n")
+                lines.clear()
+
         # 2) fused FEM shells.
         if analytic:
             # One recognised-surface B-rep shell per FEM part (cylinders + flat faces),
@@ -382,8 +661,6 @@ def stream_assembly_to_ifc(
             # hand-authored flat-plate text — they buffer (tens of objects by construction)
             # and emit as B-rep products after the flat stream, since the B-rep emitter
             # must own the id counter while it runs.
-            from ada import PlateCurved
-
             curved_pending: list = []  # (owning part guid, PlateCurved)
             for part, n_shells in fused:
                 cnt = 0

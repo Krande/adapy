@@ -223,23 +223,36 @@ def trimmed_curve(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.TrimmedCur
     )
 
 
-def pcurve_2d_from_surface_curve(surface_curve: ifcopenshell.entity_instance) -> geo_cu.Pcurve2dBSpline | None:
-    """Recover the UV p-curve (2D B-spline) attached to an IfcSurfaceCurve."""
+def pcurve_2d_from_surface_curve(
+    surface_curve: ifcopenshell.entity_instance,
+    basis_surface: ifcopenshell.entity_instance | None = None,
+) -> geo_cu.Pcurve2dBSpline | None:
+    """Recover the UV p-curve (2D B-spline) attached to an IfcSurfaceCurve.
+
+    ``basis_surface`` (the parent face's FaceSurface entity) filters the associated
+    p-curves: a p-curve's UV coordinates are meaningful ONLY on its own BasisSurface.
+    In a closed shell every edge is shared by two faces — without the filter the
+    bottom-patch p-curve leaks onto e.g. the ruled side face using the same edge, and
+    the backend then builds the side wire from foreign UV data (wire build failed)."""
     associated = getattr(surface_curve, "AssociatedGeometry", None)
     if not associated:
         return None
-    ref = associated[0].ReferenceCurve  # IfcPcurve.ReferenceCurve
-    if not ref.is_a("IfcBSplineCurveWithKnots"):
-        return None
-    weights = list(ref.WeightsData) if ref.is_a("IfcRationalBSplineCurveWithKnots") else None
-    return geo_cu.Pcurve2dBSpline(
-        degree=ref.Degree,
-        control_points_2d=[(float(p.Coordinates[0]), float(p.Coordinates[1])) for p in ref.ControlPointsList],
-        knots=list(ref.Knots),
-        knot_multiplicities=list(ref.KnotMultiplicities),
-        weights=weights,
-        closed=bool(ref.ClosedCurve),
-    )
+    for pc in associated:
+        if basis_surface is not None and getattr(pc, "BasisSurface", None) != basis_surface:
+            continue
+        ref = pc.ReferenceCurve  # IfcPcurve.ReferenceCurve
+        if not ref.is_a("IfcBSplineCurveWithKnots"):
+            continue
+        weights = list(ref.WeightsData) if ref.is_a("IfcRationalBSplineCurveWithKnots") else None
+        return geo_cu.Pcurve2dBSpline(
+            degree=ref.Degree,
+            control_points_2d=[(float(p.Coordinates[0]), float(p.Coordinates[1])) for p in ref.ControlPointsList],
+            knots=list(ref.Knots),
+            knot_multiplicities=list(ref.KnotMultiplicities),
+            weights=weights,
+            closed=bool(ref.ClosedCurve),
+        )
+    return None
 
 
 def b_spline_curve_with_knots(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.BSplineCurveWithKnots:
@@ -310,14 +323,18 @@ def edge(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.Edge:
     return geo_cu.Edge(start=start, end=end)
 
 
-def oriented_edge(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.OrientedEdge:
+def oriented_edge(
+    ifc_entity: ifcopenshell.entity_instance,
+    basis_surface: ifcopenshell.entity_instance | None = None,
+) -> geo_cu.OrientedEdge:
     ee = ifc_entity.EdgeElement
 
     # Recover the UV p-curve when the edge geometry is an IfcSurfaceCurve — without
-    # it the trimmed B-spline face tessellates degenerate (near-zero area).
+    # it the trimmed B-spline face tessellates degenerate (near-zero area). Only the
+    # p-curve lying on the parent face's own surface is taken (see the filter above).
     pcurve = None
     if ee.is_a("IfcEdgeCurve") and ee.EdgeGeometry is not None and ee.EdgeGeometry.is_a("IfcSurfaceCurve"):
-        pcurve = pcurve_2d_from_surface_curve(ee.EdgeGeometry)
+        pcurve = pcurve_2d_from_surface_curve(ee.EdgeGeometry, basis_surface=basis_surface)
 
     return geo_cu.OrientedEdge(
         start=Point(ifc_entity.EdgeStart.VertexGeometry.Coordinates),
@@ -328,5 +345,8 @@ def oriented_edge(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.OrientedEd
     )
 
 
-def edge_loop(ifc_entity: ifcopenshell.entity_instance) -> geo_cu.EdgeLoop:
-    return geo_cu.EdgeLoop([oriented_edge(e) for e in ifc_entity.EdgeList])
+def edge_loop(
+    ifc_entity: ifcopenshell.entity_instance,
+    basis_surface: ifcopenshell.entity_instance | None = None,
+) -> geo_cu.EdgeLoop:
+    return geo_cu.EdgeLoop([oriented_edge(e, basis_surface=basis_surface) for e in ifc_entity.EdgeList])

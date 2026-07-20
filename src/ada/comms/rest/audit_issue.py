@@ -1,5 +1,5 @@
 """Pure helpers for the audit-run → issue-tracker bridge (M5 of
-plan/v2/notes_admin_audit_panel.md).
+the admin audit-panel design notes).
 
 Two responsibilities, both deterministic and free of I/O:
 

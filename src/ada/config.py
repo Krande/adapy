@@ -101,7 +101,7 @@ class Config:
                 # pcurves are redundant — CAD consumers recompute them from the
                 # 3D geometry on import — and OCCT's write.surfacecurve.mode=0
                 # roughly halves both STEP file size AND write time on plate-heavy
-                # models (validated ~-49% size / -60% time on Ship1T1). Enable for
+                # models (validated ~-49% size / -60% time on a large ship model). Enable for
                 # the rare strict consumer that needs pcurves written explicitly.
                 ConfigEntry("occ_step_write_pcurves", bool, False),
                 ConfigEntry("add_trace_to_exception", bool, False),
@@ -170,7 +170,7 @@ class Config:
                 # On => sample the curve and carry the samples as extra outline points, so the plate
                 # follows the curve. STOPGAP: Plate/CurvePoly2d has only line+arc segments, so the
                 # samples are ours, not the neighbour's, and the seam still isn't shared. Off =>
-                # the pre-2026-07-14 chord. See dap plan/v3/notes_plate_bspline_edges.md.
+                # the pre-2026-07-14 chord. See the internal design notes.
                 ConfigEntry("plate_curved_edges", bool, True),
             ],
         ),
@@ -188,6 +188,34 @@ class Config:
                 # decompress copy per hydration/fast-path access — trades the zero-copy
                 # property for a smaller resident floor.
                 ConfigEntry("shape_store_compress", bool, False, required=False),
+                # Native NGEOM-record export (adacpp stream_ngeom_to_step/ifc): serialize
+                # each object's solid_geom() to an NGEOM blob and emit STEP/IFC through the
+                # C++ writers instead of the per-entity Python ones (~ms/face -> ~µs/face;
+                # a 5.5k-curved-shell hull's thickened to_ifc drops 31 s -> seconds). Gates
+                # the Genie-XML converter legs (xml -> step/ifc); the Python writers remain
+                # the wholesale fallback whenever adacpp is absent or any object fails to
+                # serialize. Env: ADA_CAD_NATIVE_NGEOM_EXPORT.
+                ConfigEntry("native_ngeom_export", bool, True, required=False),
+            ],
+        ),
+        ConfigSection(
+            "geom",
+            [
+                # Where the modeled reference surface sits within the thickness when a
+                # plate/shell is thickened to a solid (flat Plate extrusions AND the
+                # thickened PlateCurved shells alike). "as_is" = base at the modeled
+                # surface, material extruded along +normal (the historical behaviour —
+                # flat-plate output stays byte-identical); "flipped" = material extruded
+                # along -normal (base translated by -t*normal); "centerline" = the
+                # modeled surface is the mid-surface (base translated by -t/2*normal).
+                # Env: ADA_GEOM_THICKNESS_ANCHOR.
+                ConfigEntry("thickness_anchor", str, "as_is"),
+                # Export curved shells (PlateCurved) as real thickness-t solids — an
+                # analytic ClosedShell built kernel-free from the shell face (bottom =
+                # the modeled surface, top = the same surface translated t along the
+                # sense-corrected normal, one side face per boundary edge). Off => the
+                # historical zero-thickness bare face. Env: ADA_GEOM_THICKEN_CURVED_SHELLS.
+                ConfigEntry("thicken_curved_shells", bool, True),
             ],
         ),
         ConfigSection(

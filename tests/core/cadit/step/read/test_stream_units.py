@@ -89,6 +89,23 @@ def test_detect_unit_scale_pread_finds_unit_at_end(tmp_path):
     assert detect_step_length_unit_scale(metre) == 1.0
 
 
+def test_detect_unit_scale_pretty_printed_spaced_record(tmp_path):
+    # Some exporters pretty-print the unit record with a space between the keyword and its
+    # arg list: ``SI_UNIT ( .MILLI., .METRE. )`` / ``CONVERSION_BASED_UNIT ( 'INCH', ... )``.
+    # The fast pread regex scan must tolerate that whitespace, else an mm file falls through
+    # to the ``assuming metres`` default and the whole model is read 1000x too large.
+    pad = 5 << 20
+    mm = _step_with_unit_at_end(
+        tmp_path, "#9 = ( LENGTH_UNIT ( ) NAMED_UNIT ( * ) SI_UNIT ( .MILLI., .METRE. ) );", pad
+    )
+    assert detect_step_length_unit_scale(mm) == 0.001
+
+    inch = _step_with_unit_at_end(
+        tmp_path, "#9 = ( CONVERSION_BASED_UNIT ( 'INCH', #10 ) LENGTH_UNIT ( ) NAMED_UNIT ( #11 ) );", pad
+    )
+    assert detect_step_length_unit_scale(inch) == 0.0254
+
+
 def test_detect_unit_scale_absent_returns_one(tmp_path):
     p = tmp_path / "no_unit.step"
     p.write_text("ISO-10303-21;\nDATA;\n#1=CARTESIAN_POINT('p',(0.,0.,0.));\nENDSEC;\n")

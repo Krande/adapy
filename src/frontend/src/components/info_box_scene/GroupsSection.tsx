@@ -57,7 +57,7 @@ const GroupsSection = () => {
     // single adaExtensionRef only ever held the LAST loaded model).
     // Subscribing to loadedSourceNames keeps the list live across
     // load/unload instead of snapshotting on mount. Some fixtures
-    // (e.g. ship1t1.fem via the legacy convert path) bake thousands
+    // (e.g. a large ship FEM via the legacy convert path) bake thousands
     // of element / node sets into ADA_EXT_data — building the array
     // is cheap; the combobox below virtualizes the render.
     useEffect(() => {

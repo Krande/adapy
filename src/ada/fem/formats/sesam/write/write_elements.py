@@ -28,7 +28,7 @@ def _is_writable_to_sesam(el: Elem) -> bool:
       GELMNT1 with eltyp=40 without the matching MSHGLSP would
       produce a Sestra-incomplete deck — skipping is the honest
       choice. Cross-format roundtrip uses an MPC / kinematic-
-      coupling representation instead (see plan/v2 follow-up).
+      coupling representation instead (see the internal notes).
 
     * **Unsectioned elements** (``fem_sec is None``): the Sesam
       writer's GELREF1 emitter needs a section / material binding
@@ -133,7 +133,7 @@ def write_elem(el: Elem, thick_map) -> str:
         # MTRSOL records define the solid material's orientation;
         # those are absent today and the analysis program assumes a
         # default isotropic alignment. That's a real coverage gap
-        # for anisotropic solids; flagged in plan/v2.
+        # for anisotropic solids; flagged in the internal notes.
         sec_id = 0
     else:
         raise ValueError(f'Unsupported elem type "{fem_sec.type}"')

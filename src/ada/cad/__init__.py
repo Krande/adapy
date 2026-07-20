@@ -353,7 +353,7 @@ class AdacppBackend:
         # where pythonocc does not exist). The ada.geom construction funnel is
         # being ported to adacpp C++ incrementally; types not yet ported raise
         # NotImplementedError rather than borrowing pythonocc. End goal: full
-        # parity with OccBackend. See dap plan/v3 Phase 7.
+        # parity with OccBackend. See the internal design notes Phase 7.
         import ada.geom.curves as gcu
         import ada.geom.solids as so
         import ada.geom.surfaces as su
@@ -773,6 +773,12 @@ class AdacppBackend:
             for seg in curve.segments:
                 if isinstance(seg, cu.ArcLine):
                     edges.append([1.0, *self._xyz(seg.start), *self._xyz(seg.midpoint), *self._xyz(seg.end)])
+                elif isinstance(seg, cu.BSplineCurveWithKnots):
+                    # adacpp's edge-record vocabulary is line/arc/circle — an analytic B-spline
+                    # boundary edge is sampled here, at the tessellation boundary (same policy as
+                    # the NGEOM serializer's _loop_points_3d).
+                    pts = seg.sample(max(16, int(seg.degree) * 8))
+                    edges.extend([0.0, *self._xyz(a), *self._xyz(b)] for a, b in zip(pts[:-1], pts[1:]))
                 else:  # Edge — straight line
                     edges.append([0.0, *self._xyz(seg.start), *self._xyz(seg.end)])
             return edges
@@ -1427,7 +1433,7 @@ class AdacppBackend:
     def build_bspline_advanced_face_from_grid(self, grid: "list", tol: float):
         # Native grid→NURBS fit not yet ported to adacpp. Raising here makes the
         # surface-reconstruction caller fall back to flat plates (the safe
-        # default) rather than borrowing pythonocc. See dap plan/v3 Phase 7.
+        # default) rather than borrowing pythonocc. See the internal design notes Phase 7.
         raise NotImplementedError("adacpp.cad grid→bspline surface fit is not available yet")
 
     def face_to_advanced_face(self, shape: ShapeHandle):

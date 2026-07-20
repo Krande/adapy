@@ -74,7 +74,7 @@ class FemSection(FemBase):
         # Tuple hash of the underlying attrs — was previously
         # ``hash(f"{self.name}{self.id}")`` which paid for an
         # f-string format AND went through the ``name`` / ``id``
-        # property descriptors on every call. The JackethybridFEM
+        # property descriptors on every call. A jacket FEM model
         # → Genie XML conversion calls this 5.8 BILLION times
         # during ``consolidate_materials`` (set membership checks
         # on the materials' ref lists). The format/descriptor

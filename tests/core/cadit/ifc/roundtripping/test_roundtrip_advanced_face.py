@@ -7,10 +7,13 @@ fallback for rendering). This verifies adapy -> IFC -> adapy preserves the
 curved-plate geometry instead of crashing or losing it.
 """
 
+import os
+
 import ada
 import ada.geom.surfaces as geo_su
 from ada.api.plates.base_pl import PlateCurved
 from ada.cadit.sat.store import SatReaderFactory
+from ada.config import Config
 
 
 def _curved_plate_from_sat(sat_path) -> PlateCurved:
@@ -20,18 +23,43 @@ def _curved_plate_from_sat(sat_path) -> PlateCurved:
 
 
 def test_advanced_face_plate_roundtrip(example_files, tmp_path):
+    """Bare-face round-trip (curved-shell thickening OFF): the body is a single
+    IfcAdvancedFace, which adapy re-imports as a PlateCurved."""
+    os.environ["ADA_GEOM_THICKEN_CURVED_SHELLS"] = "false"
+    try:
+        Config().reload_config()
+        pc = _curved_plate_from_sat(example_files / "sat_files/curved_plate.sat")
+        assert isinstance(pc.geom.geometry, geo_su.AdvancedFace)
+
+        fp = (ada.Assembly() / (ada.Part("P") / pc)).to_ifc(tmp_path / "curved.ifc", file_obj_only=True)
+        b = ada.from_ifc(fp)
+
+        curved = [o for o in b.get_all_physical_objects() if isinstance(o, PlateCurved)]
+        assert len(curved) == 1
+        geom = curved[0].geom.geometry
+        assert isinstance(geom, geo_su.AdvancedFace)
+        assert isinstance(geom.face_surface, geo_su.BSplineSurfaceWithKnots)
+        assert len(geom.bounds) == 1
+    finally:
+        os.environ.pop("ADA_GEOM_THICKEN_CURVED_SHELLS", None)
+        Config().reload_config()
+
+
+def test_advanced_face_plate_thick_roundtrip_keeps_geometry(example_files, tmp_path):
+    """Default (thickening ON): the body is an IfcAdvancedBrep of the thickness-t
+    shell. Re-import yields a generic B-rep shape (not a PlateCurved — the thickness
+    parameterisation is baked into the brep), but the geometry is preserved and
+    renders — no geometry left behind."""
     pc = _curved_plate_from_sat(example_files / "sat_files/curved_plate.sat")
-    assert isinstance(pc.geom.geometry, geo_su.AdvancedFace)
+    fp = (ada.Assembly() / (ada.Part("P") / pc)).to_ifc(tmp_path / "curved_thick.ifc", file_obj_only=True)
+    assert len(fp.by_type("IfcAdvancedBrep")) == 1
 
-    fp = (ada.Assembly() / (ada.Part("P") / pc)).to_ifc(tmp_path / "curved.ifc", file_obj_only=True)
     b = ada.from_ifc(fp)
-
-    curved = [o for o in b.get_all_physical_objects() if isinstance(o, PlateCurved)]
-    assert len(curved) == 1
-    geom = curved[0].geom.geometry
-    assert isinstance(geom, geo_su.AdvancedFace)
-    assert isinstance(geom.face_surface, geo_su.BSplineSurfaceWithKnots)
-    assert len(geom.bounds) == 1
+    objs = list(b.get_all_physical_objects())
+    assert len(objs) == 1
+    scene = b.to_trimesh_scene()
+    faces = sum(g.faces.shape[0] for g in scene.geometry.values())
+    assert faces > 0
 
 
 def test_advanced_face_plate_renders(example_files):

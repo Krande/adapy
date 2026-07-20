@@ -995,10 +995,7 @@ class Part(BackendGeom):
         materials so the streamed plates share the exporter's material identity
         (else a post-consolidation ``materials.add`` would mint a fresh copy).
         """
-        from ada.fem.formats.utils import (
-            convert_shell_elem_to_plates,
-            line_elem_to_beam,
-        )
+        from ada.fem.formats.utils import line_elem_to_beam
 
         if self.fem is None:
             return
@@ -1008,11 +1005,32 @@ class Part(BackendGeom):
         if not plates:
             return
         if merge_strategy is None:
-            mat_dict: dict = {} if mat_cache is None else mat_cache
-            for elem in self.fem.elements.shell:
-                yield from convert_shell_elem_to_plates(elem, self, mat_dict, detached=detached)
+            yield from self._iter_scalar_plates_from_fem(detached, mat_cache)
         else:
             yield from self._iter_merged_plates_from_fem(merge_strategy, detached, mat_cache)
+
+    def _iter_scalar_plates_from_fem(self, detached: bool, mat_cache: dict | None, chunk: int = 2048):
+        """Vectorised 1:1 element→plate stream (``merge_strategy=None``): gather one
+        shell element's plate entries at a time and batch-build the CurvePoly2d per
+        polygon arity in bounded chunks (never the whole set resident), yielding in
+        element order. Bitwise-identical plate outlines to the scalar per-element
+        ``convert_shell_elem_to_plates`` path — the orientation math is just run once
+        over arrays (:meth:`CurvePoly2d.from_fem_shells_batch`) instead of per element,
+        cutting the FEM→concept CPU cost dominated by ``from_fem_shell``."""
+        from ada.fem.formats.utils import (
+            build_plates_from_entries,
+            shell_elem_to_plate_entries,
+        )
+
+        mat_dict: dict = {} if mat_cache is None else mat_cache
+        buf: list = []
+        for elem in self.fem.elements.shell:
+            buf.extend(shell_elem_to_plate_entries(elem, self, mat_dict))
+            if len(buf) >= chunk:
+                yield from build_plates_from_entries(buf, self, detached=detached)
+                buf = []
+        if buf:
+            yield from build_plates_from_entries(buf, self, detached=detached)
 
     def _iter_merged_plates_from_fem(self, merge_strategy, detached: bool, mat_cache: dict | None, chunk: int = 2048):
         """Wrap the object-free merged :class:`FaceData` records in transient Plates.
@@ -1221,7 +1239,7 @@ class Part(BackendGeom):
         # FEM → IFC / XML exports: every call re-scanned the target
         # material's (growing, tens-of-thousands-long) ``refs`` list,
         # turning consolidation into an O(sections × refs) blow-up
-        # (~7.4 billion id() calls, ~11 min on Ship1T1.FEM with 66k
+        # (~7.4 billion id() calls, ~11 min on a large ship FEM with 66k
         # sections sharing 2 materials). One add per distinct material is
         # identical in effect — repeat adds of an already-registered
         # material are no-ops.
@@ -1275,7 +1293,11 @@ class Part(BackendGeom):
         parent = self.get_assembly()
         list_of_ps = []
         self._flatten_list_of_subparts(parent, list_of_ps)
-        if include_self:
+        # The flatten walks the whole tree from the assembly root, so a non-root
+        # ``self`` is already in the list — appending it again on ``include_self``
+        # duplicates it (and made every FEM consumer that iterates these parts
+        # process that part's mesh twice). Only add it when the walk didn't.
+        if include_self and not any(p is self for p in list_of_ps):
             list_of_ps += [self]
 
         if by_type is not None:
@@ -1711,6 +1733,17 @@ class Part(BackendGeom):
         fuse_fem: bool = True,
         merge_strategy=None,
     ):
+        # The "native" writer serializes each object's solid_geom() to an NGEOM
+        # blob and emits AP242 through adacpp's C++ record-stream writer
+        # (stream_ngeom_to_step) — no OCC and no per-entity Python text writer
+        # (~ms/face -> ~µs/face). Full ada.geom coverage (B-rep shells incl.
+        # thickened curved shells, extrusions, revolves, sweeps, booleans);
+        # raises NativeExportUnsupported if adacpp is absent or any object
+        # fails to serialize, so callers can fall back to "occ"/"stream".
+        if writer == "native":
+            from ada.cadit.ngeom.export import native_to_stp
+
+            return native_to_stp(self, destination_file)
         # The "stream" writer authors AP242 B-rep text directly from parametric
         # geometry without building any OCC/adacpp shapes — constant memory, so
         # it does not OOM on large FEM models the way the OCC XCAF path does. It
@@ -1731,7 +1764,7 @@ class Part(BackendGeom):
                 merge_strategy=merge_strategy,
             )
         if writer != "occ":
-            raise ValueError(f"unknown writer {writer!r}; expected 'occ' or 'stream'")
+            raise ValueError(f"unknown writer {writer!r}; expected 'occ', 'stream' or 'native'")
 
         from ada.cad.doc import active_doc_backend
         from ada.occ.geom.cache import invalidate

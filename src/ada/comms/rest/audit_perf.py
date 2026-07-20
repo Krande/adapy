@@ -1,5 +1,5 @@
 """Pure helpers for the cross-conversion performance dashboard (M6
-of plan/v2/notes_admin_audit_panel.md).
+of the admin audit-panel design notes).
 
 This module is intentionally I/O-free: the SQL aggregation lives in
 :mod:`db` and the REST plumbing lives in :mod:`app`. Here we just

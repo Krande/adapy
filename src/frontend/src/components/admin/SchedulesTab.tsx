@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useState} from "react";
 import {AuditSchedule, Corpus, viewerApi} from "@/services/viewerApi";
 
 // Admin tab — manage recurring audit schedules (M4 of the audit
-// panel design in plan/v2/notes_admin_audit_panel.md).
+// panel design in the admin audit-panel design notes).
 //
 // Each row pairs a cron expression with a (scope, worker_pool) sweep
 // target. The API's scheduler tick claims due rows and fires the

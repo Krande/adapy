@@ -21,7 +21,13 @@ from ada.cad import active_backend
 from ada.occ.geom.surfaces import consume_param_rebuild_stats
 
 
-def test_genie_curved_plates_build_without_healing(example_files):
+def test_genie_curved_plates_build_without_healing(example_files, monkeypatch):
+    # This regression guards the BARE-FACE path: authored p-curves on the modeled surface must not
+    # be perturbed by the rational ShapeFix heal. The default thickened solid adds ruled side
+    # ribbons whose (legitimately) healed p-curves are not what this test is about — pin the config
+    # off so solid_geom() returns the bare face this test was written against.
+    monkeypatch.setenv("ADA_GEOM_THICKEN_CURVED_SHELLS", "false")
+
     xml = (example_files / "fem_files/sesam/curved_plates.xml").resolve()
     if not xml.exists():  # fall back to a recursive search when the fixture layout differs
         hits = glob.glob("**/fem_files/sesam/curved_plates.xml", recursive=True)

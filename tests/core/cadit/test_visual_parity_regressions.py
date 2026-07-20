@@ -66,3 +66,100 @@ def test_empty_source_counts_zero_everywhere(example_files, tmp_path):
     out = tmp_path / "wire.step"
     a.to_stp(out)
     assert assembly_element_count(ada.from_step(out, reader="auto")) == 1
+
+
+def test_fem_step_cylinder_strategy_keeps_beams(tmp_path):
+    """Audit regression (a beam+plate FEM): the analytic ``cylinder`` merge strategy fused only
+    SHELL elements — LINE (beam) elements were silently dropped from the FEM->STEP export (neither
+    emitted nor counted skipped), so the STEP bbox lost the beam's extent and parity flagged it."""
+    import ada
+
+    a = ada.Assembly("A") / (
+        ada.Part("p")
+        / [
+            ada.Beam("bm", (0, 0, 0), (0, 0, 2), "IPE200"),
+            ada.Plate("pl", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01),
+        ]
+    )
+    part = a.get_part("p")
+    part.fem = part.to_fem_obj(0.5)
+
+    fem_dir = tmp_path / "fem"
+    a.to_fem("beam_plate", "abaqus", scratch_dir=fem_dir)
+    b = ada.from_fem(fem_dir / "beam_plate" / "beam_plate.inp")
+
+    out = tmp_path / "out.step"
+    stats = b.to_stp(out, writer="stream", fuse_fem=True, merge_strategy="cylinder")
+    # the analytic shell (plate faces) AND the fused beam must both emit
+    assert stats["emitted"] >= 2, stats
+    txt = out.read_text()
+    assert "MANIFOLD_SOLID_BREP" in txt  # the beam's extruded solid — absent before the fix
+
+
+def test_meshopt_packed_glb_measures_like_uncompressed(tmp_path):
+    """Audit regression: production GLBs ship EXT_meshopt_compression, which trimesh cannot decode
+    (IndexError in _read_buffers) — 4 of 5 parity failures in one sweep were glb=ERR on otherwise
+    CONSISTENT geometry. The measurer must unpack meshopt before measuring."""
+    pytest.importorskip("adacpp")  # the meshopt codecs live in adacpp
+    import ada
+    from ada.cadit.visual_parity import _measure_produced_file
+    from ada.visit.gltf.meshopt import meshopt_compress_glb
+
+    plain = tmp_path / "plain.glb"
+    (ada.Assembly("A") / (ada.Part("p") / ada.Plate("pl", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01))).to_gltf(plain)
+
+    packed = tmp_path / "packed.glb"
+    assert meshopt_compress_glb(plain, packed, min_bytes=0) == packed  # actually packed, no fallback
+
+    m_plain = _measure_produced_file("glb", plain)
+    m_packed = _measure_produced_file("glb", packed)
+    assert m_packed.tris == m_plain.tris
+    assert m_packed.area == pytest.approx(m_plain.area, rel=1e-6)
+    assert m_packed.bbox == pytest.approx(m_plain.bbox, rel=1e-6)
+
+
+def test_gxml_produced_files_count_parity(tmp_path):
+    """Genie-XML parity runs over the ALREADY-PRODUCED blobs with cheap per-format counters
+    (no re-derive, no tessellation — the old load+export+reload path tripled once curved
+    shells thicken by default). The count invariant must still catch a leg silently dropping
+    an object."""
+    import ada
+    from ada.cadit.visual_parity import parity_gxml_from_produced_files
+
+    a = ada.Assembly("A") / (
+        ada.Part("p")
+        / [
+            ada.Plate("pl1", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01),
+            ada.Plate("pl2", [(2, 0), (3, 0), (3, 1), (2, 1)], 0.01),
+            ada.Beam("bm", (0, 0, 1), (3, 0, 1), "IPE200"),
+        ]
+    )
+    xml = tmp_path / "m.xml"
+    ifc = tmp_path / "m.ifc"
+    stp = tmp_path / "m.step"
+    a.to_genie_xml(xml)
+    a.to_ifc(ifc)
+    a.to_stp(stp, writer="stream")
+
+    produced = {"xml": xml, "ifc": ifc, "step": stp, "glb": None}
+    res = parity_gxml_from_produced_files("cad/gxml/m.xml", produced)
+    assert res.consistent, res.summary()
+    assert res.expected == 3
+    assert res.counts["ifc"] == res.counts["xml"] == 3
+    # the step counter needs the native adacpp stream index; absent (pyocc-only env) it is
+    # recorded as skipped, never guessed
+    assert res.counts.get("step", 3) == 3
+
+    # a leg that silently drops an object must flag
+    doctored = tmp_path / "dropped.ifc"
+    lines = ifc.read_text().splitlines()
+    kept, removed = [], 0
+    for ln in lines:
+        if not removed and "=IFCPLATE(" in ln.upper():
+            removed += 1
+            continue
+        kept.append(ln)
+    doctored.write_text("\n".join(kept))
+    res2 = parity_gxml_from_produced_files("cad/gxml/m.xml", {**produced, "ifc": doctored})
+    assert not res2.consistent
+    assert "ifc" in res2.mismatches and res2.mismatches["ifc"] == 2

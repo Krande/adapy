@@ -74,7 +74,15 @@ class GxmlStore:
         # then fail the strict ``p-curve update incomplete`` guard
         # in surfaces.py — vanishing from output instead of falling
         # back.
-        flat_d = {name: points for name, points in self.sat_factory.iter_flat_plates()}
+        # ``edge_curves_d`` carries the analytic arc segments (circle/ellipse plate boundaries) parallel
+        # to the corner points, so the flat-plate build can keep them analytic instead of the reader
+        # sampling them into straight outline points. Keyed by face name, same as ``flat_d``.
+        flat_d = {}
+        edge_curves_d = {}
+        for name, points, edge_curves in self.sat_factory.iter_flat_plates():
+            flat_d[name] = points
+            if edge_curves:
+                edge_curves_d[name] = edge_curves
         sat_d = dict(flat_d)
         if Config().gxml_import_advanced_faces is True:
             sat_faces = {name: geom for name, geom in self.sat_factory.iter_curved_face()}
@@ -88,12 +96,24 @@ class GxmlStore:
         resolver = self.sat_factory.get_named_face_normal
         for fp in self.xml_root.iterfind(".//flat_plate"):
             yield from yield_plate_elems_to_plate(
-                fp, self.p, sat_d, thick_map, flat_fallback_d=flat_d, face_normal_resolver=resolver
+                fp,
+                self.p,
+                sat_d,
+                thick_map,
+                flat_fallback_d=flat_d,
+                face_normal_resolver=resolver,
+                edge_curves_d=edge_curves_d,
             )
 
         for fp in self.xml_root.iterfind(".//curved_shell"):
             yield from yield_plate_elems_to_plate(
-                fp, self.p, sat_d, thick_map, flat_fallback_d=flat_d, face_normal_resolver=resolver
+                fp,
+                self.p,
+                sat_d,
+                thick_map,
+                flat_fallback_d=flat_d,
+                face_normal_resolver=resolver,
+                edge_curves_d=edge_curves_d,
             )
 
     def to_part(self, extract_joints=False) -> Part:

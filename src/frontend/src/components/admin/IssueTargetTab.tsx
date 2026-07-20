@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useState} from "react";
 import {IssueTargetConfig, viewerApi} from "@/services/viewerApi";
 
 // Admin tab — configure where the audit-bot publishes failure
-// issues (M5 of plan/v2/notes_admin_audit_panel.md).
+// issues (the admin audit-panel design notes).
 //
 // Token-store model: the actual API token lives in a k8s Secret
 // exposed to the API process as an environment variable. The DB

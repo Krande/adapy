@@ -36,10 +36,11 @@ logger = logging.getLogger(__name__)
 class Seg:
     """One boundary segment in 2D profile coordinates."""
 
-    kind: str  # "line" | "arc"
+    kind: str  # "line" | "arc" | "spline"
     start: tuple
     end: tuple
     mid: tuple | None = None  # on-curve midpoint, required for kind == "arc"
+    spline: object | None = None  # a 2D-profile BSplineCurveWithKnots, required for kind == "spline"
 
 
 @dataclass
@@ -360,6 +361,36 @@ class Ap242StreamWriter:
             return self._id
         return self._w(f"B_SPLINE_CURVE_WITH_KNOTS('',{c.degree},{cps},.{form}.,{closed},{si},{mult},{kn},.{spec}.)")
 
+    def _bspline_basis_from_cps(self, cps3d, spline):
+        """B_SPLINE_CURVE_WITH_KNOTS from ALREADY-LIFTED world 3D control points (unlike ``_bspline_curve``
+        which lifts 2D profile points via the active-instance offset). The basis for a swept boundary
+        edge and its SURFACE_OF_LINEAR_EXTRUSION side surface."""
+        cps = "(" + ",".join(f"#{self._pt(p)}" for p in cps3d) + ")"
+        form = spline.curve_form.value
+        closed = ".T." if spline.closed_curve else ".F."
+        si = ".T." if spline.self_intersect else ".F."
+        spec = spline.knot_spec.value
+        mult, kn = self._ilist(spline.knot_multiplicities), self._rlist(spline.knots)
+        weights = getattr(spline, "weights_data", None)
+        if weights:
+            body = (
+                f"BOUNDED_CURVE()B_SPLINE_CURVE({spline.degree},{cps},.{form}.,{closed},{si})"
+                f"B_SPLINE_CURVE_WITH_KNOTS({mult},{kn},.{spec}.)CURVE()GEOMETRIC_REPRESENTATION_ITEM()"
+                f"RATIONAL_B_SPLINE_CURVE({self._rlist(weights)})REPRESENTATION_ITEM('')"
+            )
+            self._id += 1
+            self.fh.write(f"#{self._id}=({body});\n")
+            return self._id
+        return self._w(
+            f"B_SPLINE_CURVE_WITH_KNOTS('',{spline.degree},{cps},.{form}.,{closed},{si},{mult},{kn},.{spec}.)"
+        )
+
+    def _bspline_edge(self, v0, v1, cps3d, spline):
+        """EDGE_CURVE on a B-spline basis (same_sense .T. — the segment is oriented start->end, and the
+        spline was reversed by _reverse when the loop winding demanded it)."""
+        basis = self._bspline_basis_from_cps(cps3d, spline)
+        return self._w(f"EDGE_CURVE('',#{v0},#{v1},#{basis},.T.)")
+
     def _axis1(self, loc, axis):
         return self._w(f"AXIS1_PLACEMENT('',#{self._pt(loc)},#{self._dir(axis)})")
 
@@ -412,9 +443,7 @@ class Ap242StreamWriter:
         fh.write("DATA;\n")
 
         app = self._w(f"APPLICATION_CONTEXT('{sch['app_context']}')")
-        self._w(
-            "APPLICATION_PROTOCOL_DEFINITION('international standard'," f"'{sch['protocol']}',{sch['year']},#{app})"
-        )
+        self._w(f"APPLICATION_PROTOCOL_DEFINITION('international standard','{sch['protocol']}',{sch['year']},#{app})")
         self._prod_ctx = self._w(f"PRODUCT_CONTEXT('',#{app},'mechanical')")
         self._pd_ctx = self._w(f"PRODUCT_DEFINITION_CONTEXT('part definition',#{app},'design')")
 
@@ -463,7 +492,7 @@ class Ap242StreamWriter:
         axis = self._identity_axis()
         items = [axis, *self._solids]
         rep = self._w(
-            f"ADVANCED_BREP_SHAPE_REPRESENTATION('{self.product_name}'," f"{self._refs(items)},#{self._geom_ctx})"
+            f"ADVANCED_BREP_SHAPE_REPRESENTATION('{self.product_name}',{self._refs(items)},#{self._geom_ctx})"
         )
         product = self._w(f"PRODUCT('{self.product_name}','{self.product_name}','',(#{self._prod_ctx}))")
         self._w(f"PRODUCT_RELATED_PRODUCT_CATEGORY('part',$,(#{product}))")
@@ -536,7 +565,7 @@ class Ap242StreamWriter:
             idx += 1
 
     # -- the main entry point ----------------------------------------------- #
-    def add_extrusion(self, ext: Extrusion) -> int:
+    def add_extrusion(self, ext: Extrusion, *, parent_path=None) -> int:
         if not self._began or self._ended:
             raise RuntimeError("add_extrusion() must be called between begin() and end()")
 
@@ -574,7 +603,7 @@ class Ap242StreamWriter:
             self._emit_color(brep, ext.color)
 
         if self.assembly:
-            self._emit_component(brep, name)
+            self._emit_component(brep, name, parent_path=parent_path)
         else:
             self._solids.append(brep)
         return brep
@@ -664,10 +693,84 @@ class Ap242StreamWriter:
         return item
 
     def _emit_brep_geometry(self, g, nm, color):
-        """Emit just the B-rep geometry item (+ optional colour) under the active
-        instance transform ``self._tf``; return its id or None if unsupported. No
-        product/assembly wrapping — shared by the flat ``add_brep`` and the
-        instanced ``add_solid_instances``."""
+        """Emit a B-rep geometry item (+ optional colour) under the active instance
+        transform ``self._tf``; return its id or None if unsupported. No product/
+        assembly wrapping — shared by the flat ``add_brep`` and the instanced
+        ``add_solid_instances``.
+
+        Analytic tiers, tried in order — a CSG primitive (Sphere/Cone) that isn't a
+        shell has an EXACT analytic B-rep, so tessellation is the last resort, never
+        the response to "not directly a shell":
+
+          1. ``g`` is already an analytic shell/face  → emit it directly.
+          2. ``g`` is a CSG primitive                 → pure-Python primitive→B-rep.
+          3.                                           → adacpp-native primitive→B-rep.
+          4. genuinely non-analytic swept solid       → faceted (tessellated) B-rep.
+
+        Every tier is buffered (a fresh ``StringIO`` swapped in, rolled back on
+        failure) so a partial write from a tier whose Nth face is unsupported is
+        discarded before the next tier runs."""
+        import ada.geom.solids as so
+
+        item = self._emit_shell_buffered(g, nm, color)
+        if item is not None:
+            return item
+
+        # CSG primitive solids (not shells): build their exact analytic B-rep shell —
+        # pure-Python first (kernel-free / wasm), then the adacpp-native track — and
+        # emit that. NEVER tessellate a shape that has an analytic form.
+        from ada.geom.primitive_brep import (
+            native_primitive_to_analytic_shell,
+            primitive_to_analytic_shell,
+        )
+
+        for converter in (primitive_to_analytic_shell, native_primitive_to_analytic_shell):
+            try:
+                shell = converter(g)
+            except Exception as exc:  # noqa: BLE001 - a converter must never sink the file
+                logger.warning("ap242 primitive->brep converter %s failed for %r: %s", converter.__name__, nm, exc)
+                shell = None
+            if shell is None:
+                continue
+            item = self._emit_shell_buffered(shell, nm, color)
+            if item is not None:
+                return item
+
+        # No analytic AP242 B-rep form at all (e.g. an alignment
+        # IfcFixedReferenceSweptAreaSolid swept over an IfcGradientCurve: the clothoid
+        # + vertical-gradient directrix has no STEP analytic curve). Rather than leave
+        # it behind, tessellate via the validated NGEOM path and emit the triangle
+        # mesh as one faceted MANIFOLD_SOLID_BREP.
+        if isinstance(g, so.FixedReferenceSweptAreaSolid):
+            return self._emit_faceted_brep(g, nm, color)
+        return None
+
+    def _emit_shell_buffered(self, g, nm, color):
+        """Emit ``g`` (a ClosedShell / ConnectedFaceSet / OpenShell /
+        ShellBasedSurfaceModel / AdvancedFace / FaceSurface) into a fresh buffer so a
+        partial write (a shell whose Nth face uses an unsupported surface writes the
+        earlier faces before returning None) is rolled back wholesale. Returns the
+        emitted item id, or None when ``g`` is not an analytic shell/face or a face is
+        unsupported."""
+        real_fh, saved_id = self.fh, self._id
+        self.fh = io.StringIO()
+        try:
+            item = self._emit_analytic_shell(g, nm, color)
+        except Exception:  # noqa: BLE001 - discard the partial buffer, reclaim ids
+            self.fh, self._id = real_fh, saved_id
+            raise
+        if item is None:
+            self.fh, self._id = real_fh, saved_id
+            return None
+        buffered = self.fh.getvalue()
+        self.fh = real_fh
+        real_fh.write(buffered)
+        return item
+
+    def _emit_analytic_shell(self, g, nm, color):
+        """Emit an analytic B-rep shell/face (no primitive conversion, no buffering,
+        no faceting) — the raw writer for the shapes ``_brep_surface`` covers. Returns
+        the item id, or None if ``g`` is not such a shape or a face is unsupported."""
         import ada.geom.surfaces as su
 
         self._vcache = {}  # coord -> VERTEX_POINT id (shared across all faces)
@@ -705,15 +808,6 @@ class Ap242StreamWriter:
             shell = self._w(f"OPEN_SHELL('',{self._refs(faces)})")
             item = self._w(f"SHELL_BASED_SURFACE_MODEL('{nm}',(#{shell}))")
         else:
-            # No analytic AP242 B-rep form (e.g. an alignment
-            # IfcFixedReferenceSweptAreaSolid swept over an IfcGradientCurve: the
-            # clothoid + vertical-gradient directrix has no STEP analytic curve).
-            # Rather than leave it behind, tessellate via the validated NGEOM path
-            # and emit the triangle mesh as one faceted MANIFOLD_SOLID_BREP.
-            import ada.geom.solids as so
-
-            if isinstance(g, so.FixedReferenceSweptAreaSolid):
-                return self._emit_faceted_brep(g, nm, color)
             return None
 
         if color is not None:
@@ -859,7 +953,7 @@ class Ap242StreamWriter:
             self._instances.append((pd, sr, nm, parent_rep, tuple(tf) if tf is not None else None))
         return len(instances)
 
-    def add_baked_instances(self, g, *, name="shape", color=None, transforms=()) -> int:
+    def add_baked_instances(self, g, *, name="shape", color=None, transforms=(), parent_path=None) -> int:
         """Emit one component per world 4x4 in ``transforms``, each BAKED into a faceted
         MANIFOLD_SOLID_BREP whose planar faces are recomputed from the transformed points — so
         ANY affine (including the non-uniform-scale mapped-item transforms an IfcMappedItem carries)
@@ -885,7 +979,7 @@ class Ap242StreamWriter:
             if item is None:
                 continue
             if self.assembly:
-                self._emit_component(item, nm)
+                self._emit_component(item, nm, parent_path=parent_path)
             else:
                 self._solids.append(item)
             emitted += 1
@@ -917,6 +1011,7 @@ class Ap242StreamWriter:
         return out or None
 
     def _brep_face(self, face):
+        import ada.geom.curves as cu
         import ada.geom.surfaces as su
 
         # AdvancedFace and FaceSurface are structurally identical (same
@@ -932,7 +1027,10 @@ class Ap242StreamWriter:
             loop = self._brep_loop(fb.bound)
             if loop is None:
                 return None
-            kw = "FACE_OUTER_BOUND" if i == 0 else "FACE_BOUND"
+            # A single-vertex (pole) loop is never an outer wire bound — a whole
+            # sphere's spherical face carries just a FACE_BOUND(VERTEX_LOOP).
+            is_vertex = isinstance(fb.bound, cu.VertexLoop)
+            kw = "FACE_OUTER_BOUND" if (i == 0 and not is_vertex) else "FACE_BOUND"
             bounds.append(self._w(f"{kw}('',#{loop},{'.T.' if fb.orientation else '.F.'})"))
         if not bounds:
             return None
@@ -981,6 +1079,10 @@ class Ap242StreamWriter:
     def _brep_loop(self, loop):
         import ada.geom.curves as cu
 
+        if isinstance(loop, cu.VertexLoop):
+            # A single-vertex loop — the degenerate boundary of a fully-closed
+            # periodic face (a whole sphere), anchoring its pole point.
+            return self._w(f"VERTEX_LOOP('',#{self._vfor(loop.loop_vertex)})")
         if isinstance(loop, cu.EdgeLoop):
             oriented = []
             for oe in loop.edge_list:
@@ -1191,6 +1293,21 @@ class Ap242StreamWriter:
                 et[i] = self._arc_edge(tv[i], bpos_top[i], tv[j], bpos_top[j], c3_top, xdir, radius, ccw, normal)
                 surf = self._cylinder(c3_base, normal, xdir, radius)
                 face_sense = is_outer
+            elif seg.kind == "spline":
+                # Analytic B-spline side face: the boundary spline (base + top edges) swept along the
+                # extrusion vector as a SURFACE_OF_LINEAR_EXTRUSION. The spline is clamped with its end
+                # control points snapped to the corners, so cps_base[0]/[-1] coincide with bv[i]/bv[j].
+                sp = seg.spline
+                cps_base = [to3d_base(_xy(cp)) for cp in sp.control_points_list]
+                cps_top = [to3d_top(_xy(cp)) for cp in sp.control_points_list]
+                eb[i] = self._bspline_edge(bv[i], bv[j], cps_base, sp)
+                et[i] = self._bspline_edge(tv[i], tv[j], cps_top, sp)
+                delta = _sub(to3d_top((0.0, 0.0)), to3d_base((0.0, 0.0)))  # = depth_vec
+                mag = math.sqrt(_dot(delta, delta))
+                swept = self._bspline_basis_from_cps(cps_base, sp)
+                vec = self._w(f"VECTOR('',#{self._dir(_unit(delta))},{self._r(mag)})")
+                surf = self._w(f"SURFACE_OF_LINEAR_EXTRUSION('',#{swept},#{vec})")
+                face_sense = is_outer
             else:
                 raise ValueError(f"unknown segment kind {seg.kind!r}")
 
@@ -1282,8 +1399,32 @@ def _signed_area(segs):
     return 0.5 * a
 
 
+def _reverse_bspline(c):
+    """Reverse a clamped B-spline's parametrization: reverse control points/weights and mirror the
+    knot vector, so the curve now runs end->start with an unchanged shape."""
+    from ada.geom.curves import RationalBSplineCurveWithKnots
+
+    total = c.knots[0] + c.knots[-1]
+    common = dict(
+        degree=c.degree,
+        control_points_list=list(reversed(c.control_points_list)),
+        curve_form=c.curve_form,
+        closed_curve=c.closed_curve,
+        self_intersect=c.self_intersect,
+        knot_multiplicities=list(reversed(c.knot_multiplicities)),
+        knots=[total - k for k in reversed(c.knots)],
+        knot_spec=c.knot_spec,
+    )
+    if isinstance(c, RationalBSplineCurveWithKnots):
+        return RationalBSplineCurveWithKnots(weights_data=list(reversed(c.weights_data)), **common)
+    return type(c)(**common)
+
+
 def _reverse(segs):
-    return [Seg(s.kind, s.end, s.start, s.mid) for s in reversed(segs)]
+    return [
+        Seg(s.kind, s.end, s.start, s.mid, spline=_reverse_bspline(s.spline) if s.spline is not None else None)
+        for s in reversed(segs)
+    ]
 
 
 def _orient(segs, *, ccw):
@@ -1294,7 +1435,13 @@ def _orient(segs, *, ccw):
 
 def _curve_to_segs(curve, *, is_outer):
     """Translate one adapy 2D profile curve into a closed list[Seg], or None."""
-    from ada.geom.curves import ArcLine, Circle, Edge, IndexedPolyCurve
+    from ada.geom.curves import (
+        ArcLine,
+        BSplineCurveWithKnots,
+        Circle,
+        Edge,
+        IndexedPolyCurve,
+    )
 
     if isinstance(curve, Circle):
         return circle_loop(_xy(curve.position.location), float(curve.radius), ccw=is_outer)
@@ -1306,6 +1453,13 @@ def _curve_to_segs(curve, *, is_outer):
                 segs.append(Seg("line", _xy(seg.start), _xy(seg.end)))
             elif isinstance(seg, ArcLine):
                 segs.append(Seg("arc", _xy(seg.start), _xy(seg.end), mid=_xy(seg.midpoint)))
+            elif isinstance(seg, BSplineCurveWithKnots):
+                # Analytic B-spline boundary edge: a B_SPLINE_CURVE_WITH_KNOTS EDGE_CURVE with a
+                # SURFACE_OF_LINEAR_EXTRUSION side face (built in _build_loop). The profile spline is
+                # clamped with its endpoints snapped to the corners, so its first/last control points
+                # ARE the edge vertices. Validated by an OCC round-trip (test_write_step_stream).
+                cps = seg.control_points_list
+                segs.append(Seg("spline", _xy(cps[0]), _xy(cps[-1]), spline=seg))
             else:
                 logger.warning("unhandled poly-curve segment %s", type(seg).__name__)
                 return None
@@ -1553,6 +1707,12 @@ def _iter_stream_objects(part, merge_strategy=None):
             yield _AnalyticShell(shell, f"{part.name or 'model'}_analytic")
         for p in part.get_all_parts_in_assembly(include_self=True):
             fused = _part_fuses_from_fem(p)
+            if fused:
+                # The analytic face engine covers SHELL elements only — LINE (beam) elements have
+                # no shell faces and were silently dropped here (a beam+plate FEM exported to STEP
+                # with the plate alone; parity flagged the bbox loss). Fuse beams the same way the
+                # non-analytic branch does; plates stay with the analytic shell above.
+                yield from p.iter_objects_from_fem(beams=True, plates=False, detached=True)
             for o in p.get_all_physical_objects(sub_elements_only=True, pipe_to_segments=True):
                 if not fused or not isinstance(o, (Beam, Plate)):
                     yield o
@@ -1625,6 +1785,9 @@ def write_step_stream(
             geom, name, color, translate = _object_geom_meta(obj)
             done = False
             if geom is not None:
+                # Assembly breadcrumb (owning Part chain up to the root) so each
+                # streamed object lands under its real part, not flat under the root.
+                parent_path = _object_parent_path(obj, part)
                 # transforms ride obj.geom (the mapped-item mesh-level instances); solid_geom()
                 # strips them. World order (matching the tessellation path + the ifcopenshell oracle)
                 # is placement @ transform[k] @ local — so bake the LOCAL geometry (obj.geom.geometry,
@@ -1649,11 +1812,15 @@ def write_step_stream(
                         W = P @ np.asarray(m, dtype=float)
                         placed = _transform_extrusion(base_ext, W) if base_ext is not None else None
                         if placed is not None:
-                            writer.add_extrusion(placed)
+                            writer.add_extrusion(placed, parent_path=parent_path)
                             n_ok += 1
                         elif (
                             writer.add_baked_instances(
-                                obj_geom.geometry, name=name, color=color, transforms=[tuple(W.ravel())]
+                                obj_geom.geometry,
+                                name=name,
+                                color=color,
+                                transforms=[tuple(W.ravel())],
+                                parent_path=parent_path,
                             )
                             > 0
                         ):
@@ -1665,9 +1832,14 @@ def write_step_stream(
                         geom, name=name, color=color, translate=translate
                     ) or _primitive_to_extrusion(geom, name=name, color=color, translate=translate)
                     if ext is not None:
-                        writer.add_extrusion(ext)
+                        writer.add_extrusion(ext, parent_path=parent_path)
                         done = True
-                    elif writer.add_brep(geom.geometry, name=name, color=color, translate=translate) is not None:
+                    elif (
+                        writer.add_brep(
+                            geom.geometry, name=name, color=color, translate=translate, parent_path=parent_path
+                        )
+                        is not None
+                    ):
                         # B-rep fallback: imported shapes, pure shells, analytic faces
                         done = True
             emitted += 1 if done else 0
@@ -1702,6 +1874,24 @@ def _edge_curve_value_sig(g):
     if cps is not None:
         return (tname, tuple(tuple(float(v) for v in p) for p in cps))
     return (tname, loc)
+
+
+def _object_parent_path(obj, root):
+    """Root-first ``(rep_id, name)`` breadcrumb of an object's owning Part chain,
+    up to but excluding the ``root`` product (which the writer emits as the assembly
+    root). ``None`` when the object sits directly under the root. ``rep_id`` is the
+    Part's ``id()`` — a stable key for the duration of one streamed write, enough for
+    ``_register_asm_path`` to rebuild the nested PRODUCT / NAUO tree. Names are left
+    unescaped; ``_register_asm_path`` escapes them."""
+    levels: list = []
+    node = getattr(obj, "parent", None)
+    while node is not None and node is not root:
+        rep_id = id(node)
+        name = getattr(node, "name", None) or f"asm_{rep_id}"
+        levels.append((rep_id, name))
+        node = getattr(node, "parent", None)
+    levels.reverse()
+    return levels or None
 
 
 def _object_geom_meta(obj):

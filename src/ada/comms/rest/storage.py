@@ -597,7 +597,7 @@ class Storage:
         ``supports_presigned_uploads`` first.
         """
         if not self.supports_presigned_uploads:
-            raise NotImplementedError("presigned uploads require an HTTP object store; " "LocalStore is not supported")
+            raise NotImplementedError("presigned uploads require an HTTP object store; LocalStore is not supported")
         return await obs.sign_async(
             self._presign_store,
             "PUT",
@@ -622,9 +622,7 @@ class Storage:
         range-stream read), where the public ingress would be a hairpin.
         """
         if not self.supports_presigned_uploads:
-            raise NotImplementedError(
-                "presigned downloads require an HTTP object store; " "LocalStore is not supported"
-            )
+            raise NotImplementedError("presigned downloads require an HTTP object store; LocalStore is not supported")
         return await obs.sign_async(
             self._store if internal else self._presign_store,
             "GET",
@@ -633,9 +631,13 @@ class Storage:
         )
 
     async def head(self, scope: Scope, key: str) -> dict | None:
-        """Return ``{size, last_modified}`` for a key, or None if missing.
-        Used after a direct upload to confirm the object actually
-        landed before we audit a "ok" row."""
+        """Return ``{size, last_modified, e_tag}`` for a key, or None if
+        missing. Used after a direct upload to confirm the object actually
+        landed before we audit a "ok" row, and by the worker's source-blob
+        cache as a cheap version discriminator (``e_tag`` when the backend
+        reports one — S3/Garage always do, obstore's LocalStore synthesises
+        an inode/mtime/size one — else None and callers fall back to
+        size + last_modified)."""
         try:
             meta = await self._store.head_async(self._full_key(scope, key))
         except FileNotFoundError:
@@ -643,7 +645,8 @@ class Storage:
         size = int(meta["size"]) if isinstance(meta, dict) else int(getattr(meta, "size", 0))
         lm = meta.get("last_modified") if isinstance(meta, dict) else getattr(meta, "last_modified", None)
         lm_iso = lm.isoformat() if hasattr(lm, "isoformat") else (str(lm) if lm else None)
-        return {"size": size, "last_modified": lm_iso}
+        etag = meta.get("e_tag") if isinstance(meta, dict) else getattr(meta, "e_tag", None)
+        return {"size": size, "last_modified": lm_iso, "e_tag": str(etag) if etag else None}
 
     async def exists(self, scope: Scope, key: str) -> bool:
         try:

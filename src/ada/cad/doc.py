@@ -14,7 +14,7 @@ the ``"xcaf_doc"`` capability and steers callers to the portable per-shape
 ``write_glb_bytes`` + client-side scene assembly path instead. Use
 :func:`require_capability` to gate the OCAF-only operations explicitly.
 
-See dap plan/v3 notes_occ_backend_abstraction (Phase 6).
+See the internal design notes (Phase 6).
 """
 
 from __future__ import annotations

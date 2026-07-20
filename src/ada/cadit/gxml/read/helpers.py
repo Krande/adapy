@@ -85,27 +85,66 @@ def _project_to_best_fit_plane(pts):
     wrong" — the failure mode the user reports for the swept-surface
     fallbacks (exppc → exactcur / parcur / unresolvable ref chains).
     """
+    plane = _fit_best_fit_plane(pts)
+    if plane is None:
+        return list(pts)
+    return _project_onto_plane(pts, plane)
+
+
+def _fit_best_fit_plane(pts):
+    """``(centroid, unit_normal)`` of the SVD best-fit plane of ``pts``, or ``None`` if degenerate."""
     import numpy as _np
 
     arr = _np.asarray([list(p)[:3] for p in pts], dtype=float)
     if arr.shape[0] < 3:
-        return list(pts)
+        return None
     centroid = arr.mean(axis=0)
     centred = arr - centroid
     # SVD: smallest singular value corresponds to the plane normal.
     try:
         _, _, vt = _np.linalg.svd(centred, full_matrices=False)
     except _np.linalg.LinAlgError:
-        return list(pts)
+        return None
     normal = vt[-1]
     n_len = float(_np.linalg.norm(normal))
     if n_len < 1e-12:
-        return list(pts)
-    normal = normal / n_len
-    # Project: p_proj = p - dot(p - centroid, n) * n
-    offsets = (centred @ normal)[:, None] * normal
-    projected = arr - offsets
-    return [tuple(p) for p in projected]
+        return None
+    return centroid, normal / n_len
+
+
+def _project_onto_plane(pts, plane):
+    import numpy as _np
+
+    centroid, normal = plane
+    arr = _np.asarray([list(p)[:3] for p in pts], dtype=float)
+    # p_proj = p - dot(p - centroid, n) * n
+    offsets = ((arr - centroid) @ normal)[:, None] * normal
+    return [tuple(p) for p in arr - offsets]
+
+
+def _project_edge_curves_onto_plane(edge_curves, plane):
+    """Reproject arc ``PlateEdgeCurve`` endpoints + midpoint onto ``plane`` so they still match their
+    (now projected) segment in ``CurvePoly2d``.
+
+    Used only on the curved-shell OCC-failure FALLBACK (a flat best-fit-plane approximation of a curved
+    plate). Arcs reproject cleanly and stay analytic. B-spline edges are DROPPED to a chord here: a
+    spline lives on the plate's curved surface, so forcing it onto the flat fallback plane produces
+    sliver/spike triangles — the flat-plate path (where the spline really is in-plane) keeps it analytic.
+    """
+    from ada.api.curves import ArcEdge, SplineEdge
+
+    if not edge_curves or plane is None:
+        return edge_curves
+    out = []
+    for ec in edge_curves:
+        if isinstance(ec, ArcEdge):
+            a, b, m = _project_onto_plane([ec.a, ec.b, ec.midpoint], plane)
+            out.append(ArcEdge(a=a, b=b, midpoint=m))
+        elif isinstance(ec, SplineEdge):
+            continue  # spline on a flat fallback -> chord (avoids off-plane tessellation slivers)
+        else:
+            out.append(ec)
+    return out
 
 
 def _plate_from_3d_points(name, points, t, desired_normal, **kwargs):
@@ -132,6 +171,33 @@ def _plate_from_3d_points(name, points, t, desired_normal, **kwargs):
     want = _np.asarray(desired_normal, dtype=float)
     if float(_np.dot(got, want)) < 0:
         plate = Plate.from_3d_points(name, points, t, flip_normal=True, **kwargs)
+    return plate
+
+
+def _plate_from_face(name, points, edge_curves, t, desired_normal, **kwargs):
+    """Build a plate from SAT-face corner points, keeping analytic arc/spline boundary edges.
+
+    When ``edge_curves`` (arc/spline :class:`~ada.api.curves.PlateEdgeCurve` specs) are present, the
+    outline is assembled as real segments and built via ``Plate.from_segments`` so the curves survive
+    analytically; otherwise it falls back to the plain point-based ``_plate_from_3d_points``. Winding is
+    resolved the same way in both: build, compare to the desired normal, rebuild flipped on disagreement.
+    """
+    if not edge_curves:
+        return _plate_from_3d_points(name, points, t, desired_normal, **kwargs)
+
+    from ada import Plate
+    from ada.api.curves import CurvePoly2d
+
+    segments = CurvePoly2d.build_edge_segments(points, edge_curves)
+    plate = Plate.from_segments(name, segments, t, **kwargs)
+    if desired_normal is None:
+        return plate
+    import numpy as _np
+
+    got = _np.asarray(plate.poly.normal, dtype=float)
+    want = _np.asarray(desired_normal, dtype=float)
+    if float(_np.dot(got, want)) < 0:
+        plate = Plate.from_segments(name, segments, t, flip_normal=True, **kwargs)
     return plate
 
 
@@ -163,13 +229,15 @@ def _sense_against_face(sat_data, desired_normal, authored_sense: bool) -> bool:
 
 
 def yield_plate_elems_to_plate(
-    plate_elem, parent, sat_ref_d, thick_map, flat_fallback_d=None, face_normal_resolver=None
+    plate_elem, parent, sat_ref_d, thick_map, flat_fallback_d=None, face_normal_resolver=None, edge_curves_d=None
 ):
     base_name = plate_elem.attrib["name"]
     mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
     t = thick_map.get(plate_elem.attrib.get("thickness_ref"))
     if flat_fallback_d is None:
         flat_fallback_d = {}
+    if edge_curves_d is None:
+        edge_curves_d = {}
 
     # A curved shell has no single normal to state as a vector, so Genie
     # orients it with a flag against its face's own surface normal. It is
@@ -336,9 +404,11 @@ def yield_plate_elems_to_plate(
                                     name,
                                     mismatch,
                                 )
-                                yield _plate_from_3d_points(
+                                plane = _fit_best_fit_plane(fallback_pts)
+                                yield _plate_from_face(
                                     name,
-                                    _project_to_best_fit_plane(fallback_pts),
+                                    _project_onto_plane(fallback_pts, plane) if plane else list(fallback_pts),
+                                    _project_edge_curves_onto_plane(edge_curves_d.get(face_ref), plane),
                                     t,
                                     normal_for_face(face_ref),
                                     mat=mat,
@@ -372,6 +442,10 @@ def yield_plate_elems_to_plate(
                 # strict pcurve guard.
                 if fallback_pts is not None:
                     pc._flat_fallback_pts = fallback_pts
+                    # Carry the analytic arc specs too, so if the tessellator degrades this curved
+                    # shell to its flat fallback it still draws the boundary arcs as real arcs rather
+                    # than chords. Materialized only if the fallback fires — never sampled up front.
+                    pc._flat_fallback_edge_curves = edge_curves_d.get(face_ref)
                 yield pc
                 continue
 
@@ -391,10 +465,12 @@ def yield_plate_elems_to_plate(
                 fb = flat_fallback_d.get(face_ref)
                 if fb and len(fb) >= 3:
                     try:
-                        projected = _project_to_best_fit_plane(fb)
-                        yield _plate_from_3d_points(
+                        plane = _fit_best_fit_plane(fb)
+                        projected = _project_onto_plane(fb, plane) if plane else list(fb)
+                        yield _plate_from_face(
                             name,
                             projected,
+                            _project_edge_curves_onto_plane(edge_curves_d.get(face_ref), plane),
                             t,
                             normal_for_face(face_ref),
                             mat=mat,
@@ -408,9 +484,10 @@ def yield_plate_elems_to_plate(
                 continue
 
             try:
-                yield _plate_from_3d_points(
+                yield _plate_from_face(
                     name,
                     sat_data,
+                    edge_curves_d.get(face_ref),
                     t,
                     normal_for_face(face_ref),
                     mat=mat,

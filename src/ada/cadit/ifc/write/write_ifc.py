@@ -103,6 +103,20 @@ class IfcWriter:
             )
         }
 
+        # A previous sync's prune_empty_relationships may have dropped a material's (then-empty)
+        # eager rel — e.g. a beam-only material, since beams associate via their profile-set usage
+        # and never populate the bare rel. The rel doubles as the material's guid-lookup handle
+        # (add_material_assignment resolves the IfcMaterial through f.by_guid(mat.guid)), so
+        # recreate it here; the final prune removes it again if it stays empty.
+        missing = {guid: mat for guid, mat in mat_map.items() if guid not in rel_mats_map}
+        if missing:
+            ifc_mats_by_name = {im.Name: im for im in self.ifc_store.f.by_type("IfcMaterial")}
+            for guid, mat in missing.items():
+                ifc_mat = ifc_mats_by_name.get(mat.name)
+                if ifc_mat is None:
+                    continue  # material itself never written; eval_validity reports it properly
+                rel_mats_map[guid] = self.create_rel_associates_material(guid, ifc_mat)
+
         new_objects = list(filter(is_added, list(a.get_all_physical_objects())))
         num_new_objects = len(new_objects)
 
@@ -144,9 +158,17 @@ class IfcWriter:
                 self.callback(i, num_new_objects)
 
         # Create relationships between materials and physical objects
+        from ada import Beam
+
         obj_map = defaultdict(list)
         for obj in new_objects:
             if not hasattr(obj, "material"):
+                continue
+            if isinstance(obj, Beam):
+                # A beam's material association is its IfcMaterialProfileSetUsage rel (written in
+                # add_material_assignment). Adding it to the bare per-material rel as well gives it
+                # TWO IfcRelAssociatesMaterial, violating the EXPRESS where-rule
+                # IfcBuiltElement.MaxOneMaterialAssociation (caught by ifcopenshell.validate).
                 continue
             obj_map[obj.material].append(obj)
 
@@ -183,7 +205,12 @@ class IfcWriter:
                 except RuntimeError:
                     pass
 
-            rel_mat.RelatedObjects = [*rel_mat.RelatedObjects, *ifc_elems, *ifc_elems_pipe_seg]
+            # De-dup: pipe segments are already associated directly by write_ifc_pipe
+            # (associate_elem_with_material), and RelatedObjects is a SET — a repeated
+            # entry is a schema violation, not a harmless append.
+            existing = set(rel_mat.RelatedObjects)
+            fresh = [e for e in [*ifc_elems, *ifc_elems_pipe_seg] if e not in existing]
+            rel_mat.RelatedObjects = [*rel_mat.RelatedObjects, *fresh]
 
         for spatial_elem_guid, relating_elements in contained_in_spatial.items():
             if len(relating_elements) == 0:

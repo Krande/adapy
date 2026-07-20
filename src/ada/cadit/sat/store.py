@@ -348,7 +348,7 @@ class SatReaderFactory:
             loop = self.sat_store.get(loop.chunks[6])
         return False
 
-    def iter_flat_plates(self) -> Iterable[tuple[str, list[tuple[float, float, float]]]]:
+    def iter_flat_plates(self) -> Iterable[tuple[str, list[tuple[float, float, float]], list]]:
         for face_record in self.iter_faces():
             # face_surface = self.sat_store.get(face_record.chunks[10])
             # if face_surface.type == "spline-surface":

@@ -6,7 +6,7 @@ WHY THIS EXISTS (and why it is a stopgap, not the right answer)
 ENDPOINTS. Whatever the edge's curve does between its two vertices is discarded,
 so a plate whose boundary follows a spline (e.g. a deck plate meeting a curved
 hull skin) comes out as a straight chord between its corners. Measured on
-``OP1_v1007_hullskin.xml`` face ``FACE00004482``: 4 coedges — 1 straight, 2
+``a hull-skin Genie-XML model`` face ``FACE00004482``: 4 coedges — 1 straight, 2
 ``intcurve``, 1 ``ellipse`` — collapsed to a 4-point polygon.
 
 The loss is doubled by the target type: ``CurvePoly2d`` (the ``Plate`` outline) is
@@ -23,7 +23,7 @@ adjacent ``curved_shell`` keeps its real spline (it goes through ``AdvancedFace`
 so the two faces still do not share edge points and the seam is still not
 watertight — it just looks right. A real fix is B-spline edge support in ``Plate``
 / ``CurvePoly2d``, or routing curved-boundary flat plates through ``AdvancedFace``
-like the curved shells. See dap ``plan/v3/notes_plate_bspline_edges.md``.
+like the curved shells. See the internal design notes.
 """
 
 from __future__ import annotations
@@ -36,8 +36,6 @@ from ada.config import logger
 # remove_near_collinear_points (tol 1e-8*scale^2), so over-sampling a nearly
 # straight edge costs nothing; under-sampling a tight one is visible.
 DEFAULT_CURVE_SAMPLES = 24
-# Ring resolution for ellipse/circle sampling before clipping to the edge's arc.
-_ELLIPSE_RING_SAMPLES = 2048
 
 
 def _de_boor(x: float, knots, cp, deg: int):
@@ -60,42 +58,28 @@ def _de_boor(x: float, knots, cp, deg: int):
 
 
 def _bspline_points(curve, n: int) -> list[tuple[float, float, float]] | None:
-    """Sample a BSplineCurveWithKnots at n params across its knot span."""
+    """Sample a ``BSplineCurveWithKnots`` at n params across its knot span, or None if unsamplable.
+
+    Thin wrapper over :meth:`ada.geom.curves.BSplineCurveWithKnots.sample` (the single home of the de
+    Boor evaluator) that keeps this module's "unreadable curve => keep the chord" contract by returning
+    None instead of raising.
+    """
     try:
-        cp = np.asarray([list(p)[:3] for p in curve.control_points_list], dtype=float)
-        # SAT/IFC store knots + multiplicities separately; de Boor wants them expanded.
-        knots = np.repeat(np.asarray(curve.knots, dtype=float), np.asarray(curve.knot_multiplicities, dtype=int))
-        deg = int(curve.degree)
-        if deg < 1 or len(cp) <= deg or len(knots) != len(cp) + deg + 1:
-            # Malformed (or a form we don't model) — fall back to the chord.
-            return None
-        # Rational curves: weight the control points, then divide through after evaluation.
-        w = getattr(curve, "weights_data", None) or getattr(curve, "weights", None)
-        if w is not None and len(w) == len(cp):
-            wa = np.asarray(w, dtype=float).reshape(-1, 1)
-            cp = np.hstack([cp * wa, wa])
-        lo, hi = float(knots[deg]), float(knots[len(knots) - deg - 1])
-        if not np.isfinite([lo, hi]).all() or hi <= lo:
-            return None
-        out = []
-        for x in np.linspace(lo, hi, n):
-            p = _de_boor(float(x), knots, cp, deg)
-            if p.shape[0] == 4:  # rational: de-homogenize
-                if p[3] == 0:
-                    return None
-                p = p[:3] / p[3]
-            out.append(tuple(float(v) for v in p[:3]))
-        arr = np.asarray(out)
-        if not np.isfinite(arr).all():
-            return None
-        return out
+        return curve.sample(n)
     except Exception as exc:  # noqa: BLE001 - a curve we can't sample falls back to the chord
         logger.debug(f"bspline sample failed: {exc}")
         return None
 
 
-def _ellipse_points(curve, n: int) -> list[tuple[float, float, float]] | None:
-    """Sample a full Ellipse/Circle. Trimming to the edge happens in _clip_to_endpoints."""
+def _ellipse_arc_points(curve, a, b, n: int) -> list[tuple[float, float, float]] | None:
+    """Interior points along the Ellipse/Circle ARC from vertex `a` to vertex `b`.
+
+    Analytic clip: a point on the ellipse is ``p = c + ra*cos(t)*x + rb*sin(t)*y``, so each vertex's
+    parameter angle ``t`` is recovered by projecting ``p - c`` onto the (x, y) frame. We then sample
+    the SHORT arc between the two angles directly — ~n points on the actual edge — instead of the old
+    2048-point full ring that ``_clip_to_endpoints`` immediately threw all but ~n of away (~27s of the
+    hull-skin import). Endpoints are dropped: the caller already holds the exact vertices.
+    """
     try:
         c = np.asarray(list(curve.position.location)[:3], dtype=float)
         z = np.asarray(list(curve.position.axis)[:3], dtype=float)
@@ -107,14 +91,24 @@ def _ellipse_points(curve, n: int) -> list[tuple[float, float, float]] | None:
         rb = float(getattr(curve, "semi_axis2", getattr(curve, "radius", 0.0)))
         if ra <= 0 or rb <= 0:
             return None
-        # Sample the FULL ring densely, not n*4: the edge is usually a small arc of it (measured:
-        # a 1.46 m edge spanning ~5 of 96 ring samples), so ring density must be high enough that
-        # the clipped arc still carries ~n points. 2048 vectorised points is free.
-        t = np.linspace(0.0, 2.0 * np.pi, _ELLIPSE_RING_SAMPLES, endpoint=False)
-        pts = c + np.outer(ra * np.cos(t), x) + np.outer(rb * np.sin(t), y)
-        return [tuple(float(v) for v in p) for p in pts]
+
+        def _angle(p) -> float:
+            d = np.asarray(p, dtype=float) - c
+            return float(np.arctan2(float(d @ y) / rb, float(d @ x) / ra))
+
+        ta = _angle(a)
+        # The edge is the short arc: sweep the signed angular delta wrapped into (-pi, pi]. A plate
+        # boundary edge is always the shorter way round its ring (measured: ~5 of 96 samples), and for
+        # such small sweeps short-angle == short-arc-length for an ellipse too, so this matches the
+        # old arclength-based clip without sampling the full ring.
+        delta = (_angle(b) - ta + np.pi) % (2.0 * np.pi) - np.pi
+        if abs(delta) < 1e-12:
+            return []
+        ts = ta + delta * np.linspace(0.0, 1.0, n + 2)[1:-1]
+        pts = c + np.outer(ra * np.cos(ts), x) + np.outer(rb * np.sin(ts), y)
+        return [tuple(p) for p in pts.tolist()]
     except Exception as exc:  # noqa: BLE001
-        logger.debug(f"ellipse sample failed: {exc}")
+        logger.debug(f"ellipse arc sample failed: {exc}")
         return None
 
 
@@ -157,11 +151,16 @@ def _clip_to_endpoints(pts, a, b, n: int, closed: bool) -> list[tuple[float, flo
     return [tuple(float(v) for v in arr[i]) for i in inner]
 
 
-def edge_interior_points(coedge, sat_store, a, b, n: int = DEFAULT_CURVE_SAMPLES) -> list[tuple[float, float, float]]:
-    """Interior 3D points along `coedge`'s curve, ordered from vertex `a` to vertex `b`.
+def edge_curve_descriptor(coedge, sat_store, a, b, n: int = DEFAULT_CURVE_SAMPLES):
+    """Analytic descriptor for a curved coedge from vertex `a` to vertex `b`, or None.
 
-    Returns [] for straight edges, unreadable curves, or anything we can't sample —
-    the caller then keeps today's chord, so this can only add detail, never lose a plate.
+    - ``("arc", midpoint)`` — circle/ellipse: the point on the arc halfway between `a` and `b`.
+    - ``("spline", curve)`` — B-spline: the analytic ``ada.geom.curves.BSplineCurveWithKnots`` itself.
+    - ``None`` — straight, unreadable, or unsupported: the caller keeps the chord.
+
+    The caller carries the payload as an :class:`~ada.api.curves.ArcEdge` / ``SplineEdge`` so the plate
+    keeps a real analytic segment (arc exact in IFC/STEP; spline analytic in OCC/IFC, discretized in
+    NGEOM/STEP) instead of being sampled into straight outline points at read time.
     """
     # Local import: ada.cadit.sat.read.curves imports from this package's siblings.
     from ada.cadit.sat.read.curves import get_edge
@@ -169,22 +168,27 @@ def edge_interior_points(coedge, sat_store, a, b, n: int = DEFAULT_CURVE_SAMPLES
     try:
         oe = get_edge(coedge)
     except Exception as exc:  # noqa: BLE001 - unreadable curve => keep the chord
-        logger.debug(f"edge_interior_points: get_edge failed: {exc}")
-        return []
+        logger.debug(f"edge_curve_descriptor: get_edge failed: {exc}")
+        return None
     curve = getattr(oe, "edge_element", None) or getattr(oe, "edge_geometry", None) or oe
     curve = getattr(curve, "edge_geometry", curve)
 
     from ada.geom.curves import BSplineCurveWithKnots, Circle, Ellipse, Line
 
     if isinstance(curve, Line):
-        return []
-    pts = None
-    closed = False
+        return None
+    if isinstance(curve, (Ellipse, Circle)):
+        mid = _ellipse_arc_points(curve, a, b, 1)  # n=1 -> the single arc midpoint
+        if not mid:
+            return None
+        return ("arc", mid[0])
     if isinstance(curve, BSplineCurveWithKnots):
-        pts = _bspline_points(curve, max(n * 4, 32))  # open: sampled across the knot span
-    elif isinstance(curve, (Ellipse, Circle)):
-        pts = _ellipse_points(curve, n)
-        closed = True  # sampled as a full ring; the edge is an arc of it
-    if not pts:
-        return []
-    return _clip_to_endpoints(pts, a, b, n, closed)
+        # Sanity-check the spec is samplable before committing to the analytic edge; else keep the chord.
+        try:
+            curve.sample(2)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"edge_curve_descriptor: unsamplable b-spline ({exc})")
+            return None
+        return ("spline", curve)
+    return None
+    return []

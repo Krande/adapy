@@ -11,7 +11,7 @@
 -- dispatch. The ``corpora`` table itself owns the metadata
 -- (slug → human name + description); per-file metadata (e.g. the
 -- ``expected_to_fail`` annotation called out in
--- plan/v2/notes_admin_audit_panel.md) lives as a sidecar JSON in
+-- the admin audit-panel design notes) lives as a sidecar JSON in
 -- the bucket alongside the file, so adding it doesn't require a
 -- table migration.
 --

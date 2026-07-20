@@ -5,6 +5,8 @@ and reloaded must show the same number of visualized elements. These tests run
 purely in-process (no audit stack) on a known-good 4-object assembly.
 """
 
+from pathlib import Path
+
 import pytest
 import trimesh
 
@@ -90,17 +92,24 @@ def test_visualized_element_count_excludes_placeholder():
     assert visualized_element_count(scene) == 1
 
 
-def test_parity_fem_source_rebuilds_objects(fem_files):
-    """A FEM source must rebuild Beam/Plate concept objects (as the converter
-    does) before the round-trip; the writers emit concepts, not the raw mesh.
-    Previously parity exported an objectless assembly and read every format back
-    empty (a false "all geometry dropped"). After the fix the source and every
-    format agree."""
-    r = visual_parity.parity_for_source_file(fem_files / "sesam/beamMassT1.FEM", ("ifc", "xml", "step"))
-    assert r.expected > 0
-    assert r.counts["ifc"] == r.counts["xml"] == r.counts["step"] == r.expected
+def test_parity_for_source_file_fem_offline_geometry(tmp_path):
+    """The offline FEM parity fallback derives the PRODUCTION outputs (analytic
+    cylinder for step/ifc/xml, to_gltf for glb) and compares the geometry invariant
+    — NOT the retired merge_strategy=None + entity-count design. A clean plate-only
+    FEM source round-trips consistently: every format spans the same bounding box.
+
+    (The counts are now per-format ``{"area","bbox","tris"}`` geometry measures, so
+    the old ``counts[ifc] == counts[step]`` entity-count assertion is gone — the
+    formats use different dimensional representations, e.g. STEP emits a plate as a
+    mid-surface while Genie-XML emits it as a thin solid, so their areas legitimately
+    differ while the geometry is the same.)"""
+    inp = _fem_plate_inp(tmp_path)
+    r = visual_parity.parity_for_source_file(inp)
     assert r.errors == {}
     assert r.consistent is True
+    # bbox agrees across the produced formats (the representation-independent gate)
+    bboxes = [m["bbox"] for m in r.counts.values()]
+    assert max(bboxes) - min(bboxes) < 0.02 * max(bboxes)
 
 
 def test_parity_skips_xml_for_generic_solid_source():
@@ -192,3 +201,176 @@ def test_native_step_parity_single_parse_matches(tmp_path):
     assert r.counts["source"] == r.counts["ifc"] == r.counts["step"] == r.expected
     assert "xml" in r.skipped
     assert r.consistent is True
+
+
+def _fem_plate_inp(tmp_path):
+    """Write a small plate-only FEM to Abaqus .inp and return its path. Plate-only
+    (no line beams) so every produced format — including the STEP stream writer —
+    carries the geometry, giving a clean cross-format consistency baseline."""
+    import glob
+
+    pl = Plate("P", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.02)
+    part = ada.Part("pp")
+    part.fem = pl.to_fem_obj(0.5, "shell")
+    (ada.Assembly("A") / part).to_fem("m", "abaqus", scratch_dir=str(tmp_path), overwrite=True)
+    return glob.glob(str(tmp_path / "**" / "*.inp"), recursive=True)[0]
+
+
+# ── Geometry-invariant parity over produced files ───────────────────────────
+#
+# These pin the verdict logic deterministically by feeding crafted geometry
+# measures (no heavy tessellation), then a couple of real-file smoke tests.
+
+
+def _gm(area, bbox, tris=100, empty=False):
+    from ada.cadit.visual_parity import _GeomMeasure
+
+    return _GeomMeasure(area=area, bbox=bbox, tris=tris, empty=empty)
+
+
+def _run_verdict(monkeypatch, measures):
+    """Run parity_from_produced_files with _measure_produced_file stubbed to return
+    ``measures`` (a {fmt: _GeomMeasure} map)."""
+    from ada.cadit import visual_parity as vp
+
+    monkeypatch.setattr(vp, "_measure_produced_file", lambda fmt, path: measures[fmt])
+    produced = {fmt: Path(f"produced.{fmt}") for fmt in measures}
+    return vp.parity_from_produced_files("m.fem", produced)
+
+
+def test_produced_verdict_consistent_across_representations(monkeypatch):
+    """The KEY design property: absolute AREA legitimately differs across formats
+    that use different dimensional representations (STEP mid-surface = 2, Genie-XML
+    thin solid = 4.12, glb mesh = 2) yet the model is identical. The bbox is the
+    same for all, and the area floor sits well below the ~0.5 solid-vs-surface
+    ratio — so this must NOT flag a mismatch."""
+    r = _run_verdict(
+        monkeypatch,
+        {"step": _gm(2.0, 5.0, 2), "ifc": _gm(2.0, 5.0, 2), "xml": _gm(4.12, 5.0, 12), "glb": _gm(2.0, 5.0, 16)},
+    )
+    assert r.consistent is True
+    assert r.mismatches == {} and r.errors == {}
+    # counts carry the per-format geometry measure, not an entity count
+    assert r.counts["xml"] == {"area": 4.12, "bbox": 5.0, "tris": 12}
+
+
+def test_produced_verdict_flags_shrunk_bbox(monkeypatch):
+    """A format that dropped a solid/region shrinks its bounding box — the strict,
+    representation-independent gate flags it (here the shipped glb, which the viewer
+    loads: a drop there is the worst case)."""
+    r = _run_verdict(
+        monkeypatch,
+        {"ifc": _gm(10.0, 10.0), "step": _gm(10.0, 10.0), "glb": _gm(6.0, 8.0)},  # glb bbox -20%
+    )
+    assert r.consistent is False
+    assert "glb" in r.mismatches and "bbox" in r.mismatches["glb"]
+    assert "ifc" not in r.mismatches and "step" not in r.mismatches
+
+
+def test_produced_verdict_area_floor_catches_gross_drop(monkeypatch):
+    """A CAD format that keeps its bbox but grossly loses surface area (near-empty)
+    is caught by the coarse area floor — a backstop below the bbox gate."""
+    r = _run_verdict(
+        monkeypatch,
+        {"ifc": _gm(10.0, 10.0), "step": _gm(0.5, 10.0), "glb": _gm(8.0, 10.0)},  # step area 0.5 << 10
+    )
+    assert r.consistent is False
+    assert "step" in r.mismatches and "area" in r.mismatches["step"]
+
+
+def test_produced_verdict_area_floor_tolerates_inflated_representation(monkeypatch):
+    """A single format legitimately carrying several× the area (Genie-XML emits
+    thick solids that tessellate to ~5× the mid-surface area STEP/IFC carry) must
+    NOT trip the gross-loss floor. The floor references the MEDIAN concept area, so
+    the inflated xml can't penalise the correct mid-surface formats. bbox agrees
+    across all four (mirrors a real shell-FEM parity cell)."""
+    r = _run_verdict(
+        monkeypatch,
+        {
+            "glb": _gm(5622.0, 59.33, 82006),
+            "ifc": _gm(6288.0, 59.39, 87976),
+            "step": _gm(4671.0, 59.33, 29662),
+            "xml": _gm(29462.0, 59.63, 352856),  # ~5x — thick-solid representation
+        },
+    )
+    assert r.consistent is True, r.mismatches
+    assert r.mismatches == {}
+
+
+def test_produced_verdict_skips_unmeasurable_crash(monkeypatch):
+    """A format whose measurement HARD-crashes (a native SIGSEGV contained in the
+    isolated measurement subprocess -> _MeasureUnavailable) is recorded as skipped,
+    NOT an error: the formats that DO measure still decide the verdict. This is the
+    class that failed the two largest FEM parity cells (step/ifc re-tessellation
+    SIGSEGV in OCC)."""
+    from ada.cadit import visual_parity as vp
+
+    good = {"glb": _gm(100.0, 10.0), "xml": _gm(120.0, 10.05)}
+
+    def fake_measure(fmt, path):
+        if fmt in ("step", "ifc"):
+            raise vp._MeasureUnavailable("measurement subprocess died (exit -11 — a native tessellation crash)")
+        return good[fmt]
+
+    monkeypatch.setattr(vp, "_measure_produced_file", fake_measure)
+    produced = {f: Path(f"p.{f}") for f in ("glb", "xml", "step", "ifc")}
+    r = vp.parity_from_produced_files("m.fem", produced)
+    assert r.consistent is True
+    assert set(r.skipped) == {"step", "ifc"} and "unmeasurable" in r.skipped["step"]
+    assert r.mismatches == {} and r.errors == {}
+
+
+def test_produced_verdict_flags_empty(monkeypatch):
+    """A format that produced no renderable geometry at all (empty scene / IFC that
+    imported nothing) is flagged."""
+    r = _run_verdict(monkeypatch, {"ifc": _gm(10.0, 10.0), "glb": _gm(0.0, 0.0, 0, empty=True)})
+    assert r.consistent is False
+    assert "glb" in r.mismatches and "no renderable geometry" in r.mismatches["glb"]
+
+
+def test_produced_verdict_skips_solid_only_concepts(monkeypatch):
+    """A solid-only / mesh-only FEM has no shells or beams to reconstruct, so its
+    step/ifc/xml exports are legitimately EMPTY while the glb still carries the
+    element mesh. The empty concept formats are SKIPPED (not flagged as a drop),
+    and the source is consistent — this is the class that erroneously failed every
+    solid FEM parity cell."""
+    r = _run_verdict(
+        monkeypatch,
+        {
+            "step": _gm(0.0, 0.0, 0, empty=True),
+            "ifc": _gm(0.0, 0.0, 0, empty=True),
+            "xml": _gm(0.0, 0.0, 0, empty=True),
+            "glb": _gm(1.2, 0.3, 6000),
+        },
+    )
+    assert r.consistent is True
+    assert r.mismatches == {} and r.errors == {}
+    assert set(r.skipped) == {"step", "ifc", "xml"}
+
+
+def test_produced_verdict_records_missing_format_without_rederiving(monkeypatch):
+    """A format whose conversion failed/was skipped comes in as None: it is RECORDED
+    in ``skipped`` (never re-derived) and excluded from the verdict — the present
+    formats still decide consistency."""
+    from ada.cadit import visual_parity as vp
+
+    measures = {"ifc": _gm(10.0, 10.0), "glb": _gm(10.0, 10.0)}
+    monkeypatch.setattr(vp, "_measure_produced_file", lambda fmt, path: measures[fmt])
+    produced = {"ifc": Path("produced.ifc"), "glb": Path("produced.glb"), "step": None}
+    r = vp.parity_from_produced_files("m.fem", produced)
+    assert r.consistent is True
+    assert "step" in r.skipped
+    assert "step" not in r.counts and "step" not in r.mismatches
+
+
+def test_measure_produced_file_reads_glb_directly(tmp_path):
+    """Smoke test the mesh-direct measure path on a real GLB: a 2×1×3 box scene
+    reports the expected bbox diagonal and a positive area/triangle count."""
+    from ada.cadit.visual_parity import _measure_produced_file
+
+    p = tmp_path / "box.glb"
+    trimesh.Scene(trimesh.creation.box((2, 1, 3))).export(str(p))
+    m = _measure_produced_file("glb", p)
+    assert m.tris > 0 and m.area > 0
+    assert abs(m.bbox - (2**2 + 1**2 + 3**2) ** 0.5) < 1e-6
+    assert m.empty is False

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from itertools import chain
 from typing import TYPE_CHECKING, Iterable, Union
 
 import numpy as np
@@ -127,6 +126,39 @@ class CompositeCurveSegment:
     transition: str = "CONTINUOUS"
 
 
+def _sample_circle_arc(circle, t1, t2, sense_agreement, n: int = 24) -> list[tuple[float, float]]:
+    """Sample a 2D arc of ``circle`` between cartesian trims ``t1``/``t2`` (full ring if either is None).
+
+    Natural parametrization is CCW about the placement axis with x = ``ref_direction``; ``sense_agreement``
+    False sweeps CW instead. Used by :meth:`CompositeCurve.to_points2d` for the rare arc-in-composite."""
+    center = np.asarray(circle.position.location, dtype=float)[:2]
+    ref = np.asarray(circle.position.ref_direction, dtype=float)[:2]
+    rn = np.linalg.norm(ref)
+    xdir = ref / rn if rn else np.array([1.0, 0.0])
+    ydir = np.array([-xdir[1], xdir[0]])  # +90deg (CCW natural direction of an IfcCircle)
+    r = float(circle.radius)
+
+    def _ang(p):
+        d = np.asarray(p, dtype=float)[:2] - center
+        return float(np.arctan2(float(d @ ydir), float(d @ xdir)))
+
+    if t1 is None or t2 is None:
+        a0, a1 = 0.0, 2.0 * np.pi
+    else:
+        a0, a1 = _ang(t1), _ang(t2)
+        if sense_agreement:
+            while a1 <= a0:
+                a1 += 2.0 * np.pi
+        else:
+            while a1 >= a0:
+                a1 -= 2.0 * np.pi
+    out = []
+    for a in np.linspace(a0, a1, n):
+        p = center + r * np.cos(a) * xdir + r * np.sin(a) * ydir
+        out.append((float(p[0]), float(p[1])))
+    return out
+
+
 @dataclass(slots=True)
 class CompositeCurve:
     """
@@ -138,6 +170,43 @@ class CompositeCurve:
 
     segments: list[CompositeCurveSegment]
     self_intersect: bool = False
+
+    def to_points2d(self) -> list[tuple[float, float]]:
+        """Ordered, de-duplicated 2D outline points — line endpoints, sampled arcs/B-splines.
+
+        Lets a spline-bearing plate profile (an ``IfcCompositeCurve``, which ``IfcIndexedPolyCurve``
+        can't carry) be read back as a point-based ``Plate`` outline. The IFC file itself stays
+        analytic (the composite carries the real ``IfcBSplineCurveWithKnots``); only this reader-side
+        outline samples the curve."""
+
+        def _parent_points(c) -> list:
+            if isinstance(c, PolyLine):
+                return list(c.points)
+            if isinstance(c, BSplineCurveWithKnots):
+                return c.sample(max(16, int(c.degree) * 8))
+            if isinstance(c, Edge):
+                return [c.start, c.end]
+            if isinstance(c, TrimmedCurve) and isinstance(c.basis_curve, BSplineCurveWithKnots):
+                # Parameter-trimmed over the full knot span (how the writer wraps a spline segment).
+                return c.basis_curve.sample(max(16, int(c.basis_curve.degree) * 8))
+            if isinstance(c, TrimmedCurve) and isinstance(c.basis_curve, Circle):
+                return _sample_circle_arc(c.basis_curve, c.trim1, c.trim2, c.sense_agreement)
+            if isinstance(c, Circle):
+                return _sample_circle_arc(c, None, None, True)
+            raise NotImplementedError(f"CompositeCurve.to_points2d: unsupported parent curve {type(c).__name__}")
+
+        pts: list[tuple[float, float]] = []
+        for seg in self.segments:
+            seq = _parent_points(seg.parent_curve)
+            if not seg.same_sense:
+                seq = list(reversed(seq))
+            for p in seq:
+                xy = (float(p[0]), float(p[1]))
+                if not pts or abs(pts[-1][0] - xy[0]) > 1e-9 or abs(pts[-1][1] - xy[1]) > 1e-9:
+                    pts.append(xy)
+        if len(pts) > 2 and abs(pts[0][0] - pts[-1][0]) < 1e-9 and abs(pts[0][1] - pts[-1][1]) < 1e-9:
+            pts.pop()  # drop the closing duplicate
+        return pts
 
 
 @dataclass(slots=True)
@@ -252,11 +321,26 @@ class IndexedPolyCurve:
         return points
 
     def get_unique_points_and_segment_indices(self) -> tuple[np.ndarray, list[list[int]]]:
-        points = list(chain.from_iterable([list(segment) for segment in self.segments]))
-        points_tuple = [tuple(x) for x in chain.from_iterable([list(segment) for segment in self.segments])]
-        unique_pts, pts_index = np.unique(points, axis=0, return_index=False, return_inverse=True)
-        indices = [[int(pts_index[points_tuple.index(tuple(s))]) + 1 for s in segment] for segment in self.segments]
-
+        # Per-segment point sequence: Edge -> 2 pts (line), ArcLine -> 3 pts (arc). A B-spline can't be
+        # indexed analytically here (IfcIndexedPolyCurve only has line/arc index), so it is sampled into
+        # a polyline -> a single IfcLineIndex of k>2 points. The analytic path routes spline outlines to
+        # an IfcCompositeCurve instead (see indexed_poly_curve_or_composite); this keeps every other
+        # get_unique consumer (e.g. the streaming IFC writer) working with a faceted-but-valid spline.
+        seg_point_lists = [
+            (
+                [tuple(p) for p in segment.sample(max(16, int(segment.degree) * 8))]
+                if isinstance(segment, BSplineCurveWithKnots)
+                else [tuple(p) for p in segment]
+            )
+            for segment in self.segments
+        ]
+        all_pts = [p for lst in seg_point_lists for p in lst]
+        unique_pts, inv = np.unique(all_pts, axis=0, return_inverse=True)
+        inv = np.asarray(inv).reshape(-1)  # np>=2 returns shape (n,1); flatten for indexing
+        indices, cursor = [], 0
+        for lst in seg_point_lists:
+            indices.append([int(inv[cursor + j]) + 1 for j in range(len(lst))])
+            cursor += len(lst)
         return unique_pts, indices
 
     def to_points2d(self):
@@ -415,6 +499,48 @@ class BSplineCurveWithKnots:
     knot_multiplicities: list[int]
     knots: list[float]
     knot_spec: KnotType
+
+    def sample(self, n: int) -> list[tuple[float, float, float]]:
+        """Discretize the curve into ``n`` points evenly across its knot span (endpoints included).
+
+        Vectorised de Boor (numpy only — scipy is not a core dep); the subclass
+        :class:`RationalBSplineCurveWithKnots` is de-homogenised via ``weights_data``. This is where a
+        B-spline plate/section edge is turned into a polyline for tessellation, so the analytic curve
+        can be carried unsampled everywhere upstream and discretized only here. Raises ``ValueError``
+        on a malformed spec (degree/knot/control-point-count mismatch or a zero rational weight).
+        """
+        cp = np.asarray([list(p)[:3] for p in self.control_points_list], dtype=float)
+        # SAT/IFC store knots + multiplicities separately; de Boor wants them expanded.
+        knots = np.repeat(np.asarray(self.knots, dtype=float), np.asarray(self.knot_multiplicities, dtype=int))
+        deg = int(self.degree)
+        if deg < 1 or len(cp) <= deg or len(knots) != len(cp) + deg + 1:
+            raise ValueError("malformed B-spline (degree / knot / control-point-count mismatch)")
+        weights = getattr(self, "weights_data", None)
+        if weights is not None and len(weights) == len(cp):
+            wa = np.asarray(weights, dtype=float).reshape(-1, 1)
+            cp = np.hstack([cp * wa, wa])  # homogeneous; divided through after evaluation
+        lo, hi = float(knots[deg]), float(knots[len(knots) - deg - 1])
+        if not np.isfinite([lo, hi]).all() or hi <= lo:
+            raise ValueError("degenerate B-spline knot span")
+        xs = np.linspace(lo, hi, n)
+        ks = np.clip(np.searchsorted(knots, xs, side="right") - 1, deg, len(cp) - 1)
+        d = [cp[j + ks - deg] for j in range(deg + 1)]  # d[j][i] = j-th active ctrl pt for sample i
+        for r in range(1, deg + 1):
+            for j in range(deg, r - 1, -1):
+                lo_ = knots[j + ks - deg]
+                hi_ = knots[j + 1 + ks - r]
+                den = hi_ - lo_
+                a = np.divide(xs - lo_, den, out=np.zeros_like(den), where=den != 0)[:, None]
+                d[j] = (1.0 - a) * d[j - 1] + a * d[j]
+        pts = d[deg]
+        if pts.shape[1] == 4:  # rational: de-homogenize
+            w_last = pts[:, 3]
+            if np.any(w_last == 0):
+                raise ValueError("zero rational weight in B-spline evaluation")
+            pts = pts[:, :3] / w_last[:, None]
+        if not np.isfinite(pts).all():
+            raise ValueError("non-finite point in B-spline evaluation")
+        return [tuple(p) for p in pts.tolist()]
 
 
 @dataclass(slots=True)
@@ -589,6 +715,19 @@ class EdgeLoop:
     """
 
     edge_list: list[OrientedEdge]
+
+
+@dataclass(slots=True)
+class VertexLoop:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcVertexLoop.htm)
+    STEP (https://www.steptools.com/stds/stp_aim/html/t_vertex_loop.html)
+
+    A loop of a single vertex — the degenerate boundary a fully-closed periodic
+    surface (a whole sphere's spherical face) uses to anchor its one pole point.
+    """
+
+    loop_vertex: Point
 
 
 # Concrete tuple of bare-curve geometry classes (CURVE_GEOM_TYPES is a Union of forward-ref
