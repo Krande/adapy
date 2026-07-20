@@ -2,6 +2,15 @@
 
 
 
+## v0.34.0 (2026-07-20)
+
+### Feature
+
+* feat: analytic FEM→CAD export across step/ifc/xml with native-first geometry and produced-file parity (#245)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`37db6ed`](https://github.com/Krande/adapy/commit/37db6edcb0a22cd4452bca36bbba6689ea78d37b))
+
+
 ## v0.33.0 (2026-07-18)
 
 ### Feature
