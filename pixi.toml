@@ -183,7 +183,7 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # for every other path (IFC/XML/FEM, occ-builtin fallback). Shares occt 7.9.3 with
 # pyocc (see above) so both coexist in one env.
 [feature.adacpp-runtime.dependencies]
-ada-cpp = "0.17.1.*"
+ada-cpp = "0.18.0.*"
 
 # ada-cpp CAD backend (AdacppBackend) — native CPython build of the
 # wasm-capable kernel. Brings its own occt 7.9.3 + gmsh + ifcopenshell,
@@ -205,8 +205,10 @@ ada-cpp = "0.17.1.*"
 # imprint_planar_faces plus win-64 build and cad-API-generator encoding fixes. 0.16
 # adds native OCC-free STEP/IFC→GLB with tessellation tracks and colour/curved-surface
 # fidelity; 0.16.1 fixes per-face STEP colours without --face-regions plus CLI positional
-# args and pipeline validation.
-ada-cpp = "0.17.1.*"
+# args and pipeline validation. 0.18 adds AP242 mapped instancing, closed-B-spline
+# tessellation fixes, and the NGEOM record-stream emitters (stream_ngeom_to_step/ifc/glb/mesh
+# + ngeom_to_ifc_body_spf) — adapy's native Genie-XML export legs call these directly.
+ada-cpp = "0.18.0.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"

@@ -96,7 +96,10 @@ def test_glb_serializer_tessellator_advertised_single_source():
         # dependent tessellator: enum_by keyed by serializer, depends_on wired
         assert tess["depends_on"] == "serializer"
         assert set(tess["enum_by"]) == set(ser["enum"])
-        assert tess["enum_by"]["cpp"] == ["native"]
+        # cpp offers whatever this env discovered: the pinned `native` token against a binding
+        # with no track selection, the discovered neutral adacpp tracks otherwise.
+        assert tess["enum_by"]["cpp"], "the cpp serializer must always offer a kernel"
+        assert set(tess["enum_by"]["cpp"]) <= set(tess["enum"])
         assert tess["enum_by"]["wasm"] == ["wasm-native", "pyodide"]
         # the python serializer offers whatever this env discovered — never nothing, and every
         # token it offers must be describable (the SPA renders labels straight from this).
