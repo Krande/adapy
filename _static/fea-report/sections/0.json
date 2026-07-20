@@ -1,0 +1,2309 @@
+{
+  "section": {
+    "id": "open-source-fea-using-adapy",
+    "title": "Open Source FEA using adapy",
+    "level": 1,
+    "index": 0,
+    "isAppendix": false
+  },
+  "doc": {
+    "blocks": [
+      {
+        "t": "Header",
+        "c": [
+          1,
+          [
+            "open-source-fea-using-adapy",
+            [],
+            []
+          ],
+          [
+            {
+              "t": "Str",
+              "c": "Open"
+            },
+            {
+              "t": "Space"
+            },
+            {
+              "t": "Str",
+              "c": "Source"
+            },
+            {
+              "t": "Space"
+            },
+            {
+              "t": "Str",
+              "c": "FEA"
+            },
+            {
+              "t": "Space"
+            },
+            {
+              "t": "Str",
+              "c": "using"
+            },
+            {
+              "t": "Space"
+            },
+            {
+              "t": "Str",
+              "c": "adapy"
+            }
+          ]
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Para",
+        "c": [
+          {
+            "t": "Str",
+            "c": "This"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "report"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "describes"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "main"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "verification"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "work"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "of"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "simulation"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "results"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "produced"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "by"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "SoftBreak"
+          },
+          {
+            "t": "Str",
+            "c": "Open"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "Source"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "Finite"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "Element"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "(FE)"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "solvers"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Link",
+            "c": [
+              [
+                "",
+                [],
+                []
+              ],
+              [
+                {
+                  "t": "Str",
+                  "c": "Code"
+                },
+                {
+                  "t": "Space"
+                },
+                {
+                  "t": "Str",
+                  "c": "Aster"
+                }
+              ],
+              [
+                "https://www.code-aster.org/spip.php?rubrique2",
+                ""
+              ]
+            ]
+          },
+          {
+            "t": "SoftBreak"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Link",
+            "c": [
+              [
+                "",
+                [],
+                []
+              ],
+              [
+                {
+                  "t": "Str",
+                  "c": "Calculix"
+                }
+              ],
+              [
+                "http://www.dhondt.de/",
+                ""
+              ]
+            ]
+          },
+          {
+            "t": "Str",
+            "c": "."
+          }
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Para",
+        "c": [
+          {
+            "t": "Str",
+            "c": "The"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "motivation"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "behind"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "producing"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "this"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "report"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "is"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "to"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "increase"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "confidence"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "in"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "conversion"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "of"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "FEM"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "models"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "in"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Emph",
+            "c": [
+              {
+                "t": "Str",
+                "c": "adapy"
+              }
+            ]
+          },
+          {
+            "t": "SoftBreak"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "also"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "results"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "from"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "various"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "FEA"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "solvers."
+          }
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Header",
+        "c": [
+          2,
+          [
+            "introduction",
+            [],
+            []
+          ],
+          [
+            {
+              "t": "Str",
+              "c": "Introduction"
+            }
+          ]
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Para",
+        "c": [
+          {
+            "t": "Str",
+            "c": "The"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "results"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "from"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Emph",
+            "c": [
+              {
+                "t": "Str",
+                "c": "Code"
+              },
+              {
+                "t": "Space"
+              },
+              {
+                "t": "Str",
+                "c": "Aster"
+              }
+            ]
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Emph",
+            "c": [
+              {
+                "t": "Str",
+                "c": "Calculix"
+              }
+            ]
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "tools"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "will"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "be"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "compared"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "with"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "proprietary"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "FEA"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "solvers"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "such"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "as;"
+          }
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "BulletList",
+        "c": [
+          [
+            {
+              "t": "Plain",
+              "c": [
+                {
+                  "t": "Link",
+                  "c": [
+                    [
+                      "",
+                      [],
+                      []
+                    ],
+                    [
+                      {
+                        "t": "Str",
+                        "c": "Abaqus"
+                      }
+                    ],
+                    [
+                      "https://www.3ds.com/products-services/simulia/products/abaqus/",
+                      ""
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "t": "Plain",
+              "c": [
+                {
+                  "t": "Link",
+                  "c": [
+                    [
+                      "",
+                      [],
+                      []
+                    ],
+                    [
+                      {
+                        "t": "Str",
+                        "c": "Sestra"
+                      },
+                      {
+                        "t": "Space"
+                      },
+                      {
+                        "t": "Str",
+                        "c": "(part"
+                      },
+                      {
+                        "t": "Space"
+                      },
+                      {
+                        "t": "Str",
+                        "c": "of"
+                      },
+                      {
+                        "t": "Space"
+                      },
+                      {
+                        "t": "Str",
+                        "c": "DNV’s"
+                      },
+                      {
+                        "t": "Space"
+                      },
+                      {
+                        "t": "Str",
+                        "c": "Sesam"
+                      },
+                      {
+                        "t": "Space"
+                      },
+                      {
+                        "t": "Str",
+                        "c": "suite)"
+                      }
+                    ],
+                    [
+                      "https://www.dnv.com/services/linear-structural-analysis-sestra-2276",
+                      ""
+                    ]
+                  ]
+                }
+              ]
+            }
+          ]
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Para",
+        "c": [
+          {
+            "t": "Str",
+            "c": "The"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "simulations"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "are"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "pre-"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "post"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "processed"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "using"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Link",
+            "c": [
+              [
+                "",
+                [],
+                []
+              ],
+              [
+                {
+                  "t": "Str",
+                  "c": "adapy"
+                }
+              ],
+              [
+                "https://github.com/Krande/adapy",
+                ""
+              ]
+            ]
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "this"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "report"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "is"
+          },
+          {
+            "t": "SoftBreak"
+          },
+          {
+            "t": "Str",
+            "c": "automatically"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "generated"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "using"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Link",
+            "c": [
+              [
+                "",
+                [],
+                []
+              ],
+              [
+                {
+                  "t": "Str",
+                  "c": "paradoc"
+                }
+              ],
+              [
+                "https://github.com/Krande/paradoc",
+                ""
+              ]
+            ]
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "as"
+          },
+          {
+            "t": "SoftBreak"
+          },
+          {
+            "t": "Str",
+            "c": "part"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "of"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "a"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "ci/cd"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "pipeline"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "within"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Emph",
+            "c": [
+              {
+                "t": "Str",
+                "c": "adapy"
+              }
+            ]
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "repositories."
+          }
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Para",
+        "c": [
+          {
+            "t": "Str",
+            "c": "For"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "each"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "new"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "addition"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "of"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "code"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "affecting"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "handling"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "of"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "FEM"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "in"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Emph",
+            "c": [
+              {
+                "t": "Str",
+                "c": "adapy"
+              }
+            ]
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "a"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "new"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "set"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "of"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "analyses"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "is"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "performed,"
+          },
+          {
+            "t": "SoftBreak"
+          },
+          {
+            "t": "Str",
+            "c": "whereas"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "results"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "are"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "gathered"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "in"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "this"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "auto-generated"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "document."
+          }
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Para",
+        "c": [
+          {
+            "t": "Str",
+            "c": "Please"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "note!"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "This"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "report"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "will"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "not"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "go"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "into"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "detail"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "into"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "specifics"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "of"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "why"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "results"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "are"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "different"
+          },
+          {
+            "t": "SoftBreak"
+          },
+          {
+            "t": "Str",
+            "c": "between"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "different"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "element"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "representations."
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "This"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "report"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "will"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "only"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "investigate"
+          },
+          {
+            "t": "SoftBreak"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "compare"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "results"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "from"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "different"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "FEA"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "software."
+          }
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Header",
+        "c": [
+          2,
+          [
+            "fea-solvers",
+            [],
+            []
+          ],
+          [
+            {
+              "t": "Str",
+              "c": "FEA"
+            },
+            {
+              "t": "Space"
+            },
+            {
+              "t": "Str",
+              "c": "Solvers"
+            }
+          ]
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "BulletList",
+        "c": [
+          [
+            {
+              "t": "Plain",
+              "c": [
+                {
+                  "t": "Str",
+                  "c": "Calculix"
+                },
+                {
+                  "t": "Space"
+                },
+                {
+                  "t": "Str",
+                  "c": "v2.21"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "t": "Plain",
+              "c": [
+                {
+                  "t": "Str",
+                  "c": "Code"
+                },
+                {
+                  "t": "Space"
+                },
+                {
+                  "t": "Str",
+                  "c": "Aster"
+                },
+                {
+                  "t": "Space"
+                },
+                {
+                  "t": "Str",
+                  "c": "v17.1.0"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "t": "Plain",
+              "c": [
+                {
+                  "t": "Str",
+                  "c": "Abaqus"
+                },
+                {
+                  "t": "Space"
+                },
+                {
+                  "t": "Str",
+                  "c": "v2024"
+                },
+                {
+                  "t": "Space"
+                },
+                {
+                  "t": "Str",
+                  "c": "(RELr426"
+                },
+                {
+                  "t": "Space"
+                },
+                {
+                  "t": "Str",
+                  "c": "190762)"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "t": "Plain",
+              "c": [
+                {
+                  "t": "Str",
+                  "c": "Sestra"
+                },
+                {
+                  "t": "Space"
+                },
+                {
+                  "t": "Str",
+                  "c": "v10.17-02"
+                }
+              ]
+            }
+          ]
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Header",
+        "c": [
+          2,
+          [
+            "python-packages",
+            [],
+            []
+          ],
+          [
+            {
+              "t": "Str",
+              "c": "Python"
+            },
+            {
+              "t": "Space"
+            },
+            {
+              "t": "Str",
+              "c": "packages"
+            }
+          ]
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Para",
+        "c": [
+          {
+            "t": "Str",
+            "c": "The"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "following"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "python"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "packages"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "were"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "instrumental"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "in"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "creation"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "of"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "this"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "document"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "FEA"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "results"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "herein."
+          }
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Header",
+        "c": [
+          3,
+          [
+            "adapy",
+            [],
+            []
+          ],
+          [
+            {
+              "t": "Str",
+              "c": "Adapy"
+            }
+          ]
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Para",
+        "c": [
+          {
+            "t": "Str",
+            "c": "The"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "intention"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "behind"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Emph",
+            "c": [
+              {
+                "t": "Str",
+                "c": "adapy"
+              }
+            ]
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "is"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "to"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "make"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "it"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "easier"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "to"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "work"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "with"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "finite"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "element"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "models"
+          },
+          {
+            "t": "SoftBreak"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "BIM"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "models"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "act"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "as"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "a"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "high-level"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "scripting"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "library"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "for"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "parametric"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "procedural"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "modelling"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "techniques."
+          }
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Header",
+        "c": [
+          3,
+          [
+            "paradoc",
+            [],
+            []
+          ],
+          [
+            {
+              "t": "Str",
+              "c": "Paradoc"
+            }
+          ]
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      },
+      {
+        "t": "Para",
+        "c": [
+          {
+            "t": "Emph",
+            "c": [
+              {
+                "t": "Str",
+                "c": "paradoc"
+              }
+            ]
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "was"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "created"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "to"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "simplify"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "generation"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "of"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "reports"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "by"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "creating"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "structure"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "of"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "the"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "document"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "text"
+          },
+          {
+            "t": "SoftBreak"
+          },
+          {
+            "t": "Str",
+            "c": "in"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "markdown"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "with"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "a"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "string"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "substitution"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "scheme"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "that"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "lets"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "you"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "easily"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "pass"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "in"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "tables,"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "functions"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "and"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "finally"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "be"
+          },
+          {
+            "t": "SoftBreak"
+          },
+          {
+            "t": "Str",
+            "c": "able"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "to"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "produce"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "production"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "ready"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "documents"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "in"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "Microsoft"
+          },
+          {
+            "t": "Space"
+          },
+          {
+            "t": "Str",
+            "c": "Word."
+          }
+        ],
+        "_paradoc_source": {
+          "source_file": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro/00-intro.md",
+          "source_dir": "/home/runner/work/adapy/adapy/verification/report/00-main/00-intro"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <style>
+    .fg { fill: #101113; }
+    @media (prefers-color-scheme: dark) {
+      .fg { fill: #e7e8ea; }
+    }
+  </style>
+  <!-- Filled square frame with a stepped chart silhouette knocked out
+       inside. Dense silhouette, no "document" / "page" connotation —
+       distinct from shelf (book) and adapy (I-beam), reads as "plot
+       container" at 16px without looking like a broken-image icon. -->
+  <path class="fg" fill-rule="evenodd" d="
+    M3 3 H21 V21 H3 Z
+    M6 6 H18 V18 H6 Z
+    M7 17 L7 13 L10 13 L10 11 L13 11 L13 8 L17 8 L17 17 Z"/>
+</svg>
