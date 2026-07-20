@@ -704,6 +704,69 @@ def _gxml_face_streaming(source_ext: str, target_format: str, reconstruct_surfac
     return os.environ.get("ADA_GXML_STREAMING", "").strip().lower() not in _FALSE
 
 
+def _native_ngeom_mesh_route(
+    model,
+    source_ext: str | None,
+    target_format: str,
+    out_path: pathlib.Path,
+    on_progress: ProgressFn,
+    *,
+    glb_tess_engine: str | None = None,
+) -> pathlib.Path | None:
+    """Fully-native mesh leg for ada-object sources: serialize each object's ``solid_geom()`` to
+    an NGEOM record and let adacpp tessellate + write the GLB / OBJ / STL in C++
+    (``stream_ngeom_to_glb`` / ``stream_ngeom_to_mesh``) — no Python scene assembly, no trimesh
+    writer (the hull's 137 s xml→obj becomes the same class as the native step→obj leg).
+
+    Returns ``out_path`` on success, or ``None`` to fall back WHOLESALE to the Python path:
+    Genie-XML sources only (concept objects with parametric ``solid_geom()``), gated by the same
+    ``Config().cad_native_ngeom_export`` switch as the xml→step/ifc legs, and only when the
+    requested tessellation engine is an adacpp record track. A model carrying FEM mesh content
+    falls back too — the Python ``to_gltf`` renders the FEM mesh itself (shell faces, beam
+    lines, the beam_solids sidecar), which the concept-object record walk cannot express. The
+    zero-renderable-object case also falls back (``collect_ngeom_records`` raises), preserving
+    the Python path's seeded empty-scene output.
+    """
+    if source_ext is None or source_ext.lower() != ".xml":
+        return None
+    # Engine choice must resolve to an adacpp record-stream track; occ-builtin / the taxonomy
+    # kernels (occ/cgal/hybrid) mean the user asked for a different tessellator — honour it.
+    stream = _glb_engine_stream_value(glb_tess_engine)
+    if stream not in ("libtess2", "cdt"):
+        return None
+    from ada.cadit.ngeom.export import (
+        NativeExportUnsupported,
+        native_export_enabled,
+        native_mesh_writers_available,
+        native_to_glb,
+        native_to_mesh,
+    )
+    from ada.config import logger
+
+    if not (native_export_enabled() and native_mesh_writers_available()):
+        return None
+    try:
+        # Renderable FEM = elements. Bare nodes (Genie support points / mass nodes) don't
+        # produce mesh geometry, so they must not disqualify the native route.
+        if any(len(p.fem.elements) > 0 for p in model.get_all_parts_in_assembly(include_self=True)):
+            return None
+    except Exception:  # noqa: BLE001 - a malformed FEM container must not kill the conversion
+        return None
+    try:
+        on_progress("native-ngeom-tessellating", 0.55)
+        if target_format == "glb":
+            native_to_glb(model, out_path, pipeline=stream)
+        else:
+            native_to_mesh(model, out_path, target_format, pipeline=stream)
+        on_progress("ready", 1.0)
+        return out_path
+    except NativeExportUnsupported as exc:
+        logger.warning("native xml->%s route unavailable (%s); using the Python writer", target_format, exc)
+    except Exception as exc:  # noqa: BLE001 - wholesale fallback: never fail the job on the fast path
+        logger.warning("native xml->%s route failed (%s); using the Python writer", target_format, exc)
+    return None
+
+
 def _export_with_ada(
     model,
     target_format: str,
@@ -742,6 +805,15 @@ def _export_with_ada(
 
             merge_env = (_os.environ.get("ADA_GLB_MERGE_MESHES") or "").strip().lower()
             merge_meshes = merge_env not in {"0", "false", "no", "off"}
+        # Fully-native record path (Genie-XML sources): adacpp tessellates and writes the GLB
+        # itself — no Python scene assembly. merge_meshes=False is the one-node-per-object debug
+        # layout, which the merge-by-colour native writer can't express; that stays on Python.
+        if merge_meshes:
+            native_out = _native_ngeom_mesh_route(
+                model, source_ext, "glb", out_path, on_progress, glb_tess_engine=glb_tess_engine
+            )
+            if native_out is not None:
+                return native_out
         # FEM beam (line) elements render as line geometry by default; the solid (swept-
         # profile) representation is delivered as a separate beam_solids sidecar the viewer
         # lazy-loads when the "show beams as solid" toggle is on (mirrors the FEA-results path).
@@ -2136,22 +2208,26 @@ def _via_ada_to_trimesh(
     source_ext: str,
     target_ext: str,
     on_progress: ProgressFn,
-) -> bytes:
-    """Ada-loadable source → trimesh mesh export (``.stl`` / ``.obj``).
+) -> bytes | pathlib.Path:
+    """Ada-loadable source → mesh export (``.stl`` / ``.obj``).
 
-    Bridges the same ada-loadable formats ``_via_ada`` handles to
-    trimesh's mesh-only export targets. We go through
-    :meth:`Part.to_trimesh_scene` so tessellation honours adapy's
-    geom-repr / merge-meshes conventions; trimesh just serialises the
-    resulting scene.
-
-    No native STL/OBJ ada exporter is needed — trimesh's own writers
-    are mature and the GLB pipeline already proves the round-trip
-    works.
+    Genie-XML sources take the fully-native NGEOM-record route when available
+    (:func:`_native_ngeom_mesh_route`): adacpp tessellates and writes the OBJ/STL in C++,
+    returning the file path (ownership transfers to the caller). Everything else — and any
+    native fallback — bridges the same ada-loadable formats ``_via_ada`` handles to trimesh's
+    mesh-only export targets via :meth:`Part.to_trimesh_scene`, so tessellation honours adapy's
+    geom-repr / merge-meshes conventions and trimesh serialises the resulting scene.
     """
 
     on_progress("parsing", 0.15)
     model = _load_with_ada(src_path, source_ext)
+    fmt = target_ext.lstrip(".").lower()
+    if fmt in ("obj", "stl"):
+        native_path = pathlib.Path(tempfile.mkstemp(suffix=f".{fmt}")[1])
+        native_out = _native_ngeom_mesh_route(model, source_ext, fmt, native_path, on_progress)
+        if native_out is not None:
+            return native_out
+        native_path.unlink(missing_ok=True)  # fell back: drop the unused temp slot
     on_progress("tessellating", 0.55)
     scene = model.to_trimesh_scene()
     _strip_unexportable_for(scene, target_ext)
