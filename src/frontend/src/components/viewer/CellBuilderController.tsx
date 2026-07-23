@@ -540,6 +540,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 if (Math.hypot(dx, dy) < DRAG_START_PX) return;
                 drag.started = true;
                 st.setMode("drag-face");
+                // Coalesce the whole drag into one undo step.
+                st.beginTransaction();
                 if (controlsRef.current) controlsRef.current.enabled = false;
                 renderer.domElement.setPointerCapture(drag.pointerId);
             }
@@ -592,7 +594,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         const pending = drag;
         drag = null;
         if (wasDrag) {
-            useCellBuilderStore.getState().setMode("idle");
+            const st = useCellBuilderStore.getState();
+            st.setMode("idle");
+            st.endTransaction(); // close the coalesced-drag undo step
             if (controlsRef.current) controlsRef.current.enabled = true;
             try {
                 renderer.domElement.releasePointerCapture(pending.pointerId);
@@ -606,8 +610,28 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     };
 
     const onKeyDown = (ev: KeyboardEvent) => {
-        if (ev.key !== "Escape") return;
         const st = useCellBuilderStore.getState();
+        if (!st.active) return;
+
+        // Undo / redo — but not while typing in a form field (let the field's
+        // own text undo win there).
+        const target = ev.target as HTMLElement | null;
+        const inField = !!target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+        if ((ev.ctrlKey || ev.metaKey) && !inField) {
+            const k = ev.key.toLowerCase();
+            if (k === "z" && !ev.shiftKey) {
+                st.undo();
+                ev.preventDefault();
+                return;
+            }
+            if ((k === "z" && ev.shiftKey) || k === "y") {
+                st.redo();
+                ev.preventDefault();
+                return;
+            }
+        }
+
+        if (ev.key !== "Escape") return;
         if (st.mode !== "idle") {
             st.setMode("idle");
             ghost.visible = false;

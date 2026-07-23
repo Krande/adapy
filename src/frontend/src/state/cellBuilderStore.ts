@@ -2,6 +2,7 @@ import {create} from "zustand";
 
 import {ApiError, viewerApi, type ProceduralDoc} from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
+import {pushSnapshot, redoStep, undoStep} from "@/utils/cellbuilder/history";
 import {
     applyFaceOffset,
     BOX_FACE_SIDES,
@@ -46,6 +47,17 @@ export interface BuilderSystem {
     medium?: string;
     connections: SystemConnection[];
 }
+
+/** Undoable model state. cells/systems maps are treated as immutable (every
+ * mutating action spreads rather than mutates in place), so a snapshot is just
+ * the current references — cheap to keep. */
+export interface ModelSnapshot {
+    cells: Record<string, BuilderCell>;
+    systems: Record<string, BuilderSystem>;
+    blueprintOptions: Record<string, unknown>;
+}
+
+const HISTORY_LIMIT = 100;
 
 /** Current pick: a whole cell, one of its 6 faces (BoxGeometry materialIndex),
  * or a face border edge (full descriptor, so its endpoints re-derive from the
@@ -117,6 +129,12 @@ interface CellBuilderState {
     /** Blueprint compile options round-tripped as doc.blueprint (whitelisted
      * server-side), e.g. {reinforce_internal_walls: true}. */
     blueprintOptions: Record<string, unknown>;
+    /** Undo/redo history over the model state (cells/systems/blueprintOptions). */
+    past: ModelSnapshot[];
+    future: ModelSnapshot[];
+    /** >0 while a coalesced edit (e.g. a face drag) is in progress — mutations
+     * within don't push their own history entry. */
+    txDepth: number;
     panelVisible: boolean;
 
     open: (modelId: string, name: string, revision: number, doc: ProceduralDoc) => void;
@@ -150,6 +168,12 @@ interface CellBuilderState {
     /** Populate the model with the topo_model demo layout (2 cells, deck +
      * interior pump/tank pairs, reinforced internal wall). */
     loadDemoTemplate: () => void;
+    /** Restore the previous / next model snapshot. */
+    undo: () => void;
+    redo: () => void;
+    /** Coalesce a burst of mutations (e.g. a face drag) into one undo step. */
+    beginTransaction: () => void;
+    endTransaction: () => void;
     fetchEquipmentTypes: () => Promise<void>;
     commit: () => Promise<boolean>;
     compile: () => Promise<void>;
@@ -214,10 +238,36 @@ function containingCellName(cells: Record<string, BuilderCell>, eq: BuilderCell)
     return first ? first.name : "NoSpace";
 }
 
-export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
+function snapshot(s: CellBuilderState): ModelSnapshot {
+    return {cells: s.cells, systems: s.systems, blueprintOptions: s.blueprintOptions};
+}
+
+/** After an undo/redo restores a snapshot, drop a selection pointing at a cell
+ * that no longer exists. */
+function pruneSelection(sel: BuilderSelection | null, cells: Record<string, BuilderCell>): BuilderSelection | null {
+    return sel && cells[sel.cellId] ? sel : null;
+}
+
+export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
+    // Wrap a model-mutating updater so it pushes the pre-change snapshot onto
+    // the undo stack (and clears the redo stack) — unless a transaction owns
+    // the snapshot for this burst of edits.
+    const withHistory = (updater: (s: CellBuilderState) => Partial<CellBuilderState>) =>
+        set((s) => {
+            const partial = updater(s);
+            // No-op updater (e.g. target cell gone) -> no state change, no history.
+            if (!partial || Object.keys(partial).length === 0) return {};
+            if (s.txDepth > 0) return partial;
+            return {...partial, ...pushSnapshot(s, snapshot(s), HISTORY_LIMIT)};
+        });
+
+    return {
     active: null,
     cells: {},
     systems: {},
+    past: [],
+    future: [],
+    txDepth: 0,
     mode: "idle",
     selection: null,
     selectMode: "cell",
@@ -236,11 +286,15 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
     panelVisible: false,
 
     open: (modelId, name, revision, doc) => {
+        // A freshly loaded model starts a new editing session — history resets.
         set({
             active: {modelId, name, revision},
             cells: cellsFromDoc(doc),
             systems: systemsFromDoc(doc),
             blueprintOptions: doc.blueprint ?? {},
+            past: [],
+            future: [],
+            txDepth: 0,
             mode: "idle",
             selection: null,
             dirty: false,
@@ -256,6 +310,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
             active: null,
             cells: {},
             systems: {},
+            past: [],
+            future: [],
+            txDepth: 0,
             mode: "idle",
             selection: null,
             dirty: false,
@@ -274,7 +331,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
     setSelectedEquipmentType: (selectedEquipmentType) => set({selectedEquipmentType}),
 
     addCell: (kind, origin, size) =>
-        set((s) => {
+        withHistory((s) => {
             const id = nextId();
             const count = Object.values(s.cells).filter((c) => c.kind === kind).length + 1;
             const eqType = kind === "equipment" ? (s.selectedEquipmentType ?? undefined) : undefined;
@@ -291,15 +348,15 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
             return {cells: {...s.cells, [id]: cell}, dirty: true, mode: "idle", selection: {kind: "cell", cellId: id}};
         }),
     updateCell: (id, patch) =>
-        set((s) => {
+        withHistory((s) => {
             const cur = s.cells[id];
-            if (!cur) return s;
+            if (!cur) return {};
             return {cells: {...s.cells, [id]: {...cur, ...patch}}, dirty: true};
         }),
     setCellParam: (id, key, value) =>
-        set((s) => {
+        withHistory((s) => {
             const cur = s.cells[id];
-            if (!cur) return s;
+            if (!cur) return {};
             const params = {...cur.params};
             if (value === undefined || value === null || value === "") delete params[key];
             else params[key] = value;
@@ -322,14 +379,15 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
         s.updateCell(id, {origin: next.origin, size: next.size});
     },
     removeCell: (id) =>
-        set((s) => {
+        withHistory((s) => {
+            if (!s.cells[id]) return {};
             const cells = {...s.cells};
             delete cells[id];
             return {cells, dirty: true, selection: s.selection?.cellId === id ? null : s.selection};
         }),
 
     addSystem: (type) =>
-        set((s) => {
+        withHistory((s) => {
             const id = nextId();
             const count = Object.keys(s.systems).length + 1;
             const prefix = {piping: "PIPE", duct: "DUCT", cable: "CABLE", electrical: "POWER"}[type];
@@ -337,27 +395,28 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
             return {systems: {...s.systems, [id]: system}, dirty: true};
         }),
     updateSystem: (id, patch) =>
-        set((s) => {
+        withHistory((s) => {
             const cur = s.systems[id];
-            if (!cur) return s;
+            if (!cur) return {};
             return {systems: {...s.systems, [id]: {...cur, ...patch}}, dirty: true};
         }),
     removeSystem: (id) =>
-        set((s) => {
+        withHistory((s) => {
+            if (!s.systems[id]) return {};
             const systems = {...s.systems};
             delete systems[id];
             return {systems, dirty: true};
         }),
     addSystemConnection: (id, conn) =>
-        set((s) => {
+        withHistory((s) => {
             const cur = s.systems[id];
-            if (!cur) return s;
+            if (!cur) return {};
             return {systems: {...s.systems, [id]: {...cur, connections: [...cur.connections, conn]}}, dirty: true};
         }),
     removeSystemConnection: (id, index) =>
-        set((s) => {
+        withHistory((s) => {
             const cur = s.systems[id];
-            if (!cur) return s;
+            if (!cur) return {};
             return {
                 systems: {...s.systems, [id]: {...cur, connections: cur.connections.filter((_, i) => i !== index)}},
                 dirty: true,
@@ -416,6 +475,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
             cells: cellsFromDoc(doc),
             systems: systemsFromDoc(doc),
             blueprintOptions: doc.blueprint ?? {},
+            past: [],
+            future: [],
+            txDepth: 0,
             dirty: false,
             selection: null,
         }),
@@ -460,15 +522,46 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
             ],
             openings: [],
         };
-        set({
+        // Undoable: pushes the pre-template state so the user can back out.
+        withHistory(() => ({
             cells: cellsFromDoc(doc),
             systems: systemsFromDoc(doc),
             blueprintOptions: doc.blueprint ?? {},
             dirty: true,
             selection: null,
             mode: "idle",
-        });
+        }));
     },
+
+    undo: () =>
+        set((s) => {
+            const step = undoStep(s, snapshot(s), HISTORY_LIMIT);
+            if (!step) return {};
+            return {
+                ...step.restored,
+                ...step.stacks,
+                dirty: true,
+                selection: pruneSelection(s.selection, step.restored.cells),
+            };
+        }),
+    redo: () =>
+        set((s) => {
+            const step = redoStep(s, snapshot(s), HISTORY_LIMIT);
+            if (!step) return {};
+            return {
+                ...step.restored,
+                ...step.stacks,
+                dirty: true,
+                selection: pruneSelection(s.selection, step.restored.cells),
+            };
+        }),
+    beginTransaction: () =>
+        set((s) => {
+            // capture the pre-burst snapshot once, at the outermost begin
+            if (s.txDepth === 0) return {txDepth: 1, ...pushSnapshot(s, snapshot(s), HISTORY_LIMIT)};
+            return {txDepth: s.txDepth + 1};
+        }),
+    endTransaction: () => set((s) => ({txDepth: Math.max(0, s.txDepth - 1)})),
 
     fetchEquipmentTypes: async () => {
         try {
@@ -587,4 +680,5 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
         });
         set({resultSourceName: null});
     },
-}));
+    };
+});

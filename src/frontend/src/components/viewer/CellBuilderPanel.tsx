@@ -433,7 +433,23 @@ const CellBuilderPanel: React.FC = () => {
                 </span>
                 <span className="text-gray-400">r{s.active.revision}</span>
                 {s.dirty && <span className="text-amber-400">● unsaved</span>}
-                <button className="ml-auto px-1 rounded-sm hover:bg-gray-500/40" title="Close model" onClick={s.close}>
+                <button
+                    className="ml-auto px-1 rounded-sm hover:bg-gray-500/40 disabled:opacity-30"
+                    title="Undo (Ctrl+Z)"
+                    disabled={s.past.length === 0}
+                    onClick={s.undo}
+                >
+                    ↶
+                </button>
+                <button
+                    className="px-1 rounded-sm hover:bg-gray-500/40 disabled:opacity-30"
+                    title="Redo (Ctrl+Shift+Z)"
+                    disabled={s.future.length === 0}
+                    onClick={s.redo}
+                >
+                    ↷
+                </button>
+                <button className="px-1 rounded-sm hover:bg-gray-500/40" title="Close model" onClick={s.close}>
                     ✕
                 </button>
             </div>
