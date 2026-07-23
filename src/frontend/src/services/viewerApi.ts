@@ -985,6 +985,36 @@ export interface WorkerEntry {
     utilities?: WorkerUtilitySpec[];
 }
 
+// ── Procedural cell models (cellbuilder) ─────────────────────────────
+
+export interface ProceduralModelSummary {
+    id: string;
+    name: string;
+    revision: number;
+    created_by: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+    latest_glb_key?: string | null;
+}
+
+export interface ProceduralModelDetail extends ProceduralModelSummary {
+    doc: ProceduralDoc;
+}
+
+/** Entity dumps follow ada.topology.entities (TopoSpace / TopoEquipment). */
+export interface ProceduralDoc {
+    grid?: Record<string, unknown>;
+    spaces: Record<string, unknown>[];
+    equipments: Record<string, unknown>[];
+    openings?: Record<string, unknown>[];
+}
+
+export interface ProceduralCompileResponse {
+    job_id: string | null;
+    derived_key: string;
+    cached: boolean;
+}
+
 export const viewerApi = {
     /** Direct URL for the addressable blob endpoint. Includes scope.
      * Only safe to use as `<a href download>` when auth is disabled —
@@ -1585,6 +1615,83 @@ export const viewerApi = {
             },
         );
         return jsonOrThrow<ConvertResponse>(r, `runUtility(${utilityName} on ${sourceKey})`);
+    },
+
+    // ── Procedural cell models (cellbuilder) ─────────────────────────
+    //
+    // Backed by /api/scopes/{scope}/procedural-models*; compile jobs
+    // flow through the same NATS queue, so status polling reuses
+    // convertStatus.
+
+    async listProceduralModels(scope: ScopeUrl): Promise<ProceduralModelSummary[]> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models`,
+        );
+        const body = await jsonOrThrow<{models: ProceduralModelSummary[]}>(r, `listProceduralModels(${scope})`);
+        return body.models;
+    },
+
+    async createProceduralModel(scope: ScopeUrl, name: string): Promise<ProceduralModelDetail> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({name}),
+            },
+        );
+        return jsonOrThrow<ProceduralModelDetail>(r, `createProceduralModel(${name})`);
+    },
+
+    async getProceduralModel(scope: ScopeUrl, modelId: string): Promise<ProceduralModelDetail> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}`,
+        );
+        return jsonOrThrow<ProceduralModelDetail>(r, `getProceduralModel(${modelId})`);
+    },
+
+    /** Commit the doc under optimistic concurrency. 409 (ApiError.status)
+     * means someone else committed first — refetch and re-apply. */
+    async commitProceduralModel(
+        scope: ScopeUrl, modelId: string, doc: ProceduralDoc, baseRevision: number,
+    ): Promise<{id: string; revision: number}> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}`,
+            {
+                method: "PUT",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({doc, base_revision: baseRevision}),
+            },
+        );
+        return jsonOrThrow<{id: string; revision: number}>(r, `commitProceduralModel(${modelId})`);
+    },
+
+    async deleteProceduralModel(scope: ScopeUrl, modelId: string): Promise<void> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}`,
+            {method: "DELETE"},
+        );
+        if (!r.ok) {
+            throw new ApiError(`deleteProceduralModel(${modelId})`, r.status, await readDetail(r));
+        }
+    },
+
+    async compileProceduralModel(scope: ScopeUrl, modelId: string): Promise<ProceduralCompileResponse> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile`,
+            {method: "POST"},
+        );
+        return jsonOrThrow<ProceduralCompileResponse>(r, `compileProceduralModel(${modelId})`);
+    },
+
+    /** Equipment archetypes the worker pool serving this scope can compile
+     * (fills the cellbuilder's add-equipment dropdown). */
+    async proceduralEquipmentTypes(scope: ScopeUrl): Promise<string[]> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/equipment-types`,
+        );
+        const body = await jsonOrThrow<{equipment_types: string[]}>(r, `proceduralEquipmentTypes(${scope})`);
+        return body.equipment_types;
     },
 
     // ── Connection-component panel ───────────────────────────────────

@@ -138,16 +138,12 @@ def test_crud_roundtrip_and_revision_conflict(pg_client: TestClient):
 
         # commit a doc
         doc = {"spaces": [{"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}]}
-        r = pg_client.put(
-            f"/api/scopes/shared/procedural-models/{model_id}", json={"doc": doc, "base_revision": 0}
-        )
+        r = pg_client.put(f"/api/scopes/shared/procedural-models/{model_id}", json={"doc": doc, "base_revision": 0})
         assert r.status_code == 200, r.text
         assert r.json()["revision"] == 1
 
         # stale base_revision -> 409 with current_revision
-        r = pg_client.put(
-            f"/api/scopes/shared/procedural-models/{model_id}", json={"doc": doc, "base_revision": 0}
-        )
+        r = pg_client.put(f"/api/scopes/shared/procedural-models/{model_id}", json={"doc": doc, "base_revision": 0})
         assert r.status_code == 409
         assert r.json()["detail"]["current_revision"] == 1
 

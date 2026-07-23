@@ -38,7 +38,9 @@ import {RowKebabMenu} from "@/components/common/RowKebabMenu";
 import InlineNameInput from "@/components/common/InlineNameInput";
 import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu";
 import FolderPickerModal from "@/components/common/FolderPickerModal";
-import {viewerApi} from "@/services/viewerApi";
+import {viewerApi, type ProceduralModelSummary} from "@/services/viewerApi";
+import ProceduralModelIcon from "../icons/ProceduralModelIcon";
+import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useStorageMutations} from "./useStorageMutations";
 import {useLoadQueueStore} from "@/state/loadQueueStore";
 import {buildFileMenuItems, buildFolderMenuItems} from "./storageMenuItems";
@@ -273,6 +275,7 @@ const StorageBrowser: React.FC = () => {
         }
         setRefreshing(true);
         void request_list_of_files_from_server();
+        void refreshProceduralModels();
         refreshTimerRef.current = window.setTimeout(() => {
             setRefreshing(false);
             refreshTimerRef.current = null;
@@ -311,6 +314,56 @@ const StorageBrowser: React.FC = () => {
             else next.add(path);
             return next;
         });
+    };
+
+    // Procedural cell models: pg-backed pseudo-entries listed above the file
+    // tree. Each row refers to the single postgres source, not a blob — no
+    // rename/move; delete archives the row server-side.
+    const [proceduralModels, setProceduralModels] = useState<ProceduralModelSummary[]>([]);
+    const activeProcedural = useCellBuilderStore((s) => s.active?.modelId ?? null);
+    const refreshProceduralModels = React.useCallback(async () => {
+        try {
+            setProceduralModels(await viewerApi.listProceduralModels(scopeKey));
+        } catch {
+            // shared-only deployments (503) or older APIs: hide the section
+            setProceduralModels([]);
+        }
+    }, [scopeKey]);
+    useEffect(() => {
+        void refreshProceduralModels();
+    }, [refreshProceduralModels]);
+
+    const openProceduralModel = async (m: ProceduralModelSummary) => {
+        try {
+            const detail = await viewerApi.getProceduralModel(scopeKey, m.id);
+            useCellBuilderStore.getState().open(detail.id, detail.name, detail.revision, detail.doc);
+        } catch (e) {
+            window.alert(`Failed to open procedural model: ${e instanceof Error ? e.message : e}`);
+        }
+    };
+
+    const createProceduralModel = async () => {
+        const name = window.prompt("Name for the new procedural model:");
+        if (!name || !name.trim()) return;
+        try {
+            const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
+            useCellBuilderStore.getState().open(detail.id, detail.name, detail.revision, detail.doc);
+            void refreshProceduralModels();
+        } catch (e) {
+            window.alert(`Failed to create procedural model: ${e instanceof Error ? e.message : e}`);
+        }
+    };
+
+    const deleteProceduralModel = async (m: ProceduralModelSummary) => {
+        if (!window.confirm(`Delete procedural model "${m.name}"?`)) return;
+        try {
+            await viewerApi.deleteProceduralModel(scopeKey, m.id);
+            const st = useCellBuilderStore.getState();
+            if (st.active?.modelId === m.id) st.close();
+            void refreshProceduralModels();
+        } catch (e) {
+            window.alert(`Failed to delete: ${e instanceof Error ? e.message : e}`);
+        }
     };
 
     // Client-side "pending" empty folders — storage is prefix-based so
@@ -1133,6 +1186,11 @@ const StorageBrowser: React.FC = () => {
                                     label: "New folder…",
                                     onClick: () => setNewFolderAt(""),
                                 },
+                                {
+                                    key: "new-procedural",
+                                    label: "New procedural model…",
+                                    onClick: () => void createProceduralModel(),
+                                },
                             ]}
                             onClose={() => setPlusOpen(false)}
                             ignoreOutsideRef={plusBtnRef}
@@ -1299,6 +1357,52 @@ const StorageBrowser: React.FC = () => {
                             <div className="h-full w-1/3 bg-blue-600 animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
                         )}
                     </div>
+                </div>
+            )}
+            {proceduralModels.length > 0 && (
+                <div className="mb-1">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-400 px-2">Procedural models</div>
+                    {proceduralModels.map((m) => (
+                        <div
+                            key={m.id}
+                            className={
+                                "flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-gray-700/50 cursor-pointer " +
+                                (activeProcedural === m.id ? "bg-blue-900/40" : "")
+                            }
+                            onClick={() => void openProceduralModel(m)}
+                            title="Procedural cell model (single database source) — click to open in the cellbuilder"
+                        >
+                            <ProceduralModelIcon className="shrink-0"/>
+                            <span className="truncate text-sm">{m.name}</span>
+                            <span className="text-[10px] text-purple-300 border border-purple-400/50 rounded-sm px-1">
+                                r{m.revision}
+                            </span>
+                            <span className="ml-auto flex items-center gap-1">
+                                {m.latest_glb_key && (
+                                    <button
+                                        className="px-1 rounded-sm hover:bg-gray-500/40"
+                                        title="View compiled result"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            void useCellBuilderStore.getState().viewResult(m.latest_glb_key!);
+                                        }}
+                                    >
+                                        <ViewIcon/>
+                                    </button>
+                                )}
+                                <button
+                                    className="px-1 rounded-sm hover:bg-gray-500/40"
+                                    title="Delete procedural model"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        void deleteProceduralModel(m);
+                                    }}
+                                >
+                                    🗑
+                                </button>
+                            </span>
+                        </div>
+                    ))}
                 </div>
             )}
             {files.length === 0 && pendingFolders.length === 0 && newFolderAt === null ? (

@@ -22,6 +22,9 @@ import ToggleControlsIcon from "./icons/AnimationControlToggle";
 import TreeViewIcon from "./icons/TreeViewIcon";
 import SceneIcon from "./icons/SceneIcon";
 import ComponentIcon from "./icons/ComponentIcon";
+import CellBuilderIcon from "./icons/CellBuilderIcon";
+import CellBuilderPanel from "./viewer/CellBuilderPanel";
+import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import SceneInfoBox from "./info_box_scene/SceneInfoBox";
 import {WebsocketStatusMenu, WebsocketStatusBox} from "./WebsocketStatusMenu";
 
@@ -109,6 +112,12 @@ const Menu = () => {
     // component specs. Auto-refetches on scope change via
     // subscribeSpecsToScope (mounted in AuthGate).
     const componentSpecsAvailable = useComponentSpecsStore((s) => s.hasSpecs);
+    // Procedural-context button only renders while a procedural model is
+    // loaded in the cellbuilder; closing the model hides button + panel.
+    const proceduralActive = useCellBuilderStore((s) => s.active !== null);
+    const cellBuilderPanelVisible = useCellBuilderStore((s) => s.panelVisible);
+    const toggleCellBuilderPanel = () =>
+        useCellBuilderStore.getState().setPanelVisible(!useCellBuilderStore.getState().panelVisible);
     const {showInfoBox: showWebsocketInfoBox} = stores.useWebsocketStatusStore();
     const {isTreeCollapsed, setIsTreeCollapsed, treeViewWidth} = stores.useTreeViewStore();
     const isDesktop = useIsDesktop();
@@ -211,6 +220,18 @@ const Menu = () => {
                         aria-label="Toggle connection-component panel"
                         aria-pressed={componentControlsVisible}
                     ><ComponentIcon/></button>
+                    <button
+                        className={navBtnClass(
+                            cellBuilderPanelVisible,
+                            "",
+                            use_node_editor_only || !proceduralActive,
+                        )}
+                        hidden={use_node_editor_only || !proceduralActive}
+                        onClick={toggleCellBuilderPanel}
+                        title="Toggle procedural cellbuilder panel"
+                        aria-label="Toggle procedural cellbuilder panel"
+                        aria-pressed={cellBuilderPanelVisible}
+                    ><CellBuilderIcon/></button>
                     {!runtime.isRestMode() && (
                         <div
                             className={navBtnClass(showWebsocketInfoBox)}>
@@ -230,6 +251,7 @@ const Menu = () => {
                     {showWebsocketInfoBox && <WebsocketStatusBox/>}
                     {isControlsVisible && <SimulationControls/>}
                     {componentControlsVisible && <ComponentControls/>}
+                    {proceduralActive && <CellBuilderPanel/>}
                 </div>
             </div>
         </div>
