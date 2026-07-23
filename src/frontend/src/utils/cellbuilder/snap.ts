@@ -77,6 +77,71 @@ export function snapBox(candidate: CellBox, existing: CellBox[], threshold: numb
 }
 
 /**
+ * BoxGeometry face bookkeeping. three.js BoxGeometry emits 6 groups whose
+ * materialIndex order is +X, -X, +Y, -Y, +Z, -Z. TopoSpace's side-exclusion
+ * fields (SE0..SE5) use the ada.topology convention BOTTOM(-Z)=0, TOP(+Z)=1,
+ * FRONT(-Y)=2, BACK(+Y)=3, LEFT(-X)=4, RIGHT(+X)=5.
+ */
+export interface FaceSide {
+    axis: 0 | 1 | 2;
+    positive: boolean;
+    /** TopoSpace side-exclusion index (the N of SE{N}). */
+    se: number;
+    label: string;
+}
+
+export const BOX_FACE_SIDES: readonly FaceSide[] = [
+    {axis: 0, positive: true, se: 5, label: "+X"},
+    {axis: 0, positive: false, se: 4, label: "-X"},
+    {axis: 1, positive: true, se: 3, label: "+Y"},
+    {axis: 1, positive: false, se: 2, label: "-Y"},
+    {axis: 2, positive: true, se: 1, label: "+Z"},
+    {axis: 2, positive: false, se: 0, label: "-Z"},
+];
+
+const AXIS_LABEL = ["X", "Y", "Z"] as const;
+
+export function axisLabel(axis: 0 | 1 | 2): string {
+    return AXIS_LABEL[axis];
+}
+
+/**
+ * Edge detection for a click landing on a box face: when the hit point runs
+ * close (within `tol`) to one of the face's 4 border edges, return the axis
+ * that edge runs along (its length = box.size[axis]). Corners resolve to the
+ * nearest single border; null means the click was in the face interior.
+ */
+export function edgeHitOnFace(
+    box: CellBox,
+    faceMaterialIndex: number,
+    point: Vec3,
+    tol: number,
+): {axis: 0 | 1 | 2} | null {
+    const side = BOX_FACE_SIDES[faceMaterialIndex];
+    if (!side) return null;
+    const inPlane = ([0, 1, 2] as const).filter((a) => a !== side.axis) as [0 | 1 | 2, 0 | 1 | 2];
+    let best: {axis: 0 | 1 | 2; dist: number} | null = null;
+    for (const boundaryAxis of inPlane) {
+        // the edge that bounds `boundaryAxis` runs along the OTHER in-plane axis
+        const runAxis = inPlane[0] === boundaryAxis ? inPlane[1] : inPlane[0];
+        const lo = box.origin[boundaryAxis];
+        const hi = lo + box.size[boundaryAxis];
+        const dist = Math.min(Math.abs(point[boundaryAxis] - lo), Math.abs(point[boundaryAxis] - hi));
+        if (dist <= tol && (best === null || dist < best.dist)) {
+            best = {axis: runAxis, dist};
+        }
+    }
+    return best ? {axis: best.axis} : null;
+}
+
+/** Resize the box along one axis to `length`, keeping the origin fixed. */
+export function withAxisLength(box: CellBox, axis: 0 | 1 | 2, length: number, minSize = 0.1): CellBox {
+    const size: Vec3 = [...box.size];
+    size[axis] = Math.max(minSize, length);
+    return {origin: [...box.origin], size};
+}
+
+/**
  * Face drag: apply a signed offset along one axis face of a box. Positive
  * faces grow/shrink size; negative faces move the origin and counter-adjust
  * size, so the opposite face stays put. Size is clamped to >= minSize.

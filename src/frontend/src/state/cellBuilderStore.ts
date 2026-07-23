@@ -2,7 +2,14 @@ import {create} from "zustand";
 
 import {ApiError, viewerApi, type ProceduralDoc} from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
-import {quantizeVec, type CellBox, type Vec3} from "@/utils/cellbuilder/snap";
+import {
+    applyFaceOffset,
+    BOX_FACE_SIDES,
+    quantizeVec,
+    withAxisLength,
+    type CellBox,
+    type Vec3,
+} from "@/utils/cellbuilder/snap";
 
 // One box in the cellbuilder: either a space cell or an equipment unit.
 export interface BuilderCell extends CellBox {
@@ -12,9 +19,23 @@ export interface BuilderCell extends CellBox {
     /** Archetype name (pump/tank/...) for equipment cells; from the
      * worker-advertised list. */
     equipmentType?: string;
+    /** Extra pydantic entity fields (TopoSpace/TopoEquipment) beyond the
+     * geometry: SE0..SE5 face exclusions, FLIP_FLOOR, SPACE_LOC, masses, ...
+     * Round-tripped verbatim into the committed doc; the selection panel
+     * exposes the curated editable subset. */
+    params: Record<string, unknown>;
 }
 
 export type CellBuilderMode = "idle" | "add-cell" | "add-equipment" | "drag-face";
+
+/** Current pick: a whole cell, one of its 6 faces (BoxGeometry materialIndex),
+ * or a border edge running along `edgeAxis`. */
+export interface BuilderSelection {
+    kind: "cell" | "face" | "edge";
+    cellId: string;
+    faceIndex?: number;
+    edgeAxis?: 0 | 1 | 2;
+}
 
 export interface CompileJobState {
     jobId: string | null;
@@ -31,12 +52,27 @@ function currentScopePart(): string {
     return scope ? scopeUrlPart(scope) : "user:me";
 }
 
+// Geometry/system keys consumed by the builder itself; everything else an
+// entity dump carries lands in BuilderCell.params and round-trips verbatim.
+const SPACE_OWN_KEYS = new Set(["NAME", "X", "Y", "Z", "DX", "DY", "DZ"]);
+const EQUIPMENT_OWN_KEYS = new Set(["NAME", "DESCRIPTION", "X", "Y", "Z", "LX", "LY", "LZ", "GLOBAL_COORDS"]);
+
+function extractParams(entity: Record<string, unknown>, ownKeys: Set<string>): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(entity)) {
+        if (ownKeys.has(k) || v === null || v === undefined) continue;
+        out[k] = v;
+    }
+    return out;
+}
+
 interface CellBuilderState {
     /** The procedural model open in the builder; null hides the whole tool
      * (top-row button included). */
     active: {modelId: string; name: string; revision: number} | null;
     cells: Record<string, BuilderCell>;
     mode: CellBuilderMode;
+    selection: BuilderSelection | null;
     gridStep: number;
     snapThreshold: number;
     dirty: boolean;
@@ -47,11 +83,14 @@ interface CellBuilderState {
     equipmentTypes: string[];
     selectedEquipmentType: string | null;
     compileJob: CompileJobState | null;
+    /** Source name of the compiled result currently loaded in the scene. */
+    resultSourceName: string | null;
     panelVisible: boolean;
 
     open: (modelId: string, name: string, revision: number, doc: ProceduralDoc) => void;
     close: () => void;
     setMode: (mode: CellBuilderMode) => void;
+    setSelection: (sel: BuilderSelection | null) => void;
     setPanelVisible: (v: boolean) => void;
     setGridStep: (v: number) => void;
     setSnapThreshold: (v: number) => void;
@@ -59,6 +98,11 @@ interface CellBuilderState {
     setSelectedEquipmentType: (t: string | null) => void;
     addCell: (kind: "cell" | "equipment", origin: Vec3, size: Vec3) => void;
     updateCell: (id: string, patch: Partial<BuilderCell>) => void;
+    setCellParam: (id: string, key: string, value: unknown) => void;
+    /** Extend (positive) / contract (negative) a face outward by `length`. */
+    applyFaceExtension: (id: string, faceIndex: number, length: number) => void;
+    /** Set the box length along `axis` (origin fixed). */
+    setEdgeLength: (id: string, axis: 0 | 1 | 2, length: number) => void;
     removeCell: (id: string) => void;
     toDoc: () => ProceduralDoc;
     loadFromDoc: (doc: ProceduralDoc) => void;
@@ -66,6 +110,7 @@ interface CellBuilderState {
     commit: () => Promise<boolean>;
     compile: () => Promise<void>;
     viewResult: (derivedKey: string) => Promise<void>;
+    hideResult: () => void;
 }
 
 function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
@@ -78,6 +123,7 @@ function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
             kind: "cell",
             origin: [Number(s.X ?? 0), Number(s.Y ?? 0), Number(s.Z ?? 0)],
             size: [Number(s.DX ?? 1), Number(s.DY ?? 1), Number(s.DZ ?? 1)],
+            params: extractParams(s, SPACE_OWN_KEYS),
         };
     }
     for (const e of doc.equipments ?? []) {
@@ -89,6 +135,7 @@ function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
             equipmentType: typeof e.DESCRIPTION === "string" && e.DESCRIPTION ? e.DESCRIPTION : undefined,
             origin: [Number(e.X ?? 0), Number(e.Y ?? 0), Number(e.Z ?? 0)],
             size: [Number(e.LX ?? 1), Number(e.LY ?? 1), Number(e.LZ ?? 1)],
+            params: extractParams(e, EQUIPMENT_OWN_KEYS),
         };
     }
     return out;
@@ -111,6 +158,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
     active: null,
     cells: {},
     mode: "idle",
+    selection: null,
     gridStep: 0.1,
     snapThreshold: 0.25,
     dirty: false,
@@ -120,6 +168,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
     equipmentTypes: [],
     selectedEquipmentType: null,
     compileJob: null,
+    resultSourceName: null,
     panelVisible: false,
 
     open: (modelId, name, revision, doc) => {
@@ -127,6 +176,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
             active: {modelId, name, revision},
             cells: cellsFromDoc(doc),
             mode: "idle",
+            selection: null,
             dirty: false,
             conflict: null,
             compileJob: null,
@@ -134,8 +184,20 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
         });
         void get().fetchEquipmentTypes();
     },
-    close: () => set({active: null, cells: {}, mode: "idle", dirty: false, panelVisible: false, compileJob: null}),
+    close: () => {
+        get().hideResult();
+        set({
+            active: null,
+            cells: {},
+            mode: "idle",
+            selection: null,
+            dirty: false,
+            panelVisible: false,
+            compileJob: null,
+        });
+    },
     setMode: (mode) => set({mode}),
+    setSelection: (selection) => set({selection}),
     setPanelVisible: (panelVisible) => set({panelVisible}),
     setGridStep: (gridStep) => set({gridStep: Math.max(0, gridStep)}),
     setSnapThreshold: (snapThreshold) => set({snapThreshold: Math.max(0, snapThreshold)}),
@@ -155,8 +217,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
                 equipmentType: eqType,
                 origin: quantizeVec(origin, s.gridStep),
                 size: quantizeVec(size, s.gridStep),
+                params: {},
             };
-            return {cells: {...s.cells, [id]: cell}, dirty: true, mode: "idle"};
+            return {cells: {...s.cells, [id]: cell}, dirty: true, mode: "idle", selection: {kind: "cell", cellId: id}};
         }),
     updateCell: (id, patch) =>
         set((s) => {
@@ -164,11 +227,36 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
             if (!cur) return s;
             return {cells: {...s.cells, [id]: {...cur, ...patch}}, dirty: true};
         }),
+    setCellParam: (id, key, value) =>
+        set((s) => {
+            const cur = s.cells[id];
+            if (!cur) return s;
+            const params = {...cur.params};
+            if (value === undefined || value === null || value === "") delete params[key];
+            else params[key] = value;
+            return {cells: {...s.cells, [id]: {...cur, params}}, dirty: true};
+        }),
+    applyFaceExtension: (id, faceIndex, length) => {
+        const s = get();
+        const cur = s.cells[id];
+        const side = BOX_FACE_SIDES[faceIndex];
+        if (!cur || !side || !length) return;
+        // outward extension of a negative face = negative offset along +axis
+        const next = applyFaceOffset(cur, side.axis, side.positive, side.positive ? length : -length, s.gridStep || 0.1);
+        s.updateCell(id, {origin: next.origin, size: next.size});
+    },
+    setEdgeLength: (id, axis, length) => {
+        const s = get();
+        const cur = s.cells[id];
+        if (!cur || !(length > 0)) return;
+        const next = withAxisLength(cur, axis, length, s.gridStep || 0.1);
+        s.updateCell(id, {origin: next.origin, size: next.size});
+    },
     removeCell: (id) =>
         set((s) => {
             const cells = {...s.cells};
             delete cells[id];
-            return {cells, dirty: true};
+            return {cells, dirty: true, selection: s.selection?.cellId === id ? null : s.selection};
         }),
 
     toDoc: () => {
@@ -176,8 +264,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
         const spaces = Object.values(cells)
             .filter((c) => c.kind === "cell")
             .map((c) => ({
-                NAME: c.name,
                 INCLUDE: true,
+                ...c.params,
+                NAME: c.name,
                 X: c.origin[0],
                 Y: c.origin[1],
                 Z: c.origin[2],
@@ -188,10 +277,16 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
         const equipments = Object.values(cells)
             .filter((c) => c.kind === "equipment")
             .map((c) => ({
-                NAME: c.name,
                 INCLUDE: true,
                 SPACE_NAME: containingCellName(cells, c),
                 SPACE_LOC: "ROOF",
+                COGx: 0,
+                COGy: 0,
+                COGz: c.size[2] / 2,
+                massDry: 0,
+                massCont: 0,
+                ...c.params,
+                NAME: c.name,
                 GLOBAL_COORDS: true,
                 DESCRIPTION: c.equipmentType ?? null,
                 X: c.origin[0],
@@ -200,15 +295,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
                 LX: c.size[0],
                 LY: c.size[1],
                 LZ: c.size[2],
-                COGx: 0,
-                COGy: 0,
-                COGz: c.size[2] / 2,
-                massDry: 0,
-                massCont: 0,
             }));
         return {grid: {}, spaces, equipments, openings: []};
     },
-    loadFromDoc: (doc) => set({cells: cellsFromDoc(doc), dirty: false}),
+    loadFromDoc: (doc) => set({cells: cellsFromDoc(doc), dirty: false, selection: null}),
 
     fetchEquipmentTypes: async () => {
         try {
@@ -305,9 +395,18 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
 
     viewResult: async (derivedKey: string) => {
         const active = get().active;
+        const sourceName = `procedural:${active ? active.name : derivedKey}`;
         const {load_glb_by_url_rest} = await import("@/utils/scene/handlers/view_file_object_from_server");
-        await load_glb_by_url_rest(
-            currentScopePart(), derivedKey, `procedural:${active ? active.name : derivedKey}`,
-        );
+        await load_glb_by_url_rest(currentScopePart(), derivedKey, sourceName);
+        set({resultSourceName: sourceName});
+    },
+
+    hideResult: () => {
+        const sourceName = get().resultSourceName;
+        if (!sourceName) return;
+        void import("@/utils/scene/handlers/unload_source_from_scene").then(({unload_source_from_scene}) => {
+            unload_source_from_scene(sourceName);
+        });
+        set({resultSourceName: null});
     },
 }));
