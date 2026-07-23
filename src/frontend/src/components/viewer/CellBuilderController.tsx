@@ -117,6 +117,67 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     container.add(ghost); // inherits the model offset
     let ghostBox: CellBox | null = null;
 
+    // While a procedural model is open, the scene's static 1 m helper grid is
+    // swapped for a builder grid whose line spacing IS the snap gridStep (and
+    // which lives inside the container, so its intersections are exactly the
+    // model-space points quantize() snaps to).
+    let builderGrid: THREE.GridHelper | null = null;
+    let builderGridStep = -1;
+    const hiddenDefaultGrids: THREE.GridHelper[] = [];
+    const GRID_TARGET_EXTENT = 60; // meters; divisions derive from gridStep
+    const GRID_MAX_DIVISIONS = 2000;
+
+    const disposeBuilderGrid = () => {
+        if (!builderGrid) return;
+        builderGrid.geometry.dispose();
+        (builderGrid.material as THREE.Material).dispose();
+        container.remove(builderGrid);
+        builderGrid = null;
+        builderGridStep = -1;
+    };
+
+    const syncBuilderGrid = () => {
+        const st = useCellBuilderStore.getState();
+        const wantGrid = st.active !== null && st.gridStep > 0;
+
+        // Toggle the default scene grid(s) opposite to ours.
+        if (wantGrid && hiddenDefaultGrids.length === 0) {
+            for (const o of scene.children) {
+                if (o instanceof THREE.GridHelper && o !== builderGrid && o.visible) {
+                    o.visible = false;
+                    hiddenDefaultGrids.push(o);
+                }
+            }
+        } else if (!wantGrid && hiddenDefaultGrids.length > 0) {
+            hiddenDefaultGrids.forEach((g) => (g.visible = true));
+            hiddenDefaultGrids.length = 0;
+        }
+
+        if (!wantGrid) {
+            disposeBuilderGrid();
+            requestRender();
+            return;
+        }
+        if (builderGrid && builderGridStep === st.gridStep) return;
+
+        disposeBuilderGrid();
+        // Even division count so the centered grid's lines land exactly on
+        // n * gridStep (extent/2 must itself be a multiple of gridStep).
+        const half = Math.min(GRID_MAX_DIVISIONS / 2, Math.max(1, Math.round(GRID_TARGET_EXTENT / (2 * st.gridStep))));
+        const divisions = 2 * half;
+        const extent = divisions * st.gridStep;
+        builderGrid = new THREE.GridHelper(extent, divisions, 0x6b7280, 0x374151);
+        (builderGrid.material as THREE.Material).depthWrite = false;
+        builderGrid.renderOrder = -1;
+        builderGrid.layers.set(1);
+        if (useModelState.getState().zIsUp) {
+            builderGrid.rotation.x = Math.PI / 2; // XZ default -> model XY plane
+        }
+        builderGridStep = st.gridStep;
+        container.add(builderGrid);
+        requestRender();
+    };
+
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     let drag: DragState | null = null;
@@ -167,7 +228,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     const rebuild = () => {
         for (let i = container.children.length - 1; i >= 0; i--) {
             const o = container.children[i];
-            if (o === ghost) continue;
+            if (o === ghost || o === builderGrid) continue;
             o.traverse((m: any) => {
                 if (m.isMesh || m.isLineSegments) disposeMesh(m);
             });
@@ -438,9 +499,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     window.addEventListener("keydown", onKeyDown);
 
     rebuild();
+    syncBuilderGrid();
     const unsub = useCellBuilderStore.subscribe((s, prev) => {
         if (s.cells !== prev.cells || s.active !== prev.active) rebuild();
         else if (s.selection !== prev.selection) refreshFaceStyles();
+        if (s.active !== prev.active || s.gridStep !== prev.gridStep) syncBuilderGrid();
         if (s.mode !== prev.mode && s.mode !== "add-cell" && s.mode !== "add-equipment") {
             ghost.visible = false;
             ghostBox = null;
@@ -459,6 +522,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         el.removeEventListener("pointerup", onPointerUp, true);
         window.removeEventListener("keydown", onKeyDown);
         if (controlsRef.current) controlsRef.current.enabled = true;
+        hiddenDefaultGrids.forEach((g) => (g.visible = true));
+        hiddenDefaultGrids.length = 0;
+        disposeBuilderGrid();
         for (let i = container.children.length - 1; i >= 0; i--) {
             const o = container.children[i];
             o.traverse((m: any) => {
