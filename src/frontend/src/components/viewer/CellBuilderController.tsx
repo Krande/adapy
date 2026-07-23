@@ -1,5 +1,8 @@
 import React from "react";
 import * as THREE from "three";
+import {LineSegments2} from "three/examples/jsm/lines/LineSegments2";
+import {LineSegmentsGeometry} from "three/examples/jsm/lines/LineSegmentsGeometry";
+import {LineMaterial} from "three/examples/jsm/lines/LineMaterial";
 
 import {cameraRef, controlsRef, rendererRef, sceneRef} from "@/state/refs";
 import {requestRender} from "@/state/perfStore";
@@ -8,10 +11,12 @@ import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {
     applyFaceOffset,
     BOX_FACE_SIDES,
+    edgeEndpoints,
     edgeHitOnFace,
     quantize,
     snapBox,
     type CellBox,
+    type EdgeHit,
     type Vec3,
 } from "@/utils/cellbuilder/snap";
 
@@ -28,6 +33,10 @@ const EQUIPMENT_COLOR = 0xf97316;
 const GHOST_COLOR = 0x22c55e;
 const HOVER_FACE_COLOR = 0xfacc15;
 const SELECTED_FACE_COLOR = 0xfb7185;
+const HOVER_EDGE_COLOR = 0xfacc15;
+const SELECTED_EDGE_COLOR = 0xfb7185;
+const HOVER_EDGE_WIDTH = 4; // px (fat lines — WebGL ignores LineBasicMaterial.linewidth)
+const SELECTED_EDGE_WIDTH = 6;
 const DEFAULT_CELL_SIZE: Vec3 = [5, 5, 3];
 const DEFAULT_EQUIPMENT_SIZE: Vec3 = [1, 1, 1];
 const BASE_OPACITY = 0.3;
@@ -91,6 +100,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     container.name = "__cellbuilder__";
     container.userData.__excludeFromFit = true;
     scene.add(container);
+
+    // Cell meshes live in their own subgroup so "hide cells" toggles them
+    // without touching the ghost or the builder grid.
+    const cellsGroup = new THREE.Group();
+    container.add(cellsGroup);
 
     // Loaded GLBs are shifted by modelState.translation (bbox centering +
     // z-lift). The builder authors model-space coordinates, so the container
@@ -182,8 +196,63 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     const pointer = new THREE.Vector2();
     let drag: DragState | null = null;
     let hovered: {mesh: THREE.Mesh; faceIndex: number} | null = null;
+    let hoveredEdge: {cellId: string; faceIndex: number; edge: EdgeHit} | null = null;
 
     const meshById = new Map<string, THREE.Mesh>();
+
+    // Fat-line overlays for edge hover/selection (thickness in pixels; a plain
+    // LineBasicMaterial's linewidth is ignored by WebGL).
+    const makeEdgeOverlay = (color: number, linewidth: number): LineSegments2 => {
+        const mat = new LineMaterial({color, linewidth, transparent: true, depthTest: false});
+        const geo = new LineSegmentsGeometry();
+        geo.setPositions([0, 0, 0, 0, 0, 0]);
+        const line = new LineSegments2(geo, mat);
+        line.visible = false;
+        line.layers.set(1);
+        container.add(line);
+        return line;
+    };
+    const hoverEdgeLine = makeEdgeOverlay(HOVER_EDGE_COLOR, HOVER_EDGE_WIDTH);
+    const selectedEdgeLine = makeEdgeOverlay(SELECTED_EDGE_COLOR, SELECTED_EDGE_WIDTH);
+
+    const placeEdgeOverlay = (
+        line: LineSegments2,
+        cellId: string,
+        faceIndex: number,
+        edge: EdgeHit,
+    ): boolean => {
+        const cell = useCellBuilderStore.getState().cells[cellId];
+        if (!cell) return false;
+        const {start, end} = edgeEndpoints(cell, faceIndex, edge);
+        line.geometry.dispose();
+        const geo = new LineSegmentsGeometry();
+        geo.setPositions([...start, ...end]);
+        line.geometry = geo;
+        const size = renderer.getSize(new THREE.Vector2());
+        (line.material as LineMaterial).resolution.set(size.x, size.y);
+        return true;
+    };
+
+    const refreshEdgeOverlays = () => {
+        const st = useCellBuilderStore.getState();
+        const sel = st.selection;
+        selectedEdgeLine.visible =
+            sel?.kind === "edge" && sel.faceIndex !== undefined && sel.edge !== undefined && st.cellsVisible
+                ? placeEdgeOverlay(selectedEdgeLine, sel.cellId, sel.faceIndex, sel.edge)
+                : false;
+        const hoverIsSelected =
+            hoveredEdge !== null &&
+            sel?.kind === "edge" &&
+            sel.cellId === hoveredEdge.cellId &&
+            sel.faceIndex === hoveredEdge.faceIndex &&
+            sel.edge?.axis === hoveredEdge.edge.axis &&
+            sel.edge?.boundaryAxis === hoveredEdge.edge.boundaryAxis &&
+            sel.edge?.boundaryPositive === hoveredEdge.edge.boundaryPositive;
+        hoverEdgeLine.visible =
+            hoveredEdge !== null && !hoverIsSelected && st.cellsVisible
+                ? placeEdgeOverlay(hoverEdgeLine, hoveredEdge.cellId, hoveredEdge.faceIndex, hoveredEdge.edge)
+                : false;
+    };
 
     const disposeMesh = (m: THREE.Mesh) => {
         m.geometry.dispose();
@@ -222,20 +291,21 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 (edgeLines.material as THREE.LineBasicMaterial).color.setHex(cellSelected ? 0xffffff : base);
             }
         }
+        refreshEdgeOverlays();
         requestRender();
     };
 
     const rebuild = () => {
-        for (let i = container.children.length - 1; i >= 0; i--) {
-            const o = container.children[i];
-            if (o === ghost || o === builderGrid) continue;
+        for (let i = cellsGroup.children.length - 1; i >= 0; i--) {
+            const o = cellsGroup.children[i];
             o.traverse((m: any) => {
                 if (m.isMesh || m.isLineSegments) disposeMesh(m);
             });
-            container.remove(o);
+            cellsGroup.remove(o);
         }
         meshById.clear();
         hovered = null;
+        hoveredEdge = null;
 
         const st = useCellBuilderStore.getState();
         if (st.active) {
@@ -265,10 +335,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                     new THREE.LineBasicMaterial({color}),
                 );
                 mesh.add(edges);
-                container.add(mesh);
+                cellsGroup.add(mesh);
                 meshById.set(cell.id, mesh);
             }
         }
+        cellsGroup.visible = st.cellsVisible;
         ghost.visible = false;
         ghostBox = null;
         refreshFaceStyles();
@@ -282,16 +353,51 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     };
 
     const pickBuilderMesh = (): THREE.Intersection | null => {
+        if (!cellsGroup.visible) return null; // hidden cells aren't pickable
         const hits = raycaster.intersectObjects([...meshById.values()], false);
         return hits.length ? hits[0] : null;
+    };
+
+    const syncCursor = () => {
+        renderer.domElement.style.cursor = hoveredEdge ? "crosshair" : hovered ? "pointer" : "";
     };
 
     const setHoveredFace = (mesh: THREE.Mesh | null, faceIndex: number) => {
         const same = hovered?.mesh === mesh && hovered?.faceIndex === faceIndex;
         if (same || (!hovered && !mesh)) return;
         hovered = mesh ? {mesh, faceIndex} : null;
-        renderer.domElement.style.cursor = hovered ? "pointer" : "";
+        syncCursor();
         refreshFaceStyles();
+    };
+
+    const sameEdge = (a: EdgeHit | null | undefined, b: EdgeHit | null | undefined): boolean =>
+        !!a && !!b && a.axis === b.axis && a.boundaryAxis === b.boundaryAxis && a.boundaryPositive === b.boundaryPositive;
+
+    const setHoveredEdge = (next: {cellId: string; faceIndex: number; edge: EdgeHit} | null) => {
+        const same =
+            (next === null && hoveredEdge === null) ||
+            (next !== null &&
+                hoveredEdge !== null &&
+                next.cellId === hoveredEdge.cellId &&
+                next.faceIndex === hoveredEdge.faceIndex &&
+                sameEdge(next.edge, hoveredEdge.edge));
+        if (same) return;
+        hoveredEdge = next;
+        syncCursor();
+        refreshEdgeOverlays();
+        requestRender();
+    };
+
+    // Shared edge tolerance: 8% of the face's smaller in-plane extent,
+    // clamped to sane world-space bounds.
+    const detectEdge = (cellId: string, faceIndex: number, hitPoint: THREE.Vector3): EdgeHit | null => {
+        const cell = useCellBuilderStore.getState().cells[cellId];
+        const side = BOX_FACE_SIDES[faceIndex];
+        if (!cell || !side) return null;
+        const inPlane = ([0, 1, 2] as const).filter((a) => a !== side.axis);
+        const minExtent = Math.min(cell.size[inPlane[0]], cell.size[inPlane[1]]);
+        const tol = Math.min(0.3, Math.max(0.06, minExtent * 0.08));
+        return edgeHitOnFace(cell, faceIndex, worldToModel(hitPoint), tol);
     };
 
     const updateGhost = () => {
@@ -395,28 +501,23 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
 
         setPointer(ev);
         const hit = pickBuilderMesh();
-        const side = BOX_FACE_SIDES[drag_.faceIndex];
 
-        // Border proximity -> edge selection (length-adjust panel). Tolerance
-        // scales with the face's in-plane extent, clamped to sane bounds.
-        if (hit && side) {
-            const inPlane = ([0, 1, 2] as const).filter((a) => a !== side.axis);
-            const minExtent = Math.min(cell.size[inPlane[0]], cell.size[inPlane[1]]);
-            const tol = Math.min(0.3, Math.max(0.06, minExtent * 0.08));
-            const edge = edgeHitOnFace(cell, drag_.faceIndex, worldToModel(hit.point), tol);
+        // Border proximity -> edge selection (length-adjust panel), regardless
+        // of the cell/face select mode.
+        if (hit) {
+            const edge = detectEdge(cell.id, drag_.faceIndex, hit.point);
             if (edge) {
-                st.setSelection({kind: "edge", cellId: cell.id, edgeAxis: edge.axis});
+                st.setSelection({kind: "edge", cellId: cell.id, faceIndex: drag_.faceIndex, edge});
                 st.setPanelVisible(true);
                 return;
             }
         }
 
-        // Cell-first selection: first click picks the cell; a click on an
-        // already-selected cell picks the face under the cursor.
-        if (st.selection?.cellId !== cell.id) {
-            st.setSelection({kind: "cell", cellId: cell.id});
-        } else {
+        // The panel's select-mode toggle decides what a plain click picks.
+        if (st.selectMode === "face") {
             st.setSelection({kind: "face", cellId: cell.id, faceIndex: drag_.faceIndex});
+        } else {
+            st.setSelection({kind: "cell", cellId: cell.id});
         }
         st.setPanelVisible(true);
     };
@@ -454,8 +555,22 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
 
         if (st.mode === "idle") {
             const hit = pickBuilderMesh();
-            if (hit && hit.face) setHoveredFace(hit.object as THREE.Mesh, hit.face.materialIndex);
-            else setHoveredFace(null, -1);
+            if (hit && hit.face) {
+                const cellId = hit.object.userData.__cellId as string;
+                const faceIndex = hit.face.materialIndex;
+                const edge = detectEdge(cellId, faceIndex, hit.point);
+                if (edge) {
+                    // near a border: highlight the edge, not the face
+                    setHoveredFace(null, -1);
+                    setHoveredEdge({cellId, faceIndex, edge});
+                } else {
+                    setHoveredEdge(null);
+                    setHoveredFace(hit.object as THREE.Mesh, faceIndex);
+                }
+            } else {
+                setHoveredEdge(null);
+                setHoveredFace(null, -1);
+            }
         }
     };
 
@@ -504,6 +619,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (s.cells !== prev.cells || s.active !== prev.active) rebuild();
         else if (s.selection !== prev.selection) refreshFaceStyles();
         if (s.active !== prev.active || s.gridStep !== prev.gridStep) syncBuilderGrid();
+        if (s.cellsVisible !== prev.cellsVisible) {
+            cellsGroup.visible = s.cellsVisible;
+            refreshEdgeOverlays();
+            requestRender();
+        }
         if (s.mode !== prev.mode && s.mode !== "add-cell" && s.mode !== "add-equipment") {
             ghost.visible = false;
             ghostBox = null;

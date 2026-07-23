@@ -105,33 +105,55 @@ export function axisLabel(axis: 0 | 1 | 2): string {
     return AXIS_LABEL[axis];
 }
 
+/** A border edge of a box face: it runs along `axis` and bounds
+ * `boundaryAxis` at its low or high side (`boundaryPositive`). */
+export interface EdgeHit {
+    axis: 0 | 1 | 2;
+    boundaryAxis: 0 | 1 | 2;
+    boundaryPositive: boolean;
+}
+
 /**
  * Edge detection for a click landing on a box face: when the hit point runs
- * close (within `tol`) to one of the face's 4 border edges, return the axis
- * that edge runs along (its length = box.size[axis]). Corners resolve to the
- * nearest single border; null means the click was in the face interior.
+ * close (within `tol`) to one of the face's 4 border edges, return that edge
+ * (its length = box.size[axis]). Corners resolve to the nearest single
+ * border; null means the click was in the face interior.
  */
 export function edgeHitOnFace(
     box: CellBox,
     faceMaterialIndex: number,
     point: Vec3,
     tol: number,
-): {axis: 0 | 1 | 2} | null {
+): EdgeHit | null {
     const side = BOX_FACE_SIDES[faceMaterialIndex];
     if (!side) return null;
     const inPlane = ([0, 1, 2] as const).filter((a) => a !== side.axis) as [0 | 1 | 2, 0 | 1 | 2];
-    let best: {axis: 0 | 1 | 2; dist: number} | null = null;
+    let best: (EdgeHit & {dist: number}) | null = null;
     for (const boundaryAxis of inPlane) {
         // the edge that bounds `boundaryAxis` runs along the OTHER in-plane axis
         const runAxis = inPlane[0] === boundaryAxis ? inPlane[1] : inPlane[0];
         const lo = box.origin[boundaryAxis];
         const hi = lo + box.size[boundaryAxis];
-        const dist = Math.min(Math.abs(point[boundaryAxis] - lo), Math.abs(point[boundaryAxis] - hi));
+        const dLo = Math.abs(point[boundaryAxis] - lo);
+        const dHi = Math.abs(point[boundaryAxis] - hi);
+        const dist = Math.min(dLo, dHi);
         if (dist <= tol && (best === null || dist < best.dist)) {
-            best = {axis: runAxis, dist};
+            best = {axis: runAxis, boundaryAxis, boundaryPositive: dHi < dLo, dist};
         }
     }
-    return best ? {axis: best.axis} : null;
+    return best ? {axis: best.axis, boundaryAxis: best.boundaryAxis, boundaryPositive: best.boundaryPositive} : null;
+}
+
+/** World-space endpoints (in the box's coordinate frame) of a face border
+ * edge, derived from the current box so they stay valid through resizes. */
+export function edgeEndpoints(box: CellBox, faceMaterialIndex: number, edge: EdgeHit): {start: Vec3; end: Vec3} {
+    const side = BOX_FACE_SIDES[faceMaterialIndex];
+    const base: Vec3 = [...box.origin];
+    if (side.positive) base[side.axis] += box.size[side.axis];
+    if (edge.boundaryPositive) base[edge.boundaryAxis] += box.size[edge.boundaryAxis];
+    const end: Vec3 = [...base];
+    end[edge.axis] += box.size[edge.axis];
+    return {start: base, end};
 }
 
 /** Resize the box along one axis to `length`, keeping the origin fixed. */

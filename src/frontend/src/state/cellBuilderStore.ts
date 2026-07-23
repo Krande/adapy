@@ -8,6 +8,7 @@ import {
     quantizeVec,
     withAxisLength,
     type CellBox,
+    type EdgeHit,
     type Vec3,
 } from "@/utils/cellbuilder/snap";
 
@@ -29,13 +30,18 @@ export interface BuilderCell extends CellBox {
 export type CellBuilderMode = "idle" | "add-cell" | "add-equipment" | "drag-face";
 
 /** Current pick: a whole cell, one of its 6 faces (BoxGeometry materialIndex),
- * or a border edge running along `edgeAxis`. */
+ * or a face border edge (full descriptor, so its endpoints re-derive from the
+ * live box through resizes). */
 export interface BuilderSelection {
     kind: "cell" | "face" | "edge";
     cellId: string;
     faceIndex?: number;
-    edgeAxis?: 0 | 1 | 2;
+    edge?: EdgeHit;
 }
+
+/** What a plain click picks: the whole cell or the face under the cursor.
+ * Edge clicks (near a face border) always win regardless of mode. */
+export type SelectMode = "cell" | "face";
 
 export interface CompileJobState {
     jobId: string | null;
@@ -73,6 +79,7 @@ interface CellBuilderState {
     cells: Record<string, BuilderCell>;
     mode: CellBuilderMode;
     selection: BuilderSelection | null;
+    selectMode: SelectMode;
     gridStep: number;
     snapThreshold: number;
     dirty: boolean;
@@ -85,13 +92,17 @@ interface CellBuilderState {
     compileJob: CompileJobState | null;
     /** Source name of the compiled result currently loaded in the scene. */
     resultSourceName: string | null;
+    /** Toggle the builder box meshes (hide to focus on the compiled structure). */
+    cellsVisible: boolean;
     panelVisible: boolean;
 
     open: (modelId: string, name: string, revision: number, doc: ProceduralDoc) => void;
     close: () => void;
     setMode: (mode: CellBuilderMode) => void;
     setSelection: (sel: BuilderSelection | null) => void;
+    setSelectMode: (m: SelectMode) => void;
     setPanelVisible: (v: boolean) => void;
+    setCellsVisible: (v: boolean) => void;
     setGridStep: (v: number) => void;
     setSnapThreshold: (v: number) => void;
     setAutoCompile: (v: boolean) => void;
@@ -159,6 +170,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
     cells: {},
     mode: "idle",
     selection: null,
+    selectMode: "cell",
     gridStep: 0.1,
     snapThreshold: 0.25,
     dirty: false,
@@ -169,6 +181,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
     selectedEquipmentType: null,
     compileJob: null,
     resultSourceName: null,
+    cellsVisible: true,
     panelVisible: false,
 
     open: (modelId, name, revision, doc) => {
@@ -198,7 +211,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
     },
     setMode: (mode) => set({mode}),
     setSelection: (selection) => set({selection}),
+    setSelectMode: (selectMode) => set({selectMode}),
     setPanelVisible: (panelVisible) => set({panelVisible}),
+    setCellsVisible: (cellsVisible) => set({cellsVisible}),
     setGridStep: (gridStep) => set({gridStep: Math.max(0, gridStep)}),
     setSnapThreshold: (snapThreshold) => set({snapThreshold: Math.max(0, snapThreshold)}),
     setAutoCompile: (autoCompile) => set({autoCompile}),

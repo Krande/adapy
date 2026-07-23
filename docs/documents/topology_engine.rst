@@ -130,6 +130,28 @@ categories). For blueprint-driven routing, subclass
 :class:`~ada.topology.routing.RoutingBlueprintBase` and override ``rules_for``
 per system and/or ``build_routing_grid``.
 
+Penetrations
+------------
+
+Where a routed system crosses a wall or floor, a penetration blueprint turns
+the crossing into a detail. ``StandardPenetrations`` keys the detail on the
+routing type — a pipe sleeve for process runs, an MCT-style transit block for
+cable/electrical, a rectangular frame for ducts — and cuts the through-hole in
+the crossed face's built wall plate:
+
+.. code-block:: python
+
+    from ada.topo_model import StandardPenetrations
+
+    pens = StandardPenetrations(systems=[service], faces=cg.get_internal_walls())
+    a.add_part(pens.build())   # one detail part per crossing; wall plates get the hole
+
+The demo builds its shared internal wall as a reinforced wall
+(``SteelStru(reinforce_internal_walls=True)`` — plate + vertical stiffeners)
+and routes an interior service run straight through it; subclass
+:class:`~ada.topo_model.penetration.PenetrationBlueprintBase` and override
+``build_penetration`` for your own detail standard.
+
 The missing-I/O report
 ----------------------
 

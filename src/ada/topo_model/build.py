@@ -40,16 +40,24 @@ def build_routing_grid(spacing: float = 0.5) -> CellGrid:
 
 
 def build_topo_model_with_systems(name: str = "TopoModelDemo") -> ada.Assembly:
-    """The full demo: Phase A structure + pump and tank on the top deck, wired
-    into a piping and an electrical system and routed over the deck grid. The
-    signal ports are deliberately left unconnected so the missing-I/O report
-    has something to say."""
+    """The full demo: Phase A structure (with the shared internal wall built as
+    a reinforced wall) + pump and tank on the top deck wired into a piping and
+    an electrical system routed over the deck grid, plus an interior service
+    run routed straight THROUGH the reinforced wall — its crossing gets a
+    penetration detail (sleeve + wall-plate hole) from the
+    ``StandardPenetrations`` blueprint. The signal ports are deliberately left
+    unconnected so the missing-I/O report has something to say."""
     from ada.api.systems import ElectricalSystem, PipingSystem, Voltage
 
     from .equipment import create_pump, create_tank
+    from .penetration import StandardPenetrations
 
-    a = build_topo_model(name)
+    builder = TopologyBuilder.from_prim_boxes(make_space_boxes(), blueprint=SteelStru(reinforce_internal_walls=True))
+    builder.build()
+    a = builder.get_output_assembly(name)
+    cg = builder.cell_graph
 
+    # Deck equipment + systems.
     pump = create_pump("Pump1", origin=(2.5, 2.5, 3.0))
     tank = create_tank("Tank1", origin=(7.5, 2.5, 3.0))
 
@@ -63,14 +71,29 @@ def build_topo_model_with_systems(name: str = "TopoModelDemo") -> ada.Assembly:
     for eq in (pump, tank):
         _occupy_equipment_nodes(grid, eq)
 
+    # Interior service run: pump in Cell1 to tank in Cell2 — the route must
+    # cross the reinforced wall at x=5.
+    pump2 = create_pump("Pump2", origin=(2.5, 2.5, 0.0))
+    tank2 = create_tank("Tank2", origin=(7.5, 2.5, 0.0))
+    service = PipingSystem("ServiceWater", medium="water").connect(pump2, "discharge").connect(tank2, "inlet")
+
+    interior_grid = CellGrid.from_bounds((0, 0, 0), (10, 5, 3.0), spacing=0.5)
+    for eq in (pump2, tank2):
+        _occupy_equipment_nodes(interior_grid, eq)
+
     systems_part = ada.Part("Systems")
-    for system in (cooling, power):
-        for geom in system.route(grid):
+    for system, sys_grid in ((cooling, grid), (power, grid), (service, interior_grid)):
+        for geom in system.route(sys_grid):
             systems_part.add_object(geom)
 
-    a.add_part(ada.Part("Equipment") / [pump, tank])
+    # Penetration details wherever a routed system crosses an internal wall
+    # (also cuts the through-hole in the reinforced wall's plate).
+    penetrations = StandardPenetrations(systems=[cooling, power, service], faces=cg.get_internal_walls())
+    a.add_part(penetrations.build())
+
+    a.add_part(ada.Part("Equipment") / [pump, tank, pump2, tank2])
     a.add_part(systems_part)
-    a.systems.extend([cooling, power])
+    a.systems.extend([cooling, power, service])
     return a
 
 

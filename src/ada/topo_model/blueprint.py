@@ -45,6 +45,30 @@ def _dedupe_edges(faces: list[GraphFace], horizontal: bool) -> list[GraphEdge]:
     return list(unique.values())
 
 
+def _build_reinforced_wall(
+    name: str, points: list[ada.Point], pl_thick: float, stiffener_sec: str, spacing: float
+) -> ada.Part:
+    """A reinforced wall from a vertical face outline: one plate plus vertical
+    stiffener beams evenly distributed along the wall's horizontal run."""
+    plate = ada.Plate.from_3d_points(f"{name}_pl", points, pl_thick)
+
+    pts = np.asarray([tuple(p) for p in points], dtype=float)
+    lo, hi = pts.min(axis=0), pts.max(axis=0)
+    normal_axis = int(np.argmax(hi - lo == 0.0)) if np.any(hi - lo == 0.0) else int(np.argmin(hi - lo))
+    run_axis = next(a for a in (0, 1) if a != normal_axis)  # horizontal in-plane axis
+    z0, z1 = lo[2], hi[2]
+
+    tol = spacing * 1e-3
+    stiffeners = []
+    for i, s in enumerate(np.arange(lo[run_axis] + spacing, hi[run_axis] - tol, spacing)):
+        p1 = [lo[0], lo[1], z0]
+        p2 = [lo[0], lo[1], z1]
+        p1[run_axis] = p2[run_axis] = s
+        stiffeners.append(ada.Beam(f"{name}_stf_{i:02d}", tuple(p1), tuple(p2), stiffener_sec))
+
+    return ada.Part(name) / [plate, *stiffeners]
+
+
 def _build_reinforced_floor(
     name: str, points: list[ada.Point], pl_thick: float, stringer_sec: str, spacing: float
 ) -> ada.Part:
@@ -81,6 +105,8 @@ class SteelStru(BlueprintBase):
         stringer_sec: str = "HP140x8",
         pl_thick: float = 10e-3,
         stringer_spacing: float = 0.4,
+        reinforce_internal_walls: bool = False,
+        wall_pl_thick: float = 8e-3,
     ):
         super().__init__()
         self.name = name
@@ -89,6 +115,8 @@ class SteelStru(BlueprintBase):
         self.stringer_sec = stringer_sec
         self.pl_thick = pl_thick
         self.stringer_spacing = stringer_spacing
+        self.reinforce_internal_walls = reinforce_internal_walls
+        self.wall_pl_thick = wall_pl_thick
 
     def _group_prefix(self) -> str:
         return self.name
@@ -110,12 +138,22 @@ class SteelStru(BlueprintBase):
         ]
         self.add_to_area("girders", ada.Part("Girders") / girders)
 
-        wall_faces = cg.get_external_walls() + cg.get_internal_walls()
+        internal_walls = cg.get_internal_walls()
+        wall_faces = cg.get_external_walls() + internal_walls
         columns = [
             ada.Beam(f"Column_{i:02d}", *edge.get_points()[:2], self.column_sec)
             for i, edge in enumerate(_dedupe_edges(wall_faces, horizontal=False))
         ]
         self.add_to_area("columns", ada.Part("Columns") / columns)
+
+        if self.reinforce_internal_walls:
+            for i, face in enumerate(internal_walls):
+                wall = _build_reinforced_wall(
+                    f"Wall_{i:02d}", face.get_points(), self.wall_pl_thick, self.stringer_sec, self.stringer_spacing
+                )
+                # penetration blueprints reach the built wall through the face
+                face.associated_part = wall
+                self.add_to_area("walls", wall)
 
         self.load_parts_from_area_map()
         return self.output_part

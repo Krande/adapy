@@ -120,12 +120,13 @@ const SelectionSection: React.FC<{selection: BuilderSelection}> = ({selection}) 
     if (!cell) return null;
 
     const side = selection.kind === "face" && selection.faceIndex !== undefined ? BOX_FACE_SIDES[selection.faceIndex] : null;
+    const edgeAxis = selection.edge?.axis;
     const title =
         selection.kind === "cell"
             ? `Cell ${cell.name}`
             : selection.kind === "face"
               ? `Face ${side?.label ?? "?"} of ${cell.name}`
-              : `Edge along ${axisLabel(selection.edgeAxis ?? 0)} of ${cell.name}`;
+              : `Edge along ${axisLabel(edgeAxis ?? 0)} of ${cell.name}`;
 
     return (
         <div className="border-t border-gray-600/60 pt-1">
@@ -183,18 +184,18 @@ const SelectionSection: React.FC<{selection: BuilderSelection}> = ({selection}) 
                             )}
                         </>
                     )}
-                    {selection.kind === "edge" && selection.edgeAxis !== undefined && (
+                    {selection.kind === "edge" && edgeAxis !== undefined && (
                         <div className="flex items-center gap-1">
-                            <span className="text-gray-300">Length {axisLabel(selection.edgeAxis)}</span>
+                            <span className="text-gray-300">Length {axisLabel(edgeAxis)}</span>
                             <input
                                 type="number"
                                 step={0.1}
                                 min={0.1}
                                 className={`${inputCls} w-20`}
-                                value={cell.size[selection.edgeAxis]}
+                                value={cell.size[edgeAxis]}
                                 onChange={(e) => {
                                     const v = Number(e.target.value);
-                                    if (v > 0) setEdgeLength(cell.id, selection.edgeAxis!, v);
+                                    if (v > 0) setEdgeLength(cell.id, edgeAxis, v);
                                 }}
                             />
                         </div>
@@ -292,6 +293,22 @@ const CellBuilderPanel: React.FC = () => {
                         className={`${inputCls} w-14`}
                     />
                 </label>
+                <span className="flex items-center gap-0.5" title="What a plain click selects (border clicks always pick the edge)">
+                    <span className="text-gray-300">select</span>
+                    {(["cell", "face"] as const).map((m) => (
+                        <button
+                            key={m}
+                            className={
+                                "px-1.5 py-0.5 rounded-sm " +
+                                (s.selectMode === m ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+                            }
+                            onClick={() => s.setSelectMode(m)}
+                            aria-pressed={s.selectMode === m}
+                        >
+                            {m}
+                        </button>
+                    ))}
+                </span>
                 <label className="flex items-center gap-1 ml-auto" title="Compile automatically after each commit">
                     <input type="checkbox" checked={s.autoCompile} onChange={(e) => s.setAutoCompile(e.target.checked)} />
                     auto-compile
@@ -355,6 +372,14 @@ const CellBuilderPanel: React.FC = () => {
                         Hide result
                     </button>
                 )}
+                <button
+                    className={btnGray}
+                    onClick={() => s.setCellsVisible(!s.cellsVisible)}
+                    title="Toggle the builder cell boxes (hide to focus on the generated structure)"
+                    aria-pressed={!s.cellsVisible}
+                >
+                    {s.cellsVisible ? "Hide cells" : "Show cells"}
+                </button>
             </div>
         </div>
     );

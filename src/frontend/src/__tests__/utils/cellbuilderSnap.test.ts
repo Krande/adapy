@@ -5,6 +5,7 @@ import {
     applyFaceOffset,
     BOX_FACE_SIDES,
     boxCorners,
+    edgeEndpoints,
     edgeHitOnFace,
     quantize,
     snapBox,
@@ -71,16 +72,24 @@ test("BOX_FACE_SIDES follows BoxGeometry group order and the SE convention", () 
     assert.deepEqual(BOX_FACE_SIDES.map((s) => s.se), [5, 4, 3, 2, 1, 0]);
 });
 
-test("edgeHitOnFace finds the border edge and its run axis", () => {
+test("edgeHitOnFace finds the border edge, its run axis and bounded side", () => {
     const box = {origin: [0, 0, 0] as [number, number, number], size: [5, 4, 3] as [number, number, number]};
     // top face (+Z, materialIndex 4); point near the y=0 border -> edge runs along X
-    assert.deepEqual(edgeHitOnFace(box, 4, [2.5, 0.05, 3], 0.15), {axis: 0});
+    assert.deepEqual(edgeHitOnFace(box, 4, [2.5, 0.05, 3], 0.15), {axis: 0, boundaryAxis: 1, boundaryPositive: false});
     // top face, point near the x=5 border -> edge runs along Y
-    assert.deepEqual(edgeHitOnFace(box, 4, [4.95, 2.0, 3], 0.15), {axis: 1});
+    assert.deepEqual(edgeHitOnFace(box, 4, [4.95, 2.0, 3], 0.15), {axis: 1, boundaryAxis: 0, boundaryPositive: true});
     // face interior -> null
     assert.equal(edgeHitOnFace(box, 4, [2.5, 2.0, 3], 0.15), null);
     // -X face (materialIndex 1); point near z=0 border -> edge runs along Y
-    assert.deepEqual(edgeHitOnFace(box, 1, [0, 2.0, 0.1], 0.15), {axis: 1});
+    assert.deepEqual(edgeHitOnFace(box, 1, [0, 2.0, 0.1], 0.15), {axis: 1, boundaryAxis: 2, boundaryPositive: false});
+});
+
+test("edgeEndpoints derives world endpoints from the current box", () => {
+    const box = {origin: [1, 2, 3] as [number, number, number], size: [5, 4, 3] as [number, number, number]};
+    // top face (+Z), edge along X bounding y at its high side
+    const {start, end} = edgeEndpoints(box, 4, {axis: 0, boundaryAxis: 1, boundaryPositive: true});
+    assert.deepEqual(start, [1, 6, 6]);
+    assert.deepEqual(end, [6, 6, 6]);
 });
 
 test("withAxisLength resizes one axis keeping the origin", () => {

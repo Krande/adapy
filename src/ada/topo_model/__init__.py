@@ -13,8 +13,11 @@ from .build import (
     make_space_boxes,
 )
 from .equipment import create_pump, create_tank
+from .penetration import PenetrationBlueprintBase, StandardPenetrations
 
 __all__ = [
+    "PenetrationBlueprintBase",
+    "StandardPenetrations",
     "SteelStru",
     "build_routing_grid",
     "build_topo_model",

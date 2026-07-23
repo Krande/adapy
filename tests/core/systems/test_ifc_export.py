@@ -19,8 +19,8 @@ def demo_ifc(tmp_path_factory) -> ifcopenshell.file:
 
 
 def test_equipment_elements(demo_ifc):
-    assert [e.Name for e in demo_ifc.by_type("IfcPump")] == ["Pump1"]
-    assert [e.Name for e in demo_ifc.by_type("IfcTank")] == ["Tank1"]
+    assert sorted(e.Name for e in demo_ifc.by_type("IfcPump")) == ["Pump1", "Pump2"]
+    assert sorted(e.Name for e in demo_ifc.by_type("IfcTank")) == ["Tank1", "Tank2"]
 
 
 def test_ports_nested_with_flow_directions(demo_ifc):
@@ -34,7 +34,7 @@ def test_ports_nested_with_flow_directions(demo_ifc):
 
 def test_distribution_systems_predefined_types(demo_ifc):
     systems = {s.Name: s.PredefinedType for s in demo_ifc.by_type("IfcDistributionSystem")}
-    assert systems == {"CoolingWater": "WATERSUPPLY", "PowerFeed": "ELECTRICAL"}
+    assert systems == {"CoolingWater": "WATERSUPPLY", "PowerFeed": "ELECTRICAL", "ServiceWater": "WATERSUPPLY"}
 
 
 def test_system_groups_contain_segments_and_equipment(demo_ifc):
@@ -51,7 +51,9 @@ def test_cable_run_uses_cable_entities(demo_ifc):
     cable_names = {e.Name for e in demo_ifc.by_type("IfcCableSegment")}
     assert all(n.startswith("PowerFeed") for n in cable_names)
     # the cable run's bends are cable fittings, not pipe fittings
-    assert all(n.startswith("CoolingWater") for n in {e.Name for e in demo_ifc.by_type("IfcPipeFitting")})
+    assert all(
+        n.startswith(("CoolingWater", "ServiceWater")) for n in {e.Name for e in demo_ifc.by_type("IfcPipeFitting")}
+    )
 
 
 def test_rel_connects_ports(demo_ifc):
