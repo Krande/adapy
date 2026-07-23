@@ -35,6 +35,7 @@ async def _seed(storage: Storage, scope: Scope) -> None:
         "_derived/cad/step/b.stp/glb/model.glb",
         "_overlays/a.diff.glb",
         "_reconvert/a.json",
+        "_procedural/model-1/r3.glb",
     ):
         await storage.put_bytes(scope, key, b"x")
 
@@ -67,7 +68,8 @@ async def test_default_list_is_unchanged_and_still_sees_everything(tmp_path):
     assert "_derived/cad/step/a.stp/glb/model.glb" in keys
     assert "_overlays/a.diff.glb" in keys
     assert "_reconvert/a.json" in keys
-    assert len(keys) == 8
+    assert "_procedural/model-1/r3.glb" in keys
+    assert len(keys) == 9
 
 
 @pytest.mark.asyncio

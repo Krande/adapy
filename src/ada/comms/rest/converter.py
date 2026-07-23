@@ -502,7 +502,7 @@ def is_derived_key(key: str) -> bool:
 # hidden?", and storage.list(skip_prefixes=...) uses the same tuple to avoid ENUMERATING them —
 # a listing that skipped a different set than it filtered would be a silent correctness bug (a real
 # file vanishing from the browser), so the two must not drift.
-HIDDEN_PREFIXES: tuple[str, ...] = ("_derived/", "_overlays/", "_reconvert/")
+HIDDEN_PREFIXES: tuple[str, ...] = ("_derived/", "_overlays/", "_reconvert/", "_procedural/")
 
 
 def is_hidden_key(key: str) -> bool:

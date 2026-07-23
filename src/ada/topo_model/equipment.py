@@ -9,12 +9,12 @@ simple box body so the equipment renders.
 
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Callable, Iterable
 
 import ada
 from ada.api.systems import Port, PortDirection
 
-__all__ = ["create_pump", "create_tank"]
+__all__ = ["EQUIPMENT_ARCHETYPES", "create_pump", "create_tank", "list_equipment_types"]
 
 
 def _add_body(eq: ada.Equipment, name: str) -> None:
@@ -60,3 +60,18 @@ def create_tank(
     eq.add_port(Port("signal", (0, ly / 2, lz / 2), (0, 1, 0), PortDirection.INOUT, "signal"))
     _add_body(eq, name)
     return eq
+
+
+# Named equipment archetypes buildable from a plain (name, origin, lx, ly, lz)
+# footprint. Workers advertise these names so the viewer's cellbuilder can
+# offer a typed "add equipment" dropdown; the procedural compiler maps a cell
+# tagged with an archetype name back to the factory (ports + IFC class
+# included).
+EQUIPMENT_ARCHETYPES: dict[str, Callable[..., ada.Equipment]] = {
+    "pump": create_pump,
+    "tank": create_tank,
+}
+
+
+def list_equipment_types() -> list[str]:
+    return sorted(EQUIPMENT_ARCHETYPES)

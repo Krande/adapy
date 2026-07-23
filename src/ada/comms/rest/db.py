@@ -2981,3 +2981,98 @@ async def list_failed_audit_run_jobs(
         }
         for r in rows
     ]
+
+
+# ── Procedural cell models ───────────────────────────────────────────
+
+
+def _procedural_row_summary(r) -> dict:
+    return {
+        "id": str(r["id"]),
+        "name": r["name"],
+        "revision": r["revision"],
+        "created_by": r["created_by"],
+        "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+    }
+
+
+async def create_procedural_model(
+    pool: asyncpg.Pool, *, scope_kind: str, scope_id: str | None, name: str, created_by: str | None
+) -> dict | None:
+    """Insert a new (empty) procedural model. Returns the full row incl. doc,
+    or None when a live model with that name already exists in the scope."""
+    try:
+        row = await pool.fetchrow(
+            """
+            INSERT INTO procedural_models (scope_kind, scope_id, name, created_by)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id, name, doc, revision, created_by, created_at, updated_at
+            """,
+            scope_kind,
+            scope_id,
+            name,
+            created_by,
+        )
+    except asyncpg.UniqueViolationError:
+        return None
+    out = _procedural_row_summary(row)
+    out["doc"] = _loads_jsonb(row["doc"])
+    return out
+
+
+async def list_procedural_models(pool: asyncpg.Pool, *, scope_kind: str, scope_id: str | None) -> list[dict]:
+    rows = await pool.fetch(
+        """
+        SELECT id, name, revision, created_by, created_at, updated_at
+        FROM procedural_models
+        WHERE scope_kind = $1 AND COALESCE(scope_id, '') = COALESCE($2, '') AND NOT archived
+        ORDER BY name ASC
+        """,
+        scope_kind,
+        scope_id,
+    )
+    return [_procedural_row_summary(r) for r in rows]
+
+
+async def get_procedural_model(pool: asyncpg.Pool, model_id: str) -> dict | None:
+    row = await pool.fetchrow(
+        """
+        SELECT id, scope_kind, scope_id, name, doc, revision, created_by, created_at, updated_at
+        FROM procedural_models
+        WHERE id = $1 AND NOT archived
+        """,
+        model_id,
+    )
+    if row is None:
+        return None
+    out = _procedural_row_summary(row)
+    out["scope_kind"] = row["scope_kind"]
+    out["scope_id"] = row["scope_id"]
+    out["doc"] = _loads_jsonb(row["doc"])
+    return out
+
+
+async def update_procedural_model_doc(pool: asyncpg.Pool, model_id: str, doc: dict, base_revision: int) -> int | None:
+    """Optimistic-concurrency doc update: bumps revision only when the caller's
+    base_revision matches. Returns the new revision, or None on conflict."""
+    row = await pool.fetchrow(
+        """
+        UPDATE procedural_models
+        SET doc = $2::jsonb, revision = revision + 1, updated_at = now()
+        WHERE id = $1 AND revision = $3 AND NOT archived
+        RETURNING revision
+        """,
+        model_id,
+        json.dumps(doc),
+        base_revision,
+    )
+    return None if row is None else row["revision"]
+
+
+async def archive_procedural_model(pool: asyncpg.Pool, model_id: str) -> bool:
+    res = await pool.execute(
+        "UPDATE procedural_models SET archived = TRUE, updated_at = now() WHERE id = $1 AND NOT archived",
+        model_id,
+    )
+    return res.endswith("1")

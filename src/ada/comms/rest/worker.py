@@ -930,6 +930,75 @@ async def _run_parity_validation(
         await _audit_done(db_pool, job_id, "error", msg, started_at, metrics=metrics)
 
 
+async def _run_procedural_build(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Compile a procedural cell model (postgres-stored doc) into a GLB.
+
+    ``conversion_options`` carries ``{"model_id": ..., "revision": ...}``; the
+    worker reads the doc straight from postgres (single source of truth) and
+    errors on a revision mismatch so the revision-stamped derived_key always
+    matches its content. The compile runs in-process via
+    ``ada.topo_model.compile`` (pure adapy + tessellation)."""
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    model_id = opts.get("model_id")
+    revision = opts.get("revision")
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not model_id or not isinstance(revision, int):
+        await _fail("build", "conversion_options.model_id and revision are required for procedural_build")
+        return
+    if db_pool is None:
+        await _fail("build", "procedural build requires DATABASE_URL on the worker")
+        return
+
+    from . import db as db_module
+
+    row = await db_module.get_procedural_model(db_pool, model_id)
+    if row is None:
+        await _fail("build", f"procedural model {model_id} not found")
+        return
+    if row["revision"] != revision:
+        await _fail(
+            "build",
+            f"procedural model {model_id} is at revision {row['revision']}, job requested r{revision} — "
+            "re-trigger compile for the current revision",
+        )
+        return
+
+    from ada.topo_model.compile import compile_procedural_doc
+
+    loop = asyncio.get_running_loop()
+    try:
+        await queue.update(job_id, stage="build", progress=0.40)
+        glb_bytes = await loop.run_in_executor(None, lambda: compile_procedural_doc(row["doc"], name=row["name"]))
+    except Exception as exc:
+        logger.exception("worker: procedural_build failed for %s", model_id)
+        await _fail("build", str(exc), tb_module.format_exc())
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        await storage.put_bytes(scope, job.derived_key, glb_bytes, content_encoding="gzip")
+    except Exception as exc:
+        logger.exception("worker: procedural_build upload failed for %s", model_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
 async def _run_component_build(
     *,
     job: Job,
@@ -1371,6 +1440,19 @@ async def _process_one(
     # registered handler).
     if job.target_format == "component_build":
         await _run_component_build(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # procedural_build is synthetic too: the model doc lives in postgres (the
+    # single source of truth) and is compiled in-process via ada.topo_model.
+    if job.target_format == "procedural_build":
+        await _run_procedural_build(
             job=job,
             scope=scope,
             storage=storage,
@@ -2214,6 +2296,16 @@ async def _run() -> None:
 
     utilities = UtilityRegistry.specs()
 
+    # Equipment archetypes this worker can compile into procedural models —
+    # advertised so the viewer's cellbuilder can offer a typed dropdown.
+    try:
+        from ada.topo_model.equipment import list_equipment_types
+
+        procedural_equipment_types = list_equipment_types()
+    except Exception:
+        logger.exception("worker: failed to list procedural equipment types (non-fatal)")
+        procedural_equipment_types = []
+
     async def _publish_registration() -> None:
         try:
             await queue.register_worker(
@@ -2224,6 +2316,7 @@ async def _run() -> None:
                     "source_exts": source_exts,
                     "conversions": conversions,
                     "utilities": utilities,
+                    "procedural_equipment_types": procedural_equipment_types,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },
@@ -2361,7 +2454,7 @@ async def _run() -> None:
                     # the build endpoint via target_capability, and
                     # the per-spec handler resolves from the registry
                     # the worker preloaded at startup (ADA_WORKER_PRELOAD).
-                    if peeked.target_format == "component_build":
+                    if peeked.target_format in ("component_build", "procedural_build"):
                         can_handle = True
                         ext = ""
                     else:

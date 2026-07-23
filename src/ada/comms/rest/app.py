@@ -2559,6 +2559,172 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
 
+    # ── Procedural cell models (viewer cellbuilder) ──────────────────
+    #
+    # One postgres row per model; the doc (spaces/equipments/openings as
+    # ada.topology pydantic dumps) is the single source of truth. Commit and
+    # compile are separate: PUT bumps the revision under optimistic
+    # concurrency, POST /compile enqueues a procedural_build worker job whose
+    # GLB lands at _procedural/{id}/r{rev}.glb (hidden from file listings).
+
+    def _require_procedural_pool(request: Request):
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            raise HTTPException(status_code=503, detail="procedural models disabled (no database configured)")
+        return pool
+
+    async def _get_procedural_in_scope(pool, model_id: str, scope_obj: Scope) -> dict:
+        try:
+            row = await db_module.get_procedural_model(pool, model_id)
+        except Exception:
+            # malformed UUID etc. — treat as not found, not a 500
+            row = None
+        if row is None or row["scope_kind"] != scope_obj.kind or (row["scope_id"] or None) != (scope_obj.id or None):
+            raise HTTPException(status_code=404, detail="procedural model not found")
+        return row
+
+    @api.get("/scopes/{scope}/procedural-models")
+    async def api_procedural_list(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        from .procedural import procedural_glb_key
+
+        pool = _require_procedural_pool(request)
+        models = await db_module.list_procedural_models(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+        out = []
+        for m in models:
+            glb_key = procedural_glb_key(m["id"], m["revision"])
+            m = dict(m)
+            m["latest_glb_key"] = glb_key if await storage.exists(scope_obj, glb_key) else None
+            out.append(m)
+        return JSONResponse({"models": out})
+
+    @api.post("/scopes/{scope}/procedural-models", status_code=201)
+    async def api_procedural_create(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        pool = _require_procedural_pool(request)
+        body = await request.json()
+        name = body.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise HTTPException(status_code=400, detail="name (str) is required")
+        row = await db_module.create_procedural_model(
+            pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, name=name.strip(), created_by=user.sub
+        )
+        if row is None:
+            raise HTTPException(status_code=409, detail=f"a procedural model named {name.strip()!r} already exists")
+        return JSONResponse(row, status_code=201)
+
+    @api.get("/scopes/{scope}/procedural-models/equipment-types")
+    async def api_procedural_equipment_types(
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Equipment archetypes the worker pool serving this scope can compile
+        — the union of ``procedural_equipment_types`` advertised by live
+        workers. Fills the cellbuilder's add-equipment dropdown."""
+        import time as _time
+
+        types: set[str] = set()
+        if queue.enabled:
+            now = _time.time()
+            for w in await queue.list_workers():
+                hb = w.get("last_heartbeat")
+                if not (isinstance(hb, (int, float)) and (now - hb) <= queue.WORKER_STALE_AFTER_S):
+                    continue
+                advertised = w.get("procedural_equipment_types")
+                if isinstance(advertised, list):
+                    types.update(t for t in advertised if isinstance(t, str))
+        return JSONResponse({"equipment_types": sorted(types)})
+
+    @api.get("/scopes/{scope}/procedural-models/{model_id}")
+    async def api_procedural_get(
+        request: Request,
+        model_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        pool = _require_procedural_pool(request)
+        row = await _get_procedural_in_scope(pool, model_id, scope_obj)
+        return JSONResponse(
+            {k: row[k] for k in ("id", "name", "doc", "revision", "created_by", "created_at", "updated_at")}
+        )
+
+    @api.put("/scopes/{scope}/procedural-models/{model_id}")
+    async def api_procedural_commit(
+        request: Request,
+        model_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        from .procedural import validate_doc
+
+        pool = _require_procedural_pool(request)
+        row = await _get_procedural_in_scope(pool, model_id, scope_obj)
+        body = await request.json()
+        doc = body.get("doc")
+        base_revision = body.get("base_revision")
+        if not isinstance(doc, dict):
+            raise HTTPException(status_code=400, detail="doc (object) is required")
+        if not isinstance(base_revision, int):
+            raise HTTPException(status_code=400, detail="base_revision (int) is required")
+        try:
+            normalized = validate_doc(doc)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"invalid procedural doc: {e}")
+        new_revision = await db_module.update_procedural_model_doc(pool, model_id, normalized, base_revision)
+        if new_revision is None:
+            current = await db_module.get_procedural_model(pool, model_id)
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "revision conflict",
+                    "current_revision": current["revision"] if current else None,
+                },
+            )
+        return JSONResponse({"id": row["id"], "revision": new_revision})
+
+    @api.delete("/scopes/{scope}/procedural-models/{model_id}")
+    async def api_procedural_delete(
+        request: Request,
+        model_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        pool = _require_procedural_pool(request)
+        await _get_procedural_in_scope(pool, model_id, scope_obj)
+        ok = await db_module.archive_procedural_model(pool, model_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="procedural model not found")
+        return JSONResponse({"status": "archived"})
+
+    @api.post("/scopes/{scope}/procedural-models/{model_id}/compile")
+    async def api_procedural_compile(
+        request: Request,
+        model_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        from .procedural import procedural_glb_key
+
+        pool = _require_procedural_pool(request)
+        row = await _get_procedural_in_scope(pool, model_id, scope_obj)
+        derived_key = procedural_glb_key(row["id"], row["revision"])
+
+        if await storage.exists(scope_obj, derived_key):
+            return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
+
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="procedural build disabled (no NATS configured)")
+
+        job = await queue.enqueue(
+            f"_synthetic/procedural/{row['id']}/r{row['revision']}",
+            target_format="procedural_build",
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            conversion_options={"model_id": row["id"], "revision": row["revision"]},
+            derived_key=derived_key,
+        )
+        return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
+
     app.include_router(api)
 
     # ── /api/admin/* ────────────────────────────────────────────────
