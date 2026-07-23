@@ -8,7 +8,8 @@ blueprint (turns classified faces/edges into structure) -> output assembly.
 from __future__ import annotations
 
 import ada
-from ada.topology import TopologyBuilder
+from ada.api.systems import Port, PortDirection
+from ada.topology import CellGrid, TopologyBuilder
 
 from .blueprint import SteelStru
 
@@ -30,3 +31,64 @@ def build_topo_model(name: str = "TopoModelDemo") -> ada.Assembly:
     builder = TopologyBuilder.from_prim_boxes(make_space_boxes(), blueprint=SteelStru())
     builder.build()
     return builder.get_output_assembly(name)
+
+
+def build_routing_grid(spacing: float = 0.5) -> CellGrid:
+    """Routing lattice above the top deck (z 3.0..5.5 covers the tallest
+    equipment plus one clear level) over the 10 x 5 plan."""
+    return CellGrid.from_bounds((0, 0, 3.0), (10, 5, 5.5), spacing=spacing)
+
+
+def build_topo_model_with_systems(name: str = "TopoModelDemo") -> ada.Assembly:
+    """The full demo: Phase A structure + pump and tank on the top deck, wired
+    into a piping and an electrical system and routed over the deck grid. The
+    signal ports are deliberately left unconnected so the missing-I/O report
+    has something to say."""
+    from ada.api.systems import ElectricalSystem, PipingSystem, Voltage
+
+    from .equipment import create_pump, create_tank
+
+    a = build_topo_model(name)
+
+    pump = create_pump("Pump1", origin=(2.5, 2.5, 3.0))
+    tank = create_tank("Tank1", origin=(7.5, 2.5, 3.0))
+
+    cooling = PipingSystem("CoolingWater", medium="water").connect(pump, "discharge").connect(tank, "inlet")
+    power = ElectricalSystem("PowerFeed", voltage=Voltage.LV_690).connect(pump, "power")
+    # single-ended: route from the pump's power port to a supply stub at the deck edge
+    supply_stub = Port("supply", (0.0, 0.0, 3.5), (0, 0, 1), PortDirection.OUT, "electrical")
+    power.ports.append(supply_stub)
+
+    grid = build_routing_grid()
+    for eq in (pump, tank):
+        _occupy_equipment_nodes(grid, eq)
+
+    systems_part = ada.Part("Systems")
+    for system in (cooling, power):
+        for geom in system.route(grid):
+            systems_part.add_object(geom)
+
+    a.add_part(ada.Part("Equipment") / [pump, tank])
+    a.add_part(systems_part)
+    a.systems.extend([cooling, power])
+    return a
+
+
+def _occupy_equipment_nodes(grid: CellGrid, eq: ada.Equipment) -> None:
+    """Mark the grid nodes strictly inside the equipment's body volume as
+    occupied so routes detour around it. Bounds are exclusive: surface nodes
+    stay free so ports sitting on the body (nozzles) remain reachable."""
+    ox, oy, oz = (float(v) for v in eq.origin)
+    x0, x1 = ox - eq.lx / 2, ox + eq.lx / 2
+    y0, y1 = oy - eq.ly / 2, oy + eq.ly / 2
+    z0, z1 = oz, oz + eq.lz
+    tol = 1e-9
+    for ix, x in enumerate(grid.x_list):
+        if not (x0 + tol < x < x1 - tol):
+            continue
+        for iy, y in enumerate(grid.y_list):
+            if not (y0 + tol < y < y1 - tol):
+                continue
+            for iz, z in enumerate(grid.z_list):
+                if z0 + tol < z < z1 - tol:
+                    grid.register((ix, iy, iz), eq.name)

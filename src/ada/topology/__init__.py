@@ -35,6 +35,16 @@ from ada.topology.graph import (
 from ada.topology.grid import CellGrid, GridIndexError
 from ada.topology.io import from_assembly, from_ifc, from_part
 from ada.topology.metadata import TopologyMetadata
+from ada.topology.routing import (
+    RoutingBlueprintBase,
+    RoutingError,
+    RoutingRules,
+    astar_route,
+    nearest_index,
+    path_to_polyline,
+    route_system,
+    system_route_to_geometry,
+)
 
 __all__ = [
     "Containment",
@@ -48,6 +58,14 @@ __all__ = [
     "GraphEdge",
     "GraphFace",
     "GridIndexError",
+    "RoutingBlueprintBase",
+    "RoutingError",
+    "RoutingRules",
+    "astar_route",
+    "nearest_index",
+    "path_to_polyline",
+    "route_system",
+    "system_route_to_geometry",
     "TopoEquipment",
     "TopoOpening",
     "TopoSpace",

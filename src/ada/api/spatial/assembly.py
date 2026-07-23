@@ -60,6 +60,9 @@ class Assembly(Part):
         self._user = user
 
         self._cad_config = cad_config  # ada.cad.CadConfig | None (lazy default on first access)
+        # Logical service systems (ada.api.systems.System) registered on the model;
+        # the IFC writer turns these into IfcDistributionSystem groupings.
+        self.systems: list = []
         self._ifc_class = ifc_class
         self._ifc_store = None
         self._ifc_file = None

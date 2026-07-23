@@ -16,6 +16,7 @@ IFC and various Finite Element formats.
     :caption: Features
 
     documents/steel_detailing
+    documents/topology_engine
     documents/path_to_software_agnosticism
     documents/meshing
 

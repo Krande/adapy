@@ -13,7 +13,8 @@ import pathlib
 import subprocess
 import sys
 
-from ada.topo_model import build_topo_model
+from ada.api.systems import find_unconnected_ports, format_port_report
+from ada.topo_model import build_topo_model_with_systems
 
 ADAPY_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -55,7 +56,11 @@ def main() -> None:
     ap.add_argument("--no-show", action="store_true", help="build + export only, do not open the viewer")
     args = ap.parse_args()
 
-    a = build_topo_model()
+    a = build_topo_model_with_systems()
+
+    print("\nMissing equipment I/O:")
+    print(format_port_report(find_unconnected_ports(a)))
+    print()
 
     glb = pathlib.Path("temp/topo_model_demo.glb").resolve()
     glb.parent.mkdir(parents=True, exist_ok=True)

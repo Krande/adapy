@@ -219,6 +219,16 @@ class IfcWriter:
 
         return num_new_objects
 
+    def sync_systems(self) -> int:
+        """Fold the assembly's logical systems (ada.api.systems) onto their
+        written route pipes' IfcDistributionSystem groupings."""
+        from ada.cadit.ifc.write.write_equipment import write_ifc_systems
+
+        systems = getattr(self.ifc_store.assembly, "systems", None) or []
+        if not systems:
+            return 0
+        return write_ifc_systems(self.ifc_store, systems)
+
     def sync_modified_physical_objects(self) -> int:
         num_mod = 0
         for to_be_modified in filter(is_modified, self.ifc_store.assembly.get_all_physical_objects()):
@@ -495,6 +505,25 @@ class IfcWriter:
 
     def add_related_elements_to_spatial_container(self, elements: list[ifcopenshell.entity_instance], guid: str):
         parent_ifc_elem = self.ifc_store.get_by_guid(guid)
+
+        if not parent_ifc_elem.is_a("IfcSpatialElement"):
+            # IfcRelContainedInSpatialStructure requires a spatial element; a non-spatial
+            # parent (IfcPump, IfcElementAssembly, ...) decomposes its children instead.
+            existing_rel_agg = self.ifc_store.get_rel_aggregates(parent_ifc_elem)
+            if existing_rel_agg is not None:
+                existing_rel_agg.RelatedObjects = tuple([*existing_rel_agg.RelatedObjects, *elements])
+            else:
+                new_rel_agg = self.ifc_store.f.create_entity(
+                    "IfcRelAggregates",
+                    GlobalId=create_guid(),
+                    OwnerHistory=self.ifc_store.owner_history,
+                    Name="Element Decomposition",
+                    Description=None,
+                    RelatingObject=parent_ifc_elem,
+                    RelatedObjects=elements,
+                )
+                self.ifc_store.register_rel_aggregates(parent_ifc_elem, new_rel_agg)
+            return
 
         existing_spatial = None
         for existing_rel in self.ifc_store.f.by_type("IfcRelContainedInSpatialStructure"):

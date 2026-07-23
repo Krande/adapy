@@ -6,6 +6,20 @@ Start with :func:`build_topo_model` for the one-liner happy path, and read
 """
 
 from .blueprint import SteelStru
-from .build import build_topo_model, make_space_boxes
+from .build import (
+    build_routing_grid,
+    build_topo_model,
+    build_topo_model_with_systems,
+    make_space_boxes,
+)
+from .equipment import create_pump, create_tank
 
-__all__ = ["SteelStru", "build_topo_model", "make_space_boxes"]
+__all__ = [
+    "SteelStru",
+    "build_routing_grid",
+    "build_topo_model",
+    "build_topo_model_with_systems",
+    "create_pump",
+    "create_tank",
+    "make_space_boxes",
+]
