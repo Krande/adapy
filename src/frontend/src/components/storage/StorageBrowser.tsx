@@ -342,12 +342,20 @@ const StorageBrowser: React.FC = () => {
         }
     };
 
-    const createProceduralModel = async () => {
-        const name = window.prompt("Name for the new procedural model:");
+    const createProceduralModel = async (opts?: {demo?: boolean}) => {
+        const suggested = opts?.demo ? "Demo" : "";
+        const name = window.prompt("Name for the new procedural model:", suggested);
         if (!name || !name.trim()) return;
         try {
             const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
-            useCellBuilderStore.getState().open(detail.id, detail.name, detail.revision, detail.doc);
+            const store = useCellBuilderStore.getState();
+            store.open(detail.id, detail.name, detail.revision, detail.doc);
+            if (opts?.demo) {
+                // Populate + commit the demo layout so the model compiles to the
+                // full demo (structure + equipment + routed systems) right away.
+                store.loadDemoTemplate();
+                void store.commit();
+            }
             void refreshProceduralModels();
         } catch (e) {
             window.alert(`Failed to create procedural model: ${e instanceof Error ? e.message : e}`);
@@ -1190,6 +1198,11 @@ const StorageBrowser: React.FC = () => {
                                     key: "new-procedural",
                                     label: "New procedural model…",
                                     onClick: () => void createProceduralModel(),
+                                },
+                                {
+                                    key: "new-demo-procedural",
+                                    label: "New demo model…",
+                                    onClick: () => void createProceduralModel({demo: true}),
                                 },
                             ]}
                             onClose={() => setPlusOpen(false)}

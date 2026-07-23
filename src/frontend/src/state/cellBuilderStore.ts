@@ -29,6 +29,24 @@ export interface BuilderCell extends CellBox {
 
 export type CellBuilderMode = "idle" | "add-cell" | "add-equipment" | "drag-face";
 
+export type SystemType = "piping" | "duct" | "cable" | "electrical";
+
+/** One port hookup: an equipment name + one of its port names. */
+export interface SystemConnection {
+    equipment: string;
+    port: string;
+}
+
+/** A logical service run between equipment ports. Rendered by the compiler as
+ * a routed pipe/cable (see ada.topo_model.compile). */
+export interface BuilderSystem {
+    id: string;
+    name: string;
+    type: SystemType;
+    medium?: string;
+    connections: SystemConnection[];
+}
+
 /** Current pick: a whole cell, one of its 6 faces (BoxGeometry materialIndex),
  * or a face border edge (full descriptor, so its endpoints re-derive from the
  * live box through resizes). */
@@ -39,9 +57,9 @@ export interface BuilderSelection {
     edge?: EdgeHit;
 }
 
-/** What a plain click picks: the whole cell or the face under the cursor.
- * Edge clicks (near a face border) always win regardless of mode. */
-export type SelectMode = "cell" | "face";
+/** What a plain click picks: nothing, the whole cell, or the face under the
+ * cursor. Edge clicks (near a face border) always win unless mode is "none". */
+export type SelectMode = "none" | "cell" | "face";
 
 export interface CompileJobState {
     jobId: string | null;
@@ -77,6 +95,8 @@ interface CellBuilderState {
      * (top-row button included). */
     active: {modelId: string; name: string; revision: number} | null;
     cells: Record<string, BuilderCell>;
+    /** Logical service runs (rendered as routed pipes/cables by the compiler). */
+    systems: Record<string, BuilderSystem>;
     mode: CellBuilderMode;
     selection: BuilderSelection | null;
     selectMode: SelectMode;
@@ -118,6 +138,13 @@ interface CellBuilderState {
     /** Set the box length along `axis` (origin fixed). */
     setEdgeLength: (id: string, axis: 0 | 1 | 2, length: number) => void;
     removeCell: (id: string) => void;
+    addSystem: (type: SystemType) => void;
+    updateSystem: (id: string, patch: Partial<BuilderSystem>) => void;
+    removeSystem: (id: string) => void;
+    addSystemConnection: (id: string, conn: SystemConnection) => void;
+    removeSystemConnection: (id: string, index: number) => void;
+    /** Systems whose connections reference the given equipment name. */
+    systemsForEquipment: (equipmentName: string) => BuilderSystem[];
     toDoc: () => ProceduralDoc;
     loadFromDoc: (doc: ProceduralDoc) => void;
     /** Populate the model with the topo_model demo layout (2 cells, deck +
@@ -158,6 +185,22 @@ function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
     return out;
 }
 
+function systemsFromDoc(doc: ProceduralDoc): Record<string, BuilderSystem> {
+    const out: Record<string, BuilderSystem> = {};
+    for (const s of doc.systems ?? []) {
+        const id = nextId();
+        const conns = Array.isArray(s.CONNECTIONS) ? (s.CONNECTIONS as Record<string, unknown>[]) : [];
+        out[id] = {
+            id,
+            name: String(s.NAME ?? id),
+            type: (typeof s.TYPE === "string" ? s.TYPE : "piping") as SystemType,
+            medium: typeof s.MEDIUM === "string" ? s.MEDIUM : undefined,
+            connections: conns.map((c) => ({equipment: String(c.EQUIPMENT ?? ""), port: String(c.PORT ?? "")})),
+        };
+    }
+    return out;
+}
+
 function containingCellName(cells: Record<string, BuilderCell>, eq: BuilderCell): string {
     const cx = eq.origin[0] + eq.size[0] / 2;
     const cy = eq.origin[1] + eq.size[1] / 2;
@@ -174,6 +217,7 @@ function containingCellName(cells: Record<string, BuilderCell>, eq: BuilderCell)
 export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
     active: null,
     cells: {},
+    systems: {},
     mode: "idle",
     selection: null,
     selectMode: "cell",
@@ -195,6 +239,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
         set({
             active: {modelId, name, revision},
             cells: cellsFromDoc(doc),
+            systems: systemsFromDoc(doc),
             blueprintOptions: doc.blueprint ?? {},
             mode: "idle",
             selection: null,
@@ -210,6 +255,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
         set({
             active: null,
             cells: {},
+            systems: {},
             mode: "idle",
             selection: null,
             dirty: false,
@@ -282,6 +328,44 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
             return {cells, dirty: true, selection: s.selection?.cellId === id ? null : s.selection};
         }),
 
+    addSystem: (type) =>
+        set((s) => {
+            const id = nextId();
+            const count = Object.keys(s.systems).length + 1;
+            const prefix = {piping: "PIPE", duct: "DUCT", cable: "CABLE", electrical: "POWER"}[type];
+            const system: BuilderSystem = {id, name: `${prefix}_${String(count).padStart(2, "0")}`, type, connections: []};
+            return {systems: {...s.systems, [id]: system}, dirty: true};
+        }),
+    updateSystem: (id, patch) =>
+        set((s) => {
+            const cur = s.systems[id];
+            if (!cur) return s;
+            return {systems: {...s.systems, [id]: {...cur, ...patch}}, dirty: true};
+        }),
+    removeSystem: (id) =>
+        set((s) => {
+            const systems = {...s.systems};
+            delete systems[id];
+            return {systems, dirty: true};
+        }),
+    addSystemConnection: (id, conn) =>
+        set((s) => {
+            const cur = s.systems[id];
+            if (!cur) return s;
+            return {systems: {...s.systems, [id]: {...cur, connections: [...cur.connections, conn]}}, dirty: true};
+        }),
+    removeSystemConnection: (id, index) =>
+        set((s) => {
+            const cur = s.systems[id];
+            if (!cur) return s;
+            return {
+                systems: {...s.systems, [id]: {...cur, connections: cur.connections.filter((_, i) => i !== index)}},
+                dirty: true,
+            };
+        }),
+    systemsForEquipment: (equipmentName) =>
+        Object.values(get().systems).filter((sys) => sys.connections.some((c) => c.equipment === equipmentName)),
+
     toDoc: () => {
         const cells = get().cells;
         const spaces = Object.values(cells)
@@ -319,10 +403,22 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
                 LY: c.size[1],
                 LZ: c.size[2],
             }));
-        return {grid: {}, blueprint: get().blueprintOptions, spaces, equipments, openings: []};
+        const systems = Object.values(get().systems).map((sys) => ({
+            NAME: sys.name,
+            TYPE: sys.type,
+            MEDIUM: sys.medium ?? null,
+            CONNECTIONS: sys.connections.map((c) => ({EQUIPMENT: c.equipment, PORT: c.port})),
+        }));
+        return {grid: {}, blueprint: get().blueprintOptions, spaces, equipments, systems, openings: []};
     },
     loadFromDoc: (doc) =>
-        set({cells: cellsFromDoc(doc), blueprintOptions: doc.blueprint ?? {}, dirty: false, selection: null}),
+        set({
+            cells: cellsFromDoc(doc),
+            systems: systemsFromDoc(doc),
+            blueprintOptions: doc.blueprint ?? {},
+            dirty: false,
+            selection: null,
+        }),
 
     loadDemoTemplate: () => {
         // Mirrors ada.topo_model.build_topo_model_with_systems: two 5x5x3
@@ -342,10 +438,31 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
                 {NAME: "Pump2", DESCRIPTION: "pump", X: 2, Y: 2, Z: 0, LX: 1, LY: 1, LZ: 1},
                 {NAME: "Tank2", DESCRIPTION: "tank", X: 6.5, Y: 1.5, Z: 0, LX: 2, LY: 2, LZ: 2},
             ],
+            systems: [
+                {
+                    NAME: "CoolingWater",
+                    TYPE: "piping",
+                    MEDIUM: "water",
+                    CONNECTIONS: [
+                        {EQUIPMENT: "Pump1", PORT: "discharge"},
+                        {EQUIPMENT: "Tank1", PORT: "inlet"},
+                    ],
+                },
+                {
+                    NAME: "ServiceWater",
+                    TYPE: "piping",
+                    MEDIUM: "water",
+                    CONNECTIONS: [
+                        {EQUIPMENT: "Pump2", PORT: "discharge"},
+                        {EQUIPMENT: "Tank2", PORT: "inlet"},
+                    ],
+                },
+            ],
             openings: [],
         };
         set({
             cells: cellsFromDoc(doc),
+            systems: systemsFromDoc(doc),
             blueprintOptions: doc.blueprint ?? {},
             dirty: true,
             selection: null,
@@ -406,10 +523,17 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
         }
         const active = get().active;
         if (!active) return;
+        // Auto-show the compiled result once ready when auto-compile is on, so
+        // Commit -> compile -> render is one gesture.
+        const autoShow = () => {
+            const cur = get().compileJob;
+            if (get().autoCompile && cur && cur.derivedKey) void get().viewResult(cur.derivedKey);
+        };
         try {
             const res = await viewerApi.compileProceduralModel(currentScopePart(), active.modelId);
             if (res.cached) {
                 set({compileJob: {jobId: null, derivedKey: res.derived_key, status: "cached"}});
+                autoShow();
                 return;
             }
             set({compileJob: {jobId: res.job_id, derivedKey: res.derived_key, status: "queued"}});
@@ -421,6 +545,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
                     const st = await viewerApi.convertStatus(jobId);
                     if (st.status === "done") {
                         set({compileJob: {...cur, status: "done"}});
+                        autoShow();
                         return;
                     }
                     if (st.status === "error") {

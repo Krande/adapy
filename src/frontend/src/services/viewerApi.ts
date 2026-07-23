@@ -1010,6 +1010,9 @@ export interface ProceduralDoc {
     spaces: Record<string, unknown>[];
     equipments: Record<string, unknown>[];
     openings?: Record<string, unknown>[];
+    /** Routed service runs; each entry {NAME, TYPE, MEDIUM?, CONNECTIONS:
+     * [{EQUIPMENT, PORT}]}. Rendered by the compiler as pipe/cable runs. */
+    systems?: Record<string, unknown>[];
 }
 
 export interface ProceduralCompileResponse {

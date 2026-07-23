@@ -456,6 +456,10 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             return;
         }
 
+        // "none" select mode = pure navigation: don't grab faces for
+        // select/drag, let the camera controls handle the pointer.
+        if (st.selectMode === "none") return;
+
         const hit = pickBuilderMesh();
         if (!hit || !hit.face) return;
         const cellId = hit.object.userData.__cellId as string;
@@ -496,6 +500,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
 
     const resolveClickSelection = (drag_: DragState, ev: PointerEvent) => {
         const st = useCellBuilderStore.getState();
+        // "none" mode: a plain click selects nothing (free navigation).
+        if (st.selectMode === "none") return;
         const cell = st.cells[drag_.cellId];
         if (!cell) return;
 
@@ -554,6 +560,12 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         }
 
         if (st.mode === "idle") {
+            // "none" mode: no hover highlights (free navigation).
+            if (st.selectMode === "none") {
+                setHoveredEdge(null);
+                setHoveredFace(null, -1);
+                return;
+            }
             const hit = pickBuilderMesh();
             if (hit && hit.face) {
                 const cellId = hit.object.userData.__cellId as string;

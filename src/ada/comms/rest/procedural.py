@@ -24,9 +24,21 @@ def procedural_glb_key(model_id: str, revision: int) -> str:
 def _doc_model():
     # Lazy: ada.topology.entities imports ada, which is heavy — only pay for it
     # on the first commit/compile, not at API boot.
+    from typing import Literal, Optional
+
     from pydantic import BaseModel, Field
 
     from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace
+
+    class SystemConnection(BaseModel):
+        EQUIPMENT: str
+        PORT: str
+
+    class ProceduralSystem(BaseModel):
+        NAME: str
+        TYPE: Literal["piping", "duct", "cable", "electrical"] = "piping"
+        MEDIUM: Optional[str] = None
+        CONNECTIONS: list[SystemConnection] = Field(default_factory=list)
 
     class ProceduralDoc(BaseModel):
         grid: dict = Field(default_factory=dict)
@@ -36,6 +48,9 @@ def _doc_model():
         spaces: list[TopoSpace] = Field(default_factory=list)
         equipments: list[TopoEquipment] = Field(default_factory=list)
         openings: list[TopoOpening] = Field(default_factory=list)
+        # routed service runs between equipment ports; the compiler wires,
+        # routes and renders these (see ada.topo_model.compile)
+        systems: list[ProceduralSystem] = Field(default_factory=list)
 
     return ProceduralDoc
 
@@ -49,7 +64,7 @@ def _validate_doc_shallow(doc: dict) -> dict:
         raise ValueError("grid must be an object")
     if not isinstance(out["blueprint"], dict):
         raise ValueError("blueprint must be an object")
-    for key in ("spaces", "equipments", "openings"):
+    for key in ("spaces", "equipments", "openings", "systems"):
         entries = doc.get(key) or []
         if not isinstance(entries, list):
             raise ValueError(f"{key} must be a list")

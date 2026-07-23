@@ -209,10 +209,209 @@ const SelectionSection: React.FC<{selection: BuilderSelection}> = ({selection}) 
                             {(cell.kind === "cell" ? SPACE_PARAMS : EQUIPMENT_PARAMS).map((f) => (
                                 <ParamRow key={f.key} cell={cell} field={f} />
                             ))}
+                            {cell.kind === "equipment" && <EquipmentSystems equipmentName={cell.name} />}
                         </div>
                     )}
                 </div>
             )}
+        </div>
+    );
+};
+
+const SYSTEM_TYPE_COLOR: Record<string, string> = {
+    piping: "#38bdf8",
+    duct: "#a3e635",
+    cable: "#c084fc",
+    electrical: "#f59e0b",
+};
+
+// Systems this equipment participates in — shown when an equipment cell is
+// selected (which system it's connected to, via which port).
+const EquipmentSystems: React.FC<{equipmentName: string}> = ({equipmentName}) => {
+    const systems = useCellBuilderStore((st) => st.systems);
+    const connected = Object.values(systems).filter((sys) =>
+        sys.connections.some((c) => c.equipment === equipmentName),
+    );
+    if (connected.length === 0) {
+        return <div className="text-gray-500 italic">Not connected to any system.</div>;
+    }
+    return (
+        <div className="flex flex-col gap-0.5 border-t border-gray-700/60 pt-1">
+            <span className="text-gray-300">Connected systems</span>
+            {connected.map((sys) => {
+                const ports = sys.connections.filter((c) => c.equipment === equipmentName).map((c) => c.port);
+                return (
+                    <div key={sys.id} className="flex items-center gap-1">
+                        <span className="inline-block w-2 h-2 rounded-full" style={{background: SYSTEM_TYPE_COLOR[sys.type]}} />
+                        <span className="truncate">{sys.name}</span>
+                        <span className="text-gray-400">({sys.type})</span>
+                        <span className="ml-auto text-gray-400">{ports.join(", ")}</span>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+// Systems inspector: list the service runs, their type, and which equipment
+// ports each connects. Add/remove systems and connections.
+const SystemsInspector: React.FC = () => {
+    const s = useCellBuilderStore();
+    const [open, setOpen] = React.useState(false);
+    const equipmentNames = Object.values(s.cells)
+        .filter((c) => c.kind === "equipment")
+        .map((c) => c.name);
+    const systems = Object.values(s.systems);
+
+    return (
+        <div className="border-t border-gray-600/60 pt-1">
+            <button
+                className="flex items-center gap-1 w-full text-left hover:bg-gray-700/40 rounded-sm px-1"
+                onClick={() => setOpen((v) => !v)}
+                aria-expanded={open}
+            >
+                <span className={"transition-transform " + (open ? "rotate-90" : "")}>▸</span>
+                <span className="font-semibold">Systems</span>
+                <span className="text-gray-400">({systems.length})</span>
+            </button>
+            {open && (
+                <div className="flex flex-col gap-1.5 px-1 pt-1">
+                    <div className="flex items-center gap-1 flex-wrap">
+                        <span className="text-gray-300">add</span>
+                        {(["piping", "duct", "cable", "electrical"] as const).map((t) => (
+                            <button
+                                key={t}
+                                className="px-1.5 py-0.5 rounded-sm bg-gray-700 text-gray-200 hover:bg-gray-600"
+                                onClick={() => s.addSystem(t)}
+                            >
+                                +{t}
+                            </button>
+                        ))}
+                    </div>
+                    {systems.length === 0 && (
+                        <p className="italic text-gray-500">
+                            No systems. Add one to route a run between equipment ports.
+                        </p>
+                    )}
+                    {systems.map((sys) => (
+                        <div key={sys.id} className="border border-gray-700/60 rounded-sm p-1 flex flex-col gap-1">
+                            <div className="flex items-center gap-1">
+                                <span
+                                    className="inline-block w-2 h-2 rounded-full shrink-0"
+                                    style={{background: SYSTEM_TYPE_COLOR[sys.type]}}
+                                />
+                                <input
+                                    className={`${inputCls} flex-1 min-w-0`}
+                                    value={sys.name}
+                                    onChange={(e) => s.updateSystem(sys.id, {name: e.target.value})}
+                                />
+                                <select
+                                    className={inputCls}
+                                    value={sys.type}
+                                    onChange={(e) => s.updateSystem(sys.id, {type: e.target.value as typeof sys.type})}
+                                >
+                                    {(["piping", "duct", "cable", "electrical"] as const).map((t) => (
+                                        <option key={t} value={t}>
+                                            {t}
+                                        </option>
+                                    ))}
+                                </select>
+                                <button
+                                    className="px-1 rounded-sm hover:bg-gray-500/40"
+                                    title="Delete system"
+                                    onClick={() => s.removeSystem(sys.id)}
+                                >
+                                    🗑
+                                </button>
+                            </div>
+                            {sys.connections.map((c, i) => (
+                                <div key={i} className="flex items-center gap-1 pl-3">
+                                    <span className="text-gray-400">→</span>
+                                    <span className="truncate">
+                                        {c.equipment}.<span className="text-gray-300">{c.port}</span>
+                                    </span>
+                                    <button
+                                        className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
+                                        title="Remove connection"
+                                        onClick={() => s.removeSystemConnection(sys.id, i)}
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            ))}
+                            <ConnectionAdder
+                                equipmentNames={equipmentNames}
+                                onAdd={(eq, port) => s.addSystemConnection(sys.id, {equipment: eq, port})}
+                            />
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Standard archetype ports (kept in sync with ada.topo_model.equipment); a
+// free-text fallback covers custom equipment.
+const ARCHETYPE_PORTS: Record<string, string[]> = {
+    pump: ["suction", "discharge", "power", "signal"],
+    tank: ["inlet", "outlet", "signal"],
+};
+
+const ConnectionAdder: React.FC<{equipmentNames: string[]; onAdd: (eq: string, port: string) => void}> = ({
+    equipmentNames,
+    onAdd,
+}) => {
+    const cells = useCellBuilderStore((st) => st.cells);
+    const [eq, setEq] = React.useState("");
+    const [port, setPort] = React.useState("");
+    const eqType = Object.values(cells).find((c) => c.name === eq)?.equipmentType;
+    const portOptions = eqType ? (ARCHETYPE_PORTS[eqType] ?? []) : [];
+
+    return (
+        <div className="flex items-center gap-1 pl-3">
+            <select
+                className={`${inputCls} min-w-0 flex-1`}
+                value={eq}
+                onChange={(e) => {
+                    setEq(e.target.value);
+                    setPort("");
+                }}
+            >
+                <option value="">equipment…</option>
+                {equipmentNames.map((n) => (
+                    <option key={n} value={n}>
+                        {n}
+                    </option>
+                ))}
+            </select>
+            {portOptions.length > 0 ? (
+                <select className={inputCls} value={port} onChange={(e) => setPort(e.target.value)}>
+                    <option value="">port…</option>
+                    {portOptions.map((p) => (
+                        <option key={p} value={p}>
+                            {p}
+                        </option>
+                    ))}
+                </select>
+            ) : (
+                <input
+                    className={`${inputCls} w-20`}
+                    placeholder="port"
+                    value={port}
+                    onChange={(e) => setPort(e.target.value)}
+                />
+            )}
+            <button
+                className="px-1.5 py-0.5 rounded-sm bg-blue-600 text-white disabled:opacity-40"
+                disabled={!eq || !port}
+                onClick={() => {
+                    onAdd(eq, port);
+                    setPort("");
+                }}
+            >
+                +
+            </button>
         </div>
     );
 };
@@ -293,9 +492,9 @@ const CellBuilderPanel: React.FC = () => {
                         className={`${inputCls} w-14`}
                     />
                 </label>
-                <span className="flex items-center gap-0.5" title="What a plain click selects (border clicks always pick the edge)">
+                <span className="flex items-center gap-0.5" title="What a plain click selects (border clicks always pick the edge, except in 'none')">
                     <span className="text-gray-300">select</span>
-                    {(["cell", "face"] as const).map((m) => (
+                    {(["none", "cell", "face"] as const).map((m) => (
                         <button
                             key={m}
                             className={
@@ -357,6 +556,8 @@ const CellBuilderPanel: React.FC = () => {
             </div>
 
             {s.selection && <SelectionSection selection={s.selection} />}
+
+            <SystemsInspector />
 
             {s.conflict && <p className="text-red-400">{s.conflict}</p>}
             {compileState?.status === "error" && <p className="text-red-400">Compile failed: {compileState.error}</p>}
