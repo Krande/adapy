@@ -65,6 +65,9 @@ test-fem-viz = { cmd = "pytest tests/fem/visualization --durations=0", env = { "
 
 print-paths = { cmd = "python -c \"import sys, os; print('\\n'.join(sys.path + os.environ.get('PYTHONPATH', '').split(os.pathsep)))\"" }
 
+[feature.prod.tasks]
+topo-model-demo = { cmd = "python topo_model_demo.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, cwd = "examples" }
+
 [feature.frontend.tasks]
 npm = { cmd = "npm", cwd = "./src/frontend" }
 winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJECT_ROOT/src/frontend/node_modules"] }

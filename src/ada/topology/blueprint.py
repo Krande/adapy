@@ -34,6 +34,11 @@ class BlueprintBase(abc.ABC):
         structure name); empty by default."""
         return ""
 
+    def add_to_area(self, area_name: str, part: ada.Part) -> ada.Part:
+        """Register ``part`` under ``area_name`` in the area map and return it."""
+        self.area_map.setdefault(area_name, []).append(part)
+        return part
+
     def load_parts_from_area_map(self) -> None:
         """Fold the accumulated ``area_map`` into ``output_part`` as one part per
         area, each carrying a group of its physical objects."""
