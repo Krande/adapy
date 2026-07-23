@@ -49,6 +49,15 @@ def test_compile_steel_stru():
     assert len(glb) > len(compile_procedural_doc(DOC, blueprint_name="none"))
 
 
+def test_compile_blueprint_options_reinforced_wall():
+    doc = dict(DOC)
+    doc["blueprint"] = {"reinforce_internal_walls": True, "not_whitelisted": "ignored"}
+    glb = compile_procedural_doc(doc, blueprint_name="steel_stru")
+    assert _is_glb(glb)
+    # the reinforced wall adds a plate + stiffeners -> bigger than the plain compile
+    assert len(glb) > len(compile_procedural_doc(DOC, blueprint_name="steel_stru"))
+
+
 def test_compile_empty_doc_raises():
     with pytest.raises(ValueError, match="no spaces"):
         compile_procedural_doc({"spaces": []})

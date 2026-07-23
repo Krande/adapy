@@ -1004,6 +1004,9 @@ export interface ProceduralModelDetail extends ProceduralModelSummary {
 /** Entity dumps follow ada.topology.entities (TopoSpace / TopoEquipment). */
 export interface ProceduralDoc {
     grid?: Record<string, unknown>;
+    /** Blueprint compile options (whitelisted server-side), e.g.
+     * {reinforce_internal_walls: true}. */
+    blueprint?: Record<string, unknown>;
     spaces: Record<string, unknown>[];
     equipments: Record<string, unknown>[];
     openings?: Record<string, unknown>[];

@@ -81,6 +81,13 @@ def test_validate_doc_normalizes():
     assert out["equipments"] == []
 
 
+def test_validate_doc_roundtrips_blueprint_options():
+    out = validate_doc({"spaces": [], "blueprint": {"reinforce_internal_walls": True}})
+    assert out["blueprint"] == {"reinforce_internal_walls": True}
+    with pytest.raises(ValueError):
+        validate_doc({"spaces": [], "blueprint": "nope"})
+
+
 def test_validate_doc_rejects_bad_input():
     with pytest.raises(ValueError):
         validate_doc({"spaces": [{"X": 0}]})  # NAME missing

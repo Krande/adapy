@@ -94,6 +94,9 @@ interface CellBuilderState {
     resultSourceName: string | null;
     /** Toggle the builder box meshes (hide to focus on the compiled structure). */
     cellsVisible: boolean;
+    /** Blueprint compile options round-tripped as doc.blueprint (whitelisted
+     * server-side), e.g. {reinforce_internal_walls: true}. */
+    blueprintOptions: Record<string, unknown>;
     panelVisible: boolean;
 
     open: (modelId: string, name: string, revision: number, doc: ProceduralDoc) => void;
@@ -117,6 +120,9 @@ interface CellBuilderState {
     removeCell: (id: string) => void;
     toDoc: () => ProceduralDoc;
     loadFromDoc: (doc: ProceduralDoc) => void;
+    /** Populate the model with the topo_model demo layout (2 cells, deck +
+     * interior pump/tank pairs, reinforced internal wall). */
+    loadDemoTemplate: () => void;
     fetchEquipmentTypes: () => Promise<void>;
     commit: () => Promise<boolean>;
     compile: () => Promise<void>;
@@ -182,12 +188,14 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
     compileJob: null,
     resultSourceName: null,
     cellsVisible: true,
+    blueprintOptions: {},
     panelVisible: false,
 
     open: (modelId, name, revision, doc) => {
         set({
             active: {modelId, name, revision},
             cells: cellsFromDoc(doc),
+            blueprintOptions: doc.blueprint ?? {},
             mode: "idle",
             selection: null,
             dirty: false,
@@ -311,9 +319,39 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => ({
                 LY: c.size[1],
                 LZ: c.size[2],
             }));
-        return {grid: {}, spaces, equipments, openings: []};
+        return {grid: {}, blueprint: get().blueprintOptions, spaces, equipments, openings: []};
     },
-    loadFromDoc: (doc) => set({cells: cellsFromDoc(doc), dirty: false, selection: null}),
+    loadFromDoc: (doc) =>
+        set({cells: cellsFromDoc(doc), blueprintOptions: doc.blueprint ?? {}, dirty: false, selection: null}),
+
+    loadDemoTemplate: () => {
+        // Mirrors ada.topo_model.build_topo_model_with_systems: two 5x5x3
+        // cells, deck pump/tank pair on top, interior pair on the floor, and
+        // the shared internal wall compiled as a reinforced wall. Coordinates
+        // are min-corners (equipment archetypes center on the footprint).
+        const doc: ProceduralDoc = {
+            grid: {},
+            blueprint: {reinforce_internal_walls: true},
+            spaces: [
+                {NAME: "Cell1", INCLUDE: true, X: 0, Y: 0, Z: 0, DX: 5, DY: 5, DZ: 3},
+                {NAME: "Cell2", INCLUDE: true, X: 5, Y: 0, Z: 0, DX: 5, DY: 5, DZ: 3},
+            ],
+            equipments: [
+                {NAME: "Pump1", DESCRIPTION: "pump", X: 2, Y: 2, Z: 3, LX: 1, LY: 1, LZ: 1},
+                {NAME: "Tank1", DESCRIPTION: "tank", X: 6.5, Y: 1.5, Z: 3, LX: 2, LY: 2, LZ: 2},
+                {NAME: "Pump2", DESCRIPTION: "pump", X: 2, Y: 2, Z: 0, LX: 1, LY: 1, LZ: 1},
+                {NAME: "Tank2", DESCRIPTION: "tank", X: 6.5, Y: 1.5, Z: 0, LX: 2, LY: 2, LZ: 2},
+            ],
+            openings: [],
+        };
+        set({
+            cells: cellsFromDoc(doc),
+            blueprintOptions: doc.blueprint ?? {},
+            dirty: true,
+            selection: null,
+            mode: "idle",
+        });
+    },
 
     fetchEquipmentTypes: async () => {
         try {

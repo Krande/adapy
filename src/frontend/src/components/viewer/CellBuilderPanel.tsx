@@ -317,7 +317,13 @@ const CellBuilderPanel: React.FC = () => {
 
             <div className="max-h-48 overflow-y-auto flex flex-col gap-1">
                 {Object.values(s.cells).length === 0 && (
-                    <p className="italic text-gray-400">No cells yet — use + Cell to start.</p>
+                    <p className="italic text-gray-400">
+                        No cells yet — use + Cell to start, or{" "}
+                        <button className="underline text-blue-300 hover:text-blue-200" onClick={s.loadDemoTemplate}>
+                            add the demo template
+                        </button>
+                        .
+                    </p>
                 )}
                 {Object.values(s.cells).map((c) => (
                     <div
@@ -379,6 +385,21 @@ const CellBuilderPanel: React.FC = () => {
                     aria-pressed={!s.cellsVisible}
                 >
                     {s.cellsVisible ? "Hide cells" : "Show cells"}
+                </button>
+                <button
+                    className={btnGray}
+                    onClick={() => {
+                        if (
+                            Object.keys(s.cells).length > 0 &&
+                            !window.confirm("Replace the current cells with the demo template?")
+                        ) {
+                            return;
+                        }
+                        s.loadDemoTemplate();
+                    }}
+                    title="Populate this model with the topo_model demo layout (2 cells, pump/tank pairs, reinforced internal wall)"
+                >
+                    Demo template
                 </button>
             </div>
         </div>

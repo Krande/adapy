@@ -49,7 +49,9 @@ def _build_reinforced_wall(
     name: str, points: list[ada.Point], pl_thick: float, stiffener_sec: str, spacing: float
 ) -> ada.Part:
     """A reinforced wall from a vertical face outline: one plate plus vertical
-    stiffener beams evenly distributed along the wall's horizontal run."""
+    stiffener beams evenly distributed along the wall's horizontal run. The
+    stiffeners' local up vector is the wall normal so the profile stands
+    perpendicular to (not flat in) the plate plane."""
     plate = ada.Plate.from_3d_points(f"{name}_pl", points, pl_thick)
 
     pts = np.asarray([tuple(p) for p in points], dtype=float)
@@ -58,13 +60,16 @@ def _build_reinforced_wall(
     run_axis = next(a for a in (0, 1) if a != normal_axis)  # horizontal in-plane axis
     z0, z1 = lo[2], hi[2]
 
+    up = [0.0, 0.0, 0.0]
+    up[normal_axis] = 1.0
+
     tol = spacing * 1e-3
     stiffeners = []
     for i, s in enumerate(np.arange(lo[run_axis] + spacing, hi[run_axis] - tol, spacing)):
         p1 = [lo[0], lo[1], z0]
         p2 = [lo[0], lo[1], z1]
         p1[run_axis] = p2[run_axis] = s
-        stiffeners.append(ada.Beam(f"{name}_stf_{i:02d}", tuple(p1), tuple(p2), stiffener_sec))
+        stiffeners.append(ada.Beam(f"{name}_stf_{i:02d}", tuple(p1), tuple(p2), stiffener_sec, up=tuple(up)))
 
     return ada.Part(name) / [plate, *stiffeners]
 

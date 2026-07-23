@@ -30,6 +30,9 @@ def _doc_model():
 
     class ProceduralDoc(BaseModel):
         grid: dict = Field(default_factory=dict)
+        # blueprint compile options (whitelisted by the compiler), e.g.
+        # {"reinforce_internal_walls": true}
+        blueprint: dict = Field(default_factory=dict)
         spaces: list[TopoSpace] = Field(default_factory=list)
         equipments: list[TopoEquipment] = Field(default_factory=list)
         openings: list[TopoOpening] = Field(default_factory=list)
@@ -41,9 +44,11 @@ def _validate_doc_shallow(doc: dict) -> dict:
     """Structural check for slim API deployments where ada (numpy) is not
     installed: list fields hold objects with a string NAME. Full pydantic
     validation then happens on the worker at compile time."""
-    out = {"grid": doc.get("grid") or {}}
+    out = {"grid": doc.get("grid") or {}, "blueprint": doc.get("blueprint") or {}}
     if not isinstance(out["grid"], dict):
         raise ValueError("grid must be an object")
+    if not isinstance(out["blueprint"], dict):
+        raise ValueError("blueprint must be an object")
     for key in ("spaces", "equipments", "openings"):
         entries = doc.get(key) or []
         if not isinstance(entries, list):

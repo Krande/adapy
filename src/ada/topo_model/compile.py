@@ -52,6 +52,18 @@ def _equipment_to_object(eq: TopoEquipment) -> ada.Equipment | ada.PrimBox:
     return ada.PrimBox(eq.NAME, p1, p2, color="orange")
 
 
+# Whitelisted doc["blueprint"] options forwarded to SteelStru — never **kwargs
+# straight from user input.
+_BLUEPRINT_OPTION_KEYS = ("reinforce_internal_walls", "pl_thick", "wall_pl_thick", "stringer_spacing")
+
+
+def _blueprint_options(doc: dict) -> dict:
+    opts = doc.get("blueprint") or {}
+    if not isinstance(opts, dict):
+        return {}
+    return {k: opts[k] for k in _BLUEPRINT_OPTION_KEYS if k in opts}
+
+
 def compile_procedural_doc(
     doc: dict,
     *,
@@ -67,7 +79,7 @@ def compile_procedural_doc(
     boxes = [_space_to_box(s) for s in spaces]
 
     if blueprint_name == "steel_stru":
-        builder = TopologyBuilder.from_prim_boxes(boxes, blueprint=SteelStru())
+        builder = TopologyBuilder.from_prim_boxes(boxes, blueprint=SteelStru(**_blueprint_options(doc)))
         builder.build()
         a = builder.get_output_assembly(name)
     else:

@@ -26,6 +26,10 @@ def test_reinforced_wall_built(demo):
     assert len(wall_plates) == 1
     stiffeners = [b for b in demo.get_all_physical_objects(by_type=ada.Beam) if "_stf_" in b.name]
     assert len(stiffeners) == 12  # 5 m wall span @ 0.4 m spacing
+    # the stiffener profile stands perpendicular to the plate plane: local up
+    # equals the wall normal (+X for the x=5 wall), not an in-plane direction
+    for stf in stiffeners:
+        assert tuple(round(float(v), 6) for v in stf.up) == (1.0, 0.0, 0.0)
 
 
 def test_service_run_penetrates_the_wall(demo):
