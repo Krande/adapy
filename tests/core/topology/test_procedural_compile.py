@@ -133,6 +133,74 @@ def test_compile_bad_system_skipped_not_fatal():
     assert _is_glb(glb)
 
 
+def test_compile_catalog_equipment_resolver():
+    """An equipment whose DESCRIPTION is a per-scope catalog slug compiles into
+    a full Equipment (ports + IFC class) via the resolver, taking precedence
+    over the built-in archetypes."""
+    import ada
+    from ada.topo_model.compile import _equipment_to_object
+    from ada.topology.entities import TopoEquipment
+
+    catalog = {
+        "big-pump": {
+            "bbox": {"lx": 1, "ly": 1, "lz": 2},
+            "mass": 750,
+            "ifc_element_class": "IfcPump",
+            "ports": [
+                {"name": "suction", "position": [-0.5, 0, 1], "direction_vector": [-1, 0, 0], "direction": "IN"},
+                {"name": "discharge", "position": [0, 0, 2], "direction_vector": [0, 0, 1], "direction": "OUT"},
+            ],
+        }
+    }
+    eq_dict = _eq("BP1", "big-pump", 2, 2, 0, 1, 1, 2)
+    obj = _equipment_to_object(TopoEquipment(**eq_dict), catalog.get)
+    assert isinstance(obj, ada.Equipment)
+    assert obj.ifc_element_class == "IfcPump"
+    assert sorted(p.name for p in obj.ports) == ["discharge", "suction"]
+
+    glb = compile_procedural_doc(
+        {"spaces": DOC["spaces"], "equipments": [eq_dict]},
+        blueprint_name="none",
+        equipment_resolver=catalog.get,
+    )
+    assert _is_glb(glb)
+
+
+def test_build_catalog_equipment_without_body():
+    from ada.topo_model.equipment import build_equipment_from_catalog
+
+    eq = build_equipment_from_catalog("x", (0, 0, 0), {"ports": []}, lx=1, ly=1, lz=1, add_body=False)
+    assert list(eq.get_all_physical_objects()) == []  # no placeholder box body
+    eq2 = build_equipment_from_catalog("y", (0, 0, 0), {"ports": []}, lx=1, ly=1, lz=1, add_body=True)
+    assert len(list(eq2.get_all_physical_objects())) == 1  # box body present
+
+
+def test_compile_equipment_cad_splice():
+    """equipment_cad on + a resolvable CAD mesh splices the real geometry into
+    the GLB (via the trimesh-merge export path)."""
+    import trimesh
+
+    mesh = trimesh.creation.box(extents=(1.0, 1.0, 2.0))
+    catalog = {"big-pump": {"bbox": {"lx": 1, "ly": 1, "lz": 2}, "mass": 100, "ifc_element_class": "IfcPump", "ports": []}}
+    doc = {
+        "equipment_cad": True,
+        "spaces": DOC["spaces"],
+        "equipments": [_eq("BP1", "big-pump", 2, 2, 0, 1, 1, 2)],
+    }
+    glb = compile_procedural_doc(
+        doc,
+        blueprint_name="none",
+        equipment_resolver=catalog.get,
+        cad_scene_resolver={"big-pump": mesh}.get,
+    )
+    assert _is_glb(glb) and len(glb) > 500
+    # a missing CAD mesh falls back to the box path without error
+    glb2 = compile_procedural_doc(
+        doc, blueprint_name="none", equipment_resolver=catalog.get, cad_scene_resolver={}.get
+    )
+    assert _is_glb(glb2)
+
+
 def test_compile_empty_doc_raises():
     with pytest.raises(ValueError, match="no spaces"):
         compile_procedural_doc({"spaces": []})

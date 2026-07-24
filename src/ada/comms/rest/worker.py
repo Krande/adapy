@@ -978,10 +978,46 @@ async def _run_procedural_build(
 
     from ada.topo_model.compile import compile_procedural_doc
 
+    # Resolve placed catalog equipment (by slug) to its per-scope definition.
+    catalog = await db_module.get_equipment_docs_by_scope(
+        db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
+    )
+
+    # When equipment_cad is on, prefetch the linked CAD assets for the catalog
+    # slugs the model actually places, so the compiler can splice in real
+    # geometry instead of boxes.
+    cad_bytes: dict[str, tuple[bytes, str]] = {}
+    if row["doc"].get("equipment_cad"):
+        used = {(e.get("DESCRIPTION") or "").strip() for e in (row["doc"].get("equipments") or [])}
+        cad_keys = await db_module.get_equipment_cad_keys_by_scope(
+            db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
+        )
+        for slug, cad_key in cad_keys.items():
+            if slug and slug in used and cad_key:
+                try:
+                    data = await storage.get_bytes(scope, cad_key)
+                    cad_bytes[slug] = (data, pathlib.PurePosixPath(cad_key).suffix.lower())
+                except Exception:
+                    logger.warning("procedural: CAD asset %s for %r unreadable; using box", cad_key, slug)
+
+    def _do_compile() -> bytes:
+        cad_meshes = {}
+        for slug, (data, ext) in cad_bytes.items():
+            try:
+                cad_meshes[slug] = _load_cad_mesh(data, ext)
+            except Exception:
+                logger.warning("procedural: failed to load CAD mesh for %r; using box", slug)
+        return compile_procedural_doc(
+            row["doc"],
+            name=row["name"],
+            equipment_resolver=catalog.get,
+            cad_scene_resolver=cad_meshes.get,
+        )
+
     loop = asyncio.get_running_loop()
     try:
         await queue.update(job_id, stage="build", progress=0.40)
-        glb_bytes = await loop.run_in_executor(None, lambda: compile_procedural_doc(row["doc"], name=row["name"]))
+        glb_bytes = await loop.run_in_executor(None, _do_compile)
     except Exception as exc:
         logger.exception("worker: procedural_build failed for %s", model_id)
         await _fail("build", str(exc), tb_module.format_exc())
@@ -992,6 +1028,141 @@ async def _run_procedural_build(
         await storage.put_bytes(scope, job.derived_key, glb_bytes, content_encoding="gzip")
     except Exception as exc:
         logger.exception("worker: procedural_build upload failed for %s", model_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
+def _infer_equipment_geometry(data: bytes, ext: str) -> tuple[dict, bytes]:
+    """Read a CAD/mesh asset, returning its axis-aligned bounding-box extents
+    ``{lx, ly, lz}`` (in metres) and a preview GLB for the sidecar viewer. Mesh
+    formats load via trimesh; CAD formats via the matching ada reader."""
+    import pathlib as _pl
+    import tempfile as _tf
+
+    ext = ext.lower()
+    with _tf.TemporaryDirectory(prefix="eqbbox_") as tmp:
+        src = _pl.Path(tmp) / f"source{ext}"
+        src.write_bytes(data)
+        if ext in (".glb", ".gltf", ".stl", ".obj"):
+            import trimesh
+
+            scene = trimesh.load(src, force="scene")
+            bounds = scene.bounds
+            preview = data if ext in (".glb", ".gltf") else scene.export(file_type="glb")
+        else:
+            import ada
+
+            readers = {
+                ".step": ada.from_step,
+                ".stp": ada.from_step,
+                ".ifc": ada.from_ifc,
+                ".sat": ada.from_acis,
+                ".xml": ada.from_genie_xml,
+            }
+            reader = readers.get(ext)
+            if reader is None:
+                raise ValueError(f"unsupported CAD extension {ext!r} for bbox inference")
+            a = reader(src)
+            bounds = a.to_trimesh_scene().bounds
+            out = _pl.Path(tmp) / "preview.glb"
+            a.to_gltf(out)
+            preview = out.read_bytes()
+
+    if bounds is None:
+        raise ValueError("could not determine geometry bounds (empty model?)")
+    lo, hi = bounds[0], bounds[1]
+    bbox = {"lx": float(hi[0] - lo[0]), "ly": float(hi[1] - lo[1]), "lz": float(hi[2] - lo[2])}
+    return bbox, preview
+
+
+def _load_cad_mesh(data: bytes, ext: str):
+    """Load a CAD/mesh asset into a single concatenated trimesh (graph
+    transforms baked). Used to splice real equipment geometry into a compiled
+    procedural model."""
+    import pathlib as _pl
+    import tempfile as _tf
+
+    import trimesh
+
+    ext = ext.lower()
+    with _tf.TemporaryDirectory(prefix="eqcad_") as tmp:
+        src = _pl.Path(tmp) / f"source{ext}"
+        src.write_bytes(data)
+        if ext in (".glb", ".gltf", ".stl", ".obj"):
+            scene = trimesh.load(src, force="scene")
+        else:
+            import ada
+
+            readers = {
+                ".step": ada.from_step,
+                ".stp": ada.from_step,
+                ".ifc": ada.from_ifc,
+                ".sat": ada.from_acis,
+                ".xml": ada.from_genie_xml,
+            }
+            reader = readers.get(ext)
+            if reader is None:
+                raise ValueError(f"unsupported CAD extension {ext!r} for geometry splice")
+            scene = reader(src).to_trimesh_scene()
+    return scene.dump(concatenate=True)
+
+
+async def _run_equipment_bbox(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Infer an equipment type's bounding box from its linked CAD asset and
+    render a preview GLB. ``conversion_options`` carries ``{"type_id", "cad_key"}``;
+    the inferred bbox is merged into the equipment doc (no revision bump) and the
+    preview lands at ``job.derived_key`` (``_equipment/{id}/preview.glb``)."""
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    type_id = opts.get("type_id")
+    cad_key = opts.get("cad_key")
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not type_id or not cad_key:
+        await _fail("build", "conversion_options.type_id and cad_key are required for equipment_bbox")
+        return
+    if db_pool is None:
+        await _fail("build", "equipment bbox inference requires DATABASE_URL on the worker")
+        return
+
+    from . import db as db_module
+
+    try:
+        data = await storage.get_bytes(scope, cad_key)
+    except Exception as exc:
+        await _fail("read", f"CAD asset {cad_key} not readable: {exc}")
+        return
+
+    ext = pathlib.PurePosixPath(cad_key).suffix.lower()
+    loop = asyncio.get_running_loop()
+    try:
+        await queue.update(job_id, stage="build", progress=0.40)
+        bbox, preview = await loop.run_in_executor(None, lambda: _infer_equipment_geometry(data, ext))
+    except Exception as exc:
+        logger.exception("worker: equipment_bbox failed for %s", type_id)
+        await _fail("build", str(exc), tb_module.format_exc())
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        await storage.put_bytes(scope, job.derived_key, preview, content_encoding="gzip")
+        await db_module.apply_inferred_bbox(db_pool, type_id, bbox)
+    except Exception as exc:
+        logger.exception("worker: equipment_bbox upload failed for %s", type_id)
         await _fail("upload", str(exc), tb_module.format_exc())
         return
 
@@ -1453,6 +1624,19 @@ async def _process_one(
     # single source of truth) and is compiled in-process via ada.topo_model.
     if job.target_format == "procedural_build":
         await _run_procedural_build(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # equipment_bbox is synthetic too: read the equipment type's linked CAD
+    # asset, infer its bbox into the doc and render a preview GLB.
+    if job.target_format == "equipment_bbox":
+        await _run_equipment_bbox(
             job=job,
             scope=scope,
             storage=storage,
@@ -2454,7 +2638,7 @@ async def _run() -> None:
                     # the build endpoint via target_capability, and
                     # the per-spec handler resolves from the registry
                     # the worker preloaded at startup (ADA_WORKER_PRELOAD).
-                    if peeked.target_format in ("component_build", "procedural_build"):
+                    if peeked.target_format in ("component_build", "procedural_build", "equipment_bbox"):
                         can_handle = True
                         ext = ""
                     else:

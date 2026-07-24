@@ -55,6 +55,7 @@ export interface ModelSnapshot {
     cells: Record<string, BuilderCell>;
     systems: Record<string, BuilderSystem>;
     blueprintOptions: Record<string, unknown>;
+    equipmentCad: boolean;
 }
 
 const HISTORY_LIMIT = 100;
@@ -129,6 +130,10 @@ interface CellBuilderState {
     /** Blueprint compile options round-tripped as doc.blueprint (whitelisted
      * server-side), e.g. {reinforce_internal_walls: true}. */
     blueprintOptions: Record<string, unknown>;
+    /** When true, catalog equipment with a linked CAD asset render as the real
+     * CAD geometry (spliced at compile) instead of a box. Round-trips as
+     * doc.equipment_cad. */
+    equipmentCad: boolean;
     /** Undo/redo history over the model state (cells/systems/blueprintOptions). */
     past: ModelSnapshot[];
     future: ModelSnapshot[];
@@ -147,6 +152,7 @@ interface CellBuilderState {
     setGridStep: (v: number) => void;
     setSnapThreshold: (v: number) => void;
     setAutoCompile: (v: boolean) => void;
+    setEquipmentCad: (v: boolean) => void;
     setSelectedEquipmentType: (t: string | null) => void;
     addCell: (kind: "cell" | "equipment", origin: Vec3, size: Vec3) => void;
     updateCell: (id: string, patch: Partial<BuilderCell>) => void;
@@ -239,7 +245,12 @@ function containingCellName(cells: Record<string, BuilderCell>, eq: BuilderCell)
 }
 
 function snapshot(s: CellBuilderState): ModelSnapshot {
-    return {cells: s.cells, systems: s.systems, blueprintOptions: s.blueprintOptions};
+    return {
+        cells: s.cells,
+        systems: s.systems,
+        blueprintOptions: s.blueprintOptions,
+        equipmentCad: s.equipmentCad,
+    };
 }
 
 /** After an undo/redo restores a snapshot, drop a selection pointing at a cell
@@ -283,6 +294,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     resultSourceName: null,
     cellsVisible: true,
     blueprintOptions: {},
+    equipmentCad: false,
     panelVisible: false,
 
     open: (modelId, name, revision, doc) => {
@@ -292,6 +304,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             cells: cellsFromDoc(doc),
             systems: systemsFromDoc(doc),
             blueprintOptions: doc.blueprint ?? {},
+            equipmentCad: Boolean(doc.equipment_cad),
             past: [],
             future: [],
             txDepth: 0,
@@ -328,6 +341,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     setGridStep: (gridStep) => set({gridStep: Math.max(0, gridStep)}),
     setSnapThreshold: (snapThreshold) => set({snapThreshold: Math.max(0, snapThreshold)}),
     setAutoCompile: (autoCompile) => set({autoCompile}),
+    setEquipmentCad: (equipmentCad) => withHistory(() => ({equipmentCad, dirty: true})),
     setSelectedEquipmentType: (selectedEquipmentType) => set({selectedEquipmentType}),
 
     addCell: (kind, origin, size) =>
@@ -468,13 +482,22 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             MEDIUM: sys.medium ?? null,
             CONNECTIONS: sys.connections.map((c) => ({EQUIPMENT: c.equipment, PORT: c.port})),
         }));
-        return {grid: {}, blueprint: get().blueprintOptions, spaces, equipments, systems, openings: []};
+        return {
+            grid: {},
+            blueprint: get().blueprintOptions,
+            equipment_cad: get().equipmentCad,
+            spaces,
+            equipments,
+            systems,
+            openings: [],
+        };
     },
     loadFromDoc: (doc) =>
         set({
             cells: cellsFromDoc(doc),
             systems: systemsFromDoc(doc),
             blueprintOptions: doc.blueprint ?? {},
+            equipmentCad: Boolean(doc.equipment_cad),
             past: [],
             future: [],
             txDepth: 0,

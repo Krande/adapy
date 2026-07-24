@@ -45,6 +45,9 @@ def _doc_model():
         # blueprint compile options (whitelisted by the compiler), e.g.
         # {"reinforce_internal_walls": true}
         blueprint: dict = Field(default_factory=dict)
+        # when true, catalog equipment with a linked CAD asset render as the
+        # real CAD geometry (spliced in at compile) instead of a box
+        equipment_cad: bool = False
         spaces: list[TopoSpace] = Field(default_factory=list)
         equipments: list[TopoEquipment] = Field(default_factory=list)
         openings: list[TopoOpening] = Field(default_factory=list)
@@ -59,7 +62,11 @@ def _validate_doc_shallow(doc: dict) -> dict:
     """Structural check for slim API deployments where ada (numpy) is not
     installed: list fields hold objects with a string NAME. Full pydantic
     validation then happens on the worker at compile time."""
-    out = {"grid": doc.get("grid") or {}, "blueprint": doc.get("blueprint") or {}}
+    out = {
+        "grid": doc.get("grid") or {},
+        "blueprint": doc.get("blueprint") or {},
+        "equipment_cad": bool(doc.get("equipment_cad")),
+    }
     if not isinstance(out["grid"], dict):
         raise ValueError("grid must be an object")
     if not isinstance(out["blueprint"], dict):

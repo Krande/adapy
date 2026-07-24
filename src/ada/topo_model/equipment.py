@@ -14,7 +14,13 @@ from typing import Callable, Iterable
 import ada
 from ada.api.systems import Port, PortDirection
 
-__all__ = ["EQUIPMENT_ARCHETYPES", "create_pump", "create_tank", "list_equipment_types"]
+__all__ = [
+    "EQUIPMENT_ARCHETYPES",
+    "build_equipment_from_catalog",
+    "create_pump",
+    "create_tank",
+    "list_equipment_types",
+]
 
 
 def _add_body(eq: ada.Equipment, name: str) -> None:
@@ -75,3 +81,50 @@ EQUIPMENT_ARCHETYPES: dict[str, Callable[..., ada.Equipment]] = {
 
 def list_equipment_types() -> list[str]:
     return sorted(EQUIPMENT_ARCHETYPES)
+
+
+_PORT_DIRECTIONS = {
+    "IN": PortDirection.IN,
+    "OUT": PortDirection.OUT,
+    "INOUT": PortDirection.INOUT,
+}
+
+
+def build_equipment_from_catalog(
+    name: str,
+    origin: Iterable[float],
+    catalog_doc: dict,
+    lx: float | None = None,
+    ly: float | None = None,
+    lz: float | None = None,
+    add_body: bool = True,
+) -> ada.Equipment:
+    """Build an :class:`ada.Equipment` from a per-scope catalog document (see
+    ``ada.comms.rest.catalog``): its bbox/mass/IFC class and its port/nozzle
+    list. Explicit ``lx/ly/lz`` (from the placed cell) override the catalog
+    bbox; ports come straight from the catalog doc (local nozzle positions +
+    outward directions). ``add_body=False`` omits the placeholder box body — used
+    when the compiled model splices in the linked CAD geometry instead."""
+    bbox = catalog_doc.get("bbox") or {}
+    lx = float(lx if lx is not None else bbox.get("lx", 1.0))
+    ly = float(ly if ly is not None else bbox.get("ly", 1.0))
+    lz = float(lz if lz is not None else bbox.get("lz", 1.0))
+    mass = float(catalog_doc.get("mass", 1000.0))
+    cog = catalog_doc.get("cog") or (0.0, 0.0, lz / 2)
+    ifc_class = catalog_doc.get("ifc_element_class") or "IfcBuildingElementProxy"
+
+    eq = ada.Equipment(name, mass, cog=cog, origin=origin, lx=lx, ly=ly, lz=lz, ifc_element_class=ifc_class)
+    for spec in catalog_doc.get("ports") or []:
+        direction = _PORT_DIRECTIONS.get(str(spec.get("direction", "INOUT")).upper(), PortDirection.INOUT)
+        eq.add_port(
+            Port(
+                spec["name"],
+                tuple(spec.get("position", (0, 0, 0))),
+                tuple(spec.get("direction_vector", (0, 0, 1))),
+                direction,
+                spec.get("category", "process"),
+            )
+        )
+    if add_body:
+        _add_body(eq, name)
+    return eq

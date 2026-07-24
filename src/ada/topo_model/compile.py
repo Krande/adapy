@@ -38,17 +38,26 @@ def _space_to_box(space: TopoSpace) -> ada.PrimBox:
     return ada.PrimBox(space.NAME, p1, p2, metadata={"PM_TOPO_OBJ": space.model_dump()})
 
 
-def _equipment_to_object(eq: TopoEquipment) -> ada.Equipment | ada.PrimBox:
-    """An equipment entity whose DESCRIPTION names a registered archetype
-    (pump/tank/...) compiles into the full archetype — ports and IFC element
-    class included; anything else renders as a plain box."""
-    from .equipment import EQUIPMENT_ARCHETYPES
+def _equipment_to_object(eq: TopoEquipment, resolver=None) -> ada.Equipment | ada.PrimBox:
+    """Compile an equipment entity into a placed object. The entity's
+    DESCRIPTION names its type: a per-scope catalog slug (resolved via
+    ``resolver`` to a catalog doc — bbox/mass/ports/IFC class) takes precedence,
+    then a built-in archetype (pump/tank/...); anything else renders as a plain
+    box."""
+    from .equipment import EQUIPMENT_ARCHETYPES, build_equipment_from_catalog
 
     _require_coords(eq, ("X", "Y", "Z", "LX", "LY", "LZ"))
-    archetype = EQUIPMENT_ARCHETYPES.get((eq.DESCRIPTION or "").strip().lower())
+    key = (eq.DESCRIPTION or "").strip()
+    origin = (eq.X + eq.LX / 2, eq.Y + eq.LY / 2, eq.Z)
+
+    catalog_doc = resolver(key) if resolver is not None and key else None
+    if catalog_doc:
+        return build_equipment_from_catalog(eq.NAME, origin, catalog_doc, lx=eq.LX, ly=eq.LY, lz=eq.LZ)
+
+    archetype = EQUIPMENT_ARCHETYPES.get(key.lower())
     if archetype is not None:
-        origin = (eq.X + eq.LX / 2, eq.Y + eq.LY / 2, eq.Z)
         return archetype(eq.NAME, origin, lx=eq.LX, ly=eq.LY, lz=eq.LZ)
+
     p1 = (eq.X, eq.Y, eq.Z)
     p2 = (eq.X + eq.LX, eq.Y + eq.LY, eq.Z + eq.LZ)
     return ada.PrimBox(eq.NAME, p1, p2, color="orange")
@@ -162,13 +171,34 @@ def _build_systems(doc: dict, equipment_map: dict, spaces: list[TopoSpace], cell
     return parts
 
 
+def _cad_placement(eq: TopoEquipment, mesh) -> tuple:
+    """Translation that maps the CAD mesh's min corner onto the placed cell's
+    ``(X, Y, Z)`` corner, so the real geometry sits where the equipment box
+    would have. Returns ``(dx, dy, dz)``."""
+    bmin = mesh.bounds[0]
+    return (eq.X - float(bmin[0]), eq.Y - float(bmin[1]), eq.Z - float(bmin[2]))
+
+
 def compile_procedural_doc(
     doc: dict,
     *,
     blueprint_name: Literal["steel_stru", "none"] = "steel_stru",
     name: str = "ProceduralModel",
+    equipment_resolver=None,
+    cad_scene_resolver=None,
 ) -> bytes:
-    """Parse ``doc``, build the model and return GLB bytes."""
+    """Parse ``doc``, build the model and return GLB bytes.
+
+    ``equipment_resolver`` maps an equipment DESCRIPTION (a catalog slug) to a
+    catalog document (bbox/mass/ports/IFC class). The worker supplies one backed
+    by the per-scope equipment-type catalog; when omitted, only the built-in
+    archetypes are available.
+
+    ``cad_scene_resolver`` maps a catalog slug to a trimesh mesh loaded from the
+    type's linked CAD asset. When ``doc["equipment_cad"]`` is set, catalog
+    equipment with resolvable CAD geometry are built without their placeholder
+    box body and the real CAD mesh is spliced into the output GLB at the cell
+    footprint."""
     spaces = [TopoSpace(**s) for s in doc.get("spaces", [])]
     equipments = [TopoEquipment(**e) for e in doc.get("equipments", [])]
     if not spaces:
@@ -185,9 +215,27 @@ def compile_procedural_doc(
     else:
         a = ada.Assembly(name) / (ada.Part("Spaces") / boxes)
 
+    use_cad = bool(doc.get("equipment_cad")) and cad_scene_resolver is not None
     equipment_map: dict[str, ada.Equipment] = {}
+    cad_placements: list[tuple] = []  # (mesh, (dx, dy, dz))
     if equipments:
-        objects = [_equipment_to_object(e) for e in equipments]
+        objects = []
+        for e in equipments:
+            slug = (e.DESCRIPTION or "").strip()
+            cad_mesh = cad_scene_resolver(slug) if (use_cad and slug) else None
+            if cad_mesh is not None:
+                from .equipment import build_equipment_from_catalog
+
+                _require_coords(e, ("X", "Y", "Z", "LX", "LY", "LZ"))
+                origin = (e.X + e.LX / 2, e.Y + e.LY / 2, e.Z)
+                catalog_doc = equipment_resolver(slug) if equipment_resolver is not None else None
+                obj = build_equipment_from_catalog(
+                    e.NAME, origin, catalog_doc or {}, lx=e.LX, ly=e.LY, lz=e.LZ, add_body=False
+                )
+                cad_placements.append((cad_mesh, _cad_placement(e, cad_mesh)))
+                objects.append(obj)
+            else:
+                objects.append(_equipment_to_object(e, equipment_resolver))
         for obj in objects:
             if isinstance(obj, ada.Equipment):
                 equipment_map[obj.name] = obj
@@ -195,6 +243,20 @@ def compile_procedural_doc(
 
     for part in _build_systems(doc, equipment_map, spaces, cell_graph):
         a.add_part(part)
+
+    # When CAD geometry is spliced in, merge it into the assembly's trimesh
+    # scene at the footprint transform and export that; otherwise take the
+    # normal analytic to_gltf path.
+    if cad_placements:
+        import numpy as np
+
+        scene = a.to_trimesh_scene()
+        for mesh, (dx, dy, dz) in cad_placements:
+            transform = np.eye(4)
+            transform[:3, 3] = [dx, dy, dz]
+            scene.add_geometry(mesh, transform=transform)
+        exported = scene.export(file_type="glb")
+        return exported if isinstance(exported, bytes) else bytes(exported)
 
     with tempfile.TemporaryDirectory(prefix="procedural_glb_") as tmp:
         glb_path = pathlib.Path(tmp) / "model.glb"

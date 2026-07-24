@@ -575,6 +575,14 @@ const CellBuilderPanel: React.FC = () => {
 
             <SystemsInspector />
 
+            <label
+                className="flex items-center gap-1"
+                title="Replace equipment boxes in the compiled model with the actual CAD geometry (for catalog equipment that have a linked CAD asset)"
+            >
+                <input type="checkbox" checked={s.equipmentCad} onChange={(e) => s.setEquipmentCad(e.target.checked)} />
+                Use CAD models for equipment
+            </label>
+
             {s.conflict && <p className="text-red-400">{s.conflict}</p>}
             {compileState?.status === "error" && <p className="text-red-400">Compile failed: {compileState.error}</p>}
 

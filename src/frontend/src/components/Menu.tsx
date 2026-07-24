@@ -25,6 +25,12 @@ import ComponentIcon from "./icons/ComponentIcon";
 import CellBuilderIcon from "./icons/CellBuilderIcon";
 import CellBuilderPanel from "./viewer/CellBuilderPanel";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import EquipmentCatalogIcon from "./icons/EquipmentCatalogIcon";
+import SystemCatalogIcon from "./icons/SystemCatalogIcon";
+import {useEquipmentCatalogStore} from "@/state/equipmentCatalogStore";
+// REST-only admin panels — code-split so the embedded desktop zip stays slim.
+const EquipmentAdminPanel = React.lazy(() => import("./admin/EquipmentAdminPanel"));
+const SystemAdminPanel = React.lazy(() => import("./admin/SystemAdminPanel"));
 import SceneInfoBox from "./info_box_scene/SceneInfoBox";
 import {WebsocketStatusMenu, WebsocketStatusBox} from "./WebsocketStatusMenu";
 
@@ -118,6 +124,9 @@ const Menu = () => {
     const cellBuilderPanelVisible = useCellBuilderStore((s) => s.panelVisible);
     const toggleCellBuilderPanel = () =>
         useCellBuilderStore.getState().setPanelVisible(!useCellBuilderStore.getState().panelVisible);
+    // Per-scope equipment/system catalog admin panels (REST-only).
+    const equipmentPanelOpen = useEquipmentCatalogStore((s) => s.equipmentPanelOpen);
+    const systemPanelOpen = useEquipmentCatalogStore((s) => s.systemPanelOpen);
     const {showInfoBox: showWebsocketInfoBox} = stores.useWebsocketStatusStore();
     const {isTreeCollapsed, setIsTreeCollapsed, treeViewWidth} = stores.useTreeViewStore();
     const isDesktop = useIsDesktop();
@@ -232,6 +241,26 @@ const Menu = () => {
                         aria-label="Toggle procedural cellbuilder panel"
                         aria-pressed={cellBuilderPanelVisible}
                     ><CellBuilderIcon/></button>
+                    {runtime.isRestMode() && (
+                        <button
+                            className={navBtnClass(equipmentPanelOpen, "", use_node_editor_only)}
+                            hidden={use_node_editor_only}
+                            onClick={() => useEquipmentCatalogStore.getState().toggleEquipmentPanel()}
+                            title="Toggle equipment catalog"
+                            aria-label="Toggle equipment catalog"
+                            aria-pressed={equipmentPanelOpen}
+                        ><EquipmentCatalogIcon/></button>
+                    )}
+                    {runtime.isRestMode() && (
+                        <button
+                            className={navBtnClass(systemPanelOpen, "", use_node_editor_only)}
+                            hidden={use_node_editor_only}
+                            onClick={() => useEquipmentCatalogStore.getState().toggleSystemPanel()}
+                            title="Toggle system catalog"
+                            aria-label="Toggle system catalog"
+                            aria-pressed={systemPanelOpen}
+                        ><SystemCatalogIcon/></button>
+                    )}
                     {!runtime.isRestMode() && (
                         <div
                             className={navBtnClass(showWebsocketInfoBox)}>
@@ -252,6 +281,12 @@ const Menu = () => {
                     {isControlsVisible && <SimulationControls/>}
                     {componentControlsVisible && <ComponentControls/>}
                     {proceduralActive && <CellBuilderPanel/>}
+                    {equipmentPanelOpen && (
+                        <Suspense fallback={null}><EquipmentAdminPanel/></Suspense>
+                    )}
+                    {systemPanelOpen && (
+                        <Suspense fallback={null}><SystemAdminPanel/></Suspense>
+                    )}
                 </div>
             </div>
         </div>

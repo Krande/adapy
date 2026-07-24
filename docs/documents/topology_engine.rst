@@ -194,3 +194,27 @@ uploads it to your personal viewer scope (when ``ADAPY_BASE_URL`` /
 ``ADAPY_API_TOKEN`` are configured in ``.env``; skipped otherwise) and streams
 the scene to the websocket viewer via ``assembly.show()``. Use ``--no-upload``
 / ``--no-show`` to opt out of either side effect.
+
+Viewer catalogs: equipment types and system templates
+------------------------------------------------------
+
+The hosted viewer exposes two per-scope catalogs that feed the cellbuilder,
+backed by postgres (migrations ``023``/``024``) and edited from admin panels:
+
+* **Equipment types** — reusable archetypes with a name/description/slug, a
+  bounding box, mass, IFC element class and a port/nozzle list (each port a
+  local position + outward direction, tagged process/electrical/signal). A CAD
+  asset can be attached (uploaded or copied from a scope file); a worker
+  ``equipment_bbox`` job then infers the bounding box and renders a preview GLB.
+  Placed catalog equipment resolve by slug at compile time
+  (``compile_procedural_doc(..., equipment_resolver=...)``) into a full
+  :class:`ada.Equipment` — ports and IFC class included.
+
+* **System templates** — named service systems (category/type, medium, voltage,
+  pipe radius/wall thickness) that seed the cellbuilder's systems inspector.
+
+When a compiled model enables *"use CAD models for equipment"*
+(``doc["equipment_cad"]``), catalog equipment that have a linked CAD asset are
+built without their placeholder box and the real CAD geometry is spliced into
+the output GLB at the cell footprint
+(``compile_procedural_doc(..., cad_scene_resolver=...)``).
