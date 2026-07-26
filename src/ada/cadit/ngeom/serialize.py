@@ -455,17 +455,6 @@ class _Encoder:
 
     # --- topology ----------------------------------------------------------------------
     def _edge_curve(self, ec) -> int:
-        # Memoize by object identity, mirroring surface()/curve(). Two faces that
-        # share one EdgeCurve object (e.g. a thickened shell's cap and side-wall
-        # along their common edge — built with an id()-keyed edge copy in
-        # geom.primitive_brep) then emit ONE _EDGE_CURVE record, so the
-        # tessellator sees the faces as sharing that edge and can weld the seam.
-        # Orientation lives on the ORIENTED_EDGE record, not here, so sharing is
-        # safe (same_sense/geom are intrinsic to the shared curve).
-        key = id(ec)
-        hit = self._memo.get(key)
-        if hit is not None:
-            return hit
         geom = -1
         same_sense = getattr(ec, "same_sense", True)
         eg = getattr(ec, "edge_geometry", None)
@@ -474,12 +463,10 @@ class _Encoder:
                 geom = self.curve(eg)
             except _Unsupported:
                 geom = -1
-        idx = self._add(
+        return self._add(
             _EDGE_CURVE,
             self.v3(ec.start) + self.v3(ec.end) + self.i32(geom) + self.i32(1 if same_sense else 0),
         )
-        self._memo[key] = idx
-        return idx
 
     def oriented_edge(self, oe: cu.OrientedEdge) -> int:
         elem = oe.edge_element
