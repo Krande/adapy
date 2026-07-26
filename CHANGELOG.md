@@ -2,6 +2,15 @@
 
 
 
+## v0.34.1 (2026-07-26)
+
+### Fix
+
+* fix: weld thick curved-shell cap-wall seams watertight (#246)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`e85a9ca`](https://github.com/Krande/adapy/commit/e85a9ca8444c2cc1c9e7fae2dab99ce76f71a9a8))
+
+
 ## v0.34.0 (2026-07-20)
 
 ### Feature
