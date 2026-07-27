@@ -25,6 +25,32 @@ _PORT_DIRECTIONS = ("IN", "OUT", "INOUT")
 _PORT_CATEGORIES = ("process", "electrical", "signal")
 _SYSTEM_TYPES = ("piping", "duct", "cable", "electrical")
 
+# The built-in system kinds are static (mirrors ada.api.systems SYSTEM_KINDS), so
+# the API can offer them + build a default template doc for "sync" WITHOUT a live
+# worker or importing ada — the system catalog is never empty for want of a worker.
+_SYSTEM_KIND_DEFAULTS = {
+    "piping": {"category": "process", "voltage": None},
+    "duct": {"category": "process", "voltage": None},
+    "cable": {"category": "signal", "voltage": None},
+    "electrical": {"category": "electrical", "voltage": 400},
+}
+
+
+def builtin_system_specs() -> list[dict]:
+    """Catalog-shaped specs for the built-in system kinds (origin ``code``)."""
+    specs = []
+    for slug in _SYSTEM_TYPES:
+        d = _SYSTEM_KIND_DEFAULTS[slug]
+        specs.append(
+            {
+                "slug": slug,
+                "name": slug.title(),
+                "category": d["category"],
+                "doc": {"type": slug, "medium": None, "voltage": d["voltage"], "pipe_radius": 0.05, "pipe_wt": 0.005},
+            }
+        )
+    return specs
+
 
 def equipment_cad_key(type_id: str, ext: str) -> str:
     """Blob key for an equipment type's source CAD asset. ``ext`` includes the

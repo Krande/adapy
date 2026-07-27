@@ -230,15 +230,22 @@ def test_system_template_crud(pg_client: TestClient):
             json={"name": "Cooling Water", "doc": {"type": "telepathy"}, "base_revision": 1},
         )
         assert r.status_code == 422
-        # system-types dropdown returns origin-tagged objects; the DB template
-        # shows origin=catalog and carries its base kind
+        # system-types dropdown unions the static built-in kinds (origin code)
+        # with the DB template (origin catalog) — no worker required
         dropdown = pg_client.get("/api/scopes/shared/procedural-models/system-types").json()["system_types"]
-        entry = next((e for e in dropdown if e["slug"] == "cooling-water"), None)
-        assert entry is not None and entry["origin"] == "catalog" and entry["type"] == "piping"
-        # syncing a code kind needs a live worker advertising it -> 404 here
+        by_slug = {e["slug"]: e for e in dropdown}
+        assert by_slug["cooling-water"]["origin"] == "catalog" and by_slug["cooling-water"]["type"] == "piping"
+        assert by_slug["duct"]["origin"] == "code" and by_slug["electrical"]["voltage"] == 400
+        # sync a built-in kind into the DB catalog (static -> works without a worker)
+        r = pg_client.post("/api/scopes/shared/procedural-models/system-types/sync", json={"slug": "duct"})
+        assert r.status_code == 201, r.text
+        synced_id = r.json()["id"]
+        assert pg_client.get(f"/api/scopes/shared/system-templates/{synced_id}").json()["doc"]["type"] == "duct"
+        assert pg_client.delete(f"/api/scopes/shared/system-templates/{synced_id}").status_code == 200
+        # unknown kind -> 404
         assert (
             pg_client.post(
-                "/api/scopes/shared/procedural-models/system-types/sync", json={"slug": "piping"}
+                "/api/scopes/shared/procedural-models/system-types/sync", json={"slug": "telepathy"}
             ).status_code
             == 404
         )

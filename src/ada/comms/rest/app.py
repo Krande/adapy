@@ -2675,11 +2675,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
         """System types for the cellbuilder's systems inspector: the union of
-        code-defined system kinds (piping/duct/cable/electrical, advertised by
-        live workers) and the per-scope DB system-template catalog, each tagged
-        with its ``origin`` and its base kind (``type``)."""
+        code-defined system kinds (piping/duct/cable/electrical — static, plus any
+        extra kinds advertised by live workers) and the per-scope DB
+        system-template catalog, each tagged with its ``origin`` and base kind."""
+        from .catalog import builtin_system_specs
+
         by_slug: dict[str, dict] = {}
-        for slug, spec in (await _live_worker_specs("procedural_system_specs", "procedural_system_types")).items():
+        code_specs = {s["slug"]: s for s in builtin_system_specs()}
+        code_specs.update(await _live_worker_specs("procedural_system_specs", "procedural_system_types"))
+        for slug, spec in code_specs.items():
             doc = spec.get("doc") or {}
             by_slug[slug] = {
                 "slug": slug,
@@ -2768,17 +2772,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
         """Persist a code-defined system kind into the per-scope DB
-        system-template catalog. Body: ``{slug}``."""
-        from .catalog import validate_system_doc
+        system-template catalog. Body: ``{slug}``. The built-in kinds are static,
+        so this works without a live worker."""
+        from .catalog import builtin_system_specs, validate_system_doc
 
         pool = _require_catalog_pool(request)
         body = await request.json()
         slug = body.get("slug")
         if not isinstance(slug, str) or not slug:
             raise HTTPException(status_code=400, detail="slug (str) is required")
-        spec = (await _live_worker_specs("procedural_system_specs")).get(slug)
+        specs = {s["slug"]: s for s in builtin_system_specs()}
+        specs.update(await _live_worker_specs("procedural_system_specs"))
+        spec = specs.get(slug)
         if spec is None or not isinstance(spec.get("doc"), dict):
-            raise HTTPException(status_code=404, detail=f"no code system kind {slug!r} advertised by a live worker")
+            raise HTTPException(status_code=404, detail=f"no code system kind {slug!r}")
         try:
             doc = validate_system_doc(spec["doc"])
         except ValueError as e:
