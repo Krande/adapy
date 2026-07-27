@@ -151,8 +151,17 @@ def test_equipment_crud_and_conflicts(pg_client: TestClient):
         assert any(
             e["id"] == tid for e in pg_client.get("/api/scopes/shared/equipment-types").json()["equipment_types"]
         )
+        # dropdown returns origin-tagged objects; a DB entry shows origin=catalog
         dropdown = pg_client.get("/api/scopes/shared/procedural-models/equipment-types").json()["equipment_types"]
-        assert "big-pump" in dropdown
+        entry = next((e for e in dropdown if e["slug"] == "big-pump"), None)
+        assert entry is not None and entry["origin"] == "catalog" and entry["id"] == tid
+        # syncing a code archetype needs a live worker advertising it -> 404 here
+        assert (
+            pg_client.post(
+                "/api/scopes/shared/procedural-models/equipment-types/sync", json={"slug": "pump"}
+            ).status_code
+            == 404
+        )
 
         # commit a doc (bbox/ports)
         doc = {
@@ -221,6 +230,18 @@ def test_system_template_crud(pg_client: TestClient):
             json={"name": "Cooling Water", "doc": {"type": "telepathy"}, "base_revision": 1},
         )
         assert r.status_code == 422
+        # system-types dropdown returns origin-tagged objects; the DB template
+        # shows origin=catalog and carries its base kind
+        dropdown = pg_client.get("/api/scopes/shared/procedural-models/system-types").json()["system_types"]
+        entry = next((e for e in dropdown if e["slug"] == "cooling-water"), None)
+        assert entry is not None and entry["origin"] == "catalog" and entry["type"] == "piping"
+        # syncing a code kind needs a live worker advertising it -> 404 here
+        assert (
+            pg_client.post(
+                "/api/scopes/shared/procedural-models/system-types/sync", json={"slug": "piping"}
+            ).status_code
+            == 404
+        )
     finally:
         assert pg_client.delete(f"/api/scopes/shared/system-templates/{sid}").status_code == 200
 

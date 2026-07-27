@@ -1,7 +1,16 @@
 """Systems and ports: logical service networks (piping/duct/cable/electrical)
 that equipment ports connect to, plus missing-I/O validation."""
 
-from .base import CableSystem, DuctSystem, ElectricalSystem, PipingSystem, System
+from .base import (
+    SYSTEM_KINDS,
+    CableSystem,
+    DuctSystem,
+    ElectricalSystem,
+    PipingSystem,
+    System,
+    list_system_types,
+    system_type_specs,
+)
 from .categories import PortCategory, Voltage
 from .ports import Port, PortDirection
 from .validation import (
@@ -15,6 +24,7 @@ from .validation import (
 )
 
 __all__ = [
+    "SYSTEM_KINDS",
     "CableSystem",
     "DuctSystem",
     "ElectricalSystem",
@@ -30,5 +40,7 @@ __all__ = [
     "find_unconnected_ports",
     "format_port_report",
     "format_site_interfaces",
+    "list_system_types",
     "site_interfaces",
+    "system_type_specs",
 ]

@@ -2618,32 +2618,197 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=f"a procedural model named {name.strip()!r} already exists")
         return JSONResponse(row, status_code=201)
 
+    async def _live_worker_specs(field: str, fallback_field: str | None = None) -> dict[str, dict]:
+        """Catalog-shaped specs advertised by non-stale workers, keyed by slug
+        (last writer wins). Falls back to a bare slug-list field for older
+        workers that advertise only names, synthesizing a minimal spec."""
+        import time as _time
+
+        out: dict[str, dict] = {}
+        if not queue.enabled:
+            return out
+        now = _time.time()
+        for w in await queue.list_workers():
+            hb = w.get("last_heartbeat")
+            if not (isinstance(hb, (int, float)) and (now - hb) <= queue.WORKER_STALE_AFTER_S):
+                continue
+            specs = w.get(field)
+            if isinstance(specs, list):
+                for s in specs:
+                    if isinstance(s, dict) and isinstance(s.get("slug"), str) and s["slug"]:
+                        out[s["slug"]] = s
+            elif fallback_field:
+                bare = w.get(fallback_field)
+                if isinstance(bare, list):
+                    for slug in bare:
+                        if isinstance(slug, str) and slug and slug not in out:
+                            out[slug] = {"slug": slug, "name": slug.replace("_", " ").title()}
+        return out
+
     @api.get("/scopes/{scope}/procedural-models/equipment-types")
     async def api_procedural_equipment_types(
         request: Request,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        """Equipment archetypes the cellbuilder's add-equipment dropdown can
-        place: the union of the per-scope equipment-type catalog slugs and the
-        built-in ``procedural_equipment_types`` advertised by live workers."""
-        import time as _time
-
-        types: set[str] = set()
+        """Equipment types for the cellbuilder's add-equipment dropdown: the
+        union of code-defined archetypes (advertised by live workers) and the
+        per-scope DB catalog, each tagged with its ``origin`` (``code`` or
+        ``catalog``). A slug present in both is shown as ``catalog`` — the
+        editable copy shadows the built-in."""
+        by_slug: dict[str, dict] = {}
+        for slug, spec in (
+            await _live_worker_specs("procedural_equipment_specs", "procedural_equipment_types")
+        ).items():
+            by_slug[slug] = {"slug": slug, "name": spec.get("name") or slug, "origin": "code"}
         pool = getattr(request.app.state, "db_pool", None)
         if pool is not None:
             for t in await db_module.list_equipment_types(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id):
-                if isinstance(t.get("slug"), str) and t["slug"]:
-                    types.add(t["slug"])
-        if queue.enabled:
-            now = _time.time()
-            for w in await queue.list_workers():
-                hb = w.get("last_heartbeat")
-                if not (isinstance(hb, (int, float)) and (now - hb) <= queue.WORKER_STALE_AFTER_S):
+                slug = t.get("slug")
+                if isinstance(slug, str) and slug:
+                    by_slug[slug] = {"slug": slug, "name": t.get("name") or slug, "origin": "catalog", "id": t["id"]}
+        types = sorted(by_slug.values(), key=lambda x: x["name"].lower())
+        return JSONResponse({"equipment_types": types})
+
+    @api.get("/scopes/{scope}/procedural-models/system-types")
+    async def api_procedural_system_types(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """System types for the cellbuilder's systems inspector: the union of
+        code-defined system kinds (piping/duct/cable/electrical, advertised by
+        live workers) and the per-scope DB system-template catalog, each tagged
+        with its ``origin`` and its base kind (``type``)."""
+        by_slug: dict[str, dict] = {}
+        for slug, spec in (await _live_worker_specs("procedural_system_specs", "procedural_system_types")).items():
+            doc = spec.get("doc") or {}
+            by_slug[slug] = {
+                "slug": slug,
+                "name": spec.get("name") or slug,
+                "origin": "code",
+                "type": doc.get("type", slug),
+                "medium": doc.get("medium"),
+                "voltage": doc.get("voltage"),
+            }
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is not None:
+            for t in await db_module.list_system_templates(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id):
+                slug = t.get("slug")
+                if not (isinstance(slug, str) and slug):
                     continue
-                advertised = w.get("procedural_equipment_types")
-                if isinstance(advertised, list):
-                    types.update(t for t in advertised if isinstance(t, str))
-        return JSONResponse({"equipment_types": sorted(types)})
+                doc = t.get("doc") or {}
+                by_slug[slug] = {
+                    "slug": slug,
+                    "name": t.get("name") or slug,
+                    "origin": "catalog",
+                    "id": t["id"],
+                    "type": doc.get("type", "piping"),
+                    "medium": doc.get("medium"),
+                    "voltage": doc.get("voltage"),
+                }
+        types = sorted(by_slug.values(), key=lambda x: x["name"].lower())
+        return JSONResponse({"system_types": types})
+
+    @api.post("/scopes/{scope}/procedural-models/equipment-types/sync", status_code=201)
+    async def api_procedural_equipment_sync(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Persist a code-defined equipment archetype into the per-scope DB
+        catalog so it becomes an editable catalog entry. Body: ``{slug}``. Its
+        full spec comes from the live workers' advertisement, so the slim API
+        never imports ``ada``."""
+        from .catalog import validate_equipment_doc
+
+        pool = _require_catalog_pool(request)
+        body = await request.json()
+        slug = body.get("slug")
+        if not isinstance(slug, str) or not slug:
+            raise HTTPException(status_code=400, detail="slug (str) is required")
+        spec = (await _live_worker_specs("procedural_equipment_specs")).get(slug)
+        if spec is None or not isinstance(spec.get("doc"), dict):
+            raise HTTPException(
+                status_code=404, detail=f"no code equipment archetype {slug!r} advertised by a live worker"
+            )
+        try:
+            doc = validate_equipment_doc(spec["doc"])
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"invalid archetype doc: {e}")
+        name = spec.get("name") or slug
+        desc = "Synced from built-in archetype"
+        created = await db_module.create_equipment_type(
+            pool,
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            slug=slug,
+            name=name,
+            description=desc,
+            created_by=user.sub,
+        )
+        if created is None:
+            raise HTTPException(status_code=409, detail=f"equipment type {slug!r} already exists in this scope")
+        new_rev = await db_module.update_equipment_type(
+            pool,
+            created["id"],
+            slug=slug,
+            name=name,
+            description=desc,
+            doc=doc,
+            base_revision=created["revision"],
+        )
+        return JSONResponse(
+            {"id": created["id"], "slug": slug, "revision": new_rev if new_rev is not None else created["revision"]},
+            status_code=201,
+        )
+
+    @api.post("/scopes/{scope}/procedural-models/system-types/sync", status_code=201)
+    async def api_procedural_system_sync(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Persist a code-defined system kind into the per-scope DB
+        system-template catalog. Body: ``{slug}``."""
+        from .catalog import validate_system_doc
+
+        pool = _require_catalog_pool(request)
+        body = await request.json()
+        slug = body.get("slug")
+        if not isinstance(slug, str) or not slug:
+            raise HTTPException(status_code=400, detail="slug (str) is required")
+        spec = (await _live_worker_specs("procedural_system_specs")).get(slug)
+        if spec is None or not isinstance(spec.get("doc"), dict):
+            raise HTTPException(status_code=404, detail=f"no code system kind {slug!r} advertised by a live worker")
+        try:
+            doc = validate_system_doc(spec["doc"])
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"invalid system-kind doc: {e}")
+        name = spec.get("name") or slug
+        desc = "Synced from built-in system kind"
+        created = await db_module.create_system_template(
+            pool,
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            slug=slug,
+            name=name,
+            description=desc,
+            created_by=user.sub,
+        )
+        if created is None:
+            raise HTTPException(status_code=409, detail=f"system template {slug!r} already exists in this scope")
+        new_rev = await db_module.update_system_template(
+            pool,
+            created["id"],
+            slug=slug,
+            name=name,
+            description=desc,
+            doc=doc,
+            base_revision=created["revision"],
+        )
+        return JSONResponse(
+            {"id": created["id"], "slug": slug, "revision": new_rev if new_rev is not None else created["revision"]},
+            status_code=201,
+        )
 
     @api.get("/scopes/{scope}/procedural-models/{model_id}")
     async def api_procedural_get(

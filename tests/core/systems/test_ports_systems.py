@@ -126,6 +126,27 @@ def test_connect_site_requires_in_or_out():
         ada.PipingSystem("Drain").connect_site("t", (0, 0, 0), ada.PortDirection.INOUT)
 
 
+def test_code_specs_are_catalog_shaped():
+    """The worker-advertised code specs must validate as catalog docs so the API
+    can list them (with origin) and sync them into the DB catalog."""
+    from ada.api.systems import list_system_types, system_type_specs
+    from ada.comms.rest.catalog import validate_equipment_doc, validate_system_doc
+    from ada.topo_model.equipment import equipment_archetype_specs
+
+    eq_specs = {s["slug"]: s for s in equipment_archetype_specs()}
+    assert {"pump", "tank", "switchboard"} <= set(eq_specs)
+    assert eq_specs["switchboard"]["doc"]["ifc_element_class"] == "IfcElectricDistributionBoard"
+    for s in eq_specs.values():
+        validate_equipment_doc(s["doc"])  # raises on invalid
+
+    assert list_system_types() == ["piping", "duct", "cable", "electrical"]
+    sys_specs = {s["slug"]: s for s in system_type_specs()}
+    assert sys_specs["electrical"]["doc"]["voltage"] == 400
+    assert sys_specs["piping"]["doc"]["voltage"] is None
+    for s in sys_specs.values():
+        validate_system_doc(s["doc"])  # raises on invalid
+
+
 def test_site_interfaces_report():
     drain = ada.PipingSystem("Drain").connect_site("to_sea", (10, 0, 0), ada.PortDirection.OUT)
     interfaces = site_interfaces([drain])

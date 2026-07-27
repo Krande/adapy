@@ -2480,15 +2480,32 @@ async def _run() -> None:
 
     utilities = UtilityRegistry.specs()
 
-    # Equipment archetypes this worker can compile into procedural models —
-    # advertised so the viewer's cellbuilder can offer a typed dropdown.
+    # Equipment archetypes + system kinds this worker can compile into
+    # procedural models — advertised (with full catalog-shaped specs) so the
+    # viewer's cellbuilder can offer typed dropdowns that union code-defined
+    # types with the per-scope DB catalog, show each type's origin, and "sync" a
+    # code type into the DB catalog.
     try:
-        from ada.topo_model.equipment import list_equipment_types
+        from ada.topo_model.equipment import (
+            equipment_archetype_specs,
+            list_equipment_types,
+        )
 
         procedural_equipment_types = list_equipment_types()
+        procedural_equipment_specs = equipment_archetype_specs()
     except Exception:
         logger.exception("worker: failed to list procedural equipment types (non-fatal)")
         procedural_equipment_types = []
+        procedural_equipment_specs = []
+    try:
+        from ada.api.systems import list_system_types, system_type_specs
+
+        procedural_system_types = list_system_types()
+        procedural_system_specs = system_type_specs()
+    except Exception:
+        logger.exception("worker: failed to list procedural system types (non-fatal)")
+        procedural_system_types = []
+        procedural_system_specs = []
 
     async def _publish_registration() -> None:
         try:
@@ -2501,6 +2518,9 @@ async def _run() -> None:
                     "conversions": conversions,
                     "utilities": utilities,
                     "procedural_equipment_types": procedural_equipment_types,
+                    "procedural_equipment_specs": procedural_equipment_specs,
+                    "procedural_system_types": procedural_system_types,
+                    "procedural_system_specs": procedural_system_specs,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },

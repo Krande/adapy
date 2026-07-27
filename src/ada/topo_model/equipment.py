@@ -22,6 +22,7 @@ __all__ = [
     "create_pump",
     "create_switchboard",
     "create_tank",
+    "equipment_archetype_specs",
     "list_equipment_types",
 ]
 
@@ -114,6 +115,40 @@ EQUIPMENT_ARCHETYPES: dict[str, Callable[..., ada.Equipment]] = {
 
 def list_equipment_types() -> list[str]:
     return sorted(EQUIPMENT_ARCHETYPES)
+
+
+def equipment_archetype_specs() -> list[dict]:
+    """Each built-in archetype as a catalog-shaped spec ``{slug, name, doc}``
+    (the ``doc`` mirrors ``ada.comms.rest.catalog`` equipment docs: bbox / mass /
+    cog / IFC class / ports). Workers advertise these so the API can list code
+    archetypes with their origin and "sync" one into the per-scope DB catalog
+    without importing ``ada`` in the slim API image."""
+    specs: list[dict] = []
+    for slug, factory in EQUIPMENT_ARCHETYPES.items():
+        eq = factory(slug, (0.0, 0.0, 0.0))
+        specs.append(
+            {
+                "slug": slug,
+                "name": slug.replace("_", " ").title(),
+                "doc": {
+                    "bbox": {"lx": float(eq.lx), "ly": float(eq.ly), "lz": float(eq.lz)},
+                    "mass": float(eq.mass),
+                    "cog": [float(v) for v in eq.cog] if eq.cog is not None else None,
+                    "ifc_element_class": eq.ifc_element_class,
+                    "ports": [
+                        {
+                            "name": p.name,
+                            "position": [float(v) for v in p.position],
+                            "direction_vector": [float(v) for v in p.direction_vector],
+                            "direction": p.direction.value,
+                            "category": p.category,
+                        }
+                        for p in eq.ports
+                    ],
+                },
+            }
+        )
+    return specs
 
 
 _PORT_DIRECTIONS = {

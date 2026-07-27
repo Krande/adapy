@@ -23,7 +23,16 @@ if TYPE_CHECKING:
     from ada.topology.grid import CellGrid
     from ada.topology.routing import RoutingRules
 
-__all__ = ["System", "PipingSystem", "DuctSystem", "CableSystem", "ElectricalSystem"]
+__all__ = [
+    "System",
+    "PipingSystem",
+    "DuctSystem",
+    "CableSystem",
+    "ElectricalSystem",
+    "SYSTEM_KINDS",
+    "list_system_types",
+    "system_type_specs",
+]
 
 
 class System:
@@ -144,3 +153,45 @@ class ElectricalSystem(CableSystem):
     ):
         super().__init__(name, medium=medium, metadata=metadata)
         self.voltage = voltage
+
+
+# The built-in system kinds, keyed by the slug used in the procedural doc's
+# ``type`` field and the DB system-template ``type``. Workers advertise these so
+# the cellbuilder's system dropdown can union code-defined kinds with the
+# per-scope DB system-template catalog.
+SYSTEM_KINDS: dict[str, type[System]] = {
+    "piping": PipingSystem,
+    "duct": DuctSystem,
+    "cable": CableSystem,
+    "electrical": ElectricalSystem,
+}
+
+
+def list_system_types() -> list[str]:
+    return list(SYSTEM_KINDS)
+
+
+def system_type_specs() -> list[dict]:
+    """Each built-in system kind as a catalog-shaped spec ``{slug, name,
+    category, doc}`` (the ``doc`` mirrors ``ada.comms.rest.catalog`` system docs:
+    type / medium / voltage / pipe knobs). Workers advertise these so the API can
+    offer code kinds in the dropdown with their origin and "sync" one into the
+    per-scope DB system-template catalog."""
+    specs: list[dict] = []
+    for slug, cls in SYSTEM_KINDS.items():
+        probe = cls("_probe")
+        specs.append(
+            {
+                "slug": slug,
+                "name": slug.title(),
+                "category": cls.category,
+                "doc": {
+                    "type": slug,
+                    "medium": None,
+                    "voltage": probe.voltage.value if isinstance(probe, ElectricalSystem) else None,
+                    "pipe_radius": float(getattr(probe, "pipe_radius", 0.05)),
+                    "pipe_wt": float(getattr(probe, "pipe_wt", 5e-3)),
+                },
+            }
+        )
+    return specs
