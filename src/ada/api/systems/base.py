@@ -12,10 +12,10 @@ the routed path into geometry) is delegated to ``ada.topology.routing`` via the
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Iterable
 
 from .categories import PortCategory, Voltage
-from .ports import Port
+from .ports import Port, PortDirection
 
 if TYPE_CHECKING:
     from ada.api.spatial.equipment import Equipment
@@ -56,6 +56,31 @@ class System:
         port.connected_system = self
         self.ports.append(port)
         return self
+
+    def connect_site(
+        self,
+        name: str,
+        position: Point | Iterable[float],
+        direction: PortDirection = PortDirection.INOUT,
+        direction_vector: Iterable[float] = (0, 0, 1),
+    ) -> System:
+        """Terminate this system at a fixed site location — a *site input* or
+        *site output* — rather than an equipment port. This is where the system
+        crosses the model boundary (grid supply, cooling-water make-up, a drain
+        to site, …). ``position`` is a world-space point; ``direction`` must be
+        ``IN`` (into the site) or ``OUT`` (out of the site). Returns ``self`` so
+        it chains fluently with :meth:`connect`."""
+        if direction not in (PortDirection.IN, PortDirection.OUT):
+            raise ValueError(f"Site connection {name!r} must be IN (input) or OUT (output), got {direction.value!r}")
+        port = Port(name, position, direction_vector, direction, self.category, is_site=True)
+        port.connected_system = self
+        self.ports.append(port)
+        return self
+
+    @property
+    def site_connections(self) -> list[Port]:
+        """The system's site-boundary terminals (inputs/outputs), in order."""
+        return [p for p in self.ports if p.is_site]
 
     def route(self, grid: CellGrid, rules: RoutingRules | None = None) -> list:
         """Route this system through ``grid`` and generate its geometry.

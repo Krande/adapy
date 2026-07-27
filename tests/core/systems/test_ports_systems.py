@@ -10,6 +10,8 @@ from ada.api.systems import (
     equipments_with_missing_io,
     find_unconnected_ports,
     format_port_report,
+    format_site_interfaces,
+    site_interfaces,
 )
 
 
@@ -91,3 +93,45 @@ def test_missing_io_report():
     report = format_port_report(issues)
     assert "P1" in report and "suction" in report and "Equipment" in report
     assert format_port_report([]) == "All equipment ports are connected."
+
+
+def test_switchboard_archetype_two_ended_electrical():
+    from ada.topo_model import create_pump, create_switchboard
+
+    pump = create_pump("P", origin=(3, 0, 0))
+    sb = create_switchboard("SB", origin=(0, 0, 0))
+    assert sb.ifc_element_class == "IfcElectricDistributionBoard"
+    # the outgoing feeder powers the pump — two real equipment ends, no stub
+    power = ada.ElectricalSystem("PF").connect(sb, "feeder").connect(pump, "power")
+    assert [p.name for p in power.ports] == ["feeder", "power"]
+    assert power.connected_equipment == [sb, pump]
+
+
+def test_connect_site_input_and_output():
+    pump = _pump()
+    feed = ada.ElectricalSystem("Feed").connect_site("grid", (0, 0, 5), ada.PortDirection.IN).connect(pump, "power")
+    site = feed.site_connections
+    assert [p.name for p in site] == ["grid"]
+    terminal = site[0]
+    assert terminal.is_site and terminal.parent is None
+    assert terminal.connected_system is feed
+    # a parent-less site terminal reports its raw world position
+    assert tuple(terminal.get_global_position()) == (0.0, 0.0, 5.0)
+    # site terminals are boundary interfaces, not equipment
+    assert feed.connected_equipment == [pump]
+
+
+def test_connect_site_requires_in_or_out():
+    with pytest.raises(ValueError, match="must be IN"):
+        ada.PipingSystem("Drain").connect_site("t", (0, 0, 0), ada.PortDirection.INOUT)
+
+
+def test_site_interfaces_report():
+    drain = ada.PipingSystem("Drain").connect_site("to_sea", (10, 0, 0), ada.PortDirection.OUT)
+    interfaces = site_interfaces([drain])
+    assert len(interfaces) == 1
+    assert (interfaces[0].system_name, interfaces[0].name, interfaces[0].flow) == ("Drain", "to_sea", "output")
+
+    txt = format_site_interfaces(interfaces)
+    assert "Drain" in txt and "to_sea" in txt and "output" in txt
+    assert format_site_interfaces([]) == "No site inputs/outputs defined."

@@ -2,9 +2,11 @@
 
 A pump takes process suction in from the side, discharges up, is fed
 electrical power and exposes a control-signal connection; a tank has a process
-inlet/outlet and a signal (level) connection. Both are plain
-:class:`ada.Equipment` instances — the archetype is just the port layout plus a
-simple box body so the equipment renders.
+inlet/outlet and a signal (level) connection; a switchboard takes an incoming
+mains supply and feeds one outgoing electrical feeder, so an electrical system
+is two-ended (switchboard feeder -> pump power) just like a piping run. All are
+plain :class:`ada.Equipment` instances — the archetype is just the port layout
+plus a simple box body so the equipment renders.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ __all__ = [
     "EQUIPMENT_ARCHETYPES",
     "build_equipment_from_catalog",
     "create_pump",
+    "create_switchboard",
     "create_tank",
     "list_equipment_types",
 ]
@@ -68,6 +71,35 @@ def create_tank(
     return eq
 
 
+def create_switchboard(
+    name: str,
+    origin: Iterable[float],
+    mass: float = 800.0,
+    lx: float = 0.8,
+    ly: float = 0.4,
+    lz: float = 1.2,
+) -> ada.Equipment:
+    """An electrical switchboard / distribution-board archetype: a mains supply
+    in (top) and one outgoing feeder out (+X side) that powers downstream loads.
+    Pairing a switchboard's ``feeder`` (OUT) with a pump's ``power`` (IN) makes
+    the electrical system two-ended — a proper routed run rather than a dangling
+    supply stub."""
+    eq = ada.Equipment(
+        name,
+        mass,
+        cog=(0, 0, lz / 2),
+        origin=origin,
+        lx=lx,
+        ly=ly,
+        lz=lz,
+        ifc_element_class="IfcElectricDistributionBoard",
+    )
+    eq.add_port(Port("incoming", (0, 0, lz), (0, 0, 1), PortDirection.IN, "electrical"))
+    eq.add_port(Port("feeder", (lx / 2, 0, lz / 2), (1, 0, 0), PortDirection.OUT, "electrical"))
+    _add_body(eq, name)
+    return eq
+
+
 # Named equipment archetypes buildable from a plain (name, origin, lx, ly, lz)
 # footprint. Workers advertise these names so the viewer's cellbuilder can
 # offer a typed "add equipment" dropdown; the procedural compiler maps a cell
@@ -76,6 +108,7 @@ def create_tank(
 EQUIPMENT_ARCHETYPES: dict[str, Callable[..., ada.Equipment]] = {
     "pump": create_pump,
     "tank": create_tank,
+    "switchboard": create_switchboard,
 }
 
 

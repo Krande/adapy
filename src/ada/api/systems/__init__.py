@@ -6,9 +6,12 @@ from .categories import PortCategory, Voltage
 from .ports import Port, PortDirection
 from .validation import (
     PortIssue,
+    SiteInterface,
     equipments_with_missing_io,
     find_unconnected_ports,
     format_port_report,
+    format_site_interfaces,
+    site_interfaces,
 )
 
 __all__ = [
@@ -20,9 +23,12 @@ __all__ = [
     "PortCategory",
     "PortDirection",
     "PortIssue",
+    "SiteInterface",
     "System",
     "Voltage",
     "equipments_with_missing_io",
     "find_unconnected_ports",
     "format_port_report",
+    "format_site_interfaces",
+    "site_interfaces",
 ]

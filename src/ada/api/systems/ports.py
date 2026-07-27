@@ -4,6 +4,11 @@ A ``Port`` sits at an equipment-local position with an outward direction and a
 service category. ``Equipment.add_port`` sets ``parent``; ``System.connect``
 sets ``connected_system`` — together they form the bidirectional
 equipment <-> system reference.
+
+A ``Port`` with ``is_site=True`` and no ``parent`` is a *site terminal*: a fixed
+world-space location where a system enters (input) or leaves (output) the model
+— a facility boundary interface rather than an equipment nozzle. These are
+created by :meth:`System.connect_site`.
 """
 
 from __future__ import annotations
@@ -41,6 +46,7 @@ class Port:
     category: PortCategory = "process"
     parent: Equipment | None = field(default=None, repr=False)
     connected_system: System | None = field(default=None, repr=False)
+    is_site: bool = field(default=False, repr=False)
     guid: str = field(default_factory=create_guid, repr=False)
 
     def __post_init__(self):

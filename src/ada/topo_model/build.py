@@ -8,7 +8,6 @@ blueprint (turns classified faces/edges into structure) -> output assembly.
 from __future__ import annotations
 
 import ada
-from ada.api.systems import Port, PortDirection
 from ada.topology import CellGrid, TopologyBuilder
 
 from .blueprint import SteelStru
@@ -41,15 +40,20 @@ def build_routing_grid(spacing: float = 0.5) -> CellGrid:
 
 def build_topo_model_with_systems(name: str = "TopoModelDemo") -> ada.Assembly:
     """The full demo: Phase A structure (with the shared internal wall built as
-    a reinforced wall) + pump and tank on the top deck wired into a piping and
-    an electrical system routed over the deck grid, plus an interior service
-    run routed straight THROUGH the reinforced wall — its crossing gets a
+    a reinforced wall) + pump, tank and a switchboard on the top deck wired into
+    piping and electrical systems routed over the deck grid, plus an interior
+    service run routed straight THROUGH the reinforced wall — its crossing gets a
     penetration detail (sleeve + wall-plate hole) from the
-    ``StandardPenetrations`` blueprint. The signal ports are deliberately left
-    unconnected so the missing-I/O report has something to say."""
-    from ada.api.systems import ElectricalSystem, PipingSystem, Voltage
+    ``StandardPenetrations`` blueprint.
 
-    from .equipment import create_pump, create_tank
+    Two systems terminate at the site boundary rather than at equipment: the
+    ``Mains`` feed enters at a *site input* (the grid connection) and runs to the
+    switchboard, and the tank's ``Drain`` leaves at a *site output*. The signal
+    ports are deliberately left unconnected so the missing-I/O report has
+    something to say."""
+    from ada.api.systems import ElectricalSystem, PipingSystem, PortDirection, Voltage
+
+    from .equipment import create_pump, create_switchboard, create_tank
     from .penetration import StandardPenetrations
 
     builder = TopologyBuilder.from_prim_boxes(make_space_boxes(), blueprint=SteelStru(reinforce_internal_walls=True))
@@ -60,15 +64,27 @@ def build_topo_model_with_systems(name: str = "TopoModelDemo") -> ada.Assembly:
     # Deck equipment + systems.
     pump = create_pump("Pump1", origin=(2.5, 2.5, 3.0))
     tank = create_tank("Tank1", origin=(7.5, 2.5, 3.0))
+    switchboard = create_switchboard("Switchboard1", origin=(0.5, 2.5, 3.0))
 
     cooling = PipingSystem("CoolingWater", medium="water").connect(pump, "discharge").connect(tank, "inlet")
-    power = ElectricalSystem("PowerFeed", voltage=Voltage.LV_690).connect(pump, "power")
-    # single-ended: route from the pump's power port to a supply stub at the deck edge
-    supply_stub = Port("supply", (0.0, 0.0, 3.5), (0, 0, 1), PortDirection.OUT, "electrical")
-    power.ports.append(supply_stub)
+    # Two-ended electrical: the switchboard's outgoing feeder powers the pump.
+    power = ElectricalSystem("PowerFeed", voltage=Voltage.LV_690).connect(switchboard, "feeder").connect(pump, "power")
+    # Site input: the high-voltage grid supply enters at the deck edge and feeds
+    # the switchboard's incoming terminal.
+    mains = (
+        ElectricalSystem("Mains", voltage=Voltage.MV_11000)
+        .connect_site("grid_supply", (0.0, 0.0, 3.5), PortDirection.IN)
+        .connect(switchboard, "incoming")
+    )
+    # Site output: the tank drains off the model boundary at the far deck edge.
+    drain = (
+        PipingSystem("Drain", medium="water")
+        .connect(tank, "outlet")
+        .connect_site("drain_to_site", (10.0, 2.5, 3.0), PortDirection.OUT)
+    )
 
     grid = build_routing_grid()
-    for eq in (pump, tank):
+    for eq in (pump, tank, switchboard):
         _occupy_equipment_nodes(grid, eq)
 
     # Interior service run: pump in Cell1 to tank in Cell2 — the route must
@@ -82,18 +98,21 @@ def build_topo_model_with_systems(name: str = "TopoModelDemo") -> ada.Assembly:
         _occupy_equipment_nodes(interior_grid, eq)
 
     systems_part = ada.Part("Systems")
-    for system, sys_grid in ((cooling, grid), (power, grid), (service, interior_grid)):
+    deck_systems = (cooling, power, mains, drain)
+    routed = [(s, grid) for s in deck_systems] + [(service, interior_grid)]
+    for system, sys_grid in routed:
         for geom in system.route(sys_grid):
             systems_part.add_object(geom)
 
     # Penetration details wherever a routed system crosses an internal wall
-    # (also cuts the through-hole in the reinforced wall's plate).
-    penetrations = StandardPenetrations(systems=[cooling, power, service], faces=cg.get_internal_walls())
+    # (also cuts the through-hole in the reinforced wall's plate). The deck runs
+    # stay above the walls; only the interior service run penetrates.
+    penetrations = StandardPenetrations(systems=[*deck_systems, service], faces=cg.get_internal_walls())
     a.add_part(penetrations.build())
 
-    a.add_part(ada.Part("Equipment") / [pump, tank, pump2, tank2])
+    a.add_part(ada.Part("Equipment") / [pump, tank, switchboard, pump2, tank2])
     a.add_part(systems_part)
-    a.systems.extend([cooling, power, service])
+    a.systems.extend([*deck_systems, service])
     return a
 
 

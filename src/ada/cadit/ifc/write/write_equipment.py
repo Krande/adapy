@@ -139,6 +139,36 @@ def _write_distribution_port(
     )
 
 
+def _write_site_port(ifc_store: IfcStore, port: Port) -> ifcopenshell.entity_instance:
+    """A site-boundary terminal has no equipment parent, so it is written as a
+    free-standing ``IfcDistributionPort`` at its world position — the model's
+    external interface for that system run."""
+    f = ifc_store.f
+    placement = create_local_placement(f, origin=[float(v) for v in port.position])
+    return f.create_entity(
+        "IfcDistributionPort",
+        GlobalId=port.guid,
+        OwnerHistory=ifc_store.owner_history,
+        Name=port.name,
+        Description="site",
+        ObjectType=port.category,
+        ObjectPlacement=placement,
+        Representation=None,
+        FlowDirection=_FLOW_DIRECTION_MAP[port.direction.value],
+    )
+
+
+def _resolve_port_entity(ifc_store: IfcStore, port: Port) -> ifcopenshell.entity_instance | None:
+    """The IFC port for ``port``: the one nested on its equipment if written,
+    or a fresh site terminal for a boundary (site input/output) port."""
+    ent = _get_by_guid_or_none(ifc_store, port.guid)
+    if ent is not None:
+        return ent
+    if getattr(port, "is_site", False):
+        return _write_site_port(ifc_store, port)
+    return None
+
+
 def write_ifc_systems(ifc_store: IfcStore, systems: list[System]) -> int:
     """Fold each System onto its route pipe's IfcDistributionSystem: system
     name + PredefinedType, equipment membership, and IfcRelConnectsPorts
@@ -172,8 +202,8 @@ def write_ifc_systems(ifc_store: IfcStore, systems: list[System]) -> int:
 
         if len(system.ports) >= 2:
             p_start, p_end = system.ports[0], system.ports[-1]
-            port_start = _get_by_guid_or_none(ifc_store, p_start.guid)
-            port_end = _get_by_guid_or_none(ifc_store, p_end.guid)
+            port_start = _resolve_port_entity(ifc_store, p_start)
+            port_end = _resolve_port_entity(ifc_store, p_end)
             if port_start is not None and port_end is not None:
                 f.create_entity(
                     "IfcRelConnectsPorts",

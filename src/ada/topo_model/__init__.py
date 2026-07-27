@@ -12,7 +12,7 @@ from .build import (
     build_topo_model_with_systems,
     make_space_boxes,
 )
-from .equipment import create_pump, create_tank
+from .equipment import create_pump, create_switchboard, create_tank
 from .penetration import PenetrationBlueprintBase, StandardPenetrations
 
 __all__ = [
@@ -23,6 +23,7 @@ __all__ = [
     "build_topo_model",
     "build_topo_model_with_systems",
     "create_pump",
+    "create_switchboard",
     "create_tank",
     "make_space_boxes",
 ]
