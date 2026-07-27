@@ -6,6 +6,7 @@ import {
   type BuilderSelection,
 } from "@/state/cellBuilderStore";
 import { axisLabel, BOX_FACE_SIDES } from "@/utils/cellbuilder/snap";
+import { useTypeIconsStore } from "@/state/typeIconsStore";
 
 // The procedural-modelling context panel: add cells / typed equipment, list +
 // edit the boxes, a collapsible selection section (cell/face/edge parameters
@@ -312,6 +313,59 @@ const EquipmentSystems: React.FC<{ equipmentName: string }> = ({
 
 // Systems inspector: list the service runs, their type, and which equipment
 // ports each connects. Add/remove systems and connections.
+// Type-icon overlay toggles: a Factorio-style layer of icons over the model —
+// archetype icons on equipment (⚡ electrical, P pump, T tank), fluid/service
+// markers along runs (💧 water, black oil drop, ⚡ electrical), and a red "!"
+// over equipment with unconnected inputs.
+const IconOverlaySection: React.FC = () => {
+  const icons = useTypeIconsStore();
+  return (
+    <div className="border-t border-gray-600/60 pt-1">
+      <div className="flex items-center gap-2 px-1">
+        <label className="flex items-center gap-1 font-semibold">
+          <input
+            type="checkbox"
+            checked={icons.enabled}
+            onChange={(e) => icons.setEnabled(e.target.checked)}
+          />
+          Type icons
+        </label>
+      </div>
+      {icons.enabled && (
+        <div className="flex items-center gap-3 flex-wrap px-1 pt-1 text-gray-300">
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={icons.showEquipment}
+              onChange={(e) => icons.setShowEquipment(e.target.checked)}
+            />
+            equipment
+          </label>
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={icons.showMedia}
+              onChange={(e) => icons.setShowMedia(e.target.checked)}
+            />
+            media
+          </label>
+          <label
+            className="flex items-center gap-1"
+            title="Red ! over equipment with unconnected inputs"
+          >
+            <input
+              type="checkbox"
+              checked={icons.showMissing}
+              onChange={(e) => icons.setShowMissing(e.target.checked)}
+            />
+            missing inputs
+          </label>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SystemsInspector: React.FC = () => {
   const s = useCellBuilderStore();
   const [open, setOpen] = React.useState(false);
@@ -737,6 +791,8 @@ const CellBuilderPanel: React.FC = () => {
       {s.selection && <SelectionSection selection={s.selection} />}
 
       <SystemsInspector />
+
+      <IconOverlaySection />
 
       <label
         className="flex items-center gap-1"

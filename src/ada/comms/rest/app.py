@@ -2653,19 +2653,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Equipment types for the cellbuilder's add-equipment dropdown: the
         union of code-defined archetypes (advertised by live workers) and the
         per-scope DB catalog, each tagged with its ``origin`` (``code`` or
-        ``catalog``). A slug present in both is shown as ``catalog`` — the
-        editable copy shadows the built-in."""
+        ``catalog``) and its port summary (name/direction/category — used by the
+        viewer's missing-input overlay). A slug present in both is shown as
+        ``catalog`` — the editable copy shadows the built-in."""
+
+        def _ports_of(doc: dict | None) -> list[dict]:
+            out = []
+            for p in (doc or {}).get("ports") or []:
+                if isinstance(p, dict) and p.get("name"):
+                    out.append(
+                        {
+                            "name": p["name"],
+                            "direction": p.get("direction", "INOUT"),
+                            "category": p.get("category", "process"),
+                        }
+                    )
+            return out
+
         by_slug: dict[str, dict] = {}
         for slug, spec in (
             await _live_worker_specs("procedural_equipment_specs", "procedural_equipment_types")
         ).items():
-            by_slug[slug] = {"slug": slug, "name": spec.get("name") or slug, "origin": "code"}
+            by_slug[slug] = {
+                "slug": slug,
+                "name": spec.get("name") or slug,
+                "origin": "code",
+                "ports": _ports_of(spec.get("doc")),
+            }
         pool = getattr(request.app.state, "db_pool", None)
         if pool is not None:
             for t in await db_module.list_equipment_types(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id):
                 slug = t.get("slug")
                 if isinstance(slug, str) and slug:
-                    by_slug[slug] = {"slug": slug, "name": t.get("name") or slug, "origin": "catalog", "id": t["id"]}
+                    by_slug[slug] = {
+                        "slug": slug,
+                        "name": t.get("name") or slug,
+                        "origin": "catalog",
+                        "id": t["id"],
+                        "ports": _ports_of(t.get("doc")),
+                    }
         types = sorted(by_slug.values(), key=lambda x: x["name"].lower())
         return JSONResponse({"equipment_types": types})
 

@@ -1072,11 +1072,20 @@ export interface ProceduralCompileResponse {
 export type TypeOrigin = "code" | "catalog";
 
 /** An equipment type offered by the cellbuilder's add-equipment dropdown. */
+/** A port summary carried by an equipment dropdown option (drives the viewer's
+ * missing-input overlay). */
+export interface TypePortSummary {
+  name: string;
+  direction: PortDirection;
+  category: PortCategory;
+}
+
 export interface ProceduralTypeOption {
   slug: string;
   name: string;
   origin: TypeOrigin;
   id?: string; // present for catalog-origin entries
+  ports?: TypePortSummary[];
 }
 
 /** A system type offered by the cellbuilder's systems inspector. */
@@ -2334,9 +2343,7 @@ export const viewerApi = {
 
   /** Admin: the captured package manifest ("pixi list") for a worker image
    * tag — linked from a convert audit row via its worker_image_tag. */
-  async adminWorkerPackages(
-    imageTag: string,
-  ): Promise<{
+  async adminWorkerPackages(imageTag: string): Promise<{
     worker_image_tag: string;
     packages: WorkerPackage[];
     captured_at: string | null;

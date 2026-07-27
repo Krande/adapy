@@ -5,6 +5,7 @@ import ThreeCanvas from "./ThreeCanvas";
 import SectionPlanesController from "./SectionPlanesController";
 import FemConceptsController from "./FemConceptsController";
 import CellBuilderController from "./CellBuilderController";
+import TypeIconController from "./TypeIconController";
 import GalleryControls from "./GalleryControls";
 
 const CanvasWrapper: React.FC = () => {
@@ -25,6 +26,8 @@ const CanvasWrapper: React.FC = () => {
       <FemConceptsController />
       {/* Headless: procedural cellbuilder box meshes + snapping/face-drag. */}
       <CellBuilderController />
+      {/* Headless: Factorio-style type-icon overlay (equipment / media / missing inputs). */}
+      <TypeIconController />
     </div>
   );
 };
