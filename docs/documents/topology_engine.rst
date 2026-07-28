@@ -174,8 +174,11 @@ that *fully encompasses* its stage:
 :class:`~ada.topology.design_rules.DesignRules` bundles the four callables and
 :func:`~ada.topology.design_rules.run_design` drives both phases in order (plan
 everything, then model everything), returning a
-:class:`~ada.topology.design_rules.DesignResult`. The defaults reproduce the
-built-in routing; supply your own callables to fully override a stage:
+:class:`~ada.topology.design_rules.DesignResult` — the routed geometry
+(``route_geometry`` keyed by system name), the planned ``penetrations`` and their
+``penetration_parts``, and any ``skipped`` systems (see ``skip_failed`` below).
+The defaults reproduce the built-in routing; supply your own callables to fully
+override a stage:
 
 .. code-block:: python
 
