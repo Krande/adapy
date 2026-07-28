@@ -36,6 +36,32 @@ _SYSTEM_KIND_DEFAULTS = {
 }
 
 
+# Built-in design rulesets (mirrors ada.topo_model.DESIGN_RULESETS) — static so
+# the API can offer them in the dropdown WITHOUT a live worker or importing ada.
+# Live workers may advertise more via ``procedural_design_rulesets``.
+_DESIGN_RULESETS = (
+    {
+        "slug": "standard",
+        "name": "Standard details",
+        "description": "Route runs and add a penetration detail at each wall crossing "
+        "(pipe sleeve / cable transit block / duct frame) with a through-hole cut in the wall plate.",
+    },
+    {
+        "slug": "route_only",
+        "name": "Route only",
+        "description": "Route runs and detect wall crossings, but emit no penetration detail geometry.",
+    },
+)
+
+#: Fallback ruleset slug when a document names none.
+DEFAULT_DESIGN_RULESET = "standard"
+
+
+def builtin_design_rulesets() -> list[dict]:
+    """Specs for the built-in design rulesets (origin ``code``)."""
+    return [dict(d) for d in _DESIGN_RULESETS]
+
+
 def builtin_system_specs() -> list[dict]:
     """Catalog-shaped specs for the built-in system kinds (origin ``code``)."""
     specs = []

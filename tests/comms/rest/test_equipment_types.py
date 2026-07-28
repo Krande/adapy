@@ -127,6 +127,29 @@ def test_endpoints_503_without_db(app_client: TestClient):
     assert app_client.get("/api/scopes/shared/system-templates").status_code == 503
 
 
+def test_design_rulesets_builtin_without_db(app_client: TestClient):
+    # The ruleset dropdown is served from static built-ins, so it works even
+    # without a DB pool or a live worker.
+    r = app_client.get("/api/scopes/shared/procedural-models/design-rulesets")
+    assert r.status_code == 200
+    rulesets = r.json()["design_rulesets"]
+    by_slug = {x["slug"]: x for x in rulesets}
+    assert {"standard", "route_only"} <= set(by_slug)
+    assert by_slug["standard"]["origin"] == "code"
+    assert by_slug["standard"]["name"] and by_slug["standard"]["description"]
+
+
+def test_validate_doc_preserves_design_rules():
+    from ada.comms.rest.procedural import validate_doc
+
+    out = validate_doc({"spaces": [], "design_rules": "route_only"})
+    assert out["design_rules"] == "route_only"
+    # absent -> no design_rules key forced (compiler falls back to standard)
+    assert validate_doc({"spaces": []}).get("design_rules") in (None, "standard")
+    with pytest.raises(ValueError):
+        validate_doc({"spaces": [], "design_rules": 123})
+
+
 # ── live-Postgres API path ───────────────────────────────────────────
 
 

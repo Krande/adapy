@@ -217,6 +217,38 @@ subclass scaffolds (:class:`~ada.topology.routing.RoutingBlueprintBase`'s
 :class:`~ada.topo_model.penetration.PenetrationBlueprintBase`'s
 ``build_penetration``) still work unchanged — the defaults simply wrap them.
 
+Named rulesets for the viewer
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A JSON document can't carry Python callables, so the viewer selects a ruleset
+**by name**. ``ada.topo_model`` keeps a small registry
+(:data:`~ada.topo_model.design_rulesets.DESIGN_RULESETS`) mapping a slug to a
+``DesignRules`` factory:
+
+* ``standard`` — route runs and add the standard penetration detail at each wall
+  crossing (pipe sleeve / cable block / duct frame, with the wall plate cut).
+* ``route_only`` — route runs and detect crossings, but emit no detail geometry.
+
+A cell-model document names one via ``doc["design_rules"]``, and
+``compile_procedural_doc`` resolves it with
+:func:`~ada.topo_model.resolve_design_rules` (an unknown/absent slug falls back
+to ``standard``):
+
+.. code-block:: python
+
+    from ada.topo_model import resolve_design_rules, design_ruleset_specs
+
+    rules = resolve_design_rules("route_only")          # -> DesignRules | None
+    design_ruleset_specs()                               # [{slug, name, description}, ...]
+
+The hosted viewer wires this end-to-end: workers advertise
+``design_ruleset_specs()``, the API serves the built-in rulesets ∪ the advertised
+ones at ``GET /procedural-models/design-rulesets``, and the cellbuilder's
+**Design rules** dropdown writes the chosen slug into ``doc.design_rules`` so the
+compile worker applies it. Register your own ruleset by adding a slug →
+``DesignRules`` factory to ``DESIGN_RULESETS``; it then appears in the dropdown
+of any scope served by a worker that ships it.
+
 The missing-I/O report
 ----------------------
 

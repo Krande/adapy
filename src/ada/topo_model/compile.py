@@ -217,14 +217,20 @@ def compile_procedural_doc(
 
     ``design_rules`` is a :class:`~ada.topology.design_rules.DesignRules` whose
     four callables fully encompass the routing/penetration rules for both engine
-    phases; when omitted the standard ruleset
-    (``ada.topo_model.standard_design_rules``) is used.
+    phases. When omitted, the document's ``design_rules`` slug is resolved via
+    the registry (``ada.topo_model.resolve_design_rules``); an unknown/absent
+    slug falls back to the standard ruleset.
 
     ``cad_scene_resolver`` maps a catalog slug to a trimesh mesh loaded from the
     type's linked CAD asset. When ``doc["equipment_cad"]`` is set, catalog
     equipment with resolvable CAD geometry are built without their placeholder
     box body and the real CAD mesh is spliced into the output GLB at the cell
     footprint."""
+    if design_rules is None:
+        from .design_rulesets import resolve_design_rules
+
+        design_rules = resolve_design_rules(doc.get("design_rules"))
+
     spaces = [TopoSpace(**s) for s in doc.get("spaces", [])]
     equipments = [TopoEquipment(**e) for e in doc.get("equipments", [])]
     if not spaces:

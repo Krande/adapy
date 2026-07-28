@@ -16,7 +16,14 @@ from ada.topology import (
     TopologyBuilder,
     run_design,
 )
-from ada.topo_model import SteelStru, create_pump, create_tank, standard_design_rules
+from ada.topo_model import (
+    SteelStru,
+    create_pump,
+    create_tank,
+    design_ruleset_specs,
+    resolve_design_rules,
+    standard_design_rules,
+)
 
 
 def _two_connected_equipment(p_a=(0, 0, 0), p_b=(4, 4, 0)):
@@ -168,3 +175,29 @@ def test_unroutable_system_raises_by_default_and_skips_when_asked():
     result = run_design([system], grid=blocked, skip_failed=True)
     assert result.skipped == ["CW"]
     assert "CW" not in result.route_geometry
+
+
+# --------------------------------------------------------------------------- #
+# named-ruleset registry (the viewer's doc["design_rules"] bridge)
+# --------------------------------------------------------------------------- #
+def test_registry_resolves_known_slugs_and_falls_back():
+    assert resolve_design_rules("standard").model_penetration is not None
+    assert resolve_design_rules("route_only").model_penetration is None
+    assert resolve_design_rules("STANDARD ").model_penetration is not None  # trimmed/case-folded
+    assert resolve_design_rules("nope") is None
+    assert resolve_design_rules(None) is None
+
+
+def test_design_ruleset_specs_shape():
+    specs = design_ruleset_specs()
+    slugs = {s["slug"] for s in specs}
+    assert {"standard", "route_only"} <= slugs
+    for s in specs:
+        assert s["name"] and s["description"]
+
+
+def test_route_only_ruleset_finds_crossings_but_models_no_detail(walled_model):
+    cell_graph, grid, system = walled_model
+    result = run_design([system], cell_graph=cell_graph, grid=grid, rules=resolve_design_rules("route_only"))
+    assert len(result.penetrations) >= 1  # crossings still detected
+    assert result.penetration_parts == []  # but no sleeve/detail geometry

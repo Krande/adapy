@@ -122,6 +122,36 @@ def test_compile_renders_routed_systems():
     assert sleeves == ["ServiceWater_pen_00_sleeve"]
 
 
+def _crossing_doc(design_rules=None):
+    doc = {
+        "blueprint": {"reinforce_internal_walls": True},
+        "spaces": DOC["spaces"],
+        "equipments": [_eq("Pump2", "pump", 2, 2, 0, 1, 1, 1), _eq("Tank2", "tank", 6.5, 1.5, 0, 2, 2, 2)],
+        "systems": [
+            {
+                "NAME": "ServiceWater",
+                "TYPE": "piping",
+                "CONNECTIONS": [{"EQUIPMENT": "Pump2", "PORT": "discharge"}, {"EQUIPMENT": "Tank2", "PORT": "inlet"}],
+            }
+        ],
+    }
+    if design_rules is not None:
+        doc["design_rules"] = design_rules
+    return doc
+
+
+def test_compile_design_rules_slug_selects_ruleset():
+    """doc['design_rules'] resolves via the registry: 'route_only' drops the
+    penetration detail geometry, so its GLB is smaller than 'standard'."""
+    standard = compile_procedural_doc(_crossing_doc("standard"))
+    route_only = compile_procedural_doc(_crossing_doc("route_only"))
+    assert _is_glb(standard) and _is_glb(route_only)
+    assert len(route_only) < len(standard)
+    # unknown / absent slug falls back to standard (same output as explicit standard)
+    assert len(compile_procedural_doc(_crossing_doc("nope"))) == len(standard)
+    assert len(compile_procedural_doc(_crossing_doc())) == len(standard)
+
+
 def test_compile_bad_system_skipped_not_fatal():
     doc = {
         "spaces": DOC["spaces"],

@@ -45,6 +45,9 @@ def _doc_model():
         # blueprint compile options (whitelisted by the compiler), e.g.
         # {"reinforce_internal_walls": true}
         blueprint: dict = Field(default_factory=dict)
+        # named design ruleset (routing/penetration rules) resolved by the
+        # compiler via ada.topo_model.resolve_design_rules; unknown -> standard
+        design_rules: Optional[str] = None
         # when true, catalog equipment with a linked CAD asset render as the
         # real CAD geometry (spliced in at compile) instead of a box
         equipment_cad: bool = False
@@ -67,6 +70,11 @@ def _validate_doc_shallow(doc: dict) -> dict:
         "blueprint": doc.get("blueprint") or {},
         "equipment_cad": bool(doc.get("equipment_cad")),
     }
+    design_rules = doc.get("design_rules")
+    if design_rules is not None:
+        if not isinstance(design_rules, str):
+            raise ValueError("design_rules must be a string")
+        out["design_rules"] = design_rules
     if not isinstance(out["grid"], dict):
         raise ValueError("grid must be an object")
     if not isinstance(out["blueprint"], dict):

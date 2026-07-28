@@ -12,6 +12,12 @@ from .build import (
     build_topo_model_with_systems,
     make_space_boxes,
 )
+from .design_rulesets import (
+    DEFAULT_DESIGN_RULESET,
+    DESIGN_RULESETS,
+    design_ruleset_specs,
+    resolve_design_rules,
+)
 from .equipment import create_pump, create_switchboard, create_tank
 from .penetration import (
     PenetrationBlueprintBase,
@@ -21,6 +27,8 @@ from .penetration import (
 )
 
 __all__ = [
+    "DEFAULT_DESIGN_RULESET",
+    "DESIGN_RULESETS",
     "PenetrationBlueprintBase",
     "StandardPenetrations",
     "SteelStru",
@@ -30,7 +38,9 @@ __all__ = [
     "create_pump",
     "create_switchboard",
     "create_tank",
+    "design_ruleset_specs",
     "make_space_boxes",
+    "resolve_design_rules",
     "standard_design_rules",
     "standard_penetration_modeller",
 ]

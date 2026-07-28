@@ -4,6 +4,7 @@ import {
   ApiError,
   viewerApi,
   type ProceduralDoc,
+  type ProceduralDesignRulesetOption,
   type ProceduralSystemTypeOption,
   type ProceduralTypeOption,
 } from "@/services/viewerApi";
@@ -66,6 +67,7 @@ export interface ModelSnapshot {
   systems: Record<string, BuilderSystem>;
   blueprintOptions: Record<string, unknown>;
   equipmentCad: boolean;
+  designRules: string;
 }
 
 const HISTORY_LIMIT = 100;
@@ -160,6 +162,11 @@ interface CellBuilderState {
    * CAD geometry (spliced at compile) instead of a box. Round-trips as
    * doc.equipment_cad. */
   equipmentCad: boolean;
+  /** Named design ruleset slug (routing/penetration rules); round-trips as
+   * doc.design_rules and is resolved to callables by the compiler. */
+  designRules: string;
+  /** Available design rulesets for the ruleset dropdown (code ∪ worker). */
+  designRulesets: ProceduralDesignRulesetOption[];
   /** Undo/redo history over the model state (cells/systems/blueprintOptions). */
   past: ModelSnapshot[];
   future: ModelSnapshot[];
@@ -184,6 +191,7 @@ interface CellBuilderState {
   setSnapThreshold: (v: number) => void;
   setAutoCompile: (v: boolean) => void;
   setEquipmentCad: (v: boolean) => void;
+  setDesignRules: (slug: string) => void;
   setSelectedEquipmentType: (t: string | null) => void;
   addCell: (kind: "cell" | "equipment", origin: Vec3, size: Vec3) => void;
   updateCell: (id: string, patch: Partial<BuilderCell>) => void;
@@ -216,6 +224,7 @@ interface CellBuilderState {
   endTransaction: () => void;
   fetchEquipmentTypes: () => Promise<void>;
   fetchSystemTypes: () => Promise<void>;
+  fetchDesignRulesets: () => Promise<void>;
   /** Persist a code-origin type into the scope's DB catalog, then refresh. */
   syncEquipmentTypeToDb: (slug: string) => Promise<void>;
   syncSystemTypeToDb: (slug: string) => Promise<void>;
@@ -299,6 +308,7 @@ function snapshot(s: CellBuilderState): ModelSnapshot {
     systems: s.systems,
     blueprintOptions: s.blueprintOptions,
     equipmentCad: s.equipmentCad,
+    designRules: s.designRules,
   };
 }
 
@@ -350,6 +360,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     cellsVisible: true,
     blueprintOptions: {},
     equipmentCad: false,
+    designRules: "standard",
+    designRulesets: [],
     panelVisible: false,
 
     open: (modelId, name, revision, doc) => {
@@ -360,6 +372,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         systems: systemsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
+        designRules: doc.design_rules ?? "standard",
         past: [],
         future: [],
         txDepth: 0,
@@ -372,6 +385,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       });
       void get().fetchEquipmentTypes();
       void get().fetchSystemTypes();
+      void get().fetchDesignRulesets();
     },
     close: () => {
       get().hideResult();
@@ -400,6 +414,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     setAutoCompile: (autoCompile) => set({ autoCompile }),
     setEquipmentCad: (equipmentCad) =>
       withHistory(() => ({ equipmentCad, dirty: true })),
+    setDesignRules: (designRules) =>
+      withHistory(() => ({ designRules, dirty: true })),
     setSelectedEquipmentType: (selectedEquipmentType) =>
       set({ selectedEquipmentType }),
 
@@ -596,6 +612,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       return {
         grid: {},
         blueprint: get().blueprintOptions,
+        design_rules: get().designRules,
         equipment_cad: get().equipmentCad,
         spaces,
         equipments,
@@ -609,6 +626,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         systems: systemsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
+        designRules: doc.design_rules ?? "standard",
         past: [],
         future: [],
         txDepth: 0,
@@ -624,6 +642,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       const doc: ProceduralDoc = {
         grid: {},
         blueprint: { reinforce_internal_walls: true },
+        design_rules: "standard",
         spaces: [
           {
             NAME: "Cell1",
@@ -715,6 +734,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         cells: cellsFromDoc(doc),
         systems: systemsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
+        designRules: doc.design_rules ?? "standard",
         dirty: true,
         selection: null,
         mode: "idle",
@@ -777,6 +797,17 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       } catch (e) {
         console.warn("cellbuilder: system-types fetch failed", e);
         set({ systemTypes: [] });
+      }
+    },
+
+    fetchDesignRulesets: async () => {
+      try {
+        const rulesets =
+          await viewerApi.proceduralDesignRulesets(currentScopePart());
+        set({ designRulesets: rulesets });
+      } catch (e) {
+        console.warn("cellbuilder: design-rulesets fetch failed", e);
+        set({ designRulesets: [] });
       }
     },
 

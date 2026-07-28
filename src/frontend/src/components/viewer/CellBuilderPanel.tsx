@@ -806,6 +806,30 @@ const CellBuilderPanel: React.FC = () => {
         Use CAD models for equipment
       </label>
 
+      <label
+        className="flex items-center gap-1"
+        title={
+          s.designRulesets.find((r) => r.slug === s.designRules)?.description ??
+          "Routing/penetration ruleset applied when the model compiles"
+        }
+      >
+        <span className="whitespace-nowrap">Design rules</span>
+        <select
+          className={inputCls}
+          value={s.designRules}
+          onChange={(e) => s.setDesignRules(e.target.value)}
+        >
+          {s.designRulesets.length === 0 && (
+            <option value={s.designRules}>{s.designRules}</option>
+          )}
+          {s.designRulesets.map((r) => (
+            <option key={r.slug} value={r.slug} title={r.description}>
+              {r.name} ({r.origin})
+            </option>
+          ))}
+        </select>
+      </label>
+
       {s.conflict && <p className="text-red-400">{s.conflict}</p>}
       {compileState?.status === "error" && (
         <p className="text-red-400">Compile failed: {compileState.error}</p>

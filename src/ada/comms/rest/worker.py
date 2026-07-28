@@ -2506,6 +2506,13 @@ async def _run() -> None:
         logger.exception("worker: failed to list procedural system types (non-fatal)")
         procedural_system_types = []
         procedural_system_specs = []
+    try:
+        from ada.topo_model import design_ruleset_specs
+
+        procedural_design_rulesets = design_ruleset_specs()
+    except Exception:
+        logger.exception("worker: failed to list procedural design rulesets (non-fatal)")
+        procedural_design_rulesets = []
 
     async def _publish_registration() -> None:
         try:
@@ -2521,6 +2528,7 @@ async def _run() -> None:
                     "procedural_equipment_specs": procedural_equipment_specs,
                     "procedural_system_types": procedural_system_types,
                     "procedural_system_specs": procedural_system_specs,
+                    "procedural_design_rulesets": procedural_design_rulesets,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },

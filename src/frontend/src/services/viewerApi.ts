@@ -1050,6 +1050,9 @@ export interface ProceduralDoc {
   /** Blueprint compile options (whitelisted server-side), e.g.
    * {reinforce_internal_walls: true}. */
   blueprint?: Record<string, unknown>;
+  /** Named design ruleset slug (routing/penetration rules) resolved by the
+   * compiler; unknown/absent falls back to "standard". */
+  design_rules?: string;
   /** When true, catalog equipment with a linked CAD asset render as real CAD
    * geometry (spliced at compile) instead of a box. */
   equipment_cad?: boolean;
@@ -1093,6 +1096,14 @@ export interface ProceduralSystemTypeOption extends ProceduralTypeOption {
   type: SystemTemplateType; // the base kind (piping/duct/cable/electrical)
   medium?: string | null;
   voltage?: number | null;
+}
+
+/** A named design ruleset offered by the cellbuilder's ruleset dropdown. */
+export interface ProceduralDesignRulesetOption {
+  slug: string;
+  name: string;
+  description: string;
+  origin: TypeOrigin;
 }
 
 // ── Equipment-type & system-template catalogs (per-scope) ────────────
@@ -1937,6 +1948,21 @@ export const viewerApi = {
       system_types: ProceduralSystemTypeOption[];
     }>(r, `proceduralSystemTypes(${scope})`);
     return body.system_types;
+  },
+
+  /** Named design rulesets (routing/penetration rules) for the cellbuilder's
+   * ruleset dropdown: the built-in rulesets plus any advertised by live
+   * workers. Selecting one sets doc.design_rules. */
+  async proceduralDesignRulesets(
+    scope: ScopeUrl,
+  ): Promise<ProceduralDesignRulesetOption[]> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/design-rulesets`,
+    );
+    const body = await jsonOrThrow<{
+      design_rulesets: ProceduralDesignRulesetOption[];
+    }>(r, `proceduralDesignRulesets(${scope})`);
+    return body.design_rulesets;
   },
 
   /** Persist a code-defined equipment archetype into this scope's DB catalog

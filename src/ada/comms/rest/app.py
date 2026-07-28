@@ -2738,6 +2738,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         types = sorted(by_slug.values(), key=lambda x: x["name"].lower())
         return JSONResponse({"system_types": types})
 
+    @api.get("/scopes/{scope}/procedural-models/design-rulesets")
+    async def api_procedural_design_rulesets(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Named design rulesets for the cellbuilder's ruleset dropdown: the
+        built-in rulesets (static — ``standard``/``route_only``) plus any extra
+        advertised by live workers, each tagged ``origin`` ``code``. Selecting
+        one sets ``doc.design_rules``, which the compiler resolves to the routing/
+        penetration callables (``ada.topo_model.resolve_design_rules``)."""
+        from .catalog import builtin_design_rulesets
+
+        by_slug: dict[str, dict] = {}
+        for spec in builtin_design_rulesets():
+            by_slug[spec["slug"]] = {
+                "slug": spec["slug"],
+                "name": spec["name"],
+                "description": spec.get("description", ""),
+                "origin": "code",
+            }
+        for slug, spec in (await _live_worker_specs("procedural_design_rulesets")).items():
+            by_slug[slug] = {
+                "slug": slug,
+                "name": spec.get("name") or slug,
+                "description": spec.get("description", ""),
+                "origin": "code",
+            }
+        rulesets = sorted(by_slug.values(), key=lambda x: x["name"].lower())
+        return JSONResponse({"design_rulesets": rulesets})
+
     @api.post("/scopes/{scope}/procedural-models/equipment-types/sync", status_code=201)
     async def api_procedural_equipment_sync(
         request: Request,
