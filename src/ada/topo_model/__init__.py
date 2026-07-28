@@ -13,7 +13,12 @@ from .build import (
     make_space_boxes,
 )
 from .equipment import create_pump, create_switchboard, create_tank
-from .penetration import PenetrationBlueprintBase, StandardPenetrations
+from .penetration import (
+    PenetrationBlueprintBase,
+    StandardPenetrations,
+    standard_design_rules,
+    standard_penetration_modeller,
+)
 
 __all__ = [
     "PenetrationBlueprintBase",
@@ -26,4 +31,6 @@ __all__ = [
     "create_switchboard",
     "create_tank",
     "make_space_boxes",
+    "standard_design_rules",
+    "standard_penetration_modeller",
 ]

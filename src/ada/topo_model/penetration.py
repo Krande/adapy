@@ -1,65 +1,126 @@
 """Penetration details where routed systems cross walls/floors.
 
-``PenetrationBlueprintBase`` is the scaffold: it intersects each system's
-routed polyline with a set of planar faces (walls/floors from the cell graph)
-and emits one detail part per crossing via the ``build_penetration`` override.
-``StandardPenetrations`` is the reference detail standard, keyed on the
-routing type: process runs get a pipe sleeve, cable/electrical runs an
-MCT-style transit block, duct runs a rectangular frame — and when the crossed
-face carries a built wall part (``face.associated_part``), the through-hole is
-cut in its plate so the system genuinely passes through.
+The generic crossing geometry (:class:`~ada.topology.design_rules.Penetration`
+and :func:`~ada.topology.design_rules.find_face_crossings`) lives in
+``ada.topology`` and is re-exported here for backward compatibility.
+
+This module supplies the *detail standard*: ``standard_penetration_modeller``
+turns a crossing into a detail part keyed on the routing type — process runs get
+a pipe sleeve, cable/electrical runs an MCT-style transit block, duct runs a
+rectangular frame — and cuts the through-hole in the crossed face's built wall
+plate (``face.associated_part``). ``standard_design_rules`` bundles it into a
+ready :class:`~ada.topology.design_rules.DesignRules` for the engine.
+
+``PenetrationBlueprintBase`` / ``StandardPenetrations`` remain as the subclass-
+based scaffold for callers that build penetrations directly.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 import ada
 from ada.topology import BlueprintBase
+from ada.topology.design_rules import DesignRules, Penetration, find_face_crossings
 
 if TYPE_CHECKING:
     from ada.api.systems.base import System
     from ada.topology.graph import GraphFace
 
-__all__ = ["Penetration", "PenetrationBlueprintBase", "StandardPenetrations", "find_face_crossings"]
+__all__ = [
+    "Penetration",
+    "PenetrationBlueprintBase",
+    "StandardPenetrations",
+    "find_face_crossings",
+    "standard_penetration_modeller",
+    "standard_design_rules",
+]
+
+# Standard detail dimensions (metres). Kept module-level so both the modeller
+# function and StandardPenetrations share one source of truth.
+_SLEEVE_CLEARANCE = 0.02
+_SLEEVE_WT = 8e-3
+_DEPTH = 0.3
+_CABLE_BLOCK_SIZE = 0.3
+_DUCT_FRAME_SIZE = 0.45
 
 
-@dataclass
-class Penetration:
-    system: System
-    point: ada.Point
-    normal: ada.Direction
-    face: GraphFace
+def _cut_wall_hole(pen: Penetration, hole: ada.Shape) -> None:
+    """Cut the through-opening in the crossed face's built wall plate(s), when
+    the face carries one (``face.associated_part``)."""
+    wall_part = pen.face.associated_part
+    if wall_part is None:
+        return
+    for pl in wall_part.get_all_physical_objects(by_type=ada.Plate):
+        pl.add_boolean(hole)
 
 
-def find_face_crossings(system: System, faces: list[GraphFace], tol: float = 1e-6) -> list[Penetration]:
-    """Where does the system's routed polyline cross each (planar, axis-aligned
-    bounded) face? Segment-plane intersection, kept when the hit lies within
-    the face outline's bounding box."""
-    out: list[Penetration] = []
-    if not system.routed_path:
-        return out
-    for face in faces:
-        pts = np.asarray([tuple(p) for p in face.get_points()], dtype=float)
-        n = np.asarray(tuple(face.normal), dtype=float)
-        p0 = pts[0]
-        lo, hi = pts.min(axis=0) - tol, pts.max(axis=0) + tol
-        for a, b in zip(system.routed_path[:-1], system.routed_path[1:]):
-            a_ = np.asarray(tuple(a), dtype=float)
-            b_ = np.asarray(tuple(b), dtype=float)
-            denom = float(n.dot(b_ - a_))
-            if abs(denom) < tol:
-                continue  # segment parallel to the face plane
-            t = float(n.dot(p0 - a_)) / denom
-            if not (0.0 <= t <= 1.0):
-                continue
-            x = a_ + t * (b_ - a_)
-            if np.all(x >= lo) and np.all(x <= hi):
-                out.append(Penetration(system, ada.Point(*x), ada.Direction(*tuple(face.normal)), face))
-    return out
+def standard_penetration_modeller(
+    pen: Penetration,
+    name: str,
+    *,
+    sleeve_clearance: float = _SLEEVE_CLEARANCE,
+    sleeve_wt: float = _SLEEVE_WT,
+    depth: float = _DEPTH,
+    cable_block_size: float = _CABLE_BLOCK_SIZE,
+    duct_frame_size: float = _DUCT_FRAME_SIZE,
+) -> ada.Part:
+    """Build the detail part for one crossing (pipe sleeve / cable block / duct
+    frame by routing type) and cut the matching hole in the crossed wall plate.
+    A :class:`~ada.topology.design_rules.PenetrationModeller`."""
+    from ada.api.systems.base import DuctSystem, PipingSystem
+
+    n = np.asarray(tuple(pen.normal), dtype=float)
+    n /= np.linalg.norm(n)
+    x = np.asarray(tuple(pen.point), dtype=float)
+    p1 = tuple(x - n * depth / 2)
+    p2 = tuple(x + n * depth / 2)
+
+    if isinstance(pen.system, PipingSystem):
+        hole_r = pen.system.pipe_radius + sleeve_clearance
+        detail: ada.Shape = ada.PrimCyl(f"{name}_sleeve", p1, p2, hole_r + sleeve_wt, color="red")
+        hole = ada.PrimCyl(f"{name}_hole", p1, p2, hole_r)
+    else:
+        half = (duct_frame_size if isinstance(pen.system, DuctSystem) else cable_block_size) / 2
+        in_plane = np.array([half, half, half]) * (1.0 - np.abs(n))
+        lo = x - in_plane - np.abs(n) * depth / 2
+        hi = x + in_plane + np.abs(n) * depth / 2
+        detail = ada.PrimBox(f"{name}_block", tuple(lo), tuple(hi), color="red")
+        shrink = 0.8  # the transit frame keeps a rim; the hole is the inner opening
+        lo_h = x - in_plane * shrink - np.abs(n) * depth
+        hi_h = x + in_plane * shrink + np.abs(n) * depth
+        hole = ada.PrimBox(f"{name}_hole", tuple(lo_h), tuple(hi_h))
+
+    _cut_wall_hole(pen, hole)
+    return ada.Part(name) / detail
+
+
+def standard_design_rules(
+    *,
+    sleeve_clearance: float = _SLEEVE_CLEARANCE,
+    sleeve_wt: float = _SLEEVE_WT,
+    depth: float = _DEPTH,
+    cable_block_size: float = _CABLE_BLOCK_SIZE,
+    duct_frame_size: float = _DUCT_FRAME_SIZE,
+) -> DesignRules:
+    """A :class:`~ada.topology.design_rules.DesignRules` with default routing and
+    the standard penetration detail (:func:`standard_penetration_modeller`).
+    This is the ruleset the demo and the viewer compile use."""
+
+    def model_penetration(pen: Penetration, name: str) -> ada.Part:
+        return standard_penetration_modeller(
+            pen,
+            name,
+            sleeve_clearance=sleeve_clearance,
+            sleeve_wt=sleeve_wt,
+            depth=depth,
+            cable_block_size=cable_block_size,
+            duct_frame_size=duct_frame_size,
+        )
+
+    return DesignRules(model_penetration=model_penetration)
 
 
 class PenetrationBlueprintBase(BlueprintBase):
@@ -97,17 +158,18 @@ class PenetrationBlueprintBase(BlueprintBase):
 
 
 class StandardPenetrations(PenetrationBlueprintBase):
-    """Reference detail standard by routing type (see module docstring)."""
+    """Reference detail standard by routing type (see module docstring).
+    Thin wrapper over :func:`standard_penetration_modeller`."""
 
     def __init__(
         self,
         systems: list[System],
         faces: list[GraphFace],
-        sleeve_clearance: float = 0.02,
-        sleeve_wt: float = 8e-3,
-        depth: float = 0.3,
-        cable_block_size: float = 0.3,
-        duct_frame_size: float = 0.45,
+        sleeve_clearance: float = _SLEEVE_CLEARANCE,
+        sleeve_wt: float = _SLEEVE_WT,
+        depth: float = _DEPTH,
+        cable_block_size: float = _CABLE_BLOCK_SIZE,
+        duct_frame_size: float = _DUCT_FRAME_SIZE,
     ):
         super().__init__(systems, faces)
         self.sleeve_clearance = sleeve_clearance
@@ -117,37 +179,12 @@ class StandardPenetrations(PenetrationBlueprintBase):
         self.duct_frame_size = duct_frame_size
 
     def build_penetration(self, pen: Penetration, name: str) -> ada.Part:
-        from ada.api.systems.base import DuctSystem, PipingSystem
-
-        n = np.asarray(tuple(pen.normal), dtype=float)
-        n /= np.linalg.norm(n)
-        x = np.asarray(tuple(pen.point), dtype=float)
-        p1 = tuple(x - n * self.depth / 2)
-        p2 = tuple(x + n * self.depth / 2)
-
-        if isinstance(pen.system, PipingSystem):
-            hole_r = pen.system.pipe_radius + self.sleeve_clearance
-            detail: ada.Shape = ada.PrimCyl(f"{name}_sleeve", p1, p2, hole_r + self.sleeve_wt, color="red")
-            hole = ada.PrimCyl(f"{name}_hole", p1, p2, hole_r)
-        else:
-            half = (self.duct_frame_size if isinstance(pen.system, DuctSystem) else self.cable_block_size) / 2
-            in_plane = np.array([half, half, half]) * (1.0 - np.abs(n))
-            lo = x - in_plane - np.abs(n) * self.depth / 2
-            hi = x + in_plane + np.abs(n) * self.depth / 2
-            detail = ada.PrimBox(f"{name}_block", tuple(lo), tuple(hi), color="red")
-            shrink = 0.8  # the transit frame keeps a rim; the hole is the inner opening
-            lo_h = x - in_plane * shrink - np.abs(n) * self.depth
-            hi_h = x + in_plane * shrink + np.abs(n) * self.depth
-            hole = ada.PrimBox(f"{name}_hole", tuple(lo_h), tuple(hi_h))
-
-        self._cut_wall_hole(pen, hole)
-        return ada.Part(name) / detail
-
-    def _cut_wall_hole(self, pen: Penetration, hole: ada.Shape) -> None:
-        """Cut the through-opening in the crossed face's built wall plate(s),
-        when the face carries one (``face.associated_part``)."""
-        wall_part = pen.face.associated_part
-        if wall_part is None:
-            return
-        for pl in wall_part.get_all_physical_objects(by_type=ada.Plate):
-            pl.add_boolean(hole)
+        return standard_penetration_modeller(
+            pen,
+            name,
+            sleeve_clearance=self.sleeve_clearance,
+            sleeve_wt=self.sleeve_wt,
+            depth=self.depth,
+            cable_block_size=self.cable_block_size,
+            duct_frame_size=self.duct_frame_size,
+        )

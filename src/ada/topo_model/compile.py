@@ -123,14 +123,19 @@ def _occupy_equipment(grid: CellGrid, eq: ada.Equipment) -> None:
                     grid.register((ix, iy, iz), eq.name)
 
 
-def _build_systems(doc: dict, equipment_map: dict, spaces: list[TopoSpace], cell_graph) -> list[ada.Part]:
-    """Wire each system's equipment ports, route it over the model grid and
-    render the run. Returns the parts to add (a Systems part, and a
-    Penetrations part when systems cross built walls). System specs that can't
-    be wired/routed (missing equipment/port, no route) are skipped with a
-    logged warning so one bad run doesn't sink the whole compile."""
+def _build_systems(doc: dict, equipment_map: dict, spaces: list[TopoSpace], cell_graph, design_rules=None) -> list[ada.Part]:
+    """Wire each system's equipment ports then drive both engine phases with the
+    ``design_rules`` ruleset (plan the routes, plan the penetrations, model the
+    runs and their details). Returns the parts to add (a Systems part, and a
+    Penetrations part when systems cross built walls). Specs that can't be wired
+    (missing equipment/port) are skipped here; runs that can't be routed are
+    skipped inside the engine (``skip_failed=True``) — so one bad run doesn't
+    sink the whole compile."""
     from ada.config import logger
+    from ada.topology import run_design
     from ada.topology.routing import RoutingError
+
+    from .penetration import standard_design_rules
 
     specs = doc.get("systems") or []
     if not specs:
@@ -140,7 +145,8 @@ def _build_systems(doc: dict, equipment_map: dict, spaces: list[TopoSpace], cell
     for eq in equipment_map.values():
         _occupy_equipment(grid, eq)
 
-    systems_part = ada.Part("Systems")
+    # Phase 0: wire ports (spec -> connected System). Connection errors (unknown
+    # equipment/port) drop the whole system before it reaches the engine.
     built_systems = []
     for spec in specs:
         try:
@@ -150,24 +156,38 @@ def _build_systems(doc: dict, equipment_map: dict, spaces: list[TopoSpace], cell
                 if eq is None:
                     raise RoutingError(f"unknown equipment {conn['EQUIPMENT']!r}")
                 system.connect(eq, conn["PORT"])
-            for geom in system.route(grid):
-                systems_part.add_object(geom)
             built_systems.append(system)
         except (RoutingError, ValueError, KeyError) as exc:
             logger.warning("procedural: skipping system %r: %s", spec.get("NAME"), exc)
 
+    if not built_systems:
+        return []
+
+    rules = design_rules if design_rules is not None else standard_design_rules()
+    members = cell_graph.get_internal_walls() if cell_graph is not None else []
+    result = run_design(
+        built_systems,
+        cell_graph=cell_graph,
+        grid=grid,
+        members=members,
+        rules=rules,
+        skip_failed=True,
+    )
+    for name in result.skipped:
+        logger.warning("procedural: skipping system %r: no route found", name)
+
     parts: list[ada.Part] = []
+    systems_part = ada.Part("Systems")
+    for geoms in result.route_geometry.values():
+        for geom in geoms:
+            systems_part.add_object(geom)
     if list(systems_part.get_all_physical_objects()):
         parts.append(systems_part)
 
-    if built_systems and cell_graph is not None:
-        from .penetration import StandardPenetrations
-
-        faces = cell_graph.get_internal_walls()
-        if faces:
-            pens = StandardPenetrations(systems=built_systems, faces=faces).build()
-            if list(pens.get_all_physical_objects()):
-                parts.append(pens)
+    if result.penetration_parts:
+        pens = ada.Part("Penetrations") / result.penetration_parts
+        if list(pens.get_all_physical_objects()):
+            parts.append(pens)
     return parts
 
 
@@ -186,6 +206,7 @@ def compile_procedural_doc(
     name: str = "ProceduralModel",
     equipment_resolver=None,
     cad_scene_resolver=None,
+    design_rules=None,
 ) -> bytes:
     """Parse ``doc``, build the model and return GLB bytes.
 
@@ -193,6 +214,11 @@ def compile_procedural_doc(
     catalog document (bbox/mass/ports/IFC class). The worker supplies one backed
     by the per-scope equipment-type catalog; when omitted, only the built-in
     archetypes are available.
+
+    ``design_rules`` is a :class:`~ada.topology.design_rules.DesignRules` whose
+    four callables fully encompass the routing/penetration rules for both engine
+    phases; when omitted the standard ruleset
+    (``ada.topo_model.standard_design_rules``) is used.
 
     ``cad_scene_resolver`` maps a catalog slug to a trimesh mesh loaded from the
     type's linked CAD asset. When ``doc["equipment_cad"]`` is set, catalog
@@ -241,7 +267,7 @@ def compile_procedural_doc(
                 equipment_map[obj.name] = obj
         a.add_part(ada.Part("Equipment") / objects)
 
-    for part in _build_systems(doc, equipment_map, spaces, cell_graph):
+    for part in _build_systems(doc, equipment_map, spaces, cell_graph, design_rules):
         a.add_part(part)
 
     # When CAD geometry is spliced in, merge it into the assembly's trimesh

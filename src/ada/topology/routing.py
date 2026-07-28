@@ -234,11 +234,15 @@ def system_route_to_geometry(system: System, name: str | None = None) -> list:
 class RoutingBlueprintBase(BlueprintBase):
     """Blueprint scaffold that routes a set of systems through the cell
     structure. Subclasses override ``rules_for`` (per-system rules) and/or
-    ``build_routing_grid`` (custom lattice)."""
+    ``build_routing_grid`` (custom lattice). Pass a ``DesignRules`` to fully
+    override the routing/modelling callables; otherwise the per-system
+    ``rules_for`` feeds the default planner. This scaffold is route-only (no
+    penetration modelling) — use ``ada.topology.run_design`` directly for that."""
 
-    def __init__(self, systems: list[System] | None = None):
+    def __init__(self, systems: list[System] | None = None, design_rules: object | None = None):
         super().__init__()
         self.systems: list[System] = systems if systems is not None else []
+        self.design_rules = design_rules
 
     def rules_for(self, system: System) -> RoutingRules:
         return RoutingRules()
@@ -254,11 +258,14 @@ class RoutingBlueprintBase(BlueprintBase):
         return CellGrid.from_bounds((min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs)), spacing=0.5)
 
     def build(self) -> ada.Part:
+        from ada.topology.design_rules import DesignRules, run_design
+
         self.output_part = ada.Part("Systems")
         grid = self.build_routing_grid()
+        rules = self.design_rules if self.design_rules is not None else DesignRules(rules_for=self.rules_for)
+        result = run_design(self.systems, cell_graph=self.builder.cell_graph, grid=grid, members=[], rules=rules)
         for system in self.systems:
-            route_system(system, grid, rules=self.rules_for(system))
-            system_route_to_geometry(system)
-            self.add_to_area(system.name, ada.Part(f"{system.name}_geom") / system.route_geometry)
+            geoms = result.route_geometry.get(system.name, [])
+            self.add_to_area(system.name, ada.Part(f"{system.name}_geom") / geoms)
         self.load_parts_from_area_map()
         return self.output_part

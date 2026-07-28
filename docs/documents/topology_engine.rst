@@ -152,6 +152,71 @@ and routes an interior service run straight through it; subclass
 :class:`~ada.topo_model.penetration.PenetrationBlueprintBase` and override
 ``build_penetration`` for your own detail standard.
 
+Pluggable design rules
+----------------------
+
+Routing and penetration rules can be handed to the engine as plain callables —
+no subclassing. The engine runs in **two phases**, and every rule is a function
+that *fully encompasses* its stage:
+
+* **Plan** (geometry-free, runs first over the whole cell complex): a
+  ``plan_route`` callable turns ``(system, cell complex, grid)`` into a
+  :class:`~ada.topology.design_rules.RoutePlan`, and a ``plan_penetration``
+  callable turns ``(system, routed path, penetrated members)`` into a list of
+  :class:`~ada.topology.design_rules.Penetration` crossings. Planners see the
+  ``CellGraph`` (the cell complex — cells + classified faces) and the routing
+  ``CellGrid`` lattice, plus the penetrated members for penetration rules. They
+  emit *data*, never geometry.
+* **Model** (plan → geometry): a ``model_route`` callable turns a ``RoutePlan``
+  into adapy geometry, and a ``model_penetration`` callable turns a
+  ``Penetration`` into a detail part.
+
+:class:`~ada.topology.design_rules.DesignRules` bundles the four callables and
+:func:`~ada.topology.design_rules.run_design` drives both phases in order (plan
+everything, then model everything), returning a
+:class:`~ada.topology.design_rules.DesignResult`. The defaults reproduce the
+built-in routing; supply your own callables to fully override a stage:
+
+.. code-block:: python
+
+    from ada.topology import DesignRules, RoutePlan, RoutingRules, run_design
+    from ada.topo_model import standard_design_rules
+
+    # A planning rule that fully encompasses routing: forbid a keep-out zone and
+    # prefer a fixed service elevation. Planners return data (the polyline).
+    def plan_route(ctx):
+        def is_allowed(idx, grid):
+            x, y, z = grid.coord_from_index(idx)
+            return not (2.0 < x < 3.0)          # keep-out corridor
+        from ada.topology.routing import route_system
+        poly = route_system(ctx.system, ctx.grid, rules=RoutingRules(is_allowed=is_allowed))
+        return RoutePlan(system=ctx.system, polyline=poly)
+
+    # A modelling rule for the detail geometry at each crossing: a short sleeve
+    # centred on the crossing point, along the crossed face normal.
+    def model_penetration(pen, name):
+        import ada
+        p1 = tuple(pen.point - pen.normal * 0.15)
+        p2 = tuple(pen.point + pen.normal * 0.15)
+        return ada.Part(name) / ada.PrimCyl(f"{name}_sleeve", p1, p2, r=0.1)
+
+    rules = DesignRules(plan_route=plan_route, model_penetration=model_penetration)
+    result = run_design(systems, cell_graph=cg, grid=grid, rules=rules)
+
+    # Or reuse the reference detail standard (pipe sleeve / cable block / duct frame):
+    result = run_design(systems, cell_graph=cg, grid=grid, rules=standard_design_rules())
+
+The same ruleset threads into the higher-level entry points:
+:class:`~ada.topology.routing.RoutingBlueprintBase(design_rules=...)` for
+blueprint-driven routing, and ``compile_procedural_doc(..., design_rules=...)``
+for the viewer's compile (which defaults to ``standard_design_rules()``). With
+``skip_failed=True`` a run that can't be planned is dropped and named in
+``result.skipped`` rather than sinking the whole model. The legacy
+subclass scaffolds (:class:`~ada.topology.routing.RoutingBlueprintBase`'s
+``rules_for``/``build_routing_grid`` overrides and
+:class:`~ada.topo_model.penetration.PenetrationBlueprintBase`'s
+``build_penetration``) still work unchanged — the defaults simply wrap them.
+
 The missing-I/O report
 ----------------------
 
