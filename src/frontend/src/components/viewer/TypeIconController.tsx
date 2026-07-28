@@ -192,7 +192,10 @@ function init(scene: THREE.Scene): () => void {
           cx = world.x - (t?.x ?? 0);
           cy = world.y - (t?.y ?? 0);
           cz = world.z - (t?.z ?? 0);
-          lift = off;
+          // The centroid sits on the pipe centerline; lift by a small fraction
+          // of the icon size so the marker rests just above the pipe surface
+          // rather than floating well over it.
+          lift = off * 0.4;
         } else {
           const pts = sys.connections
             .map((c) => byName.get(c.equipment))

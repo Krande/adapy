@@ -12,11 +12,15 @@ import type { TreeNodeData } from "@/components/tree_view/CustomNode";
 // seg_names counter). Those names survive into the model tree, so we can join
 // tree name → (model_key, rangeId) → CustomBatchedMesh draw-range → vertices.
 
-// All batched meshes currently in the scene, keyed by their model key.
-function batchedMeshesByKey(): Map<string, CustomBatchedMesh> {
-  const out = new Map<string, CustomBatchedMesh>();
+// Every batched mesh currently in the scene. A single model exports as several
+// CustomBatchedMeshes (node0, node1, …) that ALL share the same unique_key (the
+// model hash) but carry disjoint drawRanges, so we must scan them rather than
+// key a Map by unique_key (which would collapse them and drop whichever mesh
+// actually holds the pipe ranges).
+function allBatchedMeshes(): CustomBatchedMesh[] {
+  const out: CustomBatchedMesh[] = [];
   sceneRef.current?.traverse((o) => {
-    if (o instanceof CustomBatchedMesh) out.set(o.unique_key, o);
+    if (o instanceof CustomBatchedMesh) out.push(o);
   });
   return out;
 }
@@ -56,13 +60,17 @@ export function pipeCentroidWorld(systemName: string): THREE.Vector3 | null {
   const ranges = routeRanges(systemName, treeData);
   if (ranges.length === 0) return null;
 
-  const byKey = batchedMeshesByKey();
+  const meshes = allBatchedMeshes();
   const acc = new THREE.Vector3();
   const v = new THREE.Vector3();
   let n = 0;
 
   for (const [key, rangeId] of ranges) {
-    const mesh = byKey.get(key);
+    // Find the specific mesh that owns this range — same model key AND holds the
+    // rangeId (a model's node0/node1 meshes share the key but split the ranges).
+    const mesh = meshes.find(
+      (m) => m.unique_key === key && m.drawRanges.has(rangeId),
+    );
     if (!mesh) continue;
     const range = mesh.drawRanges.get(rangeId);
     if (!range) continue;
