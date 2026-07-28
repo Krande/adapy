@@ -588,7 +588,13 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         }
     };
 
-    const onPointerUp = (ev: PointerEvent) => {
+    // End a (pending or active) face-drag. Always restores the camera controls
+    // and releases the pointer capture the drag grabbed — critically also on
+    // ``pointercancel``, which touch devices fire routinely when the browser's
+    // gesture recogniser takes over (scroll/pinch) or a second finger lands. If
+    // only ``pointerup`` restored them, a cancelled touch would leave
+    // ``controls.enabled = false`` forever and the camera would appear broken.
+    const finalizeDrag = (ev: PointerEvent, cancelled: boolean) => {
         if (!drag) return;
         const wasDrag = drag.started;
         const pending = drag;
@@ -603,11 +609,16 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             } catch {
                 /* already released */
             }
-        } else {
+        } else if (!cancelled) {
+            // A pending-but-never-dragged pointerup is a selection click; a
+            // cancelled gesture selects nothing.
             resolveClickSelection(pending, ev);
         }
         ev.stopPropagation();
     };
+
+    const onPointerUp = (ev: PointerEvent) => finalizeDrag(ev, false);
+    const onPointerCancel = (ev: PointerEvent) => finalizeDrag(ev, true);
 
     const onKeyDown = (ev: KeyboardEvent) => {
         const st = useCellBuilderStore.getState();
@@ -647,6 +658,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     el.addEventListener("pointerdown", onPointerDown, true);
     el.addEventListener("pointermove", onPointerMove, true);
     el.addEventListener("pointerup", onPointerUp, true);
+    el.addEventListener("pointercancel", onPointerCancel, true);
     window.addEventListener("keydown", onKeyDown);
 
     rebuild();
@@ -676,6 +688,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         el.removeEventListener("pointerdown", onPointerDown, true);
         el.removeEventListener("pointermove", onPointerMove, true);
         el.removeEventListener("pointerup", onPointerUp, true);
+        el.removeEventListener("pointercancel", onPointerCancel, true);
         window.removeEventListener("keydown", onKeyDown);
         if (controlsRef.current) controlsRef.current.enabled = true;
         hiddenDefaultGrids.forEach((g) => (g.visible = true));
