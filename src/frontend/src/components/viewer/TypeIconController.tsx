@@ -5,7 +5,9 @@ import { sceneRef, cameraRef, rendererRef } from "@/state/refs";
 import { requestRender } from "@/state/perfStore";
 import { useModelState } from "@/state/modelState";
 import { useCellBuilderStore } from "@/state/cellBuilderStore";
+import { useTreeViewStore } from "@/state/treeViewStore";
 import { useTypeIconsStore } from "@/state/typeIconsStore";
+import { pipeCentroidWorld } from "@/utils/viewer/pipeTrace";
 import {
   boltSprite,
   diskSprite,
@@ -175,17 +177,36 @@ function init(scene: THREE.Scene): () => void {
     if (icons.showMedia) {
       const byName = new Map(equipmentCells.map((c) => [c.name, c]));
       for (const sys of Object.values(cb.systems)) {
-        const pts = sys.connections
-          .map((c) => byName.get(c.equipment))
-          .filter((c): c is (typeof equipmentCells)[number] => !!c)
-          .map(centerOf);
-        if (pts.length === 0) continue;
-        const cx = pts.reduce((a, p) => a + p.x, 0) / pts.length;
-        const cy = pts.reduce((a, p) => a + p.y, 0) / pts.length;
-        const cz = Math.max(...pts.map((p) => p.top));
+        // Prefer the real routed pipe: hug the compiled GLB geometry so the
+        // marker sits over the actual pipe, not the system bounds. The centroid
+        // is world-space; convert to container-local (the container only carries
+        // modelState.translation, so subtracting it matches the model coords the
+        // equipment icons use). Falls back to the connected-equipment centroid
+        // before the model is compiled, or when no matching run is in the scene.
+        const world = pipeCentroidWorld(sys.name);
+        let cx: number;
+        let cy: number;
+        let cz: number;
+        let lift: number;
+        if (world) {
+          cx = world.x - (t?.x ?? 0);
+          cy = world.y - (t?.y ?? 0);
+          cz = world.z - (t?.z ?? 0);
+          lift = off;
+        } else {
+          const pts = sys.connections
+            .map((c) => byName.get(c.equipment))
+            .filter((c): c is (typeof equipmentCells)[number] => !!c)
+            .map(centerOf);
+          if (pts.length === 0) continue;
+          cx = pts.reduce((a, p) => a + p.x, 0) / pts.length;
+          cy = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+          cz = Math.max(...pts.map((p) => p.top));
+          lift = off * 1.6;
+        }
         const sprite = mediumSprite(classifyMedium(sys.type, sys.medium));
         sprite.userData.__typeIcon = { system: sys.name, kind: "medium" };
-        place(sprite, cx, cy, cz + off * 1.6, s * 0.85);
+        place(sprite, cx, cy, cz + lift, s * 0.85);
       }
     }
     requestRender();
@@ -209,11 +230,18 @@ function init(scene: THREE.Scene): () => void {
     )
       rebuild();
   });
+  // The routed pipe geometry only becomes resolvable once the compiled GLB's
+  // model tree is built (post-load); rebuild then so media markers snap from
+  // the equipment-centroid fallback onto the real pipe.
+  const unsubTree = useTreeViewStore.subscribe((s, prev) => {
+    if (s.treeData !== prev.treeData) rebuild();
+  });
 
   return () => {
     unsubIcons();
     unsubCells();
     unsubModel();
+    unsubTree();
     clear();
     scene.remove(container);
     requestRender();
