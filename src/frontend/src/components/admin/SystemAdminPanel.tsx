@@ -30,18 +30,36 @@ const SystemAdminPanel: React.FC = () => {
   const [newName, setNewName] = React.useState("");
 
   return (
-    <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/80 rounded-md min-w-[300px] max-w-[380px] pointer-events-auto max-h-[80vh] overflow-y-auto">
-      <div className="flex items-center gap-2">
-        <span className="font-bold">System catalog</span>
+    <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/80 rounded-md min-w-[300px] max-w-[380px] pointer-events-auto max-h-[80svh] overflow-y-auto">
+      {/* Sticky header keeps Close (and Back, while editing) reachable no matter
+          how long the editor scrolls — important on mobile where the panel fills
+          the viewport. */}
+      <div className="sticky top-0 z-10 -mx-2 -mt-2 px-2 pt-2 pb-1 flex items-center gap-2 bg-gray-900/95 border-b border-gray-700/60">
+        {draft && (
+          <button
+            className="px-1 rounded-sm hover:bg-gray-500/40"
+            title="Back to catalog"
+            onClick={() => void store.getState().selectSystem(null)}
+          >
+            ←
+          </button>
+        )}
+        <span className="font-bold truncate">
+          {draft ? draft.name : "System catalog"}
+        </span>
+        {!draft && (
+          <button
+            className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
+            title="Refresh"
+            onClick={() => void store.getState().refreshSystems()}
+          >
+            ⟳
+          </button>
+        )}
         <button
-          className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
-          title="Refresh"
-          onClick={() => void store.getState().refreshSystems()}
-        >
-          ⟳
-        </button>
-        <button
-          className="px-1 rounded-sm hover:bg-gray-500/40"
+          className={
+            (draft ? "ml-auto " : "") + "px-1 rounded-sm hover:bg-gray-500/40"
+          }
           title="Close"
           onClick={() => store.setState({ systemPanelOpen: false })}
         >
@@ -51,6 +69,9 @@ const SystemAdminPanel: React.FC = () => {
 
       {systemError && <div className="text-red-400">{systemError}</div>}
 
+      {/* create + list — hidden while editing a template (master-detail) */}
+      {!draft && (
+      <>
       <div className="flex gap-1">
         <input
           className={inputCls}
@@ -138,9 +159,11 @@ const SystemAdminPanel: React.FC = () => {
           </div>
         ))}
       </div>
+      </>
+      )}
 
       {draft && (
-        <div className="flex flex-col gap-2 border-t border-gray-700 pt-2">
+        <div className="flex flex-col gap-2 pt-1">
           <label className="flex flex-col gap-0.5">
             <span className="text-gray-400">Name</span>
             <input

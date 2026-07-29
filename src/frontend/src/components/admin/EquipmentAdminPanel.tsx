@@ -174,18 +174,36 @@ const EquipmentAdminPanel: React.FC = () => {
   const scopeStr = scopeObj ? scopeUrlPart(scopeObj) : "user:me";
 
   return (
-    <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/80 rounded-md min-w-[320px] max-w-[420px] pointer-events-auto max-h-[80vh] overflow-y-auto">
-      <div className="flex items-center gap-2">
-        <span className="font-bold">Equipment catalog</span>
+    <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/80 rounded-md min-w-[320px] max-w-[420px] pointer-events-auto max-h-[80svh] overflow-y-auto">
+      {/* Sticky header keeps Close (and Back, while editing) reachable no matter
+          how long the editor scrolls — important on mobile where the panel fills
+          the viewport. */}
+      <div className="sticky top-0 z-10 -mx-2 -mt-2 px-2 pt-2 pb-1 flex items-center gap-2 bg-gray-900/95 border-b border-gray-700/60">
+        {draft && (
+          <button
+            className="px-1 rounded-sm hover:bg-gray-500/40"
+            title="Back to catalog"
+            onClick={() => void store.getState().selectEquipment(null)}
+          >
+            ←
+          </button>
+        )}
+        <span className="font-bold truncate">
+          {draft ? draft.name : "Equipment catalog"}
+        </span>
+        {!draft && (
+          <button
+            className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
+            title="Refresh"
+            onClick={() => void store.getState().refreshEquipment()}
+          >
+            ⟳
+          </button>
+        )}
         <button
-          className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
-          title="Refresh"
-          onClick={() => void store.getState().refreshEquipment()}
-        >
-          ⟳
-        </button>
-        <button
-          className="px-1 rounded-sm hover:bg-gray-500/40"
+          className={
+            (draft ? "ml-auto " : "") + "px-1 rounded-sm hover:bg-gray-500/40"
+          }
           title="Close"
           onClick={() => store.setState({ equipmentPanelOpen: false })}
         >
@@ -195,7 +213,9 @@ const EquipmentAdminPanel: React.FC = () => {
 
       {equipmentError && <div className="text-red-400">{equipmentError}</div>}
 
-      {/* create */}
+      {/* create + list — hidden while editing a type (master-detail) */}
+      {!draft && (
+      <>
       <div className="flex gap-1">
         <input
           className={inputCls}
@@ -296,10 +316,12 @@ const EquipmentAdminPanel: React.FC = () => {
           </div>
         ))}
       </div>
+      </>
+      )}
 
       {/* editor */}
       {draft && (
-        <div className="flex flex-col gap-2 border-t border-gray-700 pt-2">
+        <div className="flex flex-col gap-2 pt-1">
           <EquipmentPreview
             doc={draft.doc}
             scope={scopeStr}
