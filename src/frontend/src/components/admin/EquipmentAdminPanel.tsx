@@ -8,6 +8,23 @@ import type {
   PortDirection,
 } from "@/services/viewerApi";
 import EquipmentPreview from "./EquipmentPreview";
+import FilePickerModal from "@/components/common/FilePickerModal";
+
+// CAD-asset extensions the equipment catalog can read/infer a bbox from —
+// mirrors the upload picker's accept list.
+const CAD_EXTS = [
+  ".step",
+  ".stp",
+  ".ifc",
+  ".glb",
+  ".gltf",
+  ".stl",
+  ".obj",
+  ".sat",
+  ".xml",
+];
+const isCadFile = (key: string) =>
+  CAD_EXTS.some((ext) => key.toLowerCase().endsWith(ext));
 
 // Per-scope equipment-type catalog admin panel. An admin authors reusable
 // equipment archetypes (name/description/slug, bbox, mass, IFC element class
@@ -169,7 +186,7 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
   } = useEquipmentCatalogStore();
   const store = useEquipmentCatalogStore;
   const [newName, setNewName] = React.useState("");
-  const [copyKey, setCopyKey] = React.useState("");
+  const [cadPickerOpen, setCadPickerOpen] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
 
   const scopeObj = useScopeStore((s) => s.current);
@@ -490,24 +507,26 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
                 Infer bbox + preview
               </button>
             </div>
-            <div className="flex gap-1">
-              <input
-                className={inputCls}
-                placeholder="Copy scope file key (e.g. cad/pump.step)"
-                value={copyKey}
-                onChange={(e) => setCopyKey(e.target.value)}
-              />
-              <button
-                className={btnGray}
-                disabled={!copyKey.trim() || equipmentBusy}
-                onClick={() => {
-                  void store.getState().copyCadFromScope(copyKey);
-                  setCopyKey("");
-                }}
-              >
-                Copy
-              </button>
-            </div>
+            <button
+              className={btnGray + " self-start"}
+              disabled={equipmentBusy}
+              onClick={() => setCadPickerOpen(true)}
+              title="Pick an existing CAD file from this scope's storage"
+            >
+              Copy from scope…
+            </button>
+            <FilePickerModal
+              open={cadPickerOpen}
+              scope={scopeStr}
+              title="Pick a CAD file from scope"
+              initialKey={draft.cad_key ?? undefined}
+              filter={(f) => isCadFile(f.key)}
+              onCancel={() => setCadPickerOpen(false)}
+              onPick={(key) => {
+                void store.getState().copyCadFromScope(key);
+                setCadPickerOpen(false);
+              }}
+            />
             {bboxJob && (
               <div
                 className={
