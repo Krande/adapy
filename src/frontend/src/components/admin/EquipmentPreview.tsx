@@ -1,6 +1,7 @@
 import React from "react";
 import * as THREE from "three";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
+import CameraControls from "camera-controls";
 import {ungzip} from "pako";
 
 import {viewerApi, type CatalogPort, type EquipmentTypeDoc} from "@/services/viewerApi";
@@ -9,7 +10,11 @@ import {viewerApi, type CatalogPort, type EquipmentTypeDoc} from "@/services/vie
 // faint wireframe, each port as a coloured nozzle arrow (updates live as the
 // user edits ports), and — when a CAD asset has been attached + inferred — the
 // preview GLB rendered inside the box. Its own tiny WebGL context; it never
-// touches the main scene.
+// touches the main scene, but it drives the camera with the same
+// ``camera-controls`` library the main viewer uses so the orbit/zoom/pan feel
+// is identical (and not the hand-rolled camera that used to break on resize).
+
+CameraControls.install({THREE: THREE});
 
 const CATEGORY_COLOR: Record<CatalogPort["category"], number> = {
     process: 0x38bdf8, // cyan
@@ -47,19 +52,32 @@ const EquipmentPreview: React.FC<{
         renderer: THREE.WebGLRenderer;
         scene: THREE.Scene;
         camera: THREE.PerspectiveCamera;
+        controls: CameraControls;
         content: THREE.Group; // box + ports (rebuilt on doc change)
         cad: THREE.Group | null;
-        azim: number;
-        polar: number;
+        hasFit: boolean;
         raf: number;
     } | null>(null);
+
+    // Frame the camera on the current content. Called once the box/ports are up
+    // and again when a CAD asset loads (which changes the extent); port tweaks
+    // deliberately do NOT refit so the camera stays put while you edit.
+    const fitToContent = (st: NonNullable<typeof stateRef.current>) => {
+        const box = new THREE.Box3().setFromObject(st.content);
+        if (box.isEmpty()) return;
+        const sphere = box.getBoundingSphere(new THREE.Sphere());
+        if (!(sphere.radius > 0)) sphere.radius = 1;
+        st.controls.minDistance = sphere.radius * 0.2;
+        st.controls.maxDistance = sphere.radius * 40;
+        void st.controls.fitToSphere(sphere, false);
+    };
 
     // ── one-time scene setup ──────────────────────────────────────────
     React.useEffect(() => {
         const mount = mountRef.current;
         if (!mount) return;
         const width = mount.clientWidth || 320;
-        const height = 200;
+        const height = mount.clientHeight || 200;
         const renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setSize(width, height);
@@ -75,57 +93,47 @@ const EquipmentPreview: React.FC<{
         const content = new THREE.Group();
         scene.add(content);
 
-        const st = {renderer, scene, camera, content, cad: null as THREE.Group | null, azim: 0.9, polar: 1.1, raf: 0};
+        // Same controller the main viewer uses — proper orbit/dolly/truck with
+        // momentum, bound to this preview's own canvas.
+        const controls = new CameraControls(camera, renderer.domElement);
+        controls.setLookAt(3, 3, 3, 0, 0, 0, false);
+
+        const st = {
+            renderer,
+            scene,
+            camera,
+            controls,
+            content,
+            cad: null as THREE.Group | null,
+            hasFit: false,
+            raf: 0,
+        };
         stateRef.current = st;
 
-        // pointer-drag orbit
-        let dragging = false;
-        let lastX = 0;
-        let lastY = 0;
-        const onDown = (e: PointerEvent) => {
-            dragging = true;
-            lastX = e.clientX;
-            lastY = e.clientY;
-        };
-        const onMove = (e: PointerEvent) => {
-            if (!dragging) return;
-            st.azim -= (e.clientX - lastX) * 0.01;
-            st.polar = Math.max(0.2, Math.min(Math.PI - 0.2, st.polar - (e.clientY - lastY) * 0.01));
-            lastX = e.clientX;
-            lastY = e.clientY;
-        };
-        const onUp = () => {
-            dragging = false;
-        };
-        renderer.domElement.addEventListener("pointerdown", onDown);
-        window.addEventListener("pointermove", onMove);
-        window.addEventListener("pointerup", onUp);
+        // Track the container size so the aspect ratio and canvas stay correct
+        // wherever the panel is mounted (floating card, or the admin tab whose
+        // width differs) — the old preview measured width once and distorted.
+        const ro = new ResizeObserver(() => {
+            const w = mount.clientWidth || width;
+            const h = mount.clientHeight || height;
+            renderer.setSize(w, h);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+        });
+        ro.observe(mount);
 
+        const clock = new THREE.Clock();
         const animate = () => {
             st.raf = requestAnimationFrame(animate);
-            if (!dragging) st.azim += 0.003; // gentle auto-rotate
-            const box = new THREE.Box3().setFromObject(content);
-            const sphere = box.getBoundingSphere(new THREE.Sphere());
-            const r = sphere.radius || 1;
-            const d = r * 3.2;
-            camera.position.set(
-                sphere.center.x + d * Math.sin(st.polar) * Math.cos(st.azim),
-                sphere.center.y + d * Math.cos(st.polar),
-                sphere.center.z + d * Math.sin(st.polar) * Math.sin(st.azim),
-            );
-            camera.lookAt(sphere.center);
-            camera.near = Math.max(0.01, d - r * 4);
-            camera.far = d + r * 4;
-            camera.updateProjectionMatrix();
+            controls.update(clock.getDelta());
             renderer.render(scene, camera);
         };
         animate();
 
         return () => {
             cancelAnimationFrame(st.raf);
-            renderer.domElement.removeEventListener("pointerdown", onDown);
-            window.removeEventListener("pointermove", onMove);
-            window.removeEventListener("pointerup", onUp);
+            ro.disconnect();
+            controls.dispose();
             renderer.dispose();
             if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
             stateRef.current = null;
@@ -161,6 +169,13 @@ const EquipmentPreview: React.FC<{
             const arrow = new THREE.ArrowHelper(d, origin, len, CATEGORY_COLOR[p.category], len * 0.4, len * 0.25);
             st.content.add(arrow);
         }
+
+        // Frame the box the first time it appears; leave the camera alone on
+        // subsequent port edits.
+        if (!st.hasFit) {
+            fitToContent(st);
+            st.hasFit = true;
+        }
     }, [doc]);
 
     // ── load / swap the CAD preview GLB ───────────────────────────────
@@ -178,8 +193,10 @@ const EquipmentPreview: React.FC<{
             if (cancelled || !group || !stateRef.current) return;
             group.userData.__cad = true;
             // GLBs are Y-up already; drop it in as-is (centered on the box origin).
-            stateRef.current.content.add(group);
-            stateRef.current.cad = group;
+            const cur = stateRef.current;
+            cur.content.add(group);
+            cur.cad = group;
+            fitToContent(cur); // the CAD changes the extent — reframe on it
         });
         return () => {
             cancelled = true;
