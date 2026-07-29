@@ -154,7 +154,9 @@ const PortEditor: React.FC<{ port: CatalogPort; index: number }> = ({
   );
 };
 
-const EquipmentAdminPanel: React.FC = () => {
+const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
+  embedded = false,
+}) => {
   const {
     equipmentTypes,
     availableEquipment,
@@ -174,7 +176,16 @@ const EquipmentAdminPanel: React.FC = () => {
   const scopeStr = scopeObj ? scopeUrlPart(scopeObj) : "user:me";
 
   return (
-    <div className="flex flex-col gap-2 text-xs text-white px-2 pb-2 bg-gray-900/80 rounded-md min-w-[320px] max-w-[420px] pointer-events-auto max-h-[80svh] overflow-y-auto">
+    <div
+      className={
+        "flex flex-col gap-2 text-xs text-white px-2 pb-2 " +
+        (embedded
+          ? // In the admin panel: fill a centred column and let the tab's
+            // own scroll container handle overflow (no floating card).
+            "max-w-[560px] mx-auto"
+          : "bg-gray-900/80 rounded-md min-w-[320px] max-w-[420px] pointer-events-auto max-h-[80svh] overflow-y-auto")
+      }
+    >
       {/* Sticky header keeps Close (and Back, while editing) reachable no matter
           how long the editor scrolls — important on mobile where the panel fills
           the viewport. The scroll container has no top padding (the header owns
@@ -202,15 +213,17 @@ const EquipmentAdminPanel: React.FC = () => {
             ⟳
           </button>
         )}
-        <button
-          className={
-            (draft ? "ml-auto " : "") + "px-1 rounded-sm hover:bg-gray-500/40"
-          }
-          title="Close"
-          onClick={() => store.setState({ equipmentPanelOpen: false })}
-        >
-          ✕
-        </button>
+        {!embedded && (
+          <button
+            className={
+              (draft ? "ml-auto " : "") + "px-1 rounded-sm hover:bg-gray-500/40"
+            }
+            title="Close"
+            onClick={() => store.setState({ equipmentPanelOpen: false })}
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {equipmentError && <div className="text-red-400">{equipmentError}</div>}

@@ -16,7 +16,9 @@ const inputCls =
 
 const TYPES: SystemTemplateType[] = ["piping", "duct", "cable", "electrical"];
 
-const SystemAdminPanel: React.FC = () => {
+const SystemAdminPanel: React.FC<{ embedded?: boolean }> = ({
+  embedded = false,
+}) => {
   const {
     systemTemplates,
     availableSystems,
@@ -30,7 +32,16 @@ const SystemAdminPanel: React.FC = () => {
   const [newName, setNewName] = React.useState("");
 
   return (
-    <div className="flex flex-col gap-2 text-xs text-white px-2 pb-2 bg-gray-900/80 rounded-md min-w-[300px] max-w-[380px] pointer-events-auto max-h-[80svh] overflow-y-auto">
+    <div
+      className={
+        "flex flex-col gap-2 text-xs text-white px-2 pb-2 " +
+        (embedded
+          ? // In the admin panel: fill a centred column and let the tab's
+            // own scroll container handle overflow (no floating card).
+            "max-w-[560px] mx-auto"
+          : "bg-gray-900/80 rounded-md min-w-[300px] max-w-[380px] pointer-events-auto max-h-[80svh] overflow-y-auto")
+      }
+    >
       {/* Sticky header keeps Close (and Back, while editing) reachable no matter
           how long the editor scrolls — important on mobile where the panel fills
           the viewport. The scroll container has no top padding (the header owns
@@ -58,15 +69,17 @@ const SystemAdminPanel: React.FC = () => {
             ⟳
           </button>
         )}
-        <button
-          className={
-            (draft ? "ml-auto " : "") + "px-1 rounded-sm hover:bg-gray-500/40"
-          }
-          title="Close"
-          onClick={() => store.setState({ systemPanelOpen: false })}
-        >
-          ✕
-        </button>
+        {!embedded && (
+          <button
+            className={
+              (draft ? "ml-auto " : "") + "px-1 rounded-sm hover:bg-gray-500/40"
+            }
+            title="Close"
+            onClick={() => store.setState({ systemPanelOpen: false })}
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {systemError && <div className="text-red-400">{systemError}</div>}

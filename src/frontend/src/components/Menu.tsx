@@ -143,7 +143,7 @@ const Menu = () => {
                 className="absolute left-0 top-0 z-10 py-2 gap-2 flex flex-col pointer-events-none transition-[padding] duration-150"
                 style={{paddingLeft: `${menuShiftPx}px`}}
             >
-                <div className={"flex flex-row items-center gap-2 px-2 max-w-full pointer-events-auto"}>
+                <div className={"flex flex-row items-center gap-2 px-2 max-w-full overflow-x-auto pointer-events-auto"}>
 
                     {use_node_editor_only && (
                         <button
@@ -241,7 +241,7 @@ const Menu = () => {
                         aria-label="Toggle procedural cellbuilder panel"
                         aria-pressed={cellBuilderPanelVisible}
                     ><CellBuilderIcon/></button>
-                    {runtime.isRestMode() && (
+                    {runtime.isRestMode() && proceduralActive && (
                         <button
                             className={navBtnClass(equipmentPanelOpen, "", use_node_editor_only)}
                             hidden={use_node_editor_only}
@@ -251,7 +251,7 @@ const Menu = () => {
                             aria-pressed={equipmentPanelOpen}
                         ><EquipmentCatalogIcon/></button>
                     )}
-                    {runtime.isRestMode() && (
+                    {runtime.isRestMode() && proceduralActive && (
                         <button
                             className={navBtnClass(systemPanelOpen, "", use_node_editor_only)}
                             hidden={use_node_editor_only}
@@ -281,10 +281,10 @@ const Menu = () => {
                     {isControlsVisible && <SimulationControls/>}
                     {componentControlsVisible && <ComponentControls/>}
                     {proceduralActive && <CellBuilderPanel/>}
-                    {equipmentPanelOpen && (
+                    {proceduralActive && equipmentPanelOpen && (
                         <Suspense fallback={null}><EquipmentAdminPanel/></Suspense>
                     )}
-                    {systemPanelOpen && (
+                    {proceduralActive && systemPanelOpen && (
                         <Suspense fallback={null}><SystemAdminPanel/></Suspense>
                     )}
                 </div>

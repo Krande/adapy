@@ -13,4 +13,6 @@ export type AdminTab =
     | "projects"
     | "storage"
     | "workers"
-    | "conversion";
+    | "conversion"
+    | "equipment"
+    | "system";
