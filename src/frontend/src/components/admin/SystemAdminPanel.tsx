@@ -30,11 +30,13 @@ const SystemAdminPanel: React.FC = () => {
   const [newName, setNewName] = React.useState("");
 
   return (
-    <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/80 rounded-md min-w-[300px] max-w-[380px] pointer-events-auto max-h-[80svh] overflow-y-auto">
+    <div className="flex flex-col gap-2 text-xs text-white px-2 pb-2 bg-gray-900/80 rounded-md min-w-[300px] max-w-[380px] pointer-events-auto max-h-[80svh] overflow-y-auto">
       {/* Sticky header keeps Close (and Back, while editing) reachable no matter
           how long the editor scrolls — important on mobile where the panel fills
-          the viewport. */}
-      <div className="sticky top-0 z-10 -mx-2 -mt-2 px-2 pt-2 pb-1 flex items-center gap-2 bg-gray-900/95 border-b border-gray-700/60">
+          the viewport. The scroll container has no top padding (the header owns
+          the top) and the header is fully opaque so scrolled content never peeks
+          above it. */}
+      <div className="sticky top-0 z-10 -mx-2 px-2 pt-2 pb-1 flex items-center gap-2 bg-gray-900 border-b border-gray-700/60">
         {draft && (
           <button
             className="px-1 rounded-sm hover:bg-gray-500/40"
