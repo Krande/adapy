@@ -412,6 +412,10 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 const dir = new THREE.Vector3(dv[0], dv[1], dv[2]);
                 if (dir.lengthSq() < 1e-9) dir.set(0, 0, 1);
                 dir.normalize();
+                // direction_vector is the outward nozzle normal; draw actual
+                // flow — INPUT points into the equipment, OUTPUT points out,
+                // INOUT stays outward.
+                if (p.direction === "IN") dir.negate();
                 const arrow = new THREE.ArrowHelper(dir, origin, len, portColorInt(p), len * 0.4, len * 0.25);
                 arrow.traverse((o) => o.layers.set(1));
                 portsGroup.add(arrow);

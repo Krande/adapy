@@ -72,6 +72,18 @@ def test_route_system_endpoints_are_exact_port_positions(grid):
     assert tuple(polyline[-1]) == tuple(system.ports[-1].get_global_position())
 
 
+def test_route_system_leaves_ports_along_nozzle_normal(grid):
+    # Both ports face +Z; the run must step one grid pitch straight up out of
+    # each nozzle before turning onto the grid (issue: pipes ignored the port
+    # vector orientation).
+    system = _two_connected_equipment()
+    polyline = route_system(system, grid)
+    p_start = system.ports[0].get_global_position()  # (0, 0, 0.1), dir +Z
+    p_end = system.ports[-1].get_global_position()  # (4, 4, 0.1), dir +Z
+    assert tuple(polyline[1]) == (p_start[0], p_start[1], p_start[2] + 1.0)
+    assert tuple(polyline[-2]) == (p_end[0], p_end[1], p_end[2] + 1.0)
+
+
 def test_route_system_needs_two_ports(grid):
     eq = ada.Equipment("E1", 1.0, (0, 0, 0), (0, 0, 0), 0.1, 0.1, 0.1)
     eq.add_port(ada.Port("out", (0, 0, 0), (0, 0, 1), ada.PortDirection.OUT))

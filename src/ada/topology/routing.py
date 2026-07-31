@@ -157,17 +157,60 @@ def path_to_polyline(grid: CellGrid, path: list[GridIndex]) -> list[ada.Point]:
     return out
 
 
+def _grid_spacing(grid: CellGrid) -> float:
+    """The lattice pitch (smallest axis step). Used as the default nozzle-stub
+    length so a run leaves a port one cell along its direction before turning
+    onto the grid."""
+    steps = []
+    for vals in (grid.x_list, grid.y_list, grid.z_list):
+        if len(vals) >= 2:
+            steps.append(min(abs(b - a) for a, b in zip(vals[:-1], vals[1:])))
+    return min(steps) if steps else 0.0
+
+
+def _port_stub(port: Port, stub_len: float) -> ada.Point | None:
+    """A point ``stub_len`` along the port's (outward) direction vector from its
+    world position, or ``None`` when the port has no usable direction / stub. The
+    nozzle physically points out of the equipment body for both inlets and
+    outlets, so the stub always follows the outward normal regardless of
+    IN/OUT."""
+    p = port.get_global_position()
+    d = port.direction_vector
+    n = float((d[0] ** 2 + d[1] ** 2 + d[2] ** 2) ** 0.5)
+    if n < 1e-9 or stub_len <= 0.0:
+        return None
+    return ada.Point(p[0] + d[0] / n * stub_len, p[1] + d[1] / n * stub_len, p[2] + d[2] / n * stub_len)
+
+
+def _cap_end(pts: list[ada.Point], port_pos: ada.Point, stub: ada.Point | None, *, at_start: bool) -> None:
+    """Prepend/append the exact port position (and its nozzle stub) so the run
+    terminates at the port and leaves it along the nozzle normal. Skips points
+    that coincide with what's already there."""
+    if at_start:
+        # order at the head: port_pos, stub, <path...>
+        for p in reversed([q for q in (port_pos, stub) if q is not None]):
+            if not pts or tuple(pts[0]) != tuple(p):
+                pts.insert(0, p)
+    else:
+        # order at the tail: <path...>, stub, port_pos
+        for p in [q for q in (stub, port_pos) if q is not None]:
+            if not pts or tuple(pts[-1]) != tuple(p):
+                pts.append(p)
+
+
 def route_system(
     system: System,
     grid: CellGrid,
     rules: RoutingRules | None = None,
     start: Port | None = None,
     end: Port | None = None,
+    stub_len: float | None = None,
 ) -> list[ada.Point]:
     """Route ``system`` between two of its connected ports (defaults: first and
-    last). Port world positions are snapped to the grid for pathfinding; the
-    exact port positions cap the ends of the returned polyline. Sets
-    ``system.routed_path``."""
+    last). Each run leaves its port along the port's outward direction vector for
+    ``stub_len`` (defaults to one grid pitch) before snapping onto the grid for
+    A* pathfinding; the exact port positions cap the ends of the returned
+    polyline. Sets ``system.routed_path``."""
     if start is None or end is None:
         if len(system.ports) < 2:
             raise RoutingError(
@@ -177,10 +220,28 @@ def route_system(
         start = start if start is not None else system.ports[0]
         end = end if end is not None else system.ports[-1]
 
+    if rules is None:
+        rules = RoutingRules()
+    if stub_len is None:
+        stub_len = _grid_spacing(grid)
+    dims = (len(grid.x_list), len(grid.y_list), len(grid.z_list))
+
     p_start = start.get_global_position()
     p_end = end.get_global_position()
-    idx_start = nearest_index(grid, *p_start)
-    idx_end = nearest_index(grid, *p_end)
+
+    def _anchor(port_pos: ada.Point, stub: ada.Point | None) -> tuple[GridIndex, ada.Point | None]:
+        # Pathfind from the nozzle stub (one cell along the port normal) so the
+        # grid route leaves the port in the direction it faces — but only when
+        # that node is on-grid and the rules allow it; otherwise fall back to
+        # snapping the port itself (keeps rule-forbidden levels off-limits).
+        if stub is not None:
+            idx = nearest_index(grid, *stub)
+            if all(0 <= idx[i] < dims[i] for i in range(3)) and rules.is_allowed(idx, grid):
+                return idx, stub
+        return nearest_index(grid, *port_pos), None
+
+    idx_start, stub_start = _anchor(p_start, _port_stub(start, stub_len))
+    idx_end, stub_end = _anchor(p_end, _port_stub(end, stub_len))
 
     try:
         path = astar_route(grid, idx_start, idx_end, rules)
@@ -192,10 +253,8 @@ def route_system(
         ) from None
 
     polyline = path_to_polyline(grid, path)
-    if tuple(polyline[0]) != tuple(p_start):
-        polyline.insert(0, p_start)
-    if tuple(polyline[-1]) != tuple(p_end):
-        polyline.append(p_end)
+    _cap_end(polyline, p_start, stub_start, at_start=True)
+    _cap_end(polyline, p_end, stub_end, at_start=False)
 
     system.routed_path = polyline
     return polyline

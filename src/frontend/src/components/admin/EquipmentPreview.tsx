@@ -160,6 +160,10 @@ const EquipmentPreview: React.FC<{
             const d = toView(p.direction_vector[0], p.direction_vector[1], p.direction_vector[2]);
             if (d.lengthSq() < 1e-9) d.set(0, 1, 0);
             d.normalize();
+            // direction_vector is the outward nozzle normal; show actual flow —
+            // an INPUT arrow points *into* the equipment (negate), an OUTPUT
+            // arrow points out (as-is), INOUT stays outward.
+            if (p.direction === "IN") d.negate();
             const len = Math.max(0.15, 0.25 * Math.max(lx, ly, lz));
             const arrow = new THREE.ArrowHelper(d, origin, len, portColorInt(p), len * 0.4, len * 0.25);
             st.content.add(arrow);

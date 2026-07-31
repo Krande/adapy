@@ -1,6 +1,8 @@
 /** Port colours resolve from an explicit override when present, otherwise from
- * the port category — the same rule the preview arrow, the editor swatch/accent
- * bar and any viewer overlay share, so they always agree on a colour. */
+ * a distinct per-port colour derived from the port name (with the category as a
+ * hue anchor). The preview arrow, the editor swatch/accent bar and any viewer
+ * overlay share this rule so they always agree on a colour, and two ports on the
+ * same equipment never collide. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -9,6 +11,7 @@ import {
   portColorHex,
   hexToInt,
   portColorInt,
+  uniquePortColorHex,
 } from "../../utils/portColor";
 
 test("normalizeHex accepts #rrggbb and #rgb (any case), rejects the rest", () => {
@@ -22,18 +25,32 @@ test("normalizeHex accepts #rrggbb and #rgb (any case), rejects the rest", () =>
   assert.equal(normalizeHex(undefined), null);
 });
 
-test("portColorHex falls back to the category colour when no valid override", () => {
-  assert.equal(portColorHex({ category: "process" }), CATEGORY_COLOR_HEX.process);
-  assert.equal(portColorHex({ category: "electrical", color: null }), CATEGORY_COLOR_HEX.electrical);
-  assert.equal(portColorHex({ category: "signal", color: "not-a-color" }), CATEGORY_COLOR_HEX.signal);
+test("portColorHex without an override is a valid, deterministic per-port colour", () => {
+  const a = portColorHex({ name: "suction", category: "process" });
+  const b = portColorHex({ name: "suction", category: "process", color: null });
+  assert.match(a, /^#[0-9a-f]{6}$/);
+  assert.equal(a, b); // deterministic for the same name/category
+  assert.equal(a, uniquePortColorHex("suction", "process"));
 });
 
-test("portColorHex uses a valid override regardless of category", () => {
-  assert.equal(portColorHex({ category: "process", color: "#FF0000" }), "#ff0000");
+test("portColorHex gives distinct colours to distinct ports of the same category", () => {
+  const suction = portColorHex({ name: "suction", category: "process" });
+  const discharge = portColorHex({ name: "discharge", category: "process" });
+  assert.notEqual(suction, discharge);
+});
+
+test("portColorHex falls back to the category colour only when no name is given", () => {
+  assert.equal(portColorHex({ category: "process" } as any), CATEGORY_COLOR_HEX.process);
+  assert.equal(portColorHex({ name: "", category: "electrical" }), CATEGORY_COLOR_HEX.electrical);
+});
+
+test("portColorHex uses a valid override regardless of name/category", () => {
+  assert.equal(portColorHex({ name: "power", category: "process", color: "#FF0000" }), "#ff0000");
+  assert.equal(portColorHex({ name: "power", category: "signal", color: "not-a-color" }), uniquePortColorHex("power", "signal"));
 });
 
 test("hexToInt / portColorInt produce THREE 0xRRGGBB integers", () => {
   assert.equal(hexToInt("#38bdf8"), 0x38bdf8);
-  assert.equal(portColorInt({ category: "process" }), hexToInt(CATEGORY_COLOR_HEX.process));
-  assert.equal(portColorInt({ category: "process", color: "#010203" }), 0x010203);
+  assert.equal(portColorInt({ name: "in", category: "process", color: "#010203" }), 0x010203);
+  assert.equal(portColorInt({ name: "in", category: "process" }), hexToInt(uniquePortColorHex("in", "process")));
 });
