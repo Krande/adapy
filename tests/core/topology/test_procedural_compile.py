@@ -122,6 +122,58 @@ def test_compile_renders_routed_systems():
     assert sleeves == ["ServiceWater_pen_00_sleeve"]
 
 
+def test_compile_pipe_leaves_ports_along_nozzle_normal():
+    """The compiled run's first/last segments must follow the connected ports'
+    direction vectors (issue: pipes ignored the equipment I/O vector). Pump2
+    discharge faces +Z; Tank2 inlet faces +Z — so the pipe must rise straight
+    out of the discharge and drop straight into the inlet."""
+    import ada
+    from ada.topo_model.blueprint import SteelStru
+    from ada.topo_model.compile import _build_systems, _equipment_to_object, _space_to_box
+    from ada.topology import TopologyBuilder
+    from ada.topology.entities import TopoEquipment, TopoSpace
+
+    doc = {
+        "spaces": DOC["spaces"],
+        "equipments": [_eq("Pump2", "pump", 2, 2, 0, 1, 1, 1), _eq("Tank2", "tank", 6.5, 1.5, 0, 2, 2, 2)],
+        "systems": [
+            {
+                "NAME": "CW",
+                "TYPE": "piping",
+                "CONNECTIONS": [{"EQUIPMENT": "Pump2", "PORT": "discharge"}, {"EQUIPMENT": "Tank2", "PORT": "inlet"}],
+            }
+        ],
+    }
+    spaces = [TopoSpace(**s) for s in doc["spaces"]]
+    builder = TopologyBuilder.from_prim_boxes([_space_to_box(s) for s in spaces], blueprint=SteelStru())
+    builder.build()
+    a = builder.get_output_assembly("M")
+    objs = [_equipment_to_object(TopoEquipment(**e)) for e in doc["equipments"]]
+    emap = {o.name: o for o in objs if isinstance(o, ada.Equipment)}
+    a.add_part(ada.Part("Equipment") / objs)
+    for part in _build_systems(doc, emap, spaces, builder.cell_graph):
+        a.add_part(part)
+
+    (pipe,) = a.get_all_physical_objects(by_type=ada.Pipe)
+    pts = [tuple(round(float(v), 6) for v in p) for p in pipe.points]
+
+    discharge = emap["Pump2"].get_port("discharge")
+    inlet = emap["Tank2"].get_port("inlet")
+    assert pts[0] == tuple(round(float(v), 6) for v in discharge.get_global_position())
+    assert pts[-1] == tuple(round(float(v), 6) for v in inlet.get_global_position())
+
+    def _unit_step(a_pt, b_pt):
+        d = [b_pt[i] - a_pt[i] for i in range(3)]
+        n = sum(c * c for c in d) ** 0.5
+        assert n > 1e-9
+        return [c / n for c in d]
+
+    # first segment out of the discharge follows +Z; last segment into the inlet
+    # arrives along +Z (i.e. steps -Z out of the port going backwards).
+    assert _unit_step(pts[0], pts[1]) == pytest.approx([0.0, 0.0, 1.0], abs=1e-6)
+    assert _unit_step(pts[-1], pts[-2]) == pytest.approx([0.0, 0.0, 1.0], abs=1e-6)
+
+
 def _crossing_doc(design_rules=None):
     doc = {
         "blueprint": {"reinforce_internal_walls": True},
