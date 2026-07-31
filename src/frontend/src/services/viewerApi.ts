@@ -1076,11 +1076,16 @@ export type TypeOrigin = "code" | "catalog";
 
 /** An equipment type offered by the cellbuilder's add-equipment dropdown. */
 /** A port summary carried by an equipment dropdown option (drives the viewer's
- * missing-input overlay). */
+ * missing-input overlay and the port-glyph overlay). Position/direction_vector
+ * are equipment-local (Z-up, same frame as the box origin); `color` is an
+ * optional per-port override (see `utils/portColor`). */
 export interface TypePortSummary {
   name: string;
   direction: PortDirection;
   category: PortCategory;
+  position?: [number, number, number];
+  direction_vector?: [number, number, number];
+  color?: string | null;
 }
 
 export interface ProceduralTypeOption {

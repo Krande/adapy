@@ -227,6 +227,17 @@ def test_equipment_crud_and_conflicts(pg_client: TestClient):
         got = pg_client.get(f"/api/scopes/shared/equipment-types/{tid}").json()
         assert got["revision"] == 1 and got["doc"]["ports"][0]["name"] == "discharge"
 
+        # dropdown now projects the catalog type's port geometry (position +
+        # direction_vector), which the viewer's port-glyph overlay draws — the
+        # summary-only list_equipment_types row omits doc, so this exercises the
+        # doc-merge in the endpoint.
+        dropdown = pg_client.get("/api/scopes/shared/procedural-models/equipment-types").json()["equipment_types"]
+        entry = next(e for e in dropdown if e["slug"] == "big-pump")
+        port = entry["ports"][0]
+        assert port["name"] == "discharge"
+        assert port["position"] == [0, 0, 2] and port["direction_vector"] == [0, 0, 1]
+        assert "color" in port
+
         # cross-scope isolation
         assert pg_client.get(f"/api/scopes/user:me/equipment-types/{tid}").status_code == 404
 

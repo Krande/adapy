@@ -155,6 +155,10 @@ interface CellBuilderState {
   resultSourceName: string | null;
   /** Toggle the builder box meshes (hide to focus on the compiled structure). */
   cellsVisible: boolean;
+  /** Toggle the port/nozzle overlay: each placed equipment's input/output
+   * positions + direction vectors drawn as coloured arrows (colours match the
+   * catalog editor). Off by default. */
+  portsOverlayVisible: boolean;
   /** Blueprint compile options round-tripped as doc.blueprint (whitelisted
    * server-side), e.g. {reinforce_internal_walls: true}. */
   blueprintOptions: Record<string, unknown>;
@@ -187,6 +191,7 @@ interface CellBuilderState {
   setSelectMode: (m: SelectMode) => void;
   setPanelVisible: (v: boolean) => void;
   setCellsVisible: (v: boolean) => void;
+  setPortsOverlayVisible: (v: boolean) => void;
   setGridStep: (v: number) => void;
   setSnapThreshold: (v: number) => void;
   setAutoCompile: (v: boolean) => void;
@@ -358,6 +363,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     compileJob: null,
     resultSourceName: null,
     cellsVisible: true,
+    portsOverlayVisible: false,
     blueprintOptions: {},
     equipmentCad: false,
     designRules: "standard",
@@ -408,6 +414,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     setSelectMode: (selectMode) => set({ selectMode }),
     setPanelVisible: (panelVisible) => set({ panelVisible }),
     setCellsVisible: (cellsVisible) => set({ cellsVisible }),
+    setPortsOverlayVisible: (portsOverlayVisible) =>
+      set({ portsOverlayVisible }),
     setGridStep: (gridStep) => set({ gridStep: Math.max(0, gridStep) }),
     setSnapThreshold: (snapThreshold) =>
       set({ snapThreshold: Math.max(0, snapThreshold) }),

@@ -2653,8 +2653,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Equipment types for the cellbuilder's add-equipment dropdown: the
         union of code-defined archetypes (advertised by live workers) and the
         per-scope DB catalog, each tagged with its ``origin`` (``code`` or
-        ``catalog``) and its port summary (name/direction/category — used by the
-        viewer's missing-input overlay). A slug present in both is shown as
+        ``catalog``) and its port list (name/direction/category plus local
+        position/direction_vector/colour — used by the viewer's missing-input
+        overlay and the port-glyph overlay). A slug present in both is shown as
         ``catalog`` — the editable copy shadows the built-in."""
 
         def _ports_of(doc: dict | None) -> list[dict]:
@@ -2666,6 +2667,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             "name": p["name"],
                             "direction": p.get("direction", "INOUT"),
                             "category": p.get("category", "process"),
+                            "position": p.get("position") or [0.0, 0.0, 0.0],
+                            "direction_vector": p.get("direction_vector") or [0.0, 0.0, 1.0],
+                            "color": p.get("color"),
                         }
                     )
             return out
@@ -2682,6 +2686,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
         pool = getattr(request.app.state, "db_pool", None)
         if pool is not None:
+            # ``list_equipment_types`` returns summary rows only (no ``doc``), so
+            # fetch the docs separately to project each catalog type's ports.
+            docs_by_slug = await db_module.get_equipment_docs_by_scope(
+                pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id
+            )
             for t in await db_module.list_equipment_types(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id):
                 slug = t.get("slug")
                 if isinstance(slug, str) and slug:
@@ -2690,7 +2699,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "name": t.get("name") or slug,
                         "origin": "catalog",
                         "id": t["id"],
-                        "ports": _ports_of(t.get("doc")),
+                        "ports": _ports_of(docs_by_slug.get(slug)),
                     }
         types = sorted(by_slug.values(), key=lambda x: x["name"].lower())
         return JSONResponse({"equipment_types": types})

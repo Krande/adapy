@@ -7,7 +7,9 @@ import {LineMaterial} from "three/examples/jsm/lines/LineMaterial";
 import {cameraRef, controlsRef, rendererRef, sceneRef} from "@/state/refs";
 import {requestRender} from "@/state/perfStore";
 import {useModelState} from "@/state/modelState";
-import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
+import type {ProceduralTypeOption, TypePortSummary} from "@/services/viewerApi";
+import {portColorInt} from "@/utils/portColor";
 import {
     applyFaceOffset,
     BOX_FACE_SIDES,
@@ -95,6 +97,19 @@ function lineParamFromRay(ray: THREE.Ray, lineOrigin: THREE.Vector3, lineDir: TH
     return (e - b * d) / denom;
 }
 
+// Ports for a placed equipment cell, looked up from the fetched type options.
+// The store's link is loose — cell.equipmentType is a display name string (the
+// entity DESCRIPTION), not a hard slug — so reconcile by slug first, then by
+// name (case-insensitive). Cells that aren't equipment, or types without port
+// geometry, yield [].
+function portsForEquipment(cell: BuilderCell, types: ProceduralTypeOption[]): TypePortSummary[] {
+    if (cell.kind !== "equipment" || !cell.equipmentType) return [];
+    const key = cell.equipmentType.toLowerCase();
+    const t =
+        types.find((o) => o.slug.toLowerCase() === key) ?? types.find((o) => o.name.toLowerCase() === key);
+    return t?.ports ?? [];
+}
+
 function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): () => void {
     const container = new THREE.Group();
     container.name = "__cellbuilder__";
@@ -105,6 +120,13 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // without touching the ghost or the builder grid.
     const cellsGroup = new THREE.Group();
     container.add(cellsGroup);
+
+    // Port/nozzle overlay: coloured arrows at each placed equipment's I/O
+    // positions/vectors. Its own subgroup (toggled independently of the cells)
+    // and inherits the container's model offset so glyphs align with the
+    // compiled structure.
+    const portsGroup = new THREE.Group();
+    container.add(portsGroup);
 
     // Loaded GLBs are shifted by modelState.translation (bbox centering +
     // z-lift). The builder authors model-space coordinates, so the container
@@ -343,6 +365,59 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         ghost.visible = false;
         ghostBox = null;
         refreshFaceStyles();
+    };
+
+    // ArrowHelper owns a Line (non-LineSegments) + a Mesh; the generic
+    // container-dispose loop only frees meshes/line-segments, so free both parts
+    // explicitly here.
+    const disposeArrow = (a: THREE.ArrowHelper) => {
+        a.line.geometry.dispose();
+        (a.line.material as THREE.Material).dispose();
+        a.cone.geometry.dispose();
+        (a.cone.material as THREE.Material).dispose();
+    };
+
+    const clearPorts = () => {
+        for (let i = portsGroup.children.length - 1; i >= 0; i--) {
+            const o = portsGroup.children[i];
+            if (o instanceof THREE.ArrowHelper) disposeArrow(o);
+            portsGroup.remove(o);
+        }
+    };
+
+    // Redraw the port overlay from the placed equipment cells. Each port becomes
+    // a coloured arrow at (cell centre in x/y, cell base in z) + local position,
+    // matching the compiler's equipment origin (X+LX/2, Y+LY/2, Z) and the
+    // catalog preview's arrow colours. Arrows sit on layer 1 so they never
+    // intercept picks.
+    const rebuildPorts = () => {
+        clearPorts();
+        const st = useCellBuilderStore.getState();
+        portsGroup.visible = st.portsOverlayVisible;
+        if (!st.active || !st.portsOverlayVisible) {
+            requestRender();
+            return;
+        }
+        for (const cell of Object.values(st.cells)) {
+            const ports = portsForEquipment(cell, st.equipmentTypes);
+            if (!ports.length) continue;
+            const len = Math.max(0.2, 0.3 * Math.max(cell.size[0], cell.size[1], cell.size[2]));
+            const cx = cell.origin[0] + cell.size[0] / 2;
+            const cy = cell.origin[1] + cell.size[1] / 2;
+            const cz = cell.origin[2];
+            for (const p of ports) {
+                const pos = p.position ?? [0, 0, 0];
+                const dv = p.direction_vector ?? [0, 0, 1];
+                const origin = new THREE.Vector3(cx + pos[0], cy + pos[1], cz + pos[2]);
+                const dir = new THREE.Vector3(dv[0], dv[1], dv[2]);
+                if (dir.lengthSq() < 1e-9) dir.set(0, 0, 1);
+                dir.normalize();
+                const arrow = new THREE.ArrowHelper(dir, origin, len, portColorInt(p), len * 0.4, len * 0.25);
+                arrow.traverse((o) => o.layers.set(1));
+                portsGroup.add(arrow);
+            }
+        }
+        requestRender();
     };
 
     const setPointer = (ev: PointerEvent) => {
@@ -662,10 +737,19 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     window.addEventListener("keydown", onKeyDown);
 
     rebuild();
+    rebuildPorts();
     syncBuilderGrid();
     const unsub = useCellBuilderStore.subscribe((s, prev) => {
         if (s.cells !== prev.cells || s.active !== prev.active) rebuild();
         else if (s.selection !== prev.selection) refreshFaceStyles();
+        if (
+            s.cells !== prev.cells ||
+            s.active !== prev.active ||
+            s.portsOverlayVisible !== prev.portsOverlayVisible ||
+            s.equipmentTypes !== prev.equipmentTypes
+        ) {
+            rebuildPorts();
+        }
         if (s.active !== prev.active || s.gridStep !== prev.gridStep) syncBuilderGrid();
         if (s.cellsVisible !== prev.cellsVisible) {
             cellsGroup.visible = s.cellsVisible;
@@ -694,6 +778,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         hiddenDefaultGrids.forEach((g) => (g.visible = true));
         hiddenDefaultGrids.length = 0;
         disposeBuilderGrid();
+        clearPorts();
         for (let i = container.children.length - 1; i >= 0; i--) {
             const o = container.children[i];
             o.traverse((m: any) => {
