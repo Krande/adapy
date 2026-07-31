@@ -19,16 +19,20 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
 
-def write_ifc_beam(ifc_store: IfcStore, beam: Beam):
+def write_ifc_beam(ifc_store: IfcStore, beam: Beam, entity_class: str = "IfcBeam"):
     ibw = IfcBeamWriter(ifc_store)
-    return ibw.create_ifc_beam(beam)
+    return ibw.create_ifc_beam(beam, entity_class=entity_class)
 
 
 @dataclass
 class IfcBeamWriter:
     ifc_store: IfcStore
 
-    def create_ifc_beam(self, beam: Beam):
+    def create_ifc_beam(self, beam: Beam, entity_class: str = "IfcBeam"):
+        """Write ``beam`` as ``entity_class`` (default ``IfcBeam``). A routed
+        duct/cable-tray run reuses this with ``IfcDuctSegment``/
+        ``IfcCableSegment`` so its straight box/channel segments become proper
+        distribution flow elements rather than structural beams."""
         if beam.parent is None:
             raise ValueError("Parent cannot be None for IFC export")
 
@@ -49,7 +53,7 @@ class IfcBeamWriter:
         prod_def_shp = f.create_entity("IfcProductDefinitionShape", None, None, (axis, body))
 
         ifc_beam = f.create_entity(
-            "IfcBeam",
+            entity_class,
             GlobalId=beam.guid,
             OwnerHistory=owner_history,
             Name=beam.name,

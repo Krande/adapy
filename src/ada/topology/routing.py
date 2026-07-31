@@ -201,33 +201,61 @@ def route_system(
     return polyline
 
 
+def _route_beam_run(name: str, path: list, sec, segment_ifc_class: str) -> list:
+    """A routed run as one straight :class:`ada.Beam` per polyline segment. Used
+    for ducts and cable trays: their box/channel cross-sections cannot be swept
+    around :class:`ada.Pipe`'s revolved elbows (OCC fails to build a non-circular
+    elbow), and — unlike piping — ducting really is a sequence of straight runs
+    with fittings rather than a continuous bent tube. Segments are named
+    ``<name>_<i>`` so the frontend's route matcher still finds them."""
+    beams = []
+    idx = 0
+    for p1, p2 in zip(path[:-1], path[1:]):
+        if tuple(p1) == tuple(p2):
+            continue  # skip zero-length segments (duplicated route vertices)
+        beams.append(ada.Beam(f"{name}_{idx}", p1, p2, sec=sec, metadata={"segment_ifc_class": segment_ifc_class}))
+        idx += 1
+    return beams
+
+
 def system_route_to_geometry(system: System, name: str | None = None) -> list:
-    """Turn ``system.routed_path`` into adapy geometry appended to
-    ``system.route_geometry``. Piping gets a real pipe; cable/duct runs use a
-    small-radius pipe as carrier geometry (their IFC entity class still follows
-    the system category via ``segment_ifc_class`` metadata)."""
+    """Turn ``system.routed_path`` into realistic adapy geometry appended to
+    ``system.route_geometry``. Each service gets a cross-section that reads as
+    itself rather than a generic pipe:
+
+    * piping → a round ``PIPE`` tube with elbows (one :class:`ada.Pipe`),
+    * ducting → a rectangular ``BOX`` duct (straight :class:`ada.Beam` runs),
+    * cable/electrical → an open ``UNP`` cable tray (straight :class:`ada.Beam`
+      runs).
+
+    Only piping reuses :class:`ada.Pipe` — its circular profile and revolved
+    elbows are pipe-specific. Ducts and cable trays are modelled as straight
+    beam segments (adapy's general swept-profile element), which both matches
+    how those services are actually built and avoids the degenerate non-circular
+    elbow. The IFC entity class still follows the service via
+    ``segment_ifc_class`` metadata."""
     from ada.api.systems.base import CableSystem, DuctSystem, PipingSystem
 
     if system.routed_path is None:
         raise RoutingError(f"system {system.name!r} has no routed path; call route_system first")
 
     name = name if name is not None else f"{system.name}_route"
-    if isinstance(system, PipingSystem):
-        radius, wt = system.pipe_radius, system.pipe_wt
-        segment_ifc_class = "IfcPipeSegment"
-    elif isinstance(system, CableSystem):  # covers ElectricalSystem
-        radius, wt = 0.02, 2e-3
-        segment_ifc_class = "IfcCableSegment"
-    elif isinstance(system, DuctSystem):
-        radius, wt = 0.1, 2e-3
-        segment_ifc_class = "IfcDuctSegment"
-    else:
-        radius, wt = 0.02, 2e-3
-        segment_ifc_class = "IfcPipeSegment"
+    path = system.routed_path
 
-    sec = ada.Section(f"{name}_sec", "PIPE", r=radius, wt=wt)
-    pipe = ada.Pipe(name, system.routed_path, sec, metadata={"segment_ifc_class": segment_ifc_class})
-    system.route_geometry.append(pipe)
+    if isinstance(system, DuctSystem):
+        w, h, t = system.duct_width, system.duct_height, system.wall
+        sec = ada.Section(f"{name}_sec", "BOX", h=h, w_top=w, w_btn=w, t_w=t, t_ftop=t, t_fbtn=t)
+        system.route_geometry.extend(_route_beam_run(name, path, sec, "IfcDuctSegment"))
+    elif isinstance(system, CableSystem):  # covers ElectricalSystem
+        w, h, t = system.tray_width, system.tray_height, system.wall
+        sec = ada.Section(f"{name}_sec", "UNP", h=h, w_top=w, w_btn=w, t_w=t, t_ftop=t, t_fbtn=t)
+        system.route_geometry.extend(_route_beam_run(name, path, sec, "IfcCableSegment"))
+    elif isinstance(system, PipingSystem):
+        sec = ada.Section(f"{name}_sec", "PIPE", r=system.pipe_radius, wt=system.pipe_wt)
+        system.route_geometry.append(ada.Pipe(name, path, sec, metadata={"segment_ifc_class": "IfcPipeSegment"}))
+    else:
+        sec = ada.Section(f"{name}_sec", "PIPE", r=0.02, wt=2e-3)
+        system.route_geometry.append(ada.Pipe(name, path, sec, metadata={"segment_ifc_class": "IfcPipeSegment"}))
     return system.route_geometry
 
 

@@ -91,11 +91,32 @@ def test_system_route_to_geometry(grid):
 
 
 def test_cable_system_route_geometry_class(grid):
+    from ada.sections.categories import BaseTypes
+
     eq1 = ada.Equipment("E1", 1.0, (0, 0, 0), (0, 0, 0), 0.1, 0.1, 0.1)
     eq2 = ada.Equipment("E2", 1.0, (0, 0, 0), (4, 0, 0), 0.1, 0.1, 0.1)
     eq1.add_port(ada.Port("a", (0, 0, 0), (0, 0, 1), ada.PortDirection.INOUT, "signal"))
     eq2.add_port(ada.Port("b", (0, 0, 0), (0, 0, 1), ada.PortDirection.INOUT, "signal"))
     system = ada.CableSystem("Sig").connect(eq1, "a").connect(eq2, "b")
     system.route(grid)
-    (pipe,) = system.route_geometry
-    assert pipe.metadata["segment_ifc_class"] == "IfcCableSegment"
+    # A cable tray is an open UNP channel run of straight beams, not a pipe.
+    beams = system.route_geometry
+    assert beams and all(isinstance(b, ada.Beam) for b in beams)
+    assert all(b.section.type == BaseTypes.CHANNEL for b in beams)
+    assert beams[0].metadata["segment_ifc_class"] == "IfcCableSegment"
+
+
+def test_duct_system_route_geometry_class(grid):
+    from ada.sections.categories import BaseTypes
+
+    eq1 = ada.Equipment("E1", 1.0, (0, 0, 0), (0, 0, 0), 0.1, 0.1, 0.1)
+    eq2 = ada.Equipment("E2", 1.0, (0, 0, 0), (4, 0, 0), 0.1, 0.1, 0.1)
+    eq1.add_port(ada.Port("a", (0, 0, 0), (0, 0, 1), ada.PortDirection.INOUT, "process"))
+    eq2.add_port(ada.Port("b", (0, 0, 0), (0, 0, 1), ada.PortDirection.INOUT, "process"))
+    system = ada.DuctSystem("Air").connect(eq1, "a").connect(eq2, "b")
+    system.route(grid)
+    # A duct is a rectangular BOX run of straight beams, not a pipe.
+    beams = system.route_geometry
+    assert beams and all(isinstance(b, ada.Beam) for b in beams)
+    assert all(b.section.type == BaseTypes.BOX for b in beams)
+    assert beams[0].metadata["segment_ifc_class"] == "IfcDuctSegment"

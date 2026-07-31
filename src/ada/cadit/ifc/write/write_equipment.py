@@ -169,20 +169,81 @@ def _resolve_port_entity(ifc_store: IfcStore, port: Port) -> ifcopenshell.entity
     return None
 
 
+def _write_beam_run_distribution_system(ifc_store: IfcStore, system: System, beams: list) -> ifcopenshell.entity_instance:
+    """Write a routed duct/cable-tray run (straight :class:`ada.Beam` segments)
+    as a proper IFC distribution system: each beam becomes its
+    ``segment_ifc_class`` flow element (IfcDuctSegment / IfcCableSegment),
+    contained in the spatial structure and grouped by an IfcDistributionSystem
+    (which services that spatial element). Mirrors ``write_ifc_pipe`` for the
+    beam-based services. The system carries the first segment's GUID so the
+    resolve-by-route-geometry lookup keeps working."""
+    from ada.cadit.ifc.write.write_beams import IfcBeamWriter
+    from ada.cadit.ifc.write.write_pipe import _resolve_spatial_parent
+
+    f = ifc_store.f
+    owner_history = ifc_store.owner_history
+    spatial = _resolve_spatial_parent(ifc_store, beams[0].parent)
+
+    writer = IfcBeamWriter(ifc_store)
+    segments = []
+    for beam in beams:
+        seg_class = (beam.metadata or {}).get("segment_ifc_class", "IfcDuctSegment")
+        segments.append(writer.create_ifc_beam(beam, entity_class=seg_class))
+
+    ifc_store.writer.add_related_elements_to_spatial_container(segments, spatial.GlobalId)
+
+    ifc_system = f.create_entity(
+        "IfcDistributionSystem", beams[0].guid, owner_history, system.name, None, None, None, "NOTDEFINED"
+    )
+    f.create_entity(
+        "IfcRelAssignsToGroup",
+        create_guid(),
+        owner_history,
+        system.name,
+        None,
+        RelatedObjects=segments,
+        RelatingGroup=ifc_system,
+    )
+    f.create_entity(
+        "IfcRelServicesBuildings",
+        create_guid(),
+        owner_history,
+        system.name,
+        None,
+        RelatingSystem=ifc_system,
+        RelatedBuildings=[spatial],
+    )
+    return ifc_system
+
+
+def _resolve_distribution_system(ifc_store: IfcStore, system: System) -> ifcopenshell.entity_instance | None:
+    """The IfcDistributionSystem for ``system``: the one a route pipe already
+    wrote, or a fresh one built from the route's beam segments (ducts/cable
+    trays). ``None`` if the system has no written route geometry."""
+    from ada import Beam
+
+    for geom in system.route_geometry:
+        ent = _get_by_guid_or_none(ifc_store, geom.guid)
+        if ent is not None and ent.is_a("IfcDistributionSystem"):
+            return ent
+    beams = [g for g in system.route_geometry if isinstance(g, Beam)]
+    if beams:
+        return _write_beam_run_distribution_system(ifc_store, system, beams)
+    return None
+
+
 def write_ifc_systems(ifc_store: IfcStore, systems: list[System]) -> int:
-    """Fold each System onto its route pipe's IfcDistributionSystem: system
-    name + PredefinedType, equipment membership, and IfcRelConnectsPorts
-    between the routed run's endpoint ports."""
+    """Fold each System onto its route's IfcDistributionSystem: system name +
+    PredefinedType, equipment membership, and IfcRelConnectsPorts between the
+    routed run's endpoint ports. Piping runs reuse the IfcDistributionSystem the
+    pipe writer produced; duct/cable-tray runs (beam segments) get one written
+    here."""
     f = ifc_store.f
     num = 0
     for system in systems:
-        ifc_system = None
-        for pipe in system.route_geometry:
-            ifc_system = _get_by_guid_or_none(ifc_store, pipe.guid)
-            if ifc_system is not None:
-                break
+        ifc_system = _resolve_distribution_system(ifc_store, system)
         if ifc_system is None or not ifc_system.is_a("IfcDistributionSystem"):
-            logger.warning(f"System {system.name!r} has no written route pipe; skipping IFC system grouping")
+            logger.warning(f"System {system.name!r} has no written route geometry; skipping IFC system grouping")
             continue
 
         ifc_system.Name = system.name

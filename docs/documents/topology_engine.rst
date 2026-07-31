@@ -125,8 +125,10 @@ its bends:
 
 Rules are pluggable: ``is_allowed`` / ``move_cost`` callables plus elevation
 and bend penalties. ``system.route(...)`` also generates the route geometry
-(``ada.Pipe`` for piping; a carrier pipe tagged as cable/duct for the other
-categories). For blueprint-driven routing, subclass
+matched to the service: a round ``ada.Pipe`` run (with auto-inserted elbows)
+for piping, a rectangular BOX ``ada.Beam`` run for ducting, and an open
+UNP-channel ``ada.Beam`` run for cable trays / electrical. For
+blueprint-driven routing, subclass
 :class:`~ada.topology.routing.RoutingBlueprintBase` and override ``rules_for``
 per system and/or ``build_routing_grid``.
 

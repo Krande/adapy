@@ -126,7 +126,17 @@ class IfcWriter:
         # This avoids brittle f.by_guid(obj.guid) lookups (which can fail for some object types).
         created_ifc_by_obj_guid: dict[str, object] = {}
 
+        from ada import Beam as _Beam
+
         for i, to_be_added in enumerate(new_objects, start=1):
+            # A routed duct/cable-tray run is a set of Beams tagged with a
+            # segment_ifc_class; they are written as grouped IfcDuctSegment/
+            # IfcCableSegment distribution elements in sync_systems, not as plain
+            # structural IfcBeams here.
+            if isinstance(to_be_added, _Beam) and (to_be_added.metadata or {}).get("segment_ifc_class"):
+                to_be_added.change_type = ChangeAction.NOCHANGE
+                continue
+
             self.eval_validity(to_be_added, mat_map, rel_mats_map)
 
             ifc_elem = self.add(to_be_added)

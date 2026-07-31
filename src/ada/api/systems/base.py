@@ -130,17 +130,50 @@ class PipingSystem(System):
 
 
 class DuctSystem(System):
+    """Routed HVAC/process ducting. Rendered as a rectangular duct (a BOX
+    cross-section swept along the route), not a round pipe."""
+
     category: ClassVar[PortCategory] = "process"
+
+    def __init__(
+        self,
+        name: str,
+        medium: str | None = None,
+        metadata: dict | None = None,
+        duct_width: float = 0.4,
+        duct_height: float = 0.3,
+        wall: float = 2e-3,
+    ):
+        super().__init__(name, medium=medium, metadata=metadata)
+        self.duct_width = duct_width
+        self.duct_height = duct_height
+        self.wall = wall
 
 
 class CableSystem(System):
-    """Routed cable/tray carrier for signal services."""
+    """Routed cable-tray carrier for signal services. Rendered as an open cable
+    tray (a CHANNEL cross-section swept along the route), not a round pipe."""
 
     category: ClassVar[PortCategory] = "signal"
 
+    def __init__(
+        self,
+        name: str,
+        medium: str | None = None,
+        metadata: dict | None = None,
+        tray_width: float = 0.3,
+        tray_height: float = 0.1,
+        wall: float = 3e-3,
+    ):
+        super().__init__(name, medium=medium, metadata=metadata)
+        self.tray_width = tray_width
+        self.tray_height = tray_height
+        self.wall = wall
+
 
 class ElectricalSystem(CableSystem):
-    """Cable system carrying electrical power at a given supply voltage."""
+    """Cable system carrying electrical power at a given supply voltage. Shares
+    the cable-tray geometry of :class:`CableSystem`."""
 
     category: ClassVar[PortCategory] = "electrical"
 
@@ -150,8 +183,18 @@ class ElectricalSystem(CableSystem):
         medium: str | None = None,
         metadata: dict | None = None,
         voltage: Voltage = Voltage.LV_400,
+        tray_width: float = 0.3,
+        tray_height: float = 0.1,
+        wall: float = 3e-3,
     ):
-        super().__init__(name, medium=medium, metadata=metadata)
+        super().__init__(
+            name,
+            medium=medium,
+            metadata=metadata,
+            tray_width=tray_width,
+            tray_height=tray_height,
+            wall=wall,
+        )
         self.voltage = voltage
 
 
