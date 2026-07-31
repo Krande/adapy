@@ -4,7 +4,8 @@ import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 import CameraControls from "camera-controls";
 import {ungzip} from "pako";
 
-import {viewerApi, type CatalogPort, type EquipmentTypeDoc} from "@/services/viewerApi";
+import {viewerApi, type EquipmentTypeDoc} from "@/services/viewerApi";
+import {portColorInt} from "@/utils/portColor";
 
 // A self-contained sidecar viewer for an equipment type: the bounding box as a
 // faint wireframe, each port as a coloured nozzle arrow (updates live as the
@@ -15,12 +16,6 @@ import {viewerApi, type CatalogPort, type EquipmentTypeDoc} from "@/services/vie
 // is identical (and not the hand-rolled camera that used to break on resize).
 
 CameraControls.install({THREE: THREE});
-
-const CATEGORY_COLOR: Record<CatalogPort["category"], number> = {
-    process: 0x38bdf8, // cyan
-    electrical: 0xf59e0b, // amber
-    signal: 0xec4899, // pink
-};
 
 async function fetchPreviewGltf(scope: string, key: string): Promise<THREE.Group | null> {
     const buf = await viewerApi.getBlob(scope, key);
@@ -166,7 +161,7 @@ const EquipmentPreview: React.FC<{
             if (d.lengthSq() < 1e-9) d.set(0, 1, 0);
             d.normalize();
             const len = Math.max(0.15, 0.25 * Math.max(lx, ly, lz));
-            const arrow = new THREE.ArrowHelper(d, origin, len, CATEGORY_COLOR[p.category], len * 0.4, len * 0.25);
+            const arrow = new THREE.ArrowHelper(d, origin, len, portColorInt(p), len * 0.4, len * 0.25);
             st.content.add(arrow);
         }
 

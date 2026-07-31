@@ -9,6 +9,7 @@ import type {
 } from "@/services/viewerApi";
 import EquipmentPreview from "./EquipmentPreview";
 import FilePickerModal from "@/components/common/FilePickerModal";
+import { portColorHex, normalizeHex } from "@/utils/portColor";
 
 // CAD-asset extensions the equipment catalog can read/infer a bbox from —
 // mirrors the upload picker's accept list.
@@ -106,9 +107,38 @@ const PortEditor: React.FC<{ port: CatalogPort; index: number }> = ({
 }) => {
   const updatePort = useEquipmentCatalogStore((s) => s.updatePort);
   const removePort = useEquipmentCatalogStore((s) => s.removePort);
+  const color = portColorHex(port);
+  const hasOverride = normalizeHex(port.color) !== null;
   return (
-    <div className="flex flex-col gap-1 p-1.5 rounded-sm bg-gray-800/70 border border-gray-700">
+    <div
+      className="flex flex-col gap-1 p-1.5 rounded-sm bg-gray-800/70 border border-gray-700 border-l-4"
+      // Left accent bar tints the whole card in the port's colour so the info
+      // section reads back the same colour as its arrow in the 3D preview.
+      style={{ borderLeftColor: color }}
+    >
       <div className="flex items-center gap-1">
+        {/* Colour swatch — click to override this port's colour; the swatch and
+            accent bar update live and drive the preview arrow. */}
+        <input
+          type="color"
+          className="w-5 h-5 shrink-0 rounded-sm bg-transparent border border-gray-600 cursor-pointer p-0"
+          value={color}
+          title={
+            hasOverride
+              ? "Port colour (overridden) — click to change"
+              : `Port colour (from ${port.category}) — click to override`
+          }
+          onChange={(e) => updatePort(index, { color: e.target.value })}
+        />
+        {hasOverride && (
+          <button
+            className="px-1 rounded-sm bg-gray-600/60 hover:bg-gray-500 text-white shrink-0"
+            title="Reset to category colour"
+            onClick={() => updatePort(index, { color: null })}
+          >
+            ↺
+          </button>
+        )}
         <input
           className={inputCls}
           value={port.name}

@@ -1117,6 +1117,9 @@ export interface CatalogPort {
   direction_vector: [number, number, number];
   direction: PortDirection;
   category: PortCategory;
+  /** Optional per-port colour override (`#rrggbb`). When absent the colour is
+   * derived from `category` (see `utils/portColor`). */
+  color?: string | null;
 }
 
 export interface EquipmentTypeDoc {

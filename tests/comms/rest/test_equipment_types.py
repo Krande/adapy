@@ -98,10 +98,22 @@ def test_validate_equipment_doc_normalizes_and_rejects():
     )
     assert out["bbox"] == {"lx": 2.0, "ly": 1.0, "lz": 3.0}
     assert out["ports"][0]["category"] == "process"  # defaulted
+    assert out["ports"][0]["color"] is None  # no override → derived from category client-side
     with pytest.raises(ValueError):
         validate_equipment_doc({"ports": [{"name": "a"}, {"name": "a"}]})  # dup port
     with pytest.raises(ValueError):
         validate_equipment_doc({"ports": [{"name": "x", "direction": "SIDEWAYS"}]})  # bad direction
+
+
+def test_validate_equipment_doc_port_color():
+    # A valid override is normalized to lowercase and survives the round-trip
+    # (extra fields would otherwise be dropped by pydantic).
+    out = validate_equipment_doc(
+        {"ports": [{"name": "p", "color": "#38BDF8"}]},
+    )
+    assert out["ports"][0]["color"] == "#38bdf8"
+    with pytest.raises(ValueError):
+        validate_equipment_doc({"ports": [{"name": "p", "color": "red"}]})  # not #rrggbb
 
 
 def test_validate_system_doc():

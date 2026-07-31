@@ -100,11 +100,13 @@ def slugify(value: str) -> str:
 
 @lru_cache(maxsize=1)
 def _equipment_doc_model():
+    import re
     from typing import List, Literal, Optional
 
-    from pydantic import BaseModel, Field, conlist
+    from pydantic import BaseModel, Field, conlist, field_validator
 
     Vec3 = conlist(float, min_length=3, max_length=3)
+    _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
     class CatalogPort(BaseModel):
         name: str
@@ -112,6 +114,19 @@ def _equipment_doc_model():
         direction_vector: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 1.0])
         direction: Literal["IN", "OUT", "INOUT"] = "INOUT"
         category: Literal["process", "electrical", "signal"] = "process"
+        # Optional per-port colour override as ``#rrggbb``; ``None`` means the
+        # frontend derives the colour from ``category``.
+        color: Optional[str] = None
+
+        @field_validator("color")
+        @classmethod
+        def _check_color(cls, v):
+            if v is None:
+                return v
+            v = v.strip().lower()
+            if not _HEX_RE.match(v):
+                raise ValueError(f"color must be a '#rrggbb' hex string, got {v!r}")
+            return v
 
     class BBox(BaseModel):
         lx: float = 1.0
