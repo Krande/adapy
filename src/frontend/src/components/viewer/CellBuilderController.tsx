@@ -134,6 +134,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // compiled structure.
     const portsGroup = new THREE.Group();
     container.add(portsGroup);
+    // Shared unit-sphere for the nozzle-position markers (scaled per port);
+    // per-port materials carry the port colour. Freed once at cleanup.
+    const portMarkerGeom = new THREE.SphereGeometry(1, 12, 8);
 
     // Loaded GLBs are shifted by modelState.translation (bbox centering +
     // z-lift). The builder authors model-space coordinates, so the container
@@ -388,6 +391,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         for (let i = portsGroup.children.length - 1; i >= 0; i--) {
             const o = portsGroup.children[i];
             if (o instanceof THREE.ArrowHelper) disposeArrow(o);
+            // Nozzle markers share portMarkerGeom (freed at cleanup) but own
+            // their material.
+            else if (o instanceof THREE.Mesh) (o.material as THREE.Material).dispose();
             portsGroup.remove(o);
         }
     };
@@ -415,17 +421,39 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             for (const p of ports) {
                 const pos = p.position ?? [0, 0, 0];
                 const dv = p.direction_vector ?? [0, 0, 1];
-                const origin = new THREE.Vector3(cx + pos[0], cy + pos[1], cz + pos[2]);
+                // The nozzle position: where the port physically attaches.
+                const nozzle = new THREE.Vector3(cx + pos[0], cy + pos[1], cz + pos[2]);
+                const color = portColorInt(p);
+                // direction_vector is the outward nozzle normal; the arrow shows
+                // actual flow — INPUT points into the equipment, OUTPUT points
+                // out, INOUT stays outward.
                 const dir = new THREE.Vector3(dv[0], dv[1], dv[2]);
                 if (dir.lengthSq() < 1e-9) dir.set(0, 0, 1);
                 dir.normalize();
-                // direction_vector is the outward nozzle normal; draw actual
-                // flow — INPUT points into the equipment, OUTPUT points out,
-                // INOUT stays outward.
                 if (p.direction === "IN") dir.negate();
-                const arrow = new THREE.ArrowHelper(dir, origin, len, portColorInt(p), len * 0.4, len * 0.25);
+                // Keep the whole arrow OUTSIDE the equipment box so it stays
+                // visible, and always land a marker at the nozzle position.
+                // Outward flow (OUT/INOUT): tail at the nozzle, tip points out.
+                // Inward flow (IN): offset the tail outward by `len` so the TIP
+                // lands exactly on the nozzle position and the shaft sits
+                // outside the box rather than disappearing inside it.
+                const tail =
+                    p.direction === "IN"
+                        ? nozzle.clone().addScaledVector(dir, -len)
+                        : nozzle;
+                const arrow = new THREE.ArrowHelper(dir, tail, len, color, len * 0.4, len * 0.25);
                 arrow.traverse((o) => o.layers.set(1));
                 portsGroup.add(arrow);
+                // Nozzle-position marker: a small sphere at the attachment point
+                // so the position is shown independently of the arrow tip.
+                const marker = new THREE.Mesh(
+                    portMarkerGeom,
+                    new THREE.MeshBasicMaterial({color}),
+                );
+                marker.position.copy(nozzle);
+                marker.scale.setScalar(len * 0.08);
+                marker.layers.set(1);
+                portsGroup.add(marker);
             }
         }
         requestRender();
@@ -1049,6 +1077,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         hiddenDefaultGrids.length = 0;
         disposeBuilderGrid();
         clearPorts();
+        portMarkerGeom.dispose();
         for (let i = container.children.length - 1; i >= 0; i--) {
             const o = container.children[i];
             o.traverse((m: any) => {

@@ -15,6 +15,9 @@ import { axisLabel, BOX_FACE_SIDES } from "@/utils/cellbuilder/snap";
 
 const btn =
   "px-2 py-1 rounded-sm bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-500";
+// Compact touch-target button for the model-wide toggle row.
+const smallBtn =
+  "px-2 py-1 rounded-sm bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-40";
 const inputCls =
   "text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5";
 
@@ -199,6 +202,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
   const applyFaceExtension = useCellBuilderStore((s) => s.applyFaceExtension);
   const setEdgeLength = useCellBuilderStore((s) => s.setEdgeLength);
   const setCellParam = useCellBuilderStore((s) => s.setCellParam);
+  const renameCell = useCellBuilderStore((s) => s.renameCell);
   const gizmoMode = useCellBuilderStore((s) => s.gizmoMode);
   const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
   const [open, setOpen] = React.useState(true);
@@ -332,6 +336,24 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
           )}
           {selection.kind === "cell" && (
             <div className="flex flex-col gap-1">
+              <label className="flex items-center gap-1">
+                <span className="text-gray-300">name</span>
+                <input
+                  type="text"
+                  className={`${inputCls} flex-1 min-w-0`}
+                  defaultValue={cell.name}
+                  key={cell.id + cell.name}
+                  onBlur={(e) => renameCell(cell.id, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                  }}
+                  title={
+                    cell.kind === "equipment"
+                      ? "Renaming rewrites this equipment's system connections too"
+                      : "Cell name"
+                  }
+                />
+              </label>
               <div className="text-gray-400">
                 origin {cell.origin.map((v) => v.toFixed(2)).join(", ")} · size{" "}
                 {cell.size.map((v) => v.toFixed(2)).join(", ")}
@@ -352,6 +374,122 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
   );
 };
 
+// Model-wide controls duplicated here so the mobile UI can drive the whole
+// procedural model from the Selected Object Info panel without reaching for the
+// (desktop-oriented) tool panel: model name/revision, undo/redo, the visibility
+// toggles (cells / ports / compiled result) and commit/compile.
+const ModelActions: React.FC = () => {
+  const s = useCellBuilderStore();
+  const compileState = s.compileJob;
+  const compileBusy =
+    compileState != null &&
+    (compileState.status === "queued" || compileState.status === "running");
+  const resultReady =
+    compileState != null &&
+    (compileState.status === "done" || compileState.status === "cached");
+  const [open, setOpen] = React.useState(true);
+  return (
+    <div className="border-t border-gray-600/60 pt-1">
+      <button
+        className="flex items-center gap-1 w-full text-left hover:bg-gray-700/40 rounded-sm px-1"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className={"transition-transform " + (open ? "rotate-90" : "")}>
+          ▸
+        </span>
+        <span className="font-semibold truncate" title={s.active?.modelId}>
+          {s.active?.name}
+        </span>
+        <span className="text-gray-400">r{s.active?.revision}</span>
+        {s.dirty && <span className="text-amber-400">● unsaved</span>}
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1.5 px-1 pt-1">
+          <div className="flex items-center gap-1 flex-wrap">
+            <button
+              className={smallBtn}
+              disabled={s.past.length === 0}
+              onClick={s.undo}
+              title="Undo (Ctrl+Z)"
+            >
+              ↶ Undo
+            </button>
+            <button
+              className={smallBtn}
+              disabled={s.future.length === 0}
+              onClick={s.redo}
+              title="Redo (Ctrl+Shift+Z)"
+            >
+              ↷ Redo
+            </button>
+            <button
+              className={smallBtn}
+              onClick={() => s.setCellsVisible(!s.cellsVisible)}
+              aria-pressed={!s.cellsVisible}
+              title="Toggle the builder cell boxes"
+            >
+              {s.cellsVisible ? "Hide cells" : "Show cells"}
+            </button>
+            <button
+              className={smallBtn}
+              onClick={() => s.setPortsOverlayVisible(!s.portsOverlayVisible)}
+              aria-pressed={s.portsOverlayVisible}
+              title="Toggle the equipment port overlay"
+            >
+              {s.portsOverlayVisible ? "Hide ports" : "Show ports"}
+            </button>
+            {s.resultSourceName !== null ? (
+              <button
+                className={smallBtn}
+                onClick={s.hideResult}
+                title="Unload the compiled result from the scene"
+              >
+                Hide result
+              </button>
+            ) : (
+              resultReady &&
+              compileState && (
+                <button
+                  className={smallBtn}
+                  onClick={() => void s.viewResult(compileState.derivedKey)}
+                  title={compileState.derivedKey}
+                >
+                  View result
+                </button>
+              )
+            )}
+          </div>
+          {s.conflict && <p className="text-red-400">{s.conflict}</p>}
+          {compileState?.status === "error" && (
+            <p className="text-red-400">
+              Compile failed: {compileState.error}
+            </p>
+          )}
+          <div className="flex items-center gap-1 flex-wrap">
+            <button
+              className={btn}
+              disabled={!s.dirty || s.committing}
+              onClick={() => void s.commit()}
+            >
+              {s.committing ? "Committing…" : "Commit"}
+            </button>
+            <button
+              className={
+                "px-2 py-1 rounded-sm bg-gray-600 text-white disabled:opacity-50 hover:bg-gray-500"
+              }
+              disabled={compileBusy}
+              onClick={() => void s.compile()}
+            >
+              {compileBusy ? `Compiling (${compileState?.status})…` : "Compile"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Host: renders the selection detail inside the Selected Object Info panel when
 // a procedural model has an active selection; otherwise nothing.
 const CellBuilderSelectionInfo: React.FC = () => {
@@ -362,6 +500,7 @@ const CellBuilderSelectionInfo: React.FC = () => {
     <div className="mt-3 border-t border-gray-500/60 pt-2 text-xs text-white">
       <div className="font-bold mb-1">Procedural cell</div>
       <SelectionSection selection={selection} />
+      <ModelActions />
     </div>
   );
 };

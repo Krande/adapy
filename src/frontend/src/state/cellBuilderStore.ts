@@ -8,7 +8,6 @@ import {
   type ProceduralSystemTypeOption,
   type ProceduralTypeOption,
 } from "@/services/viewerApi";
-import { useObjectInfoStore } from "@/state/objectInfoStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
 import {
@@ -219,6 +218,9 @@ interface CellBuilderState {
   setSelectedEquipmentType: (t: string | null) => void;
   addCell: (kind: "cell" | "equipment", origin: Vec3, size: Vec3) => void;
   updateCell: (id: string, patch: Partial<BuilderCell>) => void;
+  /** Rename a cell/equipment; for equipment, rewrites matching system
+   * connections so no run is orphaned. No-op on an empty/duplicate name. */
+  renameCell: (id: string, name: string) => void;
   setCellParam: (id: string, key: string, value: unknown) => void;
   /** Extend (positive) / contract (negative) a face outward by `length`. */
   applyFaceExtension: (id: string, faceIndex: number, length: number) => void;
@@ -437,10 +439,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     },
     setMode: (mode) => set({ mode }),
     // Switching to a different cell (or clearing) drops the active gizmo so it
-    // never lingers on a cell you're no longer editing. A non-null pick opens
-    // the Selected Object Info panel, which now hosts the cell/system details.
+    // never lingers on a cell you're no longer editing. Selecting a cell does
+    // NOT force the Selected Object Info panel open — the user opens it when
+    // they want it; the cell/system details render there once it's visible.
     setSelection: (selection) => {
-      if (selection) useObjectInfoStore.getState().setShowInfoBox(true);
       set((s) => ({
         selection,
         gizmoMode:
@@ -489,9 +491,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           size: quantizeVec(size, s.gridStep),
           params: {},
         };
-        // A freshly placed cell is selected — surface its details in the
-        // Selected Object Info panel like any other pick.
-        useObjectInfoStore.getState().setShowInfoBox(true);
+        // A freshly placed cell becomes the selection, but we leave the
+        // Selected Object Info panel's visibility untouched.
         return {
           cells: { ...s.cells, [id]: cell },
           dirty: true,
@@ -507,6 +508,38 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           cells: { ...s.cells, [id]: { ...cur, ...patch } },
           dirty: true,
         };
+      }),
+    renameCell: (id, name) =>
+      withHistory((s) => {
+        const cur = s.cells[id];
+        const trimmed = name.trim();
+        if (!cur || !trimmed || trimmed === cur.name) return {};
+        // Reject a name already taken by another cell — connections and the
+        // compiled entities key on the name, so it must stay unique.
+        if (
+          Object.values(s.cells).some(
+            (c) => c.id !== id && c.name === trimmed,
+          )
+        )
+          return {};
+        const cells = { ...s.cells, [id]: { ...cur, name: trimmed } };
+        // Equipment names are referenced by system connections; rewrite them
+        // in the same history step so a rename never orphans a run.
+        let systems = s.systems;
+        if (cur.kind === "equipment") {
+          systems = Object.fromEntries(
+            Object.entries(s.systems).map(([sid, sys]) => [
+              sid,
+              {
+                ...sys,
+                connections: sys.connections.map((c) =>
+                  c.equipment === cur.name ? { ...c, equipment: trimmed } : c,
+                ),
+              },
+            ]),
+          );
+        }
+        return { cells, systems, dirty: true };
       }),
     setCellParam: (id, key, value) =>
       withHistory((s) => {
