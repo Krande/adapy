@@ -613,6 +613,12 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // not an exit).
     let pendingGizmoExit: {x: number; y: number} | null = null;
 
+    // A tap on a cell that selects on pointerup — used when face-drag resizing
+    // is OFF, where we must NOT grab/stop the pointer on pointerdown (so a drag
+    // over a cell still orbits the camera). A no-travel pointerup resolves this
+    // to a selection; any travel past DRAG_START_PX cancels it (it was an orbit).
+    let pendingSelect: {cellId: string; faceIndex: number; x: number; y: number} | null = null;
+
     // --- Long-press → cell context menu (touch) --------------------------
     let longPressTimer: ReturnType<typeof setTimeout> | null = null;
     let longPressStartX = 0;
@@ -642,6 +648,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             longPressTimer = null;
             // A long-press wins over a pending face-drag/selection.
             drag = null;
+            pendingSelect = null;
             useCellBuilderStore.getState().openContextMenu(clientX, clientY, cellId);
         }, LONG_PRESS_MS);
     };
@@ -784,18 +791,27 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         const cell = st.cells[cellId];
         if (!cell) return;
 
-        // Pending drag: becomes a real face-drag only after DRAG_START_PX of
-        // pointer travel (and only when face-drag resizing is enabled) —
-        // otherwise pointerup treats it as a selection click.
+        // Face-drag resizing is opt-in. When it's OFF, never grab or stop the
+        // pointer here: let OrbitControls own it so a drag anywhere — including
+        // over a cell — orbits the camera. A no-travel tap still selects, via
+        // pendingSelect resolved on pointerup.
+        if (!st.faceDragResize) {
+            pendingSelect = {cellId, faceIndex: hit.face.materialIndex, x: ev.clientX, y: ev.clientY};
+            return;
+        }
+
+        // Resize enabled: begin a pending face-drag that becomes a real drag
+        // after DRAG_START_PX of travel, or a selection click on a bare
+        // pointerup. Stop propagation so the drag owns the pointer, not orbit.
         if (!startFaceDrag(cell, hit.face.materialIndex, ev, false)) return;
         ev.stopPropagation();
     };
 
-    const resolveClickSelection = (drag_: DragState, ev: PointerEvent) => {
+    const resolveClickSelection = (target: {cellId: string; faceIndex: number}, ev: PointerEvent) => {
         const st = useCellBuilderStore.getState();
         // "none" mode: a plain click selects nothing (free navigation).
         if (st.selectMode === "none") return;
-        const cell = st.cells[drag_.cellId];
+        const cell = st.cells[target.cellId];
         if (!cell) return;
 
         setPointer(ev);
@@ -808,15 +824,15 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             // Nearest border edge of the clicked face (Infinity tolerance =
             // always resolve to the closest of the face's four borders).
             const edge = hit
-                ? edgeHitOnFace(cell, drag_.faceIndex, worldToModel(hit.point), Infinity)
+                ? edgeHitOnFace(cell, target.faceIndex, worldToModel(hit.point), Infinity)
                 : null;
             if (edge) {
-                st.setSelection({kind: "edge", cellId: cell.id, faceIndex: drag_.faceIndex, edge});
+                st.setSelection({kind: "edge", cellId: cell.id, faceIndex: target.faceIndex, edge});
             }
             return;
         }
         if (st.selectMode === "face") {
-            st.setSelection({kind: "face", cellId: cell.id, faceIndex: drag_.faceIndex});
+            st.setSelection({kind: "face", cellId: cell.id, faceIndex: target.faceIndex});
             return;
         }
         st.setSelection({kind: "cell", cellId: cell.id});
@@ -835,6 +851,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (pendingGizmoExit &&
             Math.hypot(ev.clientX - pendingGizmoExit.x, ev.clientY - pendingGizmoExit.y) > DRAG_START_PX) {
             pendingGizmoExit = null;
+        }
+        // A drag over a cell is an orbit, not a selection tap.
+        if (pendingSelect &&
+            Math.hypot(ev.clientX - pendingSelect.x, ev.clientY - pendingSelect.y) > DRAG_START_PX) {
+            pendingSelect = null;
         }
 
         setPointer(ev);
@@ -927,11 +948,21 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             pendingGizmoExit = null;
             if (moved < DRAG_START_PX) useCellBuilderStore.getState().setGizmoMode("none");
         }
+        // A no-travel tap on a cell (face-drag resize off) resolves to a
+        // selection. We never stopped propagation, so OrbitControls still
+        // handled the pointer — a drag would have cleared pendingSelect above.
+        if (pendingSelect) {
+            const moved = Math.hypot(ev.clientX - pendingSelect.x, ev.clientY - pendingSelect.y);
+            const target = pendingSelect;
+            pendingSelect = null;
+            if (moved < DRAG_START_PX) resolveClickSelection(target, ev);
+        }
         finalizeDrag(ev, false);
     };
     const onPointerCancel = (ev: PointerEvent) => {
         clearLongPress();
         pendingGizmoExit = null;
+        pendingSelect = null;
         finalizeDrag(ev, true);
     };
 
