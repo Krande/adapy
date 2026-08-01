@@ -20,6 +20,7 @@ type ObjectInfoState = {
     setFileName: (fileName: string | null) => void;
     show_info_box: boolean;
     toggle: () => void;
+    setShowInfoBox: (show: boolean) => void;
 };
 
 export const useObjectInfoStore = create<ObjectInfoState>((set) => ({
@@ -37,4 +38,5 @@ export const useObjectInfoStore = create<ObjectInfoState>((set) => ({
     setFileName: (fileName) => set(() => ({fileName})),
     show_info_box: false,
     toggle: () => set((state) => ({show_info_box: !state.show_info_box})),
+    setShowInfoBox: (show) => set(() => ({show_info_box: show})),
 }));

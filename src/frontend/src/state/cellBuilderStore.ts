@@ -8,6 +8,7 @@ import {
   type ProceduralSystemTypeOption,
   type ProceduralTypeOption,
 } from "@/services/viewerApi";
+import { useObjectInfoStore } from "@/state/objectInfoStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
 import {
@@ -436,15 +437,18 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     },
     setMode: (mode) => set({ mode }),
     // Switching to a different cell (or clearing) drops the active gizmo so it
-    // never lingers on a cell you're no longer editing.
-    setSelection: (selection) =>
+    // never lingers on a cell you're no longer editing. A non-null pick opens
+    // the Selected Object Info panel, which now hosts the cell/system details.
+    setSelection: (selection) => {
+      if (selection) useObjectInfoStore.getState().setShowInfoBox(true);
       set((s) => ({
         selection,
         gizmoMode:
           selection && s.selection && selection.cellId === s.selection.cellId
             ? s.gizmoMode
             : "none",
-      })),
+      }));
+    },
     setSelectMode: (selectMode) => set({ selectMode }),
     setGizmoMode: (gizmoMode) => set({ gizmoMode }),
     setFaceDragResize: (faceDragResize) => set({ faceDragResize }),
@@ -485,6 +489,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           size: quantizeVec(size, s.gridStep),
           params: {},
         };
+        // A freshly placed cell is selected — surface its details in the
+        // Selected Object Info panel like any other pick.
+        useObjectInfoStore.getState().setShowInfoBox(true);
         return {
           cells: { ...s.cells, [id]: cell },
           dirty: true,

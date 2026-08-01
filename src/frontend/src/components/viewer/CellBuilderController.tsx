@@ -580,6 +580,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         return true;
     };
 
+    // A tap on empty space while a gizmo is active exits it. Recorded on
+    // pointerdown, resolved on pointerup (a drag past DRAG_START_PX = orbit,
+    // not an exit).
+    let pendingGizmoExit: {x: number; y: number} | null = null;
+
     // --- Long-press → cell context menu (touch) --------------------------
     let longPressTimer: ReturnType<typeof setTimeout> | null = null;
     let longPressStartX = 0;
@@ -727,25 +732,31 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         // Touch long-press → cell context menu (armed here, fires on hold).
         armLongPress(ev);
 
-        // Resize gizmo: grab one of the face-handle spheres.
-        if (st.gizmoMode === "resize") {
-            const hits = raycaster.intersectObjects(resizeGroup.children, false);
-            if (hits.length) {
-                const fi = hits[0].object.userData.__resizeFace as number;
-                const cellId = hits[0].object.userData.__cellId as string;
-                const cell = st.cells[cellId];
-                if (cell && startFaceDrag(cell, fi, ev, true)) {
-                    clearLongPress();
-                    ev.stopPropagation();
+        // A gizmo owns the cell: manipulate its handles, and a tap on empty
+        // space exits the gizmo (a drag on empty space still orbits).
+        if (st.gizmoMode !== "none") {
+            if (st.gizmoMode === "resize") {
+                const hits = raycaster.intersectObjects(resizeGroup.children, false);
+                if (hits.length) {
+                    const fi = hits[0].object.userData.__resizeFace as number;
+                    const cellId = hits[0].object.userData.__cellId as string;
+                    const cell = st.cells[cellId];
+                    if (cell && startFaceDrag(cell, fi, ev, true)) {
+                        clearLongPress();
+                        ev.stopPropagation();
+                    }
+                    return;
                 }
             }
-            // Missed the handles: let the camera orbit (don't grab the pointer).
+            // Translate: TransformControls owns the pointer over its handles.
+            if (st.gizmoMode === "translate" && gizmo.axis) return;
+            // Missed the handles: over a cell body do nothing (let it orbit);
+            // over empty space, arm an exit resolved as a tap on pointerup.
+            if (!pickBuilderMesh()) {
+                pendingGizmoExit = {x: ev.clientX, y: ev.clientY};
+            }
             return;
         }
-
-        // Translate gizmo: TransformControls owns the pointer over its handles;
-        // anywhere else lets the camera orbit.
-        if (st.gizmoMode === "translate") return;
 
         // "none" select mode = pure navigation: don't grab faces for
         // select/drag, let the camera controls handle the pointer.
@@ -779,8 +790,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (hit) {
             const edge = detectEdge(cell.id, drag_.faceIndex, hit.point);
             if (edge) {
+                // setSelection surfaces the details in the Selected Object Info
+                // panel (see cellBuilderStore) — no need to open the tool panel.
                 st.setSelection({kind: "edge", cellId: cell.id, faceIndex: drag_.faceIndex, edge});
-                st.setPanelVisible(true);
                 return;
             }
         }
@@ -791,7 +803,6 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         } else {
             st.setSelection({kind: "cell", cellId: cell.id});
         }
-        st.setPanelVisible(true);
     };
 
     const onPointerMove = (ev: PointerEvent) => {
@@ -802,6 +813,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (longPressTimer !== null &&
             Math.hypot(ev.clientX - longPressStartX, ev.clientY - longPressStartY) > LONG_PRESS_MOVE_PX) {
             clearLongPress();
+        }
+        // A drag on empty space is an orbit, not a gizmo-exit tap.
+        if (pendingGizmoExit &&
+            Math.hypot(ev.clientX - pendingGizmoExit.x, ev.clientY - pendingGizmoExit.y) > DRAG_START_PX) {
+            pendingGizmoExit = null;
         }
 
         setPointer(ev);
@@ -900,10 +916,17 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
 
     const onPointerUp = (ev: PointerEvent) => {
         clearLongPress();
+        // A tap (no travel) on empty space exits the active gizmo.
+        if (pendingGizmoExit) {
+            const moved = Math.hypot(ev.clientX - pendingGizmoExit.x, ev.clientY - pendingGizmoExit.y);
+            pendingGizmoExit = null;
+            if (moved < DRAG_START_PX) useCellBuilderStore.getState().setGizmoMode("none");
+        }
         finalizeDrag(ev, false);
     };
     const onPointerCancel = (ev: PointerEvent) => {
         clearLongPress();
+        pendingGizmoExit = null;
         finalizeDrag(ev, true);
     };
 

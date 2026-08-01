@@ -9,6 +9,7 @@ import {zoomToAll} from '@/components/viewer/sceneHelpers/setupCameraControlsHan
 import {sceneRef, cameraRef, controlsRef} from '@/state/refs';
 import {requestRender} from '@/state/perfStore';
 import ObjectMetadataPanel from './ObjectMetadataPanel';
+import CellBuilderSelectionInfo from './CellBuilderSelectionInfo';
 
 // 1500 ms is the smallest hold that still feels intentional vs a
 // reflexive tap-and-release; long enough that "Copied" lingers on
@@ -248,6 +249,10 @@ const ObjectInfoBox = () => {
                 extension's ``object_metadata`` field) AND hosts the
                 clicked-coordinate row that used to live above. */}
             {name && <ObjectMetadataPanel data={jsonData}/>}
+            {/* Procedural cellbuilder selection detail — cell/equipment
+                parameters, gizmo toggles and connected systems. Lives here
+                (not in the busy cellbuilder tool panel) as its own section. */}
+            <CellBuilderSelectionInfo/>
         </div>
     );
 };
