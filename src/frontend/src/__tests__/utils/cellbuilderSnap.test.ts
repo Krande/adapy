@@ -7,6 +7,8 @@ import {
     boxCorners,
     edgeEndpoints,
     edgeHitOnFace,
+    faceCenter,
+    originFromCenter,
     quantize,
     snapBox,
     snapToVertices,
@@ -105,4 +107,29 @@ test("applyFaceOffset clamps to minSize", () => {
     const negShrunk = applyFaceOffset({origin: [0, 0, 0], size: [1, 1, 1]}, 2, false, 5, 0.1);
     assert.ok(Math.abs(negShrunk.size[2] - 0.1) < 1e-9);
     assert.ok(Math.abs(negShrunk.origin[2] - 0.9) < 1e-9);
+});
+
+test("faceCenter sits at each face centre (resize-handle placement)", () => {
+    const box = {origin: [1, 2, 3] as [number, number, number], size: [4, 6, 8] as [number, number, number]};
+    // +X / -X faces (materialIndex 0 / 1): pinned on X, centred in Y and Z.
+    assert.deepEqual(faceCenter(box, 0), [5, 5, 7]);
+    assert.deepEqual(faceCenter(box, 1), [1, 5, 7]);
+    // +Z / -Z faces (materialIndex 4 / 5): pinned on Z, centred in X and Y.
+    assert.deepEqual(faceCenter(box, 4), [3, 5, 11]);
+    assert.deepEqual(faceCenter(box, 5), [3, 5, 3]);
+});
+
+test("originFromCenter inverts the mesh centre, grid-quantized", () => {
+    // Centre a 4x6x8 box on (5,5,7) -> origin (3,2,3).
+    assert.deepEqual(originFromCenter([5, 5, 7], [4, 6, 8], 0.1), [3, 2, 3]);
+    // A dragged centre off the grid snaps the origin back to the step.
+    assert.deepEqual(originFromCenter([5.03, 5, 7], [4, 6, 8], 0.1), [3, 2, 3]);
+    // Round-trips faceCenter's box centre back to its origin.
+    const box = {origin: [1, 2, 3] as [number, number, number], size: [4, 6, 8] as [number, number, number]};
+    const center = [
+        box.origin[0] + box.size[0] / 2,
+        box.origin[1] + box.size[1] / 2,
+        box.origin[2] + box.size[2] / 2,
+    ] as [number, number, number];
+    assert.deepEqual(originFromCenter(center, box.size, 0.1), box.origin);
 });

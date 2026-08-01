@@ -41,6 +41,9 @@ export type CellBuilderMode =
   | "add-equipment"
   | "drag-face";
 
+/** Active direct-manipulation gizmo for the selected cell. */
+export type GizmoMode = "none" | "translate" | "resize";
+
 export type SystemType = "piping" | "duct" | "cable" | "electrical";
 
 /** One port hookup: an equipment name + one of its port names. */
@@ -138,6 +141,17 @@ interface CellBuilderState {
   mode: CellBuilderMode;
   selection: BuilderSelection | null;
   selectMode: SelectMode;
+  /** Which direct-manipulation gizmo is active for the selected cell: none, a
+   * translate widget, or the face-handle resize gizmo. Reset to "none" whenever
+   * the selected cell changes. */
+  gizmoMode: GizmoMode;
+  /** Allow dragging a cell face in the scene to resize it. Off by default —
+   * resizing goes through the explicit resize gizmo so plain navigation never
+   * accidentally reshapes a cell. */
+  faceDragResize: boolean;
+  /** Cell context menu (long-press on touch / right-click on desktop): screen
+   * position + the cell it was opened on. */
+  contextMenu: { x: number; y: number; cellId: string } | null;
   gridStep: number;
   snapThreshold: number;
   dirty: boolean;
@@ -189,6 +203,10 @@ interface CellBuilderState {
   setMode: (mode: CellBuilderMode) => void;
   setSelection: (sel: BuilderSelection | null) => void;
   setSelectMode: (m: SelectMode) => void;
+  setGizmoMode: (mode: GizmoMode) => void;
+  setFaceDragResize: (v: boolean) => void;
+  openContextMenu: (x: number, y: number, cellId: string) => void;
+  closeContextMenu: () => void;
   setPanelVisible: (v: boolean) => void;
   setCellsVisible: (v: boolean) => void;
   setPortsOverlayVisible: (v: boolean) => void;
@@ -351,6 +369,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     mode: "idle",
     selection: null,
     selectMode: "cell",
+    gizmoMode: "none",
+    faceDragResize: false,
+    contextMenu: null,
     gridStep: 0.1,
     snapThreshold: 0.25,
     dirty: false,
@@ -384,6 +405,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         txDepth: 0,
         mode: "idle",
         selection: null,
+        gizmoMode: "none",
+        contextMenu: null,
         dirty: false,
         conflict: null,
         compileJob: null,
@@ -404,14 +427,29 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         txDepth: 0,
         mode: "idle",
         selection: null,
+        gizmoMode: "none",
+        contextMenu: null,
         dirty: false,
         panelVisible: false,
         compileJob: null,
       });
     },
     setMode: (mode) => set({ mode }),
-    setSelection: (selection) => set({ selection }),
+    // Switching to a different cell (or clearing) drops the active gizmo so it
+    // never lingers on a cell you're no longer editing.
+    setSelection: (selection) =>
+      set((s) => ({
+        selection,
+        gizmoMode:
+          selection && s.selection && selection.cellId === s.selection.cellId
+            ? s.gizmoMode
+            : "none",
+      })),
     setSelectMode: (selectMode) => set({ selectMode }),
+    setGizmoMode: (gizmoMode) => set({ gizmoMode }),
+    setFaceDragResize: (faceDragResize) => set({ faceDragResize }),
+    openContextMenu: (x, y, cellId) => set({ contextMenu: { x, y, cellId } }),
+    closeContextMenu: () => set({ contextMenu: null }),
     setPanelVisible: (panelVisible) => set({ panelVisible }),
     setCellsVisible: (cellsVisible) => set({ cellsVisible }),
     setPortsOverlayVisible: (portsOverlayVisible) =>
@@ -504,6 +542,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           cells,
           dirty: true,
           selection: s.selection?.cellId === id ? null : s.selection,
+          gizmoMode: s.selection?.cellId === id ? "none" : s.gizmoMode,
         };
       }),
 

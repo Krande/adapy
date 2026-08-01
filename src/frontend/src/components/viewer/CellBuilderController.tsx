@@ -3,6 +3,7 @@ import * as THREE from "three";
 import {LineSegments2} from "three/examples/jsm/lines/LineSegments2";
 import {LineSegmentsGeometry} from "three/examples/jsm/lines/LineSegmentsGeometry";
 import {LineMaterial} from "three/examples/jsm/lines/LineMaterial";
+import {TransformControls} from "three/examples/jsm/controls/TransformControls";
 
 import {cameraRef, controlsRef, rendererRef, sceneRef} from "@/state/refs";
 import {requestRender} from "@/state/perfStore";
@@ -15,6 +16,8 @@ import {
     BOX_FACE_SIDES,
     edgeEndpoints,
     edgeHitOnFace,
+    faceCenter,
+    originFromCenter,
     quantize,
     snapBox,
     type CellBox,
@@ -43,6 +46,10 @@ const DEFAULT_CELL_SIZE: Vec3 = [5, 5, 3];
 const DEFAULT_EQUIPMENT_SIZE: Vec3 = [1, 1, 1];
 const BASE_OPACITY = 0.3;
 const DRAG_START_PX = 4;
+// Resize-handle sphere colour per axis (X red, Y green, Z blue).
+const HANDLE_AXIS_COLOR = [0xef4444, 0x22c55e, 0x3b82f6];
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_MOVE_PX = 10;
 
 interface DragState {
     cellId: string;
@@ -424,6 +431,188 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         requestRender();
     };
 
+    // --- Direct-manipulation gizmos -------------------------------------
+    // Translate: a THREE TransformControls widget drives a proxy whose
+    // model-space position maps back to the selected cell's centre. The proxy
+    // lives in the container so it shares the model offset. Resize: six
+    // touch-friendly spheres at the cell's face centres, each dragged with the
+    // same applyFaceOffset math as a face drag.
+    const gizmoProxy = new THREE.Object3D();
+    gizmoProxy.userData.__excludeFromFit = true;
+    container.add(gizmoProxy);
+
+    const gizmo = new TransformControls(cameraRef.current ?? (camera as THREE.Camera), renderer.domElement);
+    gizmo.setSpace("world");
+    const gizmoHelper = gizmo.getHelper();
+    gizmoHelper.userData.__excludeFromFit = true;
+    gizmoHelper.visible = false;
+    scene.add(gizmoHelper);
+
+    gizmo.addEventListener("dragging-changed", (e: any) => {
+        const st = useCellBuilderStore.getState();
+        if (controlsRef.current) controlsRef.current.enabled = !e.value;
+        // Coalesce the whole widget drag into one undo step.
+        if (e.value) st.beginTransaction();
+        else st.endTransaction();
+        requestRender();
+    });
+    gizmo.addEventListener("objectChange", () => {
+        const st = useCellBuilderStore.getState();
+        const sel = st.selection;
+        if (st.gizmoMode !== "translate" || !sel) return;
+        const cell = st.cells[sel.cellId];
+        if (!cell) return;
+        const step = st.gridStep > 0 ? st.gridStep : 0.1;
+        const origin = originFromCenter(
+            [gizmoProxy.position.x, gizmoProxy.position.y, gizmoProxy.position.z],
+            cell.size,
+            step,
+        );
+        st.updateCell(cell.id, {origin});
+    });
+
+    const resizeGroup = new THREE.Group();
+    resizeGroup.visible = false;
+    container.add(resizeGroup);
+
+    const disposeResizeHandles = () => {
+        for (let i = resizeGroup.children.length - 1; i >= 0; i--) {
+            const o = resizeGroup.children[i] as THREE.Mesh;
+            o.geometry.dispose();
+            (o.material as THREE.Material).dispose();
+            resizeGroup.remove(o);
+        }
+    };
+
+    const rebuildResizeHandles = () => {
+        disposeResizeHandles();
+        const st = useCellBuilderStore.getState();
+        const sel = st.selection;
+        const cell = sel ? st.cells[sel.cellId] : null;
+        const show = !!(st.active && st.gizmoMode === "resize" && cell && st.cellsVisible);
+        resizeGroup.visible = show;
+        if (!show || !cell) return;
+        const r = Math.max(0.15, 0.1 * Math.min(cell.size[0], cell.size[1], cell.size[2]));
+        for (let fi = 0; fi < BOX_FACE_SIDES.length; fi++) {
+            const side = BOX_FACE_SIDES[fi];
+            const c = faceCenter(cell, fi);
+            const mesh = new THREE.Mesh(
+                new THREE.SphereGeometry(r, 16, 12),
+                new THREE.MeshBasicMaterial({
+                    color: HANDLE_AXIS_COLOR[side.axis],
+                    depthTest: false,
+                    transparent: true,
+                    opacity: 0.9,
+                }),
+            );
+            mesh.position.set(c[0], c[1], c[2]);
+            mesh.renderOrder = 3;
+            mesh.userData.__resizeFace = fi;
+            mesh.userData.__cellId = cell.id;
+            resizeGroup.add(mesh);
+        }
+    };
+
+    // Reconcile the gizmos with the current selection/mode. Skipped repositioning
+    // of the translate proxy mid-drag so it never fights the pointer.
+    const syncGizmo = () => {
+        const st = useCellBuilderStore.getState();
+        if (cameraRef.current) gizmo.camera = cameraRef.current;
+        const sel = st.selection;
+        const cell = sel ? st.cells[sel.cellId] : null;
+        const translateOn = !!(st.active && st.gizmoMode === "translate" && cell && st.cellsVisible);
+        if (translateOn && cell) {
+            gizmo.setTranslationSnap(st.gridStep > 0 ? st.gridStep : null);
+            if (!gizmo.dragging) {
+                gizmoProxy.position.set(
+                    cell.origin[0] + cell.size[0] / 2,
+                    cell.origin[1] + cell.size[1] / 2,
+                    cell.origin[2] + cell.size[2] / 2,
+                );
+            }
+            if (gizmo.object !== gizmoProxy) gizmo.attach(gizmoProxy);
+            gizmo.setMode("translate");
+            gizmoHelper.visible = true;
+        } else {
+            if (gizmo.object) gizmo.detach();
+            gizmoHelper.visible = false;
+        }
+        rebuildResizeHandles();
+        requestRender();
+    };
+
+    // Begin a face drag (positive face scales size; negative face shifts origin).
+    // ``immediate`` starts it right away (resize-handle grab) vs. after
+    // DRAG_START_PX of travel (a face press, once face-drag resizing is on).
+    const startFaceDrag = (cell: BuilderCell, faceIndex: number, ev: PointerEvent, immediate: boolean): boolean => {
+        const side = BOX_FACE_SIDES[faceIndex];
+        if (!side) return false;
+        const center = new THREE.Vector3(
+            cell.origin[0] + cell.size[0] / 2,
+            cell.origin[1] + cell.size[1] / 2,
+            cell.origin[2] + cell.size[2] / 2,
+        ).add(offsetVec());
+        const lineDir = new THREE.Vector3(side.axis === 0 ? 1 : 0, side.axis === 1 ? 1 : 0, side.axis === 2 ? 1 : 0);
+        const startT = lineParamFromRay(raycaster.ray, center, lineDir);
+        if (startT === null) return false;
+        drag = {
+            cellId: cell.id,
+            faceIndex,
+            axis: side.axis,
+            positiveFace: side.positive,
+            startBox: {origin: [...cell.origin], size: [...cell.size]},
+            lineOrigin: center,
+            lineDir,
+            startT,
+            startClientX: ev.clientX,
+            startClientY: ev.clientY,
+            started: false,
+            pointerId: ev.pointerId,
+        };
+        if (immediate) {
+            const st = useCellBuilderStore.getState();
+            drag.started = true;
+            st.setMode("drag-face");
+            st.beginTransaction();
+            if (controlsRef.current) controlsRef.current.enabled = false;
+            renderer.domElement.setPointerCapture(ev.pointerId);
+        }
+        return true;
+    };
+
+    // --- Long-press → cell context menu (touch) --------------------------
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+    let longPressStartX = 0;
+    let longPressStartY = 0;
+
+    const clearLongPress = () => {
+        if (longPressTimer !== null) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    };
+
+    const armLongPress = (ev: PointerEvent) => {
+        clearLongPress();
+        if (ev.pointerType !== "touch") return;
+        const st = useCellBuilderStore.getState();
+        if (!st.active) return;
+        // A press on the translate gizmo's handle is a drag, not a long-press.
+        if (st.gizmoMode === "translate" && gizmo.axis) return;
+        const hit = pickBuilderMesh();
+        if (!hit) return;
+        const cellId = hit.object.userData.__cellId as string;
+        longPressStartX = ev.clientX;
+        longPressStartY = ev.clientY;
+        const {clientX, clientY} = ev;
+        longPressTimer = setTimeout(() => {
+            longPressTimer = null;
+            // A long-press wins over a pending face-drag/selection.
+            drag = null;
+            useCellBuilderStore.getState().openContextMenu(clientX, clientY, cellId);
+        }, LONG_PRESS_MS);
+    };
+
     const setPointer = (ev: PointerEvent) => {
         const rect = renderer.domElement.getBoundingClientRect();
         pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
@@ -535,6 +724,29 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             return;
         }
 
+        // Touch long-press → cell context menu (armed here, fires on hold).
+        armLongPress(ev);
+
+        // Resize gizmo: grab one of the face-handle spheres.
+        if (st.gizmoMode === "resize") {
+            const hits = raycaster.intersectObjects(resizeGroup.children, false);
+            if (hits.length) {
+                const fi = hits[0].object.userData.__resizeFace as number;
+                const cellId = hits[0].object.userData.__cellId as string;
+                const cell = st.cells[cellId];
+                if (cell && startFaceDrag(cell, fi, ev, true)) {
+                    clearLongPress();
+                    ev.stopPropagation();
+                }
+            }
+            // Missed the handles: let the camera orbit (don't grab the pointer).
+            return;
+        }
+
+        // Translate gizmo: TransformControls owns the pointer over its handles;
+        // anywhere else lets the camera orbit.
+        if (st.gizmoMode === "translate") return;
+
         // "none" select mode = pure navigation: don't grab faces for
         // select/drag, let the camera controls handle the pointer.
         if (st.selectMode === "none") return;
@@ -545,35 +757,10 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         const cell = st.cells[cellId];
         if (!cell) return;
 
-        const faceIndex = hit.face.materialIndex;
-        const side = BOX_FACE_SIDES[faceIndex];
-        if (!side) return;
-
-        const center = new THREE.Vector3(
-            cell.origin[0] + cell.size[0] / 2,
-            cell.origin[1] + cell.size[1] / 2,
-            cell.origin[2] + cell.size[2] / 2,
-        ).add(offsetVec());
-        const lineDir = new THREE.Vector3(side.axis === 0 ? 1 : 0, side.axis === 1 ? 1 : 0, side.axis === 2 ? 1 : 0);
-        const startT = lineParamFromRay(raycaster.ray, center, lineDir);
-        if (startT === null) return;
-
         // Pending drag: becomes a real face-drag only after DRAG_START_PX of
-        // pointer travel — otherwise pointerup treats it as a selection click.
-        drag = {
-            cellId,
-            faceIndex,
-            axis: side.axis,
-            positiveFace: side.positive,
-            startBox: {origin: [...cell.origin], size: [...cell.size]},
-            lineOrigin: center,
-            lineDir,
-            startT,
-            startClientX: ev.clientX,
-            startClientY: ev.clientY,
-            started: false,
-            pointerId: ev.pointerId,
-        };
+        // pointer travel (and only when face-drag resizing is enabled) —
+        // otherwise pointerup treats it as a selection click.
+        if (!startFaceDrag(cell, hit.face.materialIndex, ev, false)) return;
         ev.stopPropagation();
     };
 
@@ -610,6 +797,13 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     const onPointerMove = (ev: PointerEvent) => {
         const st = useCellBuilderStore.getState();
         if (!st.active) return;
+
+        // A moving finger cancels a pending long-press (it's a drag, not a hold).
+        if (longPressTimer !== null &&
+            Math.hypot(ev.clientX - longPressStartX, ev.clientY - longPressStartY) > LONG_PRESS_MOVE_PX) {
+            clearLongPress();
+        }
+
         setPointer(ev);
 
         if (drag) {
@@ -617,6 +811,13 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 const dx = ev.clientX - drag.startClientX;
                 const dy = ev.clientY - drag.startClientY;
                 if (Math.hypot(dx, dy) < DRAG_START_PX) return;
+                // Face-drag resizing is opt-in: without it, dragging a face does
+                // nothing (resizing goes through the explicit resize gizmo). Drop
+                // the pending drag so it's neither a resize nor a stray select.
+                if (!st.faceDragResize) {
+                    drag = null;
+                    return;
+                }
                 drag.started = true;
                 st.setMode("drag-face");
                 // Coalesce the whole drag into one undo step.
@@ -641,8 +842,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         }
 
         if (st.mode === "idle") {
-            // "none" mode: no hover highlights (free navigation).
-            if (st.selectMode === "none") {
+            // No face/edge hover highlights while a gizmo owns the cell, or in
+            // "none" mode (free navigation).
+            if (st.gizmoMode !== "none" || st.selectMode === "none") {
                 setHoveredEdge(null);
                 setHoveredFace(null, -1);
                 return;
@@ -696,8 +898,26 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         ev.stopPropagation();
     };
 
-    const onPointerUp = (ev: PointerEvent) => finalizeDrag(ev, false);
-    const onPointerCancel = (ev: PointerEvent) => finalizeDrag(ev, true);
+    const onPointerUp = (ev: PointerEvent) => {
+        clearLongPress();
+        finalizeDrag(ev, false);
+    };
+    const onPointerCancel = (ev: PointerEvent) => {
+        clearLongPress();
+        finalizeDrag(ev, true);
+    };
+
+    // Desktop: right-click over a cell opens the same context menu.
+    const onContextMenu = (ev: MouseEvent) => {
+        const st = useCellBuilderStore.getState();
+        if (!st.active) return;
+        setPointer(ev as unknown as PointerEvent);
+        const hit = pickBuilderMesh();
+        if (!hit) return;
+        ev.preventDefault();
+        const cellId = hit.object.userData.__cellId as string;
+        st.openContextMenu(ev.clientX, ev.clientY, cellId);
+    };
 
     const onKeyDown = (ev: KeyboardEvent) => {
         const st = useCellBuilderStore.getState();
@@ -722,7 +942,12 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         }
 
         if (ev.key !== "Escape") return;
-        if (st.mode !== "idle") {
+        // Escape unwinds one layer at a time: menu → gizmo → add-mode → selection.
+        if (st.contextMenu) {
+            st.closeContextMenu();
+        } else if (st.gizmoMode !== "none") {
+            st.setGizmoMode("none");
+        } else if (st.mode !== "idle") {
             st.setMode("idle");
             ghost.visible = false;
             requestRender();
@@ -738,11 +963,13 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     el.addEventListener("pointermove", onPointerMove, true);
     el.addEventListener("pointerup", onPointerUp, true);
     el.addEventListener("pointercancel", onPointerCancel, true);
+    el.addEventListener("contextmenu", onContextMenu);
     window.addEventListener("keydown", onKeyDown);
 
     rebuild();
     rebuildPorts();
     syncBuilderGrid();
+    syncGizmo();
     const unsub = useCellBuilderStore.subscribe((s, prev) => {
         if (s.cells !== prev.cells || s.active !== prev.active) rebuild();
         else if (s.selection !== prev.selection) refreshFaceStyles();
@@ -753,6 +980,16 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             s.equipmentTypes !== prev.equipmentTypes
         ) {
             rebuildPorts();
+        }
+        if (
+            s.selection !== prev.selection ||
+            s.gizmoMode !== prev.gizmoMode ||
+            s.cells !== prev.cells ||
+            s.active !== prev.active ||
+            s.gridStep !== prev.gridStep ||
+            s.cellsVisible !== prev.cellsVisible
+        ) {
+            syncGizmo();
         }
         if (s.active !== prev.active || s.gridStep !== prev.gridStep) syncBuilderGrid();
         if (s.cellsVisible !== prev.cellsVisible) {
@@ -777,8 +1014,14 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         el.removeEventListener("pointermove", onPointerMove, true);
         el.removeEventListener("pointerup", onPointerUp, true);
         el.removeEventListener("pointercancel", onPointerCancel, true);
+        el.removeEventListener("contextmenu", onContextMenu);
         window.removeEventListener("keydown", onKeyDown);
         if (controlsRef.current) controlsRef.current.enabled = true;
+        clearLongPress();
+        gizmo.detach();
+        gizmo.dispose();
+        scene.remove(gizmoHelper);
+        disposeResizeHandles();
         hiddenDefaultGrids.forEach((g) => (g.visible = true));
         hiddenDefaultGrids.length = 0;
         disposeBuilderGrid();

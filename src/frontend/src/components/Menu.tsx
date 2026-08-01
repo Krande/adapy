@@ -24,6 +24,7 @@ import SceneIcon from "./icons/SceneIcon";
 import ComponentIcon from "./icons/ComponentIcon";
 import CellBuilderIcon from "./icons/CellBuilderIcon";
 import CellBuilderPanel from "./viewer/CellBuilderPanel";
+import CellBuilderContextMenu from "./viewer/CellBuilderContextMenu";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import EquipmentCatalogIcon from "./icons/EquipmentCatalogIcon";
 import SystemCatalogIcon from "./icons/SystemCatalogIcon";
@@ -281,6 +282,7 @@ const Menu = () => {
                     {isControlsVisible && <SimulationControls/>}
                     {componentControlsVisible && <ComponentControls/>}
                     {proceduralActive && <CellBuilderPanel/>}
+                    {proceduralActive && <CellBuilderContextMenu/>}
                     {proceduralActive && equipmentPanelOpen && (
                         <Suspense fallback={null}><EquipmentAdminPanel/></Suspense>
                     )}

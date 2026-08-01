@@ -141,6 +141,8 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
   const applyFaceExtension = useCellBuilderStore((s) => s.applyFaceExtension);
   const setEdgeLength = useCellBuilderStore((s) => s.setEdgeLength);
   const setCellParam = useCellBuilderStore((s) => s.setCellParam);
+  const gizmoMode = useCellBuilderStore((s) => s.gizmoMode);
+  const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
   const [open, setOpen] = React.useState(true);
   const [extendBy, setExtendBy] = React.useState(0.5);
   // Re-open on a new pick so the panel always reveals what was just clicked.
@@ -185,6 +187,33 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
       </button>
       {open && (
         <div className="flex flex-col gap-1.5 px-1 pt-1">
+          <div
+            className="flex items-center gap-1"
+            title="Direct-manipulation gizmo for this cell (also via long-press / right-click in the scene)"
+          >
+            <span className="text-gray-300">gizmo</span>
+            {(
+              [
+                ["translate", "Move"],
+                ["resize", "Resize"],
+                ["none", "Off"],
+              ] as const
+            ).map(([m, label]) => (
+              <button
+                key={m}
+                className={
+                  "px-1.5 py-0.5 rounded-sm " +
+                  (gizmoMode === m
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+                }
+                onClick={() => setGizmoMode(m)}
+                aria-pressed={gizmoMode === m}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {selection.kind === "face" && side && (
             <>
               <div className="flex items-center gap-1">
@@ -722,6 +751,17 @@ const CellBuilderPanel: React.FC = () => {
             </button>
           ))}
         </span>
+        <label
+          className="flex items-center gap-1"
+          title="Allow dragging a cell face in the scene to resize it. Off by default — use the Resize gizmo (long-press / right-click a cell, or the selection panel) instead."
+        >
+          <input
+            type="checkbox"
+            checked={s.faceDragResize}
+            onChange={(e) => s.setFaceDragResize(e.target.checked)}
+          />
+          drag-resize
+        </label>
         <label
           className="flex items-center gap-1 ml-auto"
           title="Compile automatically after each commit"

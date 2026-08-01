@@ -156,6 +156,31 @@ export function edgeEndpoints(box: CellBox, faceMaterialIndex: number, edge: Edg
     return {start: base, end};
 }
 
+/** World-space centre of a box face (in the box's own frame). Used to place
+ * the resize gizmo's face handles. Falls back to the box centre for an
+ * out-of-range face index. */
+export function faceCenter(box: CellBox, faceMaterialIndex: number): Vec3 {
+    const c: Vec3 = [
+        box.origin[0] + box.size[0] / 2,
+        box.origin[1] + box.size[1] / 2,
+        box.origin[2] + box.size[2] / 2,
+    ];
+    const side = BOX_FACE_SIDES[faceMaterialIndex];
+    if (side) c[side.axis] = box.origin[side.axis] + (side.positive ? box.size[side.axis] : 0);
+    return c;
+}
+
+/** Origin (min corner) that centres a box of `size` on `center`, grid-quantized.
+ * The inverse of the centre computed for a mesh — used to map a translate
+ * gizmo's dragged centre back to the cell's stored origin. */
+export function originFromCenter(center: Vec3, size: Vec3, step: number): Vec3 {
+    return [
+        quantize(center[0] - size[0] / 2, step),
+        quantize(center[1] - size[1] / 2, step),
+        quantize(center[2] - size[2] / 2, step),
+    ];
+}
+
 /** Resize the box along one axis to `length`, keeping the origin fixed. */
 export function withAxisLength(box: CellBox, axis: 0 | 1 | 2, length: number, minSize = 0.1): CellBox {
     const size: Vec3 = [...box.size];
