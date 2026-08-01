@@ -416,10 +416,10 @@ const CellBuilderPanel: React.FC = () => {
         </label>
         <span
           className="flex items-center gap-0.5"
-          title="What a plain click selects (border clicks always pick the edge, except in 'none')"
+          title="What a plain click selects — explicit: the mode decides (cell / face / nearest border edge), no hover auto-pick"
         >
           <span className="text-gray-300">select</span>
-          {(["none", "cell", "face"] as const).map((m) => (
+          {(["none", "cell", "face", "edge"] as const).map((m) => (
             <button
               key={m}
               className={

@@ -85,9 +85,10 @@ export interface BuilderSelection {
   edge?: EdgeHit;
 }
 
-/** What a plain click picks: nothing, the whole cell, or the face under the
- * cursor. Edge clicks (near a face border) always win unless mode is "none". */
-export type SelectMode = "none" | "cell" | "face";
+/** What a plain click picks: nothing, the whole cell, the face under the
+ * cursor, or the nearest border edge of that face. Selection is explicit —
+ * the mode fully decides what a click resolves to (no implicit hover pick). */
+export type SelectMode = "none" | "cell" | "face" | "edge";
 
 export interface CompileJobState {
   jobId: string | null;

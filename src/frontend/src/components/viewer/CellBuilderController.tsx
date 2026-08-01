@@ -689,18 +689,6 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         requestRender();
     };
 
-    // Shared edge tolerance: 8% of the face's smaller in-plane extent,
-    // clamped to sane world-space bounds.
-    const detectEdge = (cellId: string, faceIndex: number, hitPoint: THREE.Vector3): EdgeHit | null => {
-        const cell = useCellBuilderStore.getState().cells[cellId];
-        const side = BOX_FACE_SIDES[faceIndex];
-        if (!cell || !side) return null;
-        const inPlane = ([0, 1, 2] as const).filter((a) => a !== side.axis);
-        const minExtent = Math.min(cell.size[inPlane[0]], cell.size[inPlane[1]]);
-        const tol = Math.min(0.3, Math.max(0.06, minExtent * 0.08));
-        return edgeHitOnFace(cell, faceIndex, worldToModel(hitPoint), tol);
-    };
-
     const updateGhost = () => {
         const st = useCellBuilderStore.getState();
         const size = st.mode === "add-cell" ? DEFAULT_CELL_SIZE : DEFAULT_EQUIPMENT_SIZE;
@@ -813,24 +801,25 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         setPointer(ev);
         const hit = pickBuilderMesh();
 
-        // Border proximity -> edge selection (length-adjust panel), regardless
-        // of the cell/face select mode.
-        if (hit) {
-            const edge = detectEdge(cell.id, drag_.faceIndex, hit.point);
+        // Explicit selection: the panel's select-mode fully decides what a
+        // click picks — no implicit border-proximity edge override. setSelection
+        // surfaces the details in the Selected Object Info panel.
+        if (st.selectMode === "edge") {
+            // Nearest border edge of the clicked face (Infinity tolerance =
+            // always resolve to the closest of the face's four borders).
+            const edge = hit
+                ? edgeHitOnFace(cell, drag_.faceIndex, worldToModel(hit.point), Infinity)
+                : null;
             if (edge) {
-                // setSelection surfaces the details in the Selected Object Info
-                // panel (see cellBuilderStore) — no need to open the tool panel.
                 st.setSelection({kind: "edge", cellId: cell.id, faceIndex: drag_.faceIndex, edge});
-                return;
             }
+            return;
         }
-
-        // The panel's select-mode toggle decides what a plain click picks.
         if (st.selectMode === "face") {
             st.setSelection({kind: "face", cellId: cell.id, faceIndex: drag_.faceIndex});
-        } else {
-            st.setSelection({kind: "cell", cellId: cell.id});
+            return;
         }
+        st.setSelection({kind: "cell", cellId: cell.id});
     };
 
     const onPointerMove = (ev: PointerEvent) => {
@@ -886,30 +875,18 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         }
 
         if (st.mode === "idle") {
-            // No face/edge hover highlights while a gizmo owns the cell, or in
-            // "none" mode (free navigation).
-            if (st.gizmoMode !== "none" || st.selectMode === "none") {
-                setHoveredEdge(null);
-                setHoveredFace(null, -1);
-                return;
-            }
-            const hit = pickBuilderMesh();
-            if (hit && hit.face) {
-                const cellId = hit.object.userData.__cellId as string;
-                const faceIndex = hit.face.materialIndex;
-                const edge = detectEdge(cellId, faceIndex, hit.point);
-                if (edge) {
-                    // near a border: highlight the edge, not the face
-                    setHoveredFace(null, -1);
-                    setHoveredEdge({cellId, faceIndex, edge});
-                } else {
-                    setHoveredEdge(null);
-                    setHoveredFace(hit.object as THREE.Mesh, faceIndex);
-                }
-            } else {
-                setHoveredEdge(null);
-                setHoveredFace(null, -1);
-            }
+            // Explicit selection only: hovering never auto-highlights a
+            // face/edge (that yellow hover pick read as an accidental
+            // selection). The chosen element highlights on an explicit click;
+            // hover just offers a cursor hint over a pickable cell.
+            setHoveredEdge(null);
+            setHoveredFace(null, -1);
+            const overCell =
+                st.selectMode !== "none" &&
+                st.gizmoMode === "none" &&
+                pickBuilderMesh() !== null;
+            renderer.domElement.style.cursor =
+                overCell ? (st.selectMode === "edge" ? "crosshair" : "pointer") : "";
         }
     };
 
