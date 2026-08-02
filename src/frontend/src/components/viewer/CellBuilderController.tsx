@@ -297,11 +297,14 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     const refreshFaceStyles = () => {
         const st = useCellBuilderStore.getState();
         const sel = st.selection;
+        // Every cell in the multi-select set highlights (not just the primary),
+        // so an add-mode selection shows what a Hide / copy will act on.
+        const selectedSet = new Set(st.selectedCellIds);
         for (const [cellId, mesh] of meshById) {
             const cell = st.cells[cellId];
             if (!cell) continue;
             const base = cell.kind === "cell" ? CELL_COLOR : EQUIPMENT_COLOR;
-            const cellSelected = sel?.cellId === cellId;
+            const cellSelected = sel?.cellId === cellId || selectedSet.has(cellId);
             const mats = mesh.material as THREE.MeshBasicMaterial[];
             for (let fi = 0; fi < mats.length; fi++) {
                 let color = base;
@@ -850,7 +853,14 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             st.setSelection({kind: "face", cellId: cell.id, faceIndex: target.faceIndex});
             return;
         }
-        st.setSelection({kind: "cell", cellId: cell.id});
+        // Whole-cell pick: add-mode toggles the cell in the multi-select set (so
+        // several cells can be copied/hidden at once); otherwise it's a single
+        // selection.
+        if (st.cellAddMode) {
+            st.toggleCellSelection(cell.id);
+        } else {
+            st.setSelection({kind: "cell", cellId: cell.id});
+        }
     };
 
     const onPointerMove = (ev: PointerEvent) => {
@@ -1049,7 +1059,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     syncGizmo();
     const unsub = useCellBuilderStore.subscribe((s, prev) => {
         if (s.cells !== prev.cells || s.active !== prev.active) rebuild();
-        else if (s.selection !== prev.selection) refreshFaceStyles();
+        else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
+            refreshFaceStyles();
         if (
             s.cells !== prev.cells ||
             s.active !== prev.active ||

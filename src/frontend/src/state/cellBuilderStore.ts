@@ -144,6 +144,14 @@ interface CellBuilderState {
   systems: Record<string, BuilderSystem>;
   mode: CellBuilderMode;
   selection: BuilderSelection | null;
+  /** All currently-selected cells (the multi-select set, for copy-names / hide
+   * multiple). Kept in sync with `selection`: a single pick is `[cellId]`; with
+   * `cellAddMode` on, clicks toggle membership. `selection` remains the primary
+   * (last-clicked) cell that drives the detail editors. */
+  selectedCellIds: string[];
+  /** When on, clicking a cell adds/removes it from `selectedCellIds` instead of
+   * replacing the selection — the cell analogue of the regular "Add mode". */
+  cellAddMode: boolean;
   selectMode: SelectMode;
   /** Which direct-manipulation gizmo is active for the selected cell: none, a
    * translate widget, or the face-handle resize gizmo. Reset to "none" whenever
@@ -216,6 +224,11 @@ interface CellBuilderState {
   close: () => void;
   setMode: (mode: CellBuilderMode) => void;
   setSelection: (sel: BuilderSelection | null) => void;
+  /** Toggle a cell in the multi-select set (used when cellAddMode is on); the
+   * toggled cell becomes the primary selection. */
+  toggleCellSelection: (cellId: string) => void;
+  /** Flip the cell add-mode (sticky, like the regular additive select). */
+  toggleCellAddMode: () => void;
   setSelectMode: (m: SelectMode) => void;
   setGizmoMode: (mode: GizmoMode) => void;
   setFaceDragResize: (v: boolean) => void;
@@ -407,6 +420,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     // every cell (or lands on a per-cell-hidden, click-through box) falls through
     // to normal geometry selection, so the same panel updates for the compiled
     // result too.
+    selectedCellIds: [],
+    cellAddMode: false,
     selectMode: "cell",
     gizmoMode: "none",
     faceDragResize: false,
@@ -446,6 +461,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         txDepth: 0,
         mode: "idle",
         selection: null,
+        selectedCellIds: [],
         gizmoMode: "none",
         contextMenu: null,
         insertMenu: null,
@@ -470,6 +486,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         txDepth: 0,
         mode: "idle",
         selection: null,
+        selectedCellIds: [],
         gizmoMode: "none",
         contextMenu: null,
         insertMenu: null,
@@ -487,12 +504,31 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     setSelection: (selection) => {
       set((s) => ({
         selection,
+        // A single pick resets the multi-select set to just this cell.
+        selectedCellIds: selection ? [selection.cellId] : [],
         gizmoMode:
           selection && s.selection && selection.cellId === s.selection.cellId
             ? s.gizmoMode
             : "none",
       }));
     },
+    toggleCellSelection: (cellId) =>
+      set((s) => {
+        if (!s.cells[cellId]) return {};
+        const has = s.selectedCellIds.includes(cellId);
+        const next = has
+          ? s.selectedCellIds.filter((id) => id !== cellId)
+          : [...s.selectedCellIds, cellId];
+        // Primary selection follows the click: the added cell, or (when
+        // removing) the last one still selected, else nothing.
+        const primaryId = has ? next[next.length - 1] : cellId;
+        return {
+          selectedCellIds: next,
+          selection: primaryId ? { kind: "cell", cellId: primaryId } : null,
+          gizmoMode: "none",
+        };
+      }),
+    toggleCellAddMode: () => set((s) => ({ cellAddMode: !s.cellAddMode })),
     setSelectMode: (selectMode) => set({ selectMode }),
     setGizmoMode: (gizmoMode) => set({ gizmoMode }),
     setFaceDragResize: (faceDragResize) => set({ faceDragResize }),
@@ -559,12 +595,14 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     hideCells: (ids) =>
       set((s) => {
         const next = new Set(s.hiddenCellIds);
-        // Only hide ids that are real cells; drop the selection if it points at
-        // one we just hid (a hidden cell shouldn't keep the info panel open).
+        // Only hide ids that are real cells. A hidden cell shouldn't stay
+        // selected (its box is now click-through) — drop it from the
+        // multi-select set and clear the primary selection when it's hidden.
         for (const id of ids) if (s.cells[id]) next.add(id);
         const selHidden = s.selection && next.has(s.selection.cellId);
         return {
           hiddenCellIds: [...next],
+          selectedCellIds: s.selectedCellIds.filter((id) => !next.has(id)),
           ...(selHidden ? { selection: null, gizmoMode: "none" as GizmoMode } : {}),
         };
       }),
@@ -693,6 +731,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           cells,
           dirty: true,
           selection: s.selection?.cellId === id ? null : s.selection,
+          selectedCellIds: s.selectedCellIds.filter((cid) => cid !== id),
           gizmoMode: s.selection?.cellId === id ? "none" : s.gizmoMode,
         };
       }),
@@ -948,6 +987,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           ...step.stacks,
           dirty: true,
           selection: pruneSelection(s.selection, step.restored.cells),
+          selectedCellIds: s.selectedCellIds.filter((id) => step.restored.cells[id]),
         };
       }),
     redo: () =>
@@ -959,6 +999,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           ...step.stacks,
           dirty: true,
           selection: pruneSelection(s.selection, step.restored.cells),
+          selectedCellIds: s.selectedCellIds.filter((id) => step.restored.cells[id]),
         };
       }),
     beginTransaction: () =>

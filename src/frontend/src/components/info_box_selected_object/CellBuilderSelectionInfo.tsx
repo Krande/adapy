@@ -205,13 +205,10 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
   const renameCell = useCellBuilderStore((s) => s.renameCell);
   const gizmoMode = useCellBuilderStore((s) => s.gizmoMode);
   const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
-  const hideCells = useCellBuilderStore((s) => s.hideCells);
-  const unhideAllCells = useCellBuilderStore((s) => s.unhideAllCells);
-  const hiddenCount = useCellBuilderStore((s) => s.hiddenCellIds.length);
   const [open, setOpen] = React.useState(true);
   const [extendBy, setExtendBy] = React.useState(0.5);
-  // Re-open on a new pick so the panel always reveals what was just clicked.
-  React.useEffect(() => setOpen(true), [selection]);
+  // Deliberately no re-open on a new pick: clicking another cell must not
+  // force-expand a section the user has collapsed. The collapse state persists.
 
   const cell = cells[selection.cellId];
   if (!cell) return null;
@@ -278,26 +275,6 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
                 {label}
               </button>
             ))}
-          </div>
-          {/* Per-cell visibility — the procedural analogue of the regular
-              model's Hide / Unhide-all. Hiding a cell only affects the view
-              (not saved) and makes its box click-through, so the compiled
-              result underneath becomes selectable. */}
-          <div
-            className="flex items-center gap-1"
-            title="Hide this cell from the view (not saved). A hidden cell is click-through, so you can select the compiled result underneath. Unhide all restores every hidden cell."
-          >
-            <span className="text-gray-300">visibility</span>
-            <button className={smallBtn} onClick={() => hideCells([cell.id])}>
-              Hide
-            </button>
-            <button
-              className={smallBtn}
-              disabled={hiddenCount === 0}
-              onClick={unhideAllCells}
-            >
-              Unhide all{hiddenCount ? ` (${hiddenCount})` : ""}
-            </button>
           </div>
           {selection.kind === "face" && side && (
             <>
