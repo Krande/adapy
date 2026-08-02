@@ -1,5 +1,6 @@
 import React from "react";
 
+import { PositionedMenu } from "@/components/common/PositionedMenu";
 import { useCellBuilderStore } from "@/state/cellBuilderStore";
 import { useTypeIconsStore } from "@/state/typeIconsStore";
 
@@ -294,6 +295,9 @@ const ConnectionAdder: React.FC<{
 
 const CellBuilderPanel: React.FC = () => {
   const s = useCellBuilderStore();
+  const equipBtnRef = React.useRef<HTMLButtonElement>(null);
+  const [equipMenuOpen, setEquipMenuOpen] = React.useState(false);
+  const hasCells = Object.values(s.cells).some((c) => c.kind === "cell");
 
   if (!s.active || !s.panelVisible) return null;
 
@@ -349,19 +353,56 @@ const CellBuilderPanel: React.FC = () => {
           + Cell
         </button>
         <button
+          ref={equipBtnRef}
           className={
             s.mode === "add-equipment" ? `${btn} ring-2 ring-blue-300` : btn
           }
           disabled={
             s.equipmentTypes.length === 0 && s.selectedEquipmentType === null
           }
-          onClick={() =>
-            s.setMode(s.mode === "add-equipment" ? "idle" : "add-equipment")
-          }
-          title="Click in the scene to place equipment (Esc cancels)"
+          onClick={() => {
+            // Already placing at cursor → toggle back to idle. Otherwise open
+            // the choice menu: place freely at the cursor, or seat it onto/into
+            // an existing cell.
+            if (s.mode === "add-equipment") {
+              s.setMode("idle");
+              return;
+            }
+            setEquipMenuOpen((v) => !v);
+          }}
+          title="Add equipment — place at the cursor or seat it onto/into a cell"
         >
           + Equipment
         </button>
+        {equipMenuOpen && (
+          <PositionedMenu
+            anchor={{
+              kind: "rect",
+              getRect: () => equipBtnRef.current?.getBoundingClientRect(),
+            }}
+            ignoreOutsideRef={equipBtnRef}
+            onClose={() => setEquipMenuOpen(false)}
+            items={[
+              {
+                key: "cursor",
+                label: "Place at cursor",
+                onClick: () => s.setMode("add-equipment"),
+              },
+              {
+                key: "insert",
+                label: "Insert onto/into cell…",
+                disabled: !hasCells,
+                title: hasCells
+                  ? "Seat equipment on a cell's floor or roof, centred on its footprint"
+                  : "Add a cell first",
+                onClick: () => {
+                  const r = equipBtnRef.current?.getBoundingClientRect();
+                  s.openInsertMenu(r?.left ?? 200, (r?.bottom ?? 200) + 4, null);
+                },
+              },
+            ]}
+          />
+        )}
         <select
           className={inputCls}
           value={s.selectedEquipmentType ?? ""}

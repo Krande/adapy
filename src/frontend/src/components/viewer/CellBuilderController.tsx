@@ -1001,6 +1001,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         }
 
         if (ev.key !== "Escape") return;
+        // The insert popover owns its own Escape (it closes itself); don't also
+        // unwind the selection underneath it.
+        if (st.insertMenu) return;
         // Escape unwinds one layer at a time: menu → gizmo → add-mode → selection.
         if (st.contextMenu) {
             st.closeContextMenu();

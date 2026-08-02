@@ -13,9 +13,12 @@ import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
 import {
   applyFaceOffset,
   BOX_FACE_SIDES,
+  placeInCell,
   quantizeVec,
   withAxisLength,
   type CellBox,
+  type CellSide,
+  type CellSurface,
   type EdgeHit,
   type Vec3,
 } from "@/utils/cellbuilder/snap";
@@ -153,6 +156,11 @@ interface CellBuilderState {
   /** Cell context menu (long-press on touch / right-click on desktop): screen
    * position + the cell it was opened on. */
   contextMenu: { x: number; y: number; cellId: string } | null;
+  /** "Insert equipment into/onto a cell" popover: screen position + the
+   * equipment being re-seated (equipmentId), or null equipmentId to create a
+   * new equipment. Opened from the + Equipment menu (new) or an equipment's
+   * context menu (re-seat). */
+  insertMenu: { x: number; y: number; equipmentId: string | null } | null;
   gridStep: number;
   snapThreshold: number;
   dirty: boolean;
@@ -208,6 +216,17 @@ interface CellBuilderState {
   setFaceDragResize: (v: boolean) => void;
   openContextMenu: (x: number, y: number, cellId: string) => void;
   closeContextMenu: () => void;
+  openInsertMenu: (x: number, y: number, equipmentId: string | null) => void;
+  closeInsertMenu: () => void;
+  /** Seat equipment onto/into a cell: create a new equipment (equipmentId
+   * null) or re-position an existing one on the chosen surface/side, centred
+   * on the cell footprint. */
+  insertEquipmentIntoCell: (opts: {
+    equipmentId: string | null;
+    cellId: string;
+    surface: CellSurface;
+    side: CellSide;
+  }) => void;
   setPanelVisible: (v: boolean) => void;
   setCellsVisible: (v: boolean) => void;
   setPortsOverlayVisible: (v: boolean) => void;
@@ -376,6 +395,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     gizmoMode: "none",
     faceDragResize: false,
     contextMenu: null,
+    insertMenu: null,
     gridStep: 0.1,
     snapThreshold: 0.25,
     dirty: false,
@@ -411,6 +431,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         selection: null,
         gizmoMode: "none",
         contextMenu: null,
+        insertMenu: null,
         dirty: false,
         conflict: null,
         compileJob: null,
@@ -433,6 +454,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         selection: null,
         gizmoMode: "none",
         contextMenu: null,
+        insertMenu: null,
         dirty: false,
         panelVisible: false,
         compileJob: null,
@@ -457,6 +479,62 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     setFaceDragResize: (faceDragResize) => set({ faceDragResize }),
     openContextMenu: (x, y, cellId) => set({ contextMenu: { x, y, cellId } }),
     closeContextMenu: () => set({ contextMenu: null }),
+    openInsertMenu: (x, y, equipmentId) =>
+      set({ insertMenu: { x, y, equipmentId }, contextMenu: null }),
+    closeInsertMenu: () => set({ insertMenu: null }),
+    insertEquipmentIntoCell: ({ equipmentId, cellId, surface, side }) =>
+      withHistory((s) => {
+        const cell = s.cells[cellId];
+        if (!cell || cell.kind !== "cell") return {};
+        const step = s.gridStep || 0.1;
+        // SPACE_LOC metadata records the seating surface (descriptive; the
+        // compiled geometry follows the absolute X/Y/Z we author here).
+        const spaceLoc = surface === "roof" ? "ROOF" : "FLOOR";
+        if (equipmentId) {
+          // Re-seat an existing equipment onto/into the chosen cell.
+          const eq = s.cells[equipmentId];
+          if (!eq || eq.kind !== "equipment") return {};
+          const origin = placeInCell(cell, eq.size, surface, side, step);
+          return {
+            cells: {
+              ...s.cells,
+              [equipmentId]: {
+                ...eq,
+                origin,
+                params: { ...eq.params, SPACE_LOC: spaceLoc },
+              },
+            },
+            dirty: true,
+            mode: "idle",
+            selection: { kind: "cell", cellId: equipmentId },
+            insertMenu: null,
+          };
+        }
+        // Create a new equipment seated on the cell (mirrors addCell's naming).
+        const id = nextId();
+        const count =
+          Object.values(s.cells).filter((c) => c.kind === "equipment").length +
+          1;
+        const eqType = s.selectedEquipmentType ?? undefined;
+        const baseName = (eqType ?? "EQ").toUpperCase();
+        const size: Vec3 = [1, 1, 1];
+        const eqCell: BuilderCell = {
+          id,
+          name: `${baseName}_${String(count).padStart(2, "0")}`,
+          kind: "equipment",
+          equipmentType: eqType,
+          origin: placeInCell(cell, size, surface, side, step),
+          size,
+          params: { SPACE_LOC: spaceLoc },
+        };
+        return {
+          cells: { ...s.cells, [id]: eqCell },
+          dirty: true,
+          mode: "idle",
+          selection: { kind: "cell", cellId: id },
+          insertMenu: null,
+        };
+      }),
     setPanelVisible: (panelVisible) => set({ panelVisible }),
     setCellsVisible: (cellsVisible) => set({ cellsVisible }),
     setPortsOverlayVisible: (portsOverlayVisible) =>

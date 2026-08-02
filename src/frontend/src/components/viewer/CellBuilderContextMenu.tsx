@@ -18,7 +18,9 @@ const CellBuilderContextMenu: React.FC = () => {
   const setSelection = useCellBuilderStore((s) => s.setSelection);
   const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
   const setPanelVisible = useCellBuilderStore((s) => s.setPanelVisible);
+  const openInsertMenu = useCellBuilderStore((s) => s.openInsertMenu);
   const removeCell = useCellBuilderStore((s) => s.removeCell);
+  const hasCells = Object.values(cells).some((c) => c.kind === "cell");
 
   if (!menu) return null;
   const cell = cells[menu.cellId];
@@ -53,6 +55,19 @@ const CellBuilderContextMenu: React.FC = () => {
         setPanelVisible(true);
       },
     },
+    // Equipment can be re-seated onto/into a cell (same popover as the
+    // + Equipment menu, but targeting this existing unit).
+    ...(cell.kind === "equipment"
+      ? [
+          {
+            key: "insert",
+            label: "Insert onto/into cell…",
+            disabled: !hasCells,
+            title: hasCells ? undefined : "Add a cell first",
+            onClick: () => openInsertMenu(menu.x, menu.y, menu.cellId),
+          },
+        ]
+      : []),
     {
       key: "delete",
       label: "Delete",

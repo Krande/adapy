@@ -9,6 +9,7 @@ import {
     edgeHitOnFace,
     faceCenter,
     originFromCenter,
+    placeInCell,
     quantize,
     snapBox,
     snapToVertices,
@@ -117,6 +118,22 @@ test("faceCenter sits at each face centre (resize-handle placement)", () => {
     // +Z / -Z faces (materialIndex 4 / 5): pinned on Z, centred in X and Y.
     assert.deepEqual(faceCenter(box, 4), [3, 5, 11]);
     assert.deepEqual(faceCenter(box, 5), [3, 5, 3]);
+});
+
+test("placeInCell centres equipment on the footprint and seats it by surface/side", () => {
+    const cell = {origin: [0, 0, 0] as [number, number, number], size: [5, 5, 3] as [number, number, number]};
+    const size = [1, 1, 2] as [number, number, number];
+    // roof + top: box sits on the roof (z = cell top), centred on the footprint
+    assert.deepEqual(placeInCell(cell, size, "roof", "top", 0.1), [2, 2, 3]);
+    // roof + bottom: box hangs from the roof (top at cell top => origin = 3 - 2)
+    assert.deepEqual(placeInCell(cell, size, "roof", "bottom", 0.1), [2, 2, 1]);
+    // floor + top: box stands on the floor
+    assert.deepEqual(placeInCell(cell, size, "floor", "top", 0.1), [2, 2, 0]);
+    // floor + bottom: box hangs under the floor (origin = 0 - 2)
+    assert.deepEqual(placeInCell(cell, size, "floor", "bottom", 0.1), [2, 2, -2]);
+    // X/Y centring is grid-quantized (odd footprint offset snaps to the step)
+    const odd = {origin: [1, 1, 0] as [number, number, number], size: [3, 3, 3] as [number, number, number]};
+    assert.deepEqual(placeInCell(odd, [1, 1, 1], "floor", "top", 0.5), [2, 2, 0]);
 });
 
 test("originFromCenter inverts the mesh centre, grid-quantized", () => {

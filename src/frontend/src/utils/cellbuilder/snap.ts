@@ -181,6 +181,39 @@ export function originFromCenter(center: Vec3, size: Vec3, step: number): Vec3 {
     ];
 }
 
+/** Which horizontal surface of a cell equipment seats against. */
+export type CellSurface = "floor" | "roof";
+/** Which side of that surface the equipment sits on: TOP = box above the
+ * surface (rests on it), BOTTOM = box below it (hangs under it). */
+export type CellSide = "top" | "bottom";
+
+/**
+ * Origin (min corner) for equipment seated onto/into a cell. X/Y centre the
+ * box on the cell footprint; Z follows the chosen surface (floor = cell base,
+ * roof = cell top) and side (top = box sits above the surface, bottom = box
+ * hangs below it). The four combinations cover the "into / onto" placements:
+ *   roof+top    → onto the cell (sits on the ceiling)
+ *   roof+bottom → into the cell, hung from the ceiling
+ *   floor+top   → into the cell, standing on the floor
+ *   floor+bottom→ under the cell, hung below the floor
+ * All grid-quantized.
+ */
+export function placeInCell(
+    cell: CellBox,
+    size: Vec3,
+    surface: CellSurface,
+    side: CellSide,
+    step: number,
+): Vec3 {
+    const surfaceZ = surface === "floor" ? cell.origin[2] : cell.origin[2] + cell.size[2];
+    const z = side === "top" ? surfaceZ : surfaceZ - size[2];
+    return [
+        quantize(cell.origin[0] + cell.size[0] / 2 - size[0] / 2, step),
+        quantize(cell.origin[1] + cell.size[1] / 2 - size[1] / 2, step),
+        quantize(z, step),
+    ];
+}
+
 /** Resize the box along one axis to `length`, keeping the origin fixed. */
 export function withAxisLength(box: CellBox, axis: 0 | 1 | 2, length: number, minSize = 0.1): CellBox {
     const size: Vec3 = [...box.size];
