@@ -372,9 +372,19 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             }
         }
         cellsGroup.visible = st.cellsVisible;
+        applyCellVisibility();
         ghost.visible = false;
         ghostBox = null;
         refreshFaceStyles();
+    };
+
+    // Per-cell hide (the "Hide selected" analogue): a hidden cell's box is made
+    // invisible; pickBuilderMesh also drops it so it stops absorbing clicks.
+    const applyCellVisibility = () => {
+        const hidden = useCellBuilderStore.getState().hiddenCellIds;
+        for (const [cellId, mesh] of meshById) {
+            mesh.visible = !hidden.includes(cellId);
+        }
     };
 
     // ArrowHelper owns a Line (non-LineSegments) + a Mesh; the generic
@@ -662,7 +672,12 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
 
     const pickBuilderMesh = (): THREE.Intersection | null => {
         if (!cellsGroup.visible) return null; // hidden cells aren't pickable
-        const hits = raycaster.intersectObjects([...meshById.values()], false);
+        // Per-cell hidden boxes are excluded so a click passes through to
+        // whatever geometry (e.g. the compiled result) sits underneath.
+        // intersectObjects targets the meshes directly, bypassing the group, so
+        // it ignores mesh.visible — filter explicitly.
+        const meshes = [...meshById.values()].filter((m) => m.visible);
+        const hits = raycaster.intersectObjects(meshes, false);
         return hits.length ? hits[0] : null;
     };
 
@@ -1057,6 +1072,10 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (s.cellsVisible !== prev.cellsVisible) {
             cellsGroup.visible = s.cellsVisible;
             refreshEdgeOverlays();
+            requestRender();
+        }
+        if (s.hiddenCellIds !== prev.hiddenCellIds) {
+            applyCellVisibility();
             requestRender();
         }
         if (s.mode !== prev.mode && s.mode !== "add-cell" && s.mode !== "add-equipment") {

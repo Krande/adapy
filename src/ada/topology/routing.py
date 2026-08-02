@@ -158,14 +158,62 @@ def path_to_polyline(grid: CellGrid, path: list[GridIndex]) -> list[ada.Point]:
 
 
 def _grid_spacing(grid: CellGrid) -> float:
-    """The lattice pitch (smallest axis step). Used as the default nozzle-stub
-    length so a run leaves a port one cell along its direction before turning
-    onto the grid."""
+    """The lattice pitch. Used as the default nozzle-stub length so a run leaves
+    a port one cell along its direction before turning onto the grid.
+
+    Per axis we take the *median* step, not the smallest: ``CellGrid.from_bounds``
+    appends the exact max bound, so the final cell is a short remainder step
+    (e.g. a 0.1 tail on an otherwise 0.5 lattice). Picking the min there would
+    yield a stub far shorter than a cell, leaving a tiny leg that folds into the
+    first grid node and breaks pipe-elbow generation."""
     steps = []
     for vals in (grid.x_list, grid.y_list, grid.z_list):
-        if len(vals) >= 2:
-            steps.append(min(abs(b - a) for a, b in zip(vals[:-1], vals[1:])))
+        axis = sorted(abs(b - a) for a, b in zip(vals[:-1], vals[1:]) if abs(b - a) > 1e-9)
+        if axis:
+            steps.append(axis[len(axis) // 2])
     return min(steps) if steps else 0.0
+
+
+def _seg_len(a: ada.Point, b: ada.Point) -> float:
+    return ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2 + (b[2] - a[2]) ** 2) ** 0.5
+
+
+def _sanitize_polyline(pts: list[ada.Point], tol: float = 1e-6) -> list[ada.Point]:
+    """Drop coincident and collinear/anti-parallel interior vertices so the run
+    is a clean sequence of real bends.
+
+    End-capping (nozzle stub + exact port position) can leave a zero-length hop
+    or a 180° spike — the stub overshoots the first grid node, so the run steps
+    out along the nozzle and immediately reverses. Both are geometrically
+    degenerate and crash pipe-elbow generation downstream (no arc fits a 180°
+    turn). A zero cross-product catches the anti-parallel spike apex as well as
+    ordinary collinear points; a second dedup pass collapses any coincidence the
+    apex removal exposes."""
+
+    def _dedup(seq: list[ada.Point]) -> list[ada.Point]:
+        out: list[ada.Point] = []
+        for p in seq:
+            if not out or _seg_len(p, out[-1]) > tol:
+                out.append(p)
+        return out
+
+    seq = _dedup(pts)
+    if len(seq) <= 2:
+        return seq
+    kept = [seq[0]]
+    for cur, nxt in zip(seq[1:-1], seq[2:]):
+        prev = kept[-1]
+        d1 = (cur[0] - prev[0], cur[1] - prev[1], cur[2] - prev[2])
+        d2 = (nxt[0] - cur[0], nxt[1] - cur[1], nxt[2] - cur[2])
+        cross = (
+            d1[1] * d2[2] - d1[2] * d2[1],
+            d1[2] * d2[0] - d1[0] * d2[2],
+            d1[0] * d2[1] - d1[1] * d2[0],
+        )
+        if cross[0] ** 2 + cross[1] ** 2 + cross[2] ** 2 > tol * tol:
+            kept.append(cur)
+    kept.append(seq[-1])
+    return _dedup(kept)
 
 
 def _port_stub(port: Port, stub_len: float) -> ada.Point | None:
@@ -255,6 +303,7 @@ def route_system(
     polyline = path_to_polyline(grid, path)
     _cap_end(polyline, p_start, stub_start, at_start=True)
     _cap_end(polyline, p_end, stub_end, at_start=False)
+    polyline = _sanitize_polyline(polyline)
 
     system.routed_path = polyline
     return polyline

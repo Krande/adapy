@@ -73,15 +73,20 @@ def test_route_system_endpoints_are_exact_port_positions(grid):
 
 
 def test_route_system_leaves_ports_along_nozzle_normal(grid):
-    # Both ports face +Z; the run must step one grid pitch straight up out of
-    # each nozzle before turning onto the grid (issue: pipes ignored the port
-    # vector orientation).
+    # Both ports face +Z; the run must step straight up out of each nozzle (same
+    # x/y, increasing z) before turning onto the grid — it must not leave the
+    # port on a diagonal (issue: pipes ignored the port vector orientation). The
+    # nozzle stub may overshoot the first grid node; route_system cleans that
+    # anti-parallel overshoot so the leg stays a clean vertical hop rather than a
+    # degenerate 180° spike (which crashes pipe-elbow generation).
     system = _two_connected_equipment()
     polyline = route_system(system, grid)
     p_start = system.ports[0].get_global_position()  # (0, 0, 0.1), dir +Z
     p_end = system.ports[-1].get_global_position()  # (4, 4, 0.1), dir +Z
-    assert tuple(polyline[1]) == (p_start[0], p_start[1], p_start[2] + 1.0)
-    assert tuple(polyline[-2]) == (p_end[0], p_end[1], p_end[2] + 1.0)
+    assert (polyline[1][0], polyline[1][1]) == (p_start[0], p_start[1])
+    assert polyline[1][2] > p_start[2]
+    assert (polyline[-2][0], polyline[-2][1]) == (p_end[0], p_end[1])
+    assert polyline[-2][2] > p_end[2]
 
 
 def test_route_system_needs_two_ports(grid):
@@ -90,6 +95,30 @@ def test_route_system_needs_two_ports(grid):
     system = ada.PipingSystem("CW").connect(eq, "out")
     with pytest.raises(RoutingError, match="need two ends"):
         route_system(system, grid)
+
+
+def test_route_system_has_no_degenerate_spikes(grid):
+    # Ports sit off-grid (z=0.1), so the nozzle stub overshoots the first grid
+    # node — the raw cap used to leave a 180° spike (out along +Z, straight back
+    # down) that crashes pipe-elbow generation. The sanitised run must contain no
+    # zero-length hop and no anti-parallel reversal, and its pipe segments must
+    # realise cleanly.
+    system = _two_connected_equipment()
+    polyline = route_system(system, grid)
+    pts = [tuple(float(v) for v in p) for p in polyline]
+    for a, b in zip(pts, pts[1:]):
+        assert a != b, f"zero-length segment at {a}"
+    for prev, cur, nxt in zip(pts, pts[1:], pts[2:]):
+        d1 = [cur[i] - prev[i] for i in range(3)]
+        d2 = [nxt[i] - cur[i] for i in range(3)]
+        cross = (
+            d1[1] * d2[2] - d1[2] * d2[1],
+            d1[2] * d2[0] - d1[0] * d2[2],
+            d1[0] * d2[1] - d1[1] * d2[0],
+        )
+        assert sum(c * c for c in cross) > 1e-12, f"collinear/anti-parallel spike at {cur}"
+    (pipe,) = system_route_to_geometry(system)
+    assert len(pipe.segments) > 0  # elbow generation no longer raises
 
 
 def test_system_route_to_geometry(grid):

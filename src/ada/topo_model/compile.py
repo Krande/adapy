@@ -180,7 +180,13 @@ def _build_systems(doc: dict, equipment_map: dict, spaces: list[TopoSpace], cell
     systems_part = ada.Part("Systems")
     for geoms in result.route_geometry.values():
         for geom in geoms:
-            systems_part.add_object(geom)
+            # Adding a pipe realises its segments lazily (elbow generation). A
+            # degenerate run that slips past the router still shouldn't sink the
+            # whole compile — skip it with a warning, matching skip_failed above.
+            try:
+                systems_part.add_object(geom)
+            except Exception as exc:  # noqa: BLE001 - last-resort per-run guard
+                logger.warning("procedural: skipping route geometry %r: %s", getattr(geom, "name", geom), exc)
     if list(systems_part.get_all_physical_objects()):
         parts.append(systems_part)
 

@@ -178,6 +178,11 @@ interface CellBuilderState {
   resultSourceName: string | null;
   /** Toggle the builder box meshes (hide to focus on the compiled structure). */
   cellsVisible: boolean;
+  /** Individually hidden cells — ephemeral view state (not persisted, not
+   * undoable), the per-cell analogue of the regular model's "Hide selected".
+   * A hidden cell's box is invisible AND non-pickable, so clicks fall through
+   * to whatever geometry (e.g. the compiled result) sits underneath. */
+  hiddenCellIds: string[];
   /** Toggle the port/nozzle overlay: each placed equipment's input/output
    * positions + direction vectors drawn as coloured arrows (colours match the
    * catalog editor). Off by default. */
@@ -229,6 +234,10 @@ interface CellBuilderState {
   }) => void;
   setPanelVisible: (v: boolean) => void;
   setCellsVisible: (v: boolean) => void;
+  /** Hide the given cells (per-cell "Hide selected"). */
+  hideCells: (ids: string[]) => void;
+  /** Clear all per-cell hides. */
+  unhideAllCells: () => void;
   setPortsOverlayVisible: (v: boolean) => void;
   setGridStep: (v: number) => void;
   setSnapThreshold: (v: number) => void;
@@ -391,7 +400,14 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     txDepth: 0,
     mode: "idle",
     selection: null,
-    selectMode: "cell",
+    // Idle clicks pass through to normal geometry selection (so the Selected
+    // Object Info panel's Hide / Unhide-all / Add-mode work on the compiled
+    // result like any regular model). Cell editing is explicit: it happens
+    // through the translate/resize gizmos (reached via long-press / right-click
+    // → context menu), which own the pointer only while active. Toggle a
+    // click-select mode (cell/face/edge) from the tool panel when you want to
+    // pick cells by clicking.
+    selectMode: "none",
     gizmoMode: "none",
     faceDragResize: false,
     contextMenu: null,
@@ -408,6 +424,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     compileJob: null,
     resultSourceName: null,
     cellsVisible: true,
+    hiddenCellIds: [],
     portsOverlayVisible: false,
     blueprintOptions: {},
     equipmentCad: false,
@@ -436,6 +453,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         conflict: null,
         compileJob: null,
         panelVisible: true,
+        hiddenCellIds: [],
       });
       void get().fetchEquipmentTypes();
       void get().fetchSystemTypes();
@@ -458,6 +476,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         dirty: false,
         panelVisible: false,
         compileJob: null,
+        hiddenCellIds: [],
       });
     },
     setMode: (mode) => set({ mode }),
@@ -537,6 +556,19 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       }),
     setPanelVisible: (panelVisible) => set({ panelVisible }),
     setCellsVisible: (cellsVisible) => set({ cellsVisible }),
+    hideCells: (ids) =>
+      set((s) => {
+        const next = new Set(s.hiddenCellIds);
+        // Only hide ids that are real cells; drop the selection if it points at
+        // one we just hid (a hidden cell shouldn't keep the info panel open).
+        for (const id of ids) if (s.cells[id]) next.add(id);
+        const selHidden = s.selection && next.has(s.selection.cellId);
+        return {
+          hiddenCellIds: [...next],
+          ...(selHidden ? { selection: null, gizmoMode: "none" as GizmoMode } : {}),
+        };
+      }),
+    unhideAllCells: () => set({ hiddenCellIds: [] }),
     setPortsOverlayVisible: (portsOverlayVisible) =>
       set({ portsOverlayVisible }),
     setGridStep: (gridStep) => set({ gridStep: Math.max(0, gridStep) }),
