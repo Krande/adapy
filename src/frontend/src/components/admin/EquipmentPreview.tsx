@@ -42,6 +42,9 @@ const EquipmentPreview: React.FC<{
     previewKey: string | null;
 }> = ({doc, scope, previewKey}) => {
     const mountRef = React.useRef<HTMLDivElement | null>(null);
+    // Latest bbox, read by the imperative effects without re-subscribing them.
+    const bboxRef = React.useRef(doc.bbox);
+    bboxRef.current = doc.bbox;
     // Imperative three refs kept across renders.
     const stateRef = React.useRef<{
         renderer: THREE.WebGLRenderer;
@@ -65,6 +68,20 @@ const EquipmentPreview: React.FC<{
         st.controls.minDistance = sphere.radius * 0.2;
         st.controls.maxDistance = sphere.radius * 40;
         void st.controls.fitToSphere(sphere, false);
+    };
+
+    // Seat the loaded CAD group so its min corner meets the bbox's min corner —
+    // the same corner-alignment the compiler uses (min corner → cell corner).
+    // The CAD GLB carries its own model-space origin (often far from 0,0,0), so
+    // without this it floats off the box and the fit zooms to nothing useful. In
+    // view space (three is Y-up, our model Z-up) the box min corner is
+    // (-lx/2, 0, -ly/2).
+    const alignCad = (group: THREE.Group) => {
+        const b = new THREE.Box3().setFromObject(group);
+        if (b.isEmpty()) return;
+        const { lx, ly } = bboxRef.current;
+        const target = new THREE.Vector3(-lx / 2, 0, -ly / 2);
+        group.position.add(target.sub(b.min));
     };
 
     // ── one-time scene setup ──────────────────────────────────────────
@@ -171,6 +188,10 @@ const EquipmentPreview: React.FC<{
             st.content.add(arrow);
         });
 
+        // Keep the CAD seated on the (possibly resized) box, without refitting
+        // the camera on every keystroke.
+        if (st.cad) alignCad(st.cad);
+
         // Frame the box the first time it appears; leave the camera alone on
         // subsequent port edits.
         if (!st.hasFit) {
@@ -193,10 +214,12 @@ const EquipmentPreview: React.FC<{
         void fetchPreviewGltf(scope, previewKey).then((group) => {
             if (cancelled || !group || !stateRef.current) return;
             group.userData.__cad = true;
-            // GLBs are Y-up already; drop it in as-is (centered on the box origin).
+            // GLBs are Y-up already; seat the group's min corner on the box corner
+            // (it isn't centred at the origin in its own coords).
             const cur = stateRef.current;
             cur.content.add(group);
             cur.cad = group;
+            alignCad(group);
             fitToContent(cur); // the CAD changes the extent — reframe on it
         });
         return () => {

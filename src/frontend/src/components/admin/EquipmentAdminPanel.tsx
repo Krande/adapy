@@ -57,6 +57,46 @@ const IFC_CLASSES = [
 const DIRECTIONS: PortDirection[] = ["IN", "OUT", "INOUT"];
 const CATEGORIES: PortCategory[] = ["process", "electrical", "signal"];
 
+// A controlled numeric <input> that keeps its own text state while editing, so
+// the field can be cleared and retyped freely. Binding the input directly to a
+// number coerced empty → 0, which left a stuck leading "0" (typing 3 gave "03");
+// here an empty/partial string is allowed and onChange only fires for a parseable
+// number. External value changes (e.g. infer-bbox) re-sync the text.
+const NumInput: React.FC<{
+  value: number;
+  step?: number;
+  className?: string;
+  onChange: (v: number) => void;
+}> = ({ value, step = 0.1, className, onChange }) => {
+  const [text, setText] = React.useState(() => String(value));
+  React.useEffect(() => {
+    // Don't clobber the field mid-type: only re-sync when the committed value
+    // differs from what the current text parses to.
+    if (parseFloat(text) !== value) {
+      setText(Number.isFinite(value) ? String(value) : "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return (
+    <input
+      type="number"
+      step={step}
+      className={className ?? inputCls}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        const n = parseFloat(e.target.value);
+        if (Number.isFinite(n)) onChange(n);
+      }}
+      onBlur={() => {
+        // Normalise on blur (drop leading zeros / restore the value if left empty).
+        const n = parseFloat(text);
+        setText(Number.isFinite(n) ? String(n) : String(value));
+      }}
+    />
+  );
+};
+
 const NumField: React.FC<{
   label: string;
   value: number;
@@ -65,13 +105,7 @@ const NumField: React.FC<{
 }> = ({ label, value, step = 0.1, onChange }) => (
   <label className="flex flex-col gap-0.5">
     <span className="text-gray-400">{label}</span>
-    <input
-      type="number"
-      step={step}
-      className={inputCls}
-      value={Number.isFinite(value) ? value : 0}
-      onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-    />
+    <NumInput value={value} step={step} onChange={onChange} />
   </label>
 );
 
@@ -84,15 +118,12 @@ const Vec3Field: React.FC<{
     <span className="text-gray-400">{label}</span>
     <div className="grid grid-cols-3 gap-1">
       {(["x", "y", "z"] as const).map((_, i) => (
-        <input
+        <NumInput
           key={i}
-          type="number"
-          step={0.1}
-          className={inputCls}
           value={value[i]}
-          onChange={(e) => {
+          onChange={(v) => {
             const next = [...value] as [number, number, number];
-            next[i] = parseFloat(e.target.value) || 0;
+            next[i] = v;
             onChange(next);
           }}
         />
@@ -573,9 +604,12 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
           <div className="flex items-center gap-2 border-t border-gray-700 pt-2">
             <span className="text-gray-400">rev {draft.revision}</span>
             {equipmentDirty && <span className="text-amber-400">unsaved</span>}
+            {/* Enabled whenever a type is open (not only when dirty) — after
+                linking a CAD asset there may be nothing "dirty" to flag, but the
+                user still expects to be able to Save/re-persist. */}
             <button
               className={btn + " ml-auto"}
-              disabled={!equipmentDirty || equipmentBusy}
+              disabled={equipmentBusy}
               onClick={() => void store.getState().saveEquipment()}
             >
               Save
