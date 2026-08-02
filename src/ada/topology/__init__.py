@@ -17,6 +17,19 @@ from __future__ import annotations
 from ada.cad import Containment
 from ada.topology.blueprint import BlueprintBase
 from ada.topology.builder import TopologyBuilder
+from ada.topology.design_rules import (
+    DesignResult,
+    DesignRules,
+    Penetration,
+    PenetrationPlanContext,
+    RoutePlan,
+    RoutePlanContext,
+    default_penetration_planner,
+    default_route_modeller,
+    default_route_planner,
+    find_face_crossings,
+    run_design,
+)
 from ada.topology.entities import (
     EquipRepr,
     TopoEquipment,
@@ -31,19 +44,6 @@ from ada.topology.graph import (
     GraphCell,
     GraphEdge,
     GraphFace,
-)
-from ada.topology.design_rules import (
-    DesignResult,
-    DesignRules,
-    Penetration,
-    PenetrationPlanContext,
-    RoutePlan,
-    RoutePlanContext,
-    default_penetration_planner,
-    default_route_modeller,
-    default_route_planner,
-    find_face_crossings,
-    run_design,
 )
 from ada.topology.grid import CellGrid, GridIndexError
 from ada.topology.io import from_assembly, from_ifc, from_part

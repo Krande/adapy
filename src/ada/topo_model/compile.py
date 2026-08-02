@@ -123,7 +123,9 @@ def _occupy_equipment(grid: CellGrid, eq: ada.Equipment) -> None:
                     grid.register((ix, iy, iz), eq.name)
 
 
-def _build_systems(doc: dict, equipment_map: dict, spaces: list[TopoSpace], cell_graph, design_rules=None) -> list[ada.Part]:
+def _build_systems(
+    doc: dict, equipment_map: dict, spaces: list[TopoSpace], cell_graph, design_rules=None
+) -> list[ada.Part]:
     """Wire each system's equipment ports then drive both engine phases with the
     ``design_rules`` ruleset (plan the routes, plan the penetrations, model the
     runs and their details). Returns the parts to add (a Systems part, and a

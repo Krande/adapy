@@ -400,14 +400,14 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     txDepth: 0,
     mode: "idle",
     selection: null,
-    // Idle clicks pass through to normal geometry selection (so the Selected
-    // Object Info panel's Hide / Unhide-all / Add-mode work on the compiled
-    // result like any regular model). Cell editing is explicit: it happens
-    // through the translate/resize gizmos (reached via long-press / right-click
-    // → context menu), which own the pointer only while active. Toggle a
-    // click-select mode (cell/face/edge) from the tool panel when you want to
-    // pick cells by clicking.
-    selectMode: "none",
+    // Clicking a cell/equipment selects it (the Selected Object Info panel then
+    // shows its procedural detail). Selection is NOT editing: with faceDragResize
+    // off, a tap selects and a drag orbits — moving/resizing geometry only
+    // happens through the explicit translate/resize gizmos. A click that misses
+    // every cell (or lands on a per-cell-hidden, click-through box) falls through
+    // to normal geometry selection, so the same panel updates for the compiled
+    // result too.
+    selectMode: "cell",
     gizmoMode: "none",
     faceDragResize: false,
     contextMenu: null,

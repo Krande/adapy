@@ -129,7 +129,11 @@ def test_compile_pipe_leaves_ports_along_nozzle_normal():
     out of the discharge and drop straight into the inlet."""
     import ada
     from ada.topo_model.blueprint import SteelStru
-    from ada.topo_model.compile import _build_systems, _equipment_to_object, _space_to_box
+    from ada.topo_model.compile import (
+        _build_systems,
+        _equipment_to_object,
+        _space_to_box,
+    )
     from ada.topology import TopologyBuilder
     from ada.topology.entities import TopoEquipment, TopoSpace
 
@@ -263,7 +267,9 @@ def test_compile_equipment_cad_splice():
     import trimesh
 
     mesh = trimesh.creation.box(extents=(1.0, 1.0, 2.0))
-    catalog = {"big-pump": {"bbox": {"lx": 1, "ly": 1, "lz": 2}, "mass": 100, "ifc_element_class": "IfcPump", "ports": []}}
+    catalog = {
+        "big-pump": {"bbox": {"lx": 1, "ly": 1, "lz": 2}, "mass": 100, "ifc_element_class": "IfcPump", "ports": []}
+    }
     doc = {
         "equipment_cad": True,
         "spaces": DOC["spaces"],
@@ -277,9 +283,7 @@ def test_compile_equipment_cad_splice():
     )
     assert _is_glb(glb) and len(glb) > 500
     # a missing CAD mesh falls back to the box path without error
-    glb2 = compile_procedural_doc(
-        doc, blueprint_name="none", equipment_resolver=catalog.get, cad_scene_resolver={}.get
-    )
+    glb2 = compile_procedural_doc(doc, blueprint_name="none", equipment_resolver=catalog.get, cad_scene_resolver={}.get)
     assert _is_glb(glb2)
 
 

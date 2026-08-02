@@ -169,7 +169,9 @@ def _resolve_port_entity(ifc_store: IfcStore, port: Port) -> ifcopenshell.entity
     return None
 
 
-def _write_beam_run_distribution_system(ifc_store: IfcStore, system: System, beams: list) -> ifcopenshell.entity_instance:
+def _write_beam_run_distribution_system(
+    ifc_store: IfcStore, system: System, beams: list
+) -> ifcopenshell.entity_instance:
     """Write a routed duct/cable-tray run (straight :class:`ada.Beam` segments)
     as a proper IFC distribution system: each beam becomes its
     ``segment_ifc_class`` flow element (IfcDuctSegment / IfcCableSegment),

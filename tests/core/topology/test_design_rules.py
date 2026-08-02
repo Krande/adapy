@@ -6,6 +6,14 @@ from __future__ import annotations
 import pytest
 
 import ada
+from ada.topo_model import (
+    SteelStru,
+    create_pump,
+    create_tank,
+    design_ruleset_specs,
+    resolve_design_rules,
+    standard_design_rules,
+)
 from ada.topology import (
     CellGrid,
     DesignRules,
@@ -15,14 +23,6 @@ from ada.topology import (
     RoutingRules,
     TopologyBuilder,
     run_design,
-)
-from ada.topo_model import (
-    SteelStru,
-    create_pump,
-    create_tank,
-    design_ruleset_specs,
-    resolve_design_rules,
-    standard_design_rules,
 )
 
 
