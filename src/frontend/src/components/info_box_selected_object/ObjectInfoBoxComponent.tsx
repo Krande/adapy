@@ -24,6 +24,7 @@ const ObjectInfoBox = () => {
         useSelectedObjectStore,
         useTableNavStore,
         useFeaAnimationStore,
+        useTreeViewStore,
     } = useViewerStores();
     const {
         name,
@@ -49,6 +50,13 @@ const ObjectInfoBox = () => {
     const cellNames = cbSelectedIds
         .map((id) => cbCells[id]?.name)
         .filter((n): n is string => !!n);
+
+    // Whether the scene has anything at all — a loaded model (tree) or builder
+    // cells. Scene-wide recovery actions (Unhide all) stay available as long as
+    // entities remain, even with nothing selected, so hiding the last selection
+    // doesn't strand what you hid.
+    const treeData = useTreeViewStore((s) => s.treeData);
+    const hasEntities = treeData != null || (cbActive && Object.keys(cbCells).length > 0);
 
     // Total drawRangeIds across all selected meshes — that's the
     // count of "things selected" the user thinks of (one per
@@ -198,25 +206,32 @@ const ObjectInfoBox = () => {
                 buttons make the operation findable without
                 cluttering desktop unnecessarily (single row, small
                 pills). */}
-            {displayName && (
+            {(displayName || hasEntities) && (
                 <div className="mt-2 flex flex-wrap gap-2 items-center">
-                    <button
-                        type="button"
-                        onClick={onHide}
-                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
-                        title={
-                            cellCtx
-                                ? (isMultiSelect ? `Hide ${multiSelectCount} selected cells` : "Hide selected cell")
-                                : isMultiSelect
-                                    ? `Hide ${multiSelectCount} selected (Shift+H)`
-                                    : "Hide selected (Shift+H)"
-                        }
-                        aria-label="Hide selected"
-                    >
-                        <EyeOffIcon/>
-                        Hide
-                        {isMultiSelect ? ` (${multiSelectCount})` : ""}
-                    </button>
+                    {/* Hide acts on the current selection, so it only shows when
+                        something is selected. */}
+                    {displayName && (
+                        <button
+                            type="button"
+                            onClick={onHide}
+                            className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
+                            title={
+                                cellCtx
+                                    ? (isMultiSelect ? `Hide ${multiSelectCount} selected cells` : "Hide selected cell")
+                                    : isMultiSelect
+                                        ? `Hide ${multiSelectCount} selected (Shift+H)`
+                                        : "Hide selected (Shift+H)"
+                            }
+                            aria-label="Hide selected"
+                        >
+                            <EyeOffIcon/>
+                            Hide
+                            {isMultiSelect ? ` (${multiSelectCount})` : ""}
+                        </button>
+                    )}
+                    {/* Unhide all is a scene-wide recovery action — it stays
+                        available as long as any entity remains, even with no
+                        selection, so you can always undo a Hide. */}
                     <button
                         type="button"
                         onClick={onUnhideAll}
@@ -227,6 +242,9 @@ const ObjectInfoBox = () => {
                         <EyeIcon/>
                         Unhide all
                     </button>
+                    {/* The rest act on the current selection — hidden when
+                        nothing is selected (only Unhide all persists). */}
+                    {displayName && (<>
                     {firstNodeId != null && (
                         <button
                             type="button"
@@ -286,6 +304,7 @@ const ObjectInfoBox = () => {
                     >
                         {addModeOn ? "✓ Add mode on" : "+ Add mode"}
                     </button>
+                    </>)}
                 </div>
             )}
             {/* The Properties panel renders for any selection — even
