@@ -5,6 +5,7 @@ import {
   type KebabMenuItem,
 } from "@/components/common/PositionedMenu";
 import { useCellBuilderStore } from "@/state/cellBuilderStore";
+import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 
 // The cell context menu, opened by a long-press (touch) or right-click
 // (desktop) over a builder cell — see CellBuilderController. It offers the two
@@ -19,6 +20,7 @@ const CellBuilderContextMenu: React.FC = () => {
   const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
   const setPanelVisible = useCellBuilderStore((s) => s.setPanelVisible);
   const openInsertMenu = useCellBuilderStore((s) => s.openInsertMenu);
+  const openEquipmentEditor = useEquipmentCatalogStore((s) => s.openForSlug);
   const removeCell = useCellBuilderStore((s) => s.removeCell);
   const hasCells = Object.values(cells).some((c) => c.kind === "cell");
 
@@ -39,18 +41,32 @@ const CellBuilderContextMenu: React.FC = () => {
         setGizmoMode("translate");
       },
     },
-    {
-      key: "resize",
-      label: "Resize",
-      onClick: () => {
-        pick();
-        setGizmoMode("resize");
-      },
-    },
+    // Resize is a cell-only gizmo — equipment is sized by its type.
+    ...(cell.kind === "cell"
+      ? [
+          {
+            key: "resize",
+            label: "Resize",
+            onClick: () => {
+              pick();
+              setGizmoMode("resize");
+            },
+          },
+        ]
+      : []),
     {
       key: "edit",
-      label: "Edit properties",
+      // Equipment size/ports come from its type — edit the type in the catalog
+      // panel (changes propagate to every placed instance). Cells edit inline.
+      label:
+        cell.kind === "equipment" && cell.equipmentType
+          ? "Edit type properties…"
+          : "Edit properties",
       onClick: () => {
+        if (cell.kind === "equipment" && cell.equipmentType) {
+          void openEquipmentEditor(cell.equipmentType);
+          return;
+        }
         pick();
         setPanelVisible(true);
       },

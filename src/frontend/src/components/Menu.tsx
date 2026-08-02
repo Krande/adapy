@@ -27,6 +27,10 @@ import CellBuilderPanel from "./viewer/CellBuilderPanel";
 import CellBuilderContextMenu from "./viewer/CellBuilderContextMenu";
 import CellBuilderInsertMenu from "./viewer/CellBuilderInsertMenu";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {useEquipmentCatalogStore} from "@/state/equipmentCatalogStore";
+// Equipment catalog editor — opened contextually from an equipment's "Edit
+// properties" (no top-row button); code-split so the embedded zip stays slim.
+const EquipmentAdminPanel = React.lazy(() => import("./admin/EquipmentAdminPanel"));
 import SceneInfoBox from "./info_box_scene/SceneInfoBox";
 import {WebsocketStatusMenu, WebsocketStatusBox} from "./WebsocketStatusMenu";
 
@@ -120,6 +124,7 @@ const Menu = () => {
     const cellBuilderPanelVisible = useCellBuilderStore((s) => s.panelVisible);
     const toggleCellBuilderPanel = () =>
         useCellBuilderStore.getState().setPanelVisible(!useCellBuilderStore.getState().panelVisible);
+    const equipmentPanelOpen = useEquipmentCatalogStore((s) => s.equipmentPanelOpen);
     const {showInfoBox: showWebsocketInfoBox} = stores.useWebsocketStatusStore();
     const {isTreeCollapsed, setIsTreeCollapsed, treeViewWidth} = stores.useTreeViewStore();
     const isDesktop = useIsDesktop();
@@ -258,6 +263,9 @@ const Menu = () => {
                     {proceduralActive && <CellBuilderPanel/>}
                     {proceduralActive && <CellBuilderContextMenu/>}
                     {proceduralActive && <CellBuilderInsertMenu/>}
+                    {proceduralActive && equipmentPanelOpen && (
+                        <Suspense fallback={null}><EquipmentAdminPanel/></Suspense>
+                    )}
                 </div>
             </div>
         </div>

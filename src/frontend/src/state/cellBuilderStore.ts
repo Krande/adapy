@@ -258,6 +258,10 @@ interface CellBuilderState {
   setEquipmentCad: (v: boolean) => void;
   setDesignRules: (slug: string) => void;
   setSelectedEquipmentType: (t: string | null) => void;
+  /** Type-derived sizing: resize every placed equipment of a given type to the
+   * catalog bbox (kept centred on its footprint). Called when the equipment
+   * type's bbox is edited in the admin panel. */
+  resizeEquipmentOfType: (slug: string, bbox: [number, number, number]) => void;
   addCell: (kind: "cell" | "equipment", origin: Vec3, size: Vec3) => void;
   updateCell: (id: string, patch: Partial<BuilderCell>) => void;
   /** Rename a cell/equipment; for equipment, rewrites matching system
@@ -619,6 +623,26 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       withHistory(() => ({ designRules, dirty: true })),
     setSelectedEquipmentType: (selectedEquipmentType) =>
       set({ selectedEquipmentType }),
+
+    resizeEquipmentOfType: (slug, [lx, ly, lz]) =>
+      set((s) => {
+        // Plain (non-undoable) sync from the catalog edit — keep each unit
+        // centred on its footprint (x/y) and seated at its base z.
+        let changed = false;
+        const cells = { ...s.cells };
+        for (const [id, c] of Object.entries(s.cells)) {
+          if (c.kind !== "equipment" || c.equipmentType !== slug) continue;
+          const cx = c.origin[0] + c.size[0] / 2;
+          const cy = c.origin[1] + c.size[1] / 2;
+          cells[id] = {
+            ...c,
+            size: [lx, ly, lz],
+            origin: [cx - lx / 2, cy - ly / 2, c.origin[2]],
+          };
+          changed = true;
+        }
+        return changed ? { cells, dirty: true } : {};
+      }),
 
     addCell: (kind, origin, size) =>
       withHistory((s) => {

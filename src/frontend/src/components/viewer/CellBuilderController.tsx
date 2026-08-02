@@ -431,12 +431,14 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             const cx = cell.origin[0] + cell.size[0] / 2;
             const cy = cell.origin[1] + cell.size[1] / 2;
             const cz = cell.origin[2];
-            for (const p of ports) {
+            for (let pi = 0; pi < ports.length; pi++) {
+                const p = ports[pi];
                 const pos = p.position ?? [0, 0, 0];
                 const dv = p.direction_vector ?? [0, 0, 1];
                 // The nozzle position: where the port physically attaches.
                 const nozzle = new THREE.Vector3(cx + pos[0], cy + pos[1], cz + pos[2]);
-                const color = portColorInt(p);
+                // Colour by the port's index in the list → every I/O is unique.
+                const color = portColorInt(p, pi);
                 // direction_vector is the outward nozzle normal; the arrow shows
                 // actual flow — INPUT points into the equipment, OUTPUT points
                 // out, INOUT stays outward.
@@ -530,7 +532,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         const st = useCellBuilderStore.getState();
         const sel = st.selection;
         const cell = sel ? st.cells[sel.cellId] : null;
-        const show = !!(st.active && st.gizmoMode === "resize" && cell && st.cellsVisible);
+        // Equipment is sized by its type, not free-resized in the scene — no
+        // resize handles for it (Move still works).
+        const show = !!(
+            st.active && st.gizmoMode === "resize" && cell && cell.kind === "cell" && st.cellsVisible
+        );
         resizeGroup.visible = show;
         if (!show || !cell) return;
         const r = Math.max(0.15, 0.1 * Math.min(cell.size[0], cell.size[1], cell.size[2]));
@@ -586,6 +592,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // ``immediate`` starts it right away (resize-handle grab) vs. after
     // DRAG_START_PX of travel (a face press, once face-drag resizing is on).
     const startFaceDrag = (cell: BuilderCell, faceIndex: number, ev: PointerEvent, immediate: boolean): boolean => {
+        // Equipment is sized by its type — never face-drag-resized in the scene.
+        if (cell.kind !== "cell") return false;
         const side = BOX_FACE_SIDES[faceIndex];
         if (!side) return false;
         const center = new THREE.Vector3(

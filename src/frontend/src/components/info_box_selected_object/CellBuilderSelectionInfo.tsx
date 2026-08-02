@@ -253,11 +253,17 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
           >
             <span className="text-gray-300">gizmo</span>
             {(
-              [
-                ["translate", "Move"],
-                ["resize", "Resize"],
-                ["none", "Off"],
-              ] as const
+              // Equipment is sized by its type — offer Move, but no Resize.
+              cell.kind === "cell"
+                ? ([
+                    ["translate", "Move"],
+                    ["resize", "Resize"],
+                    ["none", "Off"],
+                  ] as const)
+                : ([
+                    ["translate", "Move"],
+                    ["none", "Off"],
+                  ] as const)
             ).map(([m, label]) => (
               <button
                 key={m}
@@ -276,25 +282,29 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
           </div>
           {selection.kind === "face" && side && (
             <>
-              <div className="flex items-center gap-1">
-                <span className="text-gray-300">Extend by</span>
-                <input
-                  type="number"
-                  step={0.1}
-                  className={`${inputCls} w-20`}
-                  value={extendBy}
-                  onChange={(e) => setExtendBy(Number(e.target.value))}
-                />
-                <button
-                  className={btn}
-                  onClick={() =>
-                    applyFaceExtension(cell.id, selection.faceIndex!, extendBy)
-                  }
-                  title="Extend (negative contracts) this face outward"
-                >
-                  Apply
-                </button>
-              </div>
+              {/* Face-extend resizes the box — cells only; equipment is sized
+                  by its type. */}
+              {cell.kind === "cell" && (
+                <div className="flex items-center gap-1">
+                  <span className="text-gray-300">Extend by</span>
+                  <input
+                    type="number"
+                    step={0.1}
+                    className={`${inputCls} w-20`}
+                    value={extendBy}
+                    onChange={(e) => setExtendBy(Number(e.target.value))}
+                  />
+                  <button
+                    className={btn}
+                    onClick={() =>
+                      applyFaceExtension(cell.id, selection.faceIndex!, extendBy)
+                    }
+                    title="Extend (negative contracts) this face outward"
+                  >
+                    Apply
+                  </button>
+                </div>
+              )}
               {cell.kind === "cell" && (
                 <label
                   className="flex items-center gap-1"
@@ -316,7 +326,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
               )}
             </>
           )}
-          {selection.kind === "edge" && edgeAxis !== undefined && (
+          {selection.kind === "edge" && edgeAxis !== undefined && cell.kind === "cell" && (
             <div className="flex items-center gap-1">
               <span className="text-gray-300">Length {axisLabel(edgeAxis)}</span>
               <input

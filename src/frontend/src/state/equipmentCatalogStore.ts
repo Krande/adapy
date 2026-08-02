@@ -10,6 +10,7 @@
  */
 import { create } from "zustand";
 
+import { useCellBuilderStore } from "@/state/cellBuilderStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import {
   viewerApi,
@@ -81,6 +82,10 @@ interface EquipmentCatalogState {
   refreshEquipment: () => Promise<void>;
   /** Persist a built-in equipment archetype into the DB catalog + select it. */
   syncEquipmentFromCode: (slug: string) => Promise<void>;
+  /** Open the equipment catalog panel focused on a type by slug (from an
+   * equipment's "Edit properties"). A DB type is selected directly; a built-in
+   * archetype is synced into the DB first so it becomes editable. */
+  openForSlug: (slug: string) => Promise<void>;
   createEquipment: (name: string) => Promise<void>;
   selectEquipment: (id: string | null) => Promise<void>;
   setEquipmentMeta: (
@@ -173,6 +178,18 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
       } finally {
         set({ equipmentBusy: false });
       }
+    },
+
+    openForSlug: async (slug: string) => {
+      set({ equipmentPanelOpen: true });
+      await get().refreshEquipment();
+      const dbType = get().equipmentTypes.find((t) => t.slug === slug);
+      if (dbType) {
+        await get().selectEquipment(dbType.id);
+        return;
+      }
+      const code = get().availableEquipment.find((t) => t.slug === slug);
+      if (code) await get().syncEquipmentFromCode(slug);
     },
 
     createEquipment: async (name: string) => {
@@ -284,6 +301,14 @@ export const useEquipmentCatalogStore = create<EquipmentCatalogState>(
           equipmentDirty: false,
         });
         await get().refreshEquipment();
+        // Type-derived sizing: push the saved bbox onto every placed instance of
+        // this type in the scene, and refresh the cellbuilder's type list so the
+        // port overlay reflects any port edits.
+        const bbox = d.doc.bbox;
+        useCellBuilderStore
+          .getState()
+          .resizeEquipmentOfType(d.slug, [bbox.lx, bbox.ly, bbox.lz]);
+        void useCellBuilderStore.getState().fetchEquipmentTypes();
       } catch (e) {
         set({ equipmentError: errMsg(e) });
       } finally {

@@ -56,6 +56,22 @@ export function uniquePortColorHex(name: string, category: PortCategory): string
     return hslToHex(hue, 0.68, 0.58);
 }
 
+// Golden-angle hue rotation: consecutive indices land ~137.5° apart, so the
+// first several ports on an equipment get maximally-separated, guaranteed-unique
+// hues — no two I/O share a colour, even across categories (the per-name hash
+// could otherwise collide, e.g. a process "suction" landing on the same hue as
+// an electrical "power"). Used whenever the caller knows a port's position in
+// the equipment's port list; name-hashing stays the fallback.
+const GOLDEN_ANGLE = 137.508;
+const HUE_START = 205; // begin in the cyan/process family for familiarity
+
+/** A guaranteed-distinct colour for the port at ``index`` in an equipment's
+ * port list (indices 0,1,2,… map to well-separated hues). */
+export function uniquePortColorHexByIndex(index: number): string {
+    const hue = (HUE_START + index * GOLDEN_ANGLE) % 360;
+    return hslToHex(hue, 0.68, 0.58);
+}
+
 /** Normalise ``#rgb``/``#rrggbb`` (any case) to lowercase ``#rrggbb``; returns
  * null for anything that isn't a hex colour. */
 export function normalizeHex(value: string | null | undefined): string | null {
@@ -68,12 +84,18 @@ export function normalizeHex(value: string | null | undefined): string | null {
     return null;
 }
 
-/** The colour a port should render as: its explicit override when valid,
- * otherwise a distinct per-port colour derived from its name (falling back to
- * the category colour when no name is available). Always a ``#rrggbb`` string. */
-export function portColorHex(port: Pick<CatalogPort, "name" | "category" | "color">): string {
+/** The colour a port should render as: its explicit override when valid; else,
+ * when its position (``index``) in the equipment's port list is known, a
+ * guaranteed-distinct golden-angle colour; else a per-name colour (falling back
+ * to the category colour when no name is available). Always a ``#rrggbb`` string.
+ * Pass ``index`` wherever the full port list is iterated so every I/O is unique. */
+export function portColorHex(
+    port: Pick<CatalogPort, "name" | "category" | "color">,
+    index?: number,
+): string {
     const override = normalizeHex(port.color);
     if (override) return override;
+    if (index != null) return uniquePortColorHexByIndex(index);
     if (port.name) return uniquePortColorHex(port.name, port.category);
     return CATEGORY_COLOR_HEX[port.category];
 }
@@ -85,6 +107,9 @@ export function hexToInt(hex: string): number {
 }
 
 /** Convenience: a port's colour as a THREE 0xRRGGBB integer. */
-export function portColorInt(port: Pick<CatalogPort, "name" | "category" | "color">): number {
-    return hexToInt(portColorHex(port));
+export function portColorInt(
+    port: Pick<CatalogPort, "name" | "category" | "color">,
+    index?: number,
+): number {
+    return hexToInt(portColorHex(port, index));
 }

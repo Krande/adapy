@@ -12,6 +12,7 @@ import {
   hexToInt,
   portColorInt,
   uniquePortColorHex,
+  uniquePortColorHexByIndex,
 } from "../../utils/portColor";
 
 test("normalizeHex accepts #rrggbb and #rgb (any case), rejects the rest", () => {
@@ -37,6 +38,20 @@ test("portColorHex gives distinct colours to distinct ports of the same category
   const suction = portColorHex({ name: "suction", category: "process" });
   const discharge = portColorHex({ name: "discharge", category: "process" });
   assert.notEqual(suction, discharge);
+});
+
+test("portColorHex by index gives every I/O a unique colour (golden-angle)", () => {
+  // The pump ports (suction/discharge/power/signal) previously collided across
+  // the name hash; index-based colouring guarantees distinct hues.
+  const n = 6;
+  const colours = Array.from({ length: n }, (_, i) =>
+    portColorHex({ name: `p${i}`, category: "process" }, i),
+  );
+  assert.equal(new Set(colours).size, n); // all distinct
+  colours.forEach((c) => assert.match(c, /^#[0-9a-f]{6}$/));
+  // Index takes precedence over the name hash but an explicit override still wins.
+  assert.equal(portColorHex({ name: "x", category: "process" }, 2), uniquePortColorHexByIndex(2));
+  assert.equal(portColorHex({ name: "x", category: "process", color: "#abcdef" }, 2), "#abcdef");
 });
 
 test("portColorHex falls back to the category colour only when no name is given", () => {

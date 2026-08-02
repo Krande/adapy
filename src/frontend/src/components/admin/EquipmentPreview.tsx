@@ -155,7 +155,7 @@ const EquipmentPreview: React.FC<{
         wire.position.copy(toView(0, 0, lz / 2)); // box base at z=0, centered in x/y
         st.content.add(wire);
 
-        for (const p of doc.ports) {
+        doc.ports.forEach((p, pi) => {
             const origin = toView(p.position[0], p.position[1], p.position[2]);
             const d = toView(p.direction_vector[0], p.direction_vector[1], p.direction_vector[2]);
             if (d.lengthSq() < 1e-9) d.set(0, 1, 0);
@@ -165,9 +165,11 @@ const EquipmentPreview: React.FC<{
             // arrow points out (as-is), INOUT stays outward.
             if (p.direction === "IN") d.negate();
             const len = Math.max(0.15, 0.25 * Math.max(lx, ly, lz));
-            const arrow = new THREE.ArrowHelper(d, origin, len, portColorInt(p), len * 0.4, len * 0.25);
+            // Colour by list index so every I/O gets a unique colour (matches
+            // the viewer overlay and the catalog port editor).
+            const arrow = new THREE.ArrowHelper(d, origin, len, portColorInt(p, pi), len * 0.4, len * 0.25);
             st.content.add(arrow);
-        }
+        });
 
         // Frame the box the first time it appears; leave the camera alone on
         // subsequent port edits.

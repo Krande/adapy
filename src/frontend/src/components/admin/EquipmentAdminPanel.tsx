@@ -107,7 +107,7 @@ const PortEditor: React.FC<{ port: CatalogPort; index: number }> = ({
 }) => {
   const updatePort = useEquipmentCatalogStore((s) => s.updatePort);
   const removePort = useEquipmentCatalogStore((s) => s.removePort);
-  const color = portColorHex(port);
+  const color = portColorHex(port, index);
   const hasOverride = normalizeHex(port.color) !== null;
   return (
     <div
