@@ -5,6 +5,7 @@ import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelect
 import {hideSelectedRanges, unhideAllRanges} from '@/utils/scene/visibility';
 import {elementFirstNodeId} from '@/utils/scene/fea/goToNode';
 import {centerViewOnSelection} from '@/utils/scene/centerViewOnSelection';
+import {frameCells} from '@/utils/scene/frameCells';
 import {zoomToAll} from '@/components/viewer/sceneHelpers/setupCameraControlsHandlers';
 import {sceneRef, cameraRef, controlsRef} from '@/state/refs';
 import {requestRender} from '@/state/perfStore';
@@ -121,20 +122,29 @@ const ObjectInfoBox = () => {
     };
 
     // Camera actions — desktop has keyboard shortcuts (zoom-fit / center-on-selection), but
-    // mobile has no keyboard, so surface them as buttons in this panel.
+    // mobile has no keyboard, so surface them as buttons in this panel. Builder
+    // cells are excluded from the fittable scene, so frame them explicitly.
     const onFitAll = () => {
         const s = sceneRef.current, c = cameraRef.current, ctl = controlsRef.current;
-        if (s && c && ctl) {
+        if (!c || !ctl) return;
+        if (cbActive && Object.keys(cbCells).length > 0 && frameCells("all", ctl, c)) {
+            requestRender();
+            return;
+        }
+        if (s) {
             zoomToAll(s, c, ctl);
             requestRender();
         }
     };
     const onGoToObject = () => {
         const c = cameraRef.current, ctl = controlsRef.current;
-        if (c && ctl) {
-            centerViewOnSelection(ctl, c);
+        if (!c || !ctl) return;
+        if (cellCtx && frameCells(cbSelectedIds, ctl, c)) {
             requestRender();
+            return;
         }
+        centerViewOnSelection(ctl, c);
+        requestRender();
     };
 
     return (

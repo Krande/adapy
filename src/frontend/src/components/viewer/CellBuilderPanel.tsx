@@ -297,7 +297,9 @@ const CellBuilderPanel: React.FC = () => {
   const s = useCellBuilderStore();
   const equipBtnRef = React.useRef<HTMLButtonElement>(null);
   const [equipMenuOpen, setEquipMenuOpen] = React.useState(false);
+  const [cellsListOpen, setCellsListOpen] = React.useState(true);
   const hasCells = Object.values(s.cells).some((c) => c.kind === "cell");
+  const cellCount = Object.keys(s.cells).length;
 
   if (!s.active || !s.panelVisible) return null;
 
@@ -432,7 +434,7 @@ const CellBuilderPanel: React.FC = () => {
         })()}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
         <label className="flex items-center gap-1">
           grid
           <input
@@ -500,7 +502,22 @@ const CellBuilderPanel: React.FC = () => {
         </label>
       </div>
 
-      <div className="max-h-48 overflow-y-auto flex flex-col gap-1">
+      <div className="border-t border-gray-600/60 pt-1">
+        <button
+          className="flex items-center gap-1 w-full text-left hover:bg-gray-700/40 rounded-sm px-1"
+          onClick={() => setCellsListOpen((v) => !v)}
+          aria-expanded={cellsListOpen}
+        >
+          <span
+            className={"transition-transform " + (cellsListOpen ? "rotate-90" : "")}
+          >
+            ▸
+          </span>
+          <span className="font-semibold">Cells &amp; equipment</span>
+          <span className="text-gray-400">({cellCount})</span>
+        </button>
+      {cellsListOpen && (
+      <div className="max-h-48 overflow-y-auto flex flex-col gap-1 pt-1">
         {Object.values(s.cells).length === 0 && (
           <p className="italic text-gray-400">
             No cells yet — use + Cell to start, or{" "}
@@ -551,6 +568,8 @@ const CellBuilderPanel: React.FC = () => {
             </button>
           </div>
         ))}
+      </div>
+      )}
       </div>
 
       <SystemsInspector />
