@@ -68,6 +68,7 @@ def _equipment_to_object(eq: TopoEquipment, resolver=None) -> ada.Equipment | ad
 _BLUEPRINT_OPTION_KEYS = (
     "reinforce_internal_walls",
     "reinforce_external_walls",
+    "enclosed_cells",
     "pl_thick",
     "wall_pl_thick",
     "stringer_spacing",

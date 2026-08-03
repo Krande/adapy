@@ -148,7 +148,7 @@ const ObjectInfoBox = () => {
     };
 
     return (
-        <div className={`${PANEL_CHROME} min-w-80`}>
+        <div className={`${PANEL_CHROME} min-w-80 max-h-[80svh] overflow-y-auto`}>
             <h2 className="font-bold">Selected Object Info</h2>
             {/* Name. Two layouts because mobile and desktop have very
                 different real-estate constraints:

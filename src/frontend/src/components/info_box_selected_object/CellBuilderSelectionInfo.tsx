@@ -270,6 +270,11 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
   const renameCell = useCellBuilderStore((s) => s.renameCell);
   const gizmoMode = useCellBuilderStore((s) => s.gizmoMode);
   const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
+  const setCellEnclosed = useCellBuilderStore((s) => s.setCellEnclosed);
+  const enclosedCells = useCellBuilderStore(
+    (s) =>
+      (s.blueprintOptions as { enclosed_cells?: string[] }).enclosed_cells ?? [],
+  );
   const [open, setOpen] = React.useState(true);
   const [extendBy, setExtendBy] = React.useState(0.5);
   // Deliberately no re-open on a new pick: clicking another cell must not
@@ -433,6 +438,19 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
                 origin {cell.origin.map((v) => v.toFixed(2)).join(", ")} · size{" "}
                 {cell.size.map((v) => v.toFixed(2)).join(", ")}
               </div>
+              {cell.kind === "cell" && (
+                <label
+                  className="flex items-center gap-1"
+                  title="Plate every bounding face of this cell (walls + floor/roof decks, stiffeners facing inward) so the room is fully enclosed"
+                >
+                  <input
+                    type="checkbox"
+                    checked={enclosedCells.includes(cell.name)}
+                    onChange={(e) => setCellEnclosed(cell.name, e.target.checked)}
+                  />
+                  Enclosed room (plated walls)
+                </label>
+              )}
               {(cell.kind === "cell" ? SPACE_PARAMS : EQUIPMENT_PARAMS).map(
                 (f) => (
                   <ParamRow key={f.key} cell={cell} field={f} />

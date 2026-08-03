@@ -20,16 +20,19 @@ def demo() -> ada.Assembly:
 
 
 def test_reinforced_wall_built(demo):
+    # the reinforced internal wall is nested under its cell's room part
     parts = {p.name for p in demo.get_all_parts_in_assembly()}
-    assert "walls" in parts
+    assert any(n.startswith("Room_") for n in parts)
     wall_plates = [p for p in demo.get_all_physical_objects(by_type=ada.Plate) if p.name.startswith("Wall_")]
     assert len(wall_plates) == 1
     stiffeners = [b for b in demo.get_all_physical_objects(by_type=ada.Beam) if "_stf_" in b.name]
     assert len(stiffeners) == 12  # 5 m wall span @ 0.4 m spacing
-    # the stiffener profile stands perpendicular to the plate plane: local up
-    # equals the wall normal (+X for the x=5 wall), not an in-plane direction
+    # the stiffener profile stands perpendicular to the x=5 wall plate (local up
+    # along X) and faces inward toward the owning room (sign follows the cell
+    # centroid, so either +X or -X)
     for stf in stiffeners:
-        assert tuple(round(float(v), 6) for v in stf.up) == (1.0, 0.0, 0.0)
+        up = tuple(round(float(v), 6) for v in stf.up)
+        assert abs(up[0]) == 1.0 and up[1] == 0.0 and up[2] == 0.0
 
 
 def test_service_run_penetrates_the_wall(demo):

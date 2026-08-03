@@ -46,12 +46,19 @@ def _dedupe_edges(faces: list[GraphFace], horizontal: bool) -> list[GraphEdge]:
 
 
 def _build_reinforced_wall(
-    name: str, points: list[ada.Point], pl_thick: float, stiffener_sec: str, spacing: float
+    name: str,
+    points: list[ada.Point],
+    pl_thick: float,
+    stiffener_sec: str,
+    spacing: float,
+    inward: tuple[float, float, float] | None = None,
 ) -> ada.Part:
     """A reinforced wall from a vertical face outline: one plate plus vertical
     stiffener beams evenly distributed along the wall's horizontal run. The
     stiffeners' local up vector is the wall normal so the profile stands
-    perpendicular to (not flat in) the plate plane."""
+    perpendicular to (not flat in) the plate plane; ``inward`` (a vector pointing
+    into the room) signs it so the stiffener profiles face inward rather than out
+    of the enclosure."""
     plate = ada.Plate.from_3d_points(f"{name}_pl", points, pl_thick)
 
     pts = np.asarray([tuple(p) for p in points], dtype=float)
@@ -61,7 +68,8 @@ def _build_reinforced_wall(
     z0, z1 = lo[2], hi[2]
 
     up = [0.0, 0.0, 0.0]
-    up[normal_axis] = 1.0
+    # Point the stiffener profile into the room when an inward vector is given.
+    up[normal_axis] = -1.0 if (inward is not None and inward[normal_axis] < 0) else 1.0
 
     tol = spacing * 1e-3
     stiffeners = []
@@ -112,6 +120,7 @@ class SteelStru(BlueprintBase):
         stringer_spacing: float = 0.4,
         reinforce_internal_walls: bool = False,
         reinforce_external_walls: bool = False,
+        enclosed_cells: list[str] | None = None,
         wall_pl_thick: float = 8e-3,
     ):
         super().__init__()
@@ -126,53 +135,112 @@ class SteelStru(BlueprintBase):
         # already-reinforced external floor/roof decks this fully encloses a room
         # in plated, stiffened walls.
         self.reinforce_external_walls = reinforce_external_walls
+        # Per-cell enclosure: cells named here get EVERY bounding face plated
+        # (all four walls + the floor/roof decks, including the shared internal
+        # ones), so exactly those rooms are fully enclosed — the rest stay open
+        # steel frame. Wins over the global reinforce_* flags for those cells.
+        self.enclosed_cells = list(enclosed_cells or [])
         self.wall_pl_thick = wall_pl_thick
 
     def _group_prefix(self) -> str:
         return self.name
+
+    def _inward(self, face: GraphFace) -> tuple[float, float, float]:
+        """Unit-ish vector from a face centre toward its cell's centre — the
+        'into the room' direction used to orient wall stiffeners inward."""
+        c = np.asarray(face.parent_cell.get_centroid(), dtype=float)
+        f = np.asarray(face.get_centroid(), dtype=float)
+        v = c - f
+        n = float(np.linalg.norm(v))
+        return tuple(v / n) if n > 1e-9 else (0.0, 0.0, 1.0)
+
+    def _wall(self, name: str, face: GraphFace) -> ada.Part:
+        wall = _build_reinforced_wall(
+            name, face.get_points(), self.wall_pl_thick, self.stringer_sec, self.stringer_spacing, self._inward(face)
+        )
+        # penetration blueprints reach the built wall through the face
+        face.associated_part = wall
+        return wall
 
     def build(self) -> ada.Part:
         self.output_part = ada.Part(self.name)
         cg = self.builder.cell_graph
 
         floor_faces = cg.get_external_floors()
+        internal_walls = cg.get_internal_walls()
+        external_walls = cg.get_external_walls()
+        enclosed = set(self.enclosed_cells)
+
+        # Nest the compiled output per cell so the viewer's selection tree groups
+        # a room's decks + walls under one "Room_<cell>" part; shared,
+        # edge-derived steel (girders/columns) goes under a single "Frame".
+        rooms: dict[str, ada.Part] = {}
+
+        def room(cell_name: str) -> ada.Part:
+            if cell_name not in rooms:
+                rooms[cell_name] = ada.Part(f"Room_{cell_name}")
+            return rooms[cell_name]
+
+        # External floor/roof decks, grouped by the cell they belong to.
+        built_floor_guids: set[str] = set()
         for i, face in enumerate(floor_faces):
+            built_floor_guids.add(face.guid)
             floor = _build_reinforced_floor(
                 f"Floor_{i:02d}", face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing
             )
-            self.add_to_area("floors", floor)
+            room(face.parent_cell.name).add_part(floor)
 
+        # Fully enclosed rooms: plate every bounding face of the flagged cells —
+        # all four walls (external + shared internal) plus any deck face not
+        # already built (e.g. the internal deck under a second-floor room).
+        cell_by_name = {f.parent_cell.name: f.parent_cell for f in (*floor_faces, *internal_walls, *external_walls)}
+        for cname in enclosed:
+            cell = cell_by_name.get(cname)
+            if cell is None:
+                continue
+            for j, face in enumerate(cell.faces):
+                if face.is_horizontal():
+                    if face.guid in built_floor_guids:
+                        continue
+                    built_floor_guids.add(face.guid)
+                    deck = _build_reinforced_floor(
+                        f"Deck_{cname}_{j:02d}",
+                        face.get_points(),
+                        self.pl_thick,
+                        self.stringer_sec,
+                        self.stringer_spacing,
+                    )
+                    room(cname).add_part(deck)
+                else:
+                    room(cname).add_part(self._wall(f"Wall_{cname}_{j:02d}", face))
+
+        # Global wall reinforcement (kept for back-compat) — skips cells already
+        # fully plated by the enclosure pass so a wall is never built twice.
+        if self.reinforce_internal_walls:
+            for i, face in enumerate(internal_walls):
+                if face.parent_cell.name in enclosed:
+                    continue
+                room(face.parent_cell.name).add_part(self._wall(f"Wall_{i:02d}", face))
+        if self.reinforce_external_walls:
+            for i, face in enumerate(external_walls):
+                if face.parent_cell.name in enclosed:
+                    continue
+                room(face.parent_cell.name).add_part(self._wall(f"ExtWall_{i:02d}", face))
+
+        # Shared steel frame: girders (floor-edge) + columns (wall-edge).
         girders = [
             ada.Beam(f"Girder_{i:02d}", *edge.get_points()[:2], self.girder_sec)
             for i, edge in enumerate(_dedupe_edges(floor_faces, horizontal=True))
         ]
-        self.add_to_area("girders", ada.Part("Girders") / girders)
-
-        internal_walls = cg.get_internal_walls()
-        external_walls = cg.get_external_walls()
-        wall_faces = external_walls + internal_walls
         columns = [
             ada.Beam(f"Column_{i:02d}", *edge.get_points()[:2], self.column_sec)
-            for i, edge in enumerate(_dedupe_edges(wall_faces, horizontal=False))
+            for i, edge in enumerate(_dedupe_edges(external_walls + internal_walls, horizontal=False))
         ]
-        self.add_to_area("columns", ada.Part("Columns") / columns)
+        frame = ada.Part("Frame")
+        frame.add_part(ada.Part("Girders") / girders)
+        frame.add_part(ada.Part("Columns") / columns)
 
-        if self.reinforce_internal_walls:
-            for i, face in enumerate(internal_walls):
-                wall = _build_reinforced_wall(
-                    f"Wall_{i:02d}", face.get_points(), self.wall_pl_thick, self.stringer_sec, self.stringer_spacing
-                )
-                # penetration blueprints reach the built wall through the face
-                face.associated_part = wall
-                self.add_to_area("walls", wall)
-
-        if self.reinforce_external_walls:
-            for i, face in enumerate(external_walls):
-                wall = _build_reinforced_wall(
-                    f"ExtWall_{i:02d}", face.get_points(), self.wall_pl_thick, self.stringer_sec, self.stringer_spacing
-                )
-                face.associated_part = wall
-                self.add_to_area("walls", wall)
-
-        self.load_parts_from_area_map()
+        for r in rooms.values():
+            self.output_part.add_part(r)
+        self.output_part.add_part(frame)
         return self.output_part

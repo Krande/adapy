@@ -30,6 +30,9 @@ def test_steel_stru_counts(demo_assembly):
     assert beams_by_sec == {"HEB200": 6, "IPE200": 14, "HP140x8": 48}
 
 
-def test_steel_stru_area_parts(demo_assembly):
+def test_steel_stru_nests_per_room_and_frame(demo_assembly):
+    # The output nests per cell: a "Room_<cell>" part per space holds its decks,
+    # and shared steel goes under a single "Frame" (Girders + Columns).
     part_names = {p.name for p in demo_assembly.get_all_parts_in_assembly()}
-    assert {"floors", "girders", "columns"} <= part_names
+    assert {"Frame", "Girders", "Columns"} <= part_names
+    assert any(n.startswith("Room_") for n in part_names)

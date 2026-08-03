@@ -267,6 +267,9 @@ interface CellBuilderState {
    * catalog bbox (kept centred on its footprint). Called when the equipment
    * type's bbox is edited in the admin panel. */
   resizeEquipmentOfType: (slug: string, bbox: [number, number, number]) => void;
+  /** Mark a cell as a fully-enclosed room (plated walls + decks) or not, by
+   * toggling its name in blueprintOptions.enclosed_cells. */
+  setCellEnclosed: (cellName: string, enclosed: boolean) => void;
   addCell: (kind: "cell" | "equipment", origin: Vec3, size: Vec3) => void;
   updateCell: (id: string, patch: Partial<BuilderCell>) => void;
   /** Rename a cell/equipment; for equipment, rewrites matching system
@@ -643,6 +646,22 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     setSelectedEquipmentType: (selectedEquipmentType) =>
       set({ selectedEquipmentType }),
 
+    setCellEnclosed: (cellName, enclosed) =>
+      withHistory((s) => {
+        const cur = Array.isArray(
+          (s.blueprintOptions as { enclosed_cells?: unknown }).enclosed_cells,
+        )
+          ? ((s.blueprintOptions as { enclosed_cells: string[] }).enclosed_cells)
+          : [];
+        const names = new Set(cur);
+        if (enclosed) names.add(cellName);
+        else names.delete(cellName);
+        return {
+          blueprintOptions: { ...s.blueprintOptions, enclosed_cells: [...names] },
+          dirty: true,
+        };
+      }),
+
     resizeEquipmentOfType: (slug, [lx, ly, lz]) =>
       set((s) => {
         // Plain (non-undoable) sync from the catalog edit — keep each unit
@@ -731,7 +750,16 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             ]),
           );
         }
-        return { cells, systems, dirty: true };
+        // Enclosure is keyed by cell name too — carry it across a rename.
+        let blueprintOptions = s.blueprintOptions;
+        const enc = (blueprintOptions as { enclosed_cells?: string[] }).enclosed_cells;
+        if (cur.kind === "cell" && Array.isArray(enc) && enc.includes(cur.name)) {
+          blueprintOptions = {
+            ...blueprintOptions,
+            enclosed_cells: enc.map((n) => (n === cur.name ? trimmed : n)),
+          };
+        }
+        return { cells, systems, blueprintOptions, dirty: true };
       }),
     setCellParam: (id, key, value) =>
       withHistory((s) => {
@@ -927,9 +955,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       // the footprint). Ground floor z 0..3, second floor z 3..6, roof at z 6.
       const doc: ProceduralDoc = {
         grid: {},
+        // Only Cell3 (the HVAC room) is fully enclosed — plated walls + decks;
+        // the other cells stay open steel frame.
         blueprint: {
-          reinforce_internal_walls: true,
-          reinforce_external_walls: true,
+          enclosed_cells: ["Cell3"],
         },
         design_rules: "standard",
         spaces: [

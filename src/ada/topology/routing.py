@@ -321,7 +321,16 @@ def _route_beam_run(name: str, path: list, sec, segment_ifc_class: str) -> list:
     for p1, p2 in zip(path[:-1], path[1:]):
         if tuple(p1) == tuple(p2):
             continue  # skip zero-length segments (duplicated route vertices)
-        beams.append(ada.Beam(f"{name}_{idx}", p1, p2, sec=sec, metadata={"segment_ifc_class": segment_ifc_class}))
+        # Orient the (asymmetric) tray/duct cross-section consistently: its local
+        # up follows world +Z on horizontal runs (so a cable tray opens upward and
+        # a duct sits flat), and a horizontal ref on vertical runs where +Z would
+        # be parallel to the beam axis. Without an explicit up-vector the profile
+        # rotates arbitrarily per segment.
+        dx, dy, dz = p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]
+        up = (1.0, 0.0, 0.0) if abs(dz) > max(abs(dx), abs(dy)) else (0.0, 0.0, 1.0)
+        beams.append(
+            ada.Beam(f"{name}_{idx}", p1, p2, sec=sec, up=up, metadata={"segment_ifc_class": segment_ifc_class})
+        )
         idx += 1
     return beams
 
