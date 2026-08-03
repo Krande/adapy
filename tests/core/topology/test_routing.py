@@ -219,3 +219,54 @@ def test_beam_run_is_swept_along_a_curved_directrix(kind):
     # the run spans the routed ends
     assert tuple(np.round(run.n1.p, 6)) == (0.0, 0.0, 3.0)
     assert tuple(np.round(run.n2.p, 6)) == (2.0, 2.0, 3.0)
+
+
+def test_open_channel_swept_run_builds_occ_solid():
+    """An open UNP cable tray swept along a directrix with *consecutive* arc fillets
+    (a tight zig-zag with a vertical rise) must build a valid, non-empty OCC solid —
+    not raise ``StdFail_NotDone`` and get skipped. The shared directrix sampler emits
+    many near-coincident stations around such tight bends; the OCC ruled loft decimates
+    them before lofting, so ThruSections no longer chokes on degenerate sections.
+
+    This is the OCC-fallback (no-adacpp) render path for routed cable trays; the
+    NGEOM/libtess2 stream already renders it. Regression for that parity gap."""
+    pytest.importorskip("OCC")
+    from OCC.Core.BRepGProp import brepgprop
+    from OCC.Core.GProp import GProp_GProps
+    from OCC.Core.TopAbs import TopAbs_SOLID
+    from OCC.Core.TopExp import TopExp_Explorer
+
+    from ada.geom.curves import ArcLine
+    from ada.occ.geom.solids import make_fixed_reference_swept_area_shape_from_geom
+    from ada.topology.routing import (
+        _orthogonalize_polyline,
+        _polyline_to_directrix,
+        _SweptRun,
+    )
+
+    path = [
+        ada.Point(0, 0, 0.5),
+        ada.Point(-0.2, 0, 0.5),
+        ada.Point(0, 0, 0.5),
+        ada.Point(0, 0, 4.5),
+        ada.Point(0.5, 0, 4.5),
+        ada.Point(0.5, 0.2, 4.7),
+    ]
+    ortho = _orthogonalize_polyline(path)
+    directrix = _polyline_to_directrix(ortho, 0.1)
+
+    # the directrix must actually exercise the consecutive-arc case this fix targets
+    kinds = [type(s).__name__ for s in directrix.segments]
+    assert any(
+        isinstance(a, ArcLine) and isinstance(b, ArcLine) for a, b in zip(directrix.segments, directrix.segments[1:])
+    ), f"repro no longer has consecutive arcs: {kinds}"
+
+    sec = ada.Section("c", "UNP", h=0.3, w_top=0.1, w_btn=0.1, t_w=0.003, t_ftop=0.003, t_fbtn=0.003)
+    run = _SweptRun("tray", ada.Point(*ortho[0]), ada.Point(*ortho[-1]), directrix, sec, open_channel=True)
+
+    shape = make_fixed_reference_swept_area_shape_from_geom(run.solid_geom().geometry)
+
+    assert TopExp_Explorer(shape, TopAbs_SOLID).More(), "swept tray did not build a solid"
+    props = GProp_GProps()
+    brepgprop.VolumeProperties(shape, props)
+    assert abs(props.Mass()) > 1e-9, "swept tray solid is empty (zero volume)"

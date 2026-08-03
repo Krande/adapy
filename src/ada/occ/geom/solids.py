@@ -248,6 +248,50 @@ def _make_fixed_ref_pipeshell_shape(frs: geo_so.FixedReferenceSweptAreaSolid) ->
     return transformed_solid
 
 
+def _profile_char_len(profile_wire) -> float:
+    """The largest in-plane extent of the section wire — the length scale below which two
+    swept sections are ~coincident and their ruled band degenerates. Used to size the
+    station-decimation epsilon so it tracks the actual profile rather than a magic constant."""
+    from OCC.Core.Bnd import Bnd_Box
+    from OCC.Core.BRepBndLib import brepbndlib
+
+    bb = Bnd_Box()
+    brepbndlib.Add(profile_wire, bb)
+    xmn, ymn, zmn, xmx, ymx, zmx = bb.Get()
+    return max(xmx - xmn, ymx - ymn, zmx - zmn)
+
+
+def _decimate_stations(origins, dir_x, dir_y, profile_char: float) -> list[int]:
+    """Indices of the directrix stations to loft through, dropping the redundant
+    near-coincident samples a dense-fillet directrix carries while keeping every real bend.
+
+    A station is kept when it is more than ``eps`` from the last kept station (``eps`` a small
+    fraction of the profile size — the scale at which a ruled band between two sections
+    degenerates) OR the tangent has turned past ``angle_tol`` since the last kept station. The
+    angle guard means a bend is always sampled (curved fillets survive any ``eps``); the
+    distance guard removes the near-coincident arc samples that make ThruSections raise
+    StdFail_NotDone. The endpoints are always kept."""
+    import numpy as np
+
+    n = len(origins)
+    if n <= 2:
+        return list(range(n))
+    eps = max(1e-6, 0.05 * profile_char)
+    cos_tol = math.cos(math.radians(8.0))
+    tang = np.cross(dir_x, dir_y)
+    tn = np.linalg.norm(tang, axis=1, keepdims=True)
+    tang = tang / np.where(tn < 1e-12, 1.0, tn)
+
+    keep = [0]
+    for i in range(1, n - 1):
+        far = float(np.linalg.norm(origins[i] - origins[keep[-1]])) > eps
+        turned = float(np.dot(tang[i], tang[keep[-1]])) < cos_tol
+        if far or turned:
+            keep.append(i)
+    keep.append(n - 1)
+    return keep
+
+
 def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSweptAreaSolid) -> TopoDS_Shape:
     """Sweep ``swept_area`` along ``directrix`` keeping the profile un-twisted relative to
     ``fixed_reference`` (world "up"), so a box/channel section stays upright and follows the
@@ -291,13 +335,34 @@ def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSw
     # extents/orientation and are not carried by ThruSections here).
     profile_wire = list(TopologyExplorer(profile_face).wires())[0]
 
-    # Loft the profile through a copy placed at every station. Placing local +z along the
+    # The shared sampler tessellates every arc of the directrix into many closely-spaced
+    # stations (a tight fillet becomes dozens of points ~1 profile-thickness apart). Feeding
+    # all of those to ThruSections as section wires makes the ruled loft raise StdFail_NotDone:
+    # consecutive near-coincident sections form near-zero-area ruled patches that OCC cannot
+    # fit through. libtess2 rings straight between the same dense stations without a global
+    # surface fit, so it is unaffected — that is why the tray renders there but is skipped here.
+    #
+    # Decimate to well-separated sections before lofting: keep a station only if it is more
+    # than ``eps`` (a fraction of the profile's own size — the scale that governs when a ruled
+    # band degenerates) from the last kept station, OR the tangent has turned past a small
+    # angle since then. The angle guard preserves every bend regardless of ``eps`` (so the
+    # fillets stay curved and cannot collapse to a chord), while the distance guard drops the
+    # redundant near-coincident arc samples that break the loft. The retained sections are the
+    # same frames the stream path uses, so the swept extent/orientation is identical.
+    keep = _decimate_stations(origins, dir_x, dir_y, _profile_char_len(profile_wire))
+
+    # Loft the profile through a copy placed at every kept station. Placing local +z along the
     # station normal (dir_x x dir_y) and local +x along dir_x makes the gp_Ax3-derived local +y
     # come out as dir_y (up) — so local (u, v) -> u*dir_x + v*dir_y, matching the stream path.
     thru = BRepOffsetAPI_ThruSections(True, True)  # isSolid=True (cap ends), isRuled=True
-    for o, dx, dy in zip(origins, dir_x, dir_y):
-        normal = np.cross(dx, dy)
-        section = transform_shape_to_pos(profile_wire, Point(*o), Direction(*normal), Direction(*dx))
+    for i in keep:
+        normal = np.cross(dir_x[i], dir_y[i])
+        section = transform_shape_to_pos(profile_wire, Point(*origins[i]), Direction(*normal), Direction(*dir_x[i]))
         thru.AddWire(topods.Wire(section))
     thru.Build()
+    if not thru.IsDone():
+        raise NotImplementedError(
+            "FixedReferenceSweptAreaSolid: ruled loft could not build a valid solid "
+            f"from {len(keep)} sections (general directrix)"
+        )
     return thru.Shape()
