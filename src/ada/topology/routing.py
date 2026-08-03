@@ -489,21 +489,28 @@ def system_route_to_geometry(system: System, name: str | None = None) -> list:
     ortho = _orthogonalize_polyline(path)
 
     def _swept(sec, *, open_channel: bool, seg_class: str):
+        # Emit ONE swept solid per directrix segment — a straight ``Edge`` or a
+        # curved ``ArcLine`` bend — each named ``<name>_<i>`` so every straight
+        # leg and fitting is an individually selectable object in the viewer (the
+        # way a pipe's segments are), rather than one monolithic run.
+        from ada.geom.curves import IndexedPolyCurve
+
         bend_r = max(float(sec.w_top or 0.0), float(sec.h or 0.0))
         directrix = _polyline_to_directrix(ortho, bend_r)
         if directrix is None:
             return
-        system.route_geometry.append(
-            _SweptRun(
-                name,
-                ada.Point(*ortho[0]),
-                ada.Point(*ortho[-1]),
-                directrix,
-                sec,
-                open_channel=open_channel,
-                metadata={"segment_ifc_class": seg_class},
+        for i, seg in enumerate(directrix.segments):
+            system.route_geometry.append(
+                _SweptRun(
+                    f"{name}_{i}",
+                    ada.Point(*seg.start),
+                    ada.Point(*seg.end),
+                    IndexedPolyCurve(segments=[seg]),
+                    sec,
+                    open_channel=open_channel,
+                    metadata={"segment_ifc_class": seg_class},
+                )
             )
-        )
 
     if isinstance(system, DuctSystem):
         w, h, t = system.duct_width, system.duct_height, system.wall

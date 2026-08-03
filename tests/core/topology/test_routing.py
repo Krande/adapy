@@ -183,42 +183,44 @@ def test_duct_system_route_geometry_class(grid):
 
 
 @pytest.mark.parametrize("kind", ["duct", "cable"])
-def test_beam_run_is_swept_along_a_curved_directrix(kind):
-    """A duct/cable run over an L-path is a single solid swept along its routed 3D
-    curve (like a pipe), not a chain of straight beams: one ``BeamCurved`` whose
-    directrix is an ``IndexedPolyCurve`` with the 90° corner filleted into an
-    ``ArcLine``. Its straight legs stay axis-aligned and its endpoints are the
-    run ends."""
+def test_beam_run_is_segmented_swept_along_curved_directrix(kind):
+    """A duct/cable run over an L-path is emitted as one swept solid PER directrix
+    segment — a straight ``Edge`` leg or a curved ``ArcLine`` bend — each an
+    individually named ``BeamCurved`` (so every leg and fitting is separately
+    selectable in the viewer), the way a pipe's segments are. Each segment carries
+    its own single-segment analytic directrix; the straight legs stay axis-aligned;
+    one segment is the filleted 90° bend."""
     import numpy as np
 
-    from ada.geom.curves import ArcLine, Edge, IndexedPolyCurve
+    from ada.geom.curves import ArcLine, Edge
     from ada.topology.routing import system_route_to_geometry
 
     system = (ada.DuctSystem if kind == "duct" else ada.CableSystem)("Run")
     system.routed_path = [ada.Point(0, 0, 3), ada.Point(2, 0, 3), ada.Point(2, 2, 3)]
     geoms = system_route_to_geometry(system)
 
-    # one swept run, carrying its analytic directrix (not a polyline approximation)
-    assert len(geoms) == 1
-    (run,) = geoms
-    assert isinstance(run, ada.BeamCurved)
-    directrix = run.curve3d
-    assert isinstance(directrix, IndexedPolyCurve)
+    # L-path: two straight legs + one filleted bend = three named segments
+    assert len(geoms) == 3
+    assert [g.name for g in geoms] == ["Run_route_0", "Run_route_1", "Run_route_2"]
+    assert all(isinstance(g, ada.BeamCurved) for g in geoms)
 
-    # the corner is a real circular bend (an ArcLine), flanked by straight Edges
-    arcs = [s for s in directrix.segments if isinstance(s, ArcLine)]
-    edges = [s for s in directrix.segments if isinstance(s, Edge)]
-    assert len(arcs) == 1, f"{kind} bend is not a single arc: {directrix.segments}"
-    assert len(edges) == 2, f"{kind} run is missing its straight legs: {directrix.segments}"
+    # each segment carries exactly one directrix segment; classify edge vs arc
+    kinds = []
+    for g in geoms:
+        (seg,) = g.curve3d.segments
+        assert isinstance(seg, (Edge, ArcLine))
+        kinds.append("arc" if isinstance(seg, ArcLine) else "edge")
+    assert kinds == ["edge", "arc", "edge"], f"{kind} not straight-curved-straight: {kinds}"
 
     # each straight leg is axis-aligned (+X in, +Y out)
-    for e in edges:
-        d = np.asarray(e.end, dtype=float) - np.asarray(e.start, dtype=float)
-        assert int(np.sum(np.abs(d) > 1e-6)) == 1, f"{kind} leg not axis-aligned: {d}"
+    for g, k in zip(geoms, kinds):
+        if k == "edge":
+            d = np.asarray(g.n2.p, dtype=float) - np.asarray(g.n1.p, dtype=float)
+            assert int(np.sum(np.abs(d) > 1e-6)) == 1, f"{kind} leg not axis-aligned: {d}"
 
-    # the run spans the routed ends
-    assert tuple(np.round(run.n1.p, 6)) == (0.0, 0.0, 3.0)
-    assert tuple(np.round(run.n2.p, 6)) == (2.0, 2.0, 3.0)
+    # the segments span the routed run end to end
+    assert tuple(np.round(geoms[0].n1.p, 6)) == (0.0, 0.0, 3.0)
+    assert tuple(np.round(geoms[-1].n2.p, 6)) == (2.0, 2.0, 3.0)
 
 
 def test_open_channel_swept_run_builds_occ_solid():
