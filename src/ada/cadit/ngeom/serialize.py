@@ -780,7 +780,16 @@ class _Encoder:
         import ada.geom.curves as geo_cu
 
         face = self._profile_face(frs.swept_area)
-        if isinstance(frs.directrix, geo_cu.GradientCurve):
+        pre = getattr(frs, "precomputed_frames", None)
+        if pre is not None:
+            # Frames computed CONTINUOUSLY across a segmented run (see
+            # FixedReferenceSweptAreaSolid.precomputed_frames) — use as-is with an
+            # identity placement (origins are absolute world-space stations).
+            from ada.geom.placement import Axis2Placement3D
+
+            origins, dir_x, dir_y = (np.asarray(a, dtype=float) for a in pre)
+            position = Axis2Placement3D(location=(0.0, 0.0, 0.0))
+        elif isinstance(frs.directrix, geo_cu.GradientCurve):
             from ada.cadit.ngeom._alignment_sweep import directrix_frames
 
             origins, dir_x, dir_y = directrix_frames(frs)

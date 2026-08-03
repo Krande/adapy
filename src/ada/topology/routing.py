@@ -278,13 +278,19 @@ def route_system(
     p_end = end.get_global_position()
 
     def _anchor(port_pos: ada.Point, stub: ada.Point | None) -> tuple[GridIndex, ada.Point | None]:
-        # Pathfind from the nozzle stub (one cell along the port normal) so the
-        # grid route leaves the port in the direction it faces — but only when
-        # that node is on-grid and the rules allow it; otherwise fall back to
-        # snapping the port itself (keeps rule-forbidden levels off-limits).
+        # Pathfind to/from the nozzle stub (one cell along the port normal) so the
+        # grid route leaves the port in the direction it faces, and ALWAYS keep the
+        # stub for the end cap so the last leg follows the nozzle orientation. We
+        # target the stub node even when it sits in an occupied cell — A* exempts
+        # its goal node from ``is_allowed`` (line ``nxt != goal``), so the run still
+        # approaches the stub from a clear neighbour but terminates along the
+        # nozzle. (The old code dropped the stub whenever it fell inside an
+        # equipment-clearance halo — e.g. a site terminal on the wall right next to
+        # a switchboard — which silently discarded the specified orientation.) Only
+        # a genuinely off-grid stub falls back to snapping the bare port position.
         if stub is not None:
             idx = nearest_index(grid, *stub)
-            if all(0 <= idx[i] < dims[i] for i in range(3)) and rules.is_allowed(idx, grid):
+            if all(0 <= idx[i] < dims[i] for i in range(3)):
                 return idx, stub
         return nearest_index(grid, *port_pos), None
 
@@ -407,6 +413,88 @@ def _polyline_to_directrix(pts: list[ada.Point], radius: float):
     return IndexedPolyCurve(segments=segs)
 
 
+def _parallel_transport_frames(pts, up):
+    """Rotation-minimising (parallel-transport) per-station frames along a 3D
+    polyline. Returns ``(dir_x, dir_y)`` as ``(N, 3)`` arrays with ``dir_x`` the
+    profile's local +x (lateral) and ``dir_y`` its local +y (up), matching
+    :func:`~ada.cadit.ngeom.serialize.general_directrix_frames`'s convention on a
+    horizontal leg (``dir_x = tangent x up``) so straight/planar runs are
+    unchanged — but, unlike that memoryless ``t x up`` rule, the frame is carried
+    smoothly through the bends so a run that changes its bend plane (a duct that
+    turns in plan *and* climbs) never snaps 90 deg at the transition."""
+    import numpy as np
+
+    pts = np.asarray(pts, dtype=float)
+    n = len(pts)
+    up = np.asarray(up, dtype=float)
+    up = up / (np.linalg.norm(up) or 1.0)
+    t = np.gradient(pts, axis=0)
+    tn = np.linalg.norm(t, axis=1, keepdims=True)
+    t = t / np.where(tn < 1e-12, 1.0, tn)
+
+    dir_x = np.zeros((n, 3))
+    x0 = np.cross(t[0], up)  # = general_directrix_frames' lateral on a horizontal start
+    if np.linalg.norm(x0) < 1e-9:  # run starts vertical: seed an arbitrary perpendicular
+        a = np.array([1.0, 0.0, 0.0]) if abs(t[0, 0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+        x0 = np.cross(t[0], a)
+    dir_x[0] = x0 / (np.linalg.norm(x0) or 1.0)
+    for i in range(1, n):
+        v1, v2 = t[i - 1], t[i]
+        ax = np.cross(v1, v2)
+        s = float(np.linalg.norm(ax))
+        xp = dir_x[i - 1]
+        if s < 1e-9:  # no bend -> carry the frame
+            dir_x[i] = xp
+        else:  # Rodrigues-rotate the frame by the tangent turn
+            ax /= s
+            ang = np.arctan2(s, float(np.dot(v1, v2)))
+            dir_x[i] = (
+                xp * np.cos(ang) + np.cross(ax, xp) * np.sin(ang) + ax * float(np.dot(ax, xp)) * (1 - np.cos(ang))
+            )
+        dir_x[i] -= float(np.dot(dir_x[i], t[i])) * t[i]  # re-orthogonalise against the tangent
+        dir_x[i] /= np.linalg.norm(dir_x[i]) or 1.0
+    dir_y = np.cross(dir_x, t)  # up = dir_x x tangent (general_directrix_frames convention)
+    return dir_x, dir_y
+
+
+def _run_segment_frames(segments, up=(0.0, 0.0, 1.0)):
+    """Per-segment ``(origins, dir_x, dir_y)`` frame slices for the segments of a
+    routed run's directrix, framed CONTINUOUSLY across the whole run.
+
+    Each segment (a straight ``Edge`` or an arc-fillet ``ArcLine``) is sampled into
+    its own stations, the stations are concatenated into one global polyline
+    (sharing the coincident segment joins), parallel-transported once, then split
+    back per segment. Adjacent segments therefore share the join station's frame
+    exactly, so their swept solids meet without the 90 deg twist that framing each
+    segment in isolation produces at an out-of-plane bend."""
+    import numpy as np
+
+    from ada.cadit.ngeom.serialize import _sample_arc
+    from ada.geom.curves import ArcLine
+
+    seg_pts = []
+    for seg in segments:
+        if isinstance(seg, ArcLine):
+            seg_pts.append([tuple(float(c) for c in p) for p in _sample_arc(seg.start, seg.midpoint, seg.end)])
+        else:  # Edge / straight
+            seg_pts.append([tuple(float(c) for c in seg.start), tuple(float(c) for c in seg.end)])
+
+    glob: list[tuple] = []
+    ranges: list[tuple[int, int]] = []
+    for pts in seg_pts:
+        if glob and _seg_len(ada.Point(*glob[-1]), ada.Point(*pts[0])) < 1e-9:
+            start = len(glob) - 1  # reuse the shared join station
+            glob.extend(pts[1:])
+        else:
+            start = len(glob)
+            glob.extend(pts)
+        ranges.append((start, len(glob) - 1))
+
+    dir_x, dir_y = _parallel_transport_frames(glob, up)
+    origins = np.asarray(glob, dtype=float)
+    return [(origins[a : b + 1], dir_x[a : b + 1], dir_y[a : b + 1]) for a, b in ranges]
+
+
 def _rotate_profile_90(profile):
     """A copy of a swept-area profile rotated a quarter turn in its local plane
     ((x, y) -> (-y, x)), so an open UNP channel (which opens along its local +x)
@@ -448,16 +536,24 @@ class _SweptRun(ada.BeamCurved):
 
     Renders through the NGEOM stream (adacpp libtess2), which frames the swept
     profile upright along any directrix; the OCC path frames it too where
-    available."""
+    available.
 
-    def __init__(self, name, n1, n2, curve3d, sec, open_channel: bool = False, metadata=None):
+    ``frames`` is an optional precomputed ``(origins, dir_x, dir_y)`` slice — the
+    portion of a run's globally parallel-transported frame belonging to this
+    segment — so a run split into many ``_SweptRun`` pieces stays frame-continuous
+    across its bends (see :func:`_run_segment_frames`)."""
+
+    def __init__(self, name, n1, n2, curve3d, sec, open_channel: bool = False, metadata=None, frames=None):
         super().__init__(name, n1, n2, curve3d, sec, up=(0.0, 0.0, 1.0), metadata=metadata)
         self._open_channel = open_channel
+        self._frames = frames
 
     def solid_geom(self):
         geom = super().solid_geom()
         if self._open_channel:
             geom.geometry.swept_area = _rotate_profile_90(geom.geometry.swept_area)
+        if self._frames is not None:
+            geom.geometry.precomputed_frames = self._frames
         return geom
 
 
@@ -499,7 +595,10 @@ def system_route_to_geometry(system: System, name: str | None = None) -> list:
         directrix = _polyline_to_directrix(ortho, bend_r)
         if directrix is None:
             return
-        for i, seg in enumerate(directrix.segments):
+        # Frame the whole run once (parallel transport), then hand each segment its
+        # slice so the individually-swept pieces meet without a twist at the bends.
+        frames = _run_segment_frames(directrix.segments, up=(0.0, 0.0, 1.0))
+        for i, (seg, seg_frames) in enumerate(zip(directrix.segments, frames)):
             system.route_geometry.append(
                 _SweptRun(
                     f"{name}_{i}",
@@ -509,6 +608,7 @@ def system_route_to_geometry(system: System, name: str | None = None) -> list:
                     sec,
                     open_channel=open_channel,
                     metadata={"segment_ifc_class": seg_class},
+                    frames=seg_frames,
                 )
             )
 

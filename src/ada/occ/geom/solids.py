@@ -319,14 +319,21 @@ def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSw
     if isinstance(frs.directrix, geo_cu.GradientCurve) or not _swept_area_profile_is_2d(frs.swept_area):
         return _make_fixed_ref_pipeshell_shape(frs)
 
-    try:
-        origins, dir_x, dir_y = general_directrix_frames(frs.directrix, frs.fixed_reference)
-    except Exception as e:
-        # A directrix the shared sampler can't turn into stations (e.g. a top-level
-        # BSplineCurveWithKnots axis — unsupported on the libtess2 stream path too). Raise
-        # NotImplementedError so the tessellator's documented stream fallback still fires,
-        # matching the pre-existing control flow, rather than hard-failing the object.
-        raise NotImplementedError(f"FixedReferenceSweptAreaSolid: unsupported directrix ({e})") from e
+    pre = getattr(frs, "precomputed_frames", None)
+    if pre is not None:
+        # Frames computed CONTINUOUSLY across a segmented run (see
+        # FixedReferenceSweptAreaSolid.precomputed_frames): use directly so OCC
+        # frames each segment identically to the stream path.
+        origins, dir_x, dir_y = (np.asarray(a, dtype=float) for a in pre)
+    else:
+        try:
+            origins, dir_x, dir_y = general_directrix_frames(frs.directrix, frs.fixed_reference)
+        except Exception as e:
+            # A directrix the shared sampler can't turn into stations (e.g. a top-level
+            # BSplineCurveWithKnots axis — unsupported on the libtess2 stream path too). Raise
+            # NotImplementedError so the tessellator's documented stream fallback still fires,
+            # matching the pre-existing control flow, rather than hard-failing the object.
+            raise NotImplementedError(f"FixedReferenceSweptAreaSolid: unsupported directrix ({e})") from e
     if len(origins) < 2:
         raise NotImplementedError("FixedReferenceSweptAreaSolid: general directrix has < 2 stations")
 

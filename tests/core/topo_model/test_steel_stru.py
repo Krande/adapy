@@ -62,3 +62,29 @@ def test_reinforced_wall_stiffeners_face_inward(inward, want_side):
         assert xmax > 1e-4 and xmin >= -1e-6  # material into +X room
     else:
         assert xmin < -1e-4 and xmax <= 1e-6  # material into -X room
+
+
+def test_shared_floor_between_stacked_cells_is_built():
+    # Two open (non-enclosed) cells stacked vertically share a horizontal face at
+    # z=3 — the deck of the lower room / floor of the upper. It is an *internal*
+    # floor, so the old build (external floors only) left it missing. Assert a
+    # reinforced deck plate is built at the shared elevation.
+    import numpy as np
+
+    from ada.topo_model.blueprint import SteelStru
+    from ada.topology import TopologyBuilder
+
+    boxes = [
+        ada.PrimBox("Lower", (0, 0, 0), (5, 5, 3)),
+        ada.PrimBox("Upper", (0, 0, 3), (5, 5, 6)),
+    ]
+    builder = TopologyBuilder.from_prim_boxes(boxes, blueprint=SteelStru())
+    builder.build()
+    a = builder.get_output_assembly("stacked")
+
+    # A plate whose outline sits on the z=3 shared plane must exist.
+    def plate_z(pl):
+        return float(np.mean([p[2] for p in pl.poly.points3d]))
+
+    zlevels = {round(plate_z(pl), 3) for pl in a.get_all_physical_objects(by_type=ada.Plate)}
+    assert 3.0 in zlevels, f"shared deck at z=3 missing; plate elevations = {sorted(zlevels)}"

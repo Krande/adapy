@@ -223,6 +223,75 @@ def test_beam_run_is_segmented_swept_along_curved_directrix(kind):
     assert tuple(np.round(geoms[-1].n2.p, 6)) == (2.0, 2.0, 3.0)
 
 
+def test_segmented_run_is_frame_continuous_through_3d_bends():
+    """A run that turns in plan AND climbs (out-of-plane bends) must have its
+    individually-swept segments share a common frame at every join — otherwise the
+    profile snaps ~90° at the vertical bend (each segment framed in isolation picks
+    a different lateral for the ambiguous vertical tangent). The run is framed once
+    (parallel transport) and sliced per segment, so adjacent segments agree exactly.
+    Regression for the twisted-duct-bend bug."""
+    import numpy as np
+
+    from ada.topology.routing import system_route_to_geometry
+
+    system = ada.DuctSystem("Air")
+    # +X, then +Y (turn in plan), then +Z (climb): the +Y->+Z bend is out of the
+    # first bend's plane — the case the memoryless t x up framing snapped on.
+    system.routed_path = [
+        ada.Point(0, 0, 0),
+        ada.Point(2, 0, 0),
+        ada.Point(2, 2, 0),
+        ada.Point(2, 2, 2),
+    ]
+    geoms = system_route_to_geometry(system)
+    assert len(geoms) >= 4  # edges + two fillet arcs
+
+    prev_end = None
+    for g in geoms:
+        origins, dir_x, dir_y = (np.asarray(a, float) for a in g.solid_geom().geometry.precomputed_frames)
+        assert len(origins) >= 2
+        if prev_end is not None:
+            # the shared join station carries the identical frame across the seam
+            assert np.linalg.norm(prev_end[0] - dir_x[0]) < 1e-9
+            assert np.linalg.norm(prev_end[1] - dir_y[0]) < 1e-9
+        prev_end = (dir_x[-1], dir_y[-1])
+        # every station's frame is orthonormal and perpendicular to nothing degenerate
+        for u, v in zip(dir_x, dir_y):
+            assert abs(np.dot(u, v)) < 1e-6
+            assert abs(np.linalg.norm(u) - 1) < 1e-6 and abs(np.linalg.norm(v) - 1) < 1e-6
+
+    # the first (horizontal) leg keeps the profile upright: up == +Z, as before
+    first_dy = np.asarray(geoms[0].solid_geom().geometry.precomputed_frames[2], float)[0]
+    assert np.allclose(first_dy, (0, 0, 1), atol=1e-9)
+
+
+def test_site_terminal_orientation_respected_when_stub_is_occupied(grid):
+    # A site terminal whose one-cell nozzle stub lands inside an equipment's
+    # occupied halo (a wall terminal right next to a switchboard) must STILL leave
+    # along its orientation vector — the old code dropped the stub whenever it was
+    # occupied, silently discarding the specified direction. A* exempts its goal
+    # node from occupancy, so the run can still terminate along the nozzle.
+    from ada.topology.routing import nearest_index
+
+    # occupy the terminal's stub node (one +X cell in from the x=0 wall at (0,2,1))
+    stub_idx = nearest_index(grid, 1.0, 2.0, 1.0)
+    grid.register(stub_idx, "blocker")
+
+    eq = ada.Equipment("E1", 1.0, (0, 0, 0), (4, 4, 1), 0.1, 0.1, 0.1)
+    eq.add_port(ada.Port("in", (0, 0, 0), (0, 0, 1), ada.PortDirection.IN, "process"))
+    system = (
+        ada.PipingSystem("Supply")
+        .connect_site("grid", (0, 2, 1), ada.PortDirection.IN, direction_vector=(1, 0, 0))
+        .connect(eq, "in")
+    )
+    polyline = route_system(system, grid)
+    p_start = system.ports[0].get_global_position()  # (0, 2, 1), faces +X
+    assert tuple(polyline[0]) == tuple(p_start)
+    # first step is still along +X (orientation preserved despite the blocked stub)
+    assert (polyline[1][1], polyline[1][2]) == (p_start[1], p_start[2])
+    assert polyline[1][0] > p_start[0]
+
+
 def test_open_channel_swept_run_builds_occ_solid():
     """An open UNP cable tray swept along a directrix with *consecutive* arc fillets
     (a tight zig-zag with a vertical rise) must build a valid, non-empty OCC solid —

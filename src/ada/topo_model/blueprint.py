@@ -180,6 +180,12 @@ class SteelStru(BlueprintBase):
         cg = self.builder.cell_graph
 
         floor_faces = cg.get_external_floors()
+        # Shared horizontal faces between vertically-stacked cells are *internal*
+        # floors — the deck one storey walks on. They must be built too, else the
+        # floor between two open (non-enclosed) stacked cells is simply missing
+        # (only an enclosed cell's decks were built before). One face per shared
+        # plane (get_internal_floors dedupes the up/down pair).
+        internal_floors = cg.get_internal_floors()
         internal_walls = cg.get_internal_walls()
         external_walls = cg.get_external_walls()
         enclosed = set(self.enclosed_cells)
@@ -202,6 +208,17 @@ class SteelStru(BlueprintBase):
                 f"Floor_{i:02d}", face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing
             )
             room(face.parent_cell.name).add_part(floor)
+
+        # Internal (shared) decks between stacked cells. Skip any face an enclosed
+        # cell will plate below (guard by guid) so a deck is never built twice.
+        for i, face in enumerate(internal_floors):
+            if face.guid in built_floor_guids:
+                continue
+            built_floor_guids.add(face.guid)
+            deck = _build_reinforced_floor(
+                f"IntFloor_{i:02d}", face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing
+            )
+            room(face.parent_cell.name).add_part(deck)
 
         # Fully enclosed rooms: plate every bounding face of the flagged cells —
         # all four walls (external + shared internal) plus any deck face not
@@ -250,10 +267,12 @@ class SteelStru(BlueprintBase):
                     continue
                 room(face.parent_cell.name).add_part(self._wall(f"ExtWall_{i:02d}", face))
 
-        # Shared steel frame: girders (floor-edge) + columns (wall-edge).
+        # Shared steel frame: girders (floor-edge) + columns (wall-edge). Internal
+        # decks contribute their perimeter girders too, at the intermediate
+        # elevation (deduped against the external-floor edges by midpoint).
         girders = [
             ada.Beam(f"Girder_{i:02d}", *edge.get_points()[:2], self.girder_sec)
-            for i, edge in enumerate(_dedupe_edges(floor_faces, horizontal=True))
+            for i, edge in enumerate(_dedupe_edges(floor_faces + internal_floors, horizontal=True))
         ]
         columns = [
             ada.Beam(f"Column_{i:02d}", *edge.get_points()[:2], self.column_sec)
