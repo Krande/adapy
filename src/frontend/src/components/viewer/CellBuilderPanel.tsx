@@ -1,7 +1,10 @@
 import React from "react";
 
 import { PositionedMenu } from "@/components/common/PositionedMenu";
-import { useCellBuilderStore } from "@/state/cellBuilderStore";
+import {
+  useCellBuilderStore,
+  type SystemConnection,
+} from "@/state/cellBuilderStore";
 import { useTypeIconsStore } from "@/state/typeIconsStore";
 
 // The procedural-modelling context panel: add cells / typed equipment, list the
@@ -222,9 +225,7 @@ const SystemsInspector: React.FC = () => {
               ))}
               <ConnectionAdder
                 equipmentNames={equipmentNames}
-                onAdd={(eq, port) =>
-                  s.addSystemConnection(sys.id, { equipment: eq, port })
-                }
+                onAdd={(conn) => s.addSystemConnection(sys.id, conn)}
               />
             </div>
           ))}
@@ -243,62 +244,139 @@ const ARCHETYPE_PORTS: Record<string, string[]> = {
 
 const ConnectionAdder: React.FC<{
   equipmentNames: string[];
-  onAdd: (eq: string, port: string) => void;
+  onAdd: (conn: SystemConnection) => void;
 }> = ({ equipmentNames, onAdd }) => {
   const cells = useCellBuilderStore((st) => st.cells);
+  // Endpoint mode: an equipment port, or a site terminal (model-boundary I/O).
+  const [mode, setMode] = React.useState<"equip" | "site">("equip");
   const [eq, setEq] = React.useState("");
   const [port, setPort] = React.useState("");
   const eqType = Object.values(cells).find((c) => c.name === eq)?.equipmentType;
   const portOptions = eqType ? (ARCHETYPE_PORTS[eqType] ?? []) : [];
+  const [siteName, setSiteName] = React.useState("");
+  const [pos, setPos] = React.useState<[string, string, string]>(["0", "0", "0"]);
+  const [dir, setDir] = React.useState<"IN" | "OUT">("IN");
+
+  const modeBtn = (m: "equip" | "site", label: string) => (
+    <button
+      key={m}
+      className={
+        "px-1.5 py-0.5 rounded-sm text-[10px] " +
+        (mode === m ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+      }
+      onClick={() => setMode(m)}
+      aria-pressed={mode === m}
+    >
+      {label}
+    </button>
+  );
 
   return (
-    <div className="flex items-center gap-1 pl-3">
-      <select
-        className={`${inputCls} min-w-0 flex-1`}
-        value={eq}
-        onChange={(e) => {
-          setEq(e.target.value);
-          setPort("");
-        }}
-      >
-        <option value="">equipment…</option>
-        {equipmentNames.map((n) => (
-          <option key={n} value={n}>
-            {n}
-          </option>
-        ))}
-      </select>
-      {portOptions.length > 0 ? (
-        <select
-          className={inputCls}
-          value={port}
-          onChange={(e) => setPort(e.target.value)}
-        >
-          <option value="">port…</option>
-          {portOptions.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
+    <div className="flex flex-col gap-1 pl-3">
+      <div className="flex items-center gap-1">
+        <span className="text-gray-500 text-[10px]">add</span>
+        {modeBtn("equip", "equipment")}
+        {modeBtn("site", "site I/O")}
+      </div>
+      {mode === "equip" ? (
+        <div className="flex items-center gap-1">
+          <select
+            className={`${inputCls} min-w-0 flex-1`}
+            value={eq}
+            onChange={(e) => {
+              setEq(e.target.value);
+              setPort("");
+            }}
+          >
+            <option value="">equipment…</option>
+            {equipmentNames.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          {portOptions.length > 0 ? (
+            <select
+              className={inputCls}
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+            >
+              <option value="">port…</option>
+              {portOptions.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className={`${inputCls} w-20`}
+              placeholder="port"
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+            />
+          )}
+          <button
+            className="px-1.5 py-0.5 rounded-sm bg-blue-600 text-white disabled:opacity-40"
+            disabled={!eq || !port}
+            onClick={() => {
+              onAdd({ equipment: eq, port });
+              setPort("");
+            }}
+          >
+            +
+          </button>
+        </div>
       ) : (
-        <input
-          className={`${inputCls} w-20`}
-          placeholder="port"
-          value={port}
-          onChange={(e) => setPort(e.target.value)}
-        />
+        <div className="flex items-center gap-1 flex-wrap">
+          <input
+            className={`${inputCls} w-24`}
+            placeholder="site name"
+            value={siteName}
+            onChange={(e) => setSiteName(e.target.value)}
+          />
+          {([0, 1, 2] as const).map((i) => (
+            <input
+              key={i}
+              type="number"
+              step={0.5}
+              className={`${inputCls} w-12`}
+              title={["x", "y", "z"][i]}
+              value={pos[i]}
+              onChange={(e) =>
+                setPos((p) => {
+                  const next = [...p] as [string, string, string];
+                  next[i] = e.target.value;
+                  return next;
+                })
+              }
+            />
+          ))}
+          <select
+            className={inputCls}
+            value={dir}
+            onChange={(e) => setDir(e.target.value as "IN" | "OUT")}
+            title="Site input (into the model) or output (off the model)"
+          >
+            <option value="IN">IN</option>
+            <option value="OUT">OUT</option>
+          </select>
+          <button
+            className="px-1.5 py-0.5 rounded-sm bg-blue-600 text-white disabled:opacity-40"
+            disabled={!siteName.trim()}
+            onClick={() => {
+              onAdd({
+                site: siteName.trim(),
+                position: [Number(pos[0]) || 0, Number(pos[1]) || 0, Number(pos[2]) || 0],
+                direction: dir,
+              });
+              setSiteName("");
+            }}
+          >
+            +
+          </button>
+        </div>
       )}
-      <button
-        className="px-1.5 py-0.5 rounded-sm bg-blue-600 text-white disabled:opacity-40"
-        disabled={!eq || !port}
-        onClick={() => {
-          onAdd(eq, port);
-          setPort("");
-        }}
-      >
-        +
-      </button>
     </div>
   );
 };
