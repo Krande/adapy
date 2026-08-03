@@ -99,6 +99,9 @@ def create_switchboard(
     )
     eq.add_port(Port("incoming", (0, 0, lz), (0, 0, 1), PortDirection.IN, "electrical"))
     eq.add_port(Port("feeder", (lx / 2, 0, lz / 2), (1, 0, 0), PortDirection.OUT, "electrical"))
+    # A second outgoing feeder so one board can supply several loads — e.g. feed
+    # a downstream switchboard on another deck as well as a local load.
+    eq.add_port(Port("feeder2", (-lx / 2, 0, lz / 2), (-1, 0, 0), PortDirection.OUT, "electrical"))
     _add_body(eq, name)
     return eq
 

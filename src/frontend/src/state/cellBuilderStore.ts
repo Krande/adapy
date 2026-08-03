@@ -996,7 +996,30 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
               { EQUIPMENT: "Tank2", PORT: "inlet" },
             ],
           },
-          // Electrical: a switchboard feeds each pump's power port
+          // Electrical distribution: mains enters at the Cell1 edge into the
+          // ground switchboard (SB2), which feeds the local pump AND a second
+          // switchboard (SB1) up in Cell3; SB1 in turn feeds its room's loads.
+          {
+            NAME: "Mains", TYPE: "electrical",
+            CONNECTIONS: [
+              { SITE: "grid_supply", POSITION: [0, 1, 1], DIRECTION: "IN" },
+              { EQUIPMENT: "SB2", PORT: "incoming" },
+            ],
+          },
+          {
+            NAME: "PowerFeed2", TYPE: "electrical",
+            CONNECTIONS: [
+              { EQUIPMENT: "SB2", PORT: "feeder" },
+              { EQUIPMENT: "Pump2", PORT: "power" },
+            ],
+          },
+          {
+            NAME: "DeckTie", TYPE: "electrical",
+            CONNECTIONS: [
+              { EQUIPMENT: "SB2", PORT: "feeder2" },
+              { EQUIPMENT: "SB1", PORT: "incoming" },
+            ],
+          },
           {
             NAME: "PowerFeed1", TYPE: "electrical",
             CONNECTIONS: [
@@ -1005,10 +1028,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             ],
           },
           {
-            NAME: "PowerFeed2", TYPE: "electrical",
+            NAME: "HvacPower", TYPE: "electrical",
             CONNECTIONS: [
-              { EQUIPMENT: "SB2", PORT: "feeder" },
-              { EQUIPMENT: "Pump2", PORT: "power" },
+              { EQUIPMENT: "SB1", PORT: "feeder2" },
+              { EQUIPMENT: "HVAC1", PORT: "power" },
             ],
           },
           // HVAC duct: the room's air handler exhausts up to the roof fan
@@ -1019,39 +1042,18 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
               { EQUIPMENT: "Exhaust1", PORT: "intake" },
             ],
           },
-          // Site I/O — close the open ends so every run is two-ended
+          // Remaining site I/O — all at the Cell1 edge (x=0)
           {
-            NAME: "Mains1", TYPE: "electrical",
+            NAME: "Drain", TYPE: "piping", MEDIUM: "water",
             CONNECTIONS: [
-              { SITE: "grid_supply", POSITION: [0, 2, 3.5], DIRECTION: "IN" },
-              { EQUIPMENT: "SB1", PORT: "incoming" },
+              { EQUIPMENT: "Tank2", PORT: "outlet" },
+              { SITE: "drain", POSITION: [0, 2.5, 1], DIRECTION: "OUT" },
             ],
           },
           {
-            NAME: "Mains2", TYPE: "electrical",
+            NAME: "Suction", TYPE: "piping", MEDIUM: "water",
             CONNECTIONS: [
-              { SITE: "grid_supply2", POSITION: [0, 2, 0.5], DIRECTION: "IN" },
-              { EQUIPMENT: "SB2", PORT: "incoming" },
-            ],
-          },
-          {
-            NAME: "Drain1", TYPE: "piping", MEDIUM: "water",
-            CONNECTIONS: [
-              { EQUIPMENT: "Tank1", PORT: "outlet" },
-              { SITE: "drain1", POSITION: [10, 2.5, 3], DIRECTION: "OUT" },
-            ],
-          },
-          {
-            NAME: "Suction1", TYPE: "piping", MEDIUM: "water",
-            CONNECTIONS: [
-              { SITE: "seawater", POSITION: [0, 2.5, 3.5], DIRECTION: "IN" },
-              { EQUIPMENT: "Pump1", PORT: "suction" },
-            ],
-          },
-          {
-            NAME: "Suction2", TYPE: "piping", MEDIUM: "water",
-            CONNECTIONS: [
-              { SITE: "seawater2", POSITION: [0, 2.5, 0.5], DIRECTION: "IN" },
+              { SITE: "seawater", POSITION: [0, 4, 1], DIRECTION: "IN" },
               { EQUIPMENT: "Pump2", PORT: "suction" },
             ],
           },

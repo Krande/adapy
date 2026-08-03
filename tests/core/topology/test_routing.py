@@ -161,3 +161,38 @@ def test_duct_system_route_geometry_class(grid):
     assert beams and all(isinstance(b, ada.Beam) for b in beams)
     assert all(b.section.type == BaseTypes.BOX for b in beams)
     assert beams[0].metadata["segment_ifc_class"] == "IfcDuctSegment"
+
+
+def _seg_aabb(beam: ada.Beam):
+    import numpy as np
+
+    scene = (ada.Assembly("t") / (ada.Part("p") / beam)).to_trimesh_scene()
+    v = np.vstack([g.vertices for g in scene.geometry.values()])
+    return v.min(axis=0), v.max(axis=0)
+
+
+@pytest.mark.parametrize("kind", ["duct", "cable"])
+def test_beam_run_segments_are_orthogonal_and_joined(kind):
+    """A duct/cable run over an L-path is built as axis-aligned straight
+    segments, and consecutive segments overlap at the corner so the tessellated
+    tray/duct has no gap at the bend (interior joints share volume rather than
+    butting into an open outer corner)."""
+    import numpy as np
+
+    from ada.topology.routing import system_route_to_geometry
+
+    system = (ada.DuctSystem if kind == "duct" else ada.CableSystem)("Run")
+    system.routed_path = [ada.Point(0, 0, 3), ada.Point(2, 0, 3), ada.Point(2, 2, 3)]
+    beams = system_route_to_geometry(system)
+    assert len(beams) == 2
+
+    # every segment is axis-aligned (exactly one coordinate changes)
+    for b in beams:
+        d = np.asarray(b.n2.p, dtype=float) - np.asarray(b.n1.p, dtype=float)
+        assert int(np.sum(np.abs(d) > 1e-6)) == 1, f"{kind} segment not orthogonal: {d}"
+
+    # the tessellated segments overlap at the shared joint (no gap): their
+    # axis-aligned bounding boxes intersect on every axis.
+    boxes = [_seg_aabb(b) for b in beams]
+    for (lo1, hi1), (lo2, hi2) in zip(boxes, boxes[1:]):
+        assert np.all(lo1 <= hi2 + 1e-6) and np.all(lo2 <= hi1 + 1e-6), f"{kind} run has a gap at the joint"

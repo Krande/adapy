@@ -309,29 +309,79 @@ def route_system(
     return polyline
 
 
-def _route_beam_run(name: str, path: list, sec, segment_ifc_class: str) -> list:
+def _orthogonalize_polyline(pts: list[ada.Point]) -> list[ada.Point]:
+    """Replace any diagonal segment with axis-aligned steps (X, then Y, then Z),
+    so a box/channel run stays orthogonal. A straight-swept beam segment reads
+    wrong on a diagonal (the port-stub cap can leave a short diagonal hop);
+    ducts/cable trays are built as orthogonal runs with fittings, so this matches
+    reality. Pipes keep their diagonals (their elbows bend continuously)."""
+    if len(pts) < 2:
+        return list(pts)
+    out = [pts[0]]
+    for b in pts[1:]:
+        cur = list(out[-1])
+        for axis in (0, 1, 2):
+            if abs(b[axis] - cur[axis]) > 1e-9:
+                cur[axis] = b[axis]
+                out.append(ada.Point(*cur))
+    return _sanitize_polyline(out)
+
+
+def _beam_run_up(p1, p2, open_top: bool) -> tuple[float, float, float]:
+    """Cross-section up-vector for a run segment. A closed box duct just sits
+    flat (local up = world +Z on horizontal, a horizontal ref on vertical). An
+    open channel tray must open *upward*: for a horizontal segment that means the
+    profile's opening axis maps to +Z, i.e. local up is the in-plane perpendicular
+    ``(dir_y, -dir_x, 0)`` (verified against the UNP profile orientation)."""
+    dx, dy, dz = p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]
+    if abs(dz) > max(abs(dx), abs(dy)):  # ~vertical: +Z is parallel to the axis
+        return (1.0, 0.0, 0.0)
+    if open_top:
+        n = (dx * dx + dy * dy) ** 0.5 or 1.0
+        return (dy / n, -dx / n, 0.0)
+    return (0.0, 0.0, 1.0)
+
+
+def _route_beam_run(name: str, path: list, sec, segment_ifc_class: str, open_top: bool = False) -> list:
     """A routed run as one straight :class:`ada.Beam` per polyline segment. Used
     for ducts and cable trays: their box/channel cross-sections cannot be swept
     around :class:`ada.Pipe`'s revolved elbows (OCC fails to build a non-circular
     elbow), and — unlike piping — ducting really is a sequence of straight runs
-    with fittings rather than a continuous bent tube. Segments are named
-    ``<name>_<i>`` so the frontend's route matcher still finds them."""
+    with fittings rather than a continuous bent tube. ``open_top`` orients an
+    open channel tray so it opens upward. Segments are named ``<name>_<i>`` so
+    the frontend's route matcher still finds them.
+
+    Interior joints overlap by half the section extent: each segment is extended
+    past a shared corner into its neighbour so the two boxes intersect and the
+    run reads as continuous (a straight, unmitred butt joint leaves a gap on the
+    outer corner otherwise)."""
+    segs = [(p1, p2) for p1, p2 in zip(path[:-1], path[1:]) if tuple(p1) != tuple(p2)]
+    ext = 0.5 * max(float(sec.w_top or 0.0), float(sec.h or 0.0))
+    n = len(segs)
     beams = []
-    idx = 0
-    for p1, p2 in zip(path[:-1], path[1:]):
-        if tuple(p1) == tuple(p2):
-            continue  # skip zero-length segments (duplicated route vertices)
-        # Orient the (asymmetric) tray/duct cross-section consistently: its local
-        # up follows world +Z on horizontal runs (so a cable tray opens upward and
-        # a duct sits flat), and a horizontal ref on vertical runs where +Z would
-        # be parallel to the beam axis. Without an explicit up-vector the profile
-        # rotates arbitrarily per segment.
-        dx, dy, dz = p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]
-        up = (1.0, 0.0, 0.0) if abs(dz) > max(abs(dx), abs(dy)) else (0.0, 0.0, 1.0)
+    for i, (p1, p2) in enumerate(segs):
+        ax, ay, az = float(p1[0]), float(p1[1]), float(p1[2])
+        bx, by, bz = float(p2[0]), float(p2[1]), float(p2[2])
+        dx, dy, dz = bx - ax, by - ay, bz - az
+        length = (dx * dx + dy * dy + dz * dz) ** 0.5
+        if length < 1e-9:
+            continue
+        ux, uy, uz = dx / length, dy / length, dz / length
+        if i > 0:  # extend back into the previous joint
+            ax, ay, az = ax - ux * ext, ay - uy * ext, az - uz * ext
+        if i < n - 1:  # extend forward into the next joint
+            bx, by, bz = bx + ux * ext, by + uy * ext, bz + uz * ext
+        a, b = ada.Point(ax, ay, az), ada.Point(bx, by, bz)
         beams.append(
-            ada.Beam(f"{name}_{idx}", p1, p2, sec=sec, up=up, metadata={"segment_ifc_class": segment_ifc_class})
+            ada.Beam(
+                f"{name}_{i}",
+                a,
+                b,
+                sec=sec,
+                up=_beam_run_up(a, b, open_top),
+                metadata={"segment_ifc_class": segment_ifc_class},
+            )
         )
-        idx += 1
     return beams
 
 
@@ -358,15 +408,20 @@ def system_route_to_geometry(system: System, name: str | None = None) -> list:
 
     name = name if name is not None else f"{system.name}_route"
     path = system.routed_path
+    # Box/channel runs are built as straight orthogonal segments — square off any
+    # diagonal hop the routing left so a tray/duct never renders on a slant.
+    ortho = _orthogonalize_polyline(path)
 
     if isinstance(system, DuctSystem):
         w, h, t = system.duct_width, system.duct_height, system.wall
         sec = ada.Section(f"{name}_sec", "BOX", h=h, w_top=w, w_btn=w, t_w=t, t_ftop=t, t_fbtn=t)
-        system.route_geometry.extend(_route_beam_run(name, path, sec, "IfcDuctSegment"))
+        system.route_geometry.extend(_route_beam_run(name, ortho, sec, "IfcDuctSegment"))
     elif isinstance(system, CableSystem):  # covers ElectricalSystem
         w, h, t = system.tray_width, system.tray_height, system.wall
-        sec = ada.Section(f"{name}_sec", "UNP", h=h, w_top=w, w_btn=w, t_w=t, t_ftop=t, t_fbtn=t)
-        system.route_geometry.extend(_route_beam_run(name, path, sec, "IfcCableSegment"))
+        # Channel web = the tray bottom (its width), flanges = the shallow sides
+        # (its height); _route_beam_run(open_top=True) rolls it so it opens upward.
+        sec = ada.Section(f"{name}_sec", "UNP", h=w, w_top=h, w_btn=h, t_w=t, t_ftop=t, t_fbtn=t)
+        system.route_geometry.extend(_route_beam_run(name, ortho, sec, "IfcCableSegment", open_top=True))
     elif isinstance(system, PipingSystem):
         sec = ada.Section(f"{name}_sec", "PIPE", r=system.pipe_radius, wt=system.pipe_wt)
         system.route_geometry.append(ada.Pipe(name, path, sec, metadata={"segment_ifc_class": "IfcPipeSegment"}))
