@@ -117,21 +117,39 @@ def _make_system(spec: dict):
 
 def _routing_grid(spaces: list[TopoSpace], equipments: list, spacing: float = 0.5) -> CellGrid:
     """A uniform lattice spanning the union of the space boxes plus a headroom
-    level above the top deck (so runs can climb over equipment)."""
+    level above the top deck (so runs can climb over equipment).
+
+    The floor/roof decks sit on the space-Z boundaries; any lattice level that
+    lands exactly on a deck plane is dropped so a horizontal run never lies *in*
+    a floor plate — it routes just above (in the room) or below (a sub-floor void)
+    instead. Vertical runs still cross a deck plane on the edge between the
+    surrounding levels. A ``spacing`` sub-floor band below the lowest deck gives
+    low outlets (e.g. a tank drain) somewhere to route beneath the plate."""
     xs, ys, zs = [], [], []
+    deck_planes = set()
     for s in spaces:
         xs += [s.X, s.X + s.DX]
         ys += [s.Y, s.Y + s.DY]
         zs += [s.Z, s.Z + s.DZ]
+        deck_planes.update((round(float(s.Z), 4), round(float(s.Z + s.DZ), 4)))
     for eq in equipments:
         if isinstance(eq, ada.Equipment):
             zs.append(float(eq.origin[2]) + eq.lz)
     headroom = spacing * 3
-    return CellGrid.from_bounds(
-        (min(xs), min(ys), min(zs)),
+    grid = CellGrid.from_bounds(
+        (min(xs), min(ys), min(zs) - spacing),  # a sub-floor band below the lowest deck
         (max(xs), max(ys), max(zs) + headroom),
         spacing=spacing,
     )
+    # Drop interior levels coincident with a deck plane (keep the first/last so the
+    # lattice never loses its bounds); margin < spacing so only exact hits go. With
+    # the sub-floor band, the lowest deck is now interior and gets dropped too.
+    margin = spacing * 0.25
+    z = grid.z_list
+    grid.z_list = [
+        v for i, v in enumerate(z) if i == 0 or i == len(z) - 1 or all(abs(v - d) > margin for d in deck_planes)
+    ]
+    return grid
 
 
 def _system_half_extent(system) -> float:
@@ -231,7 +249,14 @@ def _build_systems(
         _occupy_equipment(grid, eq, clearance)
 
     rules = design_rules if design_rules is not None else standard_design_rules()
-    members = cell_graph.get_internal_walls() if cell_graph is not None else []
+    # Only walls the blueprint actually BUILT (a plate part tagged on the face) can
+    # be penetrated — a run crossing an unbuilt cell boundary (e.g. two open cells
+    # with no wall between them) must not get a sleeve/hole detail.
+    members = (
+        [w for w in cell_graph.get_internal_walls() if getattr(w, "associated_part", None) is not None]
+        if cell_graph is not None
+        else []
+    )
     result = run_design(
         built_systems,
         cell_graph=cell_graph,

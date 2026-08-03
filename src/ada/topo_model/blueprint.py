@@ -32,6 +32,13 @@ def _edge_midpoint_key(edge: GraphEdge) -> tuple[float, float, float]:
     return tuple(round(float(v), _MID_NDIGITS) for v in mid)
 
 
+def _face_center_key(face: GraphFace) -> tuple[float, float, float]:
+    """A rounded face-centroid key so a cell's bounding face can be matched to
+    the shared cell-graph wall it coincides with (``cell.faces`` and
+    ``get_internal_walls()`` return distinct objects for the same physical wall)."""
+    return tuple(round(float(v), _MID_NDIGITS) for v in face.get_centroid())
+
+
 def _dedupe_edges(faces: list[GraphFace], horizontal: bool) -> list[GraphEdge]:
     """Collect the faces' edges with the requested orientation, keeping one edge
     per unique midpoint (adjacent cells contribute the same physical edge twice)."""
@@ -200,6 +207,10 @@ class SteelStru(BlueprintBase):
         # all four walls (external + shared internal) plus any deck face not
         # already built (e.g. the internal deck under a second-floor room).
         cell_by_name = {f.parent_cell.name: f.parent_cell for f in (*floor_faces, *internal_walls, *external_walls)}
+        # Map a shared internal wall to its member object so a plated enclosed wall
+        # can tag it (so penetration modelling — which walks get_internal_walls() —
+        # only ever cuts through walls that were actually built).
+        iw_by_key = {_face_center_key(w): w for w in internal_walls}
         for cname in enclosed:
             cell = cell_by_name.get(cname)
             if cell is None:
@@ -218,7 +229,13 @@ class SteelStru(BlueprintBase):
                     )
                     room(cname).add_part(deck)
                 else:
-                    room(cname).add_part(self._wall(f"Wall_{cname}_{j:02d}", face))
+                    wall = self._wall(f"Wall_{cname}_{j:02d}", face)
+                    # If this bounding wall is a shared internal wall, tag the
+                    # member the penetration engine sees with the built part.
+                    member = iw_by_key.get(_face_center_key(face))
+                    if member is not None:
+                        member.associated_part = wall
+                    room(cname).add_part(wall)
 
         # Global wall reinforcement (kept for back-compat) — skips cells already
         # fully plated by the enclosure pass so a wall is never built twice.
