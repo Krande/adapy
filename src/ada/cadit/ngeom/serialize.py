@@ -580,15 +580,26 @@ class _Encoder:
         segs = getattr(curve, "segments", None)
         if segs and any(isinstance(s, (cu.ArcLine, cu.BSplineCurveWithKnots)) for s in segs):
             pts: list[tuple[float, float, float]] = []
+            last_end: tuple[float, float, float] | None = None
             for s in segs:
                 if isinstance(s, cu.ArcLine):
                     arc = _sample_arc(s.start, s.midpoint, s.end)
                     pts.extend(_to3(p) for p in arc[:-1])  # end repeats the next segment's start
+                    last_end = _to3(arc[-1])
                 elif isinstance(s, cu.BSplineCurveWithKnots):  # analytic spline edge -> polyline
                     sp = s.sample(max(16, int(s.degree) * 8))
                     pts.extend(_to3(p) for p in sp[:-1])  # end repeats the next segment's start
+                    last_end = _to3(sp[-1])
                 else:  # Edge / straight segment
                     pts.append(_to3(s.start))
+                    last_end = _to3(s.end)
+            # A CLOSED profile loop returns to pts[0], so its final endpoint is already the
+            # first point — dropping it (the ``[:-1]`` / start-only walk above) avoids a
+            # duplicate. An OPEN curve (a sweep DIRECTRIX — polyline+arc duct/cable-tray run)
+            # ends on a distinct point the walk never emits; without it the last segment is
+            # lost (the sweep stopped one vertex short, e.g. a z 0->2 run truncated at z~1).
+            if last_end is not None and (not pts or not np.allclose(last_end, pts[0], atol=1e-9)):
+                pts.append(last_end)
             return pts
 
         getp = getattr(curve, "get_points", None)
@@ -737,19 +748,38 @@ class _Encoder:
         body = self.i32(face) + self.i32(self.placement3(pos)) + self.i32(axis_rec) + self.f64(math.radians(ras.angle))
         return self._add(_REVOLVED_AREA_SOLID, body)
 
+    def _general_directrix_frames(self, directrix, fixed_reference):
+        return general_directrix_frames(directrix, fixed_reference)
+
     def fixed_reference_swept_area_solid(self, frs) -> int:
-        """FixedReferenceSweptAreaSolid (IFC4x3 alignment sweep) -> profile FACE + a precomputed
-        field of per-station frames (origin, dir_x, dir_y). The analytic directrix (line/clothoid/
-        arc + vertical gradient + fixed-reference frame) is evaluated here; adacpp's tessellate_sweep
-        rings + caps the frames via libtess2 (no OCC)."""
-        from ada.cadit.ngeom._alignment_sweep import directrix_frames
+        """FixedReferenceSweptAreaSolid -> profile FACE + a precomputed field of per-station frames
+        (origin, dir_x, dir_y). adacpp's tessellate_sweep rings + caps the frames via libtess2 (no
+        OCC).
+
+        An alignment sweep (GradientCurve directrix: line/clothoid/arc + vertical gradient) is
+        framed by ``directrix_frames``. Any other directrix — a plain IndexedPolyCurve / polyline /
+        arc, e.g. a routed duct or cable-tray run swept like piping — is sampled and framed with the
+        fixed-reference method here, with an identity placement (the sampled origins are already
+        world-space), mirroring how ``swept_disk_solid`` frames pipes."""
+        import ada.geom.curves as geo_cu
 
         face = self._profile_face(frs.swept_area)
-        origins, dir_x, dir_y = directrix_frames(frs)
+        if isinstance(frs.directrix, geo_cu.GradientCurve):
+            from ada.cadit.ngeom._alignment_sweep import directrix_frames
+
+            origins, dir_x, dir_y = directrix_frames(frs)
+            position = frs.position
+        else:
+            from ada.geom.placement import Axis2Placement3D
+
+            origins, dir_x, dir_y = self._general_directrix_frames(frs.directrix, frs.fixed_reference)
+            position = Axis2Placement3D(location=(0.0, 0.0, 0.0))
         n = len(origins)
+        if n < 2:
+            raise _Unsupported("fixed-reference sweep directrix has < 2 stations")
         body = (
             self.i32(face)
-            + self.i32(self.placement3(frs.position))
+            + self.i32(self.placement3(position))
             + self.i32(n)
             + self._f64_raw(origins.ravel())
             + self._f64_raw(dir_x.ravel())
@@ -1086,6 +1116,50 @@ class _Encoder:
 
 class _Unsupported(Exception):
     pass
+
+
+def general_directrix_frames(directrix, fixed_reference):
+    """Per-station (origin, dir_x, dir_y) frames for a sweep along a plain
+    (non-alignment) directrix — an IndexedPolyCurve / polyline / arc, e.g. a
+    routed duct or cable-tray run. Unlike ``directrix_frames`` (which only
+    handles an alignment GradientCurve) this samples the directrix directly
+    and orients the profile with the fixed-reference "up": the profile's
+    local +x (``dir_x``) is the horizontal lateral ``tangent x up`` and its
+    local +y (``dir_y``) is the in-plane up, so a box/channel section stays
+    upright around the bends instead of rolling (the tangent-only parallel
+    transport used for pipes twists a non-circular profile).
+
+    A vertical run (tangent ~parallel to ``fixed_reference``) has no lateral
+    from the cross product; that station carries the previous frame (or, at
+    the head, an arbitrary perpendicular).
+
+    Shared by the NGEOM/libtess2 stream serializer (``_Encoder``) and the OCC
+    backend (``ada.occ.geom.solids``) so both paths frame a general-directrix
+    fixed-reference sweep identically. Pure numpy — no adacpp/OCC."""
+    pts = np.asarray(_Encoder._loop_points_3d(directrix), dtype=float)
+    if len(pts) < 2:
+        return pts, np.zeros((0, 3)), np.zeros((0, 3))
+    f = np.asarray(fixed_reference, dtype=float)
+    f = f / (np.linalg.norm(f) or 1.0)
+    t = np.gradient(pts, axis=0)
+    tn = np.linalg.norm(t, axis=1, keepdims=True)
+    t = t / np.where(tn < 1e-12, 1.0, tn)
+    lateral = np.cross(t, f)
+    for i in range(len(pts)):
+        n = float(np.linalg.norm(lateral[i]))
+        if n < 1e-6:  # vertical run: no lateral from t x f — carry the frame
+            if i > 0:
+                lateral[i] = lateral[i - 1]
+            else:
+                a = np.array([1.0, 0.0, 0.0]) if abs(t[i, 0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+                perp = np.cross(t[i], a)
+                lateral[i] = perp / (np.linalg.norm(perp) or 1.0)
+        else:
+            lateral[i] = lateral[i] / n
+    up = np.cross(lateral, t)
+    up /= np.where(np.linalg.norm(up, axis=1, keepdims=True) < 1e-12, 1.0, np.linalg.norm(up, axis=1, keepdims=True))
+    # profile u (local x) -> lateral, profile v (local y) -> up
+    return pts, lateral, up
 
 
 def _frame_vectors(pos) -> tuple[tuple, tuple, tuple]:

@@ -327,62 +327,138 @@ def _orthogonalize_polyline(pts: list[ada.Point]) -> list[ada.Point]:
     return _sanitize_polyline(out)
 
 
-def _beam_run_up(p1, p2, open_top: bool) -> tuple[float, float, float]:
-    """Cross-section up-vector for a run segment. A closed box duct just sits
-    flat (local up = world +Z on horizontal, a horizontal ref on vertical). An
-    open channel tray must open *upward*: for a horizontal segment that means the
-    profile's opening axis maps to +Z, i.e. local up is the in-plane perpendicular
-    ``(dir_y, -dir_x, 0)`` (verified against the UNP profile orientation)."""
-    dx, dy, dz = p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]
-    if abs(dz) > max(abs(dx), abs(dy)):  # ~vertical: +Z is parallel to the axis
-        return (1.0, 0.0, 0.0)
-    if open_top:
-        n = (dx * dx + dy * dy) ** 0.5 or 1.0
-        return (dy / n, -dx / n, 0.0)
-    return (0.0, 0.0, 1.0)
+def _v_sub(a, b):
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
 
-def _route_beam_run(name: str, path: list, sec, segment_ifc_class: str, open_top: bool = False) -> list:
-    """A routed run as one straight :class:`ada.Beam` per polyline segment. Used
-    for ducts and cable trays: their box/channel cross-sections cannot be swept
-    around :class:`ada.Pipe`'s revolved elbows (OCC fails to build a non-circular
-    elbow), and — unlike piping — ducting really is a sequence of straight runs
-    with fittings rather than a continuous bent tube. ``open_top`` orients an
-    open channel tray so it opens upward. Segments are named ``<name>_<i>`` so
-    the frontend's route matcher still finds them.
+def _v_add(a, b):
+    return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
 
-    Interior joints overlap by half the section extent: each segment is extended
-    past a shared corner into its neighbour so the two boxes intersect and the
-    run reads as continuous (a straight, unmitred butt joint leaves a gap on the
-    outer corner otherwise)."""
-    segs = [(p1, p2) for p1, p2 in zip(path[:-1], path[1:]) if tuple(p1) != tuple(p2)]
-    ext = 0.5 * max(float(sec.w_top or 0.0), float(sec.h or 0.0))
-    n = len(segs)
-    beams = []
-    for i, (p1, p2) in enumerate(segs):
-        ax, ay, az = float(p1[0]), float(p1[1]), float(p1[2])
-        bx, by, bz = float(p2[0]), float(p2[1]), float(p2[2])
-        dx, dy, dz = bx - ax, by - ay, bz - az
-        length = (dx * dx + dy * dy + dz * dz) ** 0.5
-        if length < 1e-9:
+
+def _v_scale(v, s):
+    return (v[0] * s, v[1] * s, v[2] * s)
+
+
+def _v_dot(a, b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _v_cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def _v_norm(v):
+    return (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) ** 0.5
+
+
+def _polyline_to_directrix(pts: list[ada.Point], radius: float):
+    """Build an ``IndexedPolyCurve`` directrix from an (orthogonal) polyline,
+    filleting each interior corner into an ``ArcLine`` of ``radius`` so a swept
+    duct/tray turns on a real circular bend. The radius is clamped to half of
+    each adjacent segment so two nearby bends never eat into each other; straight
+    spans stay ``Edge`` segments. Returns ``None`` for a degenerate (< 2 point)
+    path.
+
+    This is the non-circular analogue of how :class:`ada.Pipe` builds its bent
+    directrix — the box/channel profile is later swept along this curve
+    (:class:`_SweptRun`), the way piping sweeps a disk."""
+    from ada.geom.curves import ArcLine, Edge, IndexedPolyCurve
+
+    pts = [ada.Point(*(float(c) for c in p)) for p in pts]
+    if len(pts) < 2:
+        return None
+
+    segs = []
+    cursor = pts[0]  # running start of the next straight edge
+    for i in range(1, len(pts) - 1):
+        p_prev, p_cur, p_next = tuple(pts[i - 1]), tuple(pts[i]), tuple(pts[i + 1])
+        a, b = _v_sub(p_cur, p_prev), _v_sub(p_next, p_cur)
+        la, lb = _v_norm(a), _v_norm(b)
+        if la < 1e-9 or lb < 1e-9:
             continue
-        ux, uy, uz = dx / length, dy / length, dz / length
-        if i > 0:  # extend back into the previous joint
-            ax, ay, az = ax - ux * ext, ay - uy * ext, az - uz * ext
-        if i < n - 1:  # extend forward into the next joint
-            bx, by, bz = bx + ux * ext, by + uy * ext, bz + uz * ext
-        a, b = ada.Point(ax, ay, az), ada.Point(bx, by, bz)
-        beams.append(
-            ada.Beam(
-                f"{name}_{i}",
-                a,
-                b,
-                sec=sec,
-                up=_beam_run_up(a, b, open_top),
-                metadata={"segment_ifc_class": segment_ifc_class},
-            )
-        )
-    return beams
+        ua, ub = _v_scale(a, 1.0 / la), _v_scale(b, 1.0 / lb)
+        if _v_norm(_v_cross(ua, ub)) < 1e-9:  # collinear — no bend to fillet
+            continue
+        r = min(radius, 0.5 * la, 0.5 * lb)
+        if r < 1e-9:
+            continue
+        t1 = _v_sub(p_cur, _v_scale(ua, r))
+        t2 = _v_add(p_cur, _v_scale(ub, r))
+        perp = _v_sub(ub, _v_scale(ua, _v_dot(ub, ua)))
+        pn = _v_norm(perp)
+        if pn < 1e-9:
+            continue
+        centre = _v_add(t1, _v_scale(_v_scale(perp, 1.0 / pn), r))
+        v1, v2 = _v_sub(t1, centre), _v_sub(t2, centre)
+        bis = _v_add(v1, v2)
+        bn = _v_norm(bis)
+        if bn < 1e-9:
+            continue
+        mid = _v_add(centre, _v_scale(_v_scale(bis, 1.0 / bn), r))  # arc apex
+        t1p = ada.Point(*t1)
+        if _seg_len(cursor, t1p) > 1e-9:
+            segs.append(Edge(cursor, t1p))
+        segs.append(ArcLine(t1p, ada.Point(*mid), ada.Point(*t2)))
+        cursor = ada.Point(*t2)
+    if _seg_len(cursor, pts[-1]) > 1e-9:
+        segs.append(Edge(cursor, pts[-1]))
+    if not segs:
+        return None
+    return IndexedPolyCurve(segments=segs)
+
+
+def _rotate_profile_90(profile):
+    """A copy of a swept-area profile rotated a quarter turn in its local plane
+    ((x, y) -> (-y, x)), so an open UNP channel (which opens along its local +x)
+    ends up opening along local +y — the sweep's "up" — i.e. an upward-opening
+    cable tray. Only ``IndexedPolyCurve`` outlines are rotated (box/channel
+    sections); anything else is returned unchanged."""
+    from ada.geom.curves import ArcLine, Edge, IndexedPolyCurve
+    from ada.geom.surfaces import ArbitraryProfileDef
+
+    def _rp(p):
+        return ada.Point(-float(p[1]), float(p[0]))
+
+    def _rot(curve):
+        if not isinstance(curve, IndexedPolyCurve):
+            return curve
+        new_segs = []
+        for s in curve.segments:
+            if isinstance(s, Edge):
+                new_segs.append(Edge(_rp(s.start), _rp(s.end)))
+            elif isinstance(s, ArcLine):
+                new_segs.append(ArcLine(_rp(s.start), _rp(s.midpoint), _rp(s.end)))
+            else:
+                new_segs.append(s)
+        return IndexedPolyCurve(segments=new_segs)
+
+    return ArbitraryProfileDef(
+        profile_type=profile.profile_type,
+        outer_curve=_rot(profile.outer_curve),
+        inner_curves=[_rot(c) for c in (profile.inner_curves or [])],
+    )
+
+
+class _SweptRun(ada.BeamCurved):
+    """A duct or cable-tray run swept along its routed 3D curve — a fixed-reference
+    sweep of the box/channel profile, the non-circular analogue of how a
+    :class:`ada.Pipe` sweeps a disk along its directrix. ``open_channel`` rotates
+    the profile a quarter turn so an open UNP tray opens upward (+Z) rather than
+    sideways.
+
+    Renders through the NGEOM stream (adacpp libtess2), which frames the swept
+    profile upright along any directrix; the OCC path frames it too where
+    available."""
+
+    def __init__(self, name, n1, n2, curve3d, sec, open_channel: bool = False, metadata=None):
+        super().__init__(name, n1, n2, curve3d, sec, up=(0.0, 0.0, 1.0), metadata=metadata)
+        self._open_channel = open_channel
+
+    def solid_geom(self):
+        geom = super().solid_geom()
+        if self._open_channel:
+            geom.geometry.swept_area = _rotate_profile_90(geom.geometry.swept_area)
+        return geom
 
 
 def system_route_to_geometry(system: System, name: str | None = None) -> list:
@@ -391,16 +467,15 @@ def system_route_to_geometry(system: System, name: str | None = None) -> list:
     itself rather than a generic pipe:
 
     * piping → a round ``PIPE`` tube with elbows (one :class:`ada.Pipe`),
-    * ducting → a rectangular ``BOX`` duct (straight :class:`ada.Beam` runs),
-    * cable/electrical → an open ``UNP`` cable tray (straight :class:`ada.Beam`
-      runs).
+    * ducting → a rectangular ``BOX`` duct swept along its curved run,
+    * cable/electrical → an open ``UNP`` cable tray swept along its curved run.
 
-    Only piping reuses :class:`ada.Pipe` — its circular profile and revolved
-    elbows are pipe-specific. Ducts and cable trays are modelled as straight
-    beam segments (adapy's general swept-profile element), which both matches
-    how those services are actually built and avoids the degenerate non-circular
-    elbow. The IFC entity class still follows the service via
-    ``segment_ifc_class`` metadata."""
+    Every service is a solid swept along its routed 3D curve: piping reuses
+    :class:`ada.Pipe` (a disk swept with revolved elbows); ducts and cable trays
+    are a :class:`_SweptRun` — a fixed-reference sweep of the box/channel profile
+    along an :class:`~ada.geom.curves.IndexedPolyCurve` directrix whose corners
+    are filleted into arcs, the non-circular analogue of a pipe. The IFC entity
+    class still follows the service via ``segment_ifc_class`` metadata."""
     from ada.api.systems.base import CableSystem, DuctSystem, PipingSystem
 
     if system.routed_path is None:
@@ -408,20 +483,39 @@ def system_route_to_geometry(system: System, name: str | None = None) -> list:
 
     name = name if name is not None else f"{system.name}_route"
     path = system.routed_path
-    # Box/channel runs are built as straight orthogonal segments — square off any
-    # diagonal hop the routing left so a tray/duct never renders on a slant.
+    # Box/channel runs follow an orthogonal path — square off any diagonal hop the
+    # routing left so a tray/duct never runs on a slant — then a directrix with
+    # arc-filleted corners is swept, giving real curved fittings at the bends.
     ortho = _orthogonalize_polyline(path)
+
+    def _swept(sec, *, open_channel: bool, seg_class: str):
+        bend_r = max(float(sec.w_top or 0.0), float(sec.h or 0.0))
+        directrix = _polyline_to_directrix(ortho, bend_r)
+        if directrix is None:
+            return
+        system.route_geometry.append(
+            _SweptRun(
+                name,
+                ada.Point(*ortho[0]),
+                ada.Point(*ortho[-1]),
+                directrix,
+                sec,
+                open_channel=open_channel,
+                metadata={"segment_ifc_class": seg_class},
+            )
+        )
 
     if isinstance(system, DuctSystem):
         w, h, t = system.duct_width, system.duct_height, system.wall
         sec = ada.Section(f"{name}_sec", "BOX", h=h, w_top=w, w_btn=w, t_w=t, t_ftop=t, t_fbtn=t)
-        system.route_geometry.extend(_route_beam_run(name, ortho, sec, "IfcDuctSegment"))
+        _swept(sec, open_channel=False, seg_class="IfcDuctSegment")
     elif isinstance(system, CableSystem):  # covers ElectricalSystem
         w, h, t = system.tray_width, system.tray_height, system.wall
         # Channel web = the tray bottom (its width), flanges = the shallow sides
-        # (its height); _route_beam_run(open_top=True) rolls it so it opens upward.
+        # (its height); _SweptRun(open_channel=True) rotates the profile so the
+        # tray opens upward.
         sec = ada.Section(f"{name}_sec", "UNP", h=w, w_top=h, w_btn=h, t_w=t, t_ftop=t, t_fbtn=t)
-        system.route_geometry.extend(_route_beam_run(name, ortho, sec, "IfcCableSegment", open_top=True))
+        _swept(sec, open_channel=True, seg_class="IfcCableSegment")
     elif isinstance(system, PipingSystem):
         sec = ada.Section(f"{name}_sec", "PIPE", r=system.pipe_radius, wt=system.pipe_wt)
         system.route_geometry.append(ada.Pipe(name, path, sec, metadata={"segment_ifc_class": "IfcPipeSegment"}))

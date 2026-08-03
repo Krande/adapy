@@ -51,13 +51,16 @@ export type SystemType = "piping" | "duct" | "cable" | "electrical";
 
 /** One system endpoint: either an equipment port (equipment + port) OR a site
  * terminal — a model-boundary input/output (site name + world position + IN/OUT
- * direction) that closes a run which would otherwise dangle. */
+ * direction) that closes a run which would otherwise dangle. ``directionVector``
+ * is the terminal's outward orientation (the nozzle normal the run leaves along);
+ * it defaults to +Z when omitted. */
 export interface SystemConnection {
   equipment?: string;
   port?: string;
   site?: string;
   position?: [number, number, number];
   direction?: "IN" | "OUT";
+  directionVector?: [number, number, number];
 }
 
 /** A logical service run between equipment ports. Rendered by the compiler as
@@ -369,6 +372,13 @@ function systemsFromDoc(doc: ProceduralDoc): Record<string, BuilderSystem> {
                   ])
                 : ([0, 0, 0] as [number, number, number]),
               direction: c.DIRECTION === "OUT" ? "OUT" : "IN",
+              directionVector: Array.isArray(c.DIRECTION_VECTOR)
+                ? ([
+                    Number(c.DIRECTION_VECTOR[0]),
+                    Number(c.DIRECTION_VECTOR[1]),
+                    Number(c.DIRECTION_VECTOR[2]),
+                  ] as [number, number, number])
+                : undefined,
             }
           : {
               equipment: String(c.EQUIPMENT ?? ""),
@@ -918,6 +928,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
                 SITE: c.site,
                 POSITION: c.position ?? [0, 0, 0],
                 DIRECTION: c.direction ?? "IN",
+                DIRECTION_VECTOR: c.directionVector ?? [0, 0, 1],
               }
             : { EQUIPMENT: c.equipment, PORT: c.port },
         ),
@@ -1002,7 +1013,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           {
             NAME: "Mains", TYPE: "electrical",
             CONNECTIONS: [
-              { SITE: "grid_supply", POSITION: [0, 1, 1], DIRECTION: "IN" },
+              { SITE: "grid_supply", POSITION: [0, 1, 1], DIRECTION: "IN", DIRECTION_VECTOR: [1, 0, 0] },
               { EQUIPMENT: "SB2", PORT: "incoming" },
             ],
           },
@@ -1047,13 +1058,13 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             NAME: "Drain", TYPE: "piping", MEDIUM: "water",
             CONNECTIONS: [
               { EQUIPMENT: "Tank2", PORT: "outlet" },
-              { SITE: "drain", POSITION: [0, 2.5, 1], DIRECTION: "OUT" },
+              { SITE: "drain", POSITION: [0, 2.5, 1], DIRECTION: "OUT", DIRECTION_VECTOR: [1, 0, 0] },
             ],
           },
           {
             NAME: "Suction", TYPE: "piping", MEDIUM: "water",
             CONNECTIONS: [
-              { SITE: "seawater", POSITION: [0, 4, 1], DIRECTION: "IN" },
+              { SITE: "seawater", POSITION: [0, 4, 1], DIRECTION: "IN", DIRECTION_VECTOR: [1, 0, 0] },
               { EQUIPMENT: "Pump2", PORT: "suction" },
             ],
           },

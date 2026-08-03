@@ -36,3 +36,29 @@ def test_steel_stru_nests_per_room_and_frame(demo_assembly):
     part_names = {p.name for p in demo_assembly.get_all_parts_in_assembly()}
     assert {"Frame", "Girders", "Columns"} <= part_names
     assert any(n.startswith("Room_") for n in part_names)
+
+
+@pytest.mark.parametrize(
+    "inward, want_side",
+    [((1, 0, 0), "positive"), ((-1, 0, 0), "negative")],
+)
+def test_reinforced_wall_stiffeners_face_inward(inward, want_side):
+    # A wall stiffener's web must stand INTO the room (toward the inward vector),
+    # not out of it. HP-type profiles grow their web on one side of the beam
+    # centreline, so the fix is a sign on the profile up-vector: verify the
+    # stiffener material lands on the room-interior side of the plate.
+    import numpy as np
+
+    from ada.topo_model.blueprint import _build_reinforced_wall
+
+    # a vertical wall in the Y-Z plane at x=0
+    pts = [ada.Point(0, 0, 0), ada.Point(0, 5, 0), ada.Point(0, 5, 3), ada.Point(0, 0, 3)]
+    wall = _build_reinforced_wall("W", pts, 8e-3, "HP140x8", 0.5, inward=inward)
+    stf = next(iter(wall.get_all_physical_objects(by_type=ada.Beam)))
+    scene = (ada.Assembly("t") / (ada.Part("p") / stf)).to_trimesh_scene()
+    v = np.vstack([g.vertices for g in scene.geometry.values()])
+    xmin, xmax = float(v[:, 0].min()), float(v[:, 0].max())
+    if want_side == "positive":
+        assert xmax > 1e-4 and xmin >= -1e-6  # material into +X room
+    else:
+        assert xmin < -1e-4 and xmax <= 1e-6  # material into -X room

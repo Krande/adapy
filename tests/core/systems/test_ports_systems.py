@@ -117,8 +117,21 @@ def test_connect_site_input_and_output():
     assert terminal.connected_system is feed
     # a parent-less site terminal reports its raw world position
     assert tuple(terminal.get_global_position()) == (0.0, 0.0, 5.0)
+    # a site terminal defaults to a +Z outward orientation when unspecified
+    assert tuple(terminal.direction_vector) == (0.0, 0.0, 1.0)
     # site terminals are boundary interfaces, not equipment
     assert feed.connected_equipment == [pump]
+
+
+def test_connect_site_orientation_vector():
+    # A terminal on a vertical wall (x=0) faces +X into the model; the outward
+    # nozzle vector is carried on the site Port so routing leaves the boundary
+    # along it rather than the default +Z.
+    drain = ada.PipingSystem("Drain").connect_site(
+        "to_sea", (0, 4, 1), ada.PortDirection.OUT, direction_vector=(1, 0, 0)
+    )
+    terminal = drain.site_connections[0]
+    assert tuple(terminal.direction_vector) == (1.0, 0.0, 0.0)
 
 
 def test_connect_site_requires_in_or_out():

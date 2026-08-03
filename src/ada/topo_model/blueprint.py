@@ -57,8 +57,8 @@ def _build_reinforced_wall(
     stiffener beams evenly distributed along the wall's horizontal run. The
     stiffeners' local up vector is the wall normal so the profile stands
     perpendicular to (not flat in) the plate plane; ``inward`` (a vector pointing
-    into the room) signs it so the stiffener profiles face inward rather than out
-    of the enclosure."""
+    into the room) signs it so the stiffener webs stand inward, into the
+    enclosure, rather than out of it."""
     plate = ada.Plate.from_3d_points(f"{name}_pl", points, pl_thick)
 
     pts = np.asarray([tuple(p) for p in points], dtype=float)
@@ -68,8 +68,14 @@ def _build_reinforced_wall(
     z0, z1 = lo[2], hi[2]
 
     up = [0.0, 0.0, 0.0]
-    # Point the stiffener profile into the room when an inward vector is given.
-    up[normal_axis] = -1.0 if (inward is not None and inward[normal_axis] < 0) else 1.0
+    # The stiffener profile's web/material grows on the -up side of the beam (its
+    # outline sits in local -y), so to stand the web INTO the room we point up OUT
+    # of it — opposite the inward vector along the wall normal. Without an inward
+    # hint, default to +normal (web on the -normal side).
+    if inward is not None and abs(inward[normal_axis]) > 1e-9:
+        up[normal_axis] = -1.0 if inward[normal_axis] > 0 else 1.0
+    else:
+        up[normal_axis] = 1.0
 
     tol = spacing * 1e-3
     stiffeners = []

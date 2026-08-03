@@ -89,6 +89,25 @@ def test_route_system_leaves_ports_along_nozzle_normal(grid):
     assert polyline[-2][2] > p_end[2]
 
 
+def test_route_system_leaves_site_terminal_along_its_orientation(grid):
+    # A site terminal on the x=0 wall faces +X (into the model); the run must
+    # step out along +X (increasing x, same y/z) before turning onto the grid —
+    # the terminal's orientation, not just its position, drives the departure.
+    # Contrast with the default +Z orientation, which would step up instead.
+    eq = ada.Equipment("E1", 1.0, (0, 0, 0), (4, 4, 1), 0.1, 0.1, 0.1)
+    eq.add_port(ada.Port("in", (0, 0, 0), (0, 0, 1), ada.PortDirection.IN, "process"))
+    system = (
+        ada.PipingSystem("Supply")
+        .connect_site("grid", (0, 2, 1), ada.PortDirection.IN, direction_vector=(1, 0, 0))
+        .connect(eq, "in")
+    )
+    polyline = route_system(system, grid)
+    p_start = system.ports[0].get_global_position()  # (0, 2, 1), faces +X
+    assert tuple(polyline[0]) == tuple(p_start)
+    assert (polyline[1][1], polyline[1][2]) == (p_start[1], p_start[2])
+    assert polyline[1][0] > p_start[0]
+
+
 def test_route_system_needs_two_ports(grid):
     eq = ada.Equipment("E1", 1.0, (0, 0, 0), (0, 0, 0), 0.1, 0.1, 0.1)
     eq.add_port(ada.Port("out", (0, 0, 0), (0, 0, 1), ada.PortDirection.OUT))
@@ -163,36 +182,40 @@ def test_duct_system_route_geometry_class(grid):
     assert beams[0].metadata["segment_ifc_class"] == "IfcDuctSegment"
 
 
-def _seg_aabb(beam: ada.Beam):
-    import numpy as np
-
-    scene = (ada.Assembly("t") / (ada.Part("p") / beam)).to_trimesh_scene()
-    v = np.vstack([g.vertices for g in scene.geometry.values()])
-    return v.min(axis=0), v.max(axis=0)
-
-
 @pytest.mark.parametrize("kind", ["duct", "cable"])
-def test_beam_run_segments_are_orthogonal_and_joined(kind):
-    """A duct/cable run over an L-path is built as axis-aligned straight
-    segments, and consecutive segments overlap at the corner so the tessellated
-    tray/duct has no gap at the bend (interior joints share volume rather than
-    butting into an open outer corner)."""
+def test_beam_run_is_swept_along_a_curved_directrix(kind):
+    """A duct/cable run over an L-path is a single solid swept along its routed 3D
+    curve (like a pipe), not a chain of straight beams: one ``BeamCurved`` whose
+    directrix is an ``IndexedPolyCurve`` with the 90° corner filleted into an
+    ``ArcLine``. Its straight legs stay axis-aligned and its endpoints are the
+    run ends."""
     import numpy as np
 
+    from ada.geom.curves import ArcLine, Edge, IndexedPolyCurve
     from ada.topology.routing import system_route_to_geometry
 
     system = (ada.DuctSystem if kind == "duct" else ada.CableSystem)("Run")
     system.routed_path = [ada.Point(0, 0, 3), ada.Point(2, 0, 3), ada.Point(2, 2, 3)]
-    beams = system_route_to_geometry(system)
-    assert len(beams) == 2
+    geoms = system_route_to_geometry(system)
 
-    # every segment is axis-aligned (exactly one coordinate changes)
-    for b in beams:
-        d = np.asarray(b.n2.p, dtype=float) - np.asarray(b.n1.p, dtype=float)
-        assert int(np.sum(np.abs(d) > 1e-6)) == 1, f"{kind} segment not orthogonal: {d}"
+    # one swept run, carrying its analytic directrix (not a polyline approximation)
+    assert len(geoms) == 1
+    (run,) = geoms
+    assert isinstance(run, ada.BeamCurved)
+    directrix = run.curve3d
+    assert isinstance(directrix, IndexedPolyCurve)
 
-    # the tessellated segments overlap at the shared joint (no gap): their
-    # axis-aligned bounding boxes intersect on every axis.
-    boxes = [_seg_aabb(b) for b in beams]
-    for (lo1, hi1), (lo2, hi2) in zip(boxes, boxes[1:]):
-        assert np.all(lo1 <= hi2 + 1e-6) and np.all(lo2 <= hi1 + 1e-6), f"{kind} run has a gap at the joint"
+    # the corner is a real circular bend (an ArcLine), flanked by straight Edges
+    arcs = [s for s in directrix.segments if isinstance(s, ArcLine)]
+    edges = [s for s in directrix.segments if isinstance(s, Edge)]
+    assert len(arcs) == 1, f"{kind} bend is not a single arc: {directrix.segments}"
+    assert len(edges) == 2, f"{kind} run is missing its straight legs: {directrix.segments}"
+
+    # each straight leg is axis-aligned (+X in, +Y out)
+    for e in edges:
+        d = np.asarray(e.end, dtype=float) - np.asarray(e.start, dtype=float)
+        assert int(np.sum(np.abs(d) > 1e-6)) == 1, f"{kind} leg not axis-aligned: {d}"
+
+    # the run spans the routed ends
+    assert tuple(np.round(run.n1.p, 6)) == (0.0, 0.0, 3.0)
+    assert tuple(np.round(run.n2.p, 6)) == (2.0, 2.0, 3.0)

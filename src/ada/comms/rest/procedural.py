@@ -32,12 +32,14 @@ def _doc_model():
 
     class SystemConnection(BaseModel):
         # An equipment-port endpoint (EQUIPMENT + PORT) OR a site terminal (a
-        # model-boundary input/output: SITE name + POSITION + IN/OUT DIRECTION).
+        # model-boundary input/output: SITE name + POSITION + IN/OUT DIRECTION +
+        # an optional DIRECTION_VECTOR giving the terminal's outward orientation).
         EQUIPMENT: Optional[str] = None
         PORT: Optional[str] = None
         SITE: Optional[str] = None
         POSITION: Optional[list[float]] = None
         DIRECTION: Optional[Literal["IN", "OUT"]] = None
+        DIRECTION_VECTOR: Optional[list[float]] = None
 
     class ProceduralSystem(BaseModel):
         NAME: str

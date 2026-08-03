@@ -12,6 +12,8 @@ renders the raw space boxes — useful before/without a domain blueprint.
 
 from __future__ import annotations
 
+import contextlib
+import os
 import pathlib
 import tempfile
 from typing import Literal
@@ -23,6 +25,25 @@ from ada.topology.entities import TopoEquipment, TopoSpace
 from .blueprint import SteelStru
 
 __all__ = ["compile_procedural_doc"]
+
+
+@contextlib.contextmanager
+def _stream_tessellation(pipeline: str = "libtess2"):
+    """Render the procedural model through the NGEOM ``pipeline`` (libtess2 by
+    default) rather than the OCC BatchTessellator, so analytic swept runs — the
+    duct/cable-tray ``FixedReferenceSweptAreaSolid`` sweeps — tessellate upright
+    along their curve (OCC mis-orients a non-circular swept profile). Respects an
+    explicit ``ADA_STREAM_TESS_PIPELINE`` already in the environment (e.g. a
+    worker/converter job engine) and restores the previous value on exit."""
+    key = "ADA_STREAM_TESS_PIPELINE"
+    prev = os.environ.get(key)
+    if prev is None:
+        os.environ[key] = pipeline
+    try:
+        yield
+    finally:
+        if prev is None:
+            os.environ.pop(key, None)
 
 
 def _require_coords(entity, attrs: tuple[str, ...]) -> None:
@@ -113,20 +134,39 @@ def _routing_grid(spaces: list[TopoSpace], equipments: list, spacing: float = 0.
     )
 
 
-def _occupy_equipment(grid: CellGrid, eq: ada.Equipment) -> None:
+def _system_half_extent(system) -> float:
+    """The routed run's cross-section half-extent (pipe radius / half the duct or
+    tray width|height), i.e. how far the run's surface reaches from its
+    centreline. Used as the equipment clearance so a run's *body*, not just its
+    centreline, is kept clear of equipment."""
+    r = getattr(system, "pipe_radius", None)
+    if r is not None:
+        return float(r)
+    w = getattr(system, "duct_width", None) or getattr(system, "tray_width", None)
+    h = getattr(system, "duct_height", None) or getattr(system, "tray_height", None)
+    return 0.5 * max(float(w or 0.0), float(h or 0.0))
+
+
+def _occupy_equipment(grid: CellGrid, eq: ada.Equipment, clearance: float = 0.0) -> None:
+    """Mark grid nodes inside the equipment box — inflated by ``clearance`` — as
+    occupied so A* routes around it. The clearance (a run's cross-section
+    half-extent) keeps the run's body, not merely its centreline, from clipping
+    the equipment; the inflated bounds are compared inclusively so nodes sitting
+    exactly on the (inflated) face are blocked too."""
     ox, oy, oz = (float(v) for v in eq.origin)
-    x0, x1 = ox - eq.lx / 2, ox + eq.lx / 2
-    y0, y1 = oy - eq.ly / 2, oy + eq.ly / 2
-    z0, z1 = oz, oz + eq.lz
+    c = float(clearance)
+    x0, x1 = ox - eq.lx / 2 - c, ox + eq.lx / 2 + c
+    y0, y1 = oy - eq.ly / 2 - c, oy + eq.ly / 2 + c
+    z0, z1 = oz - c, oz + eq.lz + c
     tol = 1e-9
     for ix, x in enumerate(grid.x_list):
-        if not (x0 + tol < x < x1 - tol):
+        if not (x0 - tol <= x <= x1 + tol):
             continue
         for iy, y in enumerate(grid.y_list):
-            if not (y0 + tol < y < y1 - tol):
+            if not (y0 - tol <= y <= y1 + tol):
                 continue
             for iz, z in enumerate(grid.z_list):
-                if z0 + tol < z < z1 - tol:
+                if z0 - tol <= z <= z1 + tol:
                     grid.register((ix, iy, iz), eq.name)
 
 
@@ -152,8 +192,6 @@ def _build_systems(
         return []
 
     grid = _routing_grid(spaces, list(equipment_map.values()))
-    for eq in equipment_map.values():
-        _occupy_equipment(grid, eq)
 
     # Phase 0: wire ports (spec -> connected System). Connection errors (unknown
     # equipment/port) drop the whole system before it reaches the engine.
@@ -167,7 +205,11 @@ def _build_systems(
                 if conn.get("SITE"):
                     pos = tuple(float(v) for v in (conn.get("POSITION") or (0.0, 0.0, 0.0)))
                     direction = PortDirection[str(conn.get("DIRECTION") or "IN").upper()]
-                    system.connect_site(conn["SITE"], pos, direction)
+                    # Orientation of the terminal nozzle (the outward vector the
+                    # run leaves the site boundary along). Defaults to +Z when the
+                    # doc doesn't specify one, matching connect_site's own default.
+                    dvec = tuple(float(v) for v in (conn.get("DIRECTION_VECTOR") or (0.0, 0.0, 1.0)))
+                    system.connect_site(conn["SITE"], pos, direction, dvec)
                     continue
                 eq = equipment_map.get(conn["EQUIPMENT"])
                 if eq is None:
@@ -179,6 +221,14 @@ def _build_systems(
 
     if not built_systems:
         return []
+
+    # Occupy each equipment box inflated by the widest run's cross-section
+    # half-extent, so A* keeps every run's *body* (not just its centreline) clear
+    # of equipment. One shared clearance (the max over all systems) keeps the grid
+    # single-pass while guaranteeing no run clips a box.
+    clearance = max((_system_half_extent(s) for s in built_systems), default=0.0)
+    for eq in equipment_map.values():
+        _occupy_equipment(grid, eq, clearance)
 
     rules = design_rules if design_rules is not None else standard_design_rules()
     members = cell_graph.get_internal_walls() if cell_graph is not None else []
@@ -299,21 +349,24 @@ def compile_procedural_doc(
     for part in _build_systems(doc, equipment_map, spaces, cell_graph, design_rules):
         a.add_part(part)
 
-    # When CAD geometry is spliced in, merge it into the assembly's trimesh
-    # scene at the footprint transform and export that; otherwise take the
-    # normal analytic to_gltf path.
-    if cad_placements:
-        import numpy as np
+    # Render through the NGEOM stream so the analytic swept duct/cable-tray runs
+    # tessellate upright along their curve (see _stream_tessellation).
+    with _stream_tessellation():
+        # When CAD geometry is spliced in, merge it into the assembly's trimesh
+        # scene at the footprint transform and export that; otherwise take the
+        # normal analytic to_gltf path.
+        if cad_placements:
+            import numpy as np
 
-        scene = a.to_trimesh_scene()
-        for mesh, (dx, dy, dz) in cad_placements:
-            transform = np.eye(4)
-            transform[:3, 3] = [dx, dy, dz]
-            scene.add_geometry(mesh, transform=transform)
-        exported = scene.export(file_type="glb")
-        return exported if isinstance(exported, bytes) else bytes(exported)
+            scene = a.to_trimesh_scene()
+            for mesh, (dx, dy, dz) in cad_placements:
+                transform = np.eye(4)
+                transform[:3, 3] = [dx, dy, dz]
+                scene.add_geometry(mesh, transform=transform)
+            exported = scene.export(file_type="glb")
+            return exported if isinstance(exported, bytes) else bytes(exported)
 
-    with tempfile.TemporaryDirectory(prefix="procedural_glb_") as tmp:
-        glb_path = pathlib.Path(tmp) / "model.glb"
-        a.to_gltf(glb_path)
-        return glb_path.read_bytes()
+        with tempfile.TemporaryDirectory(prefix="procedural_glb_") as tmp:
+            glb_path = pathlib.Path(tmp) / "model.glb"
+            a.to_gltf(glb_path)
+            return glb_path.read_bytes()

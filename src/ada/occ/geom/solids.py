@@ -184,7 +184,33 @@ def make_swept_disk_solid_from_geom(sds: geo_so.SweptDiskSolid) -> TopoDS_Shape 
     return solid
 
 
-def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSweptAreaSolid) -> TopoDS_Solid:
+def _swept_area_profile_is_2d(profile) -> bool:
+    """True when the swept profile is a genuine 2D section living in its own local XY plane
+    (its boundary points are 2D). That is the :class:`BeamCurved` case, where the profile is a
+    flat section and ``fixed_reference`` frames it upright along the directrix.
+
+    :class:`PrimSweep` instead bakes the profile's orientation into 3D boundary points (len 3,
+    e.g. the section rotated into the YZ plane) — those are already placed in space, so they
+    must be swept as authored (PipeShell), not reframed. Reframing a pre-oriented 3D profile
+    double-orients it and yields a torn, non-watertight shell."""
+    outer = getattr(profile, "outer_curve", None)
+    if outer is None:
+        return False
+    segs = getattr(outer, "segments", None)
+    if segs:
+        return all(len(getattr(s, "start", ())) == 2 for s in segs)
+    pts = getattr(outer, "points", None)
+    if pts:
+        return all(len(p) == 2 for p in pts)
+    return False
+
+
+def _make_fixed_ref_pipeshell_shape(frs: geo_so.FixedReferenceSweptAreaSolid) -> TopoDS_Shape:
+    """Fixed-reference sweep via PipeShell — the historical path, retained for sweeps whose
+    profile is already oriented in 3D (``PrimSweep``, whose ``swept_area`` carries 3D boundary
+    points) and for alignment (``GradientCurve`` directrix) road/rail sweeps. ``position``
+    places the whole body. A flat 2D ``BeamCurved`` section instead goes through
+    :func:`make_fixed_reference_swept_area_shape_from_geom`'s framed loft."""
     spine = make_wire_from_curve(frs.directrix)
 
     profile_face = make_profile_from_geom(frs.swept_area)
@@ -220,3 +246,58 @@ def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSw
     trsf_to_pos.SetTranslation(gp_Vec(*location))
     transformed_solid = BRepBuilderAPI_Transform(swept_solid, trsf_to_pos, True, True).Shape()
     return transformed_solid
+
+
+def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSweptAreaSolid) -> TopoDS_Shape:
+    """Sweep ``swept_area`` along ``directrix`` keeping the profile un-twisted relative to
+    ``fixed_reference`` (world "up"), so a box/channel section stays upright and follows the
+    curve — the OCC analogue of :class:`BeamCurved`'s solid_geom.
+
+    For a general (non-alignment) directrix — a plain IndexedPolyCurve / polyline / arc, e.g. a
+    routed duct or cable-tray run — this frames the directrix with the SAME convention as the
+    NGEOM/libtess2 stream path (``ada.cadit.ngeom.serialize.general_directrix_frames``): the
+    sampled directrix points are absolute world-space station origins (``position`` is ignored,
+    exactly as the stream serializer passes an identity placement), the profile's local +x maps
+    to the lateral ``tangent x up`` and local +y to the in-plane up. The profile section is
+    placed at every station via that frame and lofted (ruled ThruSections) into the swept solid,
+    ringing straight between stations just like libtess2 does — so OCC and libtess2 agree.
+
+    A pre-oriented 3D profile (``PrimSweep``) or an alignment ``GradientCurve`` directrix
+    (clothoid/vertical-gradient road/rail sweep) keeps the historical PipeShell path, where
+    ``position`` places the whole body."""
+    import numpy as np
+    from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    from OCC.Core.TopoDS import topods
+
+    import ada.geom.curves as geo_cu
+    from ada.cadit.ngeom.serialize import general_directrix_frames
+
+    if isinstance(frs.directrix, geo_cu.GradientCurve) or not _swept_area_profile_is_2d(frs.swept_area):
+        return _make_fixed_ref_pipeshell_shape(frs)
+
+    try:
+        origins, dir_x, dir_y = general_directrix_frames(frs.directrix, frs.fixed_reference)
+    except Exception as e:
+        # A directrix the shared sampler can't turn into stations (e.g. a top-level
+        # BSplineCurveWithKnots axis — unsupported on the libtess2 stream path too). Raise
+        # NotImplementedError so the tessellator's documented stream fallback still fires,
+        # matching the pre-existing control flow, rather than hard-failing the object.
+        raise NotImplementedError(f"FixedReferenceSweptAreaSolid: unsupported directrix ({e})") from e
+    if len(origins) < 2:
+        raise NotImplementedError("FixedReferenceSweptAreaSolid: general directrix has < 2 stations")
+
+    profile_face = make_profile_from_geom(frs.swept_area)
+    # Outer wire of the profile; swept as a filled section (voids do not affect the swept
+    # extents/orientation and are not carried by ThruSections here).
+    profile_wire = list(TopologyExplorer(profile_face).wires())[0]
+
+    # Loft the profile through a copy placed at every station. Placing local +z along the
+    # station normal (dir_x x dir_y) and local +x along dir_x makes the gp_Ax3-derived local +y
+    # come out as dir_y (up) — so local (u, v) -> u*dir_x + v*dir_y, matching the stream path.
+    thru = BRepOffsetAPI_ThruSections(True, True)  # isSolid=True (cap ends), isRuled=True
+    for o, dx, dy in zip(origins, dir_x, dir_y):
+        normal = np.cross(dx, dy)
+        section = transform_shape_to_pos(profile_wire, Point(*o), Direction(*normal), Direction(*dx))
+        thru.AddWire(topods.Wire(section))
+    thru.Build()
+    return thru.Shape()

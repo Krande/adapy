@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ada import Beam
-from ada.api.beams import BeamRevolve, BeamSweep, BeamTapered
+from ada.api.beams import BeamCurved, BeamRevolve, BeamSweep, BeamTapered
 from ada.cadit.ifc.utils import convert_bm_jusl_to_ifc
+from ada.cadit.ifc.write.beams.curved_beam import create_curved_beam
 from ada.cadit.ifc.write.beams.revolved_beam import create_revolved_beam
 from ada.cadit.ifc.write.beams.straight_beam import extrude_straight_beam
 from ada.cadit.ifc.write.beams.straight_beam_tapered import (
@@ -43,6 +44,8 @@ class IfcBeamWriter:
 
         if isinstance(beam, BeamRevolve):
             axis, body, loc_plac = create_revolved_beam(beam, f, profile)
+        elif isinstance(beam, BeamCurved):
+            axis, body, loc_plac = create_curved_beam(beam, f, profile)
         elif isinstance(beam, BeamSweep):
             axis, body, loc_plac = create_swept_beam(beam, f, profile)
         elif isinstance(beam, BeamTapered):

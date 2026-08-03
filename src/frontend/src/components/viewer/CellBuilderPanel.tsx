@@ -203,10 +203,13 @@ const SystemsInspector: React.FC = () => {
                   {c.site ? (
                     <span
                       className="truncate"
-                      title={`Site terminal at ${(c.position ?? [0, 0, 0]).join(", ")}`}
+                      title={`Site terminal at ${(c.position ?? [0, 0, 0]).join(", ")}, facing ${(c.directionVector ?? [0, 0, 1]).join(", ")}`}
                     >
                       ⌗ {c.site}{" "}
-                      <span className="text-gray-300">(site {c.direction})</span>
+                      <span className="text-gray-300">
+                        (site {c.direction}
+                        {c.directionVector ? ` ${orientLabel(c.directionVector)}` : ""})
+                      </span>
                     </span>
                   ) : (
                     <span className="truncate">
@@ -242,6 +245,25 @@ const ARCHETYPE_PORTS: Record<string, string[]> = {
   tank: ["inlet", "outlet", "signal"],
 };
 
+/** Axis labels → outward unit vector for a site terminal's orientation. */
+const ORIENT_VECTORS: Record<string, [number, number, number]> = {
+  "+X": [1, 0, 0],
+  "-X": [-1, 0, 0],
+  "+Y": [0, 1, 0],
+  "-Y": [0, -1, 0],
+  "+Z": [0, 0, 1],
+  "-Z": [0, 0, -1],
+};
+
+/** Nearest axis label for a direction vector, for compact display (falls back
+ * to the raw tuple when it isn't axis-aligned). */
+const orientLabel = (v: [number, number, number]): string => {
+  for (const [k, av] of Object.entries(ORIENT_VECTORS)) {
+    if (av[0] === v[0] && av[1] === v[1] && av[2] === v[2]) return k;
+  }
+  return v.join(",");
+};
+
 const ConnectionAdder: React.FC<{
   equipmentNames: string[];
   onAdd: (conn: SystemConnection) => void;
@@ -256,6 +278,9 @@ const ConnectionAdder: React.FC<{
   const [siteName, setSiteName] = React.useState("");
   const [pos, setPos] = React.useState<[string, string, string]>(["0", "0", "0"]);
   const [dir, setDir] = React.useState<"IN" | "OUT">("IN");
+  // Orientation: the outward nozzle vector the run leaves the terminal along.
+  // A terminal on the x=0 wall should face +X (into the model), etc.
+  const [orient, setOrient] = React.useState<keyof typeof ORIENT_VECTORS>("+X");
 
   const modeBtn = (m: "equip" | "site", label: string) => (
     <button
@@ -361,6 +386,18 @@ const ConnectionAdder: React.FC<{
             <option value="IN">IN</option>
             <option value="OUT">OUT</option>
           </select>
+          <select
+            className={inputCls}
+            value={orient}
+            onChange={(e) => setOrient(e.target.value as keyof typeof ORIENT_VECTORS)}
+            title="Orientation — the outward direction the run leaves the terminal along"
+          >
+            {Object.keys(ORIENT_VECTORS).map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </select>
           <button
             className="px-1.5 py-0.5 rounded-sm bg-blue-600 text-white disabled:opacity-40"
             disabled={!siteName.trim()}
@@ -369,6 +406,7 @@ const ConnectionAdder: React.FC<{
                 site: siteName.trim(),
                 position: [Number(pos[0]) || 0, Number(pos[1]) || 0, Number(pos[2]) || 0],
                 direction: dir,
+                directionVector: ORIENT_VECTORS[orient],
               });
               setSiteName("");
             }}
