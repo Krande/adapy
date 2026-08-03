@@ -787,7 +787,7 @@ const CellBuilderPanel: React.FC = () => {
         <button
           className={btnGray}
           onClick={() => s.setPortsOverlayVisible(!s.portsOverlayVisible)}
-          title="Toggle the port overlay: each equipment's input/output positions and vectors drawn as coloured arrows (colours match the equipment catalog)"
+          title="Toggle the port overlay: each equipment's input/output positions and vectors — plus site I/O terminals — drawn as coloured arrows (colours match the equipment catalog)"
           aria-pressed={s.portsOverlayVisible}
         >
           {s.portsOverlayVisible ? "Hide ports" : "Show ports"}

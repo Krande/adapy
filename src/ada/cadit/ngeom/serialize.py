@@ -577,6 +577,22 @@ class _Encoder:
         if isinstance(curve, cu.CompositeCurve):  # trimmed-conic / line segments -> sampled loop
             return _composite_curve_loop_points(curve)
 
+        if isinstance(curve, cu.BSplineCurveWithKnots):
+            # A TOP-LEVEL analytic B-spline — a sweep directrix (a Genie stiffener's arc carried as
+            # its native BSplineCurveWithKnots axis, BeamCurved's headline case) or a bare spline
+            # profile edge. Without this it fell through to the get_points()/.points branch, which a
+            # bspline has neither of, raising _Unsupported. (A bspline nested as an IndexedPolyCurve
+            # SEGMENT is already sampled in the segments walk below; this is the un-nested case.)
+            # Sample densely so bends stay smooth; RationalBSplineCurveWithKnots is a subclass, so
+            # weights_data is de-homogenised inside sample().
+            n = max(24, int(curve.degree) * 12)
+            pts = [_to3(p) for p in curve.sample(n)]
+            # A closed spline profile returns to its start; drop the duplicate so the POLY_LOOP
+            # doesn't emit a zero-length edge. An open directrix ends on a distinct point — kept.
+            if len(pts) > 1 and np.allclose(pts[0], pts[-1], atol=1e-9):
+                pts.pop()
+            return pts
+
         segs = getattr(curve, "segments", None)
         if segs and any(isinstance(s, (cu.ArcLine, cu.BSplineCurveWithKnots)) for s in segs):
             pts: list[tuple[float, float, float]] = []

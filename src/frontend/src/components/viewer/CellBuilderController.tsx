@@ -10,7 +10,7 @@ import {requestRender} from "@/state/perfStore";
 import {useModelState} from "@/state/modelState";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import type {ProceduralTypeOption, TypePortSummary} from "@/services/viewerApi";
-import {portColorInt} from "@/utils/portColor";
+import {hexToInt, portColorInt, uniquePortColorHexByIndex} from "@/utils/portColor";
 import {
     applyFaceOffset,
     BOX_FACE_SIDES,
@@ -467,6 +467,39 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 );
                 marker.position.copy(nozzle);
                 marker.scale.setScalar(len * 0.08);
+                marker.layers.set(1);
+                portsGroup.add(marker);
+            }
+        }
+        // Site I/O terminals: a system connection can terminate at a model-boundary
+        // site input/output (not an equipment port). Draw it like a port — an arrow
+        // at its world position along its orientation — so the boundary interfaces
+        // show up in the same overlay. Their positions are already world-space
+        // (unlike equipment ports, which are cell-relative).
+        const siteLen = 0.6;
+        let siteIdx = 0;
+        for (const sys of Object.values(st.systems)) {
+            for (const conn of sys.connections) {
+                if (!conn.site) continue;
+                const pos = conn.position ?? [0, 0, 0];
+                const dv = conn.directionVector ?? [0, 0, 1];
+                const nozzle = new THREE.Vector3(pos[0], pos[1], pos[2]);
+                const color = hexToInt(uniquePortColorHexByIndex(siteIdx++));
+                // directionVector points into the model (the run's departure). An
+                // input flows in along it; an output flows off-model, so its arrow
+                // points the other way.
+                const dir = new THREE.Vector3(dv[0], dv[1], dv[2]);
+                if (dir.lengthSq() < 1e-9) dir.set(0, 0, 1);
+                dir.normalize();
+                if (conn.direction === "OUT") dir.negate();
+                const tail =
+                    conn.direction === "OUT" ? nozzle.clone().addScaledVector(dir, -siteLen) : nozzle;
+                const arrow = new THREE.ArrowHelper(dir, tail, siteLen, color, siteLen * 0.4, siteLen * 0.25);
+                arrow.traverse((o) => o.layers.set(1));
+                portsGroup.add(arrow);
+                const marker = new THREE.Mesh(portMarkerGeom, new THREE.MeshBasicMaterial({color}));
+                marker.position.copy(nozzle);
+                marker.scale.setScalar(siteLen * 0.1);
                 marker.layers.set(1);
                 portsGroup.add(marker);
             }
@@ -1073,7 +1106,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             s.cells !== prev.cells ||
             s.active !== prev.active ||
             s.portsOverlayVisible !== prev.portsOverlayVisible ||
-            s.equipmentTypes !== prev.equipmentTypes
+            s.equipmentTypes !== prev.equipmentTypes ||
+            s.systems !== prev.systems
         ) {
             rebuildPorts();
         }
