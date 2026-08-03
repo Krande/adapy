@@ -19,6 +19,8 @@ from ada.api.systems import Port, PortDirection
 __all__ = [
     "EQUIPMENT_ARCHETYPES",
     "build_equipment_from_catalog",
+    "create_exhaust_fan",
+    "create_hvac",
     "create_pump",
     "create_switchboard",
     "create_tank",
@@ -101,6 +103,47 @@ def create_switchboard(
     return eq
 
 
+def create_hvac(
+    name: str,
+    origin: Iterable[float],
+    mass: float = 1200.0,
+    lx: float = 1.5,
+    ly: float = 1.0,
+    lz: float = 1.2,
+) -> ada.Equipment:
+    """An HVAC air-handling unit: conditioned-air supply out (top, feeds a duct
+    run), electrical power in (+X side) and a control signal (INOUT, +Y side).
+    Its ``supply`` port is category ``process`` — a :class:`DuctSystem` routes off
+    the system type, not the port category, so a duct connects it to a roof
+    exhaust just like a pipe connects two process ports."""
+    eq = ada.Equipment(
+        name, mass, cog=(0, 0, lz / 2), origin=origin, lx=lx, ly=ly, lz=lz, ifc_element_class="IfcUnitaryEquipment"
+    )
+    eq.add_port(Port("supply", (0, 0, lz), (0, 0, 1), PortDirection.OUT, "process"))
+    eq.add_port(Port("power", (lx / 2, 0, lz / 2), (1, 0, 0), PortDirection.IN, "electrical"))
+    eq.add_port(Port("signal", (0, ly / 2, lz / 2), (0, 1, 0), PortDirection.INOUT, "signal"))
+    _add_body(eq, name)
+    return eq
+
+
+def create_exhaust_fan(
+    name: str,
+    origin: Iterable[float],
+    mass: float = 300.0,
+    lx: float = 0.8,
+    ly: float = 0.8,
+    lz: float = 0.6,
+) -> ada.Equipment:
+    """A roof-mounted exhaust fan: a duct intake underneath (-Z, where the HVAC
+    supply duct terminates) and electrical power in (+X side). Sits on top of the
+    structure so the duct climbs out of the room and up to it."""
+    eq = ada.Equipment(name, mass, cog=(0, 0, lz / 2), origin=origin, lx=lx, ly=ly, lz=lz, ifc_element_class="IfcFan")
+    eq.add_port(Port("intake", (0, 0, 0), (0, 0, -1), PortDirection.IN, "process"))
+    eq.add_port(Port("power", (lx / 2, 0, lz / 2), (1, 0, 0), PortDirection.IN, "electrical"))
+    _add_body(eq, name)
+    return eq
+
+
 # Named equipment archetypes buildable from a plain (name, origin, lx, ly, lz)
 # footprint. Workers advertise these names so the viewer's cellbuilder can
 # offer a typed "add equipment" dropdown; the procedural compiler maps a cell
@@ -110,6 +153,8 @@ EQUIPMENT_ARCHETYPES: dict[str, Callable[..., ada.Equipment]] = {
     "pump": create_pump,
     "tank": create_tank,
     "switchboard": create_switchboard,
+    "hvac": create_hvac,
+    "exhaust_fan": create_exhaust_fan,
 }
 
 

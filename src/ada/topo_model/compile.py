@@ -65,7 +65,13 @@ def _equipment_to_object(eq: TopoEquipment, resolver=None) -> ada.Equipment | ad
 
 # Whitelisted doc["blueprint"] options forwarded to SteelStru — never **kwargs
 # straight from user input.
-_BLUEPRINT_OPTION_KEYS = ("reinforce_internal_walls", "pl_thick", "wall_pl_thick", "stringer_spacing")
+_BLUEPRINT_OPTION_KEYS = (
+    "reinforce_internal_walls",
+    "reinforce_external_walls",
+    "pl_thick",
+    "wall_pl_thick",
+    "stringer_spacing",
+)
 
 
 def _blueprint_options(doc: dict) -> dict:
@@ -133,6 +139,7 @@ def _build_systems(
     (missing equipment/port) are skipped here; runs that can't be routed are
     skipped inside the engine (``skip_failed=True``) — so one bad run doesn't
     sink the whole compile."""
+    from ada.api.systems import PortDirection
     from ada.config import logger
     from ada.topology import run_design
     from ada.topology.routing import RoutingError
@@ -154,6 +161,13 @@ def _build_systems(
         try:
             system = _make_system(spec)
             for conn in spec.get("CONNECTIONS") or []:
+                # A site terminal (model-boundary input/output) instead of an
+                # equipment port — closes a system that would otherwise dangle.
+                if conn.get("SITE"):
+                    pos = tuple(float(v) for v in (conn.get("POSITION") or (0.0, 0.0, 0.0)))
+                    direction = PortDirection[str(conn.get("DIRECTION") or "IN").upper()]
+                    system.connect_site(conn["SITE"], pos, direction)
+                    continue
                 eq = equipment_map.get(conn["EQUIPMENT"])
                 if eq is None:
                     raise RoutingError(f"unknown equipment {conn['EQUIPMENT']!r}")

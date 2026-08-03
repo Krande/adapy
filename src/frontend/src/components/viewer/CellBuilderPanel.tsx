@@ -197,10 +197,20 @@ const SystemsInspector: React.FC = () => {
               {sys.connections.map((c, i) => (
                 <div key={i} className="flex items-center gap-1 pl-3">
                   <span className="text-gray-400">→</span>
-                  <span className="truncate">
-                    {c.equipment}.
-                    <span className="text-gray-300">{c.port}</span>
-                  </span>
+                  {c.site ? (
+                    <span
+                      className="truncate"
+                      title={`Site terminal at ${(c.position ?? [0, 0, 0]).join(", ")}`}
+                    >
+                      ⌗ {c.site}{" "}
+                      <span className="text-gray-300">(site {c.direction})</span>
+                    </span>
+                  ) : (
+                    <span className="truncate">
+                      {c.equipment}.
+                      <span className="text-gray-300">{c.port}</span>
+                    </span>
+                  )}
                   <button
                     className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
                     title="Remove connection"

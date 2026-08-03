@@ -49,10 +49,15 @@ export type GizmoMode = "none" | "translate" | "resize";
 
 export type SystemType = "piping" | "duct" | "cable" | "electrical";
 
-/** One port hookup: an equipment name + one of its port names. */
+/** One system endpoint: either an equipment port (equipment + port) OR a site
+ * terminal — a model-boundary input/output (site name + world position + IN/OUT
+ * direction) that closes a run which would otherwise dangle. */
 export interface SystemConnection {
-  equipment: string;
-  port: string;
+  equipment?: string;
+  port?: string;
+  site?: string;
+  position?: [number, number, number];
+  direction?: "IN" | "OUT";
 }
 
 /** A logical service run between equipment ports. Rendered by the compiler as
@@ -349,10 +354,24 @@ function systemsFromDoc(doc: ProceduralDoc): Record<string, BuilderSystem> {
       name: String(s.NAME ?? id),
       type: (typeof s.TYPE === "string" ? s.TYPE : "piping") as SystemType,
       medium: typeof s.MEDIUM === "string" ? s.MEDIUM : undefined,
-      connections: conns.map((c) => ({
-        equipment: String(c.EQUIPMENT ?? ""),
-        port: String(c.PORT ?? ""),
-      })),
+      connections: conns.map((c) =>
+        c.SITE
+          ? {
+              site: String(c.SITE),
+              position: Array.isArray(c.POSITION)
+                ? ([Number(c.POSITION[0]), Number(c.POSITION[1]), Number(c.POSITION[2])] as [
+                    number,
+                    number,
+                    number,
+                  ])
+                : ([0, 0, 0] as [number, number, number]),
+              direction: c.DIRECTION === "OUT" ? "OUT" : "IN",
+            }
+          : {
+              equipment: String(c.EQUIPMENT ?? ""),
+              port: String(c.PORT ?? ""),
+            },
+      ),
     };
   }
   return out;
@@ -865,10 +884,15 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         NAME: sys.name,
         TYPE: sys.type,
         MEDIUM: sys.medium ?? null,
-        CONNECTIONS: sys.connections.map((c) => ({
-          EQUIPMENT: c.equipment,
-          PORT: c.port,
-        })),
+        CONNECTIONS: sys.connections.map((c) =>
+          c.site
+            ? {
+                SITE: c.site,
+                POSITION: c.position ?? [0, 0, 0],
+                DIRECTION: c.direction ?? "IN",
+              }
+            : { EQUIPMENT: c.equipment, PORT: c.port },
+        ),
       }));
       return {
         grid: {},
@@ -896,95 +920,110 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       }),
 
     loadDemoTemplate: () => {
-      // Mirrors ada.topo_model.build_topo_model_with_systems: two 5x5x3
-      // cells, deck pump/tank pair on top, interior pair on the floor, and
-      // the shared internal wall compiled as a reinforced wall. Coordinates
-      // are min-corners (equipment archetypes center on the footprint).
+      // A two-storey structure with fully-enclosed rooms (reinforced internal +
+      // external walls, plus the reinforced floor/roof decks), a range of routed
+      // services (piping / electrical / duct) and site I/O so every run is
+      // two-ended. Coordinates are min-corners (equipment archetypes centre on
+      // the footprint). Ground floor z 0..3, second floor z 3..6, roof at z 6.
       const doc: ProceduralDoc = {
         grid: {},
-        blueprint: { reinforce_internal_walls: true },
+        blueprint: {
+          reinforce_internal_walls: true,
+          reinforce_external_walls: true,
+        },
         design_rules: "standard",
         spaces: [
-          {
-            NAME: "Cell1",
-            INCLUDE: true,
-            X: 0,
-            Y: 0,
-            Z: 0,
-            DX: 5,
-            DY: 5,
-            DZ: 3,
-          },
-          {
-            NAME: "Cell2",
-            INCLUDE: true,
-            X: 5,
-            Y: 0,
-            Z: 0,
-            DX: 5,
-            DY: 5,
-            DZ: 3,
-          },
+          { NAME: "Cell1", INCLUDE: true, X: 0, Y: 0, Z: 0, DX: 5, DY: 5, DZ: 3 },
+          { NAME: "Cell2", INCLUDE: true, X: 5, Y: 0, Z: 0, DX: 5, DY: 5, DZ: 3 },
+          { NAME: "Cell3", INCLUDE: true, X: 0, Y: 0, Z: 3, DX: 5, DY: 5, DZ: 3 },
+          { NAME: "Cell4", INCLUDE: true, X: 5, Y: 0, Z: 3, DX: 5, DY: 5, DZ: 3 },
         ],
         equipments: [
-          {
-            NAME: "Pump1",
-            DESCRIPTION: "pump",
-            X: 2,
-            Y: 2,
-            Z: 3,
-            LX: 1,
-            LY: 1,
-            LZ: 1,
-          },
-          {
-            NAME: "Tank1",
-            DESCRIPTION: "tank",
-            X: 6.5,
-            Y: 1.5,
-            Z: 3,
-            LX: 2,
-            LY: 2,
-            LZ: 2,
-          },
-          {
-            NAME: "Pump2",
-            DESCRIPTION: "pump",
-            X: 2,
-            Y: 2,
-            Z: 0,
-            LX: 1,
-            LY: 1,
-            LZ: 1,
-          },
-          {
-            NAME: "Tank2",
-            DESCRIPTION: "tank",
-            X: 6.5,
-            Y: 1.5,
-            Z: 0,
-            LX: 2,
-            LY: 2,
-            LZ: 2,
-          },
+          // Ground floor (Cell1/Cell2)
+          { NAME: "Pump2", DESCRIPTION: "pump", X: 2, Y: 2, Z: 0, LX: 1, LY: 1, LZ: 1 },
+          { NAME: "Tank2", DESCRIPTION: "tank", X: 6.5, Y: 1.5, Z: 0, LX: 2, LY: 2, LZ: 2 },
+          { NAME: "SB2", DESCRIPTION: "switchboard", X: 0.3, Y: 2, Z: 0, LX: 0.8, LY: 0.4, LZ: 1.2 },
+          // Second floor (Cell3/Cell4) — Cell3 is the HVAC room
+          { NAME: "Pump1", DESCRIPTION: "pump", X: 2, Y: 2, Z: 3, LX: 1, LY: 1, LZ: 1 },
+          { NAME: "Tank1", DESCRIPTION: "tank", X: 6.5, Y: 1.5, Z: 3, LX: 2, LY: 2, LZ: 2 },
+          { NAME: "SB1", DESCRIPTION: "switchboard", X: 0.3, Y: 2, Z: 3, LX: 0.8, LY: 0.4, LZ: 1.2 },
+          { NAME: "HVAC1", DESCRIPTION: "hvac", X: 3, Y: 3.5, Z: 3, LX: 1.5, LY: 1, LZ: 1.2 },
+          // Roof — the duct exhausts up to this unit on top of the structure
+          { NAME: "Exhaust1", DESCRIPTION: "exhaust_fan", X: 3, Y: 3.5, Z: 6, LX: 0.8, LY: 0.8, LZ: 0.6 },
         ],
         systems: [
+          // Process piping
           {
-            NAME: "CoolingWater",
-            TYPE: "piping",
-            MEDIUM: "water",
+            NAME: "CoolingWater", TYPE: "piping", MEDIUM: "water",
             CONNECTIONS: [
               { EQUIPMENT: "Pump1", PORT: "discharge" },
               { EQUIPMENT: "Tank1", PORT: "inlet" },
             ],
           },
           {
-            NAME: "ServiceWater",
-            TYPE: "piping",
-            MEDIUM: "water",
+            NAME: "ServiceWater", TYPE: "piping", MEDIUM: "water",
             CONNECTIONS: [
               { EQUIPMENT: "Pump2", PORT: "discharge" },
               { EQUIPMENT: "Tank2", PORT: "inlet" },
+            ],
+          },
+          // Electrical: a switchboard feeds each pump's power port
+          {
+            NAME: "PowerFeed1", TYPE: "electrical",
+            CONNECTIONS: [
+              { EQUIPMENT: "SB1", PORT: "feeder" },
+              { EQUIPMENT: "Pump1", PORT: "power" },
+            ],
+          },
+          {
+            NAME: "PowerFeed2", TYPE: "electrical",
+            CONNECTIONS: [
+              { EQUIPMENT: "SB2", PORT: "feeder" },
+              { EQUIPMENT: "Pump2", PORT: "power" },
+            ],
+          },
+          // HVAC duct: the room's air handler exhausts up to the roof fan
+          {
+            NAME: "HvacExhaust", TYPE: "duct", MEDIUM: "air",
+            CONNECTIONS: [
+              { EQUIPMENT: "HVAC1", PORT: "supply" },
+              { EQUIPMENT: "Exhaust1", PORT: "intake" },
+            ],
+          },
+          // Site I/O — close the open ends so every run is two-ended
+          {
+            NAME: "Mains1", TYPE: "electrical",
+            CONNECTIONS: [
+              { SITE: "grid_supply", POSITION: [0, 2, 3.5], DIRECTION: "IN" },
+              { EQUIPMENT: "SB1", PORT: "incoming" },
+            ],
+          },
+          {
+            NAME: "Mains2", TYPE: "electrical",
+            CONNECTIONS: [
+              { SITE: "grid_supply2", POSITION: [0, 2, 0.5], DIRECTION: "IN" },
+              { EQUIPMENT: "SB2", PORT: "incoming" },
+            ],
+          },
+          {
+            NAME: "Drain1", TYPE: "piping", MEDIUM: "water",
+            CONNECTIONS: [
+              { EQUIPMENT: "Tank1", PORT: "outlet" },
+              { SITE: "drain1", POSITION: [10, 2.5, 3], DIRECTION: "OUT" },
+            ],
+          },
+          {
+            NAME: "Suction1", TYPE: "piping", MEDIUM: "water",
+            CONNECTIONS: [
+              { SITE: "seawater", POSITION: [0, 2.5, 3.5], DIRECTION: "IN" },
+              { EQUIPMENT: "Pump1", PORT: "suction" },
+            ],
+          },
+          {
+            NAME: "Suction2", TYPE: "piping", MEDIUM: "water",
+            CONNECTIONS: [
+              { SITE: "seawater2", POSITION: [0, 2.5, 0.5], DIRECTION: "IN" },
+              { EQUIPMENT: "Pump2", PORT: "suction" },
             ],
           },
         ],

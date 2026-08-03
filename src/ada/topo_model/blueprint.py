@@ -111,6 +111,7 @@ class SteelStru(BlueprintBase):
         pl_thick: float = 10e-3,
         stringer_spacing: float = 0.4,
         reinforce_internal_walls: bool = False,
+        reinforce_external_walls: bool = False,
         wall_pl_thick: float = 8e-3,
     ):
         super().__init__()
@@ -121,6 +122,10 @@ class SteelStru(BlueprintBase):
         self.pl_thick = pl_thick
         self.stringer_spacing = stringer_spacing
         self.reinforce_internal_walls = reinforce_internal_walls
+        # Reinforce the outer (unshared) vertical faces too — combined with the
+        # already-reinforced external floor/roof decks this fully encloses a room
+        # in plated, stiffened walls.
+        self.reinforce_external_walls = reinforce_external_walls
         self.wall_pl_thick = wall_pl_thick
 
     def _group_prefix(self) -> str:
@@ -144,7 +149,8 @@ class SteelStru(BlueprintBase):
         self.add_to_area("girders", ada.Part("Girders") / girders)
 
         internal_walls = cg.get_internal_walls()
-        wall_faces = cg.get_external_walls() + internal_walls
+        external_walls = cg.get_external_walls()
+        wall_faces = external_walls + internal_walls
         columns = [
             ada.Beam(f"Column_{i:02d}", *edge.get_points()[:2], self.column_sec)
             for i, edge in enumerate(_dedupe_edges(wall_faces, horizontal=False))
@@ -157,6 +163,14 @@ class SteelStru(BlueprintBase):
                     f"Wall_{i:02d}", face.get_points(), self.wall_pl_thick, self.stringer_sec, self.stringer_spacing
                 )
                 # penetration blueprints reach the built wall through the face
+                face.associated_part = wall
+                self.add_to_area("walls", wall)
+
+        if self.reinforce_external_walls:
+            for i, face in enumerate(external_walls):
+                wall = _build_reinforced_wall(
+                    f"ExtWall_{i:02d}", face.get_points(), self.wall_pl_thick, self.stringer_sec, self.stringer_spacing
+                )
                 face.associated_part = wall
                 self.add_to_area("walls", wall)
 

@@ -5,6 +5,7 @@ import { sceneRef, cameraRef, rendererRef } from "@/state/refs";
 import { requestRender } from "@/state/perfStore";
 import { useModelState } from "@/state/modelState";
 import { useCellBuilderStore } from "@/state/cellBuilderStore";
+import { useObjectInfoStore } from "@/state/objectInfoStore";
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { useTypeIconsStore } from "@/state/typeIconsStore";
 import { pipeCentroidWorld } from "@/utils/viewer/pipeTrace";
@@ -132,11 +133,12 @@ function init(scene: THREE.Scene): () => void {
       (c) => c.kind === "equipment",
     );
 
-    // every (equipment, port) pair a system connects to
+    // every (equipment, port) pair a system connects to (site terminals have no
+    // equipment/port and are skipped)
     const connected = new Set<string>();
     for (const sys of Object.values(cb.systems))
       for (const c of sys.connections)
-        connected.add(`${c.equipment}::${c.port}`);
+        if (c.equipment && c.port) connected.add(`${c.equipment}::${c.port}`);
 
     const centerOf = (cell: (typeof equipmentCells)[number]) => ({
       x: cell.origin[0] + cell.size[0] / 2,
@@ -198,7 +200,7 @@ function init(scene: THREE.Scene): () => void {
           lift = off * 0.4;
         } else {
           const pts = sys.connections
-            .map((c) => byName.get(c.equipment))
+            .map((c) => (c.equipment ? byName.get(c.equipment) : undefined))
             .filter((c): c is (typeof equipmentCells)[number] => !!c)
             .map(centerOf);
           if (pts.length === 0) continue;
@@ -216,6 +218,39 @@ function init(scene: THREE.Scene): () => void {
   };
 
   rebuild();
+
+  // Click an equipment icon (including the red "!" missing-input warning) to
+  // select that equipment and open the Selected Object Info panel, where its
+  // unconnected I/O is listed. The icons live on layer 1, so a dedicated
+  // raycaster is needed — the scene's own picker only tests layer 0. Runs on
+  // 'click' (after the cellbuilder's pointerup selection) so it wins.
+  const raycaster = new THREE.Raycaster();
+  raycaster.layers.set(1);
+  const pointer = new THREE.Vector2();
+  const onClick = (ev: MouseEvent) => {
+    const el = rendererRef.current?.domElement;
+    const cam = cameraRef.current;
+    if (!el || !cam) return;
+    const rect = el.getBoundingClientRect();
+    pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, cam);
+    const hits = raycaster.intersectObjects(container.children, false);
+    const hit = hits.find(
+      (h) => (h.object.userData.__typeIcon as { equipment?: string } | undefined)?.equipment,
+    );
+    if (!hit) return;
+    const info = hit.object.userData.__typeIcon as { equipment?: string };
+    const cb = useCellBuilderStore.getState();
+    const cell = Object.values(cb.cells).find((c) => c.name === info.equipment);
+    if (!cell) return;
+    cb.setSelection({ kind: "cell", cellId: cell.id });
+    const ois = useObjectInfoStore.getState();
+    if (!ois.show_info_box) ois.toggle();
+    ev.stopPropagation();
+  };
+  const clickTarget = rendererRef.current?.domElement ?? null;
+  clickTarget?.addEventListener("click", onClick);
 
   const unsubIcons = useTypeIconsStore.subscribe(rebuild);
   const unsubCells = useCellBuilderStore.subscribe((s, prev) => {
@@ -241,6 +276,7 @@ function init(scene: THREE.Scene): () => void {
   });
 
   return () => {
+    clickTarget?.removeEventListener("click", onClick);
     unsubIcons();
     unsubCells();
     unsubModel();

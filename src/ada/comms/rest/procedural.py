@@ -31,8 +31,13 @@ def _doc_model():
     from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace
 
     class SystemConnection(BaseModel):
-        EQUIPMENT: str
-        PORT: str
+        # An equipment-port endpoint (EQUIPMENT + PORT) OR a site terminal (a
+        # model-boundary input/output: SITE name + POSITION + IN/OUT DIRECTION).
+        EQUIPMENT: Optional[str] = None
+        PORT: Optional[str] = None
+        SITE: Optional[str] = None
+        POSITION: Optional[list[float]] = None
+        DIRECTION: Optional[Literal["IN", "OUT"]] = None
 
     class ProceduralSystem(BaseModel):
         NAME: str
