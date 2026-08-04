@@ -467,20 +467,20 @@ def test_space_bends_will_not_shortcut_through_an_occupied_node(grid):
 def test_avoid_other_systems_makes_the_second_run_detour():
     # With avoidance on, the second system routed through a shared corridor must
     # be pushed off the first system's lane (its path changes), instead of laying
-    # straight on top of it. Endpoints differ so the middles can actually separate.
+    # straight on top of it. Avoidance (occupy_run + detour) is a system-agnostic
+    # run_design feature; piping keeps the free A* router, so it exercises the
+    # detour cleanly (swept runs' equipment- and inter-system avoidance is covered
+    # end-to-end by the procedural demo).
     from ada.topology import CellGrid, run_design
 
     def sys(name, y):
         e1 = ada.Equipment(f"{name}A", 1.0, (0, 0, 0), (0, y, 0), 0.1, 0.1, 0.1)
         e2 = ada.Equipment(f"{name}B", 1.0, (0, 0, 0), (6, y, 0), 0.1, 0.1, 0.1)
-        e1.add_port(ada.Port("a", (0, 0, 0), (1, 0, 0), ada.PortDirection.INOUT, "signal"))
-        e2.add_port(ada.Port("b", (0, 0, 0), (-1, 0, 0), ada.PortDirection.INOUT, "signal"))
-        return ada.CableSystem(name).connect(e1, "a").connect(e2, "b")
+        e1.add_port(ada.Port("a", (0, 0, 0), (1, 0, 0), ada.PortDirection.INOUT, "process"))
+        e2.add_port(ada.Port("b", (0, 0, 0), (-1, 0, 0), ada.PortDirection.INOUT, "process"))
+        return ada.PipingSystem(name).connect(e1, "a").connect(e2, "b")
 
     systems = [sys("T1", 2.0), sys("T2", 2.0)]  # both want the y=2 lane
-
-    g0 = CellGrid.from_bounds((0, 0, 0), (6, 4, 1), spacing=0.5)
-    run_design([sys("Solo", 2.0)], grid=g0, members=[], avoid_other_systems=False, skip_failed=True)
 
     g = CellGrid.from_bounds((0, 0, 0), (6, 4, 1), spacing=0.5)
     run_design(systems, grid=g, members=[], avoid_other_systems=True, skip_failed=True)
@@ -530,6 +530,70 @@ def test_graceful_run_warns_on_uneroundable_bend():
     assert "Cramped" in warnings[0].message and "(2.0, 0.0, 1.0)" in warnings[0].message
     assert warnings[0].position == (2.0, 0.0, 1.0)
     assert warnings[0].suggestion  # a concrete fix is offered
+
+
+def test_constrained_route_legs_clear_the_bend_radius():
+    """The turn-constrained planner is feasible by construction: every interior
+    straight leg is at least ``2*bend_r`` (shared tangent for the bends at both ends)
+    and each terminal leg at least ``bend_r`` — so every corner can host the fixed
+    radius without cramping. Here pitch 0.5 with ``t1_cells=1``/``t2_cells=2`` means
+    ``bend_r = 0.5``."""
+    from ada.topology.routing import (
+        _orthogonalize_polyline,
+        _seg_len,
+        astar_route_constrained,
+    )
+
+    g = CellGrid.from_bounds((0, 0, 0), (5, 5, 1), spacing=0.5)
+    # Leave the start along +X and arrive at the goal travelling +X, but the goal is
+    # offset in +Y — forcing an S (+X, turn +Y, turn +X) with a genuine interior leg.
+    start = nearest_index(g, 0.0, 0.0, 0.0)
+    goal = nearest_index(g, 4.0, 2.0, 0.0)
+    path = astar_route_constrained(g, start, goal, start_dir=0, goal_dir=0, t1_cells=1.0, t2_cells=2.0)
+    assert path[0] == start and path[-1] == goal
+    assert all(not g.has_geometry(idx) for idx in path)
+
+    poly = _orthogonalize_polyline(path_to_polyline(g, path))
+    legs = [_seg_len(poly[i], poly[i + 1]) for i in range(len(poly) - 1)]
+    assert len(legs) >= 3, f"expected an interior leg (>=2 turns), got legs {legs}"
+    bend_r = 0.5
+    for i, ln in enumerate(legs):
+        need = bend_r if i in (0, len(legs) - 1) else 2 * bend_r
+        assert ln >= need - 1e-9, f"leg {i} = {ln:.3f} < required {need:.3f}"
+
+
+def test_constrained_route_raises_when_space_too_tight():
+    """When the corridor can't give a bend its tangent, the constrained planner fails
+    cleanly with a RoutingError rather than emitting a cramped corner. Here the run
+    must arrive along +Y but the grid offers only 1 m of +Y room while the fitting
+    needs 2 m (``t1_cells=2`` at pitch 1) — no state can reach the goal."""
+    from ada.topology.routing import astar_route_constrained
+
+    g = CellGrid.from_bounds((0, 0, 0), (3, 1, 1), spacing=1.0)
+    start = nearest_index(g, 0.0, 0.0, 0.0)
+    goal = nearest_index(g, 3.0, 1.0, 0.0)
+    with pytest.raises(RoutingError, match="feasible turn-constrained route|too tight"):
+        astar_route_constrained(g, start, goal, start_dir=0, goal_dir=2, t1_cells=2.0, t2_cells=4.0)
+
+
+def test_constrained_route_avoids_occupied_no_go_node():
+    """The constrained planner keeps clear of occupied (no-go) nodes: a straight
+    shot along +X would cross a blocked cell, so the route detours around it while
+    still leaving/arriving along the forced headings and reaching the goal."""
+    from ada.topology.routing import astar_route_constrained
+
+    g = CellGrid.from_bounds((0, 0, 0), (6, 4, 1), spacing=1.0)
+    start = nearest_index(g, 0.0, 2.0, 0.0)
+    goal = nearest_index(g, 6.0, 2.0, 0.0)
+    blocked = nearest_index(g, 3.0, 2.0, 0.0)  # dead ahead on the straight y=2 line
+    g.register(blocked, "equipment")
+
+    path = astar_route_constrained(g, start, goal, start_dir=0, goal_dir=0, t1_cells=1.0, t2_cells=1.0)
+    assert path[0] == start and path[-1] == goal
+    assert blocked not in path
+    assert all(not g.has_geometry(idx) for idx in path)
+    # it had to leave the straight y=2 lane to get around the block
+    assert any(idx[1] != start[1] for idx in path), "route did not detour around the block"
 
 
 def test_occupy_faces_marks_wall_and_forces_a_detour(grid):

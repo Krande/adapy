@@ -11,7 +11,9 @@ rules and navigate systems through the cell structure.
 
 from __future__ import annotations
 
+import bisect
 import heapq
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
 
@@ -30,6 +32,8 @@ __all__ = [
     "RoutingBlueprintBase",
     "nearest_index",
     "astar_route",
+    "astar_route_constrained",
+    "swept_bend_params",
     "path_to_polyline",
     "route_system",
     "system_route_to_geometry",
@@ -95,6 +99,25 @@ def _nearest_axis_index(vals: list[float], v: float) -> int:
     return min(range(len(vals)), key=lambda i: abs(vals[i] - v))
 
 
+def _nearest_step_index(vec) -> int:
+    """Snap a world direction to the index of the closest of the six axis steps in
+    ``_NEIGHBOR_STEPS`` (the one whose unit axis has the largest dot product). Used
+    to turn a nozzle's outward normal into a forced leaving/arriving heading for the
+    turn-constrained planner."""
+    v = (float(vec[0]), float(vec[1]), float(vec[2]))
+    return max(
+        range(len(_NEIGHBOR_STEPS)),
+        key=lambda i: _NEIGHBOR_STEPS[i][0] * v[0] + _NEIGHBOR_STEPS[i][1] * v[1] + _NEIGHBOR_STEPS[i][2] * v[2],
+    )
+
+
+# Per-heading turn table: for each axis-step index, the four perpendicular headings
+# (every step except itself and its reverse). Steps are paired reverses (d ^ 1).
+_PERP_STEPS: tuple[tuple[int, ...], ...] = tuple(
+    tuple(j for j in range(len(_NEIGHBOR_STEPS)) if j != d and j != (d ^ 1)) for d in range(len(_NEIGHBOR_STEPS))
+)
+
+
 def nearest_index(grid: CellGrid, x: float, y: float, z: float) -> GridIndex:
     """Snap a world coordinate to the closest grid node (``index_of`` raises for
     anything not exactly on a grid line)."""
@@ -155,6 +178,143 @@ def astar_route(
                 heapq.heappush(open_heap, (ng + heuristic(nxt), tie, ng, nxt, step))
 
     raise RoutingError(f"no route found between grid nodes {start} and {goal} — check occupied nodes and routing rules")
+
+
+def astar_route_constrained(
+    grid: CellGrid,
+    start: GridIndex,
+    goal: GridIndex,
+    *,
+    start_dir: int,
+    goal_dir: int,
+    t1_cells: float,
+    t2_cells: float,
+    start_run: float = 0.0,
+    rules: RoutingRules | None = None,
+) -> list[GridIndex]:
+    """Direction-augmented (state-lattice) 6-connected A* that is *feasible by
+    construction* for a fixed-radius fitting: every corner is guaranteed enough
+    straight either side to host the bend, so the route never needs post-smoothing
+    and never produces a corner too tight to round.
+
+    ``start_dir``/``goal_dir`` are indices into :data:`_NEIGHBOR_STEPS` — the forced
+    heading the run must *leave* ``start`` along (the nozzle's outward normal) and
+    the heading of *travel* it must *arrive* at ``goal`` along (``-`` the far
+    nozzle's outward normal). The search state is
+    ``(node, dir_idx, from_start, bucket)``:
+
+    * ``dir_idx`` — the current heading.
+    * ``from_start`` — ``True`` until the first turn (still on the leaving straight).
+    * ``bucket`` ∈ {0, 1, 2} — how much straight has accrued since the last turn:
+      ``0`` below ``t1`` (one bend's tangent), ``1`` in ``[t1, t2)``, ``2`` at/above
+      ``t2`` (an interior leg shared by two bends). ``t1``/``t2`` are the cell counts
+      ``t1_cells``/``t2_cells`` scaled by the grid pitch, so the run length is
+      measured in true distance (robust to a non-uniform lattice).
+
+    A **turn** onto a perpendicular heading is allowed only from a leaving straight
+    that reached ``bucket >= 1`` (``from_start``) or an interior straight that reached
+    ``bucket >= 2`` — i.e. both legs of every bend clear the fixed radius. The goal is
+    accepted only when reached along ``goal_dir`` with ``bucket >= 1`` (a full arriving
+    tangent). Occupied nodes are impassable except ``goal`` itself (so a nozzle inside
+    an equipment-clearance halo is still reachable). ``start_run`` seeds the leaving
+    straight already accrued *before* ``start`` — the length of the nozzle stub leg
+    (``start`` is the stub node just outside the equipment halo) — so a run can turn
+    immediately past its nozzle when the stub already supplies a bend's tangent. Dedup
+    is on the full 4-tuple via ``best_g``, bounding the state to ``nodes x 6 x 2 x 3``.
+
+    Raises :class:`RoutingError` when no state reaches the goal — the space is too
+    tight for the fitting; widen the corridor, use a smaller section, or reduce the
+    bend radius."""
+    if rules is None:
+        rules = RoutingRules()
+    dims = (len(grid.x_list), len(grid.y_list), len(grid.z_list))
+    pitch = _grid_spacing(grid) or 1.0
+    t1 = t1_cells * pitch
+    t2 = t2_cells * pitch
+    inf = float("inf")
+    tol = 1e-9
+    bend_penalty = rules.bend_penalty
+
+    def bucket(run_len: float) -> int:
+        if run_len >= t2 - tol:
+            return 2
+        if run_len >= t1 - tol:
+            return 1
+        return 0
+
+    def in_bounds(n: GridIndex) -> bool:
+        return 0 <= n[0] < dims[0] and 0 <= n[1] < dims[1] and 0 <= n[2] < dims[2]
+
+    def passable(n: GridIndex) -> bool:
+        return n == goal or not grid.has_geometry(n)
+
+    def seg_len(a: GridIndex, b: GridIndex) -> float:
+        xa, ya, za = grid.coord_from_index(a)
+        xb, yb, zb = grid.coord_from_index(b)
+        return abs(xb - xa) + abs(yb - ya) + abs(zb - za)
+
+    def heuristic(n: GridIndex) -> float:
+        xa, ya, za = grid.coord_from_index(n)
+        xg, yg, zg = grid.coord_from_index(goal)
+        return abs(xg - xa) + abs(yg - ya) + abs(zg - za)
+
+    start_state = (start, start_dir, True, bucket(start_run))
+    # heap entry: (f, tie, g, run_len, state) — run_len rides along so the bucket can
+    # be recomputed on each straight step without living in the dedup key.
+    open_heap: list[tuple[float, int, float, float, tuple]] = [(heuristic(start), 0, 0.0, start_run, start_state)]
+    came_from: dict[tuple, tuple] = {}
+    best_g: dict[tuple, float] = {start_state: 0.0}
+    tie = 0
+
+    while open_heap:
+        _, _, g, run_len, state = heapq.heappop(open_heap)
+        if g > best_g.get(state, inf):
+            continue
+        node, d, from_start, buck = state
+        if node == goal and d == goal_dir and buck >= 1:
+            path = [node]
+            s = state
+            while s in came_from:
+                s = came_from[s]
+                path.append(s[0])
+            path.reverse()
+            return path
+
+        # Straight: continue along d; the accrued run grows so the bucket rises.
+        step = _NEIGHBOR_STEPS[d]
+        nxt = (node[0] + step[0], node[1] + step[1], node[2] + step[2])
+        if in_bounds(nxt) and passable(nxt):
+            seg = seg_len(node, nxt)
+            nrl = run_len + seg
+            ns = (nxt, d, from_start, bucket(nrl))
+            ng = g + seg
+            if ng < best_g.get(ns, inf):
+                best_g[ns] = ng
+                came_from[ns] = state
+                tie += 1
+                heapq.heappush(open_heap, (ng + heuristic(nxt), tie, ng, nrl, ns))
+
+        # Turn: only once the current straight has enough tangent for the bend.
+        if (from_start and buck >= 1) or (not from_start and buck >= 2):
+            for dp in _PERP_STEPS[d]:
+                pstep = _NEIGHBOR_STEPS[dp]
+                nxt = (node[0] + pstep[0], node[1] + pstep[1], node[2] + pstep[2])
+                if not in_bounds(nxt) or not passable(nxt):
+                    continue
+                seg = seg_len(node, nxt)
+                ns = (nxt, dp, False, bucket(seg))
+                ng = g + seg + bend_penalty
+                if ng < best_g.get(ns, inf):
+                    best_g[ns] = ng
+                    came_from[ns] = state
+                    tie += 1
+                    heapq.heappush(open_heap, (ng + heuristic(nxt), tie, ng, seg, ns))
+
+    raise RoutingError(
+        f"no feasible turn-constrained route from {start} to {goal}: the fitting needs "
+        f"{t1:.3g} m of straight beside every bend ({t2:.3g} m between two bends) and the "
+        "space is too tight — widen the corridor, use a smaller cross-section, or reduce the bend radius"
+    )
 
 
 def path_to_polyline(grid: CellGrid, path: list[GridIndex]) -> list[ada.Point]:
@@ -266,6 +426,131 @@ def _cap_end(pts: list[ada.Point], port_pos: ada.Point, stub: ada.Point | None, 
                 pts.append(p)
 
 
+def swept_bend_params(system: System) -> tuple[float, float, float, float]:
+    """The bend geometry a swept (duct / cable-tray) run needs, factored out of
+    :func:`system_route_to_geometry` so the router and the modeller agree.
+
+    Returns ``(bend_r, floor, lateral_half, up_half)``:
+
+    * ``lateral_half``/``up_half`` — the swept profile's true half-width and
+      half-height. An open cable tray rotates the channel a quarter turn, so its
+      width comes from the section height and vice-versa; a closed duct keeps them.
+    * ``floor`` — the inversion-proof minimum radius (:func:`_inversion_floor`),
+      the smallest bend that won't crush the section inner wall.
+    * ``bend_r`` — the run's fixed centreline radius: the configured
+      ``system.bend_radius`` (or ``~1x`` the section when unset), never below
+      ``floor``. This is the tangent every corner must clear on both legs, which the
+      turn-constrained planner enforces."""
+    from ada.api.systems.base import CableSystem, DuctSystem
+
+    if isinstance(system, CableSystem):  # covers ElectricalSystem — open UNP tray
+        # UNP section is authored h=tray_width, w_top=tray_height; open_channel
+        # rotation makes lateral = 0.5*h, up = 0.5*w_top (see _rotate_profile_90).
+        lateral_half = 0.5 * float(system.tray_width or 0.0)
+        up_half = 0.5 * float(system.tray_height or 0.0)
+    elif isinstance(system, DuctSystem):  # closed BOX duct
+        lateral_half = 0.5 * float(system.duct_width or 0.0)
+        up_half = 0.5 * float(system.duct_height or 0.0)
+    else:
+        raise RoutingError(f"system {getattr(system, 'name', system)!r} is not a swept (duct/cable-tray) run")
+
+    floor = _inversion_floor(lateral_half, up_half, 0.0)
+    section_r = 2.0 * max(lateral_half, up_half)
+    cfg_r = getattr(system, "bend_radius", None)
+    bend_r = max(float(cfg_r) if cfg_r else section_r, floor)
+    return bend_r, floor, lateral_half, up_half
+
+
+def _route_swept(
+    system: System,
+    grid: CellGrid,
+    start: Port,
+    end: Port,
+    stub_len: float,
+) -> list[ada.Point]:
+    """Route a swept (duct / cable-tray) system with the turn-constrained planner so
+    the run is feasible by construction — every corner has room for the fixed-radius
+    bend, no post-smoothing, no cramped fillets.
+
+    Both port world positions (and their nozzle stubs) are augmented onto the grid so
+    each end is an exact grid node reached along whole legs. The run is forced to
+    leave ``start`` along its outward nozzle normal and to arrive at ``end`` travelling
+    into its nozzle (``-`` the far outward normal). The straight-run thresholds are the
+    run's bend radius (one tangent) and twice it (an interior leg shared by two bends),
+    expressed in grid-pitch units. A :class:`RoutingError` (no feasible route) is left
+    to propagate so the design engine can skip and report it."""
+    bend_r, _floor, _lat, _up = swept_bend_params(system)
+
+    p_start = start.get_global_position()
+    p_end = end.get_global_position()
+    stub_start = _port_stub(start, stub_len)
+    stub_end = _port_stub(end, stub_len)
+    augment_grid_with_points(grid, [p_start, p_end, stub_start, stub_end])
+
+    dims = (len(grid.x_list), len(grid.y_list), len(grid.z_list))
+
+    def _anchor(port_pos: ada.Point, stub: ada.Point | None) -> tuple[GridIndex, ada.Point | None, float]:
+        # Anchor the A* at the nozzle stub node (one stub-length out along the port
+        # normal, beyond the equipment's own clearance halo), so the search starts in
+        # the clear and never has to step through the port's own occupied cells. The
+        # stub leg (port -> stub) is kept for the end cap and its length seeds the
+        # leaving straight, so a run can turn right past its nozzle. A stub that falls
+        # off-grid (a nozzle facing straight into a boundary) drops back to the bare
+        # port node with no seeded straight.
+        if stub is not None:
+            idx = nearest_index(grid, *stub)
+            if all(0 <= idx[i] < dims[i] for i in range(3)):
+                return idx, stub, _seg_len(port_pos, stub)
+        idx = nearest_index(grid, *port_pos)
+        return idx, None, 0.0
+
+    idx_start, stub_start, run_seed = _anchor(p_start, stub_start)
+    idx_end, stub_end, _ = _anchor(p_end, stub_end)
+    if not (all(0 <= idx_start[i] < dims[i] for i in range(3)) and all(0 <= idx_end[i] < dims[i] for i in range(3))):
+        raise RoutingError(f"swept system {system.name!r}: a port falls outside the routing grid")
+
+    # Forced leaving/arriving headings from the nozzle normals: leave A along its
+    # outward normal, arrive at B travelling into it (-outward_normal_B).
+    start_dir = _nearest_step_index(start.direction_vector)
+    goal_dir = _nearest_step_index([-float(c) for c in end.direction_vector])
+
+    pitch = _grid_spacing(grid) or 1.0
+    # Fractional "cells" of straight a bend needs — bend_r (one tangent) and 2*bend_r
+    # (an interior leg). Left un-rounded so the requirement is the true radius, not a
+    # whole cell (a run whose nozzle sits one short leg from a wall still routes).
+    t1_cells = bend_r / pitch
+    t2_cells = 2.0 * bend_r / pitch
+
+    try:
+        path = astar_route_constrained(
+            grid,
+            idx_start,
+            idx_end,
+            start_dir=start_dir,
+            goal_dir=goal_dir,
+            t1_cells=t1_cells,
+            t2_cells=t2_cells,
+            start_run=run_seed,
+        )
+    except RoutingError as e:
+        raise RoutingError(
+            f"failed to route swept system {system.name!r} from port {start.name!r} "
+            f"({start.parent.name if start.parent else '?'}) to port {end.name!r} "
+            f"({end.parent.name if end.parent else '?'}): {e}"
+        ) from None
+
+    polyline = path_to_polyline(grid, path)
+    # Cap the ends with the exact port positions and their nozzle stubs so each run
+    # terminates at the port and leaves/enters it along the nozzle (the stub leg
+    # crosses the equipment's own halo — expected for a nozzle exiting its body).
+    _cap_end(polyline, p_start, stub_start, at_start=True)
+    _cap_end(polyline, p_end, stub_end, at_start=False)
+    polyline = _sanitize_polyline(polyline)
+
+    system.routed_path = polyline
+    return polyline
+
+
 def route_system(
     system: System,
     grid: CellGrid,
@@ -292,6 +577,18 @@ def route_system(
         rules = RoutingRules()
     if stub_len is None:
         stub_len = _grid_spacing(grid)
+
+    # Graceful swept runs (ducts, cable trays and electrical) come as straight
+    # sections plus fixed-radius bends, so they route through the turn-constrained
+    # planner — every corner feasible by construction. Pipes bend continuously
+    # (revolved elbows), and a *strict* run keeps the free A* path so its geometry
+    # phase still raises (naming the points) when the layout can't fit the fixed
+    # radius; both keep the free A* path below.
+    from ada.api.systems.base import CableSystem, DuctSystem
+
+    if isinstance(system, (CableSystem, DuctSystem)) and not bool(getattr(system, "strict", False)):
+        return _route_swept(system, grid, start, end, stub_len)
+
     dims = (len(grid.x_list), len(grid.y_list), len(grid.z_list))
 
     p_start = start.get_global_position()
@@ -479,6 +776,48 @@ def occupy_run(grid: CellGrid, polyline, radius: float, tag: str = "run") -> Non
                 for iz, z in enumerate(zs):
                     if lo[2] <= z <= hi[2] and _point_seg_dist((x, y, z), a, b) <= radius + 1e-9:
                         grid.register((ix, iy, iz), tag)
+
+
+def augment_grid_with_points(grid: CellGrid, points, tol: float = 1e-6) -> None:
+    """Insert each point's x/y/z coordinate as a grid line (per axis, kept sorted
+    and deduped) so A* can reach that exact coordinate without a sub-grid jog.
+
+    Equipment ports sit at arbitrary world positions — the centre of a small,
+    off-lattice box, an off-grid nozzle height — that a uniform lattice can't hit,
+    so the route reaches them via a fractional cap staircase whose short legs
+    fillet into cramped/sharp bends. Adding the port (and its nozzle-stub)
+    coordinates as grid lines lets the route land on the port along whole grid
+    legs, so the approach is a clean orthogonal turn rather than a micro-jog.
+
+    Inserting a grid line shifts every higher index on that axis, so any occupancy
+    already registered (equipment boxes, earlier systems' runs) is re-keyed onto the
+    new indices — the routing lattice can be augmented per-system without corrupting
+    the no-go volumes. ``None`` entries (a port with no usable nozzle stub) are
+    ignored."""
+    old_lists = (list(grid.x_list), list(grid.y_list), list(grid.z_list))
+    inserted = False
+    for axis, comp in (("x_list", 0), ("y_list", 1), ("z_list", 2)):
+        vals = getattr(grid, axis)
+        for p in points:
+            if p is None:
+                continue
+            v = float(p[comp])
+            i = bisect.bisect_left(vals, v)
+            if (i < len(vals) and abs(vals[i] - v) < tol) or (i > 0 and abs(vals[i - 1] - v) < tol):
+                continue  # already a grid line
+            vals.insert(i, v)
+            inserted = True
+    if inserted and grid.occupancy:
+        # Re-key occupancy: an old node's coordinate still exists in the augmented
+        # list, so its new index is where that coordinate now sits.
+        ox, oy, oz = old_lists
+        remapped: dict[GridIndex, set] = defaultdict(set)
+        for (ix, iy, iz), geoms in grid.occupancy.items():
+            nix = bisect.bisect_left(grid.x_list, ox[ix])
+            niy = bisect.bisect_left(grid.y_list, oy[iy])
+            niz = bisect.bisect_left(grid.z_list, oz[iz])
+            remapped[(nix, niy, niz)] |= geoms
+        grid.occupancy = remapped
 
 
 def occupy_faces(grid: CellGrid, faces, clearance: float = 0.0, tag: str = "no_go") -> None:
@@ -901,9 +1240,10 @@ def system_route_to_geometry(system: System, name: str | None = None, grid: Cell
     are filleted into arcs, the non-circular analogue of a pipe. The IFC entity
     class still follows the service via ``segment_ifc_class`` metadata.
 
-    When ``grid`` is given, box/channel (swept) runs are first pulled taut against
-    its occupancy (:func:`_space_bends`) so a fine-grid route's zig-zags become a
-    few well-separated bends without ever crossing a blocked node."""
+    Swept runs are routed feasible-by-construction by the turn-constrained planner
+    (:func:`astar_route_constrained`), so their path is already taut with well-spaced
+    bends — the ``grid`` taut-pull (:func:`_space_bends`) is skipped for them and the
+    orthogonal path goes straight to the arc-filleted directrix."""
     from ada.api.systems.base import CableSystem, DuctSystem, PipingSystem
 
     if system.routed_path is None:
@@ -913,12 +1253,17 @@ def system_route_to_geometry(system: System, name: str | None = None, grid: Cell
     system.route_warnings = []
     name = name if name is not None else f"{system.name}_route"
     path = system.routed_path
+    # A graceful swept run comes from the turn-constrained planner; a strict one is
+    # still routed by free A* and taut-pulled, then its fixed-radius directrix raises
+    # if the layout can't host the bend.
+    swept_system = isinstance(system, (CableSystem, DuctSystem)) and not bool(getattr(system, "strict", False))
     # Box/channel runs follow an orthogonal path — square off any diagonal hop the
-    # routing left so a tray/duct never runs on a slant — then, when a grid is
-    # available, pull the run taut in the clear corridor so its bends are few and
-    # well-separated, then sweep a directrix with arc-filleted corners.
+    # routing left so a tray/duct never runs on a slant. A swept run from the
+    # turn-constrained planner is already feasible/taut (skip _space_bends); anything
+    # else with a grid is pulled taut in the clear corridor for few, well-separated
+    # bends before the directrix is filleted.
     ortho = _orthogonalize_polyline(path)
-    if grid is not None:
+    if grid is not None and not swept_system:
         ortho = _space_bends(ortho, grid)
 
     def _swept(sec, *, open_channel: bool, seg_class: str):
@@ -928,19 +1273,11 @@ def system_route_to_geometry(system: System, name: str | None = None, grid: Cell
         # way a pipe's segments are), rather than one monolithic run.
         from ada.geom.curves import IndexedPolyCurve
 
-        # The swept profile's true lateral (width) and up (height) half-extents.
-        # An open cable tray rotates the profile a quarter turn (see
-        # _rotate_profile_90), so its width comes from the section's h and its
-        # height from w_top; a closed duct keeps them as authored.
-        if open_channel:
-            lat_half, up_half = 0.5 * float(sec.h or 0.0), 0.5 * float(sec.w_top or 0.0)
-        else:
-            lat_half, up_half = 0.5 * float(sec.w_top or 0.0), 0.5 * float(sec.h or 0.0)
-        section_r = 2.0 * max(lat_half, up_half)  # ~1x the widest dimension
+        # The swept profile's true lateral/up half-extents and the run's fixed bend
+        # radius — shared with the turn-constrained router via swept_bend_params so
+        # the corner budget the planner guarantees matches the fillet built here.
+        bend_r, _floor, lat_half, up_half = swept_bend_params(system)
         strict = bool(getattr(system, "strict", False))
-        # A catalog bend radius if the system carries one, else ~1x the section.
-        cfg_r = getattr(system, "bend_radius", None)
-        bend_r = float(cfg_r) if cfg_r else section_r
         if strict:
             # Real products only bend on their fixed radius: route as-given, keep
             # every fitting regular, and raise (naming the points) if it can't fit.

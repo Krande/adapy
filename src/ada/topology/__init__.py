@@ -54,12 +54,14 @@ from ada.topology.routing import (
     RoutingRules,
     RunWarning,
     astar_route,
+    astar_route_constrained,
     nearest_index,
     occupy_faces,
     occupy_run,
     path_to_polyline,
     route_system,
     run_half_extent,
+    swept_bend_params,
     system_route_to_geometry,
 )
 from ada.topology.run_builder import RunBuilder
@@ -86,6 +88,8 @@ __all__ = [
     "RoutingError",
     "RoutingRules",
     "astar_route",
+    "astar_route_constrained",
+    "swept_bend_params",
     "default_penetration_planner",
     "default_route_modeller",
     "default_route_planner",
