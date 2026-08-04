@@ -83,9 +83,20 @@ def build_topo_model_with_systems(name: str = "TopoModelDemo") -> ada.Assembly:
         .connect_site("drain_to_site", (10.0, 2.5, 3.0), PortDirection.OUT)
     )
 
-    grid = build_routing_grid()
-    for eq in (pump, tank, switchboard):
-        _occupy_equipment_nodes(grid, eq)
+    # Swept runs (ducts/cable trays) need room to round smoothly, so they route on
+    # a coarser 1 m lattice; round pipes make their own tight elbows and route on
+    # the fine 0.5 m lattice for precise detours around equipment. See
+    # build_routing_grid's note on why a fine pitch forces sharp fittings.
+    from ada.api.systems import CableSystem, DuctSystem
+
+    fine_deck = build_routing_grid(0.5)
+    coarse_deck = build_routing_grid(1.0)
+    for deck in (fine_deck, coarse_deck):
+        for eq in (pump, tank, switchboard):
+            _occupy_equipment_nodes(deck, eq)
+
+    def deck_grid_for(system):
+        return coarse_deck if isinstance(system, (CableSystem, DuctSystem)) else fine_deck
 
     # Interior service run: pump in Cell1 to tank in Cell2 — the route must
     # cross the reinforced wall at x=5.
@@ -99,7 +110,7 @@ def build_topo_model_with_systems(name: str = "TopoModelDemo") -> ada.Assembly:
 
     systems_part = ada.Part("Systems")
     deck_systems = (cooling, power, mains, drain)
-    routed = [(s, grid) for s in deck_systems] + [(service, interior_grid)]
+    routed = [(s, deck_grid_for(s)) for s in deck_systems] + [(service, interior_grid)]
     for system, sys_grid in routed:
         for geom in system.route(sys_grid):
             systems_part.add_object(geom)

@@ -209,7 +209,12 @@ def _build_systems(
     if not specs:
         return []
 
-    grid = _routing_grid(spaces, list(equipment_map.values()))
+    # Swept runs (ducts/cable trays) round smoothly only with enough straight run
+    # per leg, so they route on a coarse 1 m lattice; round pipes make their own
+    # tight elbows and route on the fine 0.5 m lattice for precise detours around
+    # equipment. Each system routes on the grid matching its kind (see below).
+    grid_fine = _routing_grid(spaces, list(equipment_map.values()), spacing=0.5)
+    grid_coarse = _routing_grid(spaces, list(equipment_map.values()), spacing=1.0)
 
     # Phase 0: wire ports (spec -> connected System). Connection errors (unknown
     # equipment/port) drop the whole system before it reaches the engine.
@@ -246,7 +251,8 @@ def _build_systems(
     # single-pass while guaranteeing no run clips a box.
     clearance = max((_system_half_extent(s) for s in built_systems), default=0.0)
     for eq in equipment_map.values():
-        _occupy_equipment(grid, eq, clearance)
+        _occupy_equipment(grid_fine, eq, clearance)
+        _occupy_equipment(grid_coarse, eq, clearance)
 
     rules = design_rules if design_rules is not None else standard_design_rules()
     # Only walls the blueprint actually BUILT (a plate part tagged on the face) can
@@ -257,20 +263,35 @@ def _build_systems(
         if cell_graph is not None
         else []
     )
-    result = run_design(
-        built_systems,
-        cell_graph=cell_graph,
-        grid=grid,
-        members=members,
-        rules=rules,
-        skip_failed=True,
-    )
-    for name in result.skipped:
+    from ada.api.systems import CableSystem, DuctSystem
+
+    # Route swept runs on the coarse lattice (smooth bends) and pipes on the fine
+    # lattice (precise detours), merging the two plans back together.
+    swept = [s for s in built_systems if isinstance(s, (CableSystem, DuctSystem))]
+    piped = [s for s in built_systems if not isinstance(s, (CableSystem, DuctSystem))]
+    route_geometry: dict = {}
+    penetration_parts: list = []
+    skipped: list = []
+    for group, grp_grid in ((piped, grid_fine), (swept, grid_coarse)):
+        if not group:
+            continue
+        res = run_design(
+            group,
+            cell_graph=cell_graph,
+            grid=grp_grid,
+            members=members,
+            rules=rules,
+            skip_failed=True,
+        )
+        route_geometry.update(res.route_geometry)
+        penetration_parts.extend(res.penetration_parts)
+        skipped.extend(res.skipped)
+    for name in skipped:
         logger.warning("procedural: skipping system %r: no route found", name)
 
     parts: list[ada.Part] = []
     systems_part = ada.Part("Systems")
-    for geoms in result.route_geometry.values():
+    for geoms in route_geometry.values():
         for geom in geoms:
             # Adding a pipe realises its segments lazily (elbow generation). A
             # degenerate run that slips past the router still shouldn't sink the
@@ -282,8 +303,8 @@ def _build_systems(
     if list(systems_part.get_all_physical_objects()):
         parts.append(systems_part)
 
-    if result.penetration_parts:
-        pens = ada.Part("Penetrations") / result.penetration_parts
+    if penetration_parts:
+        pens = ada.Part("Penetrations") / penetration_parts
         if list(pens.get_all_physical_objects()):
             parts.append(pens)
     return parts

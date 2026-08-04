@@ -396,11 +396,27 @@ def _v_norm(v):
     return (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) ** 0.5
 
 
+def _inversion_floor(lateral_half: float, up_half: float, min_radius: float) -> float:
+    """The smallest fillet radius that keeps a bend's inner wall from inverting,
+    for ANY bend orientation.
+
+    Inner-wall inversion happens when the fillet radius drops below the profile's
+    half-extent measured radially (in the bend plane). That extent varies with the
+    bend plane, but the *largest* it can ever be — the worst case a bend of unknown
+    orientation might present — is the asymmetric profile's diagonal half-extent
+    ``hypot(lateral_half, up_half)``. Using that as the floor is inversion-proof in
+    every orientation (a per-plane estimate can under-shoot on an oblique bend and
+    crush the section into a self-intersecting mass)."""
+    return max(min_radius, (lateral_half * lateral_half + up_half * up_half) ** 0.5)
+
+
 def _polyline_to_directrix(
     pts: list[ada.Point],
     radius: float,
     min_radius: float = 0.0,
     *,
+    lateral_half: float = 0.0,
+    up_half: float = 0.0,
     strict: bool = False,
     run_name: str | None = None,
 ):
@@ -415,9 +431,9 @@ def _polyline_to_directrix(
 
     * **graceful** (default): the radius is clamped to half of each adjacent
       segment so nearby bends never eat into each other; a corner whose clamped
-      radius would fall below ``min_radius`` (the profile half-width, under which
-      the sweep's inner wall inverts and self-intersects) is left *sharp* (the
-      straight edges meet, a small bounded miter overlap). Pair with
+      radius would fall below its inversion floor (see :func:`_inversion_floor`,
+      from ``lateral_half``/``up_half``; ``min_radius`` is an absolute lower bound)
+      is left *sharp*. Pair with
       :func:`_collapse_short_legs` so such corners are rare.
     * **strict**: every bend uses the full fixed ``radius`` (a catalog value); no
       clamping, no sharp fallback. If two routed points sit too close to fit that
@@ -435,10 +451,13 @@ def _polyline_to_directrix(
         return None
     tag = f"{run_name!r} " if run_name else ""
 
-    if strict and radius < min_radius - 1e-9:
+    # Inversion-proof floor (diagonal half-extent): a graceful corner rounds only
+    # when its radius clears this; strict rejects a fixed radius below it.
+    floor = _inversion_floor(lateral_half, up_half, min_radius)
+    if strict and radius < floor - 1e-9:
         raise RoutingError(
             f"duct/cable-tray run {tag}has bend radius {radius:.4g} smaller than its profile "
-            f"half-width {min_radius:.4g}; a bend that tight inverts the section — widen the radius"
+            f"half-width {floor:.4g}; a bend that tight inverts the section — widen the radius"
         )
 
     segs = []
@@ -456,7 +475,7 @@ def _polyline_to_directrix(
             r = radius
         else:
             r = min(radius, 0.5 * la, 0.5 * lb)
-            if r < max(min_radius, 1e-9):  # too tight to fillet without inverting — keep sharp
+            if r < max(floor, 1e-9):  # too tight to fillet without inverting — keep sharp
                 p_curp = ada.Point(*p_cur)
                 if _seg_len(cursor, p_curp) > 1e-9:
                     segs.append(Edge(cursor, p_curp))
@@ -677,8 +696,15 @@ def system_route_to_geometry(system: System, name: str | None = None) -> list:
         # way a pipe's segments are), rather than one monolithic run.
         from ada.geom.curves import IndexedPolyCurve
 
-        section_r = max(float(sec.w_top or 0.0), float(sec.h or 0.0))
-        half = 0.5 * section_r  # profile half-extent: the inner-wall inversion floor for a fillet
+        # The swept profile's true lateral (width) and up (height) half-extents.
+        # An open cable tray rotates the profile a quarter turn (see
+        # _rotate_profile_90), so its width comes from the section's h and its
+        # height from w_top; a closed duct keeps them as authored.
+        if open_channel:
+            lat_half, up_half = 0.5 * float(sec.h or 0.0), 0.5 * float(sec.w_top or 0.0)
+        else:
+            lat_half, up_half = 0.5 * float(sec.w_top or 0.0), 0.5 * float(sec.h or 0.0)
+        section_r = 2.0 * max(lat_half, up_half)  # ~1x the widest dimension
         strict = bool(getattr(system, "strict", False))
         # A catalog bend radius if the system carries one, else ~1x the section.
         cfg_r = getattr(system, "bend_radius", None)
@@ -686,13 +712,15 @@ def system_route_to_geometry(system: System, name: str | None = None) -> list:
         if strict:
             # Real products only bend on their fixed radius: route as-given, keep
             # every fitting regular, and raise (naming the points) if it can't fit.
-            directrix = _polyline_to_directrix(ortho, bend_r, min_radius=half, strict=True, run_name=name)
+            directrix = _polyline_to_directrix(
+                ortho, bend_r, lateral_half=lat_half, up_half=up_half, strict=True, run_name=name
+            )
         else:
             # Drop sub-profile micro-jogs (grid-remainder / off-grid nozzle caps) so
             # no corner fillets into a self-intersecting tiny arc, then fillet the
-            # clean run (sharp fallback where a corner is still too tight).
-            clean = _collapse_short_legs(ortho, half)
-            directrix = _polyline_to_directrix(clean, bend_r, min_radius=half)
+            # clean run (sharp fallback only where a corner is still too tight).
+            clean = _collapse_short_legs(ortho, max(lat_half, up_half))
+            directrix = _polyline_to_directrix(clean, bend_r, lateral_half=lat_half, up_half=up_half)
         if directrix is None:
             return
         # Frame the whole run once (parallel transport), then hand each segment its
