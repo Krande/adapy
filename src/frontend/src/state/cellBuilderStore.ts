@@ -8,6 +8,7 @@ import {
   type ProceduralSystemTypeOption,
   type ProceduralTypeOption,
 } from "@/services/viewerApi";
+import { useConversionStore, type ConversionJob } from "@/state/conversionStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
 import {
@@ -22,6 +23,32 @@ import {
   type EdgeHit,
   type Vec3,
 } from "@/utils/cellbuilder/snap";
+
+// Procedural compile is a worker task (NATS queue, polled via convertStatus),
+// so it reports through the same global toast panel (ConversionProgress) that
+// conversion/FEA use — a spinner+progress row that resolves to success (auto-
+// hides) or a dismissible error card. Keyed by the model so a re-compile updates
+// the same toast in place; the key doubles as the human-readable label.
+function proceduralToastKey(name: string): string {
+  return `Procedural: ${name}`;
+}
+
+function setProceduralToast(name: string, patch: Partial<ConversionJob>): void {
+  const key = proceduralToastKey(name);
+  const conv = useConversionStore.getState();
+  const prev = conv.jobs[key];
+  conv.setJob(key, {
+    sourceKey: key,
+    jobId: prev?.jobId ?? "",
+    derivedKey: prev?.derivedKey ?? "",
+    status: "queued",
+    progress: 0,
+    stage: "",
+    error: null,
+    startedAt: prev?.startedAt ?? Date.now(),
+    ...patch,
+  });
+}
 
 // One box in the cellbuilder: either a space cell or an equipment unit.
 export interface BuilderCell extends CellBox {
@@ -1221,6 +1248,16 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       }
       const active = get().active;
       if (!active) return;
+      const label = active.name;
+      // Announce the task on the global toast panel right away (before the
+      // enqueue round-trip resolves), then keep the same toast updated through
+      // the poll below — mirrors how conversion/FEA feed conversionStore.
+      setProceduralToast(label, {
+        status: "queued",
+        stage: "queued",
+        progress: 0,
+        startedAt: Date.now(),
+      });
       // Auto-show the compiled result once ready when auto-compile is on, so
       // Commit -> compile -> render is one gesture.
       const autoShow = () => {
@@ -1241,6 +1278,12 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
               status: "cached",
             },
           });
+          setProceduralToast(label, {
+            status: "done",
+            progress: 1,
+            stage: "cached",
+            derivedKey: res.derived_key,
+          });
           autoShow();
           return;
         }
@@ -1251,6 +1294,12 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             status: "queued",
           },
         });
+        setProceduralToast(label, {
+          status: "queued",
+          stage: "queued",
+          jobId: res.job_id ?? "",
+          derivedKey: res.derived_key,
+        });
         const jobId = res.job_id!;
         const poll = async () => {
           const cur = get().compileJob;
@@ -1259,6 +1308,12 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             const st = await viewerApi.convertStatus(jobId);
             if (st.status === "done") {
               set({ compileJob: { ...cur, status: "done" } });
+              setProceduralToast(label, {
+                status: "done",
+                progress: 1,
+                stage: st.stage || "ready",
+                derivedKey: st.derived_key || cur.derivedKey || "",
+              });
               autoShow();
               return;
             }
@@ -1270,30 +1325,39 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
                   error: st.error ?? "compile failed",
                 },
               });
+              setProceduralToast(label, {
+                status: "error",
+                stage: st.stage || "",
+                error: st.error ?? "compile failed",
+              });
               return;
             }
             set({ compileJob: { ...cur, status: "running" } });
+            setProceduralToast(label, {
+              status: "running",
+              progress: st.progress ?? 0,
+              stage: st.stage || "",
+              jobId,
+            });
             setTimeout(poll, 1500);
           } catch (e) {
-            set({
-              compileJob: {
-                ...cur,
-                status: "error",
-                error: e instanceof Error ? e.message : String(e),
-              },
-            });
+            const error = e instanceof Error ? e.message : String(e);
+            set({ compileJob: { ...cur, status: "error", error } });
+            setProceduralToast(label, { status: "error", error });
           }
         };
         setTimeout(poll, 1500);
       } catch (e) {
+        const error = e instanceof Error ? e.message : String(e);
         set({
           compileJob: {
             jobId: null,
             derivedKey: "",
             status: "error",
-            error: e instanceof Error ? e.message : String(e),
+            error,
           },
         });
+        setProceduralToast(label, { status: "error", error });
       }
     },
 
