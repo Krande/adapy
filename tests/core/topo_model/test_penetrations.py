@@ -86,6 +86,34 @@ def test_find_face_crossings_direct(demo):
     assert find_face_crossings(_FakeAbove(), walls) == []
 
 
+def test_penetration_members_include_built_external_walls():
+    # Both built INTERNAL and built EXTERNAL walls are penetrable (a riser through
+    # the built outer skin gets a cutout like an interior crossing); unbuilt walls
+    # and cross-list duplicates are excluded.
+    from ada.topo_model.compile import _penetration_members
+
+    class _W:
+        def __init__(self, name, built):
+            self.name = name
+            self.associated_part = object() if built else None
+
+    iw_built, iw_unbuilt = _W("int_built", True), _W("int_unbuilt", False)
+    ew_built, ew_unbuilt = _W("ext_built", True), _W("ext_unbuilt", False)
+
+    class _CG:
+        def get_internal_walls(self):
+            return [iw_built, iw_unbuilt]
+
+        def get_external_walls(self):
+            return [ew_built, ew_unbuilt, iw_built]  # iw_built also listed here
+
+    members = _penetration_members(_CG())
+    assert iw_built in members and ew_built in members  # built internal + external
+    assert iw_unbuilt not in members and ew_unbuilt not in members  # unbuilt excluded
+    assert members.count(iw_built) == 1  # deduped across the two lists
+    assert _penetration_members(None) == []
+
+
 # --- rectangular tray/duct cutout vs round pipe sleeve ---------------------
 
 

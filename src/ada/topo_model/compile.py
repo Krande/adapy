@@ -158,6 +158,26 @@ def _blueprint_options(doc: dict) -> dict:
     return {k: opts[k] for k in _BLUEPRINT_OPTION_KEYS if k in opts}
 
 
+def _penetration_members(cell_graph) -> list:
+    """Built walls a routed run can penetrate (get a cutout + detail for). Only
+    walls the blueprint actually BUILT (a plate part tagged on the face) count — a
+    run crossing an unbuilt cell boundary (two open cells, no wall between them)
+    must NOT get a sleeve/hole. Both INTERNAL and EXTERNAL built walls qualify: a
+    riser that exits/re-enters the envelope through the built outer skin (e.g. the
+    demo's DeckTie riser through the x=0 external wall) needs its cutout just like
+    an interior crossing. Deduped by identity across the internal+external lists."""
+    if cell_graph is None:
+        return []
+    seen: set[int] = set()
+    members: list = []
+    for w in cell_graph.get_internal_walls() + cell_graph.get_external_walls():
+        if getattr(w, "associated_part", None) is None or id(w) in seen:
+            continue
+        seen.add(id(w))
+        members.append(w)
+    return members
+
+
 def _make_system(spec: dict):
     from ada.api.systems import CableSystem, DuctSystem, ElectricalSystem, PipingSystem
 
@@ -304,14 +324,7 @@ def _build_systems(
         _occupy_equipment(grid, eq, clearance)
 
     rules = design_rules if design_rules is not None else standard_design_rules()
-    # Only walls the blueprint actually BUILT (a plate part tagged on the face) can
-    # be penetrated — a run crossing an unbuilt cell boundary (e.g. two open cells
-    # with no wall between them) must not get a sleeve/hole detail.
-    members = (
-        [w for w in cell_graph.get_internal_walls() if getattr(w, "associated_part", None) is not None]
-        if cell_graph is not None
-        else []
-    )
+    members = _penetration_members(cell_graph)
     # No-go walls (opt-in via doc["no_go_walls"]): treat BUILT internal walls as
     # impenetrable so routes detour around them. Off by default because the demo's
     # interior run is meant to *penetrate* its wall and get a sleeve/hole detail;
