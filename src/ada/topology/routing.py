@@ -524,13 +524,20 @@ def _level_frames(pts, up):
     (lateral, width) and ``dir_y`` its local +y (up, height).
 
     A duct/cable tray is gravity-oriented: on every *horizontal* run its opening
-    must face straight up (+Z), never sideways. So the up axis is kept as close to
-    world ``up`` (+Z) as the tangent allows — ``dir_x = tangent x up`` gives
+    must face straight up (+Z), never sideways. So on any clearly non-vertical
+    station the lateral is ``dir_x = tangent x up``, which makes
     ``dir_y = dir_x x tangent`` = ``up`` projected perpendicular to the tangent,
-    i.e. exactly +Z on a level leg. Through a (near-)vertical section, where
-    ``tangent x up`` vanishes, the lateral is carried (parallel-transported,
-    re-orthogonalised) from the previous station so the frame stays continuous
-    across the riser rather than snapping.
+    i.e. exactly +Z on a level leg.
+
+    Through a (near-)vertical riser ``tangent x up`` collapses and its direction
+    turns to noise, so the level rule can't set the frame there. A riser can also
+    join two horizontal runs heading in *perpendicular* directions — the tray
+    genuinely has to rotate 90 deg along it (a twist fitting). We therefore
+    INTERPOLATE the lateral across each vertical band, from the level frame
+    entering it to the level frame leaving it, spreading that rotation smoothly up
+    the riser instead of snapping it at one station. A band with no level frame on
+    one side (the run starts/ends vertical) carries the other side's frame; a fully
+    vertical run seeds an arbitrary perpendicular.
 
     This replaces a purely rotation-minimising transport, which — though smooth —
     drifts the up axis off +Z after any climb and tilts every following horizontal
@@ -545,18 +552,50 @@ def _level_frames(pts, up):
     tn = np.linalg.norm(t, axis=1, keepdims=True)
     t = t / np.where(tn < 1e-12, 1.0, tn)
 
-    dir_x = np.zeros((n, 3))
-    prev = None
+    # |t x up| = sin(angle of the tangent from vertical). Above this band the level
+    # lateral is well-conditioned; within it the lateral is set by interpolation
+    # (below) so a riser's twist is distributed, not snapped.
+    VERTICAL_BAND = 0.25  # ~14 deg from vertical
+    dir_x: list = [None] * n
     for i in range(n):
-        lat = np.cross(t[i], up_ref)  # level lateral; = 0 only when the tangent is vertical
-        if np.linalg.norm(lat) < 1e-6:  # (near-)vertical: carry the frame through the riser
-            if prev is not None:
-                lat = prev - float(np.dot(prev, t[i])) * t[i]  # re-orthogonalise the carried lateral
-            if np.linalg.norm(lat) < 1e-9:  # run *starts* vertical: seed an arbitrary perpendicular
-                a = np.array([1.0, 0.0, 0.0]) if abs(t[i, 0]) < 0.9 else np.array([0.0, 1.0, 0.0])
-                lat = np.cross(t[i], a)
-        dir_x[i] = lat / (np.linalg.norm(lat) or 1.0)
-        prev = dir_x[i]
+        lat = np.cross(t[i], up_ref)
+        if np.linalg.norm(lat) >= VERTICAL_BAND:
+            dir_x[i] = lat / np.linalg.norm(lat)
+
+    def _ortho(v, i):
+        v = v - float(np.dot(v, t[i])) * t[i]
+        nrm = np.linalg.norm(v)
+        return v / nrm if nrm > 1e-9 else None
+
+    i = 0
+    while i < n:
+        if dir_x[i] is not None:
+            i += 1
+            continue
+        lo = i
+        while i < n and dir_x[i] is None:  # the vertical-band gap [lo, i)
+            i += 1
+        left = dir_x[lo - 1] if lo > 0 else None
+        right = dir_x[i] if i < n else None
+        span = i - lo
+        for k, j in enumerate(range(lo, span + lo)):
+            if left is not None and right is not None:
+                f = (k + 1.0) / (span + 1.0)  # interpolate the twist along the riser
+                v = _ortho((1.0 - f) * left + f * right, j)
+                if v is None:
+                    v = _ortho(left, j)
+            elif left is not None:
+                v = _ortho(left, j)
+            elif right is not None:
+                v = _ortho(right, j)
+            else:  # whole run vertical: seed an arbitrary perpendicular
+                seed = np.array([1.0, 0.0, 0.0]) if abs(t[j, 0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+                v = _ortho(seed, j)
+            if v is None:
+                v = left if left is not None else np.array([1.0, 0.0, 0.0])
+            dir_x[j] = v
+
+    dir_x = np.asarray(dir_x, dtype=float)
     dir_y = np.cross(dir_x, t)  # up = dir_x x tangent (+Z projected on a level leg)
     return dir_x, dir_y
 
@@ -580,8 +619,13 @@ def _run_segment_frames(segments, up=(0.0, 0.0, 1.0)):
     for seg in segments:
         if isinstance(seg, ArcLine):
             seg_pts.append([tuple(float(c) for c in p) for p in _sample_arc(seg.start, seg.midpoint, seg.end)])
-        else:  # Edge / straight
-            seg_pts.append([tuple(float(c) for c in seg.start), tuple(float(c) for c in seg.end)])
+        else:  # Edge / straight: densify so a twist crossing it (a riser joining two
+            # perpendicular runs) distributes finely and the sweep follows it, rather
+            # than jumping across a 2-station span.
+            s0 = tuple(float(c) for c in seg.start)
+            s1 = tuple(float(c) for c in seg.end)
+            steps = max(1, int(_seg_len(ada.Point(*s0), ada.Point(*s1)) / 0.1))
+            seg_pts.append([tuple(s0[k] + (s1[k] - s0[k]) * (m / steps) for k in range(3)) for m in range(steps + 1)])
 
     glob: list[tuple] = []
     ranges: list[tuple[int, int]] = []
