@@ -15,15 +15,24 @@ columns, 10 mm floor plate, HP140x8 stringers @ 0.4 m).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 import ada
+from ada.config import logger
 from ada.topology import BlueprintBase
 from ada.topology.graph import GraphEdge, GraphFace
+
+if TYPE_CHECKING:
+    from ada.topology.entities import TopoOpening
 
 __all__ = ["SteelStru"]
 
 _MID_NDIGITS = 4
+# Extend a negative-volume opening's cut past both plate faces so the hole
+# punches cleanly through the plate thickness (metres).
+_OPENING_CUT_MARGIN = 0.05
 
 
 def _edge_midpoint_key(edge: GraphEdge) -> tuple[float, float, float]:
@@ -50,6 +59,27 @@ def _dedupe_edges(faces: list[GraphFace], horizontal: bool) -> list[GraphEdge]:
                 continue
             unique.setdefault(_edge_midpoint_key(edge), edge)
     return list(unique.values())
+
+
+def _plate_world_aabb(pl: ada.Plate) -> tuple[np.ndarray, np.ndarray]:
+    """World-space axis-aligned min/max corners of a plate (thickness included)."""
+    bb = pl.bbox()
+    return np.asarray(bb.p1, dtype=float), np.asarray(bb.p2, dtype=float)
+
+
+def _opening_frame_axes(normal_axis: int) -> tuple[int, int]:
+    """Given a plate's normal axis, return ``(width_axis, height_axis)`` for the
+    reinforcement frame: the height runs along the vertical (global Z) for a wall
+    and the width along the remaining in-plane (lateral) axis. A horizontal plate
+    (normal along Z, i.e. a floor/roof) has no vertical in-plane axis, so the two
+    in-plane axes are used in order."""
+    in_plane = [a for a in range(3) if a != normal_axis]
+    if 2 in in_plane:  # wall: keep height along the vertical axis
+        height_axis = 2
+        width_axis = next(a for a in in_plane if a != 2)
+    else:  # floor/roof
+        width_axis, height_axis = in_plane[0], in_plane[1]
+    return width_axis, height_axis
 
 
 def _build_reinforced_wall(
@@ -286,3 +316,110 @@ class SteelStru(BlueprintBase):
             self.output_part.add_part(r)
         self.output_part.add_part(frame)
         return self.output_part
+
+    def cut_opening(self, host: ada.Part, opening: TopoOpening) -> ada.Part | None:
+        """Cut a negative-volume opening into every built plate it overlaps and
+        return its reinforcement framing (or ``None`` when it overlaps no plate).
+
+        The opening's placed box subtracts from each overlapping plate; a ``door``
+        subtype extends the cut down to the wall's floor (full-height opening),
+        while a ``window`` keeps its punched rectangle at the placed Z. Around the
+        hole in the dominant wall plate the reinforcement uses the same stud/rail
+        section as the wall stiffeners (``self.stringer_sec``):
+
+        - **door**   : jamb studs both sides + a head/lintel beam + a threshold
+          (sill at floor level).
+        - **window** : jamb studs both sides + a head beam + a sill beam.
+
+        A boolean cut that fails is logged and skipped so one bad opening never
+        sinks the whole compile."""
+        p1 = np.asarray(tuple(opening.get_p1()), dtype=float)
+        p2 = np.asarray(tuple(opening.get_p2()), dtype=float)
+        box_lo, box_hi = np.minimum(p1, p2), np.maximum(p1, p2)
+        subtype = getattr(opening, "SUBTYPE", "door")
+
+        host_hole: tuple[int, np.ndarray, np.ndarray, ada.Plate] | None = None
+        best_overlap = 0.0
+        cut_any = False
+        for pl in host.get_all_physical_objects(by_type=ada.Plate):
+            pl_lo, pl_hi = _plate_world_aabb(pl)
+            ov_lo, ov_hi = np.maximum(box_lo, pl_lo), np.minimum(box_hi, pl_hi)
+            if np.any(ov_hi - ov_lo <= 1e-9):
+                continue  # no genuine overlap with this plate
+
+            normal_axis = int(np.argmin(pl_hi - pl_lo))  # plate's thin (through) axis
+            is_wall = normal_axis in (0, 1)
+
+            # In-plane extents come from the opening (clamped to the plate face);
+            # the cut spans fully through the plate along its normal.
+            cut_lo, cut_hi = box_lo.copy(), box_hi.copy()
+            cut_lo[normal_axis] = pl_lo[normal_axis] - _OPENING_CUT_MARGIN
+            cut_hi[normal_axis] = pl_hi[normal_axis] + _OPENING_CUT_MARGIN
+            for a in range(3):
+                if a == normal_axis:
+                    continue
+                cut_lo[a] = max(cut_lo[a], pl_lo[a])
+                cut_hi[a] = min(cut_hi[a], pl_hi[a])
+            if is_wall and subtype == "door":
+                cut_lo[2] = pl_lo[2] - _OPENING_CUT_MARGIN  # door reaches the floor
+
+            try:
+                pl.add_boolean(ada.PrimBox(f"{opening.NAME}_cut", tuple(cut_lo), tuple(cut_hi)))
+            except Exception as exc:  # noqa: BLE001 - last-resort per-opening guard
+                logger.warning("procedural: skipping opening %r cut in %r: %s", opening.NAME, pl.name, exc)
+                continue
+            cut_any = True
+
+            vol = float(np.prod(ov_hi - ov_lo))
+            if is_wall and vol > best_overlap:
+                best_overlap = vol
+                host_hole = (normal_axis, cut_lo.copy(), cut_hi.copy(), pl)
+
+        if not cut_any or host_hole is None:
+            return None
+        return self._opening_reinforcement(opening, subtype, *host_hole)
+
+    def _opening_reinforcement(
+        self,
+        opening: TopoOpening,
+        subtype: str,
+        normal_axis: int,
+        cut_lo: np.ndarray,
+        cut_hi: np.ndarray,
+        plate: ada.Plate,
+    ) -> ada.Part:
+        """Frame the hole in ``plate`` with jamb studs + head + sill/threshold
+        beams (per ``subtype``), all in ``self.stringer_sec`` and standing
+        perpendicular to the plate plane (local up along the plate normal)."""
+        width_axis, height_axis = _opening_frame_axes(normal_axis)
+        pl_lo, pl_hi = _plate_world_aabb(plate)
+        ncoord = (pl_lo[normal_axis] + pl_hi[normal_axis]) / 2.0
+
+        # Clamp the hole extents to the plate face so the frame sits on the plate
+        # (e.g. a door threshold lands exactly on the floor, not the cut margin).
+        w_lo = max(float(cut_lo[width_axis]), float(pl_lo[width_axis]))
+        w_hi = min(float(cut_hi[width_axis]), float(pl_hi[width_axis]))
+        h_lo = max(float(cut_lo[height_axis]), float(pl_lo[height_axis]))
+        h_hi = min(float(cut_hi[height_axis]), float(pl_hi[height_axis]))
+
+        up = [0.0, 0.0, 0.0]
+        up[normal_axis] = 1.0
+        up = tuple(up)
+
+        def pt(w: float, h: float) -> tuple[float, float, float]:
+            q = [0.0, 0.0, 0.0]
+            q[normal_axis] = ncoord
+            q[width_axis] = w
+            q[height_axis] = h
+            return tuple(q)
+
+        sec = self.stringer_sec
+        base = f"Opening_{opening.NAME}"
+        head_name, sill_name = ("lintel", "threshold") if subtype == "door" else ("head", "sill")
+        beams = [
+            ada.Beam(f"{base}_jamb_L", pt(w_lo, h_lo), pt(w_lo, h_hi), sec, up=up),
+            ada.Beam(f"{base}_jamb_R", pt(w_hi, h_lo), pt(w_hi, h_hi), sec, up=up),
+            ada.Beam(f"{base}_{head_name}", pt(w_lo, h_hi), pt(w_hi, h_hi), sec, up=up),
+            ada.Beam(f"{base}_{sill_name}", pt(w_lo, h_lo), pt(w_hi, h_lo), sec, up=up),
+        ]
+        return ada.Part(base) / beams

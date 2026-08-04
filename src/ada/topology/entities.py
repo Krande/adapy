@@ -411,6 +411,16 @@ class TopoOpening(_TopoConfigBoundModel):
     INCLUDE: Annotated[bool, Field(description="Include Opening in build")] = False
     NAME: Annotated[str, Field(description="Name of opening")]
     FUNCTION: Annotated[Literal["opening", "door"], Field(description="Function of the opening")] = "opening"
+    SUBTYPE: Annotated[
+        Literal["door", "window"],
+        Field(
+            description=(
+                "Opening subtype driving the reinforcement framing: 'door' cuts a full-height opening to "
+                "the floor (jamb studs + head/lintel + threshold sill at floor level); 'window' cuts a "
+                "punched rectangle at the placed Z (jamb studs + head + sill)."
+            )
+        ),
+    ] = "door"
     SPACE_NAME: Annotated[str, Field(description="Name of space the opening is located in")] = None
     SPACE_SIDE: Annotated[
         Literal["-X", "X", "-Y", "Y", "-Z", "Z"], Field(description="Space side in the global coordinate system")
