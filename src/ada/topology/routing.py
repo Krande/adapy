@@ -345,20 +345,30 @@ def _collapse_short_legs(pts: list[ada.Point], min_len: float) -> list[ada.Point
     the resulting centreline shift is bounded by ``min_len`` so it stays inside the
     equipment clearance halo (which is sized to the same half-extent). The two
     terminal legs — the port stub/cap that carries nozzle orientation — are never
-    collapsed. Re-orthogonalising every pass keeps the run axis-aligned and lets a
-    freshly exposed short leg be caught on the next iteration."""
+    collapsed.
+
+    A collapse is only kept when it strictly reduces the vertex count. On a *3D*
+    staircase (short x-, y- AND z-steps) removing one step and re-squaring the gap
+    simply re-inserts an equivalent step, so the count wouldn't shrink — accepting
+    such a no-op would spin forever. Those legs are left in place (the fillet's
+    inversion guard renders them as sharp corners instead), which keeps the pass
+    bounded to at most one collapse per vertex."""
     out = _orthogonalize_polyline([ada.Point(*p) for p in pts])
     if min_len <= 0.0:
         return out
-    while len(out) > 3:
-        j = None
+    guard = len(out) + 1  # backstop: at most one accepted collapse per vertex
+    while len(out) > 3 and guard > 0:
+        guard -= 1
+        collapsed = False
         for k in range(1, len(out) - 2):  # interior legs only (both terminal legs kept)
             if _seg_len(out[k], out[k + 1]) < min_len:
-                j = k
-                break
-        if j is None:
+                candidate = _orthogonalize_polyline(out[:k] + out[k + 2 :])
+                if len(candidate) < len(out):  # only keep a collapse that actually simplifies
+                    out = candidate
+                    collapsed = True
+                    break
+        if not collapsed:
             break
-        out = _orthogonalize_polyline(out[:j] + out[j + 2 :])
     return out
 
 

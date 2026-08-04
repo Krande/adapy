@@ -413,3 +413,25 @@ def test_strict_swept_run_builds_uniform_radius_on_adequate_spacing():
     # a 90 deg arc of radius 0.4 has chord r*sqrt(2)
     chord = _v_norm(_v_sub(tuple(arcs[0].end), tuple(arcs[0].start)))
     assert abs(chord - 0.4 * (2 ** 0.5)) < 1e-6
+
+
+def test_collapse_short_legs_terminates_on_3d_staircase():
+    """A 3D staircase (short x-, y- AND z-steps) must not spin forever: removing a
+    step and re-squaring the gap just re-inserts an equivalent step, so a collapse
+    that doesn't strictly reduce the vertex count is rejected. Regression for an
+    infinite loop that hung the procedural demo compile."""
+    from ada.topology.routing import _collapse_short_legs
+
+    p = [0.0, 0.0, 3.0]
+    pts = [ada.Point(*p)]
+    for _ in range(6):
+        for ax in (0, 1, 2):
+            p = list(p)
+            p[ax] += 0.2
+            pts.append(ada.Point(*p))
+
+    # min_len below the step: nothing strictly simplifies -> returned unchanged, no hang.
+    out = _collapse_short_legs(pts, 0.15)
+    assert len(out) == len(pts)
+    # min_len above the step: collapses that DO shrink are still applied.
+    assert len(_collapse_short_legs(pts, 0.3)) < len(pts)
