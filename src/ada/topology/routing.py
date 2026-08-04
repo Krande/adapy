@@ -518,47 +518,46 @@ def _polyline_to_directrix(
     return IndexedPolyCurve(segments=segs)
 
 
-def _parallel_transport_frames(pts, up):
-    """Rotation-minimising (parallel-transport) per-station frames along a 3D
-    polyline. Returns ``(dir_x, dir_y)`` as ``(N, 3)`` arrays with ``dir_x`` the
-    profile's local +x (lateral) and ``dir_y`` its local +y (up), matching
-    :func:`~ada.cadit.ngeom.serialize.general_directrix_frames`'s convention on a
-    horizontal leg (``dir_x = tangent x up``) so straight/planar runs are
-    unchanged — but, unlike that memoryless ``t x up`` rule, the frame is carried
-    smoothly through the bends so a run that changes its bend plane (a duct that
-    turns in plan *and* climbs) never snaps 90 deg at the transition."""
+def _level_frames(pts, up):
+    """Gravity-aligned per-station frames along a 3D polyline. Returns
+    ``(dir_x, dir_y)`` as ``(N, 3)`` arrays — ``dir_x`` the profile's local +x
+    (lateral, width) and ``dir_y`` its local +y (up, height).
+
+    A duct/cable tray is gravity-oriented: on every *horizontal* run its opening
+    must face straight up (+Z), never sideways. So the up axis is kept as close to
+    world ``up`` (+Z) as the tangent allows — ``dir_x = tangent x up`` gives
+    ``dir_y = dir_x x tangent`` = ``up`` projected perpendicular to the tangent,
+    i.e. exactly +Z on a level leg. Through a (near-)vertical section, where
+    ``tangent x up`` vanishes, the lateral is carried (parallel-transported,
+    re-orthogonalised) from the previous station so the frame stays continuous
+    across the riser rather than snapping.
+
+    This replaces a purely rotation-minimising transport, which — though smooth —
+    drifts the up axis off +Z after any climb and tilts every following horizontal
+    tray onto its side."""
     import numpy as np
 
     pts = np.asarray(pts, dtype=float)
     n = len(pts)
-    up = np.asarray(up, dtype=float)
-    up = up / (np.linalg.norm(up) or 1.0)
+    up_ref = np.asarray(up, dtype=float)
+    up_ref = up_ref / (np.linalg.norm(up_ref) or 1.0)
     t = np.gradient(pts, axis=0)
     tn = np.linalg.norm(t, axis=1, keepdims=True)
     t = t / np.where(tn < 1e-12, 1.0, tn)
 
     dir_x = np.zeros((n, 3))
-    x0 = np.cross(t[0], up)  # = general_directrix_frames' lateral on a horizontal start
-    if np.linalg.norm(x0) < 1e-9:  # run starts vertical: seed an arbitrary perpendicular
-        a = np.array([1.0, 0.0, 0.0]) if abs(t[0, 0]) < 0.9 else np.array([0.0, 1.0, 0.0])
-        x0 = np.cross(t[0], a)
-    dir_x[0] = x0 / (np.linalg.norm(x0) or 1.0)
-    for i in range(1, n):
-        v1, v2 = t[i - 1], t[i]
-        ax = np.cross(v1, v2)
-        s = float(np.linalg.norm(ax))
-        xp = dir_x[i - 1]
-        if s < 1e-9:  # no bend -> carry the frame
-            dir_x[i] = xp
-        else:  # Rodrigues-rotate the frame by the tangent turn
-            ax /= s
-            ang = np.arctan2(s, float(np.dot(v1, v2)))
-            dir_x[i] = (
-                xp * np.cos(ang) + np.cross(ax, xp) * np.sin(ang) + ax * float(np.dot(ax, xp)) * (1 - np.cos(ang))
-            )
-        dir_x[i] -= float(np.dot(dir_x[i], t[i])) * t[i]  # re-orthogonalise against the tangent
-        dir_x[i] /= np.linalg.norm(dir_x[i]) or 1.0
-    dir_y = np.cross(dir_x, t)  # up = dir_x x tangent (general_directrix_frames convention)
+    prev = None
+    for i in range(n):
+        lat = np.cross(t[i], up_ref)  # level lateral; = 0 only when the tangent is vertical
+        if np.linalg.norm(lat) < 1e-6:  # (near-)vertical: carry the frame through the riser
+            if prev is not None:
+                lat = prev - float(np.dot(prev, t[i])) * t[i]  # re-orthogonalise the carried lateral
+            if np.linalg.norm(lat) < 1e-9:  # run *starts* vertical: seed an arbitrary perpendicular
+                a = np.array([1.0, 0.0, 0.0]) if abs(t[i, 0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+                lat = np.cross(t[i], a)
+        dir_x[i] = lat / (np.linalg.norm(lat) or 1.0)
+        prev = dir_x[i]
+    dir_y = np.cross(dir_x, t)  # up = dir_x x tangent (+Z projected on a level leg)
     return dir_x, dir_y
 
 
@@ -568,10 +567,10 @@ def _run_segment_frames(segments, up=(0.0, 0.0, 1.0)):
 
     Each segment (a straight ``Edge`` or an arc-fillet ``ArcLine``) is sampled into
     its own stations, the stations are concatenated into one global polyline
-    (sharing the coincident segment joins), parallel-transported once, then split
-    back per segment. Adjacent segments therefore share the join station's frame
-    exactly, so their swept solids meet without the 90 deg twist that framing each
-    segment in isolation produces at an out-of-plane bend."""
+    (sharing the coincident segment joins), framed once with :func:`_level_frames`,
+    then split back per segment. Adjacent segments therefore share the join
+    station's frame exactly, so their swept solids meet without the 90 deg twist
+    that framing each segment in isolation produces at an out-of-plane bend."""
     import numpy as np
 
     from ada.cadit.ngeom.serialize import _sample_arc
@@ -595,7 +594,7 @@ def _run_segment_frames(segments, up=(0.0, 0.0, 1.0)):
             glob.extend(pts)
         ranges.append((start, len(glob) - 1))
 
-    dir_x, dir_y = _parallel_transport_frames(glob, up)
+    dir_x, dir_y = _level_frames(glob, up)
     origins = np.asarray(glob, dtype=float)
     return [(origins[a : b + 1], dir_x[a : b + 1], dir_y[a : b + 1]) for a, b in ranges]
 
