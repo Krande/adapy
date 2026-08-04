@@ -1037,6 +1037,44 @@ def _polyline_to_directrix(
     return IndexedPolyCurve(segments=segs)
 
 
+def _slerp_lateral(axis, v_from, v_to, f):
+    """Rotate the lateral ``v_from`` a fraction ``f`` of the way toward ``v_to``,
+    turning ABOUT ``axis`` (the riser direction) rather than linearly blending.
+
+    Linearly interpolating two laterals and renormalising collapses through zero
+    when they are (near-)anti-parallel — a riser that reverses the horizontal run
+    direction has ``left=(0,1,0)`` / ``right=(0,-1,0)``, so the lerp hits ``0`` at
+    the midpoint and the frame FLIPS 180° in one station (the tray visibly twists
+    and flips halfway up). Rotating about the riser axis instead sweeps the lateral
+    smoothly (through the sideways orientation) so the unavoidable 180° twist is
+    distributed evenly up the riser. Anti-parallel endpoints have an ambiguous
+    turn direction (their cross product is ~0); we pick the positive sense so the
+    twist is deterministic."""
+    import numpy as np
+
+    a = np.asarray(axis, dtype=float)
+    na = float(np.linalg.norm(a))
+    if na < 1e-9:
+        return None
+    a = a / na
+    vf = np.asarray(v_from, dtype=float)
+    vt = np.asarray(v_to, dtype=float)
+    vf = vf - float(np.dot(vf, a)) * a
+    vt = vt - float(np.dot(vt, a)) * a
+    nf, nt = float(np.linalg.norm(vf)), float(np.linalg.norm(vt))
+    if nf < 1e-9 or nt < 1e-9:
+        return None
+    vf, vt = vf / nf, vt / nt
+    ang = float(np.arccos(float(np.clip(np.dot(vf, vt), -1.0, 1.0))))
+    if ang < 1e-6:
+        return vf
+    sgn = float(np.dot(np.cross(vf, vt), a))
+    direction = 1.0 if (sgn >= 0.0 or ang > np.pi - 1e-3) else -1.0
+    theta = direction * ang * f
+    # Rodrigues rotation of vf about a by theta.
+    return vf * np.cos(theta) + np.cross(a, vf) * np.sin(theta) + a * float(np.dot(a, vf)) * (1.0 - np.cos(theta))
+
+
 def _level_frames(pts, up):
     """Gravity-aligned per-station frames along a 3D polyline. Returns
     ``(dir_x, dir_y)`` as ``(N, 3)`` arrays — ``dir_x`` the profile's local +x
@@ -1097,12 +1135,17 @@ def _level_frames(pts, up):
         left = dir_x[lo - 1] if lo > 0 else None
         right = dir_x[i] if i < n else None
         span = i - lo
+        # Rotate the lateral about the riser axis (mean band tangent) so an
+        # anti-parallel left/right distributes its 180° twist smoothly instead of
+        # flipping at the midpoint (see _slerp_lateral).
+        band_axis = t[lo:i].mean(axis=0) if span > 0 else t[lo]
         for k, j in enumerate(range(lo, span + lo)):
             if left is not None and right is not None:
-                f = (k + 1.0) / (span + 1.0)  # interpolate the twist along the riser
-                v = _ortho((1.0 - f) * left + f * right, j)
+                f = (k + 1.0) / (span + 1.0)  # rotate the twist along the riser
+                sl = _slerp_lateral(band_axis, left, right, f)
+                v = _ortho(sl, j) if sl is not None else None
                 if v is None:
-                    v = _ortho(left, j)
+                    v = _ortho((1.0 - f) * left + f * right, j) or _ortho(left, j)
             elif left is not None:
                 v = _ortho(left, j)
             elif right is not None:
