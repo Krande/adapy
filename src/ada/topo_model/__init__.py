@@ -25,6 +25,7 @@ from .penetration import (
     standard_design_rules,
     standard_penetration_modeller,
 )
+from .relocate import propose_relocations, run_self_collides
 
 __all__ = [
     "DEFAULT_DESIGN_RULESET",
@@ -40,7 +41,9 @@ __all__ = [
     "create_tank",
     "design_ruleset_specs",
     "make_space_boxes",
+    "propose_relocations",
     "resolve_design_rules",
+    "run_self_collides",
     "standard_design_rules",
     "standard_penetration_modeller",
 ]
