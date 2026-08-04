@@ -1070,6 +1070,22 @@ export interface ProceduralCompileResponse {
   cached: boolean;
 }
 
+/** One proposed equipment move that would make a cramped/unroutable run clean.
+ * ``from``/``to`` are equipment ORIGINS (X+LX/2, Y+LY/2, Z). */
+export interface ProceduralRelocation {
+  equipment: string;
+  from: [number, number, number];
+  to: [number, number, number];
+  reason: string;
+  fixes: string[];
+}
+
+export interface ProceduralRelocationResult {
+  proposals: ProceduralRelocation[];
+  unresolved: string[];
+  baseline_problems: number;
+}
+
 /** Where a dropdown type comes from: a built-in ada archetype/kind ("code")
  * or the per-scope postgres catalog ("catalog"). */
 export type TypeOrigin = "code" | "catalog";
@@ -1997,9 +2013,7 @@ export const viewerApi = {
   /** Resync ALL code-defined equipment archetypes into this scope's catalog,
    * updating existing entries (unlike the single-slug sync, which only creates).
    * Returns which slugs were created / updated / left unchanged. */
-  async resyncProceduralEquipmentTypes(
-    scope: ScopeUrl,
-  ): Promise<{
+  async resyncProceduralEquipmentTypes(scope: ScopeUrl): Promise<{
     created: string[];
     updated: string[];
     unchanged: string[];
@@ -2010,6 +2024,37 @@ export const viewerApi = {
       { method: "POST" },
     );
     return jsonOrThrow(r, `resyncProceduralEquipmentTypes(${scope})`);
+  },
+
+  /** Enqueue a relocation analysis: propose the minimum equipment moves that
+   * would make the model's cramped/unroutable runs clean. Returns a job to poll
+   * (convertStatus); on done, GET the derived_key blob via
+   * fetchProceduralRelocations. Never applied automatically. */
+  async proposeProceduralRelocations(
+    scope: ScopeUrl,
+    modelId: string,
+  ): Promise<{ job_id: string | null; derived_key: string }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/propose-relocations`,
+      { method: "POST" },
+    );
+    return jsonOrThrow(r, `proposeProceduralRelocations(${modelId})`);
+  },
+
+  /** Fetch the relocation proposals JSON produced by the worker. */
+  async fetchProceduralRelocations(
+    scope: ScopeUrl,
+    key: string,
+  ): Promise<ProceduralRelocationResult> {
+    const r = await authedFetch(this.blobUrl(scope, key));
+    if (!r.ok) {
+      throw new ApiError(
+        `fetchProceduralRelocations(${key})`,
+        r.status,
+        await readDetail(r),
+      );
+    }
+    return (await r.json()) as ProceduralRelocationResult;
   },
 
   /** Persist a code-defined system kind into this scope's DB system-template

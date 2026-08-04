@@ -868,6 +868,14 @@ const CellBuilderPanel: React.FC = () => {
         </button>
         <button
           className={btnGray}
+          disabled={s.relocationBusy}
+          onClick={() => void s.proposeRelocations()}
+          title="Analyse the model and propose the fewest equipment moves that make its cramped / unroutable runs clean. Nothing moves until you click Apply."
+        >
+          {s.relocationBusy ? "Analyzing…" : "Propose relocations"}
+        </button>
+        <button
+          className={btnGray}
           onClick={() => s.setPortsOverlayVisible(!s.portsOverlayVisible)}
           title="Toggle the port overlay: each equipment's input/output positions and vectors — plus site I/O terminals — drawn as coloured arrows (colours match the equipment catalog)"
           aria-pressed={s.portsOverlayVisible}
@@ -892,6 +900,57 @@ const CellBuilderPanel: React.FC = () => {
           Demo template
         </button>
       </div>
+
+      {s.relocations && (
+        <div className="mt-1 border border-amber-500/50 rounded-sm p-1 text-[12px]">
+          {s.relocations.proposals.length === 0 ? (
+            <p className="text-gray-300">
+              {s.relocations.baseline_problems > 0
+                ? `No move found; ${s.relocations.unresolved.length} run(s) still unresolvable.`
+                : "Routing is clean — no relocations needed."}
+            </p>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className="font-semibold text-amber-300">
+                  {s.relocations.proposals.length} move
+                  {s.relocations.proposals.length === 1 ? "" : "s"} proposed
+                </span>
+                <button
+                  className={btn}
+                  onClick={() => s.applyRelocations()}
+                  title="Move the equipment as proposed (undoable), then recompile to route cleanly"
+                >
+                  Apply moves
+                </button>
+                <button
+                  className={btnGray}
+                  onClick={() =>
+                    useCellBuilderStore.setState({ relocations: null })
+                  }
+                >
+                  Dismiss
+                </button>
+              </div>
+              <ul className="flex flex-col gap-0.5">
+                {s.relocations.proposals.map((p) => (
+                  <li key={p.equipment} className="text-gray-200 break-all">
+                    <span className="text-blue-300">{p.equipment}</span>{" "}
+                    {p.from.map((v) => v.toFixed(1)).join(",")} →{" "}
+                    {p.to.map((v) => v.toFixed(1)).join(",")}
+                    <span className="text-gray-500"> — {p.reason}</span>
+                  </li>
+                ))}
+              </ul>
+              {s.relocations.unresolved.length > 0 && (
+                <p className="text-red-400 mt-0.5">
+                  still unresolved: {s.relocations.unresolved.join(", ")}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };
