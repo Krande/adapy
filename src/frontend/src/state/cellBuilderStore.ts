@@ -8,7 +8,10 @@ import {
   type ProceduralSystemTypeOption,
   type ProceduralTypeOption,
 } from "@/services/viewerApi";
-import { useConversionStore, type ConversionJob } from "@/state/conversionStore";
+import {
+  useConversionStore,
+  type ConversionJob,
+} from "@/state/conversionStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
 import {
@@ -392,11 +395,11 @@ function systemsFromDoc(doc: ProceduralDoc): Record<string, BuilderSystem> {
           ? {
               site: String(c.SITE),
               position: Array.isArray(c.POSITION)
-                ? ([Number(c.POSITION[0]), Number(c.POSITION[1]), Number(c.POSITION[2])] as [
-                    number,
-                    number,
-                    number,
-                  ])
+                ? ([
+                    Number(c.POSITION[0]),
+                    Number(c.POSITION[1]),
+                    Number(c.POSITION[2]),
+                  ] as [number, number, number])
                 : ([0, 0, 0] as [number, number, number]),
               direction: c.DIRECTION === "OUT" ? "OUT" : "IN",
               directionVector: Array.isArray(c.DIRECTION_VECTOR)
@@ -666,7 +669,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         return {
           hiddenCellIds: [...next],
           selectedCellIds: s.selectedCellIds.filter((id) => !next.has(id)),
-          ...(selHidden ? { selection: null, gizmoMode: "none" as GizmoMode } : {}),
+          ...(selHidden
+            ? { selection: null, gizmoMode: "none" as GizmoMode }
+            : {}),
         };
       }),
     unhideAllCells: () => set({ hiddenCellIds: [] }),
@@ -688,13 +693,16 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         const cur = Array.isArray(
           (s.blueprintOptions as { enclosed_cells?: unknown }).enclosed_cells,
         )
-          ? ((s.blueprintOptions as { enclosed_cells: string[] }).enclosed_cells)
+          ? (s.blueprintOptions as { enclosed_cells: string[] }).enclosed_cells
           : [];
         const names = new Set(cur);
         if (enclosed) names.add(cellName);
         else names.delete(cellName);
         return {
-          blueprintOptions: { ...s.blueprintOptions, enclosed_cells: [...names] },
+          blueprintOptions: {
+            ...s.blueprintOptions,
+            enclosed_cells: [...names],
+          },
           dirty: true,
         };
       }),
@@ -765,9 +773,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // Reject a name already taken by another cell — connections and the
         // compiled entities key on the name, so it must stay unique.
         if (
-          Object.values(s.cells).some(
-            (c) => c.id !== id && c.name === trimmed,
-          )
+          Object.values(s.cells).some((c) => c.id !== id && c.name === trimmed)
         )
           return {};
         const cells = { ...s.cells, [id]: { ...cur, name: trimmed } };
@@ -789,8 +795,13 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         }
         // Enclosure is keyed by cell name too — carry it across a rename.
         let blueprintOptions = s.blueprintOptions;
-        const enc = (blueprintOptions as { enclosed_cells?: string[] }).enclosed_cells;
-        if (cur.kind === "cell" && Array.isArray(enc) && enc.includes(cur.name)) {
+        const enc = (blueprintOptions as { enclosed_cells?: string[] })
+          .enclosed_cells;
+        if (
+          cur.kind === "cell" &&
+          Array.isArray(enc) &&
+          enc.includes(cur.name)
+        ) {
           blueprintOptions = {
             ...blueprintOptions,
             enclosed_cells: enc.map((n) => (n === cur.name ? trimmed : n)),
@@ -1000,35 +1011,147 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         },
         design_rules: "standard",
         spaces: [
-          { NAME: "Cell1", INCLUDE: true, X: 0, Y: 0, Z: 0, DX: 5, DY: 5, DZ: 3 },
-          { NAME: "Cell2", INCLUDE: true, X: 5, Y: 0, Z: 0, DX: 5, DY: 5, DZ: 3 },
-          { NAME: "Cell3", INCLUDE: true, X: 0, Y: 0, Z: 3, DX: 5, DY: 5, DZ: 3 },
-          { NAME: "Cell4", INCLUDE: true, X: 5, Y: 0, Z: 3, DX: 5, DY: 5, DZ: 3 },
+          {
+            NAME: "Cell1",
+            INCLUDE: true,
+            X: 0,
+            Y: 0,
+            Z: 0,
+            DX: 5,
+            DY: 5,
+            DZ: 3,
+          },
+          {
+            NAME: "Cell2",
+            INCLUDE: true,
+            X: 5,
+            Y: 0,
+            Z: 0,
+            DX: 5,
+            DY: 5,
+            DZ: 3,
+          },
+          {
+            NAME: "Cell3",
+            INCLUDE: true,
+            X: 0,
+            Y: 0,
+            Z: 3,
+            DX: 5,
+            DY: 5,
+            DZ: 3,
+          },
+          {
+            NAME: "Cell4",
+            INCLUDE: true,
+            X: 5,
+            Y: 0,
+            Z: 3,
+            DX: 5,
+            DY: 5,
+            DZ: 3,
+          },
         ],
         equipments: [
           // Ground floor (Cell1/Cell2)
-          { NAME: "Pump2", DESCRIPTION: "pump", X: 2, Y: 2, Z: 0, LX: 1, LY: 1, LZ: 1 },
-          { NAME: "Tank2", DESCRIPTION: "tank", X: 6.5, Y: 1.5, Z: 0, LX: 2, LY: 2, LZ: 2 },
-          { NAME: "SB2", DESCRIPTION: "switchboard", X: 0.3, Y: 2, Z: 0, LX: 0.8, LY: 0.4, LZ: 1.2 },
+          {
+            NAME: "Pump2",
+            DESCRIPTION: "pump",
+            X: 2,
+            Y: 2,
+            Z: 0,
+            LX: 1,
+            LY: 1,
+            LZ: 1,
+          },
+          {
+            NAME: "Tank2",
+            DESCRIPTION: "tank",
+            X: 6.5,
+            Y: 1.5,
+            Z: 0,
+            LX: 2,
+            LY: 2,
+            LZ: 2,
+          },
+          {
+            NAME: "SB2",
+            DESCRIPTION: "switchboard",
+            X: 0.3,
+            Y: 2,
+            Z: 0,
+            LX: 0.8,
+            LY: 0.4,
+            LZ: 1.2,
+          },
           // Second floor (Cell3/Cell4) — Cell3 is the HVAC room
-          { NAME: "Pump1", DESCRIPTION: "pump", X: 2, Y: 2, Z: 3, LX: 1, LY: 1, LZ: 1 },
-          { NAME: "Tank1", DESCRIPTION: "tank", X: 6.5, Y: 1.5, Z: 3, LX: 2, LY: 2, LZ: 2 },
-          { NAME: "SB1", DESCRIPTION: "switchboard", X: 0.3, Y: 2, Z: 3, LX: 0.8, LY: 0.4, LZ: 1.2 },
-          { NAME: "HVAC1", DESCRIPTION: "hvac", X: 3, Y: 3.5, Z: 3, LX: 1.5, LY: 1, LZ: 1.2 },
+          {
+            NAME: "Pump1",
+            DESCRIPTION: "pump",
+            X: 2,
+            Y: 2,
+            Z: 3,
+            LX: 1,
+            LY: 1,
+            LZ: 1,
+          },
+          {
+            NAME: "Tank1",
+            DESCRIPTION: "tank",
+            X: 6.5,
+            Y: 1.5,
+            Z: 3,
+            LX: 2,
+            LY: 2,
+            LZ: 2,
+          },
+          {
+            NAME: "SB1",
+            DESCRIPTION: "switchboard",
+            X: 0.3,
+            Y: 2,
+            Z: 3,
+            LX: 0.8,
+            LY: 0.4,
+            LZ: 1.2,
+          },
+          {
+            NAME: "HVAC1",
+            DESCRIPTION: "hvac",
+            X: 3,
+            Y: 3.5,
+            Z: 3,
+            LX: 1.5,
+            LY: 1,
+            LZ: 1.2,
+          },
           // Roof — the duct exhausts up to this unit on top of the structure
-          { NAME: "Exhaust1", DESCRIPTION: "exhaust_fan", X: 3, Y: 3.5, Z: 6, LX: 0.8, LY: 0.8, LZ: 0.6 },
+          {
+            NAME: "Exhaust1",
+            DESCRIPTION: "exhaust_fan",
+            X: 3,
+            Y: 3.5,
+            Z: 6,
+            LX: 0.8,
+            LY: 0.8,
+            LZ: 0.6,
+          },
         ],
         systems: [
           // Process piping
           {
-            NAME: "CoolingWater", TYPE: "piping", MEDIUM: "water",
+            NAME: "CoolingWater",
+            TYPE: "piping",
+            MEDIUM: "water",
             CONNECTIONS: [
               { EQUIPMENT: "Pump1", PORT: "discharge" },
               { EQUIPMENT: "Tank1", PORT: "inlet" },
             ],
           },
           {
-            NAME: "ServiceWater", TYPE: "piping", MEDIUM: "water",
+            NAME: "ServiceWater",
+            TYPE: "piping",
+            MEDIUM: "water",
             CONNECTIONS: [
               { EQUIPMENT: "Pump2", PORT: "discharge" },
               { EQUIPMENT: "Tank2", PORT: "inlet" },
@@ -1038,35 +1161,45 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           // ground switchboard (SB2), which feeds the local pump AND a second
           // switchboard (SB1) up in Cell3; SB1 in turn feeds its room's loads.
           {
-            NAME: "Mains", TYPE: "electrical",
+            NAME: "Mains",
+            TYPE: "electrical",
             CONNECTIONS: [
-              { SITE: "grid_supply", POSITION: [0, 1, 1], DIRECTION: "IN", DIRECTION_VECTOR: [1, 0, 0] },
+              {
+                SITE: "grid_supply",
+                POSITION: [0, 1, 1],
+                DIRECTION: "IN",
+                DIRECTION_VECTOR: [1, 0, 0],
+              },
               { EQUIPMENT: "SB2", PORT: "incoming" },
             ],
           },
           {
-            NAME: "PowerFeed2", TYPE: "electrical",
+            NAME: "PowerFeed2",
+            TYPE: "electrical",
             CONNECTIONS: [
               { EQUIPMENT: "SB2", PORT: "feeder" },
               { EQUIPMENT: "Pump2", PORT: "power" },
             ],
           },
           {
-            NAME: "DeckTie", TYPE: "electrical",
+            NAME: "DeckTie",
+            TYPE: "electrical",
             CONNECTIONS: [
               { EQUIPMENT: "SB2", PORT: "feeder2" },
               { EQUIPMENT: "SB1", PORT: "incoming" },
             ],
           },
           {
-            NAME: "PowerFeed1", TYPE: "electrical",
+            NAME: "PowerFeed1",
+            TYPE: "electrical",
             CONNECTIONS: [
               { EQUIPMENT: "SB1", PORT: "feeder" },
               { EQUIPMENT: "Pump1", PORT: "power" },
             ],
           },
           {
-            NAME: "HvacPower", TYPE: "electrical",
+            NAME: "HvacPower",
+            TYPE: "electrical",
             CONNECTIONS: [
               { EQUIPMENT: "SB1", PORT: "feeder2" },
               { EQUIPMENT: "HVAC1", PORT: "power" },
@@ -1074,7 +1207,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           },
           // HVAC duct: the room's air handler exhausts up to the roof fan
           {
-            NAME: "HvacExhaust", TYPE: "duct", MEDIUM: "air",
+            NAME: "HvacExhaust",
+            TYPE: "duct",
+            MEDIUM: "air",
             CONNECTIONS: [
               { EQUIPMENT: "HVAC1", PORT: "supply" },
               { EQUIPMENT: "Exhaust1", PORT: "intake" },
@@ -1082,16 +1217,30 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           },
           // Remaining site I/O — all at the Cell1 edge (x=0)
           {
-            NAME: "Drain", TYPE: "piping", MEDIUM: "water",
+            NAME: "Drain",
+            TYPE: "piping",
+            MEDIUM: "water",
             CONNECTIONS: [
               { EQUIPMENT: "Tank2", PORT: "outlet" },
-              { SITE: "drain", POSITION: [0, 2.5, 1], DIRECTION: "OUT", DIRECTION_VECTOR: [1, 0, 0] },
+              {
+                SITE: "drain",
+                POSITION: [0, 2.5, 1],
+                DIRECTION: "OUT",
+                DIRECTION_VECTOR: [1, 0, 0],
+              },
             ],
           },
           {
-            NAME: "Suction", TYPE: "piping", MEDIUM: "water",
+            NAME: "Suction",
+            TYPE: "piping",
+            MEDIUM: "water",
             CONNECTIONS: [
-              { SITE: "seawater", POSITION: [0, 4, 1], DIRECTION: "IN", DIRECTION_VECTOR: [1, 0, 0] },
+              {
+                SITE: "seawater",
+                POSITION: [0, 4, 1],
+                DIRECTION: "IN",
+                DIRECTION_VECTOR: [1, 0, 0],
+              },
               { EQUIPMENT: "Pump2", PORT: "suction" },
             ],
           },
@@ -1119,7 +1268,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           ...step.stacks,
           dirty: true,
           selection: pruneSelection(s.selection, step.restored.cells),
-          selectedCellIds: s.selectedCellIds.filter((id) => step.restored.cells[id]),
+          selectedCellIds: s.selectedCellIds.filter(
+            (id) => step.restored.cells[id],
+          ),
         };
       }),
     redo: () =>
@@ -1131,7 +1282,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           ...step.stacks,
           dirty: true,
           selection: pruneSelection(s.selection, step.restored.cells),
-          selectedCellIds: s.selectedCellIds.filter((id) => step.restored.cells[id]),
+          selectedCellIds: s.selectedCellIds.filter(
+            (id) => step.restored.cells[id],
+          ),
         };
       }),
     beginTransaction: () =>
