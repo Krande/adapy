@@ -2948,11 +2948,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         from .procedural import procedural_glb_key
 
+        # ``?force=true`` recompiles even when the revision's GLB is already
+        # cached. The cache is keyed by the model REVISION, not the compiler
+        # version — so when the routing/topology engine changes but the document
+        # doesn't, a plain recompile would hand back the stale pre-change blob.
+        # Force skips the endpoint short-circuit AND sets ``force_rebuild`` so the
+        # worker's own redelivery short-circuit is bypassed too; the worker then
+        # overwrites the blob in place (same revision key), so no doc edit /
+        # revision bump is needed to pick up an engine fix.
+        force = (request.query_params.get("force") or "").strip().lower() in ("1", "true", "yes")
+
         pool = _require_procedural_pool(request)
         row = await _get_procedural_in_scope(pool, model_id, scope_obj)
         derived_key = procedural_glb_key(row["id"], row["revision"])
 
-        if await storage.exists(scope_obj, derived_key):
+        if not force and await storage.exists(scope_obj, derived_key):
             return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
 
         if not queue.enabled:
@@ -2965,6 +2975,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             scope_id=scope_obj.id,
             conversion_options={"model_id": row["id"], "revision": row["revision"]},
             derived_key=derived_key,
+            force_rebuild=force,
         )
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
 

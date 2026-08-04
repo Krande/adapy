@@ -342,7 +342,10 @@ interface CellBuilderState {
   syncEquipmentTypeToDb: (slug: string) => Promise<void>;
   syncSystemTypeToDb: (slug: string) => Promise<void>;
   commit: () => Promise<boolean>;
-  compile: () => Promise<void>;
+  /** Compile the active model. ``force`` recompiles even if the revision's GLB
+   * is already cached — used when the compiler engine changed but the document
+   * (the cache key) did not, so a plain Compile would return the stale blob. */
+  compile: (force?: boolean) => Promise<void>;
   viewResult: (derivedKey: string) => Promise<void>;
   hideResult: () => void;
 }
@@ -1390,13 +1393,15 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       }
     },
 
-    compile: async () => {
+    compile: async (force = false) => {
       const s = get();
       if (!s.active) return;
       if (s.dirty) {
         const ok = await get().commit();
-        // commit() auto-compiles on success when enabled; avoid double-run
-        if (ok && get().autoCompile) return;
+        // commit() auto-compiles on success when enabled; avoid double-run.
+        // A forced recompile still proceeds — the auto-compile after commit is a
+        // normal (cache-honouring) run, so we fall through to re-run with force.
+        if (ok && get().autoCompile && !force) return;
         if (!ok) return;
       }
       const active = get().active;
@@ -1415,13 +1420,19 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       // Commit -> compile -> render is one gesture.
       const autoShow = () => {
         const cur = get().compileJob;
-        if (get().autoCompile && cur && cur.derivedKey)
+        if (!cur || !cur.derivedKey) return;
+        // Show the result when auto-compile is on, OR refresh a result that is
+        // already on screen — a forced recompile overwrites the same derivedKey
+        // with new bytes (the loader re-fetches via a fresh presigned URL), so the
+        // displayed model must reload to reflect the rebuild.
+        if (get().autoCompile || get().resultSourceName !== null)
           void get().viewResult(cur.derivedKey);
       };
       try {
         const res = await viewerApi.compileProceduralModel(
           currentScopePart(),
           active.modelId,
+          force,
         );
         if (res.cached) {
           set({

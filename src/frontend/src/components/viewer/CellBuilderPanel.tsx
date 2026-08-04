@@ -758,6 +758,14 @@ const CellBuilderPanel: React.FC = () => {
         >
           {compileBusy ? `Compiling (${compileState?.status})…` : "Compile"}
         </button>
+        <button
+          className={btnGray}
+          disabled={compileBusy}
+          onClick={() => void s.compile(true)}
+          title="Rebuild the model even if this revision is already cached — use after a compiler/engine change when the document itself hasn't changed"
+        >
+          Recompile
+        </button>
         {resultReady && compileState && s.resultSourceName === null && (
           <button
             className={btnGray}

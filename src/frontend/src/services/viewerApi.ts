@@ -1916,9 +1916,13 @@ export const viewerApi = {
   async compileProceduralModel(
     scope: ScopeUrl,
     modelId: string,
+    force = false,
   ): Promise<ProceduralCompileResponse> {
+    // force=true recompiles even if the revision's GLB is cached — used when the
+    // compiler engine changed but the document (the cache key) didn't.
+    const qs = force ? "?force=true" : "";
     const r = await authedFetch(
-      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile`,
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile${qs}`,
       { method: "POST" },
     );
     return jsonOrThrow<ProceduralCompileResponse>(
