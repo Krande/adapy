@@ -58,6 +58,7 @@ from ada.topology.routing import (
     route_system,
     system_route_to_geometry,
 )
+from ada.topology.run_builder import RunBuilder, RunWarning
 
 __all__ = [
     "Containment",
@@ -89,6 +90,8 @@ __all__ = [
     "path_to_polyline",
     "route_system",
     "run_design",
+    "RunBuilder",
+    "RunWarning",
     "system_route_to_geometry",
     "TopoEquipment",
     "TopoOpening",
