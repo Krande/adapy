@@ -341,3 +341,75 @@ def test_open_channel_swept_run_builds_occ_solid():
     props = GProp_GProps()
     brepgprop.VolumeProperties(shape, props)
     assert abs(props.Mass()) > 1e-9, "swept tray solid is empty (zero volume)"
+
+
+def test_graceful_swept_run_collapses_microjog_no_inverted_fillet():
+    """A routed centreline carrying a sub-profile micro-jog (a grid-remainder step
+    or an off-grid nozzle cap) must NOT fillet into a tiny arc whose radius falls
+    below the section half-width — that inverts the sweep's inner wall into a
+    self-intersecting crush. The graceful path collapses such jogs and never emits
+    an arc tighter than the half-width."""
+    from ada.geom.curves import ArcLine
+    from ada.topology.routing import (
+        _collapse_short_legs,
+        _orthogonalize_polyline,
+        _polyline_to_directrix,
+        _v_norm,
+        _v_sub,
+    )
+
+    # A long straight run interrupted by a 0.1 m up-down micro-jog (like a port cap
+    # landing 0.1 m off the lattice) — the classic 14k-vert crush source.
+    path = [
+        ada.Point(0.0, 0.0, 3.6),
+        ada.Point(1.4, 0.0, 3.6),
+        ada.Point(1.5, 0.0, 3.5),
+        ada.Point(3.0, 0.0, 3.5),
+    ]
+    ortho = _orthogonalize_polyline(path)
+    half = 0.5 * 0.3  # tray section max dim 0.3 -> half-width 0.15
+    clean = _collapse_short_legs(ortho, half)
+    directrix = _polyline_to_directrix(clean, 0.3, min_radius=half)
+
+    # No arc chord shorter than the half-width survives (no inverted micro-arc).
+    for s in directrix.segments:
+        if isinstance(s, ArcLine):
+            chord = _v_norm(_v_sub(tuple(s.end), tuple(s.start)))
+            assert chord > half, f"micro-arc survived collapse: chord={chord:.3f}"
+
+
+def test_strict_swept_run_raises_naming_offending_points(grid):
+    """A *strict* duct/cable-tray run whose routed points are too close to fit its
+    fixed catalog bend radius must raise, naming the offending point sequence — real
+    products don't deform to fit, they fail so the route can be respaced."""
+    a = ada.Equipment("A", 1.0, (1, 1, 0), (0, 0, 0), 1, 1, 1)
+    a.add_port(ada.Port("out", (0.5, 0, 0.5), (1, 0, 0), ada.PortDirection.OUT, "process"))
+    b = ada.Equipment("B", 1.0, (3, 2, 0), (0, 0, 0), 1, 1, 1)
+    b.add_port(ada.Port("in", (-0.5, 0, 0.5), (-1, 0, 0), ada.PortDirection.IN, "process"))
+    # 1 m grid: legs are ~1 m, but a 0.9 m bend needs >= 1.8 m of straight -> too tight.
+    duct = ada.DuctSystem("HvacExhaust", strict=True, bend_radius=0.9).connect(a, "out").connect(b, "in")
+    route_system(duct, grid)
+    with pytest.raises(RoutingError) as exc:
+        system_route_to_geometry(duct)
+    msg = str(exc.value)
+    assert "HvacExhaust" in msg
+    assert "bend" in msg and "too short" in msg
+    # names concrete coordinates so the user can find the spot
+    assert "(" in msg and ")" in msg
+
+
+def test_strict_swept_run_builds_uniform_radius_on_adequate_spacing():
+    """With legs long enough for its fixed radius, a strict run builds clean regular
+    segments — every bend is a full-radius arc, none clamped down."""
+    from ada.geom.curves import ArcLine
+    from ada.topology.routing import _orthogonalize_polyline, _polyline_to_directrix, _v_norm, _v_sub
+
+    # A single 90 deg corner with 3 m legs, catalog radius 0.4 m: comfortably fits.
+    path = [ada.Point(0, 0, 3), ada.Point(3, 0, 3), ada.Point(3, 3, 3)]
+    ortho = _orthogonalize_polyline(path)
+    directrix = _polyline_to_directrix(ortho, 0.4, min_radius=0.2, strict=True, run_name="D")
+    arcs = [s for s in directrix.segments if isinstance(s, ArcLine)]
+    assert len(arcs) == 1
+    # a 90 deg arc of radius 0.4 has chord r*sqrt(2)
+    chord = _v_norm(_v_sub(tuple(arcs[0].end), tuple(arcs[0].start)))
+    assert abs(chord - 0.4 * (2 ** 0.5)) < 1e-6

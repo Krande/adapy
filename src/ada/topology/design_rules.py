@@ -274,10 +274,20 @@ def run_design(
             penetrations.extend(rules.plan_penetration(pctx))
 
     # --- Model phase (plan -> geometry) ------------------------------------ #
+    # Geometry can also fail — e.g. a *strict* duct/cable-tray run whose routed
+    # points sit too close to fit a real (fixed-radius) bend raises here, naming
+    # the offending point sequence. Honour ``skip_failed`` the same way as the plan
+    # phase so one unbuildable run is reported and dropped, not fatal to the model.
     route_geometry: dict[str, list] = {}
     for system in planned:
         ctx = RoutePlanContext(system=system, grid=grid, cell_graph=cell_graph, rules=rules.rules_for(system))
-        route_geometry[system.name] = rules.model_route(route_plans[system.name], ctx)
+        try:
+            route_geometry[system.name] = rules.model_route(route_plans[system.name], ctx)
+        except (RoutingError, ValueError) as exc:
+            if not skip_failed:
+                raise
+            logger.warning("design: skipping geometry for system %r: %s", system.name, exc)
+            skipped.append(system.name)
 
     penetration_parts: list[ada.Part] = []
     if rules.model_penetration is not None:

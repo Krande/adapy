@@ -143,11 +143,21 @@ class DuctSystem(System):
         duct_width: float = 0.4,
         duct_height: float = 0.3,
         wall: float = 2e-3,
+        bend_radius: float | None = None,
+        strict: bool = False,
     ):
         super().__init__(name, medium=medium, metadata=metadata)
         self.duct_width = duct_width
         self.duct_height = duct_height
         self.wall = wall
+        #: Fixed centreline bend radius for the run's fittings. ``None`` derives it
+        #: from the section size. Real ducting comes in straight sections + standard
+        #: bends, so ``strict`` uses this radius exactly (see :attr:`strict`).
+        self.bend_radius = bend_radius
+        #: When True, emit only regular straight + fixed-radius bend segments and
+        #: raise (naming the offending points) if the route is too tight to fit a
+        #: real bend, instead of deforming the geometry to make it fit.
+        self.strict = strict
 
 
 class CableSystem(System):
@@ -164,11 +174,20 @@ class CableSystem(System):
         tray_width: float = 0.3,
         tray_height: float = 0.1,
         wall: float = 3e-3,
+        bend_radius: float | None = None,
+        strict: bool = False,
     ):
         super().__init__(name, medium=medium, metadata=metadata)
         self.tray_width = tray_width
         self.tray_height = tray_height
         self.wall = wall
+        #: Fixed centreline bend radius for the tray's fittings; ``None`` derives it
+        #: from the section size. See :attr:`strict`.
+        self.bend_radius = bend_radius
+        #: When True, emit only regular straight + fixed-radius bend segments and
+        #: raise (naming the offending points) if the route is too tight to fit a
+        #: real bend, instead of deforming the geometry to make it fit.
+        self.strict = strict
 
 
 class ElectricalSystem(CableSystem):
@@ -186,6 +205,8 @@ class ElectricalSystem(CableSystem):
         tray_width: float = 0.3,
         tray_height: float = 0.1,
         wall: float = 3e-3,
+        bend_radius: float | None = None,
+        strict: bool = False,
     ):
         super().__init__(
             name,
@@ -194,6 +215,8 @@ class ElectricalSystem(CableSystem):
             tray_width=tray_width,
             tray_height=tray_height,
             wall=wall,
+            bend_radius=bend_radius,
+            strict=strict,
         )
         self.voltage = voltage
 

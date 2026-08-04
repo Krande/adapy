@@ -333,6 +333,35 @@ def _orthogonalize_polyline(pts: list[ada.Point]) -> list[ada.Point]:
     return _sanitize_polyline(out)
 
 
+def _collapse_short_legs(pts: list[ada.Point], min_len: float) -> list[ada.Point]:
+    """Remove interior legs shorter than ``min_len`` (a swept run's cross-section
+    half-extent) so a routed centreline never carries a sub-profile jog.
+
+    Such a jog — a grid-remainder step, or the short cap connecting an off-grid
+    nozzle to the lattice — would otherwise fillet into a tiny arc whose radius is
+    below the profile half-width, inverting the swept solid's inner wall into a
+    self-intersecting crush (thousands of overlapping facets). The two vertices of
+    each offending leg are dropped and the neighbours reconnected orthogonally;
+    the resulting centreline shift is bounded by ``min_len`` so it stays inside the
+    equipment clearance halo (which is sized to the same half-extent). The two
+    terminal legs — the port stub/cap that carries nozzle orientation — are never
+    collapsed. Re-orthogonalising every pass keeps the run axis-aligned and lets a
+    freshly exposed short leg be caught on the next iteration."""
+    out = _orthogonalize_polyline([ada.Point(*p) for p in pts])
+    if min_len <= 0.0:
+        return out
+    while len(out) > 3:
+        j = None
+        for k in range(1, len(out) - 2):  # interior legs only (both terminal legs kept)
+            if _seg_len(out[k], out[k + 1]) < min_len:
+                j = k
+                break
+        if j is None:
+            break
+        out = _orthogonalize_polyline(out[:j] + out[j + 2 :])
+    return out
+
+
 def _v_sub(a, b):
     return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
@@ -357,13 +386,34 @@ def _v_norm(v):
     return (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) ** 0.5
 
 
-def _polyline_to_directrix(pts: list[ada.Point], radius: float):
+def _polyline_to_directrix(
+    pts: list[ada.Point],
+    radius: float,
+    min_radius: float = 0.0,
+    *,
+    strict: bool = False,
+    run_name: str | None = None,
+):
     """Build an ``IndexedPolyCurve`` directrix from an (orthogonal) polyline,
     filleting each interior corner into an ``ArcLine`` of ``radius`` so a swept
-    duct/tray turns on a real circular bend. The radius is clamped to half of
-    each adjacent segment so two nearby bends never eat into each other; straight
-    spans stay ``Edge`` segments. Returns ``None`` for a degenerate (< 2 point)
-    path.
+    duct/tray turns on a real circular bend. Straight spans stay ``Edge``
+    segments. Returns ``None`` for a degenerate (< 2 point) path.
+
+    Two modes, matching how real duct/cable-tray products behave — they come as
+    straight sections plus standard-radius bends only, so a bend that can't fit is
+    an error, not something to deform:
+
+    * **graceful** (default): the radius is clamped to half of each adjacent
+      segment so nearby bends never eat into each other; a corner whose clamped
+      radius would fall below ``min_radius`` (the profile half-width, under which
+      the sweep's inner wall inverts and self-intersects) is left *sharp* (the
+      straight edges meet, a small bounded miter overlap). Pair with
+      :func:`_collapse_short_legs` so such corners are rare.
+    * **strict**: every bend uses the full fixed ``radius`` (a catalog value); no
+      clamping, no sharp fallback. If two routed points sit too close to fit that
+      bend — the fixed tangent would overshoot the previous one — it raises
+      :class:`RoutingError` naming ``run_name`` and the exact offending point
+      sequence, so the user can respace the route rather than get warped geometry.
 
     This is the non-circular analogue of how :class:`ada.Pipe` builds its bent
     directrix — the box/channel profile is later swept along this curve
@@ -373,6 +423,13 @@ def _polyline_to_directrix(pts: list[ada.Point], radius: float):
     pts = [ada.Point(*(float(c) for c in p)) for p in pts]
     if len(pts) < 2:
         return None
+    tag = f"{run_name!r} " if run_name else ""
+
+    if strict and radius < min_radius - 1e-9:
+        raise RoutingError(
+            f"duct/cable-tray run {tag}has bend radius {radius:.4g} smaller than its profile "
+            f"half-width {min_radius:.4g}; a bend that tight inverts the section — widen the radius"
+        )
 
     segs = []
     cursor = pts[0]  # running start of the next straight edge
@@ -385,11 +442,31 @@ def _polyline_to_directrix(pts: list[ada.Point], radius: float):
         ua, ub = _v_scale(a, 1.0 / la), _v_scale(b, 1.0 / lb)
         if _v_norm(_v_cross(ua, ub)) < 1e-9:  # collinear — no bend to fillet
             continue
-        r = min(radius, 0.5 * la, 0.5 * lb)
-        if r < 1e-9:
-            continue
+        if strict:
+            r = radius
+        else:
+            r = min(radius, 0.5 * la, 0.5 * lb)
+            if r < max(min_radius, 1e-9):  # too tight to fillet without inverting — keep sharp
+                p_curp = ada.Point(*p_cur)
+                if _seg_len(cursor, p_curp) > 1e-9:
+                    segs.append(Edge(cursor, p_curp))
+                cursor = p_curp
+                continue
         t1 = _v_sub(p_cur, _v_scale(ua, r))
         t2 = _v_add(p_cur, _v_scale(ub, r))
+        t1p = ada.Point(*t1)
+        # The bend's entry tangent point t1 must lie ahead of the previous bend's
+        # exit (cursor) along this leg. If it doesn't, the two bends' fixed radii
+        # overlap — the points are too close for a real fitting.
+        overshoot = _v_dot(_v_sub(t1, tuple(cursor)), ua) < -1e-6
+        if strict and overshoot:
+            raise RoutingError(
+                f"duct/cable-tray run {tag}cannot fit a {radius:.4g} m bend at "
+                f"{tuple(round(c, 3) for c in p_cur)}: the leg from "
+                f"{tuple(round(c, 3) for c in p_prev)} to {tuple(round(c, 3) for c in p_next)} is too "
+                f"short (need at least {2 * radius:.4g} m of straight between bends). "
+                f"Respace the run or reduce its bend radius."
+            )
         perp = _v_sub(ub, _v_scale(ua, _v_dot(ub, ua)))
         pn = _v_norm(perp)
         if pn < 1e-9:
@@ -401,7 +478,6 @@ def _polyline_to_directrix(pts: list[ada.Point], radius: float):
         if bn < 1e-9:
             continue
         mid = _v_add(centre, _v_scale(_v_scale(bis, 1.0 / bn), r))  # arc apex
-        t1p = ada.Point(*t1)
         if _seg_len(cursor, t1p) > 1e-9:
             segs.append(Edge(cursor, t1p))
         segs.append(ArcLine(t1p, ada.Point(*mid), ada.Point(*t2)))
@@ -591,8 +667,22 @@ def system_route_to_geometry(system: System, name: str | None = None) -> list:
         # way a pipe's segments are), rather than one monolithic run.
         from ada.geom.curves import IndexedPolyCurve
 
-        bend_r = max(float(sec.w_top or 0.0), float(sec.h or 0.0))
-        directrix = _polyline_to_directrix(ortho, bend_r)
+        section_r = max(float(sec.w_top or 0.0), float(sec.h or 0.0))
+        half = 0.5 * section_r  # profile half-extent: the inner-wall inversion floor for a fillet
+        strict = bool(getattr(system, "strict", False))
+        # A catalog bend radius if the system carries one, else ~1x the section.
+        cfg_r = getattr(system, "bend_radius", None)
+        bend_r = float(cfg_r) if cfg_r else section_r
+        if strict:
+            # Real products only bend on their fixed radius: route as-given, keep
+            # every fitting regular, and raise (naming the points) if it can't fit.
+            directrix = _polyline_to_directrix(ortho, bend_r, min_radius=half, strict=True, run_name=name)
+        else:
+            # Drop sub-profile micro-jogs (grid-remainder / off-grid nozzle caps) so
+            # no corner fillets into a self-intersecting tiny arc, then fillet the
+            # clean run (sharp fallback where a corner is still too tight).
+            clean = _collapse_short_legs(ortho, half)
+            directrix = _polyline_to_directrix(clean, bend_r, min_radius=half)
         if directrix is None:
             return
         # Frame the whole run once (parallel transport), then hand each segment its
