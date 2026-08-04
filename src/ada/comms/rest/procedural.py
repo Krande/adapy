@@ -20,6 +20,13 @@ def procedural_glb_key(model_id: str, revision: int) -> str:
     return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}.glb"
 
 
+def procedural_relocations_key(model_id: str) -> str:
+    """Blob key for a model's latest relocation proposals (a JSON document). NOT
+    revision-stamped: the proposal search always re-runs (the layout may have
+    changed and it's cheap-ish), overwriting the previous result in place."""
+    return f"{PROCEDURAL_PREFIX}{model_id}/relocations.json"
+
+
 @lru_cache(maxsize=1)
 def _doc_model():
     # Lazy: ada.topology.entities imports ada, which is heavy — only pay for it

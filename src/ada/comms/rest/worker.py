@@ -1035,6 +1035,89 @@ async def _run_procedural_build(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+async def _run_procedural_relocations(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Propose the minimum set of equipment relocations that make a procedural
+    model's runs route cleanly (see :func:`ada.topo_model.relocate.propose_relocations`).
+
+    A synthetic sibling of :func:`_run_procedural_build`: it reads the same
+    postgres-stored doc (resolving placed catalog equipment by slug the same way)
+    but produces a JSON *proposal* document rather than a GLB. The result is
+    stored gzip-at-rest under the model's ``relocations.json`` derived key so the
+    frontend can poll the job then fetch the blob. Relocations are proposals only —
+    the worker never mutates the model."""
+    import json
+
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    model_id = opts.get("model_id")
+    revision = opts.get("revision")
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not model_id or not isinstance(revision, int):
+        await _fail("relocate", "conversion_options.model_id and revision are required for procedural_relocations")
+        return
+    if db_pool is None:
+        await _fail("relocate", "procedural relocations require DATABASE_URL on the worker")
+        return
+
+    from . import db as db_module
+
+    row = await db_module.get_procedural_model(db_pool, model_id)
+    if row is None:
+        await _fail("relocate", f"procedural model {model_id} not found")
+        return
+    if row["revision"] != revision:
+        await _fail(
+            "relocate",
+            f"procedural model {model_id} is at revision {row['revision']}, job requested r{revision} — "
+            "re-trigger propose-relocations for the current revision",
+        )
+        return
+
+    from ada.topo_model.relocate import propose_relocations
+
+    # Resolve placed catalog equipment (by slug) to its per-scope definition, so a
+    # candidate move keeps the equipment's real bbox/ports (matching the compile).
+    catalog = await db_module.get_equipment_docs_by_scope(
+        db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
+    )
+
+    def _do_propose() -> bytes:
+        result = propose_relocations(row["doc"], equipment_resolver=catalog.get)
+        return json.dumps(result).encode("utf-8")
+
+    loop = asyncio.get_running_loop()
+    try:
+        await queue.update(job_id, stage="relocate", progress=0.40)
+        payload = await loop.run_in_executor(None, _do_propose)
+    except Exception as exc:
+        logger.exception("worker: procedural_relocations failed for %s", model_id)
+        await _fail("relocate", str(exc), tb_module.format_exc())
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        await storage.put_bytes(scope, job.derived_key, payload, content_encoding="gzip")
+    except Exception as exc:
+        logger.exception("worker: procedural_relocations upload failed for %s", model_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
 def _infer_equipment_geometry(data: bytes, ext: str) -> tuple[dict, bytes]:
     """Read a CAD/mesh asset, returning its axis-aligned bounding-box extents
     ``{lx, ly, lz}`` (in metres) and a preview GLB for the sidecar viewer. Mesh
@@ -1624,6 +1707,20 @@ async def _process_one(
     # single source of truth) and is compiled in-process via ada.topo_model.
     if job.target_format == "procedural_build":
         await _run_procedural_build(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # procedural_relocations is synthetic too: read the same postgres-stored doc
+    # and produce a JSON proposal document (minimum equipment moves that make the
+    # runs route cleanly) instead of a GLB.
+    if job.target_format == "procedural_relocations":
+        await _run_procedural_relocations(
             job=job,
             scope=scope,
             storage=storage,
@@ -2666,7 +2763,12 @@ async def _run() -> None:
                     # the build endpoint via target_capability, and
                     # the per-spec handler resolves from the registry
                     # the worker preloaded at startup (ADA_WORKER_PRELOAD).
-                    if peeked.target_format in ("component_build", "procedural_build", "equipment_bbox"):
+                    if peeked.target_format in (
+                        "component_build",
+                        "procedural_build",
+                        "procedural_relocations",
+                        "equipment_bbox",
+                    ):
                         can_handle = True
                         ext = ""
                     else:

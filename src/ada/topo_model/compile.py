@@ -263,31 +263,19 @@ def _occupy_equipment(grid: CellGrid, eq: ada.Equipment, clearance: float = 0.0)
                     grid.register((ix, iy, iz), eq.name)
 
 
-def _build_systems(
-    doc: dict, equipment_map: dict, spaces: list[TopoSpace], cell_graph, design_rules=None
-) -> list[ada.Part]:
-    """Wire each system's equipment ports then drive both engine phases with the
-    ``design_rules`` ruleset (plan the routes, plan the penetrations, model the
-    runs and their details). Returns the parts to add (a Systems part, and a
-    Penetrations part when systems cross built walls). Specs that can't be wired
-    (missing equipment/port) are skipped here; runs that can't be routed are
-    skipped inside the engine (``skip_failed=True``) — so one bad run doesn't
-    sink the whole compile."""
+def _wire_systems(specs: list[dict], equipment_map: dict) -> list:
+    """Wire each system spec's equipment ports (and site terminals) into a
+    connected :class:`~ada.api.systems.base.System`. Connection errors (unknown
+    equipment/port, category mismatch) drop that whole system with a warning
+    before it reaches the engine, so one bad spec doesn't sink the rest.
+
+    Factored out of :func:`_build_systems` so the relocation engine
+    (:mod:`ada.topo_model.relocate`) wires systems the exact same way when it
+    re-routes candidate layouts."""
     from ada.api.systems import PortDirection
     from ada.config import logger
-    from ada.topology import run_design
     from ada.topology.routing import RoutingError
 
-    from .penetration import standard_design_rules
-
-    specs = doc.get("systems") or []
-    if not specs:
-        return []
-
-    grid = _routing_grid(spaces, list(equipment_map.values()))
-
-    # Phase 0: wire ports (spec -> connected System). Connection errors (unknown
-    # equipment/port) drop the whole system before it reaches the engine.
     built_systems = []
     for spec in specs:
         try:
@@ -311,6 +299,32 @@ def _build_systems(
             built_systems.append(system)
         except (RoutingError, ValueError, KeyError) as exc:
             logger.warning("procedural: skipping system %r: %s", spec.get("NAME"), exc)
+    return built_systems
+
+
+def _build_systems(
+    doc: dict, equipment_map: dict, spaces: list[TopoSpace], cell_graph, design_rules=None
+) -> list[ada.Part]:
+    """Wire each system's equipment ports then drive both engine phases with the
+    ``design_rules`` ruleset (plan the routes, plan the penetrations, model the
+    runs and their details). Returns the parts to add (a Systems part, and a
+    Penetrations part when systems cross built walls). Specs that can't be wired
+    (missing equipment/port) are skipped here; runs that can't be routed are
+    skipped inside the engine (``skip_failed=True``) — so one bad run doesn't
+    sink the whole compile."""
+    from ada.config import logger
+    from ada.topology import run_design
+
+    from .penetration import standard_design_rules
+
+    specs = doc.get("systems") or []
+    if not specs:
+        return []
+
+    grid = _routing_grid(spaces, list(equipment_map.values()))
+
+    # Phase 0: wire ports (spec -> connected System).
+    built_systems = _wire_systems(specs, equipment_map)
 
     if not built_systems:
         return []

@@ -3057,6 +3057,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
 
+    @api.post("/scopes/{scope}/procedural-models/{model_id}/propose-relocations")
+    async def api_procedural_propose_relocations(
+        request: Request,
+        model_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Enqueue a search for the minimum set of equipment relocations that make
+        the model's runs route cleanly. Mirrors :func:`api_procedural_compile`, but
+        the worker produces a JSON proposal document (not a GLB) at ``derived_key``.
+
+        No cache short-circuit: the search always re-runs (it's cheap-ish and the
+        layout may have changed since the last run), overwriting the previous
+        proposals in place. The frontend polls ``convertStatus(job_id)`` then GETs
+        the relocations blob via ``GET /api/scopes/{scope}/blobs/{derived_key}`` —
+        a JSON ``{proposals, unresolved, baseline_problems}`` document. Relocations
+        are proposals only; applying them is a separate, explicit user action."""
+        from .procedural import procedural_relocations_key
+
+        pool = _require_procedural_pool(request)
+        row = await _get_procedural_in_scope(pool, model_id, scope_obj)
+        derived_key = procedural_relocations_key(row["id"])
+
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="procedural relocations disabled (no NATS configured)")
+
+        job = await queue.enqueue(
+            f"_synthetic/procedural/{row['id']}/r{row['revision']}/relocations",
+            target_format="procedural_relocations",
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            conversion_options={"model_id": row["id"], "revision": row["revision"]},
+            derived_key=derived_key,
+            force_rebuild=True,
+        )
+        return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
+
     # ── Equipment-type & system-template catalogs (per-scope) ────────
     #
     # Admin-authored, reusable definitions the cellbuilder places by slug.
