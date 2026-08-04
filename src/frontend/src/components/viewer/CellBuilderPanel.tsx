@@ -5,6 +5,7 @@ import {
   useCellBuilderStore,
   type SystemConnection,
 } from "@/state/cellBuilderStore";
+import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 import { useTypeIconsStore } from "@/state/typeIconsStore";
 
 // The procedural-modelling context panel: add cells / typed equipment, list the
@@ -586,6 +587,28 @@ const CellBuilderPanel: React.FC = () => {
             </button>
           ) : null;
         })()}
+      </div>
+
+      <div className="flex items-center gap-1 flex-wrap">
+        <span className="text-gray-400 text-[11px]">catalogs</span>
+        <button
+          className={btnGray}
+          onClick={() =>
+            useEquipmentCatalogStore.getState().toggleEquipmentPanel()
+          }
+          title="Open the equipment-type catalog (full admin panel) — the reusable equipment defined for this scope"
+        >
+          Equipment overview
+        </button>
+        <button
+          className={btnGray}
+          onClick={() =>
+            useEquipmentCatalogStore.getState().toggleSystemPanel()
+          }
+          title="Open the system-template catalog (full admin panel) — the reusable system kinds defined for this scope"
+        >
+          System overview
+        </button>
       </div>
 
       <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">

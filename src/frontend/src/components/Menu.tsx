@@ -31,6 +31,7 @@ import {useEquipmentCatalogStore} from "@/state/equipmentCatalogStore";
 // Equipment catalog editor — opened contextually from an equipment's "Edit
 // properties" (no top-row button); code-split so the embedded zip stays slim.
 const EquipmentAdminPanel = React.lazy(() => import("./admin/EquipmentAdminPanel"));
+const SystemAdminPanel = React.lazy(() => import("./admin/SystemAdminPanel"));
 import SceneInfoBox from "./info_box_scene/SceneInfoBox";
 import {WebsocketStatusMenu, WebsocketStatusBox} from "./WebsocketStatusMenu";
 
@@ -125,6 +126,7 @@ const Menu = () => {
     const toggleCellBuilderPanel = () =>
         useCellBuilderStore.getState().setPanelVisible(!useCellBuilderStore.getState().panelVisible);
     const equipmentPanelOpen = useEquipmentCatalogStore((s) => s.equipmentPanelOpen);
+    const systemPanelOpen = useEquipmentCatalogStore((s) => s.systemPanelOpen);
     const {showInfoBox: showWebsocketInfoBox} = stores.useWebsocketStatusStore();
     const {isTreeCollapsed, setIsTreeCollapsed, treeViewWidth} = stores.useTreeViewStore();
     const isDesktop = useIsDesktop();
@@ -265,6 +267,9 @@ const Menu = () => {
                     {proceduralActive && <CellBuilderInsertMenu/>}
                     {proceduralActive && equipmentPanelOpen && (
                         <Suspense fallback={null}><EquipmentAdminPanel/></Suspense>
+                    )}
+                    {proceduralActive && systemPanelOpen && (
+                        <Suspense fallback={null}><SystemAdminPanel/></Suspense>
                     )}
                 </div>
             </div>
