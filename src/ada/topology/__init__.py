@@ -52,13 +52,17 @@ from ada.topology.routing import (
     RoutingBlueprintBase,
     RoutingError,
     RoutingRules,
+    RunWarning,
     astar_route,
     nearest_index,
+    occupy_faces,
+    occupy_run,
     path_to_polyline,
     route_system,
+    run_half_extent,
     system_route_to_geometry,
 )
-from ada.topology.run_builder import RunBuilder, RunWarning
+from ada.topology.run_builder import RunBuilder
 
 __all__ = [
     "Containment",
@@ -87,8 +91,11 @@ __all__ = [
     "default_route_planner",
     "find_face_crossings",
     "nearest_index",
+    "occupy_faces",
+    "occupy_run",
     "path_to_polyline",
     "route_system",
+    "run_half_extent",
     "run_design",
     "RunBuilder",
     "RunWarning",

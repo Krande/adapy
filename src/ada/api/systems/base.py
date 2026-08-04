@@ -47,6 +47,10 @@ class System:
         self.ports: list[Port] = []
         self.routed_path: list[Point] | None = None
         self.route_geometry: list = []
+        #: Bend-artifact warnings from the last geometry build (see
+        #: ``system_route_to_geometry``): corners the route left sharp because they
+        #: were too cramped to round. Each names the spot and a respacing fix.
+        self.route_warnings: list = []
 
     def connect(self, equipment: Equipment, port_name: str) -> System:
         """Connect this system to the named port on ``equipment``. Returns

@@ -229,6 +229,7 @@ def run_design(
     skip_failed: bool = False,
     spacing: float = 0.5,
     avoid_other_systems: bool = False,
+    no_go_faces: list[GraphFace] | None = None,
 ) -> DesignResult:
     """Drive both engine phases with ``rules``: plan every system's route, plan
     the penetrations, then model the routes and the penetration details.
@@ -241,10 +242,15 @@ def run_design(
 
     With ``avoid_other_systems`` each planned run's body is marked occupied on the
     grid before the next system plans, so systems route around one another (and
-    the taut-pull keeps clear of them) instead of overlapping."""
-    from ada.config import logger
+    the taut-pull keeps clear of them) instead of overlapping.
 
-    from ada.topology.routing import occupy_run, run_half_extent
+    ``no_go_faces`` are planar members (walls/floors) voxelized as impenetrable
+    obstacles before planning, so routes detour around them. A wall a system is
+    *meant* to penetrate must NOT appear here (it could no longer route through
+    it); the demo therefore feeds only the deck-level walls it wants runs to climb
+    over, keeping the interior penetration wall out of the list."""
+    from ada.config import logger
+    from ada.topology.routing import occupy_faces, occupy_run, run_half_extent
 
     rules = rules or DesignRules()
     if grid is None:
@@ -258,6 +264,11 @@ def run_design(
     # One run kept clear of the next needs the widest body's reach as clearance,
     # so a later run's centreline can't put its own body into an earlier one.
     other_clearance = max((run_half_extent(s) for s in systems), default=0.0) if avoid_other_systems else 0.0
+    # No-go walls/floors: block their nodes (inflated by the widest run's body) so
+    # routes go around, before any system plans.
+    if no_go_faces:
+        wall_clearance = max((run_half_extent(s) for s in systems), default=0.0)
+        occupy_faces(grid, no_go_faces, clearance=wall_clearance, tag="no_go")
     route_plans: dict[str, RoutePlan] = {}
     skipped: list[str] = []
     for system in systems:

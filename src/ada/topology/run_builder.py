@@ -19,10 +19,10 @@ input needs to change to be buildable for real.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
 import ada
 from ada.topology.routing import (
+    RunWarning,
     _inversion_floor,
     _polyline_to_directrix,
     _run_segment_frames,
@@ -41,18 +41,6 @@ def _section_half_extents(section, open_channel: bool) -> tuple[float, float]:
     if open_channel:
         return 0.5 * float(section.h or 0.0), 0.5 * float(section.w_top or 0.0)
     return 0.5 * float(section.w_top or 0.0), 0.5 * float(section.h or 0.0)
-
-
-@dataclass
-class RunWarning:
-    """A place where the authored run can't be built as a clean fitting."""
-
-    position: tuple[float, float, float]
-    message: str
-    suggestion: str
-
-    def __str__(self) -> str:
-        return f"{self.message}\n      fix: {self.suggestion}"
 
 
 def _unit(d) -> tuple[float, float, float]:

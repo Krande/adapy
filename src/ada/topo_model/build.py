@@ -86,9 +86,22 @@ def build_topo_model_with_systems(name: str = "TopoModelDemo") -> ada.Assembly:
     # All deck systems route on one fine 0.5 m lattice for precise detours; swept
     # runs are then pulled taut in the clear corridor (system.route -> grid-aware
     # system_route_to_geometry) so their bends come out few and well-separated.
+    from ada.config import logger
+    from ada.topology.routing import occupy_faces, occupy_run, run_half_extent
+
     grid = build_routing_grid()
+    # Inflate each equipment box by the widest run's cross-section half-extent so a
+    # run's *body* — not just its centreline — clears the equipment (the nozzle
+    # stub sits a full cell out, well beyond this halo, so ports stay reachable).
+    deck_clear = max(run_half_extent(s) for s in (cooling, power, mains, drain))
     for eq in (pump, tank, switchboard):
-        _occupy_equipment_nodes(grid, eq)
+        _occupy_equipment_nodes(grid, eq, clearance=deck_clear)
+    # No-go walls: treat the reinforced internal wall (x=5) as an impenetrable
+    # obstacle for the *deck* runs, so a system crossing the bay (CoolingWater)
+    # climbs over the wall instead of skimming through its top. The interior
+    # service run uses a separate grid where this wall stays penetrable (it is
+    # meant to cross it and get a penetration detail).
+    occupy_faces(grid, cg.get_internal_walls(), clearance=deck_clear, tag="no_go:wall")
 
     # Interior service run: pump in Cell1 to tank in Cell2 — the route must
     # cross the reinforced wall at x=5.
@@ -98,7 +111,7 @@ def build_topo_model_with_systems(name: str = "TopoModelDemo") -> ada.Assembly:
 
     interior_grid = CellGrid.from_bounds((0, 0, 0), (10, 5, 3.0), spacing=0.5)
     for eq in (pump2, tank2):
-        _occupy_equipment_nodes(interior_grid, eq)
+        _occupy_equipment_nodes(interior_grid, eq, clearance=run_half_extent(service))
 
     systems_part = ada.Part("Systems")
     deck_systems = (cooling, power, mains, drain)
@@ -106,12 +119,12 @@ def build_topo_model_with_systems(name: str = "TopoModelDemo") -> ada.Assembly:
     # Route sequentially, marking each run's body occupied so the next system
     # routes around it (systems don't overlap); swept runs then pull taut clear
     # of both equipment and prior runs.
-    from ada.topology.routing import occupy_run, run_half_extent
-
     other_clear = max(run_half_extent(s) for s, _ in routed)
     for system, sys_grid in routed:
         for geom in system.route(sys_grid):
             systems_part.add_object(geom)
+        for w in system.route_warnings:
+            logger.warning("route %s: %s", system.name, w)
         if system.routed_path:
             occupy_run(sys_grid, system.routed_path, run_half_extent(system) + other_clear, tag=f"system:{system.name}")
 
@@ -127,21 +140,26 @@ def build_topo_model_with_systems(name: str = "TopoModelDemo") -> ada.Assembly:
     return a
 
 
-def _occupy_equipment_nodes(grid: CellGrid, eq: ada.Equipment) -> None:
-    """Mark the grid nodes strictly inside the equipment's body volume as
-    occupied so routes detour around it. Bounds are exclusive: surface nodes
-    stay free so ports sitting on the body (nozzles) remain reachable."""
+def _occupy_equipment_nodes(grid: CellGrid, eq: ada.Equipment, clearance: float = 0.0) -> None:
+    """Mark the grid nodes inside the equipment's body — inflated by ``clearance``
+    (a run's cross-section half-extent) — as occupied so a run's *body*, not just
+    its centreline, detours around it. With ``clearance == 0`` the bounds are
+    exclusive so surface nodes stay free (ports on the body remain reachable); with
+    a clearance the inflated bounds are inclusive, and the nozzle stub — a full
+    cell out along the port normal, beyond the halo — keeps the port reachable."""
     ox, oy, oz = (float(v) for v in eq.origin)
-    x0, x1 = ox - eq.lx / 2, ox + eq.lx / 2
-    y0, y1 = oy - eq.ly / 2, oy + eq.ly / 2
-    z0, z1 = oz, oz + eq.lz
+    c = float(clearance)
+    x0, x1 = ox - eq.lx / 2 - c, ox + eq.lx / 2 + c
+    y0, y1 = oy - eq.ly / 2 - c, oy + eq.ly / 2 + c
+    z0, z1 = oz - c, oz + eq.lz + c
     tol = 1e-9
+    inside = (lambda lo, v, hi: lo - tol <= v <= hi + tol) if c > 0.0 else (lambda lo, v, hi: lo + tol < v < hi - tol)
     for ix, x in enumerate(grid.x_list):
-        if not (x0 + tol < x < x1 - tol):
+        if not inside(x0, x, x1):
             continue
         for iy, y in enumerate(grid.y_list):
-            if not (y0 + tol < y < y1 - tol):
+            if not inside(y0, y, y1):
                 continue
             for iz, z in enumerate(grid.z_list):
-                if z0 + tol < z < z1 - tol:
+                if inside(z0, z, z1):
                     grid.register((ix, iy, iz), eq.name)

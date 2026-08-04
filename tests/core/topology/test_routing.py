@@ -402,7 +402,12 @@ def test_strict_swept_run_builds_uniform_radius_on_adequate_spacing():
     """With legs long enough for its fixed radius, a strict run builds clean regular
     segments — every bend is a full-radius arc, none clamped down."""
     from ada.geom.curves import ArcLine
-    from ada.topology.routing import _orthogonalize_polyline, _polyline_to_directrix, _v_norm, _v_sub
+    from ada.topology.routing import (
+        _orthogonalize_polyline,
+        _polyline_to_directrix,
+        _v_norm,
+        _v_sub,
+    )
 
     # A single 90 deg corner with 3 m legs, catalog radius 0.4 m: comfortably fits.
     path = [ada.Point(0, 0, 3), ada.Point(3, 0, 3), ada.Point(3, 3, 3)]
@@ -412,7 +417,7 @@ def test_strict_swept_run_builds_uniform_radius_on_adequate_spacing():
     assert len(arcs) == 1
     # a 90 deg arc of radius 0.4 has chord r*sqrt(2)
     chord = _v_norm(_v_sub(tuple(arcs[0].end), tuple(arcs[0].start)))
-    assert abs(chord - 0.4 * (2 ** 0.5)) < 1e-6
+    assert abs(chord - 0.4 * (2**0.5)) < 1e-6
 
 
 def test_collapse_short_legs_terminates_on_3d_staircase():
@@ -484,3 +489,71 @@ def test_avoid_other_systems_makes_the_second_run_detour():
     assert p2 != p1, "second run must detour off the first's lane, not lie on top of it"
     # the second run leaves the shared y=2 lane somewhere in its interior
     assert any(abs(p[1] - 2.0) > 1e-6 for p in p2[1:-1])
+
+
+def test_terminal_leg_rounds_short_nozzle_bend():
+    """A bend whose far leg is a short terminal nozzle stub must still round: a
+    terminal leg turns at one end only, so its FULL length is available as tangent
+    (not half, as for an interior leg shared with a neighbouring bend). A ~0.3 m
+    stub clears the section's ~0.16 m inversion floor and should fillet, not drop
+    to a sharp corner."""
+    from ada.geom.curves import ArcLine
+    from ada.topology.routing import _polyline_to_directrix
+
+    lat_half, up_half = 0.05, 0.15  # open cable tray -> floor = hypot = ~0.158 m
+    # A long straight leg turning down a 0.3 m terminal stub into a nozzle.
+    pts = [ada.Point(0.0, 0.0, 1.0), ada.Point(2.0, 0.0, 1.0), ada.Point(2.0, 0.0, 0.7)]
+    warnings: list = []
+    directrix = _polyline_to_directrix(
+        pts, 0.3, lateral_half=lat_half, up_half=up_half, run_name="T", warnings=warnings
+    )
+    assert any(isinstance(s, ArcLine) for s in directrix.segments), "short terminal leg should still round"
+    assert warnings == [], "a roundable bend must not warn"
+
+
+def test_graceful_run_warns_on_uneroundable_bend():
+    """When a bend is genuinely too cramped to round without inverting the section
+    (both adjacent legs below the inversion floor), the graceful path leaves it
+    sharp and records a RunWarning naming the spot and a respacing fix — it warns
+    rather than silently deforming."""
+    from ada.geom.curves import ArcLine
+    from ada.topology import RunWarning
+    from ada.topology.routing import _polyline_to_directrix
+
+    # A 0.1 m terminal step — below the ~0.158 m floor, cannot host a real bend.
+    pts = [ada.Point(0.0, 0.0, 1.0), ada.Point(2.0, 0.0, 1.0), ada.Point(2.0, 0.0, 0.9)]
+    warnings: list = []
+    directrix = _polyline_to_directrix(pts, 0.3, lateral_half=0.05, up_half=0.15, run_name="Cramped", warnings=warnings)
+    assert not any(isinstance(s, ArcLine) for s in directrix.segments), "an unroundable bend stays sharp"
+    assert len(warnings) == 1 and isinstance(warnings[0], RunWarning)
+    # names the bend vertex (the corner), so the user can find the cramped spot
+    assert "Cramped" in warnings[0].message and "(2.0, 0.0, 1.0)" in warnings[0].message
+    assert warnings[0].position == (2.0, 0.0, 1.0)
+    assert warnings[0].suggestion  # a concrete fix is offered
+
+
+def test_occupy_faces_marks_wall_and_forces_a_detour(grid):
+    """A voxelized planar face (a no-go wall) blocks the grid nodes on its plane
+    within its outline, so A* cannot pass through it and must route around."""
+    from types import SimpleNamespace
+
+    from ada.topology.routing import occupy_faces
+
+    # A partial wall on the x=2 plane spanning the full y but only z in [0, 1]
+    # (leaving the z=2 level clear to climb over). normal +X.
+    wall = SimpleNamespace(
+        normal=ada.Direction(1, 0, 0),
+        get_points=lambda: [
+            ada.Point(2, 0, 0),
+            ada.Point(2, 4, 0),
+            ada.Point(2, 4, 1),
+            ada.Point(2, 0, 1),
+        ],
+    )
+    occupy_faces(grid, [wall], clearance=0.0, tag="no_go")
+    assert grid.has_geometry((2, 2, 0)) and grid.has_geometry((2, 2, 1))  # on the wall
+    assert not grid.has_geometry((2, 2, 2))  # above it -> clear
+
+    path = astar_route(grid, (0, 2, 0), (4, 2, 0))
+    assert path[-1] == (4, 2, 0)
+    assert not any(idx[0] == 2 and idx[2] in (0, 1) for idx in path), "route must not cross the no-go wall"

@@ -257,6 +257,12 @@ def _build_systems(
         if cell_graph is not None
         else []
     )
+    # No-go walls (opt-in via doc["no_go_walls"]): treat BUILT internal walls as
+    # impenetrable so routes detour around them. Off by default because the demo's
+    # interior run is meant to *penetrate* its wall and get a sleeve/hole detail;
+    # turning this on suppresses those crossings.
+    no_go_faces = members if doc.get("no_go_walls") else None
+
     # One fine lattice for all systems (precise detours); each planned run's body
     # is marked occupied so later systems route around it, and swept runs are then
     # pulled taut in the clear corridor for smooth, well-separated bends.
@@ -268,11 +274,17 @@ def _build_systems(
         rules=rules,
         skip_failed=True,
         avoid_other_systems=True,
+        no_go_faces=no_go_faces,
     )
     route_geometry = result.route_geometry
     penetration_parts = result.penetration_parts
     for name in result.skipped:
         logger.warning("procedural: skipping system %r: no route found", name)
+    # Surface bend-artifact warnings (corners a run left sharp because the route
+    # was too cramped to round) so the cellbuilder can respace the offending run.
+    for system in built_systems:
+        for w in getattr(system, "route_warnings", []):
+            logger.warning("procedural: route %s: %s", system.name, w)
 
     parts: list[ada.Part] = []
     systems_part = ada.Part("Systems")

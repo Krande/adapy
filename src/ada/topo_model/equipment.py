@@ -29,6 +29,15 @@ __all__ = [
 ]
 
 
+# Standard cable-entry height for side-mounted electrical ports (power/feeder),
+# measured from the equipment base. Real switchgear brings cabling in at a common
+# tray height, not each unit's own mid-height — so an electrical run between two
+# differently-tall units (switchboard feeder -> pump power) stays level and its
+# tray needs no sub-radius vertical jog to bridge a height mismatch. Kept below
+# the shortest archetype (the 0.6 m exhaust fan) so it always lands on the body.
+_CABLE_ENTRY_Z = 0.5
+
+
 def _add_body(eq: ada.Equipment, name: str) -> None:
     # origin = base center; the body box spans it in plan and rises lz
     ox, oy, oz = (float(v) for v in eq.origin)
@@ -50,7 +59,7 @@ def create_pump(
     eq = ada.Equipment(name, mass, cog=(0, 0, lz / 2), origin=origin, lx=lx, ly=ly, lz=lz, ifc_element_class="IfcPump")
     eq.add_port(Port("suction", (-lx / 2, 0, lz / 2), (-1, 0, 0), PortDirection.IN, "process"))
     eq.add_port(Port("discharge", (0, 0, lz), (0, 0, 1), PortDirection.OUT, "process"))
-    eq.add_port(Port("power", (lx / 2, 0, lz / 2), (1, 0, 0), PortDirection.IN, "electrical"))
+    eq.add_port(Port("power", (lx / 2, 0, _CABLE_ENTRY_Z), (1, 0, 0), PortDirection.IN, "electrical"))
     eq.add_port(Port("signal", (0, ly / 2, lz / 2), (0, 1, 0), PortDirection.INOUT, "signal"))
     _add_body(eq, name)
     return eq
@@ -98,10 +107,10 @@ def create_switchboard(
         ifc_element_class="IfcElectricDistributionBoard",
     )
     eq.add_port(Port("incoming", (0, 0, lz), (0, 0, 1), PortDirection.IN, "electrical"))
-    eq.add_port(Port("feeder", (lx / 2, 0, lz / 2), (1, 0, 0), PortDirection.OUT, "electrical"))
+    eq.add_port(Port("feeder", (lx / 2, 0, _CABLE_ENTRY_Z), (1, 0, 0), PortDirection.OUT, "electrical"))
     # A second outgoing feeder so one board can supply several loads — e.g. feed
     # a downstream switchboard on another deck as well as a local load.
-    eq.add_port(Port("feeder2", (-lx / 2, 0, lz / 2), (-1, 0, 0), PortDirection.OUT, "electrical"))
+    eq.add_port(Port("feeder2", (-lx / 2, 0, _CABLE_ENTRY_Z), (-1, 0, 0), PortDirection.OUT, "electrical"))
     _add_body(eq, name)
     return eq
 
@@ -123,7 +132,7 @@ def create_hvac(
         name, mass, cog=(0, 0, lz / 2), origin=origin, lx=lx, ly=ly, lz=lz, ifc_element_class="IfcUnitaryEquipment"
     )
     eq.add_port(Port("supply", (0, 0, lz), (0, 0, 1), PortDirection.OUT, "process"))
-    eq.add_port(Port("power", (lx / 2, 0, lz / 2), (1, 0, 0), PortDirection.IN, "electrical"))
+    eq.add_port(Port("power", (lx / 2, 0, _CABLE_ENTRY_Z), (1, 0, 0), PortDirection.IN, "electrical"))
     eq.add_port(Port("signal", (0, ly / 2, lz / 2), (0, 1, 0), PortDirection.INOUT, "signal"))
     _add_body(eq, name)
     return eq
@@ -142,7 +151,7 @@ def create_exhaust_fan(
     structure so the duct climbs out of the room and up to it."""
     eq = ada.Equipment(name, mass, cog=(0, 0, lz / 2), origin=origin, lx=lx, ly=ly, lz=lz, ifc_element_class="IfcFan")
     eq.add_port(Port("intake", (0, 0, 0), (0, 0, -1), PortDirection.IN, "process"))
-    eq.add_port(Port("power", (lx / 2, 0, lz / 2), (1, 0, 0), PortDirection.IN, "electrical"))
+    eq.add_port(Port("power", (lx / 2, 0, min(_CABLE_ENTRY_Z, lz / 2)), (1, 0, 0), PortDirection.IN, "electrical"))
     _add_body(eq, name)
     return eq
 

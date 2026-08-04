@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "RoutingError",
+    "RunWarning",
     "RoutingRules",
     "RoutingBlueprintBase",
     "nearest_index",
@@ -32,6 +33,9 @@ __all__ = [
     "path_to_polyline",
     "route_system",
     "system_route_to_geometry",
+    "occupy_run",
+    "occupy_faces",
+    "run_half_extent",
 ]
 
 _NEIGHBOR_STEPS = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
@@ -39,6 +43,22 @@ _NEIGHBOR_STEPS = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 
 
 class RoutingError(Exception):
     """Raised when no route can be found between two grid nodes."""
+
+
+@dataclass
+class RunWarning:
+    """A place where a routed (or authored) run can't be built as a clean fitting
+    — a bend left sharp because the route is too cramped, a section too big to
+    turn without inverting, etc. The geometry is still emitted best-effort; the
+    warning names the spot and a concrete fix so the input can be respaced rather
+    than silently deformed."""
+
+    position: tuple[float, float, float]
+    message: str
+    suggestion: str
+
+    def __str__(self) -> str:
+        return f"{self.message}\n      fix: {self.suggestion}"
 
 
 def _default_is_allowed(idx: GridIndex, grid: CellGrid) -> bool:
@@ -461,6 +481,45 @@ def occupy_run(grid: CellGrid, polyline, radius: float, tag: str = "run") -> Non
                         grid.register((ix, iy, iz), tag)
 
 
+def occupy_faces(grid: CellGrid, faces, clearance: float = 0.0, tag: str = "no_go") -> None:
+    """Voxelize planar members (walls, floor/roof decks) as no-go obstacles on the
+    grid: every node lying within ``clearance`` of a face's plane AND inside the
+    (``clearance``-inflated) outline bounding box is marked occupied, so A* routes
+    around the member and the taut-pull never shortcuts across it.
+
+    ``clearance`` should be at least the routed run's cross-section half-extent so
+    the run's *body* — not merely its centreline — stays clear of the wall. A face
+    with no built plate is still a valid obstacle; pass only the members you want
+    treated as impenetrable (a system meant to *penetrate* a wall must NOT have
+    that wall in ``faces``, or it can no longer route through it)."""
+    import numpy as np
+
+    c = float(clearance)
+    for face in faces:
+        pts = np.asarray([tuple(p) for p in face.get_points()], dtype=float)
+        if len(pts) < 3:
+            continue
+        n = np.asarray(tuple(face.normal), dtype=float)
+        nn = float(np.linalg.norm(n))
+        if nn < 1e-9:
+            continue
+        n = n / nn
+        p0 = pts[0]
+        lo = pts.min(axis=0) - c
+        hi = pts.max(axis=0) + c
+        for ix, x in enumerate(grid.x_list):
+            if not (lo[0] <= x <= hi[0]):
+                continue
+            for iy, y in enumerate(grid.y_list):
+                if not (lo[1] <= y <= hi[1]):
+                    continue
+                for iz, z in enumerate(grid.z_list):
+                    if not (lo[2] <= z <= hi[2]):
+                        continue
+                    if abs(float(n.dot(np.array([x, y, z]) - p0))) <= c + 1e-9:
+                        grid.register((ix, iy, iz), tag)
+
+
 def _point_seg_dist(p, a, b) -> float:
     ab = _v_sub(b, a)
     denom = _v_dot(ab, ab)
@@ -516,6 +575,7 @@ def _polyline_to_directrix(
     up_half: float = 0.0,
     strict: bool = False,
     run_name: str | None = None,
+    warnings: list | None = None,
 ):
     """Build an ``IndexedPolyCurve`` directrix from an (orthogonal) polyline,
     filleting each interior corner into an ``ArcLine`` of ``radius`` so a swept
@@ -526,11 +586,15 @@ def _polyline_to_directrix(
     straight sections plus standard-radius bends only, so a bend that can't fit is
     an error, not something to deform:
 
-    * **graceful** (default): the radius is clamped to half of each adjacent
-      segment so nearby bends never eat into each other; a corner whose clamped
-      radius would fall below its inversion floor (see :func:`_inversion_floor`,
-      from ``lateral_half``/``up_half``; ``min_radius`` is an absolute lower bound)
-      is left *sharp*. Pair with
+    * **graceful** (default): the radius is clamped to the tangent budget of each
+      adjacent segment so nearby bends never eat into each other — half of an
+      *interior* leg (shared with the neighbouring bend) but the *whole* of a
+      *terminal* leg (the port stub/cap, which has a bend at one end only, so it
+      can lend its full length). A corner whose clamped radius would still fall
+      below its inversion floor (see :func:`_inversion_floor`, from
+      ``lateral_half``/``up_half``; ``min_radius`` is an absolute lower bound) is
+      left *sharp* and, when a ``warnings`` list is supplied, recorded as a
+      :class:`RunWarning` naming the spot and a respacing fix. Pair with
       :func:`_collapse_short_legs` so such corners are rare.
     * **strict**: every bend uses the full fixed ``radius`` (a catalog value); no
       clamping, no sharp fallback. If two routed points sit too close to fit that
@@ -571,8 +635,27 @@ def _polyline_to_directrix(
         if strict:
             r = radius
         else:
-            r = min(radius, 0.5 * la, 0.5 * lb)
-            if r < max(floor, 1e-9):  # too tight to fillet without inverting — keep sharp
+            # Tangent budget per adjacent leg: half of an interior leg (shared with
+            # the neighbouring bend), the WHOLE of a terminal leg (the port stub/cap
+            # turns at one end only, so its full length is available). Using half on a
+            # terminal leg needlessly starved the last bend and dropped it to a sharp
+            # corner (e.g. a tray/duct turning into a short nozzle stub).
+            avail_a = la if i == 1 else 0.5 * la
+            avail_b = lb if i == len(pts) - 2 else 0.5 * lb
+            r = min(radius, avail_a, avail_b)
+            if r < max(floor, 1e-9):  # too tight to fillet without inverting — keep sharp + warn
+                if warnings is not None:
+                    v = tuple(round(float(c), 3) for c in p_cur)
+                    warnings.append(
+                        RunWarning(
+                            v,
+                            f"duct/cable-tray run {tag}has a bend at {v} too tight to round "
+                            f"(only {min(avail_a, avail_b):.3g} m of straight beside it, needs {floor:.3g} m) "
+                            f"— left as a sharp corner",
+                            f"space the route so both legs at {v} are at least {2 * floor:.4g} m long, "
+                            f"or use a smaller cross-section",
+                        )
+                    )
                 p_curp = ada.Point(*p_cur)
                 if _seg_len(cursor, p_curp) > 1e-9:
                     segs.append(Edge(cursor, p_curp))
@@ -826,6 +909,8 @@ def system_route_to_geometry(system: System, name: str | None = None, grid: Cell
     if system.routed_path is None:
         raise RoutingError(f"system {system.name!r} has no routed path; call route_system first")
 
+    # Bend-artifact warnings for this run are recomputed from scratch each call.
+    system.route_warnings = []
     name = name if name is not None else f"{system.name}_route"
     path = system.routed_path
     # Box/channel runs follow an orthogonal path — square off any diagonal hop the
@@ -867,7 +952,9 @@ def system_route_to_geometry(system: System, name: str | None = None, grid: Cell
             # no corner fillets into a self-intersecting tiny arc, then fillet the
             # clean run (sharp fallback only where a corner is still too tight).
             clean = _collapse_short_legs(ortho, max(lat_half, up_half))
-            directrix = _polyline_to_directrix(clean, bend_r, lateral_half=lat_half, up_half=up_half)
+            directrix = _polyline_to_directrix(
+                clean, bend_r, lateral_half=lat_half, up_half=up_half, run_name=name, warnings=system.route_warnings
+            )
         if directrix is None:
             return
         # Frame the whole run once (parallel transport), then hand each segment its
