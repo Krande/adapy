@@ -11,7 +11,11 @@ import pytest
 
 import ada
 from ada.topo_model import build_topo_model_with_systems
-from ada.topo_model.penetration import find_face_crossings
+from ada.topo_model.penetration import (
+    Penetration,
+    find_face_crossings,
+    standard_penetration_modeller,
+)
 
 
 @pytest.fixture(scope="module")
@@ -80,3 +84,75 @@ def test_find_face_crossings_direct(demo):
         routed_path = [ada.Point(2, 2.5, 4.0), ada.Point(8, 2.5, 4.0)]  # above the wall
 
     assert find_face_crossings(_FakeAbove(), walls) == []
+
+
+# --- rectangular tray/duct cutout vs round pipe sleeve ---------------------
+
+
+class _FakeFace:
+    def __init__(self, part):
+        self.associated_part = part
+
+
+def _wall_plate():
+    # a vertical wall plate in the Y-Z plane at X=5 (normal +X)
+    pts = [(5, 0, 0), (5, 4, 0), (5, 4, 3), (5, 0, 3)]
+    pl = ada.Plate.from_3d_points("wall_pl", pts, 8e-3)
+    return ada.Part("Wall") / pl, pl
+
+
+def _model_crossing(system, name, clearance=0.02):
+    part, pl = _wall_plate()
+    pen = Penetration(system, ada.Point(5, 2, 1.5), ada.Direction(1, 0, 0), _FakeFace(part))
+    detail = standard_penetration_modeller(pen, name, tray_duct_clearance=clearance)
+    return detail, pl
+
+
+def test_cable_tray_cut_is_rectangular_section_plus_tolerance():
+    from ada.api.systems import CableSystem
+
+    tray = CableSystem("Trays", tray_width=0.3, tray_height=0.1)
+    detail, pl = _model_crossing(tray, "Cable_pen")
+
+    hole = pl.booleans[-1].primitive
+    assert isinstance(hole, ada.PrimBox)  # rectangular, not round
+    lo, hi = hole.p1, hole.p2
+    # width along the lateral (Y) axis, height along the vertical (Z) axis,
+    # each = section + tolerance on both sides
+    assert round(float(hi[1] - lo[1]), 4) == round(0.3 + 2 * 0.02, 4)
+    assert round(float(hi[2] - lo[2]), 4) == round(0.1 + 2 * 0.02, 4)
+    # a tray is wider than tall
+    assert (hi[1] - lo[1]) > (hi[2] - lo[2])
+
+
+def test_duct_cut_is_rectangular_section_plus_tolerance():
+    from ada.api.systems import DuctSystem
+
+    duct = DuctSystem("HVAC", duct_width=0.4, duct_height=0.3)
+    detail, pl = _model_crossing(duct, "Duct_pen")
+
+    hole = pl.booleans[-1].primitive
+    assert isinstance(hole, ada.PrimBox)
+    lo, hi = hole.p1, hole.p2
+    assert round(float(hi[1] - lo[1]), 4) == round(0.4 + 2 * 0.02, 4)
+    assert round(float(hi[2] - lo[2]), 4) == round(0.3 + 2 * 0.02, 4)
+
+
+def test_tray_duct_tolerance_is_overridable():
+    from ada.api.systems import DuctSystem
+
+    duct = DuctSystem("HVAC", duct_width=0.4, duct_height=0.3)
+    _, pl = _model_crossing(duct, "Duct_pen", clearance=0.05)
+    hole = pl.booleans[-1].primitive
+    assert round(float(hole.p2[1] - hole.p1[1]), 4) == round(0.4 + 2 * 0.05, 4)
+
+
+def test_pipe_cut_stays_round():
+    from ada.api.systems import PipingSystem
+
+    pipe = PipingSystem("Water", pipe_radius=0.05)
+    detail, pl = _model_crossing(pipe, "Pipe_pen")
+    hole = pl.booleans[-1].primitive
+    assert isinstance(hole, ada.PrimCyl)  # pipes keep the round sleeve
+    (sleeve,) = detail.get_all_physical_objects()
+    assert isinstance(sleeve, ada.PrimCyl)

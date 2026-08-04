@@ -20,7 +20,7 @@ from typing import Literal
 
 import ada
 from ada.topology import CellGrid, TopologyBuilder
-from ada.topology.entities import TopoEquipment, TopoSpace
+from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace
 
 from .blueprint import SteelStru
 
@@ -57,6 +57,61 @@ def _space_to_box(space: TopoSpace) -> ada.PrimBox:
     p1 = (space.X, space.Y, space.Z)
     p2 = (space.X + space.DX, space.Y + space.DY, space.Z + space.DZ)
     return ada.PrimBox(space.NAME, p1, p2, metadata={"PM_TOPO_OBJ": space.model_dump()})
+
+
+def _opening_to_box(opening: TopoOpening) -> ada.PrimBox:
+    """The negative-volume box of a placed opening (used as the subtracting tool
+    when it overlaps a built plate). Carries the entity on ``PM_TOPO_OBJ`` for
+    round-tripping, mirroring :func:`_space_to_box`."""
+    p1, p2 = opening.get_p1(), opening.get_p2()
+    lo = tuple(min(float(a), float(b)) for a, b in zip(p1, p2))
+    hi = tuple(max(float(a), float(b)) for a, b in zip(p1, p2))
+    return ada.PrimBox(opening.NAME, lo, hi, metadata={"PM_TOPO_OBJ": opening.model_dump()})
+
+
+class _SpaceConfig:
+    """Minimal opening ``parent_config``: resolves ``get_space`` against the
+    doc's parsed spaces so a locally-placed opening (``USE_GLOBAL_COORDS=False``)
+    can find its host space to compute its world box."""
+
+    def __init__(self, spaces: list[TopoSpace]) -> None:
+        self._spaces = list(spaces)
+
+    def get_space(self, name: str, structure_name: str | None = None) -> TopoSpace | None:
+        for s in self._spaces:
+            if s.NAME == name and (structure_name is None or s.STRUCTURE_NAME == structure_name):
+                return s
+        return None
+
+
+def _apply_openings(
+    blueprint: SteelStru, assembly: ada.Assembly, spaces: list[TopoSpace], opening_docs: list[dict]
+) -> None:
+    """Cut each ``doc["openings"]`` entry into the built plates it overlaps and
+    add its reinforcement framing (grouped under an ``Openings`` part). An opening
+    that overlaps no built plate (e.g. ``blueprint_name`` built no walls) is a
+    no-op; a failing cut is skipped with a warning so it never sinks the compile.
+    A doc with ``openings: []`` behaves exactly as before."""
+    from ada.config import logger
+
+    if not opening_docs:
+        return
+
+    config = _SpaceConfig(spaces)
+    reinforcement_parts: list[ada.Part] = []
+    for o in opening_docs:
+        try:
+            opening = TopoOpening(**o)
+            opening.parent_config = config
+            part = blueprint.cut_opening(assembly, opening)
+        except Exception as exc:  # noqa: BLE001 - one bad opening must not sink the compile
+            logger.warning("procedural: skipping opening %r: %s", (o or {}).get("NAME"), exc)
+            continue
+        if part is not None and list(part.get_all_physical_objects()):
+            reinforcement_parts.append(part)
+
+    if reinforcement_parts:
+        assembly.add_part(ada.Part("Openings") / reinforcement_parts)
 
 
 def _equipment_to_object(eq: TopoEquipment, resolver=None) -> ada.Equipment | ada.PrimBox:
@@ -356,10 +411,14 @@ def compile_procedural_doc(
 
     cell_graph = None
     if blueprint_name == "steel_stru":
-        builder = TopologyBuilder.from_prim_boxes(boxes, blueprint=SteelStru(**_blueprint_options(doc)))
+        blueprint = SteelStru(**_blueprint_options(doc))
+        builder = TopologyBuilder.from_prim_boxes(boxes, blueprint=blueprint)
         builder.build()
         a = builder.get_output_assembly(name)
         cell_graph = builder.cell_graph
+        # Negative-volume openings cut the built wall/floor plates and add their
+        # door/window reinforcement framing (no-op when the doc has no openings).
+        _apply_openings(blueprint, a, spaces, doc.get("openings", []))
     else:
         a = ada.Assembly(name) / (ada.Part("Spaces") / boxes)
 

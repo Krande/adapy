@@ -5,11 +5,13 @@ and :func:`~ada.topology.design_rules.find_face_crossings`) lives in
 ``ada.topology`` and is re-exported here for backward compatibility.
 
 This module supplies the *detail standard*: ``standard_penetration_modeller``
-turns a crossing into a detail part keyed on the routing type — process runs get
-a pipe sleeve, cable/electrical runs an MCT-style transit block, duct runs a
-rectangular frame — and cuts the through-hole in the crossed face's built wall
-plate (``face.associated_part``). ``standard_design_rules`` bundles it into a
-ready :class:`~ada.topology.design_rules.DesignRules` for the engine.
+turns a crossing into a detail part keyed on the routing type — a process (pipe)
+run gets a round sleeve + circular hole; a cable-tray/duct run gets a RECTANGULAR
+frame + hole sized to the run's cross-section (width x height) plus a per-side
+tolerance, oriented width along the lateral axis and height along the vertical —
+and cuts the through-hole in the crossed face's built wall plate
+(``face.associated_part``). ``standard_design_rules`` bundles it into a ready
+:class:`~ada.topology.design_rules.DesignRules` for the engine.
 
 ``PenetrationBlueprintBase`` / ``StandardPenetrations`` remain as the subclass-
 based scaffold for callers that build penetrations directly.
@@ -45,6 +47,46 @@ _SLEEVE_WT = 8e-3
 _DEPTH = 0.3
 _CABLE_BLOCK_SIZE = 0.3
 _DUCT_FRAME_SIZE = 0.45
+# Per-side tolerance (metres) added around a tray/duct's true cross-section when
+# cutting its RECTANGULAR through-hole (width + 2*tol by height + 2*tol). Module
+# level so callers can override the default via the modeller/ruleset kwargs.
+_TRAY_DUCT_CLEARANCE = 0.02
+# Visible transit-frame rim (metres) grown around the rectangular hole so the
+# detail part reads as a framed opening rather than sitting flush with the cut.
+_FRAME_RIM = 0.05
+
+
+def _rect_section_wh(system) -> tuple[float, float]:
+    """The routed run's rectangular cross-section ``(width, height)`` in metres:
+    a duct uses ``duct_width/duct_height``; a cable/electrical tray uses
+    ``tray_width/tray_height``. Falls back to the legacy fixed block/frame size
+    when a section attribute is absent."""
+    from ada.api.systems.base import DuctSystem
+
+    if isinstance(system, DuctSystem):
+        w = float(getattr(system, "duct_width", _DUCT_FRAME_SIZE))
+        h = float(getattr(system, "duct_height", _DUCT_FRAME_SIZE))
+    else:  # CableSystem / ElectricalSystem tray
+        w = float(getattr(system, "tray_width", _CABLE_BLOCK_SIZE))
+        h = float(getattr(system, "tray_height", _CABLE_BLOCK_SIZE))
+    return w, h
+
+
+def _rect_axes(n: np.ndarray) -> tuple[int, int]:
+    """Given the (axis-aligned) face normal, return ``(width_axis, height_axis)``:
+    the two in-plane axes with the rectangle's WIDTH along the horizontal lateral
+    axis and its HEIGHT along the vertical (global Z) — so a tray/duct opening is
+    wider than tall, matching the section. When the face normal is itself vertical
+    (a floor/roof crossing) neither in-plane axis is Z, so the two in-plane axes
+    are used in order."""
+    normal_axis = int(np.argmax(np.abs(n)))
+    in_plane = [a for a in range(3) if a != normal_axis]
+    if 2 in in_plane:  # a wall: keep height along the vertical axis
+        height_axis = 2
+        width_axis = next(a for a in in_plane if a != 2)
+    else:  # a floor/roof: no vertical in-plane axis
+        width_axis, height_axis = in_plane[0], in_plane[1]
+    return width_axis, height_axis
 
 
 def _cut_wall_hole(pen: Penetration, hole: ada.Shape) -> None:
@@ -66,11 +108,15 @@ def standard_penetration_modeller(
     depth: float = _DEPTH,
     cable_block_size: float = _CABLE_BLOCK_SIZE,
     duct_frame_size: float = _DUCT_FRAME_SIZE,
+    tray_duct_clearance: float = _TRAY_DUCT_CLEARANCE,
 ) -> ada.Part:
-    """Build the detail part for one crossing (pipe sleeve / cable block / duct
-    frame by routing type) and cut the matching hole in the crossed wall plate.
-    A :class:`~ada.topology.design_rules.PenetrationModeller`."""
-    from ada.api.systems.base import DuctSystem, PipingSystem
+    """Build the detail part for one crossing and cut the matching hole in the
+    crossed wall plate. A pipe run gets a round sleeve + circular hole; a
+    cable-tray/duct run gets a RECTANGLE sized to the run's cross-section
+    (width x height) plus ``tray_duct_clearance`` on each side, oriented width
+    along the lateral axis and height along the vertical. A
+    :class:`~ada.topology.design_rules.PenetrationModeller`."""
+    from ada.api.systems.base import PipingSystem
 
     n = np.asarray(tuple(pen.normal), dtype=float)
     n /= np.linalg.norm(n)
@@ -83,15 +129,25 @@ def standard_penetration_modeller(
         detail: ada.Shape = ada.PrimCyl(f"{name}_sleeve", p1, p2, hole_r + sleeve_wt, color="red")
         hole = ada.PrimCyl(f"{name}_hole", p1, p2, hole_r)
     else:
-        half = (duct_frame_size if isinstance(pen.system, DuctSystem) else cable_block_size) / 2
-        in_plane = np.array([half, half, half]) * (1.0 - np.abs(n))
-        lo = x - in_plane - np.abs(n) * depth / 2
-        hi = x + in_plane + np.abs(n) * depth / 2
-        detail = ada.PrimBox(f"{name}_block", tuple(lo), tuple(hi), color="red")
-        shrink = 0.8  # the transit frame keeps a rim; the hole is the inner opening
-        lo_h = x - in_plane * shrink - np.abs(n) * depth
-        hi_h = x + in_plane * shrink + np.abs(n) * depth
+        # Rectangular cut sized to the tray/duct section + tolerance each side.
+        sec_w, sec_h = _rect_section_wh(pen.system)
+        width_axis, height_axis = _rect_axes(n)
+        hole_half = np.zeros(3)
+        hole_half[width_axis] = sec_w / 2 + tray_duct_clearance
+        hole_half[height_axis] = sec_h / 2 + tray_duct_clearance
+        # Cut fully through the plate along the normal (±depth); the visible frame
+        # spans ±depth/2 and grows a rim in-plane so it reads as a framed opening.
+        thru = np.abs(n) * depth
+        lo_h = x - hole_half - thru
+        hi_h = x + hole_half + thru
         hole = ada.PrimBox(f"{name}_hole", tuple(lo_h), tuple(hi_h))
+
+        frame_half = hole_half.copy()
+        frame_half[width_axis] += _FRAME_RIM
+        frame_half[height_axis] += _FRAME_RIM
+        lo = x - frame_half - np.abs(n) * depth / 2
+        hi = x + frame_half + np.abs(n) * depth / 2
+        detail = ada.PrimBox(f"{name}_frame", tuple(lo), tuple(hi), color="red")
 
     _cut_wall_hole(pen, hole)
     return ada.Part(name) / detail
@@ -104,6 +160,7 @@ def standard_design_rules(
     depth: float = _DEPTH,
     cable_block_size: float = _CABLE_BLOCK_SIZE,
     duct_frame_size: float = _DUCT_FRAME_SIZE,
+    tray_duct_clearance: float = _TRAY_DUCT_CLEARANCE,
 ) -> DesignRules:
     """A :class:`~ada.topology.design_rules.DesignRules` with default routing and
     the standard penetration detail (:func:`standard_penetration_modeller`).
@@ -118,6 +175,7 @@ def standard_design_rules(
             depth=depth,
             cable_block_size=cable_block_size,
             duct_frame_size=duct_frame_size,
+            tray_duct_clearance=tray_duct_clearance,
         )
 
     return DesignRules(model_penetration=model_penetration)
@@ -170,6 +228,7 @@ class StandardPenetrations(PenetrationBlueprintBase):
         depth: float = _DEPTH,
         cable_block_size: float = _CABLE_BLOCK_SIZE,
         duct_frame_size: float = _DUCT_FRAME_SIZE,
+        tray_duct_clearance: float = _TRAY_DUCT_CLEARANCE,
     ):
         super().__init__(systems, faces)
         self.sleeve_clearance = sleeve_clearance
@@ -177,6 +236,7 @@ class StandardPenetrations(PenetrationBlueprintBase):
         self.depth = depth
         self.cable_block_size = cable_block_size
         self.duct_frame_size = duct_frame_size
+        self.tray_duct_clearance = tray_duct_clearance
 
     def build_penetration(self, pen: Penetration, name: str) -> ada.Part:
         return standard_penetration_modeller(
@@ -187,4 +247,5 @@ class StandardPenetrations(PenetrationBlueprintBase):
             depth=self.depth,
             cable_block_size=self.cable_block_size,
             duct_frame_size=self.duct_frame_size,
+            tray_duct_clearance=self.tray_duct_clearance,
         )
