@@ -301,6 +301,16 @@ interface CellBuilderState {
     side: CellSide;
   }) => void;
   setPanelVisible: (v: boolean) => void;
+  /** The system to spotlight in the Systems inspector — set by a "Procedural
+   * model" panel link so clicking a routed run's system opens + highlights it.
+   * Cleared when the inspector consumes it. */
+  focusedSystemName: string | null;
+  /** Open the cellbuilder panel and spotlight the named system in the Systems
+   * inspector (link target from the selected-object procedural panel). */
+  focusSystem: (name: string) => void;
+  /** Open the cellbuilder panel and select the named equipment cell so its
+   * info shows (link target from the selected-object procedural panel). */
+  focusEquipment: (name: string) => void;
   setCellsVisible: (v: boolean) => void;
   /** Hide the given cells (per-cell "Hide selected"). */
   hideCells: (ids: string[]) => void;
@@ -569,6 +579,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     designRules: "standard",
     designRulesets: [],
     panelVisible: false,
+    focusedSystemName: null,
 
     open: (modelId, name, revision, doc) => {
       // A freshly loaded model starts a new editing session — history resets.
@@ -723,6 +734,22 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         };
       }),
     setPanelVisible: (panelVisible) => set({ panelVisible }),
+    focusSystem: (name) => set({ panelVisible: true, focusedSystemName: name }),
+    focusEquipment: (name) => {
+      const cell = Object.values(get().cells).find(
+        (c) => c.kind === "equipment" && c.name === name,
+      );
+      if (!cell) {
+        set({ panelVisible: true });
+        return;
+      }
+      set({
+        panelVisible: true,
+        focusedSystemName: null,
+        selection: { kind: "cell", cellId: cell.id },
+        selectedCellIds: [cell.id],
+      });
+    },
     setCellsVisible: (cellsVisible) => set({ cellsVisible }),
     hideCells: (ids) =>
       set((s) => {

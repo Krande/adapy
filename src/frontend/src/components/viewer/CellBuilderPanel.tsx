@@ -87,6 +87,17 @@ const SystemsInspector: React.FC = () => {
   const s = useCellBuilderStore();
   const [open, setOpen] = React.useState(false);
   const [addSlug, setAddSlug] = React.useState<string | null>(null);
+  // A "Procedural model" panel link (clicking a routed run's system) sets
+  // focusedSystemName — open the inspector and scroll+highlight that system.
+  const focused = s.focusedSystemName;
+  const focusedRowRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    if (focused) setOpen(true);
+  }, [focused]);
+  React.useEffect(() => {
+    if (focused && open && focusedRowRef.current)
+      focusedRowRef.current.scrollIntoView({ block: "nearest" });
+  }, [focused, open]);
   const equipmentNames = Object.values(s.cells)
     .filter((c) => c.kind === "equipment")
     .map((c) => c.name);
@@ -158,7 +169,13 @@ const SystemsInspector: React.FC = () => {
           {systems.map((sys) => (
             <div
               key={sys.id}
-              className="border border-gray-700/60 rounded-sm p-1 flex flex-col gap-1"
+              ref={sys.name === focused ? focusedRowRef : undefined}
+              className={
+                "rounded-sm p-1 flex flex-col gap-1 border " +
+                (sys.name === focused
+                  ? "border-blue-400 ring-1 ring-blue-400/60"
+                  : "border-gray-700/60")
+              }
             >
               <div className="flex items-center gap-1">
                 <span

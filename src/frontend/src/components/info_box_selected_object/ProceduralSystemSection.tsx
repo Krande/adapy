@@ -59,8 +59,12 @@ const ProceduralSystemSection: React.FC<Props> = ({objectName}) => {
     const equipTypeOf = (name: string): string | undefined =>
         Object.values(cells).find((c) => c.kind === 'equipment' && c.name === name)?.equipmentType;
 
+    const focusSystem = useCellBuilderStore((s) => s.focusSystem);
+    const focusEquipment = useCellBuilderStore((s) => s.focusEquipment);
     const equipmentConns = system.connections.filter((c) => c.equipment);
     const siteConns = system.connections.filter((c) => c.site);
+    const linkCls =
+        'text-blue-300 hover:text-blue-200 hover:underline cursor-pointer';
 
     return (
         <div className="mt-2">
@@ -76,14 +80,30 @@ const ProceduralSystemSection: React.FC<Props> = ({objectName}) => {
             </button>
             {expanded && (
                 <div id="procedural-system" className="mt-1 ml-4 table">
-                    <Row label="System:">{system.name}</Row>
+                    <Row label="System:">
+                        <button
+                            type="button"
+                            className={linkCls}
+                            onClick={() => focusSystem(system.name)}
+                            title="Open this system in the Systems inspector"
+                        >
+                            {system.name}
+                        </button>
+                    </Row>
                     <Row label="Type:">
                         {system.type}
                         {system.medium ? ` · ${system.medium}` : ''}
                     </Row>
                     {equipmentConns.map((c, i) => (
                         <Row label={i === 0 ? 'Connects:' : ''} key={`eq-${c.equipment}-${c.port}-${i}`}>
-                            <span className="text-gray-100">{c.equipment}</span>
+                            <button
+                                type="button"
+                                className={linkCls}
+                                onClick={() => focusEquipment(c.equipment as string)}
+                                title="Select this equipment"
+                            >
+                                {c.equipment}
+                            </button>
                             {c.port ? <span className="text-gray-400"> · {c.port}</span> : null}
                             {equipTypeOf(c.equipment as string) ? (
                                 <span className="text-gray-500"> ({equipTypeOf(c.equipment as string)})</span>
