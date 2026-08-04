@@ -481,6 +481,17 @@ const CellBuilderPanel: React.FC = () => {
           + Cell
         </button>
         <button
+          className={
+            s.mode === "add-opening" ? `${btn} ring-2 ring-blue-300` : btn
+          }
+          onClick={() =>
+            s.setMode(s.mode === "add-opening" ? "idle" : "add-opening")
+          }
+          title="Add a door/window opening — click a wall to drop a negative-volume box that cuts the plate it overlaps (Esc cancels). Pick door/window on the placed opening."
+        >
+          + Opening
+        </button>
+        <button
           ref={equipBtnRef}
           className={
             s.mode === "add-equipment" ? `${btn} ring-2 ring-blue-300` : btn
@@ -681,6 +692,22 @@ const CellBuilderPanel: React.FC = () => {
               <span className="text-gray-400">
                 {c.equipmentType ?? "generic"}
               </span>
+            )}
+            {c.kind === "opening" && (
+              <select
+                className="bg-gray-700 text-gray-100 text-[11px] rounded-sm px-1"
+                value={c.subtype ?? "door"}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) =>
+                  s.updateCell(c.id, {
+                    subtype: e.target.value as "door" | "window",
+                  })
+                }
+                title="door: jambs + lintel + threshold (cut to floor); window: jambs + head + sill (punched at its height)"
+              >
+                <option value="door">door</option>
+                <option value="window">window</option>
+              </select>
             )}
             <button
               className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"

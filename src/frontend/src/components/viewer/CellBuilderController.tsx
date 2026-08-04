@@ -42,8 +42,17 @@ const HOVER_EDGE_COLOR = 0xfacc15;
 const SELECTED_EDGE_COLOR = 0xfb7185;
 const HOVER_EDGE_WIDTH = 4; // px (fat lines — WebGL ignores LineBasicMaterial.linewidth)
 const SELECTED_EDGE_WIDTH = 6;
+const OPENING_COLOR = 0xef4444; // red — a negative-volume door/window cut
 const DEFAULT_CELL_SIZE: Vec3 = [5, 5, 3];
 const DEFAULT_EQUIPMENT_SIZE: Vec3 = [1, 1, 1];
+const DEFAULT_OPENING_SIZE: Vec3 = [1, 1, 2]; // door-ish; snaps to the wall it lands on
+
+const colorForKind = (kind: "cell" | "equipment" | "opening"): number =>
+    kind === "cell"
+        ? CELL_COLOR
+        : kind === "opening"
+          ? OPENING_COLOR
+          : EQUIPMENT_COLOR;
 const BASE_OPACITY = 0.3;
 const DRAG_START_PX = 4;
 // Resize-handle sphere colour per axis (X red, Y green, Z blue).
@@ -303,7 +312,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         for (const [cellId, mesh] of meshById) {
             const cell = st.cells[cellId];
             if (!cell) continue;
-            const base = cell.kind === "cell" ? CELL_COLOR : EQUIPMENT_COLOR;
+            const base = colorForKind(cell.kind);
             const cellSelected = sel?.cellId === cellId || selectedSet.has(cellId);
             const mats = mesh.material as THREE.MeshBasicMaterial[];
             for (let fi = 0; fi < mats.length; fi++) {
@@ -346,7 +355,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (st.active) {
             for (const cell of Object.values(st.cells)) {
                 const geo = new THREE.BoxGeometry(...cell.size);
-                const color = cell.kind === "cell" ? CELL_COLOR : EQUIPMENT_COLOR;
+                const color = colorForKind(cell.kind);
                 // One material per BoxGeometry group (+X,-X,+Y,-Y,+Z,-Z) so a
                 // single face can highlight on hover/selection.
                 const mats = BOX_FACE_SIDES.map(
@@ -757,7 +766,12 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
 
     const updateGhost = () => {
         const st = useCellBuilderStore.getState();
-        const size = st.mode === "add-cell" ? DEFAULT_CELL_SIZE : DEFAULT_EQUIPMENT_SIZE;
+        const size =
+            st.mode === "add-cell"
+                ? DEFAULT_CELL_SIZE
+                : st.mode === "add-opening"
+                  ? DEFAULT_OPENING_SIZE
+                  : DEFAULT_EQUIPMENT_SIZE;
         // Place on top of a hovered cell, else on the model's ground plane.
         const hit = pickBuilderMesh();
         let base: Vec3 | null = null;
@@ -802,10 +816,20 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (!st.active || ev.button !== 0) return;
         setPointer(ev);
 
-        if (st.mode === "add-cell" || st.mode === "add-equipment") {
+        if (
+            st.mode === "add-cell" ||
+            st.mode === "add-equipment" ||
+            st.mode === "add-opening"
+        ) {
             updateGhost();
             if (ghostBox) {
-                st.addCell(st.mode === "add-cell" ? "cell" : "equipment", ghostBox.origin, ghostBox.size);
+                const kind =
+                    st.mode === "add-cell"
+                        ? "cell"
+                        : st.mode === "add-opening"
+                          ? "opening"
+                          : "equipment";
+                st.addCell(kind, ghostBox.origin, ghostBox.size);
             }
             ev.stopPropagation();
             return;
@@ -956,7 +980,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             return;
         }
 
-        if (st.mode === "add-cell" || st.mode === "add-equipment") {
+        if (
+            st.mode === "add-cell" ||
+            st.mode === "add-equipment" ||
+            st.mode === "add-opening"
+        ) {
             updateGhost();
             return;
         }
@@ -1142,7 +1170,12 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             applyCellVisibility();
             requestRender();
         }
-        if (s.mode !== prev.mode && s.mode !== "add-cell" && s.mode !== "add-equipment") {
+        if (
+            s.mode !== prev.mode &&
+            s.mode !== "add-cell" &&
+            s.mode !== "add-equipment" &&
+            s.mode !== "add-opening"
+        ) {
             ghost.visible = false;
             ghostBox = null;
             requestRender();

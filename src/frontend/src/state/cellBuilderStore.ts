@@ -57,10 +57,15 @@ function setProceduralToast(name: string, patch: Partial<ConversionJob>): void {
 export interface BuilderCell extends CellBox {
   id: string;
   name: string;
-  kind: "cell" | "equipment";
+  kind: "cell" | "equipment" | "opening";
   /** Archetype name (pump/tank/...) for equipment cells; from the
    * worker-advertised list. */
   equipmentType?: string;
+  /** Door vs window for `opening` cells — a negative-volume box that cuts the
+   * wall/floor it overlaps; the subtype drives which reinforcement the compiler
+   * frames around the hole (door: jambs + lintel + threshold; window: jambs +
+   * head + sill). */
+  subtype?: "door" | "window";
   /** Extra pydantic entity fields (TopoSpace/TopoEquipment) beyond the
    * geometry: SE0..SE5 face exclusions, FLIP_FLOOR, SPACE_LOC, masses, ...
    * Round-tripped verbatim into the committed doc; the selection panel
@@ -72,6 +77,7 @@ export type CellBuilderMode =
   | "idle"
   | "add-cell"
   | "add-equipment"
+  | "add-opening"
   | "drag-face";
 
 /** Active direct-manipulation gizmo for the selected cell. */
@@ -159,6 +165,17 @@ const EQUIPMENT_OWN_KEYS = new Set([
   "LY",
   "LZ",
   "GLOBAL_COORDS",
+]);
+const OPENING_OWN_KEYS = new Set([
+  "NAME",
+  "SUBTYPE",
+  "USE_GLOBAL_COORDS",
+  "X",
+  "Y",
+  "Z",
+  "DX",
+  "DY",
+  "DZ",
 ]);
 
 function extractParams(
@@ -303,7 +320,11 @@ interface CellBuilderState {
   /** Mark a cell as a fully-enclosed room (plated walls + decks) or not, by
    * toggling its name in blueprintOptions.enclosed_cells. */
   setCellEnclosed: (cellName: string, enclosed: boolean) => void;
-  addCell: (kind: "cell" | "equipment", origin: Vec3, size: Vec3) => void;
+  addCell: (
+    kind: "cell" | "equipment" | "opening",
+    origin: Vec3,
+    size: Vec3,
+  ) => void;
   updateCell: (id: string, patch: Partial<BuilderCell>) => void;
   /** Desktop shortcut: move the selected equipment (or opening) up (+1) / down
    * (-1) one cell floor level, preserving its height offset within the floor and
@@ -391,6 +412,24 @@ function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
       origin: [Number(e.X ?? 0), Number(e.Y ?? 0), Number(e.Z ?? 0)],
       size: [Number(e.LX ?? 1), Number(e.LY ?? 1), Number(e.LZ ?? 1)],
       params: extractParams(e, EQUIPMENT_OWN_KEYS),
+    };
+  }
+  // Openings are UI-placed as global-coord negative-volume boxes (X/Y/Z/DX/DY/DZ).
+  // A locally-placed opening imported from elsewhere without global coords is
+  // skipped in the builder (still round-trips through params on commit only if it
+  // has coords) — the cellbuilder authors global ones.
+  for (const o of (doc as { openings?: Record<string, unknown>[] }).openings ??
+    []) {
+    if (o.X == null || o.DX == null) continue;
+    const id = nextId();
+    out[id] = {
+      id,
+      name: String(o.NAME ?? id),
+      kind: "opening",
+      subtype: o.SUBTYPE === "window" ? "window" : "door",
+      origin: [Number(o.X ?? 0), Number(o.Y ?? 0), Number(o.Z ?? 0)],
+      size: [Number(o.DX ?? 1), Number(o.DY ?? 1), Number(o.DZ ?? 1)],
+      params: extractParams(o, OPENING_OWN_KEYS),
     };
   }
   return out;
@@ -763,13 +802,20 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           kind === "equipment"
             ? (s.selectedEquipmentType ?? undefined)
             : undefined;
+        // Openings default to a door; the subtype toggles in the panel afterward.
+        const subtype = kind === "opening" ? ("door" as const) : undefined;
         const baseName =
-          kind === "cell" ? "CELL" : (eqType ?? "EQ").toUpperCase();
+          kind === "cell"
+            ? "CELL"
+            : kind === "opening"
+              ? "OPENING"
+              : (eqType ?? "EQ").toUpperCase();
         const cell: BuilderCell = {
           id,
           name: `${baseName}_${String(count).padStart(2, "0")}`,
           kind,
           equipmentType: eqType,
+          subtype,
           origin: quantizeVec(origin, s.gridStep),
           size: quantizeVec(size, s.gridStep),
           params: {},
@@ -797,8 +843,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         const sel = s.selection;
         if (!sel) return {};
         const cell = s.cells[sel.cellId];
-        // Only floor-riding objects bump; a space cell defines the floors itself.
-        if (!cell || cell.kind !== "equipment") return {};
+        // Equipment and openings ride on a floor; a space cell defines the
+        // floors itself, so it doesn't bump.
+        if (!cell || (cell.kind !== "equipment" && cell.kind !== "opening"))
+          return {};
         // Floor levels = the distinct base-Z of the space cells, ascending.
         const floors = Array.from(
           new Set(
@@ -1030,6 +1078,21 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           LY: c.size[1],
           LZ: c.size[2],
         }));
+      const openings = Object.values(cells)
+        .filter((c) => c.kind === "opening")
+        .map((c) => ({
+          INCLUDE: true,
+          ...c.params,
+          NAME: c.name,
+          SUBTYPE: c.subtype ?? "door",
+          USE_GLOBAL_COORDS: true,
+          X: c.origin[0],
+          Y: c.origin[1],
+          Z: c.origin[2],
+          DX: c.size[0],
+          DY: c.size[1],
+          DZ: c.size[2],
+        }));
       const systems = Object.values(get().systems).map((sys) => ({
         NAME: sys.name,
         TYPE: sys.type,
@@ -1053,7 +1116,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         spaces,
         equipments,
         systems,
-        openings: [],
+        openings,
       };
     },
     loadFromDoc: (doc) =>
