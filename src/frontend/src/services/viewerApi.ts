@@ -1994,6 +1994,24 @@ export const viewerApi = {
     return jsonOrThrow(r, `syncProceduralEquipmentType(${scope}, ${slug})`);
   },
 
+  /** Resync ALL code-defined equipment archetypes into this scope's catalog,
+   * updating existing entries (unlike the single-slug sync, which only creates).
+   * Returns which slugs were created / updated / left unchanged. */
+  async resyncProceduralEquipmentTypes(
+    scope: ScopeUrl,
+  ): Promise<{
+    created: string[];
+    updated: string[];
+    unchanged: string[];
+    skipped: string[];
+  }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/equipment-types/resync`,
+      { method: "POST" },
+    );
+    return jsonOrThrow(r, `resyncProceduralEquipmentTypes(${scope})`);
+  },
+
   /** Persist a code-defined system kind into this scope's DB system-template
    * catalog. */
   async syncProceduralSystemType(

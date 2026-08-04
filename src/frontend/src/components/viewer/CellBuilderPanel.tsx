@@ -794,6 +794,13 @@ const CellBuilderPanel: React.FC = () => {
         </button>
         <button
           className={btnGray}
+          onClick={() => void s.resyncEquipmentTypes()}
+          title="Update this scope's equipment catalog from the built-in code archetypes (new ports, corrected nozzle heights). Recompile afterwards to pick up the changes."
+        >
+          Resync equipments
+        </button>
+        <button
+          className={btnGray}
           onClick={() => s.setPortsOverlayVisible(!s.portsOverlayVisible)}
           title="Toggle the port overlay: each equipment's input/output positions and vectors — plus site I/O terminals — drawn as coloured arrows (colours match the equipment catalog)"
           aria-pressed={s.portsOverlayVisible}

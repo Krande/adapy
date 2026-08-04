@@ -2830,6 +2830,84 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code=201,
         )
 
+    @api.post("/scopes/{scope}/procedural-models/equipment-types/resync")
+    async def api_procedural_equipment_resync(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Upsert EVERY code-defined equipment archetype into the scope catalog,
+        UPDATING an existing entry whose slug matches (unlike ``/sync``, which only
+        creates and 409s on an existing one). This is the "Resync equipments"
+        action: code changes — a new port like ``feeder2``, a corrected nozzle
+        height — flow into the catalog docs that placed equipment resolve against,
+        so a recompile picks them up. Idempotent: a slug whose catalog doc already
+        equals the code doc is left untouched. Returns per-slug outcomes."""
+        from .catalog import validate_equipment_doc
+
+        pool = _require_catalog_pool(request)
+        specs = await _live_worker_specs("procedural_equipment_specs")
+        if not specs:
+            raise HTTPException(status_code=503, detail="no live worker advertising equipment archetypes")
+        existing = {
+            t["slug"]: t
+            for t in await db_module.list_equipment_types(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+        }
+        created: list[str] = []
+        updated: list[str] = []
+        unchanged: list[str] = []
+        skipped: list[str] = []
+        for slug, spec in specs.items():
+            if not isinstance(spec.get("doc"), dict):
+                skipped.append(slug)
+                continue
+            try:
+                doc = validate_equipment_doc(spec["doc"])
+            except ValueError:
+                skipped.append(slug)
+                continue
+            name = spec.get("name") or slug
+            cur = existing.get(slug)
+            if cur is not None:
+                full = await db_module.get_equipment_type(pool, cur["id"])
+                if full is not None and full.get("doc") == doc and full.get("name") == name:
+                    unchanged.append(slug)
+                    continue
+                await db_module.update_equipment_type(
+                    pool,
+                    cur["id"],
+                    slug=slug,
+                    name=name,
+                    description=(full or {}).get("description") or "Synced from built-in archetype",
+                    doc=doc,
+                    base_revision=cur["revision"],
+                )
+                updated.append(slug)
+            else:
+                row = await db_module.create_equipment_type(
+                    pool,
+                    scope_kind=scope_obj.kind,
+                    scope_id=scope_obj.id,
+                    slug=slug,
+                    name=name,
+                    description="Synced from built-in archetype",
+                    created_by=user.sub,
+                )
+                if row is None:
+                    skipped.append(slug)
+                    continue
+                await db_module.update_equipment_type(
+                    pool,
+                    row["id"],
+                    slug=slug,
+                    name=name,
+                    description="Synced from built-in archetype",
+                    doc=doc,
+                    base_revision=row["revision"],
+                )
+                created.append(slug)
+        return JSONResponse({"created": created, "updated": updated, "unchanged": unchanged, "skipped": skipped})
+
     @api.post("/scopes/{scope}/procedural-models/system-types/sync", status_code=201)
     async def api_procedural_system_sync(
         request: Request,

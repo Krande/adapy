@@ -1066,6 +1066,17 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             }
         }
 
+        // Bump the selected equipment up/down a cell floor (desktop shortcut).
+        // PageUp = up a floor, PageDown = down; no-op without an equipment pick.
+        if (!inField && (ev.key === "PageUp" || ev.key === "PageDown")) {
+            if (st.selection) {
+                st.bumpSelectedFloor(ev.key === "PageUp" ? 1 : -1);
+                requestRender();
+            }
+            ev.preventDefault();
+            return;
+        }
+
         if (ev.key !== "Escape") return;
         // The insert popover owns its own Escape (it closes itself); don't also
         // unwind the selection underneath it.

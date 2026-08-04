@@ -305,6 +305,11 @@ interface CellBuilderState {
   setCellEnclosed: (cellName: string, enclosed: boolean) => void;
   addCell: (kind: "cell" | "equipment", origin: Vec3, size: Vec3) => void;
   updateCell: (id: string, patch: Partial<BuilderCell>) => void;
+  /** Desktop shortcut: move the selected equipment (or opening) up (+1) / down
+   * (-1) one cell floor level, preserving its height offset within the floor and
+   * re-homing SPACE_NAME to the space cell it lands in. No-op for space cells or
+   * when there's no floor in that direction. Undoable. */
+  bumpSelectedFloor: (delta: 1 | -1) => void;
   /** Rename a cell/equipment; for equipment, rewrites matching system
    * connections so no run is orphaned. No-op on an empty/duplicate name. */
   renameCell: (id: string, name: string) => void;
@@ -341,6 +346,16 @@ interface CellBuilderState {
   /** Persist a code-origin type into the scope's DB catalog, then refresh. */
   syncEquipmentTypeToDb: (slug: string) => Promise<void>;
   syncSystemTypeToDb: (slug: string) => Promise<void>;
+  /** Upsert ALL code equipment archetypes into the catalog, updating existing
+   * entries so code changes (new ports, corrected heights) reach placed
+   * equipment. ``quiet`` suppresses the toast when nothing changed (auto-resync
+   * on model open). Returns the per-slug outcome, or null on failure. */
+  resyncEquipmentTypes: (opts?: { quiet?: boolean }) => Promise<{
+    created: string[];
+    updated: string[];
+    unchanged: string[];
+    skipped: string[];
+  } | null>;
   commit: () => Promise<boolean>;
   /** Compile the active model. ``force`` recompiles even if the revision's GLB
    * is already cached — used when the compiler engine changed but the document
@@ -542,6 +557,15 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       });
       void get().fetchEquipmentTypes();
       void get().fetchSystemTypes();
+      // Auto-update the catalog from code on open: if a code archetype changed
+      // (new port, corrected height), refresh the scope's synced entries so a
+      // recompile uses them. Quiet unless something actually changed.
+      void get()
+        .resyncEquipmentTypes({ quiet: true })
+        .then((res) => {
+          if (res && res.updated.length + res.created.length > 0)
+            void get().fetchEquipmentTypes();
+        });
       void get().fetchDesignRulesets();
     },
     close: () => {
@@ -765,6 +789,53 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         if (!cur) return {};
         return {
           cells: { ...s.cells, [id]: { ...cur, ...patch } },
+          dirty: true,
+        };
+      }),
+    bumpSelectedFloor: (delta) =>
+      withHistory((s) => {
+        const sel = s.selection;
+        if (!sel) return {};
+        const cell = s.cells[sel.cellId];
+        // Only floor-riding objects bump; a space cell defines the floors itself.
+        if (!cell || cell.kind !== "equipment") return {};
+        // Floor levels = the distinct base-Z of the space cells, ascending.
+        const floors = Array.from(
+          new Set(
+            Object.values(s.cells)
+              .filter((c) => c.kind === "cell")
+              .map((c) => c.origin[2]),
+          ),
+        ).sort((a, b) => a - b);
+        if (floors.length < 2) return {};
+        const z = cell.origin[2];
+        let ci = 0;
+        for (let i = 0; i < floors.length; i++)
+          if (floors[i] <= z + 1e-6) ci = i;
+        const ti = ci + delta;
+        if (ti < 0 || ti >= floors.length) return {}; // no floor that way
+        const dz = floors[ti] - floors[ci];
+        const origin: Vec3 = [
+          cell.origin[0],
+          cell.origin[1],
+          cell.origin[2] + dz,
+        ];
+        // Re-home SPACE_NAME to a space cell on the new floor whose XY footprint
+        // holds the moved object (best-effort; geometry keys on X/Y/Z, not name).
+        const host = Object.values(s.cells).find(
+          (c) =>
+            c.kind === "cell" &&
+            Math.abs(c.origin[2] - floors[ti]) < 1e-6 &&
+            c.origin[0] - 1e-6 <= origin[0] &&
+            origin[0] <= c.origin[0] + c.size[0] + 1e-6 &&
+            c.origin[1] - 1e-6 <= origin[1] &&
+            origin[1] <= c.origin[1] + c.size[1] + 1e-6,
+        );
+        const params = host
+          ? { ...cell.params, SPACE_NAME: host.name }
+          : cell.params;
+        return {
+          cells: { ...s.cells, [sel.cellId]: { ...cell, origin, params } },
           dirty: true,
         };
       }),
@@ -1353,6 +1424,36 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         await get().fetchSystemTypes();
       } catch (e) {
         console.warn("cellbuilder: system-type sync failed", e);
+      }
+    },
+
+    resyncEquipmentTypes: async (opts) => {
+      const quiet = opts?.quiet ?? false;
+      try {
+        const res =
+          await viewerApi.resyncProceduralEquipmentTypes(currentScopePart());
+        await get().fetchEquipmentTypes();
+        const changed = res.created.length + res.updated.length;
+        // Announce on the global toast unless this was a silent auto-resync that
+        // found nothing to change (avoid noise on every model open).
+        if (!quiet || changed > 0) {
+          setProceduralToast("Resync equipments", {
+            status: "done",
+            progress: 1,
+            stage: changed
+              ? `${res.updated.length} updated, ${res.created.length} added`
+              : "catalog already up to date",
+          });
+        }
+        return res;
+      } catch (e) {
+        console.warn("cellbuilder: equipment resync failed", e);
+        if (!quiet)
+          setProceduralToast("Resync equipments", {
+            status: "error",
+            error: e instanceof Error ? e.message : String(e),
+          });
+        return null;
       }
     },
 
