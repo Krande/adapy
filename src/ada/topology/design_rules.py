@@ -165,8 +165,9 @@ def default_route_planner(ctx: RoutePlanContext) -> RoutePlan:
 def default_route_modeller(plan: RoutePlan, ctx: RoutePlanContext) -> list:
     """Default route geometry: piping -> ``ada.Pipe``; cable/duct -> a carrier
     pipe tagged with the system's IFC segment class (see
-    ``system_route_to_geometry``)."""
-    return system_route_to_geometry(plan.system)
+    ``system_route_to_geometry``). The grid is passed so swept runs are pulled
+    taut in the clear corridor (few, well-separated bends)."""
+    return system_route_to_geometry(plan.system, grid=ctx.grid)
 
 
 def default_penetration_planner(ctx: PenetrationPlanContext) -> list[Penetration]:

@@ -98,7 +98,7 @@ class System:
         from ada.topology.routing import route_system, system_route_to_geometry
 
         route_system(self, grid, rules=rules)
-        system_route_to_geometry(self)
+        system_route_to_geometry(self, grid=grid)
         return self.route_geometry
 
     @property

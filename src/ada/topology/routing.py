@@ -372,6 +372,61 @@ def _collapse_short_legs(pts: list[ada.Point], min_len: float) -> list[ada.Point
     return out
 
 
+def _ortho_path_free(grid: CellGrid, a, b) -> bool:
+    """True when the orthogonal L-path ``a -> b`` (X, then Y, then Z) crosses no
+    occupied grid node — i.e. the shortcut stays in the clear corridor. Used by
+    :func:`_space_bends` to validate a candidate simplification against the voxel
+    occupancy (equipment and, once sequential routing marks them, other systems)."""
+    corners = _orthogonalize_polyline([ada.Point(*a), ada.Point(*b)])
+    for p, q in zip(corners, corners[1:]):
+        ia = nearest_index(grid, *p)
+        ib = nearest_index(grid, *q)
+        axis = next((k for k in range(3) if ia[k] != ib[k]), None)
+        if axis is None:
+            continue
+        step = 1 if ib[axis] > ia[axis] else -1
+        idx = list(ia)
+        while True:
+            if grid.has_geometry(tuple(idx)):
+                return False
+            if idx[axis] == ib[axis]:
+                break
+            idx[axis] += step
+    return True
+
+
+def _space_bends(pts: list[ada.Point], grid: CellGrid) -> list[ada.Point]:
+    """Pull a routed centreline taut against the grid occupancy so its bends end
+    up few and well-separated — the "post-smooth in the clear corridor" pass.
+
+    A fine grid finds a collision-free route but leaves it zig-zagging (port-cap
+    jogs, one-cell detours), which fillets into cramped, twisting bends. Here we
+    greedily replace each run of vertices with the farthest orthogonal shortcut
+    that :func:`_ortho_path_free` confirms is unobstructed — removing the
+    unnecessary detours while, by construction, never crossing a blocked node
+    (equipment / another system). The two terminal legs (the port stub/cap that
+    carries nozzle orientation) are preserved. With no grid the path is returned
+    orthogonalised but un-pulled."""
+    out = _orthogonalize_polyline([ada.Point(*p) for p in pts])
+    n = len(out)
+    if grid is None or n <= 3:
+        return out
+    kept = [out[0], out[1]]  # keep the entry nozzle leg
+    i = 1
+    while i < n - 2:
+        best = i + 1
+        for j in range(n - 2, i + 1, -1):  # farthest reachable shortcut, keeping the exit nozzle leg
+            if _ortho_path_free(grid, tuple(out[i]), tuple(out[j])):
+                best = j
+                break
+        kept.extend(_orthogonalize_polyline([out[i], out[best]])[1:])
+        i = best
+    if _seg_len(kept[-1], out[n - 2]) > 1e-9:
+        kept.append(out[n - 2])
+    kept.append(out[n - 1])
+    return _sanitize_polyline(kept)
+
+
 def _v_sub(a, b):
     return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
@@ -705,7 +760,7 @@ class _SweptRun(ada.BeamCurved):
         return geom
 
 
-def system_route_to_geometry(system: System, name: str | None = None) -> list:
+def system_route_to_geometry(system: System, name: str | None = None, grid: CellGrid | None = None) -> list:
     """Turn ``system.routed_path`` into realistic adapy geometry appended to
     ``system.route_geometry``. Each service gets a cross-section that reads as
     itself rather than a generic pipe:
@@ -719,7 +774,11 @@ def system_route_to_geometry(system: System, name: str | None = None) -> list:
     are a :class:`_SweptRun` — a fixed-reference sweep of the box/channel profile
     along an :class:`~ada.geom.curves.IndexedPolyCurve` directrix whose corners
     are filleted into arcs, the non-circular analogue of a pipe. The IFC entity
-    class still follows the service via ``segment_ifc_class`` metadata."""
+    class still follows the service via ``segment_ifc_class`` metadata.
+
+    When ``grid`` is given, box/channel (swept) runs are first pulled taut against
+    its occupancy (:func:`_space_bends`) so a fine-grid route's zig-zags become a
+    few well-separated bends without ever crossing a blocked node."""
     from ada.api.systems.base import CableSystem, DuctSystem, PipingSystem
 
     if system.routed_path is None:
@@ -728,9 +787,12 @@ def system_route_to_geometry(system: System, name: str | None = None) -> list:
     name = name if name is not None else f"{system.name}_route"
     path = system.routed_path
     # Box/channel runs follow an orthogonal path — square off any diagonal hop the
-    # routing left so a tray/duct never runs on a slant — then a directrix with
-    # arc-filleted corners is swept, giving real curved fittings at the bends.
+    # routing left so a tray/duct never runs on a slant — then, when a grid is
+    # available, pull the run taut in the clear corridor so its bends are few and
+    # well-separated, then sweep a directrix with arc-filleted corners.
     ortho = _orthogonalize_polyline(path)
+    if grid is not None:
+        ortho = _space_bends(ortho, grid)
 
     def _swept(sec, *, open_channel: bool, seg_class: str):
         # Emit ONE swept solid per directrix segment — a straight ``Edge`` or a
