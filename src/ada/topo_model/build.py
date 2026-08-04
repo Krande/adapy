@@ -103,9 +103,17 @@ def build_topo_model_with_systems(name: str = "TopoModelDemo") -> ada.Assembly:
     systems_part = ada.Part("Systems")
     deck_systems = (cooling, power, mains, drain)
     routed = [(s, grid) for s in deck_systems] + [(service, interior_grid)]
+    # Route sequentially, marking each run's body occupied so the next system
+    # routes around it (systems don't overlap); swept runs then pull taut clear
+    # of both equipment and prior runs.
+    from ada.topology.routing import occupy_run, run_half_extent
+
+    other_clear = max(run_half_extent(s) for s, _ in routed)
     for system, sys_grid in routed:
         for geom in system.route(sys_grid):
             systems_part.add_object(geom)
+        if system.routed_path:
+            occupy_run(sys_grid, system.routed_path, run_half_extent(system) + other_clear, tag=f"system:{system.name}")
 
     # Penetration details wherever a routed system crosses an internal wall
     # (also cuts the through-hole in the reinforced wall's plate). The deck runs

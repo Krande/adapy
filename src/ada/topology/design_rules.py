@@ -228,6 +228,7 @@ def run_design(
     rules: DesignRules | None = None,
     skip_failed: bool = False,
     spacing: float = 0.5,
+    avoid_other_systems: bool = False,
 ) -> DesignResult:
     """Drive both engine phases with ``rules``: plan every system's route, plan
     the penetrations, then model the routes and the penetration details.
@@ -236,8 +237,14 @@ def run_design(
     its bounds derive a ``grid`` when none is given). ``members`` defaults to the
     complex's internal walls. With ``skip_failed`` a system whose route can't be
     planned is dropped (and named in ``result.skipped``) instead of raising —
-    used by the viewer compile so one bad run doesn't sink the model."""
+    used by the viewer compile so one bad run doesn't sink the model.
+
+    With ``avoid_other_systems`` each planned run's body is marked occupied on the
+    grid before the next system plans, so systems route around one another (and
+    the taut-pull keeps clear of them) instead of overlapping."""
     from ada.config import logger
+
+    from ada.topology.routing import occupy_run, run_half_extent
 
     rules = rules or DesignRules()
     if grid is None:
@@ -248,17 +255,24 @@ def run_design(
         members = cell_graph.get_internal_walls() if cell_graph is not None else []
 
     # --- Plan phase (no geometry) ------------------------------------------ #
+    # One run kept clear of the next needs the widest body's reach as clearance,
+    # so a later run's centreline can't put its own body into an earlier one.
+    other_clearance = max((run_half_extent(s) for s in systems), default=0.0) if avoid_other_systems else 0.0
     route_plans: dict[str, RoutePlan] = {}
     skipped: list[str] = []
     for system in systems:
         ctx = RoutePlanContext(system=system, grid=grid, cell_graph=cell_graph, rules=rules.rules_for(system))
         try:
-            route_plans[system.name] = rules.plan_route(ctx)
+            plan = rules.plan_route(ctx)
+            route_plans[system.name] = plan
         except (RoutingError, ValueError, KeyError) as exc:
             if not skip_failed:
                 raise
             logger.warning("design: skipping system %r: %s", system.name, exc)
             skipped.append(system.name)
+            continue
+        if avoid_other_systems and plan.polyline:
+            occupy_run(grid, plan.polyline, run_half_extent(system) + other_clearance, tag=f"system:{system.name}")
 
     planned = [s for s in systems if s.name in route_plans]
 

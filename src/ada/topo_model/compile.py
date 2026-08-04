@@ -257,8 +257,9 @@ def _build_systems(
         if cell_graph is not None
         else []
     )
-    # One fine lattice for all systems (precise detours); swept runs are pulled
-    # taut in the clear corridor afterwards for smooth, well-separated bends.
+    # One fine lattice for all systems (precise detours); each planned run's body
+    # is marked occupied so later systems route around it, and swept runs are then
+    # pulled taut in the clear corridor for smooth, well-separated bends.
     result = run_design(
         built_systems,
         cell_graph=cell_graph,
@@ -266,6 +267,7 @@ def _build_systems(
         members=members,
         rules=rules,
         skip_failed=True,
+        avoid_other_systems=True,
     )
     route_geometry = result.route_geometry
     penetration_parts = result.penetration_parts

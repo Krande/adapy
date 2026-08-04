@@ -435,3 +435,52 @@ def test_collapse_short_legs_terminates_on_3d_staircase():
     assert len(out) == len(pts)
     # min_len above the step: collapses that DO shrink are still applied.
     assert len(_collapse_short_legs(pts, 0.3)) < len(pts)
+
+
+def test_occupy_run_blocks_nodes_along_the_run_body(grid):
+    # occupy_run marks grid nodes within `radius` of the centreline as occupied,
+    # so later systems (and the taut-pull) route around this run's body.
+    from ada.topology.routing import occupy_run
+
+    poly = [ada.Point(0, 0, 0), ada.Point(4, 0, 0)]  # a run along +X at y=z=0
+    occupy_run(grid, poly, radius=0.6, tag="sysA")
+    assert grid.has_geometry((2, 0, 0))  # on the centreline
+    assert not grid.has_geometry((2, 1, 0))  # 1 m off the line > 0.6 radius -> free
+    assert not grid.has_geometry((2, 3, 0))  # well clear -> free
+
+
+def test_space_bends_will_not_shortcut_through_an_occupied_node(grid):
+    # A straight shortcut that would cross an occupied node must be rejected, so
+    # the taut-pull detours around it instead of clipping it.
+    from ada.topology.routing import _ortho_path_free, occupy_run
+
+    assert _ortho_path_free(grid, (0, 0, 0), (4, 0, 0)) is True
+    occupy_run(grid, [ada.Point(2, 0, 0), ada.Point(2, 0, 0.001)], radius=0.1, tag="blocker")
+    assert _ortho_path_free(grid, (0, 0, 0), (4, 0, 0)) is False
+
+
+def test_avoid_other_systems_makes_the_second_run_detour():
+    # With avoidance on, the second system routed through a shared corridor must
+    # be pushed off the first system's lane (its path changes), instead of laying
+    # straight on top of it. Endpoints differ so the middles can actually separate.
+    from ada.topology import CellGrid, run_design
+
+    def sys(name, y):
+        e1 = ada.Equipment(f"{name}A", 1.0, (0, 0, 0), (0, y, 0), 0.1, 0.1, 0.1)
+        e2 = ada.Equipment(f"{name}B", 1.0, (0, 0, 0), (6, y, 0), 0.1, 0.1, 0.1)
+        e1.add_port(ada.Port("a", (0, 0, 0), (1, 0, 0), ada.PortDirection.INOUT, "signal"))
+        e2.add_port(ada.Port("b", (0, 0, 0), (-1, 0, 0), ada.PortDirection.INOUT, "signal"))
+        return ada.CableSystem(name).connect(e1, "a").connect(e2, "b")
+
+    systems = [sys("T1", 2.0), sys("T2", 2.0)]  # both want the y=2 lane
+
+    g0 = CellGrid.from_bounds((0, 0, 0), (6, 4, 1), spacing=0.5)
+    run_design([sys("Solo", 2.0)], grid=g0, members=[], avoid_other_systems=False, skip_failed=True)
+
+    g = CellGrid.from_bounds((0, 0, 0), (6, 4, 1), spacing=0.5)
+    run_design(systems, grid=g, members=[], avoid_other_systems=True, skip_failed=True)
+    p1 = [tuple(round(float(c), 3) for c in q) for q in systems[0].routed_path]
+    p2 = [tuple(round(float(c), 3) for c in q) for q in systems[1].routed_path]
+    assert p2 != p1, "second run must detour off the first's lane, not lie on top of it"
+    # the second run leaves the shared y=2 lane somewhere in its interior
+    assert any(abs(p[1] - 2.0) > 1e-6 for p in p2[1:-1])

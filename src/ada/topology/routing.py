@@ -427,6 +427,48 @@ def _space_bends(pts: list[ada.Point], grid: CellGrid) -> list[ada.Point]:
     return _sanitize_polyline(kept)
 
 
+def run_half_extent(system) -> float:
+    """A run's cross-section half-extent — pipe radius, or half the widest duct/
+    tray dimension — i.e. how far its body reaches from the centreline."""
+    r = getattr(system, "pipe_radius", None)
+    if r is not None:
+        return float(r)
+    w = getattr(system, "duct_width", None) or getattr(system, "tray_width", None)
+    h = getattr(system, "duct_height", None) or getattr(system, "tray_height", None)
+    return 0.5 * max(float(w or 0.0), float(h or 0.0))
+
+
+def occupy_run(grid: CellGrid, polyline, radius: float, tag: str = "run") -> None:
+    """Mark every grid node within ``radius`` of a routed run's centreline as
+    occupied, so systems routed afterwards (and the taut-pull) keep clear of this
+    run's body — the voxel-occupancy basis for inter-system avoidance. ``radius``
+    is the run's own half-extent plus the clearance wanted from other runs."""
+    pts = [tuple(float(c) for c in p) for p in polyline]
+    if len(pts) < 2 or radius <= 0.0:
+        return
+    xs, ys, zs = grid.x_list, grid.y_list, grid.z_list
+    for a, b in zip(pts, pts[1:]):
+        lo = tuple(min(a[k], b[k]) - radius for k in range(3))
+        hi = tuple(max(a[k], b[k]) + radius for k in range(3))
+        for ix, x in enumerate(xs):
+            if not (lo[0] <= x <= hi[0]):
+                continue
+            for iy, y in enumerate(ys):
+                if not (lo[1] <= y <= hi[1]):
+                    continue
+                for iz, z in enumerate(zs):
+                    if lo[2] <= z <= hi[2] and _point_seg_dist((x, y, z), a, b) <= radius + 1e-9:
+                        grid.register((ix, iy, iz), tag)
+
+
+def _point_seg_dist(p, a, b) -> float:
+    ab = _v_sub(b, a)
+    denom = _v_dot(ab, ab)
+    t = 0.0 if denom < 1e-12 else max(0.0, min(1.0, _v_dot(_v_sub(p, a), ab) / denom))
+    proj = _v_add(a, _v_scale(ab, t))
+    return _v_norm(_v_sub(p, proj))
+
+
 def _v_sub(a, b):
     return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
