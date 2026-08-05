@@ -1192,6 +1192,36 @@ export interface SystemTemplateDetail extends SystemTemplateSummary {
   doc: SystemTemplateDoc;
 }
 
+export type ProceduralEngineKind = "builtin" | "wheel" | "server";
+
+/** Procedural-engine manifest — how a pluggable engine is sourced and run. The
+ * deploy key is never here; `deploy_key_secret` is only a Vault secret NAME. */
+export interface ProceduralEngineDoc {
+  kind: ProceduralEngineKind;
+  repo_url: string | null;
+  ref: string | null;
+  deploy_key_secret: string | null;
+  entrypoint: string | null; // "module:callable", signature compile(doc)->bytes
+  pyodide_deps: string[];
+  wheel_key: string | null; // set by the build worker (Phase 2)
+}
+
+export interface ProceduralEngineSummary {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  revision: number;
+  /** "builtin" for the always-present adapy engine, "db" for registered ones. */
+  origin?: "builtin" | "db";
+  created_by?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ProceduralEngineDetail extends ProceduralEngineSummary {
+  doc: ProceduralEngineDoc;
+}
+
 export const viewerApi = {
   /** Direct URL for the addressable blob endpoint. Includes scope.
    * Only safe to use as `<a href download>` when auth is disabled —
@@ -2298,6 +2328,94 @@ export const viewerApi = {
     if (!r.ok)
       throw new ApiError(
         `deleteSystemTemplate(${templateId})`,
+        r.status,
+        await readDetail(r),
+      );
+  },
+
+  // ── Procedural-engine registry ───────────────────────────────────
+
+  async listProceduralEngines(
+    scope: ScopeUrl,
+  ): Promise<ProceduralEngineSummary[]> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-engines`,
+    );
+    const body = await jsonOrThrow<{
+      procedural_engines: ProceduralEngineSummary[];
+    }>(r, `listProceduralEngines(${scope})`);
+    return body.procedural_engines;
+  },
+
+  async createProceduralEngine(
+    scope: ScopeUrl,
+    name: string,
+    slug?: string,
+    description?: string,
+  ): Promise<ProceduralEngineDetail> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-engines`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, slug, description }),
+      },
+    );
+    return jsonOrThrow<ProceduralEngineDetail>(
+      r,
+      `createProceduralEngine(${name})`,
+    );
+  },
+
+  async getProceduralEngine(
+    scope: ScopeUrl,
+    engineId: string,
+  ): Promise<ProceduralEngineDetail> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-engines/${encodeURIComponent(engineId)}`,
+    );
+    return jsonOrThrow<ProceduralEngineDetail>(
+      r,
+      `getProceduralEngine(${engineId})`,
+    );
+  },
+
+  async updateProceduralEngine(
+    scope: ScopeUrl,
+    engineId: string,
+    fields: {
+      name: string;
+      slug?: string;
+      description?: string | null;
+      doc: ProceduralEngineDoc;
+    },
+    baseRevision: number,
+  ): Promise<{ id: string; revision: number }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-engines/${encodeURIComponent(engineId)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...fields, base_revision: baseRevision }),
+      },
+    );
+    return jsonOrThrow<{ id: string; revision: number }>(
+      r,
+      `updateProceduralEngine(${engineId})`,
+    );
+  },
+
+  async deleteProceduralEngine(
+    scope: ScopeUrl,
+    engineId: string,
+  ): Promise<void> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-engines/${encodeURIComponent(engineId)}`,
+      { method: "DELETE" },
+    );
+    if (!r.ok)
+      throw new ApiError(
+        `deleteProceduralEngine(${engineId})`,
         r.status,
         await readDetail(r),
       );

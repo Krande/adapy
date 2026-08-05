@@ -15,4 +15,5 @@ export type AdminTab =
     | "workers"
     | "conversion"
     | "equipment"
-    | "system";
+    | "system"
+    | "engines";
