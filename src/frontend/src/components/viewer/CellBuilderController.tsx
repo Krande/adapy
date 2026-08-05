@@ -1212,6 +1212,13 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 }
                 return;
             }
+            // Shift+U unhides all builder cells. Unlike hide, this does NOT stop
+            // propagation — "unhide all" should reveal everything, so the global
+            // handler still runs to unhide any hidden result meshes too.
+            if (ev.shiftKey && k === "u") {
+                st.unhideAllCells();
+                return;
+            }
             // G/R/S activate the translate / rotate / resize gizmo (Blender keys):
             // rotate is equipment-only, resize is cell-only (matches the menus).
             if (!ev.shiftKey && cell) {
