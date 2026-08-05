@@ -47,9 +47,15 @@ type Props = {
 // store's loaded systems (populated whenever a procedural model is open), so it
 // renders only when the clicked object is a route segment of a known system.
 const ProceduralSystemSection: React.FC<Props> = ({objectName}) => {
+    // All hooks up-front — no store hooks below the early returns, or a render
+    // that bails early (e.g. selecting an equipment, where objectName isn't a
+    // route segment) would run fewer hooks than one that didn't and crash with
+    // React #310 (hooks-count mismatch).
     const [expanded, setExpanded] = useState(true);
     const systems = useCellBuilderStore((s) => s.systems);
     const cells = useCellBuilderStore((s) => s.cells);
+    const focusSystem = useCellBuilderStore((s) => s.focusSystem);
+    const focusEquipment = useCellBuilderStore((s) => s.focusEquipment);
 
     const sysName = systemNameFromObject(objectName);
     if (!sysName) return null;
@@ -59,8 +65,6 @@ const ProceduralSystemSection: React.FC<Props> = ({objectName}) => {
     const equipTypeOf = (name: string): string | undefined =>
         Object.values(cells).find((c) => c.kind === 'equipment' && c.name === name)?.equipmentType;
 
-    const focusSystem = useCellBuilderStore((s) => s.focusSystem);
-    const focusEquipment = useCellBuilderStore((s) => s.focusEquipment);
     const equipmentConns = system.connections.filter((c) => c.equipment);
     const siteConns = system.connections.filter((c) => c.site);
     const linkCls =
