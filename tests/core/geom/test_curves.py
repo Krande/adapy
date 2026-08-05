@@ -38,3 +38,23 @@ def test_make_3d_segments():
     # This radius will make the two middle ArcSegments disconnected by a small LineSegment
     segments2 = segments3d_from_points3d(points, radius=0.116625)
     assert len(segments2) == 5
+
+
+def test_make_3d_segments_short_leg_between_bends():
+    # A short leg (0.15 m) between two 90-degree bends with a fixed radius (0.3 m)
+    # larger than the leg: each corner's arc trim would otherwise overrun the leg,
+    # eating the straight between the bends and yielding offset/disconnected
+    # segments (or a degenerate arc with midpoint=None that crashes). The scalar
+    # radius must be clamped per-corner so the run stays continuous.
+    points = [ada.Point(*p) for p in [(0, 0, 0), (1, 0, 0), (1, 0.15, 0), (2, 0.15, 0)]]
+    segments = segments3d_from_points3d(points, radius=0.3)
+
+    # Every segment end must coincide with the next segment's start (no gaps).
+    for a, b in zip(segments[:-1], segments[1:]):
+        assert a.p2.is_equal(b.p1), f"discontinuity: {a.p2} != {b.p1}"
+
+    # An even shorter leg (0.05 m) used to crash on a None arc midpoint — must not.
+    tight = [ada.Point(*p) for p in [(0, 0, 0), (1, 0, 0), (1, 0.05, 0), (2, 0.05, 0)]]
+    tight_segments = segments3d_from_points3d(tight, radius=0.3)
+    for a, b in zip(tight_segments[:-1], tight_segments[1:]):
+        assert a.p2.is_equal(b.p1)

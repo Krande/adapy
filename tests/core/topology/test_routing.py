@@ -150,6 +150,37 @@ def test_system_route_to_geometry(grid):
     assert tuple(pipe.points[-1]) == tuple(system.routed_path[-1])
 
 
+def test_pipe_path_is_pulled_taut(grid):
+    # An unnecessary one-cell jog in the raw centreline must be pulled out before
+    # the pipe is built, so the run reads as few well-separated bends rather than
+    # cramped, offset-looking elbows. The straight run E1->E2 (nothing occupied
+    # between them) should collapse to a clean L, not a staircase.
+    from ada.topology.routing import _taut_pipe_path
+
+    jaggy = [ada.Point(*p) for p in [(0, 0, 1), (1, 0, 1), (1, 1, 1), (2, 1, 1), (2, 2, 1), (4, 2, 1)]]
+    taut = _taut_pipe_path(jaggy, grid)
+    # Endpoints preserved exactly; interior jog vertices removed.
+    assert tuple(taut[0]) == (0, 0, 1)
+    assert tuple(taut[-1]) == (4, 2, 1)
+    assert len(taut) < len(jaggy)
+
+
+def test_cramped_pipe_run_is_continuous(grid):
+    # A routed pipe must realise into gap-free segments even when a bend lands on a
+    # short leg — the elbow builder no longer overruns the leg into offset segments.
+    from ada.api.piping.base_piping import PipeSegStraight
+
+    system = _two_connected_equipment()
+    route_system(system, grid)
+    (pipe,) = system_route_to_geometry(system)
+    segs = pipe.segments
+    assert len(segs) > 0
+    for a, b in zip(segs[:-1], segs[1:]):
+        a_end = a.p2.p if isinstance(a, PipeSegStraight) else a.p3.p
+        gap = sum((float(a_end[i]) - float(b.p1.p[i])) ** 2 for i in range(3)) ** 0.5
+        assert gap < 1e-6, f"discontinuity between {a.name} and {b.name}: {gap}"
+
+
 def test_cable_system_route_geometry_class(grid):
     from ada.sections.categories import BaseTypes
 

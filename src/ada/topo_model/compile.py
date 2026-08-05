@@ -418,7 +418,10 @@ def _build_systems(
     # centreline) clear of a box with a gap rather than grazing it. One shared
     # clearance (the max over all systems) keeps the grid single-pass.
     half_extent = max((_system_half_extent(s) for s in built_systems), default=0.0)
-    clearance = half_extent + min(0.05, 0.25 * half_extent) if half_extent else 0.0
+    # Margin is at LEAST 5 cm beyond the body (max, not min) so even a thin pipe
+    # keeps a real gap from a box instead of grazing it — a 5 cm-margin floor was
+    # the difference between the drain skimming the switchboard and clearing it.
+    clearance = half_extent + max(0.05, 0.25 * half_extent) if half_extent else 0.0
     for eq in equipment_map.values():
         _occupy_equipment(grid, eq, clearance)
 

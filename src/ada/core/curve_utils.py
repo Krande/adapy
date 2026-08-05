@@ -1006,11 +1006,27 @@ def segments3d_from_points3d(
         else:
             raise ValueError(f"Radius must be a float, int, or dict. Got {type(radius)}")
 
-        try:
-            new_seg1, arc, new_seg2 = make_arc_segment(arc_start, arc_intersection, arc_end, r)
-        except (ValueError, VectorNormalizeError) as e:
-            points = [arc_start.tolist(), arc_intersection.tolist(), arc_end.tolist()]
-            logger.error(f"Arc build failed for points: {points}. Error: {e}")
+        # Build the corner fillet. A fixed radius too large for a short leg makes the
+        # fillet degenerate: make_arc_segment returns an arc with midpoint=None (which
+        # crashes the ArcSegment copy below) or raises. Only in that case do we shrink
+        # the radius for THIS corner until it fits — normal corners (where a large
+        # radius legitimately merges neighbouring arcs) build on the first try and are
+        # left exactly as before.
+        new_seg1 = arc = new_seg2 = None
+        r_try = r
+        for _attempt in range(12):
+            try:
+                built = make_arc_segment(arc_start, arc_intersection, arc_end, r_try)
+            except (ValueError, VectorNormalizeError) as e:
+                points = [arc_start.tolist(), arc_intersection.tolist(), arc_end.tolist()]
+                logger.error(f"Arc build failed for points: {points} radius {r_try}. Error: {e}")
+                built = None
+            if built is not None and len(built) == 3 and getattr(built[1], "midpoint", None) is not None:
+                new_seg1, arc, new_seg2 = built
+                break
+            r_try *= 0.5  # radius overruns this corner; retry with a tighter fillet
+        if arc is None:
+            logger.error(f"Could not fit a fillet at {arc_intersection.tolist()}; skipping corner")
             continue
 
         if i == 0 or len(segments) == 0:

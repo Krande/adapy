@@ -1390,11 +1390,28 @@ def system_route_to_geometry(system: System, name: str | None = None, grid: Cell
         _swept(sec, open_channel=True, seg_class="IfcCableSegment")
     elif isinstance(system, PipingSystem):
         sec = ada.Section(f"{name}_sec", "PIPE", r=system.pipe_radius, wt=system.pipe_wt)
-        system.route_geometry.append(ada.Pipe(name, path, sec, metadata={"segment_ifc_class": "IfcPipeSegment"}))
+        pipe_path = _taut_pipe_path(path, grid)
+        system.route_geometry.append(ada.Pipe(name, pipe_path, sec, metadata={"segment_ifc_class": "IfcPipeSegment"}))
     else:
         sec = ada.Section(f"{name}_sec", "PIPE", r=0.02, wt=2e-3)
-        system.route_geometry.append(ada.Pipe(name, path, sec, metadata={"segment_ifc_class": "IfcPipeSegment"}))
+        pipe_path = _taut_pipe_path(path, grid)
+        system.route_geometry.append(ada.Pipe(name, pipe_path, sec, metadata={"segment_ifc_class": "IfcPipeSegment"}))
     return system.route_geometry
+
+
+def _taut_pipe_path(path: list[ada.Point], grid: CellGrid | None) -> list[ada.Point]:
+    """Clean a routed pipe centreline before it becomes an :class:`ada.Pipe`.
+
+    The raw A* path zig-zags (one-cell detours, grid-remainder jogs); fed straight
+    to the pipe's elbow builder those closely-spaced corners fillet into cramped,
+    offset-looking bends. As with the swept runs, we pull the centreline taut in
+    the clear corridor (:func:`_space_bends`, which never crosses a blocked node,
+    so equipment/other-run clearance is preserved), leaving few well-separated
+    bends the elbow builder can round cleanly. With no grid the path is returned
+    unchanged (the caller's nozzle orientation is left exactly as routed)."""
+    if grid is None or len(path) < 4:
+        return path
+    return _space_bends([ada.Point(*p) for p in path], grid)
 
 
 class RoutingBlueprintBase(BlueprintBase):
