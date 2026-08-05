@@ -157,30 +157,54 @@ def _build_reinforced_wall(
     return ada.Part(name) / [plate, *stiffeners]
 
 
-def _seat_below_deck(beam: ada.Beam, pl_thick: float) -> ada.Beam:
-    """Drop a horizontal deck beam so the TOP of its section is flush with the TOP
-    of the deck plate (top-of-steel = deck level), rather than straddling the deck
-    line with its top flange sticking up above the plate.
+def _profile_top_offset(beam: ada.Beam) -> float:
+    """How far the beam's section reaches ABOVE its axis, in the local up direction
+    (metres). Read from the section's outer profile so it is correct for ANY
+    section, not just symmetric ones: a centred I (IPE200) reaches ``h/2`` up, but
+    a bulb flat (HP140x8) is referenced at its top so it reaches ``0`` up and hangs
+    fully below the axis. A horizontal deck beam keeps the default up (+Z), so the
+    local +y extent maps to +Z."""
+    curve = beam.section.get_section_profile().outer_curve
+    pts = getattr(curve, "points2d", None) or curve.points
+    return max(float(p[1]) for p in pts)
 
-    The shift uses beam eccentricity (``e1``/``e2``) so the end NODES stay on the
-    deck edge — the column/girder joints don't move, only the swept profile drops.
-    The rendered profile moves opposite to ``e`` (verified against the libtess2
-    stream), so a positive z-eccentricity lowers the beam; the section top then
-    lands at ``deck_z + pl_thick`` (the plate's top surface)."""
-    off = beam.section.h / 2.0 - pl_thick
-    beam.e1 = (0.0, 0.0, off)
-    beam.e2 = (0.0, 0.0, off)
+
+def _seat_deck_beam(beam: ada.Beam, top_z: float) -> ada.Beam:
+    """Seat a horizontal deck beam so the TOP of its section lands at ``top_z``,
+    via beam eccentricity (the end NODES stay put — column joints don't move, only
+    the swept profile shifts). The rendered profile moves opposite to ``e`` (verified
+    against the libtess2 stream), and reaches ``_profile_top_offset`` above the axis,
+    so ``e_z = profile_top_offset - (top_z - node_z)`` puts the section top exactly on
+    ``top_z`` for any section (centred or top-referenced)."""
+    node_z = float(beam.n1.p[2])
+    e_z = _profile_top_offset(beam) - (top_z - node_z)
+    beam.e1 = (0.0, 0.0, e_z)
+    beam.e2 = (0.0, 0.0, e_z)
     return beam
+
+
+def _deck_plate(name: str, points: list[ada.Point], pl_thick: float) -> ada.Plate:
+    """A deck plate whose TOP sits at the outline elevation (the deck line), so the
+    walking surface is at the grid level and the steel is below it — consistently,
+    regardless of the face outline's winding. ``Plate.from_3d_points`` extrudes along
+    the outline normal; when that points up the plate would sit ABOVE the deck line,
+    so we flip it to extrude DOWN. Both faces of a deck at the same elevation then
+    agree (an internal floor and an enclosing-cell deck no longer disagree by the
+    plate thickness)."""
+    plate = ada.Plate.from_3d_points(name, points, pl_thick)
+    if float(plate.poly.normal[2]) > 0:
+        plate = ada.Plate.from_3d_points(name, points, pl_thick, flip_normal=True)
+    return plate
 
 
 def _build_reinforced_floor(
     name: str, points: list[ada.Point], pl_thick: float, stringer_sec: str, spacing: float
 ) -> ada.Part:
-    """A reinforced floor built from a horizontal face outline: one plate plus
-    stringer beams running along the longer plan direction, evenly distributed
-    across the shorter one (edge positions carry girders, so they are skipped).
-    Stringers are seated so their tops sit flush with the deck plate top."""
-    plate = ada.Plate.from_3d_points(f"{name}_pl", points, pl_thick)
+    """A reinforced floor built from a horizontal face outline: one plate (top at the
+    deck line) plus stringer beams running along the longer plan direction, evenly
+    distributed across the shorter one (edge positions carry girders, so they are
+    skipped). Stringers hang under the plate — their tops seat at the plate bottom."""
+    plate = _deck_plate(f"{name}_pl", points, pl_thick)
 
     pts = np.asarray([tuple(p) for p in points], dtype=float)
     z = float(pts[:, 2].mean())
@@ -195,7 +219,7 @@ def _build_reinforced_floor(
         for i, x in enumerate(np.arange(x0 + spacing, x1 - tol, spacing)):
             stringers.append(ada.Beam(f"{name}_str_{i:02d}", (x, y0, z), (x, y1, z), stringer_sec))
     for s in stringers:
-        _seat_below_deck(s, pl_thick)
+        _seat_deck_beam(s, z - pl_thick)  # stringer top attaches to the plate underside
 
     return ada.Part(name) / [plate, *stringers]
 
@@ -365,8 +389,14 @@ class SteelStru(BlueprintBase):
         # gets an automatic cutout + penetration detail (see _tag_built_floors).
         built_floor_guids: set[str] = set()
         built_floor_by_guid: dict[str, ada.Part] = {}
+        # Dedup by PLANE (rounded face centroid), not guid: the SAME physical deck is
+        # a distinct face object with a distinct guid depending on which cell it is
+        # reached through (an internal-floor face vs an enclosing cell's bottom face),
+        # so a guid-only guard let the shared plane be plated twice (double plate).
+        built_floor_planes: set[tuple[float, float, float]] = set()
         for i, face in enumerate(floor_faces):
             built_floor_guids.add(face.guid)
+            built_floor_planes.add(_face_center_key(face))
             floor = _build_reinforced_floor(
                 f"Floor_{i:02d}", face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing
             )
@@ -374,12 +404,13 @@ class SteelStru(BlueprintBase):
             self._detail_trim_deck(floor, face.get_points())
             room(face.parent_cell.name).add_part(floor)
 
-        # Internal (shared) decks between stacked cells. Skip any face an enclosed
-        # cell will plate below (guard by guid) so a deck is never built twice.
+        # Internal (shared) decks between stacked cells. Skip any face already plated
+        # (by guid OR by coincident plane) so a deck is never built twice.
         for i, face in enumerate(internal_floors):
-            if face.guid in built_floor_guids:
+            if face.guid in built_floor_guids or _face_center_key(face) in built_floor_planes:
                 continue
             built_floor_guids.add(face.guid)
+            built_floor_planes.add(_face_center_key(face))
             deck = _build_reinforced_floor(
                 f"IntFloor_{i:02d}", face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing
             )
@@ -401,9 +432,10 @@ class SteelStru(BlueprintBase):
                 continue
             for j, face in enumerate(cell.faces):
                 if face.is_horizontal():
-                    if face.guid in built_floor_guids:
+                    if face.guid in built_floor_guids or _face_center_key(face) in built_floor_planes:
                         continue
                     built_floor_guids.add(face.guid)
+                    built_floor_planes.add(_face_center_key(face))
                     deck = _build_reinforced_floor(
                         f"Deck_{cname}_{j:02d}",
                         face.get_points(),
@@ -449,11 +481,13 @@ class SteelStru(BlueprintBase):
         # decks contribute their perimeter girders too, at the intermediate
         # elevation (deduped against the external-floor edges by midpoint).
         # Girders carry the deck edges; seat each so its top flange is flush with
-        # the deck plate top (top-of-steel = deck), not straddling the deck line.
-        girders = [
-            _seat_below_deck(ada.Beam(f"Girder_{i:02d}", *edge.get_points()[:2], self.girder_sec), self.pl_thick)
-            for i, edge in enumerate(_dedupe_edges(floor_faces + internal_floors, horizontal=True))
-        ]
+        # the deck plate top (= the deck line, since decks now sit their top at the
+        # outline elevation), not straddling the deck line.
+        girders = []
+        for i, edge in enumerate(_dedupe_edges(floor_faces + internal_floors, horizontal=True)):
+            g = ada.Beam(f"Girder_{i:02d}", *edge.get_points()[:2], self.girder_sec)
+            _seat_deck_beam(g, float(g.n1.p[2]))  # flange top flush with the deck line
+            girders.append(g)
         columns = [
             ada.Beam(f"Column_{i:02d}", *edge.get_points()[:2], self.column_sec)
             for i, edge in enumerate(_dedupe_edges(external_walls + internal_walls, horizontal=False))

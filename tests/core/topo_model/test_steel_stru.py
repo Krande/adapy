@@ -90,29 +90,78 @@ def test_shared_floor_between_stacked_cells_is_built():
     assert 3.0 in zlevels, f"shared deck at z=3 missing; plate elevations = {sorted(zlevels)}"
 
 
-def test_deck_beams_seated_flush_with_deck(demo_assembly):
-    # Girders/stringers must be dropped so the TOP of their section sits flush with
-    # the deck plate top (top-of-steel = deck), not straddling the deck line with
-    # the flange sticking up. The seating is a positive z-eccentricity of
-    # h/2 - pl_thick (profile moves opposite to e).
+def _render_z_bounds(objs):
+    import numpy as np
+
+    scene = (ada.Assembly("s") / (ada.Part("p") / list(objs))).to_trimesh_scene()
+    v = np.vstack([g.vertices for g in scene.geometry.values()])
+    return float(v[:, 2].min()), float(v[:, 2].max())
+
+
+def test_deck_beams_seated_flush_and_attached(demo_assembly):
+    # The deck plate's TOP sits at the deck line (z=0 here). The girder top flange
+    # must be flush with that (top at the deck line), and the stringer must hang
+    # UNDER the plate — its top attached to the plate bottom (z - pl_thick), not
+    # floating below. Seating is a per-section eccentricity from the profile's true
+    # top offset, so it is correct for the centred IPE girder AND the top-referenced
+    # HP stringer.
+    import numpy as np
+
     pl_thick = 10e-3
-    girder = next(b for b in demo_assembly.get_all_physical_objects(by_type=ada.Beam) if b.name.startswith("Girder"))
-    assert girder.e1 is not None and girder.e2 is not None
-    assert float(girder.e1[2]) == pytest.approx(girder.section.h / 2 - pl_thick)
 
-    stringer = next(b for b in demo_assembly.get_all_physical_objects(by_type=ada.Beam) if "_str_" in b.name)
-    assert float(stringer.e1[2]) == pytest.approx(stringer.section.h / 2 - pl_thick)
+    # z=0 deck plate: top at the deck line, bottom one thickness below.
+    pl = next(
+        p
+        for p in demo_assembly.get_all_physical_objects(by_type=ada.Plate)
+        if abs(float(np.mean([q[2] for q in p.poly.points3d]))) < 1e-6
+    )
+    pl_lo, pl_hi = _render_z_bounds([pl])
+    assert pl_hi == pytest.approx(0.0, abs=2e-3)  # plate top at deck line
+    assert pl_lo == pytest.approx(-pl_thick, abs=2e-3)
 
-    # Render one z=0 girder and confirm its section top lands at the deck top, not
-    # h/2 above it.
+    # Girder flange top flush with the deck line (= plate top).
     g = next(
         b
         for b in demo_assembly.get_all_physical_objects(by_type=ada.Beam)
         if b.name.startswith("Girder") and abs(float(b.n1.p[2])) < 1e-6
     )
-    solo = ada.Assembly("s") / (ada.Part("p") / [ada.Beam("g", g.n1.p, g.n2.p, "IPE200", e1=g.e1, e2=g.e2)])
-    top_z = float(solo.to_trimesh_scene().bounds[1][2])
-    assert top_z == pytest.approx(pl_thick, abs=2e-3), f"girder top {top_z} not flush with deck top {pl_thick}"
+    _, g_top = _render_z_bounds([ada.Beam("g", g.n1.p, g.n2.p, "IPE200", e1=g.e1, e2=g.e2)])
+    assert g_top == pytest.approx(pl_hi, abs=2e-3), f"girder top {g_top} not flush with plate top {pl_hi}"
+
+    # Stringer top attached to the plate bottom (hangs under the deck).
+    st = next(
+        b
+        for b in demo_assembly.get_all_physical_objects(by_type=ada.Beam)
+        if "_str_" in b.name and abs(float(b.n1.p[2])) < 1e-6
+    )
+    _, st_top = _render_z_bounds([ada.Beam("s", st.n1.p, st.n2.p, st.section.name, e1=st.e1, e2=st.e2)])
+    assert st_top == pytest.approx(pl_lo, abs=2e-3), f"stringer top {st_top} not attached to plate bottom {pl_lo}"
+
+
+def test_stacked_cells_have_single_deck_per_plane():
+    # Two stacked cells (or an enclosed upper cell) share ONE deck plane; it must be
+    # plated exactly once. The internal-floor face and the enclosing cell's bottom
+    # face are distinct objects for the same plane, so a guid-only dedup produced a
+    # double plate — the plane-based dedup collapses them to one.
+    import numpy as np
+
+    from ada.topo_model.blueprint import SteelStru
+    from ada.topology import TopologyBuilder
+
+    boxes = [
+        ada.PrimBox("Lower", (0, 0, 0), (5, 5, 3)),
+        ada.PrimBox("Upper", (0, 0, 3), (5, 5, 6)),
+    ]
+    builder = TopologyBuilder.from_prim_boxes(boxes, blueprint=SteelStru(enclosed_cells=["Upper"]))
+    builder.build()
+    a = builder.get_output_assembly("stacked")
+
+    at_z3 = [
+        p
+        for p in a.get_all_physical_objects(by_type=ada.Plate)
+        if abs(float(np.mean([q[2] for q in p.poly.points3d])) - 3.0) < 1e-6
+    ]
+    assert len(at_z3) == 1, f"shared z=3 deck plated {len(at_z3)}x: {[p.name for p in at_z3]}"
 
 
 def test_detail_mode_trims_deck_to_girder_flanges():
