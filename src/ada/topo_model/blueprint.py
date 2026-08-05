@@ -211,9 +211,14 @@ class SteelStru(BlueprintBase):
         reinforce_external_walls: bool = False,
         enclosed_cells: list[str] | None = None,
         wall_pl_thick: float = 8e-3,
+        detail: bool = False,
     ):
         super().__init__()
         self.name = name
+        # Detail level of the build: when True, later phases trim deck plate edges
+        # to the girder top-flange outline and model I-girder joints. Phase 1 keeps
+        # the geometry identical to the simulation model (flag threaded, unused).
+        self.detail = detail
         self.girder_sec = girder_sec
         self.column_sec = column_sec
         self.stringer_sec = stringer_sec

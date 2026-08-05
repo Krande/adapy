@@ -603,8 +603,15 @@ def compile_procedural_doc(
     equipment_resolver=None,
     cad_scene_resolver=None,
     design_rules=None,
+    lod: Literal["sim", "detail"] = "sim",
 ) -> bytes:
     """Parse ``doc``, build the model and return GLB bytes.
+
+    ``lod`` selects the level of detail: ``"sim"`` (default) is the analysis-grade
+    simulation model; ``"detail"`` builds the richer detail model (deck plate edges
+    trimmed to the girder flanges, I-girder joints modelled). Detail geometry is
+    produced by the structural blueprint's ``detail`` mode; on ``blueprint_name=
+    "none"`` the flag has no effect.
 
     ``equipment_resolver`` maps an equipment DESCRIPTION (a catalog slug) to a
     catalog document (bbox/mass/ports/IFC class). The worker supplies one backed
@@ -636,7 +643,7 @@ def compile_procedural_doc(
 
     cell_graph = None
     if blueprint_name == "steel_stru":
-        blueprint = SteelStru(**_blueprint_options(doc))
+        blueprint = SteelStru(**_blueprint_options(doc), detail=(lod == "detail"))
         builder = TopologyBuilder.from_prim_boxes(boxes, blueprint=blueprint)
         builder.build()
         a = builder.get_output_assembly(name)

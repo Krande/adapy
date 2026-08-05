@@ -482,9 +482,6 @@ const CellBuilderPanel: React.FC = () => {
   const compileBusy =
     compileState != null &&
     (compileState.status === "queued" || compileState.status === "running");
-  const resultReady =
-    compileState != null &&
-    (compileState.status === "done" || compileState.status === "cached");
 
   return (
     <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/70 rounded-md min-w-[300px] max-w-[380px] pointer-events-auto">
@@ -842,6 +839,39 @@ const CellBuilderPanel: React.FC = () => {
       )}
 
       <div className="flex items-center gap-1 flex-wrap">
+        <span className="text-gray-400 mr-1">View:</span>
+        <span
+          className="inline-flex rounded-sm overflow-hidden text-[11px]"
+          role="group"
+          aria-label="Model representation"
+        >
+          {(
+            [
+              ["topology", "Topology", "The editable cell model (boxes + equipment)"],
+              ["simulation", "Simulation", "The compiled analysis result (plates, beams, systems)"],
+              ["detail", "Detail", "The high-fidelity detail model (trimmed deck edges, I-girder joints)"],
+            ] as const
+          ).map(([m, label, title]) => (
+            <button
+              key={m}
+              className={
+                "px-2 py-0.5 " +
+                (s.repMode === m
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+              }
+              onClick={() => void s.setRepMode(m)}
+              aria-pressed={s.repMode === m}
+              title={title}
+            >
+              {label}
+              {s.repMode === m && m !== "topology" && compileBusy ? " …" : ""}
+            </button>
+          ))}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-1 flex-wrap">
         <button
           className={btn}
           disabled={!s.dirty || s.committing}
@@ -870,32 +900,6 @@ const CellBuilderPanel: React.FC = () => {
           title="Compile the current (uncommitted) model in your browser via WebAssembly — no server round-trip. Catalog/CAD equipment falls back to built-in archetypes."
         >
           Compile in browser
-        </button>
-        {resultReady && compileState && s.resultSourceName === null && (
-          <button
-            className={btnGray}
-            onClick={() => void s.viewResult(compileState.derivedKey)}
-            title={compileState.derivedKey}
-          >
-            View result
-          </button>
-        )}
-        {s.resultSourceName !== null && (
-          <button
-            className={btnGray}
-            onClick={s.hideResult}
-            title="Unload the compiled result from the scene"
-          >
-            Hide result
-          </button>
-        )}
-        <button
-          className={btnGray}
-          onClick={() => s.setCellsVisible(!s.cellsVisible)}
-          title="Toggle the builder cell boxes (hide to focus on the generated structure)"
-          aria-pressed={!s.cellsVisible}
-        >
-          {s.cellsVisible ? "Hide cells" : "Show cells"}
         </button>
         <button
           className={btnGray}

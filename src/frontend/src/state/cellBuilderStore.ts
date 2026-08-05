@@ -100,6 +100,11 @@ export interface ResyncSummary {
   changes: Record<string, string[]>;
 }
 
+/** The three model representations the user toggles between: the editable
+ * topology cell model, the compiled simulation result, and the higher-fidelity
+ * detail result (trimmed deck edges + modelled I-girder joints). */
+export type RepresentationMode = "topology" | "simulation" | "detail";
+
 export type SystemType = "piping" | "duct" | "cable" | "electrical";
 
 /** One system endpoint: either an equipment port (equipment + port) OR a site
@@ -262,8 +267,14 @@ interface CellBuilderState {
   /** System types for the systems inspector: code kinds ∪ DB templates. */
   systemTypes: ProceduralSystemTypeOption[];
   compileJob: CompileJobState | null;
-  /** Source name of the compiled result currently loaded in the scene. */
+  /** Source name of the compiled SIMULATION result currently loaded in the scene. */
   resultSourceName: string | null;
+  /** Source name of the compiled DETAIL result currently loaded in the scene. */
+  detailSourceName: string | null;
+  /** Which of the three model representations is shown: the topology cell model,
+   * the simulation result, or the higher-fidelity detail result. Drives the
+   * cell-overlay vs simulation-GLB vs detail-GLB visibility. */
+  repMode: RepresentationMode;
   /** Toggle the builder box meshes (hide to focus on the compiled structure). */
   cellsVisible: boolean;
   /** Individually hidden cells — ephemeral view state (not persisted, not
@@ -440,14 +451,19 @@ interface CellBuilderState {
   /** Compile the active model. ``force`` recompiles even if the revision's GLB
    * is already cached — used when the compiler engine changed but the document
    * (the cache key) did not, so a plain Compile would return the stale blob. */
-  compile: (force?: boolean) => Promise<void>;
+  compile: (force?: boolean, lod?: "sim" | "detail") => Promise<void>;
   /** Compile the CURRENT (uncommitted) doc entirely in the browser via the
    * built-in adapy engine (Pyodide/WASM), loading the result straight into the
    * scene — no server round-trip, no commit. Catalog/CAD equipment falls back to
    * archetypes/boxes (the browser has no DB). */
   compileInBrowser: () => Promise<void>;
-  viewResult: (derivedKey: string) => Promise<void>;
+  viewResult: (derivedKey: string, lod?: "sim" | "detail") => Promise<void>;
   hideResult: () => void;
+  hideDetail: () => void;
+  /** Switch the active model representation (topology / simulation / detail),
+   * coordinating the cell overlay and the two result GLB sources. Compiles/loads
+   * the target result lazily the first time its view is opened. */
+  setRepMode: (mode: RepresentationMode) => Promise<void>;
   /** The last relocation proposals (or null). Populated by proposeRelocations;
    * applied only when the user clicks Apply. */
   relocations: ProceduralRelocationResult | null;
@@ -643,6 +659,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     systemTypes: [],
     compileJob: null,
     resultSourceName: null,
+    detailSourceName: null,
+    repMode: "topology",
     relocations: null,
     relocationBusy: false,
     resyncBusy: false,
@@ -696,6 +714,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     },
     close: () => {
       get().hideResult();
+      get().hideDetail();
       set({
         active: null,
         cells: {},
@@ -713,6 +732,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         panelVisible: false,
         compileJob: null,
         hiddenCellIds: [],
+        repMode: "topology",
       });
     },
     setMode: (mode) => set({ mode }),
@@ -1774,7 +1794,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       }
     },
 
-    compile: async (force = false) => {
+    compile: async (force = false, lod = "sim") => {
       const s = get();
       if (!s.active) return;
       if (s.dirty) {
@@ -1782,12 +1802,14 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // commit() auto-compiles on success when enabled; avoid double-run.
         // A forced recompile still proceeds — the auto-compile after commit is a
         // normal (cache-honouring) run, so we fall through to re-run with force.
-        if (ok && get().autoCompile && !force) return;
+        // The auto-compile only covers the SIMULATION lod, so a detail request
+        // must still proceed after a commit to build its own artifact.
+        if (ok && get().autoCompile && !force && lod === "sim") return;
         if (!ok) return;
       }
       const active = get().active;
       if (!active) return;
-      const label = active.name;
+      const label = lod === "detail" ? `${active.name} (detail)` : active.name;
       // Announce the task on the global toast panel right away (before the
       // enqueue round-trip resolves), then keep the same toast updated through
       // the poll below — mirrors how conversion/FEA feed conversionStore.
@@ -1805,15 +1827,21 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // Show the result when auto-compile is on, OR refresh a result that is
         // already on screen — a forced recompile overwrites the same derivedKey
         // with new bytes (the loader re-fetches via a fresh presigned URL), so the
-        // displayed model must reload to reflect the rebuild.
-        if (get().autoCompile || get().resultSourceName !== null)
-          void get().viewResult(cur.derivedKey);
+        // displayed model must reload to reflect the rebuild. The detail model
+        // shows whenever the detail view is the active representation.
+        const sourceShown =
+          lod === "detail"
+            ? get().detailSourceName !== null || get().repMode === "detail"
+            : get().resultSourceName !== null || get().repMode === "simulation";
+        if (get().autoCompile || sourceShown)
+          void get().viewResult(cur.derivedKey, lod);
       };
       try {
         const res = await viewerApi.compileProceduralModel(
           currentScopePart(),
           active.modelId,
           force,
+          lod,
         );
         if (res.cached) {
           set({
@@ -1906,14 +1934,21 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       }
     },
 
-    viewResult: async (derivedKey: string) => {
+    viewResult: async (derivedKey: string, lod = "sim") => {
       const active = get().active;
-      const sourceName = `procedural:${active ? active.name : derivedKey}`;
+      const base = active ? active.name : derivedKey;
+      // Simulation and detail are distinct scene sources so they never collide.
+      const sourceName =
+        lod === "detail" ? `procedural-detail:${base}` : `procedural:${base}`;
       const { load_glb_by_url_rest } = await import(
         "@/utils/scene/handlers/view_file_object_from_server"
       );
       await load_glb_by_url_rest(currentScopePart(), derivedKey, sourceName);
-      set({ resultSourceName: sourceName });
+      set(
+        lod === "detail"
+          ? { detailSourceName: sourceName }
+          : { resultSourceName: sourceName },
+      );
     },
 
     compileInBrowser: async () => {
@@ -1963,6 +1998,43 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         },
       );
       set({ resultSourceName: null });
+    },
+
+    hideDetail: () => {
+      const sourceName = get().detailSourceName;
+      if (!sourceName) return;
+      void import("@/utils/scene/handlers/unload_source_from_scene").then(
+        ({ unload_source_from_scene }) => {
+          unload_source_from_scene(sourceName);
+        },
+      );
+      set({ detailSourceName: null });
+    },
+
+    // The 3-way representation switch: topology cells / the simulation result GLB /
+    // the detail result GLB. Exactly one representation is live at a time — the
+    // scene's source map replaces on load, so we unload the others rather than
+    // toggle visibility (an additive loader that keeps both GLBs resident is a
+    // later optimisation). Each result GLB is compiled/loaded lazily the first time
+    // its view is opened.
+    setRepMode: async (mode) => {
+      if (get().repMode === mode) return;
+      set({ repMode: mode });
+      if (mode === "topology") {
+        get().setCellsVisible(true);
+        get().hideResult();
+        get().hideDetail();
+        return;
+      }
+      get().setCellsVisible(false);
+      if (mode === "simulation") {
+        get().hideDetail();
+        if (get().resultSourceName === null) await get().compile(false, "sim");
+      } else {
+        get().hideResult();
+        if (get().detailSourceName === null)
+          await get().compile(false, "detail");
+      }
     },
 
     proposeRelocations: async () => {

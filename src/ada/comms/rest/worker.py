@@ -950,6 +950,7 @@ async def _run_procedural_build(
     opts = job.conversion_options or {}
     model_id = opts.get("model_id")
     revision = opts.get("revision")
+    lod = "detail" if (opts.get("lod") or "sim") == "detail" else "sim"
 
     async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
@@ -1012,6 +1013,7 @@ async def _run_procedural_build(
             name=row["name"],
             equipment_resolver=catalog.get,
             cad_scene_resolver=cad_meshes.get,
+            lod=lod,
         )
 
     loop = asyncio.get_running_loop()

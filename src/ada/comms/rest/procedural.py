@@ -20,6 +20,14 @@ def procedural_glb_key(model_id: str, revision: int) -> str:
     return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}.glb"
 
 
+def procedural_detail_glb_key(model_id: str, revision: int) -> str:
+    """Blob key for the DETAIL level-of-detail compile of a model revision — a
+    separate derived artifact from the simulation GLB (:func:`procedural_glb_key`),
+    computed on demand when the user first opens the detail view. Revision-stamped
+    the same way, so an unchanged revision's detail model is served from cache."""
+    return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}_detail.glb"
+
+
 def procedural_relocations_key(model_id: str) -> str:
     """Blob key for a model's latest relocation proposals (a JSON document). NOT
     revision-stamped: the proposal search always re-runs (the layout may have

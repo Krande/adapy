@@ -1963,10 +1963,15 @@ export const viewerApi = {
     scope: ScopeUrl,
     modelId: string,
     force = false,
+    lod: "sim" | "detail" = "sim",
   ): Promise<ProceduralCompileResponse> {
     // force=true recompiles even if the revision's GLB is cached — used when the
     // compiler engine changed but the document (the cache key) didn't.
-    const qs = force ? "?force=true" : "";
+    // lod=detail compiles the richer detail model into a separate cache key.
+    const params = new URLSearchParams();
+    if (force) params.set("force", "true");
+    if (lod === "detail") params.set("lod", "detail");
+    const qs = params.toString() ? `?${params.toString()}` : "";
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile${qs}`,
       { method: "POST" },

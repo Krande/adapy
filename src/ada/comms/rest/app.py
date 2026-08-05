@@ -3034,7 +3034,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         model_id: str,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        from .procedural import procedural_glb_key
+        from .procedural import procedural_detail_glb_key, procedural_glb_key
 
         # ``?force=true`` recompiles even when the revision's GLB is already
         # cached. The cache is keyed by the model REVISION, not the compiler
@@ -3045,10 +3045,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # overwrites the blob in place (same revision key), so no doc edit /
         # revision bump is needed to pick up an engine fix.
         force = (request.query_params.get("force") or "").strip().lower() in ("1", "true", "yes")
+        # ``?lod=detail`` compiles the richer detail model into a separate,
+        # revision-stamped derived key so it caches independently of the simulation
+        # GLB. Any other value is the default simulation model.
+        lod = "detail" if (request.query_params.get("lod") or "").strip().lower() == "detail" else "sim"
 
         pool = _require_procedural_pool(request)
         row = await _get_procedural_in_scope(pool, model_id, scope_obj)
-        derived_key = procedural_glb_key(row["id"], row["revision"])
+        key_fn = procedural_detail_glb_key if lod == "detail" else procedural_glb_key
+        derived_key = key_fn(row["id"], row["revision"])
 
         if not force and await storage.exists(scope_obj, derived_key):
             return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
@@ -3057,11 +3062,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail="procedural build disabled (no NATS configured)")
 
         job = await queue.enqueue(
-            f"_synthetic/procedural/{row['id']}/r{row['revision']}",
+            f"_synthetic/procedural/{row['id']}/r{row['revision']}/{lod}",
             target_format="procedural_build",
             scope_kind=scope_obj.kind,
             scope_id=scope_obj.id,
-            conversion_options={"model_id": row["id"], "revision": row["revision"]},
+            conversion_options={"model_id": row["id"], "revision": row["revision"], "lod": lod},
             derived_key=derived_key,
             force_rebuild=force,
         )
