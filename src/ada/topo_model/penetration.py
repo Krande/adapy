@@ -72,19 +72,47 @@ def _rect_section_wh(system) -> tuple[float, float]:
     return w, h
 
 
-def _rect_axes(n: np.ndarray) -> tuple[int, int]:
+def _feed_axis(routed_path, point) -> int | None:
+    """The dominant horizontal axis (0=X, 1=Y) of the run's travel where it crosses
+    a deck — read from the horizontal leg nearest the crossing point. On a riser the
+    tray keeps its width (lateral) perpendicular to this leg and its opening/height
+    along it, so the deck cutout must be oriented from it (routes are twist-free, so
+    the legs either side of a riser share this heading). ``None`` if the path has no
+    horizontal leg (a purely vertical run)."""
+    if not routed_path:
+        return None
+    pts = [np.asarray(tuple(p), dtype=float) for p in routed_path]
+    x = np.asarray(tuple(point), dtype=float)
+    best_axis, best_d = None, float("inf")
+    for a, b in zip(pts[:-1], pts[1:]):
+        d = b - a
+        if abs(d[2]) > 1e-6 or np.linalg.norm(d[:2]) < 1e-9:
+            continue  # not a horizontal leg
+        mid = 0.5 * (a + b)
+        dist = float(np.linalg.norm(mid - x))
+        if dist < best_d:
+            best_d, best_axis = dist, int(np.argmax(np.abs(d[:2])))
+    return best_axis
+
+
+def _rect_axes(n: np.ndarray, feed_axis: int | None = None) -> tuple[int, int]:
     """Given the (axis-aligned) face normal, return ``(width_axis, height_axis)``:
     the two in-plane axes with the rectangle's WIDTH along the horizontal lateral
     axis and its HEIGHT along the vertical (global Z) — so a tray/duct opening is
     wider than tall, matching the section. When the face normal is itself vertical
-    (a floor/roof crossing) neither in-plane axis is Z, so the two in-plane axes
-    are used in order."""
+    (a floor/roof crossing) neither in-plane axis is Z: the run travels vertically
+    through the deck, so its HEIGHT (opening) lies along the feeding horizontal leg
+    (``feed_axis``) and its WIDTH (lateral) along the perpendicular horizontal axis.
+    Without a ``feed_axis`` the two in-plane axes are used in order (legacy)."""
     normal_axis = int(np.argmax(np.abs(n)))
     in_plane = [a for a in range(3) if a != normal_axis]
     if 2 in in_plane:  # a wall: keep height along the vertical axis
         height_axis = 2
         width_axis = next(a for a in in_plane if a != 2)
-    else:  # a floor/roof: no vertical in-plane axis
+    elif feed_axis is not None and feed_axis in in_plane:  # a deck: orient from travel
+        height_axis = feed_axis  # opening rotates onto the travel axis up the riser
+        width_axis = next(a for a in in_plane if a != feed_axis)
+    else:  # a floor/roof with no known travel: in-order fallback
         width_axis, height_axis = in_plane[0], in_plane[1]
     return width_axis, height_axis
 
@@ -131,7 +159,10 @@ def standard_penetration_modeller(
     else:
         # Rectangular cut sized to the tray/duct section + tolerance each side.
         sec_w, sec_h = _rect_section_wh(pen.system)
-        width_axis, height_axis = _rect_axes(n)
+        # For a deck (vertical normal) the in-plane orientation follows the run's
+        # travel, so the rectangle isn't rotated 90 deg against the tray.
+        feed_axis = _feed_axis(getattr(pen.system, "routed_path", None), pen.point)
+        width_axis, height_axis = _rect_axes(n, feed_axis)
         hole_half = np.zeros(3)
         hole_half[width_axis] = sec_w / 2 + tray_duct_clearance
         hole_half[height_axis] = sec_h / 2 + tray_duct_clearance

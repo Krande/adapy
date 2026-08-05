@@ -210,6 +210,50 @@ def test_duct_cut_is_rectangular_section_plus_tolerance():
     assert round(float(hi[2] - lo[2]), 4) == round(0.3 + 2 * 0.02, 4)
 
 
+def _deck_plate():
+    # a horizontal deck plate in the X-Y plane at Z=3 (normal +Z)
+    pts = [(0, 0, 3), (4, 0, 3), (4, 4, 3), (0, 4, 3)]
+    pl = ada.Plate.from_3d_points("deck_pl", pts, 8e-3)
+    return ada.Part("Deck") / pl, pl
+
+
+def test_deck_cut_is_oriented_from_run_travel():
+    # A riser through a deck must cut a rectangle oriented like the tray, not a
+    # fixed X/Y: the tray keeps its WIDTH (lateral) perpendicular to the feeding
+    # horizontal leg and its HEIGHT (opening) along it. A run travelling +X then
+    # rising must give width along Y and height along X (regression: was rotated 90).
+    from ada.api.systems import CableSystem
+
+    tray = CableSystem("Trays", tray_width=0.3, tray_height=0.1)
+    tray.routed_path = [ada.Point(0, 2, 1), ada.Point(2, 2, 1), ada.Point(2, 2, 5)]  # +X leg, then riser
+    part, pl = _deck_plate()
+    pen = Penetration(tray, ada.Point(2, 2, 3), ada.Direction(0, 0, 1), _FakeFace(part))
+    standard_penetration_modeller(pen, "Cable_pen", tray_duct_clearance=0.02)
+
+    hole = pl.booleans[-1].primitive
+    assert isinstance(hole, ada.PrimBox)
+    lo, hi = hole.p1, hole.p2
+    assert round(float(hi[1] - lo[1]), 4) == round(0.3 + 2 * 0.02, 4)  # width (lateral) along Y
+    assert round(float(hi[0] - lo[0]), 4) == round(0.1 + 2 * 0.02, 4)  # height (opening) along X
+    assert (hi[1] - lo[1]) > (hi[0] - lo[0])  # wider across the travel than along it
+
+
+def test_deck_cut_follows_a_perpendicular_run():
+    # The same crossing but the run travels +Y instead: width now lies along X.
+    from ada.api.systems import CableSystem
+
+    tray = CableSystem("Trays", tray_width=0.3, tray_height=0.1)
+    tray.routed_path = [ada.Point(2, 0, 1), ada.Point(2, 2, 1), ada.Point(2, 2, 5)]  # +Y leg, then riser
+    part, pl = _deck_plate()
+    pen = Penetration(tray, ada.Point(2, 2, 3), ada.Direction(0, 0, 1), _FakeFace(part))
+    standard_penetration_modeller(pen, "Cable_pen", tray_duct_clearance=0.02)
+
+    hole = pl.booleans[-1].primitive
+    lo, hi = hole.p1, hole.p2
+    assert round(float(hi[0] - lo[0]), 4) == round(0.3 + 2 * 0.02, 4)  # width (lateral) along X
+    assert round(float(hi[1] - lo[1]), 4) == round(0.1 + 2 * 0.02, 4)  # height along Y
+
+
 def test_tray_duct_tolerance_is_overridable():
     from ada.api.systems import DuctSystem
 
