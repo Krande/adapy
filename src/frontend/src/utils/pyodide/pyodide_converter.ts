@@ -179,6 +179,24 @@ export async function convertViaPyodide(
     return result;
 }
 
+/** Compile a procedural cell-model document to GLB bytes entirely in-browser via
+ * the built-in adapy engine (ada.topo_model.wasm_compile.compile_doc). `doc` is
+ * the cellbuilder commit document; it is JSON-stringified and handed to the
+ * warm Pyodide worker. No server round-trip. */
+export async function compileProceduralViaPyodide(
+    doc: unknown,
+    opts?: {onLog?: (msg: string) => void},
+): Promise<Uint8Array> {
+    if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
+        killWorker();
+    }
+    const worker = await ensurePyodideWorker(opts?.onLog);
+    const reqId = nextReqId++;
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    worker.postMessage({type: "procedural-compile", reqId, doc: JSON.stringify(doc)});
+    return result;
+}
+
 /** Stream a conversion from a range-capable URL instead of uploading the whole
  * source — for sources too large to stage in wasm memory (a multi-GB SIN
  * exceeds the wasm32 ceiling and the 2 GiB ArrayBuffer cap). The worker reads

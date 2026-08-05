@@ -41,6 +41,7 @@ let stepStackPromise = null;
 let satStackPromise = null;
 let femStackPromise = null;
 let meshStackPromise = null;
+let proceduralStackPromise = null;
 let trimeshPromise = null;
 let pyquaternionPromise = null;
 let adacppWheelPromise = null;
@@ -283,6 +284,48 @@ async function ensureFemStack() {
     return femStackPromise;
 }
 
+// Lazy procedural stack — the built-in adapy procedural engine compiled fully
+// in-browser (ada.topo_model.wasm_compile.compile_doc). Same set as the SAT
+// stack (pydantic for the topology entities; trimesh for the GLB export;
+// adacpp for the OCC-free libtess2 tessellation the compile streams through).
+async function ensureProceduralStack() {
+    if (!proceduralStackPromise) {
+        proceduralStackPromise = (async () => {
+            log("Installing procedural stack (pydantic + trimesh + adacpp)…");
+            await pyodide.loadPackage(["pydantic", "Pillow"]);
+            await ensureTrimesh();
+            await ensurePyquaternion();
+            await ensureAdacppWheel();
+            await ensureAdapyWheel();
+            log("Verifying procedural stack…");
+            await pyodide.runPythonAsync(`
+                import ada.cad
+                ada.cad.select_backend(prefer="adacpp")
+                import ada.topo_model.wasm_compile  # entrypoint resolved
+                print("procedural stack ready")
+            `);
+        })();
+    }
+    return proceduralStackPromise;
+}
+
+// Compile a procedural doc (JSON string) to GLB bytes entirely in the browser.
+async function compileProcedural(docJson) {
+    await ensureProceduralStack();
+    pyodide.globals.set("_pc_doc", docJson);
+    try {
+        const result = await pyodide.runPythonAsync(`
+import ada.topo_model.wasm_compile as _pc
+_pc.compile_doc(_pc_doc)
+`);
+        const arr = result.toJs({create_proxies: false});
+        result.destroy();
+        return arr;
+    } finally {
+        try { pyodide.globals.delete("_pc_doc"); } catch (_) { /* fine */ }
+    }
+}
+
 // ── stack selection (host-specific) + dispatch into adapy ─────────────────
 // All conversion LOGIC lives in adapy (ada.cadit.wasm_convert), shipped in the
 // pyodide wheel and shared verbatim with the node sweep driver — no duplicated
@@ -505,6 +548,25 @@ self.onmessage = async (e) => {
             self.postMessage({type: "log", message: "WASM engine pre-warmed"});
         } catch (err) {
             self.postMessage({type: "log", message: `prewarm failed: ${String(err.message || err)}`});
+        }
+        return;
+    }
+
+    if (data.type === "procedural-compile") {
+        // Compile a procedural doc to GLB bytes in-browser (the built-in
+        // adapy-default engine). data.doc is the cellbuilder commit JSON string.
+        const reqId = data.reqId;
+        try {
+            const bytes = await compileProcedural(data.doc);
+            let heap = 0;
+            try {
+                heap = pyodide._module.HEAP8.length;
+            } catch (_) {
+                /* heap introspection unavailable */
+            }
+            self.postMessage({type: "result", reqId, bytes, heap}, [bytes.buffer]);
+        } catch (err) {
+            self.postMessage({type: "error", reqId, message: String(err.message || err)});
         }
         return;
     }
