@@ -76,10 +76,13 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       },
       { keys: ["Shift", "H"], description: "Hide the selected cell(s)" },
       { keys: ["Shift", "U"], description: "Unhide all cells" },
-      { keys: ["PageUp"], description: "Bump selected equipment up a floor" },
+      {
+        keys: ["PageUp"],
+        description: "Move the selected equipment or opening up a floor",
+      },
       {
         keys: ["PageDown"],
-        description: "Bump selected equipment down a floor",
+        description: "Move the selected equipment or opening down a floor",
       },
       { keys: ["Ctrl / ⌘", "Z"], description: "Undo" },
       { keys: ["Ctrl / ⌘", "Shift", "Z"], description: "Redo" },
