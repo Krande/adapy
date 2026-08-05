@@ -265,6 +265,48 @@ def test_segmented_run_is_frame_continuous_through_3d_bends():
     assert np.allclose(first_dy, (0, 0, 1), atol=1e-9)
 
 
+def _total_roll_deg(geoms) -> float:
+    """Total rotation of the swept profile about its own tangent (roll/twist),
+    accumulated across a run's per-segment frames. A gravity-upright tray/duct that
+    only bends and climbs cleanly rolls 0 deg; a riser flanked by two
+    differently-directed horizontal legs corkscrews the profile and rolls > 0."""
+    import numpy as np
+
+    origins = np.concatenate([np.asarray(g.solid_geom().geometry.precomputed_frames[0], float) for g in geoms])
+    dir_x = np.concatenate([np.asarray(g.solid_geom().geometry.precomputed_frames[1], float) for g in geoms])
+    t = np.gradient(origins, axis=0)
+    t /= np.linalg.norm(t, axis=1, keepdims=True).clip(1e-12)
+    tot = 0.0
+    for i in range(1, len(dir_x)):
+        a = dir_x[i - 1] - (dir_x[i - 1] @ t[i]) * t[i]
+        b = dir_x[i] - (dir_x[i] @ t[i]) * t[i]
+        na, nb = np.linalg.norm(a), np.linalg.norm(b)
+        if na < 1e-9 or nb < 1e-9:
+            continue
+        tot += np.degrees(np.arccos(np.clip((a @ b) / (na * nb), -1, 1)))
+    return tot
+
+
+def test_constrained_router_plans_twist_free_route():
+    """A run that must change horizontal direction AND climb has a twist-free
+    topology (turn flat at one elevation, keep every riser bracketed by same-heading
+    legs) and a twist-inducing one (a riser flanked by two off-axis legs). The
+    twist-penalty in the constrained planner must steer it to the twist-free route,
+    so the swept profile never corkscrews. Regression for the twisted-cable-tray bug."""
+    grid = CellGrid.from_bounds((-1, -1, 0), (4, 4, 4), spacing=0.5)
+    # +X leaving stub, arriving from above (-Z) at a point offset in +Y and up a level:
+    # forces a horizontal +X -> +Y turn combined with a climb — the skew case.
+    system = (
+        ada.CableSystem("Tray")
+        .connect_site("a", (0, 0, 0.5), ada.PortDirection.OUT, direction_vector=(1, 0, 0))
+        .connect_site("b", (2.0, 2.0, 2.0), ada.PortDirection.IN, direction_vector=(0, 0, -1))
+    )
+    route_system(system, grid)
+    geoms = [g for g in system_route_to_geometry(system) if hasattr(g, "_frames") and g._frames is not None]
+    assert geoms, "expected swept-run geometry with precomputed frames"
+    assert _total_roll_deg(geoms) < 15.0  # ~0 in practice; tolerance covers arc-sample stations
+
+
 def test_site_terminal_orientation_respected_when_stub_is_occupied(grid):
     # A site terminal whose one-cell nozzle stub lands inside an equipment's
     # occupied halo (a wall terminal right next to a switchboard) must STILL leave

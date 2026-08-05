@@ -85,6 +85,14 @@ class RoutingRules:
     move_cost: Callable[[GridIndex, GridIndex, CellGrid], float] | None = None
     elevation_penalty: float = 2.0
     bend_penalty: float = 0.5
+    # Extra cost (constrained planner only) for a *twist-inducing* corner: a riser
+    # flanked by two horizontal legs pointing along different axes. Such a corner
+    # forces the swept profile to roll about its own tangent up the riser (a visibly
+    # twisted cable tray / duct); a run that instead turns horizontally at a constant
+    # elevation and keeps its risers coplanar is twist-free. This large tie-break
+    # steers the search toward the twist-free topology wherever one exists (it never
+    # affects feasibility — cost can't make an impossible route possible).
+    twist_penalty: float = 6.0
 
     def cost(self, a: GridIndex, b: GridIndex, grid: CellGrid) -> float:
         if self.move_cost is not None:
@@ -234,6 +242,15 @@ def astar_route_constrained(
     inf = float("inf")
     tol = 1e-9
     bend_penalty = rules.bend_penalty
+    twist_penalty = rules.twist_penalty
+
+    def twists(prev_d: int, mid_d: int, next_d: int) -> bool:
+        # A roll is forced by [horizontal-A][vertical riser][horizontal-B] whenever the
+        # horizontal heading is not *preserved* across the riser: a different axis rolls
+        # 90 deg, an anti-parallel reversal (a coplanar hairpin) rolls 180 deg. Only a
+        # riser that keeps the same horizontal heading either side is twist-free. Steps
+        # 0/1/2/3 are the horizontal headings, 4/5 the two verticals.
+        return mid_d >= 4 and prev_d < 4 and next_d < 4 and next_d != prev_d
 
     def bucket(run_len: float) -> int:
         if run_len >= t2 - tol:
@@ -258,7 +275,11 @@ def astar_route_constrained(
         xg, yg, zg = grid.coord_from_index(goal)
         return abs(xg - xa) + abs(yg - ya) + abs(zg - za)
 
-    start_state = (start, start_dir, True, bucket(start_run))
+    # ``prev_dir`` is the heading of the leg *before* the current one, carried so a
+    # turn onto ``dp`` can tell whether the leg just travelled is a twist-inducing
+    # riser between two differently-directed horizontal legs (see ``twists``). It
+    # seeds to ``start_dir`` (the nozzle stub shares the leaving heading).
+    start_state = (start, start_dir, start_dir, True, bucket(start_run))
     # heap entry: (f, tie, g, run_len, state) — run_len rides along so the bucket can
     # be recomputed on each straight step without living in the dedup key.
     open_heap: list[tuple[float, int, float, float, tuple]] = [(heuristic(start), 0, 0.0, start_run, start_state)]
@@ -270,7 +291,7 @@ def astar_route_constrained(
         _, _, g, run_len, state = heapq.heappop(open_heap)
         if g > best_g.get(state, inf):
             continue
-        node, d, from_start, buck = state
+        node, d, prev_dir, from_start, buck = state
         if node == goal and d == goal_dir and buck >= 1:
             path = [node]
             s = state
@@ -286,7 +307,7 @@ def astar_route_constrained(
         if in_bounds(nxt) and passable(nxt):
             seg = seg_len(node, nxt)
             nrl = run_len + seg
-            ns = (nxt, d, from_start, bucket(nrl))
+            ns = (nxt, d, prev_dir, from_start, bucket(nrl))
             ng = g + seg
             if ng < best_g.get(ns, inf):
                 best_g[ns] = ng
@@ -302,8 +323,10 @@ def astar_route_constrained(
                 if not in_bounds(nxt) or not passable(nxt):
                     continue
                 seg = seg_len(node, nxt)
-                ns = (nxt, dp, False, bucket(seg))
-                ng = g + seg + bend_penalty
+                # The heading just travelled (``d``) becomes the new ``prev_dir``; if it
+                # was a riser between two off-axis horizontal legs the corner twists.
+                ns = (nxt, dp, d, False, bucket(seg))
+                ng = g + seg + bend_penalty + (twist_penalty if twists(prev_dir, d, dp) else 0.0)
                 if ng < best_g.get(ns, inf):
                     best_g[ns] = ng
                     came_from[ns] = state
