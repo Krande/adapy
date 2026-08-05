@@ -270,6 +270,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
   const renameCell = useCellBuilderStore((s) => s.renameCell);
   const gizmoMode = useCellBuilderStore((s) => s.gizmoMode);
   const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
+  const insertOpeningOnFace = useCellBuilderStore((s) => s.insertOpeningOnFace);
   const setCellEnclosed = useCellBuilderStore((s) => s.setCellEnclosed);
   const enclosedCells = useCellBuilderStore(
     (s) =>
@@ -396,6 +397,33 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
                   />
                   Exclude side (SE{side.se})
                 </label>
+              )}
+              {cell.kind === "cell" && (
+                <div className="flex items-center gap-1">
+                  <span className="text-gray-300">Insert opening</span>
+                  <button
+                    className={btn}
+                    onClick={() =>
+                      insertOpeningOnFace(cell.id, selection.faceIndex!, "door")
+                    }
+                    title="Add a door opening straddling this face (0.9 × 2.1 m, at the floor)"
+                  >
+                    + Door
+                  </button>
+                  <button
+                    className={btn}
+                    onClick={() =>
+                      insertOpeningOnFace(
+                        cell.id,
+                        selection.faceIndex!,
+                        "window",
+                      )
+                    }
+                    title="Add a window opening straddling this face (1.2 × 1.0 m, 1.0 m sill)"
+                  >
+                    + Window
+                  </button>
+                </div>
               )}
             </>
           )}

@@ -18,6 +18,7 @@ import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
 import {
   applyFaceOffset,
   BOX_FACE_SIDES,
+  faceCenter,
   placeInCell,
   quantizeVec,
   withAxisLength,
@@ -363,6 +364,15 @@ interface CellBuilderState {
     kind: "cell" | "equipment" | "opening",
     origin: Vec3,
     size: Vec3,
+  ) => void;
+  /** Insert a door/window opening straddling a selected cell FACE, sized to a
+   * sensible default (door: 0.9x2.1 at the floor; window: 1.2x1.0 at a 1.0 m
+   * sill; a floor/roof face gets a 0.9x0.9 hatch). The new opening becomes the
+   * selection. No-op unless the face belongs to a space cell. */
+  insertOpeningOnFace: (
+    cellId: string,
+    faceIndex: number,
+    subtype: "door" | "window",
   ) => void;
   updateCell: (id: string, patch: Partial<BuilderCell>) => void;
   /** Set an equipment cell's absolute per-axis rotation (degrees). No-op for
@@ -940,6 +950,61 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           selection: { kind: "cell", cellId: id },
         };
       }),
+
+    insertOpeningOnFace: (cellId, faceIndex, subtype) =>
+      withHistory((s) => {
+        const cell = s.cells[cellId];
+        const side = BOX_FACE_SIDES[faceIndex];
+        if (!cell || cell.kind !== "cell" || !side) return {};
+        // Point on the selected face plane, then straddle it with a thin box so
+        // the opening reliably overlaps the wall/deck plate it should cut.
+        const fc = faceCenter(cell, faceIndex);
+        const THK = 0.3;
+        const origin: Vec3 = [...fc];
+        const size: Vec3 = [0, 0, 0];
+        if (side.axis === 2) {
+          // Floor/roof face → a hatch: sized in X/Y, thin through the deck.
+          const w = 0.9;
+          origin[0] = fc[0] - w / 2;
+          origin[1] = fc[1] - w / 2;
+          origin[2] = fc[2] - THK / 2;
+          size[0] = w;
+          size[1] = w;
+          size[2] = THK;
+        } else {
+          // Vertical wall face → a door/window: width along the other horizontal
+          // axis, height along Z, seated from the cell base.
+          const horiz = side.axis === 0 ? 1 : 0;
+          const width = subtype === "door" ? 0.9 : 1.2;
+          const height = subtype === "door" ? 2.1 : 1.0;
+          const z0 = cell.origin[2] + (subtype === "door" ? 0 : 1.0);
+          origin[side.axis] = fc[side.axis] - THK / 2;
+          origin[horiz] = fc[horiz] - width / 2;
+          origin[2] = z0;
+          size[side.axis] = THK;
+          size[horiz] = width;
+          size[2] = height;
+        }
+        const id = nextId();
+        const count =
+          Object.values(s.cells).filter((c) => c.kind === "opening").length + 1;
+        const opening: BuilderCell = {
+          id,
+          name: `OPENING_${String(count).padStart(2, "0")}`,
+          kind: "opening",
+          subtype,
+          origin: quantizeVec(origin, s.gridStep),
+          size: quantizeVec(size, s.gridStep),
+          params: {},
+        };
+        return {
+          cells: { ...s.cells, [id]: opening },
+          dirty: true,
+          mode: "idle",
+          selection: { kind: "cell", cellId: id },
+        };
+      }),
+
     updateCell: (id, patch) =>
       withHistory((s) => {
         const cur = s.cells[id];
