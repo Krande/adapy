@@ -254,6 +254,45 @@ def test_deck_cut_follows_a_perpendicular_run():
     assert round(float(hi[1] - lo[1]), 4) == round(0.1 + 2 * 0.02, 4)  # height along Y
 
 
+def test_tray_deck_cut_is_shifted_to_the_tray_body():
+    # An open cable tray sits on the +y (opening) side of its directrix, so its body
+    # centre is half a tray-height off the route. The cut must move there so it lines
+    # up with the tray instead of hanging half off it (regression: hole was centred
+    # on the route -> the opening missed the tray). The run climbs after a +X leg, so
+    # the tray opening (and the shift) lie along X; the shift is half the tray height.
+    from ada.api.systems import CableSystem
+
+    tray = CableSystem("Trays", tray_width=0.3, tray_height=0.1)
+    tray.routed_path = [ada.Point(0, 2, 1), ada.Point(2, 2, 1), ada.Point(2, 2, 5)]  # +X leg, then riser
+    part, pl = _deck_plate()
+    pen = Penetration(tray, ada.Point(2, 2, 3), ada.Direction(0, 0, 1), _FakeFace(part))
+    standard_penetration_modeller(pen, "Cable_pen", tray_duct_clearance=0.02)
+
+    hole = pl.booleans[-1].primitive
+    lo, hi = hole.p1, hole.p2
+    cx = 0.5 * float(lo[0] + hi[0])  # hole centre along X (the height/opening axis)
+    assert abs(cx - (2.0 - 0.05)) < 1e-6  # shifted half a tray-height toward the opening
+    cy = 0.5 * float(lo[1] + hi[1])  # width axis unshifted
+    assert abs(cy - 2.0) < 1e-6
+
+
+def test_duct_deck_cut_is_not_shifted():
+    # A duct's box profile is centred on its directrix, so no shift — the cut stays
+    # on the route.
+    from ada.api.systems import DuctSystem
+
+    duct = DuctSystem("HVAC", duct_width=0.4, duct_height=0.3)
+    duct.routed_path = [ada.Point(0, 2, 1), ada.Point(2, 2, 1), ada.Point(2, 2, 5)]
+    part, pl = _deck_plate()
+    pen = Penetration(duct, ada.Point(2, 2, 3), ada.Direction(0, 0, 1), _FakeFace(part))
+    standard_penetration_modeller(pen, "Duct_pen", tray_duct_clearance=0.02)
+
+    hole = pl.booleans[-1].primitive
+    lo, hi = hole.p1, hole.p2
+    assert abs(0.5 * float(lo[0] + hi[0]) - 2.0) < 1e-6  # centred on the route
+    assert abs(0.5 * float(lo[1] + hi[1]) - 2.0) < 1e-6
+
+
 def test_tray_duct_tolerance_is_overridable():
     from ada.api.systems import DuctSystem
 
