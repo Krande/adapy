@@ -218,18 +218,24 @@ def _routing_grid(spaces: list[TopoSpace], equipments: list, spacing: float = 0.
     """A uniform lattice spanning the union of the space boxes plus a headroom
     level above the top deck (so runs can climb over equipment).
 
-    The floor/roof decks sit on the space-Z boundaries; any lattice level that
-    lands exactly on a deck plane is dropped so a horizontal run never lies *in*
-    a floor plate — it routes just above (in the room) or below (a sub-floor void)
-    instead. Vertical runs still cross a deck plane on the edge between the
-    surrounding levels. A ``spacing`` sub-floor band below the lowest deck gives
-    low outlets (e.g. a tank drain) somewhere to route beneath the plate."""
+    A run must never lie *in* a wall or floor plate (only cross one perpendicular,
+    where a penetration detail is modelled). Every interior lattice line that
+    lands exactly on a plate plane is therefore dropped — for decks (Z boundaries),
+    interior walls (shared X/Y boundaries between cells) alike: a perpendicular
+    crossing still spans the plane on the edge between the surrounding lines, but
+    no node sits inside the plate so nothing routes along it. The first/last line
+    of each axis (the outer envelope walls) is kept for bounds — built external
+    walls are instead blocked as no-go obstacles in ``_build_systems``. A
+    ``spacing`` sub-floor band below the lowest deck gives low outlets (e.g. a tank
+    drain) somewhere to route beneath the plate."""
     xs, ys, zs = [], [], []
-    deck_planes = set()
+    x_planes, y_planes, deck_planes = set(), set(), set()
     for s in spaces:
         xs += [s.X, s.X + s.DX]
         ys += [s.Y, s.Y + s.DY]
         zs += [s.Z, s.Z + s.DZ]
+        x_planes.update((round(float(s.X), 4), round(float(s.X + s.DX), 4)))
+        y_planes.update((round(float(s.Y), 4), round(float(s.Y + s.DY), 4)))
         deck_planes.update((round(float(s.Z), 4), round(float(s.Z + s.DZ), 4)))
     for eq in equipments:
         if isinstance(eq, ada.Equipment):
@@ -240,14 +246,20 @@ def _routing_grid(spaces: list[TopoSpace], equipments: list, spacing: float = 0.
         (max(xs), max(ys), max(zs) + headroom),
         spacing=spacing,
     )
-    # Drop interior levels coincident with a deck plane (keep the first/last so the
-    # lattice never loses its bounds); margin < spacing so only exact hits go. With
-    # the sub-floor band, the lowest deck is now interior and gets dropped too.
+
+    # Drop interior levels coincident with a plate plane (keep the first/last so
+    # the lattice never loses its bounds); margin < spacing so only exact hits go.
+    # With the sub-floor band, the lowest deck is now interior and gets dropped too.
     margin = spacing * 0.25
-    z = grid.z_list
-    grid.z_list = [
-        v for i, v in enumerate(z) if i == 0 or i == len(z) - 1 or all(abs(v - d) > margin for d in deck_planes)
-    ]
+
+    def _drop(vals: list[float], planes: set[float]) -> list[float]:
+        return [
+            v for i, v in enumerate(vals) if i == 0 or i == len(vals) - 1 or all(abs(v - p) > margin for p in planes)
+        ]
+
+    grid.x_list = _drop(grid.x_list, x_planes)
+    grid.y_list = _drop(grid.y_list, y_planes)
+    grid.z_list = _drop(grid.z_list, deck_planes)
     return grid
 
 
@@ -285,6 +297,54 @@ def _occupy_equipment(grid: CellGrid, eq: ada.Equipment, clearance: float = 0.0)
             for iz, z in enumerate(grid.z_list):
                 if z0 - tol <= z <= z1 + tol:
                     grid.register((ix, iy, iz), eq.name)
+
+
+def _flag_equipment_clashes(systems: list, equipment_map: dict) -> None:
+    """Append a :class:`RunWarning` to any system whose routed body still enters a
+    NON-endpoint equipment box. Grid occupancy already keeps every centreline out
+    of every box; this catches the rare residual (a forced nozzle stub past a
+    neighbour placed at the port) so it surfaces as a warning the user or the
+    relocation optimiser can clear, instead of a silent clash."""
+    import numpy as np
+
+    from ada.topology.routing import RunWarning, run_half_extent
+
+    boxes = []
+    for name, eq in equipment_map.items():
+        ox, oy, oz = (float(v) for v in eq.origin)
+        lo = np.array([ox - eq.lx / 2.0, oy - eq.ly / 2.0, oz])
+        hi = np.array([ox + eq.lx / 2.0, oy + eq.ly / 2.0, oz + eq.lz])
+        boxes.append((name, lo, hi))
+
+    for system in systems:
+        poly = getattr(system, "routed_path", None)
+        if not poly or len(poly) < 2:
+            continue
+        own = {p.parent.name for p in system.ports if getattr(p, "parent", None) is not None}
+        half = run_half_extent(system)
+        pts = [np.array([float(p[0]), float(p[1]), float(p[2])]) for p in poly]
+        clashes: dict[str, np.ndarray] = {}
+        for i in range(len(pts) - 1):
+            a, b = pts[i], pts[i + 1]
+            for t in np.linspace(0.0, 1.0, 24):
+                q = a + (b - a) * t
+                for name, lo, hi in boxes:
+                    if name in own or name in clashes:
+                        continue
+                    if float(np.minimum(q - lo, hi - q).min()) > -half:
+                        clashes[name] = q
+        warnings = getattr(system, "route_warnings", None)
+        if warnings is None:
+            warnings = []
+            system.route_warnings = warnings
+        for name, q in sorted(clashes.items()):
+            warnings.append(
+                RunWarning(
+                    position=(float(q[0]), float(q[1]), float(q[2])),
+                    message=f"run body passes through equipment {name!r}",
+                    suggestion=f"move {name} clear of the run, or re-route (try Propose relocations)",
+                )
+            )
 
 
 def _wire_systems(specs: list[dict], equipment_map: dict) -> list:
@@ -354,22 +414,29 @@ def _build_systems(
         return []
 
     # Occupy each equipment box inflated by the widest run's cross-section
-    # half-extent, so A* keeps every run's *body* (not just its centreline) clear
-    # of equipment. One shared clearance (the max over all systems) keeps the grid
-    # single-pass while guaranteeing no run clips a box.
-    clearance = max((_system_half_extent(s) for s in built_systems), default=0.0)
+    # half-extent PLUS a small margin, so A* keeps every run's *body* (not just its
+    # centreline) clear of a box with a gap rather than grazing it. One shared
+    # clearance (the max over all systems) keeps the grid single-pass.
+    half_extent = max((_system_half_extent(s) for s in built_systems), default=0.0)
+    clearance = half_extent + min(0.05, 0.25 * half_extent) if half_extent else 0.0
     for eq in equipment_map.values():
         _occupy_equipment(grid, eq, clearance)
 
     rules = design_rules if design_rules is not None else standard_design_rules()
     members = _penetration_members(cell_graph)
-    # No-go walls (opt-in via doc["no_go_walls"]): treat BUILT WALLS as impenetrable
-    # so routes detour around them. Off by default because the demo's interior run is
-    # meant to *penetrate* its wall and get a sleeve/hole detail; turning this on
-    # suppresses those crossings. DECKS are never no-go — a riser between stacked
-    # cells must cross the deck (and get its cutout), so floors stay penetrable even
-    # when this is on.
-    no_go_faces = [f for f in members if not f.is_horizontal()] if doc.get("no_go_walls") else None
+    # Built EXTERNAL walls are blocked as no-go so nothing routes along the outer
+    # skin (a lateral run buried in an envelope plate). They're never crossed
+    # laterally — a site terminal sitting on one stays reachable via the A* goal
+    # exemption, then leaves perpendicular. INTERIOR walls stay penetrable (a run
+    # must cross them and get a sleeve); their in-plane travel is already prevented
+    # by dropping their lattice line in _routing_grid. doc["no_go_walls"]
+    # additionally blocks interior walls. DECKS are never no-go — a riser between
+    # stacked cells must cross the deck (and get its cutout).
+    ext_ids = {id(f) for f in cell_graph.get_external_walls()} if cell_graph is not None else set()
+    no_go_faces = [f for f in members if not f.is_horizontal() and id(f) in ext_ids]
+    if doc.get("no_go_walls"):
+        no_go_faces += [f for f in members if not f.is_horizontal() and id(f) not in ext_ids]
+    no_go_faces = no_go_faces or None
 
     # One fine lattice for all systems (precise detours); each planned run's body
     # is marked occupied so later systems route around it, and swept runs are then
@@ -388,6 +455,10 @@ def _build_systems(
     penetration_parts = result.penetration_parts
     for name in result.skipped:
         logger.warning("procedural: skipping system %r: no route found", name)
+    # Occupancy keeps every centreline out of every box, but a forced nozzle stub
+    # can still graze a neighbour placed right at a port. Flag any residual so it's
+    # visible (and actionable via the relocation optimiser), never a hidden clash.
+    _flag_equipment_clashes(built_systems, equipment_map)
     # Surface bend-artifact warnings (corners a run left sharp because the route
     # was too cramped to round) so the cellbuilder can respace the offending run.
     for system in built_systems:

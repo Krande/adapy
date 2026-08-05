@@ -370,6 +370,36 @@ def test_compile_rotated_cad_equipment_is_valid_glb():
     assert _is_glb(glb) and len(glb) > 500
 
 
+def test_routing_grid_drops_internal_wall_planes():
+    # Two cells share the x=5 wall plane. No lattice line may lie *in* that plate
+    # (a run would route inside the wall); a crossing still spans it on the edge
+    # between the flanking lines. The outer envelope walls (x=0/10) stay as bounds.
+    from ada.topo_model.compile import _routing_grid
+    from ada.topology.entities import TopoSpace
+
+    spaces = [TopoSpace(**s) for s in DOC["spaces"]]  # Cell1 x0-5, Cell2 x5-10
+    grid = _routing_grid(spaces, [])
+    assert all(abs(x - 5.0) > 1e-6 for x in grid.x_list), "internal wall plane x=5 not dropped"
+    assert min(grid.x_list) <= 0.0 + 1e-9 and max(grid.x_list) >= 10.0 - 1e-9
+
+
+def test_flag_equipment_clashes_warns_on_body_through_box():
+    from ada.api.systems import PipingSystem
+    from ada.topo_model.compile import _flag_equipment_clashes
+    from ada.topo_model.equipment import create_pump
+
+    a = create_pump("PumpA", (0.0, 0.0, 0.0))
+    b = create_pump("PumpB", (10.0, 10.0, 0.0))  # box centred (10,10,0.5)
+    sys = PipingSystem("CW").connect(a, "discharge")
+    # A straight run from A that plows through PumpB's body.
+    sys.routed_path = [(0.0, 0.0, 0.5), (20.0, 20.0, 0.5)]
+    _flag_equipment_clashes([sys], {"PumpA": a, "PumpB": b})
+    msgs = [w.message for w in sys.route_warnings]
+    assert any("PumpB" in m for m in msgs), msgs
+    # The run's own endpoint equipment is never flagged as a clash.
+    assert not any("PumpA" in m for m in msgs)
+
+
 def test_compile_empty_doc_raises():
     with pytest.raises(ValueError, match="no spaces"):
         compile_procedural_doc({"spaces": []})
