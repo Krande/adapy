@@ -43,11 +43,69 @@ _MIN_THROAT = 6e-3
 _MIN_GUSSET_T = 8e-3
 
 
+# Interior fraction (of a girder's length) a crossing must sit inside BOTH spans to
+# count as a mid-span "+" crossing; anything closer to an endpoint is a node/T
+# junction already found by connections.find.
+_INTERIOR_EPS = 1e-2
+_CROSS_TOL = 0.1  # out-of-plane tolerance for two girder axes to count as crossing
+_CENTRE_NDIGITS = 4
+
+
 def eval_joint_req(joint: type[JointBase], intersecting_members: List["Beam"]) -> bool:
     """True when ``intersecting_members`` satisfy ``joint``'s member-type /
     count requirements (mirrors ``ada.param_models.basic_joints.eval_joint_req``)."""
     jrc = JointReqChecker(intersecting_members, joint)
     return jrc.eval_joint_req()
+
+
+def _centre_key(point) -> tuple:
+    return tuple(round(float(v), _CENTRE_NDIGITS) for v in point)
+
+
+def collect_girder_joints(assembly) -> List["GirderJoint"]:
+    """All I-girder joints in ``assembly``, as :class:`GirderJoint` objects (their
+    ``.connection`` carries the gusset + welds).
+
+    ``assembly.connections.find`` covers shared-node junctions (L-corners) AND
+    end-at-mid-span T-junctions, but its bbox pre-filter is node-based, so it MISSES
+    a pure "+" crossing where two girders pass through each other's mid-span with no
+    node near either — :func:`_find_interior_crossings` adds those. Endpoints stay
+    owned by ``find`` (the interior test excludes them), so nothing is double-counted."""
+    assembly.connections.find(joint_func=detail_joint_map)
+    joints: List["GirderJoint"] = [c for c in assembly.connections.connections if isinstance(c, GirderJoint)]
+    seen = {_centre_key(j.centre) for j in joints}
+    joints += _find_interior_crossings(assembly, seen)
+    return joints
+
+
+def _find_interior_crossings(assembly, seen: set) -> List["GirderJoint"]:
+    """Girder pairs that cross INSIDE both spans (a "+" crossing) — the case
+    ``connections.find`` misses. ``seen`` holds the centre keys already jointed so a
+    crossing coincident with an existing joint is not duplicated."""
+    from ada import Beam
+    from ada.core.clash_check import beam_cross_check
+
+    girders = [
+        b for b in assembly.get_all_physical_objects(by_type=Beam) if getattr(b, "member_type", None) == "Girder"
+    ]
+    out: List["GirderJoint"] = []
+    for i in range(len(girders)):
+        for j in range(i + 1, len(girders)):
+            g1, g2 = girders[i], girders[j]
+            res = beam_cross_check(g1, g2, _CROSS_TOL)
+            if res is None:
+                continue
+            point, s, t = res
+            # Strictly interior of BOTH spans — endpoints are node/T junctions that
+            # find() already handled.
+            if not (_INTERIOR_EPS < s < 1 - _INTERIOR_EPS and _INTERIOR_EPS < t < 1 - _INTERIOR_EPS):
+                continue
+            key = _centre_key(point)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(GirderJoint(f"GJx_{i:02d}_{j:02d}", [g1, g2], point, parent=assembly.connections))
+    return out
 
 
 def detail_joint_map(joint_name, intersecting_members, centre, parent=None) -> Union[JointBase, None]:

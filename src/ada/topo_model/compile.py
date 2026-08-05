@@ -127,10 +127,9 @@ def _apply_girder_joints(assembly: ada.Assembly) -> None:
     from ada.config import logger
 
     try:
-        from .detail_joints import GirderJoint, detail_joint_map
+        from .detail_joints import collect_girder_joints
 
-        assembly.connections.find(joint_func=detail_joint_map)
-        joint_parts = [j.connection for j in assembly.connections.connections if isinstance(j, GirderJoint)]
+        joint_parts = [j.connection for j in collect_girder_joints(assembly)]
         if joint_parts:
             assembly.add_part(ada.Part("Joints") / joint_parts)
     except Exception as exc:  # noqa: BLE001 - a joint failure must never sink the compile

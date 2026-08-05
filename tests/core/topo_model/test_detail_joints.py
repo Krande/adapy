@@ -52,3 +52,27 @@ def test_detail_glb_larger_than_sim():
     assert sim[:4] == b"glTF" and detail[:4] == b"glTF"
     # The modelled joints (gusset plate + weld beads) add geometry.
     assert len(detail) > len(sim)
+
+
+def test_mid_span_cross_junction_is_jointed():
+    # A pure "+" crossing (two girders through each other's mid-span, no shared node)
+    # is missed by connections.find's node-based prefilter — the interior-crossing
+    # pass must still joint it. A node/T junction stays a single joint (no double).
+    from ada.topo_model.detail_joints import collect_girder_joints
+
+    cross = ada.Assembly("X") / [
+        ada.Beam("g1", (0, 2.5, 0), (5, 2.5, 0), "IPE200"),
+        ada.Beam("g2", (2.5, 0, 0), (2.5, 5, 0), "IPE200"),
+    ]
+    joints = collect_girder_joints(cross)
+    assert len(joints) == 1
+    assert tuple(round(float(v), 2) for v in joints[0].centre) == (2.5, 2.5, 0.0)
+
+    # An L-corner combined with a crossing yields exactly two distinct joints.
+    mixed = ada.Assembly("M") / [
+        ada.Beam("g1", (0, 0, 0), (5, 0, 0), "IPE200"),
+        ada.Beam("g2", (5, 0, 0), (5, 5, 0), "IPE200"),
+        ada.Beam("g3", (2.5, -2, 0), (2.5, 2, 0), "IPE200"),
+    ]
+    centres = sorted(tuple(round(float(v), 2) for v in j.centre) for j in collect_girder_joints(mixed))
+    assert centres == [(2.5, 0.0, 0.0), (5.0, 0.0, 0.0)]
