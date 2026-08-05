@@ -388,6 +388,8 @@ interface CellBuilderState {
     unchanged: string[];
     skipped: string[];
   } | null>;
+  /** True while a (non-quiet) resync is in flight, so the button can disable. */
+  resyncBusy: boolean;
   commit: () => Promise<boolean>;
   /** Compile the active model. ``force`` recompiles even if the revision's GLB
    * is already cached — used when the compiler engine changed but the document
@@ -586,6 +588,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     resultSourceName: null,
     relocations: null,
     relocationBusy: false,
+    resyncBusy: false,
     cellsVisible: true,
     hiddenCellIds: [],
     portsOverlayVisible: false,
@@ -1534,6 +1537,18 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
     resyncEquipmentTypes: async (opts) => {
       const quiet = opts?.quiet ?? false;
+      if (!quiet) {
+        if (get().resyncBusy) return null; // already running (button also disables)
+        set({ resyncBusy: true });
+        // Show the toast immediately (the upsert is quick but the round-trip isn't
+        // instant) so the click gives feedback instead of appearing to do nothing.
+        setProceduralToast("Resync equipments", {
+          status: "running",
+          progress: 0,
+          stage: "syncing catalog…",
+          startedAt: Date.now(),
+        });
+      }
       try {
         const res =
           await viewerApi.resyncProceduralEquipmentTypes(currentScopePart());
@@ -1559,6 +1574,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             error: e instanceof Error ? e.message : String(e),
           });
         return null;
+      } finally {
+        if (!quiet) set({ resyncBusy: false });
       }
     },
 

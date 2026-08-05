@@ -861,10 +861,11 @@ const CellBuilderPanel: React.FC = () => {
         </button>
         <button
           className={btnGray}
+          disabled={s.resyncBusy}
           onClick={() => void s.resyncEquipmentTypes()}
           title="Update this scope's equipment catalog from the built-in code archetypes (new ports, corrected nozzle heights). Recompile afterwards to pick up the changes."
         >
-          Resync equipments
+          {s.resyncBusy ? "Resyncing…" : "Resync equipments"}
         </button>
         <button
           className={btnGray}
