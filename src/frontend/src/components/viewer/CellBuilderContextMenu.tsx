@@ -9,9 +9,10 @@ import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 
 // The cell context menu, opened by a long-press (touch) or right-click
 // (desktop) over a builder cell — see CellBuilderController. It offers the two
-// direct-manipulation gizmos (Move / Resize), a jump to the parameter panel,
-// and delete. Rendered via the shared PositionedMenu portal so it clears the
-// canvas/overlay stacking contexts.
+// direct-manipulation gizmos (Move / Resize for cells; Move / Rotate for
+// equipment), a jump to the parameter panel, and delete. Rendered via the
+// shared PositionedMenu portal so it clears the canvas/overlay stacking
+// contexts.
 const CellBuilderContextMenu: React.FC = () => {
   const menu = useCellBuilderStore((s) => s.contextMenu);
   const cells = useCellBuilderStore((s) => s.cells);
@@ -50,6 +51,20 @@ const CellBuilderContextMenu: React.FC = () => {
             onClick: () => {
               pick();
               setGizmoMode("resize");
+            },
+          },
+        ]
+      : []),
+    // Rotate is an equipment-only gizmo — spaces stay axis-aligned. Opens the
+    // rotation gizmo plus the manual per-axis degree panel.
+    ...(cell.kind === "equipment"
+      ? [
+          {
+            key: "rotate",
+            label: "Rotate",
+            onClick: () => {
+              pick();
+              setGizmoMode("rotate");
             },
           },
         ]

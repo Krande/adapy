@@ -325,7 +325,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
           >
             <span className="text-gray-300">gizmo</span>
             {(
-              // Equipment is sized by its type — offer Move, but no Resize.
+              // Equipment is sized by its type — offer Move + Rotate, no Resize.
               cell.kind === "cell"
                 ? ([
                     ["translate", "Move"],
@@ -334,6 +334,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
                   ] as const)
                 : ([
                     ["translate", "Move"],
+                    ["rotate", "Rotate"],
                     ["none", "Off"],
                   ] as const)
             ).map(([m, label]) => (

@@ -11,13 +11,17 @@ plus a simple box body so the equipment renders.
 
 from __future__ import annotations
 
+import math
 from typing import Callable, Iterable
+
+import numpy as np
 
 import ada
 from ada.api.systems import Port, PortDirection
 
 __all__ = [
     "EQUIPMENT_ARCHETYPES",
+    "apply_equipment_rotation",
     "build_equipment_from_catalog",
     "create_exhaust_fan",
     "create_hvac",
@@ -26,6 +30,7 @@ __all__ = [
     "create_tank",
     "equipment_archetype_specs",
     "list_equipment_types",
+    "rotation_matrix",
 ]
 
 
@@ -44,6 +49,80 @@ def _add_body(eq: ada.Equipment, name: str) -> None:
     lo = (ox - eq.lx / 2, oy - eq.ly / 2, oz)
     hi = (ox + eq.lx / 2, oy + eq.ly / 2, oz + eq.lz)
     eq.add_object(ada.PrimBox(f"{name}_body", lo, hi))
+
+
+def rotation_matrix(rx_deg: float, ry_deg: float, rz_deg: float) -> np.ndarray | None:
+    """Intrinsic X→Y→Z rotation matrix for the given per-axis degrees, or
+    ``None`` when there is nothing to rotate (all zero). The columns are the
+    rotated body axes; composed Rz·Ry·Rx so ROT_Z is the dominant, gravity-safe
+    yaw applied last."""
+    if not (rx_deg or ry_deg or rz_deg):
+        return None
+    rx, ry, rz = (math.radians(a) for a in (rx_deg, ry_deg, rz_deg))
+    cx, sx = math.cos(rx), math.sin(rx)
+    cy, sy = math.cos(ry), math.sin(ry)
+    cz, sz = math.cos(rz), math.sin(rz)
+    mx = np.array([[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]])
+    my = np.array([[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]])
+    mz = np.array([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]])
+    return mz @ my @ mx
+
+
+def _oriented_box(name: str, p1, p2, color, rot: np.ndarray, pivot: np.ndarray) -> ada.Shape:
+    """An axis-aligned box (corners ``p1``/``p2``) re-expressed as an oriented
+    :class:`ada.geom.solids.Box` rotated by ``rot`` about ``pivot``. Used to spin
+    an equipment's placeholder body without leaving the analytic path (the NGEOM
+    stream honours the box's placement axes, unlike ``PrimBox`` which bakes only
+    a translation)."""
+    from ada.core.guid import create_guid
+    from ada.geom import Geometry
+    from ada.geom.direction import Direction
+    from ada.geom.placement import Axis2Placement3D
+    from ada.geom.points import Point
+    from ada.geom.solids import Box
+
+    p1 = np.asarray(p1, dtype=float)
+    p2 = np.asarray(p2, dtype=float)
+    lengths = np.abs(p2 - p1)
+    lo = np.minimum(p1, p2)
+    corner = pivot + rot @ (lo - pivot)
+    x_dir = rot @ np.array([1.0, 0.0, 0.0])
+    z_dir = rot @ np.array([0.0, 0.0, 1.0])
+    box = Box(
+        Axis2Placement3D(Point(*corner), Direction(*z_dir), Direction(*x_dir)),
+        float(lengths[0]),
+        float(lengths[1]),
+        float(lengths[2]),
+    )
+    return ada.Shape(name, geom=Geometry(create_guid(), box, None), color=color)
+
+
+def apply_equipment_rotation(eq: ada.Equipment, rx_deg: float, ry_deg: float, rz_deg: float) -> ada.Equipment:
+    """Rotate a built equipment in place about its footprint centre (``origin``):
+    its ports (nozzle positions + outward directions) and its placeholder box
+    body all spin together so routing connects to the correctly-oriented side and
+    the rendered body matches. A no-op when all angles are zero. Ports keep their
+    identity (routing holds references to them); the body boxes are swapped for
+    oriented equivalents."""
+    from ada import Direction, Point
+
+    rot = rotation_matrix(rx_deg, ry_deg, rz_deg)
+    if rot is None:
+        return eq
+    pivot = np.asarray(eq.origin, dtype=float)
+    for port in eq.ports:
+        pos = np.asarray(port.position, dtype=float)
+        dv = np.asarray(port.direction_vector, dtype=float)
+        port.position = Point(*(rot @ pos))
+        port.direction_vector = Direction(*(rot @ dv))
+    rotated = []
+    for shp in eq.shapes:
+        if isinstance(shp, ada.PrimBox):
+            rotated.append(_oriented_box(shp.name, shp.p1, shp.p2, shp.color, rot, pivot))
+        else:
+            rotated.append(shp)
+    eq._shapes[:] = rotated
+    return eq
 
 
 def create_pump(

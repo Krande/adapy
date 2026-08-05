@@ -287,6 +287,89 @@ def test_compile_equipment_cad_splice():
     assert _is_glb(glb2)
 
 
+def test_rotation_matrix_is_none_when_zero_and_yaws_x_to_y():
+    import numpy as np
+
+    from ada.topo_model.equipment import rotation_matrix
+
+    assert rotation_matrix(0, 0, 0) is None
+    rot = rotation_matrix(0, 0, 90)
+    assert np.allclose(rot @ [1, 0, 0], [0, 1, 0], atol=1e-6)
+
+
+def test_apply_equipment_rotation_spins_ports_and_body():
+    import numpy as np
+
+    import ada
+    from ada.topo_model.equipment import apply_equipment_rotation, create_switchboard
+
+    eq = create_switchboard("SB", (0.0, 0.0, 0.0))
+    before = np.asarray(eq.get_port("feeder").direction_vector, dtype=float)
+    assert np.allclose(before, [1, 0, 0], atol=1e-6)  # +X feeder
+
+    apply_equipment_rotation(eq, 0.0, 0.0, 90.0)  # 90 deg yaw about the base centre
+    after = np.asarray(eq.get_port("feeder").direction_vector, dtype=float)
+    assert np.allclose(after, [0, 1, 0], atol=1e-6)  # now +Y
+    # the placeholder box body is re-expressed as an oriented solid, not a PrimBox
+    assert eq.shapes and not isinstance(eq.shapes[0], ada.PrimBox)
+
+
+def test_apply_equipment_rotation_is_a_noop_when_zero():
+    from ada.topo_model.equipment import apply_equipment_rotation, create_pump
+
+    eq = create_pump("P", (0.0, 0.0, 0.0))
+    body = eq.shapes[0]
+    apply_equipment_rotation(eq, 0.0, 0.0, 0.0)
+    assert eq.shapes[0] is body  # unchanged — no oriented-box swap
+
+
+def test_equipment_to_object_applies_entity_rotation():
+    import numpy as np
+
+    from ada.topo_model.compile import _equipment_to_object
+    from ada.topology.entities import TopoEquipment
+
+    spec = _eq("SB1", "switchboard", 1, 2, 0, 0.8, 0.4, 1.2)
+    straight = _equipment_to_object(TopoEquipment(**spec))
+    yawed = _equipment_to_object(TopoEquipment(**{**spec, "ROT_Z": 90}))
+    d0 = np.asarray(straight.get_port("feeder").direction_vector, dtype=float)
+    d1 = np.asarray(yawed.get_port("feeder").direction_vector, dtype=float)
+    assert np.allclose(d0, [1, 0, 0], atol=1e-6)
+    assert np.allclose(d1, [0, 1, 0], atol=1e-6)
+
+
+def test_compile_rotated_equipment_is_valid_glb():
+    doc = {
+        "spaces": DOC["spaces"],
+        "equipments": [{**_eq("SB1", "switchboard", 1, 2, 0, 0.8, 0.4, 1.2), "ROT_Z": 45}],
+    }
+    glb = compile_procedural_doc(doc, blueprint_name="steel_stru")
+    assert _is_glb(glb)
+
+
+def test_compile_rotated_cad_equipment_is_valid_glb():
+    """A rotated CAD-spliced equipment composes the yaw into the mesh transform
+    without error (the ports rotate too, though the body is the real mesh)."""
+    import trimesh
+
+    mesh = trimesh.creation.box(extents=(1.0, 1.0, 2.0))
+    catalog = {
+        "big-pump": {"bbox": {"lx": 1, "ly": 1, "lz": 2}, "mass": 100, "ifc_element_class": "IfcPump", "ports": []}
+    }
+    doc = {
+        "equipment_cad": True,
+        "spaces": DOC["spaces"],
+        "equipments": [{**_eq("BP1", "big-pump", 2, 2, 0, 1, 1, 2), "ROT_Z": 30}],
+    }
+    glb = compile_procedural_doc(
+        doc,
+        blueprint_name="none",
+        equipment_resolver=catalog.get,
+        cad_scene_resolver={"big-pump": mesh}.get,
+    )
+    assert _is_glb(glb) and len(glb) > 500
+
+
 def test_compile_empty_doc_raises():
     with pytest.raises(ValueError, match="no spaces"):
         compile_procedural_doc({"spaces": []})

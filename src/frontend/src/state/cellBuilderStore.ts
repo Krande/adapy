@@ -67,6 +67,10 @@ export interface BuilderCell extends CellBox {
    * frames around the hole (door: jambs + lintel + threshold; window: jambs +
    * head + sill). */
   subtype?: "door" | "window";
+  /** Per-axis rotation in degrees (X, Y, Z), pivoting on the footprint centre —
+   * equipment only. Undefined/all-zero means axis-aligned. Round-trips as the
+   * entity's ROT_X/ROT_Y/ROT_Z; the compiler spins the body + ports to match. */
+  rotation?: [number, number, number];
   /** Extra pydantic entity fields (TopoSpace/TopoEquipment) beyond the
    * geometry: SE0..SE5 face exclusions, FLIP_FLOOR, SPACE_LOC, masses, ...
    * Round-tripped verbatim into the committed doc; the selection panel
@@ -81,8 +85,9 @@ export type CellBuilderMode =
   | "add-opening"
   | "drag-face";
 
-/** Active direct-manipulation gizmo for the selected cell. */
-export type GizmoMode = "none" | "translate" | "resize";
+/** Active direct-manipulation gizmo for the selected cell. Rotate is an
+ * equipment-only gizmo (spaces stay axis-aligned). */
+export type GizmoMode = "none" | "translate" | "resize" | "rotate";
 
 /** Outcome of a user-triggered equipment resync, for the summary popup:
  * per-slug lists of what happened plus a human-readable change log per slug. */
@@ -176,6 +181,9 @@ const EQUIPMENT_OWN_KEYS = new Set([
   "LY",
   "LZ",
   "GLOBAL_COORDS",
+  "ROT_X",
+  "ROT_Y",
+  "ROT_Z",
 ]);
 const OPENING_OWN_KEYS = new Set([
   "NAME",
@@ -347,6 +355,9 @@ interface CellBuilderState {
     size: Vec3,
   ) => void;
   updateCell: (id: string, patch: Partial<BuilderCell>) => void;
+  /** Set an equipment cell's absolute per-axis rotation (degrees). No-op for
+   * non-equipment cells. Undoable — the gizmo wraps a drag in a transaction. */
+  setCellRotation: (id: string, rotation: [number, number, number]) => void;
   /** Desktop shortcut: move the selected equipment (or opening) up (+1) / down
    * (-1) one cell floor level, preserving its height offset within the floor and
    * re-homing SPACE_NAME to the space cell it lands in. No-op for space cells or
@@ -451,6 +462,11 @@ function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
           : undefined,
       origin: [Number(e.X ?? 0), Number(e.Y ?? 0), Number(e.Z ?? 0)],
       size: [Number(e.LX ?? 1), Number(e.LY ?? 1), Number(e.LZ ?? 1)],
+      rotation: [
+        Number(e.ROT_X ?? 0),
+        Number(e.ROT_Y ?? 0),
+        Number(e.ROT_Z ?? 0),
+      ],
       params: extractParams(e, EQUIPMENT_OWN_KEYS),
     };
   }
@@ -899,6 +915,25 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           dirty: true,
         };
       }),
+    setCellRotation: (id, rotation) =>
+      withHistory((s) => {
+        const cur = s.cells[id];
+        if (!cur || cur.kind !== "equipment") return {};
+        const prev = cur.rotation ?? [0, 0, 0];
+        // Skip a no-op set so a gizmo that fires objectChange without moving
+        // (or the manual panel re-applying the same value) doesn't spawn an
+        // empty undo step.
+        if (
+          prev[0] === rotation[0] &&
+          prev[1] === rotation[1] &&
+          prev[2] === rotation[2]
+        )
+          return {};
+        return {
+          cells: { ...s.cells, [id]: { ...cur, rotation } },
+          dirty: true,
+        };
+      }),
     bumpSelectedFloor: (delta) =>
       withHistory((s) => {
         const sel = s.selection;
@@ -1138,6 +1173,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           LX: c.size[0],
           LY: c.size[1],
           LZ: c.size[2],
+          ROT_X: c.rotation?.[0] ?? 0,
+          ROT_Y: c.rotation?.[1] ?? 0,
+          ROT_Z: c.rotation?.[2] ?? 0,
         }));
       const openings = Object.values(cells)
         .filter((c) => c.kind === "opening")

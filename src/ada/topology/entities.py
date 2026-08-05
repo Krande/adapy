@@ -259,6 +259,20 @@ class TopoEquipment(_TopoConfigBoundModel):
     LY: Annotated[float | None, Field(description="Length of equipment in Y direction")] = None
     LZ: Annotated[float | None, Field(description="Length of equipment in Z direction")] = None
     GLOBAL_COORDS: Annotated[bool | None, Field(description="Use global coordinate system")] = False
+    ROT_X: Annotated[
+        float | None,
+        Field(description="Rotation about the X axis in degrees, pivoting on the equipment footprint centre"),
+    ] = 0.0
+    ROT_Y: Annotated[
+        float | None,
+        Field(description="Rotation about the Y axis in degrees, pivoting on the equipment footprint centre"),
+    ] = 0.0
+    ROT_Z: Annotated[
+        float | None,
+        Field(
+            description="Rotation about the Z (vertical) axis in degrees, pivoting on the equipment footprint centre"
+        ),
+    ] = 0.0
     COGx: Annotated[float, Field(description="X-coordinate of COG offset from equipment X-centroid")]
     COGy: Annotated[float, Field(description="Y-coordinate of COG offset from equipment Y-centroid")]
     COGz: Annotated[float, Field(description="Z-coordinate of COG offset from equipment base")]
@@ -401,6 +415,11 @@ class TopoEquipment(_TopoConfigBoundModel):
     def get_cog(self):
         self._resolve_geometry_from_space_if_needed()
         return self.get_p1() + ada.Point(self.LX / 2, self.LY / 2, 0) + ada.Point(self.COGx, self.COGy, self.COGz)
+
+    def rotation_deg(self) -> tuple[float, float, float]:
+        """Per-axis rotation (X, Y, Z) in degrees, pivoting on the footprint
+        centre. All-zero means the equipment is placed axis-aligned."""
+        return (float(self.ROT_X or 0.0), float(self.ROT_Y or 0.0), float(self.ROT_Z or 0.0))
 
 
 class TopoOpening(_TopoConfigBoundModel):

@@ -373,6 +373,26 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                     cell.origin[1] + cell.size[1] / 2,
                     cell.origin[2] + cell.size[2] / 2,
                 );
+                // Equipment can carry a rotation (gizmo / manual panel). Spin the
+                // box preview about the footprint centre so it matches the
+                // compiled body; the box-centre orbits that pivot.
+                const rot = cell.rotation;
+                if (cell.kind === "equipment" && rot && (rot[0] || rot[1] || rot[2])) {
+                    const euler = new THREE.Euler(
+                        THREE.MathUtils.degToRad(rot[0]),
+                        THREE.MathUtils.degToRad(rot[1]),
+                        THREE.MathUtils.degToRad(rot[2]),
+                        "ZYX",
+                    );
+                    mesh.quaternion.setFromEuler(euler);
+                    const pivot = new THREE.Vector3(
+                        cell.origin[0] + cell.size[0] / 2,
+                        cell.origin[1] + cell.size[1] / 2,
+                        cell.origin[2],
+                    );
+                    const offset = new THREE.Vector3(0, 0, cell.size[2] / 2).applyEuler(euler);
+                    mesh.position.copy(pivot).add(offset);
+                }
                 mesh.userData.__cellId = cell.id;
                 const edges = new THREE.LineSegments(
                     new THREE.EdgesGeometry(geo),
@@ -440,18 +460,34 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             const cx = cell.origin[0] + cell.size[0] / 2;
             const cy = cell.origin[1] + cell.size[1] / 2;
             const cz = cell.origin[2];
+            // Ports are local to the footprint centre; spin them with the same
+            // ZYX rotation the compiler applies so the overlay tracks the placed
+            // (rotated) nozzles.
+            const rot = cell.rotation;
+            const portEuler =
+                cell.kind === "equipment" && rot && (rot[0] || rot[1] || rot[2])
+                    ? new THREE.Euler(
+                          THREE.MathUtils.degToRad(rot[0]),
+                          THREE.MathUtils.degToRad(rot[1]),
+                          THREE.MathUtils.degToRad(rot[2]),
+                          "ZYX",
+                      )
+                    : null;
             for (let pi = 0; pi < ports.length; pi++) {
                 const p = ports[pi];
                 const pos = p.position ?? [0, 0, 0];
                 const dv = p.direction_vector ?? [0, 0, 1];
+                const localPos = new THREE.Vector3(pos[0], pos[1], pos[2]);
+                if (portEuler) localPos.applyEuler(portEuler);
                 // The nozzle position: where the port physically attaches.
-                const nozzle = new THREE.Vector3(cx + pos[0], cy + pos[1], cz + pos[2]);
+                const nozzle = new THREE.Vector3(cx + localPos.x, cy + localPos.y, cz + localPos.z);
                 // Colour by the port's index in the list → every I/O is unique.
                 const color = portColorInt(p, pi);
                 // direction_vector is the outward nozzle normal; the arrow shows
                 // actual flow — INPUT points into the equipment, OUTPUT points
                 // out, INOUT stays outward.
                 const dir = new THREE.Vector3(dv[0], dv[1], dv[2]);
+                if (portEuler) dir.applyEuler(portEuler);
                 if (dir.lengthSq() < 1e-9) dir.set(0, 0, 1);
                 dir.normalize();
                 if (p.direction === "IN") dir.negate();
@@ -524,6 +560,10 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // same applyFaceOffset math as a face drag.
     const gizmoProxy = new THREE.Object3D();
     gizmoProxy.userData.__excludeFromFit = true;
+    // Read/seed the proxy's orientation in the same ZYX order the store + the
+    // compiler compose rotations (Rz·Ry·Rx), so a per-axis rotation the gizmo
+    // produces round-trips to identical ROT_X/Y/Z on the built equipment.
+    gizmoProxy.rotation.order = "ZYX";
     container.add(gizmoProxy);
 
     const gizmo = new TransformControls(cameraRef.current ?? (camera as THREE.Camera), renderer.domElement);
@@ -544,16 +584,24 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     gizmo.addEventListener("objectChange", () => {
         const st = useCellBuilderStore.getState();
         const sel = st.selection;
-        if (st.gizmoMode !== "translate" || !sel) return;
+        if (!sel) return;
         const cell = st.cells[sel.cellId];
         if (!cell) return;
-        const step = st.gridStep > 0 ? st.gridStep : 0.1;
-        const origin = originFromCenter(
-            [gizmoProxy.position.x, gizmoProxy.position.y, gizmoProxy.position.z],
-            cell.size,
-            step,
-        );
-        st.updateCell(cell.id, {origin});
+        if (st.gizmoMode === "translate") {
+            const step = st.gridStep > 0 ? st.gridStep : 0.1;
+            const origin = originFromCenter(
+                [gizmoProxy.position.x, gizmoProxy.position.y, gizmoProxy.position.z],
+                cell.size,
+                step,
+            );
+            st.updateCell(cell.id, {origin});
+        } else if (st.gizmoMode === "rotate") {
+            // Proxy euler is ZYX (see gizmoProxy.rotation.order) → matches the
+            // store/compiler; snap to 0.1° so it reads cleanly in the panel.
+            const e = gizmoProxy.rotation;
+            const deg = (v: number) => Math.round(THREE.MathUtils.radToDeg(v) * 10) / 10;
+            st.setCellRotation(cell.id, [deg(e.x), deg(e.y), deg(e.z)]);
+        }
     });
 
     const resizeGroup = new THREE.Group();
@@ -610,9 +658,14 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         const sel = st.selection;
         const cell = sel ? st.cells[sel.cellId] : null;
         const translateOn = !!(st.active && st.gizmoMode === "translate" && cell && st.cellsVisible);
+        // Rotate is equipment-only — spaces stay axis-aligned lattice boxes.
+        const rotateOn = !!(
+            st.active && st.gizmoMode === "rotate" && cell && cell.kind === "equipment" && st.cellsVisible
+        );
         if (translateOn && cell) {
             gizmo.setTranslationSnap(st.gridStep > 0 ? st.gridStep : null);
             if (!gizmo.dragging) {
+                gizmoProxy.rotation.set(0, 0, 0);
                 gizmoProxy.position.set(
                     cell.origin[0] + cell.size[0] / 2,
                     cell.origin[1] + cell.size[1] / 2,
@@ -621,6 +674,27 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             }
             if (gizmo.object !== gizmoProxy) gizmo.attach(gizmoProxy);
             gizmo.setMode("translate");
+            gizmoHelper.visible = true;
+        } else if (rotateOn && cell) {
+            // Rings snap to 15°; the manual panel supplies exact angles. The
+            // proxy sits at the footprint centre (the compiler's pivot) and is
+            // seeded from the cell's current rotation so the gizmo starts aligned.
+            gizmo.setRotationSnap(THREE.MathUtils.degToRad(15));
+            if (!gizmo.dragging) {
+                gizmoProxy.position.set(
+                    cell.origin[0] + cell.size[0] / 2,
+                    cell.origin[1] + cell.size[1] / 2,
+                    cell.origin[2],
+                );
+                const rot = cell.rotation ?? [0, 0, 0];
+                gizmoProxy.rotation.set(
+                    THREE.MathUtils.degToRad(rot[0]),
+                    THREE.MathUtils.degToRad(rot[1]),
+                    THREE.MathUtils.degToRad(rot[2]),
+                );
+            }
+            if (gizmo.object !== gizmoProxy) gizmo.attach(gizmoProxy);
+            gizmo.setMode("rotate");
             gizmoHelper.visible = true;
         } else {
             if (gizmo.object) gizmo.detach();
@@ -699,8 +773,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (ev.pointerType !== "touch") return;
         const st = useCellBuilderStore.getState();
         if (!st.active) return;
-        // A press on the translate gizmo's handle is a drag, not a long-press.
-        if (st.gizmoMode === "translate" && gizmo.axis) return;
+        // A press on the translate/rotate gizmo's handle is a drag, not a long-press.
+        if ((st.gizmoMode === "translate" || st.gizmoMode === "rotate") && gizmo.axis) return;
         const hit = pickBuilderMesh();
         if (!hit) return;
         const cellId = hit.object.userData.__cellId as string;
@@ -854,8 +928,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                     return;
                 }
             }
-            // Translate: TransformControls owns the pointer over its handles.
-            if (st.gizmoMode === "translate" && gizmo.axis) return;
+            // Translate/rotate: TransformControls owns the pointer over its handles.
+            if ((st.gizmoMode === "translate" || st.gizmoMode === "rotate") && gizmo.axis) return;
             // Missed the handles: over a cell body do nothing (let it orbit);
             // over empty space, arm an exit resolved as a tap on pointerup.
             if (!pickBuilderMesh()) {

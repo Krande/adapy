@@ -120,22 +120,39 @@ def _equipment_to_object(eq: TopoEquipment, resolver=None) -> ada.Equipment | ad
     ``resolver`` to a catalog doc — bbox/mass/ports/IFC class) takes precedence,
     then a built-in archetype (pump/tank/...); anything else renders as a plain
     box."""
-    from .equipment import EQUIPMENT_ARCHETYPES, build_equipment_from_catalog
+    from .equipment import (
+        EQUIPMENT_ARCHETYPES,
+        apply_equipment_rotation,
+        build_equipment_from_catalog,
+        rotation_matrix,
+    )
 
     _require_coords(eq, ("X", "Y", "Z", "LX", "LY", "LZ"))
     key = (eq.DESCRIPTION or "").strip()
     origin = (eq.X + eq.LX / 2, eq.Y + eq.LY / 2, eq.Z)
+    rot_deg = eq.rotation_deg()
 
     catalog_doc = resolver(key) if resolver is not None and key else None
     if catalog_doc:
-        return build_equipment_from_catalog(eq.NAME, origin, catalog_doc, lx=eq.LX, ly=eq.LY, lz=eq.LZ)
+        obj = build_equipment_from_catalog(eq.NAME, origin, catalog_doc, lx=eq.LX, ly=eq.LY, lz=eq.LZ)
+        return apply_equipment_rotation(obj, *rot_deg)
 
     archetype = EQUIPMENT_ARCHETYPES.get(key.lower())
     if archetype is not None:
-        return archetype(eq.NAME, origin, lx=eq.LX, ly=eq.LY, lz=eq.LZ)
+        obj = archetype(eq.NAME, origin, lx=eq.LX, ly=eq.LY, lz=eq.LZ)
+        return apply_equipment_rotation(obj, *rot_deg)
 
     p1 = (eq.X, eq.Y, eq.Z)
     p2 = (eq.X + eq.LX, eq.Y + eq.LY, eq.Z + eq.LZ)
+    # A bare, un-typed box still honours its placement rotation (pivot = the
+    # footprint centre = origin) so an anonymous equipment box spins too.
+    rot = rotation_matrix(*rot_deg)
+    if rot is not None:
+        import numpy as np
+
+        from .equipment import _oriented_box
+
+        return _oriented_box(eq.NAME, p1, p2, "orange", rot, np.asarray(origin, dtype=float))
     return ada.PrimBox(eq.NAME, p1, p2, color="orange")
 
 
@@ -398,12 +415,29 @@ def _build_systems(
     return parts
 
 
-def _cad_placement(eq: TopoEquipment, mesh) -> tuple:
-    """Translation that maps the CAD mesh's min corner onto the placed cell's
-    ``(X, Y, Z)`` corner, so the real geometry sits where the equipment box
-    would have. Returns ``(dx, dy, dz)``."""
+def _cad_transform(eq: TopoEquipment, mesh):
+    """4x4 that seats the CAD mesh where the equipment box would sit and applies
+    the equipment's rotation about its footprint centre. First translate the
+    mesh's min corner onto the placed cell's ``(X, Y, Z)`` corner, then spin the
+    seated mesh about the pivot so the real geometry matches the ports."""
+    import numpy as np
+
+    from .equipment import rotation_matrix
+
     bmin = mesh.bounds[0]
-    return (eq.X - float(bmin[0]), eq.Y - float(bmin[1]), eq.Z - float(bmin[2]))
+    seat = np.eye(4)
+    seat[:3, 3] = [eq.X - float(bmin[0]), eq.Y - float(bmin[1]), eq.Z - float(bmin[2])]
+    rot = rotation_matrix(*eq.rotation_deg())
+    if rot is None:
+        return seat
+    pivot = np.array([eq.X + eq.LX / 2.0, eq.Y + eq.LY / 2.0, eq.Z])
+    spin = np.eye(4)
+    spin[:3, :3] = rot
+    to_pivot = np.eye(4)
+    to_pivot[:3, 3] = pivot
+    from_pivot = np.eye(4)
+    from_pivot[:3, 3] = -pivot
+    return to_pivot @ spin @ from_pivot @ seat
 
 
 def compile_procedural_doc(
@@ -460,8 +494,10 @@ def compile_procedural_doc(
 
     use_cad = bool(doc.get("equipment_cad")) and cad_scene_resolver is not None
     equipment_map: dict[str, ada.Equipment] = {}
-    cad_placements: list[tuple] = []  # (mesh, (dx, dy, dz))
+    cad_placements: list[tuple] = []  # (mesh, transform 4x4)
     if equipments:
+        from .equipment import apply_equipment_rotation
+
         objects = []
         for e in equipments:
             slug = (e.DESCRIPTION or "").strip()
@@ -475,7 +511,10 @@ def compile_procedural_doc(
                 obj = build_equipment_from_catalog(
                     e.NAME, origin, catalog_doc or {}, lx=e.LX, ly=e.LY, lz=e.LZ, add_body=False
                 )
-                cad_placements.append((cad_mesh, _cad_placement(e, cad_mesh)))
+                # The box body is omitted (CAD splices in), but the ports still
+                # rotate so routing meets the spun CAD geometry at the right face.
+                apply_equipment_rotation(obj, *e.rotation_deg())
+                cad_placements.append((cad_mesh, _cad_transform(e, cad_mesh)))
                 objects.append(obj)
             else:
                 objects.append(_equipment_to_object(e, equipment_resolver))
@@ -494,12 +533,8 @@ def compile_procedural_doc(
         # scene at the footprint transform and export that; otherwise take the
         # normal analytic to_gltf path.
         if cad_placements:
-            import numpy as np
-
             scene = a.to_trimesh_scene()
-            for mesh, (dx, dy, dz) in cad_placements:
-                transform = np.eye(4)
-                transform[:3, 3] = [dx, dy, dz]
+            for mesh, transform in cad_placements:
                 scene.add_geometry(mesh, transform=transform)
             exported = scene.export(file_type="glb")
             return exported if isinstance(exported, bytes) else bytes(exported)
