@@ -431,6 +431,11 @@ interface CellBuilderState {
    * is already cached — used when the compiler engine changed but the document
    * (the cache key) did not, so a plain Compile would return the stale blob. */
   compile: (force?: boolean) => Promise<void>;
+  /** Compile the CURRENT (uncommitted) doc entirely in the browser via the
+   * built-in adapy engine (Pyodide/WASM), loading the result straight into the
+   * scene — no server round-trip, no commit. Catalog/CAD equipment falls back to
+   * archetypes/boxes (the browser has no DB). */
+  compileInBrowser: () => Promise<void>;
   viewResult: (derivedKey: string) => Promise<void>;
   hideResult: () => void;
   /** The last relocation proposals (or null). Populated by proposeRelocations;
@@ -1844,6 +1849,44 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       );
       await load_glb_by_url_rest(currentScopePart(), derivedKey, sourceName);
       set({ resultSourceName: sourceName });
+    },
+
+    compileInBrowser: async () => {
+      const active = get().active;
+      if (!active) return;
+      const label = `${active.name} (browser)`;
+      const doc = get().toDoc();
+      setProceduralToast(label, {
+        status: "running",
+        stage: "compiling in browser…",
+        progress: 0,
+        startedAt: Date.now(),
+      });
+      try {
+        const { compileProceduralViaPyodide } = await import(
+          "@/utils/pyodide/pyodide_converter"
+        );
+        const { load_glb_from_bytes } = await import(
+          "@/utils/scene/handlers/view_file_object_from_server"
+        );
+        const bytes = await compileProceduralViaPyodide(doc, {
+          onLog: (m) => setProceduralToast(label, { stage: m }),
+        });
+        const sourceName = `procedural:${active.name}`;
+        await load_glb_from_bytes(bytes, sourceName);
+        set({ resultSourceName: sourceName });
+        setProceduralToast(label, {
+          status: "done",
+          progress: 1,
+          stage: "rendered in browser",
+        });
+      } catch (e) {
+        setProceduralToast(label, {
+          status: "error",
+          error: e instanceof Error ? e.message : String(e),
+          stage: "browser compile failed",
+        });
+      }
     },
 
     hideResult: () => {

@@ -107,6 +107,24 @@ export async function load_glb_by_url_rest(scope: string, glbKey: string, source
     }
 }
 
+// Load a GLB straight from in-memory bytes (e.g. an in-browser procedural
+// compile) — no storage round-trip. Wraps the bytes in a Blob URL and reuses the
+// same replace_model → registerLoadedSource path as load_glb_by_url_rest.
+export async function load_glb_from_bytes(bytes: Uint8Array, sourceName: string) {
+    const {replace_model} = await import("./update_scene_from_message");
+    const url = URL.createObjectURL(new Blob([bytes], {type: "model/gltf-binary"}));
+    let group: Awaited<ReturnType<typeof replace_model>> | undefined;
+    try {
+        group = await replace_model(url, undefined, sourceName, false, undefined, undefined);
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+    useModelState.getState().setLoadedSourceName(sourceName);
+    if (group && sourceName) {
+        useModelState.getState().registerLoadedSource(sourceName, group);
+    }
+}
+
 export async function view_file_object_from_server(fileobject: FileObject) {
     const sourceName = fileobject.name() || "";
     console.log("get_file_object_from_server" + sourceName);

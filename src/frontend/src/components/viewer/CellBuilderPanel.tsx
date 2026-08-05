@@ -864,6 +864,13 @@ const CellBuilderPanel: React.FC = () => {
         >
           Recompile
         </button>
+        <button
+          className={btnGray}
+          onClick={() => void s.compileInBrowser()}
+          title="Compile the current (uncommitted) model in your browser via WebAssembly — no server round-trip. Catalog/CAD equipment falls back to built-in archetypes."
+        >
+          Compile in browser
+        </button>
         {resultReady && compileState && s.resultSourceName === null && (
           <button
             className={btnGray}
