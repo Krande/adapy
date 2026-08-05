@@ -115,6 +115,64 @@ def test_deck_beams_seated_flush_with_deck(demo_assembly):
     assert top_z == pytest.approx(pl_thick, abs=2e-3), f"girder top {top_z} not flush with deck top {pl_thick}"
 
 
+def test_detail_mode_trims_deck_to_girder_flanges():
+    # DETAIL mode notches each deck plate's perimeter edges inboard by the girder
+    # top-flange half-width (IPE200 w_top = 0.1 => 0.05 per edge), so the plate spans
+    # the clear opening between the surrounding girders' flanges. Simulation mode
+    # (default) must stay byte-identical: the plate reaches the cell edge.
+    import os
+
+    os.environ.setdefault("ADA_STREAM_TESS_PIPELINE", "libtess2")
+
+    from io import BytesIO
+
+    import numpy as np
+    import trimesh
+
+    from ada.topo_model.blueprint import SteelStru
+    from ada.topo_model.build import make_space_boxes
+    from ada.topo_model.compile import _stream_tessellation
+    from ada.topology import TopologyBuilder
+
+    def build(detail):
+        builder = TopologyBuilder.from_prim_boxes(make_space_boxes(), blueprint=SteelStru(detail=detail))
+        builder.build()
+        return builder.get_output_assembly("m")
+
+    def deck_xy_extent(a):
+        # isolate a z=0 deck plate and tessellate it through the NGEOM/libtess2
+        # stream (the boolean notches fold in at encode, as for openings)
+        pl = next(
+            p
+            for p in a.get_all_physical_objects(by_type=ada.Plate)
+            if abs(float(np.mean([q[2] for q in p.poly.points3d]))) < 1e-6
+        )
+        solo = ada.Assembly("s") / (ada.Part("p") / [pl])
+        with _stream_tessellation():
+            with BytesIO() as bio:
+                solo.to_gltf(bio)
+                bio.seek(0)
+                scene = trimesh.load(bio, file_type="glb")
+        v = np.vstack([g.vertices for g in scene.geometry.values()])
+        return float(v[:, 0].min()), float(v[:, 0].max()), float(v[:, 1].min()), float(v[:, 1].max()), pl
+
+    setback = 0.1 / 2  # IPE200 top-flange half-width
+
+    sx0, sx1, sy0, sy1, sim_pl = deck_xy_extent(build(False))
+    dx0, dx1, dy0, dy1, det_pl = deck_xy_extent(build(True))
+
+    # Simulation mode unchanged: the deck reaches the 5x5 cell edges, no trim cuts.
+    assert (sx0, sx1, sy0, sy1) == pytest.approx((0.0, 5.0, 0.0, 5.0), abs=1e-6)
+    assert not any("_trim_" in b.name for b in sim_pl.booleans)
+
+    # Detail mode: each trimmed edge recedes inboard by exactly the flange half-width.
+    assert dx0 - sx0 == pytest.approx(setback, abs=1e-3)
+    assert sx1 - dx1 == pytest.approx(setback, abs=1e-3)
+    assert dy0 - sy0 == pytest.approx(setback, abs=1e-3)
+    assert sy1 - dy1 == pytest.approx(setback, abs=1e-3)
+    assert any("_trim_" in b.name for b in det_pl.booleans)
+
+
 def test_door_opening_cuts_crossing_stiffeners():
     from ada.topo_model.blueprint import SteelStru
     from ada.topo_model.compile import _apply_openings

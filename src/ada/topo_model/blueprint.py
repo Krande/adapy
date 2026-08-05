@@ -39,6 +39,11 @@ _OPENING_CUT_MARGIN = 0.05
 # than any stiffener depth in use (HP140 => 0.14).
 _OPENING_STIFFENER_CLEAR = 0.3
 
+# Overshoot (metres) applied to a DETAIL-mode deck-edge notch so the strip clears
+# both plate faces (along the thickness) and the plate corners (along the edge run),
+# leaving a clean cut exactly at the girder top-flange inner edge.
+_DECK_TRIM_MARGIN = 0.02
+
 
 def _cut_crossing_secondary_beams(host: ada.Part, opening_name: str, lo: np.ndarray, hi: np.ndarray) -> int:
     """Boolean-cut every SECONDARY member (wall stiffener / deck stringer, matched
@@ -195,6 +200,70 @@ def _build_reinforced_floor(
     return ada.Part(name) / [plate, *stringers]
 
 
+def _girder_flange_width(girder_sec: str) -> float:
+    """Top-flange WIDTH of the I-girder section (metres). The section string is
+    resolved by constructing a throwaway beam (OCC-free); an I-profile stores its
+    top-flange width on ``w_top`` (e.g. IPE200 => 0.1)."""
+    sec = ada.Beam("_probe", (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), girder_sec).section
+    return float(sec.w_top)
+
+
+def _trim_deck_to_girders(plate: ada.Plate, points: list[ada.Point], pl_thick: float, girder_sec: str) -> None:
+    """DETAIL mode: notch each of the deck plate's perimeter edges inboard by the
+    girder top-flange half-width, so the plate spans the CLEAR opening between the
+    surrounding I-girders' top flanges instead of overlapping them.
+
+    Each bounding girder's axis sits on the cell edge and its top flange spans
+    ``±w_top/2`` about that axis; the deck plate should recede to the inboard flange
+    edge (``axis + w_top/2``). For every perimeter edge we subtract an axis-aligned
+    strip that runs the full edge length, spans the plate thickness (plus a small
+    margin so it clears both faces), and reaches ``w_top/2`` inboard from the edge.
+
+    OCC-free: each strip is removed with a :class:`~ada.PrimBox` boolean, which
+    folds into the plate in the libtess2/NGEOM stream (same mechanism as the
+    opening cuts). A cut that fails is logged and skipped."""
+    setback = _girder_flange_width(girder_sec) / 2.0
+    if setback <= 0.0:
+        return
+
+    pl_lo, pl_hi = _plate_world_aabb(plate)
+    pts = np.asarray([tuple(p) for p in points], dtype=float)
+    normal_axis = int(np.argmin(pl_hi - pl_lo))  # deck through-thickness axis (global Z)
+    in_plane = [a for a in range(3) if a != normal_axis]
+    center = (pl_lo + pl_hi) / 2.0
+
+    n = len(pts)
+    for i in range(n):
+        p_a, p_b = pts[i], pts[(i + 1) % n]
+        edge = p_b - p_a
+        # in-plane axis the edge runs along, and the perpendicular in-plane axis the
+        # notch recedes along (rectangular, axis-aligned decks => both are axes).
+        edge_axis = max(in_plane, key=lambda a: abs(edge[a]))
+        notch_axis = next(a for a in in_plane if a != edge_axis)
+        c = float(p_a[notch_axis])  # the edge coordinate (== plate boundary here)
+        inward = 1.0 if center[notch_axis] > c else -1.0
+
+        cut_lo, cut_hi = pl_lo.copy(), pl_hi.copy()
+        # full through-thickness (+ margin) so the strip clears both plate faces
+        cut_lo[normal_axis] = pl_lo[normal_axis] - _DECK_TRIM_MARGIN
+        cut_hi[normal_axis] = pl_hi[normal_axis] + _DECK_TRIM_MARGIN
+        # full run along the edge (+ margin) so the plate corners recede too
+        cut_lo[edge_axis] = pl_lo[edge_axis] - _DECK_TRIM_MARGIN
+        cut_hi[edge_axis] = pl_hi[edge_axis] + _DECK_TRIM_MARGIN
+        # inboard strip of width `setback` from the boundary edge toward the centre
+        if inward > 0:
+            cut_lo[notch_axis] = c - _DECK_TRIM_MARGIN
+            cut_hi[notch_axis] = c + setback
+        else:
+            cut_lo[notch_axis] = c - setback
+            cut_hi[notch_axis] = c + _DECK_TRIM_MARGIN
+
+        try:
+            plate.add_boolean(ada.PrimBox(f"{plate.name}_trim_{i:02d}", tuple(cut_lo), tuple(cut_hi)))
+        except Exception as exc:  # noqa: BLE001 - one bad deck notch must not sink the compile
+            logger.warning("procedural: skipping deck trim %r edge %d: %s", plate.name, i, exc)
+
+
 class SteelStru(BlueprintBase):
     """Generic steel structure: reinforced floors, girders and columns derived
     purely from the cell graph's classified faces/edges."""
@@ -256,6 +325,15 @@ class SteelStru(BlueprintBase):
         face.associated_part = wall
         return wall
 
+    def _detail_trim_deck(self, floor: ada.Part, points: list[ada.Point]) -> None:
+        """In DETAIL mode, trim the deck plate(s) inside a built floor part back to
+        the surrounding girders' top-flange inner edges. A no-op in simulation mode
+        (``self.detail is False``), keeping that geometry byte-identical to before."""
+        if not self.detail:
+            return
+        for pl in floor.get_all_physical_objects(by_type=ada.Plate):
+            _trim_deck_to_girders(pl, points, self.pl_thick, self.girder_sec)
+
     def build(self) -> ada.Part:
         self.output_part = ada.Part(self.name)
         cg = self.builder.cell_graph
@@ -293,6 +371,7 @@ class SteelStru(BlueprintBase):
                 f"Floor_{i:02d}", face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing
             )
             built_floor_by_guid[face.guid] = floor
+            self._detail_trim_deck(floor, face.get_points())
             room(face.parent_cell.name).add_part(floor)
 
         # Internal (shared) decks between stacked cells. Skip any face an enclosed
@@ -305,6 +384,7 @@ class SteelStru(BlueprintBase):
                 f"IntFloor_{i:02d}", face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing
             )
             built_floor_by_guid[face.guid] = deck
+            self._detail_trim_deck(deck, face.get_points())
             room(face.parent_cell.name).add_part(deck)
 
         # Fully enclosed rooms: plate every bounding face of the flagged cells —
@@ -332,6 +412,7 @@ class SteelStru(BlueprintBase):
                         self.stringer_spacing,
                     )
                     built_floor_by_guid[face.guid] = deck
+                    self._detail_trim_deck(deck, face.get_points())
                     room(cname).add_part(deck)
                 else:
                     wall = self._wall(f"Wall_{cname}_{j:02d}", face)
