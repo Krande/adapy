@@ -184,6 +184,41 @@ def validate_equipment_doc(doc: dict) -> dict:
     return model.model_dump(mode="json")
 
 
+def summarize_equipment_doc_changes(old_doc: dict, old_name: str, new_doc: dict, new_name: str) -> list[str]:
+    """Human-readable list of what changed between an equipment catalog entry and
+    the code archetype it's being resynced to — so the resync summary can tell the
+    user exactly what moved (a new port, a corrected nozzle height, a mass change)
+    rather than just a count. Ports are diffed by name; scalars are rounded so a
+    float-format wobble doesn't read as a change."""
+
+    def _r(v):
+        if isinstance(v, (int, float)):
+            return round(float(v), 4)
+        if isinstance(v, (list, tuple)):
+            return [_r(x) for x in v]
+        return v
+
+    changes: list[str] = []
+    if old_name != new_name:
+        changes.append(f"name: {old_name!r} → {new_name!r}")
+    for key in ("mass", "ifc_element_class", "bbox", "cog"):
+        if _r(old_doc.get(key)) != _r(new_doc.get(key)):
+            changes.append(f"{key}: {_r(old_doc.get(key))} → {_r(new_doc.get(key))}")
+
+    old_ports = {p.get("name"): p for p in (old_doc.get("ports") or [])}
+    new_ports = {p.get("name"): p for p in (new_doc.get("ports") or [])}
+    for name in new_ports.keys() - old_ports.keys():
+        changes.append(f"added port {name!r}")
+    for name in old_ports.keys() - new_ports.keys():
+        changes.append(f"removed port {name!r}")
+    for name in old_ports.keys() & new_ports.keys():
+        op, np_ = old_ports[name], new_ports[name]
+        for field in ("position", "direction_vector", "direction", "category"):
+            if _r(op.get(field)) != _r(np_.get(field)):
+                changes.append(f"port {name!r} {field}: {_r(op.get(field))} → {_r(np_.get(field))}")
+    return changes
+
+
 def validate_system_doc(doc: dict) -> dict:
     """Validate + normalize a system-template document."""
     import pydantic

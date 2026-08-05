@@ -26,6 +26,7 @@ from ada.comms.rest.catalog import (  # noqa: E402
     equipment_cad_key,
     equipment_preview_glb_key,
     slugify,
+    summarize_equipment_doc_changes,
     validate_equipment_doc,
     validate_system_doc,
 )
@@ -114,6 +115,34 @@ def test_validate_equipment_doc_port_color():
     assert out["ports"][0]["color"] == "#38bdf8"
     with pytest.raises(ValueError):
         validate_equipment_doc({"ports": [{"name": "p", "color": "red"}]})  # not #rrggbb
+
+
+def test_summarize_equipment_doc_changes():
+    old = {
+        "mass": 100.0,
+        "bbox": {"lx": 1, "ly": 1, "lz": 1},
+        "ports": [
+            {"name": "power", "position": [0.5, 0, 0.6], "direction_vector": [1, 0, 0], "direction": "IN"},
+            {"name": "gone", "position": [0, 0, 0]},
+        ],
+    }
+    new = {
+        "mass": 120.0,
+        "bbox": {"lx": 1, "ly": 1, "lz": 1},
+        "ports": [
+            {"name": "power", "position": [0.5, 0, 0.5], "direction_vector": [1, 0, 0], "direction": "IN"},
+            {"name": "feeder2", "position": [-0.5, 0, 0.5]},
+        ],
+    }
+    changes = summarize_equipment_doc_changes(old, "Pump", new, "Pump 2")
+    joined = " | ".join(changes)
+    assert "name: 'Pump' → 'Pump 2'" in changes
+    assert "mass" in joined and "100" in joined and "120" in joined
+    assert "added port 'feeder2'" in changes
+    assert "removed port 'gone'" in changes
+    assert any("port 'power' position" in c for c in changes)  # 0.6 -> 0.5 nozzle height
+    # identical docs -> no changes (rounding tolerates float wobble)
+    assert summarize_equipment_doc_changes(old, "Pump", dict(old), "Pump") == []
 
 
 def test_validate_system_doc():

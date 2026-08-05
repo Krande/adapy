@@ -84,6 +84,16 @@ export type CellBuilderMode =
 /** Active direct-manipulation gizmo for the selected cell. */
 export type GizmoMode = "none" | "translate" | "resize";
 
+/** Outcome of a user-triggered equipment resync, for the summary popup:
+ * per-slug lists of what happened plus a human-readable change log per slug. */
+export interface ResyncSummary {
+  created: string[];
+  updated: string[];
+  unchanged: string[];
+  skipped: string[];
+  changes: Record<string, string[]>;
+}
+
 export type SystemType = "piping" | "duct" | "cable" | "electrical";
 
 /** One system endpoint: either an equipment port (equipment + port) OR a site
@@ -387,9 +397,14 @@ interface CellBuilderState {
     updated: string[];
     unchanged: string[];
     skipped: string[];
+    changes: Record<string, string[]>;
   } | null>;
   /** True while a (non-quiet) resync is in flight, so the button can disable. */
   resyncBusy: boolean;
+  /** Result of the last user-triggered resync, shown as a summary popup listing
+   * which equipment changed and how. Null when dismissed / never run. */
+  resyncSummary: ResyncSummary | null;
+  dismissResyncSummary: () => void;
   commit: () => Promise<boolean>;
   /** Compile the active model. ``force`` recompiles even if the revision's GLB
    * is already cached — used when the compiler engine changed but the document
@@ -589,6 +604,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     relocations: null,
     relocationBusy: false,
     resyncBusy: false,
+    resyncSummary: null,
     cellsVisible: true,
     hiddenCellIds: [],
     portsOverlayVisible: false,
@@ -1539,7 +1555,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       const quiet = opts?.quiet ?? false;
       if (!quiet) {
         if (get().resyncBusy) return null; // already running (button also disables)
-        set({ resyncBusy: true });
+        set({ resyncBusy: true, resyncSummary: null });
         // Show the toast immediately (the upsert is quick but the round-trip isn't
         // instant) so the click gives feedback instead of appearing to do nothing.
         setProceduralToast("Resync equipments", {
@@ -1565,6 +1581,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
               : "catalog already up to date",
           });
         }
+        // A user-triggered resync also opens a summary popup detailing which
+        // equipment changed and how (a quiet auto-resync stays silent).
+        if (!quiet) set({ resyncSummary: res });
         return res;
       } catch (e) {
         console.warn("cellbuilder: equipment resync failed", e);
@@ -1578,6 +1597,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         if (!quiet) set({ resyncBusy: false });
       }
     },
+
+    dismissResyncSummary: () => set({ resyncSummary: null }),
 
     commit: async () => {
       const s = get();

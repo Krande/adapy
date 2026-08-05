@@ -2018,6 +2018,8 @@ export const viewerApi = {
     updated: string[];
     unchanged: string[];
     skipped: string[];
+    /** Per-slug human-readable "what changed" (created/updated slugs only). */
+    changes: Record<string, string[]>;
   }> {
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/equipment-types/resync`,

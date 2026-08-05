@@ -952,6 +952,56 @@ const CellBuilderPanel: React.FC = () => {
           )}
         </div>
       )}
+
+      {s.resyncSummary && (
+        <div className="mt-1 border border-blue-500/50 rounded-sm p-1 text-[12px]">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="font-semibold text-blue-300">Equipment resync</span>
+            <span className="text-gray-400">
+              {s.resyncSummary.updated.length} updated,{" "}
+              {s.resyncSummary.created.length} added,{" "}
+              {s.resyncSummary.unchanged.length} unchanged
+              {s.resyncSummary.skipped.length > 0
+                ? `, ${s.resyncSummary.skipped.length} skipped`
+                : ""}
+            </span>
+            <button
+              className={btnGray}
+              onClick={() => s.dismissResyncSummary()}
+            >
+              Dismiss
+            </button>
+          </div>
+          {s.resyncSummary.created.length + s.resyncSummary.updated.length ===
+          0 ? (
+            <p className="text-gray-300">
+              Catalog already matched the code archetypes — nothing changed.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {[...s.resyncSummary.updated, ...s.resyncSummary.created].map(
+                (slug) => (
+                  <li key={slug} className="text-gray-200">
+                    <span className="text-blue-300">{slug}</span>
+                    <span className="text-gray-500">
+                      {s.resyncSummary!.created.includes(slug)
+                        ? " (new)"
+                        : " (updated)"}
+                    </span>
+                    <ul className="ml-3 list-disc list-inside text-gray-400">
+                      {(s.resyncSummary!.changes[slug] ?? []).map((c, i) => (
+                        <li key={i} className="break-all">
+                          {c}
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ),
+              )}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 };

@@ -2843,7 +2843,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         height — flow into the catalog docs that placed equipment resolve against,
         so a recompile picks them up. Idempotent: a slug whose catalog doc already
         equals the code doc is left untouched. Returns per-slug outcomes."""
-        from .catalog import validate_equipment_doc
+        from .catalog import summarize_equipment_doc_changes, validate_equipment_doc
 
         pool = _require_catalog_pool(request)
         specs = await _live_worker_specs("procedural_equipment_specs")
@@ -2857,6 +2857,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         updated: list[str] = []
         unchanged: list[str] = []
         skipped: list[str] = []
+        # Per-slug human-readable "what changed" so the client can show a summary
+        # (which equipment changed and how), not just counts. Created entries list
+        # a single "new equipment" line.
+        changes: dict[str, list[str]] = {}
         for slug, spec in specs.items():
             if not isinstance(spec.get("doc"), dict):
                 skipped.append(slug)
@@ -2873,6 +2877,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if full is not None and full.get("doc") == doc and full.get("name") == name:
                     unchanged.append(slug)
                     continue
+                changes[slug] = summarize_equipment_doc_changes(
+                    (full or {}).get("doc") or {}, (full or {}).get("name") or slug, doc, name
+                )
                 await db_module.update_equipment_type(
                     pool,
                     cur["id"],
@@ -2906,7 +2913,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     base_revision=row["revision"],
                 )
                 created.append(slug)
-        return JSONResponse({"created": created, "updated": updated, "unchanged": unchanged, "skipped": skipped})
+                changes[slug] = ["new equipment"]
+        return JSONResponse(
+            {"created": created, "updated": updated, "unchanged": unchanged, "skipped": skipped, "changes": changes}
+        )
 
     @api.post("/scopes/{scope}/procedural-models/system-types/sync", status_code=201)
     async def api_procedural_system_sync(
