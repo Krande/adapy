@@ -88,3 +88,74 @@ def test_shared_floor_between_stacked_cells_is_built():
 
     zlevels = {round(plate_z(pl), 3) for pl in a.get_all_physical_objects(by_type=ada.Plate)}
     assert 3.0 in zlevels, f"shared deck at z=3 missing; plate elevations = {sorted(zlevels)}"
+
+
+def test_deck_beams_seated_flush_with_deck(demo_assembly):
+    # Girders/stringers must be dropped so the TOP of their section sits flush with
+    # the deck plate top (top-of-steel = deck), not straddling the deck line with
+    # the flange sticking up. The seating is a positive z-eccentricity of
+    # h/2 - pl_thick (profile moves opposite to e).
+    pl_thick = 10e-3
+    girder = next(b for b in demo_assembly.get_all_physical_objects(by_type=ada.Beam) if b.name.startswith("Girder"))
+    assert girder.e1 is not None and girder.e2 is not None
+    assert float(girder.e1[2]) == pytest.approx(girder.section.h / 2 - pl_thick)
+
+    stringer = next(b for b in demo_assembly.get_all_physical_objects(by_type=ada.Beam) if "_str_" in b.name)
+    assert float(stringer.e1[2]) == pytest.approx(stringer.section.h / 2 - pl_thick)
+
+    # Render one z=0 girder and confirm its section top lands at the deck top, not
+    # h/2 above it.
+    g = next(
+        b
+        for b in demo_assembly.get_all_physical_objects(by_type=ada.Beam)
+        if b.name.startswith("Girder") and abs(float(b.n1.p[2])) < 1e-6
+    )
+    solo = ada.Assembly("s") / (ada.Part("p") / [ada.Beam("g", g.n1.p, g.n2.p, "IPE200", e1=g.e1, e2=g.e2)])
+    top_z = float(solo.to_trimesh_scene().bounds[1][2])
+    assert top_z == pytest.approx(pl_thick, abs=2e-3), f"girder top {top_z} not flush with deck top {pl_thick}"
+
+
+def test_door_opening_cuts_crossing_stiffeners():
+    from ada.topo_model.blueprint import SteelStru
+    from ada.topo_model.compile import _apply_openings
+    from ada.topology import TopologyBuilder
+    from ada.topology.entities import TopoSpace
+
+    # One enclosed cell so its walls carry vertical stiffeners; a door in the x=5
+    # wall must cut the studs that cross its width.
+    spaces = [TopoSpace(NAME="Cell1", X=0, Y=0, Z=0, DX=5, DY=5, DZ=3)]
+    boxes = [ada.PrimBox("Cell1", (0, 0, 0), (5, 5, 3))]
+    bp = SteelStru(enclosed_cells=["Cell1"])
+    builder = TopologyBuilder.from_prim_boxes(boxes, blueprint=bp)
+    builder.build()
+    a = builder.get_output_assembly("m")
+
+    door = {
+        "NAME": "DOOR",
+        "SUBTYPE": "door",
+        "USE_GLOBAL_COORDS": True,
+        "INCLUDE": True,
+        "X": 4.8,
+        "Y": 2.0,
+        "Z": 0.0,
+        "DX": 0.3,
+        "DY": 1.0,
+        "DZ": 2.1,
+    }
+    _apply_openings(bp, a, spaces, [door])
+
+    # Vertical wall studs whose axis crosses the doorway (x≈5, y in [2,3]) must be
+    # cut (carry a boolean); studs elsewhere must not.
+    crossing = 0
+    for b in a.get_all_physical_objects(by_type=ada.Beam):
+        if "_stf_" not in b.name:
+            continue
+        import numpy as np
+
+        p1 = np.asarray([float(c) for c in b.n1.p])
+        p2 = np.asarray([float(c) for c in b.n2.p])
+        lo, hi = np.minimum(p1, p2), np.maximum(p1, p2)
+        if abs(lo[0] - 5.0) < 0.2 and lo[1] >= 1.9 and hi[1] <= 3.1 and hi[2] > 2.0:
+            crossing += 1
+            assert len(b.booleans) > 0, f"doorway stud {b.name} not cut"
+    assert crossing > 0, "expected at least one wall stud crossing the doorway"

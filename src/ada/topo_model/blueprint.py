@@ -34,6 +34,33 @@ _MID_NDIGITS = 4
 # punches cleanly through the plate thickness (metres).
 _OPENING_CUT_MARGIN = 0.05
 
+# How far a beam cut reaches past each wall face along the wall normal, so a door/
+# window also severs the stiffener web that stands into the room (metres) — larger
+# than any stiffener depth in use (HP140 => 0.14).
+_OPENING_STIFFENER_CLEAR = 0.3
+
+
+def _cut_crossing_secondary_beams(host: ada.Part, opening_name: str, lo: np.ndarray, hi: np.ndarray) -> int:
+    """Boolean-cut every SECONDARY member (wall stiffener / deck stringer, matched
+    by the ``_stf_``/``_str_`` name marker) whose axis segment overlaps the box
+    ``[lo, hi]`` — the studs/stringers that would otherwise bar an opening. Primary
+    girders/columns are deliberately left intact. Returns the number cut."""
+    count = 0
+    for bm in host.get_all_physical_objects(by_type=ada.Beam):
+        if "_stf_" not in bm.name and "_str_" not in bm.name:
+            continue
+        p1 = np.asarray([float(c) for c in bm.n1.p], dtype=float)
+        p2 = np.asarray([float(c) for c in bm.n2.p], dtype=float)
+        b_lo, b_hi = np.minimum(p1, p2) - 1e-6, np.maximum(p1, p2) + 1e-6
+        if np.any(b_hi < lo) or np.any(b_lo > hi):
+            continue  # axis segment doesn't reach the opening box
+        try:
+            bm.add_boolean(ada.PrimBox(f"{opening_name}_bcut_{count:02d}", tuple(lo), tuple(hi)))
+            count += 1
+        except Exception as exc:  # noqa: BLE001 - one bad beam cut must not sink the compile
+            logger.warning("procedural: skipping opening %r beam cut in %r: %s", opening_name, bm.name, exc)
+    return count
+
 
 def _edge_midpoint_key(edge: GraphEdge) -> tuple[float, float, float]:
     p1, p2 = edge.get_points()[:2]
@@ -125,12 +152,29 @@ def _build_reinforced_wall(
     return ada.Part(name) / [plate, *stiffeners]
 
 
+def _seat_below_deck(beam: ada.Beam, pl_thick: float) -> ada.Beam:
+    """Drop a horizontal deck beam so the TOP of its section is flush with the TOP
+    of the deck plate (top-of-steel = deck level), rather than straddling the deck
+    line with its top flange sticking up above the plate.
+
+    The shift uses beam eccentricity (``e1``/``e2``) so the end NODES stay on the
+    deck edge — the column/girder joints don't move, only the swept profile drops.
+    The rendered profile moves opposite to ``e`` (verified against the libtess2
+    stream), so a positive z-eccentricity lowers the beam; the section top then
+    lands at ``deck_z + pl_thick`` (the plate's top surface)."""
+    off = beam.section.h / 2.0 - pl_thick
+    beam.e1 = (0.0, 0.0, off)
+    beam.e2 = (0.0, 0.0, off)
+    return beam
+
+
 def _build_reinforced_floor(
     name: str, points: list[ada.Point], pl_thick: float, stringer_sec: str, spacing: float
 ) -> ada.Part:
     """A reinforced floor built from a horizontal face outline: one plate plus
     stringer beams running along the longer plan direction, evenly distributed
-    across the shorter one (edge positions carry girders, so they are skipped)."""
+    across the shorter one (edge positions carry girders, so they are skipped).
+    Stringers are seated so their tops sit flush with the deck plate top."""
     plate = ada.Plate.from_3d_points(f"{name}_pl", points, pl_thick)
 
     pts = np.asarray([tuple(p) for p in points], dtype=float)
@@ -145,6 +189,8 @@ def _build_reinforced_floor(
     else:
         for i, x in enumerate(np.arange(x0 + spacing, x1 - tol, spacing)):
             stringers.append(ada.Beam(f"{name}_str_{i:02d}", (x, y0, z), (x, y1, z), stringer_sec))
+    for s in stringers:
+        _seat_below_deck(s, pl_thick)
 
     return ada.Part(name) / [plate, *stringers]
 
@@ -316,8 +362,10 @@ class SteelStru(BlueprintBase):
         # Shared steel frame: girders (floor-edge) + columns (wall-edge). Internal
         # decks contribute their perimeter girders too, at the intermediate
         # elevation (deduped against the external-floor edges by midpoint).
+        # Girders carry the deck edges; seat each so its top flange is flush with
+        # the deck plate top (top-of-steel = deck), not straddling the deck line.
         girders = [
-            ada.Beam(f"Girder_{i:02d}", *edge.get_points()[:2], self.girder_sec)
+            _seat_below_deck(ada.Beam(f"Girder_{i:02d}", *edge.get_points()[:2], self.girder_sec), self.pl_thick)
             for i, edge in enumerate(_dedupe_edges(floor_faces + internal_floors, horizontal=True))
         ]
         columns = [
@@ -393,6 +441,19 @@ class SteelStru(BlueprintBase):
 
         if not cut_any or host_hole is None:
             return None
+
+        # A cut plate still leaves the wall stiffeners (and deck stringers) barring
+        # the hole. Cut every secondary member crossing the opening so a door/window
+        # is a clear void; the box is extended along the wall normal to reach the
+        # stiffener web that stands into the room. Primary girders/columns are left
+        # intact (they carry load and merely border the opening).
+        h_normal_axis, h_cut_lo, h_cut_hi, h_plate = host_hole
+        pl_lo, pl_hi = _plate_world_aabb(h_plate)
+        bcut_lo, bcut_hi = h_cut_lo.copy(), h_cut_hi.copy()
+        bcut_lo[h_normal_axis] = pl_lo[h_normal_axis] - _OPENING_STIFFENER_CLEAR
+        bcut_hi[h_normal_axis] = pl_hi[h_normal_axis] + _OPENING_STIFFENER_CLEAR
+        _cut_crossing_secondary_beams(host, opening.NAME, bcut_lo, bcut_hi)
+
         return self._opening_reinforcement(opening, subtype, *host_hole)
 
     def _opening_reinforcement(
