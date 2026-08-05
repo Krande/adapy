@@ -114,6 +114,29 @@ def _apply_openings(
         assembly.add_part(ada.Part("Openings") / reinforcement_parts)
 
 
+def _apply_girder_joints(assembly: ada.Assembly) -> None:
+    """Detect I-girder to I-girder intersections and model a joint at each,
+    emitting visible connective geometry (gusset plate + weld beads) under a
+    single ``ada.Part("Joints")``.
+
+    Detection is the OCC-free numpy clash path
+    (``assembly.connections.find(joint_func=detail_joint_map)``); the emitted
+    ``Plate``/``Weld`` geometry tessellates in the libtess2/NGEOM stream. Wrapped
+    so a joint failure only warns and never sinks the compile — mirroring
+    :func:`_apply_openings`. Detail-mode only; sim mode never calls this."""
+    from ada.config import logger
+
+    try:
+        from .detail_joints import GirderJoint, detail_joint_map
+
+        assembly.connections.find(joint_func=detail_joint_map)
+        joint_parts = [j.connection for j in assembly.connections.connections if isinstance(j, GirderJoint)]
+        if joint_parts:
+            assembly.add_part(ada.Part("Joints") / joint_parts)
+    except Exception as exc:  # noqa: BLE001 - a joint failure must never sink the compile
+        logger.warning("procedural: girder-joint pass skipped: %s", exc)
+
+
 def _equipment_to_object(eq: TopoEquipment, resolver=None) -> ada.Equipment | ada.PrimBox:
     """Compile an equipment entity into a placed object. The entity's
     DESCRIPTION names its type: a per-scope catalog slug (resolved via
@@ -651,6 +674,10 @@ def compile_procedural_doc(
         # Negative-volume openings cut the built wall/floor plates and add their
         # door/window reinforcement framing (no-op when the doc has no openings).
         _apply_openings(blueprint, a, spaces, doc.get("openings", []))
+        # Detail mode upgrades each I-girder to I-girder intersection into a
+        # modelled joint (gusset plate + weld beads); sim mode is untouched.
+        if lod == "detail":
+            _apply_girder_joints(a)
     else:
         a = ada.Assembly(name) / (ada.Part("Spaces") / boxes)
 
