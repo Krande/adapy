@@ -230,3 +230,55 @@ def validate_system_doc(doc: dict) -> dict:
     except pydantic.ValidationError as e:
         raise ValueError(str(e)) from None
     return model.model_dump(mode="json")
+
+
+@lru_cache(maxsize=1)
+def _engine_doc_model():
+    from typing import List, Literal, Optional
+
+    from pydantic import BaseModel, model_validator
+
+    class ProceduralEngineDoc(BaseModel):
+        # ``builtin`` = the in-repo adapy engine (no external code); ``wheel`` = an
+        # external engine cloned+built into a pyodide wheel; ``server`` = an engine
+        # with native deps that only runs in a server worker (never in the browser).
+        kind: Literal["builtin", "wheel", "server"] = "builtin"
+        # Source repo + git ref an external engine is built from (required for
+        # non-builtin kinds). The deploy KEY is never stored here — only the name
+        # of a Vault-backed secret the build worker reads.
+        repo_url: Optional[str] = None
+        ref: Optional[str] = None
+        deploy_key_secret: Optional[str] = None
+        # Dotted ``module:callable`` entrypoint with signature ``compile(doc) -> bytes``.
+        entrypoint: Optional[str] = None
+        # Extra deps the browser must micropip-install for this engine's wheel.
+        pyodide_deps: List[str] = []
+        # Built wheel pointer under the hidden _engines/ prefix (set by the build
+        # worker; ignored/overwritten on user commits).
+        wheel_key: Optional[str] = None
+
+        @model_validator(mode="after")
+        def _check(self):
+            if self.kind in ("wheel", "server"):
+                if not self.repo_url:
+                    raise ValueError(f"{self.kind!r} engine requires 'repo_url'")
+                if not self.entrypoint:
+                    raise ValueError(f"{self.kind!r} engine requires 'entrypoint' (module:callable)")
+            if self.entrypoint is not None and ":" not in self.entrypoint:
+                raise ValueError("entrypoint must be a dotted 'module:callable' path")
+            return self
+
+    return ProceduralEngineDoc
+
+
+def validate_engine_doc(doc: dict) -> dict:
+    """Validate + normalize a procedural-engine manifest document."""
+    import pydantic
+
+    if not isinstance(doc, dict):
+        raise ValueError(f"doc must be an object, got {type(doc).__name__}")
+    try:
+        model = _engine_doc_model()(**doc)
+    except pydantic.ValidationError as e:
+        raise ValueError(str(e)) from None
+    return model.model_dump(mode="json")

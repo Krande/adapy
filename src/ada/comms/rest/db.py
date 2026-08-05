@@ -3370,3 +3370,124 @@ async def archive_system_template(pool: asyncpg.Pool, template_id: str) -> bool:
         template_id,
     )
     return res.endswith("1")
+
+
+# ── Procedural-engine registry (per-scope) ───────────────────────────
+
+
+def _engine_row_summary(r) -> dict:
+    return {
+        "id": str(r["id"]),
+        "slug": r["slug"],
+        "name": r["name"],
+        "description": r["description"],
+        "revision": r["revision"],
+        "created_by": r["created_by"],
+        "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+    }
+
+
+async def create_procedural_engine(
+    pool: asyncpg.Pool,
+    *,
+    scope_kind: str,
+    scope_id: str | None,
+    slug: str,
+    name: str,
+    description: str | None,
+    created_by: str | None,
+) -> dict | None:
+    """Insert a new procedural engine (default builtin doc). Returns the full row
+    incl. doc, or None when a live engine with that slug already exists."""
+    try:
+        row = await pool.fetchrow(
+            """
+            INSERT INTO procedural_engines (scope_kind, scope_id, slug, name, description, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, slug, name, description, doc, revision, created_by, created_at, updated_at
+            """,
+            scope_kind,
+            scope_id,
+            slug,
+            name,
+            description,
+            created_by,
+        )
+    except asyncpg.UniqueViolationError:
+        return None
+    out = _engine_row_summary(row)
+    out["doc"] = _loads_jsonb(row["doc"])
+    return out
+
+
+async def list_procedural_engines(pool: asyncpg.Pool, *, scope_kind: str, scope_id: str | None) -> list[dict]:
+    rows = await pool.fetch(
+        """
+        SELECT id, slug, name, description, revision, created_by, created_at, updated_at
+        FROM procedural_engines
+        WHERE scope_kind = $1 AND COALESCE(scope_id, '') = COALESCE($2, '') AND NOT archived
+        ORDER BY name ASC
+        """,
+        scope_kind,
+        scope_id,
+    )
+    return [_engine_row_summary(r) for r in rows]
+
+
+async def get_procedural_engine(pool: asyncpg.Pool, engine_id: str) -> dict | None:
+    row = await pool.fetchrow(
+        """
+        SELECT id, scope_kind, scope_id, slug, name, description, doc,
+               revision, created_by, created_at, updated_at
+        FROM procedural_engines
+        WHERE id = $1 AND NOT archived
+        """,
+        engine_id,
+    )
+    if row is None:
+        return None
+    out = _engine_row_summary(row)
+    out["scope_kind"] = row["scope_kind"]
+    out["scope_id"] = row["scope_id"]
+    out["doc"] = _loads_jsonb(row["doc"])
+    return out
+
+
+async def update_procedural_engine(
+    pool: asyncpg.Pool,
+    engine_id: str,
+    *,
+    slug: str,
+    name: str,
+    description: str | None,
+    doc: dict,
+    base_revision: int,
+) -> int | None:
+    """Optimistic-concurrency update of an engine's metadata + manifest doc.
+    Returns the new revision, or None on revision conflict. Propagates
+    asyncpg.UniqueViolationError when the new slug collides in-scope."""
+    row = await pool.fetchrow(
+        """
+        UPDATE procedural_engines
+        SET slug = $2, name = $3, description = $4, doc = $5::jsonb,
+            revision = revision + 1, updated_at = now()
+        WHERE id = $1 AND revision = $6 AND NOT archived
+        RETURNING revision
+        """,
+        engine_id,
+        slug,
+        name,
+        description,
+        json.dumps(doc),
+        base_revision,
+    )
+    return None if row is None else row["revision"]
+
+
+async def archive_procedural_engine(pool: asyncpg.Pool, engine_id: str) -> bool:
+    res = await pool.execute(
+        "UPDATE procedural_engines SET archived = TRUE, updated_at = now() WHERE id = $1 AND NOT archived",
+        engine_id,
+    )
+    return res.endswith("1")

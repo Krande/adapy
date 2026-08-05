@@ -3136,6 +3136,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="system template not found")
         return row
 
+    async def _get_engine_in_scope(pool, engine_id: str, scope_obj: Scope) -> dict:
+        try:
+            row = await db_module.get_procedural_engine(pool, engine_id)
+        except Exception:
+            row = None
+        if row is None or row["scope_kind"] != scope_obj.kind or (row["scope_id"] or None) != (scope_obj.id or None):
+            raise HTTPException(status_code=404, detail="procedural engine not found")
+        return row
+
     @api.get("/scopes/{scope}/equipment-types")
     async def api_equipment_types_list(
         request: Request,
@@ -3457,6 +3466,150 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ok = await db_module.archive_system_template(pool, template_id)
         if not ok:
             raise HTTPException(status_code=404, detail="system template not found")
+        return JSONResponse({"status": "archived"})
+
+    # ── /api/scopes/{scope}/procedural-engines ──────────────────────
+    #
+    # Registry of pluggable procedural-modelling engines. The built-in
+    # ``adapy-default`` engine (in-repo compile_procedural_doc, runnable in the
+    # browser via the adapy wheel) is always present — unioned in below with an
+    # ``origin`` tag — so a scope with no DB rows still offers one engine.
+    _BUILTIN_ENGINE = {
+        "id": "builtin:adapy-default",
+        "slug": "adapy-default",
+        "name": "adapy default",
+        "description": "Built-in adapy procedural engine (runs server-side and in-browser via WASM).",
+        "revision": 0,
+        "origin": "builtin",
+        "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.wasm_compile:compile_doc"},
+    }
+
+    @api.get("/scopes/{scope}/procedural-engines")
+    async def api_procedural_engines_list(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        pool = _require_catalog_pool(request)
+        engines = await db_module.list_procedural_engines(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+        for e in engines:
+            e["origin"] = "db"
+        # Built-in first, then the scope's registered engines.
+        summary = {k: _BUILTIN_ENGINE[k] for k in ("id", "slug", "name", "description", "revision", "origin")}
+        return JSONResponse({"procedural_engines": [summary, *engines]})
+
+    @api.post("/scopes/{scope}/procedural-engines", status_code=201)
+    async def api_procedural_engines_create(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        from .catalog import slugify
+
+        pool = _require_catalog_pool(request)
+        body = await request.json()
+        name = body.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise HTTPException(status_code=400, detail="name (str) is required")
+        slug = slugify(body.get("slug") or name)
+        if not slug:
+            raise HTTPException(status_code=400, detail="could not derive a slug from name/slug")
+        if slug == _BUILTIN_ENGINE["slug"]:
+            raise HTTPException(status_code=409, detail=f"{slug!r} is a reserved built-in engine slug")
+        desc = body.get("description")
+        row = await db_module.create_procedural_engine(
+            pool,
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            slug=slug,
+            name=name.strip(),
+            description=desc if isinstance(desc, str) else None,
+            created_by=user.sub,
+        )
+        if row is None:
+            raise HTTPException(status_code=409, detail=f"a procedural engine with slug {slug!r} already exists")
+        return JSONResponse(row, status_code=201)
+
+    @api.get("/scopes/{scope}/procedural-engines/{engine_id}")
+    async def api_procedural_engines_get(
+        request: Request,
+        engine_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        if engine_id == _BUILTIN_ENGINE["id"]:
+            return JSONResponse(_BUILTIN_ENGINE)
+        pool = _require_catalog_pool(request)
+        row = await _get_engine_in_scope(pool, engine_id, scope_obj)
+        return JSONResponse(
+            {k: row[k] for k in ("id", "slug", "name", "description", "doc", "revision", "created_by", "updated_at")}
+        )
+
+    @api.put("/scopes/{scope}/procedural-engines/{engine_id}")
+    async def api_procedural_engines_update(
+        request: Request,
+        engine_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        import asyncpg
+
+        from .catalog import slugify, validate_engine_doc
+
+        if engine_id == _BUILTIN_ENGINE["id"]:
+            raise HTTPException(status_code=403, detail="the built-in engine is read-only")
+        pool = _require_catalog_pool(request)
+        row = await _get_engine_in_scope(pool, engine_id, scope_obj)
+        body = await request.json()
+        name = body.get("name")
+        doc = body.get("doc")
+        base_revision = body.get("base_revision")
+        if not isinstance(name, str) or not name.strip():
+            raise HTTPException(status_code=400, detail="name (str) is required")
+        if not isinstance(doc, dict):
+            raise HTTPException(status_code=400, detail="doc (object) is required")
+        if not isinstance(base_revision, int):
+            raise HTTPException(status_code=400, detail="base_revision (int) is required")
+        slug = slugify(body.get("slug") or name)
+        if not slug:
+            raise HTTPException(status_code=400, detail="could not derive a slug")
+        if slug == _BUILTIN_ENGINE["slug"]:
+            raise HTTPException(status_code=409, detail=f"{slug!r} is a reserved built-in engine slug")
+        desc = body.get("description")
+        try:
+            normalized = validate_engine_doc(doc)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"invalid engine doc: {e}")
+        try:
+            new_rev = await db_module.update_procedural_engine(
+                pool,
+                engine_id,
+                slug=slug,
+                name=name.strip(),
+                description=desc if isinstance(desc, str) else None,
+                doc=normalized,
+                base_revision=base_revision,
+            )
+        except asyncpg.UniqueViolationError:
+            raise HTTPException(status_code=409, detail=f"a procedural engine with slug {slug!r} already exists")
+        if new_rev is None:
+            current = await db_module.get_procedural_engine(pool, engine_id)
+            raise HTTPException(
+                status_code=409,
+                detail={"message": "revision conflict", "current_revision": current["revision"] if current else None},
+            )
+        return JSONResponse({"id": row["id"], "revision": new_rev})
+
+    @api.delete("/scopes/{scope}/procedural-engines/{engine_id}")
+    async def api_procedural_engines_delete(
+        request: Request,
+        engine_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        if engine_id == _BUILTIN_ENGINE["id"]:
+            raise HTTPException(status_code=403, detail="the built-in engine cannot be deleted")
+        pool = _require_catalog_pool(request)
+        await _get_engine_in_scope(pool, engine_id, scope_obj)
+        ok = await db_module.archive_procedural_engine(pool, engine_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="procedural engine not found")
         return JSONResponse({"status": "archived"})
 
     app.include_router(api)
