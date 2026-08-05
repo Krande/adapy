@@ -231,6 +231,11 @@ interface CellBuilderState {
    * translate widget, or the face-handle resize gizmo. Reset to "none" whenever
    * the selected cell changes. */
   gizmoMode: GizmoMode;
+  /** Blender-style axis constraint for the active translate/rotate gizmo: 0=X,
+   * 1=Y, 2=Z, or null for unconstrained. Set by the X/Y/Z keys or the gizmo
+   * HUD; restricts the visible/usable gizmo handle and scopes numeric entry.
+   * Cleared whenever the gizmo mode or selection changes. */
+  gizmoAxisLock: 0 | 1 | 2 | null;
   /** Allow dragging a cell face in the scene to resize it. Off by default —
    * resizing goes through the explicit resize gizmo so plain navigation never
    * accidentally reshapes a cell. */
@@ -305,6 +310,11 @@ interface CellBuilderState {
   toggleCellAddMode: () => void;
   setSelectMode: (m: SelectMode) => void;
   setGizmoMode: (mode: GizmoMode) => void;
+  /** Lock/unlock the active gizmo to one axis (null clears the constraint). */
+  setGizmoAxisLock: (axis: 0 | 1 | 2 | null) => void;
+  /** Move a cell by `delta` metres along `axis` (origin-quantised, undoable) —
+   * the Blender-style "G, X, 2, Enter" numeric nudge. */
+  translateCellAlongAxis: (id: string, axis: 0 | 1 | 2, delta: number) => void;
   setFaceDragResize: (v: boolean) => void;
   openContextMenu: (x: number, y: number, cellId: string) => void;
   closeContextMenu: () => void;
@@ -603,6 +613,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     cellAddMode: false,
     selectMode: "cell",
     gizmoMode: "none",
+    gizmoAxisLock: null,
     faceDragResize: false,
     contextMenu: null,
     insertMenu: null,
@@ -703,6 +714,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           selection && s.selection && selection.cellId === s.selection.cellId
             ? s.gizmoMode
             : "none",
+        // A new pick drops any axis constraint from the previous gizmo session.
+        gizmoAxisLock: null,
       }));
     },
     toggleCellSelection: (cellId) =>
@@ -723,7 +736,23 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       }),
     toggleCellAddMode: () => set((s) => ({ cellAddMode: !s.cellAddMode })),
     setSelectMode: (selectMode) => set({ selectMode }),
-    setGizmoMode: (gizmoMode) => set({ gizmoMode }),
+    // Switching gizmo (or turning it off) drops any axis constraint.
+    setGizmoMode: (gizmoMode) => set({ gizmoMode, gizmoAxisLock: null }),
+    setGizmoAxisLock: (gizmoAxisLock) => set({ gizmoAxisLock }),
+    translateCellAlongAxis: (id, axis, delta) =>
+      withHistory((s) => {
+        const cur = s.cells[id];
+        if (!cur || !delta) return {};
+        const origin: Vec3 = [...cur.origin];
+        origin[axis] = origin[axis] + delta;
+        return {
+          cells: {
+            ...s.cells,
+            [id]: { ...cur, origin: quantizeVec(origin, s.gridStep) },
+          },
+          dirty: true,
+        };
+      }),
     setFaceDragResize: (faceDragResize) => set({ faceDragResize }),
     openContextMenu: (x, y, cellId) => set({ contextMenu: { x, y, cellId } }),
     closeContextMenu: () => set({ contextMenu: null }),

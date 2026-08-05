@@ -700,6 +700,17 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             if (gizmo.object) gizmo.detach();
             gizmoHelper.visible = false;
         }
+        // Axis lock (X/Y/Z keys / HUD) restricts the visible + usable gizmo
+        // handle to one axis; null shows all three. Reset to all when detached so
+        // a later attach isn't stuck on a stale constraint.
+        if (translateOn || rotateOn) {
+            const lock = st.gizmoAxisLock;
+            gizmo.showX = lock === null || lock === 0;
+            gizmo.showY = lock === null || lock === 1;
+            gizmo.showZ = lock === null || lock === 2;
+        } else {
+            gizmo.showX = gizmo.showY = gizmo.showZ = true;
+        }
         rebuildResizeHandles();
         requestRender();
     };
@@ -1179,7 +1190,68 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             return;
         }
 
-        if (ev.key !== "Escape") return;
+        // --- Blender-style gizmo shortcuts (not while typing in a field) ------
+        // These consume the key (stopPropagation) so the global viewer handler
+        // — same phase, but this listener runs in capture — doesn't also fire.
+        if (!inField && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+            const k = ev.key.toLowerCase();
+            const cell = st.selection ? st.cells[st.selection.cellId] : null;
+            // Shift+H hides the selected builder cells (mirrors the Hide buttons).
+            // With a builder selection this wins over the global mesh-range hide;
+            // with nothing selected it falls through so result meshes still hide.
+            if (ev.shiftKey && k === "h") {
+                const ids = st.selectedCellIds.length
+                    ? st.selectedCellIds
+                    : cell
+                      ? [cell.id]
+                      : [];
+                if (ids.length) {
+                    st.hideCells(ids);
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                }
+                return;
+            }
+            // G/R/S activate the translate / rotate / resize gizmo (Blender keys):
+            // rotate is equipment-only, resize is cell-only (matches the menus).
+            if (!ev.shiftKey && cell) {
+                if (k === "g") {
+                    st.setGizmoMode("translate");
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                if (k === "r" && cell.kind === "equipment") {
+                    st.setGizmoMode("rotate");
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                if (k === "s" && cell.kind === "cell") {
+                    st.setGizmoMode("resize");
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+            }
+            // X/Y/Z lock the active translate/rotate gizmo to that axis (press the
+            // same axis again to release). The HUD's numeric field then applies
+            // along it.
+            if (
+                (st.gizmoMode === "translate" || st.gizmoMode === "rotate") &&
+                (k === "x" || k === "y" || k === "z")
+            ) {
+                const axis = k === "x" ? 0 : k === "y" ? 1 : 2;
+                st.setGizmoAxisLock(st.gizmoAxisLock === axis ? null : axis);
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+        }
+
+        // Escape while typing in a field (the HUD's numeric inputs) blurs the
+        // field — don't also unwind the selection/gizmo underneath.
+        if (ev.key !== "Escape" || inField) return;
         // The insert popover owns its own Escape (it closes itself); don't also
         // unwind the selection underneath it.
         if (st.insertMenu) return;
@@ -1205,7 +1277,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     el.addEventListener("pointerup", onPointerUp, true);
     el.addEventListener("pointercancel", onPointerCancel, true);
     el.addEventListener("contextmenu", onContextMenu);
-    window.addEventListener("keydown", onKeyDown);
+    // Capture phase so the builder's Shift+H / gizmo keys can preempt (and
+    // stopPropagation) the global viewer key handler, which listens on bubble.
+    window.addEventListener("keydown", onKeyDown, true);
 
     rebuild();
     rebuildPorts();
@@ -1227,6 +1301,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (
             s.selection !== prev.selection ||
             s.gizmoMode !== prev.gizmoMode ||
+            s.gizmoAxisLock !== prev.gizmoAxisLock ||
             s.cells !== prev.cells ||
             s.active !== prev.active ||
             s.gridStep !== prev.gridStep ||
@@ -1267,7 +1342,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         el.removeEventListener("pointerup", onPointerUp, true);
         el.removeEventListener("pointercancel", onPointerCancel, true);
         el.removeEventListener("contextmenu", onContextMenu);
-        window.removeEventListener("keydown", onKeyDown);
+        window.removeEventListener("keydown", onKeyDown, true);
         if (controlsRef.current) controlsRef.current.enabled = true;
         clearLongPress();
         gizmo.detach();

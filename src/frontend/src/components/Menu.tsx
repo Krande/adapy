@@ -26,7 +26,7 @@ import CellBuilderIcon from "./icons/CellBuilderIcon";
 import CellBuilderPanel from "./viewer/CellBuilderPanel";
 import CellBuilderContextMenu from "./viewer/CellBuilderContextMenu";
 import CellBuilderInsertMenu from "./viewer/CellBuilderInsertMenu";
-import CellBuilderRotatePanel from "./viewer/CellBuilderRotatePanel";
+import CellBuilderGizmoHud from "./viewer/CellBuilderGizmoHud";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useEquipmentCatalogStore} from "@/state/equipmentCatalogStore";
 // Equipment catalog editor — opened contextually from an equipment's "Edit
@@ -266,7 +266,7 @@ const Menu = () => {
                     {proceduralActive && <CellBuilderPanel/>}
                     {proceduralActive && <CellBuilderContextMenu/>}
                     {proceduralActive && <CellBuilderInsertMenu/>}
-                    {proceduralActive && <CellBuilderRotatePanel/>}
+                    {proceduralActive && <CellBuilderGizmoHud/>}
                     {proceduralActive && equipmentPanelOpen && (
                         <Suspense fallback={null}><EquipmentAdminPanel/></Suspense>
                     )}
