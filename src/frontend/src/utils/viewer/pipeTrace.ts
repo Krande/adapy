@@ -51,6 +51,12 @@ function routeRanges(
   return hits;
 }
 
+// Public: every (model_key, rangeId) belonging to a system's routed run, read
+// against the live model tree. Empty before the compiled model's tree exists.
+export function systemRouteRanges(systemName: string): Array<[string, string]> {
+  return routeRanges(systemName, useTreeViewStore.getState().treeData);
+}
+
 // World-space centroid of a system's routed pipe geometry, or null when the
 // compiled pipe isn't in the scene yet (pre-compile, or no matching run). For a
 // swept tube the surface-vertex centroid lands on the centerline, so the icon

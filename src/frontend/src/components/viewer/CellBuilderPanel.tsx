@@ -7,6 +7,11 @@ import {
 } from "@/state/cellBuilderStore";
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 import { useTypeIconsStore } from "@/state/typeIconsStore";
+import {
+  highlightSystems,
+  revertSystemHighlight,
+  systemColorHex,
+} from "@/utils/viewer/systemColors";
 
 // The procedural-modelling context panel: add cells / typed equipment, list the
 // boxes, edit systems, commit to postgres (revision-tracked) and compile via
@@ -22,12 +27,6 @@ const btnGray =
 const inputCls =
   "text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5";
 
-const SYSTEM_TYPE_COLOR: Record<string, string> = {
-  piping: "#38bdf8",
-  duct: "#a3e635",
-  cable: "#c084fc",
-  electrical: "#f59e0b",
-};
 
 // Systems inspector: list the service runs, their type, and which equipment
 // ports each connects. Add/remove systems and connections.
@@ -88,6 +87,7 @@ const SystemsInspector: React.FC = () => {
   const s = useCellBuilderStore();
   const [open, setOpen] = React.useState(false);
   const [addSlug, setAddSlug] = React.useState<string | null>(null);
+  const [highlighted, setHighlighted] = React.useState(false);
   // A "Procedural model" panel link (clicking a routed run's system) sets
   // focusedSystemName — open the inspector and scroll+highlight that system.
   const focused = s.focusedSystemName;
@@ -122,6 +122,36 @@ const SystemsInspector: React.FC = () => {
       </button>
       {open && (
         <div className="flex flex-col gap-1.5 px-1 pt-1">
+          {systems.length > 0 && (
+            <div className="flex items-center gap-1 flex-wrap">
+              <button
+                className={
+                  "px-1.5 py-0.5 rounded-sm text-white " +
+                  (highlighted
+                    ? "bg-emerald-600 hover:bg-emerald-500"
+                    : "bg-gray-700 hover:bg-gray-600")
+                }
+                title="Tint each system's routed geometry with its own colour (dims the rest). Needs a compiled model."
+                onClick={() => {
+                  const n = highlightSystems(systems.map((sys) => sys.name));
+                  setHighlighted(n > 0);
+                }}
+              >
+                Highlight systems
+              </button>
+              <button
+                className="px-1.5 py-0.5 rounded-sm bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-40"
+                disabled={!highlighted}
+                title="Restore the original geometry colours"
+                onClick={() => {
+                  revertSystemHighlight();
+                  setHighlighted(false);
+                }}
+              >
+                Revert
+              </button>
+            </div>
+          )}
           <div className="flex items-center gap-1 flex-wrap">
             <span className="text-gray-300">add</span>
             <select
@@ -181,7 +211,8 @@ const SystemsInspector: React.FC = () => {
               <div className="flex items-center gap-1">
                 <span
                   className="inline-block w-2 h-2 rounded-full shrink-0"
-                  style={{ background: SYSTEM_TYPE_COLOR[sys.type] }}
+                  title={`${sys.type} · unique system colour`}
+                  style={{ background: systemColorHex(sys.name) }}
                 />
                 <input
                   className={`${inputCls} flex-1 min-w-0`}
