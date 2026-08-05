@@ -159,22 +159,29 @@ def _blueprint_options(doc: dict) -> dict:
 
 
 def _penetration_members(cell_graph) -> list:
-    """Built walls a routed run can penetrate (get a cutout + detail for). Only
-    walls the blueprint actually BUILT (a plate part tagged on the face) count — a
-    run crossing an unbuilt cell boundary (two open cells, no wall between them)
-    must NOT get a sleeve/hole. Both INTERNAL and EXTERNAL built walls qualify: a
-    riser that exits/re-enters the envelope through the built outer skin (e.g. the
-    demo's DeckTie riser through the x=0 external wall) needs its cutout just like
-    an interior crossing. Deduped by identity across the internal+external lists."""
+    """Built walls AND decks a routed run can penetrate (get a cutout + detail
+    for). Only faces the blueprint actually BUILT (a plate part tagged on the face)
+    count — a run crossing an unbuilt cell boundary (two open cells, no wall/deck
+    between them) must NOT get a sleeve/hole. INTERNAL and EXTERNAL built walls
+    qualify (a riser that exits/re-enters the envelope through the built outer skin,
+    e.g. the demo's DeckTie riser through the x=0 external wall), and so do the
+    built floor/roof DECKS — a vertical riser climbing between stacked cells crosses
+    the deck plate and needs its cutout just like a wall crossing. Deduped by
+    identity across the four lists."""
     if cell_graph is None:
         return []
     seen: set[int] = set()
     members: list = []
-    for w in cell_graph.get_internal_walls() + cell_graph.get_external_walls():
-        if getattr(w, "associated_part", None) is None or id(w) in seen:
+    for f in (
+        cell_graph.get_internal_walls()
+        + cell_graph.get_external_walls()
+        + cell_graph.get_internal_floors()
+        + cell_graph.get_external_floors()
+    ):
+        if getattr(f, "associated_part", None) is None or id(f) in seen:
             continue
-        seen.add(id(w))
-        members.append(w)
+        seen.add(id(f))
+        members.append(f)
     return members
 
 
@@ -339,11 +346,13 @@ def _build_systems(
 
     rules = design_rules if design_rules is not None else standard_design_rules()
     members = _penetration_members(cell_graph)
-    # No-go walls (opt-in via doc["no_go_walls"]): treat BUILT internal walls as
-    # impenetrable so routes detour around them. Off by default because the demo's
-    # interior run is meant to *penetrate* its wall and get a sleeve/hole detail;
-    # turning this on suppresses those crossings.
-    no_go_faces = members if doc.get("no_go_walls") else None
+    # No-go walls (opt-in via doc["no_go_walls"]): treat BUILT WALLS as impenetrable
+    # so routes detour around them. Off by default because the demo's interior run is
+    # meant to *penetrate* its wall and get a sleeve/hole detail; turning this on
+    # suppresses those crossings. DECKS are never no-go — a riser between stacked
+    # cells must cross the deck (and get its cutout), so floors stay penetrable even
+    # when this is on.
+    no_go_faces = [f for f in members if not f.is_horizontal()] if doc.get("no_go_walls") else None
 
     # One fine lattice for all systems (precise detours); each planned run's body
     # is marked occupied so later systems route around it, and swept runs are then

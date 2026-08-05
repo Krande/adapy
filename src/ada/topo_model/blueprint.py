@@ -230,13 +230,18 @@ class SteelStru(BlueprintBase):
                 rooms[cell_name] = ada.Part(f"Room_{cell_name}")
             return rooms[cell_name]
 
-        # External floor/roof decks, grouped by the cell they belong to.
+        # External floor/roof decks, grouped by the cell they belong to. Every built
+        # deck is recorded by face guid so the deck faces can be tagged with their
+        # plate afterwards (like walls are) — a routed riser crossing a deck then
+        # gets an automatic cutout + penetration detail (see _tag_built_floors).
         built_floor_guids: set[str] = set()
+        built_floor_by_guid: dict[str, ada.Part] = {}
         for i, face in enumerate(floor_faces):
             built_floor_guids.add(face.guid)
             floor = _build_reinforced_floor(
                 f"Floor_{i:02d}", face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing
             )
+            built_floor_by_guid[face.guid] = floor
             room(face.parent_cell.name).add_part(floor)
 
         # Internal (shared) decks between stacked cells. Skip any face an enclosed
@@ -248,6 +253,7 @@ class SteelStru(BlueprintBase):
             deck = _build_reinforced_floor(
                 f"IntFloor_{i:02d}", face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing
             )
+            built_floor_by_guid[face.guid] = deck
             room(face.parent_cell.name).add_part(deck)
 
         # Fully enclosed rooms: plate every bounding face of the flagged cells —
@@ -274,6 +280,7 @@ class SteelStru(BlueprintBase):
                         self.stringer_sec,
                         self.stringer_spacing,
                     )
+                    built_floor_by_guid[face.guid] = deck
                     room(cname).add_part(deck)
                 else:
                     wall = self._wall(f"Wall_{cname}_{j:02d}", face)
@@ -283,6 +290,15 @@ class SteelStru(BlueprintBase):
                     if member is not None:
                         member.associated_part = wall
                     room(cname).add_part(wall)
+
+        # Tag the deck faces the penetration engine walks (get_external_floors /
+        # get_internal_floors return the canonical face objects) with the plate that
+        # was actually built for them — keyed by guid so it works no matter which
+        # pass built the deck. A run crossing a tagged deck now cuts a real hole.
+        for face in cg.get_external_floors() + cg.get_internal_floors():
+            built = built_floor_by_guid.get(face.guid)
+            if built is not None:
+                face.associated_part = built
 
         # Global wall reinforcement (kept for back-compat) — skips cells already
         # fully plated by the enclosure pass so a wall is never built twice.
