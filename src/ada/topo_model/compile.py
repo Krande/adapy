@@ -135,12 +135,16 @@ def _equipment_to_object(eq: TopoEquipment, resolver=None) -> ada.Equipment | ad
     catalog_doc = resolver(key) if resolver is not None and key else None
     if catalog_doc:
         obj = build_equipment_from_catalog(eq.NAME, origin, catalog_doc, lx=eq.LX, ly=eq.LY, lz=eq.LZ)
-        return apply_equipment_rotation(obj, *rot_deg)
+        obj = apply_equipment_rotation(obj, *rot_deg)
+        obj._topo_rotation_deg = rot_deg  # so occupancy/clash tests use the ROTATED footprint
+        return obj
 
     archetype = EQUIPMENT_ARCHETYPES.get(key.lower())
     if archetype is not None:
         obj = archetype(eq.NAME, origin, lx=eq.LX, ly=eq.LY, lz=eq.LZ)
-        return apply_equipment_rotation(obj, *rot_deg)
+        obj = apply_equipment_rotation(obj, *rot_deg)
+        obj._topo_rotation_deg = rot_deg  # so occupancy/clash tests use the ROTATED footprint
+        return obj
 
     p1 = (eq.X, eq.Y, eq.Z)
     p2 = (eq.X + eq.LX, eq.Y + eq.LY, eq.Z + eq.LZ)
@@ -276,18 +280,65 @@ def _system_half_extent(system) -> float:
     return 0.5 * max(float(w or 0.0), float(h or 0.0))
 
 
+def _equipment_box(eq: ada.Equipment, clearance: float = 0.0):
+    """The equipment's (clearance-inflated) body as an oriented box: a rotation
+    matrix ``R`` (None when axis-aligned), the pivot (footprint centre = origin),
+    and local min/max half-extents. A node/point ``q`` is inside the body when
+    ``lo <= Rᵀ·(q - pivot) <= hi``. The pivot and local extents match how
+    ``_oriented_box`` builds the rotated body, so occupancy and the real geometry
+    agree even when the equipment is spun."""
+    import numpy as np
+
+    from .equipment import rotation_matrix
+
+    c = float(clearance)
+    pivot = np.array([float(v) for v in eq.origin])  # (X+LX/2, Y+LY/2, Z) — footprint centre
+    lo = np.array([-eq.lx / 2 - c, -eq.ly / 2 - c, -c])
+    hi = np.array([eq.lx / 2 + c, eq.ly / 2 + c, eq.lz + c])
+    R = rotation_matrix(*getattr(eq, "_topo_rotation_deg", (0.0, 0.0, 0.0)))
+    return R, pivot, lo, hi
+
+
+def _point_in_equipment(q, R, pivot, lo, hi, tol: float = 1e-9) -> bool:
+    """Whether world point ``q`` lies inside the oriented equipment box described
+    by :func:`_equipment_box`."""
+    import numpy as np
+
+    local = (R.T @ (np.asarray(q, float) - pivot)) if R is not None else (np.asarray(q, float) - pivot)
+    return bool(np.all(local >= lo - tol) and np.all(local <= hi + tol))
+
+
 def _occupy_equipment(grid: CellGrid, eq: ada.Equipment, clearance: float = 0.0) -> None:
-    """Mark grid nodes inside the equipment box — inflated by ``clearance`` — as
+    """Mark grid nodes inside the equipment body — inflated by ``clearance`` — as
     occupied so A* routes around it. The clearance (a run's cross-section
     half-extent) keeps the run's body, not merely its centreline, from clipping
-    the equipment; the inflated bounds are compared inclusively so nodes sitting
-    exactly on the (inflated) face are blocked too."""
-    ox, oy, oz = (float(v) for v in eq.origin)
-    c = float(clearance)
-    x0, x1 = ox - eq.lx / 2 - c, ox + eq.lx / 2 + c
-    y0, y1 = oy - eq.ly / 2 - c, oy + eq.ly / 2 + c
-    z0, z1 = oz - c, oz + eq.lz + c
+    the equipment. Honours the equipment's placement rotation: a spun box occupies
+    its ROTATED footprint (a switchboard turned 90° pokes out where its unrotated
+    AABB never reached), so a run no longer grazes the real body."""
+    import numpy as np
+
+    R, pivot, lo, hi = _equipment_box(eq, clearance)
     tol = 1e-9
+    if R is None:
+        x0, y0, z0 = pivot + lo
+        x1, y1, z1 = pivot + hi
+    else:
+        # Prune the grid scan to the rotated body's world AABB (8 rotated corners).
+        corners = np.array(
+            [
+                [lo[0], lo[1], lo[2]],
+                [hi[0], lo[1], lo[2]],
+                [lo[0], hi[1], lo[2]],
+                [hi[0], hi[1], lo[2]],
+                [lo[0], lo[1], hi[2]],
+                [hi[0], lo[1], hi[2]],
+                [lo[0], hi[1], hi[2]],
+                [hi[0], hi[1], hi[2]],
+            ]
+        )
+        world = (R @ corners.T).T + pivot
+        x0, y0, z0 = world.min(axis=0)
+        x1, y1, z1 = world.max(axis=0)
     for ix, x in enumerate(grid.x_list):
         if not (x0 - tol <= x <= x1 + tol):
             continue
@@ -295,8 +346,37 @@ def _occupy_equipment(grid: CellGrid, eq: ada.Equipment, clearance: float = 0.0)
             if not (y0 - tol <= y <= y1 + tol):
                 continue
             for iz, z in enumerate(grid.z_list):
-                if z0 - tol <= z <= z1 + tol:
+                if not (z0 - tol <= z <= z1 + tol):
+                    continue
+                if R is None or _point_in_equipment((x, y, z), R, pivot, lo, hi):
                     grid.register((ix, iy, iz), eq.name)
+
+
+def _augment_grid_with_ports(grid: CellGrid, built_systems: list) -> None:
+    """Insert every system's port (and nozzle-stub) coordinates as grid lines
+    BEFORE equipment occupancy is stamped.
+
+    A run leaves each port along the port's world position and a one-cell stub;
+    the router inserts those exact coordinates as grid lines so it can land on the
+    port cleanly. If that happens per-system DURING routing (as the swept runs do)
+    the new line is added AFTER ``_occupy_equipment`` already ran — so its nodes
+    that fall inside an equipment box carry no occupancy, and a later run threads
+    straight through that box along the fresh, un-blocked line (the drain routed
+    through the pump). Front-loading every port/stub line here means occupancy is
+    stamped onto ALL the lines the router will use, closing that corridor; the
+    per-system augmentation then finds the line already present and is a no-op."""
+    from ada.topology.routing import _grid_spacing, _port_stub, augment_grid_with_points
+
+    stub_len = _grid_spacing(grid)
+    pts = []
+    for system in built_systems:
+        for port in getattr(system, "ports", []):
+            pts.append(port.get_global_position())
+            stub = _port_stub(port, stub_len)
+            if stub is not None:
+                pts.append(stub)
+    if pts:
+        augment_grid_with_points(grid, pts)
 
 
 def _flag_equipment_clashes(systems: list, equipment_map: dict) -> None:
@@ -309,29 +389,25 @@ def _flag_equipment_clashes(systems: list, equipment_map: dict) -> None:
 
     from ada.topology.routing import RunWarning, run_half_extent
 
-    boxes = []
-    for name, eq in equipment_map.items():
-        ox, oy, oz = (float(v) for v in eq.origin)
-        lo = np.array([ox - eq.lx / 2.0, oy - eq.ly / 2.0, oz])
-        hi = np.array([ox + eq.lx / 2.0, oy + eq.ly / 2.0, oz + eq.lz])
-        boxes.append((name, lo, hi))
-
     for system in systems:
         poly = getattr(system, "routed_path", None)
         if not poly or len(poly) < 2:
             continue
         own = {p.parent.name for p in system.ports if getattr(p, "parent", None) is not None}
         half = run_half_extent(system)
+        # Inflate each box by the run's half-extent so the run's BODY (not just its
+        # centreline) is what's tested against; honours equipment rotation.
+        boxes = [(name, *_equipment_box(eq, half)) for name, eq in equipment_map.items()]
         pts = [np.array([float(p[0]), float(p[1]), float(p[2])]) for p in poly]
         clashes: dict[str, np.ndarray] = {}
         for i in range(len(pts) - 1):
             a, b = pts[i], pts[i + 1]
             for t in np.linspace(0.0, 1.0, 24):
                 q = a + (b - a) * t
-                for name, lo, hi in boxes:
+                for name, R, pivot, lo, hi in boxes:
                     if name in own or name in clashes:
                         continue
-                    if float(np.minimum(q - lo, hi - q).min()) > -half:
+                    if _point_in_equipment(q, R, pivot, lo, hi):
                         clashes[name] = q
         warnings = getattr(system, "route_warnings", None)
         if warnings is None:
@@ -412,6 +488,11 @@ def _build_systems(
 
     if not built_systems:
         return []
+
+    # Insert every port/stub coordinate as a grid line up front, so the occupancy
+    # stamped below covers ALL the lines the router will use (a line inserted later,
+    # mid-routing, would thread un-blocked straight through an equipment box).
+    _augment_grid_with_ports(grid, built_systems)
 
     # Occupy each equipment box inflated by the widest run's cross-section
     # half-extent PLUS a small margin, so A* keeps every run's *body* (not just its
@@ -588,6 +669,7 @@ def compile_procedural_doc(
                 # The box body is omitted (CAD splices in), but the ports still
                 # rotate so routing meets the spun CAD geometry at the right face.
                 apply_equipment_rotation(obj, *e.rotation_deg())
+                obj._topo_rotation_deg = e.rotation_deg()  # rotated footprint for occupancy/clash
                 cad_placements.append((cad_mesh, _cad_transform(e, cad_mesh)))
                 objects.append(obj)
             else:

@@ -400,6 +400,129 @@ def test_flag_equipment_clashes_warns_on_body_through_box():
     assert not any("PumpA" in m for m in msgs)
 
 
+def test_occupy_equipment_uses_rotated_footprint():
+    # A switchboard yawed 90deg swaps its footprint (0.8 wide x 0.4 deep ->
+    # 0.4 wide x 0.8 deep). Occupancy must follow the ROTATED body: a node that
+    # only the rotated footprint reaches is blocked; one that only the unrotated
+    # AABB reaches is free — otherwise a run grazes the real body (Suction v SB2).
+    from ada.topo_model.compile import _equipment_to_object, _occupy_equipment
+    from ada.topology.entities import TopoEquipment
+    from ada.topology.grid import CellGrid
+
+    spec = dict(
+        NAME="SB",
+        DESCRIPTION="switchboard",
+        X=0.3,
+        Y=2.0,
+        Z=0.0,
+        LX=0.8,
+        LY=0.4,
+        LZ=1.2,
+        SPACE_NAME="Cell1",
+        SPACE_LOC="FLOOR",
+        COGx=0,
+        COGy=0,
+        COGz=0,
+        massDry=100,
+        massCont=0,
+        ROT_Z=-90,
+    )
+    eq = _equipment_to_object(TopoEquipment(**spec))
+    grid = CellGrid.from_bounds((0, 1, 0), (1.4, 3, 1.4), spacing=0.1)
+    _occupy_equipment(grid, eq, clearance=0.0)
+
+    def _idx(vals, v):
+        return min(range(len(vals)), key=lambda i: abs(vals[i] - v))
+
+    def occupied(x, y, z):
+        ix, iy, iz = _idx(grid.x_list, x), _idx(grid.y_list, y), _idx(grid.z_list, z)
+        return bool(grid.occupancy.get((ix, iy, iz)))
+
+    # Rotated footprint is x[0.5,0.9] y[1.8,2.6]; unrotated AABB is x[0.3,1.1] y[2.0,2.4].
+    assert occupied(0.7, 2.5, 0.5), "node inside the rotated footprint must be blocked"
+    assert not occupied(1.0, 2.2, 0.5), "node only in the unrotated AABB must stay free"
+
+
+def test_augment_grid_with_ports_prevents_through_box_corridor():
+    # A port coordinate inserted as a grid line AFTER occupancy would thread
+    # un-blocked through an equipment box. Augmenting up front then occupying must
+    # leave no free node on that port line inside the box.
+    from ada.topo_model.compile import (
+        _augment_grid_with_ports,
+        _equipment_to_object,
+        _occupy_equipment,
+        _wire_systems,
+    )
+    from ada.topology.entities import TopoEquipment
+    from ada.topology.grid import CellGrid
+
+    # Pump box x[2,3] y[2,3] z[0,1]; its power port sits at an off-lattice y.
+    pump = _equipment_to_object(
+        TopoEquipment(
+            NAME="Pump",
+            DESCRIPTION="pump",
+            X=2,
+            Y=2,
+            Z=0,
+            LX=1,
+            LY=1,
+            LZ=1,
+            SPACE_NAME="C",
+            SPACE_LOC="FLOOR",
+            COGx=0,
+            COGy=0,
+            COGz=0,
+            massDry=1,
+            massCont=0,
+        )
+    )
+    sb = _equipment_to_object(
+        TopoEquipment(
+            NAME="SB",
+            DESCRIPTION="switchboard",
+            X=0.3,
+            Y=2,
+            Z=0,
+            LX=0.8,
+            LY=0.4,
+            LZ=1.2,
+            SPACE_NAME="C",
+            SPACE_LOC="FLOOR",
+            COGx=0,
+            COGy=0,
+            COGz=0,
+            massDry=1,
+            massCont=0,
+        )
+    )
+    emap = {"Pump": pump, "SB": sb}
+    systems = _wire_systems(
+        [
+            dict(
+                NAME="PF",
+                TYPE="electrical",
+                CONNECTIONS=[{"EQUIPMENT": "SB", "PORT": "feeder"}, {"EQUIPMENT": "Pump", "PORT": "power"}],
+            )
+        ],
+        emap,
+    )
+    grid = CellGrid.from_bounds((0, 0, 0), (5, 5, 3), spacing=0.5)
+    _augment_grid_with_ports(grid, systems)  # insert port lines BEFORE occupancy
+    _occupy_equipment(grid, pump, clearance=0.05)
+
+    # Every grid node lying inside the pump box must now be occupied — including
+    # any freshly inserted port line — so nothing can route through the pump.
+    for ix, x in enumerate(grid.x_list):
+        if not (2.0 <= x <= 3.0):
+            continue
+        for iy, y in enumerate(grid.y_list):
+            if not (2.0 <= y <= 3.0):
+                continue
+            for iz, z in enumerate(grid.z_list):
+                if 0.0 <= z <= 1.0:
+                    assert grid.occupancy.get((ix, iy, iz)), f"free node inside pump at {(x, y, z)}"
+
+
 def test_compile_empty_doc_raises():
     with pytest.raises(ValueError, match="no spaces"):
         compile_procedural_doc({"spaces": []})
