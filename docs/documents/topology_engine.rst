@@ -297,52 +297,66 @@ uploads it to your personal viewer scope (when ``ADAPY_BASE_URL`` /
 the scene to the websocket viewer via ``assembly.show()``. Use ``--no-upload``
 / ``--no-show`` to opt out of either side effect.
 
-Compiling a document with ``ProceduralBuilder``
------------------------------------------------
+Compiling a whole model with ``ProceduralBuilder``
+--------------------------------------------------
 
 The engine-in-a-nutshell example above builds a bare structure. A full
-procedural *document* — spaces plus equipment, systems, openings and a design
-ruleset, the format the viewer's cellbuilder commits — is compiled by
+procedural *model* — spaces plus equipment, routed systems, openings and a
+design ruleset — is compiled by
 :class:`~ada.topo_model.builder.ProceduralBuilder`, the **root object that owns
-the whole model**. The one-liner returns GLB bytes:
+the whole model**. It is *object-first*: you hand it explicit, validated entity
+objects (:class:`~ada.topology.entities.TopoSpace` /
+:class:`~ada.topology.entities.TopoEquipment` /
+:class:`~ada.topology.entities.TopoSystem` /
+:class:`~ada.topology.entities.TopoOpening`) rather than a loose dict, and
+``compile()`` returns GLB bytes:
 
 .. code-block:: python
 
     from ada.topo_model import ProceduralBuilder
+    from ada.topology.entities import TopoSpace, TopoEquipment, TopoSystem
 
-    doc = {
-        "spaces": [
-            {"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3},
-            {"NAME": "Cell2", "X": 5, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3},
-        ],
-        "equipments": [
-            {"NAME": "Pump2", "DESCRIPTION": "pump", "X": 2, "Y": 2, "Z": 0,
-             "LX": 1, "LY": 1, "LZ": 1, "massDry": 1000, "massCont": 0,
-             "COGx": 0, "COGy": 0, "COGz": 0.5},
-        ],
-        "systems": [],
-    }
-    glb_bytes = ProceduralBuilder(doc, lod="detail").compile()
+    spaces = [
+        TopoSpace(NAME="Cell1", X=0, Y=0, Z=0, DX=5, DY=5, DZ=3),
+        TopoSpace(NAME="Cell2", X=5, Y=0, Z=0, DX=5, DY=5, DZ=3),
+    ]
+    equipment = [
+        TopoEquipment(NAME="Pump2", DESCRIPTION="pump", SPACE_NAME="Cell1",
+                      SPACE_LOC="FLOOR", X=2, Y=2, Z=0, LX=1, LY=1, LZ=1,
+                      COGx=0, COGy=0, COGz=0.5, massDry=1000, massCont=0),
+        TopoEquipment(NAME="Tank2", DESCRIPTION="tank", SPACE_NAME="Cell2",
+                      SPACE_LOC="FLOOR", X=6.5, Y=1.5, Z=0, LX=2, LY=2, LZ=2,
+                      COGx=0, COGy=0, COGz=1.0, massDry=1000, massCont=0),
+    ]
+    systems = [
+        TopoSystem(NAME="CoolingWater", TYPE="piping", MEDIUM="water", CONNECTIONS=[
+            {"EQUIPMENT": "Pump2", "PORT": "discharge"},
+            {"EQUIPMENT": "Tank2", "PORT": "inlet"},
+        ]),
+    ]
+    glb_bytes = ProceduralBuilder(spaces=spaces, equipments=equipment, systems=systems).compile()
 
 ``compile()`` runs the phases in order — ``build_structure`` →
-``build_equipment`` → ``build_systems`` → ``to_glb``. You can drive them
-individually and inspect the owned state (``blueprint``, ``cell_graph``,
-``equipment_map``, ``systems``, ``assembly``) in between:
+``build_equipment`` → ``build_systems`` → ``to_glb``. Drive them individually to
+inspect the owned state (``blueprint``, ``cell_graph``, ``equipment_map``,
+``systems_parts``, ``assembly``) in between:
 
 .. code-block:: python
 
-    pb = ProceduralBuilder(doc)
+    pb = ProceduralBuilder(spaces=spaces, equipments=equipment, systems=systems)
     pb.build_structure()
     print(pb.cell_graph.get_external_floors())    # the built topology
     pb.build_equipment()
-    print(pb.equipment_map)                       # {"Pump2": <ada.Equipment>}
+    print(pb.equipment_map)                       # {"Pump2": <ada.Equipment>, ...}
     pb.build_systems()
     glb_bytes = pb.to_glb()
 
 Every child reaches the root through an injected ``.procedural`` reference — the
 blueprint directly, and any ``GraphFace`` through its cell graph — so a blueprint
 or a face-level rule can consult the whole model (equipment, systems, the design
-ruleset, the LOD):
+ruleset, the LOD). The topology engine
+(:class:`~ada.topology.TopologyBuilder`) is reached the other way, as
+``pb.topology``; the LOD lives once on the root (``pb.detail``):
 
 .. code-block:: python
 
@@ -350,15 +364,72 @@ ruleset, the LOD):
     face = pb.cell_graph.get_external_floors()[0]
     face.parent_cell.cell_graph.procedural is pb              # True
 
-The topology engine (:class:`~ada.topology.TopologyBuilder`) is reached the
-other way, as ``pb.topology``; the LOD lives once on the root (``pb.detail``) and
-the blueprint reads its own detail flag from there. The functional
-``compile_procedural_doc(doc, ...)`` is a thin wrapper over ``ProceduralBuilder``
-and returns byte-identical output — use the builder when you want the phases or
-the intermediate model, the function for a one-shot compile.
+Loading from dict / JSON / Excel
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Explicit objects are the sturdy path, but a model also loads from the three
+document formats — each parses and validates into those same entity objects, so
+dict parsing lives in exactly one place:
+
+.. code-block:: python
+
+    # a procedural document (the viewer's commit format) — dict or a JSON file
+    pb = ProceduralBuilder.from_dict(doc)
+    pb = ProceduralBuilder.from_json("model.json")
+    pb = ProceduralBuilder.from_json('{"spaces": [...], "systems": [...]}')
+
+    # a multi-sheet workbook: Spaces / Equipments / Openings / Systems + a
+    # vertical Model sheet (name, blueprint, blueprint options, design ruleset)
+    pb = ProceduralBuilder.from_excel("model.xlsx")
+
+    # and the inverse — round-trips the whole model back out
+    pb.to_json("model.json")
+    pb.to_excel("model.xlsx")
+
+The functional ``compile_procedural_doc(doc, ...)`` is a thin wrapper over
+``from_dict`` + ``compile`` — use the builder when you want the phases, the
+intermediate model, or the object/Excel round-trips; the function for a one-shot
+document compile.
+
+Reading the catalog from Python
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When the viewer's postgres is reachable, :class:`~ada.topo_model.catalog.ProceduralCatalog`
+reads a scope's reusable equipment types and system templates and turns them
+into the objects above. ``equipment_resolver()`` returns the ``slug -> catalog
+doc`` callable the builder uses to expand a placed catalog equipment (referenced
+by its ``DESCRIPTION`` slug) into a full :class:`ada.Equipment` — ports and IFC
+class included:
+
+.. code-block:: python
+
+    from ada.topo_model import ProceduralBuilder, ProceduralCatalog
+
+    with ProceduralCatalog.connect(scope_kind="user", scope_id="me") as cat:
+        for et in cat.list_equipment_types():
+            print(et.slug, et.name, et.doc["ifc_element_class"])
+        for st in cat.list_system_templates():
+            print(st.slug, st.doc["type"], st.doc.get("medium"))
+
+        # instantiate directly from a catalog type…
+        pump = cat.get_equipment_type("pump").to_equipment("P1", origin=(2, 2, 3))
+        cw = cat.get_system_template("cooling_water").to_system(
+            "CW", connections=[{"EQUIPMENT": "P1", "PORT": "discharge"}])
+
+        # …or let the builder resolve placed catalog slugs at compile time
+        pb = ProceduralBuilder(spaces=spaces, equipments=equipment, systems=systems,
+                               equipment_resolver=cat.equipment_resolver())
+        glb_bytes = pb.compile()
+
+``connect`` defaults ``database_url`` to the ``DATABASE_URL`` environment
+variable and binds the reader to one scope for its lifetime; use it as a context
+manager (or call ``close()``) to release the connection pool.
 
 Viewer catalogs: equipment types and system templates
 ------------------------------------------------------
+
+The catalogs above are edited in the hosted viewer's admin panels and mirror the
+Python API — the same equipment-type / system-template rows feed both.
 
 The hosted viewer exposes two per-scope catalogs that feed the cellbuilder,
 backed by postgres (migrations ``023``/``024``) and edited from admin panels:

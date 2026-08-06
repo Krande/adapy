@@ -32,6 +32,8 @@ __all__ = [
     "TopoSpace",
     "TopoOpening",
     "TopoEquipment",
+    "SystemConnection",
+    "TopoSystem",
     "beam_section_description_with_examples",
     "from_ada_obj",
     "from_ada_meta",
@@ -527,6 +529,51 @@ class TopoOpening(_TopoConfigBoundModel):
             _, self._p2 = self._calculate_p1_p2_from_local()
 
         return self._p2
+
+
+class SystemConnection(BaseModel):
+    """One endpoint of a routed system.
+
+    Either an equipment-port endpoint (``EQUIPMENT`` + ``PORT``) or a site
+    terminal — a model-boundary input/output given by a ``SITE`` name, a world
+    ``POSITION``, an ``IN``/``OUT`` ``DIRECTION`` and an optional
+    ``DIRECTION_VECTOR`` (the terminal's outward orientation, default +Z)."""
+
+    EQUIPMENT: Annotated[str | None, Field(description="Name of the connected equipment (port endpoint)")] = None
+    PORT: Annotated[str | None, Field(description="Name of the equipment port to connect to")] = None
+    SITE: Annotated[str | None, Field(description="Name of the site terminal (model-boundary endpoint)")] = None
+    POSITION: Annotated[list[float] | None, Field(description="World position of a site terminal")] = None
+    DIRECTION: Annotated[Literal["IN", "OUT"] | None, Field(description="Flow direction of a site terminal")] = None
+    DIRECTION_VECTOR: Annotated[
+        list[float] | None, Field(description="Outward orientation vector of a site terminal (default +Z)")
+    ] = None
+
+
+class TopoSystem(_TopoConfigBoundModel):
+    """A routed service system (piping/duct/cable/electrical) whose ordered
+    :class:`SystemConnection` endpoints the procedural engine wires, routes over
+    the model grid, and renders as pipe/duct/tray runs.
+
+    The nested ``CONNECTIONS`` list serializes to a single JSON cell in Excel
+    (via the ``jsonlist`` codec), so a system is one row on the ``Systems``
+    sheet."""
+
+    SHEET_NAME: ClassVar[str] = "Systems"
+    TAB_COLOR: ClassVar[str] = "4472C4"  # HEX string without '#'
+
+    NAME: Annotated[str, Field(description="Name of the system")]
+    TYPE: Annotated[
+        Literal["piping", "duct", "cable", "electrical"], Field(description="Service type of the system")
+    ] = "piping"
+    MEDIUM: Annotated[str | None, Field(description="Conveyed medium, e.g. 'water' or 'air'")] = None
+    CONNECTIONS: Annotated[
+        list[SystemConnection],
+        Field(
+            default_factory=list,
+            description="Ordered endpoints (equipment ports and/or site terminals) the run connects",
+            json_schema_extra={"excel": {"codec": "jsonlist"}},
+        ),
+    ]
 
 
 def from_ada_obj(obj: ada.PrimBox) -> TopoSpace | TopoOpening | TopoEquipment:

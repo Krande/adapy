@@ -1,10 +1,9 @@
 """ProceduralBuilder: the root object of a procedural cell-model compile.
 
 This mirrors the ``Builder`` pattern used in sibling procedural-modelling
-codebases: **one object owns the whole model** — the parsed document, the
-topology cell graph, the structural blueprint, the placed equipment, the wired
-systems and the design ruleset — and every child reaches back to it through an
-injected ``.procedural`` reference:
+codebases: **one object owns the whole model** — the spaces, equipment, systems,
+openings, structural blueprint, topology cell graph and design ruleset — and
+every child reaches back to it through an injected ``.procedural`` reference:
 
     blueprint.procedural   -> ProceduralBuilder     (set when the structure is built)
     cell_graph.procedural  -> ProceduralBuilder
@@ -16,18 +15,22 @@ the *procedural* root layered on top and is reached as ``.procedural``. Their
 mutual link is named after each side: the root drives the engine through
 ``self.topology``, the engine's children reach the root through ``.procedural``.
 
-:meth:`ProceduralBuilder.compile` runs the phases in order and returns GLB
-bytes. The public :func:`ada.topo_model.compile.compile_procedural_doc` is a thin
-functional wrapper over it, so nothing downstream changes.
+The builder is **object-first**: construct it from explicit
+:mod:`ada.topology.entities` value objects (``TopoSpace``/``TopoEquipment``/
+``TopoSystem``/``TopoOpening``) rather than a hand-written dict, so the input is
+validated pydantic rather than a fragile mapping. The document, JSON and Excel
+formats are supported through the :meth:`from_dict` / :meth:`from_json` /
+:meth:`from_excel` constructors (each parses/validates into those objects), with
+:meth:`to_doc` / :meth:`to_excel` for the inverse.
 
-The per-phase leaf helpers (space->box, opening cuts, equipment placement, the
-routing/penetration engine driver) live in
-:mod:`ada.topo_model.compile`; this module orchestrates them so the compile
-reads as a short, named phase list rather than one long function.
+:meth:`compile` runs the phases in order and returns GLB bytes; the public
+:func:`ada.topo_model.compile.compile_procedural_doc` is a thin functional
+wrapper over :meth:`from_dict` + :meth:`compile`.
 """
 
 from __future__ import annotations
 
+import json
 import pathlib
 import tempfile
 from dataclasses import dataclass, field
@@ -35,13 +38,13 @@ from typing import Callable, Literal
 
 import ada
 from ada.topology import TopologyBuilder
-from ada.topology.entities import TopoEquipment, TopoSpace
+from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace, TopoSystem
 
 from .blueprint import SteelStru
 from .compile import (
+    _BLUEPRINT_OPTION_KEYS,
     _apply_girder_joints,
     _apply_openings,
-    _blueprint_options,
     _build_systems,
     _cad_transform,
     _equipment_to_object,
@@ -52,57 +55,186 @@ from .compile import (
 
 __all__ = ["ProceduralBuilder"]
 
+BlueprintName = Literal["steel_stru", "none"]
+Lod = Literal["sim", "detail"]
+
 
 @dataclass
 class ProceduralBuilder:
     """Root of a procedural cell-model compile.
 
-    Construct it from a cellbuilder document and call :meth:`compile` for GLB
+    Construct it from explicit entity objects and call :meth:`compile` for GLB
     bytes; or drive the phases individually (:meth:`build_structure`,
     :meth:`build_equipment`, :meth:`build_systems`, :meth:`to_glb`) and inspect
     the owned state (``blueprint``, ``cell_graph``, ``equipment_map``,
-    ``systems``, ``assembly``) between them.
+    ``systems_parts``, ``assembly``) between them.
 
-    ``blueprint_name`` selects the structural blueprint (``"steel_stru"`` builds
-    :class:`~ada.topo_model.blueprint.SteelStru`; ``"none"`` renders the raw
-    space boxes). ``lod`` selects the level of detail (``"sim"`` vs ``"detail"``,
-    surfaced to the blueprint as :attr:`detail` — one home for the LOD).
-
-    ``equipment_resolver`` maps an equipment DESCRIPTION (a catalog slug) to a
-    catalog document; ``cad_scene_resolver`` maps a slug to a trimesh mesh for
-    the *use CAD models* path; ``design_rules`` overrides the routing/penetration
-    ruleset (defaults to the document's ``design_rules`` slug, then ``standard``).
+    ``spaces`` are required (the model boxes); ``equipments``/``systems``/
+    ``openings`` default empty. ``blueprint_name`` selects the structural
+    blueprint (``"steel_stru"`` builds :class:`~ada.topo_model.blueprint.SteelStru`;
+    ``"none"`` renders the raw space boxes). ``blueprint_options`` are the
+    whitelisted structural options (reinforce walls, enclosed cells, plate
+    thickness, …). ``lod`` selects the level of detail (surfaced to the blueprint
+    as :attr:`detail`). ``design_rules`` is either a named ruleset slug, a
+    :class:`~ada.topology.design_rules.DesignRules`, or ``None`` (defaults to the
+    standard ruleset). ``equipment_resolver`` maps an equipment DESCRIPTION (a
+    catalog slug) to a catalog doc; ``cad_scene_resolver`` maps a slug to a
+    trimesh mesh for the *use CAD models* path.
     """
 
-    doc: dict
+    spaces: list[TopoSpace]
+    equipments: list[TopoEquipment] = field(default_factory=list)
+    systems: list[TopoSystem] = field(default_factory=list)
+    openings: list[TopoOpening] = field(default_factory=list)
     name: str = "ProceduralModel"
-    blueprint_name: Literal["steel_stru", "none"] = "steel_stru"
-    lod: Literal["sim", "detail"] = "sim"
+    blueprint_name: BlueprintName = "steel_stru"
+    blueprint_options: dict = field(default_factory=dict)
+    lod: Lod = "sim"
+    design_rules: object | None = None
+    equipment_cad: bool = False
+    no_go_walls: bool = False
     equipment_resolver: Callable | None = None
     cad_scene_resolver: Callable | None = None
-    design_rules: object | None = None
 
-    # Parsed from ``doc`` in __post_init__.
-    spaces: list[TopoSpace] = field(init=False, default_factory=list)
-    equipments: list[TopoEquipment] = field(init=False, default_factory=list)
+    # Retained slug for round-tripping a named ruleset back to doc/excel; None
+    # when ``design_rules`` was passed as a concrete (unnamed) DesignRules.
+    design_rules_slug: str | None = field(init=False, default=None)
 
     # Built up across the compile phases (None/empty until their phase runs).
     topology: TopologyBuilder | None = field(init=False, default=None)
     blueprint: SteelStru | None = field(init=False, default=None)
     assembly: ada.Assembly | None = field(init=False, default=None)
     equipment_map: dict[str, ada.Equipment] = field(init=False, default_factory=dict)
-    systems: list[ada.Part] = field(init=False, default_factory=list)
+    systems_parts: list[ada.Part] = field(init=False, default_factory=list)
     _cad_placements: list[tuple] = field(init=False, default_factory=list)
 
     def __post_init__(self) -> None:
-        if self.design_rules is None:
-            from .design_rulesets import resolve_design_rules
-
-            self.design_rules = resolve_design_rules(self.doc.get("design_rules"))
-        self.spaces = [TopoSpace(**s) for s in self.doc.get("spaces", [])]
-        self.equipments = [TopoEquipment(**e) for e in self.doc.get("equipments", [])]
         if not self.spaces:
             raise ValueError("document has no spaces to compile")
+        # Coerce plain dicts (a convenience for callers that mix objects + dicts)
+        # into the typed value objects, so downstream is uniformly object-based.
+        self.spaces = [s if isinstance(s, TopoSpace) else TopoSpace(**s) for s in self.spaces]
+        self.equipments = [e if isinstance(e, TopoEquipment) else TopoEquipment(**e) for e in self.equipments]
+        self.systems = [s if isinstance(s, TopoSystem) else TopoSystem(**s) for s in self.systems]
+        self.openings = [o if isinstance(o, TopoOpening) else TopoOpening(**o) for o in self.openings]
+        # Whitelist the structural options so an unknown key can't reach SteelStru.
+        self.blueprint_options = {k: v for k, v in dict(self.blueprint_options).items() if k in _BLUEPRINT_OPTION_KEYS}
+        # Resolve a named/absent ruleset to a DesignRules; keep the slug for round-trip.
+        rules = self.design_rules
+        if rules is None or isinstance(rules, str):
+            from .design_rulesets import resolve_design_rules
+
+            self.design_rules_slug = rules
+            self.design_rules = resolve_design_rules(rules)
+
+    # --- alternate constructors --------------------------------------------
+    @classmethod
+    def from_dict(
+        cls,
+        doc: dict,
+        *,
+        name: str = "ProceduralModel",
+        blueprint_name: BlueprintName = "steel_stru",
+        lod: Lod = "sim",
+        equipment_resolver: Callable | None = None,
+        cad_scene_resolver: Callable | None = None,
+        design_rules: object | None = None,
+    ) -> "ProceduralBuilder":
+        """Build from a procedural *document* (the viewer's commit format): a
+        mapping of ``spaces``/``equipments``/``openings``/``systems`` entity
+        dumps plus the ``blueprint``/``design_rules``/``equipment_cad`` scalars.
+        All dict parsing (and its validation) happens here, once."""
+        return cls(
+            spaces=[TopoSpace(**s) for s in doc.get("spaces", [])],
+            equipments=[TopoEquipment(**e) for e in doc.get("equipments", [])],
+            systems=[TopoSystem(**s) for s in doc.get("systems", [])],
+            openings=[TopoOpening(**o) for o in doc.get("openings", [])],
+            name=name,
+            blueprint_name=blueprint_name,
+            blueprint_options=doc.get("blueprint") or {},
+            lod=lod,
+            # An explicit design_rules argument wins; else the doc's named slug.
+            design_rules=design_rules if design_rules is not None else doc.get("design_rules"),
+            equipment_cad=bool(doc.get("equipment_cad")),
+            no_go_walls=bool(doc.get("no_go_walls")),
+            equipment_resolver=equipment_resolver,
+            cad_scene_resolver=cad_scene_resolver,
+        )
+
+    @classmethod
+    def from_json(cls, source: str | pathlib.Path, **kwargs) -> "ProceduralBuilder":
+        """Build from a JSON document — a path to a ``.json`` file or a JSON
+        string. Extra keyword arguments forward to :meth:`from_dict`."""
+        text = source
+        p = pathlib.Path(source) if isinstance(source, (str, pathlib.Path)) else None
+        if p is not None and p.suffix.lower() == ".json" and p.exists():
+            text = p.read_text()
+        return cls.from_dict(json.loads(text), **kwargs)
+
+    @classmethod
+    def from_excel(cls, path: str | pathlib.Path, **kwargs) -> "ProceduralBuilder":
+        """Build from a multi-sheet Excel workbook (``Spaces``/``Equipments``/
+        ``Openings``/``Systems`` + a vertical ``Model`` sheet carrying the name,
+        blueprint, blueprint options, design ruleset and toggles). Keyword
+        arguments override the workbook's ``Model`` sheet values."""
+        from .excel import read_procedural_excel
+
+        data = read_procedural_excel(path)
+        meta = data["meta"]
+        return cls(
+            spaces=data["spaces"],
+            equipments=data["equipments"],
+            openings=data["openings"],
+            systems=data["systems"],
+            name=kwargs.get("name", meta.NAME),
+            blueprint_name=kwargs.get("blueprint_name", meta.BLUEPRINT),
+            blueprint_options=kwargs.get("blueprint_options", meta.blueprint_options()),
+            lod=kwargs.get("lod", meta.LOD),
+            design_rules=kwargs.get("design_rules", meta.DESIGN_RULES),
+            equipment_cad=kwargs.get("equipment_cad", meta.EQUIPMENT_CAD),
+            no_go_walls=kwargs.get("no_go_walls", meta.NO_GO_WALLS),
+            equipment_resolver=kwargs.get("equipment_resolver"),
+            cad_scene_resolver=kwargs.get("cad_scene_resolver"),
+        )
+
+    # --- serialization back out --------------------------------------------
+    def to_doc(self) -> dict:
+        """The procedural document (round-trips :meth:`from_dict`). Entity objects
+        are dumped in JSON mode; only a *named* ruleset (``design_rules_slug``)
+        round-trips — a concrete DesignRules object is dropped."""
+        # exclude_none so a re-parse (from_dict) never passes an explicit None to
+        # a non-optional entity field (e.g. an opening's SPACE_NAME / a space's
+        # coords) — absent means "use the default", which is None anyway.
+        doc: dict = {
+            "spaces": [s.model_dump(mode="json", exclude_none=True) for s in self.spaces],
+            "equipments": [e.model_dump(mode="json", exclude_none=True) for e in self.equipments],
+            "openings": [o.model_dump(mode="json", exclude_none=True) for o in self.openings],
+            "systems": [s.model_dump(mode="json", exclude_none=True) for s in self.systems],
+        }
+        if self.blueprint_options:
+            doc["blueprint"] = dict(self.blueprint_options)
+        if self.design_rules_slug is not None:
+            doc["design_rules"] = self.design_rules_slug
+        if self.equipment_cad:
+            doc["equipment_cad"] = True
+        if self.no_go_walls:
+            doc["no_go_walls"] = True
+        return doc
+
+    def to_json(self, path: str | pathlib.Path | None = None, *, indent: int = 2) -> str:
+        """Serialize :meth:`to_doc` to a JSON string (and write it to ``path`` when
+        given)."""
+        text = json.dumps(self.to_doc(), indent=indent)
+        if path is not None:
+            pathlib.Path(path).write_text(text)
+        return text
+
+    def to_excel(self, path: str | pathlib.Path) -> None:
+        """Write the whole model to a multi-sheet Excel workbook (round-trips
+        :meth:`from_excel`)."""
+        from .excel import write_procedural_excel
+
+        write_procedural_excel(self, path)
 
     # --- convenience views onto the owned state ----------------------------
     @property
@@ -130,17 +262,16 @@ class ProceduralBuilder:
         """Spaces -> ``PrimBox`` es -> topology + structural blueprint -> assembly.
 
         Wires the ``.procedural`` root reference onto the blueprint and cell
-        graph, then cuts the document's openings into the built plates and (in
-        detail mode) models the I-girder joints. With ``blueprint_name='none'``
-        the raw space boxes are wrapped in a ``Spaces`` part and no topology is
-        built."""
+        graph, then cuts the openings into the built plates and (in detail mode)
+        models the I-girder joints. With ``blueprint_name='none'`` the raw space
+        boxes are wrapped in a ``Spaces`` part and no topology is built."""
         boxes = [_space_to_box(s) for s in self.spaces]
 
         if self.blueprint_name != "steel_stru":
             self.assembly = ada.Assembly(self.name) / (ada.Part("Spaces") / boxes)
             return
 
-        self.blueprint = SteelStru(**_blueprint_options(self.doc))
+        self.blueprint = SteelStru(**self.blueprint_options)
         self.topology = TopologyBuilder.from_prim_boxes(boxes, blueprint=self.blueprint)
         # Root back-references: the blueprint (and any GraphFace, via
         # face.parent_cell.cell_graph.procedural) can now reach the whole model.
@@ -150,8 +281,13 @@ class ProceduralBuilder:
         self.assembly = self.topology.get_output_assembly(self.name)
 
         # Negative-volume openings cut the built wall/floor plates and add their
-        # door/window reinforcement framing (no-op when the doc has no openings).
-        _apply_openings(self.blueprint, self.assembly, self.spaces, self.doc.get("openings", []))
+        # door/window reinforcement framing (no-op when there are no openings).
+        # exclude_none so a sparsely-specified opening (e.g. a global-coords one
+        # with no SPACE_NAME) is not re-validated with an explicit None against a
+        # non-optional field — the fields default to None when simply absent.
+        _apply_openings(
+            self.blueprint, self.assembly, self.spaces, [o.model_dump(exclude_none=True) for o in self.openings]
+        )
         # Detail mode upgrades each I-girder to I-girder intersection into a
         # modelled joint (gusset plate + weld beads); sim mode is untouched.
         if self.detail:
@@ -162,15 +298,15 @@ class ProceduralBuilder:
         part, collecting the :class:`ada.Equipment` instances (the ones with
         ports) the systems will wire to.
 
-        An equipment whose catalog slug resolves to a linked CAD asset (and the
-        document opted into ``equipment_cad``) is built without its placeholder
-        box body; the real CAD mesh is recorded for splicing in :meth:`to_glb`."""
+        An equipment whose catalog slug resolves to a linked CAD asset (and
+        ``equipment_cad`` is on) is built without its placeholder box body; the
+        real CAD mesh is recorded for splicing in :meth:`to_glb`."""
         if not self.equipments:
             return
 
         from .equipment import apply_equipment_rotation
 
-        use_cad = bool(self.doc.get("equipment_cad")) and self.cad_scene_resolver is not None
+        use_cad = self.equipment_cad and self.cad_scene_resolver is not None
         objects: list = []
         for e in self.equipments:
             slug = (e.DESCRIPTION or "").strip()
@@ -201,12 +337,16 @@ class ProceduralBuilder:
     def build_systems(self) -> None:
         """Wire each system's ports, route the runs over the model grid and model
         the penetrations where a run crosses a built wall/deck; add the resulting
-        ``Systems`` (and ``Penetrations``) parts to the assembly. No-op when the
-        document declares no systems."""
-        self.systems = _build_systems(
-            self.doc, self.equipment_map, self.spaces, self.cell_graph, self.design_rules
+        ``Systems`` (and ``Penetrations``) parts to the assembly. No-op when there
+        are no systems."""
+        spec_doc = {
+            "systems": [s.model_dump() for s in self.systems],
+            "no_go_walls": self.no_go_walls,
+        }
+        self.systems_parts = _build_systems(
+            spec_doc, self.equipment_map, self.spaces, self.cell_graph, self.design_rules
         )
-        for part in self.systems:
+        for part in self.systems_parts:
             self.assembly.add_part(part)
 
     def to_glb(self) -> bytes:

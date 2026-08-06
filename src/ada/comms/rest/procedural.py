@@ -39,28 +39,14 @@ def procedural_relocations_key(model_id: str) -> str:
 def _doc_model():
     # Lazy: ada.topology.entities imports ada, which is heavy — only pay for it
     # on the first commit/compile, not at API boot.
-    from typing import Literal, Optional
+    from typing import Optional
 
     from pydantic import BaseModel, Field
 
-    from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace
-
-    class SystemConnection(BaseModel):
-        # An equipment-port endpoint (EQUIPMENT + PORT) OR a site terminal (a
-        # model-boundary input/output: SITE name + POSITION + IN/OUT DIRECTION +
-        # an optional DIRECTION_VECTOR giving the terminal's outward orientation).
-        EQUIPMENT: Optional[str] = None
-        PORT: Optional[str] = None
-        SITE: Optional[str] = None
-        POSITION: Optional[list[float]] = None
-        DIRECTION: Optional[Literal["IN", "OUT"]] = None
-        DIRECTION_VECTOR: Optional[list[float]] = None
-
-    class ProceduralSystem(BaseModel):
-        NAME: str
-        TYPE: Literal["piping", "duct", "cable", "electrical"] = "piping"
-        MEDIUM: Optional[str] = None
-        CONNECTIONS: list[SystemConnection] = Field(default_factory=list)
+    # TopoSystem/SystemConnection are the importable, xlsx-ready twins of the
+    # local closure classes this used to declare — reused here so the wire format
+    # has a single source of truth (they carry ClassVars but dump the same shape).
+    from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace, TopoSystem
 
     class ProceduralDoc(BaseModel):
         grid: dict = Field(default_factory=dict)
@@ -78,7 +64,7 @@ def _doc_model():
         openings: list[TopoOpening] = Field(default_factory=list)
         # routed service runs between equipment ports; the compiler wires,
         # routes and renders these (see ada.topo_model.compile)
-        systems: list[ProceduralSystem] = Field(default_factory=list)
+        systems: list[TopoSystem] = Field(default_factory=list)
 
     return ProceduralDoc
 

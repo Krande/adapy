@@ -515,7 +515,7 @@ def compile_procedural_doc(
     footprint."""
     from .builder import ProceduralBuilder
 
-    return ProceduralBuilder(
+    return ProceduralBuilder.from_dict(
         doc,
         name=name,
         blueprint_name=blueprint_name,

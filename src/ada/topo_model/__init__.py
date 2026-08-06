@@ -13,6 +13,8 @@ from .build import (
     make_space_boxes,
 )
 from .builder import ProceduralBuilder
+from .catalog import EquipmentType, ProceduralCatalog, SystemTemplate
+from .excel import ProceduralModelMeta
 from .design_rulesets import (
     DEFAULT_DESIGN_RULESET,
     DESIGN_RULESETS,
@@ -31,10 +33,14 @@ from .relocate import propose_relocations, run_self_collides
 __all__ = [
     "DEFAULT_DESIGN_RULESET",
     "DESIGN_RULESETS",
+    "EquipmentType",
     "PenetrationBlueprintBase",
     "ProceduralBuilder",
+    "ProceduralCatalog",
+    "ProceduralModelMeta",
     "StandardPenetrations",
     "SteelStru",
+    "SystemTemplate",
     "build_routing_grid",
     "build_topo_model",
     "build_topo_model_with_systems",
