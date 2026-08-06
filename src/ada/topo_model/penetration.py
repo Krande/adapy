@@ -27,6 +27,8 @@ import ada
 from ada.topology import BlueprintBase
 from ada.topology.design_rules import DesignRules, Penetration, find_face_crossings
 
+from ._geometry import frame_axes
+
 if TYPE_CHECKING:
     from ada.api.systems.base import System
     from ada.topology.graph import GraphFace
@@ -154,25 +156,12 @@ def _crossing_up(system, point) -> np.ndarray:
 
 
 def _rect_axes(n: np.ndarray, feed_axis: int | None = None) -> tuple[int, int]:
-    """Given the (axis-aligned) face normal, return ``(width_axis, height_axis)``:
-    the two in-plane axes with the rectangle's WIDTH along the horizontal lateral
-    axis and its HEIGHT along the vertical (global Z) — so a tray/duct opening is
-    wider than tall, matching the section. When the face normal is itself vertical
-    (a floor/roof crossing) neither in-plane axis is Z: the run travels vertically
-    through the deck, so its HEIGHT (opening) lies along the feeding horizontal leg
-    (``feed_axis``) and its WIDTH (lateral) along the perpendicular horizontal axis.
-    Without a ``feed_axis`` the two in-plane axes are used in order (legacy)."""
-    normal_axis = int(np.argmax(np.abs(n)))
-    in_plane = [a for a in range(3) if a != normal_axis]
-    if 2 in in_plane:  # a wall: keep height along the vertical axis
-        height_axis = 2
-        width_axis = next(a for a in in_plane if a != 2)
-    elif feed_axis is not None and feed_axis in in_plane:  # a deck: orient from travel
-        height_axis = feed_axis  # opening rotates onto the travel axis up the riser
-        width_axis = next(a for a in in_plane if a != feed_axis)
-    else:  # a floor/roof with no known travel: in-order fallback
-        width_axis, height_axis = in_plane[0], in_plane[1]
-    return width_axis, height_axis
+    """The rectangular hole's ``(width_axis, height_axis)`` from the (axis-aligned)
+    face normal: WIDTH along the horizontal lateral axis, HEIGHT along the vertical
+    (so a tray/duct opening is wider than tall). On a floor/roof crossing (vertical
+    normal) the run travels through the deck, so its HEIGHT/opening follows the
+    feeding horizontal leg (``feed_axis``); see :func:`ada.topo_model._geometry.frame_axes`."""
+    return frame_axes(int(np.argmax(np.abs(n))), feed_axis)
 
 
 def _cut_wall_hole(pen: Penetration, hole: ada.Shape) -> None:

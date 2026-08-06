@@ -12,6 +12,7 @@ from .build import (
     build_topo_model_with_systems,
     make_space_boxes,
 )
+from .builder import ProceduralBuilder
 from .design_rulesets import (
     DEFAULT_DESIGN_RULESET,
     DESIGN_RULESETS,
@@ -31,6 +32,7 @@ __all__ = [
     "DEFAULT_DESIGN_RULESET",
     "DESIGN_RULESETS",
     "PenetrationBlueprintBase",
+    "ProceduralBuilder",
     "StandardPenetrations",
     "SteelStru",
     "build_routing_grid",

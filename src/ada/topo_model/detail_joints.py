@@ -30,6 +30,8 @@ from ada.api.connections import Connection, JointBase, JointReqChecker
 from ada.config import get_logger
 from ada.core.vector_utils import is_parallel, unit_vector
 
+from ._geometry import rounded_point_key as _centre_key
+
 if TYPE_CHECKING:
     from ada import Beam
 
@@ -48,7 +50,6 @@ _MIN_GUSSET_T = 8e-3
 # junction already found by connections.find.
 _INTERIOR_EPS = 1e-2
 _CROSS_TOL = 0.1  # out-of-plane tolerance for two girder axes to count as crossing
-_CENTRE_NDIGITS = 4
 
 
 def eval_joint_req(joint: type[JointBase], intersecting_members: List["Beam"]) -> bool:
@@ -56,10 +57,6 @@ def eval_joint_req(joint: type[JointBase], intersecting_members: List["Beam"]) -
     count requirements (mirrors ``ada.param_models.basic_joints.eval_joint_req``)."""
     jrc = JointReqChecker(intersecting_members, joint)
     return jrc.eval_joint_req()
-
-
-def _centre_key(point) -> tuple:
-    return tuple(round(float(v), _CENTRE_NDIGITS) for v in point)
 
 
 def collect_girder_joints(assembly) -> List["GirderJoint"]:

@@ -11,6 +11,10 @@ the design:
 
 The profiles default to the same set as ``SimpleStru`` (IPE200 girders, HEB200
 columns, 10 mm floor plate, HP140x8 stringers @ 0.4 m).
+
+The low-level geometry plumbing (plate outlines, beam seating, edge dedup, the
+axis-aligned boolean cut every hole/notch reuses) lives in
+:mod:`ada.topo_model._geometry`, so the blueprint below reads as orchestration.
 """
 
 from __future__ import annotations
@@ -22,14 +26,32 @@ import numpy as np
 import ada
 from ada.config import logger
 from ada.topology import BlueprintBase
-from ada.topology.graph import GraphEdge, GraphFace
+from ada.topology.graph import GraphFace
+
+# Re-export for callers/tests that reach the wall builder through this module.
+from ._geometry import (
+    DeckLedger,
+    cut_box,
+    cut_crossing_secondary_beams,
+    dedupe_edges,
+    face_center_key,
+    frame_axes,
+    plate_world_aabb,
+    reinforced_floor,
+    reinforced_wall,
+    seat_deck_beam,
+    trim_deck_to_girders,
+)
+
+# Re-export the wall builder under its historical private name for tests that
+# import it from this module (tests/core/topo_model/test_steel_stru.py).
+_build_reinforced_wall = reinforced_wall
 
 if TYPE_CHECKING:
     from ada.topology.entities import TopoOpening
 
 __all__ = ["SteelStru"]
 
-_MID_NDIGITS = 4
 # Extend a negative-volume opening's cut past both plate faces so the hole
 # punches cleanly through the plate thickness (metres).
 _OPENING_CUT_MARGIN = 0.05
@@ -38,254 +60,6 @@ _OPENING_CUT_MARGIN = 0.05
 # window also severs the stiffener web that stands into the room (metres) — larger
 # than any stiffener depth in use (HP140 => 0.14).
 _OPENING_STIFFENER_CLEAR = 0.3
-
-# Overshoot (metres) applied to a DETAIL-mode deck-edge notch so the strip clears
-# both plate faces (along the thickness) and the plate corners (along the edge run),
-# leaving a clean cut exactly at the girder top-flange inner edge.
-_DECK_TRIM_MARGIN = 0.02
-
-
-def _cut_crossing_secondary_beams(host: ada.Part, opening_name: str, lo: np.ndarray, hi: np.ndarray) -> int:
-    """Boolean-cut every SECONDARY member (wall stiffener / deck stringer, matched
-    by the ``_stf_``/``_str_`` name marker) whose axis segment overlaps the box
-    ``[lo, hi]`` — the studs/stringers that would otherwise bar an opening. Primary
-    girders/columns are deliberately left intact. Returns the number cut."""
-    count = 0
-    for bm in host.get_all_physical_objects(by_type=ada.Beam):
-        if "_stf_" not in bm.name and "_str_" not in bm.name:
-            continue
-        p1 = np.asarray([float(c) for c in bm.n1.p], dtype=float)
-        p2 = np.asarray([float(c) for c in bm.n2.p], dtype=float)
-        b_lo, b_hi = np.minimum(p1, p2) - 1e-6, np.maximum(p1, p2) + 1e-6
-        if np.any(b_hi < lo) or np.any(b_lo > hi):
-            continue  # axis segment doesn't reach the opening box
-        try:
-            bm.add_boolean(ada.PrimBox(f"{opening_name}_bcut_{count:02d}", tuple(lo), tuple(hi)))
-            count += 1
-        except Exception as exc:  # noqa: BLE001 - one bad beam cut must not sink the compile
-            logger.warning("procedural: skipping opening %r beam cut in %r: %s", opening_name, bm.name, exc)
-    return count
-
-
-def _edge_midpoint_key(edge: GraphEdge) -> tuple[float, float, float]:
-    p1, p2 = edge.get_points()[:2]
-    mid = (np.asarray(p1, dtype=float) + np.asarray(p2, dtype=float)) / 2
-    return tuple(round(float(v), _MID_NDIGITS) for v in mid)
-
-
-def _face_center_key(face: GraphFace) -> tuple[float, float, float]:
-    """A rounded face-centroid key so a cell's bounding face can be matched to
-    the shared cell-graph wall it coincides with (``cell.faces`` and
-    ``get_internal_walls()`` return distinct objects for the same physical wall)."""
-    return tuple(round(float(v), _MID_NDIGITS) for v in face.get_centroid())
-
-
-def _dedupe_edges(faces: list[GraphFace], horizontal: bool) -> list[GraphEdge]:
-    """Collect the faces' edges with the requested orientation, keeping one edge
-    per unique midpoint (adjacent cells contribute the same physical edge twice)."""
-    unique: dict[tuple[float, float, float], GraphEdge] = {}
-    for face in faces:
-        for edge in face.edges:
-            # is_horizontal() may hand back a numpy bool — compare by value
-            if bool(edge.is_horizontal()) != horizontal:
-                continue
-            unique.setdefault(_edge_midpoint_key(edge), edge)
-    return list(unique.values())
-
-
-def _plate_world_aabb(pl: ada.Plate) -> tuple[np.ndarray, np.ndarray]:
-    """World-space axis-aligned min/max corners of a plate (thickness included)."""
-    bb = pl.bbox()
-    return np.asarray(bb.p1, dtype=float), np.asarray(bb.p2, dtype=float)
-
-
-def _opening_frame_axes(normal_axis: int) -> tuple[int, int]:
-    """Given a plate's normal axis, return ``(width_axis, height_axis)`` for the
-    reinforcement frame: the height runs along the vertical (global Z) for a wall
-    and the width along the remaining in-plane (lateral) axis. A horizontal plate
-    (normal along Z, i.e. a floor/roof) has no vertical in-plane axis, so the two
-    in-plane axes are used in order."""
-    in_plane = [a for a in range(3) if a != normal_axis]
-    if 2 in in_plane:  # wall: keep height along the vertical axis
-        height_axis = 2
-        width_axis = next(a for a in in_plane if a != 2)
-    else:  # floor/roof
-        width_axis, height_axis = in_plane[0], in_plane[1]
-    return width_axis, height_axis
-
-
-def _build_reinforced_wall(
-    name: str,
-    points: list[ada.Point],
-    pl_thick: float,
-    stiffener_sec: str,
-    spacing: float,
-    inward: tuple[float, float, float] | None = None,
-) -> ada.Part:
-    """A reinforced wall from a vertical face outline: one plate plus vertical
-    stiffener beams evenly distributed along the wall's horizontal run. The
-    stiffeners' local up vector is the wall normal so the profile stands
-    perpendicular to (not flat in) the plate plane; ``inward`` (a vector pointing
-    into the room) signs it so the stiffener webs stand inward, into the
-    enclosure, rather than out of it."""
-    plate = ada.Plate.from_3d_points(f"{name}_pl", points, pl_thick)
-
-    pts = np.asarray([tuple(p) for p in points], dtype=float)
-    lo, hi = pts.min(axis=0), pts.max(axis=0)
-    normal_axis = int(np.argmax(hi - lo == 0.0)) if np.any(hi - lo == 0.0) else int(np.argmin(hi - lo))
-    run_axis = next(a for a in (0, 1) if a != normal_axis)  # horizontal in-plane axis
-    z0, z1 = lo[2], hi[2]
-
-    up = [0.0, 0.0, 0.0]
-    # The stiffener profile's web/material grows on the -up side of the beam (its
-    # outline sits in local -y), so to stand the web INTO the room we point up OUT
-    # of it — opposite the inward vector along the wall normal. Without an inward
-    # hint, default to +normal (web on the -normal side).
-    if inward is not None and abs(inward[normal_axis]) > 1e-9:
-        up[normal_axis] = -1.0 if inward[normal_axis] > 0 else 1.0
-    else:
-        up[normal_axis] = 1.0
-
-    tol = spacing * 1e-3
-    stiffeners = []
-    for i, s in enumerate(np.arange(lo[run_axis] + spacing, hi[run_axis] - tol, spacing)):
-        p1 = [lo[0], lo[1], z0]
-        p2 = [lo[0], lo[1], z1]
-        p1[run_axis] = p2[run_axis] = s
-        stiffeners.append(ada.Beam(f"{name}_stf_{i:02d}", tuple(p1), tuple(p2), stiffener_sec, up=tuple(up)))
-
-    return ada.Part(name) / [plate, *stiffeners]
-
-
-def _profile_top_offset(beam: ada.Beam) -> float:
-    """How far the beam's section reaches ABOVE its axis, in the local up direction
-    (metres). Read from the section's outer profile so it is correct for ANY
-    section, not just symmetric ones: a centred I (IPE200) reaches ``h/2`` up, but
-    a bulb flat (HP140x8) is referenced at its top so it reaches ``0`` up and hangs
-    fully below the axis. A horizontal deck beam keeps the default up (+Z), so the
-    local +y extent maps to +Z."""
-    curve = beam.section.get_section_profile().outer_curve
-    pts = getattr(curve, "points2d", None) or curve.points
-    return max(float(p[1]) for p in pts)
-
-
-def _seat_deck_beam(beam: ada.Beam, top_z: float) -> ada.Beam:
-    """Seat a horizontal deck beam so the TOP of its section lands at ``top_z``,
-    via beam eccentricity (the end NODES stay put — column joints don't move, only
-    the swept profile shifts). The rendered profile moves opposite to ``e`` (verified
-    against the libtess2 stream), and reaches ``_profile_top_offset`` above the axis,
-    so ``e_z = profile_top_offset - (top_z - node_z)`` puts the section top exactly on
-    ``top_z`` for any section (centred or top-referenced)."""
-    node_z = float(beam.n1.p[2])
-    e_z = _profile_top_offset(beam) - (top_z - node_z)
-    beam.e1 = (0.0, 0.0, e_z)
-    beam.e2 = (0.0, 0.0, e_z)
-    return beam
-
-
-def _deck_plate(name: str, points: list[ada.Point], pl_thick: float) -> ada.Plate:
-    """A deck plate whose TOP sits at the outline elevation (the deck line), so the
-    walking surface is at the grid level and the steel is below it — consistently,
-    regardless of the face outline's winding. ``Plate.from_3d_points`` extrudes along
-    the outline normal; when that points up the plate would sit ABOVE the deck line,
-    so we flip it to extrude DOWN. Both faces of a deck at the same elevation then
-    agree (an internal floor and an enclosing-cell deck no longer disagree by the
-    plate thickness)."""
-    plate = ada.Plate.from_3d_points(name, points, pl_thick)
-    if float(plate.poly.normal[2]) > 0:
-        plate = ada.Plate.from_3d_points(name, points, pl_thick, flip_normal=True)
-    return plate
-
-
-def _build_reinforced_floor(
-    name: str, points: list[ada.Point], pl_thick: float, stringer_sec: str, spacing: float
-) -> ada.Part:
-    """A reinforced floor built from a horizontal face outline: one plate (top at the
-    deck line) plus stringer beams running along the longer plan direction, evenly
-    distributed across the shorter one (edge positions carry girders, so they are
-    skipped). Stringers hang under the plate — their tops seat at the plate bottom."""
-    plate = _deck_plate(f"{name}_pl", points, pl_thick)
-
-    pts = np.asarray([tuple(p) for p in points], dtype=float)
-    z = float(pts[:, 2].mean())
-    (x0, y0), (x1, y1) = pts[:, :2].min(axis=0), pts[:, :2].max(axis=0)
-
-    tol = spacing * 1e-3
-    stringers = []
-    if (x1 - x0) >= (y1 - y0):
-        for i, y in enumerate(np.arange(y0 + spacing, y1 - tol, spacing)):
-            stringers.append(ada.Beam(f"{name}_str_{i:02d}", (x0, y, z), (x1, y, z), stringer_sec))
-    else:
-        for i, x in enumerate(np.arange(x0 + spacing, x1 - tol, spacing)):
-            stringers.append(ada.Beam(f"{name}_str_{i:02d}", (x, y0, z), (x, y1, z), stringer_sec))
-    for s in stringers:
-        _seat_deck_beam(s, z - pl_thick)  # stringer top attaches to the plate underside
-
-    return ada.Part(name) / [plate, *stringers]
-
-
-def _girder_flange_width(girder_sec: str) -> float:
-    """Top-flange WIDTH of the I-girder section (metres). The section string is
-    resolved by constructing a throwaway beam (OCC-free); an I-profile stores its
-    top-flange width on ``w_top`` (e.g. IPE200 => 0.1)."""
-    sec = ada.Beam("_probe", (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), girder_sec).section
-    return float(sec.w_top)
-
-
-def _trim_deck_to_girders(plate: ada.Plate, points: list[ada.Point], pl_thick: float, girder_sec: str) -> None:
-    """DETAIL mode: notch each of the deck plate's perimeter edges inboard by the
-    girder top-flange half-width, so the plate spans the CLEAR opening between the
-    surrounding I-girders' top flanges instead of overlapping them.
-
-    Each bounding girder's axis sits on the cell edge and its top flange spans
-    ``±w_top/2`` about that axis; the deck plate should recede to the inboard flange
-    edge (``axis + w_top/2``). For every perimeter edge we subtract an axis-aligned
-    strip that runs the full edge length, spans the plate thickness (plus a small
-    margin so it clears both faces), and reaches ``w_top/2`` inboard from the edge.
-
-    OCC-free: each strip is removed with a :class:`~ada.PrimBox` boolean, which
-    folds into the plate in the libtess2/NGEOM stream (same mechanism as the
-    opening cuts). A cut that fails is logged and skipped."""
-    setback = _girder_flange_width(girder_sec) / 2.0
-    if setback <= 0.0:
-        return
-
-    pl_lo, pl_hi = _plate_world_aabb(plate)
-    pts = np.asarray([tuple(p) for p in points], dtype=float)
-    normal_axis = int(np.argmin(pl_hi - pl_lo))  # deck through-thickness axis (global Z)
-    in_plane = [a for a in range(3) if a != normal_axis]
-    center = (pl_lo + pl_hi) / 2.0
-
-    n = len(pts)
-    for i in range(n):
-        p_a, p_b = pts[i], pts[(i + 1) % n]
-        edge = p_b - p_a
-        # in-plane axis the edge runs along, and the perpendicular in-plane axis the
-        # notch recedes along (rectangular, axis-aligned decks => both are axes).
-        edge_axis = max(in_plane, key=lambda a: abs(edge[a]))
-        notch_axis = next(a for a in in_plane if a != edge_axis)
-        c = float(p_a[notch_axis])  # the edge coordinate (== plate boundary here)
-        inward = 1.0 if center[notch_axis] > c else -1.0
-
-        cut_lo, cut_hi = pl_lo.copy(), pl_hi.copy()
-        # full through-thickness (+ margin) so the strip clears both plate faces
-        cut_lo[normal_axis] = pl_lo[normal_axis] - _DECK_TRIM_MARGIN
-        cut_hi[normal_axis] = pl_hi[normal_axis] + _DECK_TRIM_MARGIN
-        # full run along the edge (+ margin) so the plate corners recede too
-        cut_lo[edge_axis] = pl_lo[edge_axis] - _DECK_TRIM_MARGIN
-        cut_hi[edge_axis] = pl_hi[edge_axis] + _DECK_TRIM_MARGIN
-        # inboard strip of width `setback` from the boundary edge toward the centre
-        if inward > 0:
-            cut_lo[notch_axis] = c - _DECK_TRIM_MARGIN
-            cut_hi[notch_axis] = c + setback
-        else:
-            cut_lo[notch_axis] = c - setback
-            cut_hi[notch_axis] = c + _DECK_TRIM_MARGIN
-
-        try:
-            plate.add_boolean(ada.PrimBox(f"{plate.name}_trim_{i:02d}", tuple(cut_lo), tuple(cut_hi)))
-        except Exception as exc:  # noqa: BLE001 - one bad deck notch must not sink the compile
-            logger.warning("procedural: skipping deck trim %r edge %d: %s", plate.name, i, exc)
 
 
 class SteelStru(BlueprintBase):
@@ -309,9 +83,10 @@ class SteelStru(BlueprintBase):
         super().__init__()
         self.name = name
         # Detail level of the build: when True, later phases trim deck plate edges
-        # to the girder top-flange outline and model I-girder joints. Phase 1 keeps
-        # the geometry identical to the simulation model (flag threaded, unused).
-        self.detail = detail
+        # to the girder top-flange outline. When this blueprint is owned by a
+        # ProceduralBuilder the LOD lives on the root (read via the ``detail``
+        # property below); this constructor flag is the standalone fallback.
+        self._detail = detail
         self.girder_sec = girder_sec
         self.column_sec = column_sec
         self.stringer_sec = stringer_sec
@@ -332,6 +107,17 @@ class SteelStru(BlueprintBase):
     def _group_prefix(self) -> str:
         return self.name
 
+    @property
+    def detail(self) -> bool:
+        """Detail level of the build. Prefers the owning
+        :class:`~ada.topo_model.builder.ProceduralBuilder` (``self.procedural``)
+        when one is attached, so the LOD has a single home on the root; falls
+        back to the constructor flag when the blueprint is built standalone."""
+        procedural = getattr(self, "procedural", None)
+        if procedural is not None:
+            return procedural.detail
+        return self._detail
+
     def _inward(self, face: GraphFace) -> tuple[float, float, float]:
         """Unit-ish vector from a face centre toward its cell's centre — the
         'into the room' direction used to orient wall stiffeners inward."""
@@ -342,12 +128,21 @@ class SteelStru(BlueprintBase):
         return tuple(v / n) if n > 1e-9 else (0.0, 0.0, 1.0)
 
     def _wall(self, name: str, face: GraphFace) -> ada.Part:
-        wall = _build_reinforced_wall(
+        wall = reinforced_wall(
             name, face.get_points(), self.wall_pl_thick, self.stringer_sec, self.stringer_spacing, self._inward(face)
         )
         # penetration blueprints reach the built wall through the face
         face.associated_part = wall
         return wall
+
+    def _floor(self, name: str, face: GraphFace, ledger: DeckLedger, room: ada.Part) -> None:
+        """Build a reinforced deck for ``face``, record it in ``ledger`` (so a
+        shared plane is never plated twice and the deck can later be tagged onto
+        the face for penetration cutting), detail-trim it, and add it to ``room``."""
+        deck = reinforced_floor(name, face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing)
+        ledger.record(face, deck)
+        self._detail_trim_deck(deck, face.get_points())
+        room.add_part(deck)
 
     def _detail_trim_deck(self, floor: ada.Part, points: list[ada.Point]) -> None:
         """In DETAIL mode, trim the deck plate(s) inside a built floor part back to
@@ -356,7 +151,7 @@ class SteelStru(BlueprintBase):
         if not self.detail:
             return
         for pl in floor.get_all_physical_objects(by_type=ada.Plate):
-            _trim_deck_to_girders(pl, points, self.pl_thick, self.girder_sec)
+            trim_deck_to_girders(pl, points, self.pl_thick, self.girder_sec)
 
     def build(self) -> ada.Part:
         self.output_part = ada.Part(self.name)
@@ -383,40 +178,20 @@ class SteelStru(BlueprintBase):
                 rooms[cell_name] = ada.Part(f"Room_{cell_name}")
             return rooms[cell_name]
 
-        # External floor/roof decks, grouped by the cell they belong to. Every built
-        # deck is recorded by face guid so the deck faces can be tagged with their
-        # plate afterwards (like walls are) — a routed riser crossing a deck then
-        # gets an automatic cutout + penetration detail (see _tag_built_floors).
-        built_floor_guids: set[str] = set()
-        built_floor_by_guid: dict[str, ada.Part] = {}
-        # Dedup by PLANE (rounded face centroid), not guid: the SAME physical deck is
-        # a distinct face object with a distinct guid depending on which cell it is
-        # reached through (an internal-floor face vs an enclosing cell's bottom face),
-        # so a guid-only guard let the shared plane be plated twice (double plate).
-        built_floor_planes: set[tuple[float, float, float]] = set()
-        for i, face in enumerate(floor_faces):
-            built_floor_guids.add(face.guid)
-            built_floor_planes.add(_face_center_key(face))
-            floor = _build_reinforced_floor(
-                f"Floor_{i:02d}", face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing
-            )
-            built_floor_by_guid[face.guid] = floor
-            self._detail_trim_deck(floor, face.get_points())
-            room(face.parent_cell.name).add_part(floor)
+        # Every built deck is recorded (by guid + plane) so it is plated once and can
+        # afterwards be tagged onto its face — a routed riser crossing a tagged deck
+        # then gets an automatic cutout + penetration detail (see the tagging pass).
+        ledger = DeckLedger()
 
-        # Internal (shared) decks between stacked cells. Skip any face already plated
-        # (by guid OR by coincident plane) so a deck is never built twice.
+        # External floor/roof decks, grouped by the cell they belong to.
+        for i, face in enumerate(floor_faces):
+            self._floor(f"Floor_{i:02d}", face, ledger, room(face.parent_cell.name))
+
+        # Internal (shared) decks between stacked cells — skip any plane already plated.
         for i, face in enumerate(internal_floors):
-            if face.guid in built_floor_guids or _face_center_key(face) in built_floor_planes:
+            if ledger.already_built(face):
                 continue
-            built_floor_guids.add(face.guid)
-            built_floor_planes.add(_face_center_key(face))
-            deck = _build_reinforced_floor(
-                f"IntFloor_{i:02d}", face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing
-            )
-            built_floor_by_guid[face.guid] = deck
-            self._detail_trim_deck(deck, face.get_points())
-            room(face.parent_cell.name).add_part(deck)
+            self._floor(f"IntFloor_{i:02d}", face, ledger, room(face.parent_cell.name))
 
         # Fully enclosed rooms: plate every bounding face of the flagged cells —
         # all four walls (external + shared internal) plus any deck face not
@@ -425,32 +200,21 @@ class SteelStru(BlueprintBase):
         # Map a shared internal wall to its member object so a plated enclosed wall
         # can tag it (so penetration modelling — which walks get_internal_walls() —
         # only ever cuts through walls that were actually built).
-        iw_by_key = {_face_center_key(w): w for w in internal_walls}
+        iw_by_key = {face_center_key(w): w for w in internal_walls}
         for cname in enclosed:
             cell = cell_by_name.get(cname)
             if cell is None:
                 continue
             for j, face in enumerate(cell.faces):
                 if face.is_horizontal():
-                    if face.guid in built_floor_guids or _face_center_key(face) in built_floor_planes:
+                    if ledger.already_built(face):
                         continue
-                    built_floor_guids.add(face.guid)
-                    built_floor_planes.add(_face_center_key(face))
-                    deck = _build_reinforced_floor(
-                        f"Deck_{cname}_{j:02d}",
-                        face.get_points(),
-                        self.pl_thick,
-                        self.stringer_sec,
-                        self.stringer_spacing,
-                    )
-                    built_floor_by_guid[face.guid] = deck
-                    self._detail_trim_deck(deck, face.get_points())
-                    room(cname).add_part(deck)
+                    self._floor(f"Deck_{cname}_{j:02d}", face, ledger, room(cname))
                 else:
                     wall = self._wall(f"Wall_{cname}_{j:02d}", face)
                     # If this bounding wall is a shared internal wall, tag the
                     # member the penetration engine sees with the built part.
-                    member = iw_by_key.get(_face_center_key(face))
+                    member = iw_by_key.get(face_center_key(face))
                     if member is not None:
                         member.associated_part = wall
                     room(cname).add_part(wall)
@@ -460,7 +224,7 @@ class SteelStru(BlueprintBase):
         # was actually built for them — keyed by guid so it works no matter which
         # pass built the deck. A run crossing a tagged deck now cuts a real hole.
         for face in cg.get_external_floors() + cg.get_internal_floors():
-            built = built_floor_by_guid.get(face.guid)
+            built = ledger.by_guid.get(face.guid)
             if built is not None:
                 face.associated_part = built
 
@@ -484,13 +248,13 @@ class SteelStru(BlueprintBase):
         # the deck plate top (= the deck line, since decks now sit their top at the
         # outline elevation), not straddling the deck line.
         girders = []
-        for i, edge in enumerate(_dedupe_edges(floor_faces + internal_floors, horizontal=True)):
+        for i, edge in enumerate(dedupe_edges(floor_faces + internal_floors, horizontal=True)):
             g = ada.Beam(f"Girder_{i:02d}", *edge.get_points()[:2], self.girder_sec)
-            _seat_deck_beam(g, float(g.n1.p[2]))  # flange top flush with the deck line
+            seat_deck_beam(g, float(g.n1.p[2]))  # flange top flush with the deck line
             girders.append(g)
         columns = [
             ada.Beam(f"Column_{i:02d}", *edge.get_points()[:2], self.column_sec)
-            for i, edge in enumerate(_dedupe_edges(external_walls + internal_walls, horizontal=False))
+            for i, edge in enumerate(dedupe_edges(external_walls + internal_walls, horizontal=False))
         ]
         frame = ada.Part("Frame")
         frame.add_part(ada.Part("Girders") / girders)
@@ -526,7 +290,7 @@ class SteelStru(BlueprintBase):
         best_overlap = 0.0
         cut_any = False
         for pl in host.get_all_physical_objects(by_type=ada.Plate):
-            pl_lo, pl_hi = _plate_world_aabb(pl)
+            pl_lo, pl_hi = plate_world_aabb(pl)
             ov_lo, ov_hi = np.maximum(box_lo, pl_lo), np.minimum(box_hi, pl_hi)
             if np.any(ov_hi - ov_lo <= 1e-9):
                 continue  # no genuine overlap with this plate
@@ -547,9 +311,8 @@ class SteelStru(BlueprintBase):
             if is_wall and subtype == "door":
                 cut_lo[2] = pl_lo[2] - _OPENING_CUT_MARGIN  # door reaches the floor
 
-            try:
-                pl.add_boolean(ada.PrimBox(f"{opening.NAME}_cut", tuple(cut_lo), tuple(cut_hi)))
-            except Exception as exc:  # noqa: BLE001 - last-resort per-opening guard
+            exc = cut_box(pl, f"{opening.NAME}_cut", cut_lo, cut_hi)
+            if exc is not None:
                 logger.warning("procedural: skipping opening %r cut in %r: %s", opening.NAME, pl.name, exc)
                 continue
             cut_any = True
@@ -568,11 +331,11 @@ class SteelStru(BlueprintBase):
         # stiffener web that stands into the room. Primary girders/columns are left
         # intact (they carry load and merely border the opening).
         h_normal_axis, h_cut_lo, h_cut_hi, h_plate = host_hole
-        pl_lo, pl_hi = _plate_world_aabb(h_plate)
+        pl_lo, pl_hi = plate_world_aabb(h_plate)
         bcut_lo, bcut_hi = h_cut_lo.copy(), h_cut_hi.copy()
         bcut_lo[h_normal_axis] = pl_lo[h_normal_axis] - _OPENING_STIFFENER_CLEAR
         bcut_hi[h_normal_axis] = pl_hi[h_normal_axis] + _OPENING_STIFFENER_CLEAR
-        _cut_crossing_secondary_beams(host, opening.NAME, bcut_lo, bcut_hi)
+        cut_crossing_secondary_beams(host, opening.NAME, bcut_lo, bcut_hi)
 
         return self._opening_reinforcement(opening, subtype, *host_hole)
 
@@ -588,8 +351,8 @@ class SteelStru(BlueprintBase):
         """Frame the hole in ``plate`` with jamb studs + head + sill/threshold
         beams (per ``subtype``), all in ``self.stringer_sec`` and standing
         perpendicular to the plate plane (local up along the plate normal)."""
-        width_axis, height_axis = _opening_frame_axes(normal_axis)
-        pl_lo, pl_hi = _plate_world_aabb(plate)
+        width_axis, height_axis = frame_axes(normal_axis)
+        pl_lo, pl_hi = plate_world_aabb(plate)
         ncoord = (pl_lo[normal_axis] + pl_hi[normal_axis]) / 2.0
 
         # Clamp the hole extents to the plate face so the frame sits on the plate

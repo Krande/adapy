@@ -14,16 +14,20 @@ from __future__ import annotations
 
 import contextlib
 import os
-import pathlib
-import tempfile
 from typing import Literal
 
 import ada
-from ada.topology import CellGrid, TopologyBuilder
 from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace
 
+from ._grid import OrientedBox
+from ._grid import augment_grid_with_ports as _augment_grid_with_ports
+from ._grid import occupy_equipment as _occupy_equipment
+from ._grid import routing_grid as _routing_grid
 from .blueprint import SteelStru
 
+# The grid/occupancy plumbing now lives in ``._grid``; re-exported under their
+# historical private names because tests and ``ada.topo_model.relocate`` import
+# them from this module.
 __all__ = ["compile_procedural_doc"]
 
 
@@ -240,55 +244,6 @@ def _make_system(spec: dict):
     return cls(spec["NAME"], medium=spec.get("MEDIUM"))
 
 
-def _routing_grid(spaces: list[TopoSpace], equipments: list, spacing: float = 0.5) -> CellGrid:
-    """A uniform lattice spanning the union of the space boxes plus a headroom
-    level above the top deck (so runs can climb over equipment).
-
-    A run must never lie *in* a wall or floor plate (only cross one perpendicular,
-    where a penetration detail is modelled). Every interior lattice line that
-    lands exactly on a plate plane is therefore dropped — for decks (Z boundaries),
-    interior walls (shared X/Y boundaries between cells) alike: a perpendicular
-    crossing still spans the plane on the edge between the surrounding lines, but
-    no node sits inside the plate so nothing routes along it. The first/last line
-    of each axis (the outer envelope walls) is kept for bounds — built external
-    walls are instead blocked as no-go obstacles in ``_build_systems``. A
-    ``spacing`` sub-floor band below the lowest deck gives low outlets (e.g. a tank
-    drain) somewhere to route beneath the plate."""
-    xs, ys, zs = [], [], []
-    x_planes, y_planes, deck_planes = set(), set(), set()
-    for s in spaces:
-        xs += [s.X, s.X + s.DX]
-        ys += [s.Y, s.Y + s.DY]
-        zs += [s.Z, s.Z + s.DZ]
-        x_planes.update((round(float(s.X), 4), round(float(s.X + s.DX), 4)))
-        y_planes.update((round(float(s.Y), 4), round(float(s.Y + s.DY), 4)))
-        deck_planes.update((round(float(s.Z), 4), round(float(s.Z + s.DZ), 4)))
-    for eq in equipments:
-        if isinstance(eq, ada.Equipment):
-            zs.append(float(eq.origin[2]) + eq.lz)
-    headroom = spacing * 3
-    grid = CellGrid.from_bounds(
-        (min(xs), min(ys), min(zs) - spacing),  # a sub-floor band below the lowest deck
-        (max(xs), max(ys), max(zs) + headroom),
-        spacing=spacing,
-    )
-
-    # Drop interior levels coincident with a plate plane (keep the first/last so
-    # the lattice never loses its bounds); margin < spacing so only exact hits go.
-    # With the sub-floor band, the lowest deck is now interior and gets dropped too.
-    margin = spacing * 0.25
-
-    def _drop(vals: list[float], planes: set[float]) -> list[float]:
-        return [
-            v for i, v in enumerate(vals) if i == 0 or i == len(vals) - 1 or all(abs(v - p) > margin for p in planes)
-        ]
-
-    grid.x_list = _drop(grid.x_list, x_planes)
-    grid.y_list = _drop(grid.y_list, y_planes)
-    grid.z_list = _drop(grid.z_list, deck_planes)
-    return grid
-
-
 def _system_half_extent(system) -> float:
     """The routed run's cross-section half-extent (pipe radius / half the duct or
     tray width|height), i.e. how far the run's surface reaches from its
@@ -300,105 +255,6 @@ def _system_half_extent(system) -> float:
     w = getattr(system, "duct_width", None) or getattr(system, "tray_width", None)
     h = getattr(system, "duct_height", None) or getattr(system, "tray_height", None)
     return 0.5 * max(float(w or 0.0), float(h or 0.0))
-
-
-def _equipment_box(eq: ada.Equipment, clearance: float = 0.0):
-    """The equipment's (clearance-inflated) body as an oriented box: a rotation
-    matrix ``R`` (None when axis-aligned), the pivot (footprint centre = origin),
-    and local min/max half-extents. A node/point ``q`` is inside the body when
-    ``lo <= Rᵀ·(q - pivot) <= hi``. The pivot and local extents match how
-    ``_oriented_box`` builds the rotated body, so occupancy and the real geometry
-    agree even when the equipment is spun."""
-    import numpy as np
-
-    from .equipment import rotation_matrix
-
-    c = float(clearance)
-    pivot = np.array([float(v) for v in eq.origin])  # (X+LX/2, Y+LY/2, Z) — footprint centre
-    lo = np.array([-eq.lx / 2 - c, -eq.ly / 2 - c, -c])
-    hi = np.array([eq.lx / 2 + c, eq.ly / 2 + c, eq.lz + c])
-    R = rotation_matrix(*getattr(eq, "_topo_rotation_deg", (0.0, 0.0, 0.0)))
-    return R, pivot, lo, hi
-
-
-def _point_in_equipment(q, R, pivot, lo, hi, tol: float = 1e-9) -> bool:
-    """Whether world point ``q`` lies inside the oriented equipment box described
-    by :func:`_equipment_box`."""
-    import numpy as np
-
-    local = (R.T @ (np.asarray(q, float) - pivot)) if R is not None else (np.asarray(q, float) - pivot)
-    return bool(np.all(local >= lo - tol) and np.all(local <= hi + tol))
-
-
-def _occupy_equipment(grid: CellGrid, eq: ada.Equipment, clearance: float = 0.0) -> None:
-    """Mark grid nodes inside the equipment body — inflated by ``clearance`` — as
-    occupied so A* routes around it. The clearance (a run's cross-section
-    half-extent) keeps the run's body, not merely its centreline, from clipping
-    the equipment. Honours the equipment's placement rotation: a spun box occupies
-    its ROTATED footprint (a switchboard turned 90° pokes out where its unrotated
-    AABB never reached), so a run no longer grazes the real body."""
-    import numpy as np
-
-    R, pivot, lo, hi = _equipment_box(eq, clearance)
-    tol = 1e-9
-    if R is None:
-        x0, y0, z0 = pivot + lo
-        x1, y1, z1 = pivot + hi
-    else:
-        # Prune the grid scan to the rotated body's world AABB (8 rotated corners).
-        corners = np.array(
-            [
-                [lo[0], lo[1], lo[2]],
-                [hi[0], lo[1], lo[2]],
-                [lo[0], hi[1], lo[2]],
-                [hi[0], hi[1], lo[2]],
-                [lo[0], lo[1], hi[2]],
-                [hi[0], lo[1], hi[2]],
-                [lo[0], hi[1], hi[2]],
-                [hi[0], hi[1], hi[2]],
-            ]
-        )
-        world = (R @ corners.T).T + pivot
-        x0, y0, z0 = world.min(axis=0)
-        x1, y1, z1 = world.max(axis=0)
-    for ix, x in enumerate(grid.x_list):
-        if not (x0 - tol <= x <= x1 + tol):
-            continue
-        for iy, y in enumerate(grid.y_list):
-            if not (y0 - tol <= y <= y1 + tol):
-                continue
-            for iz, z in enumerate(grid.z_list):
-                if not (z0 - tol <= z <= z1 + tol):
-                    continue
-                if R is None or _point_in_equipment((x, y, z), R, pivot, lo, hi):
-                    grid.register((ix, iy, iz), eq.name)
-
-
-def _augment_grid_with_ports(grid: CellGrid, built_systems: list) -> None:
-    """Insert every system's port (and nozzle-stub) coordinates as grid lines
-    BEFORE equipment occupancy is stamped.
-
-    A run leaves each port along the port's world position and a one-cell stub;
-    the router inserts those exact coordinates as grid lines so it can land on the
-    port cleanly. If that happens per-system DURING routing (as the swept runs do)
-    the new line is added AFTER ``_occupy_equipment`` already ran — so its nodes
-    that fall inside an equipment box carry no occupancy, and a later run threads
-    straight through that box along the fresh, un-blocked line (the drain routed
-    through the pump). Front-loading every port/stub line here means occupancy is
-    stamped onto ALL the lines the router will use, closing that corridor; the
-    per-system augmentation then finds the line already present and is a no-op."""
-    from ada.topology.routing import _grid_spacing, _port_stub, augment_grid_with_points
-
-    stub_len = _grid_spacing(grid)
-    pts = []
-    for system in built_systems:
-        for port in getattr(system, "ports", []):
-            pts.append(port.get_global_position())
-            stub = _port_stub(port, stub_len)
-            if stub is not None:
-                pts.append(stub)
-    if pts:
-        augment_grid_with_points(grid, pts)
 
 
 def _flag_equipment_clashes(systems: list, equipment_map: dict) -> None:
@@ -419,17 +275,17 @@ def _flag_equipment_clashes(systems: list, equipment_map: dict) -> None:
         half = run_half_extent(system)
         # Inflate each box by the run's half-extent so the run's BODY (not just its
         # centreline) is what's tested against; honours equipment rotation.
-        boxes = [(name, *_equipment_box(eq, half)) for name, eq in equipment_map.items()]
+        boxes = [(name, OrientedBox.around_equipment(eq, half)) for name, eq in equipment_map.items()]
         pts = [np.array([float(p[0]), float(p[1]), float(p[2])]) for p in poly]
         clashes: dict[str, np.ndarray] = {}
         for i in range(len(pts) - 1):
             a, b = pts[i], pts[i + 1]
             for t in np.linspace(0.0, 1.0, 24):
                 q = a + (b - a) * t
-                for name, R, pivot, lo, hi in boxes:
+                for name, box in boxes:
                     if name in own or name in clashes:
                         continue
-                    if _point_in_equipment(q, R, pivot, lo, hi):
+                    if box.contains(q):
                         clashes[name] = q
         warnings = getattr(system, "route_warnings", None)
         if warnings is None:
@@ -629,6 +485,12 @@ def compile_procedural_doc(
 ) -> bytes:
     """Parse ``doc``, build the model and return GLB bytes.
 
+    A thin functional wrapper over :class:`ada.topo_model.builder.ProceduralBuilder`
+    — the root object that owns the whole model (document, topology cell graph,
+    blueprint, equipment, systems, design ruleset). Use the builder directly when
+    you want to drive the phases individually or inspect the model between them;
+    this wrapper is the batch one-shot.
+
     ``lod`` selects the level of detail: ``"sim"`` (default) is the analysis-grade
     simulation model; ``"detail"`` builds the richer detail model (deck plate edges
     trimmed to the girder flanges, I-girder joints modelled). Detail geometry is
@@ -651,84 +513,14 @@ def compile_procedural_doc(
     equipment with resolvable CAD geometry are built without their placeholder
     box body and the real CAD mesh is spliced into the output GLB at the cell
     footprint."""
-    if design_rules is None:
-        from .design_rulesets import resolve_design_rules
+    from .builder import ProceduralBuilder
 
-        design_rules = resolve_design_rules(doc.get("design_rules"))
-
-    spaces = [TopoSpace(**s) for s in doc.get("spaces", [])]
-    equipments = [TopoEquipment(**e) for e in doc.get("equipments", [])]
-    if not spaces:
-        raise ValueError("document has no spaces to compile")
-
-    boxes = [_space_to_box(s) for s in spaces]
-
-    cell_graph = None
-    if blueprint_name == "steel_stru":
-        blueprint = SteelStru(**_blueprint_options(doc), detail=(lod == "detail"))
-        builder = TopologyBuilder.from_prim_boxes(boxes, blueprint=blueprint)
-        builder.build()
-        a = builder.get_output_assembly(name)
-        cell_graph = builder.cell_graph
-        # Negative-volume openings cut the built wall/floor plates and add their
-        # door/window reinforcement framing (no-op when the doc has no openings).
-        _apply_openings(blueprint, a, spaces, doc.get("openings", []))
-        # Detail mode upgrades each I-girder to I-girder intersection into a
-        # modelled joint (gusset plate + weld beads); sim mode is untouched.
-        if lod == "detail":
-            _apply_girder_joints(a)
-    else:
-        a = ada.Assembly(name) / (ada.Part("Spaces") / boxes)
-
-    use_cad = bool(doc.get("equipment_cad")) and cad_scene_resolver is not None
-    equipment_map: dict[str, ada.Equipment] = {}
-    cad_placements: list[tuple] = []  # (mesh, transform 4x4)
-    if equipments:
-        from .equipment import apply_equipment_rotation
-
-        objects = []
-        for e in equipments:
-            slug = (e.DESCRIPTION or "").strip()
-            cad_mesh = cad_scene_resolver(slug) if (use_cad and slug) else None
-            if cad_mesh is not None:
-                from .equipment import build_equipment_from_catalog
-
-                _require_coords(e, ("X", "Y", "Z", "LX", "LY", "LZ"))
-                origin = (e.X + e.LX / 2, e.Y + e.LY / 2, e.Z)
-                catalog_doc = equipment_resolver(slug) if equipment_resolver is not None else None
-                obj = build_equipment_from_catalog(
-                    e.NAME, origin, catalog_doc or {}, lx=e.LX, ly=e.LY, lz=e.LZ, add_body=False
-                )
-                # The box body is omitted (CAD splices in), but the ports still
-                # rotate so routing meets the spun CAD geometry at the right face.
-                apply_equipment_rotation(obj, *e.rotation_deg())
-                obj._topo_rotation_deg = e.rotation_deg()  # rotated footprint for occupancy/clash
-                cad_placements.append((cad_mesh, _cad_transform(e, cad_mesh)))
-                objects.append(obj)
-            else:
-                objects.append(_equipment_to_object(e, equipment_resolver))
-        for obj in objects:
-            if isinstance(obj, ada.Equipment):
-                equipment_map[obj.name] = obj
-        a.add_part(ada.Part("Equipment") / objects)
-
-    for part in _build_systems(doc, equipment_map, spaces, cell_graph, design_rules):
-        a.add_part(part)
-
-    # Render through the NGEOM stream so the analytic swept duct/cable-tray runs
-    # tessellate upright along their curve (see _stream_tessellation).
-    with _stream_tessellation():
-        # When CAD geometry is spliced in, merge it into the assembly's trimesh
-        # scene at the footprint transform and export that; otherwise take the
-        # normal analytic to_gltf path.
-        if cad_placements:
-            scene = a.to_trimesh_scene()
-            for mesh, transform in cad_placements:
-                scene.add_geometry(mesh, transform=transform)
-            exported = scene.export(file_type="glb")
-            return exported if isinstance(exported, bytes) else bytes(exported)
-
-        with tempfile.TemporaryDirectory(prefix="procedural_glb_") as tmp:
-            glb_path = pathlib.Path(tmp) / "model.glb"
-            a.to_gltf(glb_path)
-            return glb_path.read_bytes()
+    return ProceduralBuilder(
+        doc,
+        name=name,
+        blueprint_name=blueprint_name,
+        lod=lod,
+        equipment_resolver=equipment_resolver,
+        cad_scene_resolver=cad_scene_resolver,
+        design_rules=design_rules,
+    ).compile()

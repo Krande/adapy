@@ -103,6 +103,9 @@ class RoutingRules:
         return base
 
 
+# --------------------------------------------------------------------------- #
+# A* planners — free 6-connected search and the turn-constrained state lattice
+# --------------------------------------------------------------------------- #
 def _nearest_axis_index(vals: list[float], v: float) -> int:
     return min(range(len(vals)), key=lambda i: abs(vals[i] - v))
 
@@ -340,6 +343,9 @@ def astar_route_constrained(
     )
 
 
+# --------------------------------------------------------------------------- #
+# Routed-path post-processing (collinear dedup, nozzle stubs, end caps)
+# --------------------------------------------------------------------------- #
 def path_to_polyline(grid: CellGrid, path: list[GridIndex]) -> list[ada.Point]:
     """Grid path -> world polyline with collinear points removed (bends only)."""
     pts = [ada.Point(*grid.coord_from_index(idx)) for idx in path]
@@ -449,6 +455,9 @@ def _cap_end(pts: list[ada.Point], port_pos: ada.Point, stub: ada.Point | None, 
                 pts.append(p)
 
 
+# --------------------------------------------------------------------------- #
+# Route entry points — swept-run (turn-constrained) and generic route_system
+# --------------------------------------------------------------------------- #
 def swept_bend_params(system: System) -> tuple[float, float, float, float]:
     """The bend geometry a swept (duct / cable-tray) run needs, factored out of
     :func:`system_route_to_geometry` so the router and the modeller agree.
@@ -655,6 +664,9 @@ def route_system(
     return polyline
 
 
+# --------------------------------------------------------------------------- #
+# Taut-pull — orthogonalize and shortcut a routed centreline in the clear corridor
+# --------------------------------------------------------------------------- #
 def _orthogonalize_polyline(pts: list[ada.Point]) -> list[ada.Point]:
     """Replace any diagonal segment with axis-aligned steps (X, then Y, then Z),
     so a box/channel run stays orthogonal. A straight-swept beam segment reads
@@ -767,6 +779,9 @@ def _space_bends(pts: list[ada.Point], grid: CellGrid) -> list[ada.Point]:
     return _sanitize_polyline(kept)
 
 
+# --------------------------------------------------------------------------- #
+# Grid occupancy — voxelize runs, ports and planar members onto the lattice
+# --------------------------------------------------------------------------- #
 def run_half_extent(system) -> float:
     """A run's cross-section half-extent — pipe radius, or half the widest duct/
     tray dimension — i.e. how far its body reaches from the centreline."""
@@ -882,6 +897,9 @@ def occupy_faces(grid: CellGrid, faces, clearance: float = 0.0, tag: str = "no_g
                         grid.register((ix, iy, iz), tag)
 
 
+# --------------------------------------------------------------------------- #
+# Small tuple-vector helpers (kernel-free 3-vector math)
+# --------------------------------------------------------------------------- #
 def _point_seg_dist(p, a, b) -> float:
     ab = _v_sub(b, a)
     denom = _v_dot(ab, ab)
@@ -914,6 +932,9 @@ def _v_norm(v):
     return (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) ** 0.5
 
 
+# --------------------------------------------------------------------------- #
+# Swept directrix + gravity-aligned framing (fillet corners, level the profile)
+# --------------------------------------------------------------------------- #
 def _inversion_floor(lateral_half: float, up_half: float, min_radius: float) -> float:
     """The smallest fillet radius that keeps a bend's inner wall from inverting,
     for ANY bend orientation.
@@ -1290,6 +1311,9 @@ class _SweptRun(ada.BeamCurved):
         return geom
 
 
+# --------------------------------------------------------------------------- #
+# Route -> geometry (pipe / duct / cable-tray) + blueprint scaffold
+# --------------------------------------------------------------------------- #
 def system_route_to_geometry(system: System, name: str | None = None, grid: CellGrid | None = None) -> list:
     """Turn ``system.routed_path`` into realistic adapy geometry appended to
     ``system.route_geometry``. Each service gets a cross-section that reads as

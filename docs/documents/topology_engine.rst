@@ -297,6 +297,66 @@ uploads it to your personal viewer scope (when ``ADAPY_BASE_URL`` /
 the scene to the websocket viewer via ``assembly.show()``. Use ``--no-upload``
 / ``--no-show`` to opt out of either side effect.
 
+Compiling a document with ``ProceduralBuilder``
+-----------------------------------------------
+
+The engine-in-a-nutshell example above builds a bare structure. A full
+procedural *document* — spaces plus equipment, systems, openings and a design
+ruleset, the format the viewer's cellbuilder commits — is compiled by
+:class:`~ada.topo_model.builder.ProceduralBuilder`, the **root object that owns
+the whole model**. The one-liner returns GLB bytes:
+
+.. code-block:: python
+
+    from ada.topo_model import ProceduralBuilder
+
+    doc = {
+        "spaces": [
+            {"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3},
+            {"NAME": "Cell2", "X": 5, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3},
+        ],
+        "equipments": [
+            {"NAME": "Pump2", "DESCRIPTION": "pump", "X": 2, "Y": 2, "Z": 0,
+             "LX": 1, "LY": 1, "LZ": 1, "massDry": 1000, "massCont": 0,
+             "COGx": 0, "COGy": 0, "COGz": 0.5},
+        ],
+        "systems": [],
+    }
+    glb_bytes = ProceduralBuilder(doc, lod="detail").compile()
+
+``compile()`` runs the phases in order — ``build_structure`` →
+``build_equipment`` → ``build_systems`` → ``to_glb``. You can drive them
+individually and inspect the owned state (``blueprint``, ``cell_graph``,
+``equipment_map``, ``systems``, ``assembly``) in between:
+
+.. code-block:: python
+
+    pb = ProceduralBuilder(doc)
+    pb.build_structure()
+    print(pb.cell_graph.get_external_floors())    # the built topology
+    pb.build_equipment()
+    print(pb.equipment_map)                       # {"Pump2": <ada.Equipment>}
+    pb.build_systems()
+    glb_bytes = pb.to_glb()
+
+Every child reaches the root through an injected ``.procedural`` reference — the
+blueprint directly, and any ``GraphFace`` through its cell graph — so a blueprint
+or a face-level rule can consult the whole model (equipment, systems, the design
+ruleset, the LOD):
+
+.. code-block:: python
+
+    pb.blueprint.procedural is pb                              # True
+    face = pb.cell_graph.get_external_floors()[0]
+    face.parent_cell.cell_graph.procedural is pb              # True
+
+The topology engine (:class:`~ada.topology.TopologyBuilder`) is reached the
+other way, as ``pb.topology``; the LOD lives once on the root (``pb.detail``) and
+the blueprint reads its own detail flag from there. The functional
+``compile_procedural_doc(doc, ...)`` is a thin wrapper over ``ProceduralBuilder``
+and returns byte-identical output — use the builder when you want the phases or
+the intermediate model, the function for a one-shot compile.
+
 Viewer catalogs: equipment types and system templates
 ------------------------------------------------------
 
