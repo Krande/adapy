@@ -253,6 +253,15 @@ def _engine_doc_model():
         entrypoint: Optional[str] = None
         # Extra deps the browser must micropip-install for this engine's wheel.
         pyodide_deps: List[str] = []
+        # ``kind:server`` routing: the worker-pool capability tag that has this
+        # engine (+ its deps) pre-installed. The compile job is routed to a worker
+        # advertising this tag; None = the default pool (only for engines whose
+        # package is already in the base worker image).
+        worker_capability: Optional[str] = None
+        # Optional pip specs a server worker installs for this engine (lightweight
+        # PyPI extras). Heavy conda/native deps must be baked into the capability
+        # image instead — they are not pip-installable at runtime.
+        deps: List[str] = []
         # Built wheel pointer under the hidden _engines/ prefix (set by the build
         # worker; ignored/overwritten on user commits).
         wheel_key: Optional[str] = None

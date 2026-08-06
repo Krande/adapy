@@ -1838,21 +1838,11 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       const active = get().active;
       if (!active) return;
       const label = lod === "detail" ? `${active.name} (detail)` : active.name;
-      // External (non-builtin) engines aren't wired for the server compile yet —
-      // they run in-browser (the wheel is micropip-installed). Steer the user to
-      // "Compile in browser" instead of a confusing worker "unknown engine" error.
-      const engSlug = get().selectedEngine;
-      if (engSlug && engSlug !== "adapy-default") {
-        const eng = get().engines.find((e) => e.slug === engSlug);
-        if (eng && eng.origin !== "builtin") {
-          setProceduralToast(label, {
-            status: "error",
-            stage: "engine is browser-only",
-            error: 'This engine runs in the browser — use "Compile in browser".',
-          });
-          return;
-        }
-      }
+      // Any engine is allowed on the server compile: built-ins run on the default
+      // pool; a registered kind:server engine is routed (by the API) to the worker
+      // pool whose capability has it pre-installed. A kind:wheel (browser) engine
+      // with no such worker will surface a worker error — its home is the
+      // "Compile in browser" button, which self-selects it via the resolve step.
       // Announce the task on the global toast panel right away (before the
       // enqueue round-trip resolves), then keep the same toast updated through
       // the poll below — mirrors how conversion/FEA feed conversionStore.

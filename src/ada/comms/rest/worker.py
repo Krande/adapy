@@ -980,7 +980,24 @@ async def _run_procedural_build(
         return
 
     from ada.topo_model.compile import compile_procedural_doc
-    from ada.topo_model.engines import compile_with_engine, is_default_engine
+    from ada.topo_model.engines import BUILTIN_ENGINES, compile_with_engine, is_default_engine
+
+    # A non-builtin engine selection is a registered (DB) engine: resolve its
+    # manifest by slug to get the entrypoint. The engine's package is pre-installed
+    # in this worker's capability image (that's why the job was routed here), so
+    # no install happens — the entrypoint module is imported like any other.
+    external_entrypoint: str | None = None
+    if not is_default_engine(engine) and engine not in BUILTIN_ENGINES:
+        eng_row = await db_module.get_procedural_engine_by_slug(
+            db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"], slug=engine
+        )
+        if eng_row is None:
+            await _fail("build", f"procedural engine {engine!r} not found in scope")
+            return
+        external_entrypoint = (eng_row.get("doc") or {}).get("entrypoint")
+        if not external_entrypoint:
+            await _fail("build", f"engine {engine!r} manifest has no entrypoint")
+            return
 
     # Resolve placed catalog equipment (by slug) to its per-scope definition.
     catalog = await db_module.get_equipment_docs_by_scope(
@@ -1008,8 +1025,11 @@ async def _run_procedural_build(
         # A non-default engine gets the raw document through the uniform
         # ``compile(doc, **options)`` contract — catalog/CAD resolution is a
         # default-engine feature (it needs the DB), so it's skipped for others.
+        # Built-in slugs (echo) dispatch by slug; a registered engine dispatches
+        # via its manifest entrypoint (module:callable, resolved above).
         if not is_default_engine(engine):
-            return compile_with_engine(engine, row["doc"], name=row["name"], lod=lod)
+            selector = engine if engine in BUILTIN_ENGINES else external_entrypoint
+            return compile_with_engine(selector, row["doc"], name=row["name"], lod=lod)
         cad_meshes = {}
         for slug, (data, ext) in cad_bytes.items():
             try:
@@ -1264,9 +1284,9 @@ async def _run_equipment_bbox(
 
 
 def _engine_deploy_key_path(secret_name: str | None) -> str | None:
-    """Filesystem path of the SSH deploy key for a ``kind:wheel`` engine, or None
-    for a public repo. The manifest names a secret; the homelab mounts that key
-    file and points ``ENGINE_DEPLOY_KEY_<SECRET>`` at it (secret name uppercased,
+    """Filesystem path of the SSH deploy key for an external engine, or None for a
+    public repo. The manifest names a secret; the deployment mounts that key file
+    and points ``ENGINE_DEPLOY_KEY_<SECRET>`` at it (secret name uppercased,
     non-alnum -> ``_``). None when unset — the clone then runs without a key."""
     if not secret_name:
         return None

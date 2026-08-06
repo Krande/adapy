@@ -3485,6 +3485,33 @@ async def update_procedural_engine(
     return None if row is None else row["revision"]
 
 
+async def get_procedural_engine_by_slug(
+    pool: asyncpg.Pool, *, scope_kind: str, scope_id: str | None, slug: str
+) -> dict | None:
+    """A live engine (with its manifest ``doc``) by slug in a scope — the compile
+    worker resolves a selected external engine's entrypoint/repo this way (the
+    compile request carries only the slug)."""
+    row = await pool.fetchrow(
+        """
+        SELECT id, scope_kind, scope_id, slug, name, description, doc,
+               revision, created_by, created_at, updated_at
+        FROM procedural_engines
+        WHERE scope_kind = $1 AND COALESCE(scope_id, '') = COALESCE($2, '')
+              AND slug = $3 AND NOT archived
+        """,
+        scope_kind,
+        scope_id,
+        slug,
+    )
+    if row is None:
+        return None
+    out = _engine_row_summary(row)
+    out["scope_kind"] = row["scope_kind"]
+    out["scope_id"] = row["scope_id"]
+    out["doc"] = _loads_jsonb(row["doc"])
+    return out
+
+
 async def set_procedural_engine_wheel(pool: asyncpg.Pool, engine_id: str, wheel_key: str | None) -> bool:
     """Record (or clear) a built engine's wheel pointer in its manifest doc
     WITHOUT bumping the revision — a background build must not race the user's

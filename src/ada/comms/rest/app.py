@@ -3065,6 +3065,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="procedural build disabled (no NATS configured)")
 
+        # A registered (DB) engine may name a worker_capability — the tag of the
+        # worker pool that has that engine + its deps pre-installed. Route the
+        # compile there. Built-in engines (adapy-default/echo, in the base image)
+        # have no DB row and run on the default pool.
+        target_capability = None
+        if engine and engine != "adapy-default":
+            eng = await db_module.get_procedural_engine_by_slug(
+                pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, slug=engine
+            )
+            if eng is not None:
+                target_capability = (eng.get("doc") or {}).get("worker_capability")
+
         job = await queue.enqueue(
             f"_synthetic/procedural/{row['id']}/r{row['revision']}/{lod}",
             target_format="procedural_build",
@@ -3073,6 +3085,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             conversion_options={"model_id": row["id"], "revision": row["revision"], "lod": lod, "engine": engine},
             derived_key=derived_key,
             force_rebuild=force,
+            target_capability=target_capability,
         )
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
 
