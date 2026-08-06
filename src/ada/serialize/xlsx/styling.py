@@ -4,23 +4,32 @@ widths. No domain knowledge; safe to reuse across models."""
 from __future__ import annotations
 
 import enum
-from typing import Any, Literal, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Literal, get_args, get_origin
 
-from openpyxl.styles import Font, PatternFill
-from openpyxl.worksheet.worksheet import Worksheet
+if TYPE_CHECKING:
+    from openpyxl.worksheet.worksheet import Worksheet
 
 __all__ = ["header_style", "dropdown_values", "tune_column_width", "DROPDOWN_LIMIT"]
 
 # openpyxl caps an inline data-validation list formula at 255 characters.
 DROPDOWN_LIMIT = 255
 
-_HEADER_FILL = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-_HEADER_FONT = Font(bold=True)
+# Header fill/font are built lazily on first use so that merely importing this
+# module (e.g. via ``ada.topo_model``) does not require openpyxl — only actually
+# writing a workbook does. Cached after the first call.
+_HEADER_STYLE: tuple | None = None
 
 
 def header_style(cell) -> None:
-    cell.fill = _HEADER_FILL
-    cell.font = _HEADER_FONT
+    global _HEADER_STYLE
+    if _HEADER_STYLE is None:
+        from openpyxl.styles import Font, PatternFill
+
+        _HEADER_STYLE = (
+            PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid"),
+            Font(bold=True),
+        )
+    cell.fill, cell.font = _HEADER_STYLE
 
 
 def dropdown_values(core: Any) -> list[str]:

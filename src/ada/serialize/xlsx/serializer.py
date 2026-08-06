@@ -20,13 +20,10 @@ Extension points:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
-from openpyxl import Workbook, load_workbook
-from openpyxl.comments import Comment
-from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.datavalidation import DataValidation
-from openpyxl.worksheet.worksheet import Worksheet
+if TYPE_CHECKING:
+    from openpyxl.worksheet.worksheet import Worksheet
 
 from .codecs import CodecRegistry, core_type, default_registry
 from .spec import SheetSpec, field_description
@@ -69,6 +66,8 @@ class WorkbookSerializer:
     def write(self, instances: Iterable[Any], path: str | Path) -> None:
         """Write every instance to its model's sheet. Instances of an
         unregistered type raise (never silently skipped)."""
+        from openpyxl import Workbook
+
         grouped: dict[type, list[Any]] = {}
         for obj in instances:
             if type(obj) not in self._specs:
@@ -89,6 +88,8 @@ class WorkbookSerializer:
     def read(self, path: str | Path) -> dict[type, list[Any]]:
         """Parse a workbook into ``{model_cls: [instances]}`` for every
         registered model. A registered model whose sheet is absent yields ``[]``."""
+        from openpyxl import load_workbook
+
         wb = load_workbook(path, data_only=True)
         out: dict[type, list[Any]] = {}
         for model_cls, spec in self._specs.items():
@@ -148,6 +149,9 @@ class _Horizontal(_Layout):
     """Row 1 = headers, one instance per subsequent row."""
 
     def write(self, ws, spec, items, codecs):
+        from openpyxl.comments import Comment
+        from openpyxl.utils import get_column_letter
+
         cols = spec.columns
         hidden = set(spec.hidden)
         for c, name in enumerate(cols, start=1):
@@ -189,6 +193,8 @@ class _Vertical(_Layout):
     """Column A = field name, column B = value; the whole sheet is ONE instance."""
 
     def write(self, ws, spec, items, codecs):
+        from openpyxl.comments import Comment
+
         if len(items) > 1:
             raise ValueError(f"{spec.sheet_name}: VERTICAL layout holds a single instance, got {len(items)}")
         cols = spec.columns
@@ -220,6 +226,8 @@ class _Vertical(_Layout):
 
 
 def _add_dropdown(ws: Worksheet, spec: SheetSpec, name: str, col_letter: str, first_row: int) -> None:
+    from openpyxl.worksheet.datavalidation import DataValidation
+
     field_info = spec.model.model_fields.get(name)
     if field_info is None:
         return
