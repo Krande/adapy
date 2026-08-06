@@ -63,8 +63,8 @@ const ObjectInfoBox = () => {
     // Tree-level "up": the parent level the current selection would climb to.
     // null hides the arrow (nothing selected, already at a file root, or a
     // cellbuilder selection — cells aren't tree nodes). Recomputed when the
-    // selection or the tree changes. Desktop uses Shift+ArrowUp instead, so the
-    // button itself is mobile-only.
+    // selection or the tree changes. Shown on mobile and desktop; desktop also
+    // has the Shift+ArrowUp shortcut.
     const parentName = React.useMemo(
         () => (cellCtx ? null : parentLevelName()),
         [selectedObjects, treeData, cellCtx],
@@ -184,11 +184,18 @@ const ObjectInfoBox = () => {
                     <div className="hidden sm:table-row">
                         <div className="table-cell w-24">Name:</div>
                         <div className="table-cell w-48 break-all">
-                            <NameCopyButton
-                                name={displayName}
-                                copied={copied === "single"}
-                                onCopy={onCopySingle}
-                            />
+                            <div className="flex items-start gap-1">
+                                {parentName && (
+                                    <ParentUpButton parentName={parentName} onUp={onSelectParent}/>
+                                )}
+                                <div className="break-all flex-1">
+                                    <NameCopyButton
+                                        name={displayName}
+                                        copied={copied === "single"}
+                                        onCopy={onCopySingle}
+                                    />
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div className="sm:hidden flex items-start gap-1">
@@ -375,9 +382,10 @@ const NameCopyButton: React.FC<{
 );
 
 // Up-a-level button next to the selected name. Selects the parent tree level of
-// the current selection; the tooltip names that parent. Mobile-only — desktop
-// climbs with Shift+ArrowUp (see setupCameraControlsHandlers). Does not open the
-// tree panel. Rendered only when a parent level exists.
+// the current selection; the tooltip names that parent (hover shows it on
+// desktop). Shown on both mobile and desktop; desktop also has the Shift+ArrowUp
+// shortcut (see setupCameraControlsHandlers). Does not open the tree panel.
+// Rendered only when a parent level exists.
 const ParentUpButton: React.FC<{parentName: string; onUp: () => void}> = ({parentName, onUp}) => (
     <button
         type="button"
