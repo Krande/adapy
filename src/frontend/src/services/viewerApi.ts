@@ -1964,13 +1964,17 @@ export const viewerApi = {
     modelId: string,
     force = false,
     lod: "sim" | "detail" = "sim",
+    engine?: string | null,
   ): Promise<ProceduralCompileResponse> {
     // force=true recompiles even if the revision's GLB is cached — used when the
     // compiler engine changed but the document (the cache key) didn't.
     // lod=detail compiles the richer detail model into a separate cache key.
+    // engine selects the procedural engine (omit / adapy-default = built-in); a
+    // non-default engine's output caches under its own key.
     const params = new URLSearchParams();
     if (force) params.set("force", "true");
     if (lod === "detail") params.set("lod", "detail");
+    if (engine && engine !== "adapy-default") params.set("engine", engine);
     const qs = params.toString() ? `?${params.toString()}` : "";
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile${qs}`,

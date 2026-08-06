@@ -951,6 +951,8 @@ async def _run_procedural_build(
     model_id = opts.get("model_id")
     revision = opts.get("revision")
     lod = "detail" if (opts.get("lod") or "sim") == "detail" else "sim"
+    # Selected procedural engine (None / "adapy-default" = the built-in compile).
+    engine = opts.get("engine")
 
     async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
@@ -978,6 +980,7 @@ async def _run_procedural_build(
         return
 
     from ada.topo_model.compile import compile_procedural_doc
+    from ada.topo_model.engines import compile_with_engine, is_default_engine
 
     # Resolve placed catalog equipment (by slug) to its per-scope definition.
     catalog = await db_module.get_equipment_docs_by_scope(
@@ -1002,6 +1005,11 @@ async def _run_procedural_build(
                     logger.warning("procedural: CAD asset %s for %r unreadable; using box", cad_key, slug)
 
     def _do_compile() -> bytes:
+        # A non-default engine gets the raw document through the uniform
+        # ``compile(doc, **options)`` contract — catalog/CAD resolution is a
+        # default-engine feature (it needs the DB), so it's skipped for others.
+        if not is_default_engine(engine):
+            return compile_with_engine(engine, row["doc"], name=row["name"], lod=lod)
         cad_meshes = {}
         for slug, (data, ext) in cad_bytes.items():
             try:

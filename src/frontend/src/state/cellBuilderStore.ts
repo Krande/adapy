@@ -5,6 +5,7 @@ import {
   viewerApi,
   type ProceduralDoc,
   type ProceduralDesignRulesetOption,
+  type ProceduralEngineSummary,
   type ProceduralRelocationResult,
   type ProceduralSystemTypeOption,
   type ProceduralTypeOption,
@@ -298,6 +299,11 @@ interface CellBuilderState {
   designRules: string;
   /** Available design rulesets for the ruleset dropdown (code ∪ worker). */
   designRulesets: ProceduralDesignRulesetOption[];
+  /** Selected procedural engine slug (compile-time only, not part of the model
+   * document). "adapy-default" = the built-in compile. */
+  selectedEngine: string;
+  /** Available procedural engines for the engine dropdown (built-ins ∪ DB). */
+  engines: ProceduralEngineSummary[];
   /** Undo/redo history over the model state (cells/systems/blueprintOptions). */
   past: ModelSnapshot[];
   future: ModelSnapshot[];
@@ -363,6 +369,8 @@ interface CellBuilderState {
   setAutoCompile: (v: boolean) => void;
   setEquipmentCad: (v: boolean) => void;
   setDesignRules: (slug: string) => void;
+  setSelectedEngine: (slug: string) => void;
+  fetchEngines: () => Promise<void>;
   setSelectedEquipmentType: (t: string | null) => void;
   /** Type-derived sizing: resize every placed equipment of a given type to the
    * catalog bbox (kept centred on its footprint). Called when the equipment
@@ -672,6 +680,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     equipmentCad: false,
     designRules: "standard",
     designRulesets: [],
+    selectedEngine: "adapy-default",
+    engines: [],
     panelVisible: false,
     focusedSystemName: null,
 
@@ -711,6 +721,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             void get().fetchEquipmentTypes();
         });
       void get().fetchDesignRulesets();
+      void get().fetchEngines();
     },
     close: () => {
       get().hideResult();
@@ -1690,6 +1701,23 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       }
     },
 
+    // Engine selection is a compile-time choice, not part of the model document
+    // — no history / no doc round-trip; just picks which engine the next compile
+    // dispatches to (server and in-browser both resolve it identically).
+    setSelectedEngine: (slug) => set({ selectedEngine: slug || "adapy-default" }),
+
+    fetchEngines: async () => {
+      try {
+        const engines = await viewerApi.listProceduralEngines(
+          currentScopePart(),
+        );
+        set({ engines });
+      } catch (e) {
+        console.warn("cellbuilder: engines fetch failed", e);
+        set({ engines: [] });
+      }
+    },
+
     syncEquipmentTypeToDb: async (slug) => {
       try {
         await viewerApi.syncProceduralEquipmentType(currentScopePart(), slug);
@@ -1842,6 +1870,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           active.modelId,
           force,
           lod,
+          get().selectedEngine,
         );
         if (res.cached) {
           set({
@@ -1971,6 +2000,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         );
         const bytes = await compileProceduralViaPyodide(doc, {
           onLog: (m) => setProceduralToast(label, { stage: m }),
+          engine: get().selectedEngine,
         });
         const sourceName = `procedural:${active.name}`;
         await load_glb_from_bytes(bytes, sourceName);

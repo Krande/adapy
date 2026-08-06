@@ -859,6 +859,30 @@ const CellBuilderPanel: React.FC = () => {
         </select>
       </label>
 
+      <label
+        className="flex items-center gap-1"
+        title={
+          s.engines.find((e) => e.slug === s.selectedEngine)?.description ??
+          "Procedural engine that compiles the model (built-in, or a registered external engine)"
+        }
+      >
+        <span className="whitespace-nowrap">Engine</span>
+        <select
+          className={inputCls}
+          value={s.selectedEngine}
+          onChange={(e) => s.setSelectedEngine(e.target.value)}
+        >
+          {s.engines.length === 0 && (
+            <option value={s.selectedEngine}>{s.selectedEngine}</option>
+          )}
+          {s.engines.map((e) => (
+            <option key={e.slug} value={e.slug} title={e.description ?? undefined}>
+              {e.name} ({e.origin})
+            </option>
+          ))}
+        </select>
+      </label>
+
       {s.conflict && <p className="text-red-400">{s.conflict}</p>}
       {compileState?.status === "error" && (
         <p className="text-red-400">Compile failed: {compileState.error}</p>

@@ -185,7 +185,7 @@ export async function convertViaPyodide(
  * warm Pyodide worker. No server round-trip. */
 export async function compileProceduralViaPyodide(
     doc: unknown,
-    opts?: {onLog?: (msg: string) => void},
+    opts?: {onLog?: (msg: string) => void; engine?: string | null},
 ): Promise<Uint8Array> {
     if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
         killWorker();
@@ -193,7 +193,10 @@ export async function compileProceduralViaPyodide(
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
     const result = awaitWorkerResult(worker, reqId, opts?.onLog);
-    worker.postMessage({type: "procedural-compile", reqId, doc: JSON.stringify(doc)});
+    // engine selects a non-default procedural engine (must be importable in the
+    // loaded adapy wheel — the built-in echo qualifies; external wheels do not yet).
+    const engine = opts?.engine && opts.engine !== "adapy-default" ? opts.engine : null;
+    worker.postMessage({type: "procedural-compile", reqId, doc: JSON.stringify(doc), engine});
     return result;
 }
 

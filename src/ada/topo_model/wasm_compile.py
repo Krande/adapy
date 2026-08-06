@@ -27,6 +27,7 @@ def compile_doc(
     name: str = "ProceduralModel",
     blueprint_name: Literal["steel_stru", "none"] = "steel_stru",
     lod: Literal["sim", "detail"] = "sim",
+    engine: str | None = None,
 ) -> bytes:
     """Compile a procedural document to GLB bytes.
 
@@ -34,9 +35,20 @@ def compile_doc(
     ``{spaces, equipments, systems, openings, blueprint, design_rules}`` shape the
     server stores — as a dict or a JSON string (the Pyodide bridge hands over a
     string). ``lod`` picks the simulation (default) or detail level of detail.
+
+    ``engine`` selects the procedural engine: ``None``/``"adapy-default"`` is the
+    built-in compile; any other (built-in like ``"echo"``, or a ``module:callable``
+    entrypoint) is resolved and dispatched via :mod:`ada.topo_model.engines`, so
+    a non-default engine runs identically here (in-browser) and server-side. Only
+    engines importable in the browser (i.e. in the loaded adapy wheel) work here.
+
     Returns the GLB bytes, ready to load straight into the viewer scene.
     """
-    from ada.topo_model.compile import compile_procedural_doc
+    from ada.topo_model.engines import compile_with_engine, is_default_engine
 
     parsed = json.loads(doc) if isinstance(doc, str) else dict(doc)
-    return compile_procedural_doc(parsed, name=name, blueprint_name=blueprint_name, lod=lod)
+    if is_default_engine(engine):
+        from ada.topo_model.compile import compile_procedural_doc
+
+        return compile_procedural_doc(parsed, name=name, blueprint_name=blueprint_name, lod=lod)
+    return compile_with_engine(engine, parsed, name=name, blueprint_name=blueprint_name, lod=lod)

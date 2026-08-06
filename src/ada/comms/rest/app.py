@@ -3049,11 +3049,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # revision-stamped derived key so it caches independently of the simulation
         # GLB. Any other value is the default simulation model.
         lod = "detail" if (request.query_params.get("lod") or "").strip().lower() == "detail" else "sim"
+        # ``?engine=<slug>`` selects the procedural engine (default = adapy-default).
+        # A non-default engine's output caches under its own key so it never serves
+        # the default's bytes; the slug travels to the worker in conversion_options.
+        engine = (request.query_params.get("engine") or "").strip() or None
 
         pool = _require_procedural_pool(request)
         row = await _get_procedural_in_scope(pool, model_id, scope_obj)
         key_fn = procedural_detail_glb_key if lod == "detail" else procedural_glb_key
-        derived_key = key_fn(row["id"], row["revision"])
+        derived_key = key_fn(row["id"], row["revision"], engine)
 
         if not force and await storage.exists(scope_obj, derived_key):
             return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
@@ -3066,7 +3070,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             target_format="procedural_build",
             scope_kind=scope_obj.kind,
             scope_id=scope_obj.id,
-            conversion_options={"model_id": row["id"], "revision": row["revision"], "lod": lod},
+            conversion_options={"model_id": row["id"], "revision": row["revision"], "lod": lod, "engine": engine},
             derived_key=derived_key,
             force_rebuild=force,
         )
@@ -3488,6 +3492,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "origin": "builtin",
         "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.wasm_compile:compile_doc"},
     }
+    # A second built-in: the diagnostic ``echo`` engine (renders the document's
+    # cells as raw boxes). It exercises the full engine-selection path — resolve a
+    # ``module:callable`` entrypoint and dispatch to it — on both the server and
+    # WASM compile, without needing an external wheel. Kept ada-free here (slim API).
+    _ECHO_ENGINE = {
+        "id": "builtin:echo",
+        "slug": "echo",
+        "name": "echo (raw cells)",
+        "description": "Diagnostic engine: renders the document's cells as raw boxes (no structure).",
+        "revision": 0,
+        "origin": "builtin",
+        "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.echo_engine:compile_doc"},
+    }
+    _BUILTIN_ENGINES = [_BUILTIN_ENGINE, _ECHO_ENGINE]
+    _BUILTIN_ENGINE_IDS = {e["id"] for e in _BUILTIN_ENGINES}
+    _BUILTIN_ENGINE_SLUGS = {e["slug"] for e in _BUILTIN_ENGINES}
+    _BUILTIN_ENGINE_BY_ID = {e["id"]: e for e in _BUILTIN_ENGINES}
 
     @api.get("/scopes/{scope}/procedural-engines")
     async def api_procedural_engines_list(
@@ -3498,9 +3519,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engines = await db_module.list_procedural_engines(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
         for e in engines:
             e["origin"] = "db"
-        # Built-in first, then the scope's registered engines.
-        summary = {k: _BUILTIN_ENGINE[k] for k in ("id", "slug", "name", "description", "revision", "origin")}
-        return JSONResponse({"procedural_engines": [summary, *engines]})
+        # Built-ins first, then the scope's registered engines.
+        summaries = [
+            {k: e[k] for k in ("id", "slug", "name", "description", "revision", "origin")} for e in _BUILTIN_ENGINES
+        ]
+        return JSONResponse({"procedural_engines": [*summaries, *engines]})
 
     @api.post("/scopes/{scope}/procedural-engines", status_code=201)
     async def api_procedural_engines_create(
@@ -3518,7 +3541,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         slug = slugify(body.get("slug") or name)
         if not slug:
             raise HTTPException(status_code=400, detail="could not derive a slug from name/slug")
-        if slug == _BUILTIN_ENGINE["slug"]:
+        if slug in _BUILTIN_ENGINE_SLUGS:
             raise HTTPException(status_code=409, detail=f"{slug!r} is a reserved built-in engine slug")
         desc = body.get("description")
         row = await db_module.create_procedural_engine(
@@ -3540,8 +3563,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine_id: str,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        if engine_id == _BUILTIN_ENGINE["id"]:
-            return JSONResponse(_BUILTIN_ENGINE)
+        if engine_id in _BUILTIN_ENGINE_IDS:
+            return JSONResponse(_BUILTIN_ENGINE_BY_ID[engine_id])
         pool = _require_catalog_pool(request)
         row = await _get_engine_in_scope(pool, engine_id, scope_obj)
         return JSONResponse(
@@ -3558,7 +3581,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         from .catalog import slugify, validate_engine_doc
 
-        if engine_id == _BUILTIN_ENGINE["id"]:
+        if engine_id in _BUILTIN_ENGINE_IDS:
             raise HTTPException(status_code=403, detail="the built-in engine is read-only")
         pool = _require_catalog_pool(request)
         row = await _get_engine_in_scope(pool, engine_id, scope_obj)
@@ -3575,7 +3598,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         slug = slugify(body.get("slug") or name)
         if not slug:
             raise HTTPException(status_code=400, detail="could not derive a slug")
-        if slug == _BUILTIN_ENGINE["slug"]:
+        if slug in _BUILTIN_ENGINE_SLUGS:
             raise HTTPException(status_code=409, detail=f"{slug!r} is a reserved built-in engine slug")
         desc = body.get("description")
         try:
@@ -3608,7 +3631,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine_id: str,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        if engine_id == _BUILTIN_ENGINE["id"]:
+        if engine_id in _BUILTIN_ENGINE_IDS:
             raise HTTPException(status_code=403, detail="the built-in engine cannot be deleted")
         pool = _require_catalog_pool(request)
         await _get_engine_in_scope(pool, engine_id, scope_obj)

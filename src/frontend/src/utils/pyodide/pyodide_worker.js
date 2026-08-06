@@ -310,19 +310,23 @@ async function ensureProceduralStack() {
 }
 
 // Compile a procedural doc (JSON string) to GLB bytes entirely in the browser.
-async function compileProcedural(docJson) {
+// engine (optional slug) selects a non-default engine resolved by the same
+// ada.topo_model.engines path the server uses; null/undefined = adapy-default.
+async function compileProcedural(docJson, engine) {
     await ensureProceduralStack();
     pyodide.globals.set("_pc_doc", docJson);
+    pyodide.globals.set("_pc_engine", engine || null);
     try {
         const result = await pyodide.runPythonAsync(`
 import ada.topo_model.wasm_compile as _pc
-_pc.compile_doc(_pc_doc)
+_pc.compile_doc(_pc_doc, engine=_pc_engine)
 `);
         const arr = result.toJs({create_proxies: false});
         result.destroy();
         return arr;
     } finally {
         try { pyodide.globals.delete("_pc_doc"); } catch (_) { /* fine */ }
+        try { pyodide.globals.delete("_pc_engine"); } catch (_) { /* fine */ }
     }
 }
 
@@ -557,7 +561,7 @@ self.onmessage = async (e) => {
         // adapy-default engine). data.doc is the cellbuilder commit JSON string.
         const reqId = data.reqId;
         try {
-            const bytes = await compileProcedural(data.doc);
+            const bytes = await compileProcedural(data.doc, data.engine);
             let heap = 0;
             try {
                 heap = pyodide._module.HEAP8.length;

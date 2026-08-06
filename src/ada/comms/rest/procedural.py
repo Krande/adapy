@@ -14,18 +14,30 @@ from functools import lru_cache
 PROCEDURAL_PREFIX = "_procedural/"
 
 
-def procedural_glb_key(model_id: str, revision: int) -> str:
+def _engine_suffix(engine: str | None) -> str:
+    """Cache-key suffix distinguishing a non-default engine's output. The default
+    engine keeps the bare key (backward compatible); any other engine's GLB is a
+    separate blob so selecting it never serves the default's cached bytes."""
+    if not engine or engine == "adapy-default":
+        return ""
+    # Keep the key filesystem/URL-safe (slugs are already, but be defensive).
+    safe = "".join(c if (c.isalnum() or c in "-_") else "-" for c in engine)
+    return f".{safe}"
+
+
+def procedural_glb_key(model_id: str, revision: int, engine: str | None = None) -> str:
     """Blob key for a compiled model revision. Revision-stamped so the worker's
-    cached-blob short-circuit makes recompiles of an unchanged revision free."""
-    return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}.glb"
+    cached-blob short-circuit makes recompiles of an unchanged revision free; the
+    (non-default) ``engine`` gets its own key so engine outputs cache separately."""
+    return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}{_engine_suffix(engine)}.glb"
 
 
-def procedural_detail_glb_key(model_id: str, revision: int) -> str:
+def procedural_detail_glb_key(model_id: str, revision: int, engine: str | None = None) -> str:
     """Blob key for the DETAIL level-of-detail compile of a model revision — a
     separate derived artifact from the simulation GLB (:func:`procedural_glb_key`),
     computed on demand when the user first opens the detail view. Revision-stamped
     the same way, so an unchanged revision's detail model is served from cache."""
-    return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}_detail.glb"
+    return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}_detail{_engine_suffix(engine)}.glb"
 
 
 def procedural_relocations_key(model_id: str) -> str:
