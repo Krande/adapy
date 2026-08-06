@@ -34,6 +34,7 @@ __all__ = [
     "TopoEquipment",
     "SystemConnection",
     "TopoSystem",
+    "TopoStructure",
     "beam_section_description_with_examples",
     "from_ada_obj",
     "from_ada_meta",
@@ -561,6 +562,7 @@ class TopoSystem(_TopoConfigBoundModel):
     SHEET_NAME: ClassVar[str] = "Systems"
     TAB_COLOR: ClassVar[str] = "4472C4"  # HEX string without '#'
 
+    STRUCTURE_NAME: Annotated[str | None, Field(description="Name of the structure the system belongs to")] = None
     NAME: Annotated[str, Field(description="Name of the system")]
     TYPE: Annotated[
         Literal["piping", "duct", "cable", "electrical"], Field(description="Service type of the system")
@@ -574,6 +576,35 @@ class TopoSystem(_TopoConfigBoundModel):
             json_schema_extra={"excel": {"codec": "jsonlist"}},
         ),
     ]
+
+
+class TopoStructure(_TopoConfigBoundModel):
+    """One topology model ("structure") in a multi-structure procedural model — a
+    named group of spaces/equipment/systems/openings (tagged by ``STRUCTURE_NAME``)
+    placed at an origin. A workbook's ``Structures`` sheet lists them; the
+    :class:`~ada.topo_model.multi_builder.ProceduralMultiBuilder` compiles each and
+    places it at ``(X, Y, Z)``.
+
+    The columns mirror the ``Structures`` sheet of the sibling procedural-modelling
+    tool, so a workbook round-trips between the two. adapy uses ``NAME`` +
+    ``X``/``Y``/``Z`` + ``INCLUDE``; ``MODEL_INPUT``/``BLUEPRINT``/``CONDITION_NAME``
+    are carried for that tool's compatibility (typed permissively here)."""
+
+    SHEET_NAME: ClassVar[str] = "Structures"
+    TAB_COLOR: ClassVar[str] = "C00000"  # HEX string without '#'
+
+    INCLUDE: Annotated[bool, Field(description="Include this structure in the build")] = True
+    NAME: Annotated[str, Field(description="Name of the structure")]
+    X: Annotated[float, Field(description="X-coordinate of the structure origin")] = 0.0
+    Y: Annotated[float, Field(description="Y-coordinate of the structure origin")] = 0.0
+    Z: Annotated[float, Field(description="Z-coordinate of the structure origin")] = 0.0
+    # Carried for the sibling tool's Structures sheet (adapy does not act on these).
+    MODEL_INPUT: Annotated[str | None, Field(description="External model input (e.g. SPACES/SECTION_LOFT)")] = "SPACES"
+    BLUEPRINT: Annotated[str | None, Field(description="External blueprint name")] = "Framework with deck"
+    CONDITION_NAME: Annotated[str | None, Field(description="External condition name")] = None
+
+    def origin(self) -> tuple[float, float, float]:
+        return (float(self.X or 0.0), float(self.Y or 0.0), float(self.Z or 0.0))
 
 
 def from_ada_obj(obj: ada.PrimBox) -> TopoSpace | TopoOpening | TopoEquipment:

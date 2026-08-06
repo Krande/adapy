@@ -37,8 +37,9 @@ from dataclasses import dataclass, field
 from typing import Callable, Literal
 
 import ada
+from ada.config import logger
 from ada.topology import TopologyBuilder
-from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace, TopoSystem
+from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace, TopoStructure, TopoSystem
 
 from .blueprint import SteelStru
 from .compile import (
@@ -86,6 +87,12 @@ class ProceduralBuilder:
     equipments: list[TopoEquipment] = field(default_factory=list)
     systems: list[TopoSystem] = field(default_factory=list)
     openings: list[TopoOpening] = field(default_factory=list)
+    # Optional multi-structure grouping: 1..N topology models placed at their
+    # origins. Empty = a single implicit structure (spaces build as-is, today's
+    # behaviour). When present, spaces/openings are grouped by STRUCTURE_NAME and
+    # each structure is built + placed; equipment and systems stay a SINGLE shared
+    # layer (not duplicated per structure).
+    structures: list[TopoStructure] = field(default_factory=list)
     name: str = "ProceduralModel"
     blueprint_name: BlueprintName = "steel_stru"
     blueprint_options: dict = field(default_factory=dict)
@@ -102,6 +109,9 @@ class ProceduralBuilder:
 
     # Built up across the compile phases (None/empty until their phase runs).
     topology: TopologyBuilder | None = field(init=False, default=None)
+    # Per-structure topology engines (multi-structure builds); the primary
+    # (first) one is also exposed as ``topology`` for back-compat.
+    topologies: dict[str, TopologyBuilder] = field(init=False, default_factory=dict)
     blueprint: SteelStru | None = field(init=False, default=None)
     assembly: ada.Assembly | None = field(init=False, default=None)
     equipment_map: dict[str, ada.Equipment] = field(init=False, default_factory=dict)
@@ -117,6 +127,7 @@ class ProceduralBuilder:
         self.equipments = [e if isinstance(e, TopoEquipment) else TopoEquipment(**e) for e in self.equipments]
         self.systems = [s if isinstance(s, TopoSystem) else TopoSystem(**s) for s in self.systems]
         self.openings = [o if isinstance(o, TopoOpening) else TopoOpening(**o) for o in self.openings]
+        self.structures = [s if isinstance(s, TopoStructure) else TopoStructure(**s) for s in self.structures]
         # Whitelist the structural options so an unknown key can't reach SteelStru.
         self.blueprint_options = {k: v for k, v in dict(self.blueprint_options).items() if k in _BLUEPRINT_OPTION_KEYS}
         # Resolve a named/absent ruleset to a DesignRules; keep the slug for round-trip.
@@ -149,6 +160,7 @@ class ProceduralBuilder:
             equipments=[TopoEquipment(**e) for e in doc.get("equipments", [])],
             systems=[TopoSystem(**s) for s in doc.get("systems", [])],
             openings=[TopoOpening(**o) for o in doc.get("openings", [])],
+            structures=[TopoStructure(**s) for s in doc.get("structures", [])],
             name=name,
             blueprint_name=blueprint_name,
             blueprint_options=doc.get("blueprint") or {},
@@ -179,13 +191,14 @@ class ProceduralBuilder:
         arguments override the workbook's ``Model`` sheet values."""
         from .excel import read_procedural_excel
 
-        data = read_procedural_excel(path)
+        data = read_procedural_excel(path, multi=True)
         meta = data["meta"]
         return cls(
             spaces=data["spaces"],
             equipments=data["equipments"],
             openings=data["openings"],
             systems=data["systems"],
+            structures=data.get("structures", []),
             name=kwargs.get("name", meta.NAME),
             blueprint_name=kwargs.get("blueprint_name", meta.BLUEPRINT),
             blueprint_options=kwargs.get("blueprint_options", meta.blueprint_options()),
@@ -211,6 +224,8 @@ class ProceduralBuilder:
             "openings": [o.model_dump(mode="json", exclude_none=True) for o in self.openings],
             "systems": [s.model_dump(mode="json", exclude_none=True) for s in self.systems],
         }
+        if self.structures:
+            doc["structures"] = [s.model_dump(mode="json") for s in self.structures]
         if self.blueprint_options:
             doc["blueprint"] = dict(self.blueprint_options)
         if self.design_rules_slug is not None:
@@ -262,36 +277,76 @@ class ProceduralBuilder:
         """Spaces -> ``PrimBox`` es -> topology + structural blueprint -> assembly.
 
         Wires the ``.procedural`` root reference onto the blueprint and cell
-        graph, then cuts the openings into the built plates and (in detail mode)
-        models the I-girder joints. With ``blueprint_name='none'`` the raw space
-        boxes are wrapped in a ``Spaces`` part and no topology is built."""
-        boxes = [_space_to_box(s) for s in self.spaces]
+        graph, cuts openings into the built plates and (in detail mode) models the
+        I-girder joints. With ``blueprint_name='none'`` the raw space boxes are
+        wrapped in a ``Spaces`` part and no topology is built.
 
-        if self.blueprint_name != "steel_stru":
-            self.assembly = ada.Assembly(self.name) / (ada.Part("Spaces") / boxes)
+        With no :attr:`structures` this builds a single model (the common case,
+        unchanged). With structures present it builds one topology model per
+        structure — spaces/openings grouped by ``STRUCTURE_NAME`` — and places
+        each at its origin in a combined assembly. Equipment and systems are added
+        once (a single shared layer) over the primary (first) structure."""
+        if not self.structures:
+            self.assembly, topo, bp = self._build_structure_group(self.spaces, self.openings, self.name)
+            self.topology, self.blueprint = topo, bp
+            if topo is not None:
+                self.topologies[self.name] = topo
             return
 
-        self.blueprint = SteelStru(**self.blueprint_options)
-        self.topology = TopologyBuilder.from_prim_boxes(boxes, blueprint=self.blueprint)
+        self.assembly = ada.Assembly(self.name)
+        for st in self.structures:
+            if not st.INCLUDE:
+                continue
+            st_spaces = [s for s in self.spaces if (s.STRUCTURE_NAME or None) == st.NAME]
+            if not st_spaces:
+                logger.warning("procedural: structure %r has no spaces; skipping", st.NAME)
+                continue
+            st_openings = [o for o in self.openings if (o.STRUCTURE_NAME or None) == st.NAME]
+            sub, topo, bp = self._build_structure_group(st_spaces, st_openings, st.NAME)
+            if topo is not None:
+                self.topologies[st.NAME] = topo
+                if self.topology is None:  # primary = first built structure
+                    self.topology, self.blueprint = topo, bp
+            # Place the structure's built parts at its origin.
+            origin = st.origin()
+            wrapper = (
+                ada.Part(st.NAME)
+                if origin == (0.0, 0.0, 0.0)
+                else ada.Part(st.NAME, placement=ada.Placement(origin=ada.Point(*origin)))
+            )
+            for part in list(sub.parts.values()):
+                wrapper.add_part(part)
+            self.assembly.add_part(wrapper)
+
+    def _build_structure_group(
+        self, spaces: list[TopoSpace], openings: list[TopoOpening], name: str
+    ) -> tuple[ada.Assembly, TopologyBuilder | None, SteelStru | None]:
+        """Build one structure's topology + blueprint (+ openings + joints) from
+        ``spaces``/``openings`` and return ``(assembly, topology, blueprint)``.
+        ``blueprint_name='none'`` renders the raw boxes (topology/blueprint None)."""
+        boxes = [_space_to_box(s) for s in spaces]
+        if self.blueprint_name != "steel_stru":
+            return ada.Assembly(name) / (ada.Part("Spaces") / boxes), None, None
+
+        bp = SteelStru(**self.blueprint_options)
+        topo = TopologyBuilder.from_prim_boxes(boxes, blueprint=bp)
         # Root back-references: the blueprint (and any GraphFace, via
         # face.parent_cell.cell_graph.procedural) can now reach the whole model.
-        self.blueprint.procedural = self
-        self.topology.cell_graph.procedural = self
-        self.topology.build()
-        self.assembly = self.topology.get_output_assembly(self.name)
+        bp.procedural = self
+        topo.cell_graph.procedural = self
+        topo.build()
+        a = topo.get_output_assembly(name)
 
         # Negative-volume openings cut the built wall/floor plates and add their
-        # door/window reinforcement framing (no-op when there are no openings).
-        # exclude_none so a sparsely-specified opening (e.g. a global-coords one
-        # with no SPACE_NAME) is not re-validated with an explicit None against a
-        # non-optional field — the fields default to None when simply absent.
-        _apply_openings(
-            self.blueprint, self.assembly, self.spaces, [o.model_dump(exclude_none=True) for o in self.openings]
-        )
+        # door/window reinforcement framing (no-op when there are none). exclude_none
+        # so a sparsely-specified opening is not re-validated with an explicit None
+        # against a non-optional field — the fields default to None when absent.
+        _apply_openings(bp, a, spaces, [o.model_dump(exclude_none=True) for o in openings])
         # Detail mode upgrades each I-girder to I-girder intersection into a
         # modelled joint (gusset plate + weld beads); sim mode is untouched.
         if self.detail:
-            _apply_girder_joints(self.assembly)
+            _apply_girder_joints(a)
+        return a, topo, bp
 
     def build_equipment(self) -> None:
         """Place each equipment entity into the assembly under an ``Equipment``

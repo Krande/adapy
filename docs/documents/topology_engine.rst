@@ -391,6 +391,37 @@ The functional ``compile_procedural_doc(doc, ...)`` is a thin wrapper over
 intermediate model, or the object/Excel round-trips; the function for a one-shot
 document compile.
 
+Multiple structures in one model
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A single document (or workbook) can carry **several** topology models —
+*structures* — each a named group of spaces/openings placed at its own origin. A
+``Structures`` sheet (:class:`~ada.topology.entities.TopoStructure`: ``NAME`` +
+``X``/``Y``/``Z``) lists them, and every entity is tagged with its
+``STRUCTURE_NAME``:
+
+.. code-block:: python
+
+    doc = {
+        "structures": [
+            {"NAME": "Deck_A", "X": 0, "Y": 0, "Z": 0},
+            {"NAME": "Deck_B", "X": 20, "Y": 0, "Z": 0},
+        ],
+        "spaces": [
+            {"NAME": "A1", "STRUCTURE_NAME": "Deck_A", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3},
+            {"NAME": "B1", "STRUCTURE_NAME": "Deck_B", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3},
+        ],
+    }
+    glb_bytes = ProceduralBuilder.from_dict(doc).compile()
+
+The same ``ProceduralBuilder`` builds one topology model per structure (grouped by
+``STRUCTURE_NAME``) and places each at its origin — no separate multi-builder.
+Equipment and systems stay a **single shared layer** (not duplicated per
+structure). With no ``structures`` the whole document is one implicit model, so a
+plain single-structure build is unchanged. The ``Structures`` sheet + entity
+``STRUCTURE_NAME`` mirror the sibling procedural-modelling tool's workbook, so a
+model round-trips between the two.
+
 Reading the catalog from Python
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

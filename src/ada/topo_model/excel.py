@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Literal
 from pydantic import BaseModel, Field
 
 from ada.serialize.xlsx import WorkbookSerializer
-from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace, TopoSystem
+from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace, TopoStructure, TopoSystem
 
 if TYPE_CHECKING:
     from .builder import ProceduralBuilder
@@ -96,38 +96,44 @@ class ProceduralModelMeta(BaseModel):
         return cls(**kwargs)
 
 
-# One sheet per entity type; the Model sheet is registered last.
+# One sheet per entity type; the Model sheet is registered last. The multi variant
+# also carries a ``Structures`` sheet (one topology model per row).
 _ENTITY_MODELS = (TopoSpace, TopoEquipment, TopoOpening, TopoSystem)
 
 
-def _serializer() -> WorkbookSerializer:
+def _serializer(multi: bool = False) -> WorkbookSerializer:
     s = WorkbookSerializer()
-    for model in (*_ENTITY_MODELS, ProceduralModelMeta):
+    models = (TopoStructure, *_ENTITY_MODELS) if multi else _ENTITY_MODELS
+    for model in (*models, ProceduralModelMeta):
         s.register(model)
     return s
 
 
 def write_procedural_excel(builder: "ProceduralBuilder", path: str | pathlib.Path) -> None:
-    """Write ``builder``'s owned model to a workbook at ``path``."""
-    instances = [
-        *builder.spaces,
-        *builder.equipments,
-        *builder.openings,
-        *builder.systems,
-        ProceduralModelMeta.from_builder(builder),
-    ]
-    _serializer().write(instances, str(path))
+    """Write ``builder``'s owned model to a workbook at ``path``. When the builder
+    has structures, a ``Structures`` sheet is added (the entities already carry
+    their ``STRUCTURE_NAME``)."""
+    multi = bool(builder.structures)
+    instances: list = [*builder.spaces, *builder.equipments, *builder.openings, *builder.systems]
+    if multi:
+        instances = [*builder.structures, *instances]
+    instances.append(ProceduralModelMeta.from_builder(builder))
+    _serializer(multi=multi).write(instances, str(path))
 
 
-def read_procedural_excel(path: str | pathlib.Path) -> dict:
-    """Read a procedural workbook into ``{"spaces","equipments","openings",
-    "systems","meta"}`` (entity lists + a single :class:`ProceduralModelMeta`)."""
-    by_type = _serializer().read(str(path))
+def read_procedural_excel(path: str | pathlib.Path, multi: bool = False) -> dict:
+    """Read a procedural workbook into entity lists + a single
+    :class:`ProceduralModelMeta`. With ``multi=True`` the ``Structures`` sheet is
+    parsed too (``"structures"`` in the result)."""
+    by_type = _serializer(multi=multi).read(str(path))
     meta_rows = by_type.get(ProceduralModelMeta) or [ProceduralModelMeta()]
-    return {
+    out = {
         "spaces": by_type.get(TopoSpace, []),
         "equipments": by_type.get(TopoEquipment, []),
         "openings": by_type.get(TopoOpening, []),
         "systems": by_type.get(TopoSystem, []),
         "meta": meta_rows[0],
     }
+    if multi:
+        out["structures"] = by_type.get(TopoStructure, [])
+    return out
