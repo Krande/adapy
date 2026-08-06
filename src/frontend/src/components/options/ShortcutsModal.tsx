@@ -39,6 +39,13 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
         keys: ["Shift", "C"],
         description: "Copy selected object names to the clipboard",
       },
+      {
+        keys: ["Shift", "↑"],
+        description: "Select the parent level of the current selection (tree up)",
+      },
+      { keys: ["Shift", "↓"], description: "Select the first child level (tree down)" },
+      { keys: ["Shift", "←"], description: "Select the previous sibling" },
+      { keys: ["Shift", "→"], description: "Select the next sibling" },
     ],
   },
   {

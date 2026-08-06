@@ -9,6 +9,7 @@ import CameraControls from "camera-controls";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
 import {hideSelectedRanges, unhideAllRanges} from "@/utils/scene/visibility";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
+import {selectChildLevel, selectParentLevel, selectSibling} from "@/utils/tree_view/treeNavigation";
 
 export function setupCameraControlsHandlers(
     scene: THREE.Scene,
@@ -89,6 +90,23 @@ export function setupCameraControlsHandlers(
             void copySelectionNames(selectedObjects).then((n) => {
                 if (n === 0) console.warn("Shift+C: nothing copied");
             });
+        } else if (shift && key === "arrowup") {
+            // Tree-level traversal from the current selection (Shift is the
+            // "activate traversal" modifier). Up = parent level; Down = first
+            // child; Left/Right = previous/next sibling. Never opens the tree
+            // panel — see utils/tree_view/treeNavigation. preventDefault stops
+            // the arrows from also scrolling the page.
+            event.preventDefault();
+            void selectParentLevel();
+        } else if (shift && key === "arrowdown") {
+            event.preventDefault();
+            void selectChildLevel();
+        } else if (shift && key === "arrowleft") {
+            event.preventDefault();
+            void selectSibling(-1);
+        } else if (shift && key === "arrowright") {
+            event.preventDefault();
+            void selectSibling(1);
         }
     };
 

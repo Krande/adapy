@@ -10,6 +10,7 @@ import {zoomToAll} from '@/components/viewer/sceneHelpers/setupCameraControlsHan
 import {sceneRef, cameraRef, controlsRef} from '@/state/refs';
 import {requestRender} from '@/state/perfStore';
 import {useCellBuilderStore} from '@/state/cellBuilderStore';
+import {parentLevelName, selectParentLevel} from '@/utils/tree_view/treeNavigation';
 import ObjectMetadataPanel from './ObjectMetadataPanel';
 import CellBuilderSelectionInfo from './CellBuilderSelectionInfo';
 
@@ -58,6 +59,17 @@ const ObjectInfoBox = () => {
     // doesn't strand what you hid.
     const treeData = useTreeViewStore((s) => s.treeData);
     const hasEntities = treeData != null || (cbActive && Object.keys(cbCells).length > 0);
+
+    // Tree-level "up": the parent level the current selection would climb to.
+    // null hides the arrow (nothing selected, already at a file root, or a
+    // cellbuilder selection — cells aren't tree nodes). Recomputed when the
+    // selection or the tree changes. Desktop uses Shift+ArrowUp instead, so the
+    // button itself is mobile-only.
+    const parentName = React.useMemo(
+        () => (cellCtx ? null : parentLevelName()),
+        [selectedObjects, treeData, cellCtx],
+    );
+    const onSelectParent = () => void selectParentLevel();
 
     // Total drawRangeIds across all selected meshes — that's the
     // count of "things selected" the user thinks of (one per
@@ -179,12 +191,17 @@ const ObjectInfoBox = () => {
                             />
                         </div>
                     </div>
-                    <div className="sm:hidden break-all">
-                        <NameCopyButton
-                            name={displayName}
-                            copied={copied === "single"}
-                            onCopy={onCopySingle}
-                        />
+                    <div className="sm:hidden flex items-start gap-1">
+                        {parentName && (
+                            <ParentUpButton parentName={parentName} onUp={onSelectParent}/>
+                        )}
+                        <div className="break-all flex-1">
+                            <NameCopyButton
+                                name={displayName}
+                                copied={copied === "single"}
+                                onCopy={onCopySingle}
+                            />
+                        </div>
                     </div>
                 </>
             )}
@@ -355,6 +372,28 @@ const NameCopyButton: React.FC<{
     >
         {copied ? `${name} ✓` : name}
     </button>
+);
+
+// Up-a-level button next to the selected name. Selects the parent tree level of
+// the current selection; the tooltip names that parent. Mobile-only — desktop
+// climbs with Shift+ArrowUp (see setupCameraControlsHandlers). Does not open the
+// tree panel. Rendered only when a parent level exists.
+const ParentUpButton: React.FC<{parentName: string; onUp: () => void}> = ({parentName, onUp}) => (
+    <button
+        type="button"
+        onClick={onUp}
+        className="shrink-0 mt-0.5 bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white rounded-sm p-1 inline-flex items-center"
+        title={`Select parent level: ${parentName}`}
+        aria-label={`Select parent level: ${parentName}`}
+    >
+        <ChevronUpIcon/>
+    </button>
+);
+
+const ChevronUpIcon: React.FC = () => (
+    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+        <path d="M3.5 10 8 5.5 12.5 10"/>
+    </svg>
 );
 
 // Inline SVG icons. Inherit ``currentColor`` so they pick up the
