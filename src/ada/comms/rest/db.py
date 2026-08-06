@@ -3485,6 +3485,19 @@ async def update_procedural_engine(
     return None if row is None else row["revision"]
 
 
+async def set_procedural_engine_wheel(pool: asyncpg.Pool, engine_id: str, wheel_key: str | None) -> bool:
+    """Record (or clear) a built engine's wheel pointer in its manifest doc
+    WITHOUT bumping the revision — a background build must not race the user's
+    optimistic commits (mirrors :func:`apply_inferred_bbox`)."""
+    res = await pool.execute(
+        "UPDATE procedural_engines SET doc = jsonb_set(doc, '{wheel_key}', $2::jsonb, true), "
+        "updated_at = now() WHERE id = $1 AND NOT archived",
+        engine_id,
+        json.dumps(wheel_key),
+    )
+    return res.endswith("1")
+
+
 async def archive_procedural_engine(pool: asyncpg.Pool, engine_id: str) -> bool:
     res = await pool.execute(
         "UPDATE procedural_engines SET archived = TRUE, updated_at = now() WHERE id = $1 AND NOT archived",

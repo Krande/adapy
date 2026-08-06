@@ -12,6 +12,20 @@ from __future__ import annotations
 from functools import lru_cache
 
 PROCEDURAL_PREFIX = "_procedural/"
+# Hidden prefix for built external-engine wheels (see HIDDEN_PREFIXES).
+ENGINE_PREFIX = "_engines/"
+
+
+def engine_wheel_dir(engine_id: str) -> str:
+    """Blob-key prefix under which a ``kind:wheel`` engine's built wheel lives."""
+    return f"{ENGINE_PREFIX}{engine_id}/"
+
+
+def engine_wheel_key(engine_id: str, filename: str) -> str:
+    """Blob key for a built engine wheel (``_engines/{id}/{filename}``). The
+    filename is pip's ``name-version-py3-none-any.whl`` — micropip parses it, so
+    it must be preserved verbatim."""
+    return f"{engine_wheel_dir(engine_id)}{filename}"
 
 
 def _engine_suffix(engine: str | None) -> str:

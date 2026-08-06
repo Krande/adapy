@@ -3571,6 +3571,55 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {k: row[k] for k in ("id", "slug", "name", "description", "doc", "revision", "created_by", "updated_at")}
         )
 
+    @api.get("/scopes/{scope}/procedural-engines/{engine_id}/resolve")
+    async def api_procedural_engines_resolve(
+        request: Request,
+        engine_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Resolve an engine to a BROWSER-runnable descriptor for the in-browser
+        (Pyodide) compile: a built-in engine returns its slug + entrypoint; a
+        ``kind:wheel`` engine returns its ``module:callable`` entrypoint, the
+        ``pyodide_deps`` to micropip-install, and a presigned ``wheel_url`` (when
+        the wheel has been built — ``ready``). A ``kind:server`` engine is not
+        browser-runnable (``ready: false``)."""
+
+        def _builtin(b: dict) -> JSONResponse:
+            return JSONResponse(
+                {"kind": "builtin", "slug": b["slug"], "entrypoint": b["doc"]["entrypoint"], "ready": True}
+            )
+
+        if engine_id in _BUILTIN_ENGINE_IDS:
+            return _builtin(_BUILTIN_ENGINE_BY_ID[engine_id])
+        pool = _require_catalog_pool(request)
+        row = await _get_engine_in_scope(pool, engine_id, scope_obj)
+        doc = row.get("doc") or {}
+        kind = doc.get("kind", "builtin")
+        if kind == "builtin":
+            return JSONResponse(
+                {"kind": "builtin", "slug": row["slug"], "entrypoint": doc.get("entrypoint"), "ready": True}
+            )
+        if kind == "wheel":
+            wheel_key = doc.get("wheel_key")
+            wheel_url = None
+            ready = False
+            if wheel_key and storage.supports_presigned_uploads:
+                meta = await storage.head(scope_obj, wheel_key)
+                if meta is not None:
+                    wheel_url = await storage.presigned_get_url(scope_obj, wheel_key, expires_in_seconds=15 * 60)
+                    ready = True
+            return JSONResponse(
+                {
+                    "kind": "wheel",
+                    "entrypoint": doc.get("entrypoint"),
+                    "pyodide_deps": doc.get("pyodide_deps") or [],
+                    "wheel_url": wheel_url,
+                    "ready": ready,
+                }
+            )
+        # server (or unknown): native-only, not runnable in the browser.
+        return JSONResponse({"kind": kind, "entrypoint": doc.get("entrypoint"), "ready": False})
+
     @api.put("/scopes/{scope}/procedural-engines/{engine_id}")
     async def api_procedural_engines_update(
         request: Request,
@@ -3622,6 +3671,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=409,
                 detail={"message": "revision conflict", "current_revision": current["revision"] if current else None},
+            )
+        # A kind:wheel engine needs its wheel (re)built from the repo whenever the
+        # manifest changes; enqueue the build worker (it clones + builds + stores
+        # the wheel under _engines/ and records wheel_key). force so a manifest
+        # edit at an unchanged spot still rebuilds.
+        if normalized.get("kind") == "wheel" and queue.enabled:
+            from .procedural import engine_wheel_dir
+
+            await queue.enqueue(
+                f"_synthetic/engine-build/{engine_id}/r{new_rev}",
+                target_format="procedural_engine_build",
+                scope_kind=scope_obj.kind,
+                scope_id=scope_obj.id,
+                conversion_options={"engine_id": engine_id},
+                derived_key=engine_wheel_dir(engine_id),
+                force_rebuild=True,
             )
         return JSONResponse({"id": row["id"], "revision": new_rev})
 

@@ -1838,6 +1838,21 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       const active = get().active;
       if (!active) return;
       const label = lod === "detail" ? `${active.name} (detail)` : active.name;
+      // External (non-builtin) engines aren't wired for the server compile yet —
+      // they run in-browser (the wheel is micropip-installed). Steer the user to
+      // "Compile in browser" instead of a confusing worker "unknown engine" error.
+      const engSlug = get().selectedEngine;
+      if (engSlug && engSlug !== "adapy-default") {
+        const eng = get().engines.find((e) => e.slug === engSlug);
+        if (eng && eng.origin !== "builtin") {
+          setProceduralToast(label, {
+            status: "error",
+            stage: "engine is browser-only",
+            error: 'This engine runs in the browser — use "Compile in browser".',
+          });
+          return;
+        }
+      }
       // Announce the task on the global toast panel right away (before the
       // enqueue round-trip resolves), then keep the same toast updated through
       // the poll below — mirrors how conversion/FEA feed conversionStore.
@@ -1998,9 +2013,46 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         const { load_glb_from_bytes } = await import(
           "@/utils/scene/handlers/view_file_object_from_server"
         );
+        // Resolve the engine for the browser: a built-in slug (e.g. echo)
+        // dispatches directly; a kind:wheel engine is micropip-installed from its
+        // presigned wheel URL then dispatched via its entrypoint; a server engine
+        // can't run in-browser.
+        const engineSlug = get().selectedEngine;
+        let engineArg: string | null =
+          engineSlug && engineSlug !== "adapy-default" ? engineSlug : null;
+        let wheel: { entrypoint: string; deps: string[]; url: string } | null =
+          null;
+        if (engineArg) {
+          const eng = get().engines.find((e) => e.slug === engineSlug);
+          if (eng && eng.origin !== "builtin") {
+            const resolved = await viewerApi.resolveProceduralEngine(
+              currentScopePart(),
+              eng.id,
+            );
+            if (resolved.kind === "wheel") {
+              if (!resolved.ready || !resolved.wheel_url || !resolved.entrypoint)
+                throw new Error(
+                  "engine wheel is not built yet — try again shortly",
+                );
+              wheel = {
+                entrypoint: resolved.entrypoint,
+                deps: resolved.pyodide_deps ?? [],
+                url: resolved.wheel_url,
+              };
+              engineArg = null; // dispatch happens via the wheel entrypoint
+            } else if (resolved.kind === "server") {
+              throw new Error(
+                "this engine runs server-side only — use Compile, not in-browser",
+              );
+            } else if (resolved.entrypoint) {
+              engineArg = resolved.entrypoint;
+            }
+          }
+        }
         const bytes = await compileProceduralViaPyodide(doc, {
           onLog: (m) => setProceduralToast(label, { stage: m }),
-          engine: get().selectedEngine,
+          engine: engineArg,
+          wheel,
         });
         const sourceName = `procedural:${active.name}`;
         await load_glb_from_bytes(bytes, sourceName);

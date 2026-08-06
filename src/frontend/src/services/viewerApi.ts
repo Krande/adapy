@@ -1222,6 +1222,18 @@ export interface ProceduralEngineDetail extends ProceduralEngineSummary {
   doc: ProceduralEngineDoc;
 }
 
+/** A browser-runnable engine descriptor (from /procedural-engines/{id}/resolve).
+ * builtin: dispatch by slug. wheel: micropip-install `wheel_url` (+ pyodide_deps)
+ * then dispatch to `entrypoint`. server: not browser-runnable (`ready:false`). */
+export interface ProceduralEngineResolved {
+  kind: ProceduralEngineKind;
+  slug?: string;
+  entrypoint: string | null;
+  pyodide_deps?: string[];
+  wheel_url?: string | null;
+  ready: boolean;
+}
+
 export const viewerApi = {
   /** Direct URL for the addressable blob endpoint. Includes scope.
    * Only safe to use as `<a href download>` when auth is disabled —
@@ -2354,6 +2366,23 @@ export const viewerApi = {
       procedural_engines: ProceduralEngineSummary[];
     }>(r, `listProceduralEngines(${scope})`);
     return body.procedural_engines;
+  },
+
+  /** Resolve an engine to a browser-runnable descriptor for the in-browser
+   * (Pyodide) compile: a built-in returns its slug; a kind:wheel engine returns
+   * its module:callable entrypoint, the micropip deps and a presigned wheel URL
+   * (when built — `ready`). A kind:server engine is not browser-runnable. */
+  async resolveProceduralEngine(
+    scope: ScopeUrl,
+    engineId: string,
+  ): Promise<ProceduralEngineResolved> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-engines/${encodeURIComponent(engineId)}/resolve`,
+    );
+    return jsonOrThrow<ProceduralEngineResolved>(
+      r,
+      `resolveProceduralEngine(${engineId})`,
+    );
   },
 
   async createProceduralEngine(

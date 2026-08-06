@@ -183,9 +183,21 @@ export async function convertViaPyodide(
  * the built-in adapy engine (ada.topo_model.wasm_compile.compile_doc). `doc` is
  * the cellbuilder commit document; it is JSON-stringified and handed to the
  * warm Pyodide worker. No server round-trip. */
+/** A kind:wheel engine descriptor: micropip-install the wheel (+ deps) then
+ * dispatch to its module:callable entrypoint. */
+export interface PyodideEngineWheel {
+    entrypoint: string;
+    deps: string[];
+    url: string;
+}
+
 export async function compileProceduralViaPyodide(
     doc: unknown,
-    opts?: {onLog?: (msg: string) => void; engine?: string | null},
+    opts?: {
+        onLog?: (msg: string) => void;
+        engine?: string | null;
+        wheel?: PyodideEngineWheel | null;
+    },
 ): Promise<Uint8Array> {
     if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
         killWorker();
@@ -193,10 +205,11 @@ export async function compileProceduralViaPyodide(
     const worker = await ensurePyodideWorker(opts?.onLog);
     const reqId = nextReqId++;
     const result = awaitWorkerResult(worker, reqId, opts?.onLog);
-    // engine selects a non-default procedural engine (must be importable in the
-    // loaded adapy wheel — the built-in echo qualifies; external wheels do not yet).
+    // engine = a built-in slug (echo) dispatched directly; wheel = an external
+    // engine the worker micropip-installs, then dispatches via its entrypoint.
     const engine = opts?.engine && opts.engine !== "adapy-default" ? opts.engine : null;
-    worker.postMessage({type: "procedural-compile", reqId, doc: JSON.stringify(doc), engine});
+    const wheel = opts?.wheel ?? null;
+    worker.postMessage({type: "procedural-compile", reqId, doc: JSON.stringify(doc), engine, wheel});
     return result;
 }
 

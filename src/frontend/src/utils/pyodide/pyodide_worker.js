@@ -310,12 +310,34 @@ async function ensureProceduralStack() {
 }
 
 // Compile a procedural doc (JSON string) to GLB bytes entirely in the browser.
-// engine (optional slug) selects a non-default engine resolved by the same
-// ada.topo_model.engines path the server uses; null/undefined = adapy-default.
-async function compileProcedural(docJson, engine) {
+// engine (optional slug) selects a built-in non-default engine (e.g. echo). wheel
+// (optional {entrypoint, deps, url}) is an EXTERNAL engine: micropip-install its
+// deps + wheel, then dispatch to its module:callable entrypoint — the same
+// ada.topo_model.engines resolution the server uses.
+async function compileProcedural(docJson, engine, wheel) {
     await ensureProceduralStack();
+    let effectiveEngine = engine || null;
+    if (wheel && wheel.url && wheel.entrypoint) {
+        log("Installing external engine wheel…");
+        pyodide.globals.set("_pc_wheel_url", wheel.url);
+        pyodide.globals.set("_pc_wheel_deps_json", JSON.stringify(wheel.deps || []));
+        try {
+            await pyodide.runPythonAsync(`
+import json, micropip
+_deps = json.loads(_pc_wheel_deps_json)
+if _deps:
+    await micropip.install(_deps)
+await micropip.install(_pc_wheel_url)
+`);
+        } finally {
+            try { pyodide.globals.delete("_pc_wheel_url"); } catch (_) { /* fine */ }
+            try { pyodide.globals.delete("_pc_wheel_deps_json"); } catch (_) { /* fine */ }
+        }
+        // Dispatch via the wheel's module:callable entrypoint (engines resolves ":").
+        effectiveEngine = wheel.entrypoint;
+    }
     pyodide.globals.set("_pc_doc", docJson);
-    pyodide.globals.set("_pc_engine", engine || null);
+    pyodide.globals.set("_pc_engine", effectiveEngine);
     try {
         const result = await pyodide.runPythonAsync(`
 import ada.topo_model.wasm_compile as _pc
@@ -561,7 +583,7 @@ self.onmessage = async (e) => {
         // adapy-default engine). data.doc is the cellbuilder commit JSON string.
         const reqId = data.reqId;
         try {
-            const bytes = await compileProcedural(data.doc, data.engine);
+            const bytes = await compileProcedural(data.doc, data.engine, data.wheel);
             let heap = 0;
             try {
                 heap = pyodide._module.HEAP8.length;
