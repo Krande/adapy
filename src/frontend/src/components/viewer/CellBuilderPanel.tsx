@@ -7,6 +7,7 @@ import {
 } from "@/state/cellBuilderStore";
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 import { useTypeIconsStore } from "@/state/typeIconsStore";
+import { useTreeViewStore } from "@/state/treeViewStore";
 import {
   highlightSystems,
   revertSystemHighlight,
@@ -103,6 +104,31 @@ const SystemsInspector: React.FC = () => {
     .filter((c) => c.kind === "equipment")
     .map((c) => c.name);
   const systems = Object.values(s.systems);
+
+  // Per-system colour highlighting is ON by default: whenever a compiled result
+  // is shown (its draw-ranges resolve once the model tree is built), auto-tint
+  // each system with its own colour. Done once per loaded result (tracked by
+  // source name) so a manual Revert sticks; reset when the result is unloaded
+  // (back to the topology view) so the next result re-highlights.
+  const treeData = useTreeViewStore((st) => st.treeData);
+  const activeResultSrc = s.detailSourceName ?? s.resultSourceName ?? null;
+  const autoHighlightedSrc = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!activeResultSrc) {
+      if (highlighted) {
+        revertSystemHighlight();
+        setHighlighted(false);
+      }
+      autoHighlightedSrc.current = null;
+      return;
+    }
+    if (autoHighlightedSrc.current === activeResultSrc || systems.length === 0) return;
+    const n = highlightSystems(systems.map((sys) => sys.name));
+    if (n > 0) {
+      autoHighlightedSrc.current = activeResultSrc;
+      setHighlighted(true);
+    }
+  }, [activeResultSrc, treeData, systems.length, highlighted]);
   const effectiveSlug = addSlug ?? s.systemTypes[0]?.slug ?? null;
   const selectedAdd =
     s.systemTypes.find((t) => t.slug === effectiveSlug) ?? null;
