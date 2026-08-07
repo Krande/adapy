@@ -1,19 +1,26 @@
-import {createRoot} from 'react-dom/client';
-import App from './app';
+import { createRoot } from "react-dom/client";
+import App from "./app";
 import React from "react";
-import {initWebSocket} from "./utils/websocket/initWebSocket";
-import {load_base64_model} from "./utils/scene/handlers/update_scene_from_message";
-import {runtime} from "@/runtime/config";
+import { initWebSocket } from "./utils/websocket/initWebSocket";
+import { load_base64_model } from "./utils/scene/handlers/update_scene_from_message";
+import { runtime } from "@/runtime/config";
+import ErrorBoundary from "./components/common/ErrorBoundary";
 
 // start websocket here
-initWebSocket()
+initWebSocket();
 
 if (runtime.b64Gltf()) {
-    load_base64_model()
+  load_base64_model();
 } else {
-    console.log("B64GLTF not attached.");
+  console.log("B64GLTF not attached.");
 }
-const container = document.getElementById('root');
+const container = document.getElementById("root");
 // @ts-ignore
 const root = createRoot(container); // create a root
-root.render(<App/>);
+// Last-resort boundary: a throw that escapes every inner panel boundary shows a
+// reload card instead of a blank page.
+root.render(
+  <ErrorBoundary variant="fullscreen" label="Viewer">
+    <App />
+  </ErrorBoundary>,
+);
