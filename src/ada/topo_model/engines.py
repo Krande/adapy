@@ -23,8 +23,12 @@ import importlib
 import inspect
 from typing import Callable
 
+from pydantic import BaseModel
+
 __all__ = [
     "DEFAULT_ENGINE_SLUG",
+    "PROCEDURAL_SCHEMA_VERSION",
+    "EngineBinding",
     "BUILTIN_ENGINES",
     "is_default_engine",
     "entrypoint_for",
@@ -33,6 +37,33 @@ __all__ = [
 ]
 
 DEFAULT_ENGINE_SLUG = "adapy-default"
+
+# The procedural *document* schema version this adapy build authors and reads —
+# bumped when the doc shape (sheets/entities/columns) changes incompatibly. It is
+# independent of the xlsx serializer's own wire-format version. MAJOR.MINOR: a
+# minor bump is additive (older reader still works); a major bump is a break.
+PROCEDURAL_SCHEMA_VERSION = "1.0"
+
+
+class EngineBinding(BaseModel):
+    """The engine + document-schema a procedural model is bound to.
+
+    This is the routing/identity header of a procedural document: which engine
+    compiles it (a built-in slug like ``adapy-default``/``echo``, or a registered
+    engine's slug) and the doc-schema version it was authored against. It is
+    carried by the workbook's ``Model`` sheet, stamped into the document
+    (``doc["engine"]``/``doc["schema_version"]``), and persisted as first-class
+    columns on the ``procedural_models`` row — so a compile auto-routes to the
+    right engine (and its capability worker) without the caller naming it, and a
+    schema drift between the file and this build is detectable.
+    """
+
+    engine: str = DEFAULT_ENGINE_SLUG
+    schema_version: str = PROCEDURAL_SCHEMA_VERSION
+
+    def is_compatible(self, current: str = PROCEDURAL_SCHEMA_VERSION) -> bool:
+        """Same MAJOR version = compatible (minor bumps are additive)."""
+        return self.schema_version.split(".", 1)[0] == current.split(".", 1)[0]
 
 # Built-in engines shipped inside the adapy wheel — available both server-side
 # and in the browser (they import only adapy, no external wheel). Each maps a

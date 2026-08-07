@@ -70,3 +70,16 @@ def test_wasm_compile_doc_engine_selection():
 def test_wasm_compile_doc_unknown_engine_raises():
     with pytest.raises(ValueError, match="unknown procedural engine"):
         compile_doc(DOC, engine="does-not-exist")
+
+
+# --- EngineBinding (routing/identity header) ------------------------------ #
+def test_engine_binding_defaults():
+    b = engines.EngineBinding()
+    assert b.engine == engines.DEFAULT_ENGINE_SLUG
+    assert b.schema_version == engines.PROCEDURAL_SCHEMA_VERSION
+
+
+def test_engine_binding_major_compat():
+    cur = engines.PROCEDURAL_SCHEMA_VERSION  # "1.0"
+    assert engines.EngineBinding(schema_version="1.7").is_compatible(cur)  # minor bump = OK
+    assert not engines.EngineBinding(schema_version="2.0").is_compatible(cur)  # major bump = break

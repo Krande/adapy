@@ -3056,6 +3056,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         pool = _require_procedural_pool(request)
         row = await _get_procedural_in_scope(pool, model_id, scope_obj)
+        # Absent an explicit query override, honour the engine the model declares
+        # (its stored routing header, imported from the workbook's Model sheet), so
+        # a file authored for a specific engine auto-routes there. "adapy-default"
+        # collapses to None — the built-in path with the bare (backward-compat) key.
+        if engine is None:
+            declared = (row.get("engine") or "").strip()
+            engine = declared or None
+            if engine == "adapy-default":
+                engine = None
         key_fn = procedural_detail_glb_key if lod == "detail" else procedural_glb_key
         derived_key = key_fn(row["id"], row["revision"], engine)
 

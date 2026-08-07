@@ -2987,7 +2987,7 @@ async def list_failed_audit_run_jobs(
 
 
 def _procedural_row_summary(r) -> dict:
-    return {
+    out = {
         "id": str(r["id"]),
         "name": r["name"],
         "revision": r["revision"],
@@ -2995,6 +2995,13 @@ def _procedural_row_summary(r) -> dict:
         "created_at": r["created_at"].isoformat() if r["created_at"] else None,
         "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
     }
+    # The engine/schema_version columns were added later (migration 026); guard so
+    # a summary built from a SELECT that omits them doesn't KeyError.
+    if "engine" in r:
+        out["engine"] = r["engine"]
+    if "schema_version" in r:
+        out["schema_version"] = r["schema_version"]
+    return out
 
 
 async def create_procedural_model(
@@ -3007,7 +3014,7 @@ async def create_procedural_model(
             """
             INSERT INTO procedural_models (scope_kind, scope_id, name, created_by)
             VALUES ($1, $2, $3, $4)
-            RETURNING id, name, doc, revision, created_by, created_at, updated_at
+            RETURNING id, name, doc, revision, engine, schema_version, created_by, created_at, updated_at
             """,
             scope_kind,
             scope_id,
@@ -3024,7 +3031,7 @@ async def create_procedural_model(
 async def list_procedural_models(pool: asyncpg.Pool, *, scope_kind: str, scope_id: str | None) -> list[dict]:
     rows = await pool.fetch(
         """
-        SELECT id, name, revision, created_by, created_at, updated_at
+        SELECT id, name, revision, engine, schema_version, created_by, created_at, updated_at
         FROM procedural_models
         WHERE scope_kind = $1 AND COALESCE(scope_id, '') = COALESCE($2, '') AND NOT archived
         ORDER BY name ASC
@@ -3038,7 +3045,8 @@ async def list_procedural_models(pool: asyncpg.Pool, *, scope_kind: str, scope_i
 async def get_procedural_model(pool: asyncpg.Pool, model_id: str) -> dict | None:
     row = await pool.fetchrow(
         """
-        SELECT id, scope_kind, scope_id, name, doc, revision, created_by, created_at, updated_at
+        SELECT id, scope_kind, scope_id, name, doc, revision, engine, schema_version,
+               created_by, created_at, updated_at
         FROM procedural_models
         WHERE id = $1 AND NOT archived
         """,
@@ -3055,17 +3063,22 @@ async def get_procedural_model(pool: asyncpg.Pool, model_id: str) -> dict | None
 
 async def update_procedural_model_doc(pool: asyncpg.Pool, model_id: str, doc: dict, base_revision: int) -> int | None:
     """Optimistic-concurrency doc update: bumps revision only when the caller's
-    base_revision matches. Returns the new revision, or None on conflict."""
+    base_revision matches. Returns the new revision, or None on conflict. The
+    engine/schema_version columns are mirrored from the doc's routing header so
+    they stay the single source of truth."""
     row = await pool.fetchrow(
         """
         UPDATE procedural_models
-        SET doc = $2::jsonb, revision = revision + 1, updated_at = now()
+        SET doc = $2::jsonb, revision = revision + 1, updated_at = now(),
+            engine = COALESCE($4, engine), schema_version = COALESCE($5, schema_version)
         WHERE id = $1 AND revision = $3 AND NOT archived
         RETURNING revision
         """,
         model_id,
         json.dumps(doc),
         base_revision,
+        doc.get("engine"),
+        doc.get("schema_version"),
     )
     return None if row is None else row["revision"]
 

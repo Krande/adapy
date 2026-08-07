@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Literal
 from pydantic import BaseModel, Field
 
 from ada.serialize.xlsx import WorkbookSerializer
+from ada.topo_model.engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION
 from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace, TopoStructure, TopoSystem
 
 if TYPE_CHECKING:
@@ -51,6 +52,16 @@ class ProceduralModelMeta(BaseModel):
     HIDE_IN_EXCEL: ClassVar[list[str]] = []
 
     NAME: Annotated[str, Field(description="Name of the model")] = "ProceduralModel"
+    # Routing/identity header: which engine compiles the document, and the
+    # doc-schema version this workbook was authored against (see EngineBinding).
+    # adapy reads ENGINE to route a compile to the right engine/capability worker
+    # and checks SCHEMA_VERSION for drift on import.
+    ENGINE: Annotated[
+        str, Field(description="Procedural engine slug that compiles this model (built-in or a registered engine)")
+    ] = DEFAULT_ENGINE_SLUG
+    SCHEMA_VERSION: Annotated[
+        str, Field(description="Procedural document schema version the workbook was authored against")
+    ] = PROCEDURAL_SCHEMA_VERSION
     BLUEPRINT: Annotated[
         Literal["steel_stru", "none"], Field(description="Structural blueprint (or 'none' for raw boxes)")
     ] = "steel_stru"
@@ -84,6 +95,8 @@ class ProceduralModelMeta(BaseModel):
     def from_builder(cls, builder: "ProceduralBuilder") -> "ProceduralModelMeta":
         kwargs: dict = {
             "NAME": builder.name,
+            "ENGINE": builder.engine,
+            "SCHEMA_VERSION": builder.schema_version,
             "BLUEPRINT": builder.blueprint_name,
             "LOD": builder.lod,
             "DESIGN_RULES": builder.design_rules_slug,

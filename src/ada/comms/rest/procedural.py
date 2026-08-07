@@ -77,12 +77,20 @@ def _doc_model():
 
     from pydantic import BaseModel, Field
 
+    from ada.topo_model.engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION
+
     # TopoSystem/SystemConnection are the importable, xlsx-ready twins of the
     # local closure classes this used to declare — reused here so the wire format
     # has a single source of truth (they carry ClassVars but dump the same shape).
     from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace, TopoSystem
 
     class ProceduralDoc(BaseModel):
+        # Routing/identity header (see ada.topo_model.engines.EngineBinding):
+        # ``engine`` selects the procedural engine that compiles this model and
+        # ``schema_version`` records the doc-schema it was authored against. Both
+        # are mirrored onto the procedural_models row so a compile auto-routes.
+        engine: str = DEFAULT_ENGINE_SLUG
+        schema_version: str = PROCEDURAL_SCHEMA_VERSION
         grid: dict = Field(default_factory=dict)
         # blueprint compile options (whitelisted by the compiler), e.g.
         # {"reinforce_internal_walls": true}
@@ -117,6 +125,16 @@ def _validate_doc_shallow(doc: dict) -> dict:
         "blueprint": doc.get("blueprint") or {},
         "equipment_cad": bool(doc.get("equipment_cad")),
     }
+    # Routing header — mirror EngineBinding's defaults here (ada isn't importable in
+    # the slim image, so the constants can't be pulled from ada.topo_model.engines).
+    engine = doc.get("engine")
+    if engine is not None and not isinstance(engine, str):
+        raise ValueError("engine must be a string")
+    out["engine"] = engine or "adapy-default"
+    schema_version = doc.get("schema_version")
+    if schema_version is not None and not isinstance(schema_version, str):
+        raise ValueError("schema_version must be a string")
+    out["schema_version"] = schema_version or "1.0"
     source_xlsx_key = doc.get("source_xlsx_key")
     if source_xlsx_key is not None:
         if not isinstance(source_xlsx_key, str):

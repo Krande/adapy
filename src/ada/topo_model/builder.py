@@ -42,6 +42,7 @@ from ada.topology import TopologyBuilder
 from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace, TopoStructure, TopoSystem
 
 from .blueprint import SteelStru
+from .engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION, EngineBinding
 from .compile import (
     _BLUEPRINT_OPTION_KEYS,
     _apply_girder_joints,
@@ -94,6 +95,12 @@ class ProceduralBuilder:
     # layer (not duplicated per structure).
     structures: list[TopoStructure] = field(default_factory=list)
     name: str = "ProceduralModel"
+    # Routing/identity header (see ada.topo_model.engines.EngineBinding): ``engine``
+    # is the slug that compiles this model (default = the built-in adapy engine; a
+    # registered engine's slug routes the compile to its capability worker), and
+    # ``schema_version`` is the doc-schema this model was authored against.
+    engine: str = DEFAULT_ENGINE_SLUG
+    schema_version: str = PROCEDURAL_SCHEMA_VERSION
     blueprint_name: BlueprintName = "steel_stru"
     blueprint_options: dict = field(default_factory=dict)
     lod: Lod = "sim"
@@ -162,6 +169,9 @@ class ProceduralBuilder:
             openings=[TopoOpening(**o) for o in doc.get("openings", [])],
             structures=[TopoStructure(**s) for s in doc.get("structures", [])],
             name=name,
+            # engine + schema_version are persisted in the doc (routing header).
+            engine=doc.get("engine") or DEFAULT_ENGINE_SLUG,
+            schema_version=doc.get("schema_version") or PROCEDURAL_SCHEMA_VERSION,
             blueprint_name=blueprint_name,
             blueprint_options=doc.get("blueprint") or {},
             lod=lod,
@@ -193,6 +203,14 @@ class ProceduralBuilder:
 
         data = read_procedural_excel(path, multi=True)
         meta = data["meta"]
+        # Warn (don't fail) if the workbook was authored against an incompatible
+        # major doc-schema — the reader may silently miss/misread newer columns.
+        if not EngineBinding(schema_version=meta.SCHEMA_VERSION).is_compatible():
+            logger.warning(
+                "procedural workbook schema_version %s is incompatible with this build's %s",
+                meta.SCHEMA_VERSION,
+                PROCEDURAL_SCHEMA_VERSION,
+            )
         return cls(
             spaces=data["spaces"],
             equipments=data["equipments"],
@@ -200,6 +218,8 @@ class ProceduralBuilder:
             systems=data["systems"],
             structures=data.get("structures", []),
             name=kwargs.get("name", meta.NAME),
+            engine=kwargs.get("engine", meta.ENGINE),
+            schema_version=kwargs.get("schema_version", meta.SCHEMA_VERSION),
             blueprint_name=kwargs.get("blueprint_name", meta.BLUEPRINT),
             blueprint_options=kwargs.get("blueprint_options", meta.blueprint_options()),
             lod=kwargs.get("lod", meta.LOD),
@@ -219,6 +239,10 @@ class ProceduralBuilder:
         # a non-optional entity field (e.g. an opening's SPACE_NAME / a space's
         # coords) — absent means "use the default", which is None anyway.
         doc: dict = {
+            # Routing/identity header — always stamped so the document is
+            # self-describing (which engine compiles it, at which schema version).
+            "engine": self.engine,
+            "schema_version": self.schema_version,
             "spaces": [s.model_dump(mode="json", exclude_none=True) for s in self.spaces],
             "equipments": [e.model_dump(mode="json", exclude_none=True) for e in self.equipments],
             "openings": [o.model_dump(mode="json", exclude_none=True) for o in self.openings],

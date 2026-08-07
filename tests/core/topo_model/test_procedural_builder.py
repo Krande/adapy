@@ -160,6 +160,25 @@ def test_to_doc_roundtrips():
     assert back.design_rules_slug == "route_only"
 
 
+def test_engine_binding_roundtrips_through_doc_and_excel(tmp_path):
+    """The engine/schema_version routing header is stamped into to_doc(), read
+    back by from_dict, and survives the Model-sheet excel round-trip."""
+    from ada.topo_model.engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION
+
+    # Default builder stamps the built-in engine + current schema version.
+    default_doc = ProceduralBuilder.from_dict(DOC).to_doc()
+    assert default_doc["engine"] == DEFAULT_ENGINE_SLUG
+    assert default_doc["schema_version"] == PROCEDURAL_SCHEMA_VERSION
+
+    # An explicit engine round-trips: object -> doc -> object, and via excel.
+    pb = ProceduralBuilder(spaces=list(ProceduralBuilder.from_dict(DOC).spaces), engine="param_models")
+    assert pb.to_doc()["engine"] == "param_models"
+    assert ProceduralBuilder.from_dict(pb.to_doc()).engine == "param_models"
+    xlsx = tmp_path / "engine.xlsx"
+    pb.to_excel(xlsx)
+    assert ProceduralBuilder.from_excel(xlsx).engine == "param_models"
+
+
 def test_from_json_string_and_file(tmp_path):
     pb_str = ProceduralBuilder.from_json(json.dumps(DOC))
     assert [s.NAME for s in pb_str.spaces] == ["Cell1", "Cell2"]
