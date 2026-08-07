@@ -238,3 +238,30 @@ def test_floater_member_set_compiles_and_columns_have_12_side_faces():
     plate_names = {p.name for p in lofts.get_all_physical_objects(by_type=ada.Plate)}
     assert "ne_column:bay1:edge11" in plate_names
     assert "ne_column:bay2:edge0" in plate_names
+
+
+def test_rounded_column_stays_within_col_half_width_not_flattened():
+    """Regression: the corner-transition panels of a rounded column band are RULED
+    B-spline surfaces. Emitting them as flat ``Plate``\\ s bulges the member outward
+    to ~±5.18 (the flat quad over-shoots the rounded arc); keeping them as
+    ``PlateCurved`` holds the rendered extent at the col half-width ±plate thickness
+    (±5.01). Pins the loft-tool parity (pm renders ±5.01)."""
+    trimesh = pytest.importorskip("trimesh")
+    from io import BytesIO
+
+    pb = ProceduralBuilder(spaces=[], loft_members=[_floater_column("col", 0.0, 0.0)])
+    glb = pb.compile()
+
+    with BytesIO(glb) as bio:
+        scene = trimesh.load(bio, file_type="glb")
+    mn, mx = scene.bounds
+    # col_d = 10 -> half width 5.0; +THICKNESS/2 (0.01 default) tessellation skin.
+    assert mx[0] == pytest.approx(5.01, abs=0.02), f"x-max {mx[0]:.3f} (flattened corners bulge to ~5.18)"
+    assert mn[0] == pytest.approx(-5.01, abs=0.02), f"x-min {mn[0]:.3f}"
+    assert mx[1] == pytest.approx(5.01, abs=0.02)
+    assert mn[1] == pytest.approx(-5.01, abs=0.02)
+
+    # the genuinely-ruled corner panels are preserved as curved plates, not flat.
+    lofts = pb.assembly.parts["Lofts"]
+    n_curved = len(list(lofts.get_all_physical_objects(by_type=ada.PlateCurved)))
+    assert n_curved > 0, "rounded column corner transitions should be PlateCurved"

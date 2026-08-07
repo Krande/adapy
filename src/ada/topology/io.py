@@ -277,18 +277,35 @@ def loft_member_to_part(
     picked plate straight to a cell face). ``exclude_faces`` holds member-relative ids
     (e.g. ``"bay0:edge2"``, ``"bay0:cap_lo"``); the matching plates are omitted.
     """
-    from ada.api.loft import iter_face_poly_loops, loft_profiles
-    from ada.api.plates.base_pl import Plate
+    from ada.api.loft import loft_profiles
+    from ada.api.plates.base_pl import Plate, PlateCurved
     from ada.api.spatial.part import Part
+    from ada.cad import active_backend
+    from ada.geom import Geometry
 
+    be = active_backend()
     exclude = set(exclude_faces or [])
     prefix_len = len(name) + 1  # strip "{name}:" to get the member-relative id
     shape = loft_profiles(profiles, ruled=ruled, is_solid=True)
     profile_keys = [[_round_key((p.x, p.y, p.z)) for p in prof.polygon] for prof in profiles]
 
     plates = []
-    for i, loop in enumerate(iter_face_poly_loops(shape)):
-        fkeys = {_round_key((p.x, p.y, p.z)) for p in loop.polygon}
+    # Iterate the swept solid's OCC faces directly (not just their poly loops):
+    # a face's *surface* type decides whether it stays a flat ``Plate`` or must
+    # keep its curvature as a ``PlateCurved``. ``BRepOffsetAPI_ThruSections`` with
+    # ``ruled=True`` emits planar side panels between matching straight edges, but
+    # B-spline ruled panels for the corner transitions between a sharp profile and
+    # a rounded (CORNER_RADIUS) one. Flattening those bulges the member outward
+    # (~0.18 for a col_d=10 / r=2.5 floater column), so we mirror the loft-tool's
+    # ``loft_shape_to_plates``: planar → Plate, B-spline → PlateCurved.
+    for i, face in enumerate(be.faces(shape)):
+        wires = be.wires(face)
+        if not wires:
+            continue
+        loop_pts = be.wire_points(wires[0])
+        if not loop_pts:
+            continue
+        fkeys = {_round_key(p) for p in loop_pts}
         cls = classify_loft_face(fkeys, profile_keys)
         if cls is None:
             # Unclassified face: keep it (fail-safe) under a generic, non-excludable name.
@@ -300,10 +317,32 @@ def loft_member_to_part(
             rel = fid[prefix_len:]
         if rel is not None and rel in exclude:
             continue
-        pts = [(float(p.x), float(p.y), float(p.z)) for p in loop.polygon]
-        if reverse_winding:
-            pts.reverse()
-        plates.append(Plate.from_3d_points(fid, pts, thickness))
+
+        plate = None
+        # ``ThruSections`` stores even the flat side / taper / cap panels as
+        # B-spline surfaces, so a surface-*type* check would wrongly curve them
+        # (and change all-sharp box/jacket members). Probe the actual geometry:
+        # only the genuinely-ruled corner-transition panels are non-planar.
+        if not be.is_planar_face(face):
+            # Ruled corner-transition panel — preserve the true surface. Go through
+            # the ada.geom AdvancedFace so the PlateCurved is fully IFC-compatible
+            # (same path the gxml importer and the loft-tool face_to_plate use).
+            try:
+                ada_face = be.face_to_advanced_face(face)
+                if ada_face is not None:
+                    plate = PlateCurved(fid, Geometry(id=fid, geometry=ada_face), thickness)
+            except Exception as exc:  # noqa: BLE001 — defensive; fall back to a flat plate
+                from ada.config import logger
+
+                logger.debug("loft face %r curved-plate construction failed: %s", fid, exc)
+        if plate is None:
+            # Planar face (box/jacket sharp side walls, caps) — the flat plate is
+            # exact. All-sharp members stay byte-identical to the pre-curved path.
+            pts = list(loop_pts)
+            if reverse_winding:
+                pts.reverse()
+            plate = Plate.from_3d_points(fid, pts, thickness)
+        plates.append(plate)
 
     part = Part(name)
     part /= plates
