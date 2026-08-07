@@ -323,7 +323,16 @@ def loft_member_to_part(
         # B-spline surfaces, so a surface-*type* check would wrongly curve them
         # (and change all-sharp box/jacket members). Probe the actual geometry:
         # only the genuinely-ruled corner-transition panels are non-planar.
-        if not be.is_planar_face(face):
+        # A backend without the planarity probe (e.g. a native adacpp build that
+        # hasn't shipped ``is_planar_face`` yet) can't tell — treat every face as
+        # planar so the compile still SUCCEEDS (flat plates; the curved corners
+        # render very slightly wider) rather than erroring. Curved parity needs
+        # both ``is_planar_face`` and ``face_to_advanced_face`` on the backend.
+        try:
+            face_is_curved = not be.is_planar_face(face)
+        except NotImplementedError:
+            face_is_curved = False
+        if face_is_curved:
             # Ruled corner-transition panel — preserve the true surface. Go through
             # the ada.geom AdvancedFace so the PlateCurved is fully IFC-compatible
             # (same path the gxml importer and the loft-tool face_to_plate use).
