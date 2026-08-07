@@ -170,12 +170,20 @@ def _member_band_solids(
     if len(profiles) < 2:
         raise ValueError(f"LoftMember '{member.name}' needs >= 2 section profiles, got {len(profiles)}")
 
+    # The band solids feed ``CellGraph.from_cell_solids``, whose GraphCell/GraphFace/
+    # GraphEdge readers (ada.topology.graph) + extraction all read the solid handles via
+    # ``active_backend()``. A shape can only be read by the backend that built it, so the
+    # band-solid path MUST stay on the active backend — it cannot borrow ``loft_backend()``
+    # (OccBackend) without also porting the whole cell-graph read path to that instance.
+    # This is fine: band cells are topology-only (a cell decomposition for selection); they
+    # carry no Plate/PlateCurved distinction, so the loft pixel-parity issue (fixed in
+    # ``loft_member_to_part``) does not apply to them.
     be = active_backend()
-    solid = loft_profiles(profiles, ruled=ruled, is_solid=True)
+    solid = loft_profiles(profiles, ruled=ruled, is_solid=True, backend=be)
 
     # Interior stations (exclude the two end caps) become divider faces; with only two
     # stations there is no interior divider and the whole solid is the single band.
-    dividers = [planar_face_from_poly_loop(prof) for prof in profiles[1:-1]]
+    dividers = [planar_face_from_poly_loop(prof, backend=be) for prof in profiles[1:-1]]
     face_soup = list(be.faces(solid)) + dividers
     band_solids = be.make_volumes_from_faces(face_soup, tolerance=tolerance)
 
@@ -280,13 +288,22 @@ def loft_member_to_part(
     from ada.api.loft import loft_profiles
     from ada.api.plates.base_pl import Plate, PlateCurved
     from ada.api.spatial.part import Part
-    from ada.cad import active_backend
+    from ada.cad import loft_backend
     from ada.geom import Geometry
 
-    be = active_backend()
+    # Run the WHOLE rendered-plate path (swept solid + every face op) on the loft
+    # backend: a local OccBackend when OCC.Core is importable, else the active backend.
+    # OCC has the ``is_planar_face`` + ``face_to_advanced_face`` verbs the shipped
+    # native adacpp build stubs, so on the adacpp worker this keeps the ruled
+    # corner-transition panels as PlateCurved (pixel parity) instead of flattening them
+    # (~0.18 wider). ``loft_backend()`` returns a fresh instance and never mutates the
+    # global active backend, so concurrent jobs stay on adacpp. The Part it produces
+    # holds only plain ada.geom Plate/PlateCurved data — no backend handle escapes — so
+    # it is safe to mix with an adacpp-built model.
+    be = loft_backend()
     exclude = set(exclude_faces or [])
     prefix_len = len(name) + 1  # strip "{name}:" to get the member-relative id
-    shape = loft_profiles(profiles, ruled=ruled, is_solid=True)
+    shape = loft_profiles(profiles, ruled=ruled, is_solid=True, backend=be)
     profile_keys = [[_round_key((p.x, p.y, p.z)) for p in prof.polygon] for prof in profiles]
 
     plates = []

@@ -1774,6 +1774,36 @@ def reset_active_backend() -> None:
     _ACTIVE_BACKEND = None
 
 
+def loft_backend() -> CadBackend:
+    """Backend to run loft geometry on: a *local* ``OccBackend`` when OCC.Core is
+    importable, otherwise the process-wide :func:`active_backend`.
+
+    Loft pixel-parity needs the ``is_planar_face`` + ``face_to_advanced_face`` verbs
+    (to emit a ``PlateCurved`` for the ruled corner-transition panels of rounded loft
+    members and a flat ``Plate`` elsewhere). The shipped native adacpp build stubs
+    those verbs, so a loft compile on an adacpp worker falls back to flat plates and a
+    rounded member renders ~0.18 too wide (a ``CORNER_RADIUS`` floater column spans
+    +/-5.18 instead of +/-5.01). ``OCC.Core`` IS present in that worker image even when
+    the active backend is adacpp, so running the loft on a local OccBackend restores
+    curved-corner parity with no native (adacpp) change.
+
+    Returns a FRESH ``OccBackend`` instance and NEVER touches the memoized global
+    ``_ACTIVE_BACKEND`` — concurrent jobs in the same process keep using the active
+    (adacpp) backend, so this is process-safe with no global side effect. Because a
+    shape built by one backend cannot be read by another, a caller must keep the WHOLE
+    loft (the swept solid AND every downstream face/wire op) on the single backend this
+    returns. Under pyodide (neither OCC nor the adacpp verb) the active backend's
+    ``NotImplementedError`` guard still applies, so the compile falls back to flat
+    plates and still succeeds."""
+    try:
+        import OCC.Core  # noqa: F401  (probe only — availability decides the backend)
+    except ImportError:
+        return active_backend()
+    from ada.occ.backend import OccBackend
+
+    return OccBackend()
+
+
 def is_shape_handle(obj: Any) -> bool:
     """True if ``obj`` is a shape handle produced by the active backend.
 
@@ -1829,6 +1859,7 @@ __all__ = [
     "ShapeHandle",
     "active_backend",
     "is_shape_handle",
+    "loft_backend",
     "reset_active_backend",
     "select_backend",
     # registry / config
