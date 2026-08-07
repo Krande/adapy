@@ -1118,7 +1118,13 @@ const StorageBrowser: React.FC = () => {
                       // the area behind the browser chrome, so a
                       // vh-sized panel ran past the visible bottom.
                       "w-[min(1100px,calc(100vw-2rem))] h-[min(720px,calc(100dvh-5rem))] flex flex-col"
-                    : "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md")
+                    : // Mobile: bound the panel to the viewport and let it be a
+                      // flex column so the header/toolbars stay put and only the
+                      // file list scrolls (below) — otherwise a long list runs
+                      // the panel past the bottom of the screen. Desktop reverts
+                      // to the natural block layout (md:block md:max-h-none).
+                      "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md " +
+                      "flex flex-col max-h-[calc(100dvh-6rem)] md:block md:max-h-none")
             }
         >
             {maximized && createPortal(
@@ -1441,7 +1447,10 @@ const StorageBrowser: React.FC = () => {
                             className={
                                 "flex flex-col overflow-auto focus:outline-hidden " +
                                 "focus-visible:ring-1 focus-visible:ring-blue-500/40 rounded-sm " +
-                                (maximized ? "flex-1 min-h-0" : "max-h-80")
+                                // Compact mobile: fill the bounded panel + scroll
+                                // (flex-1). Desktop compact keeps the fixed 20rem
+                                // cap. Maximized always fills.
+                                (maximized ? "flex-1 min-h-0" : "flex-1 min-h-0 md:flex-none md:max-h-80")
                             }
                             // Background (non-row) drops land at root:
                             // internal drags move to root, OS files
