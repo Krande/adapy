@@ -93,10 +93,13 @@ class WorkbookSerializer:
         wb = load_workbook(path, data_only=True)
         out: dict[type, list[Any]] = {}
         for model_cls, spec in self._specs.items():
-            if spec.sheet_name not in wb.sheetnames:
+            # Resolve the sheet, honouring ALT_SHEET_NAMES so a workbook from a
+            # sibling tool (differently-named sheet) still reads.
+            sheet = spec.sheet_in(wb.sheetnames)
+            if sheet is None:
                 out[model_cls] = []
                 continue
-            out[model_cls] = self._layout_for(spec).read(wb[spec.sheet_name], spec, self.codecs)
+            out[model_cls] = self._layout_for(spec).read(wb[sheet], spec, self.codecs)
         return out
 
 

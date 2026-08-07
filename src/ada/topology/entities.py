@@ -84,6 +84,9 @@ class _TopoConfigBoundModel(BaseModel):
 
 class TopoSpace(_TopoConfigBoundModel):
     SHEET_NAME: ClassVar[str] = "Spaces"
+    # Read alias: sibling procedural-modelling workbooks name this sheet "Rooms";
+    # accept it so their xlsx imports directly. Writing always uses "Spaces".
+    ALT_SHEET_NAMES: ClassVar[list[str]] = ["Rooms"]
     TAB_COLOR: ClassVar[str] = "92D050"  # HEX string without '#'
     HIDE_IN_EXCEL: ClassVar[list[str]] = ["IS_COMPLEX_SHAPE", "SE"]
 

@@ -46,11 +46,23 @@ class SheetSpec:
     tab_color: str | None
     visible: list[str]
     hidden: list[str]
+    # Accepted alternate sheet names on READ (a model's ``ALT_SHEET_NAMES``). Lets
+    # a workbook authored by a sibling tool with a differently-named sheet still
+    # read; WRITE always uses the primary ``sheet_name``.
+    alt_sheet_names: tuple[str, ...] = ()
 
     @property
     def columns(self) -> list[str]:
         """All written columns — visible first, then hidden (still persisted)."""
         return [*self.visible, *self.hidden]
+
+    def sheet_in(self, sheetnames) -> str | None:
+        """The actual sheet to read from a workbook: the primary ``sheet_name`` if
+        present, else the first ``alt_sheet_names`` alias present, else None."""
+        for name in (self.sheet_name, *self.alt_sheet_names):
+            if name in sheetnames:
+                return name
+        return None
 
     @classmethod
     def from_model(cls, model_cls: type) -> "SheetSpec":
@@ -65,6 +77,7 @@ class SheetSpec:
             tab_color=getattr(model_cls, "TAB_COLOR", None) or None,
             visible=visible,
             hidden=hidden,
+            alt_sheet_names=tuple(getattr(model_cls, "ALT_SHEET_NAMES", ()) or ()),
         )
 
 

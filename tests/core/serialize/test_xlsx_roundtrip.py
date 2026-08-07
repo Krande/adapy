@@ -258,3 +258,22 @@ def test_real_topo_entities_roundtrip(tmp_path):
     assert back[TopoSpace] == spaces  # incl. hidden DESCRIPTION + SE
     assert back[TopoEquipment] == eqs  # incl. ROT_Z, enum, comma-in-list
     assert back[TopoOpening] == []
+
+
+def test_alt_sheet_name_alias_reads(tmp_path):
+    """A model's ALT_SHEET_NAMES lets a workbook whose sheet is named by a sibling
+    tool (TopoSpace's ``Rooms`` alias vs the primary ``Spaces``) still read."""
+    import openpyxl
+
+    from ada.topology.entities import TopoSpace
+
+    s = WorkbookSerializer().register(TopoSpace)
+    f = tmp_path / "rooms.xlsx"
+    s.write([TopoSpace(NAME="C1", X=0, Y=0, Z=0, DX=5, DY=5, DZ=3)], f)
+    # Rename the written "Spaces" sheet to the alias "Rooms".
+    wb = openpyxl.load_workbook(f)
+    wb["Spaces"].title = "Rooms"
+    wb.save(f)
+
+    back = s.read(f)
+    assert [x.NAME for x in back[TopoSpace]] == ["C1"]
