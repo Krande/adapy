@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
 
-from ada.topology.graph import CellGraph
+from ada.topology.graph import CellGraph, _round_key, classify_loft_face, loft_face_id_str
 from ada.topology.metadata import TopologyMetadata
 
 if TYPE_CHECKING:
@@ -195,16 +195,119 @@ def _member_band_solids(
     )
 
     placement = member.placement
+    # Station profile points in the placed (world) frame — the same transform the
+    # band solids get — so band-cell faces can be matched to a profile edge/cap by
+    # vertex incidence (see assign_loft_face_ids). Not persisted (runtime only).
+    placed_profiles = [_placed_profile_points(prof, placement) for prof in profiles]
+
     pairs: list[tuple] = []
     for lo, band in enumerate(ordered):
         if placement is not None:
             band = be.transform(band, np.asarray(placement, dtype=float), True)
         meta = TopologyMetadata(
             name=f"{member.name}_bay{lo}",
-            properties={"member": member.name, "station_lo": lo, "station_hi": lo + 1},
+            properties={
+                "member": member.name,
+                "station_lo": lo,
+                "station_hi": lo + 1,
+                "profile_lo_pts": placed_profiles[lo],
+                "profile_hi_pts": placed_profiles[lo + 1],
+            },
         )
         pairs.append((band, meta))
     return pairs
+
+
+def _placed_profile_points(prof: "PolyLoop", placement: "np.ndarray | None") -> "list[tuple[float, float, float]]":
+    """The profile's polygon points as world-frame ``(x, y, z)`` tuples (``placement``
+    applied when set — matching the transform the band solids receive)."""
+    pts = [(float(p.x), float(p.y), float(p.z)) for p in prof.polygon]
+    if placement is None:
+        return pts
+    mat = np.asarray(placement, dtype=float)
+    out = []
+    for x, y, z in pts:
+        v = mat @ np.asarray([x, y, z, 1.0], dtype=float)
+        out.append((float(v[0]), float(v[1]), float(v[2])))
+    return out
+
+
+def assign_loft_face_ids(cell_graph: CellGraph) -> None:
+    """Stamp a loft-native ``loft_face_id`` onto every band-cell face (Phase 3b).
+
+    For each cell carrying loft metadata (``member`` + the two station profiles), match
+    each of its faces to a profile edge / end cap by vertex incidence
+    (:func:`ada.topology.graph.classify_loft_face`) and record the canonical id. Box
+    cells carry no such metadata and are left entirely untouched — ``stable_face_id`` is
+    unaffected. Faces that fail to match keep ``loft_face_id = None``.
+    """
+    for cell in cell_graph.cells:
+        md = cell.metadata
+        member = md.get("member")
+        lo_pts = md.get("profile_lo_pts")
+        hi_pts = md.get("profile_hi_pts")
+        bay = md.get("station_lo")
+        if member is None or lo_pts is None or hi_pts is None or bay is None:
+            continue
+        profile_keys = [[_round_key(p) for p in lo_pts], [_round_key(p) for p in hi_pts]]
+        for face in cell.faces:
+            fkeys = {_round_key(p) for p in face.get_points()}
+            cls = classify_loft_face(fkeys, profile_keys)
+            if cls is None:
+                continue
+            kind, _bay_local, edge = cls
+            face.loft_face_id = loft_face_id_str(member, bay, kind, edge)
+
+
+def loft_member_to_part(
+    name: str,
+    profiles: "Sequence[PolyLoop]",
+    thickness: float = 0.01,
+    ruled: bool = True,
+    reverse_winding: bool = True,
+    exclude_faces: "Sequence[str] | None" = None,
+):
+    """Loft ``profiles`` to plates, naming each plate by its loft-native face id and
+    dropping the plates whose face is excluded (Phase 3b).
+
+    Face-id-aware sibling of :func:`ada.api.loft.loft_to_part`: each face of the
+    member's swept solid is classified to ``(kind, bay, edge)`` against the same
+    ordered station profiles the band cells use, so a plate's name equals the
+    ``loft_face_id`` of the corresponding band-cell face (letting the frontend map a
+    picked plate straight to a cell face). ``exclude_faces`` holds member-relative ids
+    (e.g. ``"bay0:edge2"``, ``"bay0:cap_lo"``); the matching plates are omitted.
+    """
+    from ada.api.loft import iter_face_poly_loops, loft_profiles
+    from ada.api.plates.base_pl import Plate
+    from ada.api.spatial.part import Part
+
+    exclude = set(exclude_faces or [])
+    prefix_len = len(name) + 1  # strip "{name}:" to get the member-relative id
+    shape = loft_profiles(profiles, ruled=ruled, is_solid=True)
+    profile_keys = [[_round_key((p.x, p.y, p.z)) for p in prof.polygon] for prof in profiles]
+
+    plates = []
+    for i, loop in enumerate(iter_face_poly_loops(shape)):
+        fkeys = {_round_key((p.x, p.y, p.z)) for p in loop.polygon}
+        cls = classify_loft_face(fkeys, profile_keys)
+        if cls is None:
+            # Unclassified face: keep it (fail-safe) under a generic, non-excludable name.
+            fid = f"{name}:face{i}"
+            rel = None
+        else:
+            kind, bay, edge = cls
+            fid = loft_face_id_str(name, bay, kind, edge)
+            rel = fid[prefix_len:]
+        if rel is not None and rel in exclude:
+            continue
+        pts = [(float(p.x), float(p.y), float(p.z)) for p in loop.polygon]
+        if reverse_winding:
+            pts.reverse()
+        plates.append(Plate.from_3d_points(fid, pts, thickness))
+
+    part = Part(name)
+    part /= plates
+    return part
 
 
 def from_section_loft(
@@ -228,10 +331,15 @@ def from_section_loft(
     distinct members physically abut and their shared interface should collapse to one
     face.
 
+    Each band-cell face additionally carries a loft-native ``loft_face_id`` (Phase 3b,
+    :func:`assign_loft_face_ids`) so individual side panels / caps are addressable for
+    per-face selection and face-exclude — the box ``stable_face_id`` path is untouched.
+
     TODO(phase-2): a member whose spine folds back on itself would defeat the monotone
-    spine ordering in :func:`_spine_param`; and non-axis loft faces still fall into the
-    ``stable_face_id`` overflow bucket (design risk #1), so loft cells are read-mostly
-    until a loft-native face id lands.
+    spine ordering in :func:`_spine_param`.
+    TODO(phase-3b): rectangular openings authored on a loft face id are deferred — cutting
+    a parametric hole in a possibly-ruled swept panel is real geometry work; the face-id
+    + exclude ops land here, the opening does not.
     """
     if not members:
         raise ValueError("from_section_loft: no members given")
@@ -240,4 +348,8 @@ def from_section_loft(
     for member in members:
         pairs.extend(_member_band_solids(member, ruled=ruled, tolerance=tolerance))
 
-    return CellGraph.from_cell_solids(pairs, merge=merge)
+    cg = CellGraph.from_cell_solids(pairs, merge=merge)
+    # Phase 3b: give each band-cell face a stable, loft-native id (member/bay/edge or
+    # cap). Additive — box cells carry no loft metadata and are untouched.
+    assign_loft_face_ids(cg)
+    return cg

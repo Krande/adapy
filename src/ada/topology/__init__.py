@@ -48,7 +48,15 @@ from ada.topology.graph import (
     GraphFace,
 )
 from ada.topology.grid import CellGrid, GridIndexError
-from ada.topology.io import LoftMember, from_assembly, from_ifc, from_part, from_section_loft
+from ada.topology.io import (
+    LoftMember,
+    assign_loft_face_ids,
+    from_assembly,
+    from_ifc,
+    from_part,
+    from_section_loft,
+    loft_member_to_part,
+)
 from ada.topology.metadata import TopologyMetadata
 from ada.topology.routing import (
     RoutingBlueprintBase,
@@ -119,4 +127,6 @@ __all__ = [
     "from_ifc",
     "from_part",
     "from_section_loft",
+    "assign_loft_face_ids",
+    "loft_member_to_part",
 ]

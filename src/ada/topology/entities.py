@@ -702,6 +702,17 @@ class TopoLoftMember(_TopoConfigBoundModel):
     ] = None
     THICKNESS: Annotated[float, Field(description="Plate thickness of the lofted skin")] = 0.01
     SURFACE_ONLY: Annotated[bool, Field(description="Member is a surface skin only (no interior structure)")] = False
+    EXCLUDE_FACES: Annotated[
+        list[str],
+        Field(
+            default_factory=list,
+            description=(
+                "Member-relative loft face ids to drop (Phase 3b), e.g. 'bay0:edge2' or "
+                "'bay0:cap_lo' — the matching plate is omitted at build. Empty by default."
+            ),
+            json_schema_extra={"excel": {"codec": "jsonlist"}},
+        ),
+    ]
 
     # --- cell-metadata duck-typing (parity with TopoSpace) -----------------
     @property

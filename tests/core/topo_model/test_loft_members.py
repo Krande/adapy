@@ -134,6 +134,50 @@ def test_mixed_spaces_and_loft_members_build():
     assert _is_glb(glb)
 
 
+# --- (e) Phase 3b: per-face exclude on a loft member ----------------------- #
+def _lofts_plate_names(pb) -> set[str]:
+    lofts = pb.assembly.parts["Lofts"]
+    return {p.name for p in lofts.get_all_physical_objects(by_type=ada.Plate)}
+
+
+def test_exclude_faces_doc_round_trip():
+    m = _tapered_member()
+    m.EXCLUDE_FACES = ["bay0:edge2"]
+    pb = ProceduralBuilder(spaces=[], loft_members=[m])
+    doc = pb.to_doc()
+    assert doc["loft_members"][0]["EXCLUDE_FACES"] == ["bay0:edge2"]
+
+    pb2 = ProceduralBuilder.from_dict(doc)
+    assert pb2.loft_members[0].EXCLUDE_FACES == ["bay0:edge2"]
+
+
+def test_exclude_faces_default_empty():
+    # Additive: an unspecified EXCLUDE_FACES is an empty list, no plate dropped.
+    assert _tapered_member().EXCLUDE_FACES == []
+
+
+def test_build_drops_excluded_plate_only():
+    base = ProceduralBuilder(spaces=[], loft_members=[_tapered_member()])
+    base.compile()
+    base_names = _lofts_plate_names(base)
+    assert "Taper:bay0:edge2" in base_names
+
+    m = _tapered_member()
+    m.EXCLUDE_FACES = ["bay0:edge2"]
+    excl = ProceduralBuilder(spaces=[], loft_members=[m])
+    glb = excl.compile()
+    excl_names = _lofts_plate_names(excl)
+
+    # exactly one plate dropped: the addressed side panel.
+    assert base_names - excl_names == {"Taper:bay0:edge2"}
+    assert len(excl_names) == len(base_names) - 1
+    # the rest of the model still builds to a valid GLB.
+    assert _is_glb(glb)
+    # the band cell for that face still carries the id (exclude is plate-only).
+    fmap = excl.loft_cell_graph.loft_face_map()
+    assert "Taper:bay0:edge2" in fmap
+
+
 # --- (d) rest validate_doc ------------------------------------------------- #
 def test_validate_doc_accepts_and_preserves_loft_members():
     doc = {

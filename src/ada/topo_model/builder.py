@@ -413,16 +413,20 @@ class ProceduralBuilder:
         if not members:
             return
 
-        from ada.api.loft import loft_to_part
-        from ada.topology.io import from_section_loft
+        from ada.topology.io import from_section_loft, loft_member_to_part
 
-        # (a) lossless cell decomposition (Sum(stations-1) band cells).
+        # (a) lossless cell decomposition (Sum(stations-1) band cells). Each band-cell
+        # face also gets a loft-native ``loft_face_id`` (Phase 3b) for per-face addressing.
         self.loft_cell_graph = from_section_loft([m.to_loft_member() for m in members])
 
-        # (b) plate geometry per member (placed station profiles -> plates).
+        # (b) plate geometry per member (placed station profiles -> plates). Each plate is
+        # named by its loft_face_id and EXCLUDE_FACES drops the addressed plates — the
+        # plate names match the band-cell face ids so the frontend can map a picked plate.
         lofts_part = ada.Part("Lofts")
         for m in members:
-            member_part = loft_to_part(m.world_profiles(), m.NAME, thickness=m.THICKNESS)
+            member_part = loft_member_to_part(
+                m.NAME, m.world_profiles(), thickness=m.THICKNESS, exclude_faces=m.EXCLUDE_FACES
+            )
             lofts_part.add_part(member_part)
         if self.assembly is None:
             self.assembly = ada.Assembly(self.name)
