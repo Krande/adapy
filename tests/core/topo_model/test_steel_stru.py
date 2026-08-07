@@ -169,10 +169,11 @@ def test_detail_mode_trims_deck_to_girder_flanges():
     # top-flange half-width (IPE200 w_top = 0.1 => 0.05 per edge), so the plate spans
     # the clear opening between the surrounding girders' flanges. Simulation mode
     # (default) must stay byte-identical: the plate reaches the cell edge.
-    import os
-
-    os.environ.setdefault("ADA_STREAM_TESS_PIPELINE", "libtess2")
-
+    #
+    # The libtess2 stream is selected per-tessellation by the ``_stream_tessellation()``
+    # context below (which restores the prior value) — do NOT set the env var at test
+    # scope: it leaks process-wide and reorders unrelated OCC tessellation output
+    # (test_batch_tessellate_solids_matches_per_object).
     from io import BytesIO
 
     import numpy as np

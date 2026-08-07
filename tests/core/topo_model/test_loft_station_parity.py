@@ -22,6 +22,29 @@ from ada.topology.entities import LoftStation, TopoLoftMember
 _ABS = 1e-9
 
 
+def _loft_curved_capable() -> bool:
+    """True when the loft backend can emit ``PlateCurved`` for the ruled corner
+    panels of a rounded member — which needs the ``is_planar_face`` verb.
+
+    Mirrors :func:`ada.cad.loft_backend`'s own branch: OCC.Core is present (a
+    local ``OccBackend`` runs the loft), or the native adacpp build ships the
+    verb. On an adacpp-only env (no OCC.Core, stubbed verb) the compile falls
+    back to flat plates and a rounded column bulges to ~+/-5.18 by design, so the
+    +/-5.01 parity assertion is skipped there rather than failing."""
+    try:
+        import OCC.Core  # noqa: F401  (availability decides the loft backend)
+
+        return True
+    except ImportError:
+        pass
+    try:
+        import adacpp.cad as _adacpp_cad
+
+        return hasattr(_adacpp_cad, "is_planar_face")
+    except ImportError:
+        return False
+
+
 # --- reference layouts (== loft tool section.py formulas) ------------------- #
 def _ref_rounded(w_full: float, h_full: float, r: float) -> list[tuple[float, float]]:
     w, h = w_full / 2, h_full / 2
@@ -240,6 +263,11 @@ def test_floater_member_set_compiles_and_columns_have_12_side_faces():
     assert "ne_column:bay2:edge0" in plate_names
 
 
+@pytest.mark.skipif(
+    not _loft_curved_capable(),
+    reason="loft backend cannot emit curved corner plates (no OCC.Core / no adacpp "
+    "is_planar_face) — rounded members intentionally fall back to flat plates",
+)
 def test_rounded_column_stays_within_col_half_width_not_flattened():
     """Regression: the corner-transition panels of a rounded column band are RULED
     B-spline surfaces. Emitting them as flat ``Plate``\\ s bulges the member outward
