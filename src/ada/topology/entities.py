@@ -20,7 +20,7 @@ from __future__ import annotations
 from functools import cached_property
 from typing import Annotated, Any, ClassVar, Literal, Optional, get_args
 
-from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator, model_validator
 
 import ada
 from ada.api.spatial.eq_types import EquipRepr
@@ -621,13 +621,27 @@ class LoftStation(BaseModel):
     centres). Two profile families are supported:
 
     * ``"rectangle"`` — an axis-aligned box from ``WIDTH``/``HEIGHT`` (the full
-      side lengths), i.e. corners at ``(X ± WIDTH/2, Y ± HEIGHT/2, Z)``.
+      side lengths), i.e. corners at ``(X ± WIDTH/2, Y ± HEIGHT/2, Z)``. With
+      ``CORNER_RADIUS > 0`` the corners are rounded (a 3-point-per-corner,
+      12-point outline), byte-identical to the sibling loft tool's
+      ``RectangleSection``.
     * ``"circle"`` — a regular polygon sampling of a ``RADIUS`` circle, using
       ``SEGMENTS`` points.
 
     :meth:`to_poly_loop` turns the station into the closed
     :class:`~ada.geom.curves.PolyLoop` that Phase 1's ``from_section_loft`` and
-    ``ada.api.loft`` consume (winding is CCW seen from +Z)."""
+    ``ada.api.loft`` consume (winding is CCW seen from +Z). It mirrors the loft
+    tool's ``SectionFactory``: a rounded rectangle emits the 12-point rounded
+    outline; a sharp rectangle emits 4 points, unless ``force_12pt`` (set by
+    :class:`TopoLoftMember` when the member mixes sharp and rounded rectangles)
+    upgrades it to a 12-point sharp outline so ``BRepOffsetAPI_ThruSections``
+    pairs wire edges 1:1 with the rounded sister profile."""
+
+    # 5% × min(w,h) inset used only when ``force_12pt`` upgrades a sharp
+    # rectangle to 12 points (mirrors RectangleSection._SHARP_LAYOUT_OFFSET_FRACTION).
+    # The corner vertex stays at the literal corner (sharp stays sharp); only the two
+    # flanking vertices are inset along the adjacent edges by this fraction.
+    _SHARP_LAYOUT_OFFSET_FRACTION: ClassVar[float] = 0.05
 
     TYPE: Annotated[Literal["rectangle", "circle"], Field(description="Section profile family")] = "rectangle"
     X: Annotated[float, Field(description="X-coordinate of the station (profile centre)")] = 0.0
@@ -635,12 +649,35 @@ class LoftStation(BaseModel):
     Z: Annotated[float, Field(description="Z-coordinate of the station (profile plane height)")] = 0.0
     WIDTH: Annotated[float | None, Field(description="Full width (X) of a rectangle section")] = None
     HEIGHT: Annotated[float | None, Field(description="Full height (Y) of a rectangle section")] = None
+    CORNER_RADIUS: Annotated[
+        float,
+        Field(description="Corner-rounding radius of a rectangle section (0 = sharp; must be < min(WIDTH, HEIGHT)/2)"),
+    ] = 0.0
     RADIUS: Annotated[float | None, Field(description="Radius of a circle section")] = None
-    SEGMENTS: Annotated[int, Field(description="Number of polygon samples for a circle section", ge=3)] = 16
+    # Number of polygon samples for a circle section. Matches the loft tool's
+    # CircleSection default (36) so a segments-omitted circle station is byte-identical.
+    SEGMENTS: Annotated[int, Field(description="Number of polygon samples for a circle section", ge=3)] = 36
 
-    def to_poly_loop(self):
+    @model_validator(mode="after")
+    def _validate_corner_radius(self) -> "LoftStation":
+        if self.TYPE == "rectangle" and self.CORNER_RADIUS and self.WIDTH is not None and self.HEIGHT is not None:
+            limit = min(self.WIDTH, self.HEIGHT) / 2
+            if self.CORNER_RADIUS >= limit:
+                raise ValueError(
+                    f"CORNER_RADIUS {self.CORNER_RADIUS} is too large for rectangle {self.WIDTH}x{self.HEIGHT}. "
+                    f"It must be smaller than {limit}."
+                )
+        return self
+
+    def to_poly_loop(self, force_12pt: bool = False):
         """Build the closed :class:`~ada.geom.curves.PolyLoop` for this station
-        in world coordinates (centred at ``X``/``Y``, in the plane ``z == Z``)."""
+        in world coordinates (centred at ``X``/``Y``, in the plane ``z == Z``).
+
+        ``force_12pt`` (set by :class:`TopoLoftMember` when the member's
+        rectangle stack mixes sharp and rounded sections) upgrades a *sharp*
+        rectangle to the 12-point sharp outline so its wire pairs 1:1 with the
+        rounded sister profile. A rounded rectangle always emits 12 points; a
+        circle is unaffected by ``force_12pt``."""
         import math
 
         from ada.geom.curves import PolyLoop
@@ -649,15 +686,14 @@ class LoftStation(BaseModel):
         if self.TYPE == "rectangle":
             if self.WIDTH is None or self.HEIGHT is None:
                 raise ValueError(f"rectangle LoftStation needs WIDTH and HEIGHT (got {self.WIDTH}, {self.HEIGHT})")
-            hw, hh = self.WIDTH / 2.0, self.HEIGHT / 2.0
-            corners = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)]
-            polygon = [Point(self.X + dx, self.Y + dy, self.Z) for dx, dy in corners]
+            local_xy = self._rectangle_local_xy(force_12pt=force_12pt)
+            polygon = [Point(self.X + dx, self.Y + dy, self.Z) for dx, dy in local_xy]
             return PolyLoop(polygon=polygon)
 
         # circle
         if self.RADIUS is None:
             raise ValueError("circle LoftStation needs RADIUS")
-        n = int(self.SEGMENTS)
+        n = int(self.SEGMENTS) if int(self.SEGMENTS) >= 3 else 36
         polygon = [
             Point(
                 self.X + self.RADIUS * math.cos(2.0 * math.pi * i / n),
@@ -667,6 +703,55 @@ class LoftStation(BaseModel):
             for i in range(n)
         ]
         return PolyLoop(polygon=polygon)
+
+    def _rectangle_local_xy(self, force_12pt: bool) -> list[tuple[float, float]]:
+        """The rectangle's 2D outline (centred on origin) — byte-identical to the
+        loft tool's ``RectangleSection.create``. Rounded => 12 pt; sharp+force_12pt
+        => 12 pt (corner vertex at the literal corner); sharp => 4 pt."""
+        import math
+
+        w, h = self.WIDTH / 2.0, self.HEIGHT / 2.0
+        sqrt2_2 = math.sqrt(2) / 2
+        if self.CORNER_RADIUS and self.CORNER_RADIUS > 0:
+            r = self.CORNER_RADIUS
+            return [
+                # Bottom-left arc: edge-tangent -> arc midpoint -> edge-tangent
+                (-w + r, -h),
+                (-w + r - r * sqrt2_2, -h + r - r * sqrt2_2),
+                (-w, -h + r),
+                # Top-left
+                (-w, h - r),
+                (-w + r - r * sqrt2_2, h - r + r * sqrt2_2),
+                (-w + r, h),
+                # Top-right
+                (w - r, h),
+                (w - r + r * sqrt2_2, h - r + r * sqrt2_2),
+                (w, h - r),
+                # Bottom-right
+                (w, -h + r),
+                (w - r + r * sqrt2_2, -h + r - r * sqrt2_2),
+                (w - r, -h),
+            ]
+        if force_12pt:
+            # Sharp corners, 12-point layout. The middle of each corner triplet sits
+            # at the actual corner so the 90 deg angle is preserved; the flanking
+            # points are inset by ``r`` along the adjacent edges.
+            r = self._SHARP_LAYOUT_OFFSET_FRACTION * min(self.WIDTH, self.HEIGHT)
+            return [
+                (-w + r, -h),  # bottom edge, r from bottom-left
+                (-w, -h),  # bottom-left corner (sharp)
+                (-w, -h + r),  # left edge, r from bottom-left
+                (-w, h - r),  # left edge, r from top-left
+                (-w, h),  # top-left corner (sharp)
+                (-w + r, h),  # top edge, r from top-left
+                (w - r, h),  # top edge, r from top-right
+                (w, h),  # top-right corner (sharp)
+                (w, h - r),  # right edge, r from top-right
+                (w, -h + r),  # right edge, r from bottom-right
+                (w, -h),  # bottom-right corner (sharp)
+                (w - r, -h),  # bottom edge, r from bottom-right
+            ]
+        return [(-w, -h), (w, -h), (w, h), (-w, h)]
 
 
 class TopoLoftMember(_TopoConfigBoundModel):
@@ -736,6 +821,31 @@ class TopoLoftMember(_TopoConfigBoundModel):
 
         return np.asarray(self.PLACEMENT, dtype=float)
 
+    def _force_12pt(self) -> bool:
+        """True iff the member's rectangle stack MIXES sharp (CORNER_RADIUS == 0)
+        and rounded (CORNER_RADIUS > 0) sections — the loft tool's
+        ``LoftCreator._force_12pt_flag`` rule.
+
+        ``BRepOffsetAPI_ThruSections`` needs matching wire vertex counts to
+        produce clean ruled faces between profiles; when a member mixes sharp and
+        rounded rectangles every rectangle emits 12 points so the edges pair 1:1.
+        An all-sharp or all-rounded member is left as-is (4-pt or 12-pt)."""
+        rects = [
+            st for st in self.STATIONS if st.TYPE == "rectangle" and st.WIDTH is not None and st.HEIGHT is not None
+        ]
+        if len(rects) < 2:
+            return False
+        has_rounded = any((st.CORNER_RADIUS or 0) > 0 for st in rects)
+        has_sharp = any((st.CORNER_RADIUS or 0) == 0 for st in rects)
+        return has_rounded and has_sharp
+
+    def _station_poly_loops(self) -> list:
+        """The station profiles as local-frame closed
+        :class:`~ada.geom.curves.PolyLoop`\\ s, applying the member-level 12-point
+        mixing rule to the rectangle stations."""
+        force_12pt = self._force_12pt()
+        return [st.to_poly_loop(force_12pt=force_12pt) for st in self.STATIONS]
+
     def world_profiles(self) -> list:
         """The station profiles as closed :class:`~ada.geom.curves.PolyLoop`\\ s
         with ``PLACEMENT`` applied — i.e. in the member's placed (world) frame.
@@ -746,7 +856,7 @@ class TopoLoftMember(_TopoConfigBoundModel):
         from ada.geom.curves import PolyLoop
         from ada.geom.points import Point
 
-        loops = [st.to_poly_loop() for st in self.STATIONS]
+        loops = self._station_poly_loops()
         mat = self._placement_matrix()
         if mat is None:
             return loops
@@ -765,7 +875,7 @@ class TopoLoftMember(_TopoConfigBoundModel):
         ``from_section_loft`` applies to the derived band solids)."""
         from ada.topology.io import LoftMember
 
-        profiles = [st.to_poly_loop() for st in self.STATIONS]
+        profiles = self._station_poly_loops()
         return LoftMember(name=self.NAME, profiles=profiles, placement=self._placement_matrix())
 
 
