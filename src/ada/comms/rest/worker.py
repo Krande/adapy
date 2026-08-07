@@ -999,6 +999,17 @@ async def _run_procedural_build(
             await _fail("build", f"engine {engine!r} manifest has no entrypoint")
             return
 
+    # Full-fidelity source: a model imported from an external workbook carries its
+    # original file (source_xlsx_key) so a non-default engine can compile the source
+    # directly (all config the topology doc drops). Fetch it for the engine.
+    source_xlsx: bytes | None = None
+    source_key = row["doc"].get("source_xlsx_key")
+    if source_key and not is_default_engine(engine):
+        try:
+            source_xlsx = await storage.get_bytes(scope, source_key)
+        except Exception:
+            logger.warning("procedural: source workbook %s unreadable; compiling from the doc", source_key)
+
     # Resolve placed catalog equipment (by slug) to its per-scope definition.
     catalog = await db_module.get_equipment_docs_by_scope(
         db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
@@ -1029,7 +1040,12 @@ async def _run_procedural_build(
         # via its manifest entrypoint (module:callable, resolved above).
         if not is_default_engine(engine):
             selector = engine if engine in BUILTIN_ENGINES else external_entrypoint
-            return compile_with_engine(selector, row["doc"], name=row["name"], lod=lod)
+            # source_xlsx (when the model stored its workbook) drives the engine's
+            # full-fidelity path; compile_with_engine passes only the kwargs the
+            # engine accepts, so a doc-only engine ignores it.
+            return compile_with_engine(
+                selector, row["doc"], name=row["name"], lod=lod, source_xlsx=source_xlsx
+            )
         cad_meshes = {}
         for slug, (data, ext) in cad_bytes.items():
             try:

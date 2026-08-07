@@ -28,6 +28,14 @@ def engine_wheel_key(engine_id: str, filename: str) -> str:
     return f"{engine_wheel_dir(engine_id)}{filename}"
 
 
+def procedural_source_key(model_id: str, ext: str = ".xlsx") -> str:
+    """Blob key for a procedural model's ORIGINAL source document (e.g. the
+    param_models workbook it was imported from). Kept so a full-fidelity engine can
+    compile the source directly (all config the topology doc drops); referenced by
+    ``doc["source_xlsx_key"]``."""
+    return f"{PROCEDURAL_PREFIX}{model_id}/source{ext.lower()}"
+
+
 def _engine_suffix(engine: str | None) -> str:
     """Cache-key suffix distinguishing a non-default engine's output. The default
     engine keeps the bare key (backward compatible); any other engine's GLB is a
@@ -85,6 +93,11 @@ def _doc_model():
         # when true, catalog equipment with a linked CAD asset render as the
         # real CAD geometry (spliced in at compile) instead of a box
         equipment_cad: bool = False
+        # blob key of the original source workbook this model was imported from
+        # (see procedural_source_key). A full-fidelity engine compiles the source
+        # directly (all config the topology sheets below drop); None for a
+        # cellbuilder-authored model.
+        source_xlsx_key: Optional[str] = None
         spaces: list[TopoSpace] = Field(default_factory=list)
         equipments: list[TopoEquipment] = Field(default_factory=list)
         openings: list[TopoOpening] = Field(default_factory=list)
@@ -104,6 +117,11 @@ def _validate_doc_shallow(doc: dict) -> dict:
         "blueprint": doc.get("blueprint") or {},
         "equipment_cad": bool(doc.get("equipment_cad")),
     }
+    source_xlsx_key = doc.get("source_xlsx_key")
+    if source_xlsx_key is not None:
+        if not isinstance(source_xlsx_key, str):
+            raise ValueError("source_xlsx_key must be a string")
+        out["source_xlsx_key"] = source_xlsx_key
     design_rules = doc.get("design_rules")
     if design_rules is not None:
         if not isinstance(design_rules, str):
