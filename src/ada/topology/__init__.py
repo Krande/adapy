@@ -32,7 +32,9 @@ from ada.topology.design_rules import (
 )
 from ada.topology.entities import (
     EquipRepr,
+    LoftStation,
     TopoEquipment,
+    TopoLoftMember,
     TopoOpening,
     TopoSpace,
     from_ada_meta,
@@ -81,6 +83,7 @@ __all__ = [
     "GraphFace",
     "GridIndexError",
     "LoftMember",
+    "LoftStation",
     "Penetration",
     "PenetrationPlanContext",
     "RoutePlan",
@@ -106,6 +109,7 @@ __all__ = [
     "RunWarning",
     "system_route_to_geometry",
     "TopoEquipment",
+    "TopoLoftMember",
     "TopoOpening",
     "TopoSpace",
     "TopologyMetadata",

@@ -39,7 +39,14 @@ from typing import Callable, Literal
 import ada
 from ada.config import logger
 from ada.topology import TopologyBuilder
-from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace, TopoStructure, TopoSystem
+from ada.topology.entities import (
+    TopoEquipment,
+    TopoLoftMember,
+    TopoOpening,
+    TopoSpace,
+    TopoStructure,
+    TopoSystem,
+)
 
 from .blueprint import SteelStru
 from .engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION, EngineBinding
@@ -94,6 +101,10 @@ class ProceduralBuilder:
     # each structure is built + placed; equipment and systems stay a SINGLE shared
     # layer (not duplicated per structure).
     structures: list[TopoStructure] = field(default_factory=list)
+    # Optional swept ("lofted") members: each is an ordered stack of section
+    # profiles that decomposes into inter-station BAND cells + renders as plates.
+    # Additive to ``spaces`` — a model may carry boxes, loft members, or both.
+    loft_members: list[TopoLoftMember] = field(default_factory=list)
     name: str = "ProceduralModel"
     # Routing/identity header (see ada.topo_model.engines.EngineBinding): ``engine``
     # is the slug that compiles this model (default = the built-in adapy engine; a
@@ -120,14 +131,17 @@ class ProceduralBuilder:
     # (first) one is also exposed as ``topology`` for back-compat.
     topologies: dict[str, TopologyBuilder] = field(init=False, default_factory=dict)
     blueprint: SteelStru | None = field(init=False, default=None)
+    # Cell graph of the inter-station band cells derived from ``loft_members``
+    # (None until :meth:`build_lofts` runs, or when there are no loft members).
+    loft_cell_graph: object | None = field(init=False, default=None)
     assembly: ada.Assembly | None = field(init=False, default=None)
     equipment_map: dict[str, ada.Equipment] = field(init=False, default_factory=dict)
     systems_parts: list[ada.Part] = field(init=False, default_factory=list)
     _cad_placements: list[tuple] = field(init=False, default_factory=list)
 
     def __post_init__(self) -> None:
-        if not self.spaces:
-            raise ValueError("document has no spaces to compile")
+        if not self.spaces and not self.loft_members:
+            raise ValueError("document has no spaces or loft_members to compile")
         # Coerce plain dicts (a convenience for callers that mix objects + dicts)
         # into the typed value objects, so downstream is uniformly object-based.
         self.spaces = [s if isinstance(s, TopoSpace) else TopoSpace(**s) for s in self.spaces]
@@ -135,6 +149,7 @@ class ProceduralBuilder:
         self.systems = [s if isinstance(s, TopoSystem) else TopoSystem(**s) for s in self.systems]
         self.openings = [o if isinstance(o, TopoOpening) else TopoOpening(**o) for o in self.openings]
         self.structures = [s if isinstance(s, TopoStructure) else TopoStructure(**s) for s in self.structures]
+        self.loft_members = [m if isinstance(m, TopoLoftMember) else TopoLoftMember(**m) for m in self.loft_members]
         # Whitelist the structural options so an unknown key can't reach SteelStru.
         self.blueprint_options = {k: v for k, v in dict(self.blueprint_options).items() if k in _BLUEPRINT_OPTION_KEYS}
         # Resolve a named/absent ruleset to a DesignRules; keep the slug for round-trip.
@@ -168,6 +183,7 @@ class ProceduralBuilder:
             systems=[TopoSystem(**s) for s in doc.get("systems", [])],
             openings=[TopoOpening(**o) for o in doc.get("openings", [])],
             structures=[TopoStructure(**s) for s in doc.get("structures", [])],
+            loft_members=[TopoLoftMember(**m) for m in doc.get("loft_members", [])],
             name=name,
             # engine + schema_version are persisted in the doc (routing header).
             engine=doc.get("engine") or DEFAULT_ENGINE_SLUG,
@@ -250,6 +266,9 @@ class ProceduralBuilder:
         }
         if self.structures:
             doc["structures"] = [s.model_dump(mode="json") for s in self.structures]
+        # Only stamp loft_members when present, so box-only docs are byte-identical.
+        if self.loft_members:
+            doc["loft_members"] = [m.model_dump(mode="json", exclude_none=True) for m in self.loft_members]
         if self.blueprint_options:
             doc["blueprint"] = dict(self.blueprint_options)
         if self.design_rules_slug is not None:
@@ -293,6 +312,7 @@ class ProceduralBuilder:
     def compile(self) -> bytes:
         """Run every phase in order and return the model as GLB bytes."""
         self.build_structure()
+        self.build_lofts()
         self.build_equipment()
         self.build_systems()
         return self.to_glb()
@@ -310,6 +330,11 @@ class ProceduralBuilder:
         structure — spaces/openings grouped by ``STRUCTURE_NAME`` — and places
         each at its origin in a combined assembly. Equipment and systems are added
         once (a single shared layer) over the primary (first) structure."""
+        # Loft-only model: there is no box structure to build; open an empty
+        # assembly for :meth:`build_lofts` to add the swept plates into.
+        if not self.spaces:
+            self.assembly = ada.Assembly(self.name)
+            return
         if not self.structures:
             self.assembly, topo, bp = self._build_structure_group(self.spaces, self.openings, self.name)
             self.topology, self.blueprint = topo, bp
@@ -372,6 +397,37 @@ class ProceduralBuilder:
             _apply_girder_joints(a)
         return a, topo, bp
 
+    def build_lofts(self) -> None:
+        """Swept ``loft_members`` -> band cells + plate geometry in the assembly.
+
+        Runs only when :attr:`loft_members` are present (byte-identical no-op for
+        box-only models). For the included members it (a) derives the lossless
+        inter-station BAND :class:`~ada.topology.CellGraph` via
+        :func:`ada.topology.io.from_section_loft` — one cell per inter-station
+        band, ``Sum(stations - 1)`` in total, stored on :attr:`loft_cell_graph` —
+        and (b) lofts each member's placed station profiles into a part of plates
+        (:func:`ada.api.loft.loft_to_part`) added under a single ``Lofts`` part.
+        The two views share the same profiles so the band cells sit inside their
+        plates."""
+        members = [m for m in self.loft_members if m.INCLUDE]
+        if not members:
+            return
+
+        from ada.api.loft import loft_to_part
+        from ada.topology.io import from_section_loft
+
+        # (a) lossless cell decomposition (Sum(stations-1) band cells).
+        self.loft_cell_graph = from_section_loft([m.to_loft_member() for m in members])
+
+        # (b) plate geometry per member (placed station profiles -> plates).
+        lofts_part = ada.Part("Lofts")
+        for m in members:
+            member_part = loft_to_part(m.world_profiles(), m.NAME, thickness=m.THICKNESS)
+            lofts_part.add_part(member_part)
+        if self.assembly is None:
+            self.assembly = ada.Assembly(self.name)
+        self.assembly.add_part(lofts_part)
+
     def build_equipment(self) -> None:
         """Place each equipment entity into the assembly under an ``Equipment``
         part, collecting the :class:`ada.Equipment` instances (the ones with
@@ -396,7 +452,9 @@ class ProceduralBuilder:
             space_lookup.setdefault(s.NAME, s)
 
         def _space_for(e):
-            return space_lookup.get((getattr(e, "STRUCTURE_NAME", None), e.SPACE_NAME)) or space_lookup.get(e.SPACE_NAME)
+            return space_lookup.get((getattr(e, "STRUCTURE_NAME", None), e.SPACE_NAME)) or space_lookup.get(
+                e.SPACE_NAME
+            )
 
         use_cad = self.equipment_cad and self.cad_scene_resolver is not None
         objects: list = []

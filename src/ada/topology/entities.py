@@ -35,6 +35,8 @@ __all__ = [
     "SystemConnection",
     "TopoSystem",
     "TopoStructure",
+    "LoftStation",
+    "TopoLoftMember",
     "beam_section_description_with_examples",
     "from_ada_obj",
     "from_ada_meta",
@@ -608,6 +610,152 @@ class TopoStructure(_TopoConfigBoundModel):
 
     def origin(self) -> tuple[float, float, float]:
         return (float(self.X or 0.0), float(self.Y or 0.0), float(self.Z or 0.0))
+
+
+class LoftStation(BaseModel):
+    """One closed section profile at a point on a loft member's spine.
+
+    A station is authored as a simple analytic outline centred at ``(X, Y)`` and
+    lying in the plane ``z == Z`` (the profile plane), so a stack of stations
+    describes a member swept along +Z (or any spine implied by the station
+    centres). Two profile families are supported:
+
+    * ``"rectangle"`` — an axis-aligned box from ``WIDTH``/``HEIGHT`` (the full
+      side lengths), i.e. corners at ``(X ± WIDTH/2, Y ± HEIGHT/2, Z)``.
+    * ``"circle"`` — a regular polygon sampling of a ``RADIUS`` circle, using
+      ``SEGMENTS`` points.
+
+    :meth:`to_poly_loop` turns the station into the closed
+    :class:`~ada.geom.curves.PolyLoop` that Phase 1's ``from_section_loft`` and
+    ``ada.api.loft`` consume (winding is CCW seen from +Z)."""
+
+    TYPE: Annotated[Literal["rectangle", "circle"], Field(description="Section profile family")] = "rectangle"
+    X: Annotated[float, Field(description="X-coordinate of the station (profile centre)")] = 0.0
+    Y: Annotated[float, Field(description="Y-coordinate of the station (profile centre)")] = 0.0
+    Z: Annotated[float, Field(description="Z-coordinate of the station (profile plane height)")] = 0.0
+    WIDTH: Annotated[float | None, Field(description="Full width (X) of a rectangle section")] = None
+    HEIGHT: Annotated[float | None, Field(description="Full height (Y) of a rectangle section")] = None
+    RADIUS: Annotated[float | None, Field(description="Radius of a circle section")] = None
+    SEGMENTS: Annotated[int, Field(description="Number of polygon samples for a circle section", ge=3)] = 16
+
+    def to_poly_loop(self):
+        """Build the closed :class:`~ada.geom.curves.PolyLoop` for this station
+        in world coordinates (centred at ``X``/``Y``, in the plane ``z == Z``)."""
+        import math
+
+        from ada.geom.curves import PolyLoop
+        from ada.geom.points import Point
+
+        if self.TYPE == "rectangle":
+            if self.WIDTH is None or self.HEIGHT is None:
+                raise ValueError(f"rectangle LoftStation needs WIDTH and HEIGHT (got {self.WIDTH}, {self.HEIGHT})")
+            hw, hh = self.WIDTH / 2.0, self.HEIGHT / 2.0
+            corners = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)]
+            polygon = [Point(self.X + dx, self.Y + dy, self.Z) for dx, dy in corners]
+            return PolyLoop(polygon=polygon)
+
+        # circle
+        if self.RADIUS is None:
+            raise ValueError("circle LoftStation needs RADIUS")
+        n = int(self.SEGMENTS)
+        polygon = [
+            Point(
+                self.X + self.RADIUS * math.cos(2.0 * math.pi * i / n),
+                self.Y + self.RADIUS * math.sin(2.0 * math.pi * i / n),
+                self.Z,
+            )
+            for i in range(n)
+        ]
+        return PolyLoop(polygon=polygon)
+
+
+class TopoLoftMember(_TopoConfigBoundModel):
+    """A swept ("lofted") member authored as an ordered stack of
+    :class:`LoftStation` section profiles — the loft-tool sibling of
+    :class:`TopoSpace`.
+
+    Additive to the box world: a procedural model may carry both ``spaces``
+    (axis-aligned boxes) and ``loft_members`` (swept members) and they compile
+    into one model. Each member decomposes into ``len(STATIONS) - 1`` inter-station
+    swept BAND cells via :func:`ada.topology.io.from_section_loft` (see
+    :meth:`to_loft_member`), and renders as plates via :func:`ada.api.loft.loft_to_part`.
+
+    ``PLACEMENT`` is an optional 4x4 affine (row-major nested list) applied to the
+    member — its band solids and its plate profiles — after they are built in the
+    member's own frame (mirrored/rotated/translated members, e.g. a floater's
+    legs). ``None`` (the default) means identity / world coordinates. ``THICKNESS``
+    is the plate thickness; ``SURFACE_ONLY`` marks a member whose plates are the
+    only intended geometry (no interior structure) — carried for the viewer/blueprint."""
+
+    SHEET_NAME: ClassVar[str] = "LoftMembers"
+    TAB_COLOR: ClassVar[str] = "00B0F0"  # HEX string without '#'
+
+    STRUCTURE_NAME: Annotated[str | None, Field(description="Name of Structure the member belongs to")] = None
+    INCLUDE: Annotated[bool, Field(description="Include member in the build")] = True
+    NAME: Annotated[str, Field(description="Name of the loft member")]
+    STATIONS: Annotated[
+        list[LoftStation], Field(min_length=2, description="Ordered section profiles along the spine (>= 2)")
+    ]
+    PLACEMENT: Annotated[
+        list[list[float]] | None,
+        Field(description="Optional 4x4 affine (row-major) applied to the member; identity when omitted"),
+    ] = None
+    THICKNESS: Annotated[float, Field(description="Plate thickness of the lofted skin")] = 0.01
+    SURFACE_ONLY: Annotated[bool, Field(description="Member is a surface skin only (no interior structure)")] = False
+
+    # --- cell-metadata duck-typing (parity with TopoSpace) -----------------
+    @property
+    def name(self) -> str:
+        return self.NAME
+
+    @field_validator("PLACEMENT")
+    @classmethod
+    def _validate_placement(cls, v):
+        if v is None:
+            return v
+        if len(v) != 4 or any(len(row) != 4 for row in v):
+            raise ValueError("PLACEMENT must be a 4x4 matrix (list of 4 rows of 4 floats)")
+        return v
+
+    def _placement_matrix(self):
+        """The member's placement as a 4x4 numpy array, or ``None`` for identity."""
+        if self.PLACEMENT is None:
+            return None
+        import numpy as np
+
+        return np.asarray(self.PLACEMENT, dtype=float)
+
+    def world_profiles(self) -> list:
+        """The station profiles as closed :class:`~ada.geom.curves.PolyLoop`\\ s
+        with ``PLACEMENT`` applied — i.e. in the member's placed (world) frame.
+
+        Used by the plate build path (``loft_to_part``), which — unlike the cell
+        derivation — has no separate placement step, so the transform is baked
+        into the points here."""
+        from ada.geom.curves import PolyLoop
+        from ada.geom.points import Point
+
+        loops = [st.to_poly_loop() for st in self.STATIONS]
+        mat = self._placement_matrix()
+        if mat is None:
+            return loops
+        placed = []
+        for loop in loops:
+            pts = []
+            for p in loop.polygon:
+                v = mat @ [float(p.x), float(p.y), float(p.z), 1.0]
+                pts.append(Point(float(v[0]), float(v[1]), float(v[2])))
+            placed.append(PolyLoop(polygon=pts))
+        return placed
+
+    def to_loft_member(self):
+        """Build the Phase 1 :class:`ada.topology.io.LoftMember` from the authored
+        stations: ordered local-frame profiles + the placement matrix (which
+        ``from_section_loft`` applies to the derived band solids)."""
+        from ada.topology.io import LoftMember
+
+        profiles = [st.to_poly_loop() for st in self.STATIONS]
+        return LoftMember(name=self.NAME, profiles=profiles, placement=self._placement_matrix())
 
 
 def from_ada_obj(obj: ada.PrimBox) -> TopoSpace | TopoOpening | TopoEquipment:

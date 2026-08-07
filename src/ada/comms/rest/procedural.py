@@ -82,7 +82,7 @@ def _doc_model():
     # TopoSystem/SystemConnection are the importable, xlsx-ready twins of the
     # local closure classes this used to declare — reused here so the wire format
     # has a single source of truth (they carry ClassVars but dump the same shape).
-    from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace, TopoSystem
+    from ada.topology.entities import TopoEquipment, TopoLoftMember, TopoOpening, TopoSpace, TopoSystem
 
     class ProceduralDoc(BaseModel):
         # Routing/identity header (see ada.topo_model.engines.EngineBinding):
@@ -112,6 +112,9 @@ def _doc_model():
         # routed service runs between equipment ports; the compiler wires,
         # routes and renders these (see ada.topo_model.compile)
         systems: list[TopoSystem] = Field(default_factory=list)
+        # swept ("lofted") members: ordered section-profile stacks that compile
+        # into inter-station band cells + plates (see ada.topo_model.builder)
+        loft_members: list[TopoLoftMember] = Field(default_factory=list)
 
     return ProceduralDoc
 
@@ -149,7 +152,7 @@ def _validate_doc_shallow(doc: dict) -> dict:
         raise ValueError("grid must be an object")
     if not isinstance(out["blueprint"], dict):
         raise ValueError("blueprint must be an object")
-    for key in ("spaces", "equipments", "openings", "systems"):
+    for key in ("spaces", "equipments", "openings", "systems", "loft_members"):
         entries = doc.get(key) or []
         if not isinstance(entries, list):
             raise ValueError(f"{key} must be a list")
