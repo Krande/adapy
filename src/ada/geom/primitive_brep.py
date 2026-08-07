@@ -162,6 +162,7 @@ def native_primitive_to_analytic_shell(geometry) -> su.ClosedShell | None:
     no bounded analytic shell. Used only as a fallback after the pure-Python track."""
     if not isinstance(geometry, _NATIVE_PRIMITIVES):
         return None
+    import os
     import tempfile
 
     from ada.geom import Geometry
@@ -179,7 +180,8 @@ def native_primitive_to_analytic_shell(geometry) -> su.ClosedShell | None:
     if build is None or write_step is None:
         return None
 
-    path = tempfile.mktemp(suffix=".stp")
+    fd, path = tempfile.mkstemp(suffix=".stp")
+    os.close(fd)  # write_step opens by path
     try:
         shape = build(Geometry(id="prim", geometry=geometry))
         write_step([shape], ["prim"], [(0.6, 0.6, 0.6)], path, "m", "AP242")

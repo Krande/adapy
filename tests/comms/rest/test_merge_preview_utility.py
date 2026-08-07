@@ -356,7 +356,8 @@ def test_cylinder_fit_to_faces_emits_cylindrical_surface():
     assert all(abs(f.face_surface.radius - 2.0) < 1e-3 for f in faces)
 
     shell = ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=faces)])
-    out = tempfile.mktemp(suffix=".step")
+    fd, out = tempfile.mkstemp(suffix=".step")
+    os.close(fd)  # reopened by name below
     try:
         with open(out, "w") as fh:
             w = Ap242StreamWriter(fh, schema="AP242", assembly=True)
@@ -421,7 +422,8 @@ def test_cylinder_trim_faces_bounds_by_real_boundary():
     assert len(f.bounds) == 2  # trimmed by the two end rings
 
     shell = ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=faces)])
-    out = tempfile.mktemp(suffix=".step")
+    fd, out = tempfile.mkstemp(suffix=".step")
+    os.close(fd)  # reopened by name below
     try:
         with open(out, "w") as fh:
             w = Ap242StreamWriter(fh, schema="AP242", assembly=True)
