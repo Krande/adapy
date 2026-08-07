@@ -140,12 +140,33 @@ def _apply_girder_joints(assembly: ada.Assembly) -> None:
         logger.warning("procedural: girder-joint pass skipped: %s", exc)
 
 
-def _equipment_to_object(eq: TopoEquipment, resolver=None) -> ada.Equipment | ada.PrimBox:
+def equipment_space_offset(eq: TopoEquipment, space) -> tuple[float, float, float]:
+    """Global offset that seats an equipment relative to its containing cell.
+
+    An equipment's ``X/Y/Z`` are LOCAL to its ``SPACE_NAME`` cell — the default
+    when it is associated with a cell — unless ``GLOBAL_COORDS`` is set, matching
+    :meth:`ada.topology.entities.TopoEquipment.get_origin` (and the sibling
+    procedural engine, whose placement the simulation view reflects). So the
+    offset is the cell's origin, plus the cell height for a ROOF-seated unit.
+    Global-coord equipment — or one whose cell can't be resolved (fall back to
+    treating ``X/Y/Z`` as global) — get no offset."""
+    if eq.GLOBAL_COORDS or space is None:
+        return (0.0, 0.0, 0.0)
+    oz = float(space.Z or 0.0)
+    if eq.SPACE_LOC == "ROOF":
+        oz += float(space.DZ or 0.0)
+    return (float(space.X or 0.0), float(space.Y or 0.0), oz)
+
+
+def _equipment_to_object(
+    eq: TopoEquipment, resolver=None, space_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+) -> ada.Equipment | ada.PrimBox:
     """Compile an equipment entity into a placed object. The entity's
     DESCRIPTION names its type: a per-scope catalog slug (resolved via
     ``resolver`` to a catalog doc — bbox/mass/ports/IFC class) takes precedence,
     then a built-in archetype (pump/tank/...); anything else renders as a plain
-    box."""
+    box. ``space_offset`` seats a cell-associated equipment at its cell (see
+    :func:`equipment_space_offset`); it is ``(0,0,0)`` for global-coord units."""
     from .equipment import (
         EQUIPMENT_ARCHETYPES,
         apply_equipment_rotation,
@@ -154,8 +175,10 @@ def _equipment_to_object(eq: TopoEquipment, resolver=None) -> ada.Equipment | ad
     )
 
     _require_coords(eq, ("X", "Y", "Z", "LX", "LY", "LZ"))
+    ox, oy, oz = space_offset
+    bx, by, bz = eq.X + ox, eq.Y + oy, eq.Z + oz
     key = (eq.DESCRIPTION or "").strip()
-    origin = (eq.X + eq.LX / 2, eq.Y + eq.LY / 2, eq.Z)
+    origin = (bx + eq.LX / 2, by + eq.LY / 2, bz)
     rot_deg = eq.rotation_deg()
 
     catalog_doc = resolver(key) if resolver is not None and key else None
@@ -172,8 +195,8 @@ def _equipment_to_object(eq: TopoEquipment, resolver=None) -> ada.Equipment | ad
         obj._topo_rotation_deg = rot_deg  # so occupancy/clash tests use the ROTATED footprint
         return obj
 
-    p1 = (eq.X, eq.Y, eq.Z)
-    p2 = (eq.X + eq.LX, eq.Y + eq.LY, eq.Z + eq.LZ)
+    p1 = (bx, by, bz)
+    p2 = (bx + eq.LX, by + eq.LY, bz + eq.LZ)
     # A bare, un-typed box still honours its placement rotation (pivot = the
     # footprint centre = origin) so an anonymous equipment box spins too.
     rot = rotation_matrix(*rot_deg)
@@ -448,22 +471,25 @@ def _build_systems(
     return parts
 
 
-def _cad_transform(eq: TopoEquipment, mesh):
+def _cad_transform(eq: TopoEquipment, mesh, space_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)):
     """4x4 that seats the CAD mesh where the equipment box would sit and applies
     the equipment's rotation about its footprint centre. First translate the
-    mesh's min corner onto the placed cell's ``(X, Y, Z)`` corner, then spin the
-    seated mesh about the pivot so the real geometry matches the ports."""
+    mesh's min corner onto the placed cell's ``(X, Y, Z)`` corner (shifted by
+    ``space_offset`` for a cell-associated unit), then spin the seated mesh about
+    the pivot so the real geometry matches the ports."""
     import numpy as np
 
     from .equipment import rotation_matrix
 
+    ox, oy, oz = space_offset
+    bx, by, bz = eq.X + ox, eq.Y + oy, eq.Z + oz
     bmin = mesh.bounds[0]
     seat = np.eye(4)
-    seat[:3, 3] = [eq.X - float(bmin[0]), eq.Y - float(bmin[1]), eq.Z - float(bmin[2])]
+    seat[:3, 3] = [bx - float(bmin[0]), by - float(bmin[1]), bz - float(bmin[2])]
     rot = rotation_matrix(*eq.rotation_deg())
     if rot is None:
         return seat
-    pivot = np.array([eq.X + eq.LX / 2.0, eq.Y + eq.LY / 2.0, eq.Z])
+    pivot = np.array([bx + eq.LX / 2.0, by + eq.LY / 2.0, bz])
     spin = np.eye(4)
     spin[:3, :3] = rot
     to_pivot = np.eye(4)

@@ -29,7 +29,11 @@ DOC = {
             "COGx": 0, "COGy": 0, "COGz": 0.5, "massDry": 1000, "massCont": 0,
         },
         {
+            # Authored in GLOBAL coords (X=6.5 is a world position inside Cell2's
+            # 5..10 span, not a cell-local offset) — so GLOBAL_COORDS opts out of
+            # the default cell-relative placement.
             "NAME": "Tank2", "DESCRIPTION": "tank", "SPACE_NAME": "Cell2", "SPACE_LOC": "FLOOR",
+            "GLOBAL_COORDS": True,
             "X": 6.5, "Y": 1.5, "Z": 0.0, "LX": 2.0, "LY": 2.0, "LZ": 2.0,
             "COGx": 0, "COGy": 0, "COGz": 1.0, "massDry": 1000, "massCont": 0,
         },
@@ -158,6 +162,30 @@ def test_to_doc_roundtrips():
     assert [s.NAME for s in back.systems] == ["ServiceWater"]
     assert back.blueprint_options == {"reinforce_internal_walls": True}
     assert back.design_rules_slug == "route_only"
+
+
+def test_equipment_seated_relative_to_cell():
+    """Cell-associated equipment (SPACE_NAME, not GLOBAL_COORDS) places its local
+    X/Y/Z relative to the cell origin, +cell height for a ROOF unit — matching the
+    entity's get_origin() and the simulation view. GLOBAL_COORDS opts out."""
+    import pytest
+
+    from ada.topo_model.compile import equipment_space_offset
+    from ada.topology.entities import TopoEquipment, TopoSpace
+
+    space = TopoSpace(NAME="C", X=1.0, Y=2.0, Z=8.15, DX=23.4, DY=39.0, DZ=16.9)
+    mass = dict(COGx=0, COGy=0, COGz=0.5, massDry=100, massCont=0, LX=1, LY=1, LZ=1)
+    roof = TopoEquipment(NAME="v", SPACE_NAME="C", SPACE_LOC="ROOF", X=4.55, Y=24.3, Z=0.0, **mass)
+    ox, oy, oz = equipment_space_offset(roof, space)
+    assert (ox, oy) == (1.0, 2.0)
+    assert oz == pytest.approx(8.15 + 16.9)  # cell origin Z + cell height (ROOF)
+
+    floor = TopoEquipment(NAME="f", SPACE_NAME="C", SPACE_LOC="FLOOR", X=1, Y=1, Z=0, **mass)
+    assert equipment_space_offset(floor, space) == (1.0, 2.0, 8.15)  # no roof term
+
+    glob = TopoEquipment(NAME="g", SPACE_NAME="C", SPACE_LOC="ROOF", GLOBAL_COORDS=True, X=1, Y=1, Z=1, **mass)
+    assert equipment_space_offset(glob, space) == (0.0, 0.0, 0.0)  # global opts out
+    assert equipment_space_offset(floor, None) == (0.0, 0.0, 0.0)  # unresolved cell falls back to global
 
 
 def test_engine_binding_roundtrips_through_doc_and_excel(tmp_path):

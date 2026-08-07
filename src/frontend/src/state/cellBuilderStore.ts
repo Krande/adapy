@@ -486,8 +486,32 @@ interface CellBuilderState {
   applyRelocations: () => void;
 }
 
+// Global offset that seats a cell-associated equipment at its cell. Equipment
+// X/Y/Z are LOCAL to their SPACE_NAME cell — the default — unless GLOBAL_COORDS
+// is set, matching the compile worker (equipment_space_offset) and the
+// simulation view. A ROOF-seated unit also picks up the cell height. Global or
+// unresolved-cell equipment get no offset (X/Y/Z are already world coords). This
+// is why an imported model's equipment used to render at the wrong spot: their
+// local coords were placed as if global.
+function equipmentSpaceOffset(
+  e: Record<string, unknown>,
+  spaceByName: Map<string, Record<string, unknown>>,
+): [number, number, number] {
+  if (e.GLOBAL_COORDS) return [0, 0, 0];
+  const s = spaceByName.get(e.SPACE_NAME as string);
+  if (!s) return [0, 0, 0];
+  const oz =
+    Number(s.Z ?? 0) + (e.SPACE_LOC === "ROOF" ? Number(s.DZ ?? 0) : 0);
+  return [Number(s.X ?? 0), Number(s.Y ?? 0), oz];
+}
+
 function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
   const out: Record<string, BuilderCell> = {};
+  const spaceByName = new Map<string, Record<string, unknown>>();
+  for (const s of doc.spaces ?? []) {
+    const nm = s.NAME as string | undefined;
+    if (nm) spaceByName.set(nm, s);
+  }
   for (const s of doc.spaces ?? []) {
     const id = nextId();
     out[id] = {
@@ -501,6 +525,7 @@ function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
   }
   for (const e of doc.equipments ?? []) {
     const id = nextId();
+    const [ox, oy, oz] = equipmentSpaceOffset(e, spaceByName);
     out[id] = {
       id,
       name: String(e.NAME ?? id),
@@ -509,7 +534,11 @@ function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
         typeof e.DESCRIPTION === "string" && e.DESCRIPTION
           ? e.DESCRIPTION
           : undefined,
-      origin: [Number(e.X ?? 0), Number(e.Y ?? 0), Number(e.Z ?? 0)],
+      origin: [
+        Number(e.X ?? 0) + ox,
+        Number(e.Y ?? 0) + oy,
+        Number(e.Z ?? 0) + oz,
+      ],
       size: [Number(e.LX ?? 1), Number(e.LY ?? 1), Number(e.LZ ?? 1)],
       rotation: [
         Number(e.ROT_X ?? 0),
@@ -1704,13 +1733,13 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     // Engine selection is a compile-time choice, not part of the model document
     // — no history / no doc round-trip; just picks which engine the next compile
     // dispatches to (server and in-browser both resolve it identically).
-    setSelectedEngine: (slug) => set({ selectedEngine: slug || "adapy-default" }),
+    setSelectedEngine: (slug) =>
+      set({ selectedEngine: slug || "adapy-default" }),
 
     fetchEngines: async () => {
       try {
-        const engines = await viewerApi.listProceduralEngines(
-          currentScopePart(),
-        );
+        const engines =
+          await viewerApi.listProceduralEngines(currentScopePart());
         set({ engines });
       } catch (e) {
         console.warn("cellbuilder: engines fetch failed", e);
@@ -2020,7 +2049,11 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
               eng.id,
             );
             if (resolved.kind === "wheel") {
-              if (!resolved.ready || !resolved.wheel_url || !resolved.entrypoint)
+              if (
+                !resolved.ready ||
+                !resolved.wheel_url ||
+                !resolved.entrypoint
+              )
                 throw new Error(
                   "engine wheel is not built yet — try again shortly",
                 );

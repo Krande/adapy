@@ -22,6 +22,9 @@ def _eq(name, desc, space, x, y, z, lx, ly, lz):
         "DESCRIPTION": desc,
         "SPACE_NAME": space,
         "SPACE_LOC": "FLOOR",
+        # x/y/z here are WORLD coords (e.g. Tank1 at x=6.5 sits in Cell2's 5..10
+        # span), so opt out of the default cell-relative placement.
+        "GLOBAL_COORDS": True,
         "X": x,
         "Y": y,
         "Z": z,

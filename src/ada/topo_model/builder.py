@@ -383,18 +383,32 @@ class ProceduralBuilder:
         if not self.equipments:
             return
 
+        from .compile import equipment_space_offset
         from .equipment import apply_equipment_rotation
+
+        # Cell lookup so an equipment associated with a cell (SPACE_NAME, and not
+        # GLOBAL_COORDS) is seated at that cell's origin — the default placement,
+        # matching the entity's own get_origin() and the sibling engine. Keyed by
+        # (STRUCTURE_NAME, NAME) with a bare-NAME fallback for single-structure docs.
+        space_lookup: dict = {}
+        for s in self.spaces:
+            space_lookup[(getattr(s, "STRUCTURE_NAME", None), s.NAME)] = s
+            space_lookup.setdefault(s.NAME, s)
+
+        def _space_for(e):
+            return space_lookup.get((getattr(e, "STRUCTURE_NAME", None), e.SPACE_NAME)) or space_lookup.get(e.SPACE_NAME)
 
         use_cad = self.equipment_cad and self.cad_scene_resolver is not None
         objects: list = []
         for e in self.equipments:
+            offset = equipment_space_offset(e, _space_for(e))
             slug = (e.DESCRIPTION or "").strip()
             cad_mesh = self.cad_scene_resolver(slug) if (use_cad and slug) else None
             if cad_mesh is not None:
                 from .equipment import build_equipment_from_catalog
 
                 _require_coords(e, ("X", "Y", "Z", "LX", "LY", "LZ"))
-                origin = (e.X + e.LX / 2, e.Y + e.LY / 2, e.Z)
+                origin = (e.X + offset[0] + e.LX / 2, e.Y + offset[1] + e.LY / 2, e.Z + offset[2])
                 catalog_doc = self.equipment_resolver(slug) if self.equipment_resolver is not None else None
                 obj = build_equipment_from_catalog(
                     e.NAME, origin, catalog_doc or {}, lx=e.LX, ly=e.LY, lz=e.LZ, add_body=False
@@ -403,10 +417,10 @@ class ProceduralBuilder:
                 # rotate so routing meets the spun CAD geometry at the right face.
                 apply_equipment_rotation(obj, *e.rotation_deg())
                 obj._topo_rotation_deg = e.rotation_deg()  # rotated footprint for occupancy/clash
-                self._cad_placements.append((cad_mesh, _cad_transform(e, cad_mesh)))
+                self._cad_placements.append((cad_mesh, _cad_transform(e, cad_mesh, offset)))
                 objects.append(obj)
             else:
-                objects.append(_equipment_to_object(e, self.equipment_resolver))
+                objects.append(_equipment_to_object(e, self.equipment_resolver, offset))
 
         for obj in objects:
             if isinstance(obj, ada.Equipment):
