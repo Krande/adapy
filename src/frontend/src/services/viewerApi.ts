@@ -1062,6 +1062,11 @@ export interface ProceduralDoc {
   /** Routed service runs; each entry {NAME, TYPE, MEDIUM?, CONNECTIONS:
    * [{EQUIPMENT, PORT}]}. Rendered by the compiler as pipe/cable runs. */
   systems?: Record<string, unknown>[];
+  /** Authored loft (swept) members; each {NAME, STRUCTURE_NAME?, INCLUDE,
+   * STATIONS:[{TYPE, X, Y, Z, WIDTH?/HEIGHT?/RADIUS?, SEGMENTS}], PLACEMENT?
+   * (4x4 row-major), THICKNESS, SURFACE_ONLY}. A member with N stations
+   * compiles to N-1 swept-band plates; the viewer draws band proxies. */
+  loft_members?: Record<string, unknown>[];
 }
 
 export interface ProceduralCompileResponse {

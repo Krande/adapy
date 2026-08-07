@@ -43,17 +43,21 @@ const SELECTED_EDGE_COLOR = 0xfb7185;
 const HOVER_EDGE_WIDTH = 4; // px (fat lines — WebGL ignores LineBasicMaterial.linewidth)
 const SELECTED_EDGE_WIDTH = 6;
 const OPENING_COLOR = 0xef4444; // red — a negative-volume door/window cut
+const LOFT_COLOR = 0x14b8a6; // teal — a read-only swept-band (loft) proxy
 const DEFAULT_CELL_SIZE: Vec3 = [5, 5, 3];
 const DEFAULT_EQUIPMENT_SIZE: Vec3 = [1, 1, 1];
 const DEFAULT_OPENING_SIZE: Vec3 = [1, 1, 2]; // door-ish; snaps to the wall it lands on
 
-const colorForKind = (kind: "cell" | "equipment" | "opening"): number =>
+const colorForKind = (kind: BuilderCell["kind"]): number =>
     kind === "cell"
         ? CELL_COLOR
         : kind === "opening"
           ? OPENING_COLOR
-          : EQUIPMENT_COLOR;
+          : kind === "loft"
+            ? LOFT_COLOR
+            : EQUIPMENT_COLOR;
 const BASE_OPACITY = 0.3;
+const LOFT_OPACITY = 0.35;
 const DRAG_START_PX = 4;
 // Resize-handle sphere colour per axis (X red, Y green, Z blue).
 const HANDLE_AXIS_COLOR = [0xef4444, 0x22c55e, 0x3b82f6];
@@ -111,6 +115,55 @@ function lineParamFromRay(ray: THREE.Ray, lineOrigin: THREE.Vector3, lineDir: TH
     const d = ray.direction.dot(w0);
     const e = lineDir.dot(w0);
     return (e - b * d) / denom;
+}
+
+// --- Loft band geometry (read-only swept proxy) ----------------------------
+// Build a translucent swept mesh between a band's two profile rings (model-space
+// absolute points — the mesh sits at the container origin, which carries the
+// model offset, exactly like box cells). Side walls pair the two rings around
+// the loop (equal ring counts = a clean quad strip; differing counts pair by
+// proportional index so a rectangle->circle band still closes without crashing).
+// Convex end caps (fans) close the bay cheaply. DoubleSide so winding is moot.
+function sweptBandGeometry(lo: Vec3[], hi: Vec3[]): THREE.BufferGeometry {
+    const n0 = lo.length;
+    const n1 = hi.length;
+    const positions: number[] = [];
+    for (const p of lo) positions.push(p[0], p[1], p[2]);
+    for (const p of hi) positions.push(p[0], p[1], p[2]);
+    const hiBase = n0;
+    const indices: number[] = [];
+    const K = Math.max(n0, n1);
+    for (let k = 0; k < K; k++) {
+        const a0 = Math.floor((k * n0) / K) % n0;
+        const a1 = Math.floor(((k + 1) * n0) / K) % n0;
+        const b0 = hiBase + (Math.floor((k * n1) / K) % n1);
+        const b1 = hiBase + (Math.floor(((k + 1) * n1) / K) % n1);
+        indices.push(a0, a1, b1, a0, b1, b0);
+    }
+    // End caps: fan-triangulate each (convex) ring.
+    for (let i = 1; i < n0 - 1; i++) indices.push(0, i, i + 1);
+    for (let i = 1; i < n1 - 1; i++) indices.push(hiBase, hiBase + i, hiBase + i + 1);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return geo;
+}
+
+// Line segments tracing the two closed station rings (the band's edge overlay).
+function ringsEdgesGeometry(lo: Vec3[], hi: Vec3[]): THREE.BufferGeometry {
+    const pts: number[] = [];
+    for (const ring of [lo, hi]) {
+        const n = ring.length;
+        for (let i = 0; i < n; i++) {
+            const a = ring[i];
+            const b = ring[(i + 1) % n];
+            pts.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+        }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    return geo;
 }
 
 // Ports for a placed equipment cell, looked up from the fetched type options.
@@ -314,6 +367,27 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             if (!cell) continue;
             const base = colorForKind(cell.kind);
             const cellSelected = sel?.cellId === cellId || selectedSet.has(cellId);
+            // Loft band = one translucent material (whole-cell select/hover only,
+            // no per-face highlight — loft cells are read-only).
+            if (!Array.isArray(mesh.material)) {
+                const m = mesh.material as THREE.MeshBasicMaterial;
+                let color = base;
+                let opacity = LOFT_OPACITY;
+                if (cellSelected) opacity = 0.5;
+                if (hovered?.mesh === mesh) {
+                    color = HOVER_FACE_COLOR;
+                    opacity = 0.6;
+                }
+                m.color.setHex(color);
+                m.opacity = opacity;
+                const loftEdges = mesh.children[0] as THREE.LineSegments | undefined;
+                if (loftEdges) {
+                    (loftEdges.material as THREE.LineBasicMaterial).color.setHex(
+                        cellSelected ? 0xffffff : base,
+                    );
+                }
+                continue;
+            }
             const mats = mesh.material as THREE.MeshBasicMaterial[];
             for (let fi = 0; fi < mats.length; fi++) {
                 let color = base;
@@ -354,6 +428,33 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         const st = useCellBuilderStore.getState();
         if (st.active) {
             for (const cell of Object.values(st.cells)) {
+                // Loft band: a read-only swept proxy drawn from its two profile
+                // rings, with the two station rings as the edge overlay. Same
+                // meshById/__cellId plumbing as a box, so click-select + hide +
+                // the whole-cell highlight all work identically — only the
+                // geometry source differs (band instead of BoxGeometry).
+                if (cell.kind === "loft" && cell.loft) {
+                    const [lo, hi] = cell.loft.rings;
+                    const mesh = new THREE.Mesh(
+                        sweptBandGeometry(lo, hi),
+                        new THREE.MeshBasicMaterial({
+                            color: LOFT_COLOR,
+                            transparent: true,
+                            opacity: LOFT_OPACITY,
+                            depthWrite: false,
+                            side: THREE.DoubleSide,
+                        }),
+                    );
+                    mesh.userData.__cellId = cell.id;
+                    const ringEdges = new THREE.LineSegments(
+                        ringsEdgesGeometry(lo, hi),
+                        new THREE.LineBasicMaterial({color: LOFT_COLOR}),
+                    );
+                    mesh.add(ringEdges);
+                    cellsGroup.add(mesh);
+                    meshById.set(cell.id, mesh);
+                    continue;
+                }
                 const geo = new THREE.BoxGeometry(...cell.size);
                 const color = colorForKind(cell.kind);
                 // One material per BoxGeometry group (+X,-X,+Y,-Y,+Z,-Z) so a
@@ -657,7 +758,10 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (cameraRef.current) gizmo.camera = cameraRef.current;
         const sel = st.selection;
         const cell = sel ? st.cells[sel.cellId] : null;
-        const translateOn = !!(st.active && st.gizmoMode === "translate" && cell && st.cellsVisible);
+        // Loft bands are read-only — no translate gizmo (nor rotate/resize).
+        const translateOn = !!(
+            st.active && st.gizmoMode === "translate" && cell && cell.kind !== "loft" && st.cellsVisible
+        );
         // Rotate is equipment-only — spaces stay axis-aligned lattice boxes.
         const rotateOn = !!(
             st.active && st.gizmoMode === "rotate" && cell && cell.kind === "equipment" && st.cellsVisible
@@ -1221,7 +1325,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             }
             // G/R/S activate the translate / rotate / resize gizmo (Blender keys):
             // rotate is equipment-only, resize is cell-only (matches the menus).
-            if (!ev.shiftKey && cell) {
+            if (!ev.shiftKey && cell && cell.kind !== "loft") {
                 if (k === "g") {
                     st.setGizmoMode("translate");
                     ev.preventDefault();

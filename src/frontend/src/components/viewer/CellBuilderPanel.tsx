@@ -796,7 +796,12 @@ const CellBuilderPanel: React.FC = () => {
                 <span
                   className="inline-block w-2 h-2 rounded-sm"
                   style={{
-                    background: c.kind === "cell" ? "#3b82f6" : "#f97316",
+                    background:
+                      c.kind === "cell"
+                        ? "#3b82f6"
+                        : c.kind === "loft"
+                          ? "#14b8a6"
+                          : "#f97316",
                   }}
                 />
                 <span

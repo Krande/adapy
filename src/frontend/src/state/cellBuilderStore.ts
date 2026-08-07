@@ -17,6 +17,12 @@ import {
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
 import {
+  bandBounds,
+  memberToBands,
+  type LoftBand,
+  type LoftMemberDoc,
+} from "@/utils/cellbuilder/loft";
+import {
   applyFaceOffset,
   BOX_FACE_SIDES,
   faceCenter,
@@ -57,10 +63,17 @@ function setProceduralToast(name: string, patch: Partial<ConversionJob>): void {
 }
 
 // One box in the cellbuilder: either a space cell or an equipment unit.
+// A `loft` cell is a read-only swept band (one bay of a loft member) — it still
+// carries origin/size (the band's bounding box) so box-oriented plumbing (hide,
+// selection, the cell list) stays safe, but it is drawn from its two profile
+// rings (see `loft`), not as a box, and is not user-editable in this slice.
 export interface BuilderCell extends CellBox {
   id: string;
   name: string;
-  kind: "cell" | "equipment" | "opening";
+  kind: "cell" | "equipment" | "opening" | "loft";
+  /** Present only on `loft` cells: the two placed profile rings for this band
+   * plus its member/bay/station metadata (read-only). */
+  loft?: LoftBand;
   /** Archetype name (pump/tank/...) for equipment cells; from the
    * worker-advertised list. */
   equipmentType?: string;
@@ -221,6 +234,11 @@ interface CellBuilderState {
    * (top-row button included). */
   active: { modelId: string; name: string; revision: number } | null;
   cells: Record<string, BuilderCell>;
+  /** Raw authored loft members carried through verbatim (read-only in this
+   * slice): the source for the `loft` band cells, re-emitted unchanged by
+   * toDoc. Loft geometry is not user-edited here (design risk #1: no
+   * loft-native face id yet). */
+  loftMembers: LoftMemberDoc[];
   /** Logical service runs (rendered as routed pipes/cables by the compiler). */
   systems: Record<string, BuilderSystem>;
   mode: CellBuilderMode;
@@ -573,7 +591,33 @@ function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
       params: extractParams(o, OPENING_OWN_KEYS),
     };
   }
+  // Loft members (Phase 2b, read-only): each member -> N-1 swept-band cells,
+  // drawn from their two profile rings. INCLUDE=false members are skipped
+  // (memberToBands returns []). The raw loft_members are retained separately on
+  // the store so toDoc re-emits them verbatim — this slice never edits loft
+  // geometry. A loft-only model (no spaces) loads + displays.
+  for (const m of loftMembersFromDoc(doc)) {
+    for (const band of memberToBands(m)) {
+      const id = nextId();
+      const { origin, size } = bandBounds(band);
+      out[id] = {
+        id,
+        name: band.cellName,
+        kind: "loft",
+        origin,
+        size,
+        loft: band,
+        params: {},
+      };
+    }
+  }
   return out;
+}
+
+/** The raw authored loft members carried on a doc (empty when absent). */
+function loftMembersFromDoc(doc: ProceduralDoc): LoftMemberDoc[] {
+  const raw = (doc as { loft_members?: unknown }).loft_members;
+  return Array.isArray(raw) ? (raw as LoftMemberDoc[]) : [];
 }
 
 function systemsFromDoc(doc: ProceduralDoc): Record<string, BuilderSystem> {
@@ -671,6 +715,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
   return {
     active: null,
     cells: {},
+    loftMembers: [],
     systems: {},
     past: [],
     future: [],
@@ -727,6 +772,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       set({
         active: { modelId, name, revision },
         cells: cellsFromDoc(doc),
+        loftMembers: loftMembersFromDoc(doc),
         systems: systemsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
@@ -766,6 +812,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       set({
         active: null,
         cells: {},
+        loftMembers: [],
         systems: {},
         past: [],
         future: [],
@@ -1374,6 +1421,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             : { EQUIPMENT: c.equipment, PORT: c.port },
         ),
       }));
+      // Loft members are read-only in this slice — re-emit them verbatim, and
+      // only when present so box-only docs stay byte-identical (mirrors the
+      // backend's conditional dump).
+      const loftMembers = get().loftMembers;
       return {
         grid: {},
         blueprint: get().blueprintOptions,
@@ -1383,11 +1434,13 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         equipments,
         systems,
         openings,
+        ...(loftMembers.length ? { loft_members: loftMembers } : {}),
       };
     },
     loadFromDoc: (doc) =>
       set({
         cells: cellsFromDoc(doc),
+        loftMembers: loftMembersFromDoc(doc),
         systems: systemsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),

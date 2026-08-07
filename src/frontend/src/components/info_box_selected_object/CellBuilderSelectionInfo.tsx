@@ -256,6 +256,56 @@ const EquipmentSystems: React.FC<{
   );
 };
 
+// One station's read-only param summary (TYPE + section dims + Z).
+const StationRow: React.FC<{
+  label: string;
+  station: import("@/utils/cellbuilder/loft").LoftStation;
+}> = ({ label, station }) => {
+  const dims =
+    station.TYPE === "circle"
+      ? `R ${Number(station.RADIUS ?? 0).toFixed(2)} · ${Math.max(
+          3,
+          Math.floor(station.SEGMENTS ?? 16),
+        )} seg`
+      : `${Number(station.WIDTH ?? 0).toFixed(2)} × ${Number(
+          station.HEIGHT ?? 0,
+        ).toFixed(2)}`;
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-gray-400 w-12">{label}</span>
+      <span className="text-gray-300">{station.TYPE}</span>
+      <span className="ml-auto text-gray-400">
+        {dims} · Z {Number(station.Z ?? 0).toFixed(2)}
+      </span>
+    </div>
+  );
+};
+
+// Read-only detail for a loft (swept-band) cell: which member + bay it is, and
+// the two bounding stations' params. No gizmo / resize / face controls — loft
+// cells are not user-edited in this slice (design risk #1: no loft-native face
+// id yet). Hide still works via the tool panel / Shift+H.
+const LoftInfo: React.FC<{ cell: BuilderCell }> = ({ cell }) => {
+  const band = cell.loft;
+  if (!band) return null;
+  return (
+    <div className="flex flex-col gap-1.5 px-1 pt-1">
+      <div className="text-gray-400">
+        Loft band — member <span className="text-gray-200">{band.member}</span>,
+        bay {band.bay + 1} of {band.bandCount}
+      </div>
+      <div className="flex flex-col gap-0.5 border-t border-gray-700/50 pt-1">
+        <StationRow label="station" station={band.stationLo} />
+        <StationRow label="→ next" station={band.stationHi} />
+      </div>
+      <div className="text-gray-600 italic">
+        Read-only proxy — edit via the loft author (no in-viewer loft editing
+        yet).
+      </div>
+    </div>
+  );
+};
+
 const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
   selection,
 }) => {
@@ -295,11 +345,13 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
       : null;
   const edgeAxis = selection.edge?.axis;
   const title =
-    selection.kind === "cell"
-      ? `Cell ${cell.name}`
-      : selection.kind === "face"
-        ? `Face ${side?.label ?? "?"} of ${cell.name}`
-        : `Edge along ${axisLabel(edgeAxis ?? 0)} of ${cell.name}`;
+    cell.kind === "loft" && cell.loft
+      ? `Bay ${cell.loft.bay} of ${cell.loft.member}`
+      : selection.kind === "cell"
+        ? `Cell ${cell.name}`
+        : selection.kind === "face"
+          ? `Face ${side?.label ?? "?"} of ${cell.name}`
+          : `Edge along ${axisLabel(edgeAxis ?? 0)} of ${cell.name}`;
 
   return (
     <div className="border-t border-gray-600/60 pt-1">
@@ -323,40 +375,43 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
           ✕
         </span>
       </button>
-      {open && (
+      {open && cell.kind === "loft" && <LoftInfo cell={cell} />}
+      {open && cell.kind !== "loft" && (
         <div className="flex flex-col gap-1.5 px-1 pt-1">
           <div
             className="flex items-center gap-1"
             title="Direct-manipulation gizmo for this cell (also via long-press / right-click in the scene)"
           >
             <span className="text-gray-300">gizmo</span>
-            {// Equipment is sized by its type — offer Move + Rotate, no Resize.
-            (cell.kind === "cell"
-              ? ([
-                  ["translate", "Move"],
-                  ["resize", "Resize"],
-                  ["none", "Off"],
-                ] as const)
-              : ([
-                  ["translate", "Move"],
-                  ["rotate", "Rotate"],
-                  ["none", "Off"],
-                ] as const)
-            ).map(([m, label]) => (
-              <button
-                key={m}
-                className={
-                  "px-1.5 py-0.5 rounded-sm " +
-                  (gizmoMode === m
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-700 text-gray-300 hover:bg-gray-600")
-                }
-                onClick={() => setGizmoMode(m)}
-                aria-pressed={gizmoMode === m}
-              >
-                {label}
-              </button>
-            ))}
+            {
+              // Equipment is sized by its type — offer Move + Rotate, no Resize.
+              (cell.kind === "cell"
+                ? ([
+                    ["translate", "Move"],
+                    ["resize", "Resize"],
+                    ["none", "Off"],
+                  ] as const)
+                : ([
+                    ["translate", "Move"],
+                    ["rotate", "Rotate"],
+                    ["none", "Off"],
+                  ] as const)
+              ).map(([m, label]) => (
+                <button
+                  key={m}
+                  className={
+                    "px-1.5 py-0.5 rounded-sm " +
+                    (gizmoMode === m
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+                  }
+                  onClick={() => setGizmoMode(m)}
+                  aria-pressed={gizmoMode === m}
+                >
+                  {label}
+                </button>
+              ))
+            }
           </div>
           {selection.kind === "face" && side && (
             <>

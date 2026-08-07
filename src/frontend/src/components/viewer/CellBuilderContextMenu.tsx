@@ -33,15 +33,24 @@ const CellBuilderContextMenu: React.FC = () => {
   // gizmo is driven off the current selection in the controller.
   const pick = () => setSelection({ kind: "cell", cellId: menu.cellId });
 
+  // Loft bands are read-only swept proxies — offer only "select + jump to
+  // panel" (no move/resize/rotate/delete gizmos).
+  const isLoft = cell.kind === "loft";
+
   const items: KebabMenuItem[] = [
-    {
-      key: "move",
-      label: "Move",
-      onClick: () => {
-        pick();
-        setGizmoMode("translate");
-      },
-    },
+    // Move is a gizmo edit — not for read-only loft bands.
+    ...(isLoft
+      ? []
+      : [
+          {
+            key: "move",
+            label: "Move",
+            onClick: () => {
+              pick();
+              setGizmoMode("translate");
+            },
+          },
+        ]),
     // Resize is a cell-only gizmo — equipment is sized by its type.
     ...(cell.kind === "cell"
       ? [
@@ -99,13 +108,19 @@ const CellBuilderContextMenu: React.FC = () => {
           },
         ]
       : []),
-    {
-      key: "delete",
-      label: "Delete",
-      destructive: true,
-      separatorBefore: true,
-      onClick: () => removeCell(menu.cellId),
-    },
+    // No Delete for read-only loft bands (they'd just reappear from the raw
+    // loft_members on reload).
+    ...(isLoft
+      ? []
+      : [
+          {
+            key: "delete",
+            label: "Delete",
+            destructive: true,
+            separatorBefore: true,
+            onClick: () => removeCell(menu.cellId),
+          },
+        ]),
   ];
 
   return (
@@ -116,9 +131,7 @@ const CellBuilderContextMenu: React.FC = () => {
       header={
         <span className="font-medium text-gray-200">
           {cell.name}
-          <span className="ml-1 text-gray-500">
-            ({cell.kind === "cell" ? "cell" : "equipment"})
-          </span>
+          <span className="ml-1 text-gray-500">({cell.kind})</span>
         </span>
       }
     />
