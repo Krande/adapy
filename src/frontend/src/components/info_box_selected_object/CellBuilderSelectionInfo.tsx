@@ -186,10 +186,7 @@ const EquipmentSystems: React.FC<{
         <span className="font-semibold">Systems & I/O</span>
         <span className="text-gray-400">({connected.length} wired)</span>
         {unconnected.some((p) => p.direction === "IN") && (
-          <span
-            className="ml-1 text-red-400"
-            title="Has unconnected input(s)"
-          >
+          <span className="ml-1 text-red-400" title="Has unconnected input(s)">
             ⚠
           </span>
         )}
@@ -272,9 +269,17 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
   const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
   const insertOpeningOnFace = useCellBuilderStore((s) => s.insertOpeningOnFace);
   const setCellEnclosed = useCellBuilderStore((s) => s.setCellEnclosed);
-  const enclosedCells = useCellBuilderStore(
-    (s) =>
-      (s.blueprintOptions as { enclosed_cells?: string[] }).enclosed_cells ?? [],
+  // Select the stable blueprintOptions reference and derive the enclosed-cells
+  // list in a memo. Returning ``... ?? []`` straight from the selector produced a
+  // FRESH array every render when enclosed_cells is absent, which useSyncExternal-
+  // Store reads as a changed snapshot → infinite re-render ("Maximum update depth
+  // exceeded"), crashing the whole viewer when a cell is selected on a model with
+  // no enclosed cells (e.g. an imported workbook).
+  const blueprintOptions = useCellBuilderStore((s) => s.blueprintOptions);
+  const enclosedCells = React.useMemo(
+    () =>
+      (blueprintOptions as { enclosed_cells?: string[] }).enclosed_cells ?? [],
+    [blueprintOptions],
   );
   const [open, setOpen] = React.useState(true);
   const [extendBy, setExtendBy] = React.useState(0.5);
@@ -325,19 +330,18 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
             title="Direct-manipulation gizmo for this cell (also via long-press / right-click in the scene)"
           >
             <span className="text-gray-300">gizmo</span>
-            {(
-              // Equipment is sized by its type — offer Move + Rotate, no Resize.
-              cell.kind === "cell"
-                ? ([
-                    ["translate", "Move"],
-                    ["resize", "Resize"],
-                    ["none", "Off"],
-                  ] as const)
-                : ([
-                    ["translate", "Move"],
-                    ["rotate", "Rotate"],
-                    ["none", "Off"],
-                  ] as const)
+            {// Equipment is sized by its type — offer Move + Rotate, no Resize.
+            (cell.kind === "cell"
+              ? ([
+                  ["translate", "Move"],
+                  ["resize", "Resize"],
+                  ["none", "Off"],
+                ] as const)
+              : ([
+                  ["translate", "Move"],
+                  ["rotate", "Rotate"],
+                  ["none", "Off"],
+                ] as const)
             ).map(([m, label]) => (
               <button
                 key={m}
@@ -371,7 +375,11 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
                   <button
                     className={btn}
                     onClick={() =>
-                      applyFaceExtension(cell.id, selection.faceIndex!, extendBy)
+                      applyFaceExtension(
+                        cell.id,
+                        selection.faceIndex!,
+                        extendBy,
+                      )
                     }
                     title="Extend (negative contracts) this face outward"
                   >
@@ -427,22 +435,26 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
               )}
             </>
           )}
-          {selection.kind === "edge" && edgeAxis !== undefined && cell.kind === "cell" && (
-            <div className="flex items-center gap-1">
-              <span className="text-gray-300">Length {axisLabel(edgeAxis)}</span>
-              <input
-                type="number"
-                step={0.1}
-                min={0.1}
-                className={`${inputCls} w-20`}
-                value={cell.size[edgeAxis]}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  if (v > 0) setEdgeLength(cell.id, edgeAxis, v);
-                }}
-              />
-            </div>
-          )}
+          {selection.kind === "edge" &&
+            edgeAxis !== undefined &&
+            cell.kind === "cell" && (
+              <div className="flex items-center gap-1">
+                <span className="text-gray-300">
+                  Length {axisLabel(edgeAxis)}
+                </span>
+                <input
+                  type="number"
+                  step={0.1}
+                  min={0.1}
+                  className={`${inputCls} w-20`}
+                  value={cell.size[edgeAxis]}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    if (v > 0) setEdgeLength(cell.id, edgeAxis, v);
+                  }}
+                />
+              </div>
+            )}
           {selection.kind === "cell" && (
             <div className="flex flex-col gap-1">
               <label className="flex items-center gap-1">
@@ -475,7 +487,9 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
                   <input
                     type="checkbox"
                     checked={enclosedCells.includes(cell.name)}
-                    onChange={(e) => setCellEnclosed(cell.name, e.target.checked)}
+                    onChange={(e) =>
+                      setCellEnclosed(cell.name, e.target.checked)
+                    }
                   />
                   Enclosed room (plated walls)
                 </label>
