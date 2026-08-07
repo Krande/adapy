@@ -39,6 +39,11 @@ export interface LoftMemberDoc {
   PLACEMENT?: number[][] | number[] | null;
   THICKNESS?: number;
   SURFACE_ONLY?: boolean;
+  /** Member-relative loft face ids to drop at build (Phase 3b), e.g.
+   * `"bay0:edge2"` / `"bay0:cap_lo"`. Matches the backend
+   * `TopoLoftMember.EXCLUDE_FACES`; round-trips through the doc and omits the
+   * addressed plate on recompile. Absent/`[]` = nothing excluded. */
+  EXCLUDE_FACES?: string[];
   [k: string]: unknown;
 }
 
@@ -59,6 +64,10 @@ export interface LoftBand {
   rings: [Ring, Ring];
   stationLo: LoftStation;
   stationHi: LoftStation;
+  /** The parent member's member-relative excluded face ids (Phase 3b) — carried
+   * on the band so the viewer proxy can dim/hide the removed side panels and the
+   * info panel can show each face's exclude state. See `bandFaceIds`. */
+  excludeFaces: string[];
 }
 
 const DEFAULT_SEGMENTS = 16;
@@ -136,6 +145,9 @@ export function memberToBands(member: LoftMemberDoc): LoftBand[] {
   if (stations.length < 2) return [];
   const rings = stations.map((st) => stationRingPoints(st, member.PLACEMENT));
   const bandCount = stations.length - 1;
+  const excludeFaces = Array.isArray(member.EXCLUDE_FACES)
+    ? member.EXCLUDE_FACES
+    : [];
   const out: LoftBand[] = [];
   for (let i = 0; i < bandCount; i++) {
     out.push({
@@ -146,9 +158,68 @@ export function memberToBands(member: LoftMemberDoc): LoftBand[] {
       rings: [rings[i], rings[i + 1]],
       stationLo: stations[i],
       stationHi: stations[i + 1],
+      excludeFaces,
     });
   }
   return out;
+}
+
+/** The number of ring vertices (= profile edges) a station's section produces:
+ * 4 for a rectangle, SEGMENTS for a circle (floored to >= 3, default 16). This
+ * IS the `to_poly_loop` vertex count the backend numbers loft faces against, so
+ * a side panel of profile edge `k` spans ring vertices `k -> (k+1) mod count`. */
+export function stationVertexCount(station: LoftStation): number {
+  if (station.TYPE === "circle") {
+    return Math.max(3, Math.floor(station.SEGMENTS ?? DEFAULT_SEGMENTS));
+  }
+  return 4;
+}
+
+/** The MEMBER-RELATIVE loft face ids of one band cell, matching the backend
+ * `loft_face_id_str` numbering (see `ada.topology.graph`):
+ *
+ * * `edges[k]` = `"bay{bay}:edge{k}"` — the swept side panel of profile edge `k`
+ *   (station vertex `k` -> `k+1`), for `k` in `0 .. edgeCount-1` where
+ *   `edgeCount` = the lo station's ring vertex count (4 rectangle / SEGMENTS
+ *   circle);
+ * * `caps` = `["bay{bay}:cap_lo", "bay{bay}:cap_hi"]` — the two end-cap faces
+ *   (coplanar with the band's low / high station profile).
+ *
+ * These are exactly the strings `TopoLoftMember.EXCLUDE_FACES` addresses. Note
+ * the backend only PLATES `cap_lo` on the first band and `cap_hi` on the last
+ * (interior caps are unplated), so excluding an interior cap is a harmless
+ * no-op — the ids are still returned so the numbering stays deterministic. */
+export function bandFaceIds(band: LoftBand): {
+  edges: string[];
+  caps: string[];
+} {
+  const n = stationVertexCount(band.stationLo);
+  const edges: string[] = [];
+  for (let k = 0; k < n; k++) edges.push(`bay${band.bay}:edge${k}`);
+  const caps = [`bay${band.bay}:cap_lo`, `bay${band.bay}:cap_hi`];
+  return { edges, caps };
+}
+
+/** Add (`excluded=true`) or remove (`false`) a MEMBER-RELATIVE loft face id in
+ * the member's EXCLUDE_FACES (Phase 3b), returning a NEW member (immutable, for
+ * undo/zustand) — or the SAME member ref when already in the wanted state (no
+ * spurious undo step). Creates the array when absent. The ids are the
+ * member-relative strings from `bandFaceIds` (e.g. `"bay0:edge2"`), exactly what
+ * the backend `TopoLoftMember.EXCLUDE_FACES` consumes. */
+export function setExcludeFace(
+  member: LoftMemberDoc,
+  faceId: string,
+  excluded: boolean,
+): LoftMemberDoc {
+  const cur = Array.isArray(member.EXCLUDE_FACES) ? member.EXCLUDE_FACES : [];
+  const has = cur.includes(faceId);
+  if (excluded === has) return member;
+  return {
+    ...member,
+    EXCLUDE_FACES: excluded
+      ? [...cur, faceId]
+      : cur.filter((f) => f !== faceId),
+  };
 }
 
 /** Section-dimension keys that must never go negative (a width/radius < 0 has

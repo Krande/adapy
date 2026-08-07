@@ -9,6 +9,7 @@ import {cameraRef, controlsRef, rendererRef, sceneRef} from "@/state/refs";
 import {requestRender} from "@/state/perfStore";
 import {useModelState} from "@/state/modelState";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
+import {bandFaceIds} from "@/utils/cellbuilder/loft";
 import type {ProceduralTypeOption, TypePortSummary} from "@/services/viewerApi";
 import {hexToInt, portColorInt, uniquePortColorHexByIndex} from "@/utils/portColor";
 import {
@@ -44,6 +45,7 @@ const HOVER_EDGE_WIDTH = 4; // px (fat lines — WebGL ignores LineBasicMaterial
 const SELECTED_EDGE_WIDTH = 6;
 const OPENING_COLOR = 0xef4444; // red — a negative-volume door/window cut
 const LOFT_COLOR = 0x14b8a6; // teal — a read-only swept-band (loft) proxy
+const EXCLUDED_FACE_COLOR = 0x64748b; // slate — a removed (excluded) loft panel
 const DEFAULT_CELL_SIZE: Vec3 = [5, 5, 3];
 const DEFAULT_EQUIPMENT_SIZE: Vec3 = [1, 1, 1];
 const DEFAULT_OPENING_SIZE: Vec3 = [1, 1, 2]; // door-ish; snaps to the wall it lands on
@@ -144,6 +146,52 @@ function sweptBandGeometry(lo: Vec3[], hi: Vec3[]): THREE.BufferGeometry {
     for (let i = 1; i < n0 - 1; i++) indices.push(0, i, i + 1);
     for (let i = 1; i < n1 - 1; i++) indices.push(hiBase, hiBase + i, hiBase + i + 1);
     const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return geo;
+}
+
+// Per-face-pickable swept mesh (Phase 3b): one geometry group per profile side
+// panel (edge k = ring vertex k -> k+1), plus a cap_lo fan and a cap_hi fan, so
+// a raycast face's materialIndex maps 1:1 to a loft face id in the order
+// bandFaceIds returns (edge0..edge_{n-1}, cap_lo, cap_hi). Requires equal ring
+// counts (the homogeneous rectangle/circle bands the backend numbers); returns
+// null for mismatched rings so the caller degrades to the single-material
+// proportional mesh (whole-band pick only).
+function sweptBandGroupedGeometry(lo: Vec3[], hi: Vec3[]): THREE.BufferGeometry | null {
+    const n = lo.length;
+    if (n < 3 || hi.length !== n) return null;
+    const positions: number[] = [];
+    for (const p of lo) positions.push(p[0], p[1], p[2]);
+    for (const p of hi) positions.push(p[0], p[1], p[2]);
+    const hiBase = n;
+    const indices: number[] = [];
+    const geo = new THREE.BufferGeometry();
+    let cursor = 0;
+    // Side panels: material index k = profile edge k.
+    for (let k = 0; k < n; k++) {
+        const a0 = k;
+        const a1 = (k + 1) % n;
+        const b0 = hiBase + k;
+        const b1 = hiBase + ((k + 1) % n);
+        indices.push(a0, a1, b1, a0, b1, b0);
+        geo.addGroup(cursor, 6, k);
+        cursor += 6;
+    }
+    // cap_lo fan (material n), cap_hi fan (material n+1).
+    const capLoStart = cursor;
+    for (let i = 1; i < n - 1; i++) {
+        indices.push(0, i, i + 1);
+        cursor += 3;
+    }
+    geo.addGroup(capLoStart, cursor - capLoStart, n);
+    const capHiStart = cursor;
+    for (let i = 1; i < n - 1; i++) {
+        indices.push(hiBase, hiBase + i, hiBase + i + 1);
+        cursor += 3;
+    }
+    geo.addGroup(capHiStart, cursor - capHiStart, n + 1);
     geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     geo.setIndex(indices);
     geo.computeVertexNormals();
@@ -367,19 +415,50 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             if (!cell) continue;
             const base = colorForKind(cell.kind);
             const cellSelected = sel?.cellId === cellId || selectedSet.has(cellId);
-            // Loft band = one translucent material (whole-cell select/hover only,
-            // no per-face highlight — loft cells are read-only).
-            if (!Array.isArray(mesh.material)) {
-                const m = mesh.material as THREE.MeshBasicMaterial;
-                let color = base;
-                let opacity = LOFT_OPACITY;
-                if (cellSelected) opacity = 0.5;
-                if (hovered?.mesh === mesh) {
-                    color = HOVER_FACE_COLOR;
-                    opacity = 0.6;
+            // Loft band (Phase 3b): per-face pickable when built with material
+            // groups (one per side panel + cap) — highlight the picked panel and
+            // dim excluded ones. A mismatched-count band has a single material
+            // (whole-cell select/hover only). Either way the ring overlay tracks
+            // selection.
+            if (cell.kind === "loft") {
+                const excluded = new Set(cell.loft?.excludeFaces ?? []);
+                const faceIds = mesh.userData.__loftFaceIds as string[] | undefined;
+                if (Array.isArray(mesh.material) && faceIds) {
+                    const mats = mesh.material as THREE.MeshBasicMaterial[];
+                    for (let fi = 0; fi < mats.length; fi++) {
+                        const isExcluded = excluded.has(faceIds[fi]);
+                        let color = base;
+                        let opacity = cellSelected ? 0.5 : LOFT_OPACITY;
+                        if (cellSelected && sel?.kind === "face" && sel.faceIndex === fi) {
+                            color = SELECTED_FACE_COLOR;
+                            opacity = 0.6;
+                        }
+                        if (hovered?.mesh === mesh && hovered.faceIndex === fi) {
+                            color = HOVER_FACE_COLOR;
+                            opacity = 0.6;
+                        }
+                        // Removed panel: grey wireframe, barely visible — but keep
+                        // the pick/hover tint so the selected excluded face still
+                        // reads (its panel row is highlighted in the info panel).
+                        if (isExcluded) {
+                            if (color === base) color = EXCLUDED_FACE_COLOR;
+                            opacity = 0.12;
+                        }
+                        mats[fi].wireframe = isExcluded;
+                        mats[fi].color.setHex(color);
+                        mats[fi].opacity = opacity;
+                    }
+                } else {
+                    const m = mesh.material as THREE.MeshBasicMaterial;
+                    let color = base;
+                    let opacity = cellSelected ? 0.5 : LOFT_OPACITY;
+                    if (hovered?.mesh === mesh) {
+                        color = HOVER_FACE_COLOR;
+                        opacity = 0.6;
+                    }
+                    m.color.setHex(color);
+                    m.opacity = opacity;
                 }
-                m.color.setHex(color);
-                m.opacity = opacity;
                 const loftEdges = mesh.children[0] as THREE.LineSegments | undefined;
                 if (loftEdges) {
                     (loftEdges.material as THREE.LineBasicMaterial).color.setHex(
@@ -435,16 +514,34 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 // geometry source differs (band instead of BoxGeometry).
                 if (cell.kind === "loft" && cell.loft) {
                     const [lo, hi] = cell.loft.rings;
-                    const mesh = new THREE.Mesh(
-                        sweptBandGeometry(lo, hi),
+                    // Per-face pickable when the two rings match (homogeneous
+                    // rectangle/circle band): one material per side panel + the
+                    // two caps, so a face pick resolves to a loft face id. A
+                    // mismatched-count band degrades to a single translucent
+                    // material (whole-band pick only). DoubleSide so winding is moot.
+                    const grouped = sweptBandGroupedGeometry(lo, hi);
+                    const loftMat = () =>
                         new THREE.MeshBasicMaterial({
                             color: LOFT_COLOR,
                             transparent: true,
                             opacity: LOFT_OPACITY,
                             depthWrite: false,
                             side: THREE.DoubleSide,
-                        }),
-                    );
+                        });
+                    let mesh: THREE.Mesh;
+                    if (grouped) {
+                        const {edges, caps} = bandFaceIds(cell.loft);
+                        const faceIds = [...edges, caps[0], caps[1]];
+                        mesh = new THREE.Mesh(
+                            grouped,
+                            faceIds.map(() => loftMat()),
+                        );
+                        // Member-relative loft face id per material index (drives
+                        // per-face selection highlight + excluded-panel dimming).
+                        mesh.userData.__loftFaceIds = faceIds;
+                    } else {
+                        mesh = new THREE.Mesh(sweptBandGeometry(lo, hi), loftMat());
+                    }
                     mesh.userData.__cellId = cell.id;
                     const ringEdges = new THREE.LineSegments(
                         ringsEdgesGeometry(lo, hi),

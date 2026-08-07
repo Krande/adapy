@@ -6,6 +6,7 @@ import {
   type BuilderSelection,
 } from "@/state/cellBuilderStore";
 import { axisLabel, BOX_FACE_SIDES } from "@/utils/cellbuilder/snap";
+import { bandFaceIds, type LoftBand } from "@/utils/cellbuilder/loft";
 
 // The selected cell/equipment detail shown in the Selected Object Info panel:
 // gizmo toggles, the geometry/parameter editors mirrored from the ada.topology
@@ -355,11 +356,93 @@ const EditableStation: React.FC<{
   </div>
 );
 
-// Editable detail for a loft (swept-band) cell (Phase 3a): the two bounding
-// stations' params, insert/remove-station, and a Move gizmo that translates the
-// WHOLE member. Per-face selection / openings on loft faces are still deferred
-// (design risk #1: no loft-native face id yet — Phase 3b).
-const LoftInfo: React.FC<{ cell: BuilderCell }> = ({ cell }) => {
+// The band's per-face list (Phase 3b): each side panel + end cap with an
+// EXCLUDE checkbox bound to setLoftFaceExcluded. Checked = the face's
+// member-relative id is in the member's EXCLUDE_FACES, i.e. its plate is dropped
+// on recompile. The row order matches the 3D proxy's material groups
+// (edge0..edgeN, cap_lo, cap_hi) so a face picked in the scene highlights its
+// row. Mirrors the box SE{n} side-exclude idiom, but keyed by loft face id.
+const LoftFaces: React.FC<{
+  band: LoftBand;
+  pickedFaceIndex?: number;
+}> = ({ band, pickedFaceIndex }) => {
+  const setLoftFaceExcluded = useCellBuilderStore((s) => s.setLoftFaceExcluded);
+  const [open, setOpen] = React.useState(true);
+  const { edges, caps } = React.useMemo(() => bandFaceIds(band), [band]);
+  // Flat row order MUST match the swept-band material groups in
+  // CellBuilderController (side panels, then cap_lo, cap_hi) so a scene pick's
+  // faceIndex resolves to the right row.
+  const rows = React.useMemo(
+    () => [
+      ...edges.map((id, k) => ({ id, label: `Side ${k}` })),
+      { id: caps[0], label: "Bottom cap (cap_lo)" },
+      { id: caps[1], label: "Top cap (cap_hi)" },
+    ],
+    [edges, caps],
+  );
+  const excluded = new Set(band.excludeFaces);
+  const pickedId =
+    pickedFaceIndex !== undefined && pickedFaceIndex < rows.length
+      ? rows[pickedFaceIndex].id
+      : undefined;
+  return (
+    <div className="border border-gray-700/50 rounded-sm p-1">
+      <button
+        className="flex items-center gap-1 w-full text-left hover:bg-gray-700/40 rounded-sm px-1"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className={"transition-transform " + (open ? "rotate-90" : "")}>
+          ▸
+        </span>
+        <span className="font-semibold">Faces</span>
+        <span className="text-gray-400">({excluded.size} excluded)</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-0.5 px-1 pt-1">
+          {rows.map((row) => (
+            <label
+              key={row.id}
+              className={
+                "flex items-center gap-1 rounded-sm px-0.5 " +
+                (row.id === pickedId ? "bg-rose-500/25" : "")
+              }
+              title={`Loft face ${band.member}:${row.id} — exclude to omit its plate at build`}
+            >
+              <input
+                type="checkbox"
+                checked={excluded.has(row.id)}
+                onChange={(e) =>
+                  setLoftFaceExcluded(band.member, row.id, e.target.checked)
+                }
+              />
+              <span className={excluded.has(row.id) ? "text-gray-500" : ""}>
+                {row.label}
+              </span>
+              {excluded.has(row.id) && (
+                <span className="ml-auto text-amber-400/80">removed</span>
+              )}
+            </label>
+          ))}
+          <div className="text-gray-600 italic pt-0.5">
+            Exclude drops the face's plate on recompile (interior end caps are
+            unplated — excluding them is a no-op).
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Editable detail for a loft (swept-band) cell: the two bounding stations'
+// params (Phase 3a), insert/remove-station, a Move gizmo that translates the
+// WHOLE member, and the per-face EXCLUDE list (Phase 3b). A face picked in the
+// scene (face select-mode) arrives as selection.faceIndex and highlights its
+// row. Openings on loft faces remain deferred (backend geometry pending).
+const LoftInfo: React.FC<{
+  cell: BuilderCell;
+  selection: BuilderSelection;
+}> = ({ cell, selection }) => {
   const band = cell.loft;
   const gizmoMode = useCellBuilderStore((s) => s.gizmoMode);
   const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
@@ -437,10 +520,12 @@ const LoftInfo: React.FC<{ cell: BuilderCell }> = ({ cell }) => {
           Delete station
         </button>
       </div>
-      <div className="text-gray-600 italic">
-        Per-face selection + openings on loft faces come later (no loft-native
-        face id yet).
-      </div>
+      <LoftFaces
+        band={band}
+        pickedFaceIndex={
+          selection.kind === "face" ? selection.faceIndex : undefined
+        }
+      />
     </div>
   );
 };
@@ -514,7 +599,9 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
           ✕
         </span>
       </button>
-      {open && cell.kind === "loft" && <LoftInfo cell={cell} />}
+      {open && cell.kind === "loft" && (
+        <LoftInfo cell={cell} selection={selection} />
+      )}
       {open && cell.kind !== "loft" && (
         <div className="flex flex-col gap-1.5 px-1 pt-1">
           <div

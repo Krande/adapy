@@ -21,6 +21,7 @@ import {
   insertStation,
   memberToBands,
   removeStation,
+  setExcludeFace,
   setStationParam,
   translateMember,
   type LoftBand,
@@ -465,6 +466,16 @@ interface CellBuilderState {
   /** Rename a loft member (updates its bay cell names). Rejects a name already
    * taken by another loft member; undoable. */
   renameLoftMember: (memberName: string, name: string) => void;
+  /** Add/remove a MEMBER-RELATIVE loft face id (e.g. `"bay0:edge2"`,
+   * `"bay0:cap_lo"` — see `bandFaceIds`) in the member's EXCLUDE_FACES (Phase
+   * 3b). `excluded=true` drops the face (its plate is omitted on recompile),
+   * `false` restores it. Regenerates the member's band cells so the proxy dims
+   * the removed panels; round-trips through toDoc; undoable. */
+  setLoftFaceExcluded: (
+    memberName: string,
+    memberRelativeFaceId: string,
+    excluded: boolean,
+  ) => void;
   addSystem: (
     type: SystemType,
     opts?: { name?: string; medium?: string | null },
@@ -1467,6 +1478,22 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           cells,
           dirty: true,
           ...remapLoftSelection(s, cells, trimmed, 0),
+        };
+      }),
+    setLoftFaceExcluded: (memberName, faceId, excluded) =>
+      withHistory((s) => {
+        const member = s.loftMembers.find((m) => m.NAME === memberName);
+        if (!member) return {};
+        const next = setExcludeFace(member, faceId, excluded);
+        if (next === member) return {}; // already in the wanted state — no-op
+        // No geometry change (exclude only omits compiled plates), but the band
+        // cells carry excludeFaces so the proxy can dim the removed panels —
+        // regen so that reaches the controller. Ids stay stable (band count
+        // unchanged) so the selection + gizmo survive.
+        return {
+          loftMembers: replaceLoftMember(s.loftMembers, memberName, next),
+          cells: regenLoftMemberCells(s.cells, next),
+          dirty: true,
         };
       }),
 

@@ -4,11 +4,14 @@ import { test } from "node:test";
 import {
   applyPlacement,
   bandBounds,
+  bandFaceIds,
   insertStation,
   memberToBands,
   removeStation,
+  setExcludeFace,
   setStationParam,
   stationRingPoints,
+  stationVertexCount,
   translateMember,
   type LoftMemberDoc,
   type LoftStation,
@@ -297,6 +300,110 @@ test("translateMember composes with an existing PLACEMENT (adds to its column)",
   assert.deepEqual([mat[0][3], mat[1][3], mat[2][3]], [5, 3, 0]);
   // Does not mutate the source matrix.
   assert.equal((member.PLACEMENT as number[][])[1][3], 0);
+});
+
+// --- Phase 3b: loft-native face ids + face exclude --------------------------
+
+test("bandFaceIds: rectangle band = edges 0-3 + cap_lo/cap_hi, member-relative", () => {
+  const member: LoftMemberDoc = {
+    NAME: "FLOATER",
+    STATIONS: [
+      { TYPE: "rectangle", X: 0, Y: 0, Z: 0, WIDTH: 2, HEIGHT: 2 },
+      { TYPE: "rectangle", X: 0, Y: 0, Z: 3, WIDTH: 2, HEIGHT: 2 },
+    ],
+  };
+  const [band] = memberToBands(member);
+  const { edges, caps } = bandFaceIds(band);
+  // A rectangle station has 4 ring vertices -> 4 side panels.
+  assert.deepEqual(edges, [
+    "bay0:edge0",
+    "bay0:edge1",
+    "bay0:edge2",
+    "bay0:edge3",
+  ]);
+  assert.deepEqual(caps, ["bay0:cap_lo", "bay0:cap_hi"]);
+  // Ids are MEMBER-RELATIVE (no "FLOATER:" prefix — that's what EXCLUDE_FACES holds).
+  for (const id of [...edges, ...caps]) assert.ok(!id.includes("FLOATER"));
+});
+
+test("bandFaceIds: circle band = edges 0..S-1 + caps; bay index tracks the band", () => {
+  const S = 8;
+  const member: LoftMemberDoc = {
+    NAME: "COL",
+    STATIONS: [
+      { TYPE: "circle", X: 0, Y: 0, Z: 0, RADIUS: 1, SEGMENTS: S },
+      { TYPE: "circle", X: 0, Y: 0, Z: 2, RADIUS: 1, SEGMENTS: S },
+      { TYPE: "circle", X: 0, Y: 0, Z: 4, RADIUS: 1, SEGMENTS: S },
+    ],
+  };
+  const bands = memberToBands(member);
+  const b0 = bandFaceIds(bands[0]);
+  assert.equal(b0.edges.length, S);
+  assert.equal(b0.edges[0], "bay0:edge0");
+  assert.equal(b0.edges[S - 1], `bay0:edge${S - 1}`);
+  assert.deepEqual(b0.caps, ["bay0:cap_lo", "bay0:cap_hi"]);
+  // The second band's ids carry its own bay index.
+  const b1 = bandFaceIds(bands[1]);
+  assert.equal(b1.edges[0], "bay1:edge0");
+  assert.deepEqual(b1.caps, ["bay1:cap_lo", "bay1:cap_hi"]);
+});
+
+test("stationVertexCount matches stationRingPoints (4 rect, SEGMENTS circle, floor 3)", () => {
+  assert.equal(stationVertexCount({ TYPE: "rectangle", X: 0, Y: 0, Z: 0 }), 4);
+  assert.equal(
+    stationVertexCount({ TYPE: "circle", X: 0, Y: 0, Z: 0, SEGMENTS: 12 }),
+    12,
+  );
+  // Default 16 and floored to >= 3 — same rule as stationRingPoints.
+  assert.equal(stationVertexCount({ TYPE: "circle", X: 0, Y: 0, Z: 0 }), 16);
+  assert.equal(
+    stationVertexCount({ TYPE: "circle", X: 0, Y: 0, Z: 0, SEGMENTS: 2 }),
+    3,
+  );
+});
+
+test("setExcludeFace toggles: add then remove leaves EXCLUDE_FACES empty", () => {
+  const member: LoftMemberDoc = {
+    NAME: "M",
+    STATIONS: [
+      { TYPE: "rectangle", X: 0, Y: 0, Z: 0, WIDTH: 2, HEIGHT: 2 },
+      { TYPE: "rectangle", X: 0, Y: 0, Z: 1, WIDTH: 2, HEIGHT: 2 },
+    ],
+  };
+  // Add: a new member (immutable) with the member-relative id present.
+  const added = setExcludeFace(member, "bay0:edge2", true);
+  assert.notEqual(added, member);
+  assert.deepEqual(added.EXCLUDE_FACES, ["bay0:edge2"]);
+  // A cap id can be excluded too.
+  const added2 = setExcludeFace(added, "bay0:cap_lo", true);
+  assert.deepEqual(added2.EXCLUDE_FACES, ["bay0:edge2", "bay0:cap_lo"]);
+  // Remove both -> back to empty (a member the backend treats as un-excluded).
+  const removed = setExcludeFace(
+    setExcludeFace(added2, "bay0:cap_lo", false),
+    "bay0:edge2",
+    false,
+  );
+  assert.deepEqual(removed.EXCLUDE_FACES, []);
+  // No-op toggles return the SAME ref (no spurious undo step).
+  assert.equal(setExcludeFace(member, "bay0:edge2", false), member);
+  assert.equal(setExcludeFace(added, "bay0:edge2", true), added);
+});
+
+test("memberToBands carries the member's EXCLUDE_FACES onto every band", () => {
+  const member: LoftMemberDoc = {
+    NAME: "M",
+    EXCLUDE_FACES: ["bay0:edge1"],
+    STATIONS: [
+      { TYPE: "rectangle", X: 0, Y: 0, Z: 0, WIDTH: 2, HEIGHT: 2 },
+      { TYPE: "rectangle", X: 0, Y: 0, Z: 1, WIDTH: 2, HEIGHT: 2 },
+      { TYPE: "rectangle", X: 0, Y: 0, Z: 2, WIDTH: 2, HEIGHT: 2 },
+    ],
+  };
+  for (const band of memberToBands(member))
+    assert.deepEqual(band.excludeFaces, ["bay0:edge1"]);
+  // Absent EXCLUDE_FACES -> an empty (never undefined) array on the band.
+  const plain: LoftMemberDoc = { NAME: "P", STATIONS: member.STATIONS };
+  assert.deepEqual(memberToBands(plain)[0].excludeFaces, []);
 });
 
 test("bandBounds gives the AABB (min corner + size) of both rings", () => {
