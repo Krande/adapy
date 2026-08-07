@@ -276,6 +276,12 @@ interface CellBuilderState {
    * the simulation result, or the higher-fidelity detail result. Drives the
    * cell-overlay vs simulation-GLB vs detail-GLB visibility. */
   repMode: RepresentationMode;
+  /** Superimpose the editable topology cell model UNDERNEATH the active result
+   * (simulation/detail) instead of replacing it — so a compiled result renders
+   * on top of the cells it came from. A view modifier on top of repMode: it only
+   * has an effect while a result representation is active (topology is the base
+   * layer). See setSuperimpose. */
+  superimpose: boolean;
   /** Toggle the builder box meshes (hide to focus on the compiled structure). */
   cellsVisible: boolean;
   /** Individually hidden cells — ephemeral view state (not persisted, not
@@ -472,6 +478,7 @@ interface CellBuilderState {
    * coordinating the cell overlay and the two result GLB sources. Compiles/loads
    * the target result lazily the first time its view is opened. */
   setRepMode: (mode: RepresentationMode) => Promise<void>;
+  setSuperimpose: (on: boolean) => Promise<void>;
   /** The last relocation proposals (or null). Populated by proposeRelocations;
    * applied only when the user clicks Apply. */
   relocations: ProceduralRelocationResult | null;
@@ -698,6 +705,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     resultSourceName: null,
     detailSourceName: null,
     repMode: "topology",
+    superimpose: false,
     relocations: null,
     relocationBusy: false,
     resyncBusy: false,
@@ -1895,8 +1903,22 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           lod === "detail"
             ? get().detailSourceName !== null || get().repMode === "detail"
             : get().resultSourceName !== null || get().repMode === "simulation";
-        if (get().autoCompile || sourceShown)
-          void get().viewResult(cur.derivedKey, lod);
+        if (!(get().autoCompile || sourceShown)) return;
+        void get()
+          .viewResult(cur.derivedKey, lod)
+          .then(() => {
+            // Compiling from the editable Topology view drops the result ON TOP of
+            // the cells — that's the superimpose state. Formalise it: record
+            // superimpose, switch the toggle to the result mode, and keep the
+            // topology layer underneath. If the user is already viewing a result,
+            // leave their toggle + superimpose choice untouched.
+            if (get().repMode !== "topology") return;
+            const rm = lod === "detail" ? "detail" : "simulation";
+            set({ repMode: rm, superimpose: true });
+            if (lod === "detail") get().hideResult();
+            else get().hideDetail();
+            get().setCellsVisible(true);
+          });
       };
       try {
         const res = await viewerApi.compileProceduralModel(
@@ -2117,11 +2139,11 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     },
 
     // The 3-way representation switch: topology cells / the simulation result GLB /
-    // the detail result GLB. Exactly one representation is live at a time — the
-    // scene's source map replaces on load, so we unload the others rather than
-    // toggle visibility (an additive loader that keeps both GLBs resident is a
-    // later optimisation). Each result GLB is compiled/loaded lazily the first time
-    // its view is opened.
+    // the detail result GLB. One result GLB is live at a time (the scene's source
+    // map replaces on load, so switching result modes unloads the other); the
+    // topology cells are a separate layer, kept visible underneath when
+    // `superimpose` is on. Each result GLB is compiled/loaded lazily the first
+    // time its view is opened.
     setRepMode: async (mode) => {
       if (get().repMode === mode) return;
       set({ repMode: mode });
@@ -2131,7 +2153,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         get().hideDetail();
         return;
       }
-      get().setCellsVisible(false);
+      // Result modes: the topology layer stays visible only when superimposing.
+      get().setCellsVisible(get().superimpose);
       if (mode === "simulation") {
         get().hideDetail();
         if (get().resultSourceName === null) await get().compile(false, "sim");
@@ -2140,6 +2163,20 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         if (get().detailSourceName === null)
           await get().compile(false, "detail");
       }
+    },
+
+    // Superimpose the topology cells under the active result. Topology is the base
+    // layer, so from topology mode turning it on brings the simulation result up
+    // ON TOP (the natural "result over topology" starting point); from a result
+    // mode it just toggles the cell layer beneath. Turning it off in a result mode
+    // returns to the result on its own.
+    setSuperimpose: async (on) => {
+      set({ superimpose: on });
+      if (get().repMode === "topology") {
+        if (on) await get().setRepMode("simulation");
+        return;
+      }
+      get().setCellsVisible(on);
     },
 
     proposeRelocations: async () => {

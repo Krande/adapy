@@ -28,7 +28,6 @@ const btnGray =
 const inputCls =
   "text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5";
 
-
 // Systems inspector: list the service runs, their type, and which equipment
 // ports each connects. Add/remove systems and connections.
 // Type-icon overlay toggles: a Factorio-style layer of icons over the model —
@@ -122,7 +121,8 @@ const SystemsInspector: React.FC = () => {
       autoHighlightedSrc.current = null;
       return;
     }
-    if (autoHighlightedSrc.current === activeResultSrc || systems.length === 0) return;
+    if (autoHighlightedSrc.current === activeResultSrc || systems.length === 0)
+      return;
     const n = highlightSystems(systems.map((sys) => sys.name));
     if (n > 0) {
       autoHighlightedSrc.current = activeResultSrc;
@@ -283,7 +283,10 @@ const SystemsInspector: React.FC = () => {
                       ⌗ {c.site}{" "}
                       <span className="text-gray-300">
                         (site {c.direction}
-                        {c.directionVector ? ` ${orientLabel(c.directionVector)}` : ""})
+                        {c.directionVector
+                          ? ` ${orientLabel(c.directionVector)}`
+                          : ""}
+                        )
                       </span>
                     </span>
                   ) : (
@@ -351,7 +354,11 @@ const ConnectionAdder: React.FC<{
   const eqType = Object.values(cells).find((c) => c.name === eq)?.equipmentType;
   const portOptions = eqType ? (ARCHETYPE_PORTS[eqType] ?? []) : [];
   const [siteName, setSiteName] = React.useState("");
-  const [pos, setPos] = React.useState<[string, string, string]>(["0", "0", "0"]);
+  const [pos, setPos] = React.useState<[string, string, string]>([
+    "0",
+    "0",
+    "0",
+  ]);
   const [dir, setDir] = React.useState<"IN" | "OUT">("IN");
   // Orientation: the outward nozzle vector the run leaves the terminal along.
   // A terminal on the x=0 wall should face +X (into the model), etc.
@@ -362,7 +369,9 @@ const ConnectionAdder: React.FC<{
       key={m}
       className={
         "px-1.5 py-0.5 rounded-sm text-[10px] " +
-        (mode === m ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+        (mode === m
+          ? "bg-blue-600 text-white"
+          : "bg-gray-700 text-gray-300 hover:bg-gray-600")
       }
       onClick={() => setMode(m)}
       aria-pressed={mode === m}
@@ -464,7 +473,9 @@ const ConnectionAdder: React.FC<{
           <select
             className={inputCls}
             value={orient}
-            onChange={(e) => setOrient(e.target.value as keyof typeof ORIENT_VECTORS)}
+            onChange={(e) =>
+              setOrient(e.target.value as keyof typeof ORIENT_VECTORS)
+            }
             title="Orientation — the outward direction the run leaves the terminal along"
           >
             {Object.keys(ORIENT_VECTORS).map((k) => (
@@ -479,7 +490,11 @@ const ConnectionAdder: React.FC<{
             onClick={() => {
               onAdd({
                 site: siteName.trim(),
-                position: [Number(pos[0]) || 0, Number(pos[1]) || 0, Number(pos[2]) || 0],
+                position: [
+                  Number(pos[0]) || 0,
+                  Number(pos[1]) || 0,
+                  Number(pos[2]) || 0,
+                ],
                 direction: dir,
                 directionVector: ORIENT_VECTORS[orient],
               });
@@ -608,7 +623,11 @@ const CellBuilderPanel: React.FC = () => {
                   : "Add a cell first",
                 onClick: () => {
                   const r = equipBtnRef.current?.getBoundingClientRect();
-                  s.openInsertMenu(r?.left ?? 200, (r?.bottom ?? 200) + 4, null);
+                  s.openInsertMenu(
+                    r?.left ?? 200,
+                    (r?.bottom ?? 200) + 4,
+                    null,
+                  );
                 },
               },
             ]}
@@ -740,83 +759,87 @@ const CellBuilderPanel: React.FC = () => {
           aria-expanded={cellsListOpen}
         >
           <span
-            className={"transition-transform " + (cellsListOpen ? "rotate-90" : "")}
+            className={
+              "transition-transform " + (cellsListOpen ? "rotate-90" : "")
+            }
           >
             ▸
           </span>
           <span className="font-semibold">Cells &amp; equipment</span>
           <span className="text-gray-400">({cellCount})</span>
         </button>
-      {cellsListOpen && (
-      <div className="max-h-48 overflow-y-auto flex flex-col gap-1 pt-1">
-        {Object.values(s.cells).length === 0 && (
-          <p className="italic text-gray-400">
-            No cells yet — use + Cell to start, or{" "}
-            <button
-              className="underline text-blue-300 hover:text-blue-200"
-              onClick={s.loadDemoTemplate}
-            >
-              add the demo template
-            </button>
-            .
-          </p>
-        )}
-        {Object.values(s.cells).map((c) => (
-          <div
-            key={c.id}
-            className={
-              "flex items-center gap-1 border-b border-gray-600/40 pb-0.5 cursor-pointer rounded-sm px-0.5 " +
-              (s.selection?.cellId === c.id
-                ? "bg-blue-900/40"
-                : "hover:bg-gray-700/40")
-            }
-            onClick={() => s.setSelection({ kind: "cell", cellId: c.id })}
-          >
-            <span
-              className="inline-block w-2 h-2 rounded-sm"
-              style={{ background: c.kind === "cell" ? "#3b82f6" : "#f97316" }}
-            />
-            <span
-              className="truncate"
-              title={`${c.origin.map((v) => v.toFixed(2))} / ${c.size.map((v) => v.toFixed(2))}`}
-            >
-              {c.name}
-            </span>
-            {c.kind === "equipment" && (
-              <span className="text-gray-400">
-                {c.equipmentType ?? "generic"}
-              </span>
+        {cellsListOpen && (
+          <div className="max-h-48 overflow-y-auto flex flex-col gap-1 pt-1">
+            {Object.values(s.cells).length === 0 && (
+              <p className="italic text-gray-400">
+                No cells yet — use + Cell to start, or{" "}
+                <button
+                  className="underline text-blue-300 hover:text-blue-200"
+                  onClick={s.loadDemoTemplate}
+                >
+                  add the demo template
+                </button>
+                .
+              </p>
             )}
-            {c.kind === "opening" && (
-              <select
-                className="bg-gray-700 text-gray-100 text-[11px] rounded-sm px-1"
-                value={c.subtype ?? "door"}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) =>
-                  s.updateCell(c.id, {
-                    subtype: e.target.value as "door" | "window",
-                  })
+            {Object.values(s.cells).map((c) => (
+              <div
+                key={c.id}
+                className={
+                  "flex items-center gap-1 border-b border-gray-600/40 pb-0.5 cursor-pointer rounded-sm px-0.5 " +
+                  (s.selection?.cellId === c.id
+                    ? "bg-blue-900/40"
+                    : "hover:bg-gray-700/40")
                 }
-                title="door: jambs + lintel + threshold (cut to floor); window: jambs + head + sill (punched at its height)"
+                onClick={() => s.setSelection({ kind: "cell", cellId: c.id })}
               >
-                <option value="door">door</option>
-                <option value="window">window</option>
-              </select>
-            )}
-            <button
-              className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
-              title="Delete"
-              onClick={(e) => {
-                e.stopPropagation();
-                s.removeCell(c.id);
-              }}
-            >
-              🗑
-            </button>
+                <span
+                  className="inline-block w-2 h-2 rounded-sm"
+                  style={{
+                    background: c.kind === "cell" ? "#3b82f6" : "#f97316",
+                  }}
+                />
+                <span
+                  className="truncate"
+                  title={`${c.origin.map((v) => v.toFixed(2))} / ${c.size.map((v) => v.toFixed(2))}`}
+                >
+                  {c.name}
+                </span>
+                {c.kind === "equipment" && (
+                  <span className="text-gray-400">
+                    {c.equipmentType ?? "generic"}
+                  </span>
+                )}
+                {c.kind === "opening" && (
+                  <select
+                    className="bg-gray-700 text-gray-100 text-[11px] rounded-sm px-1"
+                    value={c.subtype ?? "door"}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) =>
+                      s.updateCell(c.id, {
+                        subtype: e.target.value as "door" | "window",
+                      })
+                    }
+                    title="door: jambs + lintel + threshold (cut to floor); window: jambs + head + sill (punched at its height)"
+                  >
+                    <option value="door">door</option>
+                    <option value="window">window</option>
+                  </select>
+                )}
+                <button
+                  className="ml-auto px-1 rounded-sm hover:bg-gray-500/40"
+                  title="Delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    s.removeCell(c.id);
+                  }}
+                >
+                  🗑
+                </button>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      )}
+        )}
       </div>
 
       <SystemsInspector />
@@ -876,7 +899,11 @@ const CellBuilderPanel: React.FC = () => {
             <option value={s.selectedEngine}>{s.selectedEngine}</option>
           )}
           {s.engines.map((e) => (
-            <option key={e.slug} value={e.slug} title={e.description ?? undefined}>
+            <option
+              key={e.slug}
+              value={e.slug}
+              title={e.description ?? undefined}
+            >
               {e.name} ({e.origin})
             </option>
           ))}
@@ -897,9 +924,21 @@ const CellBuilderPanel: React.FC = () => {
         >
           {(
             [
-              ["topology", "Topology", "The editable cell model (boxes + equipment)"],
-              ["simulation", "Simulation", "The compiled analysis result (plates, beams, systems)"],
-              ["detail", "Detail", "The high-fidelity detail model (trimmed deck edges, I-girder joints)"],
+              [
+                "topology",
+                "Topology",
+                "The editable cell model (boxes + equipment)",
+              ],
+              [
+                "simulation",
+                "Simulation",
+                "The compiled analysis result (plates, beams, systems)",
+              ],
+              [
+                "detail",
+                "Detail",
+                "The high-fidelity detail model (trimmed deck edges, I-girder joints)",
+              ],
             ] as const
           ).map(([m, label, title]) => (
             <button
@@ -919,6 +958,18 @@ const CellBuilderPanel: React.FC = () => {
             </button>
           ))}
         </span>
+        <label
+          className="inline-flex items-center gap-1 text-[11px] text-gray-300 cursor-pointer ml-1"
+          title="Keep the editable topology cells visible underneath the compiled result (result superimposed on topology)"
+        >
+          <input
+            type="checkbox"
+            className="accent-blue-600"
+            checked={s.superimpose}
+            onChange={(e) => void s.setSuperimpose(e.target.checked)}
+          />
+          Superimpose
+        </label>
       </div>
 
       <div className="flex items-center gap-1 flex-wrap">
@@ -1048,7 +1099,9 @@ const CellBuilderPanel: React.FC = () => {
       {s.resyncSummary && (
         <div className="mt-1 border border-blue-500/50 rounded-sm p-1 text-[12px]">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="font-semibold text-blue-300">Equipment resync</span>
+            <span className="font-semibold text-blue-300">
+              Equipment resync
+            </span>
             <span className="text-gray-400">
               {s.resyncSummary.updated.length} updated,{" "}
               {s.resyncSummary.created.length} added,{" "}
