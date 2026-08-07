@@ -18,7 +18,11 @@ import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
 import {
   bandBounds,
+  insertStation,
   memberToBands,
+  removeStation,
+  setStationParam,
+  translateMember,
   type LoftBand,
   type LoftMemberDoc,
 } from "@/utils/cellbuilder/loft";
@@ -63,16 +67,18 @@ function setProceduralToast(name: string, patch: Partial<ConversionJob>): void {
 }
 
 // One box in the cellbuilder: either a space cell or an equipment unit.
-// A `loft` cell is a read-only swept band (one bay of a loft member) — it still
-// carries origin/size (the band's bounding box) so box-oriented plumbing (hide,
+// A `loft` cell is a swept band (one bay of a loft member) — it still carries
+// origin/size (the band's bounding box) so box-oriented plumbing (hide,
 // selection, the cell list) stays safe, but it is drawn from its two profile
-// rings (see `loft`), not as a box, and is not user-editable in this slice.
+// rings (see `loft`), not as a box. Its SHAPE is edited via the loft-station
+// actions (Phase 3a: setLoftStationParam / insert / remove / moveLoftMember),
+// which mutate the raw loftMembers and regenerate the band cells.
 export interface BuilderCell extends CellBox {
   id: string;
   name: string;
   kind: "cell" | "equipment" | "opening" | "loft";
   /** Present only on `loft` cells: the two placed profile rings for this band
-   * plus its member/bay/station metadata (read-only). */
+   * plus its member/bay/station metadata (derived from the raw loftMembers). */
   loft?: LoftBand;
   /** Archetype name (pump/tank/...) for equipment cells; from the
    * worker-advertised list. */
@@ -150,6 +156,9 @@ export interface BuilderSystem {
  * the current references — cheap to keep. */
 export interface ModelSnapshot {
   cells: Record<string, BuilderCell>;
+  /** The raw loft members ride in the snapshot too, so a loft shape edit
+   * (Phase 3a) undoes/redoes atomically with its regenerated band cells. */
+  loftMembers: LoftMemberDoc[];
   systems: Record<string, BuilderSystem>;
   blueprintOptions: Record<string, unknown>;
   equipmentCad: boolean;
@@ -234,10 +243,11 @@ interface CellBuilderState {
    * (top-row button included). */
   active: { modelId: string; name: string; revision: number } | null;
   cells: Record<string, BuilderCell>;
-  /** Raw authored loft members carried through verbatim (read-only in this
-   * slice): the source for the `loft` band cells, re-emitted unchanged by
-   * toDoc. Loft geometry is not user-edited here (design risk #1: no
-   * loft-native face id yet). */
+  /** Raw authored loft members — the editable source of truth for the `loft`
+   * band cells (Phase 3a). Station/placement edits mutate this array and
+   * regenerate the affected member's bands; toDoc re-emits it so a recompile
+   * rebuilds the edited geometry. Per-face selection / openings on loft faces
+   * are still deferred (design risk #1: no loft-native face id yet — Phase 3b). */
   loftMembers: LoftMemberDoc[];
   /** Logical service runs (rendered as routed pipes/cables by the compiler). */
   systems: Record<string, BuilderSystem>;
@@ -435,6 +445,26 @@ interface CellBuilderState {
   /** Set the box length along `axis` (origin fixed). */
   setEdgeLength: (id: string, axis: 0 | 1 | 2, length: number) => void;
   removeCell: (id: string) => void;
+  /** Edit one station's numeric param (Z/X/Y/WIDTH/HEIGHT/RADIUS). Rebuilds the
+   * member's band cells, marks dirty, undoable. WIDTH/HEIGHT/RADIUS clamp >= 0. */
+  setLoftStationParam: (
+    memberName: string,
+    stationIndex: number,
+    key: string,
+    value: number,
+  ) => void;
+  /** Insert a station after `afterIndex`, splitting that bay in two (or
+   * extending past the last station). Bay count grows by one; undoable. */
+  insertLoftStation: (memberName: string, afterIndex: number) => void;
+  /** Remove the station at `stationIndex`, merging its adjacent bays. Refused
+   * below 2 stations (the backend minimum); undoable. */
+  removeLoftStation: (memberName: string, stationIndex: number) => void;
+  /** Translate a whole loft member by `delta` (world metres) via its PLACEMENT
+   * translation column — moves every bay; undoable. */
+  moveLoftMember: (memberName: string, delta: Vec3) => void;
+  /** Rename a loft member (updates its bay cell names). Rejects a name already
+   * taken by another loft member; undoable. */
+  renameLoftMember: (memberName: string, name: string) => void;
   addSystem: (
     type: SystemType,
     opts?: { name?: string; medium?: string | null },
@@ -620,6 +650,76 @@ function loftMembersFromDoc(doc: ProceduralDoc): LoftMemberDoc[] {
   return Array.isArray(raw) ? (raw as LoftMemberDoc[]) : [];
 }
 
+/** Rebuild ONE member's band `loft` cells (Phase 3a edit) into a new cells map,
+ * leaving all other cells (and other members' bands) untouched. Existing bay
+ * cell ids are preserved by matching `${NAME}_bay{i}` name — so a param edit or
+ * a whole-member move (band count unchanged) keeps every id stable, and the
+ * live selection + translate gizmo survive the rebuild. An insert/remove shifts
+ * the bay indices, so the shifted bays get fresh ids (the caller re-maps the
+ * selection). */
+function regenLoftMemberCells(
+  cells: Record<string, BuilderCell>,
+  member: LoftMemberDoc,
+): Record<string, BuilderCell> {
+  const idByName = new Map<string, string>();
+  const out: Record<string, BuilderCell> = {};
+  for (const [id, c] of Object.entries(cells)) {
+    if (c.kind === "loft" && c.loft?.member === member.NAME) {
+      idByName.set(c.name, id);
+    } else {
+      out[id] = c;
+    }
+  }
+  for (const band of memberToBands(member)) {
+    const id = idByName.get(band.cellName) ?? nextId();
+    const { origin, size } = bandBounds(band);
+    out[id] = {
+      id,
+      name: band.cellName,
+      kind: "loft",
+      origin,
+      size,
+      loft: band,
+      params: {},
+    };
+  }
+  return out;
+}
+
+/** Replace the member named `name` in a loft-members array (identity when
+ * absent). */
+function replaceLoftMember(
+  members: LoftMemberDoc[],
+  name: string,
+  next: LoftMemberDoc,
+): LoftMemberDoc[] {
+  return members.map((m) => (m.NAME === name ? next : m));
+}
+
+/** After a structural loft edit (insert/remove) drops/renames the selected bay
+ * cell, re-home the selection onto the member's bay at `fallbackBay` (clamped),
+ * or clear it. Param edits/moves preserve ids so this is skipped for them. */
+function remapLoftSelection(
+  s: CellBuilderState,
+  cells: Record<string, BuilderCell>,
+  memberName: string,
+  fallbackBay: number,
+): Partial<CellBuilderState> {
+  const sel = s.selection;
+  if (sel && cells[sel.cellId]) return {}; // still valid — nothing to do
+  const bands = Object.values(cells).filter(
+    (c) => c.kind === "loft" && c.loft?.member === memberName,
+  );
+  const bay = Math.min(Math.max(fallbackBay, 0), bands.length - 1);
+  const target = bands.find((c) => c.loft?.bay === bay);
+  if (target)
+    return {
+      selection: { kind: "cell", cellId: target.id },
+      selectedCellIds: [target.id],
+    };
+  return { selection: null, selectedCellIds: [], gizmoMode: "none" };
+}
+
 function systemsFromDoc(doc: ProceduralDoc): Record<string, BuilderSystem> {
   const out: Record<string, BuilderSystem> = {};
   for (const s of doc.systems ?? []) {
@@ -681,6 +781,7 @@ function containingCellName(
 function snapshot(s: CellBuilderState): ModelSnapshot {
   return {
     cells: s.cells,
+    loftMembers: s.loftMembers,
     systems: s.systems,
     blueprintOptions: s.blueprintOptions,
     equipmentCad: s.equipmentCad,
@@ -1287,6 +1388,88 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         };
       }),
 
+    // --- Loft editing (Phase 3a) ---------------------------------------
+    // Each: mutate the raw loftMembers (the source of truth), regenerate only
+    // that member's band cells (ids preserved by name so selection/gizmo
+    // survive), mark dirty, push an undo snapshot (shared with box edits). The
+    // edited members round-trip verbatim through toDoc -> loft_members, so a
+    // recompile rebuilds the edited geometry from the stations.
+    setLoftStationParam: (memberName, stationIndex, key, value) =>
+      withHistory((s) => {
+        const member = s.loftMembers.find((m) => m.NAME === memberName);
+        if (!member) return {};
+        const next = setStationParam(member, stationIndex, key, value);
+        if (next === member) return {};
+        return {
+          loftMembers: replaceLoftMember(s.loftMembers, memberName, next),
+          cells: regenLoftMemberCells(s.cells, next),
+          dirty: true,
+        };
+      }),
+    insertLoftStation: (memberName, afterIndex) =>
+      withHistory((s) => {
+        const member = s.loftMembers.find((m) => m.NAME === memberName);
+        if (!member) return {};
+        const next = insertStation(member, afterIndex);
+        if (next === member) return {};
+        const cells = regenLoftMemberCells(s.cells, next);
+        // The inserted station keeps bay `afterIndex` as its own lo bay; keep
+        // the selection there so the panel stays on the same member.
+        return {
+          loftMembers: replaceLoftMember(s.loftMembers, memberName, next),
+          cells,
+          dirty: true,
+          ...remapLoftSelection(s, cells, memberName, afterIndex),
+        };
+      }),
+    removeLoftStation: (memberName, stationIndex) =>
+      withHistory((s) => {
+        const member = s.loftMembers.find((m) => m.NAME === memberName);
+        if (!member) return {};
+        const next = removeStation(member, stationIndex);
+        if (next === member) return {}; // refused (< 2 stations) / out of range
+        const cells = regenLoftMemberCells(s.cells, next);
+        return {
+          loftMembers: replaceLoftMember(s.loftMembers, memberName, next),
+          cells,
+          dirty: true,
+          ...remapLoftSelection(s, cells, memberName, stationIndex - 1),
+        };
+      }),
+    moveLoftMember: (memberName, delta) =>
+      withHistory((s) => {
+        const member = s.loftMembers.find((m) => m.NAME === memberName);
+        if (!member) return {};
+        const next = translateMember(member, delta);
+        if (next === member) return {};
+        return {
+          loftMembers: replaceLoftMember(s.loftMembers, memberName, next),
+          cells: regenLoftMemberCells(s.cells, next),
+          dirty: true,
+        };
+      }),
+    renameLoftMember: (memberName, name) =>
+      withHistory((s) => {
+        const trimmed = name.trim();
+        const member = s.loftMembers.find((m) => m.NAME === memberName);
+        if (!member || !trimmed || trimmed === memberName) return {};
+        if (s.loftMembers.some((m) => m.NAME === trimmed)) return {}; // dup
+        const next: LoftMemberDoc = { ...member, NAME: trimmed };
+        // Rename shifts every bay cell name, so ids remint — clear the member's
+        // cells first (so regen doesn't match stale names) then rebuild.
+        const cleared: Record<string, BuilderCell> = {};
+        for (const [id, c] of Object.entries(s.cells))
+          if (!(c.kind === "loft" && c.loft?.member === memberName))
+            cleared[id] = c;
+        const cells = regenLoftMemberCells(cleared, next);
+        return {
+          loftMembers: replaceLoftMember(s.loftMembers, memberName, next),
+          cells,
+          dirty: true,
+          ...remapLoftSelection(s, cells, trimmed, 0),
+        };
+      }),
+
     addSystem: (type, opts) =>
       withHistory((s) => {
         const id = nextId();
@@ -1421,9 +1604,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             : { EQUIPMENT: c.equipment, PORT: c.port },
         ),
       }));
-      // Loft members are read-only in this slice — re-emit them verbatim, and
-      // only when present so box-only docs stay byte-identical (mirrors the
-      // backend's conditional dump).
+      // Loft members carry the (Phase 3a) station/placement edits — emit the
+      // live array, only when present so box-only docs stay byte-identical
+      // (mirrors the backend's conditional dump).
       const loftMembers = get().loftMembers;
       return {
         grid: {},

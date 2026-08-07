@@ -667,6 +667,12 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     gizmoProxy.rotation.order = "ZYX";
     container.add(gizmoProxy);
 
+    // Baseline for the loft member-move gizmo: the last APPLIED proxy position
+    // (model frame). moveLoftMember advances it by the quantized delta each
+    // frame, so residual sub-grid pointer travel carries over and the member
+    // steps in exact grid multiples. Null between drags (re-seeded on start).
+    let loftDragLast: THREE.Vector3 | null = null;
+
     const gizmo = new TransformControls(cameraRef.current ?? (camera as THREE.Camera), renderer.domElement);
     gizmo.setSpace("world");
     const gizmoHelper = gizmo.getHelper();
@@ -678,8 +684,15 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         const st = useCellBuilderStore.getState();
         if (controlsRef.current) controlsRef.current.enabled = !e.value;
         // Coalesce the whole widget drag into one undo step.
-        if (e.value) st.beginTransaction();
-        else st.endTransaction();
+        if (e.value) {
+            st.beginTransaction();
+            // Seed the loft member-move baseline at the proxy's current (box-
+            // centre) position; cleared when the drag ends.
+            loftDragLast = gizmoProxy.position.clone();
+        } else {
+            st.endTransaction();
+            loftDragLast = null;
+        }
         requestRender();
     });
     gizmo.addEventListener("objectChange", () => {
@@ -690,6 +703,20 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (!cell) return;
         if (st.gizmoMode === "translate") {
             const step = st.gridStep > 0 ? st.gridStep : 0.1;
+            // Loft band: move the WHOLE member (not this one bay) by a grid-
+            // quantized incremental delta. loftDragLast tracks the applied
+            // position so the member steps in exact grid multiples with no drift.
+            if (cell.kind === "loft" && cell.loft) {
+                if (!loftDragLast) loftDragLast = gizmoProxy.position.clone();
+                const dx = Math.round((gizmoProxy.position.x - loftDragLast.x) / step) * step;
+                const dy = Math.round((gizmoProxy.position.y - loftDragLast.y) / step) * step;
+                const dz = Math.round((gizmoProxy.position.z - loftDragLast.z) / step) * step;
+                if (dx || dy || dz) {
+                    st.moveLoftMember(cell.loft.member, [dx, dy, dz]);
+                    loftDragLast.set(loftDragLast.x + dx, loftDragLast.y + dy, loftDragLast.z + dz);
+                }
+                return;
+            }
             const origin = originFromCenter(
                 [gizmoProxy.position.x, gizmoProxy.position.y, gizmoProxy.position.z],
                 cell.size,
@@ -758,10 +785,10 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (cameraRef.current) gizmo.camera = cameraRef.current;
         const sel = st.selection;
         const cell = sel ? st.cells[sel.cellId] : null;
-        // Loft bands are read-only — no translate gizmo (nor rotate/resize).
-        const translateOn = !!(
-            st.active && st.gizmoMode === "translate" && cell && cell.kind !== "loft" && st.cellsVisible
-        );
+        // Translate works for every kind — including a loft band, whose gizmo
+        // moves the whole member (see the loft branch in objectChange). The
+        // proxy still seeds from the band's bounding-box centre below.
+        const translateOn = !!(st.active && st.gizmoMode === "translate" && cell && st.cellsVisible);
         // Rotate is equipment-only — spaces stay axis-aligned lattice boxes.
         const rotateOn = !!(
             st.active && st.gizmoMode === "rotate" && cell && cell.kind === "equipment" && st.cellsVisible

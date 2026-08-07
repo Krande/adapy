@@ -151,6 +151,123 @@ export function memberToBands(member: LoftMemberDoc): LoftBand[] {
   return out;
 }
 
+/** Section-dimension keys that must never go negative (a width/radius < 0 has
+ * no geometric meaning). X/Y/Z (positions) may be any sign. */
+const NON_NEGATIVE_STATION_KEYS = new Set(["WIDTH", "HEIGHT", "RADIUS"]);
+
+/** Numeric station keys averaged when interpolating a new mid-station. */
+const INTERP_KEYS = ["X", "Y", "Z", "WIDTH", "HEIGHT", "RADIUS"] as const;
+
+// --- Pure loft-editing helpers (Phase 3a) ----------------------------------
+// Each returns a NEW LoftMemberDoc (new STATIONS array + new station objects)
+// so the store can snapshot for undo and zustand sees a changed reference. They
+// keep the member valid for the backend TopoLoftMember (>= 2 stations, section
+// dims >= 0) so a recompile rebuilds the edited geometry. No three.js.
+
+/** Set one numeric param (Z/X/Y/WIDTH/HEIGHT/RADIUS/SEGMENTS) on a single
+ * station. WIDTH/HEIGHT/RADIUS are clamped to >= 0. Returns the member
+ * unchanged (same ref) when the index is out of range or nothing changes. */
+export function setStationParam(
+  member: LoftMemberDoc,
+  stationIndex: number,
+  key: string,
+  value: number,
+): LoftMemberDoc {
+  const stations = member.STATIONS ?? [];
+  if (stationIndex < 0 || stationIndex >= stations.length) return member;
+  let v = Number(value);
+  if (!Number.isFinite(v)) return member;
+  if (NON_NEGATIVE_STATION_KEYS.has(key)) v = Math.max(0, v);
+  const cur = stations[stationIndex];
+  if (cur[key] === v) return member;
+  const nextStation: LoftStation = { ...cur, [key]: v };
+  const nextStations = stations.slice();
+  nextStations[stationIndex] = nextStation;
+  return { ...member, STATIONS: nextStations };
+}
+
+/** Insert a station after ``afterIndex``, splitting that bay into two. For an
+ * interior bay the new station is the midpoint (numeric fields averaged, TYPE +
+ * SEGMENTS from the lo station); after the last station it duplicates it, Z
+ * stepped by the last spacing (or +1). New bay count = old + 1. */
+export function insertStation(
+  member: LoftMemberDoc,
+  afterIndex: number,
+): LoftMemberDoc {
+  const stations = member.STATIONS ?? [];
+  if (stations.length < 1) return member;
+  const lo = Math.min(Math.max(afterIndex, 0), stations.length - 1);
+  const hiIdx = lo + 1;
+  let newStation: LoftStation;
+  if (hiIdx <= stations.length - 1) {
+    const a = stations[lo];
+    const b = stations[hiIdx];
+    const mid: LoftStation = { ...a };
+    for (const k of INTERP_KEYS) {
+      const av = a[k as keyof LoftStation];
+      const bv = b[k as keyof LoftStation];
+      if (typeof av === "number" && typeof bv === "number")
+        (mid as Record<string, unknown>)[k] = (av + bv) / 2;
+      else if (typeof av === "number") (mid as Record<string, unknown>)[k] = av;
+      else if (typeof bv === "number") (mid as Record<string, unknown>)[k] = bv;
+    }
+    newStation = mid;
+  } else {
+    const last = stations[lo];
+    const prev = lo > 0 ? stations[lo - 1] : null;
+    const dz = prev ? Number(last.Z) - Number(prev.Z) : 1;
+    newStation = { ...last, Z: Number(last.Z) + (dz || 1) };
+  }
+  const nextStations = stations.slice();
+  nextStations.splice(hiIdx, 0, newStation);
+  return { ...member, STATIONS: nextStations };
+}
+
+/** Remove the station at ``stationIndex``, merging its two adjacent bays.
+ * Refuses (returns the member unchanged) when it would drop below 2 stations —
+ * the backend TopoLoftMember minimum. */
+export function removeStation(
+  member: LoftMemberDoc,
+  stationIndex: number,
+): LoftMemberDoc {
+  const stations = member.STATIONS ?? [];
+  if (stations.length <= 2) return member;
+  if (stationIndex < 0 || stationIndex >= stations.length) return member;
+  const nextStations = stations.slice();
+  nextStations.splice(stationIndex, 1);
+  return { ...member, STATIONS: nextStations };
+}
+
+/** Normalize a member's PLACEMENT to a nested 4x4 (identity when absent). */
+function placementRows4(member: LoftMemberDoc): number[][] {
+  const m = normPlacement(member.PLACEMENT);
+  if (m) return m.map((r) => r.slice());
+  return [
+    [1, 0, 0, 0],
+    [0, 1, 0, 0],
+    [0, 0, 1, 0],
+    [0, 0, 0, 1],
+  ];
+}
+
+/** Translate the whole member by ``delta`` in world coordinates by adding it to
+ * the PLACEMENT translation column. Because a point maps as ``A·p + t``, adding
+ * ``delta`` to ``t`` shifts every placed ring point by exactly ``delta``
+ * regardless of any rotation/mirror in the linear part — so it moves cleanly
+ * whether or not the member already had a PLACEMENT. Emits a nested 4x4 (what
+ * the backend TopoLoftMember.PLACEMENT accepts). */
+export function translateMember(
+  member: LoftMemberDoc,
+  delta: Vec3,
+): LoftMemberDoc {
+  if (!delta[0] && !delta[1] && !delta[2]) return member;
+  const rows = placementRows4(member);
+  rows[0][3] += delta[0];
+  rows[1][3] += delta[1];
+  rows[2][3] += delta[2];
+  return { ...member, PLACEMENT: rows };
+}
+
 /** Axis-aligned bounding box (min corner + size) of a band's two rings. Used
  * for the BuilderCell origin/size fields (loft cells are drawn from their
  * rings, not this box, but the box keeps box-oriented plumbing safe). */

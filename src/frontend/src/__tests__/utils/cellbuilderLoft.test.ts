@@ -4,8 +4,12 @@ import { test } from "node:test";
 import {
   applyPlacement,
   bandBounds,
+  insertStation,
   memberToBands,
+  removeStation,
+  setStationParam,
   stationRingPoints,
+  translateMember,
   type LoftMemberDoc,
   type LoftStation,
 } from "../../utils/cellbuilder/loft";
@@ -168,6 +172,131 @@ test("memberToBands applies the member PLACEMENT to every band ring", () => {
   const [band] = memberToBands(member);
   // lower ring's first corner (-1,-1,0) shifted +5 in X
   assert.deepEqual(band.rings[0][0], [4, -1, 0]);
+});
+
+// --- Phase 3a: pure loft-editing helpers -----------------------------------
+
+const threeStations = (): LoftStation[] => [
+  { TYPE: "rectangle", X: 0, Y: 0, Z: 0, WIDTH: 2, HEIGHT: 2 },
+  { TYPE: "rectangle", X: 0, Y: 0, Z: 3, WIDTH: 2, HEIGHT: 2 },
+  { TYPE: "rectangle", X: 0, Y: 0, Z: 6, WIDTH: 4, HEIGHT: 4 },
+];
+
+test("setStationParam changes only that station's ring, keeps others identical", () => {
+  const member: LoftMemberDoc = { NAME: "M", STATIONS: threeStations() };
+  const next = setStationParam(member, 1, "WIDTH", 8);
+  // A new member + new STATIONS array (immutable — for undo/zustand).
+  assert.notEqual(next, member);
+  assert.notEqual(next.STATIONS, member.STATIONS);
+  assert.equal(next.STATIONS[1].WIDTH, 8);
+  // Stations 0 and 2 are untouched (same objects), station 1 is a new object.
+  assert.equal(next.STATIONS[0], member.STATIONS[0]);
+  assert.equal(next.STATIONS[2], member.STATIONS[2]);
+  assert.notEqual(next.STATIONS[1], member.STATIONS[1]);
+  // Only station 1's ring changes.
+  const before = memberToBands(member);
+  const after = memberToBands(next);
+  assert.deepEqual(after[0].rings[0], before[0].rings[0]); // station 0 ring
+  assert.notDeepEqual(after[0].rings[1], before[0].rings[1]); // station 1 ring
+  assert.deepEqual(after[1].rings[1], before[1].rings[1]); // station 2 ring
+});
+
+test("setStationParam clamps WIDTH/HEIGHT/RADIUS to >= 0 but allows negative Z", () => {
+  const member: LoftMemberDoc = { NAME: "M", STATIONS: threeStations() };
+  assert.equal(setStationParam(member, 0, "WIDTH", -5).STATIONS[0].WIDTH, 0);
+  assert.equal(setStationParam(member, 0, "Z", -5).STATIONS[0].Z, -5);
+  // A no-op set returns the SAME member ref (no spurious undo step).
+  assert.equal(setStationParam(member, 0, "WIDTH", 2), member);
+  // Out-of-range index is a no-op.
+  assert.equal(setStationParam(member, 9, "WIDTH", 1), member);
+});
+
+test("insertStation (interior) adds a midpoint bay and preserves the other bays", () => {
+  const member: LoftMemberDoc = { NAME: "M", STATIONS: threeStations() };
+  const before = memberToBands(member);
+  const next = insertStation(member, 0); // split bay 0 (s0 -> s1)
+  assert.equal(next.STATIONS.length, 4);
+  const after = memberToBands(next);
+  assert.equal(after.length, before.length + 1); // one more bay
+  // The inserted station is the midpoint of s0 and s1 (Z 0 and 3 -> 1.5).
+  assert.equal(next.STATIONS[1].Z, 1.5);
+  // Bay 0's lo ring is unchanged; the untouched trailing bay's geometry is
+  // preserved (original bay1 s1->s2 == new bay2).
+  assert.deepEqual(after[0].rings[0], before[0].rings[0]);
+  assert.deepEqual(after[2].rings[0], before[1].rings[0]);
+  assert.deepEqual(after[2].rings[1], before[1].rings[1]);
+});
+
+test("insertStation past the last station duplicates it (extends the member)", () => {
+  const member: LoftMemberDoc = { NAME: "M", STATIONS: threeStations() };
+  const next = insertStation(member, 2); // after the last station
+  assert.equal(next.STATIONS.length, 4);
+  // Z steps by the last spacing (6 - 3 = 3) -> 9.
+  assert.equal(next.STATIONS[3].Z, 9);
+  assert.equal(next.STATIONS[3].WIDTH, member.STATIONS[2].WIDTH);
+});
+
+test("removeStation drops a station, merges bays, refuses below 2", () => {
+  const member: LoftMemberDoc = { NAME: "M", STATIONS: threeStations() };
+  const next = removeStation(member, 1);
+  assert.equal(next.STATIONS.length, 2);
+  assert.equal(memberToBands(next).length, 1);
+  // The surviving stations keep their geometry (s0 and s2).
+  assert.deepEqual(
+    memberToBands(next)[0].rings[1],
+    memberToBands(member)[1].rings[1],
+  );
+  // A 2-station member refuses removal (same ref -> no-op / no undo step).
+  const twoStation: LoftMemberDoc = {
+    NAME: "M",
+    STATIONS: threeStations().slice(0, 2),
+  };
+  assert.equal(removeStation(twoStation, 0), twoStation);
+});
+
+test("translateMember shifts every ring by delta and round-trips as a nested 4x4", () => {
+  const member: LoftMemberDoc = { NAME: "M", STATIONS: threeStations() };
+  const before = memberToBands(member);
+  const next = translateMember(member, [10, -4, 2]);
+  // PLACEMENT is a nested 4x4 (what the backend TopoLoftMember accepts).
+  assert.ok(Array.isArray(next.PLACEMENT));
+  const mat = next.PLACEMENT as number[][];
+  assert.equal(mat.length, 4);
+  assert.ok(mat.every((r) => r.length === 4));
+  assert.deepEqual([mat[0][3], mat[1][3], mat[2][3]], [10, -4, 2]);
+  // Every band ring point is shifted by exactly delta.
+  const after = memberToBands(next);
+  for (let b = 0; b < before.length; b++) {
+    for (let r = 0; r < 2; r++) {
+      for (let i = 0; i < before[b].rings[r].length; i++) {
+        const p0 = before[b].rings[r][i];
+        const p1 = after[b].rings[r][i];
+        assert.ok(Math.abs(p1[0] - (p0[0] + 10)) < 1e-9);
+        assert.ok(Math.abs(p1[1] - (p0[1] - 4)) < 1e-9);
+        assert.ok(Math.abs(p1[2] - (p0[2] + 2)) < 1e-9);
+      }
+    }
+  }
+  // A zero delta is a no-op (same ref).
+  assert.equal(translateMember(member, [0, 0, 0]), member);
+});
+
+test("translateMember composes with an existing PLACEMENT (adds to its column)", () => {
+  const member: LoftMemberDoc = {
+    NAME: "M",
+    PLACEMENT: [
+      [1, 0, 0, 5],
+      [0, 1, 0, 0],
+      [0, 0, 1, 0],
+      [0, 0, 0, 1],
+    ],
+    STATIONS: threeStations().slice(0, 2),
+  };
+  const next = translateMember(member, [0, 3, 0]);
+  const mat = next.PLACEMENT as number[][];
+  assert.deepEqual([mat[0][3], mat[1][3], mat[2][3]], [5, 3, 0]);
+  // Does not mutate the source matrix.
+  assert.equal((member.PLACEMENT as number[][])[1][3], 0);
 });
 
 test("bandBounds gives the AABB (min corner + size) of both rings", () => {

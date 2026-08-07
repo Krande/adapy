@@ -256,51 +256,190 @@ const EquipmentSystems: React.FC<{
   );
 };
 
-// One station's read-only param summary (TYPE + section dims + Z).
-const StationRow: React.FC<{
+// One editable station param bound to setLoftStationParam. Controlled by the
+// live station value (regenerated on every edit); WIDTH/HEIGHT/RADIUS clamp to
+// >= 0 in the store.
+const LoftNumberField: React.FC<{
   label: string;
-  station: import("@/utils/cellbuilder/loft").LoftStation;
-}> = ({ label, station }) => {
-  const dims =
-    station.TYPE === "circle"
-      ? `R ${Number(station.RADIUS ?? 0).toFixed(2)} · ${Math.max(
-          3,
-          Math.floor(station.SEGMENTS ?? 16),
-        )} seg`
-      : `${Number(station.WIDTH ?? 0).toFixed(2)} × ${Number(
-          station.HEIGHT ?? 0,
-        ).toFixed(2)}`;
+  member: string;
+  stationIndex: number;
+  paramKey: string;
+  value: number;
+  min?: number;
+}> = ({ label, member, stationIndex, paramKey, value, min }) => {
+  const setLoftStationParam = useCellBuilderStore((s) => s.setLoftStationParam);
   return (
-    <div className="flex items-center gap-1">
+    <label className="flex items-center gap-1">
       <span className="text-gray-400 w-12">{label}</span>
-      <span className="text-gray-300">{station.TYPE}</span>
-      <span className="ml-auto text-gray-400">
-        {dims} · Z {Number(station.Z ?? 0).toFixed(2)}
-      </span>
-    </div>
+      <input
+        type="number"
+        step={0.1}
+        min={min}
+        className={`${inputCls} w-20`}
+        value={Number.isFinite(value) ? value : 0}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          if (Number.isFinite(v))
+            setLoftStationParam(member, stationIndex, paramKey, v);
+        }}
+      />
+    </label>
   );
 };
 
-// Read-only detail for a loft (swept-band) cell: which member + bay it is, and
-// the two bounding stations' params. No gizmo / resize / face controls — loft
-// cells are not user-edited in this slice (design risk #1: no loft-native face
-// id yet). Hide still works via the tool panel / Shift+H.
+// One station's editable params (position Z/X/Y + the section dims for its
+// TYPE). SEGMENTS/TYPE are left as authored (shape family stays put in 3a).
+const EditableStation: React.FC<{
+  label: string;
+  member: string;
+  stationIndex: number;
+  station: import("@/utils/cellbuilder/loft").LoftStation;
+}> = ({ label, member, stationIndex, station }) => (
+  <div className="flex flex-col gap-0.5 border border-gray-700/50 rounded-sm p-1">
+    <div className="flex items-center gap-1">
+      <span className="text-gray-300 font-medium">{label}</span>
+      <span className="text-gray-500">({station.TYPE})</span>
+    </div>
+    <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+      <LoftNumberField
+        label="Z"
+        member={member}
+        stationIndex={stationIndex}
+        paramKey="Z"
+        value={Number(station.Z ?? 0)}
+      />
+      <LoftNumberField
+        label="X"
+        member={member}
+        stationIndex={stationIndex}
+        paramKey="X"
+        value={Number(station.X ?? 0)}
+      />
+      <LoftNumberField
+        label="Y"
+        member={member}
+        stationIndex={stationIndex}
+        paramKey="Y"
+        value={Number(station.Y ?? 0)}
+      />
+      {station.TYPE === "circle" ? (
+        <LoftNumberField
+          label="Radius"
+          member={member}
+          stationIndex={stationIndex}
+          paramKey="RADIUS"
+          value={Number(station.RADIUS ?? 0)}
+          min={0}
+        />
+      ) : (
+        <>
+          <LoftNumberField
+            label="Width"
+            member={member}
+            stationIndex={stationIndex}
+            paramKey="WIDTH"
+            value={Number(station.WIDTH ?? 0)}
+            min={0}
+          />
+          <LoftNumberField
+            label="Height"
+            member={member}
+            stationIndex={stationIndex}
+            paramKey="HEIGHT"
+            value={Number(station.HEIGHT ?? 0)}
+            min={0}
+          />
+        </>
+      )}
+    </div>
+  </div>
+);
+
+// Editable detail for a loft (swept-band) cell (Phase 3a): the two bounding
+// stations' params, insert/remove-station, and a Move gizmo that translates the
+// WHOLE member. Per-face selection / openings on loft faces are still deferred
+// (design risk #1: no loft-native face id yet — Phase 3b).
 const LoftInfo: React.FC<{ cell: BuilderCell }> = ({ cell }) => {
   const band = cell.loft;
+  const gizmoMode = useCellBuilderStore((s) => s.gizmoMode);
+  const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
+  const insertLoftStation = useCellBuilderStore((s) => s.insertLoftStation);
+  const removeLoftStation = useCellBuilderStore((s) => s.removeLoftStation);
   if (!band) return null;
+  const member = band.member;
+  const loIndex = band.bay;
+  const hiIndex = band.bay + 1;
+  // 2 stations -> a single bay: deleting the hi station would drop below the
+  // TopoLoftMember minimum, so disable it.
+  const atMin = band.bandCount <= 1;
   return (
     <div className="flex flex-col gap-1.5 px-1 pt-1">
       <div className="text-gray-400">
-        Loft band — member <span className="text-gray-200">{band.member}</span>,
-        bay {band.bay + 1} of {band.bandCount}
+        Loft band — member <span className="text-gray-200">{member}</span>, bay{" "}
+        {band.bay + 1} of {band.bandCount}
       </div>
-      <div className="flex flex-col gap-0.5 border-t border-gray-700/50 pt-1">
-        <StationRow label="station" station={band.stationLo} />
-        <StationRow label="→ next" station={band.stationHi} />
+      <div
+        className="flex items-center gap-1"
+        title="Move the whole loft member (drag the widget in the scene, or use the grid nudge)"
+      >
+        <span className="text-gray-300">gizmo</span>
+        {(
+          [
+            ["translate", "Move"],
+            ["none", "Off"],
+          ] as const
+        ).map(([m, label]) => (
+          <button
+            key={m}
+            className={
+              "px-1.5 py-0.5 rounded-sm " +
+              (gizmoMode === m
+                ? "bg-blue-600 text-white"
+                : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+            }
+            onClick={() => setGizmoMode(m)}
+            aria-pressed={gizmoMode === m}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <EditableStation
+        label="Station"
+        member={member}
+        stationIndex={loIndex}
+        station={band.stationLo}
+      />
+      <EditableStation
+        label="→ next"
+        member={member}
+        stationIndex={hiIndex}
+        station={band.stationHi}
+      />
+      <div className="flex items-center gap-1">
+        <button
+          className={btn}
+          onClick={() => insertLoftStation(member, loIndex)}
+          title="Insert a station after this bay's lo station (splits the bay in two)"
+        >
+          Insert station
+        </button>
+        <button
+          className={btn}
+          disabled={atMin}
+          onClick={() => removeLoftStation(member, hiIndex)}
+          title={
+            atMin
+              ? "A loft member needs at least 2 stations"
+              : "Delete this bay's hi station (merges the adjacent bays)"
+          }
+        >
+          Delete station
+        </button>
       </div>
       <div className="text-gray-600 italic">
-        Read-only proxy — edit via the loft author (no in-viewer loft editing
-        yet).
+        Per-face selection + openings on loft faces come later (no loft-native
+        face id yet).
       </div>
     </div>
   );
