@@ -530,6 +530,94 @@ const LoftInfo: React.FC<{
   );
 };
 
+// User-defined extended metadata for the selected instance — its entity
+// METADATA map, carried verbatim on BuilderCell.params.METADATA. Free-form
+// key/value rows the compiler ignores but the DB round-trips, so a viewer or
+// integration can attach its own config to any cell / equipment / opening.
+const MetadataEditor: React.FC<{ cell: BuilderCell }> = ({ cell }) => {
+  const setCellParam = useCellBuilderStore((s) => s.setCellParam);
+  const [open, setOpen] = React.useState(false);
+  const raw = cell.params.METADATA;
+  const meta: Record<string, unknown> =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const entries = Object.entries(meta);
+  // Empty -> null so setCellParam drops the key entirely (no empty METADATA={}).
+  const commit = (next: Record<string, unknown>) =>
+    setCellParam(cell.id, "METADATA", Object.keys(next).length ? next : null);
+  const renameKey = (oldKey: string, newKey: string) => {
+    if (!newKey || newKey === oldKey || newKey in meta) return;
+    const next: Record<string, unknown> = {};
+    for (const [k, v] of entries) next[k === oldKey ? newKey : k] = v;
+    commit(next);
+  };
+  const setValue = (key: string, value: string) => commit({ ...meta, [key]: value });
+  const remove = (key: string) => {
+    const next = { ...meta };
+    delete next[key];
+    commit(next);
+  };
+  const add = () => {
+    let k = "key";
+    let i = 1;
+    while (k in meta) k = `key${i++}`;
+    commit({ ...meta, [k]: "" });
+  };
+  return (
+    <div className="border-t border-gray-600/60 pt-1">
+      <button
+        className="flex items-center gap-1 w-full text-left hover:bg-gray-700/40 rounded-sm px-1"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className={"transition-transform " + (open ? "rotate-90" : "")}>▸</span>
+        <span className="font-semibold">Metadata</span>
+        <span className="text-gray-400">({entries.length})</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1 px-1 pt-1">
+          {entries.length === 0 && (
+            <div className="text-gray-500 italic">
+              No metadata. Add your own fields — kept in the DB, ignored by the compiler.
+            </div>
+          )}
+          {entries.map(([k, v]) => (
+            <div key={k} className="flex items-center gap-1">
+              <input
+                className={`${inputCls} w-24`}
+                defaultValue={k}
+                key={cell.id + "|" + k}
+                onBlur={(e) => renameKey(k, e.target.value.trim())}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+                title="Field name"
+              />
+              <input
+                className={`${inputCls} flex-1 min-w-0`}
+                value={typeof v === "string" ? v : JSON.stringify(v)}
+                onChange={(e) => setValue(k, e.target.value)}
+                title="Value"
+              />
+              <button
+                className="px-1 rounded-sm text-gray-400 hover:bg-gray-600 hover:text-white"
+                onClick={() => remove(k)}
+                title="Remove field"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <button className={btn} onClick={add}>
+            + Add field
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
   selection,
 }) => {
@@ -788,6 +876,10 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
               equipmentType={cell.equipmentType}
             />
           )}
+          {/* Per-instance user metadata — shown for a whole-cell pick of any box
+              instance (cell / equipment / opening). Loft members carry their own
+              metadata at the member level, edited via the loft actions. */}
+          {selection.kind === "cell" && <MetadataEditor cell={cell} />}
         </div>
       )}
     </div>
