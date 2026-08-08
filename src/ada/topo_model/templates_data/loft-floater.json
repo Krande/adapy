@@ -1,0 +1,653 @@
+{
+ "grid": {},
+ "engine": "adapy-default",
+ "spaces": [],
+ "systems": [],
+ "openings": [],
+ "blueprint": {},
+ "equipments": [],
+ "loft_members": [
+  {
+   "NAME": "ColNE",
+   "INCLUDE": true,
+   "STATIONS": [
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 0.0,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 5.0,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 16.666666666666664,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 2.5
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 28.333333333333332,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 2.5
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 40.0,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    }
+   ],
+   "PLACEMENT": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     30.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     30.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "THICKNESS": 0.01,
+   "SURFACE_ONLY": true,
+   "EXCLUDE_FACES": []
+  },
+  {
+   "NAME": "ColNW",
+   "INCLUDE": true,
+   "STATIONS": [
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 0.0,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 5.0,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 16.666666666666664,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 2.5
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 28.333333333333332,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 2.5
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 40.0,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    }
+   ],
+   "PLACEMENT": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     -30.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     30.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "THICKNESS": 0.01,
+   "SURFACE_ONLY": true,
+   "EXCLUDE_FACES": []
+  },
+  {
+   "NAME": "ColSW",
+   "INCLUDE": true,
+   "STATIONS": [
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 0.0,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 5.0,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 16.666666666666664,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 2.5
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 28.333333333333332,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 2.5
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 40.0,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    }
+   ],
+   "PLACEMENT": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     -30.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -30.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "THICKNESS": 0.01,
+   "SURFACE_ONLY": true,
+   "EXCLUDE_FACES": []
+  },
+  {
+   "NAME": "ColSE",
+   "INCLUDE": true,
+   "STATIONS": [
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 0.0,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 5.0,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 16.666666666666664,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 2.5
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 28.333333333333332,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 2.5
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 40.0,
+     "TYPE": "rectangle",
+     "WIDTH": 10.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    }
+   ],
+   "PLACEMENT": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     30.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -30.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "THICKNESS": 0.01,
+   "SURFACE_ONLY": true,
+   "EXCLUDE_FACES": []
+  },
+  {
+   "NAME": "PonN",
+   "INCLUDE": true,
+   "STATIONS": [
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 0.0,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 7.5,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 7.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 42.5,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 7.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 50.0,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    }
+   ],
+   "PLACEMENT": [
+    [
+     0.0,
+     0.0,
+     -1.0,
+     25.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     30.0
+    ],
+    [
+     1.0,
+     0.0,
+     0.0,
+     2.5
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "THICKNESS": 0.01,
+   "SURFACE_ONLY": true,
+   "EXCLUDE_FACES": []
+  },
+  {
+   "NAME": "PonS",
+   "INCLUDE": true,
+   "STATIONS": [
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 0.0,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 7.5,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 7.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 42.5,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 7.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 50.0,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    }
+   ],
+   "PLACEMENT": [
+    [
+     0.0,
+     0.0,
+     -1.0,
+     25.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -30.0
+    ],
+    [
+     1.0,
+     0.0,
+     0.0,
+     2.5
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "THICKNESS": 0.01,
+   "SURFACE_ONLY": true,
+   "EXCLUDE_FACES": []
+  },
+  {
+   "NAME": "PonE",
+   "INCLUDE": true,
+   "STATIONS": [
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 0.0,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 7.5,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 7.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 42.5,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 7.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 50.0,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    }
+   ],
+   "PLACEMENT": [
+    [
+     0.0,
+     1.0,
+     0.0,
+     30.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     -25.0
+    ],
+    [
+     1.0,
+     0.0,
+     0.0,
+     2.5
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "THICKNESS": 0.01,
+   "SURFACE_ONLY": true,
+   "EXCLUDE_FACES": []
+  },
+  {
+   "NAME": "PonW",
+   "INCLUDE": true,
+   "STATIONS": [
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 0.0,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 7.5,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 7.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 42.5,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 7.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 50.0,
+     "TYPE": "rectangle",
+     "WIDTH": 5.0,
+     "HEIGHT": 10.0,
+     "SEGMENTS": 36,
+     "CORNER_RADIUS": 0.0
+    }
+   ],
+   "PLACEMENT": [
+    [
+     0.0,
+     1.0,
+     0.0,
+     -30.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     -25.0
+    ],
+    [
+     1.0,
+     0.0,
+     0.0,
+     2.5
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "THICKNESS": 0.01,
+   "SURFACE_ONLY": true,
+   "EXCLUDE_FACES": []
+  }
+ ],
+ "equipment_cad": false,
+ "schema_version": "1.0"
+}

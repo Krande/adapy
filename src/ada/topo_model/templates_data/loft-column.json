@@ -1,0 +1,38 @@
+{
+ "grid": {},
+ "engine": "adapy-default",
+ "spaces": [],
+ "systems": [],
+ "openings": [],
+ "blueprint": {},
+ "equipments": [],
+ "loft_members": [
+  {
+   "NAME": "Column",
+   "INCLUDE": true,
+   "STATIONS": [
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 0.0,
+     "TYPE": "circle",
+     "RADIUS": 5.0,
+     "SEGMENTS": 16
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 20.0,
+     "TYPE": "circle",
+     "RADIUS": 5.0,
+     "SEGMENTS": 16
+    }
+   ],
+   "THICKNESS": 0.01,
+   "SURFACE_ONLY": true,
+   "EXCLUDE_FACES": []
+  }
+ ],
+ "equipment_cad": false,
+ "schema_version": "1.0"
+}

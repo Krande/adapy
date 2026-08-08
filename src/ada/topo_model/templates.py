@@ -170,4 +170,30 @@ register_procedural_template("adapy:steel-demo", "Steel structure demo", "adapy-
 register_procedural_template("adapy:topside-jacket", "Topside + jacket", "adapy-default", _topside_jacket_doc())
 
 
+def _register_loft_demos() -> None:
+    """The loft demos (box/column/jacket/floater) as adapy-default templates.
+
+    These are full ``loft_members`` documents — adapy's editable loft geometry
+    representation (station stacks + placements), the loft analogue of box cells
+    for spaces. The floater carries all eight members (four columns + four placed
+    pontoons). They render as their loft surface (SURFACE_ONLY), stay fully
+    editable in the cellbuilder, and compile with the built-in engine. The docs
+    live as JSON alongside this module."""
+    import json
+    import pathlib
+
+    data_dir = pathlib.Path(__file__).with_name("templates_data")
+    for slug, name in (
+        ("loft-box", "Loft box"),
+        ("loft-column", "Loft column"),
+        ("loft-jacket", "Loft jacket"),
+        ("loft-floater", "Loft floater"),
+    ):
+        doc = json.loads((data_dir / f"{slug}.json").read_text())
+        register_procedural_template(f"adapy:{slug}", name, "adapy-default", doc)
+
+
+_register_loft_demos()
+
+
 __all__ = ["register_procedural_template", "procedural_template_specs"]
