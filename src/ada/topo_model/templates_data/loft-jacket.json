@@ -103,8 +103,9 @@
     }
    ],
    "THICKNESS": 0.01,
-   "SURFACE_ONLY": true,
-   "EXCLUDE_FACES": []
+   "SURFACE_ONLY": false,
+   "EXCLUDE_FACES": [],
+   "REPRESENTATION": "JACKET"
   }
  ],
  "equipment_cad": false,
