@@ -398,36 +398,71 @@ class ProceduralBuilder:
         return a, topo, bp
 
     def build_lofts(self) -> None:
-        """Swept ``loft_members`` -> band cells + plate geometry in the assembly.
+        """Swept ``loft_members`` -> band-cell topology + geometry in the assembly.
 
         Runs only when :attr:`loft_members` are present (byte-identical no-op for
         box-only models). For the included members it (a) derives the lossless
         inter-station BAND :class:`~ada.topology.CellGraph` via
         :func:`ada.topology.io.from_section_loft` — one cell per inter-station
-        band, ``Sum(stations - 1)`` in total, stored on :attr:`loft_cell_graph` —
-        and (b) lofts each member's placed station profiles into a part of plates
-        (:func:`ada.api.loft.loft_to_part`) added under a single ``Lofts`` part.
-        The two views share the same profiles so the band cells sit inside their
-        plates."""
+        band, ``Sum(stations - 1)`` in total, stored on :attr:`loft_cell_graph` for
+        selection/face-picking — and then emits geometry per member:
+
+        * A **structural** member (``SURFACE_ONLY=False``) under the ``steel_stru``
+          blueprint is *framed*: the :class:`~ada.topo_model.blueprint.SteelStru`
+          blueprint runs over the member's loft-derived cell graph and emits beams
+          (columns/girders/stringers + floor plates), exactly as it does for box
+          ``spaces`` — a loft is just another topology source, mirroring the
+          pm-engine's ``SECTION_LOFT`` path. ``TopologyBuilder`` consumes the
+          prebuilt cell graph directly.
+        * A **skin** member (``SURFACE_ONLY=True``, or ``blueprint_name='none'``)
+          lofts its placed station profiles into a part of plates
+          (:func:`ada.topology.io.loft_member_to_part`); each plate is named by its
+          ``loft_face_id`` so a picked plate maps back to the band-cell face, and
+          ``EXCLUDE_FACES`` drops addressed plates.
+
+        Both views share the same profiles, so the band cells sit inside the
+        emitted geometry."""
         members = [m for m in self.loft_members if m.INCLUDE]
         if not members:
             return
 
         from ada.topology.io import from_section_loft, loft_member_to_part
 
-        # (a) lossless cell decomposition (Sum(stations-1) band cells). Each band-cell
-        # face also gets a loft-native ``loft_face_id`` (Phase 3b) for per-face addressing.
+        # (a) lossless cell decomposition (Sum(stations-1) band cells) over the WHOLE
+        # member set — the selection/face-picking topology. Each band-cell face also
+        # carries a loft-native ``loft_face_id`` (Phase 3b) for per-face addressing.
         self.loft_cell_graph = from_section_loft([m.to_loft_member() for m in members])
 
-        # (b) plate geometry per member (placed station profiles -> plates). Each plate is
-        # named by its loft_face_id and EXCLUDE_FACES drops the addressed plates — the
-        # plate names match the band-cell face ids so the frontend can map a picked plate.
+        # (b) split into framed (blueprint emits beams over the loft topology) vs skin
+        # (plate geometry). With blueprint 'none' every member is a skin.
+        if self.blueprint_name == "steel_stru":
+            framed = [m for m in members if not m.SURFACE_ONLY]
+            skinned = [m for m in members if m.SURFACE_ONLY]
+        else:
+            framed, skinned = [], members
+
         lofts_part = ada.Part("Lofts")
-        for m in members:
-            member_part = loft_member_to_part(
-                m.NAME, m.world_profiles(), thickness=m.THICKNESS, exclude_faces=m.EXCLUDE_FACES
+
+        if framed:
+            from ada.topology.builder import TopologyBuilder
+
+            # Run SteelStru over the framed members' loft cell graph (a separate graph
+            # from ``loft_cell_graph`` so the blueprint's builder back-refs don't touch
+            # the picking topology). Root back-refs mirror ``_build_structure_group``.
+            frame_cg = from_section_loft([m.to_loft_member() for m in framed])
+            bp = SteelStru(**self.blueprint_options)
+            topo = TopologyBuilder(blueprint=bp, cell_graph=frame_cg)
+            bp.procedural = self
+            frame_cg.procedural = self
+            lofts_part.add_part(topo.build())
+
+        for m in skinned:
+            lofts_part.add_part(
+                loft_member_to_part(
+                    m.NAME, m.world_profiles(), thickness=m.THICKNESS, exclude_faces=m.EXCLUDE_FACES
+                )
             )
-            lofts_part.add_part(member_part)
+
         if self.assembly is None:
             self.assembly = ada.Assembly(self.name)
         self.assembly.add_part(lofts_part)

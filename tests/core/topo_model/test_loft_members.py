@@ -23,18 +23,21 @@ from ada.topology.entities import LoftStation, TopoLoftMember, TopoSpace
 
 
 def _column_member() -> TopoLoftMember:
-    # 2-station equal-section column -> 1 band cell.
+    # 2-station equal-section column -> 1 band cell. SURFACE_ONLY: these tests pin
+    # the plate-SKIN path (loft_face_id names, EXCLUDE_FACES) — a non-SURFACE_ONLY
+    # member would instead be framed with beams by the SteelStru blueprint.
     return TopoLoftMember(
         NAME="Column",
         STATIONS=[
             LoftStation(TYPE="rectangle", X=0.0, Y=0.0, Z=0.0, WIDTH=2.0, HEIGHT=2.0),
             LoftStation(TYPE="rectangle", X=0.0, Y=0.0, Z=3.0, WIDTH=2.0, HEIGHT=2.0),
         ],
+        SURFACE_ONLY=True,
     )
 
 
 def _tapered_member(placement: list[list[float]] | None = None) -> TopoLoftMember:
-    # 3-station tapered rectangle -> 2 band cells.
+    # 3-station tapered rectangle -> 2 band cells. SURFACE_ONLY (see _column_member).
     return TopoLoftMember(
         NAME="Taper",
         STATIONS=[
@@ -44,6 +47,7 @@ def _tapered_member(placement: list[list[float]] | None = None) -> TopoLoftMembe
         ],
         PLACEMENT=placement,
         THICKNESS=0.02,
+        SURFACE_ONLY=True,
     )
 
 

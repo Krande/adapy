@@ -201,7 +201,7 @@ def _floater_column(name: str, x: float, y: float) -> TopoLoftMember:
     place = np.eye(4)
     place[0, 3] = x
     place[1, 3] = y
-    return TopoLoftMember(NAME=name, STATIONS=stations, PLACEMENT=place.tolist())
+    return TopoLoftMember(NAME=name, STATIONS=stations, PLACEMENT=place.tolist(), SURFACE_ONLY=True)
 
 
 def _floater_pontoon(name: str, x: float, y: float) -> TopoLoftMember:
@@ -218,7 +218,7 @@ def _floater_pontoon(name: str, x: float, y: float) -> TopoLoftMember:
     place = np.eye(4)
     place[0, 3] = x
     place[1, 3] = y
-    return TopoLoftMember(NAME=name, STATIONS=stations, PLACEMENT=place.tolist())
+    return TopoLoftMember(NAME=name, STATIONS=stations, PLACEMENT=place.tolist(), SURFACE_ONLY=True)
 
 
 def test_floater_member_set_compiles_and_columns_have_12_side_faces():
