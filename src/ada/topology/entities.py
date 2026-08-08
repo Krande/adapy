@@ -787,6 +787,16 @@ class TopoLoftMember(_TopoConfigBoundModel):
     ] = None
     THICKNESS: Annotated[float, Field(description="Plate thickness of the lofted skin")] = 0.01
     SURFACE_ONLY: Annotated[bool, Field(description="Member is a surface skin only (no interior structure)")] = False
+    REPRESENTATION: Annotated[
+        Literal["SKIN", "FRAME", "JACKET"],
+        Field(
+            description=(
+                "How a structural loft member is built by the ProceduralBuilder: SKIN = plate "
+                "skin, FRAME = SteelStru framework (decked/floored), JACKET = open tubular truss "
+                "(legs + ring + diagonal braces). SURFACE_ONLY=True forces SKIN regardless."
+            )
+        ),
+    ] = "FRAME"
     EXCLUDE_FACES: Annotated[
         list[str],
         Field(

@@ -433,28 +433,38 @@ class ProceduralBuilder:
         # carries a loft-native ``loft_face_id`` (Phase 3b) for per-face addressing.
         self.loft_cell_graph = from_section_loft([m.to_loft_member() for m in members])
 
-        # (b) split into framed (blueprint emits beams over the loft topology) vs skin
-        # (plate geometry). With blueprint 'none' every member is a skin.
-        if self.blueprint_name == "steel_stru":
-            framed = [m for m in members if not m.SURFACE_ONLY]
-            skinned = [m for m in members if m.SURFACE_ONLY]
+        # (b) route each member by how it should be built. A SURFACE_ONLY member (or
+        # blueprint 'none') is a plate SKIN; otherwise its REPRESENTATION selects the
+        # blueprint run over the member's loft cell graph — FRAME -> SteelStru (decked
+        # framework), JACKET -> JacketStru (open tubular truss). Both blueprints go
+        # through TopologyBuilder, same pipeline as box spaces.
+        if self.blueprint_name == "none":
+            skinned, framed, jacketed = members, [], []
         else:
-            framed, skinned = [], members
+            skinned = [m for m in members if m.SURFACE_ONLY]
+            structural = [m for m in members if not m.SURFACE_ONLY]
+            framed = [m for m in structural if m.REPRESENTATION != "JACKET"]
+            jacketed = [m for m in structural if m.REPRESENTATION == "JACKET"]
 
         lofts_part = ada.Part("Lofts")
 
-        if framed:
+        # Run a blueprint over a subset's loft cell graph (a separate graph from
+        # ``loft_cell_graph`` so the blueprint's builder back-refs don't touch the
+        # picking topology). Root back-refs mirror ``_build_structure_group``.
+        def _framed(subset, blueprint) -> None:
             from ada.topology.builder import TopologyBuilder
 
-            # Run SteelStru over the framed members' loft cell graph (a separate graph
-            # from ``loft_cell_graph`` so the blueprint's builder back-refs don't touch
-            # the picking topology). Root back-refs mirror ``_build_structure_group``.
-            frame_cg = from_section_loft([m.to_loft_member() for m in framed])
-            bp = SteelStru(**self.blueprint_options)
-            topo = TopologyBuilder(blueprint=bp, cell_graph=frame_cg)
-            bp.procedural = self
-            frame_cg.procedural = self
-            lofts_part.add_part(topo.build())
+            cg = from_section_loft([m.to_loft_member() for m in subset])
+            blueprint.procedural = self
+            cg.procedural = self
+            lofts_part.add_part(TopologyBuilder(blueprint=blueprint, cell_graph=cg).build())
+
+        if framed:
+            _framed(framed, SteelStru(**self.blueprint_options))
+        if jacketed:
+            from .jacket import JacketStru
+
+            _framed(jacketed, JacketStru())
 
         for m in skinned:
             lofts_part.add_part(

@@ -6,6 +6,7 @@ Start with :func:`build_topo_model` for the one-liner happy path, and read
 """
 
 from .blueprint import SteelStru
+from .jacket import JacketStru
 from .build import (
     build_routing_grid,
     build_topo_model,
@@ -34,6 +35,7 @@ __all__ = [
     "DEFAULT_DESIGN_RULESET",
     "DESIGN_RULESETS",
     "EquipmentType",
+    "JacketStru",
     "PenetrationBlueprintBase",
     "ProceduralBuilder",
     "ProceduralCatalog",

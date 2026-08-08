@@ -50,6 +50,28 @@ def test_surface_only_loft_member_stays_a_plate_skin():
     assert list(lofts.get_all_physical_objects(by_type=ada.Plate)), "skin member should be plates"
 
 
+def test_jacket_representation_is_open_tubular_truss():
+    m = _jacket()
+    m.REPRESENTATION = "JACKET"
+    pb = ProceduralBuilder(spaces=[], loft_members=[m])
+    pb.build_structure()
+    pb.build_lofts()
+
+    lofts = pb.assembly.parts["Lofts"]
+    beams = list(lofts.get_all_physical_objects(by_type=ada.Beam))
+    plates = list(lofts.get_all_physical_objects(by_type=ada.Plate))
+
+    # Open truss: tubular legs + ring + diagonal braces, no decks/stringers/plates.
+    assert beams, "jacket should emit truss beams"
+    assert all(str(b.section.type) == "BaseTypes.TUBULAR" for b in beams), "jacket members must be tubular"
+    assert not plates, "an open jacket truss carries no plates"
+    names = {b.name.split("_")[0] for b in beams}
+    assert {"Leg", "Ring", "Brace"} <= names, f"missing truss members: {names}"
+    # And it compiles to a GLB.
+    glb = pb.compile()
+    assert glb[:4] == b"glTF"
+
+
 def test_blueprint_none_keeps_loft_as_skin():
     pb = ProceduralBuilder(spaces=[], loft_members=[_jacket()], blueprint_name="none")
     pb.build_structure()
