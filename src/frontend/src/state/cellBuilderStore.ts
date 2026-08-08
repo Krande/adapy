@@ -477,6 +477,12 @@ interface CellBuilderState {
     memberRelativeFaceId: string,
     excluded: boolean,
   ) => void;
+  /** Replace a loft member's user-defined METADATA map (empty clears it).
+   * Geometry-neutral — round-trips verbatim through the member; undoable. */
+  setLoftMemberMetadata: (
+    memberName: string,
+    metadata: Record<string, unknown>,
+  ) => void;
   addSystem: (
     type: SystemType,
     opts?: { name?: string; medium?: string | null },
@@ -1497,6 +1503,21 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         return {
           loftMembers: replaceLoftMember(s.loftMembers, memberName, next),
           cells: regenLoftMemberCells(s.cells, next),
+          dirty: true,
+        };
+      }),
+
+    setLoftMemberMetadata: (memberName, metadata) =>
+      withHistory((s) => {
+        const member = s.loftMembers.find((m) => m.NAME === memberName);
+        if (!member) return {};
+        const next = { ...member };
+        // Empty -> drop the key entirely (no METADATA={} in the doc).
+        if (metadata && Object.keys(metadata).length) next.METADATA = metadata;
+        else delete next.METADATA;
+        // Metadata is geometry-neutral, so no cell regen — just the raw member.
+        return {
+          loftMembers: replaceLoftMember(s.loftMembers, memberName, next),
           dirty: true,
         };
       }),

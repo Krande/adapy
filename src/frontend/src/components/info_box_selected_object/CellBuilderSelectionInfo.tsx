@@ -448,8 +448,11 @@ const LoftInfo: React.FC<{
   const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
   const insertLoftStation = useCellBuilderStore((s) => s.insertLoftStation);
   const removeLoftStation = useCellBuilderStore((s) => s.removeLoftStation);
+  const loftMembers = useCellBuilderStore((s) => s.loftMembers);
+  const setLoftMemberMetadata = useCellBuilderStore((s) => s.setLoftMemberMetadata);
   if (!band) return null;
   const member = band.member;
+  const memberDoc = loftMembers.find((m) => m.NAME === member);
   const loIndex = band.bay;
   const hiIndex = band.bay + 1;
   // 2 stations -> a single bay: deleting the hi station would drop below the
@@ -526,26 +529,37 @@ const LoftInfo: React.FC<{
           selection.kind === "face" ? selection.faceIndex : undefined
         }
       />
+      {/* Member-level user metadata (shared by all bays of this loft member). */}
+      <MetadataFields
+        idPrefix={member}
+        meta={asMetaObject(memberDoc?.METADATA)}
+        onCommit={(next) => setLoftMemberMetadata(member, next ?? {})}
+      />
     </div>
   );
 };
 
-// User-defined extended metadata for the selected instance — its entity
-// METADATA map, carried verbatim on BuilderCell.params.METADATA. Free-form
-// key/value rows the compiler ignores but the DB round-trips, so a viewer or
-// integration can attach its own config to any cell / equipment / opening.
-const MetadataEditor: React.FC<{ cell: BuilderCell }> = ({ cell }) => {
-  const setCellParam = useCellBuilderStore((s) => s.setCellParam);
+// Coerce a raw METADATA value (unknown, possibly absent) to an object map.
+const asMetaObject = (raw: unknown): Record<string, unknown> =>
+  raw && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {};
+
+// User-defined extended metadata editor — free-form key/value rows the compiler
+// ignores but the DB round-trips, so a viewer/integration can attach its own
+// config to any topology instance. Generic over the backing store: a cell's
+// params.METADATA or a loft member's METADATA (``onCommit`` persists the next
+// map, or null to clear).
+const MetadataFields: React.FC<{
+  meta: Record<string, unknown>;
+  onCommit: (next: Record<string, unknown> | null) => void;
+  idPrefix: string;
+}> = ({ meta, onCommit, idPrefix }) => {
   const [open, setOpen] = React.useState(false);
-  const raw = cell.params.METADATA;
-  const meta: Record<string, unknown> =
-    raw && typeof raw === "object" && !Array.isArray(raw)
-      ? (raw as Record<string, unknown>)
-      : {};
   const entries = Object.entries(meta);
-  // Empty -> null so setCellParam drops the key entirely (no empty METADATA={}).
+  // Empty -> null so the caller drops the key entirely (no empty METADATA={}).
   const commit = (next: Record<string, unknown>) =>
-    setCellParam(cell.id, "METADATA", Object.keys(next).length ? next : null);
+    onCommit(Object.keys(next).length ? next : null);
   const renameKey = (oldKey: string, newKey: string) => {
     if (!newKey || newKey === oldKey || newKey in meta) return;
     const next: Record<string, unknown> = {};
@@ -587,7 +601,7 @@ const MetadataEditor: React.FC<{ cell: BuilderCell }> = ({ cell }) => {
               <input
                 className={`${inputCls} w-24`}
                 defaultValue={k}
-                key={cell.id + "|" + k}
+                key={idPrefix + "|" + k}
                 onBlur={(e) => renameKey(k, e.target.value.trim())}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") e.currentTarget.blur();
@@ -877,9 +891,14 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
             />
           )}
           {/* Per-instance user metadata — shown for a whole-cell pick of any box
-              instance (cell / equipment / opening). Loft members carry their own
-              metadata at the member level, edited via the loft actions. */}
-          {selection.kind === "cell" && <MetadataEditor cell={cell} />}
+              instance (cell / equipment / opening). */}
+          {selection.kind === "cell" && (
+            <MetadataFields
+              idPrefix={cell.id}
+              meta={asMetaObject(cell.params.METADATA)}
+              onCommit={(next) => setCellParam(cell.id, "METADATA", next)}
+            />
+          )}
         </div>
       )}
     </div>

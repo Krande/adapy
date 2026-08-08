@@ -44,6 +44,9 @@ export interface LoftMemberDoc {
    * `TopoLoftMember.EXCLUDE_FACES`; round-trips through the doc and omits the
    * addressed plate on recompile. Absent/`[]` = nothing excluded. */
   EXCLUDE_FACES?: string[];
+  /** User-defined extended metadata for this loft member (the entity's METADATA
+   * map). Compiler-ignored; round-trips verbatim through the doc to the DB. */
+  METADATA?: Record<string, unknown>;
   [k: string]: unknown;
 }
 
