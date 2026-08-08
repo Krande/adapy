@@ -39,9 +39,9 @@ def wire_from_poly_loop(loop: PolyLoop, backend: "CadBackend | None" = None) -> 
     The loop is connected with straight edges. If the polygon's last
     point does not coincide with the first, a closing edge is appended.
 
-    ``backend`` overrides the process-wide ``active_backend()`` — pass the loft
-    backend (see :func:`ada.cad.loft_backend`) so the whole loft stays on one
-    kernel; a shape built by one backend cannot be read by another.
+    ``backend`` overrides the process-wide ``active_backend()`` — pass one shared
+    backend instance so the whole loft stays on one kernel; a shape built by one
+    backend cannot be read by another.
     """
     pts = list(loop.polygon)
     if len(pts) < 2:

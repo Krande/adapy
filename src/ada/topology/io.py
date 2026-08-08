@@ -173,11 +173,10 @@ def _member_band_solids(
     # The band solids feed ``CellGraph.from_cell_solids``, whose GraphCell/GraphFace/
     # GraphEdge readers (ada.topology.graph) + extraction all read the solid handles via
     # ``active_backend()``. A shape can only be read by the backend that built it, so the
-    # band-solid path MUST stay on the active backend — it cannot borrow ``loft_backend()``
-    # (OccBackend) without also porting the whole cell-graph read path to that instance.
-    # This is fine: band cells are topology-only (a cell decomposition for selection); they
-    # carry no Plate/PlateCurved distinction, so the loft pixel-parity issue (fixed in
-    # ``loft_member_to_part``) does not apply to them.
+    # band-solid path stays on the active backend — like ``loft_member_to_part``. Band
+    # cells are topology-only (a cell decomposition for selection); they carry no
+    # Plate/PlateCurved distinction, so the curved-corner parity handling in
+    # ``loft_member_to_part`` does not apply to them.
     be = active_backend()
     solid = loft_profiles(profiles, ruled=ruled, is_solid=True, backend=be)
 
@@ -288,19 +287,18 @@ def loft_member_to_part(
     from ada.api.loft import loft_profiles
     from ada.api.plates.base_pl import Plate, PlateCurved
     from ada.api.spatial.part import Part
-    from ada.cad import loft_backend
+    from ada.cad import active_backend
     from ada.geom import Geometry
 
-    # Run the WHOLE rendered-plate path (swept solid + every face op) on the loft
-    # backend: a local OccBackend when OCC.Core is importable, else the active backend.
-    # OCC has the ``is_planar_face`` + ``face_to_advanced_face`` verbs the shipped
-    # native adacpp build stubs, so on the adacpp worker this keeps the ruled
-    # corner-transition panels as PlateCurved (pixel parity) instead of flattening them
-    # (~0.18 wider). ``loft_backend()`` returns a fresh instance and never mutates the
-    # global active backend, so concurrent jobs stay on adacpp. The Part it produces
-    # holds only plain ada.geom Plate/PlateCurved data — no backend handle escapes — so
-    # it is safe to mix with an adacpp-built model.
-    be = loft_backend()
+    # Run the WHOLE rendered-plate path (swept solid + every face op) on the active
+    # backend, same as the band-solid path — a shape can only be read by the backend
+    # that built it. Curved-corner parity needs the ``is_planar_face`` +
+    # ``face_to_advanced_face`` verbs to keep the ruled corner-transition panels as
+    # PlateCurved instead of flattening them (~0.18 wider); OCC and adacpp >=0.20 both
+    # ship them natively. A backend without ``is_planar_face`` (pyodide/wasm) can't
+    # classify the faces and falls back to flat plates below (the compile still
+    # succeeds; rounded corners render very slightly wider).
+    be = active_backend()
     exclude = set(exclude_faces or [])
     prefix_len = len(name) + 1  # strip "{name}:" to get the member-relative id
     shape = loft_profiles(profiles, ruled=ruled, is_solid=True, backend=be)
@@ -340,11 +338,11 @@ def loft_member_to_part(
         # B-spline surfaces, so a surface-*type* check would wrongly curve them
         # (and change all-sharp box/jacket members). Probe the actual geometry:
         # only the genuinely-ruled corner-transition panels are non-planar.
-        # A backend without the planarity probe (e.g. a native adacpp build that
-        # hasn't shipped ``is_planar_face`` yet) can't tell — treat every face as
-        # planar so the compile still SUCCEEDS (flat plates; the curved corners
-        # render very slightly wider) rather than erroring. Curved parity needs
-        # both ``is_planar_face`` and ``face_to_advanced_face`` on the backend.
+        # A backend without the planarity probe (e.g. the pyodide/wasm kernel, which
+        # ships neither verb) can't tell — treat every face as planar so the compile
+        # still SUCCEEDS (flat plates; the curved corners render very slightly wider)
+        # rather than erroring. Curved parity needs both ``is_planar_face`` and
+        # ``face_to_advanced_face`` on the backend.
         try:
             face_is_curved = not be.is_planar_face(face)
         except NotImplementedError:

@@ -26,11 +26,11 @@ def _loft_curved_capable() -> bool:
     """True when the loft backend can emit ``PlateCurved`` for the ruled corner
     panels of a rounded member — which needs the ``is_planar_face`` verb.
 
-    Mirrors :func:`ada.cad.loft_backend`'s own branch: OCC.Core is present (a
-    local ``OccBackend`` runs the loft), or the native adacpp build ships the
-    verb. On an adacpp-only env (no OCC.Core, stubbed verb) the compile falls
-    back to flat plates and a rounded column bulges to ~+/-5.18 by design, so the
-    +/-5.01 parity assertion is skipped there rather than failing."""
+    Capable when OCC.Core is importable (an ``OccBackend`` runs the loft) or the
+    native adacpp build ships the verb (adacpp >=0.20). Where neither is present
+    (pyodide/wasm) the compile falls back to flat plates and a rounded column
+    bulges to ~+/-5.18 by design, so the +/-5.01 parity assertion is skipped there
+    rather than failing."""
     try:
         import OCC.Core  # noqa: F401  (availability decides the loft backend)
 
