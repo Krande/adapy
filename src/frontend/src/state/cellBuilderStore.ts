@@ -890,6 +890,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
         designRules: doc.design_rules ?? "standard",
+        // Reflect the engine this model was built for in the dropdown (a
+        // pm-engine example opens on pm-engine, not the adapy-default default).
+        selectedEngine: doc.engine || "adapy-default",
         past: [],
         future: [],
         txDepth: 0,

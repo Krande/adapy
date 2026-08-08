@@ -2022,12 +2022,17 @@ export const viewerApi = {
     // force=true recompiles even if the revision's GLB is cached — used when the
     // compiler engine changed but the document (the cache key) didn't.
     // lod=detail compiles the richer detail model into a separate cache key.
-    // engine selects the procedural engine (omit / adapy-default = built-in); a
-    // non-default engine's output caches under its own key.
+    // engine selects the procedural engine. Pass it whenever the caller made an
+    // explicit choice — INCLUDING "adapy-default": otherwise the server falls
+    // back to the model's stored engine, so picking adapy-default on a pm-engine
+    // model would silently still compile with pm-engine. Omit only when the
+    // caller passes null/undefined (e.g. auto-compile on instantiate, which
+    // should honour the model's stored engine). adapy-default shares the bare
+    // cache key with the no-engine case, so this is cache-safe.
     const params = new URLSearchParams();
     if (force) params.set("force", "true");
     if (lod === "detail") params.set("lod", "detail");
-    if (engine && engine !== "adapy-default") params.set("engine", engine);
+    if (engine) params.set("engine", engine);
     const qs = params.toString() ? `?${params.toString()}` : "";
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile${qs}`,
