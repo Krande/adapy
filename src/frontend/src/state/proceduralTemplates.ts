@@ -1,17 +1,14 @@
-// Built-in, client-side procedural start-from templates for the storage
-// "New model from template" dropdown. These run on the adapy-default engine
-// (the in-repo compiler, runnable server-side and in the browser via WASM) so
-// they always appear regardless of which workers are up. Worker-backed engines
-// (e.g. pm-engine) advertise THEIR templates through
-// GET /procedural-templates, which the dropdown appends to these.
-//
-// Each builder returns a FRESH document every call — the docs are committed
-// verbatim into a new model, so callers must never share a mutable instance.
-import type { ProceduralDoc, ProceduralTemplate } from "../services/viewerApi";
+// The steel-structure demo document used by the cellbuilder's "Load demo"
+// button (see cellBuilderStore.loadDemoTemplate) to populate the currently-open
+// model. The "New model from template" DROPDOWN no longer sources its templates
+// from here — those are advertised by live workers and fetched from
+// GET /procedural-templates (the base worker announces the same adapy-default
+// demos, defined in ada.topo_model.templates). This client-side copy exists only
+// so the Load-demo button can seed a model without a round-trip.
+import type { ProceduralDoc } from "../services/viewerApi";
 
-/** The reference steel-structure demo: a two-storey framed structure with a
- * fully-enclosed HVAC room, routed process/electrical/duct services and
- * two-ended site I/O. Also drives the cellbuilder's "Load demo" button. */
+/** Returns a FRESH document every call — it is committed/applied into a model,
+ * so callers must never share a mutable instance. */
 export function steelStructureDemoDoc(): ProceduralDoc {
   return {
     grid: {},
@@ -134,72 +131,3 @@ export function steelStructureDemoDoc(): ProceduralDoc {
     openings: [],
   };
 }
-
-/** A combined topside-on-jacket: a framed steel topside deck (SteelStru box
- * cells + equipment + a cooling-water run) sitting atop an open tubular jacket
- * truss (a REPRESENTATION="JACKET" loft member tapering seabed→deck). Both are
- * built in one ProceduralBuilder pass — the structural blueprint frames the
- * deck cells while the loft path emits the jacket legs/ring/braces. */
-export function topsideJacketDoc(): ProceduralDoc {
-  return {
-    grid: {},
-    blueprint: {},
-    design_rules: "standard",
-    // Topside: two deck cells over a 24×24 footprint (X/Y −12..12), matching the
-    // jacket's top, split into a two-storey deck (z 100..108).
-    spaces: [
-      { NAME: "DeckA", INCLUDE: true, X: -12, Y: -12, Z: 100, DX: 12, DY: 24, DZ: 4 },
-      { NAME: "DeckB", INCLUDE: true, X: 0, Y: -12, Z: 100, DX: 12, DY: 24, DZ: 4 },
-      { NAME: "DeckA2", INCLUDE: true, X: -12, Y: -12, Z: 104, DX: 12, DY: 24, DZ: 4 },
-      { NAME: "DeckB2", INCLUDE: true, X: 0, Y: -12, Z: 104, DX: 12, DY: 24, DZ: 4 },
-    ],
-    equipments: [
-      { NAME: "Pump", DESCRIPTION: "pump", X: -6, Y: -1, Z: 100, LX: 1, LY: 1, LZ: 1 },
-      { NAME: "Tank", DESCRIPTION: "tank", X: 3, Y: -1, Z: 100, LX: 2, LY: 2, LZ: 2 },
-    ],
-    systems: [
-      {
-        NAME: "CoolingWater",
-        TYPE: "piping",
-        MEDIUM: "water",
-        CONNECTIONS: [
-          { EQUIPMENT: "Pump", PORT: "discharge" },
-          { EQUIPMENT: "Tank", PORT: "inlet" },
-        ],
-      },
-    ],
-    openings: [],
-    // Jacket substructure: a rectangular loft tapering from a 40×40 seabed base
-    // to the 24×24 deck footprint, rendered as an open tubular truss.
-    loft_members: [
-      {
-        NAME: "Jacket",
-        INCLUDE: true,
-        REPRESENTATION: "JACKET",
-        STATIONS: [
-          { TYPE: "rectangle", X: 0, Y: 0, Z: 0, WIDTH: 40, HEIGHT: 40, SEGMENTS: 4 },
-          { TYPE: "rectangle", X: 0, Y: 0, Z: 20, WIDTH: 40, HEIGHT: 40, SEGMENTS: 4 },
-          { TYPE: "rectangle", X: 0, Y: 0, Z: 60, WIDTH: 31, HEIGHT: 31, SEGMENTS: 4 },
-          { TYPE: "rectangle", X: 0, Y: 0, Z: 100, WIDTH: 24, HEIGHT: 24, SEGMENTS: 4 },
-        ],
-      },
-    ],
-  };
-}
-
-/** Client-side built-in templates, prepended to the server-advertised
- * (worker-backed) ones. Each carries an inline doc committed verbatim. */
-export const BUILTIN_PROCEDURAL_TEMPLATES: ProceduralTemplate[] = [
-  {
-    id: "builtin:steel-demo",
-    name: "Steel structure demo",
-    engine: "adapy-default",
-    doc: steelStructureDemoDoc(),
-  },
-  {
-    id: "builtin:topside-jacket",
-    name: "Topside + jacket",
-    engine: "adapy-default",
-    doc: topsideJacketDoc(),
-  },
-];

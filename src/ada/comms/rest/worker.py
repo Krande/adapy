@@ -2758,6 +2758,18 @@ async def _run() -> None:
     except Exception:
         logger.exception("worker: failed to list procedural design rulesets (non-fatal)")
         procedural_design_rulesets = []
+    # Start-from templates this worker can build, announced so the viewer's
+    # "New model from template" dropdown is the union of live workers' demos.
+    # The base image carries the adapy-default templates; a capability worker's
+    # ADA_WORKER_PRELOAD module registers its own into the same registry before
+    # this read (import side-effect), so they ride along here.
+    try:
+        from ada.topo_model import procedural_template_specs
+
+        procedural_templates = procedural_template_specs()
+    except Exception:
+        logger.exception("worker: failed to list procedural templates (non-fatal)")
+        procedural_templates = []
 
     async def _publish_registration() -> None:
         try:
@@ -2774,6 +2786,7 @@ async def _run() -> None:
                     "procedural_system_types": procedural_system_types,
                     "procedural_system_specs": procedural_system_specs,
                     "procedural_design_rulesets": procedural_design_rulesets,
+                    "procedural_template_specs": procedural_templates,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },

@@ -39,7 +39,6 @@ import InlineNameInput from "@/components/common/InlineNameInput";
 import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu";
 import FolderPickerModal from "@/components/common/FolderPickerModal";
 import {viewerApi, type ProceduralModelSummary, type ProceduralTemplate} from "@/services/viewerApi";
-import {BUILTIN_PROCEDURAL_TEMPLATES} from "@/state/proceduralTemplates";
 import ProceduralModelIcon from "../icons/ProceduralModelIcon";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useStorageMutations} from "./useStorageMutations";
@@ -334,25 +333,23 @@ const StorageBrowser: React.FC = () => {
         void refreshProceduralModels();
     }, [refreshProceduralModels]);
 
-    // Start-from templates for the "New model from template" dropdown: the
-    // always-present client-side adapy-default built-ins, plus whatever the
-    // server advertises for the scope (worker-backed engines gated on a live
-    // worker — so pm-engine templates appear only while a pm-engine worker is
-    // up). Refetched on scope change.
-    const [serverTemplates, setServerTemplates] = useState<ProceduralTemplate[]>([]);
+    // Start-from templates for the "New model from template" dropdown — the
+    // union of the demo templates advertised by every currently-live worker
+    // (base worker → adapy-default; pm-engine worker → its loft demos, etc.).
+    // Refetched on scope change; empty when no workers are up.
+    const [allTemplates, setAllTemplates] = useState<ProceduralTemplate[]>([]);
     const [templatesOpen, setTemplatesOpen] = useState(false);
     const templatesBtnRef = useRef<HTMLButtonElement | null>(null);
     const refreshTemplates = React.useCallback(async () => {
         try {
-            setServerTemplates(await viewerApi.listProceduralTemplates(scopeKey));
+            setAllTemplates(await viewerApi.listProceduralTemplates(scopeKey));
         } catch {
-            setServerTemplates([]);
+            setAllTemplates([]);
         }
     }, [scopeKey]);
     useEffect(() => {
         void refreshTemplates();
     }, [refreshTemplates]);
-    const allTemplates: ProceduralTemplate[] = [...BUILTIN_PROCEDURAL_TEMPLATES, ...serverTemplates];
 
     const openProceduralModel = async (m: ProceduralModelSummary) => {
         try {
@@ -387,14 +384,8 @@ const StorageBrowser: React.FC = () => {
         const name = window.prompt("Name for the new procedural model:", tpl.name);
         if (!name || !name.trim()) return;
         try {
-            const doc =
-                tpl.doc ?? (tpl.model_id ? (await viewerApi.getProceduralModel(scopeKey, tpl.model_id)).doc : null);
-            if (!doc) {
-                window.alert("This template has no document to instantiate.");
-                return;
-            }
             const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
-            const {revision} = await viewerApi.commitProceduralModel(scopeKey, detail.id, doc, detail.revision);
+            const {revision} = await viewerApi.commitProceduralModel(scopeKey, detail.id, tpl.doc, detail.revision);
             // Compile so the model has a rendered GLB immediately; ignore compile
             // errors here (the model still opens and can be recompiled).
             try {

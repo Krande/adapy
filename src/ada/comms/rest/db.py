@@ -3042,35 +3042,6 @@ async def list_procedural_models(pool: asyncpg.Pool, *, scope_kind: str, scope_i
     return [_procedural_row_summary(r) for r in rows]
 
 
-# Author identity stamped on the curated example models seeded by the
-# parametric-models CI (``pm-ci``). These are the models surfaced as
-# start-from templates in the viewer — a user's own models keep their real
-# auth ``sub`` and are never advertised as templates.
-TEMPLATE_AUTHOR = "pm-ci"
-
-
-async def list_procedural_templates(pool: asyncpg.Pool, *, scope_kind: str, scope_id: str | None) -> list[dict]:
-    """The seeded, curated example models in a scope — the start-from templates.
-
-    Identified by :data:`TEMPLATE_AUTHOR` (the CI seeding identity) so a user's
-    own working models never leak into the template list. Engine gating (only
-    advertise an engine's templates when a live worker for it exists) is the
-    caller's job — this returns every seeded example regardless of engine."""
-    rows = await pool.fetch(
-        """
-        SELECT id, name, revision, engine, schema_version, created_by, created_at, updated_at
-        FROM procedural_models
-        WHERE scope_kind = $1 AND COALESCE(scope_id, '') = COALESCE($2, '')
-          AND NOT archived AND created_by = $3
-        ORDER BY name ASC
-        """,
-        scope_kind,
-        scope_id,
-        TEMPLATE_AUTHOR,
-    )
-    return [_procedural_row_summary(r) for r in rows]
-
-
 async def get_procedural_model(pool: asyncpg.Pool, model_id: str) -> dict | None:
     row = await pool.fetchrow(
         """

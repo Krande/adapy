@@ -1044,22 +1044,20 @@ export interface ProceduralModelDetail extends ProceduralModelSummary {
   doc: ProceduralDoc;
 }
 
-/** A start-from template for the "New model from template" menu. Built-in
- * adapy-default templates are defined client-side; worker-backed ones (e.g.
- * pm-engine) are advertised by this endpoint only while a live worker for
- * their engine is up. Instantiation clones the referenced model's doc. */
+/** A start-from template for the "New model from template" menu. The list is
+ * the union of the demo templates advertised by every currently-live worker
+ * (base worker → adapy-default; capability workers → their own), so a template
+ * shows exactly while a worker that can build it is up. Instantiation commits
+ * `doc` verbatim (for a non-default engine, a thin routing document the engine
+ * expands at compile time). */
 export interface ProceduralTemplate {
-  /** Stable identity; equals ``model_id`` for server (worker) templates. */
+  /** Stable identity (the template slug). */
   id: string;
   name: string;
   /** Engine slug shown in parentheses in the menu, e.g. "pm-engine". */
   engine: string;
-  revision?: number;
-  /** Present for server templates — the model whose doc is cloned. Absent for
-   * client-side built-ins, which carry an inline ``doc`` instead. */
-  model_id?: string;
-  /** Inline document for client-side built-in templates. */
-  doc?: ProceduralDoc;
+  /** The document committed verbatim when the user picks this template. */
+  doc: ProceduralDoc;
 }
 
 /** Entity dumps follow ada.topology.entities (TopoSpace / TopoEquipment). */

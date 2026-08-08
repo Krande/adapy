@@ -30,6 +30,7 @@ from .penetration import (
     standard_penetration_modeller,
 )
 from .relocate import propose_relocations, run_self_collides
+from .templates import procedural_template_specs, register_procedural_template
 
 __all__ = [
     "DEFAULT_DESIGN_RULESET",
@@ -51,7 +52,9 @@ __all__ = [
     "create_tank",
     "design_ruleset_specs",
     "make_space_boxes",
+    "procedural_template_specs",
     "propose_relocations",
+    "register_procedural_template",
     "resolve_design_rules",
     "run_self_collides",
     "standard_design_rules",
