@@ -95,6 +95,16 @@ def test_validate_doc_rejects_bad_input():
         validate_doc({"spaces": "nope"})
 
 
+def test_validate_doc_roundtrips_instance_metadata():
+    # User-defined extended metadata on a topology instance survives commit
+    # (so the DB holds it), untouched — the compiler ignores it.
+    meta = {"owner": "ka", "criticality": 3, "tags": ["load-bearing"]}
+    out = validate_doc(
+        {"spaces": [{"NAME": "C1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3, "METADATA": meta}]}
+    )
+    assert out["spaces"][0]["METADATA"] == meta
+
+
 # ── no-DB API path ───────────────────────────────────────────────────
 
 

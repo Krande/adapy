@@ -209,6 +209,34 @@ class JsonListCodec:
         return parsed
 
 
+class JsonDictCodec:
+    """A dict field stored as a compact JSON object in one cell — for open,
+    user-defined metadata maps (``dict[str, ...]``). Reconstructs a real ``dict``
+    before validation, so a field's own validators receive a dict, not a string.
+    An empty dict serialises to a blank cell."""
+
+    name = "jsondict"
+
+    def matches(self, core: Any) -> bool:
+        return get_origin(core) in (dict, typing.Dict)
+
+    def to_cell(self, value: Any) -> Any:
+        if not value:
+            return None
+        return json.dumps(value, separators=(",", ":"), default=_json_default)
+
+    def from_cell(self, raw: Any, core: Any) -> Any:
+        if _is_blank(raw):
+            return None
+        if isinstance(raw, dict):
+            return raw
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return raw
+        return parsed
+
+
 def _json_default(obj: Any) -> Any:
     dump = getattr(obj, "model_dump", None)
     if callable(dump):
@@ -257,4 +285,4 @@ class CodecRegistry:
 def default_registry() -> CodecRegistry:
     """The built-in codecs, in resolution order (bool/enum before scalar so they
     win their types; json-list for scalar lists)."""
-    return CodecRegistry([BoolCodec(), EnumCodec(), JsonListCodec(), ScalarCodec()])
+    return CodecRegistry([BoolCodec(), EnumCodec(), JsonListCodec(), JsonDictCodec(), ScalarCodec()])

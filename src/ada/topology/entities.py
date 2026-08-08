@@ -61,6 +61,20 @@ class _TopoConfigBoundModel(BaseModel):
     HIDE_IN_EXCEL: ClassVar[list[str]] = []
     ORIENTATION: ClassVar[str] = "HORIZONTAL"
 
+    METADATA: Annotated[
+        dict[str, Any],
+        Field(
+            default_factory=dict,
+            description=(
+                "Open, user-defined extended metadata for this topology instance — an "
+                "arbitrary JSON object. Round-trips through the procedural document (and "
+                "thus the DB) untouched by the compiler; it is not part of the geometry, "
+                "so viewers/integrations can attach their own config to any cell, "
+                "equipment, opening or loft member. Serialised as one JSON cell in Excel."
+            ),
+        ),
+    ]
+
     @property
     def parent_config(self) -> Optional[Any]:
         return self._PARENT_CONFIG
