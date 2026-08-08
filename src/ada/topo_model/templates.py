@@ -40,6 +40,44 @@ def procedural_template_specs() -> list[dict]:
     ]
 
 
+def _eq(
+    name: str,
+    description: str,
+    x: float,
+    y: float,
+    z: float,
+    lx: float,
+    ly: float,
+    lz: float,
+    space: str,
+    loc: str = "FLOOR",
+    mass_dry: float = 1000.0,
+    mass_cont: float = 0.0,
+) -> dict:
+    """A full TopoEquipment dict. The template doc is committed verbatim (not
+    through the cellbuilder store, which would otherwise enrich a bare
+    placement), so it must carry the fields TopoEquipment requires — SPACE_NAME,
+    SPACE_LOC, COG and mass — up front. The catalog/archetype still supplies the
+    render geometry from DESCRIPTION at compile time."""
+    return {
+        "NAME": name,
+        "DESCRIPTION": description,
+        "X": x,
+        "Y": y,
+        "Z": z,
+        "LX": lx,
+        "LY": ly,
+        "LZ": lz,
+        "SPACE_NAME": space,
+        "SPACE_LOC": loc,
+        "COGx": 0.0,
+        "COGy": 0.0,
+        "COGz": 0.0,
+        "massDry": mass_dry,
+        "massCont": mass_cont,
+    }
+
+
 def _steel_structure_demo_doc() -> dict:
     """A two-storey framed structure with a fully-enclosed HVAC room, routed
     process/electrical/duct services and two-ended site I/O."""
@@ -54,14 +92,14 @@ def _steel_structure_demo_doc() -> dict:
             {"NAME": "Cell4", "INCLUDE": True, "X": 5, "Y": 0, "Z": 3, "DX": 5, "DY": 5, "DZ": 3},
         ],
         "equipments": [
-            {"NAME": "Pump2", "DESCRIPTION": "pump", "X": 2, "Y": 2, "Z": 0, "LX": 1, "LY": 1, "LZ": 1},
-            {"NAME": "Tank2", "DESCRIPTION": "tank", "X": 6.5, "Y": 1.5, "Z": 0, "LX": 2, "LY": 2, "LZ": 2},
-            {"NAME": "SB2", "DESCRIPTION": "switchboard", "X": 0.3, "Y": 2, "Z": 0, "LX": 0.8, "LY": 0.4, "LZ": 1.2},
-            {"NAME": "Pump1", "DESCRIPTION": "pump", "X": 2, "Y": 2, "Z": 3, "LX": 1, "LY": 1, "LZ": 1},
-            {"NAME": "Tank1", "DESCRIPTION": "tank", "X": 6.5, "Y": 1.5, "Z": 3, "LX": 2, "LY": 2, "LZ": 2},
-            {"NAME": "SB1", "DESCRIPTION": "switchboard", "X": 0.3, "Y": 2, "Z": 3, "LX": 0.8, "LY": 0.4, "LZ": 1.2},
-            {"NAME": "HVAC1", "DESCRIPTION": "hvac", "X": 3, "Y": 3.5, "Z": 3, "LX": 1.5, "LY": 1, "LZ": 1.2},
-            {"NAME": "Exhaust1", "DESCRIPTION": "exhaust_fan", "X": 3, "Y": 3.5, "Z": 6, "LX": 0.8, "LY": 0.8, "LZ": 0.6},
+            _eq("Pump2", "pump", 2, 2, 0, 1, 1, 1, "Cell1"),
+            _eq("Tank2", "tank", 6.5, 1.5, 0, 2, 2, 2, "Cell2", mass_dry=2000, mass_cont=3000),
+            _eq("SB2", "switchboard", 0.3, 2, 0, 0.8, 0.4, 1.2, "Cell1", mass_dry=500),
+            _eq("Pump1", "pump", 2, 2, 3, 1, 1, 1, "Cell3"),
+            _eq("Tank1", "tank", 6.5, 1.5, 3, 2, 2, 2, "Cell4", mass_dry=2000, mass_cont=3000),
+            _eq("SB1", "switchboard", 0.3, 2, 3, 0.8, 0.4, 1.2, "Cell3", mass_dry=500),
+            _eq("HVAC1", "hvac", 3, 3.5, 3, 1.5, 1, 1.2, "Cell3", mass_dry=800),
+            _eq("Exhaust1", "exhaust_fan", 3, 3.5, 6, 0.8, 0.8, 0.6, "Cell3", loc="ROOF", mass_dry=300),
         ],
         "systems": [
             {"NAME": "CoolingWater", "TYPE": "piping", "MEDIUM": "water",
@@ -107,8 +145,8 @@ def _topside_jacket_doc() -> dict:
             {"NAME": "DeckB2", "INCLUDE": True, "X": 0, "Y": -12, "Z": 104, "DX": 12, "DY": 24, "DZ": 4},
         ],
         "equipments": [
-            {"NAME": "Pump", "DESCRIPTION": "pump", "X": -6, "Y": -1, "Z": 100, "LX": 1, "LY": 1, "LZ": 1},
-            {"NAME": "Tank", "DESCRIPTION": "tank", "X": 3, "Y": -1, "Z": 100, "LX": 2, "LY": 2, "LZ": 2},
+            _eq("Pump", "pump", -6, -1, 100, 1, 1, 1, "DeckA"),
+            _eq("Tank", "tank", 3, -1, 100, 2, 2, 2, "DeckB", mass_dry=2000, mass_cont=3000),
         ],
         "systems": [
             {"NAME": "CoolingWater", "TYPE": "piping", "MEDIUM": "water",

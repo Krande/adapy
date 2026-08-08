@@ -855,6 +855,11 @@ const StorageBrowser: React.FC = () => {
         setBulkBusy("clear");
         try {
             await clear_loaded_model();
+            // Also close any open procedural model — its cellbuilder proxies /
+            // compiled result are part of "what's in the scene", so Clear should
+            // tear that down too (and hide the cellbuilder panel).
+            const cb = useCellBuilderStore.getState();
+            if (cb.active) cb.close();
         } catch (err) {
             console.error("clear scene failed", err);
         } finally {
@@ -1315,7 +1320,7 @@ const StorageBrowser: React.FC = () => {
                         user picks the files they want via per-row
                         checkboxes; loading every file at once would
                         rarely be the right thing. */}
-                    {anyLoaded && (
+                    {(anyLoaded || activeProcedural) && (
                         <button
                             type="button"
                             className={
@@ -1325,7 +1330,7 @@ const StorageBrowser: React.FC = () => {
                             }
                             onClick={() => void onHideAll()}
                             disabled={bulkBusy !== null}
-                            title="Unload every model currently in the scene"
+                            title="Unload every model in the scene, and close any open procedural model"
                             aria-label="Clear scene"
                             aria-busy={bulkBusy === "clear"}
                         >
