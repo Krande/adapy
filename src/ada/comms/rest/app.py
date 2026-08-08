@@ -2600,6 +2600,68 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             out.append(m)
         return JSONResponse({"models": out})
 
+    @api.get("/scopes/{scope}/procedural-templates")
+    async def api_procedural_templates(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Start-from templates for the scope's ``New model from template`` menu.
+
+        The list is the curated seeded example models (``created_by = pm-ci``),
+        each tagged with the engine that authored it. An engine's templates are
+        advertised only when that engine is registered in the scope AND a live
+        worker for its capability is currently up — so the pm-engine templates
+        appear exactly when a pm-engine worker is available and vanish when it's
+        not (the ``adapy-default`` built-ins live client-side and always show).
+        Instantiation clones the referenced model's doc, so only lightweight
+        metadata (``model_id``) travels here."""
+        import time as _time
+
+        pool = _require_procedural_pool(request)
+        rows = await db_module.list_procedural_templates(
+            pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id
+        )
+
+        # Capabilities advertised by workers whose heartbeat is still fresh.
+        live_caps: set[str] = set()
+        if queue.enabled:
+            now = _time.time()
+            for w in await queue.list_workers():
+                hb = w.get("last_heartbeat")
+                if not (isinstance(hb, (int, float)) and (now - hb) <= queue.WORKER_STALE_AFTER_S):
+                    continue
+                for c in w.get("capabilities") or []:
+                    if isinstance(c, str) and c.strip():
+                        live_caps.add(c.strip().lower())
+
+        # Registered engines in the scope → their required worker capability.
+        engines = await db_module.list_procedural_engines(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+        cap_by_slug: dict[str, str | None] = {}
+        for e in engines:
+            eng = await db_module.get_procedural_engine(pool, e["id"])
+            cap_by_slug[e["slug"]] = (eng.get("doc") or {}).get("worker_capability") if eng else None
+
+        templates = []
+        for r in rows:
+            slug = (r.get("engine") or "adapy-default").strip()
+            if slug and slug != "adapy-default":
+                # A worker-backed engine: gate on it being registered AND live.
+                if slug not in cap_by_slug:
+                    continue
+                cap = (cap_by_slug[slug] or slug).strip().lower()
+                if cap not in live_caps:
+                    continue
+            templates.append(
+                {
+                    "id": r["id"],
+                    "model_id": r["id"],
+                    "name": r["name"],
+                    "engine": slug,
+                    "revision": r["revision"],
+                }
+            )
+        return JSONResponse({"templates": templates})
+
     @api.post("/scopes/{scope}/procedural-models", status_code=201)
     async def api_procedural_create(
         request: Request,

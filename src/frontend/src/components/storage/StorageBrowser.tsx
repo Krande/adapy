@@ -38,7 +38,8 @@ import {RowKebabMenu} from "@/components/common/RowKebabMenu";
 import InlineNameInput from "@/components/common/InlineNameInput";
 import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu";
 import FolderPickerModal from "@/components/common/FolderPickerModal";
-import {viewerApi, type ProceduralModelSummary} from "@/services/viewerApi";
+import {viewerApi, type ProceduralModelSummary, type ProceduralTemplate} from "@/services/viewerApi";
+import {BUILTIN_PROCEDURAL_TEMPLATES} from "@/state/proceduralTemplates";
 import ProceduralModelIcon from "../icons/ProceduralModelIcon";
 import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useStorageMutations} from "./useStorageMutations";
@@ -333,6 +334,26 @@ const StorageBrowser: React.FC = () => {
         void refreshProceduralModels();
     }, [refreshProceduralModels]);
 
+    // Start-from templates for the "New model from template" dropdown: the
+    // always-present client-side adapy-default built-ins, plus whatever the
+    // server advertises for the scope (worker-backed engines gated on a live
+    // worker — so pm-engine templates appear only while a pm-engine worker is
+    // up). Refetched on scope change.
+    const [serverTemplates, setServerTemplates] = useState<ProceduralTemplate[]>([]);
+    const [templatesOpen, setTemplatesOpen] = useState(false);
+    const templatesBtnRef = useRef<HTMLButtonElement | null>(null);
+    const refreshTemplates = React.useCallback(async () => {
+        try {
+            setServerTemplates(await viewerApi.listProceduralTemplates(scopeKey));
+        } catch {
+            setServerTemplates([]);
+        }
+    }, [scopeKey]);
+    useEffect(() => {
+        void refreshTemplates();
+    }, [refreshTemplates]);
+    const allTemplates: ProceduralTemplate[] = [...BUILTIN_PROCEDURAL_TEMPLATES, ...serverTemplates];
+
     const openProceduralModel = async (m: ProceduralModelSummary) => {
         try {
             const detail = await viewerApi.getProceduralModel(scopeKey, m.id);
@@ -342,23 +363,52 @@ const StorageBrowser: React.FC = () => {
         }
     };
 
-    const createProceduralModel = async (opts?: {demo?: boolean}) => {
-        const suggested = opts?.demo ? "Demo" : "";
-        const name = window.prompt("Name for the new procedural model:", suggested);
+    const createProceduralModel = async () => {
+        const name = window.prompt("Name for the new procedural model:", "");
         if (!name || !name.trim()) return;
         try {
             const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
             const store = useCellBuilderStore.getState();
             store.open(detail.id, detail.name, detail.revision, detail.doc);
-            if (opts?.demo) {
-                // Populate + commit the demo layout so the model compiles to the
-                // full demo (structure + equipment + routed systems) right away.
-                store.loadDemoTemplate();
-                void store.commit();
-            }
             void refreshProceduralModels();
         } catch (e) {
             window.alert(`Failed to create procedural model: ${e instanceof Error ? e.message : e}`);
+        }
+    };
+
+    // Instantiate a new model from a template: commit the template's document
+    // verbatim (so loft members / systems survive untouched — the cellbuilder's
+    // box round-trip would drop them), then kick a compile and open it. The
+    // committed doc's engine is mirrored onto the model, so a worker-backed
+    // (e.g. pm-engine) template auto-routes its compile to that worker.
+    const createProceduralModelFromTemplate = async (tpl: ProceduralTemplate) => {
+        setTemplatesOpen(false);
+        setPlusOpen(false);
+        const name = window.prompt("Name for the new procedural model:", tpl.name);
+        if (!name || !name.trim()) return;
+        try {
+            const doc =
+                tpl.doc ?? (tpl.model_id ? (await viewerApi.getProceduralModel(scopeKey, tpl.model_id)).doc : null);
+            if (!doc) {
+                window.alert("This template has no document to instantiate.");
+                return;
+            }
+            const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
+            const {revision} = await viewerApi.commitProceduralModel(scopeKey, detail.id, doc, detail.revision);
+            // Compile so the model has a rendered GLB immediately; ignore compile
+            // errors here (the model still opens and can be recompiled).
+            try {
+                await viewerApi.compileProceduralModel(scopeKey, detail.id);
+            } catch {
+                /* compile is best-effort on create */
+            }
+            const fresh = await viewerApi.getProceduralModel(scopeKey, detail.id);
+            useCellBuilderStore
+                .getState()
+                .open(fresh.id, fresh.name, revision, fresh.doc);
+            void refreshProceduralModels();
+        } catch (e) {
+            window.alert(`Failed to create from template: ${e instanceof Error ? e.message : e}`);
         }
     };
 
@@ -1205,13 +1255,42 @@ const StorageBrowser: React.FC = () => {
                                     onClick: () => void createProceduralModel(),
                                 },
                                 {
-                                    key: "new-demo-procedural",
-                                    label: "New demo model…",
-                                    onClick: () => void createProceduralModel({demo: true}),
+                                    key: "new-from-template",
+                                    label: "New model from template ▸",
+                                    // Swap the + menu for the template list,
+                                    // anchored off the same + button.
+                                    onClick: () => {
+                                        setPlusOpen(false);
+                                        setTemplatesOpen(true);
+                                    },
                                 },
                             ]}
                             onClose={() => setPlusOpen(false)}
                             ignoreOutsideRef={plusBtnRef}
+                            anchor={{
+                                kind: "rect",
+                                getRect: () => plusBtnRef.current?.getBoundingClientRect(),
+                            }}
+                        />
+                    )}
+                    {templatesOpen && (
+                        <PositionedMenu
+                            header={
+                                <span className="text-[11px] uppercase tracking-wide opacity-60">
+                                    Start from template
+                                </span>
+                            }
+                            items={allTemplates.map(
+                                (tpl): KebabMenuItem => ({
+                                    key: tpl.id,
+                                    // Engine in parentheses, per request — e.g.
+                                    // "Topside + jacket (adapy-default)".
+                                    label: `${tpl.name} (${tpl.engine})`,
+                                    onClick: () => void createProceduralModelFromTemplate(tpl),
+                                }),
+                            )}
+                            onClose={() => setTemplatesOpen(false)}
+                            ignoreOutsideRef={templatesBtnRef}
                             anchor={{
                                 kind: "rect",
                                 getRect: () => plusBtnRef.current?.getBoundingClientRect(),

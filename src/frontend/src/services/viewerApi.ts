@@ -1044,6 +1044,24 @@ export interface ProceduralModelDetail extends ProceduralModelSummary {
   doc: ProceduralDoc;
 }
 
+/** A start-from template for the "New model from template" menu. Built-in
+ * adapy-default templates are defined client-side; worker-backed ones (e.g.
+ * pm-engine) are advertised by this endpoint only while a live worker for
+ * their engine is up. Instantiation clones the referenced model's doc. */
+export interface ProceduralTemplate {
+  /** Stable identity; equals ``model_id`` for server (worker) templates. */
+  id: string;
+  name: string;
+  /** Engine slug shown in parentheses in the menu, e.g. "pm-engine". */
+  engine: string;
+  revision?: number;
+  /** Present for server templates — the model whose doc is cloned. Absent for
+   * client-side built-ins, which carry an inline ``doc`` instead. */
+  model_id?: string;
+  /** Inline document for client-side built-in templates. */
+  doc?: ProceduralDoc;
+}
+
 /** Entity dumps follow ada.topology.entities (TopoSpace / TopoEquipment). */
 export interface ProceduralDoc {
   grid?: Record<string, unknown>;
@@ -1056,6 +1074,10 @@ export interface ProceduralDoc {
   /** When true, catalog equipment with a linked CAD asset render as real CAD
    * geometry (spliced at compile) instead of a box. */
   equipment_cad?: boolean;
+  /** Procedural engine slug that authored/compiles this doc; mirrored to the
+   * model's engine column on commit so a cloned template routes to the right
+   * worker. Absent / "adapy-default" = the built-in engine. */
+  engine?: string;
   spaces: Record<string, unknown>[];
   equipments: Record<string, unknown>[];
   openings?: Record<string, unknown>[];
@@ -1907,6 +1929,22 @@ export const viewerApi = {
       `listProceduralModels(${scope})`,
     );
     return body.models;
+  },
+
+  /** Server-advertised start-from templates: the scope's seeded example models,
+   * with worker-backed engines gated on a live worker. The adapy-default
+   * built-ins are added client-side; this list is appended to them. */
+  async listProceduralTemplates(
+    scope: ScopeUrl,
+  ): Promise<ProceduralTemplate[]> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-templates`,
+    );
+    const body = await jsonOrThrow<{ templates: ProceduralTemplate[] }>(
+      r,
+      `listProceduralTemplates(${scope})`,
+    );
+    return body.templates;
   },
 
   async createProceduralModel(

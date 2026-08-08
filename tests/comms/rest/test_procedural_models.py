@@ -109,6 +109,7 @@ def test_endpoints_503_without_db(app_client: TestClient):
     assert app_client.get("/api/scopes/shared/procedural-models").status_code == 503
     assert app_client.post("/api/scopes/shared/procedural-models", json={"name": "m"}).status_code == 503
     assert app_client.get("/api/scopes/shared/procedural-models/x").status_code == 503
+    assert app_client.get("/api/scopes/shared/procedural-templates").status_code == 503
 
 
 def test_equipment_types_empty_without_queue(app_client: TestClient):
@@ -226,5 +227,48 @@ async def test_db_helpers_direct():
         assert await dbm.archive_procedural_model(pool, model_id) is False
         assert await dbm.get_procedural_model(pool, model_id) is None
         await dbm.archive_procedural_model(pool, row2["id"])
+    finally:
+        await pool.close()
+
+
+@needs_postgres
+def test_templates_excludes_user_authored_models(pg_client: TestClient):
+    """A user's own model must never be advertised as a start-from template —
+    only the CI-seeded curated examples (created_by = pm-ci) are."""
+    r = pg_client.post("/api/scopes/shared/procedural-models", json={"name": "not-a-template"})
+    assert r.status_code == 201, r.text
+    model_id = r.json()["id"]
+    try:
+        r = pg_client.get("/api/scopes/shared/procedural-templates")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert isinstance(body.get("templates"), list)
+        assert model_id not in {t["id"] for t in body["templates"]}
+    finally:
+        pg_client.delete(f"/api/scopes/shared/procedural-models/{model_id}")
+
+
+@needs_postgres
+@pytest.mark.asyncio
+async def test_list_procedural_templates_selects_seeded_examples():
+    """``list_procedural_templates`` returns exactly the models stamped with the
+    CI seeding identity, regardless of engine."""
+    pool = await dbm.init_pool(POSTGRES_URL)
+    assert pool is not None
+    try:
+        seeded = await dbm.create_procedural_model(
+            pool, scope_kind="user", scope_id="tpl-sub", name="seeded-example", created_by=dbm.TEMPLATE_AUTHOR
+        )
+        mine = await dbm.create_procedural_model(
+            pool, scope_kind="user", scope_id="tpl-sub", name="my-model", created_by="tpl-sub"
+        )
+        try:
+            rows = await dbm.list_procedural_templates(pool, scope_kind="user", scope_id="tpl-sub")
+            ids = {r["id"] for r in rows}
+            assert seeded["id"] in ids
+            assert mine["id"] not in ids
+        finally:
+            await dbm.archive_procedural_model(pool, seeded["id"])
+            await dbm.archive_procedural_model(pool, mine["id"])
     finally:
         await pool.close()
