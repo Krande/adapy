@@ -6,6 +6,7 @@ import SectionPlanesController from "./SectionPlanesController";
 import FemConceptsController from "./FemConceptsController";
 import CellBuilderController from "./CellBuilderController";
 import TypeIconController from "./TypeIconController";
+import ProceduralFollowerController from "./ProceduralFollowerController";
 import GalleryControls from "./GalleryControls";
 
 const CanvasWrapper: React.FC = () => {
@@ -28,6 +29,9 @@ const CanvasWrapper: React.FC = () => {
       <CellBuilderController />
       {/* Headless: Factorio-style type-icon overlay (equipment / media / missing inputs). */}
       <TypeIconController />
+      {/* Cross-tab: when opened with ?pfollow=<modelId>, live-loads that model's
+          compiled results as the editing tab produces them. Inert otherwise. */}
+      <ProceduralFollowerController />
     </div>
   );
 };

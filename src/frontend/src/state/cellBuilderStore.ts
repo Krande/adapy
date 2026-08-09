@@ -16,6 +16,7 @@ import {
 } from "@/state/conversionStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
+import { postPreviewReady } from "@/utils/cellbuilder/proceduralChannel";
 import {
   bandBounds,
   insertStation,
@@ -856,6 +857,19 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       progress: 0,
       startedAt: Date.now(),
     });
+    // Announce a ready server build to any follower tab (BroadcastChannel), so a
+    // second window opened with ?pfollow=<modelId> can load and show it live.
+    const broadcast = (derivedKey: string) => {
+      const active = get().active;
+      if (!active || !derivedKey) return;
+      postPreviewReady({
+        modelId: active.modelId,
+        scope: currentScopePart(),
+        derivedKey,
+        lod,
+        name: active.name,
+      });
+    };
     // Auto-show the result once ready when auto-compile is on, so
     // edit -> compile -> render is one gesture.
     const autoShow = () => {
@@ -898,6 +912,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           derivedKey: res.derived_key,
         });
         autoShow();
+        broadcast(res.derived_key);
         return;
       }
       set({
@@ -924,6 +939,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
               derivedKey: st.derived_key || cur.derivedKey || "",
             });
             autoShow();
+            broadcast(st.derived_key || cur.derivedKey || "");
             return;
           }
           if (st.status === "error") {

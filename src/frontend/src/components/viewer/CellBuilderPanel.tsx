@@ -8,6 +8,8 @@ import {
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
 import { useTypeIconsStore } from "@/state/typeIconsStore";
 import { useTreeViewStore } from "@/state/treeViewStore";
+import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
+import { followerUrl } from "@/utils/cellbuilder/proceduralChannel";
 import {
   highlightSystems,
   revertSystemHighlight,
@@ -994,6 +996,21 @@ const CellBuilderPanel: React.FC = () => {
             />
             Side-by-side (result beside topology)
           </label>
+          <button
+            className={btnGray + " self-start"}
+            onClick={() => {
+              const scope = useScopeStore.getState().current;
+              const scopePart = scope ? scopeUrlPart(scope) : "user:me";
+              window.open(
+                followerUrl(s.active!.modelId, scopePart),
+                "_blank",
+                "noopener",
+              );
+            }}
+            title="Open a second window that shows this model's compiled result and updates live as you edit here (⇧↵ recompiles a preview). Best across two screens."
+          >
+            Open result in new window
+          </button>
 
           <Section title="Overlays">
             <IconOverlaySection />
