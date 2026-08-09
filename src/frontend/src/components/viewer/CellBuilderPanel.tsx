@@ -558,9 +558,19 @@ const CellBuilderPanel: React.FC = () => {
   // flick down dismisses it. Only the phone layout is a sheet (the handle is
   // sm:hidden), so the drag height is applied only under the sm breakpoint.
   const panelRef = React.useRef<HTMLDivElement>(null);
-  const [sheetVh, setSheetVh] = React.useState<number | null>(null);
+  // Sheet height is stored in PIXELS (not vh). The drag math works in the
+  // visible viewport (window.innerHeight), whereas CSS `vh` on mobile refers to
+  // the *large* viewport (browser toolbar retracted) — mixing the two let the
+  // sheet grow taller than the visible area and push its grab handle above the
+  // top of the screen, out of reach. Pixels keep drag and layout in one space.
+  const [sheetPx, setSheetPx] = React.useState<number | null>(null);
   const [isMobile, setIsMobile] = React.useState(false);
-  const dragRef = React.useRef<{ startY: number; startVh: number } | null>(null);
+  const dragRef = React.useRef<{ startY: number; startPx: number } | null>(null);
+  // Never let the sheet's top rise above this margin from the screen top, so the
+  // grab handle (and thus the ability to shrink/dismiss it) is always reachable.
+  const TOP_MARGIN = 56;
+  const maxSheetPx = () => Math.max(120, (window.innerHeight || 1) - TOP_MARGIN);
+  const clampPx = (px: number) => Math.max(80, Math.min(maxSheetPx(), px));
   React.useEffect(() => {
     const mq = window.matchMedia("(max-width: 639px)");
     const on = () => setIsMobile(mq.matches);
@@ -568,30 +578,39 @@ const CellBuilderPanel: React.FC = () => {
     mq.addEventListener("change", on);
     return () => mq.removeEventListener("change", on);
   }, []);
+  // When the viewport shrinks (mobile toolbar shows, rotation, keyboard) re-clamp
+  // so a previously-set height can't leave the handle stranded off-screen.
+  React.useEffect(() => {
+    const onResize = () =>
+      setSheetPx((prev) => (prev == null ? prev : clampPx(prev)));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const onGrabDown = (e: React.PointerEvent) => {
-    const vh = window.innerHeight || 1;
-    const curPx = panelRef.current?.getBoundingClientRect().height ?? vh * 0.82;
-    dragRef.current = { startY: e.clientY, startVh: (curPx / vh) * 100 };
+    const curPx =
+      panelRef.current?.getBoundingClientRect().height ??
+      (window.innerHeight || 1) * 0.82;
+    dragRef.current = { startY: e.clientY, startPx: curPx };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const onGrabMove = (e: React.PointerEvent) => {
     const d = dragRef.current;
     if (!d) return;
-    const vh = window.innerHeight || 1;
-    const deltaVh = ((d.startY - e.clientY) / vh) * 100; // drag up ⇒ taller
-    setSheetVh(Math.max(10, Math.min(90, d.startVh + deltaVh)));
+    const deltaPx = d.startY - e.clientY; // drag up ⇒ taller
+    setSheetPx(clampPx(d.startPx + deltaPx));
   };
   const onGrabUp = (e: React.PointerEvent) => {
     if (!dragRef.current) return;
     dragRef.current = null;
     e.currentTarget.releasePointerCapture?.(e.pointerId);
-    setSheetVh((prev) => {
+    setSheetPx((prev) => {
       if (prev == null) return prev;
-      if (prev < 18) {
+      const vh = window.innerHeight || 1;
+      if (prev < vh * 0.18) {
         s.setPanelVisible(false); // flicked down small ⇒ dismiss the sheet
         return null;
       }
-      const snaps = [32, 58, 84]; // peek / half / full
+      const snaps = [0.32, 0.58, 0.84].map((f) => clampPx(vh * f)); // peek / half / full
       return snaps.reduce(
         (a, b) => (Math.abs(b - prev) < Math.abs(a - prev) ? b : a),
         snaps[0],
@@ -629,8 +648,8 @@ const CellBuilderPanel: React.FC = () => {
     <div
       ref={panelRef}
       style={
-        isMobile && sheetVh != null
-          ? { height: `${sheetVh}vh`, maxHeight: `${sheetVh}vh` }
+        isMobile && sheetPx != null
+          ? { height: `${sheetPx}px`, maxHeight: `${sheetPx}px` }
           : undefined
       }
       className={
