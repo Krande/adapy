@@ -564,7 +564,14 @@ const CellBuilderPanel: React.FC = () => {
   // sheet grow taller than the visible area and push its grab handle above the
   // top of the screen, out of reach. Pixels keep drag and layout in one space.
   const [sheetPx, setSheetPx] = React.useState<number | null>(null);
-  const [isMobile, setIsMobile] = React.useState(false);
+  // Lazily seed from matchMedia so the very first render already knows it's
+  // mobile — children (e.g. the Cells & equipment section) read this to pick
+  // their initial collapsed state, which useState captures once at mount.
+  const [isMobile, setIsMobile] = React.useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 639px)").matches,
+  );
   // During an active drag we mutate the panel height imperatively (see
   // onGrabMove) instead of via setState — re-rendering this whole panel on every
   // pointermove is what made the drag sluggish on mid-range phones. `livePx`
@@ -915,7 +922,9 @@ const CellBuilderPanel: React.FC = () => {
           <Section
             title="Cells & equipment"
             count={cellCount}
-            defaultOpen={cellCount > 0 && cellCount <= 12}
+            // Collapsed by default on mobile — the sheet is short, so keep the
+            // list folded to leave room for the build controls above it.
+            defaultOpen={!isMobile && cellCount > 0 && cellCount <= 12}
           >
             <div className="max-h-56 overflow-y-auto flex flex-col gap-1">
               {Object.values(s.cells).length === 0 && (
