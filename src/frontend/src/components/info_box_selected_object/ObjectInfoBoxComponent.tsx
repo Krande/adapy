@@ -276,6 +276,18 @@ const ObjectInfoBox = () => {
                         <EyeIcon/>
                         Unhide all
                     </button>
+                    {/* Fit all frames the whole scene — a scene-wide action like
+                        Unhide all, so it stays next to it and available even with
+                        nothing selected. Mobile-only (desktop has Shift+A). */}
+                    <button
+                        type="button"
+                        onClick={onFitAll}
+                        className="sm:hidden bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
+                        title="Fit the whole model to the view"
+                        aria-label="Fit all to view"
+                    >
+                        Fit all
+                    </button>
                     {/* The rest act on the current selection — hidden when
                         nothing is selected (only Unhide all persists). */}
                     {displayName && (<>
@@ -291,9 +303,9 @@ const ObjectInfoBox = () => {
                             Show in data
                         </button>
                     )}
-                    {/* Camera buttons — mobile-only (desktop has keyboard
-                        shortcuts). "Go to object" frames the current
-                        selection; "Fit all" frames the whole scene. */}
+                    {/* Camera button — mobile-only (desktop has keyboard
+                        shortcuts). "Go to object" frames the current selection;
+                        "Fit all" (scene-wide) lives next to Unhide all above. */}
                     <button
                         type="button"
                         onClick={onGoToObject}
@@ -302,15 +314,6 @@ const ObjectInfoBox = () => {
                         aria-label="Center view on selected object"
                     >
                         Go to object
-                    </button>
-                    <button
-                        type="button"
-                        onClick={onFitAll}
-                        className="sm:hidden bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
-                        title="Fit the whole model to the view"
-                        aria-label="Fit all to view"
-                    >
-                        Fit all
                     </button>
                     {/* Additive selection toggle. Sticky — stays on across
                         clicks (and deselects) so a multi-pick session is
