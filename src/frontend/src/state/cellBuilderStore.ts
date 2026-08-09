@@ -169,6 +169,10 @@ export interface ModelSnapshot {
 
 const HISTORY_LIMIT = 100;
 
+// Re-exported so callers can keep importing the preview-compile gate from the
+// store facade; the implementation lives in a store-free util for testability.
+export { needsPreviewCompile } from "@/utils/cellbuilder/compileGate";
+
 /** Current pick: a whole cell, one of its 6 faces (BoxGeometry materialIndex),
  * or a face border edge (full descriptor, so its endpoints re-derive from the
  * live box through resizes). */

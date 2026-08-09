@@ -10,7 +10,7 @@ import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
 import {hideSelectedRanges, unhideAllRanges} from "@/utils/scene/visibility";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 import {selectChildLevel, selectParentLevel, selectSibling} from "@/utils/tree_view/treeNavigation";
-import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {useCellBuilderStore, needsPreviewCompile} from "@/state/cellBuilderStore";
 import {frameCells} from "@/utils/scene/frameCells";
 import {requestRender} from "@/state/perfStore";
 
@@ -102,9 +102,11 @@ export function setupCameraControlsHandlers(
             // the fast path when editing, and what makes a side-by-side result
             // view feel live. No commit — the user commits only when happy.
             const cb = useCellBuilderStore.getState();
-            // Only when there are uncommitted changes — mirrors the Compile
-            // button, which disables at a save-point (nothing new to preview).
-            if (cb.active && cb.dirty) {
+            // Compile when there are uncommitted changes OR when the wanted
+            // result isn't in the scene yet — so ⇧↵ on an unchanged model with
+            // no simulation/detail loaded still produces one. Mirrors the
+            // Compile button's disabled state. See needsPreviewCompile.
+            if (cb.active && needsPreviewCompile(cb)) {
                 event.preventDefault();
                 void cb.compilePreviewSelected();
             }

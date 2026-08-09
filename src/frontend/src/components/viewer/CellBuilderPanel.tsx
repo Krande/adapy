@@ -2,6 +2,7 @@ import React from "react";
 
 import { PositionedMenu } from "@/components/common/PositionedMenu";
 import {
+  needsPreviewCompile,
   useCellBuilderStore,
   type SystemConnection,
 } from "@/state/cellBuilderStore";
@@ -1389,15 +1390,15 @@ const CellBuilderPanel: React.FC = () => {
         <span className="inline-flex">
           <button
             className={btn + " rounded-r-none flex items-center gap-1.5"}
-            // Disabled at a save-point (no uncommitted changes) — there's nothing
-            // new to preview. Undoing all edits returns here and disables it
-            // again. The ▾ menu's force-recompile stays available for the
-            // unchanged-doc-but-rebuild case.
-            disabled={compileBusy || !s.dirty}
+            // Enabled when there are uncommitted changes OR the wanted result
+            // isn't loaded yet (so a clean model with no result still compiles
+            // one). Disabled only once the result is present and nothing has
+            // changed — the ▾ menu's force-recompile is the rebuild escape hatch.
+            disabled={compileBusy || !needsPreviewCompile(s)}
             onClick={() => void s.compilePreviewSelected()}
             title={
-              !s.dirty
-                ? "No uncommitted changes to preview. Make an edit, or use ▾ → Recompile to force a rebuild."
+              !needsPreviewCompile(s)
+                ? "The current model is already shown and unchanged. Make an edit, or use ▾ → Recompile to force a rebuild."
                 : "Compile a preview of the current, uncommitted model (⇧↵) at the selected level(s) of detail. Nothing is saved — commit only when you're happy with what you see."
             }
           >
