@@ -2801,35 +2801,46 @@ async def _run() -> None:
         ",".join(capabilities),
     )
 
-    # Optional DB pool — only used to flip audit_log rows from 'queued'
-    # to 'done'/'error' when a job finishes. Without it the worker still
-    # functions; admin panel rows just stay at 'queued'. Migrations are
-    # the API's job, so the worker does NOT call init_pool — it builds a
-    # plain pool and trusts the schema is already applied.
+    # DB pool. Audit-log updates (queued -> done/error) degrade gracefully
+    # without it, but procedural_build / relocations / engine builds REQUIRE it
+    # (they load the model row) — so a one-shot connect failure at startup must
+    # not silently disable them. A rollout restarts many pods at once and can
+    # trip a transient CoreDNS hiccup ("Name or service not known" on the DB
+    # host); retry with backoff so that heals itself instead of stranding the
+    # pod without a pool until someone restarts it by hand. Migrations are the
+    # API's job — the worker builds a plain pool and trusts the schema is applied.
     db_pool: asyncpg.Pool | None = None
     if settings.database_url:
-        try:
-            db_pool = await asyncpg.create_pool(
-                dsn=settings.database_url,
-                min_size=1,
-                max_size=4,
-                max_inactive_connection_lifetime=600.0,
+        for attempt in range(1, 7):
+            try:
+                db_pool = await asyncpg.create_pool(
+                    dsn=settings.database_url,
+                    min_size=1,
+                    max_size=4,
+                    max_inactive_connection_lifetime=600.0,
+                )
+                logger.info("worker: db pool ready (attempt %d)", attempt)
+                break
+            except Exception:
+                logger.warning("worker: db connect attempt %d/6 failed; retrying", attempt)
+                await asyncio.sleep(min(2**attempt, 15))
+        if db_pool is None:
+            logger.error(
+                "worker: db connect failed after retries; audit updates + procedural/engine "
+                "builds will fail on this pod until it can reach the DB"
             )
-            logger.info("worker: db pool ready")
-            # Capture this worker image's package manifest once at startup so
-            # convert audit rows (stamped with worker_image_tag) can link to the
-            # exact toolchain that produced their output.
-            if _WORKER_IMAGE_TAG:
-                try:
-                    await db_module.upsert_worker_packages(
-                        db_pool,
-                        worker_image_tag=_WORKER_IMAGE_TAG,
-                        packages=_capture_worker_packages(),
-                    )
-                except Exception:
-                    logger.exception("worker: package manifest capture failed")
-        except Exception:
-            logger.exception("worker: db connect failed; running without audit updates")
+        # Capture this worker image's package manifest once at startup so convert
+        # audit rows (stamped with worker_image_tag) can link to the exact
+        # toolchain that produced their output.
+        elif _WORKER_IMAGE_TAG:
+            try:
+                await db_module.upsert_worker_packages(
+                    db_pool,
+                    worker_image_tag=_WORKER_IMAGE_TAG,
+                    packages=_capture_worker_packages(),
+                )
+            except Exception:
+                logger.exception("worker: package manifest capture failed")
 
     # Subscribe to ONLY this pool's subject — NATS does the routing
     # so this worker never sees jobs tagged for another capability.
