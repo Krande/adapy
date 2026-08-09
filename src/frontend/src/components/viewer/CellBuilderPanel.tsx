@@ -1126,6 +1126,14 @@ const CellBuilderPanel: React.FC = () => {
             Open result in new window
           </button>
 
+          <button
+            className={btnGray + " self-start"}
+            onClick={() => s.recenterModel()}
+            title="Recompute the model's placement from the current cells so it sits centered in the scene. Use this after deleting a far-off cell/equipment that had skewed the centering."
+          >
+            Recenter model in scene
+          </button>
+
           <div className="flex items-center gap-3 flex-wrap pt-1 border-t border-gray-600/40">
             <span className="text-gray-400">Compile builds</span>
             <label

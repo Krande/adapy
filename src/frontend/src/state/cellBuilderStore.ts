@@ -10,10 +10,13 @@ import {
   type ProceduralSystemTypeOption,
   type ProceduralTypeOption,
 } from "@/services/viewerApi";
+import { Vector3 } from "three";
+
 import {
   useConversionStore,
   type ConversionJob,
 } from "@/state/conversionStore";
+import { useModelState } from "@/state/modelState";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
 import { postPreviewReady } from "@/utils/cellbuilder/proceduralChannel";
@@ -412,6 +415,10 @@ interface CellBuilderState {
    * info shows (link target from the selected-object procedural panel). */
   focusEquipment: (name: string) => void;
   setCellsVisible: (v: boolean) => void;
+  /** Recompute the viewer model translation from the current cells so the model
+   * sits centred in the scene. Fixes a skewed placement left over after deleting
+   * a far-off cell/equipment that had stretched the original bounding box. */
+  recenterModel: () => void;
   /** Hide the given cells (per-cell "Hide selected"). */
   hideCells: (ids: string[]) => void;
   /** Clear all per-cell hides. */
@@ -1254,6 +1261,29 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       });
     },
     setCellsVisible: (cellsVisible) => set({ cellsVisible }),
+    recenterModel: () => {
+      const cells = Object.values(get().cells);
+      if (!cells.length) return;
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+      for (const c of cells) {
+        minX = Math.min(minX, c.origin[0]);
+        maxX = Math.max(maxX, c.origin[0] + c.size[0]);
+        minY = Math.min(minY, c.origin[1]);
+        maxY = Math.max(maxY, c.origin[1] + c.size[1]);
+        minZ = Math.min(minZ, c.origin[2]);
+        maxZ = Math.max(maxZ, c.origin[2] + c.size[2]);
+      }
+      const t = new Vector3(-(minX + maxX) / 2, -(minY + maxY) / 2, -(minZ + maxZ) / 2);
+      // Match the GLB loader's convention (setupModelLoader): centre X/Y, and put
+      // the model's bottom ~5% of its height above the ground plane on the up axis.
+      const ms = useModelState.getState();
+      if (ms.zIsUp) t.z = -minZ + (maxZ - minZ) * 0.05;
+      else t.y = -minY + (maxY - minY) * 0.05;
+      // The controller subscribes to translation changes and re-syncs the cell
+      // container; a fresh Vector3 ref makes the subscription fire.
+      ms.setTranslation(t);
+    },
     hideCells: (ids) =>
       set((s) => {
         const next = new Set(s.hiddenCellIds);
