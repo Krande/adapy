@@ -953,6 +953,12 @@ async def _run_procedural_build(
     lod = "detail" if (opts.get("lod") or "sim") == "detail" else "sim"
     # Selected procedural engine (None / "adapy-default" = the built-in compile).
     engine = opts.get("engine")
+    # An ephemeral *preview* build carries the current (uncommitted) document
+    # inline: compile THAT instead of the DB revision's doc, and skip the
+    # revision-match check (a preview isn't tied to a persisted revision). The
+    # model row is still loaded for its scope + name + catalog/CAD resolution.
+    preview_doc = opts.get("preview_doc")
+    is_preview = isinstance(preview_doc, dict)
 
     async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
@@ -971,13 +977,15 @@ async def _run_procedural_build(
     if row is None:
         await _fail("build", f"procedural model {model_id} not found")
         return
-    if row["revision"] != revision:
+    if not is_preview and row["revision"] != revision:
         await _fail(
             "build",
             f"procedural model {model_id} is at revision {row['revision']}, job requested r{revision} — "
             "re-trigger compile for the current revision",
         )
         return
+    # The document to compile: the inline preview doc, or the DB revision's doc.
+    doc = preview_doc if is_preview else row["doc"]
 
     from ada.topo_model.compile import compile_procedural_doc
     from ada.topo_model.engines import BUILTIN_ENGINES, compile_with_engine, is_default_engine
@@ -1003,7 +1011,7 @@ async def _run_procedural_build(
     # original file (source_xlsx_key) so a non-default engine can compile the source
     # directly (all config the topology doc drops). Fetch it for the engine.
     source_xlsx: bytes | None = None
-    source_key = row["doc"].get("source_xlsx_key")
+    source_key = doc.get("source_xlsx_key")
     if source_key and not is_default_engine(engine):
         try:
             source_xlsx = await storage.get_bytes(scope, source_key)
@@ -1019,8 +1027,8 @@ async def _run_procedural_build(
     # slugs the model actually places, so the compiler can splice in real
     # geometry instead of boxes.
     cad_bytes: dict[str, tuple[bytes, str]] = {}
-    if row["doc"].get("equipment_cad"):
-        used = {(e.get("DESCRIPTION") or "").strip() for e in (row["doc"].get("equipments") or [])}
+    if doc.get("equipment_cad"):
+        used = {(e.get("DESCRIPTION") or "").strip() for e in (doc.get("equipments") or [])}
         cad_keys = await db_module.get_equipment_cad_keys_by_scope(
             db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
         )
@@ -1044,7 +1052,7 @@ async def _run_procedural_build(
             # full-fidelity path; compile_with_engine passes only the kwargs the
             # engine accepts, so a doc-only engine ignores it.
             return compile_with_engine(
-                selector, row["doc"], name=row["name"], lod=lod, source_xlsx=source_xlsx
+                selector, doc, name=row["name"], lod=lod, source_xlsx=source_xlsx
             )
         cad_meshes = {}
         for slug, (data, ext) in cad_bytes.items():
@@ -1053,7 +1061,7 @@ async def _run_procedural_build(
             except Exception:
                 logger.warning("procedural: failed to load CAD mesh for %r; using box", slug)
         return compile_procedural_doc(
-            row["doc"],
+            doc,
             name=row["name"],
             equipment_resolver=catalog.get,
             cad_scene_resolver=cad_meshes.get,

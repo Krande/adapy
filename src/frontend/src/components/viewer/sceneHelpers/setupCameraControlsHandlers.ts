@@ -98,13 +98,13 @@ export function setupCameraControlsHandlers(
                 zoomToAll(scene, camera, controls);
             }
         } else if (shift && key === "enter") {
-            // ⇧↵ — commit + compile in one gesture, the fast path when editing a
-            // procedural model (and what makes a side-by-side result view feel
-            // live). compile() commits first when the doc is dirty, then builds.
+            // ⇧↵ — preview-compile the current (uncommitted) procedural model:
+            // the fast path when editing, and what makes a side-by-side result
+            // view feel live. No commit — the user commits only when happy.
             const cb = useCellBuilderStore.getState();
             if (cb.active) {
                 event.preventDefault();
-                void cb.compile();
+                void cb.compilePreview();
             }
         } else if (shift && key === "q") {
             const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();

@@ -28,7 +28,12 @@ from ada.comms.rest.config import (  # noqa: E402
     Settings,
 )
 from ada.comms.rest.converter import is_hidden_key  # noqa: E402
-from ada.comms.rest.procedural import procedural_glb_key, validate_doc  # noqa: E402
+from ada.comms.rest.procedural import (  # noqa: E402
+    doc_content_hash,
+    procedural_glb_key,
+    procedural_preview_glb_key,
+    validate_doc,
+)
 
 POSTGRES_URL = os.environ.get("ADA_TEST_POSTGRES_URL", "").strip()
 needs_postgres = pytest.mark.skipif(
@@ -71,6 +76,20 @@ def test_procedural_glb_key_shape():
     key = procedural_glb_key("abc-123", 4)
     assert key == "_procedural/abc-123/r4.glb"
     assert is_hidden_key(key)
+
+
+def test_preview_glb_key_and_hash():
+    # The preview key is content-hashed (not revision-stamped) and hidden.
+    h = doc_content_hash({"spaces": [{"NAME": "C1"}], "engine": "adapy-default"})
+    key = procedural_preview_glb_key("abc-123", h)
+    assert key == f"_procedural/abc-123/preview/{h}.glb"
+    assert is_hidden_key(key)
+    # Stable across key order; changes with content; non-default engine + detail
+    # get distinct keys so previews never collide.
+    assert doc_content_hash({"a": 1, "b": 2}) == doc_content_hash({"b": 2, "a": 1})
+    assert doc_content_hash({"a": 1}) != doc_content_hash({"a": 2})
+    assert procedural_preview_glb_key("m", h, "echo") != procedural_preview_glb_key("m", h)
+    assert procedural_preview_glb_key("m", h, None, "detail").endswith("_detail.glb")
 
 
 def test_validate_doc_normalizes():
@@ -119,6 +138,17 @@ def test_endpoints_503_without_db(app_client: TestClient):
     assert app_client.get("/api/scopes/shared/procedural-models").status_code == 503
     assert app_client.post("/api/scopes/shared/procedural-models", json={"name": "m"}).status_code == 503
     assert app_client.get("/api/scopes/shared/procedural-models/x").status_code == 503
+
+
+def test_compile_preview_validates_before_db(app_client: TestClient):
+    # The preview endpoint validates the body up front (a preview carries the
+    # doc inline), so a bad/missing doc fails fast even without a database; a
+    # valid doc then 503s on the missing pool.
+    base = "/api/scopes/shared/procedural-models/x/compile-preview"
+    assert app_client.post(base, json={}).status_code == 400  # no doc
+    assert app_client.post(base, json={"doc": {"spaces": "nope"}}).status_code == 422  # invalid
+    good = {"doc": {"spaces": [{"NAME": "C1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}]}}
+    assert app_client.post(base, json=good).status_code == 503  # valid, but no DB
 
 
 def test_templates_endpoint_needs_no_db(app_client: TestClient):

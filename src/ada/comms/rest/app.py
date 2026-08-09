@@ -3041,6 +3041,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "current_revision": current["revision"] if current else None,
                 },
             )
+        # Promote-on-commit: if this exact doc was already previewed (same hash),
+        # copy that preview blob to the committed revision key instead of forcing
+        # a recompile — so what the user saw is byte-identical to the committed
+        # revision, and a subsequent compile short-circuits to the cache. Best
+        # effort: a miss just means the normal (auto-)compile builds it.
+        try:
+            from .procedural import (
+                doc_content_hash,
+                procedural_glb_key,
+                procedural_preview_glb_key,
+            )
+
+            engine = (row.get("engine") or "").strip() or None
+            if engine == "adapy-default":
+                engine = None
+            preview_key = procedural_preview_glb_key(model_id, doc_content_hash(normalized), engine, "sim")
+            revision_key = procedural_glb_key(model_id, new_revision, engine)
+            if await storage.exists(scope_obj, preview_key) and not await storage.exists(scope_obj, revision_key):
+                data = await storage.get_bytes(scope_obj, preview_key)
+                await storage.put_bytes(scope_obj, revision_key, data, content_encoding="gzip")
+        except Exception:
+            logger.warning("procedural: promote-on-commit failed for %s (non-fatal)", model_id, exc_info=True)
         return JSONResponse({"id": row["id"], "revision": new_revision})
 
     @api.delete("/scopes/{scope}/procedural-models/{model_id}")
@@ -3125,6 +3147,87 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             target_capability=target_capability,
         )
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
+
+    @api.post("/scopes/{scope}/procedural-models/{model_id}/compile-preview")
+    async def api_procedural_compile_preview(
+        request: Request,
+        model_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Compile the CURRENT (uncommitted) document — a *preview* — without
+        minting a revision. The body carries ``{doc, engine?, lod?}``; the doc is
+        validated + normalized, hashed, and built to
+        ``_procedural/{id}/preview/{hash}.glb`` (content-keyed, so re-previewing an
+        unchanged doc is free). No DB write, no revision bump — the user commits
+        only when happy, and the commit promotes this exact blob (same hash) to the
+        revision key, so committed == previewed with no recompile.
+
+        Mirrors :func:`api_procedural_compile` for engine routing / cache / enqueue,
+        but the worker gets the doc inline (``conversion_options.preview_doc``)."""
+        from .procedural import doc_content_hash, procedural_preview_glb_key, validate_doc
+
+        body = await request.json()
+        doc = body.get("doc")
+        if not isinstance(doc, dict):
+            raise HTTPException(status_code=400, detail="doc (object) is required")
+        try:
+            normalized = validate_doc(doc)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"invalid procedural doc: {e}")
+
+        force = (request.query_params.get("force") or "").strip().lower() in ("1", "true", "yes")
+        lod = "detail" if (request.query_params.get("lod") or "").strip().lower() == "detail" else "sim"
+        engine = (request.query_params.get("engine") or "").strip() or None
+
+        pool = _require_procedural_pool(request)
+        row = await _get_procedural_in_scope(pool, model_id, scope_obj)
+        # Same engine resolution as /compile, but a preview may also carry the
+        # engine on the doc itself (the doc is the source of truth here). Query
+        # override > doc header > model's declared engine; "adapy-default" == None.
+        if engine is None:
+            declared = (normalized.get("engine") or row.get("engine") or "").strip()
+            engine = declared or None
+            if engine == "adapy-default":
+                engine = None
+
+        doc_hash = doc_content_hash(normalized)
+        derived_key = procedural_preview_glb_key(row["id"], doc_hash, engine, lod)
+
+        if not force and await storage.exists(scope_obj, derived_key):
+            return JSONResponse(
+                {"job_id": None, "derived_key": derived_key, "cached": True, "doc_hash": doc_hash}
+            )
+
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="procedural build disabled (no NATS configured)")
+
+        target_capability = None
+        if engine and engine != "adapy-default":
+            eng = await db_module.get_procedural_engine_by_slug(
+                pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, slug=engine
+            )
+            if eng is not None:
+                target_capability = (eng.get("doc") or {}).get("worker_capability")
+
+        job = await queue.enqueue(
+            f"_synthetic/procedural/{row['id']}/preview/{doc_hash}/{lod}",
+            target_format="procedural_build",
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            conversion_options={
+                "model_id": row["id"],
+                "revision": row["revision"],
+                "lod": lod,
+                "engine": engine,
+                "preview_doc": normalized,
+            },
+            derived_key=derived_key,
+            force_rebuild=force,
+            target_capability=target_capability,
+        )
+        return JSONResponse(
+            {"job_id": job.job_id, "derived_key": derived_key, "cached": False, "doc_hash": doc_hash}
+        )
 
     @api.post("/scopes/{scope}/procedural-models/{model_id}/propose-relocations")
     async def api_procedural_propose_relocations(

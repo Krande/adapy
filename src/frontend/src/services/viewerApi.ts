@@ -2044,6 +2044,36 @@ export const viewerApi = {
     );
   },
 
+  /** Build the CURRENT (uncommitted) document as an ephemeral preview — no
+   * commit, no revision bump. The server keys the GLB on the doc's content hash
+   * (re-previewing an unchanged doc is free) and, on a later commit of the same
+   * doc, promotes this blob to the revision. `force` re-builds past the cache;
+   * `engine`/`lod` mirror compileProceduralModel. */
+  async previewProceduralModel(
+    scope: ScopeUrl,
+    modelId: string,
+    doc: unknown,
+    opts?: { engine?: string | null; lod?: "sim" | "detail"; force?: boolean },
+  ): Promise<ProceduralCompileResponse> {
+    const params = new URLSearchParams();
+    if (opts?.force) params.set("force", "true");
+    if (opts?.lod === "detail") params.set("lod", "detail");
+    if (opts?.engine) params.set("engine", opts.engine);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile-preview${qs}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ doc }),
+      },
+    );
+    return jsonOrThrow<ProceduralCompileResponse>(
+      r,
+      `previewProceduralModel(${modelId})`,
+    );
+  },
+
   /** Equipment types for the cellbuilder's add-equipment dropdown: the union
    * of code-defined archetypes (worker pool) and the per-scope DB catalog,
    * each tagged with its origin. */

@@ -528,6 +528,9 @@ interface CellBuilderState {
    * is already cached — used when the compiler engine changed but the document
    * (the cache key) did not, so a plain Compile would return the stale blob. */
   compile: (force?: boolean, lod?: "sim" | "detail") => Promise<void>;
+  /** Build the current (uncommitted) document as an ephemeral preview — no
+   * commit, no revision bump; the interactive visualise-then-commit loop. */
+  compilePreview: (force?: boolean, lod?: "sim" | "detail") => Promise<void>;
   /** Compile the CURRENT (uncommitted) doc entirely in the browser via the
    * built-in adapy engine (Pyodide/WASM), loading the result straight into the
    * scene — no server round-trip, no commit. Catalog/CAD equipment falls back to
@@ -826,6 +829,128 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       if (s.txDepth > 0) return partial;
       return { ...partial, ...pushSnapshot(s, snapshot(s), HISTORY_LIMIT) };
     });
+
+  // Drive a procedural build (a committed compile OR an ephemeral preview) to
+  // completion: announce the toast, enqueue, then poll job status and auto-show
+  // the result when ready. Shared by compile() and compilePreview() so the two
+  // paths behave identically apart from what they enqueue.
+  const startCompileJob = async (
+    label: string,
+    lod: "sim" | "detail",
+    enqueue: () => Promise<{
+      job_id: string | null;
+      derived_key: string;
+      cached?: boolean;
+    }>,
+  ): Promise<void> => {
+    setProceduralToast(label, {
+      status: "queued",
+      stage: "queued",
+      progress: 0,
+      startedAt: Date.now(),
+    });
+    // Auto-show the result once ready when auto-compile is on, so
+    // edit -> compile -> render is one gesture.
+    const autoShow = () => {
+      const cur = get().compileJob;
+      if (!cur || !cur.derivedKey) return;
+      // Show the result when auto-compile is on, OR refresh a result already on
+      // screen — a forced rebuild overwrites the same derivedKey with new bytes
+      // (the loader re-fetches via a fresh presigned URL), so the displayed model
+      // must reload. The detail model shows whenever detail is the active rep.
+      const sourceShown =
+        lod === "detail"
+          ? get().detailSourceName !== null || get().repMode === "detail"
+          : get().resultSourceName !== null || get().repMode === "simulation";
+      if (!(get().autoCompile || sourceShown)) return;
+      void get()
+        .viewResult(cur.derivedKey, lod)
+        .then(() => {
+          // Compiling from the editable Topology view drops the result ON TOP of
+          // the cells — the superimpose state. Formalise it: record superimpose,
+          // switch the toggle to the result mode, keep topology underneath. If a
+          // result is already shown, leave the user's toggle/superimpose choice.
+          if (get().repMode !== "topology") return;
+          const rm = lod === "detail" ? "detail" : "simulation";
+          set({ repMode: rm, superimpose: true });
+          if (lod === "detail") get().hideResult();
+          else get().hideDetail();
+          get().setCellsVisible(true);
+        });
+    };
+    try {
+      const res = await enqueue();
+      if (res.cached) {
+        set({
+          compileJob: { jobId: null, derivedKey: res.derived_key, status: "cached" },
+        });
+        setProceduralToast(label, {
+          status: "done",
+          progress: 1,
+          stage: "cached",
+          derivedKey: res.derived_key,
+        });
+        autoShow();
+        return;
+      }
+      set({
+        compileJob: { jobId: res.job_id, derivedKey: res.derived_key, status: "queued" },
+      });
+      setProceduralToast(label, {
+        status: "queued",
+        stage: "queued",
+        jobId: res.job_id ?? "",
+        derivedKey: res.derived_key,
+      });
+      const jobId = res.job_id!;
+      const poll = async () => {
+        const cur = get().compileJob;
+        if (!cur || cur.jobId !== jobId) return; // superseded
+        try {
+          const st = await viewerApi.convertStatus(jobId);
+          if (st.status === "done") {
+            set({ compileJob: { ...cur, status: "done" } });
+            setProceduralToast(label, {
+              status: "done",
+              progress: 1,
+              stage: st.stage || "ready",
+              derivedKey: st.derived_key || cur.derivedKey || "",
+            });
+            autoShow();
+            return;
+          }
+          if (st.status === "error") {
+            set({
+              compileJob: { ...cur, status: "error", error: st.error ?? "compile failed" },
+            });
+            setProceduralToast(label, {
+              status: "error",
+              stage: st.stage || "",
+              error: st.error ?? "compile failed",
+            });
+            return;
+          }
+          set({ compileJob: { ...cur, status: "running" } });
+          setProceduralToast(label, {
+            status: "running",
+            progress: st.progress ?? 0,
+            stage: st.stage || "",
+            jobId,
+          });
+          setTimeout(poll, 1500);
+        } catch (e) {
+          const error = e instanceof Error ? e.message : String(e);
+          set({ compileJob: { ...cur, status: "error", error } });
+          setProceduralToast(label, { status: "error", error });
+        }
+      };
+      setTimeout(poll, 1500);
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      set({ compileJob: { jobId: null, derivedKey: "", status: "error", error } });
+      setProceduralToast(label, { status: "error", error });
+    }
+  };
 
   return {
     active: null,
@@ -1881,6 +2006,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     },
 
     compile: async (force = false, lod = "sim") => {
+      // A COMMITTED build: persists the revision (if dirty) then builds the
+      // revision-keyed GLB. This is what commit()'s auto-compile and the detail
+      // view use; interactive previewing is compilePreview() (no commit).
       const s = get();
       if (!s.active) return;
       if (s.dirty) {
@@ -1896,148 +2024,35 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       const active = get().active;
       if (!active) return;
       const label = lod === "detail" ? `${active.name} (detail)` : active.name;
-      // Any engine is allowed on the server compile: built-ins run on the default
-      // pool; a registered kind:server engine is routed (by the API) to the worker
-      // pool whose capability has it pre-installed. A kind:wheel (browser) engine
-      // with no such worker will surface a worker error — its home is the
-      // "Compile in browser" button, which self-selects it via the resolve step.
-      // Announce the task on the global toast panel right away (before the
-      // enqueue round-trip resolves), then keep the same toast updated through
-      // the poll below — mirrors how conversion/FEA feed conversionStore.
-      setProceduralToast(label, {
-        status: "queued",
-        stage: "queued",
-        progress: 0,
-        startedAt: Date.now(),
-      });
-      // Auto-show the compiled result once ready when auto-compile is on, so
-      // Commit -> compile -> render is one gesture.
-      const autoShow = () => {
-        const cur = get().compileJob;
-        if (!cur || !cur.derivedKey) return;
-        // Show the result when auto-compile is on, OR refresh a result that is
-        // already on screen — a forced recompile overwrites the same derivedKey
-        // with new bytes (the loader re-fetches via a fresh presigned URL), so the
-        // displayed model must reload to reflect the rebuild. The detail model
-        // shows whenever the detail view is the active representation.
-        const sourceShown =
-          lod === "detail"
-            ? get().detailSourceName !== null || get().repMode === "detail"
-            : get().resultSourceName !== null || get().repMode === "simulation";
-        if (!(get().autoCompile || sourceShown)) return;
-        void get()
-          .viewResult(cur.derivedKey, lod)
-          .then(() => {
-            // Compiling from the editable Topology view drops the result ON TOP of
-            // the cells — that's the superimpose state. Formalise it: record
-            // superimpose, switch the toggle to the result mode, and keep the
-            // topology layer underneath. If the user is already viewing a result,
-            // leave their toggle + superimpose choice untouched.
-            if (get().repMode !== "topology") return;
-            const rm = lod === "detail" ? "detail" : "simulation";
-            set({ repMode: rm, superimpose: true });
-            if (lod === "detail") get().hideResult();
-            else get().hideDetail();
-            get().setCellsVisible(true);
-          });
-      };
-      try {
-        const res = await viewerApi.compileProceduralModel(
+      await startCompileJob(label, lod, () =>
+        viewerApi.compileProceduralModel(
           currentScopePart(),
           active.modelId,
           force,
           lod,
           get().selectedEngine,
-        );
-        if (res.cached) {
-          set({
-            compileJob: {
-              jobId: null,
-              derivedKey: res.derived_key,
-              status: "cached",
-            },
-          });
-          setProceduralToast(label, {
-            status: "done",
-            progress: 1,
-            stage: "cached",
-            derivedKey: res.derived_key,
-          });
-          autoShow();
-          return;
-        }
-        set({
-          compileJob: {
-            jobId: res.job_id,
-            derivedKey: res.derived_key,
-            status: "queued",
-          },
-        });
-        setProceduralToast(label, {
-          status: "queued",
-          stage: "queued",
-          jobId: res.job_id ?? "",
-          derivedKey: res.derived_key,
-        });
-        const jobId = res.job_id!;
-        const poll = async () => {
-          const cur = get().compileJob;
-          if (!cur || cur.jobId !== jobId) return; // superseded
-          try {
-            const st = await viewerApi.convertStatus(jobId);
-            if (st.status === "done") {
-              set({ compileJob: { ...cur, status: "done" } });
-              setProceduralToast(label, {
-                status: "done",
-                progress: 1,
-                stage: st.stage || "ready",
-                derivedKey: st.derived_key || cur.derivedKey || "",
-              });
-              autoShow();
-              return;
-            }
-            if (st.status === "error") {
-              set({
-                compileJob: {
-                  ...cur,
-                  status: "error",
-                  error: st.error ?? "compile failed",
-                },
-              });
-              setProceduralToast(label, {
-                status: "error",
-                stage: st.stage || "",
-                error: st.error ?? "compile failed",
-              });
-              return;
-            }
-            set({ compileJob: { ...cur, status: "running" } });
-            setProceduralToast(label, {
-              status: "running",
-              progress: st.progress ?? 0,
-              stage: st.stage || "",
-              jobId,
-            });
-            setTimeout(poll, 1500);
-          } catch (e) {
-            const error = e instanceof Error ? e.message : String(e);
-            set({ compileJob: { ...cur, status: "error", error } });
-            setProceduralToast(label, { status: "error", error });
-          }
-        };
-        setTimeout(poll, 1500);
-      } catch (e) {
-        const error = e instanceof Error ? e.message : String(e);
-        set({
-          compileJob: {
-            jobId: null,
-            derivedKey: "",
-            status: "error",
-            error,
-          },
-        });
-        setProceduralToast(label, { status: "error", error });
-      }
+        ),
+      );
+    },
+
+    compilePreview: async (force = false, lod = "sim") => {
+      // Build the CURRENT (uncommitted) document as an ephemeral preview — no
+      // commit, no revision bump. The server keys the GLB on the doc's content
+      // hash, so re-previewing an unchanged doc is free; committing later
+      // promotes this exact blob to the revision. This is the interactive
+      // visualise-then-commit loop (and the ⇧↵ shortcut / side-by-side driver).
+      const active = get().active;
+      if (!active) return;
+      const doc = get().toDoc();
+      const label = `${active.name} (preview)`;
+      await startCompileJob(label, lod, () =>
+        viewerApi.previewProceduralModel(
+          currentScopePart(),
+          active.modelId,
+          doc,
+          { engine: get().selectedEngine, lod, force },
+        ),
+      );
     },
 
     viewResult: async (derivedKey: string, lod = "sim") => {

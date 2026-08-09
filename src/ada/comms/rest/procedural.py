@@ -62,6 +62,31 @@ def procedural_detail_glb_key(model_id: str, revision: int, engine: str | None =
     return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}_detail{_engine_suffix(engine)}.glb"
 
 
+def doc_content_hash(doc: dict) -> str:
+    """A short, stable content hash of a (normalized) procedural doc — the cache
+    key for an ephemeral *preview* compile. Deterministic (sorted keys, compact
+    separators) so the same doc always hashes the same, and so a preview keyed on
+    ``validate_doc(doc)`` matches the hash recomputed at commit time (letting the
+    commit promote the already-built preview blob instead of recompiling)."""
+    import hashlib
+    import json
+
+    payload = json.dumps(doc, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def procedural_preview_glb_key(
+    model_id: str, doc_hash: str, engine: str | None = None, lod: str = "sim"
+) -> str:
+    """Blob key for an EPHEMERAL preview compile — a build of the current,
+    *uncommitted* document so the user can visualize edits before deciding to
+    commit. Keyed by the doc's content hash (not a revision), so re-previewing an
+    unchanged doc is free and no revision is minted until the user commits. Lives
+    under ``_procedural/{id}/preview/`` (hidden from listings, GC-able as a group)."""
+    lod_suffix = "_detail" if lod == "detail" else ""
+    return f"{PROCEDURAL_PREFIX}{model_id}/preview/{doc_hash}{lod_suffix}{_engine_suffix(engine)}.glb"
+
+
 def procedural_relocations_key(model_id: str) -> str:
     """Blob key for a model's latest relocation proposals (a JSON document). NOT
     revision-stamped: the proposal search always re-runs (the layout may have

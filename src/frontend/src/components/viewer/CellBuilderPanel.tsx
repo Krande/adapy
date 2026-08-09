@@ -1216,28 +1216,21 @@ const CellBuilderPanel: React.FC = () => {
 
       {/* ── pinned footer ── */}
       <div className="flex items-center gap-2 px-2.5 py-2 border-t border-gray-600/50">
-        <button
-          className={btn + " flex items-center gap-1.5"}
-          disabled={!s.dirty || s.committing}
-          onClick={() => void s.commit()}
-          title="Commit this revision (⇧↵ commits and compiles in one gesture)"
-        >
-          {s.committing ? "Committing…" : "Commit"}
-          <kbd className="text-[10px] font-semibold bg-white/20 border border-white/25 rounded px-1">
-            ⇧↵
-          </kbd>
-        </button>
         <span className="inline-flex">
           <button
-            className={btnGray + " rounded-r-none"}
+            className={btn + " rounded-r-none flex items-center gap-1.5"}
             disabled={compileBusy}
-            onClick={() => void s.compile()}
+            onClick={() => void s.compilePreview()}
+            title="Compile a preview of the current, uncommitted model (⇧↵). Nothing is saved — commit only when you're happy with what you see."
           >
             {compileBusy ? `Compiling (${compileState?.status})…` : "Compile"}
+            <kbd className="text-[10px] font-semibold bg-white/20 border border-white/25 rounded px-1">
+              ⇧↵
+            </kbd>
           </button>
           <button
             ref={compileCaretRef}
-            className={btnGray + " rounded-l-none border-l border-white/25 px-1.5"}
+            className={btn + " rounded-l-none border-l border-white/25 px-1.5"}
             disabled={compileBusy}
             title="More compile options"
             onClick={() => setCompileMenuOpen((v) => !v)}
@@ -1256,10 +1249,10 @@ const CellBuilderPanel: React.FC = () => {
             items={[
               {
                 key: "recompile",
-                label: "Recompile (force)",
+                label: "Recompile preview (force)",
                 title:
-                  "Rebuild even if this revision is cached — use after a compiler/engine change when the document itself hasn't changed",
-                onClick: () => void s.compile(true),
+                  "Rebuild the preview even if this doc is cached — use after a compiler/engine change when the document itself hasn't changed",
+                onClick: () => void s.compilePreview(true),
               },
               {
                 key: "browser",
@@ -1271,6 +1264,14 @@ const CellBuilderPanel: React.FC = () => {
             ]}
           />
         )}
+        <button
+          className={btnGray}
+          disabled={!s.dirty || s.committing}
+          onClick={() => void s.commit()}
+          title="Commit the current state as a new revision. If you've previewed this exact model, the commit promotes that build — no recompile."
+        >
+          {s.committing ? "Committing…" : "Commit"}
+        </button>
         <span className="ml-auto text-gray-400 whitespace-nowrap">
           r{s.active.revision}
         </span>
