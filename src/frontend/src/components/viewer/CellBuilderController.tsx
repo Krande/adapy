@@ -21,8 +21,9 @@ import {
     originFromCenter,
     quantize,
     snapBox,
-    snapBoxTranslation,
+    snapBoxTranslationDetail,
     type CellBox,
+    type SnapHit,
     type EdgeHit,
     type Vec3,
 } from "@/utils/cellbuilder/snap";
@@ -121,16 +122,17 @@ function lineParamFromRay(ray: THREE.Ray, lineOrigin: THREE.Vector3, lineDir: TH
 }
 
 // Origin (min corner) for a cell whose centre is dragged to `center` (model
-// space). With vertex magnetism on, snap the box's corners onto a neighbour's
-// corners (axis-constrained when an axis lock is active); a hit lands exactly on
-// the grid-clean neighbour corner, a miss falls back to grid quantization.
-// Shared by the translate gizmo (objectChange) and the axis-locked modal move.
+// space), plus the vertex-snap hit (if any) so callers can draw an indicator.
+// With vertex magnetism on, snap the box's corners onto a neighbour's corners
+// (axis-constrained when an axis lock is active); a hit lands exactly on the
+// grid-clean neighbour corner, a miss falls back to grid quantization. Shared by
+// the translate gizmo (objectChange) and the axis-locked modal move.
 function snappedTranslateOrigin(
     cell: {id: string; origin: Vec3; size: Vec3},
     center: Vec3,
     cells: Record<string, BuilderCell>,
     opts: {gridStep: number; snapThreshold: number; vertexSnap: boolean; axisLock: 0 | 1 | 2 | null},
-): Vec3 {
+): {origin: Vec3; snap: SnapHit | null} {
     const step = opts.gridStep > 0 ? opts.gridStep : 0.1;
     if (opts.vertexSnap) {
         const rawOrigin: Vec3 = [
@@ -141,16 +143,19 @@ function snappedTranslateOrigin(
         const others = Object.values(cells)
             .filter((c) => c.id !== cell.id)
             .map((c) => ({origin: c.origin, size: c.size}) as CellBox);
-        const delta = snapBoxTranslation({origin: rawOrigin, size: cell.size}, others, opts.snapThreshold, opts.axisLock);
-        if (delta) {
-            return [
-                quantize(rawOrigin[0] + delta[0], step),
-                quantize(rawOrigin[1] + delta[1], step),
-                quantize(rawOrigin[2] + delta[2], step),
-            ];
+        const snap = snapBoxTranslationDetail({origin: rawOrigin, size: cell.size}, others, opts.snapThreshold, opts.axisLock);
+        if (snap) {
+            return {
+                origin: [
+                    quantize(rawOrigin[0] + snap.delta[0], step),
+                    quantize(rawOrigin[1] + snap.delta[1], step),
+                    quantize(rawOrigin[2] + snap.delta[2], step),
+                ],
+                snap,
+            };
         }
     }
-    return originFromCenter(center, cell.size, step);
+    return {origin: originFromCenter(center, cell.size, step), snap: null};
 }
 
 // --- Loft band geometry (read-only swept proxy) ----------------------------
@@ -860,6 +865,51 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         cell.origin[2] + cell.size[2] / 2,
     ];
 
+    // --- Vertex-snap indicator ------------------------------------------------
+    // A hollow amber square drawn at the neighbour vertex the dragged cell just
+    // snapped onto, so vertex magnetism is visible while moving. It's a Sprite
+    // (always faces the camera) with constant on-screen size (sizeAttenuation
+    // off), depth-test off so it shows through geometry. Lives in world space
+    // (not the container) — position is the snapped corner + the model offset.
+    const makeSnapTexture = (): THREE.CanvasTexture => {
+        const cv = document.createElement("canvas");
+        cv.width = cv.height = 64;
+        const g = cv.getContext("2d")!;
+        g.clearRect(0, 0, 64, 64);
+        g.strokeStyle = "#fbbf24"; // amber-400 — reads against the blue cells
+        g.lineWidth = 6;
+        g.strokeRect(9, 9, 46, 46);
+        g.fillStyle = "#fbbf24";
+        g.fillRect(29, 29, 6, 6); // centre pip
+        const tex = new THREE.CanvasTexture(cv);
+        tex.needsUpdate = true;
+        return tex;
+    };
+    const snapTex = makeSnapTexture();
+    const snapMarker = new THREE.Sprite(
+        new THREE.SpriteMaterial({map: snapTex, depthTest: false, transparent: true, sizeAttenuation: false}),
+    );
+    snapMarker.scale.set(0.05, 0.05, 1); // ~constant screen size
+    snapMarker.renderOrder = 6;
+    snapMarker.userData.__excludeFromFit = true;
+    snapMarker.visible = false;
+    scene.add(snapMarker);
+
+    // Show the marker at a snapped neighbour vertex (model-space), or hide it.
+    const showSnapMarker = (targetModel: Vec3 | null) => {
+        if (!targetModel) {
+            if (snapMarker.visible) {
+                snapMarker.visible = false;
+                requestRender();
+            }
+            return;
+        }
+        const off = offsetVec();
+        snapMarker.position.set(targetModel[0] + off.x, targetModel[1] + off.y, targetModel[2] + off.z);
+        snapMarker.visible = true;
+        requestRender();
+    };
+
     const startModalMove = (cell: BuilderCell, axis: 0 | 1 | 2) => {
         // Switching axis/cell mid-grab: close the previous leg's undo step first
         // (keeping its position — a plain re-lock is a confirm, not a cancel).
@@ -891,6 +941,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         }
         gizmo.enabled = true;
         guideLine.visible = false;
+        snapMarker.visible = false;
         renderer.domElement.style.cursor = "";
         requestRender();
     };
@@ -936,6 +987,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         } else {
             st.endTransaction();
             loftDragLast = null;
+            showSnapMarker(null); // drag ended — clear the snap indicator
         }
         requestRender();
     });
@@ -961,10 +1013,17 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 }
                 return;
             }
-            // Vertex magnetism (default on): snap the box's corners onto a
-            // neighbour's corners, axis-constrained under an axis lock. See
-            // snappedTranslateOrigin.
-            const origin = snappedTranslateOrigin(
+            // Constrain the snap to the axis actually being dragged. A single-
+            // axis handle (the X/Y/Z arrow) only moves the cell along that axis,
+            // so a full-3D snap would essentially never fire (a corner can't come
+            // within range in the other two axes). Match Blender: snap along the
+            // drag axis. An explicit X/Y/Z lock wins; a plane/centre handle (no
+            // single axis) falls back to full-3D snap.
+            const handle = (gizmo as unknown as {axis: string | null}).axis;
+            const handleAxis =
+                handle === "X" ? 0 : handle === "Y" ? 1 : handle === "Z" ? 2 : null;
+            const snapAxis = st.gizmoAxisLock ?? handleAxis;
+            const {origin, snap} = snappedTranslateOrigin(
                 cell,
                 [gizmoProxy.position.x, gizmoProxy.position.y, gizmoProxy.position.z],
                 st.cells,
@@ -972,10 +1031,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                     gridStep: st.gridStep,
                     snapThreshold: st.snapThreshold,
                     vertexSnap: st.gizmoVertexSnap,
-                    axisLock: st.gizmoAxisLock,
+                    axisLock: snapAxis,
                 },
             );
             st.updateCell(cell.id, {origin});
+            showSnapMarker(snap ? snap.target : null);
         } else if (st.gizmoMode === "rotate") {
             // Proxy euler is ZYX (see gizmoProxy.rotation.order) → matches the
             // store/compiler; snap to 0.1° so it reads cleanly in the panel.
@@ -1456,13 +1516,14 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                     const center = cellCenterModel(cell);
                     const startCenterAxis = modalMove.startBox.origin[axis] + modalMove.startBox.size[axis] / 2;
                     center[axis] = startCenterAxis + (t - modalMove.startT);
-                    const origin = snappedTranslateOrigin(cell, center, st.cells, {
+                    const {origin, snap} = snappedTranslateOrigin(cell, center, st.cells, {
                         gridStep: st.gridStep,
                         snapThreshold: st.snapThreshold,
                         vertexSnap: st.gizmoVertexSnap,
                         axisLock: st.gizmoAxisLock,
                     });
                     st.updateCell(cell.id, {origin});
+                    showSnapMarker(snap ? snap.target : null);
                 }
             }
             ev.stopPropagation();
@@ -1802,6 +1863,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         guideLine.geometry.dispose();
         (guideLine.material as THREE.Material).dispose();
         container.remove(guideLine);
+        snapTex.dispose();
+        (snapMarker.material as THREE.Material).dispose();
+        scene.remove(snapMarker);
         disposeResizeHandles();
         hiddenDefaultGrids.forEach((g) => (g.visible = true));
         hiddenDefaultGrids.length = 0;

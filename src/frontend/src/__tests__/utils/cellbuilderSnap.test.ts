@@ -13,6 +13,7 @@ import {
     quantize,
     snapBox,
     snapBoxTranslation,
+    snapBoxTranslationDetail,
     snapToVertices,
     snapToVerticesAxis,
     withAxisLength,
@@ -103,6 +104,34 @@ test("snapBoxTranslation: axis-locked snap moves only that axis", () => {
     assert.equal(delta![0], 0);
     assert.ok(Math.abs(delta![1] + 0.05) < 1e-9);
     assert.equal(delta![2], 0);
+});
+
+test("snapBoxTranslationDetail reports the snapped-onto vertex (for the marker)", () => {
+    // free 3D snap: candidate min corner (1.08,0.05,-0.03) snaps onto (1,0,0)
+    const hit = snapBoxTranslationDetail(
+        {origin: [1.08, 0.05, -0.03], size: [1, 1, 1]},
+        [{origin: [0, 0, 0], size: [1, 1, 1]}],
+        0.25,
+        null,
+    );
+    assert.ok(hit !== null);
+    assert.deepEqual(hit!.target, [1, 0, 0]);
+    assert.ok(Math.abs(hit!.delta[0] + 0.08) < 1e-9);
+});
+
+test("snapBoxTranslationDetail axis-locked marks the matched neighbour corner", () => {
+    const hit = snapBoxTranslationDetail(
+        {origin: [1.1, 3, 3], size: [1, 1, 1]},
+        [{origin: [0, 0, 0], size: [1, 1, 1]}],
+        0.25,
+        0, // lock X
+    );
+    assert.ok(hit !== null);
+    // the target is an existing corner whose X (1) matched; marker sits there
+    assert.equal(hit!.target[0], 1);
+    assert.ok(Math.abs(hit!.delta[0] + 0.1) < 1e-9);
+    assert.equal(hit!.delta[1], 0);
+    assert.equal(hit!.delta[2], 0);
 });
 
 test("snapBoxTranslation: no neighbours in range yields null", () => {
