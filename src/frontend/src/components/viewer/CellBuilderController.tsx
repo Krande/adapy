@@ -21,6 +21,7 @@ import {
     originFromCenter,
     quantize,
     snapBox,
+    snapBoxTranslation,
     type CellBox,
     type EdgeHit,
     type Vec3,
@@ -814,11 +815,42 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 }
                 return;
             }
-            const origin = originFromCenter(
-                [gizmoProxy.position.x, gizmoProxy.position.y, gizmoProxy.position.z],
-                cell.size,
-                step,
-            );
+            // Vertex magnetism (default on): try to snap the dragged box's
+            // corners onto a neighbour's corners. With an axis lock active the
+            // snap is constrained to that axis only (Blender behaviour). A hit
+            // lands the corner exactly on the (grid-clean) neighbour corner and
+            // wins over grid quantization; a miss falls back to grid snapping.
+            let origin: Vec3 | null = null;
+            if (st.gizmoVertexSnap) {
+                const rawOrigin: Vec3 = [
+                    gizmoProxy.position.x - cell.size[0] / 2,
+                    gizmoProxy.position.y - cell.size[1] / 2,
+                    gizmoProxy.position.z - cell.size[2] / 2,
+                ];
+                const others = Object.values(st.cells)
+                    .filter((c) => c.id !== cell.id)
+                    .map((c) => ({origin: c.origin, size: c.size}) as CellBox);
+                const delta = snapBoxTranslation(
+                    {origin: rawOrigin, size: cell.size},
+                    others,
+                    st.snapThreshold,
+                    st.gizmoAxisLock,
+                );
+                if (delta) {
+                    origin = [
+                        quantize(rawOrigin[0] + delta[0], step),
+                        quantize(rawOrigin[1] + delta[1], step),
+                        quantize(rawOrigin[2] + delta[2], step),
+                    ];
+                }
+            }
+            if (!origin) {
+                origin = originFromCenter(
+                    [gizmoProxy.position.x, gizmoProxy.position.y, gizmoProxy.position.z],
+                    cell.size,
+                    step,
+                );
+            }
             st.updateCell(cell.id, {origin});
         } else if (st.gizmoMode === "rotate") {
             // Proxy euler is ZYX (see gizmoProxy.rotation.order) → matches the
@@ -891,7 +923,13 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             st.active && st.gizmoMode === "rotate" && cell && cell.kind === "equipment" && st.cellsVisible
         );
         if (translateOn && cell) {
-            gizmo.setTranslationSnap(st.gridStep > 0 ? st.gridStep : null);
+            // With vertex magnetism on, let the widget move continuously so the
+            // snap in objectChange (corner-to-corner, or axis-locked) fully owns
+            // where the cell lands. Otherwise fall back to the grid step so the
+            // gizmo itself steps on the grid.
+            gizmo.setTranslationSnap(
+                st.gizmoVertexSnap ? null : st.gridStep > 0 ? st.gridStep : null,
+            );
             if (!gizmo.dragging) {
                 gizmoProxy.rotation.set(0, 0, 0);
                 gizmoProxy.position.set(
@@ -1537,6 +1575,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             s.selection !== prev.selection ||
             s.gizmoMode !== prev.gizmoMode ||
             s.gizmoAxisLock !== prev.gizmoAxisLock ||
+            s.gizmoVertexSnap !== prev.gizmoVertexSnap ||
             s.cells !== prev.cells ||
             s.active !== prev.active ||
             s.gridStep !== prev.gridStep ||

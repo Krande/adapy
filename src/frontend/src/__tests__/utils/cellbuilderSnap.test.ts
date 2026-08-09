@@ -12,7 +12,9 @@ import {
     placeInCell,
     quantize,
     snapBox,
+    snapBoxTranslation,
     snapToVertices,
+    snapToVerticesAxis,
     withAxisLength,
 } from "../../utils/cellbuilder/snap";
 
@@ -55,6 +57,64 @@ test("snapBox attaches a nearby box magnetically", () => {
     assert.ok(Math.abs(snapped.origin[0] - 1) < 1e-9);
     assert.ok(Math.abs(snapped.origin[1]) < 1e-9);
     assert.ok(Math.abs(snapped.origin[2]) < 1e-9);
+});
+
+test("snapToVerticesAxis snaps only along the locked axis", () => {
+    // candidate corner (1.1, 0.1, 0.1) is close to existing (1,0,0): free snap
+    // would pull all three axes, but locked to X only the X delta is returned.
+    const candidate = boxCorners({origin: [1.1, 0.1, 0.1], size: [1, 1, 1]});
+    const existing = boxCorners({origin: [0, 0, 0], size: [1, 1, 1]});
+    const delta = snapToVerticesAxis(candidate, existing, 0.25, 0);
+    assert.ok(delta !== null);
+    assert.ok(Math.abs(delta![0] + 0.1) < 1e-9); // -0.1 along X
+    assert.equal(delta![1], 0);
+    assert.equal(delta![2], 0);
+});
+
+test("snapToVerticesAxis returns null when the locked axis is out of range", () => {
+    // X is aligned already (delta 0 is within range) — but check the miss case:
+    // move far along the locked axis so nothing is reachable there.
+    const candidate = boxCorners({origin: [5, 0, 0], size: [1, 1, 1]});
+    const existing = boxCorners({origin: [0, 0, 0], size: [1, 1, 1]});
+    assert.equal(snapToVerticesAxis(candidate, existing, 0.25, 0), null);
+});
+
+test("snapBoxTranslation: free snap aligns a corner in 3D", () => {
+    const delta = snapBoxTranslation(
+        {origin: [1.08, 0.05, -0.03], size: [1, 1, 1]},
+        [{origin: [0, 0, 0], size: [1, 1, 1]}],
+        0.25,
+        null,
+    );
+    assert.ok(delta !== null);
+    assert.ok(Math.abs(delta![0] + 0.08) < 1e-9);
+    assert.ok(Math.abs(delta![1] + 0.05) < 1e-9);
+    assert.ok(Math.abs(delta![2] - 0.03) < 1e-9);
+});
+
+test("snapBoxTranslation: axis-locked snap moves only that axis", () => {
+    const delta = snapBoxTranslation(
+        {origin: [1.08, 0.05, -0.03], size: [1, 1, 1]},
+        [{origin: [0, 0, 0], size: [1, 1, 1]}],
+        0.25,
+        1, // lock Y
+    );
+    assert.ok(delta !== null);
+    assert.equal(delta![0], 0);
+    assert.ok(Math.abs(delta![1] + 0.05) < 1e-9);
+    assert.equal(delta![2], 0);
+});
+
+test("snapBoxTranslation: no neighbours in range yields null", () => {
+    assert.equal(
+        snapBoxTranslation(
+            {origin: [10, 10, 10], size: [1, 1, 1]},
+            [{origin: [0, 0, 0], size: [1, 1, 1]}],
+            0.25,
+            null,
+        ),
+        null,
+    );
 });
 
 test("applyFaceOffset grows a positive face", () => {

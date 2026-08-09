@@ -908,6 +908,17 @@ const CellBuilderPanel: React.FC = () => {
             </span>
             <label
               className="flex items-center gap-1"
+              title="Vertex snapping: while moving a cell with the translate gizmo, magnetically align its corners onto neighbouring cells' corners (within the snap distance). With an axis lock (X/Y/Z) active, the snap is constrained to that axis only, Blender-style."
+            >
+              <input
+                type="checkbox"
+                checked={s.gizmoVertexSnap}
+                onChange={(e) => s.setGizmoVertexSnap(e.target.checked)}
+              />
+              Vertex snap (move)
+            </label>
+            <label
+              className="flex items-center gap-1"
               title="Allow dragging a cell face in the scene to resize it. Off by default — use the Resize gizmo (long-press / right-click a cell, or the selection panel) instead."
             >
               <input

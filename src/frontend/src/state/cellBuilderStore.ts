@@ -273,6 +273,12 @@ interface CellBuilderState {
    * HUD; restricts the visible/usable gizmo handle and scopes numeric entry.
    * Cleared whenever the gizmo mode or selection changes. */
   gizmoAxisLock: 0 | 1 | 2 | null;
+  /** Vertex magnetism for the translate gizmo — snap the dragged cell's nearest
+   * corner onto a neighbouring cell's corner within snapThreshold. On by
+   * default. When an axis lock is active the snap is constrained to that axis
+   * only (Blender behaviour), so a locked move still aligns to a face/vertex
+   * along the lock without hopping off the axis. */
+  gizmoVertexSnap: boolean;
   /** Allow dragging a cell face in the scene to resize it. Off by default —
    * resizing goes through the explicit resize gizmo so plain navigation never
    * accidentally reshapes a cell. */
@@ -371,6 +377,8 @@ interface CellBuilderState {
   setGizmoMode: (mode: GizmoMode) => void;
   /** Lock/unlock the active gizmo to one axis (null clears the constraint). */
   setGizmoAxisLock: (axis: 0 | 1 | 2 | null) => void;
+  /** Toggle vertex magnetism for the translate gizmo. */
+  setGizmoVertexSnap: (on: boolean) => void;
   /** Move a cell by `delta` metres along `axis` (origin-quantised, undoable) —
    * the Blender-style "G, X, 2, Enter" numeric nudge. */
   translateCellAlongAxis: (id: string, axis: 0 | 1 | 2, delta: number) => void;
@@ -1008,6 +1016,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     selectMode: "cell",
     gizmoMode: "none",
     gizmoAxisLock: null,
+    gizmoVertexSnap: true,
     faceDragResize: false,
     contextMenu: null,
     insertMenu: null,
@@ -1149,6 +1158,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     // Switching gizmo (or turning it off) drops any axis constraint.
     setGizmoMode: (gizmoMode) => set({ gizmoMode, gizmoAxisLock: null }),
     setGizmoAxisLock: (gizmoAxisLock) => set({ gizmoAxisLock }),
+    setGizmoVertexSnap: (gizmoVertexSnap) => set({ gizmoVertexSnap }),
     translateCellAlongAxis: (id, axis, delta) =>
       withHistory((s) => {
         const cur = s.cells[id];

@@ -64,6 +64,60 @@ export function snapToVertices(candidateCorners: Vec3[], existingCorners: Vec3[]
     return best;
 }
 
+/**
+ * Vertex magnetism constrained to ONE axis: the smallest delta ALONG `axis`
+ * (the other two components zero) that lands one candidate corner's `axis`
+ * coordinate exactly onto an existing corner's, or null when none is within
+ * `threshold`. This is the Blender axis-locked snap — a move constrained to X
+ * still snaps to a neighbour's face/vertex along X without hopping off the axis.
+ */
+export function snapToVerticesAxis(
+    candidateCorners: Vec3[],
+    existingCorners: Vec3[],
+    threshold: number,
+    axis: 0 | 1 | 2,
+): Vec3 | null {
+    let bestDelta = 0;
+    let bestDist = threshold;
+    let found = false;
+    for (const c of candidateCorners) {
+        for (const e of existingCorners) {
+            const d = e[axis] - c[axis];
+            const ad = Math.abs(d);
+            if (ad <= bestDist) {
+                bestDist = ad;
+                bestDelta = d;
+                found = true;
+            }
+        }
+    }
+    if (!found) return null;
+    const out: Vec3 = [0, 0, 0];
+    out[axis] = bestDelta;
+    return out;
+}
+
+/**
+ * Translation vertex-snap for the move gizmo: the delta that magnetically
+ * aligns the dragged box's corners to any of `existing`'s corners. `axisLock`
+ * null = free 3D snap (one corner lands exactly on a neighbour corner);
+ * 0/1/2 = constrain the snap to that axis only. Null when nothing's in range.
+ * Callers should exclude the dragged box itself from `existing`.
+ */
+export function snapBoxTranslation(
+    candidate: CellBox,
+    existing: CellBox[],
+    threshold: number,
+    axisLock: 0 | 1 | 2 | null,
+): Vec3 | null {
+    if (!existing.length) return null;
+    const cand = boxCorners(candidate);
+    const targets = existing.flatMap(boxCorners);
+    return axisLock === null
+        ? snapToVertices(cand, targets, threshold)
+        : snapToVerticesAxis(cand, targets, threshold, axisLock);
+}
+
 /** Convenience: snap a whole candidate box against a set of existing boxes. */
 export function snapBox(candidate: CellBox, existing: CellBox[], threshold: number): CellBox {
     if (!existing.length) return candidate;
