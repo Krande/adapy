@@ -10,6 +10,9 @@ import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
 import {hideSelectedRanges, unhideAllRanges} from "@/utils/scene/visibility";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
 import {selectChildLevel, selectParentLevel, selectSibling} from "@/utils/tree_view/treeNavigation";
+import {useCellBuilderStore} from "@/state/cellBuilderStore";
+import {frameCells} from "@/utils/scene/frameCells";
+import {requestRender} from "@/state/perfStore";
 
 export function setupCameraControlsHandlers(
     scene: THREE.Scene,
@@ -74,9 +77,26 @@ export function setupCameraControlsHandlers(
         } else if (shift && key === "u") {
             unhideAllRanges();
         } else if (shift && key === "f") {
-            centerViewOnSelection(controls, camera);
+            // Builder cells are __excludeFromFit (they're a tool overlay), so
+            // centerViewOnSelection finds nothing for a cell selection — frame
+            // the selected cells directly, same as the mobile "Go to object"
+            // button. Falls through to the draw-range selection otherwise.
+            const cb = useCellBuilderStore.getState();
+            if (cb.active !== null && cb.selection !== null && frameCells(cb.selectedCellIds, controls, camera)) {
+                requestRender();
+            } else {
+                centerViewOnSelection(controls, camera);
+            }
         } else if (shift && key === "a") {
-            zoomToAll(scene, camera, controls);
+            // Likewise "fit all": a procedural model in the cellbuilder shows
+            // only excluded cell boxes until it's compiled, so zoomToAll would
+            // frame nothing — frame all cells instead when the builder is active.
+            const cb = useCellBuilderStore.getState();
+            if (cb.active !== null && Object.keys(cb.cells).length > 0 && frameCells("all", controls, camera)) {
+                requestRender();
+            } else {
+                zoomToAll(scene, camera, controls);
+            }
         } else if (shift && key === "q") {
             const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();
             setIsOptionsVisible(!isOptionsVisible);
