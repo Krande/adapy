@@ -537,6 +537,14 @@ interface CellBuilderState {
   /** Build the current (uncommitted) document as an ephemeral preview — no
    * commit, no revision bump; the interactive visualise-then-commit loop. */
   compilePreview: (force?: boolean, lod?: "sim" | "detail") => Promise<void>;
+  /** Preview the LOD(s) selected by buildSim/buildDetail (the Compile button and
+   * the ⇧↵ shortcut). Builds each so switching views is instant. */
+  compilePreviewSelected: (force?: boolean) => Promise<void>;
+  /** Which level(s) of detail a Compile produces: simulation, detail, or both. */
+  buildSim: boolean;
+  buildDetail: boolean;
+  setBuildSim: (on: boolean) => void;
+  setBuildDetail: (on: boolean) => void;
   /** Compile the CURRENT (uncommitted) doc entirely in the browser via the
    * built-in adapy engine (Pyodide/WASM), loading the result straight into the
    * scene — no server round-trip, no commit. Catalog/CAD equipment falls back to
@@ -870,34 +878,22 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         name: active.name,
       });
     };
-    // Auto-show the result once ready when auto-compile is on, so
-    // edit -> compile -> render is one gesture.
+    // Show the freshly-built result — WITHOUT moving the camera (viewResult loads
+    // with autoFit off) and WITHOUT superimposing it on the topology. Topology and
+    // result are separate layers: the result renders only when it's the thing to
+    // show — either side-by-side is on (result sits beside the topology) or a
+    // matching result view is active. In plain Topology view it stays hidden, so
+    // the topology view shows only topology. Only the LOD the current view wants
+    // renders, so building "both" never double-draws.
     const autoShow = () => {
       const cur = get().compileJob;
       if (!cur || !cur.derivedKey) return;
-      // Show the result when auto-compile is on, OR refresh a result already on
-      // screen — a forced rebuild overwrites the same derivedKey with new bytes
-      // (the loader re-fetches via a fresh presigned URL), so the displayed model
-      // must reload. The detail model shows whenever detail is the active rep.
-      const sourceShown =
-        lod === "detail"
-          ? get().detailSourceName !== null || get().repMode === "detail"
-          : get().resultSourceName !== null || get().repMode === "simulation";
-      if (!(get().autoCompile || sourceShown)) return;
-      void get()
-        .viewResult(cur.derivedKey, lod)
-        .then(() => {
-          // Compiling from the editable Topology view drops the result ON TOP of
-          // the cells — the superimpose state. Formalise it: record superimpose,
-          // switch the toggle to the result mode, keep topology underneath. If a
-          // result is already shown, leave the user's toggle/superimpose choice.
-          if (get().repMode !== "topology") return;
-          const rm = lod === "detail" ? "detail" : "simulation";
-          set({ repMode: rm, superimpose: true });
-          if (lod === "detail") get().hideResult();
-          else get().hideDetail();
-          get().setCellsVisible(true);
-        });
+      const wantLod = get().repMode === "detail" ? "detail" : "simulation";
+      const resultViewActive =
+        get().repMode === "simulation" || get().repMode === "detail";
+      if (!(get().sideBySide || resultViewActive)) return;
+      if (lod !== wantLod) return;
+      void get().viewResult(cur.derivedKey, lod);
     };
     try {
       const res = await enqueue();
@@ -1015,6 +1011,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     repMode: "topology",
     superimpose: false,
     sideBySide: false,
+    buildSim: true,
+    buildDetail: false,
     relocations: null,
     relocationBusy: false,
     resyncBusy: false,
@@ -2079,6 +2077,19 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       );
     },
 
+    compilePreviewSelected: async (force = false) => {
+      // Build whichever LOD(s) the user selected (defaulting to simulation if
+      // somehow neither is on). Sequential so the two jobs don't contend; each
+      // shows in its own view (autoShow renders only the active view's LOD).
+      const { buildSim, buildDetail } = get();
+      const sim = buildSim || !buildDetail;
+      if (sim) await get().compilePreview(force, "sim");
+      if (buildDetail) await get().compilePreview(force, "detail");
+    },
+
+    setBuildSim: (on) => set({ buildSim: on }),
+    setBuildDetail: (on) => set({ buildDetail: on }),
+
     viewResult: async (derivedKey: string, lod = "sim") => {
       const active = get().active;
       const base = active ? active.name : derivedKey;
@@ -2088,7 +2099,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       const { load_glb_by_url_rest } = await import(
         "@/utils/scene/handlers/view_file_object_from_server"
       );
-      await load_glb_by_url_rest(currentScopePart(), derivedKey, sourceName);
+      // autoFit=false: a compile/recompile must never move the camera.
+      await load_glb_by_url_rest(currentScopePart(), derivedKey, sourceName, false);
       set(
         lod === "detail"
           ? { detailSourceName: sourceName }
@@ -2168,7 +2180,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           wheel,
         });
         const sourceName = `procedural:${active.name}`;
-        await load_glb_from_bytes(bytes, sourceName);
+        await load_glb_from_bytes(bytes, sourceName, false); // never move the camera
         set({ resultSourceName: sourceName });
         if (get().sideBySide) {
           const { applySideBySideOffset } = await import(
@@ -2259,12 +2271,18 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
     setSideBySide: (on) => {
       set({ sideBySide: on });
-      // Keep the editable topology visible beside the result while side-by-side
-      // is on; turning it off restores the superimpose choice (or the always-on
-      // cells of topology mode).
-      get().setCellsVisible(
-        on || get().repMode === "topology" || get().superimpose,
-      );
+      if (on) {
+        // Keep the editable topology visible beside the result.
+        get().setCellsVisible(true);
+      } else if (get().repMode === "topology") {
+        // Back to a pure Topology view: drop the result that sat beside it so the
+        // topology view shows only topology.
+        get().hideResult();
+        get().hideDetail();
+      } else {
+        // In a result view, restore the superimpose choice for the cell layer.
+        get().setCellsVisible(get().superimpose);
+      }
       const apply = (src: string | null) => {
         if (!src) return;
         void import("@/utils/scene/handlers/side_by_side").then(

@@ -1012,6 +1012,34 @@ const CellBuilderPanel: React.FC = () => {
             Open result in new window
           </button>
 
+          <div className="flex items-center gap-3 flex-wrap pt-1 border-t border-gray-600/40">
+            <span className="text-gray-400">Compile builds</span>
+            <label
+              className="inline-flex items-center gap-1 cursor-pointer"
+              title="Produce the simulation-level result (plates, beams, systems)"
+            >
+              <input
+                type="checkbox"
+                className="accent-blue-600"
+                checked={s.buildSim}
+                onChange={(e) => s.setBuildSim(e.target.checked)}
+              />
+              Simulation
+            </label>
+            <label
+              className="inline-flex items-center gap-1 cursor-pointer"
+              title="Also produce the high-fidelity detail result (trimmed deck edges, I-girder joints). Switch the representation to Detail to view it."
+            >
+              <input
+                type="checkbox"
+                className="accent-blue-600"
+                checked={s.buildDetail}
+                onChange={(e) => s.setBuildDetail(e.target.checked)}
+              />
+              Detail
+            </label>
+          </div>
+
           <Section title="Overlays">
             <IconOverlaySection />
             <button
@@ -1249,8 +1277,8 @@ const CellBuilderPanel: React.FC = () => {
           <button
             className={btn + " rounded-r-none flex items-center gap-1.5"}
             disabled={compileBusy}
-            onClick={() => void s.compilePreview()}
-            title="Compile a preview of the current, uncommitted model (⇧↵). Nothing is saved — commit only when you're happy with what you see."
+            onClick={() => void s.compilePreviewSelected()}
+            title="Compile a preview of the current, uncommitted model (⇧↵) at the selected level(s) of detail. Nothing is saved — commit only when you're happy with what you see."
           >
             {compileBusy ? `Compiling (${compileState?.status})…` : "Compile"}
             <kbd className="text-[10px] font-semibold bg-white/20 border border-white/25 rounded px-1">
@@ -1281,7 +1309,7 @@ const CellBuilderPanel: React.FC = () => {
                 label: "Recompile preview (force)",
                 title:
                   "Rebuild the preview even if this doc is cached — use after a compiler/engine change when the document itself hasn't changed",
-                onClick: () => void s.compilePreview(true),
+                onClick: () => void s.compilePreviewSelected(true),
               },
               {
                 key: "browser",

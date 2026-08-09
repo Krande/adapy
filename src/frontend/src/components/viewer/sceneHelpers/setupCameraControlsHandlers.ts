@@ -104,7 +104,7 @@ export function setupCameraControlsHandlers(
             const cb = useCellBuilderStore.getState();
             if (cb.active) {
                 event.preventDefault();
-                void cb.compilePreview();
+                void cb.compilePreviewSelected();
             }
         } else if (shift && key === "q") {
             const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();

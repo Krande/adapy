@@ -35,6 +35,10 @@ export async function setupModelLoaderAsync(
     requestHeaders?: Record<string, string>,
     // Optional admin load-metrics recorder (REST view path). No-op when absent.
     metrics?: LoadMetricsRecorder | null,
+    // Override the auto fit-to-view after load. Undefined = honour the scene
+    // config toggle (optionsStore.autoFit); false = never fit (e.g. a procedural
+    // recompile, which must not move the camera on every ⇧↵).
+    autoFitOverride?: boolean,
 ): Promise<THREE.Group> {
     if (sceneRef.current == null) {
         console.error("Scene reference is null");
@@ -192,7 +196,7 @@ export async function setupModelLoaderAsync(
     // Auto fit-to-all after the model is in the scene (scene-config toggle, default on) —
     // frames a freshly loaded model, and each geom cycled through in gallery mode, without a
     // manual Shift+A. Deferred a frame so the just-added meshes' world bounds are current.
-    if (optionsStore.autoFit) {
+    if (autoFitOverride ?? optionsStore.autoFit) {
         const cam = cameraRef.current;
         const ctl = controlsRef.current;
         const scn = sceneRef.current;
