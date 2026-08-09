@@ -1,4 +1,3 @@
-import {PANEL_CHROME} from "@/state/themeStore";
 import React from "react";
 
 import CollapsibleSection from "@/components/common/CollapsibleSection";
@@ -12,66 +11,169 @@ import FaceSearchSection from "./FaceSearchSection";
 import SectionPlanesPanel from "./SectionPlanesPanel";
 import FemConceptsPanel from "./FemConceptsPanel";
 import MeshDistortionSection from "./MeshDistortionSection";
-import {useSceneInfoStore} from "@/state/sceneInfoStore";
+import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
+import {useFemConceptsStore} from "@/state/femConceptsStore";
+import {useBottomSheet} from "@/utils/useBottomSheet";
 
-// Container for everything that talks about the currently-loaded scene
-// rather than a single selected object. A mode dropdown switches between
-// "Info" (Stats + Groups — the per-model metrics baked into the ADA glTF
-// extension + the design/simulation group picker) and "Utilities" (worker-
-// defined operations such as the branch/SHA diff that recolours the scene).
+// The Scene panel groups everything that talks about the loaded scene (rather
+// than a single selected object). Its destinations used to hide behind a 6-way
+// mode <select>; now they're a tab strip that adapts to what's loaded. Every
+// model is a GLB in the scene, so Model / Tools / Clip / Mesh always apply —
+// only FEM is contextual (it needs baked FE concepts: masses / BCs / load
+// scenarios). "Loaded models" stays pinned above the tabs, visible in every one.
+//
+// The 6 legacy modes map onto 5 tabs: Info + Source merge into "Model" (both
+// describe what's loaded), Utilities → Tools, Section → Clip, and Mesh / FEM
+// keep their own tabs. The store still holds a `mode`, so external openers keep
+// working; the tab bar is just a nicer projection of it.
+
+// Colour tokens used by this panel — same CSS vars as PANEL_CHROME, but the
+// pinned regions manage their own padding so the tab strip can span edge-to-edge
+// and the body scrolls independently.
+const CHROME =
+    "bg-[var(--ada-panel-bg)] border border-[var(--ada-panel-border)] " +
+    "text-[var(--ada-panel-text)] shadow-lg";
+
+type SceneTab = "model" | "tools" | "clip" | "mesh" | "fem";
+
+const TAB_META: {id: SceneTab; label: string; ctx?: boolean}[] = [
+    {id: "model", label: "Model"},
+    {id: "tools", label: "Tools"},
+    {id: "clip", label: "Clip"},
+    {id: "mesh", label: "Mesh"},
+    {id: "fem", label: "FEM", ctx: true},
+];
+
+const MODE_TO_TAB: Record<SceneInfoMode, SceneTab> = {
+    info: "model",
+    source: "model",
+    utilities: "tools",
+    section: "clip",
+    mesh: "mesh",
+    fem: "fem",
+};
+
+const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
+    model: "info",
+    tools: "utilities",
+    clip: "section",
+    mesh: "mesh",
+    fem: "fem",
+};
+
 const SceneInfoBox = () => {
     const mode = useSceneInfoStore((s) => s.mode);
     const setMode = useSceneInfoStore((s) => s.setMode);
-    return (
-        <div className={`${PANEL_CHROME} min-w-80 max-h-[80vh] overflow-y-auto`}>
+    const setShow = useSceneInfoStore((s) => s.setShowSceneInfoBox);
 
-            <div className="flex items-center justify-between mb-1">
-                <h2 className="font-bold">Scene</h2>
-                <select
-                    className="text-sm rounded-sm px-1 py-0.5 bg-gray-700 text-gray-100 border border-gray-600"
-                    value={mode}
-                    onChange={(e) =>
-                        setMode(e.target.value as "info" | "source" | "utilities" | "section" | "fem" | "mesh")
-                    }
-                >
-                    <option value="info">Info</option>
-                    <option value="source">Source</option>
-                    <option value="utilities">Utilities</option>
-                    <option value="section">Section</option>
-                    <option value="fem">FEM</option>
-                    <option value="mesh">Mesh</option>
-                </select>
+    // FEM is the one contextual tab: it appears only when the loaded model
+    // carries FE concepts to show (masses / boundary conditions / load cases).
+    const femHasConcepts = useFemConceptsStore(
+        (s) => s.masses.length > 0 || s.bcs.length > 0 || s.scenarios.length > 0,
+    );
+
+    const {panelRef, isMobile, sheetStyle, grab} = useBottomSheet(() => setShow(false));
+
+    const tabs = TAB_META.filter((t) => !t.ctx || femHasConcepts);
+    // Derive the active tab from the store mode, falling back to Model if the
+    // stored mode points at a tab that isn't currently available (e.g. FEM after
+    // the FE model was unloaded).
+    let tab = MODE_TO_TAB[mode];
+    if (!tabs.some((t) => t.id === tab)) tab = "model";
+
+    return (
+        <div
+            ref={panelRef}
+            style={sheetStyle}
+            className={
+                CHROME +
+                " text-sm flex flex-col overflow-hidden " +
+                // mobile: dock as a bottom sheet; desktop: float in the menu column.
+                "fixed inset-x-0 bottom-0 z-30 w-full max-h-[82vh] rounded-t-2xl " +
+                "sm:static sm:z-auto sm:w-auto sm:min-w-80 sm:max-w-[420px] sm:max-h-[80vh] sm:rounded-md"
+            }
+        >
+            {/* mobile grab handle — drag to resize the sheet, flick down to dismiss */}
+            <div
+                className="sm:hidden shrink-0 flex justify-center items-center py-2 cursor-grab active:cursor-grabbing touch-none"
+                role="separator"
+                aria-label="Drag to resize the panel"
+                {...grab}
+            >
+                <span className="block w-10 h-1.5 rounded-full bg-gray-400/70" aria-hidden="true" />
             </div>
-            {/* Flat list of every loaded model, whatever storage folder
-                depth it came from — visible in every mode so toggling /
-                unloading never requires digging through prefix trees. */}
-            <CollapsibleSection title="Loaded models" defaultOpen>
-                <LoadedModelsSection/>
-            </CollapsibleSection>
-            {mode === "info" ? (
-                <>
-                    <FacePickingToggle/>
-                    <FaceSearchSection/>
-                    <CollapsibleSection title="Stats" defaultOpen>
-                        <StatsSection/>
-                    </CollapsibleSection>
-                    <CollapsibleSection title="Groups" defaultOpen>
-                        <GroupsSection/>
-                    </CollapsibleSection>
-                </>
-            ) : mode === "source" ? (
-                <CollapsibleSection title="Source" defaultOpen>
-                    <SourceSection/>
+
+            {/* ── pinned header ── */}
+            <div className="shrink-0 flex items-center justify-between px-2.5 pt-1.5 pb-1">
+                <h2 className="font-bold">Scene</h2>
+            </div>
+
+            {/* Pinned flat list of every loaded model — visible in every tab so
+                toggling / unloading never means digging through prefix trees.
+                Capped so a long list can't swallow the whole sheet. */}
+            <div className="shrink-0 px-2.5 max-h-40 overflow-y-auto">
+                <CollapsibleSection title="Loaded models" defaultOpen>
+                    <LoadedModelsSection />
                 </CollapsibleSection>
-            ) : mode === "utilities" ? (
-                <UtilitiesSection/>
-            ) : mode === "section" ? (
-                <SectionPlanesPanel/>
-            ) : mode === "mesh" ? (
-                <MeshDistortionSection/>
-            ) : (
-                <FemConceptsPanel/>
-            )}
+            </div>
+
+            {/* ── adaptive tab strip ── */}
+            <div
+                className="shrink-0 flex gap-0.5 px-1.5 border-b border-white/15 overflow-x-auto"
+                role="tablist"
+                aria-label="Scene panel section"
+            >
+                {tabs.map((t) => (
+                    <button
+                        key={t.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={tab === t.id}
+                        onClick={() => setMode(TAB_TO_MODE[t.id])}
+                        className={
+                            "px-2.5 py-1.5 font-semibold whitespace-nowrap border-b-2 -mb-px flex items-center gap-1.5 " +
+                            (tab === t.id
+                                ? "border-blue-400 text-[var(--ada-panel-text)]"
+                                : "border-transparent text-gray-400 hover:text-[var(--ada-panel-text)]")
+                        }
+                    >
+                        {t.ctx && (
+                            <span
+                                className="w-1.5 h-1.5 rounded-full bg-violet-400"
+                                aria-hidden="true"
+                            />
+                        )}
+                        {t.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* ── scrollable tab body ── */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2">
+                {tab === "model" ? (
+                    <>
+                        <FacePickingToggle />
+                        <FaceSearchSection />
+                        <CollapsibleSection title="Stats" defaultOpen>
+                            <StatsSection />
+                        </CollapsibleSection>
+                        <CollapsibleSection title="Groups" defaultOpen={!isMobile}>
+                            <GroupsSection />
+                        </CollapsibleSection>
+                        <CollapsibleSection title="Source & re-convert" defaultOpen={false}>
+                            <SourceSection />
+                        </CollapsibleSection>
+                    </>
+                ) : tab === "tools" ? (
+                    <UtilitiesSection />
+                ) : tab === "clip" ? (
+                    <SectionPlanesPanel />
+                ) : tab === "mesh" ? (
+                    <MeshDistortionSection />
+                ) : (
+                    <FemConceptsPanel />
+                )}
+            </div>
         </div>
     );
 };
