@@ -120,6 +120,39 @@ function lineParamFromRay(ray: THREE.Ray, lineOrigin: THREE.Vector3, lineDir: TH
     return (e - b * d) / denom;
 }
 
+// Origin (min corner) for a cell whose centre is dragged to `center` (model
+// space). With vertex magnetism on, snap the box's corners onto a neighbour's
+// corners (axis-constrained when an axis lock is active); a hit lands exactly on
+// the grid-clean neighbour corner, a miss falls back to grid quantization.
+// Shared by the translate gizmo (objectChange) and the axis-locked modal move.
+function snappedTranslateOrigin(
+    cell: {id: string; origin: Vec3; size: Vec3},
+    center: Vec3,
+    cells: Record<string, BuilderCell>,
+    opts: {gridStep: number; snapThreshold: number; vertexSnap: boolean; axisLock: 0 | 1 | 2 | null},
+): Vec3 {
+    const step = opts.gridStep > 0 ? opts.gridStep : 0.1;
+    if (opts.vertexSnap) {
+        const rawOrigin: Vec3 = [
+            center[0] - cell.size[0] / 2,
+            center[1] - cell.size[1] / 2,
+            center[2] - cell.size[2] / 2,
+        ];
+        const others = Object.values(cells)
+            .filter((c) => c.id !== cell.id)
+            .map((c) => ({origin: c.origin, size: c.size}) as CellBox);
+        const delta = snapBoxTranslation({origin: rawOrigin, size: cell.size}, others, opts.snapThreshold, opts.axisLock);
+        if (delta) {
+            return [
+                quantize(rawOrigin[0] + delta[0], step),
+                quantize(rawOrigin[1] + delta[1], step),
+                quantize(rawOrigin[2] + delta[2], step),
+            ];
+        }
+    }
+    return originFromCenter(center, cell.size, step);
+}
+
 // --- Loft band geometry (read-only swept proxy) ----------------------------
 // Build a translucent swept mesh between a band's two profile rings (model-space
 // absolute points — the mesh sits at the container origin, which carries the
@@ -778,6 +811,119 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     gizmoHelper.visible = false;
     scene.add(gizmoHelper);
 
+    // --- Blender-style axis-locked modal move ---------------------------------
+    // When the translate gizmo is locked to an axis (X/Y/Z), the cell tracks the
+    // pointer along that axis with NO click-drag — move the mouse and it follows;
+    // left-click confirms, Escape cancels. This makes vertex snapping obvious
+    // (it's evaluated every pointer move) and matches Blender's G-then-X grab.
+    // `startT` is seeded on the first move so the cell doesn't jump on activation.
+    let modalMove:
+        | {
+              cellId: string;
+              axis: 0 | 1 | 2;
+              lineOrigin: THREE.Vector3; // world-space point on the constraint axis
+              lineDir: THREE.Vector3; // unit axis direction
+              startT: number | null; // ray param at grab start (null until first move)
+              startBox: CellBox; // pre-move box, for cancel
+          }
+        | null = null;
+    // A coloured line through the grab point showing the constraint axis.
+    const guideLine = new THREE.Line(
+        new THREE.BufferGeometry(),
+        new THREE.LineBasicMaterial({depthTest: false, transparent: true, opacity: 0.6}),
+    );
+    guideLine.userData.__excludeFromFit = true;
+    guideLine.visible = false;
+    guideLine.renderOrder = 2;
+    container.add(guideLine);
+
+    const showGuideLine = (axis: 0 | 1 | 2, centerModel: Vec3) => {
+        const dir: Vec3 = [axis === 0 ? 1 : 0, axis === 1 ? 1 : 0, axis === 2 ? 1 : 0];
+        const BIG = 1000;
+        const pts = new Float32Array([
+            centerModel[0] - dir[0] * BIG,
+            centerModel[1] - dir[1] * BIG,
+            centerModel[2] - dir[2] * BIG,
+            centerModel[0] + dir[0] * BIG,
+            centerModel[1] + dir[1] * BIG,
+            centerModel[2] + dir[2] * BIG,
+        ]);
+        guideLine.geometry.setAttribute("position", new THREE.BufferAttribute(pts, 3));
+        guideLine.geometry.computeBoundingSphere();
+        (guideLine.material as THREE.LineBasicMaterial).color.setHex(HANDLE_AXIS_COLOR[axis]);
+        guideLine.visible = true;
+    };
+
+    const cellCenterModel = (cell: BuilderCell): Vec3 => [
+        cell.origin[0] + cell.size[0] / 2,
+        cell.origin[1] + cell.size[1] / 2,
+        cell.origin[2] + cell.size[2] / 2,
+    ];
+
+    const startModalMove = (cell: BuilderCell, axis: 0 | 1 | 2) => {
+        // Switching axis/cell mid-grab: close the previous leg's undo step first
+        // (keeping its position — a plain re-lock is a confirm, not a cancel).
+        if (modalMove && modalMove.startT !== null) useCellBuilderStore.getState().endTransaction();
+        const centerModel = cellCenterModel(cell);
+        modalMove = {
+            cellId: cell.id,
+            axis,
+            lineDir: new THREE.Vector3(axis === 0 ? 1 : 0, axis === 1 ? 1 : 0, axis === 2 ? 1 : 0),
+            lineOrigin: new THREE.Vector3(centerModel[0], centerModel[1], centerModel[2]).add(offsetVec()),
+            startT: null,
+            startBox: {origin: [...cell.origin], size: [...cell.size]},
+        };
+        showGuideLine(axis, centerModel);
+        renderer.domElement.style.cursor = "move";
+    };
+
+    const endModalMove = (cancel: boolean) => {
+        if (!modalMove) return;
+        const mm = modalMove;
+        modalMove = null;
+        if (mm.startT !== null) {
+            if (cancel) {
+                useCellBuilderStore
+                    .getState()
+                    .updateCell(mm.cellId, {origin: [...mm.startBox.origin], size: [...mm.startBox.size]});
+            }
+            useCellBuilderStore.getState().endTransaction();
+        }
+        gizmo.enabled = true;
+        guideLine.visible = false;
+        renderer.domElement.style.cursor = "";
+        requestRender();
+    };
+
+    // Reconcile the modal-move with the store: active whenever the translate
+    // gizmo is locked to an axis on a (non-loft) cell. Called at the end of
+    // syncGizmo, so it can re-hide the gizmo helper that syncGizmo just showed.
+    const reconcileModalMove = () => {
+        const st = useCellBuilderStore.getState();
+        const cell = st.selection ? st.cells[st.selection.cellId] : null;
+        const on = !!(
+            st.active &&
+            st.gizmoMode === "translate" &&
+            st.gizmoAxisLock !== null &&
+            cell &&
+            cell.kind !== "loft" &&
+            st.cellsVisible
+        );
+        if (on && cell) {
+            const axis = st.gizmoAxisLock as 0 | 1 | 2;
+            if (!modalMove || modalMove.cellId !== cell.id || modalMove.axis !== axis) {
+                startModalMove(cell, axis);
+            }
+            // Take over from the TransformControls widget: disable it and hide its
+            // helper so a confirm-click can't grab a handle, and the pointer drives
+            // the move instead.
+            gizmo.enabled = false;
+            gizmoHelper.visible = false;
+        } else if (modalMove) {
+            endModalMove(false);
+        }
+    };
+
     gizmo.addEventListener("dragging-changed", (e: any) => {
         const st = useCellBuilderStore.getState();
         if (controlsRef.current) controlsRef.current.enabled = !e.value;
@@ -815,42 +961,20 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 }
                 return;
             }
-            // Vertex magnetism (default on): try to snap the dragged box's
-            // corners onto a neighbour's corners. With an axis lock active the
-            // snap is constrained to that axis only (Blender behaviour). A hit
-            // lands the corner exactly on the (grid-clean) neighbour corner and
-            // wins over grid quantization; a miss falls back to grid snapping.
-            let origin: Vec3 | null = null;
-            if (st.gizmoVertexSnap) {
-                const rawOrigin: Vec3 = [
-                    gizmoProxy.position.x - cell.size[0] / 2,
-                    gizmoProxy.position.y - cell.size[1] / 2,
-                    gizmoProxy.position.z - cell.size[2] / 2,
-                ];
-                const others = Object.values(st.cells)
-                    .filter((c) => c.id !== cell.id)
-                    .map((c) => ({origin: c.origin, size: c.size}) as CellBox);
-                const delta = snapBoxTranslation(
-                    {origin: rawOrigin, size: cell.size},
-                    others,
-                    st.snapThreshold,
-                    st.gizmoAxisLock,
-                );
-                if (delta) {
-                    origin = [
-                        quantize(rawOrigin[0] + delta[0], step),
-                        quantize(rawOrigin[1] + delta[1], step),
-                        quantize(rawOrigin[2] + delta[2], step),
-                    ];
-                }
-            }
-            if (!origin) {
-                origin = originFromCenter(
-                    [gizmoProxy.position.x, gizmoProxy.position.y, gizmoProxy.position.z],
-                    cell.size,
-                    step,
-                );
-            }
+            // Vertex magnetism (default on): snap the box's corners onto a
+            // neighbour's corners, axis-constrained under an axis lock. See
+            // snappedTranslateOrigin.
+            const origin = snappedTranslateOrigin(
+                cell,
+                [gizmoProxy.position.x, gizmoProxy.position.y, gizmoProxy.position.z],
+                st.cells,
+                {
+                    gridStep: st.gridStep,
+                    snapThreshold: st.snapThreshold,
+                    vertexSnap: st.gizmoVertexSnap,
+                    axisLock: st.gizmoAxisLock,
+                },
+            );
             st.updateCell(cell.id, {origin});
         } else if (st.gizmoMode === "rotate") {
             // Proxy euler is ZYX (see gizmoProxy.rotation.order) → matches the
@@ -978,6 +1102,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             gizmo.showX = gizmo.showY = gizmo.showZ = true;
         }
         rebuildResizeHandles();
+        // After the widget visibility is set, let the axis-locked modal move take
+        // over (it re-hides the helper it doesn't need).
+        reconcileModalMove();
         requestRender();
     };
 
@@ -1167,6 +1294,15 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (!st.active || ev.button !== 0) return;
         setPointer(ev);
 
+        // Axis-locked modal move active: a left-click confirms the placement and
+        // drops the axis lock (back to the 3-axis gizmo). No handle grab needed.
+        if (modalMove) {
+            endModalMove(false);
+            st.setGizmoAxisLock(null);
+            ev.stopPropagation();
+            return;
+        }
+
         if (
             st.mode === "add-cell" ||
             st.mode === "add-equipment" ||
@@ -1300,6 +1436,38 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         }
 
         setPointer(ev);
+
+        // Axis-locked modal move: the cell tracks the pointer along the locked
+        // axis, no button held. First move seeds the reference (no jump) and opens
+        // one undo step; later moves slide the cell (with vertex snapping).
+        if (modalMove && st.gizmoMode === "translate" && st.gizmoAxisLock === modalMove.axis) {
+            const cell = st.cells[modalMove.cellId];
+            if (!cell) {
+                endModalMove(false);
+                return;
+            }
+            const t = lineParamFromRay(raycaster.ray, modalMove.lineOrigin, modalMove.lineDir);
+            if (t !== null) {
+                if (modalMove.startT === null) {
+                    modalMove.startT = t;
+                    st.beginTransaction();
+                } else {
+                    const axis = modalMove.axis;
+                    const center = cellCenterModel(cell);
+                    const startCenterAxis = modalMove.startBox.origin[axis] + modalMove.startBox.size[axis] / 2;
+                    center[axis] = startCenterAxis + (t - modalMove.startT);
+                    const origin = snappedTranslateOrigin(cell, center, st.cells, {
+                        gridStep: st.gridStep,
+                        snapThreshold: st.snapThreshold,
+                        vertexSnap: st.gizmoVertexSnap,
+                        axisLock: st.gizmoAxisLock,
+                    });
+                    st.updateCell(cell.id, {origin});
+                }
+            }
+            ev.stopPropagation();
+            return;
+        }
 
         if (drag) {
             if (!drag.started) {
@@ -1528,6 +1696,15 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         // The insert popover owns its own Escape (it closes itself); don't also
         // unwind the selection underneath it.
         if (st.insertMenu) return;
+        // An active axis-locked modal move: Escape cancels it (restore the cell)
+        // and drops the lock, without also tearing down the gizmo/selection.
+        if (modalMove) {
+            endModalMove(true);
+            st.setGizmoAxisLock(null);
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
+        }
         // Escape unwinds one layer at a time: menu → gizmo → add-mode → selection.
         if (st.contextMenu) {
             st.closeContextMenu();
@@ -1622,6 +1799,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         gizmo.detach();
         gizmo.dispose();
         scene.remove(gizmoHelper);
+        guideLine.geometry.dispose();
+        (guideLine.material as THREE.Material).dispose();
+        container.remove(guideLine);
         disposeResizeHandles();
         hiddenDefaultGrids.forEach((g) => (g.visible = true));
         hiddenDefaultGrids.length = 0;
