@@ -311,6 +311,11 @@ interface CellBuilderState {
    * has an effect while a result representation is active (topology is the base
    * layer). See setSuperimpose. */
   superimpose: boolean;
+  /** Draw the compiled result BESIDE the editable topology (offset on +X) rather
+   * than on top of it — one scene, one camera, only the result group moves. The
+   * topology stays interactive at the origin, so you edit on the left and watch
+   * the result update on the right. See setSideBySide. */
+  sideBySide: boolean;
   /** Toggle the builder box meshes (hide to focus on the compiled structure). */
   cellsVisible: boolean;
   /** Individually hidden cells — ephemeral view state (not persisted, not
@@ -544,6 +549,8 @@ interface CellBuilderState {
    * the target result lazily the first time its view is opened. */
   setRepMode: (mode: RepresentationMode) => Promise<void>;
   setSuperimpose: (on: boolean) => Promise<void>;
+  /** Toggle the side-by-side result view (result offset beside the topology). */
+  setSideBySide: (on: boolean) => void;
   /** The last relocation proposals (or null). Populated by proposeRelocations;
    * applied only when the user clicks Apply. */
   relocations: ProceduralRelocationResult | null;
@@ -991,6 +998,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     detailSourceName: null,
     repMode: "topology",
     superimpose: false,
+    sideBySide: false,
     relocations: null,
     relocationBusy: false,
     resyncBusy: false,
@@ -2070,6 +2078,14 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           ? { detailSourceName: sourceName }
           : { resultSourceName: sourceName },
       );
+      // Side-by-side: nudge the freshly-loaded result beside the topology. The
+      // loader replaces the group (position resets to the model translation), so
+      // re-apply on every load.
+      if (get().sideBySide) {
+        void import("@/utils/scene/handlers/side_by_side").then(
+          ({ applySideBySideOffset }) => applySideBySideOffset(sourceName, true),
+        );
+      }
     },
 
     compileInBrowser: async () => {
@@ -2138,6 +2154,12 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         const sourceName = `procedural:${active.name}`;
         await load_glb_from_bytes(bytes, sourceName);
         set({ resultSourceName: sourceName });
+        if (get().sideBySide) {
+          const { applySideBySideOffset } = await import(
+            "@/utils/scene/handlers/side_by_side"
+          );
+          applySideBySideOffset(sourceName, true);
+        }
         setProceduralToast(label, {
           status: "done",
           progress: 1,
@@ -2189,15 +2211,18 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         get().hideDetail();
         return;
       }
-      // Result modes: the topology layer stays visible only when superimposing.
-      get().setCellsVisible(get().superimpose);
+      // Result modes: the topology layer stays visible when superimposing OR
+      // showing side-by-side (there it sits beside the result).
+      get().setCellsVisible(get().superimpose || get().sideBySide);
+      // Build the result as a PREVIEW of the current (uncommitted) state — opening
+      // a result view must never force a commit; the user commits when happy.
       if (mode === "simulation") {
         get().hideDetail();
-        if (get().resultSourceName === null) await get().compile(false, "sim");
+        if (get().resultSourceName === null) await get().compilePreview(false, "sim");
       } else {
         get().hideResult();
         if (get().detailSourceName === null)
-          await get().compile(false, "detail");
+          await get().compilePreview(false, "detail");
       }
     },
 
@@ -2212,7 +2237,26 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         if (on) await get().setRepMode("simulation");
         return;
       }
-      get().setCellsVisible(on);
+      // Side-by-side already keeps the cells visible beside the result.
+      get().setCellsVisible(on || get().sideBySide);
+    },
+
+    setSideBySide: (on) => {
+      set({ sideBySide: on });
+      // Keep the editable topology visible beside the result while side-by-side
+      // is on; turning it off restores the superimpose choice (or the always-on
+      // cells of topology mode).
+      get().setCellsVisible(
+        on || get().repMode === "topology" || get().superimpose,
+      );
+      const apply = (src: string | null) => {
+        if (!src) return;
+        void import("@/utils/scene/handlers/side_by_side").then(
+          ({ applySideBySideOffset }) => applySideBySideOffset(src, on),
+        );
+      };
+      apply(get().resultSourceName);
+      apply(get().detailSourceName);
     },
 
     proposeRelocations: async () => {

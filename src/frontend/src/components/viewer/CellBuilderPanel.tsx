@@ -982,6 +982,18 @@ const CellBuilderPanel: React.FC = () => {
             />
             Superimpose topology under result
           </label>
+          <label
+            className="inline-flex items-center gap-1 text-gray-300 cursor-pointer"
+            title="Show the compiled result BESIDE the editable topology (offset to the right) instead of on top of it. Edit the topology on the left and watch the result update on the right — ⇧↵ recompiles a preview without committing."
+          >
+            <input
+              type="checkbox"
+              className="accent-blue-600"
+              checked={s.sideBySide}
+              onChange={(e) => s.setSideBySide(e.target.checked)}
+            />
+            Side-by-side (result beside topology)
+          </label>
 
           <Section title="Overlays">
             <IconOverlaySection />
