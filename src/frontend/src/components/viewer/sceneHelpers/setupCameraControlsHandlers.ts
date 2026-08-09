@@ -97,6 +97,15 @@ export function setupCameraControlsHandlers(
             } else {
                 zoomToAll(scene, camera, controls);
             }
+        } else if (shift && key === "enter") {
+            // ⇧↵ — commit + compile in one gesture, the fast path when editing a
+            // procedural model (and what makes a side-by-side result view feel
+            // live). compile() commits first when the doc is dirty, then builds.
+            const cb = useCellBuilderStore.getState();
+            if (cb.active) {
+                event.preventDefault();
+                void cb.compile();
+            }
         } else if (shift && key === "q") {
             const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();
             setIsOptionsVisible(!isOptionsVisible);

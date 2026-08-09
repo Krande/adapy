@@ -15,7 +15,6 @@ import {
   type ConversionJob,
 } from "@/state/conversionStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
-import { steelStructureDemoDoc } from "@/state/proceduralTemplates";
 import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
 import {
   bandBounds,
@@ -495,9 +494,6 @@ interface CellBuilderState {
   systemsForEquipment: (equipmentName: string) => BuilderSystem[];
   toDoc: () => ProceduralDoc;
   loadFromDoc: (doc: ProceduralDoc) => void;
-  /** Populate the model with the topo_model demo layout (2 cells, deck +
-   * interior pump/tank pairs, reinforced internal wall). */
-  loadDemoTemplate: () => void;
   /** Restore the previous / next model snapshot. */
   undo: () => void;
   redo: () => void;
@@ -1686,25 +1682,6 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         dirty: false,
         selection: null,
       }),
-
-    loadDemoTemplate: () => {
-      // A two-storey structure with fully-enclosed rooms (reinforced internal +
-      // external walls, plus the reinforced floor/roof decks), a range of routed
-      // services (piping / electrical / duct) and site I/O so every run is
-      // two-ended. Coordinates are min-corners (equipment archetypes centre on
-      // the footprint). Ground floor z 0..3, second floor z 3..6, roof at z 6.
-      const doc = steelStructureDemoDoc();
-      // Undoable: pushes the pre-template state so the user can back out.
-      withHistory(() => ({
-        cells: cellsFromDoc(doc),
-        systems: systemsFromDoc(doc),
-        blueprintOptions: doc.blueprint ?? {},
-        designRules: doc.design_rules ?? "standard",
-        dirty: true,
-        selection: null,
-        mode: "idle",
-      }));
-    },
 
     undo: () =>
       set((s) => {
