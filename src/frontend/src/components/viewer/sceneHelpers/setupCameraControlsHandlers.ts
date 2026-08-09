@@ -102,7 +102,9 @@ export function setupCameraControlsHandlers(
             // the fast path when editing, and what makes a side-by-side result
             // view feel live. No commit — the user commits only when happy.
             const cb = useCellBuilderStore.getState();
-            if (cb.active) {
+            // Only when there are uncommitted changes — mirrors the Compile
+            // button, which disables at a save-point (nothing new to preview).
+            if (cb.active && cb.dirty) {
                 event.preventDefault();
                 void cb.compilePreviewSelected();
             }

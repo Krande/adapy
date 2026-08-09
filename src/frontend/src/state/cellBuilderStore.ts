@@ -1852,7 +1852,11 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         return {
           ...step.restored,
           ...step.stacks,
-          dirty: true,
+          // `open` and `commit` reset `past: []`, so an empty past means we're
+          // back at the last save-point — i.e. no uncommitted changes. Undoing
+          // all the way therefore clears dirty (Compile/Commit disable again),
+          // instead of leaving the model perpetually dirty.
+          dirty: step.stacks.past.length > 0,
           selection: pruneSelection(s.selection, step.restored.cells),
           selectedCellIds: s.selectedCellIds.filter(
             (id) => step.restored.cells[id],
@@ -1866,7 +1870,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         return {
           ...step.restored,
           ...step.stacks,
-          dirty: true,
+          dirty: step.stacks.past.length > 0,
           selection: pruneSelection(s.selection, step.restored.cells),
           selectedCellIds: s.selectedCellIds.filter(
             (id) => step.restored.cells[id],

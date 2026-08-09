@@ -1378,9 +1378,17 @@ const CellBuilderPanel: React.FC = () => {
         <span className="inline-flex">
           <button
             className={btn + " rounded-r-none flex items-center gap-1.5"}
-            disabled={compileBusy}
+            // Disabled at a save-point (no uncommitted changes) — there's nothing
+            // new to preview. Undoing all edits returns here and disables it
+            // again. The ▾ menu's force-recompile stays available for the
+            // unchanged-doc-but-rebuild case.
+            disabled={compileBusy || !s.dirty}
             onClick={() => void s.compilePreviewSelected()}
-            title="Compile a preview of the current, uncommitted model (⇧↵) at the selected level(s) of detail. Nothing is saved — commit only when you're happy with what you see."
+            title={
+              !s.dirty
+                ? "No uncommitted changes to preview. Make an edit, or use ▾ → Recompile to force a rebuild."
+                : "Compile a preview of the current, uncommitted model (⇧↵) at the selected level(s) of detail. Nothing is saved — commit only when you're happy with what you see."
+            }
           >
             {compileBusy ? `Compiling (${compileState?.status})…` : "Compile"}
             <kbd className="text-[10px] font-semibold bg-white/20 border border-white/25 rounded px-1">
