@@ -1710,6 +1710,29 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             return;
         }
 
+        // Delete / Backspace removes the selected cell(s) or equipment — the
+        // keyboard equivalent of the context-menu Delete. Multi-selection deletes
+        // all in one undo step. Loft bands are skipped (they'd just regenerate
+        // from loft_members on reload), matching the context menu.
+        if (!inField && (ev.key === "Delete" || ev.key === "Backspace")) {
+            const ids = (
+                st.selectedCellIds.length
+                    ? st.selectedCellIds
+                    : st.selection
+                      ? [st.selection.cellId]
+                      : []
+            ).filter((id) => st.cells[id] && st.cells[id].kind !== "loft");
+            if (ids.length) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                st.beginTransaction();
+                for (const id of ids) st.removeCell(id);
+                st.endTransaction();
+                requestRender();
+            }
+            return;
+        }
+
         // --- Blender-style gizmo shortcuts (not while typing in a field) ------
         // These consume the key (stopPropagation) so the global viewer handler
         // — same phase, but this listener runs in capture — doesn't also fire.
