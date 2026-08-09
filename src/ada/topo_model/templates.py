@@ -58,7 +58,11 @@ def _eq(
     through the cellbuilder store, which would otherwise enrich a bare
     placement), so it must carry the fields TopoEquipment requires — SPACE_NAME,
     SPACE_LOC, COG and mass — up front. The catalog/archetype still supplies the
-    render geometry from DESCRIPTION at compile time."""
+    render geometry from DESCRIPTION at compile time.
+
+    ``x/y/z`` are WORLD coordinates (GLOBAL_COORDS=True): the compiler otherwise
+    treats them as offsets from the SPACE_NAME cell's origin and adds the cell's
+    Z on top, which double-counts (equipment ends up a floor/deck too high)."""
     return {
         "NAME": name,
         "DESCRIPTION": description,
@@ -68,6 +72,7 @@ def _eq(
         "LX": lx,
         "LY": ly,
         "LZ": lz,
+        "GLOBAL_COORDS": True,
         "SPACE_NAME": space,
         "SPACE_LOC": loc,
         "COGx": 0.0,
@@ -145,8 +150,10 @@ def _topside_jacket_doc() -> dict:
             {"NAME": "DeckB2", "INCLUDE": True, "X": 0, "Y": -12, "Z": 104, "DX": 12, "DY": 24, "DZ": 4},
         ],
         "equipments": [
-            _eq("Pump", "pump", -6, -1, 100, 1, 1, 1, "DeckA"),
-            _eq("Tank", "tank", 3, -1, 100, 2, 2, 2, "DeckB", mass_dry=2000, mass_cont=3000),
+            # World coords (GLOBAL_COORDS via _eq): on the deck floor at Z=100,
+            # centred on DeckA (x -12..0) / DeckB (x 0..12).
+            _eq("Pump", "pump", -6, 0, 100, 1, 1, 1, "DeckA"),
+            _eq("Tank", "tank", 6, 0, 100, 2, 2, 2, "DeckB", mass_dry=2000, mass_cont=3000),
         ],
         "systems": [
             {"NAME": "CoolingWater", "TYPE": "piping", "MEDIUM": "water",
