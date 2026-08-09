@@ -513,7 +513,8 @@ const CellBuilderPanel: React.FC = () => {
   const s = useCellBuilderStore();
   const equipBtnRef = React.useRef<HTMLButtonElement>(null);
   const [equipMenuOpen, setEquipMenuOpen] = React.useState(false);
-  const [cellsListOpen, setCellsListOpen] = React.useState(true);
+  // Default collapsed — the list can get long; the user expands it on demand.
+  const [cellsListOpen, setCellsListOpen] = React.useState(false);
   const hasCells = Object.values(s.cells).some((c) => c.kind === "cell");
   const cellCount = Object.keys(s.cells).length;
 
