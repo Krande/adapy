@@ -46,6 +46,14 @@ def compile_doc(
     """
     from ada.topo_model.engines import compile_with_engine, is_default_engine
 
+    # The Pyodide bridge hands JS ``null`` across as a ``JsNull`` proxy (modern
+    # Pyodide keeps it distinct from Python ``None``), so a browser compile with
+    # no explicit engine arrives here as JsNull — not None. Anything that isn't a
+    # real engine slug (a str) means "default engine"; coerce it so the ``None``/
+    # ``":" in engine`` checks downstream don't choke on a non-string.
+    if not isinstance(engine, str):
+        engine = None
+
     parsed = json.loads(doc) if isinstance(doc, str) else dict(doc)
     if is_default_engine(engine):
         from ada.topo_model.compile import compile_procedural_doc
