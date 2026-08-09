@@ -125,8 +125,10 @@ def _steel_structure_demo_doc() -> dict:
             {"NAME": "HvacExhaust", "TYPE": "duct", "MEDIUM": "air",
              "CONNECTIONS": [{"EQUIPMENT": "HVAC1", "PORT": "supply"}, {"EQUIPMENT": "Exhaust1", "PORT": "intake"}]},
             {"NAME": "Drain", "TYPE": "piping", "MEDIUM": "water",
+             # Drain out the near (right, x=10) wall by Tank2 — the old x=0 site
+             # was boxed in by switchboard SB2, so the run couldn't route.
              "CONNECTIONS": [{"EQUIPMENT": "Tank2", "PORT": "outlet"},
-                             {"SITE": "drain", "POSITION": [0, 2.5, 1], "DIRECTION": "OUT", "DIRECTION_VECTOR": [1, 0, 0]}]},
+                             {"SITE": "drain", "POSITION": [10, 2.5, 1], "DIRECTION": "OUT", "DIRECTION_VECTOR": [1, 0, 0]}]},
             {"NAME": "Suction", "TYPE": "piping", "MEDIUM": "water",
              "CONNECTIONS": [{"SITE": "seawater", "POSITION": [0, 4, 1], "DIRECTION": "IN", "DIRECTION_VECTOR": [1, 0, 0]},
                              {"EQUIPMENT": "Pump2", "PORT": "suction"}]},
