@@ -888,12 +888,27 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     const autoShow = () => {
       const cur = get().compileJob;
       if (!cur || !cur.derivedKey) return;
-      const wantLod = get().repMode === "detail" ? "detail" : "simulation";
-      const resultViewActive =
-        get().repMode === "simulation" || get().repMode === "detail";
-      if (!(get().sideBySide || resultViewActive)) return;
-      if (lod !== wantLod) return;
-      void get().viewResult(cur.derivedKey, lod);
+      const rm = lod === "detail" ? "detail" : "simulation";
+      if (get().sideBySide) {
+        // Result sits BESIDE the topology (left = topology, right = result). Only
+        // render the LOD the current view wants, so building "both" doesn't stack
+        // two results on the right; leave repMode alone (topology stays on left).
+        const wantLod = get().repMode === "detail" ? "detail" : "simulation";
+        if (lod === wantLod) void get().viewResult(cur.derivedKey, lod);
+        return;
+      }
+      // Not side-by-side: this result IS the view. Switch to it from Topology (or
+      // refresh it if already there) — result-only (no superimpose), no camera
+      // move. Don't yank the user out of a DIFFERENT result view they're reading.
+      if (get().repMode === "topology" || get().repMode === rm) {
+        if (get().repMode !== rm) {
+          set({ repMode: rm });
+          get().setCellsVisible(get().superimpose);
+          if (rm === "simulation") get().hideDetail();
+          else get().hideResult();
+        }
+        void get().viewResult(cur.derivedKey, lod);
+      }
     };
     try {
       const res = await enqueue();

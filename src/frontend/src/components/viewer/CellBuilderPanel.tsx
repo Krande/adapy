@@ -554,6 +554,51 @@ const CellBuilderPanel: React.FC = () => {
     if (focusedSystem) setTab("systems");
   }, [focusedSystem]);
 
+  // Mobile bottom-sheet: the grab handle drags the sheet taller/shorter and a
+  // flick down dismisses it. Only the phone layout is a sheet (the handle is
+  // sm:hidden), so the drag height is applied only under the sm breakpoint.
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const [sheetVh, setSheetVh] = React.useState<number | null>(null);
+  const [isMobile, setIsMobile] = React.useState(false);
+  const dragRef = React.useRef<{ startY: number; startVh: number } | null>(null);
+  React.useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const on = () => setIsMobile(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  const onGrabDown = (e: React.PointerEvent) => {
+    const vh = window.innerHeight || 1;
+    const curPx = panelRef.current?.getBoundingClientRect().height ?? vh * 0.82;
+    dragRef.current = { startY: e.clientY, startVh: (curPx / vh) * 100 };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onGrabMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const vh = window.innerHeight || 1;
+    const deltaVh = ((d.startY - e.clientY) / vh) * 100; // drag up ⇒ taller
+    setSheetVh(Math.max(10, Math.min(90, d.startVh + deltaVh)));
+  };
+  const onGrabUp = (e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    setSheetVh((prev) => {
+      if (prev == null) return prev;
+      if (prev < 18) {
+        s.setPanelVisible(false); // flicked down small ⇒ dismiss the sheet
+        return null;
+      }
+      const snaps = [32, 58, 84]; // peek / half / full
+      return snaps.reduce(
+        (a, b) => (Math.abs(b - prev) < Math.abs(a - prev) ? b : a),
+        snaps[0],
+      );
+    });
+  };
+
   if (!s.active || !s.panelVisible) return null;
 
   const compileState = s.compileJob;
@@ -582,6 +627,12 @@ const CellBuilderPanel: React.FC = () => {
 
   return (
     <div
+      ref={panelRef}
+      style={
+        isMobile && sheetVh != null
+          ? { height: `${sheetVh}vh`, maxHeight: `${sheetVh}vh` }
+          : undefined
+      }
       className={
         CHROME +
         " text-xs pointer-events-auto flex flex-col " +
@@ -591,11 +642,21 @@ const CellBuilderPanel: React.FC = () => {
         "sm:max-h-[calc(100vh-7rem)] sm:rounded-md"
       }
     >
-      {/* mobile grab handle */}
-      <span
-        className="sm:hidden block w-10 h-1 rounded-full bg-gray-500/70 mx-auto mt-2 mb-0.5"
-        aria-hidden="true"
-      />
+      {/* mobile grab handle — drag to resize the sheet, flick down to dismiss */}
+      <div
+        className="sm:hidden shrink-0 flex justify-center items-center py-2 cursor-grab active:cursor-grabbing touch-none"
+        onPointerDown={onGrabDown}
+        onPointerMove={onGrabMove}
+        onPointerUp={onGrabUp}
+        onPointerCancel={onGrabUp}
+        role="separator"
+        aria-label="Drag to resize the panel"
+      >
+        <span
+          className="block w-10 h-1.5 rounded-full bg-gray-400/70"
+          aria-hidden="true"
+        />
+      </div>
 
       {/* ── pinned header ── */}
       <div className="flex items-center gap-2 px-2.5 py-2 border-b border-gray-600/50">
