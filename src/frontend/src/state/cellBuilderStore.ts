@@ -961,7 +961,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // Result sits BESIDE the topology (left = topology, right = result). Only
         // render the LOD the current view wants, so building "both" doesn't stack
         // two results on the right; leave repMode alone (topology stays on left).
-        const wantLod = get().repMode === "detail" ? "detail" : "simulation";
+        // Compare in the LOD vocabulary ("sim"/"detail"), NOT repMode's
+        // ("simulation"/"detail") — otherwise a sim build ("sim") never matched
+        // "simulation" and the result silently never refreshed beside topology.
+        const wantLod = get().repMode === "detail" ? "detail" : "sim";
         if (lod === wantLod) void get().viewResult(cur.derivedKey, lod);
         return;
       }
