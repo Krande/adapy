@@ -429,6 +429,63 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         mats.forEach((x) => x.dispose());
     };
 
+    // Always-on-top overlay quad for the SELECTED box-cell face: a bright fill
+    // drawn with depthTest off + a high renderOrder, so the picked face is fully
+    // visible even THROUGH the cell body (a material tint on the shared box mesh
+    // can't reliably beat its own near faces' draw order — hence a separate mesh).
+    const faceOverlay = new THREE.Mesh(
+        new THREE.BufferGeometry(),
+        new THREE.MeshBasicMaterial({
+            color: SELECTED_FACE_COLOR,
+            transparent: true,
+            opacity: 0.6,
+            depthTest: false,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+        }),
+    );
+    faceOverlay.userData.__excludeFromFit = true;
+    faceOverlay.renderOrder = 5;
+    faceOverlay.visible = false;
+    container.add(faceOverlay);
+    const FACE_OVERLAY_IDX = new Uint16Array([0, 1, 2, 0, 2, 3]);
+    // Position/size the overlay on the selected box face (model space), or hide.
+    const updateFaceOverlay = () => {
+        const st = useCellBuilderStore.getState();
+        const sel = st.selection;
+        const cell = sel ? st.cells[sel.cellId] : null;
+        if (
+            !cell ||
+            cell.kind !== "cell" ||
+            sel?.kind !== "face" ||
+            sel.faceIndex == null ||
+            !BOX_FACE_SIDES[sel.faceIndex] ||
+            !st.cellsVisible
+        ) {
+            if (faceOverlay.visible) faceOverlay.visible = false;
+            return;
+        }
+        const side = BOX_FACE_SIDES[sel.faceIndex];
+        const [a1, a2] = ([0, 1, 2] as const).filter((a) => a !== side.axis) as [
+            0 | 1 | 2,
+            0 | 1 | 2,
+        ];
+        const base: Vec3 = [...cell.origin];
+        if (side.positive) base[side.axis] += cell.size[side.axis];
+        const c0: Vec3 = [...base];
+        const c1: Vec3 = [...base];
+        c1[a1] += cell.size[a1];
+        const c2: Vec3 = [...c1];
+        c2[a2] += cell.size[a2];
+        const c3: Vec3 = [...base];
+        c3[a2] += cell.size[a2];
+        const pos = new Float32Array([...c0, ...c1, ...c2, ...c3]);
+        faceOverlay.geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+        faceOverlay.geometry.setIndex(new THREE.BufferAttribute(FACE_OVERLAY_IDX, 1));
+        faceOverlay.geometry.computeBoundingSphere();
+        faceOverlay.visible = true;
+    };
+
     // Recompute every face material's color/opacity from base + selection +
     // hover state. Cheap (6 materials per box) and keeps one source of truth.
     const refreshFaceStyles = () => {
@@ -501,19 +558,16 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 continue;
             }
             const mats = mesh.material as THREE.MeshBasicMaterial[];
-            let hasThroughFace = false;
             for (let fi = 0; fi < mats.length; fi++) {
                 let color = base;
                 let opacity = BASE_OPACITY;
-                // The SELECTED face draws THROUGH the model (depth-test off) so a
-                // face on the far side of the cell is still fully visible — you
-                // can always see which face is picked (and thus which mode).
-                let through = false;
                 if (cellSelected) opacity = 0.4;
+                // The selected face is tinted here (front-facing) AND drawn as an
+                // always-on-top overlay quad (faceOverlay) so it's fully visible
+                // even through the cell body — see updateFaceOverlay.
                 if (cellSelected && sel?.kind === "face" && sel.faceIndex === fi) {
                     color = SELECTED_FACE_COLOR;
-                    opacity = 0.7;
-                    through = true;
+                    opacity = 0.55;
                 }
                 if (hovered?.mesh === mesh && hovered.faceIndex === fi) {
                     color = HOVER_FACE_COLOR;
@@ -521,18 +575,14 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 }
                 mats[fi].color.setHex(color);
                 mats[fi].opacity = opacity;
-                mats[fi].depthTest = !through;
-                if (through) hasThroughFace = true;
             }
-            // Draw a cell carrying the x-ray face after everything else so the
-            // through-face isn't overpainted by the compiled result/other cells.
-            mesh.renderOrder = hasThroughFace ? 3 : 0;
             const edgeLines = mesh.children[0] as THREE.LineSegments | undefined;
             if (edgeLines) {
                 (edgeLines.material as THREE.LineBasicMaterial).color.setHex(cellSelected ? 0xffffff : base);
             }
         }
         refreshEdgeOverlays();
+        updateFaceOverlay();
         requestRender();
     };
 
@@ -2732,6 +2782,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         ringPreview.geometry.dispose();
         (ringPreview.material as THREE.Material).dispose();
         container.remove(ringPreview);
+        faceOverlay.geometry.dispose();
+        (faceOverlay.material as THREE.Material).dispose();
+        container.remove(faceOverlay);
         disposeResizeHandles();
         hiddenDefaultGrids.forEach((g) => (g.visible = true));
         hiddenDefaultGrids.length = 0;
