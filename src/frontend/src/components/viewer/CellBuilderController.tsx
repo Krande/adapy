@@ -1484,6 +1484,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             st.mode === "add-equipment" ||
             st.mode === "add-opening"
         ) {
+            if (placeEntry) {
+                // Numeric placement is driving the ghost — a click doesn't place.
+                ev.stopPropagation();
+                return;
+            }
             updateGhost();
             if (ghostBox) {
                 const kind =
@@ -1678,7 +1683,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             st.mode === "add-equipment" ||
             st.mode === "add-opening"
         ) {
-            updateGhost();
+            if (!placeEntry) updateGhost(); // numeric placement owns the ghost when active
             return;
         }
 
@@ -1992,6 +1997,70 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         requestRender();
     };
 
+    // Numeric placement for add-cell / add-opening / add-equipment: type X, `,`
+    // to the next axis, Y, `,`, Z, Enter to drop the box at exactly (x,y,z) —
+    // no pointer needed. `.` is the decimal, `,` steps axes. Unentered axes
+    // default to 0 / the model ground (z). Lazily created on the first digit
+    // while in an add mode; the pointer ghost is suspended while it's live.
+    let placeEntry: {axis: 0 | 1 | 2; vals: [number | null, number | null, number | null]; typed: string} | null =
+        null;
+    const placeOrigin = (pe: NonNullable<typeof placeEntry>): Vec3 => {
+        const cells = Object.values(useCellBuilderStore.getState().cells);
+        const groundZ = cells.length ? Math.min(...cells.map((c) => c.origin[2])) : 0;
+        const def: Vec3 = [0, 0, groundZ];
+        const val = (a: 0 | 1 | 2): number => {
+            if (pe.vals[a] != null) return pe.vals[a] as number;
+            if (a === pe.axis && pe.typed !== "") return parseTyped(pe.typed, def[a]);
+            return def[a];
+        };
+        return [val(0), val(1), val(2)];
+    };
+    const refreshPlaceEntry = () => {
+        if (!placeEntry) return;
+        const st = useCellBuilderStore.getState();
+        const size = addModeSize(st);
+        const o = placeOrigin(placeEntry);
+        const origin: Vec3 = [
+            quantize(o[0], st.gridStep),
+            quantize(o[1], st.gridStep),
+            quantize(o[2], st.gridStep),
+        ];
+        setGhostBox({origin, size});
+        const AX = ["x", "y", "z"];
+        showReadout(
+            `${AX[placeEntry.axis]} ${fmt(o[placeEntry.axis])}`,
+            [origin[0] + size[0] / 2, origin[1] + size[1] / 2, origin[2] + size[2] / 2],
+        );
+        st.setToolHint(
+            `Place @ (${fmt(o[0])}, ${fmt(o[1])}, ${fmt(o[2])}) — type, "," next axis, ↵ place, Esc cancel`,
+        );
+        requestRender();
+    };
+    const endPlaceEntry = () => {
+        placeEntry = null;
+        ghost.visible = false;
+        ghostBox = null;
+        hideReadout();
+        useCellBuilderStore.getState().setToolHint(null);
+        requestRender();
+    };
+    const commitPlaceEntry = () => {
+        if (!placeEntry) return;
+        const st = useCellBuilderStore.getState();
+        if (placeEntry.typed !== "") placeEntry.vals[placeEntry.axis] = parseTyped(placeEntry.typed, 0);
+        const size = addModeSize(st);
+        const o = placeOrigin(placeEntry);
+        const origin: Vec3 = [
+            quantize(o[0], st.gridStep),
+            quantize(o[1], st.gridStep),
+            quantize(o[2], st.gridStep),
+        ];
+        const kind =
+            st.mode === "add-opening" ? "opening" : st.mode === "add-equipment" ? "equipment" : "cell";
+        st.addCell(kind, origin, size); // sets mode idle + selects the new cell
+        endPlaceEntry();
+    };
+
     const startCellExtrude = (cell: BuilderCell, faceIndex: number): boolean => {
         const side = BOX_FACE_SIDES[faceIndex];
         if (!side || cell.kind !== "cell") return false;
@@ -2132,6 +2201,80 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             // Not a numeric-entry key — abandon the preview, then let the key
             // fall through to its normal handling below.
             endNumEntry(true);
+        }
+
+        // Numeric placement while in an add mode: type X, "," next axis, Y, ",",
+        // Z, Enter to drop the box at exactly (x,y,z). Activates on the first
+        // digit (pointer placement still works until then); "." decimal, ","
+        // steps axes, Enter places, Esc cancels.
+        const inAddMode =
+            st.mode === "add-cell" || st.mode === "add-opening" || st.mode === "add-equipment";
+        if (!inField && inAddMode && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+            const npd = /^Numpad([0-9])$/.exec(ev.code);
+            const isDigit = !!npd || /^[0-9]$/.test(ev.key);
+            if (placeEntry) {
+                if (ev.key === "Enter") {
+                    commitPlaceEntry();
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                if (ev.key === "Escape") {
+                    endPlaceEntry();
+                    st.setMode("idle");
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                if (ev.key === "Backspace") {
+                    placeEntry.typed = placeEntry.typed.slice(0, -1);
+                    refreshPlaceEntry();
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                if (
+                    (ev.key === "." || ev.code === "NumpadDecimal") &&
+                    !placeEntry.typed.includes(".")
+                ) {
+                    placeEntry.typed += ".";
+                    refreshPlaceEntry();
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                if (ev.key === ",") {
+                    // Advance to the next axis (commit the typed value first).
+                    if (placeEntry.typed !== "")
+                        placeEntry.vals[placeEntry.axis] = parseTyped(placeEntry.typed, 0);
+                    placeEntry.axis = Math.min(2, placeEntry.axis + 1) as 0 | 1 | 2;
+                    placeEntry.typed = "";
+                    refreshPlaceEntry();
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                if ((ev.key === "-" || ev.code === "NumpadSubtract") && placeEntry.typed === "") {
+                    placeEntry.typed = "-";
+                    refreshPlaceEntry();
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                if (isDigit) {
+                    placeEntry.typed += npd ? npd[1] : ev.key;
+                    refreshPlaceEntry();
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+            } else if (isDigit) {
+                placeEntry = {axis: 0, vals: [null, null, null], typed: npd ? npd[1] : ev.key};
+                refreshPlaceEntry();
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
         }
 
         if ((ev.ctrlKey || ev.metaKey) && !inField) {
@@ -2493,6 +2636,14 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     syncBuilderGrid();
     syncGizmo();
     const unsub = useCellBuilderStore.subscribe((s, prev) => {
+        // Leaving an add mode drops any in-progress numeric placement.
+        if (
+            placeEntry &&
+            s.mode !== prev.mode &&
+            !(s.mode === "add-cell" || s.mode === "add-opening" || s.mode === "add-equipment")
+        ) {
+            endPlaceEntry();
+        }
         if (s.cells !== prev.cells || s.active !== prev.active) rebuild();
         else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
             refreshFaceStyles();
