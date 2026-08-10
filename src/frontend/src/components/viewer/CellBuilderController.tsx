@@ -2159,26 +2159,43 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             return;
         }
 
-        // Delete / Backspace removes the selected cell(s) or equipment — the
-        // keyboard equivalent of the context-menu Delete. Multi-selection deletes
-        // all in one undo step. Loft bands are skipped (they'd just regenerate
-        // from loft_members on reload), matching the context menu.
+        // Delete / Backspace removes the selected cell(s)/equipment — the keyboard
+        // equivalent of the context-menu Delete. Multi-selection deletes all in one
+        // undo step. A loft bay: shrink the member by one station, or remove the
+        // whole member when it's down to its last bay (2 stations) — so Del peels
+        // bays and finally deletes the loft.
         if (!inField && (ev.key === "Delete" || ev.key === "Backspace")) {
-            const ids = (
-                st.selectedCellIds.length
-                    ? st.selectedCellIds
-                    : st.selection
-                      ? [st.selection.cellId]
-                      : []
-            ).filter((id) => st.cells[id] && st.cells[id].kind !== "loft");
-            if (ids.length) {
-                ev.preventDefault();
-                ev.stopPropagation();
-                st.beginTransaction();
-                for (const id of ids) st.removeCell(id);
-                st.endTransaction();
-                requestRender();
+            const ids = st.selectedCellIds.length
+                ? st.selectedCellIds
+                : st.selection
+                  ? [st.selection.cellId]
+                  : [];
+            if (!ids.length) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            st.beginTransaction();
+            for (const id of ids) {
+                const cur = useCellBuilderStore.getState();
+                const cell = cur.cells[id];
+                if (!cell) continue;
+                if (cell.kind === "loft") {
+                    const member = cur.loftMembers.find((m) => m.NAME === cell.loft?.member);
+                    if (!member) continue;
+                    if ((member.STATIONS?.length ?? 0) <= 2) {
+                        cur.removeLoftMember(member.NAME);
+                    } else {
+                        const idx =
+                            loftActive && loftActive.member === member.NAME
+                                ? loftActive.index
+                                : (cell.loft?.bay ?? 0);
+                        cur.removeLoftStation(member.NAME, Math.min(idx, member.STATIONS.length - 1));
+                    }
+                } else {
+                    cur.removeCell(id);
+                }
             }
+            st.endTransaction();
+            requestRender();
             return;
         }
 

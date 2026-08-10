@@ -545,6 +545,9 @@ interface CellBuilderState {
   /** Remove the station at `stationIndex`, merging its adjacent bays. Refused
    * below 2 stations (the backend minimum); undoable. */
   removeLoftStation: (memberName: string, stationIndex: number) => void;
+  /** Delete a whole loft member and all its bay cells (Del on a single-bay loft,
+   * or an explicit remove). One undo step. */
+  removeLoftMember: (memberName: string) => void;
   /** Translate a whole loft member by `delta` (world metres) via its PLACEMENT
    * translation column — moves every bay; undoable. */
   moveLoftMember: (memberName: string, delta: Vec3) => void;
@@ -1943,6 +1946,27 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           cells,
           dirty: true,
           ...remapLoftSelection(s, cells, memberName, stationIndex - 1),
+        };
+      }),
+    removeLoftMember: (memberName) =>
+      withHistory((s) => {
+        if (!s.loftMembers.some((m) => m.NAME === memberName)) return {};
+        const removed = new Set<string>();
+        const cells = { ...s.cells };
+        for (const [id, c] of Object.entries(s.cells)) {
+          if (c.kind === "loft" && c.loft?.member === memberName) {
+            delete cells[id];
+            removed.add(id);
+          }
+        }
+        const selGone = s.selection ? removed.has(s.selection.cellId) : false;
+        return {
+          loftMembers: s.loftMembers.filter((m) => m.NAME !== memberName),
+          cells,
+          dirty: true,
+          selection: selGone ? null : s.selection,
+          selectedCellIds: s.selectedCellIds.filter((id) => !removed.has(id)),
+          gizmoMode: selGone ? ("none" as GizmoMode) : s.gizmoMode,
         };
       }),
     moveLoftMember: (memberName, delta) =>
