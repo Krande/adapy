@@ -1506,6 +1506,10 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         };
         box = snapBox(box, Object.values(st.cells), st.snapThreshold);
         ghostBox = box;
+        // Red for an opening (a cut), green for an additive cell/equipment.
+        (ghost.material as THREE.MeshBasicMaterial).color.setHex(
+            st.mode === "add-opening" ? OPENING_COLOR : GHOST_COLOR,
+        );
         ghost.scale.set(...box.size);
         ghost.position.set(
             box.origin[0] + box.size[0] / 2,
@@ -1957,9 +1961,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         return {origin: min, size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]]};
     };
 
-    const setGhostBox = (box: CellBox) => {
-        // Reuses the green GHOST-material box mesh (same one add-mode placement
-        // uses; the two modes never overlap).
+    const setGhostBox = (box: CellBox, color: number = GHOST_COLOR) => {
+        // Reuses the single GHOST box mesh (also used by add-mode placement; the
+        // modes never overlap). `color` tints it per use — green for additive
+        // (cell / extrude / loft), red for an opening (a negative-volume cut).
+        (ghost.material as THREE.MeshBasicMaterial).color.setHex(color);
         ghost.scale.set(Math.max(box.size[0], 1e-3), Math.max(box.size[1], 1e-3), Math.max(box.size[2], 1e-3));
         ghost.position.set(
             box.origin[0] + box.size[0] / 2,
@@ -2076,7 +2082,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             quantize(o[1], st.gridStep),
             quantize(o[2], st.gridStep),
         ];
-        setGhostBox({origin, size});
+        setGhostBox({origin, size}, st.mode === "add-opening" ? OPENING_COLOR : GHOST_COLOR);
         const AX = ["x", "y", "z"];
         showReadout(
             `${AX[placeEntry.axis]} ${fmt(o[placeEntry.axis])}`,
@@ -2241,7 +2247,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (!cell || cell.kind !== "cell") return endOpenEntry();
         const [x, y, w, h, d] = openVals(openEntry);
         const box = openingBoxOnFace(cell, openEntry.faceIndex, x, y, w, h, d);
-        setGhostBox(box);
+        setGhostBox(box, OPENING_COLOR); // red — a negative-volume cut
         const centre: Vec3 = [
             box.origin[0] + box.size[0] / 2,
             box.origin[1] + box.size[1] / 2,
