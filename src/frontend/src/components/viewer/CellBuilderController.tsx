@@ -1829,6 +1829,36 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     };
     const fmt = (v: number): string => `${Math.round(v * 1000) / 1000}`;
 
+    // Live ring outline for a loft section resize — a green LineLoop drawn at the
+    // station's NEW dimensions so the ring visibly scales as you type. Model-space
+    // (added to the container, which carries the model offset), like the ghost.
+    const ringPreview = new THREE.LineLoop(
+        new THREE.BufferGeometry(),
+        new THREE.LineBasicMaterial({color: GHOST_COLOR, depthTest: false, transparent: true, opacity: 0.95}),
+    );
+    ringPreview.userData.__excludeFromFit = true;
+    ringPreview.renderOrder = 6;
+    ringPreview.visible = false;
+    container.add(ringPreview);
+    const showRingPreview = (pts: Vec3[]) => {
+        if (pts.length < 2) {
+            ringPreview.visible = false;
+            return;
+        }
+        const arr = new Float32Array(pts.length * 3);
+        for (let i = 0; i < pts.length; i++) {
+            arr[i * 3] = pts[i][0];
+            arr[i * 3 + 1] = pts[i][1];
+            arr[i * 3 + 2] = pts[i][2];
+        }
+        ringPreview.geometry.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+        ringPreview.geometry.computeBoundingSphere();
+        ringPreview.visible = true;
+    };
+    const hideRingPreview = () => {
+        if (ringPreview.visible) ringPreview.visible = false;
+    };
+
     // Parse the typed buffer to a number, falling back to `def` for the empty /
     // partial ("", "-", ".") states; a lone "-" flips the default's sign.
     const parseTyped = (typed: string, def: number): number => {
@@ -1890,7 +1920,20 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             showReadout(`↑ ${fmt(v)} m`, numEntry.anchor);
         } else {
             const v = parseTyped(numEntry.typed, numEntry.defaultVal);
-            ghost.visible = false; // no 3D preview for a section resize
+            ghost.visible = false; // the ring outline is the preview here
+            // Redraw the station's ring at the new section size (circle → RADIUS,
+            // rectangle → WIDTH=HEIGHT, matching resizeLoftStation) so it scales live.
+            const member = loftMemberByName(numEntry.memberName);
+            const station = member?.STATIONS?.[numEntry.stationIndex];
+            if (member && station) {
+                const resized =
+                    numEntry.section === "circle"
+                        ? {...station, RADIUS: v}
+                        : {...station, WIDTH: v, HEIGHT: v};
+                showRingPreview(stationRingPoints(resized, member.PLACEMENT));
+            } else {
+                hideRingPreview();
+            }
             showReadout(`${numEntry.section === "circle" ? "r" : "□"} ${fmt(v)} m`, numEntry.anchor);
         }
         requestRender();
@@ -1922,6 +1965,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         ghost.visible = false;
         ghostBox = null;
         hideReadout();
+        hideRingPreview();
         requestRender();
     };
 
@@ -2448,6 +2492,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         readoutTex.dispose();
         (readout.material as THREE.Material).dispose();
         scene.remove(readout);
+        ringPreview.geometry.dispose();
+        (ringPreview.material as THREE.Material).dispose();
+        container.remove(ringPreview);
         disposeResizeHandles();
         hiddenDefaultGrids.forEach((g) => (g.visible = true));
         hiddenDefaultGrids.length = 0;
