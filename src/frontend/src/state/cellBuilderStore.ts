@@ -27,6 +27,8 @@ import {
   insertStation,
   memberToBands,
   removeStation,
+  retypeStation,
+  seedLoftMember,
   setExcludeFace,
   setStationParam,
   translateMember,
@@ -36,7 +38,12 @@ import {
 import {
   applyFaceOffset,
   BOX_FACE_SIDES,
+  cycleFaceIndex,
+  edgeIndexInFace,
+  extrudeBox,
   faceCenter,
+  faceEdges,
+  farFaceAfterExtrude,
   placeInCell,
   quantizeVec,
   withAxisLength,
@@ -453,6 +460,25 @@ interface CellBuilderState {
   setSelectedEquipmentType: (t: string | null) => void;
   setSelectedCellType: (t: string | null) => void;
   setSelectedOpeningType: (t: string | null) => void;
+  /** Step the active cell type through the advertised catalog (keyboard T). */
+  cycleCellType: (dir: 1 | -1) => void;
+  /** Keyboard extrude: grow a NEW cell adjacent to a selected face — same
+   * cross-section, `depth` metres deep along the face axis (negative flips the
+   * direction). The new cell's far face is auto-selected so a repeated extrude
+   * chains outward. One undo step. */
+  extendCellFromFace: (
+    cellId: string,
+    faceIndex: number,
+    depth: number,
+  ) => void;
+  /** Cycle the selection's granularity cell -> face -> edge (keyboard Tab),
+   * re-deriving the current pick at the new level on the same cell. */
+  cycleSelectMode: (dir: 1 | -1) => void;
+  /** Cycle the active element (keyboard F/D): faces of a box cell, edges of a
+   * face in edge mode, or bays/stations of a loft member. */
+  cycleSelectionElement: (dir: 1 | -1) => void;
+  /** Select the next/previous cell by name order (keyboard N/P). */
+  selectAdjacentCell: (dir: 1 | -1) => void;
   /** Type-derived sizing: resize every placed equipment of a given type to the
    * catalog bbox (kept centred on its footprint). Called when the equipment
    * type's bbox is edited in the admin panel. */
@@ -534,6 +560,26 @@ interface CellBuilderState {
   setLoftMemberMetadata: (
     memberName: string,
     metadata: Record<string, unknown>,
+  ) => void;
+  /** Keyboard "new loft" (L): append a fresh 2-station circle member seeded at
+   * the model ground origin and select its first bay. One undo step. */
+  addLoftMember: () => void;
+  /** Keyboard extrude for lofts (E): add a station `spacing` metres above the
+   * member's top station and select the new top bay. One undo step. */
+  extendLoftStack: (memberName: string, spacing: number) => void;
+  /** Keyboard station resize (S): set the station's primary section dimension —
+   * RADIUS (circle) or WIDTH·HEIGHT together (rectangle). One undo step. */
+  resizeLoftStation: (
+    memberName: string,
+    stationIndex: number,
+    primary: number,
+  ) => void;
+  /** Keyboard station retype (T): flip a station's section rectangle<->circle,
+   * seeding sensible dimensions. One undo step. */
+  setLoftStationType: (
+    memberName: string,
+    stationIndex: number,
+    type: "rectangle" | "circle",
   ) => void;
   addSystem: (
     type: SystemType,
@@ -1392,6 +1438,117 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     setSelectedCellType: (selectedCellType) => set({ selectedCellType }),
     setSelectedOpeningType: (selectedOpeningType) =>
       set({ selectedOpeningType }),
+    cycleCellType: (dir) =>
+      set((s) => {
+        if (!s.cellTypes.length) return {};
+        const slugs = s.cellTypes.map((t) => t.slug);
+        const i = slugs.indexOf(s.selectedCellType ?? "");
+        const ni = (((i < 0 ? 0 : i) + dir) % slugs.length + slugs.length) %
+          slugs.length;
+        return { selectedCellType: slugs[ni] };
+      }),
+    extendCellFromFace: (cellId, faceIndex, depth) =>
+      withHistory((s) => {
+        const cur = s.cells[cellId];
+        const side = BOX_FACE_SIDES[faceIndex];
+        if (!cur || cur.kind !== "cell" || !side || !depth) return {};
+        const box = extrudeBox(cur, faceIndex, depth);
+        if (box.size[side.axis] <= 0) return {};
+        const id = nextId();
+        const count =
+          Object.values(s.cells).filter((c) => c.kind === "cell").length + 1;
+        // Inherit the active cell type's entity metadata, exactly like addCell.
+        const cellType = s.cellTypes.find((t) => t.slug === s.selectedCellType);
+        const cell: BuilderCell = {
+          id,
+          name: `CELL_${String(count).padStart(2, "0")}`,
+          kind: "cell",
+          origin: quantizeVec(box.origin, s.gridStep),
+          size: quantizeVec(box.size, s.gridStep),
+          params: cellType?.metadata ? { ...cellType.metadata } : {},
+        };
+        return {
+          cells: { ...s.cells, [id]: cell },
+          dirty: true,
+          mode: "idle",
+          // Auto-select the new cell's far face so a repeated E chains outward.
+          selection: {
+            kind: "face",
+            cellId: id,
+            faceIndex: farFaceAfterExtrude(faceIndex, depth),
+          },
+          selectedCellIds: [id],
+        };
+      }),
+    cycleSelectMode: (dir) =>
+      set((s) => {
+        const sel = s.selection;
+        if (!sel) return {};
+        const order: SelectMode[] = ["cell", "face", "edge"];
+        const i = order.indexOf(sel.kind);
+        const mode = order[(((i < 0 ? 0 : i) + dir) % 3 + 3) % 3];
+        const cellId = sel.cellId;
+        const fi = sel.faceIndex ?? 0;
+        const selection: BuilderSelection =
+          mode === "cell"
+            ? { kind: "cell", cellId }
+            : mode === "face"
+              ? { kind: "face", cellId, faceIndex: fi }
+              : { kind: "edge", cellId, faceIndex: fi, edge: faceEdges(fi)[0] };
+        return { selectMode: mode, selection, selectedCellIds: [cellId] };
+      }),
+    cycleSelectionElement: (dir) =>
+      set((s) => {
+        const sel = s.selection;
+        if (!sel) return {};
+        const cell = s.cells[sel.cellId];
+        if (!cell) return {};
+        // Loft band: cycle between the member's bays (its stations).
+        if (cell.kind === "loft" && cell.loft) {
+          const member = cell.loft.member;
+          const bands = Object.values(s.cells)
+            .filter((c) => c.kind === "loft" && c.loft?.member === member)
+            .sort((a, b) => (a.loft!.bay ?? 0) - (b.loft!.bay ?? 0));
+          if (!bands.length) return {};
+          const i = bands.findIndex((c) => c.id === sel.cellId);
+          const c = bands[(((i < 0 ? 0 : i) + dir) % bands.length + bands.length) %
+            bands.length];
+          return { selection: { kind: "cell", cellId: c.id }, selectedCellIds: [c.id] };
+        }
+        // Edge mode: cycle the current face's four border edges.
+        if (sel.kind === "edge" && sel.faceIndex != null && sel.edge) {
+          const edges = faceEdges(sel.faceIndex);
+          const i = edgeIndexInFace(sel.faceIndex, sel.edge);
+          const ni = (((i < 0 ? 0 : i) + dir) % edges.length + edges.length) %
+            edges.length;
+          return { selection: { ...sel, edge: edges[ni] } };
+        }
+        // Otherwise cycle box faces (promoting a whole-cell pick to a face).
+        const start = sel.faceIndex ?? (dir > 0 ? -1 : 0);
+        return {
+          selection: {
+            kind: "face",
+            cellId: sel.cellId,
+            faceIndex: cycleFaceIndex(start, dir),
+          },
+          selectedCellIds: [sel.cellId],
+        };
+      }),
+    selectAdjacentCell: (dir) =>
+      set((s) => {
+        const list = Object.values(s.cells).sort((a, b) =>
+          a.name.localeCompare(b.name),
+        );
+        if (!list.length) return {};
+        const i = list.findIndex((c) => c.id === s.selection?.cellId);
+        const from = i < 0 ? (dir > 0 ? -1 : 0) : i;
+        const c = list[((from + dir) % list.length + list.length) % list.length];
+        return {
+          selection: { kind: "cell", cellId: c.id },
+          selectedCellIds: [c.id],
+          gizmoMode: "none",
+        };
+      }),
 
     setCellEnclosed: (cellName, enclosed) =>
       withHistory((s) => {
@@ -1834,6 +1991,98 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // Metadata is geometry-neutral, so no cell regen — just the raw member.
         return {
           loftMembers: replaceLoftMember(s.loftMembers, memberName, next),
+          dirty: true,
+        };
+      }),
+    addLoftMember: () =>
+      withHistory((s) => {
+        let n = s.loftMembers.length + 1;
+        let name = `LOFT_${String(n).padStart(2, "0")}`;
+        while (s.loftMembers.some((m) => m.NAME === name)) {
+          n += 1;
+          name = `LOFT_${String(n).padStart(2, "0")}`;
+        }
+        // Seed at the model's ground level so it lands in view (matching the
+        // add-cell ghost's ground plane), not at a far-off z=0.
+        const cells0 = Object.values(s.cells);
+        const groundZ = cells0.length
+          ? Math.min(...cells0.map((c) => c.origin[2]))
+          : 0;
+        const member = seedLoftMember(name, [0, 0, groundZ], 3);
+        const cells = regenLoftMemberCells(s.cells, member);
+        const bay0 = Object.values(cells).find(
+          (c) => c.kind === "loft" && c.loft?.member === name && c.loft?.bay === 0,
+        );
+        return {
+          loftMembers: [...s.loftMembers, member],
+          cells,
+          dirty: true,
+          selection: bay0 ? { kind: "cell", cellId: bay0.id } : s.selection,
+          selectedCellIds: bay0 ? [bay0.id] : s.selectedCellIds,
+        };
+      }),
+    extendLoftStack: (memberName, spacing) =>
+      withHistory((s) => {
+        const member = s.loftMembers.find((m) => m.NAME === memberName);
+        if (!member || !spacing) return {};
+        const stations = member.STATIONS ?? [];
+        if (!stations.length) return {};
+        const lastIdx = stations.length - 1;
+        const topZ = Number(stations[lastIdx].Z);
+        // Add a station duplicating the top, then set its exact spine offset.
+        let next = insertStation(member, lastIdx);
+        next = setStationParam(next, lastIdx + 1, "Z", topZ + spacing);
+        if (next === member) return {};
+        const cells = regenLoftMemberCells(s.cells, next);
+        // Select the new top bay (bay index = the old top station index).
+        const topBay = Object.values(cells).find(
+          (c) =>
+            c.kind === "loft" &&
+            c.loft?.member === memberName &&
+            c.loft?.bay === lastIdx,
+        );
+        return {
+          loftMembers: replaceLoftMember(s.loftMembers, memberName, next),
+          cells,
+          dirty: true,
+          selection: topBay
+            ? { kind: "cell", cellId: topBay.id }
+            : s.selection,
+          selectedCellIds: topBay ? [topBay.id] : s.selectedCellIds,
+        };
+      }),
+    resizeLoftStation: (memberName, stationIndex, primary) =>
+      withHistory((s) => {
+        const member = s.loftMembers.find((m) => m.NAME === memberName);
+        if (!member) return {};
+        const station = member.STATIONS?.[stationIndex];
+        if (!station) return {};
+        let next =
+          station.TYPE === "circle"
+            ? setStationParam(member, stationIndex, "RADIUS", primary)
+            : setStationParam(member, stationIndex, "WIDTH", primary);
+        if (station.TYPE !== "circle") {
+          next = setStationParam(next, stationIndex, "HEIGHT", primary);
+        }
+        if (next === member) return {};
+        return {
+          loftMembers: replaceLoftMember(s.loftMembers, memberName, next),
+          cells: regenLoftMemberCells(s.cells, next),
+          dirty: true,
+        };
+      }),
+    setLoftStationType: (memberName, stationIndex, type) =>
+      withHistory((s) => {
+        const member = s.loftMembers.find((m) => m.NAME === memberName);
+        if (!member) return {};
+        const station = member.STATIONS?.[stationIndex];
+        if (!station || station.TYPE === type) return {};
+        const nextStations = member.STATIONS.slice();
+        nextStations[stationIndex] = retypeStation(station, type);
+        const next: LoftMemberDoc = { ...member, STATIONS: nextStations };
+        return {
+          loftMembers: replaceLoftMember(s.loftMembers, memberName, next),
+          cells: regenLoftMemberCells(s.cells, next),
           dirty: true,
         };
       }),

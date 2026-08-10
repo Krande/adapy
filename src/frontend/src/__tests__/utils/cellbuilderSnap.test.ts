@@ -5,9 +5,14 @@ import {
     applyFaceOffset,
     BOX_FACE_SIDES,
     boxCorners,
+    cycleFaceIndex,
     edgeEndpoints,
     edgeHitOnFace,
+    edgeIndexInFace,
+    extrudeBox,
     faceCenter,
+    faceEdges,
+    farFaceAfterExtrude,
     originFromCenter,
     placeInCell,
     quantize,
@@ -149,4 +154,52 @@ test("originFromCenter inverts the mesh centre, grid-quantized", () => {
         box.origin[2] + box.size[2] / 2,
     ] as [number, number, number];
     assert.deepEqual(originFromCenter(center, box.size, 0.1), box.origin);
+});
+
+test("extrudeBox grows a positive-face cell outward, same cross-section", () => {
+    const box = {origin: [0, 0, 0] as [number, number, number], size: [5, 4, 3] as [number, number, number]};
+    // +X face (index 0), depth 2 -> new box at x in [5,7], y/z unchanged.
+    const out = extrudeBox(box, 0, 2);
+    assert.deepEqual(out.origin, [5, 0, 0]);
+    assert.deepEqual(out.size, [2, 4, 3]);
+});
+
+test("extrudeBox on a negative face grows the other way", () => {
+    const box = {origin: [0, 0, 0] as [number, number, number], size: [5, 4, 3] as [number, number, number]};
+    // -X face (index 1), depth 2 -> new box at x in [-2,0].
+    const out = extrudeBox(box, 1, 2);
+    assert.deepEqual(out.origin, [-2, 0, 0]);
+    assert.deepEqual(out.size, [2, 4, 3]);
+});
+
+test("extrudeBox with negative depth flips the growth direction", () => {
+    const box = {origin: [0, 0, 0] as [number, number, number], size: [5, 4, 3] as [number, number, number]};
+    // +X face but depth -2 -> grows inward, x in [3,5].
+    const out = extrudeBox(box, 0, -2);
+    assert.deepEqual(out.origin, [3, 0, 0]);
+    assert.deepEqual(out.size, [2, 4, 3]);
+});
+
+test("farFaceAfterExtrude keeps the same face for positive depth, flips for negative", () => {
+    assert.equal(farFaceAfterExtrude(0, 2), 0);
+    assert.equal(farFaceAfterExtrude(0, -2), 1);
+    assert.equal(farFaceAfterExtrude(2, 5), 2);
+    assert.equal(farFaceAfterExtrude(3, -5), 2);
+});
+
+test("cycleFaceIndex wraps 0..5 both directions", () => {
+    assert.equal(cycleFaceIndex(0, 1), 1);
+    assert.equal(cycleFaceIndex(5, 1), 0);
+    assert.equal(cycleFaceIndex(0, -1), 5);
+    assert.equal(cycleFaceIndex(-1, 1), 0);
+});
+
+test("faceEdges yields 4 distinct border edges running in the face plane", () => {
+    // +Z face (index 4): in-plane axes are X and Y; edges run along X or Y.
+    const edges = faceEdges(4);
+    assert.equal(edges.length, 4);
+    for (const e of edges) assert.notEqual(e.axis, 2); // never along the face normal
+    // round-trips through edgeIndexInFace
+    edges.forEach((e, i) => assert.equal(edgeIndexInFace(4, e), i));
+    assert.equal(edgeIndexInFace(4, {axis: 0, boundaryAxis: 0, boundaryPositive: true}), -1);
 });

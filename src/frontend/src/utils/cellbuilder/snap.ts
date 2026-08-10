@@ -244,3 +244,73 @@ export function applyFaceOffset(box: CellBox, axis: 0 | 1 | 2, positiveFace: boo
     }
     return {origin, size};
 }
+
+// --- Keyboard extrude + selection-cycle geometry (pure, node-testable) ------
+
+/**
+ * The box a keyboard "extrude" grows from a selected face: a NEW cell adjacent
+ * to `faceIndex`, sharing that face's cross-section (same origin/size in the two
+ * axes orthogonal to the face) and `depth` metres deep along the face axis.
+ * A positive `depth` grows outward from the face; a negative `depth` flips the
+ * growth to the inward direction (leading-`-` numeric entry). |depth| is the
+ * new cell's size along the axis; the origin is the min corner either way.
+ */
+export function extrudeBox(box: CellBox, faceIndex: number, depth: number): CellBox {
+    const side = BOX_FACE_SIDES[faceIndex];
+    const origin: Vec3 = [...box.origin];
+    const size: Vec3 = [...box.size];
+    if (!side) return {origin, size};
+    const a = side.axis;
+    // Coordinate of the extruded face plane and the outward unit direction.
+    const facePos = side.positive ? box.origin[a] + box.size[a] : box.origin[a];
+    const outward = side.positive ? 1 : -1;
+    const far = facePos + outward * depth; // depth<0 flips to the inward side
+    origin[a] = Math.min(facePos, far);
+    size[a] = Math.abs(depth);
+    return {origin, size};
+}
+
+/**
+ * After an extrude, the face of the NEW cell to auto-select so a repeated
+ * extrude keeps growing in the same visual direction: the face pointing along
+ * the growth. Positive depth grows on the source face's side (same index);
+ * a flipped (negative) depth grows on the opposite side (index ^ 1).
+ */
+export function farFaceAfterExtrude(faceIndex: number, depth: number): number {
+    return depth >= 0 ? faceIndex : faceIndex ^ 1;
+}
+
+/** Next/previous BoxGeometry face material index, wrapping 0..5. */
+export function cycleFaceIndex(current: number, dir: 1 | -1): number {
+    return (((current + dir) % 6) + 6) % 6;
+}
+
+/**
+ * The four border edges of a box face, in a stable order (for keyboard edge
+ * cycling). Order: the two edges bounding the first in-plane axis (low, high),
+ * then the two bounding the second — each `EdgeHit` runs along the OTHER
+ * in-plane axis, matching `edgeHitOnFace`'s descriptor.
+ */
+export function faceEdges(faceMaterialIndex: number): EdgeHit[] {
+    const side = BOX_FACE_SIDES[faceMaterialIndex];
+    if (!side) return [];
+    const inPlane = ([0, 1, 2] as const).filter((a) => a !== side.axis) as [0 | 1 | 2, 0 | 1 | 2];
+    const out: EdgeHit[] = [];
+    for (const boundaryAxis of inPlane) {
+        const runAxis = inPlane[0] === boundaryAxis ? inPlane[1] : inPlane[0];
+        for (const boundaryPositive of [false, true]) {
+            out.push({axis: runAxis, boundaryAxis, boundaryPositive});
+        }
+    }
+    return out;
+}
+
+/** Index (0..3) of `edge` within `faceEdges(faceIndex)`, or -1 if not found. */
+export function edgeIndexInFace(faceMaterialIndex: number, edge: EdgeHit): number {
+    return faceEdges(faceMaterialIndex).findIndex(
+        (e) =>
+            e.axis === edge.axis &&
+            e.boundaryAxis === edge.boundaryAxis &&
+            e.boundaryPositive === edge.boundaryPositive,
+    );
+}

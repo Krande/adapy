@@ -821,6 +821,13 @@ const CellBuilderPanel: React.FC = () => {
               + Opening
             </button>
             <button
+              className={btn}
+              onClick={() => s.addLoftMember()}
+              title="Add a loft member (key L) — a 2-station swept surface at the origin. Keys: E extend the stack, F/D cycle stations, S resize section, T rectangle/circle, G move member, Del remove station."
+            >
+              + Loft
+            </button>
+            <button
               ref={equipBtnRef}
               className={
                 s.mode === "add-equipment" ? `${btn} ring-2 ring-blue-300` : btn
@@ -875,6 +882,16 @@ const CellBuilderPanel: React.FC = () => {
                 ]}
               />
             )}
+          </div>
+
+          {/* Keyboard scheme discoverability — a compact one-liner; the full
+              set lives in the + Loft tooltip and the design cheat-sheet. */}
+          <div
+            className="text-[11px] text-gray-400 leading-snug"
+            title="Keyboard-only modelling. Select a face (Tab cycles cell/face/edge, F/D cycle faces), then E extrudes a new cell — type a depth, Enter commits (chains), Esc cancels. N/P step cells, 1–9 pick cell type, G/R/S move/rotate/resize. Lofts: L new, E extend stack, F/D stations, S size, T rectangle/circle."
+          >
+            Keys: <b>E</b> extrude face · <b>Tab</b> cell/face/edge · <b>F/D</b>{" "}
+            cycle · <b>N/P</b> cells · <b>L</b> loft
           </div>
 
           {/* Cell type — the engine-advertised space blueprint + Cell places.

@@ -361,3 +361,60 @@ export function bandBounds(band: LoftBand): { origin: Vec3; size: Vec3 } {
     size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]],
   };
 }
+
+// --- Keyboard authoring helpers (pure, node-testable) -----------------------
+
+const DEFAULT_STATION_RADIUS = 2;
+
+/** A fresh 2-station circle loft member seeded at `origin`, with the top
+ * station `spacing` metres up the spine — the minimum valid member the backend
+ * accepts (>= 2 stations). Used by the keyboard "new loft" action. */
+export function seedLoftMember(
+  name: string,
+  origin: Vec3,
+  spacing: number,
+): LoftMemberDoc {
+  const [x, y, z] = origin;
+  const station = (sz: number): LoftStation => ({
+    TYPE: "circle",
+    X: x,
+    Y: y,
+    Z: sz,
+    RADIUS: DEFAULT_STATION_RADIUS,
+    SEGMENTS: DEFAULT_SEGMENTS,
+  });
+  return {
+    NAME: name,
+    INCLUDE: true,
+    STATIONS: [station(z), station(z + spacing)],
+    THICKNESS: 0.01,
+    SURFACE_ONLY: true,
+    EXCLUDE_FACES: [],
+  };
+}
+
+/** Convert a station's section between rectangle and circle, seeding sensible
+ * dimensions from whatever the other section carried (identity when already the
+ * target type). Keeps X/Y/Z/SEGMENTS; swaps WIDTH·HEIGHT <-> RADIUS. */
+export function retypeStation(
+  station: LoftStation,
+  type: "rectangle" | "circle",
+): LoftStation {
+  if (station.TYPE === type) return station;
+  const next: LoftStation = { ...station, TYPE: type };
+  if (type === "circle") {
+    next.RADIUS =
+      station.RADIUS ??
+      (Math.max(station.WIDTH ?? 0, station.HEIGHT ?? 0) / 2 ||
+        DEFAULT_STATION_RADIUS);
+    next.SEGMENTS = station.SEGMENTS ?? DEFAULT_SEGMENTS;
+    delete next.WIDTH;
+    delete next.HEIGHT;
+  } else {
+    const side = (station.RADIUS ?? 0) * 2 || DEFAULT_STATION_RADIUS * 2;
+    next.WIDTH = station.WIDTH ?? side;
+    next.HEIGHT = station.HEIGHT ?? side;
+    delete next.RADIUS;
+  }
+  return next;
+}

@@ -9,7 +9,7 @@ import {cameraRef, controlsRef, rendererRef, sceneRef} from "@/state/refs";
 import {requestRender} from "@/state/perfStore";
 import {useModelState} from "@/state/modelState";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
-import {bandFaceIds} from "@/utils/cellbuilder/loft";
+import {bandFaceIds, stationRingPoints} from "@/utils/cellbuilder/loft";
 import type {ProceduralTypeOption, TypePortSummary} from "@/services/viewerApi";
 import {hexToInt, portColorInt, uniquePortColorHexByIndex} from "@/utils/portColor";
 import {
@@ -17,6 +17,7 @@ import {
     BOX_FACE_SIDES,
     edgeEndpoints,
     edgeHitOnFace,
+    extrudeBox,
     faceCenter,
     originFromCenter,
     quantize,
@@ -1747,6 +1748,259 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         st.openContextMenu(ev.clientX, ev.clientY, cellId);
     };
 
+    // --- Keyboard interactive extrude + numeric entry -------------------------
+    // A live preview (the reused green `ghost` mesh + an on-canvas readout)
+    // driven purely from the keyboard: E starts it, digits/`.`/`-` type the
+    // depth, Enter commits (store mutates only here), Esc cancels. Three shapes:
+    // extruding a box cell from its selected face, extending a loft stack up its
+    // spine, and resizing a loft station's section — all share the typing UX.
+    type NumEntry =
+        | {
+              kind: "cellExtrude";
+              cellId: string;
+              faceIndex: number;
+              axis: 0 | 1 | 2;
+              defaultDepth: number;
+              typed: string;
+          }
+        | {
+              kind: "loftExtend";
+              memberName: string;
+              defaultSpacing: number;
+              anchor: Vec3;
+              typed: string;
+          }
+        | {
+              kind: "loftResize";
+              memberName: string;
+              stationIndex: number;
+              section: "rectangle" | "circle";
+              defaultVal: number;
+              anchor: Vec3;
+              typed: string;
+          };
+    let numEntry: NumEntry | null = null;
+
+    // Active loft station for keyboard station edits (S/T) — decoupled from the
+    // bay selection so E's freshly-added top station and L's base station are
+    // both directly addressable. Reset when the selected member changes.
+    let loftActive: {member: string; index: number} | null = null;
+
+    // On-canvas numeric readout (a screen-space sprite, like snapMarker).
+    const readoutCanvas = document.createElement("canvas");
+    readoutCanvas.width = 256;
+    readoutCanvas.height = 64;
+    const readoutTex = new THREE.CanvasTexture(readoutCanvas);
+    const readout = new THREE.Sprite(
+        new THREE.SpriteMaterial({map: readoutTex, depthTest: false, transparent: true, sizeAttenuation: false}),
+    );
+    readout.scale.set(0.17, 0.043, 1);
+    readout.renderOrder = 7;
+    readout.userData.__excludeFromFit = true;
+    readout.visible = false;
+    scene.add(readout);
+    const drawReadout = (text: string) => {
+        const g = readoutCanvas.getContext("2d")!;
+        g.clearRect(0, 0, 256, 64);
+        g.fillStyle = "rgba(17,24,39,0.86)";
+        const r = 12;
+        g.beginPath();
+        g.moveTo(r, 2);
+        g.arcTo(254, 2, 254, 62, r);
+        g.arcTo(254, 62, 2, 62, r);
+        g.arcTo(2, 62, 2, 2, r);
+        g.arcTo(2, 2, 254, 2, r);
+        g.fill();
+        g.fillStyle = "#22c55e";
+        g.font = "bold 34px ui-monospace, monospace";
+        g.textAlign = "center";
+        g.textBaseline = "middle";
+        g.fillText(text, 128, 34);
+        readoutTex.needsUpdate = true;
+    };
+    const showReadout = (text: string, modelPos: Vec3) => {
+        drawReadout(text);
+        const off = offsetVec();
+        readout.position.set(modelPos[0] + off.x, modelPos[1] + off.y, modelPos[2] + off.z);
+        readout.visible = true;
+    };
+    const hideReadout = () => {
+        if (readout.visible) readout.visible = false;
+    };
+    const fmt = (v: number): string => `${Math.round(v * 1000) / 1000}`;
+
+    // Parse the typed buffer to a number, falling back to `def` for the empty /
+    // partial ("", "-", ".") states; a lone "-" flips the default's sign.
+    const parseTyped = (typed: string, def: number): number => {
+        if (typed === "" || typed === "." || typed === "-.") return def;
+        if (typed === "-") return -def;
+        const v = Number(typed);
+        return Number.isFinite(v) ? v : def;
+    };
+
+    const loftMemberByName = (name: string) =>
+        useCellBuilderStore.getState().loftMembers.find((m) => m.NAME === name) ?? null;
+
+    // Bounds of two rings (for the loft-extend ghost box).
+    const ringsBounds = (lo: Vec3[], hi: Vec3[]): CellBox => {
+        const min: Vec3 = [Infinity, Infinity, Infinity];
+        const max: Vec3 = [-Infinity, -Infinity, -Infinity];
+        for (const p of [...lo, ...hi]) {
+            for (let a = 0; a < 3; a++) {
+                if (p[a] < min[a]) min[a] = p[a];
+                if (p[a] > max[a]) max[a] = p[a];
+            }
+        }
+        return {origin: min, size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]]};
+    };
+
+    const setGhostBox = (box: CellBox) => {
+        // Reuses the green GHOST-material box mesh (same one add-mode placement
+        // uses; the two modes never overlap).
+        ghost.scale.set(Math.max(box.size[0], 1e-3), Math.max(box.size[1], 1e-3), Math.max(box.size[2], 1e-3));
+        ghost.position.set(
+            box.origin[0] + box.size[0] / 2,
+            box.origin[1] + box.size[1] / 2,
+            box.origin[2] + box.size[2] / 2,
+        );
+        ghost.visible = true;
+    };
+
+    const refreshNumEntry = () => {
+        if (!numEntry) return;
+        const st = useCellBuilderStore.getState();
+        if (numEntry.kind === "cellExtrude") {
+            const cell = st.cells[numEntry.cellId];
+            if (!cell) return endNumEntry(true);
+            const v = parseTyped(numEntry.typed, numEntry.defaultDepth);
+            const box = extrudeBox(cell, numEntry.faceIndex, v);
+            if (Math.abs(box.size[numEntry.axis]) < 1e-6) ghost.visible = false;
+            else setGhostBox(box);
+            showReadout(`${fmt(v)} m`, faceCenter(cell, numEntry.faceIndex));
+        } else if (numEntry.kind === "loftExtend") {
+            const member = loftMemberByName(numEntry.memberName);
+            if (!member || !member.STATIONS.length) return endNumEntry(true);
+            const v = parseTyped(numEntry.typed, numEntry.defaultSpacing);
+            const top = member.STATIONS[member.STATIONS.length - 1];
+            const lo = stationRingPoints(top, member.PLACEMENT);
+            const hi = stationRingPoints({...top, Z: Number(top.Z) + v}, member.PLACEMENT);
+            const box = ringsBounds(lo, hi);
+            if (Math.abs(box.size[2]) < 1e-6) ghost.visible = false;
+            else setGhostBox(box);
+            showReadout(`↑ ${fmt(v)} m`, numEntry.anchor);
+        } else {
+            const v = parseTyped(numEntry.typed, numEntry.defaultVal);
+            ghost.visible = false; // no 3D preview for a section resize
+            showReadout(`${numEntry.section === "circle" ? "r" : "□"} ${fmt(v)} m`, numEntry.anchor);
+        }
+        requestRender();
+    };
+
+    const commitNumEntry = () => {
+        if (!numEntry) return;
+        const st = useCellBuilderStore.getState();
+        const entry = numEntry;
+        if (entry.kind === "cellExtrude") {
+            const v = parseTyped(entry.typed, entry.defaultDepth);
+            if (Math.abs(v) > 1e-6) st.extendCellFromFace(entry.cellId, entry.faceIndex, v);
+        } else if (entry.kind === "loftExtend") {
+            const v = parseTyped(entry.typed, entry.defaultSpacing);
+            if (Math.abs(v) > 1e-6) {
+                st.extendLoftStack(entry.memberName, v);
+                const m = loftMemberByName(entry.memberName);
+                if (m) setLoftActive(entry.memberName, m.STATIONS.length - 1);
+            }
+        } else {
+            const v = parseTyped(entry.typed, entry.defaultVal);
+            st.resizeLoftStation(entry.memberName, entry.stationIndex, Math.max(0, v));
+        }
+        endNumEntry(false);
+    };
+
+    const endNumEntry = (_cancel: boolean) => {
+        numEntry = null;
+        ghost.visible = false;
+        ghostBox = null;
+        hideReadout();
+        requestRender();
+    };
+
+    const startCellExtrude = (cell: BuilderCell, faceIndex: number): boolean => {
+        const side = BOX_FACE_SIDES[faceIndex];
+        if (!side || cell.kind !== "cell") return false;
+        numEntry = {
+            kind: "cellExtrude",
+            cellId: cell.id,
+            faceIndex,
+            axis: side.axis,
+            defaultDepth: cell.size[side.axis],
+            typed: "",
+        };
+        refreshNumEntry();
+        return true;
+    };
+
+    const startLoftExtend = (cell: BuilderCell): boolean => {
+        if (cell.kind !== "loft" || !cell.loft) return false;
+        const member = loftMemberByName(cell.loft.member);
+        if (!member || !member.STATIONS.length) return false;
+        const n = member.STATIONS.length;
+        const top = member.STATIONS[n - 1];
+        const prev = n >= 2 ? member.STATIONS[n - 2] : null;
+        const spacing = prev ? Math.abs(Number(top.Z) - Number(prev.Z)) || 3 : 3;
+        numEntry = {
+            kind: "loftExtend",
+            memberName: member.NAME,
+            defaultSpacing: spacing,
+            anchor: [Number(top.X), Number(top.Y), Number(top.Z)],
+            typed: "",
+        };
+        refreshNumEntry();
+        return true;
+    };
+
+    const startLoftResize = (cell: BuilderCell): boolean => {
+        if (cell.kind !== "loft" || !cell.loft) return false;
+        const member = loftMemberByName(cell.loft.member);
+        if (!member) return false;
+        const idx =
+            loftActive && loftActive.member === member.NAME ? loftActive.index : cell.loft.bay;
+        const station = member.STATIONS[idx];
+        if (!station) return false;
+        const section = station.TYPE;
+        numEntry = {
+            kind: "loftResize",
+            memberName: member.NAME,
+            stationIndex: idx,
+            section,
+            defaultVal: section === "circle" ? (station.RADIUS ?? 1) : (station.WIDTH ?? 1),
+            anchor: [Number(station.X), Number(station.Y), Number(station.Z)],
+            typed: "",
+        };
+        refreshNumEntry();
+        return true;
+    };
+
+    // Point the active loft station at `index` (clamped) and select the bay that
+    // contains it so the panel/highlight follow. Sets loftActive.member first so
+    // the selection subscription doesn't reset the index we just chose.
+    const setLoftActive = (member: string, index: number) => {
+        const st = useCellBuilderStore.getState();
+        const m = loftMemberByName(member);
+        if (!m) return;
+        const nStations = m.STATIONS.length;
+        const idx = Math.min(Math.max(index, 0), nStations - 1);
+        loftActive = {member, index: idx};
+        const bay = Math.min(idx, nStations - 2);
+        const band = Object.values(st.cells).find(
+            (c) => c.kind === "loft" && c.loft?.member === member && c.loft?.bay === bay,
+        );
+        if (band && st.selection?.cellId !== band.id) {
+            st.setSelection({kind: "cell", cellId: band.id});
+        }
+        requestRender();
+    };
+
     const onKeyDown = (ev: KeyboardEvent) => {
         const st = useCellBuilderStore.getState();
         if (!st.active) return;
@@ -1755,6 +2009,56 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         // own text undo win there).
         const target = ev.target as HTMLElement | null;
         const inField = !!target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+
+        // An interactive extrude/station preview is live: capture numeric entry
+        // so digits mean depth (not cell-type), Enter commits, Esc cancels,
+        // Backspace edits. Any other key cancels the preview and falls through.
+        if (!inField && numEntry && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+            if (ev.key === "Enter") {
+                commitNumEntry();
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+            if (ev.key === "Escape") {
+                endNumEntry(true);
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+            if (ev.key === "Backspace") {
+                numEntry.typed = numEntry.typed.slice(0, -1);
+                refreshNumEntry();
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+            if (/^[0-9]$/.test(ev.key)) {
+                numEntry.typed += ev.key;
+                refreshNumEntry();
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+            if (ev.key === "." && !numEntry.typed.includes(".")) {
+                numEntry.typed += ".";
+                refreshNumEntry();
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+            if (ev.key === "-" && numEntry.typed === "") {
+                numEntry.typed = "-";
+                refreshNumEntry();
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+            // Not a numeric-entry key — abandon the preview, then let the key
+            // fall through to its normal handling below.
+            endNumEntry(true);
+        }
+
         if ((ev.ctrlKey || ev.metaKey) && !inField) {
             const k = ev.key.toLowerCase();
             if (k === "z" && !ev.shiftKey) {
@@ -1832,6 +2136,46 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 st.unhideAllCells();
                 return;
             }
+            // Shift+X toggles exclusion on the selected loft face panel (drops
+            // its plate on recompile). Maps the picked material index to the
+            // member-relative face id via bandFaceIds.
+            if (ev.shiftKey && k === "x") {
+                const sel = st.selection;
+                if (
+                    sel?.kind === "face" &&
+                    sel.faceIndex != null &&
+                    cell?.kind === "loft" &&
+                    cell.loft
+                ) {
+                    const {edges, caps} = bandFaceIds(cell.loft);
+                    const faceIds = [...edges, caps[0], caps[1]];
+                    const fid = faceIds[sel.faceIndex];
+                    if (fid) {
+                        const excluded = cell.loft.excludeFaces.includes(fid);
+                        st.setLoftFaceExcluded(cell.loft.member, fid, !excluded);
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                    }
+                }
+                return;
+            }
+            // Loft members: G moves the whole member (existing translate gizmo),
+            // S starts a numeric section resize of the active station.
+            if (!ev.shiftKey && cell && cell.kind === "loft") {
+                if (k === "g") {
+                    st.setGizmoMode("translate");
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                if (k === "s") {
+                    if (startLoftResize(cell)) {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                    }
+                    return;
+                }
+            }
             // G/R/S activate the translate / rotate / resize gizmo (Blender keys):
             // rotate is equipment-only, resize is cell-only (matches the menus).
             if (!ev.shiftKey && cell && cell.kind !== "loft") {
@@ -1866,6 +2210,110 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 ev.preventDefault();
                 ev.stopPropagation();
                 return;
+            }
+
+            // --- Keyboard topology scheme (single keys) ----------------------
+            if (!ev.shiftKey) {
+                // L: start a new loft member (available with nothing selected).
+                if (k === "l") {
+                    st.addLoftMember();
+                    const members = useCellBuilderStore.getState().loftMembers;
+                    const last = members[members.length - 1];
+                    if (last) setLoftActive(last.NAME, 0);
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                // A: enter add-cell placement (pointer ghost).
+                if (k === "a") {
+                    st.setMode("add-cell");
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                // Tab: cycle selection granularity cell -> face -> edge.
+                if (k === "tab" && st.selection) {
+                    st.cycleSelectMode(1);
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                // N / P: next / previous cell.
+                if (k === "n" || k === "p") {
+                    st.selectAdjacentCell(k === "n" ? 1 : -1);
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                // F / D: next / previous element — faces / edges, or loft stations.
+                if ((k === "f" || k === "d") && cell) {
+                    const dir = k === "f" ? 1 : -1;
+                    if (cell.kind === "loft" && cell.loft) {
+                        const member = loftMemberByName(cell.loft.member);
+                        if (member) {
+                            const cur =
+                                loftActive && loftActive.member === member.NAME
+                                    ? loftActive.index
+                                    : cell.loft.bay;
+                            const n = member.STATIONS.length;
+                            setLoftActive(member.NAME, ((cur + dir) % n + n) % n);
+                        }
+                    } else {
+                        st.cycleSelectionElement(dir);
+                    }
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                // T: loft station retype (rectangle<->circle) or cell-type cycle.
+                if (k === "t") {
+                    if (cell?.kind === "loft" && cell.loft && loftActive) {
+                        const member = loftMemberByName(cell.loft.member);
+                        const station = member?.STATIONS[loftActive.index];
+                        if (member && station) {
+                            st.setLoftStationType(
+                                member.NAME,
+                                loftActive.index,
+                                station.TYPE === "circle" ? "rectangle" : "circle",
+                            );
+                        }
+                    } else {
+                        st.cycleCellType(1);
+                    }
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                // E: interactive extrude — box cell from its selected face, or
+                // extend a loft stack up its spine. No face selected = no-op (Q1).
+                if (k === "e") {
+                    let started = false;
+                    if (cell?.kind === "loft") {
+                        started = startLoftExtend(cell);
+                    } else if (
+                        cell?.kind === "cell" &&
+                        st.selection?.kind === "face" &&
+                        st.selection.faceIndex != null
+                    ) {
+                        started = startCellExtrude(cell, st.selection.faceIndex);
+                    }
+                    if (started) {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                    }
+                    return;
+                }
+                // 1-9: pick a cell type directly from the advertised catalog.
+                if (/^[1-9]$/.test(ev.key)) {
+                    const types = st.cellTypes;
+                    const idx = Number(ev.key) - 1;
+                    if (idx < types.length) {
+                        st.setSelectedCellType(types[idx].slug);
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                    }
+                    return;
+                }
             }
         }
 
@@ -1918,6 +2366,19 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (s.cells !== prev.cells || s.active !== prev.active) rebuild();
         else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
             refreshFaceStyles();
+        // Keep the keyboard "active loft station" in step with the selection:
+        // reset it when the selected loft MEMBER changes (preserving the index
+        // within the same member, so F/D + setLoftActive don't fight), and clear
+        // it when the pick isn't a loft band.
+        if (s.selection !== prev.selection) {
+            const sc = s.selection ? s.cells[s.selection.cellId] : null;
+            if (sc && sc.kind === "loft" && sc.loft) {
+                if (!loftActive || loftActive.member !== sc.loft.member)
+                    loftActive = {member: sc.loft.member, index: sc.loft.bay};
+            } else {
+                loftActive = null;
+            }
+        }
         if (
             s.cells !== prev.cells ||
             s.active !== prev.active ||
@@ -1984,6 +2445,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         snapTex.dispose();
         (snapMarker.material as THREE.Material).dispose();
         scene.remove(snapMarker);
+        readoutTex.dispose();
+        (readout.material as THREE.Material).dispose();
+        scene.remove(readout);
         disposeResizeHandles();
         hiddenDefaultGrids.forEach((g) => (g.visible = true));
         hiddenDefaultGrids.length = 0;

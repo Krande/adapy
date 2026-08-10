@@ -8,6 +8,8 @@ import {
   insertStation,
   memberToBands,
   removeStation,
+  retypeStation,
+  seedLoftMember,
   setExcludeFace,
   setStationParam,
   stationRingPoints,
@@ -418,4 +420,34 @@ test("bandBounds gives the AABB (min corner + size) of both rings", () => {
   const { origin, size } = bandBounds(band);
   assert.deepEqual(origin, [-3, -1, 0]); // widest half-width 3, z from 0
   assert.deepEqual(size, [6, 2, 4]);
+});
+
+test("seedLoftMember makes a valid 2-station circle member at the origin", () => {
+  const m = seedLoftMember("LOFT_01", [1, 2, 3], 6);
+  assert.equal(m.NAME, "LOFT_01");
+  assert.equal(m.STATIONS.length, 2);
+  assert.equal(m.STATIONS[0].TYPE, "circle");
+  assert.deepEqual(
+    [m.STATIONS[0].X, m.STATIONS[0].Y, m.STATIONS[0].Z],
+    [1, 2, 3],
+  );
+  assert.equal(m.STATIONS[1].Z, 9); // z + spacing
+  // decomposes into exactly one bay (N-1)
+  assert.equal(memberToBands(m).length, 1);
+});
+
+test("retypeStation swaps section dims and is identity on the same type", () => {
+  const circle: LoftStation = { TYPE: "circle", X: 0, Y: 0, Z: 0, RADIUS: 4, SEGMENTS: 12 };
+  const rect = retypeStation(circle, "rectangle");
+  assert.equal(rect.TYPE, "rectangle");
+  assert.equal(rect.WIDTH, 8); // 2 * radius
+  assert.equal(rect.HEIGHT, 8);
+  assert.equal(rect.RADIUS, undefined);
+  assert.equal(rect.SEGMENTS, 12); // carried through
+  const back = retypeStation(rect, "circle");
+  assert.equal(back.TYPE, "circle");
+  assert.equal(back.RADIUS, 4); // max(w,h)/2
+  assert.equal(back.WIDTH, undefined);
+  // identity when already the target type (same reference)
+  assert.equal(retypeStation(circle, "circle"), circle);
 });
