@@ -468,6 +468,16 @@ interface CellBuilderState {
   setSelectedOpeningType: (t: string | null) => void;
   /** Step the active cell type through the advertised catalog (keyboard T). */
   cycleCellType: (dir: 1 | -1) => void;
+  /** Step the active equipment type through the advertised catalog (keyboard
+   * equipment-insert mode). */
+  cycleEquipmentType: (dir: 1 | -1) => void;
+  /** Keyboard equipment insert: create equipment of the selected type at
+   * `local` (X,Y) in the host cell's LOCAL frame, seated on the cell floor.
+   * Selects the new equipment. One undo step. */
+  insertEquipmentAtLocal: (
+    cellId: string,
+    local: [number, number],
+  ) => void;
   /** Keyboard extrude: grow a NEW cell adjacent to a selected face — same
    * cross-section, `depth` metres deep along the face axis (negative flips the
    * direction). The new cell's far face is auto-selected so a repeated extrude
@@ -1465,6 +1475,48 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         const ni = (((i < 0 ? 0 : i) + dir) % slugs.length + slugs.length) %
           slugs.length;
         return { selectedCellType: slugs[ni] };
+      }),
+    cycleEquipmentType: (dir) =>
+      set((s) => {
+        if (!s.equipmentTypes.length) return {};
+        const slugs = s.equipmentTypes.map((t) => t.slug);
+        const i = slugs.indexOf(s.selectedEquipmentType ?? "");
+        const ni = (((i < 0 ? 0 : i) + dir) % slugs.length + slugs.length) %
+          slugs.length;
+        return { selectedEquipmentType: slugs[ni] };
+      }),
+    insertEquipmentAtLocal: (cellId, local) =>
+      withHistory((s) => {
+        const cell = s.cells[cellId];
+        if (!cell || cell.kind !== "cell") return {};
+        const id = nextId();
+        const count =
+          Object.values(s.cells).filter((c) => c.kind === "equipment").length + 1;
+        const eqType = s.selectedEquipmentType ?? undefined;
+        const baseName = (eqType ?? "EQ").toUpperCase();
+        const size: Vec3 = [1, 1, 1];
+        // Cell-local (X,Y) -> world origin (the cells map stores world coords);
+        // seat on the cell floor (origin z = cell floor).
+        const origin = quantizeVec(
+          [cell.origin[0] + local[0], cell.origin[1] + local[1], cell.origin[2]],
+          s.gridStep,
+        );
+        const eqCell: BuilderCell = {
+          id,
+          name: `${baseName}_${String(count).padStart(2, "0")}`,
+          kind: "equipment",
+          equipmentType: eqType,
+          origin,
+          size,
+          params: { SPACE_LOC: "FLOOR" },
+        };
+        return {
+          cells: { ...s.cells, [id]: eqCell },
+          dirty: true,
+          mode: "idle",
+          selection: { kind: "cell", cellId: id },
+          selectedCellIds: [id],
+        };
       }),
     extendCellFromFace: (cellId, faceIndex, depth) =>
       withHistory((s) => {

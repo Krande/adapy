@@ -314,3 +314,40 @@ export function edgeIndexInFace(faceMaterialIndex: number, edge: EdgeHit): numbe
             e.boundaryPositive === edge.boundaryPositive,
     );
 }
+
+/**
+ * The negative-volume box for an opening placed on a cell face by keyboard.
+ * `localX`/`localY` are the opening's LOWER corner in the face's 2D plane
+ * (measured from the cell's min corner along the two in-plane axes — the first
+ * in-plane axis is X, the second is Y). `width`/`height` size the opening in
+ * those same axes. `depth` is the HALF through-thickness: the box straddles the
+ * face plane, extending `depth` on each side, so its total size along the face
+ * normal is `2 * depth` — matching how `insertOpeningOnFace` straddles the
+ * wall/deck plate it cuts.
+ */
+export function openingBoxOnFace(
+    cell: CellBox,
+    faceMaterialIndex: number,
+    localX: number,
+    localY: number,
+    width: number,
+    height: number,
+    depth: number,
+): CellBox {
+    const side = BOX_FACE_SIDES[faceMaterialIndex];
+    if (!side) return {origin: [...cell.origin], size: [0, 0, 0]};
+    const axis = side.axis;
+    const inPlane = ([0, 1, 2] as const).filter((a) => a !== axis) as [0 | 1 | 2, 0 | 1 | 2];
+    const [a1, a2] = inPlane;
+    const facePos = side.positive ? cell.origin[axis] + cell.size[axis] : cell.origin[axis];
+    const origin: Vec3 = [0, 0, 0];
+    const size: Vec3 = [0, 0, 0];
+    origin[a1] = cell.origin[a1] + localX;
+    size[a1] = Math.abs(width);
+    origin[a2] = cell.origin[a2] + localY;
+    size[a2] = Math.abs(height);
+    const d = Math.abs(depth);
+    origin[axis] = facePos - d;
+    size[axis] = 2 * d;
+    return {origin, size};
+}

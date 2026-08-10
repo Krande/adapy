@@ -19,6 +19,7 @@ import {
     edgeHitOnFace,
     extrudeBox,
     faceCenter,
+    openingBoxOnFace,
     originFromCenter,
     quantize,
     snapBox,
@@ -2111,6 +2112,181 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         endPlaceEntry();
     };
 
+    // --- Keyboard equipment insert (I) ---------------------------------------
+    // Two phases: "pick" chooses the equipment TYPE (T cycles) and the host CELL
+    // (N/P cycle, highlighted via selection); Enter locks the host and moves to
+    // "xy", where local (X,Y) in the cell frame are typed ("," steps X->Y),
+    // Enter places on the cell floor. The green ghost previews the unit at the
+    // current host + local position throughout.
+    const spaceCells = (): BuilderCell[] =>
+        Object.values(useCellBuilderStore.getState().cells)
+            .filter((c) => c.kind === "cell")
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+    let equipEntry: {
+        phase: "pick" | "xy";
+        hostId: string;
+        axis: 0 | 1; // xy phase: 0=X, 1=Y (cell-local)
+        vals: [number | null, number | null];
+        typed: string;
+    } | null = null;
+
+    const equipTypeName = (): string => {
+        const st = useCellBuilderStore.getState();
+        const t = st.equipmentTypes.find((x) => x.slug === st.selectedEquipmentType);
+        return t?.name ?? st.selectedEquipmentType ?? "EQ";
+    };
+
+    const refreshEquipEntry = () => {
+        if (!equipEntry) return;
+        const st = useCellBuilderStore.getState();
+        const host = st.cells[equipEntry.hostId];
+        if (!host) return endEquipEntry();
+        const size = DEFAULT_EQUIPMENT_SIZE;
+        const local: [number, number] =
+            equipEntry.phase === "xy"
+                ? [
+                      equipEntry.vals[0] ??
+                          (equipEntry.axis === 0 ? parseTyped(equipEntry.typed, host.size[0] / 2) : host.size[0] / 2),
+                      equipEntry.vals[1] ??
+                          (equipEntry.axis === 1 ? parseTyped(equipEntry.typed, host.size[1] / 2) : host.size[1] / 2),
+                  ]
+                : [host.size[0] / 2, host.size[1] / 2];
+        // Cell-local (X,Y) centre -> world origin (min corner), seated on floor.
+        const origin: Vec3 = [
+            host.origin[0] + local[0] - size[0] / 2,
+            host.origin[1] + local[1] - size[1] / 2,
+            host.origin[2],
+        ];
+        setGhostBox({origin, size});
+        const centre: Vec3 = [origin[0] + size[0] / 2, origin[1] + size[1] / 2, origin[2] + size[2] / 2];
+        if (equipEntry.phase === "pick") {
+            showReadout(`${equipTypeName()} → ${host.name}`, centre);
+            st.setToolHint(
+                `Insert ${equipTypeName()} @ cell ${host.name} — T type, N/P cell, ↵ pick, Esc cancel`,
+            );
+        } else {
+            showReadout(`${equipTypeName()} (${fmt(local[0])}, ${fmt(local[1])})`, centre);
+            st.setToolHint(
+                `Equip ${equipTypeName()} @ cell ${host.name} local (${fmt(local[0])}, ${fmt(local[1])}) — type, "," X→Y, ↵ place, Esc cancel`,
+            );
+        }
+        requestRender();
+    };
+
+    const endEquipEntry = () => {
+        equipEntry = null;
+        ghost.visible = false;
+        ghostBox = null;
+        hideReadout();
+        useCellBuilderStore.getState().setToolHint(null);
+        requestRender();
+    };
+
+    const startEquipInsert = (): boolean => {
+        const st = useCellBuilderStore.getState();
+        const cells = spaceCells();
+        if (!cells.length) {
+            st.setToolHint("Add a cell first — equipment needs a host cell");
+            return false;
+        }
+        // Default the type if none is chosen yet, so the ghost/readout have one.
+        if (!st.selectedEquipmentType && st.equipmentTypes.length) {
+            st.setSelectedEquipmentType(st.equipmentTypes[0].slug);
+        }
+        const selId = st.selection?.cellId;
+        const host = (selId && st.cells[selId]?.kind === "cell" ? st.cells[selId] : null) ?? cells[0];
+        equipEntry = {phase: "pick", hostId: host.id, axis: 0, vals: [null, null], typed: ""};
+        if (st.selection?.cellId !== host.id) st.setSelection({kind: "cell", cellId: host.id});
+        refreshEquipEntry();
+        return true;
+    };
+
+    const cycleEquipHost = (dir: 1 | -1) => {
+        if (!equipEntry) return;
+        const cells = spaceCells();
+        if (!cells.length) return;
+        const i = cells.findIndex((c) => c.id === equipEntry!.hostId);
+        const host = cells[((i < 0 ? 0 : i) + dir + cells.length) % cells.length];
+        equipEntry.hostId = host.id;
+        const st = useCellBuilderStore.getState();
+        if (st.selection?.cellId !== host.id) st.setSelection({kind: "cell", cellId: host.id});
+        refreshEquipEntry();
+    };
+
+    // --- Keyboard opening-on-face insert (O) ---------------------------------
+    // A cell FACE must be selected. Numeric fields in the face's 2D plane:
+    // [X, Y] lower corner, then [W, H], then DEPTH (half through-thickness). ","
+    // steps to the next field; Enter finishes the current stage (X/Y -> W/H ->
+    // DEPTH) and commits on the last. The negative box straddles the face plane.
+    const OPEN_FIELDS = ["x", "y", "w", "h", "depth"] as const;
+    let openEntry: {
+        cellId: string;
+        faceIndex: number;
+        field: 0 | 1 | 2 | 3 | 4;
+        vals: [number, number, number, number, number]; // X, Y, W, H, DEPTH
+        typed: string;
+    } | null = null;
+
+    const openVals = (oe: NonNullable<typeof openEntry>): [number, number, number, number, number] => {
+        const out = [...oe.vals] as [number, number, number, number, number];
+        if (oe.typed !== "") out[oe.field] = parseTyped(oe.typed, oe.vals[oe.field]);
+        return out;
+    };
+
+    const refreshOpenEntry = () => {
+        if (!openEntry) return;
+        const st = useCellBuilderStore.getState();
+        const cell = st.cells[openEntry.cellId];
+        if (!cell || cell.kind !== "cell") return endOpenEntry();
+        const [x, y, w, h, d] = openVals(openEntry);
+        const box = openingBoxOnFace(cell, openEntry.faceIndex, x, y, w, h, d);
+        setGhostBox(box);
+        const centre: Vec3 = [
+            box.origin[0] + box.size[0] / 2,
+            box.origin[1] + box.size[1] / 2,
+            box.origin[2] + box.size[2] / 2,
+        ];
+        const fieldVal = [x, y, w, h, d][openEntry.field];
+        showReadout(`${OPEN_FIELDS[openEntry.field]} ${fmt(fieldVal)}`, centre);
+        st.setToolHint(
+            `Opening ${OPEN_FIELDS[openEntry.field]}=${fmt(fieldVal)} (x${fmt(x)} y${fmt(y)} w${fmt(w)} h${fmt(h)} d${fmt(d)}) — type, "," next, ↵ next/commit, Esc cancel`,
+        );
+        requestRender();
+    };
+
+    const endOpenEntry = () => {
+        openEntry = null;
+        ghost.visible = false;
+        ghostBox = null;
+        hideReadout();
+        useCellBuilderStore.getState().setToolHint(null);
+        requestRender();
+    };
+
+    const startOpeningOnFace = (cell: BuilderCell, faceIndex: number): boolean => {
+        if (cell.kind !== "cell" || !BOX_FACE_SIDES[faceIndex]) return false;
+        openEntry = {cellId: cell.id, faceIndex, field: 0, vals: [0, 0, 1, 1, 1], typed: ""};
+        refreshOpenEntry();
+        return true;
+    };
+
+    const commitOpenEntry = () => {
+        if (!openEntry) return;
+        const st = useCellBuilderStore.getState();
+        const cell = st.cells[openEntry.cellId];
+        if (cell && cell.kind === "cell") {
+            const [x, y, w, h, d] = openVals(openEntry);
+            const box = openingBoxOnFace(cell, openEntry.faceIndex, x, y, w, h, d);
+            if (box.size[0] > 0 && box.size[1] > 0 && box.size[2] > 0) {
+                // addCell uses the current selectedOpeningType's subtype and
+                // round-trips as a USE_GLOBAL_COORDS negative box (one undo step).
+                st.addCell("opening", box.origin, box.size);
+            }
+        }
+        endOpenEntry();
+    };
+
     const startCellExtrude = (cell: BuilderCell, faceIndex: number): boolean => {
         const side = BOX_FACE_SIDES[faceIndex];
         if (!side || cell.kind !== "cell") return false;
@@ -2325,6 +2501,159 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 ev.stopPropagation();
                 return;
             }
+        }
+
+        // Equipment-insert flow (keyboard): pick phase (T type / N,P cell / ↵
+        // lock) then xy phase (numeric local X,Y / ↵ place). Captures its keys.
+        if (!inField && equipEntry && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+            const npd = /^Numpad([0-9])$/.exec(ev.code);
+            const isDigit = !!npd || /^[0-9]$/.test(ev.key);
+            const consume = () => {
+                ev.preventDefault();
+                ev.stopPropagation();
+            };
+            if (ev.key === "Escape") {
+                endEquipEntry();
+                consume();
+                return;
+            }
+            if (equipEntry.phase === "pick") {
+                if (ev.key === "Enter") {
+                    equipEntry.phase = "xy";
+                    equipEntry.axis = 0;
+                    equipEntry.vals = [null, null];
+                    equipEntry.typed = "";
+                    refreshEquipEntry();
+                    consume();
+                    return;
+                }
+                const k = ev.key.toLowerCase();
+                if (k === "t") {
+                    st.cycleEquipmentType(1);
+                    refreshEquipEntry();
+                    consume();
+                    return;
+                }
+                if (k === "n" || k === "p") {
+                    cycleEquipHost(k === "n" ? 1 : -1);
+                    consume();
+                    return;
+                }
+                return; // swallow nothing else in pick phase
+            }
+            // xy phase — numeric local X,Y.
+            if (ev.key === "Enter") {
+                if (equipEntry.typed !== "")
+                    equipEntry.vals[equipEntry.axis] = parseTyped(equipEntry.typed, 0);
+                const host = st.cells[equipEntry.hostId];
+                const local: [number, number] = [
+                    equipEntry.vals[0] ?? (host ? host.size[0] / 2 : 0),
+                    equipEntry.vals[1] ?? (host ? host.size[1] / 2 : 0),
+                ];
+                const hostId = equipEntry.hostId;
+                endEquipEntry();
+                st.insertEquipmentAtLocal(hostId, local);
+                consume();
+                return;
+            }
+            if (ev.key === "Backspace") {
+                equipEntry.typed = equipEntry.typed.slice(0, -1);
+                refreshEquipEntry();
+                consume();
+                return;
+            }
+            if (ev.key === "," && equipEntry.axis === 0) {
+                if (equipEntry.typed !== "")
+                    equipEntry.vals[0] = parseTyped(equipEntry.typed, 0);
+                equipEntry.axis = 1;
+                equipEntry.typed = "";
+                refreshEquipEntry();
+                consume();
+                return;
+            }
+            if ((ev.key === "." || ev.code === "NumpadDecimal") && !equipEntry.typed.includes(".")) {
+                equipEntry.typed += ".";
+                refreshEquipEntry();
+                consume();
+                return;
+            }
+            if ((ev.key === "-" || ev.code === "NumpadSubtract") && equipEntry.typed === "") {
+                equipEntry.typed = "-";
+                refreshEquipEntry();
+                consume();
+                return;
+            }
+            if (isDigit) {
+                equipEntry.typed += npd ? npd[1] : ev.key;
+                refreshEquipEntry();
+                consume();
+                return;
+            }
+            return;
+        }
+
+        // Opening-on-face flow (keyboard): numeric X,Y,W,H,DEPTH fields. Captures
+        // its keys; "," steps a field, Enter finishes the stage / commits.
+        if (!inField && openEntry && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+            const npd = /^Numpad([0-9])$/.exec(ev.code);
+            const isDigit = !!npd || /^[0-9]$/.test(ev.key);
+            const consume = () => {
+                ev.preventDefault();
+                ev.stopPropagation();
+            };
+            if (ev.key === "Escape") {
+                endOpenEntry();
+                consume();
+                return;
+            }
+            if (ev.key === "Enter") {
+                if (openEntry.typed !== "")
+                    openEntry.vals[openEntry.field] = parseTyped(openEntry.typed, openEntry.vals[openEntry.field]);
+                if (openEntry.field >= 4) {
+                    commitOpenEntry();
+                } else {
+                    // X/Y -> W (field 2); W/H -> DEPTH (field 4).
+                    openEntry.field = (openEntry.field < 2 ? 2 : 4) as 0 | 1 | 2 | 3 | 4;
+                    openEntry.typed = "";
+                    refreshOpenEntry();
+                }
+                consume();
+                return;
+            }
+            if (ev.key === "Backspace") {
+                openEntry.typed = openEntry.typed.slice(0, -1);
+                refreshOpenEntry();
+                consume();
+                return;
+            }
+            if (ev.key === ",") {
+                if (openEntry.typed !== "")
+                    openEntry.vals[openEntry.field] = parseTyped(openEntry.typed, openEntry.vals[openEntry.field]);
+                openEntry.field = Math.min(4, openEntry.field + 1) as 0 | 1 | 2 | 3 | 4;
+                openEntry.typed = "";
+                refreshOpenEntry();
+                consume();
+                return;
+            }
+            if ((ev.key === "." || ev.code === "NumpadDecimal") && !openEntry.typed.includes(".")) {
+                openEntry.typed += ".";
+                refreshOpenEntry();
+                consume();
+                return;
+            }
+            if ((ev.key === "-" || ev.code === "NumpadSubtract") && openEntry.typed === "") {
+                openEntry.typed = "-";
+                refreshOpenEntry();
+                consume();
+                return;
+            }
+            if (isDigit) {
+                openEntry.typed += npd ? npd[1] : ev.key;
+                refreshOpenEntry();
+                consume();
+                return;
+            }
+            return;
         }
 
         if ((ev.ctrlKey || ev.metaKey) && !inField) {
@@ -2554,6 +2883,30 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                     ev.stopPropagation();
                     return;
                 }
+                // I: keyboard equipment insert (pick type + host cell, then type
+                // the local X,Y). No cell needed to start.
+                if (k === "i") {
+                    st.setMode("idle");
+                    if (startEquipInsert()) {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                    }
+                    return;
+                }
+                // O: keyboard opening on the selected cell FACE (numeric X,Y,W,H,
+                // depth). No-op unless a space-cell face is selected.
+                if (k === "o") {
+                    if (
+                        cell?.kind === "cell" &&
+                        st.selection?.kind === "face" &&
+                        st.selection.faceIndex != null &&
+                        startOpeningOnFace(cell, st.selection.faceIndex)
+                    ) {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                    }
+                    return;
+                }
                 // Tab: cycle selection granularity cell -> face -> edge.
                 if (k === "tab" && st.selection) {
                     st.cycleSelectMode(1);
@@ -2694,6 +3047,10 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         ) {
             endPlaceEntry();
         }
+        // Drop the keyboard equipment / opening flows if the model closed or the
+        // cell they target vanished (e.g. deleted / undone underneath them).
+        if (equipEntry && (!s.active || !s.cells[equipEntry.hostId])) endEquipEntry();
+        if (openEntry && (!s.active || !s.cells[openEntry.cellId])) endOpenEntry();
         if (s.cells !== prev.cells || s.active !== prev.active) rebuild();
         else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
             refreshFaceStyles();

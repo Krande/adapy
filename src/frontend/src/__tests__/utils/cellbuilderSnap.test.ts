@@ -13,6 +13,7 @@ import {
     faceCenter,
     faceEdges,
     farFaceAfterExtrude,
+    openingBoxOnFace,
     originFromCenter,
     placeInCell,
     quantize,
@@ -202,4 +203,20 @@ test("faceEdges yields 4 distinct border edges running in the face plane", () =>
     // round-trips through edgeIndexInFace
     edges.forEach((e, i) => assert.equal(edgeIndexInFace(4, e), i));
     assert.equal(edgeIndexInFace(4, {axis: 0, boundaryAxis: 0, boundaryPositive: true}), -1);
+});
+
+test("openingBoxOnFace straddles a +Z face by ±depth, sized in the face plane", () => {
+    const cell = {origin: [0, 0, 0] as [number, number, number], size: [5, 4, 3] as [number, number, number]};
+    // +Z face (index 4): in-plane axes X,Y; face plane at z=3.
+    const box = openingBoxOnFace(cell, 4, 1, 2, 1.5, 0.8, 1);
+    assert.deepEqual(box.origin, [1, 2, 2]); // x=0+1, y=0+2, z=facePos(3)-depth(1)
+    assert.deepEqual(box.size, [1.5, 0.8, 2]); // width, height, 2*depth
+});
+
+test("openingBoxOnFace maps 2D local to the +X face's in-plane axes (Y,Z)", () => {
+    const cell = {origin: [0, 0, 0] as [number, number, number], size: [5, 4, 3] as [number, number, number]};
+    // +X face (index 0): in-plane axes Y (localX) and Z (localY); plane at x=5.
+    const box = openingBoxOnFace(cell, 0, 1, 0.5, 2, 1, 0.25);
+    assert.deepEqual(box.origin, [4.75, 1, 0.5]); // x=facePos(5)-0.25, y=0+1, z=0+0.5
+    assert.deepEqual(box.size, [0.5, 2, 1]); // 2*depth along X, width along Y, height along Z
 });

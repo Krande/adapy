@@ -922,10 +922,11 @@ const CellBuilderPanel: React.FC = () => {
               set lives in the + Loft tooltip and the design cheat-sheet. */}
           <div
             className="text-[11px] text-gray-400 leading-snug"
-            title="Keyboard-only modelling. Select a face (Tab cycles cell/face/edge, F/D cycle faces), then E extrudes a new cell — type a depth, Enter commits (chains), Esc cancels. N/P step cells, 1–9 pick cell type, G/R/S move/rotate/resize. Lofts: L new, E extend stack, F/D stations, S size, T rectangle/circle."
+            title="Keyboard-only modelling. Select a face (Tab cycles cell/face/edge, F/D cycle faces), then E extrudes a new cell — type a depth, Enter commits (chains), Esc cancels. N/P step cells, 1–9 pick cell type, G/R/S move/rotate/resize. I inserts equipment into a cell (T type, N/P cell, Enter, then local X,Y). O adds an opening on the selected face (numeric X,Y,W,H,depth). Lofts: L new, E extend stack, F/D stations, S size, T rectangle/circle."
           >
             Keys: <b>E</b> extrude face · <b>Tab</b> cell/face/edge · <b>F/D</b>{" "}
-            cycle · <b>N/P</b> cells · <b>L</b> loft
+            cycle · <b>N/P</b> cells · <b>I</b> equip · <b>O</b> opening ·{" "}
+            <b>L</b> loft
           </div>
 
           {/* Live tool status — which pick mode and what the tool is doing now. */}
