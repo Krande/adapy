@@ -43,8 +43,8 @@ from ada.fem.capacity.stress_resolve import (
     _point_tuples,
     _recovered_stress_blocks,
     _rotation_cossin,
-    _rows_for_element,
     _round_source_value,
+    _rows_for_element,
     _station_stress_provenance,
     _station_values,
     _superpose_into,
@@ -836,10 +836,7 @@ def _beam_run_station_data(
 
     provenance = {}
     for pos in (1, 2, 3):
-        src = [
-            {k: v for k, v in s.items() if k not in {"_exact", "_along_exact"}}
-            for s in value_sets[pos]
-        ]
+        src = [{k: v for k, v in s.items() if k not in {"_exact", "_along_exact"}} for s in value_sets[pos]]
         provenance[pos] = {
             "label": f"{component_label} station {pos}",
             "position": pos,
@@ -1141,9 +1138,7 @@ def resolve_girder_cases(
                     material_by_element[int(element_id)] = (mat.E, mat.poisson)
         if not stress_blocks:
             shim = SimpleNamespace(results=list(results))
-            stress_blocks = _recovered_stress_blocks(
-                mesh, aux, shim, case, material_by_element, log=done == 0
-            )
+            stress_blocks = _recovered_stress_blocks(mesh, aux, shim, case, material_by_element, log=done == 0)
         for gm in models:
             geom = geom_cache.get(gm.id)
             if geom is None:

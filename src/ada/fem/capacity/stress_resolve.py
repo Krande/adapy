@@ -43,7 +43,6 @@ from ada.fem.capacity import extract
 from ada.fem.capacity.model import CapacityModel, CapSection, ResolvedCase
 from ada.fem.results.common import Mesh
 
-
 _MAX_PROVENANCE_SOURCES = 8
 
 
@@ -458,10 +457,7 @@ def _source_set_payload(
         "label": label,
         "source_count": len(records),
         "element_ids": sorted({int(r.element_id) for r in records}),
-        "sources": [
-            _source_payload(r, component, sign=sign, absolute=absolute, unit=unit)
-            for r in shown
-        ],
+        "sources": [_source_payload(r, component, sign=sign, absolute=absolute, unit=unit) for r in shown],
         "truncated_source_count": max(0, len(records) - len(shown)),
     }
 
@@ -486,7 +482,9 @@ def _station_stress_provenance(
         "calculation": calculation,
         "formula": formula,
         "source_sets": [
-            _source_set_payload("contributing shell membrane result points", source_records, component, sign=sign, absolute=absolute)
+            _source_set_payload(
+                "contributing shell membrane result points", source_records, component, sign=sign, absolute=absolute
+            )
         ],
     }
 
