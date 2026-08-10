@@ -699,7 +699,7 @@ const CellBuilderPanel: React.FC = () => {
       </div>
 
       {/* ── pinned header ── */}
-      <div className="flex items-center gap-2 px-2.5 py-2 border-b border-gray-600/50">
+      <div className="shrink-0 flex items-center gap-2 px-2.5 py-2 border-b border-gray-600/50">
         <span className="font-semibold truncate" title={s.active.modelId}>
           {s.active.name}
         </span>
@@ -733,8 +733,12 @@ const CellBuilderPanel: React.FC = () => {
       </div>
 
       {/* ── pinned tab bar ── */}
+      {/* overflow-y-hidden is required: `overflow-x-auto` alone makes the CSS
+          overflow-y compute to `auto` too, so at fractional DPI scaling (e.g.
+          4K @ 175%) a 1px sub-pixel rounding on the buttons spawns a stray
+          vertical scrollbar. shrink-0 keeps the row from being squeezed. */}
       <div
-        className="flex gap-1 px-2 pt-1.5 border-b border-gray-600/50 overflow-x-auto"
+        className="shrink-0 flex gap-1 px-2 pt-1.5 border-b border-gray-600/50 overflow-x-auto overflow-y-hidden"
         role="tablist"
       >
         {tabBtn("build", "Build", cellCount)}
