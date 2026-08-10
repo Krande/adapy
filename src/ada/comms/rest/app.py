@@ -2805,6 +2805,64 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         rulesets = sorted(by_slug.values(), key=lambda x: x["name"].lower())
         return JSONResponse({"design_rulesets": rulesets})
 
+    @api.get("/scopes/{scope}/procedural-models/cell-types")
+    async def api_procedural_cell_types(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Space-cell types for the cellbuilder's ``+ Cell`` picker: the union of
+        the static built-in blueprints (``adapy-default``) and any advertised by
+        live workers (a capability engine registers its own via
+        ``register_procedural_cell_type``), each tagged ``origin`` ``code``. Each
+        carries a default box extent ``size`` ``(DX, DY, DZ)`` a freshly-placed
+        cell is seeded with, plus optional entity ``metadata``. No DB rows are
+        involved — like the design rulesets, so the dropdown is never empty for
+        want of a worker."""
+        from .catalog import builtin_cell_specs
+
+        by_slug: dict[str, dict] = {s["slug"]: s for s in builtin_cell_specs()}
+        by_slug.update(await _live_worker_specs("procedural_cell_specs"))
+        types = [
+            {
+                "slug": slug,
+                "name": spec.get("name") or slug,
+                "origin": "code",
+                "size": spec.get("size") or [5.0, 5.0, 3.0],
+                "metadata": spec.get("metadata") or {},
+            }
+            for slug, spec in by_slug.items()
+        ]
+        types.sort(key=lambda x: x["name"].lower())
+        return JSONResponse({"cell_types": types})
+
+    @api.get("/scopes/{scope}/procedural-models/opening-types")
+    async def api_procedural_opening_types(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Opening types for the cellbuilder's ``+ Opening`` picker: the union of
+        the static built-in door/window types (``adapy-default``) and any advertised
+        by live workers (via ``register_procedural_opening_type``), each tagged
+        ``origin`` ``code``. Each carries its ``subtype`` (``door``/``window`` —
+        the reinforcement framing the compiler frames around the hole) and the
+        default box extent ``size`` ``(DX, DY, DZ)``. No DB rows are involved."""
+        from .catalog import builtin_opening_specs
+
+        by_slug: dict[str, dict] = {s["slug"]: s for s in builtin_opening_specs()}
+        by_slug.update(await _live_worker_specs("procedural_opening_specs"))
+        types = [
+            {
+                "slug": slug,
+                "name": spec.get("name") or slug,
+                "origin": "code",
+                "subtype": spec.get("subtype") if spec.get("subtype") in ("door", "window") else "door",
+                "size": spec.get("size") or [1.0, 1.0, 2.0],
+            }
+            for slug, spec in by_slug.items()
+        ]
+        types.sort(key=lambda x: x["name"].lower())
+        return JSONResponse({"opening_types": types})
+
     @api.post("/scopes/{scope}/procedural-models/equipment-types/sync", status_code=201)
     async def api_procedural_equipment_sync(
         request: Request,
@@ -3228,6 +3286,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {"job_id": job.job_id, "derived_key": derived_key, "cached": False, "doc_hash": doc_hash}
         )
+
+    @api.get("/scopes/{scope}/procedural-models/{model_id}/compile-log")
+    async def api_procedural_compile_log(
+        request: Request,
+        model_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> PlainTextResponse:
+        """Return the engine log captured during a compile/preview as ``text/plain``.
+
+        The frontend passes the GLB ``derived_key`` (from the compile/preview
+        response) as ``?key=``; the log is that key's ``.log`` sibling
+        (:func:`procedural_log_key`), so committed / detail / preview / engine
+        variants are all covered by one rule. An empty body means the compile
+        produced no log (or the result was served from a pre-log cached blob).
+        503 when the procedural DB isn't configured, matching the sibling
+        procedural endpoints."""
+        from .procedural import PROCEDURAL_PREFIX, procedural_log_key
+
+        pool = _require_procedural_pool(request)
+        # Scope + existence check (raises 404 when the model isn't in this scope).
+        await _get_procedural_in_scope(pool, model_id, scope_obj)
+        key = (request.query_params.get("key") or "").strip()
+        if not key:
+            raise HTTPException(status_code=400, detail="key (derived GLB key) query param is required")
+        # Confine reads to this model's hidden prefix so the endpoint can't be used
+        # to fetch arbitrary blobs by handing it any key.
+        if not key.startswith(f"{PROCEDURAL_PREFIX}{model_id}/"):
+            raise HTTPException(status_code=400, detail="key is not a derived artifact of this model")
+        log_key = procedural_log_key(key)
+        try:
+            data = await storage.get_bytes(scope_obj, log_key)
+        except Exception:
+            # No log persisted (pre-log cached blob, or the compile never ran).
+            return PlainTextResponse("")
+        return PlainTextResponse(data.decode("utf-8", errors="replace"))
 
     @api.post("/scopes/{scope}/procedural-models/{model_id}/propose-relocations")
     async def api_procedural_propose_relocations(

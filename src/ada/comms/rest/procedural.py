@@ -87,6 +87,20 @@ def procedural_preview_glb_key(
     return f"{PROCEDURAL_PREFIX}{model_id}/preview/{doc_hash}{lod_suffix}{_engine_suffix(engine)}.glb"
 
 
+def procedural_log_key(glb_key: str) -> str:
+    """Blob key for the engine-compile LOG captured alongside a procedural GLB.
+
+    The log is a *sibling* of the GLB derived key — the same path with ``.log``
+    swapped in for ``.glb`` — so a single rule covers every GLB variant (the
+    committed ``r{rev}.glb``, its ``_detail`` LOD, an engine-suffixed key, and a
+    ``preview/{hash}.glb``) and the log key can never drift from the key the
+    worker actually wrote the GLB to. Deriving it from the GLB key (rather than
+    re-deriving from model/revision/engine/lod) keeps a single source of truth."""
+    if glb_key.endswith(".glb"):
+        return f"{glb_key[: -len('.glb')]}.log"
+    return f"{glb_key}.log"
+
+
 def procedural_relocations_key(model_id: str) -> str:
     """Blob key for a model's latest relocation proposals (a JSON document). NOT
     revision-stamped: the proposal search always re-runs (the layout may have

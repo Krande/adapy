@@ -1144,6 +1144,28 @@ export interface ProceduralSystemTypeOption extends ProceduralTypeOption {
   voltage?: number | null;
 }
 
+/** A space-cell type offered by the cellbuilder's ``+ Cell`` picker: a named
+ * blueprint carrying the default box extent a freshly-placed cell is seeded with
+ * plus optional entity metadata. Built-in ∪ engine-advertised. */
+export interface ProceduralCellTypeOption {
+  slug: string;
+  name: string;
+  origin: TypeOrigin;
+  size: [number, number, number]; // default (DX, DY, DZ)
+  metadata?: Record<string, unknown>;
+}
+
+/** An opening type offered by the cellbuilder's ``+ Opening`` picker: a named
+ * door/window carrying its reinforcement subtype and the default box extent.
+ * Built-in ∪ engine-advertised. */
+export interface ProceduralOpeningTypeOption {
+  slug: string;
+  name: string;
+  origin: TypeOrigin;
+  subtype: "door" | "window";
+  size: [number, number, number]; // default (DX, DY, DZ)
+}
+
 /** A named design ruleset offered by the cellbuilder's ruleset dropdown. */
 export interface ProceduralDesignRulesetOption {
   slug: string;
@@ -2072,6 +2094,23 @@ export const viewerApi = {
       r,
       `previewProceduralModel(${modelId})`,
     );
+  },
+
+  /** Fetch the engine-compile log captured for a compiled/previewed GLB.
+   * `derivedKey` is the GLB key returned by compile/preview; the server reads
+   * that key's `.log` sibling. Returns the log text ("" when none was
+   * persisted — e.g. a pre-log cached blob). Never throws on a missing log. */
+  async proceduralCompileLog(
+    scope: ScopeUrl,
+    modelId: string,
+    derivedKey: string,
+  ): Promise<string> {
+    const qs = `?key=${encodeURIComponent(derivedKey)}`;
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile-log${qs}`,
+    );
+    if (!r.ok) return "";
+    return await r.text();
   },
 
   /** Equipment types for the cellbuilder's add-equipment dropdown: the union

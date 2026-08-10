@@ -31,6 +31,7 @@ from ada.comms.rest.converter import is_hidden_key  # noqa: E402
 from ada.comms.rest.procedural import (  # noqa: E402
     doc_content_hash,
     procedural_glb_key,
+    procedural_log_key,
     procedural_preview_glb_key,
     validate_doc,
 )
@@ -92,6 +93,18 @@ def test_preview_glb_key_and_hash():
     assert procedural_preview_glb_key("m", h, None, "detail").endswith("_detail.glb")
 
 
+def test_procedural_log_key_is_glb_sibling():
+    # The log key is the GLB key with .log swapped for .glb, so it covers every
+    # variant (committed / detail / engine-suffixed / preview) with one rule.
+    assert procedural_log_key("_procedural/abc-123/r4.glb") == "_procedural/abc-123/r4.log"
+    assert procedural_log_key(procedural_glb_key("m", 2, "echo")).endswith(".log")
+    assert not procedural_log_key(procedural_glb_key("m", 2, "echo")).endswith(".glb")
+    h = doc_content_hash({"spaces": []})
+    assert procedural_log_key(procedural_preview_glb_key("m", h)) == f"_procedural/m/preview/{h}.log"
+    # A non-.glb key (defensive) just gains the .log suffix.
+    assert procedural_log_key("_procedural/m/weird") == "_procedural/m/weird.log"
+
+
 def test_validate_doc_normalizes():
     doc = {"spaces": [{"NAME": "Cell1", "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3}]}
     out = validate_doc(doc)
@@ -138,6 +151,15 @@ def test_endpoints_503_without_db(app_client: TestClient):
     assert app_client.get("/api/scopes/shared/procedural-models").status_code == 503
     assert app_client.post("/api/scopes/shared/procedural-models", json={"name": "m"}).status_code == 503
     assert app_client.get("/api/scopes/shared/procedural-models/x").status_code == 503
+    # The compile-log endpoint 503s the same way (it needs the DB to scope-check
+    # the model) — the key query param isn't even reached without a pool.
+    assert (
+        app_client.get(
+            "/api/scopes/shared/procedural-models/x/compile-log",
+            params={"key": "_procedural/x/r1.glb"},
+        ).status_code
+        == 503
+    )
 
 
 def test_compile_preview_validates_before_db(app_client: TestClient):
@@ -232,6 +254,16 @@ def test_crud_roundtrip_and_revision_conflict(pg_client: TestClient):
         # compile without NATS -> 503 (no cached blob yet)
         r = pg_client.post(f"/api/scopes/shared/procedural-models/{model_id}/compile")
         assert r.status_code == 503
+
+        # compile-log: the key query param is required, must belong to the model's
+        # hidden prefix, and a missing log returns an empty 200 (not an error).
+        log_base = f"/api/scopes/shared/procedural-models/{model_id}/compile-log"
+        assert pg_client.get(log_base).status_code == 400  # no key
+        assert pg_client.get(log_base, params={"key": "_procedural/other/r1.glb"}).status_code == 400
+        r = pg_client.get(log_base, params={"key": f"_procedural/{model_id}/r1.glb"})
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"].startswith("text/plain")
+        assert r.text == ""  # nothing compiled yet -> no log persisted
     finally:
         assert pg_client.delete(f"/api/scopes/shared/procedural-models/{model_id}").status_code == 200
     # archived models disappear from list + get

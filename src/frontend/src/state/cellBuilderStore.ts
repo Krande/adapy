@@ -311,6 +311,10 @@ interface CellBuilderState {
   /** System types for the systems inspector: code kinds ∪ DB templates. */
   systemTypes: ProceduralSystemTypeOption[];
   compileJob: CompileJobState | null;
+  /** Engine messages captured during the most recent compile/preview (logging +
+   * stdout), fetched once the job reaches done/cached/error. null = no log yet
+   * (nothing compiled this session); "" = compiled but the engine emitted nothing. */
+  compileLog: string | null;
   /** Source name of the compiled SIMULATION result currently loaded in the scene. */
   resultSourceName: string | null;
   /** Source name of the compiled DETAIL result currently loaded in the scene. */
@@ -884,6 +888,25 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       progress: 0,
       startedAt: Date.now(),
     });
+    // Clear any prior log while this build runs; it's refetched on completion.
+    set({ compileLog: null });
+    // Fetch the engine-compile log for a finished (or failed) build and stash it
+    // so the panel's "Compile log" section can show the engine's messages. Best
+    // effort — a missing log resolves to "" and never blocks the result.
+    const fetchCompileLog = async (derivedKey: string) => {
+      const active = get().active;
+      if (!active || !derivedKey) return;
+      try {
+        const text = await viewerApi.proceduralCompileLog(
+          currentScopePart(),
+          active.modelId,
+          derivedKey,
+        );
+        set({ compileLog: text });
+      } catch {
+        // Leave compileLog as-is; the log is a diagnostic, not load-bearing.
+      }
+    };
     // Announce a ready server build to any follower tab (BroadcastChannel), so a
     // second window opened with ?pfollow=<modelId> can load and show it live.
     const broadcast = (derivedKey: string) => {
@@ -943,6 +966,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         });
         autoShow();
         broadcast(res.derived_key);
+        void fetchCompileLog(res.derived_key);
         return;
       }
       set({
@@ -970,6 +994,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             });
             autoShow();
             broadcast(st.derived_key || cur.derivedKey || "");
+            void fetchCompileLog(st.derived_key || cur.derivedKey || "");
             return;
           }
           if (st.status === "error") {
@@ -981,6 +1006,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
               stage: st.stage || "",
               error: st.error ?? "compile failed",
             });
+            // A failed compile still persists its log (errors are inspectable).
+            void fetchCompileLog(cur.derivedKey || "");
             return;
           }
           set({ compileJob: { ...cur, status: "running" } });
@@ -1041,6 +1068,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     selectedEquipmentType: null,
     systemTypes: [],
     compileJob: null,
+    compileLog: null,
     resultSourceName: null,
     detailSourceName: null,
     repMode: "topology",
@@ -1089,6 +1117,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         dirty: false,
         conflict: null,
         compileJob: null,
+        compileLog: null,
         panelVisible: true,
         hiddenCellIds: [],
       });
@@ -1130,6 +1159,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         dirty: false,
         panelVisible: false,
         compileJob: null,
+        compileLog: null,
         hiddenCellIds: [],
         repMode: "topology",
       });

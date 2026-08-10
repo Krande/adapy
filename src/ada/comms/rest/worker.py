@@ -15,13 +15,17 @@ worker reconverts (deterministic output, so this is safe).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ctypes
 import functools
+import io
+import logging
 import os
 import pathlib
 import shutil
 import signal
 import tempfile
+import threading
 import time
 import traceback as tb_module
 from concurrent.futures import (  # noqa: F401 — kept for the legacy _process_one signature
@@ -930,6 +934,81 @@ async def _run_parity_validation(
         await _audit_done(db_pool, job_id, "error", msg, started_at, metrics=metrics)
 
 
+# Cap the persisted compile log so a runaway (per-cell) warning storm can't
+# balloon the blob; keep the TAIL (the end usually carries the failure).
+_COMPILE_LOG_CAP_BYTES = 256 * 1024
+
+
+class _CompileLogCapture(logging.Handler):
+    """In-memory logging handler that buffers records emitted DURING a procedural
+    compile so the worker can persist them as an inspectable ``.log`` blob.
+
+    Thread-safe: the compile runs in an executor thread while the event loop keeps
+    logging heartbeats on the main thread, so both may ``emit`` concurrently."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.INFO)
+        self.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s"))
+        self._lines: list[str] = []
+        self._lock = threading.Lock()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            line = self.format(record)
+        except Exception:
+            return
+        with self._lock:
+            self._lines.append(line)
+
+    def snapshot(self) -> list[str]:
+        with self._lock:
+            return list(self._lines)
+
+
+@contextlib.contextmanager
+def _capture_compile_logs():
+    """Attach a :class:`_CompileLogCapture` to the ``ada`` logger (where the
+    compile emits — it has ``propagate=False``) and the root logger (where an
+    external engine's own logger propagates), forcing INFO level for the duration
+    so INFO+ records are captured, then restoring everything on exit."""
+    handler = _CompileLogCapture()
+    ada_logger = logging.getLogger("ada")
+    root_logger = logging.getLogger()
+    targets = [ada_logger, root_logger]
+    prev_levels = [(lg, lg.level) for lg in targets]
+    for lg in targets:
+        lg.addHandler(handler)
+        # A logger only calls handlers for records at/above its effective level;
+        # WARNING-defaulted loggers would drop the INFO messages we want.
+        if lg.level == logging.NOTSET or lg.level > logging.INFO:
+            lg.setLevel(logging.INFO)
+    try:
+        yield handler
+    finally:
+        for lg in targets:
+            lg.removeHandler(handler)
+        for lg, level in prev_levels:
+            lg.setLevel(level)
+
+
+def _assemble_compile_log(handler: _CompileLogCapture, stdout_buf: io.StringIO, extra: str | None) -> str:
+    """Merge captured logging records, any compile stdout, and an optional extra
+    section (a traceback on failure) into one bounded text blob (tail-capped)."""
+    text = "\n".join(handler.snapshot())
+    out = stdout_buf.getvalue().strip()
+    if out:
+        text = f"{text}\n" if text else ""
+        text += f"{'-' * 8} stdout {'-' * 8}\n{out}"
+    if extra:
+        prefix = f"{text}\n" if text else ""
+        text = f"{prefix}{'-' * 8} traceback {'-' * 8}\n{extra.strip()}"
+    data = text.encode("utf-8")
+    if len(data) > _COMPILE_LOG_CAP_BYTES:
+        tail = data[-_COMPILE_LOG_CAP_BYTES:].decode("utf-8", errors="ignore")
+        text = f"…[log truncated to last {_COMPILE_LOG_CAP_BYTES // 1024} KB]…\n{tail}"
+    return text
+
+
 async def _run_procedural_build(
     *,
     job: Job,
@@ -1069,13 +1148,37 @@ async def _run_procedural_build(
         )
 
     loop = asyncio.get_running_loop()
-    try:
-        await queue.update(job_id, stage="build", progress=0.40)
-        glb_bytes = await loop.run_in_executor(None, _do_compile)
-    except Exception as exc:
-        logger.exception("worker: procedural_build failed for %s", model_id)
-        await _fail("build", str(exc), tb_module.format_exc())
-        return
+    # Capture the engine's logging (and stdout) DURING the compile so the messages
+    # are inspectable from the viewer — persisted as a ``.log`` sibling of the GLB
+    # (procedural_log_key) on BOTH success and failure so errors stay diagnosable.
+    from .procedural import procedural_log_key
+
+    log_key = procedural_log_key(job.derived_key)
+    stdout_buf = io.StringIO()
+
+    def _do_compile_captured() -> bytes:
+        with contextlib.redirect_stdout(stdout_buf):
+            return _do_compile()
+
+    async def _persist_log(handler: _CompileLogCapture, extra: str | None = None) -> None:
+        text = _assemble_compile_log(handler, stdout_buf, extra)
+        if not text:
+            return
+        try:
+            await storage.put_bytes(scope, log_key, text.encode("utf-8"), content_encoding="gzip")
+        except Exception:
+            logger.exception("worker: procedural_build log upload failed for %s", model_id)
+
+    with _capture_compile_logs() as log_handler:
+        try:
+            await queue.update(job_id, stage="build", progress=0.40)
+            glb_bytes = await loop.run_in_executor(None, _do_compile_captured)
+        except Exception as exc:
+            logger.exception("worker: procedural_build failed for %s", model_id)
+            await _persist_log(log_handler, extra=tb_module.format_exc())
+            await _fail("build", str(exc), tb_module.format_exc())
+            return
+        await _persist_log(log_handler)
 
     try:
         await queue.update(job_id, stage="upload", progress=0.90)
@@ -2766,6 +2869,19 @@ async def _run() -> None:
     except Exception:
         logger.exception("worker: failed to list procedural design rulesets (non-fatal)")
         procedural_design_rulesets = []
+    # Cell/opening types this worker can place — advertised so the cellbuilder's
+    # + Cell / + Opening pickers union the code-defined defaults with any a
+    # capability worker's ADA_WORKER_PRELOAD registered (register_procedural_cell_type
+    # / register_procedural_opening_type), exactly like the start-from templates.
+    try:
+        from ada.topo_model import procedural_cell_type_specs, procedural_opening_type_specs
+
+        procedural_cell_specs = procedural_cell_type_specs()
+        procedural_opening_specs = procedural_opening_type_specs()
+    except Exception:
+        logger.exception("worker: failed to list procedural cell/opening types (non-fatal)")
+        procedural_cell_specs = []
+        procedural_opening_specs = []
     # Start-from templates this worker can build, announced so the viewer's
     # "New model from template" dropdown is the union of live workers' demos.
     # The base image carries the adapy-default templates; a capability worker's
@@ -2794,6 +2910,8 @@ async def _run() -> None:
                     "procedural_system_types": procedural_system_types,
                     "procedural_system_specs": procedural_system_specs,
                     "procedural_design_rulesets": procedural_design_rulesets,
+                    "procedural_cell_specs": procedural_cell_specs,
+                    "procedural_opening_specs": procedural_opening_specs,
                     "procedural_template_specs": procedural_templates,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
