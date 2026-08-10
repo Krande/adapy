@@ -1013,6 +1013,17 @@ const CellBuilderPanel: React.FC = () => {
             </label>
             <label
               className="flex items-center gap-1"
+              title="When you translate a space cell, carry the equipment sitting inside it along with the cell (rigid move). Turn off to move a cell without disturbing its equipment."
+            >
+              <input
+                type="checkbox"
+                checked={s.moveEquipWithCell}
+                onChange={(e) => s.setMoveEquipWithCell(e.target.checked)}
+              />
+              Move equipment with cell
+            </label>
+            <label
+              className="flex items-center gap-1"
               title="Allow dragging a cell face in the scene to resize it. Off by default — use the Resize gizmo (long-press / right-click a cell, or the selection panel) instead."
             >
               <input

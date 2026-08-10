@@ -288,6 +288,9 @@ interface CellBuilderState {
    * only (Blender behaviour), so a locked move still aligns to a face/vertex
    * along the lock without hopping off the axis. */
   gizmoVertexSnap: boolean;
+  /** When translating a space cell, carry the equipment sitting inside it along
+   * with the cell (rigid move). On by default. */
+  moveEquipWithCell: boolean;
   /** Allow dragging a cell face in the scene to resize it. Off by default —
    * resizing goes through the explicit resize gizmo so plain navigation never
    * accidentally reshapes a cell. */
@@ -400,6 +403,8 @@ interface CellBuilderState {
   setGizmoAxisLock: (axis: 0 | 1 | 2 | null) => void;
   /** Toggle vertex magnetism for the translate gizmo. */
   setGizmoVertexSnap: (on: boolean) => void;
+  /** Toggle carrying contained equipment when a cell is translated. */
+  setMoveEquipWithCell: (on: boolean) => void;
   /** Move a cell by `delta` metres along `axis` (origin-quantised, undoable) —
    * the Blender-style "G, X, 2, Enter" numeric nudge. */
   translateCellAlongAxis: (id: string, axis: 0 | 1 | 2, delta: number) => void;
@@ -470,6 +475,13 @@ interface CellBuilderState {
     subtype: "door" | "window",
   ) => void;
   updateCell: (id: string, patch: Partial<BuilderCell>) => void;
+  /** Move a space cell to `newOrigin`, carrying `equipIds` (its contained
+   * equipment) by the same delta — equipment moves rigidly with its cell. */
+  moveCellAndEquipment: (
+    id: string,
+    newOrigin: [number, number, number],
+    equipIds: string[],
+  ) => void;
   /** Set an equipment cell's absolute per-axis rotation (degrees). No-op for
    * non-equipment cells. Undoable — the gizmo wraps a drag in a transaction. */
   setCellRotation: (id: string, rotation: [number, number, number]) => void;
@@ -1069,6 +1081,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     gizmoMode: "none",
     gizmoAxisLock: null,
     gizmoVertexSnap: true,
+    moveEquipWithCell: true,
     faceDragResize: false,
     contextMenu: null,
     insertMenu: null,
@@ -1224,6 +1237,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     setGizmoMode: (gizmoMode) => set({ gizmoMode, gizmoAxisLock: null }),
     setGizmoAxisLock: (gizmoAxisLock) => set({ gizmoAxisLock }),
     setGizmoVertexSnap: (gizmoVertexSnap) => set({ gizmoVertexSnap }),
+    setMoveEquipWithCell: (moveEquipWithCell) => set({ moveEquipWithCell }),
     translateCellAlongAxis: (id, axis, delta) =>
       withHistory((s) => {
         const cur = s.cells[id];
@@ -1527,6 +1541,28 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           cells: { ...s.cells, [id]: { ...cur, ...patch } },
           dirty: true,
         };
+      }),
+    // Move a space cell to `newOrigin` AND carry the given equipment cells
+    // (captured as "contained" when the drag started) by the same delta — so an
+    // equipment moves rigidly with the cell it sits in. Per-frame during a
+    // translate drag; coalesced into the drag's single undo step via withHistory.
+    moveCellAndEquipment: (cellId, newOrigin, equipIds) =>
+      withHistory((s) => {
+        const cell = s.cells[cellId];
+        if (!cell) return {};
+        const dx = newOrigin[0] - cell.origin[0];
+        const dy = newOrigin[1] - cell.origin[1];
+        const dz = newOrigin[2] - cell.origin[2];
+        const cells = { ...s.cells, [cellId]: { ...cell, origin: newOrigin } };
+        for (const id of equipIds) {
+          const e = s.cells[id];
+          if (e)
+            cells[id] = {
+              ...e,
+              origin: [e.origin[0] + dx, e.origin[1] + dy, e.origin[2] + dz],
+            };
+        }
+        return { cells, dirty: true };
       }),
     setCellRotation: (id, rotation) =>
       withHistory((s) => {

@@ -852,6 +852,37 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         cell.origin[2] + cell.size[2] / 2,
     ];
 
+    // Equipment cells whose CENTRE sits inside `cell`'s box (all 3 axes, so the
+    // two floors of a stacked model don't grab each other's units) — these ride
+    // along when the space cell is translated. Captured once at drag start.
+    const equipContainedIn = (cell: BuilderCell): string[] => {
+        if (cell.kind !== "cell" || !useCellBuilderStore.getState().moveEquipWithCell) return [];
+        const [ox, oy, oz] = cell.origin;
+        const [dx, dy, dz] = cell.size;
+        const ids: string[] = [];
+        for (const c of Object.values(useCellBuilderStore.getState().cells)) {
+            if (c.kind !== "equipment") continue;
+            const cx = c.origin[0] + c.size[0] / 2;
+            const cy = c.origin[1] + c.size[1] / 2;
+            const cz = c.origin[2] + c.size[2] / 2;
+            if (cx >= ox && cx <= ox + dx && cy >= oy && cy <= oy + dy && cz >= oz && cz <= oz + dz)
+                ids.push(c.id);
+        }
+        return ids;
+    };
+    // The equipment captured to ride along with the cell being translated (gizmo
+    // drag or axis-locked modal move). Empty when not translating a space cell.
+    let translateEquip: string[] = [];
+
+    // Apply a translate result: carry contained equipment when moving a space
+    // cell, else a plain cell move.
+    const applyCellTranslate = (cell: BuilderCell, origin: Vec3) => {
+        const st = useCellBuilderStore.getState();
+        if (cell.kind === "cell" && translateEquip.length)
+            st.moveCellAndEquipment(cell.id, origin, translateEquip);
+        else st.updateCell(cell.id, { origin });
+    };
+
     // --- Vertex-snap indicator ------------------------------------------------
     // A hollow amber square drawn at the neighbour vertex the dragged cell just
     // snapped onto, so vertex magnetism is visible while moving. It's a Sprite
@@ -993,12 +1024,16 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         modalMove = null;
         if (mm.startT !== null) {
             if (cancel) {
-                useCellBuilderStore
-                    .getState()
-                    .updateCell(mm.cellId, {origin: [...mm.startBox.origin], size: [...mm.startBox.size]});
+                const st = useCellBuilderStore.getState();
+                // Revert the cell — and any equipment that rode along — together.
+                if (translateEquip.length)
+                    st.moveCellAndEquipment(mm.cellId, [...mm.startBox.origin], translateEquip);
+                else
+                    st.updateCell(mm.cellId, {origin: [...mm.startBox.origin], size: [...mm.startBox.size]});
             }
             useCellBuilderStore.getState().endTransaction();
         }
+        translateEquip = [];
         gizmo.enabled = true;
         guideLine.visible = false;
         snapMarker.visible = false;
@@ -1044,9 +1079,14 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             // Seed the loft member-move baseline at the proxy's current (box-
             // centre) position; cleared when the drag ends.
             loftDragLast = gizmoProxy.position.clone();
+            // Capture the equipment sitting in the cell so they ride along.
+            const sel = st.selection;
+            const cell = sel ? st.cells[sel.cellId] : null;
+            translateEquip = cell && st.gizmoMode === "translate" ? equipContainedIn(cell) : [];
         } else {
             st.endTransaction();
             loftDragLast = null;
+            translateEquip = [];
             showSnapMarker(null); // drag ended — clear the snap indicator
         }
         requestRender();
@@ -1088,7 +1128,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 [gizmoProxy.position.x, gizmoProxy.position.y, gizmoProxy.position.z],
                 snapAxis,
             );
-            st.updateCell(cell.id, {origin});
+            applyCellTranslate(cell, origin);
             showSnapMarker(target);
         } else if (st.gizmoMode === "rotate") {
             // Proxy euler is ZYX (see gizmoProxy.rotation.order) → matches the
@@ -1569,13 +1609,15 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 if (modalMove.startT === null) {
                     modalMove.startT = t;
                     st.beginTransaction();
+                    // Capture the equipment riding along with this cell.
+                    translateEquip = equipContainedIn(cell);
                 } else {
                     const axis = modalMove.axis;
                     const center = cellCenterModel(cell);
                     const startCenterAxis = modalMove.startBox.origin[axis] + modalMove.startBox.size[axis] / 2;
                     center[axis] = startCenterAxis + (t - modalMove.startT);
                     const {origin, target} = computeMove(cell, center, axis);
-                    st.updateCell(cell.id, {origin});
+                    applyCellTranslate(cell, origin);
                     showSnapMarker(target);
                 }
             }

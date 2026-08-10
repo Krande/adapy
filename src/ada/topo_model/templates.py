@@ -83,20 +83,38 @@ def _eq(
     }
 
 
+def _localize(spaces: list[dict], equipments: list[dict]) -> list[dict]:
+    """Rewrite equipment authored in world coords (via :func:`_eq`,
+    ``GLOBAL_COORDS=True``) as PER-CELL LOCAL coords — offsets from the
+    ``SPACE_NAME`` cell, ``GLOBAL_COORDS=False``. Identical world placement, but
+    the equipment is now tied to its cell, so moving / recompiling the cell
+    carries it (matching the cellbuilder's move-with-cell behaviour). Equipment
+    whose space can't be resolved is left global. Mutates + returns the list."""
+    by_name = {s["NAME"]: s for s in spaces}
+    for e in equipments:
+        s = by_name.get(e.get("SPACE_NAME"))
+        if s is None:
+            continue
+        oz = float(s["Z"]) + (float(s["DZ"]) if e.get("SPACE_LOC") == "ROOF" else 0.0)
+        e["X"] = round(float(e["X"]) - float(s["X"]), 6)
+        e["Y"] = round(float(e["Y"]) - float(s["Y"]), 6)
+        e["Z"] = round(float(e["Z"]) - oz, 6)
+        e["GLOBAL_COORDS"] = False
+    return equipments
+
+
 def _steel_structure_demo_doc() -> dict:
     """A two-storey framed structure with a fully-enclosed HVAC room, routed
     process/electrical/duct services and two-ended site I/O."""
-    return {
-        "grid": {},
-        "blueprint": {"enclosed_cells": ["Cell3"]},
-        "design_rules": "standard",
-        "spaces": [
-            {"NAME": "Cell1", "INCLUDE": True, "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3},
-            {"NAME": "Cell2", "INCLUDE": True, "X": 5, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3},
-            {"NAME": "Cell3", "INCLUDE": True, "X": 0, "Y": 0, "Z": 3, "DX": 5, "DY": 5, "DZ": 3},
-            {"NAME": "Cell4", "INCLUDE": True, "X": 5, "Y": 0, "Z": 3, "DX": 5, "DY": 5, "DZ": 3},
-        ],
-        "equipments": [
+    spaces = [
+        {"NAME": "Cell1", "INCLUDE": True, "X": 0, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3},
+        {"NAME": "Cell2", "INCLUDE": True, "X": 5, "Y": 0, "Z": 0, "DX": 5, "DY": 5, "DZ": 3},
+        {"NAME": "Cell3", "INCLUDE": True, "X": 0, "Y": 0, "Z": 3, "DX": 5, "DY": 5, "DZ": 3},
+        {"NAME": "Cell4", "INCLUDE": True, "X": 5, "Y": 0, "Z": 3, "DX": 5, "DY": 5, "DZ": 3},
+    ]
+    equipments = _localize(
+        spaces,
+        [
             _eq("Pump2", "pump", 2, 2, 0, 1, 1, 1, "Cell1"),
             _eq("Tank2", "tank", 6.5, 1.5, 0, 2, 2, 2, "Cell2", mass_dry=2000, mass_cont=3000),
             _eq("SB2", "switchboard", 0.3, 2, 0, 0.8, 0.4, 1.2, "Cell1", mass_dry=500),
@@ -106,6 +124,13 @@ def _steel_structure_demo_doc() -> dict:
             _eq("HVAC1", "hvac", 3, 3.5, 3, 1.5, 1, 1.2, "Cell3", mass_dry=800),
             _eq("Exhaust1", "exhaust_fan", 3, 3.5, 6, 0.8, 0.8, 0.6, "Cell3", loc="ROOF", mass_dry=300),
         ],
+    )
+    return {
+        "grid": {},
+        "blueprint": {"enclosed_cells": ["Cell3"]},
+        "design_rules": "standard",
+        "spaces": spaces,
+        "equipments": equipments,
         "systems": [
             {"NAME": "CoolingWater", "TYPE": "piping", "MEDIUM": "water",
              "CONNECTIONS": [{"EQUIPMENT": "Pump1", "PORT": "discharge"}, {"EQUIPMENT": "Tank1", "PORT": "inlet"}]},
@@ -141,22 +166,26 @@ def _topside_jacket_doc() -> dict:
     """A framed steel topside deck over an open tubular jacket truss — the
     SteelStru deck cells and a REPRESENTATION="JACKET" loft member built in one
     ProceduralBuilder pass."""
+    _tj_spaces = [
+        {"NAME": "DeckA", "INCLUDE": True, "X": -12, "Y": -12, "Z": 100, "DX": 12, "DY": 24, "DZ": 4},
+        {"NAME": "DeckB", "INCLUDE": True, "X": 0, "Y": -12, "Z": 100, "DX": 12, "DY": 24, "DZ": 4},
+        {"NAME": "DeckA2", "INCLUDE": True, "X": -12, "Y": -12, "Z": 104, "DX": 12, "DY": 24, "DZ": 4},
+        {"NAME": "DeckB2", "INCLUDE": True, "X": 0, "Y": -12, "Z": 104, "DX": 12, "DY": 24, "DZ": 4},
+    ]
     return {
         "grid": {},
         "blueprint": {},
         "design_rules": "standard",
-        "spaces": [
-            {"NAME": "DeckA", "INCLUDE": True, "X": -12, "Y": -12, "Z": 100, "DX": 12, "DY": 24, "DZ": 4},
-            {"NAME": "DeckB", "INCLUDE": True, "X": 0, "Y": -12, "Z": 100, "DX": 12, "DY": 24, "DZ": 4},
-            {"NAME": "DeckA2", "INCLUDE": True, "X": -12, "Y": -12, "Z": 104, "DX": 12, "DY": 24, "DZ": 4},
-            {"NAME": "DeckB2", "INCLUDE": True, "X": 0, "Y": -12, "Z": 104, "DX": 12, "DY": 24, "DZ": 4},
-        ],
-        "equipments": [
-            # World coords (GLOBAL_COORDS via _eq): on the deck floor at Z=100,
-            # centred on DeckA (x -12..0) / DeckB (x 0..12).
-            _eq("Pump", "pump", -6, 0, 100, 1, 1, 1, "DeckA"),
-            _eq("Tank", "tank", 6, 0, 100, 2, 2, 2, "DeckB", mass_dry=2000, mass_cont=3000),
-        ],
+        "spaces": _tj_spaces,
+        "equipments": _localize(
+            _tj_spaces,
+            [
+                # Authored in world coords on the deck floor at Z=100, centred on
+                # DeckA (x -12..0) / DeckB (x 0..12); _localize ties each to its deck.
+                _eq("Pump", "pump", -6, 0, 100, 1, 1, 1, "DeckA"),
+                _eq("Tank", "tank", 6, 0, 100, 2, 2, 2, "DeckB", mass_dry=2000, mass_cont=3000),
+            ],
+        ),
         "systems": [
             {"NAME": "CoolingWater", "TYPE": "piping", "MEDIUM": "water",
              "CONNECTIONS": [{"EQUIPMENT": "Pump", "PORT": "discharge"}, {"EQUIPMENT": "Tank", "PORT": "inlet"}]},
