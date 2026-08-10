@@ -280,6 +280,10 @@ interface CellBuilderState {
    * replacing the selection — the cell analogue of the regular "Add mode". */
   cellAddMode: boolean;
   selectMode: SelectMode;
+  /** Live one-line status of the controller's keyboard tool (extrude / loft
+   * numeric entry, etc.) surfaced in the Build tab, or null when idle. Set from
+   * the controller since that state (the typed buffer) lives there. */
+  toolHint: string | null;
   /** Which direct-manipulation gizmo is active for the selected cell: none, a
    * translate widget, or the face-handle resize gizmo. Reset to "none" whenever
    * the selected cell changes. */
@@ -405,6 +409,7 @@ interface CellBuilderState {
   /** Flip the cell add-mode (sticky, like the regular additive select). */
   toggleCellAddMode: () => void;
   setSelectMode: (m: SelectMode) => void;
+  setToolHint: (hint: string | null) => void;
   setGizmoMode: (mode: GizmoMode) => void;
   /** Lock/unlock the active gizmo to one axis (null clears the constraint). */
   setGizmoAxisLock: (axis: 0 | 1 | 2 | null) => void;
@@ -1127,6 +1132,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     selectedCellIds: [],
     cellAddMode: false,
     selectMode: "cell",
+    toolHint: null,
     gizmoMode: "none",
     gizmoAxisLock: null,
     gizmoVertexSnap: true,
@@ -1282,6 +1288,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       }),
     toggleCellAddMode: () => set((s) => ({ cellAddMode: !s.cellAddMode })),
     setSelectMode: (selectMode) => set({ selectMode }),
+    setToolHint: (toolHint) => set({ toolHint }),
     // Switching gizmo (or turning it off) drops any axis constraint.
     setGizmoMode: (gizmoMode) => set({ gizmoMode, gizmoAxisLock: null }),
     setGizmoAxisLock: (gizmoAxisLock) => set({ gizmoAxisLock }),

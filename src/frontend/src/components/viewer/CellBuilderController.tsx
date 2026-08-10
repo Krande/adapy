@@ -452,13 +452,16 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 const faceIds = mesh.userData.__loftFaceIds as string[] | undefined;
                 if (Array.isArray(mesh.material) && faceIds) {
                     const mats = mesh.material as THREE.MeshBasicMaterial[];
+                    let hasThroughFace = false;
                     for (let fi = 0; fi < mats.length; fi++) {
                         const isExcluded = excluded.has(faceIds[fi]);
                         let color = base;
                         let opacity = cellSelected ? 0.5 : LOFT_OPACITY;
+                        let through = false;
                         if (cellSelected && sel?.kind === "face" && sel.faceIndex === fi) {
                             color = SELECTED_FACE_COLOR;
-                            opacity = 0.6;
+                            opacity = 0.7;
+                            through = true;
                         }
                         if (hovered?.mesh === mesh && hovered.faceIndex === fi) {
                             color = HOVER_FACE_COLOR;
@@ -474,7 +477,10 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                         mats[fi].wireframe = isExcluded;
                         mats[fi].color.setHex(color);
                         mats[fi].opacity = opacity;
+                        mats[fi].depthTest = !through; // selected face draws through
+                        if (through) hasThroughFace = true;
                     }
+                    mesh.renderOrder = hasThroughFace ? 3 : 0;
                 } else {
                     const m = mesh.material as THREE.MeshBasicMaterial;
                     let color = base;
@@ -495,13 +501,19 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 continue;
             }
             const mats = mesh.material as THREE.MeshBasicMaterial[];
+            let hasThroughFace = false;
             for (let fi = 0; fi < mats.length; fi++) {
                 let color = base;
                 let opacity = BASE_OPACITY;
+                // The SELECTED face draws THROUGH the model (depth-test off) so a
+                // face on the far side of the cell is still fully visible — you
+                // can always see which face is picked (and thus which mode).
+                let through = false;
                 if (cellSelected) opacity = 0.4;
                 if (cellSelected && sel?.kind === "face" && sel.faceIndex === fi) {
                     color = SELECTED_FACE_COLOR;
-                    opacity = 0.55;
+                    opacity = 0.7;
+                    through = true;
                 }
                 if (hovered?.mesh === mesh && hovered.faceIndex === fi) {
                     color = HOVER_FACE_COLOR;
@@ -509,7 +521,12 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 }
                 mats[fi].color.setHex(color);
                 mats[fi].opacity = opacity;
+                mats[fi].depthTest = !through;
+                if (through) hasThroughFace = true;
             }
+            // Draw a cell carrying the x-ray face after everything else so the
+            // through-face isn't overpainted by the compiled result/other cells.
+            mesh.renderOrder = hasThroughFace ? 3 : 0;
             const edgeLines = mesh.children[0] as THREE.LineSegments | undefined;
             if (edgeLines) {
                 (edgeLines.material as THREE.LineBasicMaterial).color.setHex(cellSelected ? 0xffffff : base);
@@ -1907,6 +1924,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             if (Math.abs(box.size[numEntry.axis]) < 1e-6) ghost.visible = false;
             else setGhostBox(box);
             showReadout(`${fmt(v)} m`, faceCenter(cell, numEntry.faceIndex));
+            st.setToolHint(`Extrude ${fmt(v)} m — type depth, ↵ commit, Esc cancel`);
         } else if (numEntry.kind === "loftExtend") {
             const member = loftMemberByName(numEntry.memberName);
             if (!member || !member.STATIONS.length) return endNumEntry(true);
@@ -1918,6 +1936,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             if (Math.abs(box.size[2]) < 1e-6) ghost.visible = false;
             else setGhostBox(box);
             showReadout(`↑ ${fmt(v)} m`, numEntry.anchor);
+            st.setToolHint(`Loft +${fmt(v)} m — type spacing, ↵ commit, Esc cancel`);
         } else {
             const v = parseTyped(numEntry.typed, numEntry.defaultVal);
             ghost.visible = false; // the ring outline is the preview here
@@ -1935,6 +1954,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 hideRingPreview();
             }
             showReadout(`${numEntry.section === "circle" ? "r" : "□"} ${fmt(v)} m`, numEntry.anchor);
+            st.setToolHint(
+                `Section ${numEntry.section === "circle" ? "r" : "□"} ${fmt(v)} m — type size, ↵ commit, Esc cancel`,
+            );
         }
         requestRender();
     };
@@ -1966,6 +1988,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         ghostBox = null;
         hideReadout();
         hideRingPreview();
+        useCellBuilderStore.getState().setToolHint(null);
         requestRender();
     };
 
@@ -2077,21 +2100,29 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 ev.stopPropagation();
                 return;
             }
-            if (/^[0-9]$/.test(ev.key)) {
-                numEntry.typed += ev.key;
+            // Accept both the main row and the NUMPAD. ev.code (Numpad0..9 /
+            // NumpadDecimal / NumpadSubtract) catches the numpad even with NumLock
+            // off (where ev.key would be a nav key); the decimal also accepts ","
+            // (numpad separator on Nordic layouts).
+            const numpadDigit = /^Numpad([0-9])$/.exec(ev.code);
+            if (numpadDigit || /^[0-9]$/.test(ev.key)) {
+                numEntry.typed += numpadDigit ? numpadDigit[1] : ev.key;
                 refreshNumEntry();
                 ev.preventDefault();
                 ev.stopPropagation();
                 return;
             }
-            if (ev.key === "." && !numEntry.typed.includes(".")) {
+            if (
+                (ev.key === "." || ev.key === "," || ev.code === "NumpadDecimal") &&
+                !numEntry.typed.includes(".")
+            ) {
                 numEntry.typed += ".";
                 refreshNumEntry();
                 ev.preventDefault();
                 ev.stopPropagation();
                 return;
             }
-            if (ev.key === "-" && numEntry.typed === "") {
+            if ((ev.key === "-" || ev.code === "NumpadSubtract") && numEntry.typed === "") {
                 numEntry.typed = "-";
                 refreshNumEntry();
                 ev.preventDefault();

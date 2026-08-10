@@ -41,6 +41,40 @@ const btnGray =
 const inputCls =
   "text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5";
 
+const FACE_LABELS = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"];
+
+// One-line description of what the keyboard tool is doing right now, for the
+// Build-tab status row: a live extrude/loft entry (toolHint) wins, else the
+// active gizmo, add-mode, or the current selection — so you always know the
+// state without guessing.
+function describeToolState(
+  s: ReturnType<typeof useCellBuilderStore.getState>,
+): string {
+  if (s.toolHint) return s.toolHint;
+  if (s.gizmoMode !== "none") {
+    const g =
+      s.gizmoMode === "translate"
+        ? "Move"
+        : s.gizmoMode === "rotate"
+          ? "Rotate"
+          : "Resize";
+    const lock =
+      s.gizmoAxisLock != null ? ` (${["X", "Y", "Z"][s.gizmoAxisLock]})` : "";
+    return `${g} gizmo${lock}`;
+  }
+  if (s.mode === "add-cell") return "Placing cell — click to drop";
+  if (s.mode === "add-opening") return "Placing opening — click a wall";
+  if (s.mode === "add-equipment") return "Placing equipment — click to drop";
+  if (s.selection) {
+    const nm = s.cells[s.selection.cellId]?.name ?? "?";
+    if (s.selection.kind === "face" && s.selection.faceIndex != null)
+      return `${nm} · face ${FACE_LABELS[s.selection.faceIndex] ?? s.selection.faceIndex}`;
+    if (s.selection.kind === "edge") return `${nm} · edge`;
+    return nm;
+  }
+  return "Idle";
+}
+
 // A collapsible sub-section — the ▸ chevron idiom used throughout the panel.
 // Long or occasional groups default closed so the panel stays short.
 const Section: React.FC<{
@@ -892,6 +926,18 @@ const CellBuilderPanel: React.FC = () => {
           >
             Keys: <b>E</b> extrude face · <b>Tab</b> cell/face/edge · <b>F/D</b>{" "}
             cycle · <b>N/P</b> cells · <b>L</b> loft
+          </div>
+
+          {/* Live tool status — which pick mode and what the tool is doing now. */}
+          <div className="text-[11px] flex items-center gap-1.5 rounded-sm bg-black/25 border border-gray-700/60 px-2 py-1">
+            <span className="text-gray-500">Mode</span>
+            <span className="font-semibold text-blue-300 capitalize">
+              {s.selectMode}
+            </span>
+            <span className="text-gray-600">·</span>
+            <span className="text-gray-200 truncate" title={describeToolState(s)}>
+              {describeToolState(s)}
+            </span>
           </div>
 
           {/* Cell type — the engine-advertised space blueprint + Cell places.
