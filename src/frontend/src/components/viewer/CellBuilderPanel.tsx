@@ -938,9 +938,9 @@ const CellBuilderPanel: React.FC = () => {
           <Section
             title="Cells & equipment"
             count={cellCount}
-            // Collapsed by default on mobile — the sheet is short, so keep the
-            // list folded to leave room for the build controls above it.
-            defaultOpen={!isMobile && cellCount > 0 && cellCount <= 12}
+            // Collapsed by default so the panel opens as compact as possible —
+            // expand it when you want to browse/select from the list.
+            defaultOpen={false}
           >
             <div className="max-h-56 overflow-y-auto flex flex-col gap-1">
               {Object.values(s.cells).length === 0 && (

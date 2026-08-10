@@ -1343,14 +1343,23 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         // Place on top of a hovered cell, else on the model's ground plane.
         const hit = pickBuilderMesh();
         let base: Vec3 | null = null;
-        let z = 0;
+        // Ground level (model Z) for empty-space placement: the existing cells'
+        // lowest floor, NOT model z=0. A project template is centred far from the
+        // origin (e.g. greenvolt sits ~498 m up, translated back to the middle of
+        // the scene), so a z=0 plane would be way below the visible model and the
+        // new cell would land off-screen — which reads as "+ Cell does nothing".
+        const existing = Object.values(st.cells);
+        const groundZ = existing.length ? Math.min(...existing.map((c) => c.origin[2])) : 0;
+        let z = groundZ;
         if (hit) {
             const cellId = hit.object.userData.__cellId as string;
             const cell = st.cells[cellId];
             base = worldToModel(hit.point);
             z = cell ? cell.origin[2] + cell.size[2] : base[2];
         } else {
-            const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -offsetVec().z);
+            // Plane at world z = groundZ + offset (i.e. model z = groundZ).
+            const planeWorldZ = groundZ + offsetVec().z;
+            const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeWorldZ);
             const w = raycaster.ray.intersectPlane(groundPlane, new THREE.Vector3());
             if (w) base = worldToModel(w);
         }

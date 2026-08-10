@@ -1092,6 +1092,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         panelVisible: true,
         hiddenCellIds: [],
       });
+      // Center the new model from its own cells — resets any translation left
+      // over from a previously-open model, so fit-all (Shift+A) and empty-space
+      // cell placement use THIS model's bounds, not the last one's.
+      get().recenterModel();
       void get().fetchEquipmentTypes();
       void get().fetchSystemTypes();
       // Auto-update the catalog from code on open: if a code archetype changed
@@ -1263,7 +1267,12 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     setCellsVisible: (cellsVisible) => set({ cellsVisible }),
     recenterModel: () => {
       const cells = Object.values(get().cells);
-      if (!cells.length) return;
+      if (!cells.length) {
+        // Empty model — reset to the origin so it doesn't inherit a prior
+        // model's offset (which would skew fit-all / cell placement).
+        useModelState.getState().setTranslation(new Vector3(0, 0, 0));
+        return;
+      }
       let minX = Infinity, minY = Infinity, minZ = Infinity;
       let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
       for (const c of cells) {
