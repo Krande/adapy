@@ -393,6 +393,38 @@ export function seedLoftMember(
   };
 }
 
+/** Seed a 2-station RECTANGLE loft whose base sits on a given plane and extrudes
+ * along the plane normal by `spacing`. `placement` is a 4x4 (rotation columns =
+ * the plane's in-plane U / V axes and its normal N, translation = the plane
+ * centre), so the local sections — centred rectangles in the local XY plane,
+ * stacked along local +Z — land on the face and grow out along its normal.
+ * Used by "L on a selected face": a tube growing out of that face, sized to it. */
+export function seedLoftMemberOnPlane(
+  name: string,
+  placement: number[][],
+  width: number,
+  height: number,
+  spacing: number,
+): LoftMemberDoc {
+  const station = (sz: number): LoftStation => ({
+    TYPE: "rectangle",
+    X: 0,
+    Y: 0,
+    Z: sz,
+    WIDTH: width,
+    HEIGHT: height,
+  });
+  return {
+    NAME: name,
+    INCLUDE: true,
+    PLACEMENT: placement,
+    STATIONS: [station(0), station(spacing)],
+    THICKNESS: 0.01,
+    SURFACE_ONLY: true,
+    EXCLUDE_FACES: [],
+  };
+}
+
 /** Convert a station's section between rectangle and circle, seeding sensible
  * dimensions from whatever the other section carried (identity when already the
  * target type). Keeps X/Y/Z/SEGMENTS; swaps WIDTH·HEIGHT <-> RADIUS. */

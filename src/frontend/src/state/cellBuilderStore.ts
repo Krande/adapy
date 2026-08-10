@@ -29,6 +29,7 @@ import {
   removeStation,
   retypeStation,
   seedLoftMember,
+  seedLoftMemberOnPlane,
   setExcludeFace,
   setStationParam,
   translateMember,
@@ -568,7 +569,14 @@ interface CellBuilderState {
   ) => void;
   /** Keyboard "new loft" (L): append a fresh 2-station circle member seeded at
    * the model ground origin and select its first bay. One undo step. */
-  addLoftMember: () => void;
+  /** Start a new loft member (L). With `base` (from a selected cell face), the
+   * loft grows out of that face — a rectangle tube on the face plane, sized to
+   * the face, extruded along its normal. Without it, a default circle at ground. */
+  addLoftMember: (base?: {
+    placement: number[][];
+    width: number;
+    height: number;
+  }) => void;
   /** Keyboard extrude for lofts (E): add a station `spacing` metres above the
    * member's top station and select the new top bay. One undo step. */
   extendLoftStack: (memberName: string, spacing: number) => void;
@@ -2001,7 +2009,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           dirty: true,
         };
       }),
-    addLoftMember: () =>
+    addLoftMember: (base) =>
       withHistory((s) => {
         let n = s.loftMembers.length + 1;
         let name = `LOFT_${String(n).padStart(2, "0")}`;
@@ -2009,13 +2017,16 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           n += 1;
           name = `LOFT_${String(n).padStart(2, "0")}`;
         }
-        // Seed at the model's ground level so it lands in view (matching the
-        // add-cell ghost's ground plane), not at a far-off z=0.
+        // On a selected face: grow the loft out of that face (rectangle sized to
+        // the face, extruded along its normal). Otherwise seed a default circle
+        // at the model's ground level so it lands in view (not a far-off z=0).
         const cells0 = Object.values(s.cells);
         const groundZ = cells0.length
           ? Math.min(...cells0.map((c) => c.origin[2]))
           : 0;
-        const member = seedLoftMember(name, [0, 0, groundZ], 3);
+        const member = base
+          ? seedLoftMemberOnPlane(name, base.placement, base.width, base.height, 3)
+          : seedLoftMember(name, [0, 0, groundZ], 3);
         const cells = regenLoftMemberCells(s.cells, member);
         const bay0 = Object.values(cells).find(
           (c) => c.kind === "loft" && c.loft?.member === name && c.loft?.bay === 0,

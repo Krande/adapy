@@ -2289,9 +2289,47 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
 
             // --- Keyboard topology scheme (single keys) ----------------------
             if (!ev.shiftKey) {
-                // L: start a new loft member (available with nothing selected).
+                // L: start a new loft member. With a cell FACE selected, base the
+                // loft on that face — a rectangle tube sized to the face, growing
+                // out along its normal. Otherwise a default circle at the ground.
                 if (k === "l") {
-                    st.addLoftMember();
+                    const selCell = st.selection ? st.cells[st.selection.cellId] : null;
+                    let base:
+                        | {placement: number[][]; width: number; height: number}
+                        | undefined;
+                    if (
+                        selCell &&
+                        selCell.kind === "cell" &&
+                        st.selection?.kind === "face" &&
+                        st.selection.faceIndex != null &&
+                        BOX_FACE_SIDES[st.selection.faceIndex]
+                    ) {
+                        const fi = st.selection.faceIndex;
+                        const side = BOX_FACE_SIDES[fi];
+                        const inPlane = ([0, 1, 2] as const).filter((a) => a !== side.axis) as [
+                            0 | 1 | 2,
+                            0 | 1 | 2,
+                        ];
+                        const [a1, a2] = inPlane;
+                        const U: Vec3 = [0, 0, 0];
+                        U[a1] = 1;
+                        const V: Vec3 = [0, 0, 0];
+                        V[a2] = 1;
+                        const N: Vec3 = [0, 0, 0];
+                        N[side.axis] = side.positive ? 1 : -1;
+                        const c = faceCenter(selCell, fi); // model space
+                        base = {
+                            placement: [
+                                [U[0], V[0], N[0], c[0]],
+                                [U[1], V[1], N[1], c[1]],
+                                [U[2], V[2], N[2], c[2]],
+                                [0, 0, 0, 1],
+                            ],
+                            width: selCell.size[a1],
+                            height: selCell.size[a2],
+                        };
+                    }
+                    st.addLoftMember(base);
                     const members = useCellBuilderStore.getState().loftMembers;
                     const last = members[members.length - 1];
                     if (last) setLoftActive(last.NAME, 0);

@@ -10,6 +10,7 @@ import {
   removeStation,
   retypeStation,
   seedLoftMember,
+  seedLoftMemberOnPlane,
   setExcludeFace,
   setStationParam,
   stationRingPoints,
@@ -450,4 +451,30 @@ test("retypeStation swaps section dims and is identity on the same type", () => 
   assert.equal(back.WIDTH, undefined);
   // identity when already the target type (same reference)
   assert.equal(retypeStation(circle, "circle"), circle);
+});
+
+test("seedLoftMemberOnPlane grows a rectangle tube out of a face plane", () => {
+  // Plane centred at C; identity rotation → extrudes along +Z, base ring on C.
+  const C = [5, 2.5, 1.5];
+  const placement = [
+    [1, 0, 0, C[0]],
+    [0, 1, 0, C[1]],
+    [0, 0, 1, C[2]],
+    [0, 0, 0, 1],
+  ];
+  const m = seedLoftMemberOnPlane("L1", placement, 4, 2, 3);
+  assert.equal(m.STATIONS.length, 2);
+  assert.equal(m.STATIONS[0].TYPE, "rectangle");
+  assert.equal(m.STATIONS[0].WIDTH, 4);
+  assert.equal(m.STATIONS[0].HEIGHT, 2);
+  assert.equal(m.STATIONS[0].Z, 0);
+  assert.equal(m.STATIONS[1].Z, 3); // extruded one spacing along local +Z (the normal)
+  // Base ring is centred on the plane centre C (local origin maps to translation).
+  const ring = stationRingPoints(m.STATIONS[0], m.PLACEMENT);
+  const cx = ring.reduce((a, p) => a + p[0], 0) / ring.length;
+  const cy = ring.reduce((a, p) => a + p[1], 0) / ring.length;
+  const cz = ring.reduce((a, p) => a + p[2], 0) / ring.length;
+  assert.ok(Math.abs(cx - C[0]) < 1e-9);
+  assert.ok(Math.abs(cy - C[1]) < 1e-9);
+  assert.ok(Math.abs(cz - C[2]) < 1e-9);
 });
