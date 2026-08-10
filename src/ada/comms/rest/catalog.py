@@ -78,6 +78,56 @@ def builtin_system_specs() -> list[dict]:
     return specs
 
 
+# Built-in space-cell types and opening types — static so the API offers them in
+# the cellbuilder's ``+ Cell`` / ``+ Opening`` pickers WITHOUT a live worker or
+# importing ada. Each carries the default box extent a freshly-placed cell/opening
+# is seeded with; an opening also carries its door/window subtype. Live workers
+# (e.g. a capability engine) advertise more via ``procedural_cell_specs`` /
+# ``procedural_opening_specs`` — kept in lock-step with the built-ins registered
+# in ``ada.topo_model.cell_types``.
+_CELL_TYPES = (
+    {
+        "slug": "room",
+        "name": "Room",
+        "description": "A generic rectangular space cell (5 x 5 x 3 m).",
+        "size": [5.0, 5.0, 3.0],
+        "metadata": {},
+    },
+)
+
+_OPENING_TYPES = (
+    {
+        "slug": "door",
+        "name": "Door",
+        "description": "A full-height doorway cut to the floor (jambs + lintel + threshold).",
+        "subtype": "door",
+        "size": [0.9, 0.9, 2.1],
+    },
+    {
+        "slug": "window",
+        "name": "Window",
+        "description": "A punched window opening at its placed height (jambs + head + sill).",
+        "subtype": "window",
+        "size": [1.2, 1.2, 1.0],
+    },
+)
+
+#: Fallback box extents when no catalog type resolves (mirrors the frontend
+#: last-resort defaults in the cellbuilder controller).
+DEFAULT_CELL_SIZE = [5.0, 5.0, 3.0]
+DEFAULT_OPENING_SIZE = [1.0, 1.0, 2.0]
+
+
+def builtin_cell_specs() -> list[dict]:
+    """Specs for the built-in space-cell types (origin ``code``)."""
+    return [dict(d) for d in _CELL_TYPES]
+
+
+def builtin_opening_specs() -> list[dict]:
+    """Specs for the built-in opening types (origin ``code``)."""
+    return [dict(d) for d in _OPENING_TYPES]
+
+
 def equipment_cad_key(type_id: str, ext: str) -> str:
     """Blob key for an equipment type's source CAD asset. ``ext`` includes the
     leading dot (e.g. ``.step``); a single source per type (overwritten on

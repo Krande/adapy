@@ -877,6 +877,49 @@ const CellBuilderPanel: React.FC = () => {
             )}
           </div>
 
+          {/* Cell type — the engine-advertised space blueprint + Cell places.
+              Shown only when there's a choice; a single type (the built-in room)
+              needs no picker, the button just uses it. */}
+          {s.cellTypes.length > 1 && (
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="text-gray-300">cell</span>
+              <select
+                className={`${inputCls} flex-1 min-w-0`}
+                value={s.selectedCellType ?? ""}
+                onChange={(e) => s.setSelectedCellType(e.target.value || null)}
+                title="Cell type — the engine-advertised space blueprint the + Cell button places (default size + metadata)"
+              >
+                {s.cellTypes.map((t) => (
+                  <option key={t.slug} value={t.slug}>
+                    {t.name} ({t.origin === "code" ? "code" : "db"})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Opening type — the engine-advertised door/window + Opening places
+              (drives the placed opening's subtype + default size). */}
+          {s.openingTypes.length > 1 && (
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="text-gray-300">opening</span>
+              <select
+                className={`${inputCls} flex-1 min-w-0`}
+                value={s.selectedOpeningType ?? ""}
+                onChange={(e) =>
+                  s.setSelectedOpeningType(e.target.value || null)
+                }
+                title="Opening type — the engine-advertised door/window the + Opening button places (subtype + default size)"
+              >
+                {s.openingTypes.map((t) => (
+                  <option key={t.slug} value={t.slug}>
+                    {t.name} ({t.origin === "code" ? "code" : "db"})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="flex items-center gap-1 flex-wrap">
             <select
               className={`${inputCls} flex-1 min-w-0`}

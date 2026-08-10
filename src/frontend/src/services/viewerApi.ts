@@ -2159,6 +2159,37 @@ export const viewerApi = {
     return body.design_rulesets;
   },
 
+  /** Space-cell types for the cellbuilder's + Cell picker: the union of the
+   * built-in blueprints and any advertised by live workers, each tagged with its
+   * origin and default size. */
+  async proceduralCellTypes(
+    scope: ScopeUrl,
+  ): Promise<ProceduralCellTypeOption[]> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/cell-types`,
+    );
+    const body = await jsonOrThrow<{ cell_types: ProceduralCellTypeOption[] }>(
+      r,
+      `proceduralCellTypes(${scope})`,
+    );
+    return body.cell_types;
+  },
+
+  /** Opening types for the cellbuilder's + Opening picker: the union of the
+   * built-in door/window types and any advertised by live workers, each tagged
+   * with its origin, subtype and default size. */
+  async proceduralOpeningTypes(
+    scope: ScopeUrl,
+  ): Promise<ProceduralOpeningTypeOption[]> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/opening-types`,
+    );
+    const body = await jsonOrThrow<{
+      opening_types: ProceduralOpeningTypeOption[];
+    }>(r, `proceduralOpeningTypes(${scope})`);
+    return body.opening_types;
+  },
+
   /** Persist a code-defined equipment archetype into this scope's DB catalog
    * so it becomes an editable entry. */
   async syncProceduralEquipmentType(

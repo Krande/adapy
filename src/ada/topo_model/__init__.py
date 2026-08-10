@@ -15,6 +15,12 @@ from .build import (
 )
 from .builder import ProceduralBuilder
 from .catalog import EquipmentType, ProceduralCatalog, SystemTemplate
+from .cell_types import (
+    procedural_cell_type_specs,
+    procedural_opening_type_specs,
+    register_procedural_cell_type,
+    register_procedural_opening_type,
+)
 from .excel import ProceduralModelMeta
 from .design_rulesets import (
     DEFAULT_DESIGN_RULESET,
@@ -52,8 +58,12 @@ __all__ = [
     "create_tank",
     "design_ruleset_specs",
     "make_space_boxes",
+    "procedural_cell_type_specs",
+    "procedural_opening_type_specs",
     "procedural_template_specs",
     "propose_relocations",
+    "register_procedural_cell_type",
+    "register_procedural_opening_type",
     "register_procedural_template",
     "resolve_design_rules",
     "run_self_collides",

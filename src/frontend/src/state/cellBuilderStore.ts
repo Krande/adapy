@@ -3,9 +3,11 @@ import { create } from "zustand";
 import {
   ApiError,
   viewerApi,
+  type ProceduralCellTypeOption,
   type ProceduralDoc,
   type ProceduralDesignRulesetOption,
   type ProceduralEngineSummary,
+  type ProceduralOpeningTypeOption,
   type ProceduralRelocationResult,
   type ProceduralSystemTypeOption,
   type ProceduralTypeOption,
@@ -308,6 +310,14 @@ interface CellBuilderState {
    * per-scope DB catalog, each tagged with its origin. */
   equipmentTypes: ProceduralTypeOption[];
   selectedEquipmentType: string | null; // a slug
+  /** Space-cell types for the + Cell picker: built-in blueprints ∪ engine-
+   * advertised, each with a default size + metadata. */
+  cellTypes: ProceduralCellTypeOption[];
+  selectedCellType: string | null; // a slug
+  /** Opening types for the + Opening picker: built-in door/window ∪ engine-
+   * advertised, each with a subtype + default size. */
+  openingTypes: ProceduralOpeningTypeOption[];
+  selectedOpeningType: string | null; // a slug
   /** System types for the systems inspector: code kinds ∪ DB templates. */
   systemTypes: ProceduralSystemTypeOption[];
   compileJob: CompileJobState | null;
@@ -436,6 +446,8 @@ interface CellBuilderState {
   setSelectedEngine: (slug: string) => void;
   fetchEngines: () => Promise<void>;
   setSelectedEquipmentType: (t: string | null) => void;
+  setSelectedCellType: (t: string | null) => void;
+  setSelectedOpeningType: (t: string | null) => void;
   /** Type-derived sizing: resize every placed equipment of a given type to the
    * catalog bbox (kept centred on its footprint). Called when the equipment
    * type's bbox is edited in the admin panel. */
@@ -530,6 +542,8 @@ interface CellBuilderState {
   beginTransaction: () => void;
   endTransaction: () => void;
   fetchEquipmentTypes: () => Promise<void>;
+  fetchCellTypes: () => Promise<void>;
+  fetchOpeningTypes: () => Promise<void>;
   fetchSystemTypes: () => Promise<void>;
   fetchDesignRulesets: () => Promise<void>;
   /** Persist a code-origin type into the scope's DB catalog, then refresh. */
@@ -1066,6 +1080,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     conflict: null,
     equipmentTypes: [],
     selectedEquipmentType: null,
+    cellTypes: [],
+    selectedCellType: null,
+    openingTypes: [],
+    selectedOpeningType: null,
     systemTypes: [],
     compileJob: null,
     compileLog: null,
@@ -1126,6 +1144,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       // cell placement use THIS model's bounds, not the last one's.
       get().recenterModel();
       void get().fetchEquipmentTypes();
+      void get().fetchCellTypes();
+      void get().fetchOpeningTypes();
       void get().fetchSystemTypes();
       // Auto-update the catalog from code on open: if a code archetype changed
       // (new port, corrected height), refresh the scope's synced entries so a
@@ -1352,6 +1372,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       withHistory(() => ({ designRules, dirty: true })),
     setSelectedEquipmentType: (selectedEquipmentType) =>
       set({ selectedEquipmentType }),
+    setSelectedCellType: (selectedCellType) => set({ selectedCellType }),
+    setSelectedOpeningType: (selectedOpeningType) =>
+      set({ selectedOpeningType }),
 
     setCellEnclosed: (cellName, enclosed) =>
       withHistory((s) => {
@@ -1401,8 +1424,19 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           kind === "equipment"
             ? (s.selectedEquipmentType ?? undefined)
             : undefined;
-        // Openings default to a door; the subtype toggles in the panel afterward.
-        const subtype = kind === "opening" ? ("door" as const) : undefined;
+        // Cell/opening defaults (subtype + entity metadata) come from the
+        // engine-advertised type the picker selected — not hardcoded here. The
+        // door fallback only applies if the opening catalog is unreachable.
+        const cellType =
+          kind === "cell"
+            ? s.cellTypes.find((t) => t.slug === s.selectedCellType)
+            : undefined;
+        const openingType =
+          kind === "opening"
+            ? s.openingTypes.find((t) => t.slug === s.selectedOpeningType)
+            : undefined;
+        const subtype =
+          kind === "opening" ? (openingType?.subtype ?? "door") : undefined;
         const baseName =
           kind === "cell"
             ? "CELL"
@@ -1417,7 +1451,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           subtype,
           origin: quantizeVec(origin, s.gridStep),
           size: quantizeVec(size, s.gridStep),
-          params: {},
+          // A cell type may carry extra TopoSpace entity fields (round-tripped
+          // verbatim); openings/equipment start with none.
+          params: cellType?.metadata ? { ...cellType.metadata } : {},
         };
         // A freshly placed cell becomes the selection, but we leave the
         // Selected Object Info panel's visibility untouched.
@@ -1984,6 +2020,40 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       } catch (e) {
         console.warn("cellbuilder: equipment-types fetch failed", e);
         set({ equipmentTypes: [] });
+      }
+    },
+
+    fetchCellTypes: async () => {
+      try {
+        const types = await viewerApi.proceduralCellTypes(currentScopePart());
+        set((s) => ({
+          cellTypes: types,
+          selectedCellType:
+            s.selectedCellType &&
+            types.some((t) => t.slug === s.selectedCellType)
+              ? s.selectedCellType
+              : (types[0]?.slug ?? null),
+        }));
+      } catch (e) {
+        console.warn("cellbuilder: cell-types fetch failed", e);
+        set({ cellTypes: [] });
+      }
+    },
+
+    fetchOpeningTypes: async () => {
+      try {
+        const types = await viewerApi.proceduralOpeningTypes(currentScopePart());
+        set((s) => ({
+          openingTypes: types,
+          selectedOpeningType:
+            s.selectedOpeningType &&
+            types.some((t) => t.slug === s.selectedOpeningType)
+              ? s.selectedOpeningType
+              : (types[0]?.slug ?? null),
+        }));
+      } catch (e) {
+        console.warn("cellbuilder: opening-types fetch failed", e);
+        set({ openingTypes: [] });
       }
     },
 

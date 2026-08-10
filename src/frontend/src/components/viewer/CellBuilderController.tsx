@@ -47,9 +47,33 @@ const SELECTED_EDGE_WIDTH = 6;
 const OPENING_COLOR = 0xef4444; // red — a negative-volume door/window cut
 const LOFT_COLOR = 0x14b8a6; // teal — a read-only swept-band (loft) proxy
 const EXCLUDED_FACE_COLOR = 0x64748b; // slate — a removed (excluded) loft panel
-const DEFAULT_CELL_SIZE: Vec3 = [5, 5, 3];
 const DEFAULT_EQUIPMENT_SIZE: Vec3 = [1, 1, 1];
-const DEFAULT_OPENING_SIZE: Vec3 = [1, 1, 2]; // door-ish; snaps to the wall it lands on
+// Last-resort box extents used ONLY when the cell/opening catalog is unreachable
+// (the engine-advertised type otherwise supplies the size — see addModeSize).
+const FALLBACK_CELL_SIZE: Vec3 = [5, 5, 3];
+const FALLBACK_OPENING_SIZE: Vec3 = [1, 1, 2]; // door-ish; snaps to the wall it lands on
+
+// The default box extent for the current add mode, taken from the selected
+// engine-advertised cell/opening type (falling back to a sane constant only if
+// the catalog couldn't be fetched). Equipment is sized from its own type/catalog
+// at compile, so it keeps the unit default here.
+function addModeSize(st: {
+    mode: string;
+    cellTypes: {slug: string; size: [number, number, number]}[];
+    selectedCellType: string | null;
+    openingTypes: {slug: string; size: [number, number, number]}[];
+    selectedOpeningType: string | null;
+}): Vec3 {
+    if (st.mode === "add-cell") {
+        const t = st.cellTypes.find((x) => x.slug === st.selectedCellType);
+        return t ? [t.size[0], t.size[1], t.size[2]] : FALLBACK_CELL_SIZE;
+    }
+    if (st.mode === "add-opening") {
+        const t = st.openingTypes.find((x) => x.slug === st.selectedOpeningType);
+        return t ? [t.size[0], t.size[1], t.size[2]] : FALLBACK_OPENING_SIZE;
+    }
+    return DEFAULT_EQUIPMENT_SIZE;
+}
 
 const colorForKind = (kind: BuilderCell["kind"]): number =>
     kind === "cell"
@@ -1334,12 +1358,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
 
     const updateGhost = () => {
         const st = useCellBuilderStore.getState();
-        const size =
-            st.mode === "add-cell"
-                ? DEFAULT_CELL_SIZE
-                : st.mode === "add-opening"
-                  ? DEFAULT_OPENING_SIZE
-                  : DEFAULT_EQUIPMENT_SIZE;
+        const size = addModeSize(st);
         // Place on top of a hovered cell, else on the model's ground plane.
         const hit = pickBuilderMesh();
         let base: Vec3 | null = null;
