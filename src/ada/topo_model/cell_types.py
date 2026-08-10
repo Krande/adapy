@@ -60,17 +60,17 @@ def register_procedural_cell_type(
 def register_procedural_opening_type(
     slug: str,
     name: str,
-    subtype: Literal["door", "window"],
+    subtype: Literal["door", "window", "opening"],
     size: tuple[float, float, float],
     *,
     description: str = "",
 ) -> None:
-    """Register (or replace) an opening type. ``subtype`` (``door``/``window``)
-    drives the reinforcement framing the compiler frames around the hole; ``size``
-    is the default box extent ``(DX, DY, DZ)`` a freshly-placed opening is seeded
-    with. Idempotent by ``slug``."""
-    if subtype not in ("door", "window"):
-        raise ValueError(f"opening subtype must be 'door' or 'window', got {subtype!r}")
+    """Register (or replace) an opening type. ``subtype`` (``door``/``window``/
+    ``opening``) drives the reinforcement framing the compiler frames around the
+    hole; ``size`` is the default box extent ``(DX, DY, DZ)`` a freshly-placed
+    opening is seeded with. Idempotent by ``slug``."""
+    if subtype not in ("door", "window", "opening"):
+        raise ValueError(f"opening subtype must be 'door', 'window' or 'opening', got {subtype!r}")
     _OPENING_REGISTRY[slug] = {
         "slug": slug,
         "name": name,
@@ -133,4 +133,11 @@ register_procedural_opening_type(
     "window",
     (1.2, 1.2, 1.0),
     description="A punched window opening at its placed height (jambs + head + sill).",
+)
+register_procedural_opening_type(
+    "opening",
+    "Opening",
+    "opening",
+    (1.0, 1.0, 1.0),
+    description="A generic punched rectangular opening (jambs + head + sill).",
 )

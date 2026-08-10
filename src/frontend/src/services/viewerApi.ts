@@ -1162,7 +1162,7 @@ export interface ProceduralOpeningTypeOption {
   slug: string;
   name: string;
   origin: TypeOrigin;
-  subtype: "door" | "window";
+  subtype: "door" | "window" | "opening";
   size: [number, number, number]; // default (DX, DY, DZ)
 }
 

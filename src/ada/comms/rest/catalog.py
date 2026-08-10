@@ -110,6 +110,13 @@ _OPENING_TYPES = (
         "subtype": "window",
         "size": [1.2, 1.2, 1.0],
     },
+    {
+        "slug": "opening",
+        "name": "Opening",
+        "description": "A generic punched rectangular opening (jambs + head + sill).",
+        "subtype": "opening",
+        "size": [1.0, 1.0, 1.0],
+    },
 )
 
 #: Fallback box extents when no catalog type resolves (mirrors the frontend

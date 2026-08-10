@@ -453,12 +453,13 @@ class TopoOpening(_TopoConfigBoundModel):
     NAME: Annotated[str, Field(description="Name of opening")]
     FUNCTION: Annotated[Literal["opening", "door"], Field(description="Function of the opening")] = "opening"
     SUBTYPE: Annotated[
-        Literal["door", "window"],
+        Literal["door", "window", "opening"],
         Field(
             description=(
                 "Opening subtype driving the reinforcement framing: 'door' cuts a full-height opening to "
                 "the floor (jamb studs + head/lintel + threshold sill at floor level); 'window' cuts a "
-                "punched rectangle at the placed Z (jamb studs + head + sill)."
+                "punched rectangle at the placed Z (jamb studs + head + sill); 'opening' is a generic "
+                "punched rectangle framed the same as a window (jamb studs + head + sill)."
             )
         ),
     ] = "door"

@@ -98,11 +98,11 @@ export interface BuilderCell extends CellBox {
   /** Archetype name (pump/tank/...) for equipment cells; from the
    * worker-advertised list. */
   equipmentType?: string;
-  /** Door vs window for `opening` cells — a negative-volume box that cuts the
-   * wall/floor it overlaps; the subtype drives which reinforcement the compiler
-   * frames around the hole (door: jambs + lintel + threshold; window: jambs +
-   * head + sill). */
-  subtype?: "door" | "window";
+  /** Subtype for `opening` cells (door / window / generic opening) — a
+   * negative-volume box that cuts the wall/floor it overlaps; the subtype drives
+   * which reinforcement the compiler frames around the hole (door: jambs +
+   * lintel + threshold; window & opening: jambs + head + sill). */
+  subtype?: "door" | "window" | "opening";
   /** Per-axis rotation in degrees (X, Y, Z), pivoting on the footprint centre —
    * equipment only. Undefined/all-zero means axis-aligned. Round-trips as the
    * entity's ROT_X/ROT_Y/ROT_Z; the compiler spins the body + ports to match. */
@@ -504,7 +504,7 @@ interface CellBuilderState {
   insertOpeningOnFace: (
     cellId: string,
     faceIndex: number,
-    subtype: "door" | "window",
+    subtype: "door" | "window" | "opening",
   ) => void;
   updateCell: (id: string, patch: Partial<BuilderCell>) => void;
   /** Move a space cell to `newOrigin`, carrying `equipIds` (its contained
@@ -759,7 +759,8 @@ function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
       id,
       name: String(o.NAME ?? id),
       kind: "opening",
-      subtype: o.SUBTYPE === "window" ? "window" : "door",
+      subtype:
+        o.SUBTYPE === "window" ? "window" : o.SUBTYPE === "opening" ? "opening" : "door",
       origin: [Number(o.X ?? 0), Number(o.Y ?? 0), Number(o.Z ?? 0)],
       size: [Number(o.DX ?? 1), Number(o.DY ?? 1), Number(o.DZ ?? 1)],
       params: extractParams(o, OPENING_OWN_KEYS),

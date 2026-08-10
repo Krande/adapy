@@ -2841,10 +2841,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
         """Opening types for the cellbuilder's ``+ Opening`` picker: the union of
-        the static built-in door/window types (``adapy-default``) and any advertised
-        by live workers (via ``register_procedural_opening_type``), each tagged
-        ``origin`` ``code``. Each carries its ``subtype`` (``door``/``window`` —
-        the reinforcement framing the compiler frames around the hole) and the
+        the static built-in door/window/opening types (``adapy-default``) and any
+        advertised by live workers (via ``register_procedural_opening_type``), each
+        tagged ``origin`` ``code``. Each carries its ``subtype`` (``door``/
+        ``window``/``opening`` — the reinforcement framing the compiler frames
+        around the hole) and the
         default box extent ``size`` ``(DX, DY, DZ)``. No DB rows are involved."""
         from .catalog import builtin_opening_specs
 
@@ -2855,7 +2856,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "slug": slug,
                 "name": spec.get("name") or slug,
                 "origin": "code",
-                "subtype": spec.get("subtype") if spec.get("subtype") in ("door", "window") else "door",
+                "subtype": spec.get("subtype")
+                if spec.get("subtype") in ("door", "window", "opening")
+                else "door",
                 "size": spec.get("size") or [1.0, 1.0, 2.0],
             }
             for slug, spec in by_slug.items()

@@ -81,14 +81,15 @@ def test_opening_types_builtin_without_db(app_client: TestClient):
     r = app_client.get("/api/scopes/shared/procedural-models/opening-types")
     assert r.status_code == 200, r.text
     types = {t["slug"]: t for t in r.json()["opening_types"]}
-    # Door + window are the backward-compatible subtypes (TopoOpening.SUBTYPE).
-    assert set(types) >= {"door", "window"}
+    # Door, window + a generic "opening" (all valid TopoOpening.SUBTYPE values).
+    assert set(types) >= {"door", "window", "opening"}
     assert types["door"]["subtype"] == "door"
     assert types["window"]["subtype"] == "window"
+    assert types["opening"]["subtype"] == "opening"  # generic third option
     for t in types.values():
         assert t["origin"] == "code"
         assert len(t["size"]) == 3
-        assert t["subtype"] in ("door", "window")
+        assert t["subtype"] in ("door", "window", "opening")
 
 
 # ── the ada.topo_model registry the workers advertise ────────────────
