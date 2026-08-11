@@ -8,6 +8,12 @@ import {ungzip} from "pako";
 import {viewerApi, type EquipmentTypeDoc} from "@/services/viewerApi";
 import {useEquipmentCatalogStore} from "@/state/equipmentCatalogStore";
 import {portColorInt} from "@/utils/portColor";
+import {
+    aabbCenterSize,
+    aabbCorners,
+    equipmentDisplayBox,
+    type AabbLike,
+} from "@/utils/cellbuilder/equipmentPreviewBox";
 
 // A self-contained sidecar viewer for an equipment type: the bounding box as a
 // faint wireframe, each port as a coloured nozzle arrow, and — when a CAD asset
@@ -108,17 +114,54 @@ const EquipmentPreview: React.FC<{
         void st.controls.fitToSphere(sphere, false);
     };
 
-    // Seat the loaded CAD group so its min corner meets the bbox's min corner —
-    // the same corner-alignment the compiler uses. With the corrected Z-up bbox
-    // (lz = the CAD's true height) and the group rotated Z-up→Y-up for display,
-    // matching extents make the box wrap the CAD exactly. In view space the box
-    // min corner is (-lx/2, 0, -ly/2).
+    // Seat the loaded CAD group so its min corner sits at the stored box's min
+    // corner (compiler convention: min corner → cell corner). This only anchors
+    // the CAD near the port frame; the wireframe box itself is then FIT to the
+    // CAD's measured AABB (see displayBox), so it wraps the real geometry no
+    // matter how stale/cubic the stored lx/ly/lz are. The CAD keeps its NATIVE
+    // GLB orientation — no display rotation — so the preview is independent of
+    // whether the (possibly old) preview GLB was authored Y-up or Z-up.
     const alignCad = (group: THREE.Group) => {
         const b = new THREE.Box3().setFromObject(group);
         if (b.isEmpty()) return;
         const {lx, ly} = docRef.current.bbox;
         const target = new THREE.Vector3(-lx / 2, 0, -ly / 2);
         group.position.add(target.sub(b.min));
+    };
+
+    // The CAD group's measured AABB in preview/view space, or null when no CAD is
+    // loaded. This is the source of truth for the wireframe box + snap corners.
+    const measuredCadAabb = (st: NonNullable<typeof stateRef.current>): AabbLike | null => {
+        if (!st.cad) return null;
+        st.cad.updateWorldMatrix(true, true);
+        const b = new THREE.Box3().setFromObject(st.cad);
+        if (b.isEmpty()) return null;
+        return {min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z]};
+    };
+
+    // The box to draw/snap to: the CAD's real (non-cubic) AABB when a CAD is
+    // loaded, else the stored lx/ly/lz nominal box.
+    const displayBox = (st: NonNullable<typeof stateRef.current>): AabbLike =>
+        equipmentDisplayBox(measuredCadAabb(st), docRef.current.bbox);
+
+    // (Re)draw the wireframe box from displayBox(). Tagged __box so it can be
+    // cleared without touching the CAD or the port arrows.
+    const drawBox = (st: NonNullable<typeof stateRef.current>) => {
+        for (const child of [...st.content.children]) {
+            if (!child.userData.__box) continue;
+            st.content.remove(child);
+            const ls = child as THREE.LineSegments;
+            ls.geometry?.dispose();
+            (ls.material as THREE.Material | undefined)?.dispose();
+        }
+        const {center, size} = aabbCenterSize(displayBox(st));
+        const wire = new THREE.LineSegments(
+            new THREE.EdgesGeometry(new THREE.BoxGeometry(size[0], size[1], size[2])),
+            new THREE.LineBasicMaterial({color: 0x94a3b8}),
+        );
+        wire.position.set(center[0], center[1], center[2]);
+        wire.userData.__box = true;
+        st.content.add(wire);
     };
 
     // The port's stored (model-space) anchor + outward direction, converted to
@@ -132,12 +175,10 @@ const EquipmentPreview: React.FC<{
         return {anchor, dir: dir.normalize()};
     };
 
-    // View-space snap targets for a port move: the box corners + CAD vertices.
+    // View-space snap targets for a port move: the display-box corners (the CAD's
+    // real AABB corners when a CAD is loaded, else the nominal box) + CAD vertices.
     const snapTargets = (st: NonNullable<typeof stateRef.current>): THREE.Vector3[] => {
-        const {lx, ly, lz} = docRef.current.bbox;
-        const corners: THREE.Vector3[] = [];
-        for (const sx of [-lx / 2, lx / 2])
-            for (const sy of [0, lz]) for (const sz of [-ly / 2, ly / 2]) corners.push(new THREE.Vector3(sx, sy, sz));
+        const corners = aabbCorners(displayBox(st)).map((c) => new THREE.Vector3(c[0], c[1], c[2]));
         return st.cadVerts.length ? corners.concat(st.cadVerts) : corners;
     };
 
@@ -316,8 +357,15 @@ const EquipmentPreview: React.FC<{
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Longest bbox extent — the scale for snap/pick thresholds.
+    // Longest extent of the DISPLAYED box (CAD AABB when loaded, else nominal) —
+    // the scale for snap/pick thresholds, so they track the real geometry size.
     const docExtent = () => {
+        const st = stateRef.current;
+        if (st) {
+            const {size} = aabbCenterSize(displayBox(st));
+            const m = Math.max(size[0], size[1], size[2]);
+            if (m > 0) return m;
+        }
         const {lx, ly, lz} = docRef.current.bbox;
         return Math.max(lx, ly, lz);
     };
@@ -326,19 +374,11 @@ const EquipmentPreview: React.FC<{
     React.useEffect(() => {
         const st = stateRef.current;
         if (!st) return;
-        // clear previous box/port helpers (keep any loaded CAD)
+        // clear previous port helpers (the box is redrawn by drawBox; keep CAD)
         for (const child of [...st.content.children]) {
-            if (child.userData.__cad) continue;
+            if (child.userData.__cad || child.userData.__box) continue;
             st.content.remove(child);
         }
-        const {lx, ly, lz} = doc.bbox;
-        const boxGeom = new THREE.BoxGeometry(lx, lz, ly);
-        const wire = new THREE.LineSegments(
-            new THREE.EdgesGeometry(boxGeom),
-            new THREE.LineBasicMaterial({color: 0x94a3b8}),
-        );
-        wire.position.copy(swapYZ(0, 0, lz / 2)); // box base at z=0, centered in x/y
-        st.content.add(wire);
 
         doc.ports.forEach((p, pi) => {
             const origin = swapYZ(p.position[0], p.position[1], p.position[2]);
@@ -349,7 +389,7 @@ const EquipmentPreview: React.FC<{
             // an INPUT arrow points *into* the equipment (negate), an OUTPUT
             // arrow points out (as-is), INOUT stays outward.
             if (p.direction === "IN") d.negate();
-            const len = Math.max(0.15, 0.25 * Math.max(lx, ly, lz));
+            const len = Math.max(0.15, 0.25 * docExtent());
             const arrow = new THREE.ArrowHelper(d, origin, len, portColorInt(p, pi), len * 0.4, len * 0.25);
             // Tag the arrow (and its children) so a click resolves to this port.
             arrow.userData.__portIndex = pi;
@@ -357,7 +397,10 @@ const EquipmentPreview: React.FC<{
             st.content.add(arrow);
         });
 
+        // Keep the CAD seated on the current bbox anchor, then (re)draw the box
+        // from the CAD's real AABB (or the nominal box when no CAD is loaded).
         if (st.cad) alignCad(st.cad);
+        drawBox(st);
 
         // Frame the box the first time it appears; leave the camera alone on
         // subsequent edits.
@@ -373,20 +416,21 @@ const EquipmentPreview: React.FC<{
         const st = stateRef.current;
         if (!st) return;
         let cancelled = false;
-        // drop any previous CAD
+        // drop any previous CAD (then redraw the box back to the nominal dims)
         if (st.cad) {
             st.content.remove(st.cad);
             st.cad = null;
             st.cadVerts = [];
+            drawBox(st);
         }
         if (!previewKey) return;
         void fetchPreviewGltf(scope, previewKey).then((group) => {
             if (cancelled || !group || !stateRef.current) return;
             group.userData.__cad = true;
-            // The preview GLB is authored Z-up (native adapy). Rotate it Z-up→Y-up
-            // so it stands upright in this Y-up preview, matching the box (which is
-            // drawn with lz on the vertical axis).
-            group.rotation.x = -Math.PI / 2;
+            // Display the CAD in its NATIVE GLB orientation — no rotation. Existing
+            // types keep whatever preview GLB they were inferred with (Y-up or
+            // Z-up), so we must not assume an axis; the wireframe box is fit to the
+            // CAD's measured AABB instead (drawBox), which wraps it either way.
             const cur = stateRef.current;
             cur.content.add(group);
             cur.cad = group;
@@ -415,6 +459,7 @@ const EquipmentPreview: React.FC<{
                 }
             });
             cur.cadVerts = verts;
+            drawBox(cur); // fit the wireframe box to the CAD's real AABB
             fitToContent(cur); // the CAD changes the extent — reframe on it
         });
         return () => {

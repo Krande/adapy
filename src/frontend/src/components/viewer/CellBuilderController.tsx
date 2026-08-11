@@ -745,8 +745,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     };
 
     // Parse an equipment preview GLB blob into a group (gzip-sniffed, like the
-    // catalogue preview + the result loader). The preview GLB is Z-up native, so
-    // it drops straight into the Z-up main scene with no re-orientation.
+    // catalogue preview + the result loader). Displayed in its NATIVE orientation
+    // (no re-orientation) and its placement is fit from its measured bounds — we
+    // do NOT assume the (possibly old) preview GLB is Z-up.
     const parseCadGlb = async (scope: string, key: string): Promise<THREE.Group | null> => {
         const buf = await viewerApi.getBlob(scope, key);
         let bytes: Uint8Array<ArrayBufferLike> = new Uint8Array(buf);
