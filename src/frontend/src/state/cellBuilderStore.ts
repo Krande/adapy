@@ -1527,6 +1527,15 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         compileLog: null,
         panelVisible: true,
         hiddenCellIds: [],
+        // Reset the VIEW state to a clean topology view. Without this, a session
+        // that left off in a result view (repMode "simulation" sets cellsVisible
+        // = superimpose||sideBySide, i.e. false) taints the next open: the reopened
+        // model shows repMode "topology" but with its cells still hidden (empty
+        // view) until a repMode toggle re-runs setCellsVisible(true).
+        repMode: "topology",
+        cellsVisible: true,
+        superimpose: false,
+        sideBySide: false,
       });
       // Center the new model from its own cells — resets any translation left
       // over from a previously-open model, so fit-all (Shift+A) and empty-space
@@ -1576,7 +1585,11 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         compileJob: null,
         compileLog: null,
         hiddenCellIds: [],
+        // Clean view state on close so it can't taint the next open (see open()).
         repMode: "topology",
+        cellsVisible: true,
+        superimpose: false,
+        sideBySide: false,
       });
     },
     setMode: (mode) => set({ mode }),
