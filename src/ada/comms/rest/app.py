@@ -3956,6 +3956,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "description": "Built-in adapy procedural engine (runs server-side and in-browser via WASM).",
         "revision": 0,
         "origin": "builtin",
+        # Built-ins compile a single model-level blueprint; cell grouping is a
+        # capability engine (pm-engine) feature, advertised via the worker heartbeat.
+        "supports_grouping": False,
         "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.wasm_compile:compile_doc"},
     }
     # A second built-in: the diagnostic ``echo`` engine (renders the document's
@@ -3969,6 +3972,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "description": "Diagnostic engine: renders the document's cells as raw boxes (no structure).",
         "revision": 0,
         "origin": "builtin",
+        "supports_grouping": False,
         "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.echo_engine:compile_doc"},
     }
     _BUILTIN_ENGINES = [_BUILTIN_ENGINE, _ECHO_ENGINE]
@@ -3987,8 +3991,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             e["origin"] = "db"
         # Built-ins first, then the scope's registered engines.
         summaries = [
-            {k: e[k] for k in ("id", "slug", "name", "description", "revision", "origin")} for e in _BUILTIN_ENGINES
+            {k: e[k] for k in ("id", "slug", "name", "description", "revision", "origin", "supports_grouping")}
+            for e in _BUILTIN_ENGINES
         ]
+        # Fold each engine's advertised capability flags (from live, non-stale
+        # workers) onto its summary by slug — this is how a DB-registered capability
+        # engine (pm-engine) reports ``supports_grouping=True`` while its worker is
+        # up. A slug with no live spec defaults to non-grouping. Built-ins carry
+        # their static flag above and are overridden only if a worker re-announces.
+        engine_caps = await _live_worker_specs("procedural_engine_specs")
+        for summary in (*summaries, *engines):
+            spec = engine_caps.get(summary.get("slug"))
+            summary["supports_grouping"] = bool(
+                spec.get("supports_grouping") if spec is not None else summary.get("supports_grouping", False)
+            )
         return JSONResponse({"procedural_engines": [*summaries, *engines]})
 
     @api.post("/scopes/{scope}/procedural-engines", status_code=201)

@@ -645,6 +645,16 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
   const setGizmoMode = useCellBuilderStore((s) => s.setGizmoMode);
   const insertOpeningOnFace = useCellBuilderStore((s) => s.insertOpeningOnFace);
   const setCellEnclosed = useCellBuilderStore((s) => s.setCellEnclosed);
+  // Cell grouping (per-group blueprints). Each of these is a stable reference
+  // (array/string/function that only changes on mutation), so selecting them
+  // directly is safe — see the unstable-selector note above.
+  const groups = useCellBuilderStore((s) => s.groups);
+  const setCellGroup = useCellBuilderStore((s) => s.setCellGroup);
+  const engines = useCellBuilderStore((s) => s.engines);
+  const selectedEngine = useCellBuilderStore((s) => s.selectedEngine);
+  const supportsGrouping = Boolean(
+    engines.find((e) => e.slug === selectedEngine)?.supports_grouping,
+  );
   // Select the stable blueprintOptions reference and derive the enclosed-cells
   // list in a memo. Returning ``... ?? []`` straight from the selector produced a
   // FRESH array every render when enclosed_cells is absent, which useSyncExternal-
@@ -875,6 +885,28 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
                     }
                   />
                   Enclosed room (plated walls)
+                </label>
+              )}
+              {cell.kind === "cell" && supportsGrouping && (
+                <label
+                  className="flex items-center gap-1"
+                  title="Assign this cell to a group; each group compiles with its own blueprint. Manage groups in the Build tab."
+                >
+                  <span className="text-gray-300">group</span>
+                  <select
+                    className="flex-1 min-w-0 text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5"
+                    value={cell.group ?? ""}
+                    onChange={(e) =>
+                      setCellGroup(cell.id, e.target.value || null)
+                    }
+                  >
+                    <option value="">— none —</option>
+                    {groups.map((g) => (
+                      <option key={g.name} value={g.name}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               )}
               {(cell.kind === "cell" ? SPACE_PARAMS : EQUIPMENT_PARAMS).map(

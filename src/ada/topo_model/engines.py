@@ -76,16 +76,25 @@ class EngineBinding(BaseModel):
 # (no structural blueprint), so selecting it produces a visibly-different model —
 # proof that engine selection resolved and dispatched to a NON-default entrypoint
 # on whichever path (server or WASM) ran the compile.
+#
+# ``supports_grouping`` advertises whether an engine understands the cellbuilder's
+# per-group blueprints (a group == one structure with its own blueprint). The
+# built-ins do NOT: adapy-default compiles a single model-level blueprint and
+# tolerates-but-ignores any ``groups``/``STRUCTURE_NAME`` in the doc; echo renders
+# raw boxes. A capability engine (pm-engine) advertises ``True`` from its worker
+# specs (see ``ada.topo_model.engine_catalog`` / the worker heartbeat).
 BUILTIN_ENGINES: dict[str, dict] = {
     DEFAULT_ENGINE_SLUG: {
         "name": "adapy default",
         "description": "Built-in adapy procedural engine (runs server-side and in-browser via WASM).",
         "entrypoint": "ada.topo_model.wasm_compile:compile_doc",
+        "supports_grouping": False,
     },
     "echo": {
         "name": "echo (raw cells)",
         "description": "Diagnostic engine: renders the document's cells as raw boxes (no structure).",
         "entrypoint": "ada.topo_model.echo_engine:compile_doc",
+        "supports_grouping": False,
     },
 }
 

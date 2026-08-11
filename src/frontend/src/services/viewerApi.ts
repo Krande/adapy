@@ -1091,6 +1091,12 @@ export interface ProceduralDoc {
    * (4x4 row-major), THICKNESS, SURFACE_ONLY}. A member with N stations
    * compiles to N-1 swept-band plates; the viewer draws band proxies. */
   loft_members?: Record<string, unknown>[];
+  /** Cell GROUPS, each carrying its own structural blueprint (a group == one
+   * structure). Each space's `STRUCTURE_NAME` names the group it belongs to;
+   * ungrouped spaces omit it. Absent/empty = single model-level blueprint
+   * (backward compatible). Honoured only by engines advertising
+   * `supports_grouping`; the built-in engine ignores it. */
+  groups?: { name: string; blueprint: string }[];
 }
 
 export interface ProceduralCompileResponse {
@@ -1286,6 +1292,14 @@ export interface ProceduralEngineSummary {
   revision: number;
   /** "builtin" for the always-present adapy engine, "db" for registered ones. */
   origin?: "builtin" | "db";
+  /**
+   * Whether this engine understands the cellbuilder's cell GROUPS (a group is one
+   * structure compiled with its own blueprint). Advertised per engine by the
+   * backend (built-ins = false; a capability engine like pm-engine reports true
+   * from its live worker). The Groups UI is gated on this flag — never on a
+   * hardcoded engine slug.
+   */
+  supports_grouping?: boolean;
   created_by?: string | null;
   updated_at?: string | null;
 }

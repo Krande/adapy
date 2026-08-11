@@ -3143,6 +3143,18 @@ async def _run() -> None:
     except Exception:
         logger.exception("worker: failed to list procedural templates (non-fatal)")
         procedural_templates = []
+    # Per-engine capability flags (e.g. ``supports_grouping``), advertised so the
+    # viewer's engine summary can gate capability-specific UI (the Groups section).
+    # The base image carries the built-in engines' flags (all non-grouping); a
+    # capability worker's ADA_WORKER_PRELOAD module registers its own via
+    # register_procedural_engine_capabilities before this read (import side-effect).
+    try:
+        from ada.topo_model import procedural_engine_specs
+
+        procedural_engines = procedural_engine_specs()
+    except Exception:
+        logger.exception("worker: failed to list procedural engine capabilities (non-fatal)")
+        procedural_engines = []
 
     async def _publish_registration() -> None:
         try:
@@ -3163,6 +3175,7 @@ async def _run() -> None:
                     "procedural_opening_specs": procedural_opening_specs,
                     "procedural_blueprint_specs": procedural_blueprints,
                     "procedural_template_specs": procedural_templates,
+                    "procedural_engine_specs": procedural_engines,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },

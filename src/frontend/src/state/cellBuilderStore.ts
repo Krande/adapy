@@ -22,6 +22,14 @@ import {
 import { useModelState } from "@/state/modelState";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { resolveSelectedBlueprint } from "@/utils/cellbuilder/blueprints";
+import {
+  type CellGroup,
+  groupAfterRemoval,
+  groupToStructureName,
+  normalizeGroups,
+  resolveCellGroup,
+  structureNameToGroup,
+} from "@/utils/cellbuilder/groups";
 import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
 import { postPreviewReady } from "@/utils/cellbuilder/proceduralChannel";
 import {
@@ -109,6 +117,11 @@ export interface BuilderCell extends CellBox {
    * equipment only. Undefined/all-zero means axis-aligned. Round-trips as the
    * entity's ROT_X/ROT_Y/ROT_Z; the compiler spins the body + ports to match. */
   rotation?: [number, number, number];
+  /** Group this cell belongs to (a group is one structure compiled with its own
+   * blueprint). Serializes as the space's `STRUCTURE_NAME`; undefined/blank means
+   * ungrouped. Meaningful only for grouping-capable engines (pm-engine); the
+   * built-in engine ignores it. Cells only. */
+  group?: string;
   /** Extra pydantic entity fields (TopoSpace/TopoEquipment) beyond the
    * geometry: SE0..SE5 face exclusions, FLIP_FLOOR, SPACE_LOC, masses, ...
    * Round-tripped verbatim into the committed doc; the selection panel
@@ -180,6 +193,9 @@ export interface ModelSnapshot {
   blueprintOptions: Record<string, unknown>;
   equipmentCad: boolean;
   designRules: string;
+  /** Cell groups (name + per-group blueprint). Undoable alongside cells so a
+   * group add/rename/delete and its cell reassignments restore atomically. */
+  groups: CellGroup[];
 }
 
 const HISTORY_LIMIT = 100;
@@ -220,7 +236,7 @@ function currentScopePart(): string {
 
 // Geometry/system keys consumed by the builder itself; everything else an
 // entity dump carries lands in BuilderCell.params and round-trips verbatim.
-const SPACE_OWN_KEYS = new Set(["NAME", "X", "Y", "Z", "DX", "DY", "DZ"]);
+const SPACE_OWN_KEYS = new Set(["NAME", "X", "Y", "Z", "DX", "DY", "DZ", "STRUCTURE_NAME"]);
 const EQUIPMENT_OWN_KEYS = new Set([
   "NAME",
   "DESCRIPTION",
@@ -395,6 +411,12 @@ interface CellBuilderState {
   selectedEngine: string;
   /** Available procedural engines for the engine dropdown (built-ins ∪ DB). */
   engines: ProceduralEngineSummary[];
+  /** Cell groups (name + per-group blueprint). A group is one structure the
+   * (grouping-capable) engine compiles with its own blueprint; cells reference a
+   * group by name via BuilderCell.group. Empty = single model-level blueprint
+   * (backward compatible). Only meaningful for engines advertising
+   * `supports_grouping`. */
+  groups: CellGroup[];
   /** Undo/redo history over the model state (cells/systems/blueprintOptions). */
   past: ModelSnapshot[];
   future: ModelSnapshot[];
@@ -476,6 +498,18 @@ interface CellBuilderState {
   /** Fetch the blueprints the SELECTED engine offers and reconcile the current
    * selection (keep it if still offered, else the engine's default). */
   fetchBlueprints: () => Promise<void>;
+  /** Add a new cell group (auto-named; blueprint defaults to the engine's
+   * default / current selection). Undoable; marks the model dirty. */
+  addGroup: () => void;
+  /** Rename a group (from -> to); reassigns every cell pointing at it. A blank or
+   * duplicate target is ignored. Undoable; marks the model dirty. */
+  renameGroup: (from: string, to: string) => void;
+  /** Delete a group; unassigns its cells (back to ungrouped). Undoable; dirty. */
+  removeGroup: (name: string) => void;
+  /** Set a group's structural blueprint. Undoable; marks the model dirty. */
+  setGroupBlueprint: (name: string, blueprint: string) => void;
+  /** Assign a cell to a group (or null to clear). Undoable; marks the model dirty. */
+  setCellGroup: (cellId: string, groupName: string | null) => void;
   setSelectedEquipmentType: (t: string | null) => void;
   setSelectedCellType: (t: string | null) => void;
   setSelectedOpeningType: (t: string | null) => void;
@@ -748,6 +782,17 @@ function equipmentSpaceOffset(
   return [Number(s.X ?? 0), Number(s.Y ?? 0), oz];
 }
 
+/** The doc's cell groups (name + per-group blueprint), normalized (blank/dup
+ * names dropped). Empty for an ungrouped doc. */
+function groupsFromDoc(doc: ProceduralDoc): CellGroup[] {
+  return normalizeGroups(
+    (doc.groups ?? []).map((g) => ({
+      name: String(g.name ?? ""),
+      blueprint: String(g.blueprint ?? ""),
+    })),
+  );
+}
+
 function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
   const out: Record<string, BuilderCell> = {};
   const spaceByName = new Map<string, Record<string, unknown>>();
@@ -755,6 +800,9 @@ function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
     const nm = s.NAME as string | undefined;
     if (nm) spaceByName.set(nm, s);
   }
+  // Reconcile each cell's group against the doc's group list: a STRUCTURE_NAME
+  // naming no defined group is dropped to ungrouped (keeps the model consistent).
+  const groups = groupsFromDoc(doc);
   for (const s of doc.spaces ?? []) {
     const id = nextId();
     out[id] = {
@@ -763,6 +811,7 @@ function cellsFromDoc(doc: ProceduralDoc): Record<string, BuilderCell> {
       kind: "cell",
       origin: [Number(s.X ?? 0), Number(s.Y ?? 0), Number(s.Z ?? 0)],
       size: [Number(s.DX ?? 1), Number(s.DY ?? 1), Number(s.DZ ?? 1)],
+      group: resolveCellGroup(structureNameToGroup(s), groups),
       params: extractParams(s, SPACE_OWN_KEYS),
     };
   }
@@ -975,6 +1024,7 @@ function snapshot(s: CellBuilderState): ModelSnapshot {
     blueprintOptions: s.blueprintOptions,
     equipmentCad: s.equipmentCad,
     designRules: s.designRules,
+    groups: s.groups,
   };
 }
 
@@ -1318,6 +1368,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     blueprints: [],
     selectedEngine: "adapy-default",
     engines: [],
+    groups: [],
     panelVisible: false,
     focusedSystemName: null,
 
@@ -1328,6 +1379,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         cells: cellsFromDoc(doc),
         loftMembers: loftMembersFromDoc(doc),
         systems: systemsFromDoc(doc),
+        groups: groupsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
         designRules: doc.design_rules ?? "standard",
@@ -2378,17 +2430,24 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       const cells = get().cells;
       const spaces = Object.values(cells)
         .filter((c) => c.kind === "cell")
-        .map((c) => ({
-          INCLUDE: true,
-          ...c.params,
-          NAME: c.name,
-          X: c.origin[0],
-          Y: c.origin[1],
-          Z: c.origin[2],
-          DX: c.size[0],
-          DY: c.size[1],
-          DZ: c.size[2],
-        }));
+        .map((c) => {
+          // A grouped cell stamps its group as the space's STRUCTURE_NAME (the pm
+          // engine reads it back to route the cell into that group's structure);
+          // ungrouped cells omit the key entirely (backward compatible).
+          const structureName = groupToStructureName(c.group);
+          return {
+            INCLUDE: true,
+            ...c.params,
+            NAME: c.name,
+            X: c.origin[0],
+            Y: c.origin[1],
+            Z: c.origin[2],
+            DX: c.size[0],
+            DY: c.size[1],
+            DZ: c.size[2],
+            ...(structureName ? { STRUCTURE_NAME: structureName } : {}),
+          };
+        });
       const equipments = Object.values(cells)
         .filter((c) => c.kind === "equipment")
         .map((c) => ({
@@ -2448,6 +2507,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       // live array, only when present so box-only docs stay byte-identical
       // (mirrors the backend's conditional dump).
       const loftMembers = get().loftMembers;
+      // Cell groups (each with its own blueprint), normalized. Emitted only when
+      // present so an ungrouped model's doc stays byte-identical (a
+      // grouping-unaware engine ignores the key regardless).
+      const groups = normalizeGroups(get().groups);
       return {
         grid: {},
         blueprint: get().blueprintOptions,
@@ -2461,6 +2524,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         systems,
         openings,
         ...(loftMembers.length ? { loft_members: loftMembers } : {}),
+        ...(groups.length ? { groups } : {}),
       };
     },
     loadFromDoc: (doc) =>
@@ -2468,6 +2532,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         cells: cellsFromDoc(doc),
         loftMembers: loftMembersFromDoc(doc),
         systems: systemsFromDoc(doc),
+        groups: groupsFromDoc(doc),
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
         designRules: doc.design_rules ?? "standard",
@@ -2642,6 +2707,73 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         set({ blueprints: [] });
       }
     },
+
+    addGroup: () =>
+      withHistory((s) => {
+        // Auto-name "Group N" avoiding collisions; default the new group's
+        // blueprint to the current selection (else the engine's first offered).
+        const existing = new Set(s.groups.map((g) => g.name));
+        let n = s.groups.length + 1;
+        let name = `Group ${n}`;
+        while (existing.has(name)) name = `Group ${++n}`;
+        const blueprint = s.selectedBlueprint ?? s.blueprints[0]?.slug ?? "";
+        return { groups: [...s.groups, { name, blueprint }], dirty: true };
+      }),
+
+    renameGroup: (from, to) =>
+      withHistory((s) => {
+        const name = to.trim();
+        // Ignore blank / unchanged / colliding names, or a missing source.
+        if (
+          !name ||
+          name === from ||
+          s.groups.some((g) => g.name === name) ||
+          !s.groups.some((g) => g.name === from)
+        )
+          return {};
+        const groups = s.groups.map((g) => (g.name === from ? { ...g, name } : g));
+        // Repoint every cell that referenced the old name.
+        const cells: Record<string, BuilderCell> = {};
+        for (const [id, c] of Object.entries(s.cells))
+          cells[id] = c.group === from ? { ...c, group: name } : c;
+        return { groups, cells, dirty: true };
+      }),
+
+    removeGroup: (name) =>
+      withHistory((s) => {
+        if (!s.groups.some((g) => g.name === name)) return {};
+        const groups = s.groups.filter((g) => g.name !== name);
+        const removed = new Set([name]);
+        // Unassign every cell in the deleted group (back to ungrouped).
+        const cells: Record<string, BuilderCell> = {};
+        for (const [id, c] of Object.entries(s.cells))
+          cells[id] = { ...c, group: groupAfterRemoval(c.group, removed) };
+        return { groups, cells, dirty: true };
+      }),
+
+    setGroupBlueprint: (name, blueprint) =>
+      withHistory((s) => {
+        if (!s.groups.some((g) => g.name === name && g.blueprint !== blueprint))
+          return {};
+        return {
+          groups: s.groups.map((g) => (g.name === name ? { ...g, blueprint } : g)),
+          dirty: true,
+        };
+      }),
+
+    setCellGroup: (cellId, groupName) =>
+      withHistory((s) => {
+        const cell = s.cells[cellId];
+        if (!cell) return {};
+        const group = groupName && groupName.trim() ? groupName : undefined;
+        // Accept only an existing group (or clearing to ungrouped).
+        if (group && !s.groups.some((g) => g.name === group)) return {};
+        if (cell.group === group) return {};
+        return {
+          cells: { ...s.cells, [cellId]: { ...cell, group } },
+          dirty: true,
+        };
+      }),
 
     syncEquipmentTypeToDb: async (slug) => {
       try {
