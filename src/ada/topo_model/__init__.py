@@ -14,6 +14,11 @@ from .engine_catalog import (
     procedural_engine_specs,
     register_procedural_engine_capabilities,
 )
+from .detailing_catalog import (
+    DEFAULT_DETAILING,
+    detailing_engine_specs,
+    register_detailing_engine,
+)
 from .jacket import JacketStru
 from .build import (
     build_routing_grid,
@@ -48,6 +53,7 @@ from .templates import procedural_template_specs, register_procedural_template
 
 __all__ = [
     "DEFAULT_DESIGN_RULESET",
+    "DEFAULT_DETAILING",
     "DESIGN_RULESETS",
     "EquipmentType",
     "JacketStru",
@@ -65,6 +71,7 @@ __all__ = [
     "create_switchboard",
     "create_tank",
     "design_ruleset_specs",
+    "detailing_engine_specs",
     "make_space_boxes",
     "procedural_blueprint_specs",
     "procedural_cell_type_specs",
@@ -72,6 +79,7 @@ __all__ = [
     "procedural_opening_type_specs",
     "procedural_template_specs",
     "propose_relocations",
+    "register_detailing_engine",
     "register_procedural_blueprint",
     "register_procedural_cell_type",
     "register_procedural_engine_capabilities",

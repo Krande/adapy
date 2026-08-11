@@ -62,6 +62,51 @@ def procedural_detail_glb_key(model_id: str, revision: int, engine: str | None =
     return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}_detail{_engine_suffix(engine)}.glb"
 
 
+def _detailing_suffix(detailing: str | None) -> str:
+    """Cache-key fragment distinguishing a detailing-engine's output.
+
+    CRITICAL backward-compat: ``None``/``"none"`` -> the EMPTY string, i.e. the
+    plain structural key (a model with no detailing selected is byte-identical to
+    today). ``"adapy-default"`` -> ``.det-adapy``; any other slug -> ``.det-<slug>``
+    (kept filesystem/URL-safe)."""
+    if not detailing or detailing == "none":
+        return ""
+    slug = "adapy" if detailing == "adapy-default" else detailing
+    safe = "".join(c if (c.isalnum() or c in "-_") else "-" for c in slug)
+    return f".det-{safe}"
+
+
+def procedural_detailing_glb_key(
+    model_id: str,
+    revision: int,
+    engine: str | None = None,
+    detailing: str | None = None,
+    lod: str = "sim",
+) -> str:
+    """Blob key for a compiled model revision with a DETAILING engine applied.
+
+    Composes with the existing suffixes so all four ``lod`` x ``detailing``
+    combinations cache independently:
+    ``_procedural/{id}/r{rev}{lod_suffix}{engine_suffix}{detailing_suffix}.glb``.
+
+    Because :func:`_detailing_suffix` returns ``""`` for ``None``/``"none"``, this
+    reduces EXACTLY to :func:`procedural_glb_key` (sim) / :func:`procedural_detail_glb_key`
+    (detail) when no detailing is selected — the plain structural key, byte-for-byte."""
+    lod_suffix = "_detail" if lod == "detail" else ""
+    return (
+        f"{PROCEDURAL_PREFIX}{model_id}/r{revision}{lod_suffix}"
+        f"{_engine_suffix(engine)}{_detailing_suffix(detailing)}.glb"
+    )
+
+
+def procedural_structural_ifc_key(model_id: str, revision: int, engine: str | None = None) -> str:
+    """Blob key for the neutral STRUCTURAL artifact (IFC) an external (Tier-B)
+    detailing engine consumes — the compiled ``ada.Part`` serialized so a foreign
+    capability pool can deserialize it back to members with section tags. Written
+    alongside the structural GLB (Phase 2 wiring)."""
+    return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}{_engine_suffix(engine)}.structural.ifc"
+
+
 def doc_content_hash(doc: dict) -> str:
     """A short, stable content hash of a (normalized) procedural doc — the cache
     key for an ephemeral *preview* compile. Deterministic (sorted keys, compact
@@ -76,15 +121,21 @@ def doc_content_hash(doc: dict) -> str:
 
 
 def procedural_preview_glb_key(
-    model_id: str, doc_hash: str, engine: str | None = None, lod: str = "sim"
+    model_id: str, doc_hash: str, engine: str | None = None, lod: str = "sim", detailing: str | None = None
 ) -> str:
     """Blob key for an EPHEMERAL preview compile — a build of the current,
     *uncommitted* document so the user can visualize edits before deciding to
     commit. Keyed by the doc's content hash (not a revision), so re-previewing an
     unchanged doc is free and no revision is minted until the user commits. Lives
-    under ``_procedural/{id}/preview/`` (hidden from listings, GC-able as a group)."""
+    under ``_procedural/{id}/preview/`` (hidden from listings, GC-able as a group).
+
+    Gains the same ``.det-*`` fragment as the committed key so a detailing preview
+    caches separately; ``detailing`` ``None``/``"none"`` keeps the bare key."""
     lod_suffix = "_detail" if lod == "detail" else ""
-    return f"{PROCEDURAL_PREFIX}{model_id}/preview/{doc_hash}{lod_suffix}{_engine_suffix(engine)}.glb"
+    return (
+        f"{PROCEDURAL_PREFIX}{model_id}/preview/{doc_hash}{lod_suffix}"
+        f"{_engine_suffix(engine)}{_detailing_suffix(detailing)}.glb"
+    )
 
 
 def procedural_log_key(glb_key: str) -> str:

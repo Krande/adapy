@@ -508,6 +508,8 @@ def compile_procedural_doc(
     cad_scene_resolver=None,
     design_rules=None,
     lod: Literal["sim", "detail"] = "sim",
+    detailing: str | None = None,
+    detailing_options: dict | None = None,
 ) -> bytes:
     """Parse ``doc``, build the model and return GLB bytes.
 
@@ -522,6 +524,14 @@ def compile_procedural_doc(
     trimmed to the girder flanges, I-girder joints modelled). Detail geometry is
     produced by the structural blueprint's ``detail`` mode; on ``blueprint_name=
     "none"`` the flag has no effect.
+
+    ``detailing`` selects the fabrication-detail engine that adds connection
+    joints after the structural build (``None``/``"none"`` = no detailing, the
+    default — byte-identical to today; ``"adapy-default"`` runs the in-process
+    built-in detailing engine). ``detailing_options`` carries the per-joint-type
+    toggles/params. It is orthogonal to ``lod`` (which stays a tessellation
+    knob), except ``lod=="detail"`` keeps firing adapy-default detailing for
+    backward-compat.
 
     ``equipment_resolver`` maps an equipment DESCRIPTION (a catalog slug) to a
     catalog document (bbox/mass/ports/IFC class). The worker supplies one backed
@@ -556,6 +566,8 @@ def compile_procedural_doc(
         name=name,
         blueprint_name=blueprint_name,
         lod=lod,
+        detailing=detailing,
+        detailing_options=detailing_options,
         equipment_resolver=equipment_resolver,
         cad_scene_resolver=cad_scene_resolver,
         design_rules=design_rules,

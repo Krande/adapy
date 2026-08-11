@@ -1281,6 +1281,32 @@ const CellBuilderPanel: React.FC = () => {
             </label>
             <label
               className="flex items-center gap-1"
+              title={
+                s.detailingEngines.find((d) => d.slug === s.selectedDetailing)
+                  ?.description ??
+                "Detailing engine — the fabrication-detail stage that adds connection joints after the structural compile (none = structural-only)"
+              }
+            >
+              <span className="whitespace-nowrap">Detailing</span>
+              <select
+                className={`${inputCls} flex-1 min-w-0`}
+                value={s.selectedDetailing}
+                onChange={(e) => s.setSelectedDetailing(e.target.value)}
+              >
+                {s.detailingEngines.length === 0 && (
+                  <option value={s.selectedDetailing}>
+                    {s.selectedDetailing}
+                  </option>
+                )}
+                {s.detailingEngines.map((d) => (
+                  <option key={d.slug} value={d.slug} title={d.description}>
+                    {d.name} ({d.origin})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label
+              className="flex items-center gap-1"
               title="Replace equipment boxes in the compiled model with the actual CAD geometry (for catalog equipment that have a linked CAD asset)"
             >
               <input

@@ -5,6 +5,7 @@ import {
   viewerApi,
   type ProceduralBlueprintOption,
   type ProceduralCellTypeOption,
+  type DetailingEngineSummary,
   type ProceduralDoc,
   type ProceduralDesignRulesetOption,
   type ProceduralEngineSummary,
@@ -411,6 +412,11 @@ interface CellBuilderState {
   selectedEngine: string;
   /** Available procedural engines for the engine dropdown (built-ins ∪ DB). */
   engines: ProceduralEngineSummary[];
+  /** Selected detailing engine slug (fabrication-detail stage; COMPILE-time only,
+   * not part of the document). "none" (default) = structural-only. */
+  selectedDetailing: string;
+  /** Available detailing engines for the Detailing dropdown (built-ins ∪ worker). */
+  detailingEngines: DetailingEngineSummary[];
   /** Cell groups (name + per-group blueprint). A group is one structure the
    * (grouping-capable) engine compiles with its own blueprint; cells reference a
    * group by name via BuilderCell.group. Empty = single model-level blueprint
@@ -493,6 +499,9 @@ interface CellBuilderState {
   setDesignRules: (slug: string) => void;
   setSelectedEngine: (slug: string) => void;
   fetchEngines: () => Promise<void>;
+  /** Select the detailing engine (compile-time; "none" = structural-only). */
+  setSelectedDetailing: (slug: string) => void;
+  fetchDetailingEngines: () => Promise<void>;
   /** Select the structural blueprint (doc.blueprint_name); marks the model dirty. */
   setSelectedBlueprint: (slug: string) => void;
   /** Fetch the blueprints the SELECTED engine offers and reconcile the current
@@ -1389,6 +1398,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     blueprints: [],
     selectedEngine: "adapy-default",
     engines: [],
+    selectedDetailing: "none",
+    detailingEngines: [],
     groups: [],
     panelVisible: false,
     focusedSystemName: null,
@@ -1411,6 +1422,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // Reflect the engine this model was built for in the dropdown (a
         // pm-engine example opens on pm-engine, not the adapy-default default).
         selectedEngine: doc.engine || "adapy-default",
+        // Detailing is a compile-time choice, NOT stored on the document — reset
+        // to "none" (structural-only) on every model open.
+        selectedDetailing: "none",
         past: [],
         future: [],
         txDepth: 0,
@@ -1446,6 +1460,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         });
       void get().fetchDesignRulesets();
       void get().fetchEngines();
+      void get().fetchDetailingEngines();
       // Blueprints are engine-scoped; fetch for this model's engine and reconcile
       // the selection loaded above against what the engine actually offers.
       void get().fetchBlueprints();
@@ -2701,6 +2716,24 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       }
     },
 
+    // Detailing selection is a compile-time choice too (not part of the document):
+    // it picks the fabrication-detail engine the next compile applies after the
+    // structural build. "none" = structural-only (byte-identical to today).
+    setSelectedDetailing: (slug) => {
+      set({ selectedDetailing: slug || "none" });
+    },
+
+    fetchDetailingEngines: async () => {
+      try {
+        const detailingEngines =
+          await viewerApi.listDetailingEngines(currentScopePart());
+        set({ detailingEngines });
+      } catch (e) {
+        console.warn("cellbuilder: detailing engines fetch failed", e);
+        set({ detailingEngines: [] });
+      }
+    },
+
     // Picking a blueprint changes the document (doc.blueprint_name), so it marks
     // the model dirty — unlike the compile-time engine/ruleset toggles.
     setSelectedBlueprint: (slug) =>
@@ -2926,6 +2959,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           force,
           lod,
           get().selectedEngine,
+          get().selectedDetailing,
         ),
       );
     },
@@ -2945,7 +2979,12 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           currentScopePart(),
           active.modelId,
           doc,
-          { engine: get().selectedEngine, lod, force },
+          {
+            engine: get().selectedEngine,
+            lod,
+            force,
+            detailing: get().selectedDetailing,
+          },
         ),
       );
     },

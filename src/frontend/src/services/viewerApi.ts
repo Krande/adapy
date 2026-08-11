@@ -1320,6 +1320,22 @@ export interface ProceduralEngineResolved {
   ready: boolean;
 }
 
+/** A detailing engine offered by the Compile-settings "Detailing" dropdown: the
+ * fabrication-detail stage that adds connection joints AFTER the structural
+ * compile. Built-in (`none` + `adapy-default`) ∪ worker-advertised. Selecting one
+ * is a COMPILE-time choice (not part of the document); `none` = structural-only. */
+export interface DetailingEngineSummary {
+  slug: string;
+  name: string;
+  description: string;
+  /** true for an in-process builtin (adapy-default) vs an external capability engine. */
+  inprocess: boolean;
+  worker_capability?: string | null;
+  /** Advertised per-joint-type option specs (drives the future Detailing tab). */
+  joint_types: { slug: string; name: string; description?: string }[];
+  origin: TypeOrigin;
+}
+
 export const viewerApi = {
   /** Direct URL for the addressable blob endpoint. Includes scope.
    * Only safe to use as `<a href download>` when auth is disabled —
@@ -2079,6 +2095,7 @@ export const viewerApi = {
     force = false,
     lod: "sim" | "detail" = "sim",
     engine?: string | null,
+    detailing?: string | null,
   ): Promise<ProceduralCompileResponse> {
     // force=true recompiles even if the revision's GLB is cached — used when the
     // compiler engine changed but the document (the cache key) didn't.
@@ -2094,6 +2111,9 @@ export const viewerApi = {
     if (force) params.set("force", "true");
     if (lod === "detail") params.set("lod", "detail");
     if (engine) params.set("engine", engine);
+    // Detailing is a compile-time choice; "none" (the default) adds no key
+    // suffix server-side, so omit it to keep the bare (backward-compat) key.
+    if (detailing && detailing !== "none") params.set("detailing", detailing);
     const qs = params.toString() ? `?${params.toString()}` : "";
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile${qs}`,
@@ -2114,12 +2134,19 @@ export const viewerApi = {
     scope: ScopeUrl,
     modelId: string,
     doc: unknown,
-    opts?: { engine?: string | null; lod?: "sim" | "detail"; force?: boolean },
+    opts?: {
+      engine?: string | null;
+      lod?: "sim" | "detail";
+      force?: boolean;
+      detailing?: string | null;
+    },
   ): Promise<ProceduralCompileResponse> {
     const params = new URLSearchParams();
     if (opts?.force) params.set("force", "true");
     if (opts?.lod === "detail") params.set("lod", "detail");
     if (opts?.engine) params.set("engine", opts.engine);
+    if (opts?.detailing && opts.detailing !== "none")
+      params.set("detailing", opts.detailing);
     const qs = params.toString() ? `?${params.toString()}` : "";
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile-preview${qs}`,
@@ -2654,6 +2681,20 @@ export const viewerApi = {
       procedural_engines: ProceduralEngineSummary[];
     }>(r, `listProceduralEngines(${scope})`);
     return body.procedural_engines;
+  },
+
+  /** Detailing engines for the Compile-settings "Detailing" dropdown (built-in ∪
+   * worker-advertised). `none` (first, the default) = structural-only. */
+  async listDetailingEngines(
+    scope: ScopeUrl,
+  ): Promise<DetailingEngineSummary[]> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/detailing-engines`,
+    );
+    const body = await jsonOrThrow<{
+      detailing_engines: DetailingEngineSummary[];
+    }>(r, `listDetailingEngines(${scope})`);
+    return body.detailing_engines;
   },
 
   /** Resolve an engine to a browser-runnable descriptor for the in-browser

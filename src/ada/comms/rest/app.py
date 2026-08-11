@@ -2918,6 +2918,46 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ]
         return JSONResponse({"blueprints": blueprints})
 
+    @api.get("/scopes/{scope}/procedural-models/detailing-engines")
+    async def api_procedural_detailing_engines(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Detailing engines for the Compile-settings "Detailing" dropdown: the
+        union of the static built-ins (``none`` + ``adapy-default``) and any a
+        live (non-stale) worker advertises via ``procedural_detailing_engine_specs``
+        (a capability worker registers external engines like weld-gen), each
+        tagged ``origin`` ``code``/``db``. Selecting one is a COMPILE-time choice
+        (not part of the document); ``none`` (the default, first) passes no
+        detailing -> structural-only GLB. Built-in + worker-advertised, no DB
+        rows — modeled on the blueprints/design-rulesets dropdowns."""
+        from .catalog import builtin_detailing_engine_specs
+
+        by_slug: dict[str, dict] = {}
+        for spec in builtin_detailing_engine_specs():
+            by_slug[spec["slug"]] = {
+                "slug": spec["slug"],
+                "name": spec["name"],
+                "description": spec.get("description", ""),
+                "inprocess": bool(spec.get("inprocess", False)),
+                "worker_capability": spec.get("worker_capability"),
+                "joint_types": spec.get("joint_types", []),
+                "origin": "code",
+            }
+        for slug, spec in (await _live_worker_specs("procedural_detailing_engine_specs")).items():
+            by_slug[slug] = {
+                "slug": slug,
+                "name": spec.get("name") or slug,
+                "description": spec.get("description", ""),
+                "inprocess": bool(spec.get("inprocess", False)),
+                "worker_capability": spec.get("worker_capability"),
+                "joint_types": spec.get("joint_types", []),
+                # A live worker re-announcing a built-in keeps origin=code; a new
+                # (external) engine is worker/db-provided.
+                "origin": "code" if slug in {s["slug"] for s in builtin_detailing_engine_specs()} else "db",
+            }
+        return JSONResponse({"detailing_engines": list(by_slug.values())})
+
     @api.post("/scopes/{scope}/procedural-models/equipment-types/sync", status_code=201)
     async def api_procedural_equipment_sync(
         request: Request,
@@ -3197,7 +3237,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         model_id: str,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        from .procedural import procedural_detail_glb_key, procedural_glb_key
+        from .procedural import procedural_detailing_glb_key
 
         # ``?force=true`` recompiles even when the revision's GLB is already
         # cached. The cache is keyed by the model REVISION, not the compiler
@@ -3216,6 +3256,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # A non-default engine's output caches under its own key so it never serves
         # the default's bytes; the slug travels to the worker in conversion_options.
         engine = (request.query_params.get("engine") or "").strip() or None
+        # ``?detailing=<slug>`` selects the detailing engine (fabrication-detail
+        # stage). A COMPILE-time choice, not on the document. None/"none" adds NO
+        # key suffix -> byte-identical to the plain structural key (backward-compat).
+        detailing = (request.query_params.get("detailing") or "").strip() or None
 
         pool = _require_procedural_pool(request)
         row = await _get_procedural_in_scope(pool, model_id, scope_obj)
@@ -3228,8 +3272,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             engine = declared or None
             if engine == "adapy-default":
                 engine = None
-        key_fn = procedural_detail_glb_key if lod == "detail" else procedural_glb_key
-        derived_key = key_fn(row["id"], row["revision"], engine)
+        derived_key = procedural_detailing_glb_key(row["id"], row["revision"], engine, detailing, lod)
 
         if not force and await storage.exists(scope_obj, derived_key):
             return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
@@ -3254,7 +3297,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             target_format="procedural_build",
             scope_kind=scope_obj.kind,
             scope_id=scope_obj.id,
-            conversion_options={"model_id": row["id"], "revision": row["revision"], "lod": lod, "engine": engine},
+            conversion_options={
+                "model_id": row["id"],
+                "revision": row["revision"],
+                "lod": lod,
+                "engine": engine,
+                "detailing": detailing,
+            },
             derived_key=derived_key,
             force_rebuild=force,
             target_capability=target_capability,
@@ -3291,6 +3340,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         force = (request.query_params.get("force") or "").strip().lower() in ("1", "true", "yes")
         lod = "detail" if (request.query_params.get("lod") or "").strip().lower() == "detail" else "sim"
         engine = (request.query_params.get("engine") or "").strip() or None
+        detailing = (request.query_params.get("detailing") or "").strip() or None
 
         pool = _require_procedural_pool(request)
         row = await _get_procedural_in_scope(pool, model_id, scope_obj)
@@ -3304,7 +3354,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 engine = None
 
         doc_hash = doc_content_hash(normalized)
-        derived_key = procedural_preview_glb_key(row["id"], doc_hash, engine, lod)
+        derived_key = procedural_preview_glb_key(row["id"], doc_hash, engine, lod, detailing)
 
         if not force and await storage.exists(scope_obj, derived_key):
             return JSONResponse(
@@ -3332,6 +3382,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "revision": row["revision"],
                 "lod": lod,
                 "engine": engine,
+                "detailing": detailing,
                 "preview_doc": normalized,
             },
             derived_key=derived_key,

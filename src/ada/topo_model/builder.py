@@ -52,7 +52,6 @@ from .blueprint import SteelStru
 from .engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION, EngineBinding
 from .compile import (
     _BLUEPRINT_OPTION_KEYS,
-    _apply_girder_joints,
     _apply_openings,
     _build_systems,
     _cad_transform,
@@ -115,6 +114,13 @@ class ProceduralBuilder:
     blueprint_name: BlueprintName = "steel_stru"
     blueprint_options: dict = field(default_factory=dict)
     lod: Lod = "sim"
+    # Selected detailing engine (fabrication-detail stage that adds connection
+    # joints AFTER the structural build). ``None``/``"none"`` = no detailing —
+    # byte-identical to today. ``"adapy-default"`` runs the built-in in-process
+    # detailing engine (:func:`ada.topo_model.detailing.detail`). A compile-time
+    # choice, NOT part of the document. See :meth:`_effective_detailing`.
+    detailing: str | None = None
+    detailing_options: dict = field(default_factory=dict)
     design_rules: object | None = None
     equipment_cad: bool = False
     no_go_walls: bool = False
@@ -169,6 +175,8 @@ class ProceduralBuilder:
         name: str = "ProceduralModel",
         blueprint_name: BlueprintName = "steel_stru",
         lod: Lod = "sim",
+        detailing: str | None = None,
+        detailing_options: dict | None = None,
         equipment_resolver: Callable | None = None,
         cad_scene_resolver: Callable | None = None,
         design_rules: object | None = None,
@@ -191,6 +199,10 @@ class ProceduralBuilder:
             blueprint_name=blueprint_name,
             blueprint_options=doc.get("blueprint") or {},
             lod=lod,
+            # Detailing is a compile-time choice threaded from the worker/API, not
+            # persisted on the document; a doc value is a tolerated fallback.
+            detailing=detailing if detailing is not None else doc.get("detailing"),
+            detailing_options=detailing_options if detailing_options is not None else (doc.get("detailing_options") or {}),
             # An explicit design_rules argument wins; else the doc's named slug.
             design_rules=design_rules if design_rules is not None else doc.get("design_rules"),
             equipment_cad=bool(doc.get("equipment_cad")),
@@ -308,6 +320,19 @@ class ProceduralBuilder:
         place on the root."""
         return self.lod == "detail"
 
+    def _effective_detailing(self) -> str | None:
+        """The detailing engine to run during the structural build. An explicit
+        ``detailing`` selection wins; absent one, ``lod=="detail"`` keeps firing
+        the built-in ``adapy-default`` detailing for backward-compat (the old
+        detail-mode joint pass — see the detailing-engine proposal Migration note /
+        OQ-4). ``None``/``"none"`` with a ``"sim"`` LOD means no detailing, so the
+        output is byte-identical to today."""
+        if self.detailing and self.detailing != "none":
+            return self.detailing
+        if self.lod == "detail":
+            return "adapy-default"
+        return None
+
     # --- phases -------------------------------------------------------------
     def compile(self) -> bytes:
         """Run every phase in order and return the model as GLB bytes."""
@@ -391,10 +416,21 @@ class ProceduralBuilder:
         # so a sparsely-specified opening is not re-validated with an explicit None
         # against a non-optional field — the fields default to None when absent.
         _apply_openings(bp, a, spaces, [o.model_dump(exclude_none=True) for o in openings])
-        # Detail mode upgrades each I-girder to I-girder intersection into a
-        # modelled joint (gusset plate + weld beads); sim mode is untouched.
-        if self.detail:
-            _apply_girder_joints(a)
+        # DETAILING stage: the selected detailing engine adds connection joints
+        # (gusset/end/base plates + welds) as a Part("Joints") on the assembly,
+        # right where the old girder-joint pass ran, before to_glb(). Driven off
+        # the ``detailing`` option; ``lod=="detail"`` keeps firing adapy-default
+        # for backward-compat. ``none`` (default sim) adds nothing.
+        detailing = self._effective_detailing()
+        if detailing == "adapy-default":
+            from .detailing import detail as _apply_detailing
+
+            _apply_detailing(a, self.detailing_options)
+        elif detailing is not None:
+            # An external (Tier-B) detailing engine is not applied in-process here
+            # (that is a chained capability job — Phase 2); the structural build
+            # proceeds unchanged so its GLB is still produced.
+            logger.info("procedural: detailing engine %r is external; in-process stage skipped", detailing)
         return a, topo, bp
 
     def build_lofts(self) -> None:

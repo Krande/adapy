@@ -1032,6 +1032,12 @@ async def _run_procedural_build(
     lod = "detail" if (opts.get("lod") or "sim") == "detail" else "sim"
     # Selected procedural engine (None / "adapy-default" = the built-in compile).
     engine = opts.get("engine")
+    # Selected DETAILING engine — a fabrication-detail stage run in-process as
+    # stage 2 of this same job, between the structural build and to_glb() (see
+    # ada.topo_model.detailing). None/"none" = no detailing (byte-identical to the
+    # plain structural build). Only the in-process builtin (adapy-default) is
+    # applied here; an external (Tier-B) engine is a chained capability job (Phase 2).
+    detailing = opts.get("detailing")
     # An ephemeral *preview* build carries the current (uncommitted) document
     # inline: compile THAT instead of the DB revision's doc, and skip the
     # revision-match check (a preview isn't tied to a persisted revision). The
@@ -1144,6 +1150,14 @@ async def _run_procedural_build(
         # unset/unknown name falls back to ``steel_stru`` for backward compat.
         bp_name = doc.get("blueprint_name")
         blueprint_name = bp_name if bp_name in ("steel_stru", "none") else "steel_stru"
+        # The in-process detailing engine runs as stage 2 inside the builder
+        # (right where the old girder-joint pass ran, before to_glb()). Only a
+        # builtin detailing slug is applied here; None/"none"/external names add
+        # nothing (external = a Phase-2 chained capability job).
+        from ada.topo_model.detailing_catalog import detailing_engine_specs
+
+        builtin_detailing = {s["slug"] for s in detailing_engine_specs() if s.get("inprocess")}
+        detailing_arg = detailing if detailing in builtin_detailing else None
         return compile_procedural_doc(
             doc,
             name=row["name"],
@@ -1151,6 +1165,7 @@ async def _run_procedural_build(
             equipment_resolver=catalog.get,
             cad_scene_resolver=cad_meshes.get,
             lod=lod,
+            detailing=detailing_arg,
         )
 
     loop = asyncio.get_running_loop()
@@ -3155,6 +3170,18 @@ async def _run() -> None:
     except Exception:
         logger.exception("worker: failed to list procedural engine capabilities (non-fatal)")
         procedural_engines = []
+    # Detailing engines this worker offers (a fabrication-detail stage that adds
+    # connection joints after the structural build), advertised so the viewer's
+    # Compile-settings "Detailing" dropdown unions the built-in adapy-default (+
+    # the none sentinel) with any external engine a capability worker's
+    # ADA_WORKER_PRELOAD module registered via register_detailing_engine.
+    try:
+        from ada.topo_model import detailing_engine_specs
+
+        procedural_detailing_engines = detailing_engine_specs()
+    except Exception:
+        logger.exception("worker: failed to list detailing engines (non-fatal)")
+        procedural_detailing_engines = []
 
     async def _publish_registration() -> None:
         try:
@@ -3176,6 +3203,7 @@ async def _run() -> None:
                     "procedural_blueprint_specs": procedural_blueprints,
                     "procedural_template_specs": procedural_templates,
                     "procedural_engine_specs": procedural_engines,
+                    "procedural_detailing_engine_specs": procedural_detailing_engines,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },

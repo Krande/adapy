@@ -25,9 +25,23 @@ def make_space_boxes() -> list[ada.PrimBox]:
     ]
 
 
-def build_topo_model(name: str = "TopoModelDemo") -> ada.Assembly:
-    """Build the demo model with default profiles and return the assembly."""
-    builder = TopologyBuilder.from_prim_boxes(make_space_boxes(), blueprint=SteelStru())
+def build_topo_model(
+    name: str = "TopoModelDemo",
+    girder_sec: str = "IPE200",
+    column_sec: str = "HEB200",
+    stringer_sec: str = "HP140x8",
+) -> ada.Assembly:
+    """Build the demo model and return the assembly.
+
+    The three member sections are configurable end-to-end (they thread straight
+    through to :class:`~ada.topo_model.blueprint.SteelStru`): the defaults give
+    the IPE200/HEB200/HP140x8 steel demo, while passing a BOX girder section
+    (e.g. ``girder_sec="BG300x300x8x8"``) builds the SAME 2x1 demo framed with
+    box girders — the testbed for the builtin detailing engine's box joint."""
+    builder = TopologyBuilder.from_prim_boxes(
+        make_space_boxes(),
+        blueprint=SteelStru(girder_sec=girder_sec, column_sec=column_sec, stringer_sec=stringer_sec),
+    )
     builder.build()
     return builder.get_output_assembly(name)
 

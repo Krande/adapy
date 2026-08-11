@@ -150,6 +150,48 @@ _PROCEDURAL_BLUEPRINTS: dict[str, tuple[dict, ...]] = {
 }
 
 
+# Built-in detailing engines — static so the API offers them in the Compile-
+# settings "Detailing" dropdown WITHOUT a live worker or importing ada. Mirrors
+# the built-ins registered in ``ada.topo_model.detailing_catalog`` (kept in
+# lock-step by slug); live workers advertise more (and external engines) via
+# ``procedural_detailing_engine_specs``. ``none`` (the default sentinel) is first.
+_DETAILING_ENGINES: tuple[dict, ...] = (
+    {
+        "slug": "none",
+        "name": "none",
+        "description": "No detailing — the compiled structural model is left as-is (default).",
+        "inprocess": True,
+        "worker_capability": None,
+        "joint_types": [],
+    },
+    {
+        "slug": "adapy-default",
+        "name": "adapy detailing",
+        "description": "Built-in adapy detailing: girder–girder gusset, beam–column end plate and column base-plate joints.",
+        "inprocess": True,
+        "worker_capability": None,
+        "joint_types": [
+            {"slug": "girder_gusset", "name": "Girder–girder gusset"},
+            {"slug": "beam_column_endplate", "name": "Beam–column end plate"},
+            {"slug": "column_base_plate", "name": "Column base plate"},
+            {"slug": "box_to_box", "name": "Box-to-box clash cut"},
+        ],
+    },
+)
+
+
+def builtin_detailing_engine_specs() -> list[dict]:
+    """Specs for the built-in detailing engines (origin ``code``). Mirrors the
+    ``ada.topo_model.detailing_catalog`` built-ins so the Detailing dropdown is
+    never empty without a live worker."""
+    out: list[dict] = []
+    for d in _DETAILING_ENGINES:
+        spec = dict(d)
+        spec["joint_types"] = [dict(j) for j in d.get("joint_types", [])]
+        out.append(spec)
+    return out
+
+
 def builtin_procedural_blueprint_specs(engine: str) -> list[dict]:
     """Specs for an engine's built-in structural blueprints (origin ``code``).
     Empty for an engine with no static built-ins (its blueprints come from a live
