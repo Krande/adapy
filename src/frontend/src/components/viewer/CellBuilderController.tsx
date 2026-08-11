@@ -19,6 +19,7 @@ import {
     edgeHitOnFace,
     extrudeBox,
     faceCenter,
+    neighbourFaceInDirection,
     openingBoxOnFace,
     originFromCenter,
     quantize,
@@ -2923,6 +2924,52 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 // N / P: next / previous cell.
                 if (k === "n" || k === "p") {
                     st.selectAdjacentCell(k === "n" ? 1 : -1);
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    return;
+                }
+                // Arrow keys: SPATIAL face navigation. With a box-cell face
+                // selected, walk to the edge-adjacent face that lies toward the
+                // arrow ON SCREEN (Right = the neighbour whose outward normal
+                // projects most to screen-right, etc), using the live camera
+                // basis. Consumes the key so the camera doesn't also pan; only
+                // active in face mode on a box cell (bare arrows are otherwise
+                // free — globals use Shift+arrows for tree traversal).
+                if (
+                    (ev.key === "ArrowUp" ||
+                        ev.key === "ArrowDown" ||
+                        ev.key === "ArrowLeft" ||
+                        ev.key === "ArrowRight") &&
+                    cell?.kind === "cell" &&
+                    st.selection?.kind === "face" &&
+                    st.selection.faceIndex != null
+                ) {
+                    const camObj = cameraRef.current;
+                    if (camObj) {
+                        const camRight = new THREE.Vector3()
+                            .setFromMatrixColumn(camObj.matrixWorld, 0)
+                            .normalize();
+                        const camUp = new THREE.Vector3()
+                            .setFromMatrixColumn(camObj.matrixWorld, 1)
+                            .normalize();
+                        const dir =
+                            ev.key === "ArrowUp"
+                                ? "up"
+                                : ev.key === "ArrowDown"
+                                  ? "down"
+                                  : ev.key === "ArrowLeft"
+                                    ? "left"
+                                    : "right";
+                        const nb = neighbourFaceInDirection(
+                            st.selection.faceIndex,
+                            dir,
+                            [camRight.x, camRight.y, camRight.z],
+                            [camUp.x, camUp.y, camUp.z],
+                        );
+                        if (nb != null && nb !== st.selection.faceIndex) {
+                            st.setSelection({kind: "face", cellId: cell.id, faceIndex: nb});
+                        }
+                    }
                     ev.preventDefault();
                     ev.stopPropagation();
                     return;

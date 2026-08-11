@@ -315,6 +315,60 @@ export function edgeIndexInFace(faceMaterialIndex: number, edge: EdgeHit): numbe
     );
 }
 
+/** A screen direction for spatial face navigation (arrow keys). */
+export type ScreenDir = "up" | "down" | "left" | "right";
+
+/** The BOX_FACE_SIDES index for a given axis + sign (inverse of the table). */
+function faceIndexForSide(axis: 0 | 1 | 2, positive: boolean): number {
+    return BOX_FACE_SIDES.findIndex((s) => s.axis === axis && s.positive === positive);
+}
+
+/**
+ * Spatial face navigation: given the currently-selected box face and the
+ * camera's screen basis (its world-space right and up vectors), return the
+ * edge-adjacent face that lies toward `dir` on screen — so ArrowRight walks to
+ * the face whose outward normal projects most to screen-right, etc.
+ *
+ * Only the 4 in-plane neighbours (the ± faces of the current face's two
+ * in-plane axes) are reachable; the opposite face along the normal is "behind"
+ * and never returned. Each neighbour's outward normal is projected into screen
+ * space (dot with camRight / camUp) and scored against the arrow's screen axis;
+ * the best-scoring neighbour wins (a neighbour that is edge-on to the view
+ * scores ~0, so a facing neighbour is always preferred — the "nearest"
+ * fallback). Returns null for an out-of-range face.
+ */
+export function neighbourFaceInDirection(
+    faceIndex: number,
+    dir: ScreenDir,
+    camRight: Vec3,
+    camUp: Vec3,
+): number | null {
+    const side = BOX_FACE_SIDES[faceIndex];
+    if (!side) return null;
+    const inPlane = ([0, 1, 2] as const).filter((a) => a !== side.axis) as [0 | 1 | 2, 0 | 1 | 2];
+    // Screen axis the arrow points along: (tx, ty) in (right, up) coordinates.
+    const tx = dir === "right" ? 1 : dir === "left" ? -1 : 0;
+    const ty = dir === "up" ? 1 : dir === "down" ? -1 : 0;
+    let best: number | null = null;
+    let bestScore = -Infinity;
+    for (const a of inPlane) {
+        for (const positive of [true, false]) {
+            const idx = faceIndexForSide(a, positive);
+            if (idx < 0) continue;
+            const s = positive ? 1 : -1;
+            // Outward normal of the neighbour (unit along its axis).
+            const sx = s * camRight[a];
+            const sy = s * camUp[a];
+            const score = sx * tx + sy * ty;
+            if (score > bestScore) {
+                bestScore = score;
+                best = idx;
+            }
+        }
+    }
+    return best;
+}
+
 /**
  * The negative-volume box for an opening placed on a cell face by keyboard.
  * `localX`/`localY` are the opening's LOWER corner in the face's 2D plane

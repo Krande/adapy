@@ -13,6 +13,7 @@ import {
     faceCenter,
     faceEdges,
     farFaceAfterExtrude,
+    neighbourFaceInDirection,
     openingBoxOnFace,
     originFromCenter,
     placeInCell,
@@ -219,4 +220,42 @@ test("openingBoxOnFace maps 2D local to the +X face's in-plane axes (Y,Z)", () =
     const box = openingBoxOnFace(cell, 0, 1, 0.5, 2, 1, 0.25);
     assert.deepEqual(box.origin, [4.75, 1, 0.5]); // x=facePos(5)-0.25, y=0+1, z=0+0.5
     assert.deepEqual(box.size, [0.5, 2, 1]); // 2*depth along X, width along Y, height along Z
+});
+
+test("neighbourFaceInDirection walks +Z face spatially (camera down -Z)", () => {
+    // Camera looking down -Z: screen-right = +X, screen-up = +Y.
+    const R: [number, number, number] = [1, 0, 0];
+    const U: [number, number, number] = [0, 1, 0];
+    // Faces: 0:+X 1:-X 2:+Y 3:-Y 4:+Z 5:-Z. Current = +Z (4).
+    assert.equal(neighbourFaceInDirection(4, "right", R, U), 0); // +X
+    assert.equal(neighbourFaceInDirection(4, "left", R, U), 1); // -X
+    assert.equal(neighbourFaceInDirection(4, "up", R, U), 2); // +Y
+    assert.equal(neighbourFaceInDirection(4, "down", R, U), 3); // -Y
+});
+
+test("neighbourFaceInDirection never returns the current or opposite face", () => {
+    const R: [number, number, number] = [1, 0, 0];
+    const U: [number, number, number] = [0, 1, 0];
+    for (const dir of ["up", "down", "left", "right"] as const) {
+        const n = neighbourFaceInDirection(4, dir, R, U);
+        assert.notEqual(n, 4); // not itself
+        assert.notEqual(n, 5); // not the -Z face behind it
+    }
+});
+
+test("neighbourFaceInDirection follows a rotated camera basis", () => {
+    // Camera rolled 90° about the view axis: screen-right = +Y, screen-up = -X.
+    const R: [number, number, number] = [0, 1, 0];
+    const U: [number, number, number] = [-1, 0, 0];
+    // On the +Z face, ArrowRight should now pick +Y (projects most to the right).
+    assert.equal(neighbourFaceInDirection(4, "right", R, U), 2); // +Y
+    assert.equal(neighbourFaceInDirection(4, "up", R, U), 1); // -X projects up
+});
+
+test("neighbourFaceInDirection maps the +X face's in-plane neighbours (Y up/down)", () => {
+    const R: [number, number, number] = [1, 0, 0];
+    const U: [number, number, number] = [0, 1, 0];
+    // +X face (0): in-plane axes Y,Z. Y projects to screen-up; Z is edge-on.
+    assert.equal(neighbourFaceInDirection(0, "up", R, U), 2); // +Y
+    assert.equal(neighbourFaceInDirection(0, "down", R, U), 3); // -Y
 });
