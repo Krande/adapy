@@ -67,6 +67,18 @@ BlueprintName = Literal["steel_stru", "none"]
 Lod = Literal["sim", "detail"]
 
 
+def _strip_none(d):
+    """Drop None-valued keys from an entity dict before ``Topo*(**d)``.
+
+    Defence-in-depth for docs stored BEFORE the ``validate_doc`` exclude_none fix
+    (ada.comms.rest.procedural): those carry explicit nulls, and Topo* fields
+    typed ``float`` with a None DEFAULT accept None as a default but REJECT an
+    explicit None to the constructor — so unpacking a null-laden dict raises and
+    the whole compile drops entities. Stripping lets field defaults reapply.
+    Mirrors param_models' pm-engine ``_clean`` on the same reconstruction."""
+    return {k: v for k, v in d.items() if v is not None} if isinstance(d, dict) else d
+
+
 @dataclass
 class ProceduralBuilder:
     """Root of a procedural cell-model compile.
@@ -150,12 +162,12 @@ class ProceduralBuilder:
             raise ValueError("document has no spaces or loft_members to compile")
         # Coerce plain dicts (a convenience for callers that mix objects + dicts)
         # into the typed value objects, so downstream is uniformly object-based.
-        self.spaces = [s if isinstance(s, TopoSpace) else TopoSpace(**s) for s in self.spaces]
-        self.equipments = [e if isinstance(e, TopoEquipment) else TopoEquipment(**e) for e in self.equipments]
-        self.systems = [s if isinstance(s, TopoSystem) else TopoSystem(**s) for s in self.systems]
-        self.openings = [o if isinstance(o, TopoOpening) else TopoOpening(**o) for o in self.openings]
-        self.structures = [s if isinstance(s, TopoStructure) else TopoStructure(**s) for s in self.structures]
-        self.loft_members = [m if isinstance(m, TopoLoftMember) else TopoLoftMember(**m) for m in self.loft_members]
+        self.spaces = [s if isinstance(s, TopoSpace) else TopoSpace(**_strip_none(s)) for s in self.spaces]
+        self.equipments = [e if isinstance(e, TopoEquipment) else TopoEquipment(**_strip_none(e)) for e in self.equipments]
+        self.systems = [s if isinstance(s, TopoSystem) else TopoSystem(**_strip_none(s)) for s in self.systems]
+        self.openings = [o if isinstance(o, TopoOpening) else TopoOpening(**_strip_none(o)) for o in self.openings]
+        self.structures = [s if isinstance(s, TopoStructure) else TopoStructure(**_strip_none(s)) for s in self.structures]
+        self.loft_members = [m if isinstance(m, TopoLoftMember) else TopoLoftMember(**_strip_none(m)) for m in self.loft_members]
         # Whitelist the structural options so an unknown key can't reach SteelStru.
         self.blueprint_options = {k: v for k, v in dict(self.blueprint_options).items() if k in _BLUEPRINT_OPTION_KEYS}
         # Resolve a named/absent ruleset to a DesignRules; keep the slug for round-trip.
@@ -186,12 +198,12 @@ class ProceduralBuilder:
         dumps plus the ``blueprint``/``design_rules``/``equipment_cad`` scalars.
         All dict parsing (and its validation) happens here, once."""
         return cls(
-            spaces=[TopoSpace(**s) for s in doc.get("spaces", [])],
-            equipments=[TopoEquipment(**e) for e in doc.get("equipments", [])],
-            systems=[TopoSystem(**s) for s in doc.get("systems", [])],
-            openings=[TopoOpening(**o) for o in doc.get("openings", [])],
-            structures=[TopoStructure(**s) for s in doc.get("structures", [])],
-            loft_members=[TopoLoftMember(**m) for m in doc.get("loft_members", [])],
+            spaces=[TopoSpace(**_strip_none(s)) for s in doc.get("spaces", [])],
+            equipments=[TopoEquipment(**_strip_none(e)) for e in doc.get("equipments", [])],
+            systems=[TopoSystem(**_strip_none(s)) for s in doc.get("systems", [])],
+            openings=[TopoOpening(**_strip_none(o)) for o in doc.get("openings", [])],
+            structures=[TopoStructure(**_strip_none(s)) for s in doc.get("structures", [])],
+            loft_members=[TopoLoftMember(**_strip_none(m)) for m in doc.get("loft_members", [])],
             name=name,
             # engine + schema_version are persisted in the doc (routing header).
             engine=doc.get("engine") or DEFAULT_ENGINE_SLUG,

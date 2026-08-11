@@ -234,3 +234,26 @@ def test_excel_roundtrip_compiles(tmp_path):
     assert back.blueprint_options == {"reinforce_internal_walls": True, "enclosed_cells": ["Cell1"]}
     assert back.design_rules_slug == "route_only"
     assert _is_glb(back.compile())
+
+
+def test_from_dict_tolerates_null_laden_doc():
+    """Defence-in-depth: a doc stored BEFORE the validate_doc exclude_none fix
+    carries explicit nulls (Topo* optional floats default None but reject an
+    explicit None to the constructor). from_dict must strip them so entities
+    reconstruct instead of raising and dropping the whole compile's geometry."""
+    from ada.topology.entities import TopoOpening
+
+    space = TopoSpace(NAME="Cell1", X=0, Y=0, Z=0, DX=5, DY=5, DZ=3, INCLUDE=True)
+    op = TopoOpening(
+        NAME="op1", SPACE_NAME="Cell1", POS_X=1.0, POS_Y=1.0, SIZE_X=1.0, SIZE_Y=1.0, DEPTH=0.5
+    )
+    # Null-laden dumps (the pre-fix stored-doc shape — NO exclude_none): the
+    # opening's optional coord fields (X/Y/Z/...) serialise as explicit null.
+    doc = {
+        "spaces": [space.model_dump(mode="json")],
+        "openings": [op.model_dump(mode="json")],
+    }
+    assert any(v is None for v in doc["openings"][0].values())  # precondition
+    b = ProceduralBuilder.from_dict(doc, blueprint_name="none")
+    assert len(b.spaces) == 1
+    assert len(b.openings) == 1  # would raise (crash) before the strip
