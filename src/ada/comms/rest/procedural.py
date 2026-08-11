@@ -478,4 +478,11 @@ def validate_doc(doc: dict) -> dict:
         model = doc_model(**doc)
     except pydantic.ValidationError as e:
         raise ValueError(str(e)) from None
-    return model.model_dump(mode="json")
+    # exclude_none: Topo* entities type several fields as `float` with a None
+    # DEFAULT (e.g. TopoOpening.X/Y/Z/DX/DY/DZ). pydantic accepts None as a
+    # default but REJECTS an explicit None passed to the constructor — so a dump
+    # that re-injects nulls makes every downstream `TopoOpening(**o)` /
+    # `TopoEquipment(**e)` reconstruction (adapy-default compile.py + pm-engine
+    # procedural_engine) raise, silently dropping equipment/openings. Dropping
+    # None-valued keys lets field defaults reapply cleanly on reconstruction.
+    return model.model_dump(mode="json", exclude_none=True)

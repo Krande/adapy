@@ -347,3 +347,31 @@ async def test_db_helpers_direct():
         await pool.close()
 
 
+
+
+def test_validate_doc_strips_nulls_so_entities_reconstruct():
+    """Regression: validate_doc must NOT re-inject explicit nulls. Topo* entities
+    type several fields as ``float`` with a None DEFAULT (TopoOpening.X/Y/Z/... ,
+    equipment coords); pydantic accepts None as a default but REJECTS an explicit
+    None in the constructor. A null-injecting dump therefore made every downstream
+    ``TopoOpening(**o)`` / ``TopoEquipment(**e)`` reconstruction on compile raise,
+    silently dropping equipment/openings (cells rendered, equipment vanished)."""
+    from ada.comms.rest.procedural import validate_doc
+    from ada.topology.entities import TopoOpening
+
+    op = TopoOpening(NAME="op1", SPACE_NAME="Cell1")
+    # A raw dump carries explicit nulls for the None-default fields; sanity-check
+    # that reconstructing from THAT would raise (the bug we are guarding against).
+    with pytest.raises(Exception):
+        TopoOpening(**op.model_dump(mode="json"))
+
+    # A clean (import-shaped) doc goes in; validate_doc must NOT re-inject nulls
+    # into what it returns for storage — else the next compile's reconstruction
+    # of the stored doc raises and drops the entity.
+    out = validate_doc(
+        {"spaces": [], "openings": [op.model_dump(mode="json", exclude_none=True)]}
+    )
+    op_out = out["openings"][0]
+    assert all(v is not None for v in op_out.values()), "validate_doc leaked a null"
+    # Reconstructs cleanly (this is what the compile path does per entity).
+    TopoOpening(**op_out)
