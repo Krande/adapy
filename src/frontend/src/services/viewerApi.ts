@@ -1066,6 +1066,10 @@ export interface ProceduralDoc {
   /** Blueprint compile options (whitelisted server-side), e.g.
    * {reinforce_internal_walls: true}. */
   blueprint?: Record<string, unknown>;
+  /** Selected structural blueprint name the compiler dispatches on (the
+   * engine-advertised blueprint slug, e.g. "steel_stru"/"none"). Kept OUT of the
+   * whitelisted `blueprint` options. Absent = "steel_stru" (backward compatible). */
+  blueprint_name?: string;
   /** Named design ruleset slug (routing/penetration rules) resolved by the
    * compiler; unknown/absent falls back to "standard". */
   design_rules?: string;
@@ -1168,6 +1172,16 @@ export interface ProceduralOpeningTypeOption {
 
 /** A named design ruleset offered by the cellbuilder's ruleset dropdown. */
 export interface ProceduralDesignRulesetOption {
+  slug: string;
+  name: string;
+  description: string;
+  origin: TypeOrigin;
+}
+
+/** A structural blueprint offered by the cellbuilder's Blueprint dropdown for
+ * the selected compile engine. Selecting one sets the document's
+ * `blueprint_name`. Built-in ∪ engine-advertised (engine-scoped). */
+export interface ProceduralBlueprintOption {
   slug: string;
   name: string;
   description: string;
@@ -2157,6 +2171,23 @@ export const viewerApi = {
       design_rulesets: ProceduralDesignRulesetOption[];
     }>(r, `proceduralDesignRulesets(${scope})`);
     return body.design_rulesets;
+  },
+
+  /** Structural blueprints for the cellbuilder's Blueprint dropdown, scoped to
+   * the compile `engine`: the engine's built-ins (adapy-default: steel_stru /
+   * none) plus any advertised by live workers for that engine. Selecting one
+   * sets doc.blueprint_name; the first entry is the engine's default. */
+  async proceduralBlueprints(
+    scope: ScopeUrl,
+    engine: string,
+  ): Promise<ProceduralBlueprintOption[]> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/blueprints?engine=${encodeURIComponent(engine)}`,
+    );
+    const body = await jsonOrThrow<{
+      blueprints: ProceduralBlueprintOption[];
+    }>(r, `proceduralBlueprints(${scope}, ${engine})`);
+    return body.blueprints;
   },
 
   /** Space-cell types for the cellbuilder's + Cell picker: the union of the

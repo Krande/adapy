@@ -2866,6 +2866,58 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         types.sort(key=lambda x: x["name"].lower())
         return JSONResponse({"opening_types": types})
 
+    @api.get("/scopes/{scope}/procedural-models/blueprints")
+    async def api_procedural_blueprints(
+        request: Request,
+        engine: str = "adapy-default",
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Structural blueprints for the cellbuilder's Blueprint dropdown, scoped
+        to the compile ``engine`` query param (default ``adapy-default``): the
+        union of that engine's static built-ins (``steel_stru``/``none`` for the
+        default engine) and any advertised by live workers for the SAME engine (a
+        capability engine registers its own via ``register_procedural_blueprint``),
+        each tagged ``origin`` ``code``. Selecting one sets the document's
+        ``blueprint_name``. The first entry is the engine's default; the list is
+        never empty — an engine advertising none falls back to an ``engine
+        default`` entry. No DB rows are involved."""
+        from .catalog import builtin_procedural_blueprint_specs
+
+        # Preserve authored order (built-ins first, the FIRST being the default),
+        # deduped by slug; live-worker extras append after.
+        by_slug: dict[str, dict] = {}
+        for spec in builtin_procedural_blueprint_specs(engine):
+            by_slug[spec["slug"]] = {
+                "slug": spec["slug"],
+                "name": spec["name"],
+                "description": spec.get("description", ""),
+                "origin": "code",
+            }
+        for slug, spec in (await _live_worker_specs("procedural_blueprint_specs")).items():
+            # Engine-scoped: a spec carries the engine it belongs to; keep only
+            # this engine's (a spec missing ``engine`` is treated as this one).
+            if spec.get("engine") not in (None, engine):
+                continue
+            by_slug[slug] = {
+                "slug": slug,
+                "name": spec.get("name") or slug,
+                "description": spec.get("description", ""),
+                "origin": "code",
+            }
+        blueprints = list(by_slug.values())
+        if not blueprints:
+            # An engine that advertised nothing (offline capability worker) still
+            # needs a non-empty dropdown so the compile can proceed.
+            blueprints = [
+                {
+                    "slug": "engine-default",
+                    "name": "Engine default",
+                    "description": "The engine's default blueprint.",
+                    "origin": "code",
+                }
+            ]
+        return JSONResponse({"blueprints": blueprints})
+
     @api.post("/scopes/{scope}/procedural-models/equipment-types/sync", status_code=201)
     async def api_procedural_equipment_sync(
         request: Request,

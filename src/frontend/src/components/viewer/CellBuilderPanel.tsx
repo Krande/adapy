@@ -1199,6 +1199,109 @@ const CellBuilderPanel: React.FC = () => {
               </button>
             </div>
           </Section>
+
+          <Section title="Compile settings">
+            <label
+              className="flex items-center gap-1"
+              title={
+                s.engines.find((e) => e.slug === s.selectedEngine)
+                  ?.description ??
+                "Procedural engine that compiles the model (built-in, or a registered external engine)"
+              }
+            >
+              <span className="whitespace-nowrap">Engine</span>
+              <select
+                className={`${inputCls} flex-1 min-w-0`}
+                value={s.selectedEngine}
+                onChange={(e) => s.setSelectedEngine(e.target.value)}
+              >
+                {s.engines.length === 0 && (
+                  <option value={s.selectedEngine}>{s.selectedEngine}</option>
+                )}
+                {s.engines.map((e) => (
+                  <option
+                    key={e.slug}
+                    value={e.slug}
+                    title={e.description ?? undefined}
+                  >
+                    {e.name} ({e.origin})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label
+              className="flex items-center gap-1"
+              title={
+                s.blueprints.find((b) => b.slug === s.selectedBlueprint)
+                  ?.description ??
+                "Structural blueprint the selected engine compiles the cells with (sets doc.blueprint_name)"
+              }
+            >
+              <span className="whitespace-nowrap">Blueprint</span>
+              <select
+                className={`${inputCls} flex-1 min-w-0`}
+                value={s.selectedBlueprint ?? ""}
+                onChange={(e) => s.setSelectedBlueprint(e.target.value)}
+              >
+                {s.blueprints.length === 0 && (
+                  <option value={s.selectedBlueprint ?? ""}>
+                    {s.selectedBlueprint ?? "steel_stru"}
+                  </option>
+                )}
+                {s.blueprints.map((b) => (
+                  <option key={b.slug} value={b.slug} title={b.description}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label
+              className="flex items-center gap-1"
+              title={
+                s.designRulesets.find((r) => r.slug === s.designRules)
+                  ?.description ??
+                "Routing/penetration ruleset applied when the model compiles"
+              }
+            >
+              <span className="whitespace-nowrap">Design rules</span>
+              <select
+                className={`${inputCls} flex-1 min-w-0`}
+                value={s.designRules}
+                onChange={(e) => s.setDesignRules(e.target.value)}
+              >
+                {s.designRulesets.length === 0 && (
+                  <option value={s.designRules}>{s.designRules}</option>
+                )}
+                {s.designRulesets.map((r) => (
+                  <option key={r.slug} value={r.slug} title={r.description}>
+                    {r.name} ({r.origin})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label
+              className="flex items-center gap-1"
+              title="Replace equipment boxes in the compiled model with the actual CAD geometry (for catalog equipment that have a linked CAD asset)"
+            >
+              <input
+                type="checkbox"
+                checked={s.equipmentCad}
+                onChange={(e) => s.setEquipmentCad(e.target.checked)}
+              />
+              Use CAD models for equipment
+            </label>
+            <label
+              className="flex items-center gap-1"
+              title="Compile automatically after each commit"
+            >
+              <input
+                type="checkbox"
+                checked={s.autoCompile}
+                onChange={(e) => s.setAutoCompile(e.target.checked)}
+              />
+              Auto-compile after commit
+            </label>
+          </Section>
         </div>
 
         {/* SYSTEMS — kept mounted (hidden) so auto-highlight tracks results */}
@@ -1342,83 +1445,6 @@ const CellBuilderPanel: React.FC = () => {
             >
               {s.portsOverlayVisible ? "Hide ports" : "Show ports"}
             </button>
-          </Section>
-
-          <Section title="Compile settings">
-            <label
-              className="flex items-center gap-1"
-              title={
-                s.engines.find((e) => e.slug === s.selectedEngine)
-                  ?.description ??
-                "Procedural engine that compiles the model (built-in, or a registered external engine)"
-              }
-            >
-              <span className="whitespace-nowrap">Engine</span>
-              <select
-                className={`${inputCls} flex-1 min-w-0`}
-                value={s.selectedEngine}
-                onChange={(e) => s.setSelectedEngine(e.target.value)}
-              >
-                {s.engines.length === 0 && (
-                  <option value={s.selectedEngine}>{s.selectedEngine}</option>
-                )}
-                {s.engines.map((e) => (
-                  <option
-                    key={e.slug}
-                    value={e.slug}
-                    title={e.description ?? undefined}
-                  >
-                    {e.name} ({e.origin})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label
-              className="flex items-center gap-1"
-              title={
-                s.designRulesets.find((r) => r.slug === s.designRules)
-                  ?.description ??
-                "Routing/penetration ruleset applied when the model compiles"
-              }
-            >
-              <span className="whitespace-nowrap">Design rules</span>
-              <select
-                className={`${inputCls} flex-1 min-w-0`}
-                value={s.designRules}
-                onChange={(e) => s.setDesignRules(e.target.value)}
-              >
-                {s.designRulesets.length === 0 && (
-                  <option value={s.designRules}>{s.designRules}</option>
-                )}
-                {s.designRulesets.map((r) => (
-                  <option key={r.slug} value={r.slug} title={r.description}>
-                    {r.name} ({r.origin})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label
-              className="flex items-center gap-1"
-              title="Replace equipment boxes in the compiled model with the actual CAD geometry (for catalog equipment that have a linked CAD asset)"
-            >
-              <input
-                type="checkbox"
-                checked={s.equipmentCad}
-                onChange={(e) => s.setEquipmentCad(e.target.checked)}
-              />
-              Use CAD models for equipment
-            </label>
-            <label
-              className="flex items-center gap-1"
-              title="Compile automatically after each commit"
-            >
-              <input
-                type="checkbox"
-                checked={s.autoCompile}
-                onChange={(e) => s.setAutoCompile(e.target.checked)}
-              />
-              Auto-compile after commit
-            </label>
           </Section>
         </div>
 

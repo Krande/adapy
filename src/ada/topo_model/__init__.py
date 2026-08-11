@@ -6,6 +6,10 @@ Start with :func:`build_topo_model` for the one-liner happy path, and read
 """
 
 from .blueprint import SteelStru
+from .blueprint_catalog import (
+    procedural_blueprint_specs,
+    register_procedural_blueprint,
+)
 from .jacket import JacketStru
 from .build import (
     build_routing_grid,
@@ -58,10 +62,12 @@ __all__ = [
     "create_tank",
     "design_ruleset_specs",
     "make_space_boxes",
+    "procedural_blueprint_specs",
     "procedural_cell_type_specs",
     "procedural_opening_type_specs",
     "procedural_template_specs",
     "propose_relocations",
+    "register_procedural_blueprint",
     "register_procedural_cell_type",
     "register_procedural_opening_type",
     "register_procedural_template",

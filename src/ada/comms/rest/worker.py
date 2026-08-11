@@ -1139,9 +1139,15 @@ async def _run_procedural_build(
                 cad_meshes[slug] = _load_cad_mesh(data, ext)
             except Exception:
                 logger.warning("procedural: failed to load CAD mesh for %r; using box", slug)
+        # The user-selected structural blueprint rides on the document
+        # (``blueprint_name``, out of the whitelisted ``blueprint`` options); an
+        # unset/unknown name falls back to ``steel_stru`` for backward compat.
+        bp_name = doc.get("blueprint_name")
+        blueprint_name = bp_name if bp_name in ("steel_stru", "none") else "steel_stru"
         return compile_procedural_doc(
             doc,
             name=row["name"],
+            blueprint_name=blueprint_name,
             equipment_resolver=catalog.get,
             cad_scene_resolver=cad_meshes.get,
             lod=lod,
@@ -2882,6 +2888,17 @@ async def _run() -> None:
         logger.exception("worker: failed to list procedural cell/opening types (non-fatal)")
         procedural_cell_specs = []
         procedural_opening_specs = []
+    # Structural blueprints this worker can compile, advertised PER ENGINE (each
+    # spec carries its ``engine``) so the cellbuilder's Blueprint dropdown unions
+    # the code-defined defaults (adapy-default: steel_stru/none) with any a
+    # capability worker's ADA_WORKER_PRELOAD registered (register_procedural_blueprint).
+    try:
+        from ada.topo_model import procedural_blueprint_specs
+
+        procedural_blueprints = procedural_blueprint_specs()
+    except Exception:
+        logger.exception("worker: failed to list procedural blueprints (non-fatal)")
+        procedural_blueprints = []
     # Start-from templates this worker can build, announced so the viewer's
     # "New model from template" dropdown is the union of live workers' demos.
     # The base image carries the adapy-default templates; a capability worker's
@@ -2912,6 +2929,7 @@ async def _run() -> None:
                     "procedural_design_rulesets": procedural_design_rulesets,
                     "procedural_cell_specs": procedural_cell_specs,
                     "procedural_opening_specs": procedural_opening_specs,
+                    "procedural_blueprint_specs": procedural_blueprints,
                     "procedural_template_specs": procedural_templates,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),

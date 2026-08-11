@@ -538,8 +538,18 @@ def compile_procedural_doc(
     type's linked CAD asset. When ``doc["equipment_cad"]`` is set, catalog
     equipment with resolvable CAD geometry are built without their placeholder
     box body and the real CAD mesh is spliced into the output GLB at the cell
-    footprint."""
+    footprint.
+
+    ``blueprint_name`` selects the structural blueprint. The document's own
+    ``blueprint_name`` (a top-level scalar, kept OUT of the ``blueprint`` options
+    forwarded to the blueprint) wins when present and recognised; the keyword
+    argument is the fallback for a legacy doc that carries none (defaults to
+    ``steel_stru``), so old documents compile unchanged."""
     from .builder import ProceduralBuilder
+
+    doc_blueprint = doc.get("blueprint_name")
+    if doc_blueprint in ("steel_stru", "none"):
+        blueprint_name = doc_blueprint
 
     return ProceduralBuilder.from_dict(
         doc,

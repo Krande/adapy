@@ -125,6 +125,38 @@ DEFAULT_CELL_SIZE = [5.0, 5.0, 3.0]
 DEFAULT_OPENING_SIZE = [1.0, 1.0, 2.0]
 
 
+# Built-in structural blueprints, keyed by engine slug — static so the API
+# offers them in the cellbuilder's Blueprint dropdown WITHOUT a live worker or
+# importing ada. The ``adapy-default`` engine's ``steel_stru``/``none`` mirror the
+# built-ins registered in ``ada.topo_model.blueprint_catalog`` (kept in lock-step
+# by slug); live workers advertise more (and other engines' blueprints) via
+# ``procedural_blueprint_specs``. The FIRST entry for an engine is its default.
+# The engine slug is a literal here (this slim module must not import ada) — it
+# matches ``ada.topo_model.engines.DEFAULT_ENGINE_SLUG``.
+_PROCEDURAL_BLUEPRINTS: dict[str, tuple[dict, ...]] = {
+    "adapy-default": (
+        {
+            "slug": "steel_stru",
+            "name": "Steel structure",
+            "description": "Decked steel structure framed over the space cells "
+            "(girders, stringers, plate decks and walls).",
+        },
+        {
+            "slug": "none",
+            "name": "Raw boxes — no blueprint",
+            "description": "Render the space cells as raw boxes with no structural blueprint.",
+        },
+    ),
+}
+
+
+def builtin_procedural_blueprint_specs(engine: str) -> list[dict]:
+    """Specs for an engine's built-in structural blueprints (origin ``code``).
+    Empty for an engine with no static built-ins (its blueprints come from a live
+    worker's advertisement instead)."""
+    return [dict(d) for d in _PROCEDURAL_BLUEPRINTS.get(engine, ())]
+
+
 def builtin_cell_specs() -> list[dict]:
     """Specs for the built-in space-cell types (origin ``code``)."""
     return [dict(d) for d in _CELL_TYPES]

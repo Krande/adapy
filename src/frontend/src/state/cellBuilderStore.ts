@@ -3,6 +3,7 @@ import { create } from "zustand";
 import {
   ApiError,
   viewerApi,
+  type ProceduralBlueprintOption,
   type ProceduralCellTypeOption,
   type ProceduralDoc,
   type ProceduralDesignRulesetOption,
@@ -20,6 +21,7 @@ import {
 } from "@/state/conversionStore";
 import { useModelState } from "@/state/modelState";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
+import { resolveSelectedBlueprint } from "@/utils/cellbuilder/blueprints";
 import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
 import { postPreviewReady } from "@/utils/cellbuilder/proceduralChannel";
 import {
@@ -382,6 +384,12 @@ interface CellBuilderState {
   designRules: string;
   /** Available design rulesets for the ruleset dropdown (code ∪ worker). */
   designRulesets: ProceduralDesignRulesetOption[];
+  /** Selected structural blueprint slug the compiler dispatches on; round-trips
+   * as doc.blueprint_name. Null until the (engine-scoped) list is fetched. */
+  selectedBlueprint: string | null;
+  /** Available structural blueprints for the Blueprint dropdown, scoped to the
+   * selected engine (built-in ∪ engine-advertised). Refetched on engine change. */
+  blueprints: ProceduralBlueprintOption[];
   /** Selected procedural engine slug (compile-time only, not part of the model
    * document). "adapy-default" = the built-in compile. */
   selectedEngine: string;
@@ -463,6 +471,11 @@ interface CellBuilderState {
   setDesignRules: (slug: string) => void;
   setSelectedEngine: (slug: string) => void;
   fetchEngines: () => Promise<void>;
+  /** Select the structural blueprint (doc.blueprint_name); marks the model dirty. */
+  setSelectedBlueprint: (slug: string) => void;
+  /** Fetch the blueprints the SELECTED engine offers and reconcile the current
+   * selection (keep it if still offered, else the engine's default). */
+  fetchBlueprints: () => Promise<void>;
   setSelectedEquipmentType: (t: string | null) => void;
   setSelectedCellType: (t: string | null) => void;
   setSelectedOpeningType: (t: string | null) => void;
@@ -1195,6 +1208,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     equipmentCad: false,
     designRules: "standard",
     designRulesets: [],
+    selectedBlueprint: null,
+    blueprints: [],
     selectedEngine: "adapy-default",
     engines: [],
     panelVisible: false,
@@ -1210,6 +1225,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
         designRules: doc.design_rules ?? "standard",
+        // The structural blueprint the model was authored with (a legacy doc
+        // without one defaults to steel_stru); reconciled against the engine's
+        // offered list by fetchBlueprints below.
+        selectedBlueprint: doc.blueprint_name ?? "steel_stru",
         // Reflect the engine this model was built for in the dropdown (a
         // pm-engine example opens on pm-engine, not the adapy-default default).
         selectedEngine: doc.engine || "adapy-default",
@@ -1248,6 +1267,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         });
       void get().fetchDesignRulesets();
       void get().fetchEngines();
+      // Blueprints are engine-scoped; fetch for this model's engine and reconcile
+      // the selection loaded above against what the engine actually offers.
+      void get().fetchBlueprints();
     },
     close: () => {
       get().hideResult();
@@ -2323,6 +2345,9 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       return {
         grid: {},
         blueprint: get().blueprintOptions,
+        // The selected structural blueprint (kept OUT of the whitelisted
+        // `blueprint` options); a legacy/absent selection defaults to steel_stru.
+        blueprint_name: get().selectedBlueprint ?? "steel_stru",
         design_rules: get().designRules,
         equipment_cad: get().equipmentCad,
         spaces,
@@ -2340,6 +2365,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         blueprintOptions: doc.blueprint ?? {},
         equipmentCad: Boolean(doc.equipment_cad),
         designRules: doc.design_rules ?? "standard",
+        selectedBlueprint: doc.blueprint_name ?? "steel_stru",
         past: [],
         future: [],
         txDepth: 0,
@@ -2463,9 +2489,14 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
 
     // Engine selection is a compile-time choice, not part of the model document
     // — no history / no doc round-trip; just picks which engine the next compile
-    // dispatches to (server and in-browser both resolve it identically).
-    setSelectedEngine: (slug) =>
-      set({ selectedEngine: slug || "adapy-default" }),
+    // dispatches to (server and in-browser both resolve it identically). The
+    // offered BLUEPRINTS are engine-scoped, so a change refetches them and
+    // reconciles the selection (to the new engine's default if the current one
+    // isn't offered).
+    setSelectedEngine: (slug) => {
+      set({ selectedEngine: slug || "adapy-default" });
+      void get().fetchBlueprints();
+    },
 
     fetchEngines: async () => {
       try {
@@ -2475,6 +2506,34 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       } catch (e) {
         console.warn("cellbuilder: engines fetch failed", e);
         set({ engines: [] });
+      }
+    },
+
+    // Picking a blueprint changes the document (doc.blueprint_name), so it marks
+    // the model dirty — unlike the compile-time engine/ruleset toggles.
+    setSelectedBlueprint: (slug) =>
+      set((s) =>
+        slug === s.selectedBlueprint
+          ? {}
+          : { selectedBlueprint: slug, dirty: true },
+      ),
+
+    fetchBlueprints: async () => {
+      try {
+        const blueprints = await viewerApi.proceduralBlueprints(
+          currentScopePart(),
+          get().selectedEngine,
+        );
+        set((s) => ({
+          blueprints,
+          selectedBlueprint: resolveSelectedBlueprint(
+            blueprints,
+            s.selectedBlueprint,
+          ),
+        }));
+      } catch (e) {
+        console.warn("cellbuilder: blueprints fetch failed", e);
+        set({ blueprints: [] });
       }
     },
 
