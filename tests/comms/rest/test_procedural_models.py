@@ -160,6 +160,31 @@ def test_endpoints_503_without_db(app_client: TestClient):
         ).status_code
         == 503
     )
+    # The stats + stats/export endpoints 503 the same way (both scope-check via DB).
+    assert (
+        app_client.get(
+            "/api/scopes/shared/procedural-models/x/stats",
+            params={"key": "_procedural/x/r1.glb"},
+        ).status_code
+        == 503
+    )
+    assert (
+        app_client.get(
+            "/api/scopes/shared/procedural-models/x/stats/export",
+            params={"key": "_procedural/x/r1.glb", "fmt": "xlsx"},
+        ).status_code
+        == 503
+    )
+
+
+def test_procedural_stats_key_shape():
+    from ada.comms.rest.procedural import procedural_stats_key, procedural_stats_xlsx_key
+
+    glb = procedural_glb_key("abc-123", 4)
+    assert procedural_stats_key(glb) == "_procedural/abc-123/r4.stats.json"
+    assert procedural_stats_xlsx_key(glb) == "_procedural/abc-123/r4.stats.xlsx"
+    # Preview + engine-suffixed variants derive their sibling from whatever key was written.
+    assert procedural_stats_key("_procedural/x/preview/deadbeef.glb") == "_procedural/x/preview/deadbeef.stats.json"
 
 
 def test_compile_preview_validates_before_db(app_client: TestClient):

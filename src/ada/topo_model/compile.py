@@ -572,3 +572,48 @@ def compile_procedural_doc(
         cad_scene_resolver=cad_scene_resolver,
         design_rules=design_rules,
     ).compile()
+
+
+def compile_procedural_doc_with_takeoff(
+    doc: dict,
+    *,
+    blueprint_name: Literal["steel_stru", "none"] = "steel_stru",
+    name: str = "ProceduralModel",
+    equipment_resolver=None,
+    cad_scene_resolver=None,
+    design_rules=None,
+    lod: Literal["sim", "detail"] = "sim",
+    detailing: str | None = None,
+    detailing_options: dict | None = None,
+) -> tuple[bytes, dict]:
+    """Compile ``doc`` and, in one pass, compute its quantity take-off.
+
+    Same contract as :func:`compile_procedural_doc` (the batch one-shot) but keeps
+    the built :class:`~ada.topo_model.builder.ProceduralBuilder` around so the
+    structured model — beams, plates, routed pipe/duct/tray runs — can be reduced
+    to a discipline-organised statistics document via
+    :func:`ada.topo_model.takeoff.model_takeoff`. Returns ``(glb_bytes, stats)``.
+    The worker stores ``stats`` as a ``.stats.json`` sibling of the GLB so the
+    viewer's Stats panel can fetch it (see
+    :func:`ada.comms.rest.procedural.procedural_stats_key`)."""
+    from .builder import ProceduralBuilder
+    from .takeoff import model_takeoff
+
+    doc_blueprint = doc.get("blueprint_name")
+    if doc_blueprint in ("steel_stru", "none"):
+        blueprint_name = doc_blueprint
+
+    builder = ProceduralBuilder.from_dict(
+        doc,
+        name=name,
+        blueprint_name=blueprint_name,
+        lod=lod,
+        detailing=detailing,
+        detailing_options=detailing_options,
+        equipment_resolver=equipment_resolver,
+        cad_scene_resolver=cad_scene_resolver,
+        design_rules=design_rules,
+    )
+    glb_bytes = builder.compile()
+    stats = model_takeoff(builder.assembly, source_name=name)
+    return glb_bytes, stats

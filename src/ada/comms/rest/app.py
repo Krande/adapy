@@ -3428,6 +3428,94 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return PlainTextResponse("")
         return PlainTextResponse(data.decode("utf-8", errors="replace"))
 
+    @api.get("/scopes/{scope}/procedural-models/{model_id}/stats")
+    async def api_procedural_stats(
+        request: Request,
+        model_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Return the quantity take-off computed alongside a compiled GLB.
+
+        The frontend passes the GLB ``derived_key`` (from the compile/preview
+        response) as ``?key=``; the stats are that key's ``.stats.json`` sibling
+        (:func:`procedural_stats_key`). A model with no such sibling (pm-engine /
+        STEP-IFC imports) returns ``{"available": false}`` (HTTP 200) so the panel
+        can degrade gracefully to a muted "take-off not available" state rather
+        than erroring."""
+        import json as _json
+
+        from .procedural import PROCEDURAL_PREFIX, procedural_stats_key
+
+        pool = _require_procedural_pool(request)
+        await _get_procedural_in_scope(pool, model_id, scope_obj)
+        key = (request.query_params.get("key") or "").strip()
+        if not key:
+            raise HTTPException(status_code=400, detail="key (derived GLB key) query param is required")
+        if not key.startswith(f"{PROCEDURAL_PREFIX}{model_id}/"):
+            raise HTTPException(status_code=400, detail="key is not a derived artifact of this model")
+        try:
+            data = await storage.get_bytes(scope_obj, procedural_stats_key(key))
+        except Exception:
+            return JSONResponse({"available": False})
+        try:
+            stats = _json.loads(data.decode("utf-8"))
+        except Exception:
+            return JSONResponse({"available": False})
+        return JSONResponse({"available": True, "stats": stats})
+
+    @api.get("/scopes/{scope}/procedural-models/{model_id}/stats/export")
+    async def api_procedural_stats_export(
+        request: Request,
+        model_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> Response:
+        """Export the take-off as a whole-model Excel workbook (``fmt=xlsx``, one
+        sheet per discipline + COGs + Overview) or the active tab as ``fmt=csv``.
+
+        Built on the fly from the stored ``.stats.json`` sibling (cheap; no worker
+        job) via :func:`ada.topo_model.takeoff.takeoff_to_xlsx_bytes` /
+        ``takeoff_to_csv``. 404 when no stats sidecar exists for the given GLB
+        ``?key=``."""
+        import json as _json
+
+        from ada.topo_model.takeoff import takeoff_to_csv, takeoff_to_xlsx_bytes
+
+        from .procedural import PROCEDURAL_PREFIX, procedural_stats_key
+
+        pool = _require_procedural_pool(request)
+        row = await _get_procedural_in_scope(pool, model_id, scope_obj)
+        key = (request.query_params.get("key") or "").strip()
+        fmt = (request.query_params.get("fmt") or "xlsx").strip().lower()
+        tab = (request.query_params.get("tab") or "overview").strip().lower()
+        if not key:
+            raise HTTPException(status_code=400, detail="key (derived GLB key) query param is required")
+        if not key.startswith(f"{PROCEDURAL_PREFIX}{model_id}/"):
+            raise HTTPException(status_code=400, detail="key is not a derived artifact of this model")
+        if fmt not in ("xlsx", "csv"):
+            raise HTTPException(status_code=400, detail="fmt must be 'xlsx' or 'csv'")
+        try:
+            data = await storage.get_bytes(scope_obj, procedural_stats_key(key))
+            stats = _json.loads(data.decode("utf-8"))
+        except Exception:
+            raise HTTPException(status_code=404, detail="no take-off stats available for this model")
+        base = str(row.get("name") or model_id)
+        safe = "".join(c if (c.isalnum() or c in "-_") else "_" for c in base) or "model"
+        if fmt == "csv":
+            body = takeoff_to_csv(stats, tab)
+            filename = f"{safe}_stats_{tab}.csv"
+            return Response(
+                content=body,
+                media_type="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        xlsx = takeoff_to_xlsx_bytes(stats)
+        filename = f"{safe}_stats.xlsx"
+        return Response(
+            content=xlsx,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
     @api.post("/scopes/{scope}/procedural-models/{model_id}/propose-relocations")
     async def api_procedural_propose_relocations(
         request: Request,

@@ -152,6 +152,29 @@ def procedural_log_key(glb_key: str) -> str:
     return f"{glb_key}.log"
 
 
+def procedural_stats_key(glb_key: str) -> str:
+    """Blob key for the quantity take-off STATS captured alongside a procedural GLB.
+
+    A *sibling* of the GLB derived key — the same path with ``.stats.json`` swapped
+    in for ``.glb`` — so a single rule covers every GLB variant (committed
+    ``r{rev}.glb``, its ``_detail`` LOD, an engine-suffixed key, a
+    ``preview/{hash}.glb``) and the stats key can never drift from the key the
+    worker actually wrote the GLB to (mirrors :func:`procedural_log_key`). The
+    frontend fetches it to populate the viewer's Stats panel; a model with no such
+    sibling (pm-engine / STEP-IFC imports) degrades gracefully to "no take-off"."""
+    if glb_key.endswith(".glb"):
+        return f"{glb_key[: -len('.glb')]}.stats.json"
+    return f"{glb_key}.stats.json"
+
+
+def procedural_stats_xlsx_key(glb_key: str) -> str:
+    """Blob key for the take-off stats exported as an Excel workbook — a
+    ``.stats.xlsx`` sibling of the GLB derived key (whole-model, multi-sheet)."""
+    if glb_key.endswith(".glb"):
+        return f"{glb_key[: -len('.glb')]}.stats.xlsx"
+    return f"{glb_key}.stats.xlsx"
+
+
 def procedural_relocations_key(model_id: str) -> str:
     """Blob key for a model's latest relocation proposals (a JSON document). NOT
     revision-stamped: the proposal search always re-runs (the layout may have

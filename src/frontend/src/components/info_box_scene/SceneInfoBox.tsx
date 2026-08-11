@@ -4,6 +4,7 @@ import CollapsibleSection from "@/components/common/CollapsibleSection";
 import LoadedModelsSection from "./LoadedModelsSection";
 import SourceSection from "./SourceSection";
 import StatsSection from "./StatsSection";
+import ModelStatsSection from "./ModelStatsSection";
 import GroupsSection from "./GroupsSection";
 import UtilitiesSection from "./UtilitiesSection";
 import FacePickingToggle from "./FacePickingToggle";
@@ -156,6 +157,9 @@ const SceneInfoBox = () => {
                         <FaceSearchSection />
                         <CollapsibleSection title="Stats" defaultOpen>
                             <StatsSection />
+                        </CollapsibleSection>
+                        <CollapsibleSection title="Take-off" defaultOpen>
+                            <ModelStatsSection />
                         </CollapsibleSection>
                         <CollapsibleSection title="Groups" defaultOpen={!isMobile}>
                             <GroupsSection />

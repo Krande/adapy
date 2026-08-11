@@ -13,6 +13,7 @@ import {
 } from "@/services/auth/oidc";
 import { fetchFeaManifest, fetchResultMeta } from "@/services/feaManifestPoll";
 import type { FemConcepts } from "@/extensions/design_and_analysis_extension";
+import type { ModelStats } from "@/utils/stats/modelStats";
 
 // Known-good target formats keep autocomplete on the call sites that
 // hardcode a value (the GLB auto-convert path on upload, etc.), while
@@ -2177,6 +2178,62 @@ export const viewerApi = {
     );
     if (!r.ok) return "";
     return await r.text();
+  },
+
+  /** Fetch the quantity take-off computed alongside a compiled GLB (the data
+   * behind the viewer Stats panel). `derivedKey` is the compile response's GLB
+   * key; the stats are its `.stats.json` sibling. Returns `{available:false}`
+   * (HTTP 200) for models without a take-off (pm-engine / STEP-IFC imports) so
+   * the panel degrades gracefully rather than erroring. */
+  async fetchModelStats(
+    scope: ScopeUrl,
+    modelId: string,
+    derivedKey: string,
+  ): Promise<{ available: boolean; stats?: ModelStats }> {
+    const qs = `?key=${encodeURIComponent(derivedKey)}`;
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/stats${qs}`,
+    );
+    if (!r.ok) return { available: false };
+    return (await r.json()) as { available: boolean; stats?: ModelStats };
+  },
+
+  /** Download the take-off export — a whole-model `.xlsx` workbook (`fmt:"xlsx"`,
+   * one sheet per discipline + COGs + Overview) or the active tab as `.csv`
+   * (`fmt:"csv"`, `tab` = the open discipline tab). Built on the fly from the
+   * stored stats sidecar; fetched WITH auth (bearer rides on the request) and
+   * saved via an object URL so it works in both auth-on and auth-off modes. */
+  async downloadStatsExport(
+    scope: ScopeUrl,
+    modelId: string,
+    derivedKey: string,
+    fmt: "xlsx" | "csv",
+    tab?: string,
+  ): Promise<void> {
+    const params = new URLSearchParams({ key: derivedKey, fmt });
+    if (tab) params.set("tab", tab);
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/stats/export?${params.toString()}`,
+    );
+    if (!r.ok) {
+      throw new ApiError(`downloadStatsExport(${fmt})`, r.status, await readDetail(r));
+    }
+    const blob = await r.blob();
+    const cd = r.headers.get("Content-Disposition") || "";
+    const m = /filename="?([^"]+)"?/.exec(cd);
+    const suggestedName = m ? m[1] : `stats.${fmt}`;
+    const url = URL.createObjectURL(blob);
+    try {
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = suggestedName;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   },
 
   /** Enqueue an export of the model's committed revision to its engine's Excel

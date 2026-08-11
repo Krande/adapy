@@ -22,6 +22,7 @@ import {
 } from "@/state/conversionStore";
 import { useModelState } from "@/state/modelState";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
+import { useStatsStore } from "@/state/statsStore";
 import { resolveSelectedBlueprint } from "@/utils/cellbuilder/blueprints";
 import {
   type CellGroup,
@@ -1120,6 +1121,13 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // Leave compileLog as-is; the log is a diagnostic, not load-bearing.
       }
     };
+    // Fetch the quantity take-off computed alongside the build (Stats panel).
+    // Best effort — a model without a sidecar degrades to "not available".
+    const fetchStats = (derivedKey: string) => {
+      const active = get().active;
+      if (!active || !derivedKey) return;
+      void useStatsStore.getState().fetchModelStats(currentScopePart(), active.modelId, derivedKey);
+    };
     // Announce a ready server build to any follower tab (BroadcastChannel), so a
     // second window opened with ?pfollow=<modelId> can load and show it live.
     const broadcast = (derivedKey: string) => {
@@ -1183,6 +1191,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         autoShow();
         broadcast(res.derived_key);
         void fetchCompileLog(res.derived_key);
+        fetchStats(res.derived_key);
         return;
       }
       set({
@@ -1211,6 +1220,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
             autoShow();
             broadcast(st.derived_key || cur.derivedKey || "");
             void fetchCompileLog(st.derived_key || cur.derivedKey || "");
+            fetchStats(st.derived_key || cur.derivedKey || "");
             return;
           }
           if (st.status === "error") {

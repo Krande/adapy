@@ -1072,7 +1072,6 @@ async def _run_procedural_build(
     # The document to compile: the inline preview doc, or the DB revision's doc.
     doc = preview_doc if is_preview else row["doc"]
 
-    from ada.topo_model.compile import compile_procedural_doc
     from ada.topo_model.engines import BUILTIN_ENGINES, compile_with_engine, is_default_engine
 
     # A non-builtin engine selection is a registered (DB) engine: resolve its
@@ -1125,6 +1124,12 @@ async def _run_procedural_build(
                 except Exception:
                     logger.warning("procedural: CAD asset %s for %r unreadable; using box", cad_key, slug)
 
+    # The quantity take-off computed alongside a DEFAULT-engine compile (the
+    # structured model is in-process there); persisted as a ``.stats.json`` sibling
+    # of the GLB for the viewer's Stats panel. Non-default engines don't expose an
+    # ada.Part here, so their stats stay absent and the panel degrades gracefully.
+    takeoff_holder: dict[str, dict] = {}
+
     def _do_compile() -> bytes:
         # A non-default engine gets the raw document through the uniform
         # ``compile(doc, **options)`` contract — catalog/CAD resolution is a
@@ -1158,7 +1163,9 @@ async def _run_procedural_build(
 
         builtin_detailing = {s["slug"] for s in detailing_engine_specs() if s.get("inprocess")}
         detailing_arg = detailing if detailing in builtin_detailing else None
-        return compile_procedural_doc(
+        from ada.topo_model.compile import compile_procedural_doc_with_takeoff
+
+        glb_bytes, stats = compile_procedural_doc_with_takeoff(
             doc,
             name=row["name"],
             blueprint_name=blueprint_name,
@@ -1167,6 +1174,8 @@ async def _run_procedural_build(
             lod=lod,
             detailing=detailing_arg,
         )
+        takeoff_holder["stats"] = stats
+        return glb_bytes
 
     loop = asyncio.get_running_loop()
     # Capture the engine's logging (and stdout) DURING the compile so the messages
@@ -1208,6 +1217,25 @@ async def _run_procedural_build(
         logger.exception("worker: procedural_build upload failed for %s", model_id)
         await _fail("upload", str(exc), tb_module.format_exc())
         return
+
+    # Take-off stats sidecar (default-engine builds only): a gzip-at-rest
+    # ``.stats.json`` sibling of the GLB (procedural_stats_key). Best-effort — a
+    # failure here must not fail an otherwise-good compile; the panel degrades.
+    stats = takeoff_holder.get("stats")
+    if stats is not None:
+        try:
+            import json as _json
+
+            from .procedural import procedural_stats_key
+
+            await storage.put_bytes(
+                scope,
+                procedural_stats_key(job.derived_key),
+                _json.dumps(stats).encode("utf-8"),
+                content_encoding="gzip",
+            )
+        except Exception:
+            logger.exception("worker: procedural_build stats sidecar upload failed for %s", model_id)
 
     await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
     await _audit_done(db_pool, job_id, "done", None, started_at)
