@@ -8,7 +8,7 @@
 // rotation round-trips as ROT_X/Y/Z) so it survives a recompile. The overlay
 // merges the type ports with these overrides via `effectivePorts`.
 
-import type { TypePortSummary } from "@/services/viewerApi";
+import type { ProceduralTypeOption, TypePortSummary } from "@/services/viewerApi";
 import { boxCorners, type Vec3 } from "@/utils/cellbuilder/snap";
 
 /** A per-port, per-instance override — only the geometry fields a user can
@@ -78,6 +78,39 @@ export function effectivePorts(
       direction_vector: ov.direction_vector ?? p.direction_vector,
     };
   });
+}
+
+/** The minimal cell shape `portsForEquipment` reads. A BuilderCell satisfies
+ * it structurally, so both the headless controller and the info panel pass
+ * their own cells without importing the store's full type (or creating a
+ * ports.ts ⇄ cellBuilderStore import cycle). */
+export interface PortEquipmentCell {
+  kind: string;
+  equipmentType?: string;
+  params?: Record<string, unknown> | null;
+}
+
+/** Ports for a placed equipment cell, resolved from the fetched type options
+ * and overlaid with this instance's per-port edits. The store's link is loose —
+ * `cell.equipmentType` is a display-name string (the entity DESCRIPTION), not a
+ * hard slug — so reconcile by slug first, then by name (case-insensitive). Any
+ * per-instance port edits (dragged in the preview, stored as PORT_OVERRIDES on
+ * the cell params) are merged in via `effectivePorts`, so the returned summaries
+ * carry the edited geometry. Cells that aren't equipment, or types without port
+ * geometry, yield []. Shared by the 3D overlay/gizmo (CellBuilderController) and
+ * the selection-info Ports subsection so neither re-derives the port list. */
+export function portsForEquipment(
+  cell: PortEquipmentCell,
+  equipmentTypes: ProceduralTypeOption[],
+): TypePortSummary[] {
+  if (cell.kind !== "equipment" || !cell.equipmentType) return [];
+  const key = cell.equipmentType.toLowerCase();
+  const t =
+    equipmentTypes.find((o) => o.slug.toLowerCase() === key) ??
+    equipmentTypes.find((o) => o.name.toLowerCase() === key);
+  const base = t?.ports ?? [];
+  if (!base.length) return base;
+  return effectivePorts(base, readPortOverrides(cell.params));
 }
 
 /** Snap targets for a port move (all model-space): the equipment's eight

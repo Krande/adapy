@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { TypePortSummary } from "../../services/viewerApi";
+import type {
+  ProceduralTypeOption,
+  TypePortSummary,
+} from "../../services/viewerApi";
 import {
   effectivePorts,
+  portsForEquipment,
   portSnapTargets,
   readPortOverrides,
   typePickerItems,
@@ -123,4 +127,75 @@ test("typePickerItems derives labels with the origin tag", () => {
 
 test("typePickerItems maps an empty list to empty", () => {
   assert.deepEqual(typePickerItems([]), []);
+});
+
+const pumpType: ProceduralTypeOption = {
+  slug: "pump",
+  name: "Centrifugal Pump",
+  origin: "code",
+  ports: [
+    port({ name: "suction", position: [0, 0, 0] }),
+    port({ name: "discharge", position: [1, 0, 0], direction: "OUT" }),
+  ],
+};
+
+test("portsForEquipment returns the archetype ports for a matched slug", () => {
+  const cell = { kind: "equipment", equipmentType: "pump", params: {} };
+  const ports = portsForEquipment(cell, [pumpType]);
+  assert.deepEqual(
+    ports.map((p) => p.name),
+    ["suction", "discharge"],
+  );
+  // no overrides on the cell → geometry passes through verbatim
+  assert.deepEqual(ports[0].position, [0, 0, 0]);
+});
+
+test("portsForEquipment matches by name (case-insensitive) when no slug hits", () => {
+  const cell = {
+    kind: "equipment",
+    equipmentType: "CENTRIFUGAL pump",
+    params: {},
+  };
+  const ports = portsForEquipment(cell, [pumpType]);
+  assert.equal(ports.length, 2);
+});
+
+test("portsForEquipment overlays this instance's PORT_OVERRIDES", () => {
+  const cell = {
+    kind: "equipment",
+    equipmentType: "pump",
+    params: {
+      PORT_OVERRIDES: {
+        suction: { position: [9, 9, 9], direction_vector: [0, 0, -1] },
+      },
+    },
+  };
+  const ports = portsForEquipment(cell, [pumpType]);
+  const suction = ports.find((p) => p.name === "suction")!;
+  assert.deepEqual(suction.position, [9, 9, 9]);
+  assert.deepEqual(suction.direction_vector, [0, 0, -1]);
+  // untouched port keeps its archetype geometry
+  assert.deepEqual(ports.find((p) => p.name === "discharge")!.position, [1, 0, 0]);
+});
+
+test("portsForEquipment yields [] for a non-equipment cell", () => {
+  const cell = { kind: "cell", equipmentType: "pump", params: {} };
+  assert.deepEqual(portsForEquipment(cell, [pumpType]), []);
+});
+
+test("portsForEquipment yields [] when the type is missing or has no ports", () => {
+  const noType = { kind: "equipment", equipmentType: "ghost", params: {} };
+  assert.deepEqual(portsForEquipment(noType, [pumpType]), []);
+  const portless: ProceduralTypeOption = {
+    slug: "beam",
+    name: "Beam",
+    origin: "code",
+  };
+  const cell = { kind: "equipment", equipmentType: "beam", params: {} };
+  assert.deepEqual(portsForEquipment(cell, [portless]), []);
+});
+
+test("portsForEquipment yields [] for equipment with no equipmentType", () => {
+  const cell = { kind: "equipment", params: {} };
+  assert.deepEqual(portsForEquipment(cell, [pumpType]), []);
 });

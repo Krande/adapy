@@ -6,6 +6,7 @@ import {
   type BuilderSelection,
 } from "@/state/cellBuilderStore";
 import { axisLabel, BOX_FACE_SIDES } from "@/utils/cellbuilder/snap";
+import { portsForEquipment } from "@/utils/cellbuilder/ports";
 import { bandFaceIds, type LoftBand } from "@/utils/cellbuilder/loft";
 import {
   addMetadataKey,
@@ -261,6 +262,135 @@ const EquipmentSystems: React.FC<{
               Port list unavailable (type not loaded).
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Per-port Move / Rotate entry points for the selected equipment. Each row is a
+// tap-friendly trigger for the SAME port transform gizmo the right-click /
+// long-press CellBuilderPortMenu starts (startPortGizmo): Move = translate the
+// nozzle position, Rotate = spin the outward direction about the port anchor.
+// On touch, long-pressing a thin port arrow in the 3D preview is an unreliable
+// hit target, so these buttons are the primary, reliable path — the gizmo
+// mechanics (drag + vertex/CAD snapping + PORT_OVERRIDES persistence) are
+// unchanged. The port list comes from the shared portsForEquipment helper
+// (archetype ports merged with this instance's overrides), so this list and the
+// 3D overlay/gizmo never diverge.
+const EquipmentPorts: React.FC<{ cell: BuilderCell }> = ({ cell }) => {
+  const equipmentTypes = useCellBuilderStore((s) => s.equipmentTypes);
+  const portGizmo = useCellBuilderStore((s) => s.portGizmo);
+  const startPortGizmo = useCellBuilderStore((s) => s.startPortGizmo);
+  const stopPortGizmo = useCellBuilderStore((s) => s.stopPortGizmo);
+  const setSelection = useCellBuilderStore((s) => s.setSelection);
+  const [open, setOpen] = React.useState(true);
+  // Derive the port list in a memo — never returned fresh straight out of a
+  // selector, which would trip the unstable-selector infinite-render crash.
+  const ports = React.useMemo(
+    () => portsForEquipment(cell, equipmentTypes),
+    [cell, equipmentTypes],
+  );
+  // No ports (non-port equipment, or the type isn't loaded) → render nothing;
+  // the Systems & I/O section already surfaces a "type not loaded" note.
+  if (ports.length === 0) return null;
+
+  const isActive = (portName: string, mode: "translate" | "rotate") =>
+    portGizmo?.cellId === cell.id &&
+    portGizmo?.portName === portName &&
+    portGizmo?.mode === mode;
+
+  const edit = (portName: string, mode: "translate" | "rotate") => {
+    // Clicking the already-active button toggles the gizmo off.
+    if (isActive(portName, mode)) {
+      stopPortGizmo();
+      return;
+    }
+    // Keep this equipment selected so the gizmo/overlay context stays put, then
+    // hand off to the same store action the port context menu uses.
+    setSelection({ kind: "cell", cellId: cell.id });
+    startPortGizmo(cell.id, portName, mode);
+  };
+
+  const PortActionButton: React.FC<{
+    portName: string;
+    mode: "translate" | "rotate";
+    label: string;
+    title: string;
+  }> = ({ portName, mode, label, title }) => {
+    const active = isActive(portName, mode);
+    return (
+      <button
+        className={
+          "min-h-[34px] min-w-[52px] px-2 py-1 rounded-sm " +
+          (active
+            ? "bg-blue-600 text-white"
+            : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+        }
+        onClick={() => edit(portName, mode)}
+        aria-pressed={active}
+        title={title}
+      >
+        {label}
+      </button>
+    );
+  };
+
+  return (
+    <div className="border-t border-gray-600/60 pt-1">
+      <button
+        className="flex items-center gap-1 w-full text-left hover:bg-gray-700/40 rounded-sm px-1"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className={"transition-transform " + (open ? "rotate-90" : "")}>
+          ▸
+        </span>
+        <span className="font-semibold">Ports</span>
+        <span className="text-gray-400">({ports.length})</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1 px-1 pt-1">
+          <span className="text-gray-500">
+            Edit a port's position / rotation, then drag it in the 3D preview.
+          </span>
+          {ports.map((p) => {
+            const editing =
+              portGizmo?.cellId === cell.id && portGizmo?.portName === p.name;
+            return (
+              <div key={p.name} className="flex items-center gap-1">
+                <span
+                  className="inline-block w-2 h-2 rounded-full shrink-0"
+                  style={{ background: PORT_CATEGORY_COLOR[p.category] }}
+                />
+                <span
+                  className={"truncate " + (editing ? "text-blue-300" : "")}
+                  title={`${p.direction} · ${p.category}`}
+                >
+                  {p.name}
+                </span>
+                {editing && (
+                  <span className="text-blue-400 text-[10px] uppercase tracking-wide">
+                    editing
+                  </span>
+                )}
+                <span className="ml-auto flex items-center gap-1 shrink-0">
+                  <PortActionButton
+                    portName={p.name}
+                    mode="translate"
+                    label="Move"
+                    title={`Move the "${p.name}" nozzle — snaps to the bbox corners / CAD vertices (tap again to stop)`}
+                  />
+                  <PortActionButton
+                    portName={p.name}
+                    mode="rotate"
+                    label="Rotate"
+                    title={`Rotate the "${p.name}" outward direction about its anchor (tap again to stop)`}
+                  />
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -920,6 +1050,7 @@ const SelectionSection: React.FC<{ selection: BuilderSelection }> = ({
               )}
             </div>
           )}
+          {cell.kind === "equipment" && <EquipmentPorts cell={cell} />}
           {cell.kind === "equipment" && (
             <EquipmentSystems
               equipmentName={cell.name}

@@ -6,12 +6,11 @@ import {LineMaterial} from "three/examples/jsm/lines/LineMaterial";
 import {TransformControls} from "three/examples/jsm/controls/TransformControls";
 
 import {cameraRef, controlsRef, rendererRef, sceneRef} from "@/state/refs";
-import {effectivePorts, portSnapTargets, readPortOverrides} from "@/utils/cellbuilder/ports";
+import {portSnapTargets, portsForEquipment} from "@/utils/cellbuilder/ports";
 import {requestRender} from "@/state/perfStore";
 import {useModelState} from "@/state/modelState";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import {bandFaceIds, stationRingPoints} from "@/utils/cellbuilder/loft";
-import type {ProceduralTypeOption, TypePortSummary} from "@/services/viewerApi";
 import {hexToInt, portColorInt, uniquePortColorHexByIndex} from "@/utils/portColor";
 import {
     applyFaceOffset,
@@ -243,23 +242,6 @@ function ringsEdgesGeometry(lo: Vec3[], hi: Vec3[]): THREE.BufferGeometry {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
     return geo;
-}
-
-// Ports for a placed equipment cell, looked up from the fetched type options.
-// The store's link is loose — cell.equipmentType is a display name string (the
-// entity DESCRIPTION), not a hard slug — so reconcile by slug first, then by
-// name (case-insensitive). Cells that aren't equipment, or types without port
-// geometry, yield [].
-function portsForEquipment(cell: BuilderCell, types: ProceduralTypeOption[]): TypePortSummary[] {
-    if (cell.kind !== "equipment" || !cell.equipmentType) return [];
-    const key = cell.equipmentType.toLowerCase();
-    const t =
-        types.find((o) => o.slug.toLowerCase() === key) ?? types.find((o) => o.name.toLowerCase() === key);
-    const base = t?.ports ?? [];
-    if (!base.length) return base;
-    // Overlay any per-instance port edits (dragged in the preview) stored on
-    // this equipment cell, so the overlay + gizmo reflect the edited geometry.
-    return effectivePorts(base, readPortOverrides(cell.params));
 }
 
 function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): () => void {
