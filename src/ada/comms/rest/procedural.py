@@ -107,6 +107,18 @@ def procedural_structural_ifc_key(model_id: str, revision: int, engine: str | No
     return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}{_engine_suffix(engine)}.structural.ifc"
 
 
+def procedural_structural_sections_key(model_id: str, revision: int, engine: str | None = None) -> str:
+    """Blob key for the section-metadata SIDECAR that companions the neutral
+    structural IFC artifact (:func:`procedural_structural_ifc_key`): the SAME base
+    with ``.structural.ifc`` swapped for ``.structural.sections.json`` (one rule, so
+    the sidecar key can never drift from the IFC key). Carries
+    ``{member_name: {"section_type": beam.section.type.value, "section_props": {...}}}``
+    for every Beam so an external (Tier-B) detailing engine can guarantee section-type
+    (``BOX``/…) detection without re-deriving it from a lossy IFC round-trip."""
+    ifc_key = procedural_structural_ifc_key(model_id, revision, engine)
+    return ifc_key[: -len(".structural.ifc")] + ".structural.sections.json"
+
+
 def doc_content_hash(doc: dict) -> str:
     """A short, stable content hash of a (normalized) procedural doc — the cache
     key for an ephemeral *preview* compile. Deterministic (sorted keys, compact

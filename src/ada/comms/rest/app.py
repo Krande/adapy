@@ -2931,7 +2931,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         (not part of the document); ``none`` (the default, first) passes no
         detailing -> structural-only GLB. Built-in + worker-advertised, no DB
         rows — modeled on the blueprints/design-rulesets dropdowns."""
-        from .catalog import builtin_detailing_engine_specs
+        from .catalog import builtin_detailing_engine_specs, seeded_detailing_engine_specs
 
         by_slug: dict[str, dict] = {}
         for spec in builtin_detailing_engine_specs():
@@ -2943,8 +2943,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "worker_capability": spec.get("worker_capability"),
                 "joint_types": spec.get("joint_types", []),
                 "origin": "code",
+                "online": True,
             }
-        for slug, spec in (await _live_worker_specs("procedural_detailing_engine_specs")).items():
+        # Seeded EXTERNAL engines (weld-gen) — a code-level DB seed so they are
+        # selectable/routable even when their pool is offline. Tagged origin=db and
+        # online=False here; a live worker re-announcing the slug (below) flips
+        # online=True. The frontend shows an "(offline)" hint off online=False.
+        live_detailing = await _live_worker_specs("procedural_detailing_engine_specs")
+        for spec in seeded_detailing_engine_specs():
+            by_slug[spec["slug"]] = {
+                "slug": spec["slug"],
+                "name": spec["name"],
+                "description": spec.get("description", ""),
+                "inprocess": bool(spec.get("inprocess", False)),
+                "worker_capability": spec.get("worker_capability"),
+                "joint_types": spec.get("joint_types", []),
+                "origin": "db",
+                "online": spec["slug"] in live_detailing,
+            }
+        builtin_slugs = {s["slug"] for s in builtin_detailing_engine_specs()}
+        for slug, spec in live_detailing.items():
             by_slug[slug] = {
                 "slug": slug,
                 "name": spec.get("name") or slug,
@@ -2954,7 +2972,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "joint_types": spec.get("joint_types", []),
                 # A live worker re-announcing a built-in keeps origin=code; a new
                 # (external) engine is worker/db-provided.
-                "origin": "code" if slug in {s["slug"] for s in builtin_detailing_engine_specs()} else "db",
+                "origin": "code" if slug in builtin_slugs else "db",
+                "online": True,
             }
         return JSONResponse({"detailing_engines": list(by_slug.values())})
 
@@ -3231,13 +3250,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="procedural model not found")
         return JSONResponse({"status": "archived"})
 
+    async def _resolve_detailing_engine(detailing: str | None) -> dict | None:
+        """Resolve a selected detailing slug to its merged spec (or ``None`` for
+        ``none``/absent). Unions the seeded EXTERNAL engines with any a live worker
+        advertises (live wins), so an external engine is routable even offline. An
+        in-process built-in (``adapy-default``) has no external spec and returns
+        ``None`` — its detailing runs as stage 2 of the structural build (Phase 1)."""
+        if not detailing or detailing == "none":
+            return None
+        from .catalog import seeded_detailing_engine_specs
+
+        by_slug = {s["slug"]: s for s in seeded_detailing_engine_specs()}
+        for slug, spec in (await _live_worker_specs("procedural_detailing_engine_specs")).items():
+            by_slug[slug] = {**by_slug.get(slug, {}), **spec}
+        spec = by_slug.get(detailing)
+        # Only EXTERNAL (out-of-process) engines are routed as a chained job; an
+        # in-process one falls through to the unchanged Phase-1 in-process path.
+        if spec is None or spec.get("inprocess", False):
+            return None
+        return spec
+
     @api.post("/scopes/{scope}/procedural-models/{model_id}/compile")
     async def api_procedural_compile(
         request: Request,
         model_id: str,
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
-        from .procedural import procedural_detailing_glb_key
+        from .procedural import (
+            procedural_detailing_glb_key,
+            procedural_structural_ifc_key,
+            procedural_structural_sections_key,
+        )
 
         # ``?force=true`` recompiles even when the revision's GLB is already
         # cached. The cache is keyed by the model REVISION, not the compiler
@@ -3274,6 +3317,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 engine = None
         derived_key = procedural_detailing_glb_key(row["id"], row["revision"], engine, detailing, lod)
 
+        # Resolve the selected detailing engine. An EXTERNAL (Tier-B) engine
+        # (inprocess=False, e.g. weld-gen) runs as a chained ``procedural_detail``
+        # job on its own capability pool consuming a neutral structural artifact;
+        # an in-process one (none/adapy-default) is unchanged from Phase 1.
+        det_spec = await _resolve_detailing_engine(detailing)
+        is_external_detailing = det_spec is not None
+
         if not force and await storage.exists(scope_obj, derived_key):
             return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
 
@@ -3291,6 +3341,67 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             if eng is not None:
                 target_capability = (eng.get("doc") or {}).get("worker_capability")
+
+        if is_external_detailing:
+            # Two-stage pipeline. Stage 1: the structural build on the default (or
+            # the procedural engine's) pool writes the PLAIN structural GLB and,
+            # because ``detailing_external`` is set, ALSO the neutral structural IFC
+            # artifact + section sidecar the external engine reads. Stage 2: the
+            # chained ``procedural_detail`` job on the detailing engine's capability
+            # pool consumes those and writes the detailing-layer GLB to ``derived_key``.
+            structural_key = procedural_detailing_glb_key(row["id"], row["revision"], engine, None, lod)
+            structural_ifc_key = procedural_structural_ifc_key(row["id"], row["revision"], engine)
+            sections_key = procedural_structural_sections_key(row["id"], row["revision"], engine)
+
+            structural_job = await queue.enqueue(
+                f"_synthetic/procedural/{row['id']}/r{row['revision']}/{lod}",
+                target_format="procedural_build",
+                scope_kind=scope_obj.kind,
+                scope_id=scope_obj.id,
+                conversion_options={
+                    "model_id": row["id"],
+                    "revision": row["revision"],
+                    "lod": lod,
+                    "engine": engine,
+                    # The structural stage runs NO in-process detailing (the external
+                    # pool does it); this flag just makes it emit the neutral artifact.
+                    "detailing": None,
+                    "detailing_external": True,
+                    "structural_ifc_key": structural_ifc_key,
+                    "structural_sections_key": sections_key,
+                },
+                derived_key=structural_key,
+                force_rebuild=force,
+                target_capability=target_capability,
+            )
+            detail_job = await queue.enqueue(
+                f"_synthetic/procedural/{row['id']}/r{row['revision']}/{lod}/detail-{detailing}",
+                target_format="procedural_detail",
+                scope_kind=scope_obj.kind,
+                scope_id=scope_obj.id,
+                conversion_options={
+                    "model_id": row["id"],
+                    "revision": row["revision"],
+                    "lod": lod,
+                    "engine": engine,
+                    "detailing": detailing,
+                    "detailing_entrypoint": det_spec.get("entrypoint"),
+                    "structural_ifc_key": structural_ifc_key,
+                    "structural_sections_key": sections_key,
+                },
+                derived_key=derived_key,
+                force_rebuild=force,
+                target_capability=det_spec.get("worker_capability"),
+            )
+            return JSONResponse(
+                {
+                    "job_id": detail_job.job_id,
+                    "derived_key": derived_key,
+                    "cached": False,
+                    "structural_job_id": structural_job.job_id,
+                    "structural_key": structural_key,
+                }
+            )
 
         job = await queue.enqueue(
             f"_synthetic/procedural/{row['id']}/r{row['revision']}/{lod}",

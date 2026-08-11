@@ -1038,6 +1038,13 @@ async def _run_procedural_build(
     # plain structural build). Only the in-process builtin (adapy-default) is
     # applied here; an external (Tier-B) engine is a chained capability job (Phase 2).
     detailing = opts.get("detailing")
+    # EXTERNAL detailing: when set, this structural stage runs NO in-process
+    # detailing but ALSO serializes the compiled ada.Part to a neutral IFC artifact
+    # (+ a per-Beam section sidecar) at the given keys, so the chained
+    # ``procedural_detail`` job on the detailing engine's capability pool can read it.
+    detailing_external = bool(opts.get("detailing_external"))
+    structural_ifc_key = opts.get("structural_ifc_key")
+    structural_sections_key = opts.get("structural_sections_key")
     # An ephemeral *preview* build carries the current (uncommitted) document
     # inline: compile THAT instead of the DB revision's doc, and skip the
     # revision-match check (a preview isn't tied to a persisted revision). The
@@ -1129,6 +1136,9 @@ async def _run_procedural_build(
     # of the GLB for the viewer's Stats panel. Non-default engines don't expose an
     # ada.Part here, so their stats stay absent and the panel degrades gracefully.
     takeoff_holder: dict[str, dict] = {}
+    # For an EXTERNAL-detailing build the compiled ada.Part is captured here so it
+    # can be serialized to the neutral structural artifact after the GLB upload.
+    assembly_holder: dict[str, object] = {}
 
     def _do_compile() -> bytes:
         # A non-default engine gets the raw document through the uniform
@@ -1163,6 +1173,23 @@ async def _run_procedural_build(
 
         builtin_detailing = {s["slug"] for s in detailing_engine_specs() if s.get("inprocess")}
         detailing_arg = detailing if detailing in builtin_detailing else None
+        # An external-detailing build keeps the live ada.Part so it can be
+        # serialized to the neutral structural artifact after tessellation.
+        if detailing_external:
+            from ada.topo_model.compile import compile_procedural_doc_with_assembly
+
+            glb_bytes, stats, assembly = compile_procedural_doc_with_assembly(
+                doc,
+                name=row["name"],
+                blueprint_name=blueprint_name,
+                equipment_resolver=catalog.get,
+                cad_scene_resolver=cad_meshes.get,
+                lod=lod,
+                detailing=None,
+            )
+            takeoff_holder["stats"] = stats
+            assembly_holder["assembly"] = assembly
+            return glb_bytes
         from ada.topo_model.compile import compile_procedural_doc_with_takeoff
 
         glb_bytes, stats = compile_procedural_doc_with_takeoff(
@@ -1236,6 +1263,163 @@ async def _run_procedural_build(
             )
         except Exception:
             logger.exception("worker: procedural_build stats sidecar upload failed for %s", model_id)
+
+    # EXTERNAL detailing: serialize the compiled ada.Part to the neutral structural
+    # artifact (IFC bytes) + a per-Beam section sidecar the chained procedural_detail
+    # job reads. A hard failure here (unlike the best-effort stats sidecar): the
+    # external pipeline can't proceed without the artifact, so surface it.
+    assembly = assembly_holder.get("assembly")
+    if detailing_external and assembly is not None and structural_ifc_key and structural_sections_key:
+        try:
+            import json as _json
+
+            await queue.update(job_id, stage="artifact", progress=0.95)
+            ifc_bytes, sections = await loop.run_in_executor(
+                None, _serialize_structural_artifact, assembly
+            )
+            await storage.put_bytes(scope, structural_ifc_key, ifc_bytes, content_encoding="gzip")
+            await storage.put_bytes(
+                scope, structural_sections_key, _json.dumps(sections).encode("utf-8"), content_encoding="gzip"
+            )
+        except Exception as exc:
+            logger.exception("worker: procedural_build structural artifact failed for %s", model_id)
+            await _fail("artifact", str(exc), tb_module.format_exc())
+            return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
+def _serialize_structural_artifact(assembly) -> "tuple[bytes, dict]":
+    """Serialize a compiled structural ``ada.Part`` to the NEUTRAL artifact an
+    external (Tier-B) detailing engine consumes: IFC bytes + a per-Beam section
+    sidecar ``{member_name: {"section_type": <BOX/…>, "section_props": {...}}}``.
+
+    The sidecar is authoritative for section-type detection (weld-gen matches on
+    ``section.type.value.upper()``) so the external engine never has to re-derive
+    it from a potentially lossy IFC round-trip. ``section_props`` carries the
+    numeric geometry (``h``/``w_top``/``t_w``/``r``/``wt``/…) present on the section."""
+    import ada
+    from ada.api.beams import Beam
+
+    sections: dict[str, dict] = {}
+    for bm in assembly.get_all_physical_objects(by_type=Beam):
+        sec = bm.section
+        props = {
+            "name": sec.name,
+            "h": sec.h,
+            "w_top": sec.w_top,
+            "w_btn": sec.w_btn,
+            "t_w": sec.t_w,
+            "t_ftop": sec.t_ftop,
+            "t_fbtn": sec.t_fbtn,
+            "r": sec.r,
+            "wt": sec.wt,
+        }
+        sections[bm.name] = {
+            "section_type": sec.type.value,
+            "section_props": {k: v for k, v in props.items() if v is not None},
+        }
+
+    fd, tmp_name = tempfile.mkstemp(suffix=".ifc")
+    os.close(fd)
+    tmp_path = pathlib.Path(tmp_name)
+    try:
+        # In-memory ifcopenshell writer (no OCC): the freshly built concept objects
+        # emit analytic profiles/solids straight to SPF. file_obj_only would keep it
+        # in RAM but we need bytes on disk to read back uniformly.
+        if not isinstance(assembly, ada.Assembly):
+            assembly = ada.Assembly("StructuralArtifact") / assembly
+        assembly.to_ifc(tmp_path, file_obj_only=False)
+        return tmp_path.read_bytes(), sections
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+async def _run_procedural_detail(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Chained EXTERNAL (Tier-B) detailing stage — the sibling of
+    :func:`_run_procedural_build` that runs on a foreign capability pool (weld-gen).
+
+    Reads the neutral structural artifact (IFC bytes) + its section sidecar the
+    structural build wrote, resolves the external detailing engine's ``module:callable``
+    entrypoint via :func:`ada.topo_model.engines.load_entrypoint` (the same mechanism
+    the procedural engines use), and calls ``entrypoint(model_bytes, options)`` where
+    ``options`` carries ``{"sections": <sidecar dict>, ...joint options}``. The returned
+    detailing-layer GLB is written to ``job.derived_key`` gzip-at-rest."""
+    import json as _json
+
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    model_id = opts.get("model_id")
+    entrypoint = opts.get("detailing_entrypoint")
+    structural_ifc_key = opts.get("structural_ifc_key")
+    structural_sections_key = opts.get("structural_sections_key")
+    lod = "detail" if (opts.get("lod") or "sim") == "detail" else "sim"
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not entrypoint or ":" not in str(entrypoint):
+        await _fail("detail", "conversion_options.detailing_entrypoint (module:callable) is required for procedural_detail")
+        return
+    if not structural_ifc_key:
+        await _fail("detail", "conversion_options.structural_ifc_key is required for procedural_detail")
+        return
+
+    # The structural stage writes the artifact + sidecar before the compile job
+    # completes; a missing blob means that stage failed / hasn't run yet.
+    try:
+        await queue.update(job_id, stage="fetch", progress=0.20)
+        model_bytes = await storage.get_bytes(scope, structural_ifc_key)
+    except Exception as exc:
+        await _fail("fetch", f"structural artifact {structural_ifc_key!r} unreadable: {exc}")
+        return
+
+    sections: dict = {}
+    if structural_sections_key:
+        try:
+            sections = _json.loads(await storage.get_bytes(scope, structural_sections_key))
+        except Exception:
+            logger.warning("procedural_detail: section sidecar %s unreadable; passing empty", structural_sections_key)
+
+    from ada.topo_model.engines import load_entrypoint
+
+    # Per-joint options selected in the UI ride on the job; the section sidecar is
+    # merged in under a reserved key so the engine can guarantee section detection.
+    options = {"sections": sections, "lod": lod}
+    for k, v in (opts.get("detailing_options") or {}).items():
+        options[k] = v
+
+    loop = asyncio.get_running_loop()
+
+    def _do_detail() -> bytes:
+        fn = load_entrypoint(entrypoint)
+        return fn(model_bytes, options)
+
+    try:
+        await queue.update(job_id, stage="detail", progress=0.50)
+        glb_bytes = await loop.run_in_executor(None, _do_detail)
+    except Exception as exc:
+        logger.exception("worker: procedural_detail failed for %s", model_id)
+        await _fail("detail", str(exc), tb_module.format_exc())
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        await storage.put_bytes(scope, job.derived_key, glb_bytes, content_encoding="gzip")
+    except Exception as exc:
+        logger.exception("worker: procedural_detail upload failed for %s", model_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
 
     await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
     await _audit_done(db_pool, job_id, "done", None, started_at)
@@ -2209,6 +2393,21 @@ async def _process_one(
     # single source of truth) and is compiled in-process via ada.topo_model.
     if job.target_format == "procedural_build":
         await _run_procedural_build(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # procedural_detail is synthetic too: the chained EXTERNAL (Tier-B) detailing
+    # stage. Routed to the detailing engine's capability pool (target_capability),
+    # it reads the neutral structural artifact + section sidecar the structural
+    # build wrote and produces the detailing-layer GLB.
+    if job.target_format == "procedural_detail":
+        await _run_procedural_detail(
             job=job,
             scope=scope,
             storage=storage,
@@ -3383,6 +3582,7 @@ async def _run() -> None:
                     if peeked.target_format in (
                         "component_build",
                         "procedural_build",
+                        "procedural_detail",
                         "procedural_relocations",
                         "procedural_export_xlsx",
                         "procedural_import_xlsx",

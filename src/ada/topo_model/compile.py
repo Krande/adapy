@@ -596,6 +596,39 @@ def compile_procedural_doc_with_takeoff(
     The worker stores ``stats`` as a ``.stats.json`` sibling of the GLB so the
     viewer's Stats panel can fetch it (see
     :func:`ada.comms.rest.procedural.procedural_stats_key`)."""
+    glb_bytes, stats, _ = compile_procedural_doc_with_assembly(
+        doc,
+        blueprint_name=blueprint_name,
+        name=name,
+        equipment_resolver=equipment_resolver,
+        cad_scene_resolver=cad_scene_resolver,
+        design_rules=design_rules,
+        lod=lod,
+        detailing=detailing,
+        detailing_options=detailing_options,
+    )
+    return glb_bytes, stats
+
+
+def compile_procedural_doc_with_assembly(
+    doc: dict,
+    *,
+    blueprint_name: Literal["steel_stru", "none"] = "steel_stru",
+    name: str = "ProceduralModel",
+    equipment_resolver=None,
+    cad_scene_resolver=None,
+    design_rules=None,
+    lod: Literal["sim", "detail"] = "sim",
+    detailing: str | None = None,
+    detailing_options: dict | None = None,
+) -> tuple[bytes, dict, "ada.Assembly"]:
+    """Compile ``doc`` and return ``(glb_bytes, stats, assembly)`` — the same
+    contract as :func:`compile_procedural_doc_with_takeoff` but ALSO handing back
+    the compiled :class:`~ada.Assembly`. The worker needs the live model (not just
+    the GLB triangles) to serialize the neutral structural artifact an EXTERNAL
+    (Tier-B) detailing engine consumes — IFC bytes + a per-Beam section sidecar.
+    Structural-only when ``detailing`` is ``None``/``"none"`` (an external detailing
+    engine details the model out-of-process, so this pass adds no in-process joints)."""
     from .builder import ProceduralBuilder
     from .takeoff import model_takeoff
 
@@ -616,4 +649,4 @@ def compile_procedural_doc_with_takeoff(
     )
     glb_bytes = builder.compile()
     stats = model_takeoff(builder.assembly, source_name=name)
-    return glb_bytes, stats
+    return glb_bytes, stats, builder.assembly
