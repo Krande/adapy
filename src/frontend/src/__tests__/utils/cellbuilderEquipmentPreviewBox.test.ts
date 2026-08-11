@@ -4,6 +4,8 @@ import { test } from "node:test";
 import {
   aabbCenterSize,
   aabbCorners,
+  bboxEquals,
+  bboxFromViewAabb,
   equipmentDisplayBox,
   type AabbLike,
 } from "../../utils/cellbuilder/equipmentPreviewBox";
@@ -46,4 +48,27 @@ test("aabbCorners returns the eight corners of the box", () => {
 test("aabbCenterSize clamps a degenerate (inverted) box size to >= 0", () => {
   const { size } = aabbCenterSize({ min: [5, 0, 0], max: [1, 0, 0] });
   assert.deepEqual(size, [0, 0, 0]);
+});
+
+test("bboxFromViewAabb maps a measured view AABB back to lx/ly/lz (inverse of the nominal draw)", () => {
+  // view-space AABB: X size 2, Y size 6 (height), Z size 4
+  const bbox = bboxFromViewAabb({ min: [-1, 0, -2], max: [1, 6, 2] });
+  assert.deepEqual(bbox, { lx: 2, ly: 4, lz: 6 }); // lx=X, lz=Y(height), ly=Z
+  // Round-trips through the nominal draw branch: same numbers → same box.
+  const box = equipmentDisplayBox(null, bbox);
+  const { size } = aabbCenterSize(box);
+  assert.deepEqual(size, [2, 6, 4]); // matches the measured view AABB size
+});
+
+test("bboxFromViewAabb rounds to mm (3 dp) so the fields aren't noisy", () => {
+  const bbox = bboxFromViewAabb({
+    min: [0, 0, 0],
+    max: [1.23456, 2.99999, 0.5004],
+  });
+  assert.deepEqual(bbox, { lx: 1.235, ly: 0.5, lz: 3 });
+});
+
+test("bboxEquals compares at mm precision (guards the resync write)", () => {
+  assert.ok(bboxEquals({ lx: 1, ly: 2, lz: 3 }, { lx: 1.0004, ly: 2, lz: 3 }));
+  assert.ok(!bboxEquals({ lx: 1, ly: 2, lz: 3 }, { lx: 1.02, ly: 2, lz: 3 }));
 });

@@ -59,3 +59,29 @@ export function aabbCenterSize(box: AabbLike): {
     size: [Math.max(0, x1 - x0), Math.max(0, y1 - y0), Math.max(0, z1 - z0)],
   };
 }
+
+/** The stored equipment dims (lx/ly/lz) that correspond to a measured CAD AABB
+ * **in the preview's view space** — the EXACT inverse of the nominal branch of
+ * `equipmentDisplayBox`, so the numeric fields always equal the drawn box's
+ * extents.
+ *
+ * The preview renders with the swap (model x,y,z → view x,z,y), so:
+ *   - lx = view-X size  (= model X)
+ *   - lz = view-Y size  (= model Z, the height)
+ *   - ly = view-Z size  (= model Y)
+ *
+ * Values are rounded (default 3 dp / mm) so the fields aren't noisy. */
+export function bboxFromViewAabb(box: AabbLike, decimals = 3): EquipmentBbox {
+  const { size } = aabbCenterSize(box);
+  const f = 10 ** decimals;
+  const r = (v: number) => Math.round(v * f) / f;
+  return { lx: r(size[0]), ly: r(size[2]), lz: r(size[1]) };
+}
+
+/** Whether two bboxes agree to `decimals` places (guards the CAD-measure write
+ * against re-writing identical values / a feedback loop). */
+export function bboxEquals(a: EquipmentBbox, b: EquipmentBbox, decimals = 3): boolean {
+  const f = 10 ** decimals;
+  const r = (v: number) => Math.round(v * f);
+  return r(a.lx) === r(b.lx) && r(a.ly) === r(b.ly) && r(a.lz) === r(b.lz);
+}

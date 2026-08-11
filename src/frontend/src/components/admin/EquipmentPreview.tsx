@@ -11,6 +11,8 @@ import {portColorInt} from "@/utils/portColor";
 import {
     aabbCenterSize,
     aabbCorners,
+    bboxEquals,
+    bboxFromViewAabb,
     equipmentDisplayBox,
     type AabbLike,
 } from "@/utils/cellbuilder/equipmentPreviewBox";
@@ -461,6 +463,21 @@ const EquipmentPreview: React.FC<{
             cur.cadVerts = verts;
             drawBox(cur); // fit the wireframe box to the CAD's real AABB
             fitToContent(cur); // the CAD changes the extent — reframe on it
+            // Resync the stored dims to the CAD: write the measured AABB back into
+            // doc.bbox (same view→lx/ly/lz mapping the box is drawn from) so the
+            // numeric fields match the wireframe and Save persists the real
+            // footprint. Runs ONCE per CAD load (this effect's deps are
+            // scope/previewKey); the resulting doc change only re-runs the [doc]
+            // effect, which draws the box from the CAD AABB (not doc.bbox) and
+            // never measures/writes — so there is no feedback loop. The equality
+            // guard skips a no-op write (and its dirty flag) when already in sync.
+            const aabb = measuredCadAabb(cur);
+            if (aabb) {
+                const next = bboxFromViewAabb(aabb);
+                if (!bboxEquals(next, docRef.current.bbox)) {
+                    useEquipmentCatalogStore.getState().setEquipmentDoc({bbox: next});
+                }
+            }
         });
         return () => {
             cancelled = true;
