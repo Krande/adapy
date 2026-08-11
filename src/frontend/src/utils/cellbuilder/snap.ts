@@ -39,6 +39,31 @@ export function boxCorners(box: CellBox): Vec3[] {
     return out;
 }
 
+/** The axis-aligned box (min-corner origin + size) spanning [min, max]. A
+ * negative span (max < min on any axis) clamps that size to 0 rather than
+ * emitting an inverted box. */
+export function boundsToBox(min: Vec3, max: Vec3): CellBox {
+    return {
+        origin: [min[0], min[1], min[2]],
+        size: [Math.max(0, max[0] - min[0]), Math.max(0, max[1] - min[1]), Math.max(0, max[2] - min[2])],
+    };
+}
+
+/**
+ * The box to draw + interact with for an equipment cell. When a CAD mesh is
+ * loaded for the equipment ("Use CAD models" on), `cadBounds` carries that
+ * mesh's model-space AABB and the editable box is fitted to the real geometry
+ * so it wraps the CAD (and its corners become correct port-snap targets).
+ * With no CAD mesh (boxes-only topology view, `cadBounds` null) the box falls
+ * back to the cell's declared LX/LY/LZ. Pure companion to the controller's
+ * scene lookup; a copy of the cell's own box is returned so callers can mutate
+ * freely.
+ */
+export function cadDisplayBox(cell: CellBox, cadBounds: {min: Vec3; max: Vec3} | null): CellBox {
+    if (!cadBounds) return {origin: [...cell.origin], size: [...cell.size]};
+    return boundsToBox(cadBounds.min, cadBounds.max);
+}
+
 function norm(v: Vec3): number {
     return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }

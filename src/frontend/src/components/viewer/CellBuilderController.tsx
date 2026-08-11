@@ -16,6 +16,7 @@ import {hexToInt, portColorInt, uniquePortColorHexByIndex} from "@/utils/portCol
 import {
     applyFaceOffset,
     BOX_FACE_SIDES,
+    cadDisplayBox,
     edgeEndpoints,
     edgeHitOnFace,
     extrudeBox,
@@ -653,7 +654,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                     meshById.set(cell.id, mesh);
                     continue;
                 }
-                const geo = new THREE.BoxGeometry(...cell.size);
+                // A CAD-backed equipment fits its editable box to the loaded CAD
+                // mesh's bounds (so the box wraps the real geometry, not the
+                // declared LX/LY/LZ); everything else uses its declared box.
+                const {box: dbox, cadFitted} = displayBoxForCell(cell);
+                const geo = new THREE.BoxGeometry(...dbox.size);
                 const color = colorForKind(cell.kind);
                 // One material per BoxGeometry group (+X,-X,+Y,-Y,+Z,-Z) so a
                 // single face can highlight on hover/selection.
@@ -668,15 +673,17 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 );
                 const mesh = new THREE.Mesh(geo, mats);
                 mesh.position.set(
-                    cell.origin[0] + cell.size[0] / 2,
-                    cell.origin[1] + cell.size[1] / 2,
-                    cell.origin[2] + cell.size[2] / 2,
+                    dbox.origin[0] + dbox.size[0] / 2,
+                    dbox.origin[1] + dbox.size[1] / 2,
+                    dbox.origin[2] + dbox.size[2] / 2,
                 );
                 // Equipment can carry a rotation (gizmo / manual panel). Spin the
                 // box preview about the footprint centre so it matches the
-                // compiled body; the box-centre orbits that pivot.
+                // compiled body; the box-centre orbits that pivot. A CAD-fitted
+                // box already wraps the placed (rotated) geometry — its AABB has
+                // the rotation baked in — so it stays axis-aligned here.
                 const rot = cell.rotation;
-                if (cell.kind === "equipment" && rot && (rot[0] || rot[1] || rot[2])) {
+                if (!cadFitted && cell.kind === "equipment" && rot && (rot[0] || rot[1] || rot[2])) {
                     const euler = new THREE.Euler(
                         THREE.MathUtils.degToRad(rot[0]),
                         THREE.MathUtils.degToRad(rot[1]),
@@ -1292,14 +1299,54 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // named for this equipment; downsampled so a dense asset can't stall the
     // per-move snap search. Boxes-only topology view yields none (bbox corners
     // remain the snap set).
-    const collectCadVerts = (cell: BuilderCell): Vec3[] => {
-        const st = useCellBuilderStore.getState();
-        if (!st.equipmentCad) return [];
+    // The loaded scene mesh whose name matches this equipment cell (the CAD the
+    // compiler spliced in), or null. The compiler emits one mesh per equipment
+    // named for the cell (see collectCadVerts / _cad_transform).
+    const findCadMesh = (cell: BuilderCell): THREE.Mesh | null => {
         let mesh: THREE.Mesh | null = null;
         (sceneRef.current ?? scene).traverse((o) => {
             if (mesh) return;
             if ((o as THREE.Mesh).isMesh && o.name && o.name === cell.name) mesh = o as THREE.Mesh;
         });
+        return mesh;
+    };
+
+    // The model-space AABB of the CAD mesh loaded for this equipment cell, or
+    // null when "Use CAD models" is off / no matching mesh is in the scene.
+    // Rotation is already baked into the compiled CAD, so this axis-aligned box
+    // wraps the placed (rotated) geometry directly. offsetVec() unmaps the
+    // viewer's model translation so the result is in the same cell-origin frame
+    // as cell.origin/size.
+    const cadBoundsForCell = (cell: BuilderCell): {min: Vec3; max: Vec3} | null => {
+        const st = useCellBuilderStore.getState();
+        if (cell.kind !== "equipment" || !st.equipmentCad) return null;
+        const mesh = findCadMesh(cell);
+        if (!mesh) return null;
+        // Refresh the world matrix chain so a just-loaded mesh reports correct
+        // bounds (expandByObject only refreshes the object's own matrix).
+        mesh.updateWorldMatrix(true, false);
+        const b = new THREE.Box3().setFromObject(mesh, true);
+        if (b.isEmpty()) return null;
+        const off = offsetVec();
+        return {
+            min: [b.min.x - off.x, b.min.y - off.y, b.min.z - off.z],
+            max: [b.max.x - off.x, b.max.y - off.y, b.max.z - off.z],
+        };
+    };
+
+    // The box to draw + interact with for a cell: an equipment's CAD-fitted AABB
+    // when a linked CAD mesh is loaded, else the declared LX/LY/LZ box. `cadFitted`
+    // flags the CAD case so callers can skip re-applying the cell rotation (it is
+    // already baked into the CAD bounds).
+    const displayBoxForCell = (cell: BuilderCell): {box: CellBox; cadFitted: boolean} => {
+        const bounds = cadBoundsForCell(cell);
+        return {box: cadDisplayBox(cell, bounds), cadFitted: bounds !== null};
+    };
+
+    const collectCadVerts = (cell: BuilderCell): Vec3[] => {
+        const st = useCellBuilderStore.getState();
+        if (!st.equipmentCad) return [];
+        const mesh = findCadMesh(cell);
         if (!mesh) return [];
         const foundMesh: THREE.Mesh = mesh;
         const posAttr = (foundMesh.geometry as THREE.BufferGeometry).getAttribute("position");
@@ -1328,7 +1375,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         const v = new THREE.Vector3();
         let best: Vec3 | null = null;
         let bestD = SNAP_PX;
-        for (const t of portSnapTargets({origin: cell.origin, size: cell.size}, collectCadVerts(cell))) {
+        for (const t of portSnapTargets(displayBoxForCell(cell).box, collectCadVerts(cell))) {
             v.set(t[0] + off.x, t[1] + off.y, t[2] + off.z).project(cam);
             if (v.z < -1 || v.z > 1) continue;
             const sx = (v.x * 0.5 + 0.5) * rect.width;
@@ -3399,7 +3446,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         // cell they target vanished (e.g. deleted / undone underneath them).
         if (equipEntry && (!s.active || !s.cells[equipEntry.hostId])) endEquipEntry();
         if (openEntry && (!s.active || !s.cells[openEntry.cellId])) endOpenEntry();
-        if (s.cells !== prev.cells || s.active !== prev.active) rebuild();
+        // equipmentCad flips whether equipment boxes fit their CAD or fall back
+        // to LX/LY/LZ, so refit on toggle.
+        if (s.cells !== prev.cells || s.active !== prev.active || s.equipmentCad !== prev.equipmentCad) rebuild();
         else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
             refreshFaceStyles();
         // Keep the keyboard "active loft station" in step with the selection:
@@ -3470,6 +3519,14 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     });
     const unsubModel = useModelState.subscribe((s, prev) => {
         if (s.translation !== prev.translation) syncOffset();
+        // A model appearing/disappearing (e.g. the compiled CAD GLB overlay)
+        // changes which equipment meshes are in the scene; refit CAD-backed
+        // equipment boxes to the newly available geometry. Deferred a frame so
+        // the freshly added meshes' world matrices are settled before we read
+        // their bounds.
+        if (s.loadedSourceNames !== prev.loadedSourceNames && useCellBuilderStore.getState().equipmentCad) {
+            requestAnimationFrame(() => rebuild());
+        }
     });
 
     return () => {

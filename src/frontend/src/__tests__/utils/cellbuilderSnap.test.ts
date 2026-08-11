@@ -3,8 +3,10 @@ import {test} from "node:test";
 
 import {
     applyFaceOffset,
+    boundsToBox,
     BOX_FACE_SIDES,
     boxCorners,
+    cadDisplayBox,
     cycleFaceIndex,
     edgeEndpoints,
     edgeHitOnFace,
@@ -258,4 +260,34 @@ test("neighbourFaceInDirection maps the +X face's in-plane neighbours (Y up/down
     // +X face (0): in-plane axes Y,Z. Y projects to screen-up; Z is edge-on.
     assert.equal(neighbourFaceInDirection(0, "up", R, U), 2); // +Y
     assert.equal(neighbourFaceInDirection(0, "down", R, U), 3); // -Y
+});
+
+test("boundsToBox spans min→max as origin+size", () => {
+    const box = boundsToBox([1, 2, 3], [4, 6, 9]);
+    assert.deepEqual(box.origin, [1, 2, 3]);
+    assert.deepEqual(box.size, [3, 4, 6]);
+});
+
+test("boundsToBox clamps an inverted span to zero size", () => {
+    const box = boundsToBox([0, 0, 0], [-1, 5, 5]);
+    assert.deepEqual(box.size, [0, 5, 5]);
+});
+
+test("cadDisplayBox fits the CAD bounds when present, ignoring the declared box", () => {
+    const cell = {origin: [10, 10, 0] as [number, number, number], size: [2, 2, 2] as [number, number, number]};
+    // The CAD extends further than the declared 2×2×2 box and shares the
+    // min corner (the compiler seats the CAD min corner on the cell origin).
+    const box = cadDisplayBox(cell, {min: [10, 10, 0], max: [13, 11.5, 5]});
+    assert.deepEqual(box.origin, [10, 10, 0]);
+    assert.deepEqual(box.size, [3, 1.5, 5]);
+});
+
+test("cadDisplayBox falls back to a copy of the declared box with no CAD", () => {
+    const cell = {origin: [1, 2, 3] as [number, number, number], size: [4, 5, 6] as [number, number, number]};
+    const box = cadDisplayBox(cell, null);
+    assert.deepEqual(box.origin, [1, 2, 3]);
+    assert.deepEqual(box.size, [4, 5, 6]);
+    // A copy — mutating the result must not touch the cell.
+    box.origin[0] = 99;
+    assert.equal(cell.origin[0], 1);
 });
