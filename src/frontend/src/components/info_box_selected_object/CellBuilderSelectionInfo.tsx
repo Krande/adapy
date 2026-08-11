@@ -7,6 +7,16 @@ import {
 } from "@/state/cellBuilderStore";
 import { axisLabel, BOX_FACE_SIDES } from "@/utils/cellbuilder/snap";
 import { bandFaceIds, type LoftBand } from "@/utils/cellbuilder/loft";
+import {
+  addMetadataKey,
+  asMetaObject,
+  formatMetadataValue,
+  metaOrNull,
+  removeMetadataKey,
+  renameMetadataKey,
+  setMetadataValue,
+  type MetaMap,
+} from "@/utils/cellbuilder/metadata";
 
 // The selected cell/equipment detail shown in the Selected Object Info panel:
 // gizmo toggles, the geometry/parameter editors mirrored from the ada.topology
@@ -539,45 +549,31 @@ const LoftInfo: React.FC<{
   );
 };
 
-// Coerce a raw METADATA value (unknown, possibly absent) to an object map.
-const asMetaObject = (raw: unknown): Record<string, unknown> =>
-  raw && typeof raw === "object" && !Array.isArray(raw)
-    ? (raw as Record<string, unknown>)
-    : {};
-
 // User-defined extended metadata editor — free-form key/value rows the compiler
 // ignores but the DB round-trips, so a viewer/integration can attach its own
 // config to any topology instance. Generic over the backing store: a cell's
 // params.METADATA or a loft member's METADATA (``onCommit`` persists the next
-// map, or null to clear).
+// map, or null to clear). All map math lives in the pure `metadata` helpers;
+// this component only wires the rows to them.
 const MetadataFields: React.FC<{
-  meta: Record<string, unknown>;
-  onCommit: (next: Record<string, unknown> | null) => void;
+  meta: MetaMap;
+  onCommit: (next: MetaMap | null) => void;
   idPrefix: string;
 }> = ({ meta, onCommit, idPrefix }) => {
   const [open, setOpen] = React.useState(false);
   const entries = Object.entries(meta);
+  // Commit a next map, but skip a no-op (helpers return the SAME ref when
+  // nothing changed) so an identity edit doesn't push an undo step / mark dirty.
   // Empty -> null so the caller drops the key entirely (no empty METADATA={}).
-  const commit = (next: Record<string, unknown>) =>
-    onCommit(Object.keys(next).length ? next : null);
-  const renameKey = (oldKey: string, newKey: string) => {
-    if (!newKey || newKey === oldKey || newKey in meta) return;
-    const next: Record<string, unknown> = {};
-    for (const [k, v] of entries) next[k === oldKey ? newKey : k] = v;
-    commit(next);
+  const push = (next: MetaMap) => {
+    if (next !== meta) onCommit(metaOrNull(next));
   };
-  const setValue = (key: string, value: string) => commit({ ...meta, [key]: value });
-  const remove = (key: string) => {
-    const next = { ...meta };
-    delete next[key];
-    commit(next);
-  };
-  const add = () => {
-    let k = "key";
-    let i = 1;
-    while (k in meta) k = `key${i++}`;
-    commit({ ...meta, [k]: "" });
-  };
+  const renameKey = (oldKey: string, newKey: string) =>
+    push(renameMetadataKey(meta, oldKey, newKey));
+  const setValue = (key: string, value: string) =>
+    push(setMetadataValue(meta, key, value));
+  const remove = (key: string) => push(removeMetadataKey(meta, key));
+  const add = () => push(addMetadataKey(meta));
   return (
     <div className="border-t border-gray-600/60 pt-1">
       <button
@@ -610,9 +606,17 @@ const MetadataFields: React.FC<{
               />
               <input
                 className={`${inputCls} flex-1 min-w-0`}
-                value={typeof v === "string" ? v : JSON.stringify(v)}
-                onChange={(e) => setValue(k, e.target.value)}
-                title="Value"
+                // Uncontrolled + parse-on-blur: numbers/bools/JSON are only
+                // coerced once the field is committed, so typing "5." or "-"
+                // isn't clobbered mid-keystroke. `key` includes the formatted
+                // value so an external change (undo/redo) reseeds the field.
+                defaultValue={formatMetadataValue(v)}
+                key={idPrefix + "|v|" + k + "|" + formatMetadataValue(v)}
+                onBlur={(e) => setValue(k, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+                title="Value — numbers, true/false and JSON are stored typed; anything else stays text"
               />
               <button
                 className="px-1 rounded-sm text-gray-400 hover:bg-gray-600 hover:text-white"
