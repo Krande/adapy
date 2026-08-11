@@ -1,6 +1,7 @@
 import React from "react";
 
 import { PositionedMenu } from "@/components/common/PositionedMenu";
+import DetailingPanel from "@/components/viewer/DetailingPanel";
 import {
   needsPreviewCompile,
   useCellBuilderStore,
@@ -627,7 +628,7 @@ const ConnectionAdder: React.FC<{
   );
 };
 
-type PanelTab = "build" | "equipment" | "systems" | "view" | "tools";
+type PanelTab = "build" | "equipment" | "systems" | "detailing" | "view" | "tools";
 
 const CellBuilderPanel: React.FC = () => {
   const s = useCellBuilderStore();
@@ -657,6 +658,15 @@ const CellBuilderPanel: React.FC = () => {
     else if (tab === "systems")
       void useEquipmentCatalogStore.getState().refreshSystems();
   }, [tab]);
+
+  // The Detailing tab only exists while a detailing engine is selected — if it is
+  // turned back to "none" while that tab is open, fall back to Build so the body
+  // isn't left showing nothing.
+  const detailingSelected = s.selectedDetailing !== "none";
+  React.useEffect(() => {
+    if (!detailingSelected)
+      setTab((t) => (t === "detailing" ? "build" : t));
+  }, [detailingSelected]);
 
   // Mobile bottom-sheet: the grab handle drags the sheet taller/shorter and a
   // flick down dismisses it. Only the phone layout is a sheet (the handle is
@@ -847,6 +857,7 @@ const CellBuilderPanel: React.FC = () => {
         {tabBtn("build", "Build", cellCount)}
         {tabBtn("equipment", "Equipment")}
         {tabBtn("systems", "Systems", systemCount)}
+        {s.selectedDetailing !== "none" && tabBtn("detailing", "Detailing")}
         {tabBtn("view", "View")}
         {tabBtn("tools", "Tools")}
       </div>
@@ -1451,6 +1462,11 @@ const CellBuilderPanel: React.FC = () => {
             </div>
             <SystemsTab />
           </div>
+        </div>
+
+        {/* DETAILING — data-driven from the selected engine's joint_types */}
+        <div className={tab === "detailing" ? "block" : "hidden"}>
+          <DetailingPanel />
         </div>
 
         {/* VIEW */}

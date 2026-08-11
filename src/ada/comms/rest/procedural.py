@@ -76,26 +76,45 @@ def _detailing_suffix(detailing: str | None) -> str:
     return f".det-{safe}"
 
 
+def _detailing_options_fragment(detailing: str | None, detailing_options: dict | None) -> str:
+    """Cache-key fragment distinguishing one set of per-joint detailing OPTIONS
+    from another. Empty (no fragment) when no detailing is selected or the option
+    map is empty, so the default (no-options) key is byte-identical to before this
+    knob existed. Otherwise a short, stable hash of the normalized option map — a
+    knob change (weld leg, plate thickness, overhang, clearance, a joint toggle)
+    yields a DISTINCT key so the changed detailing never serves stale cached bytes."""
+    if not detailing or detailing == "none" or not detailing_options:
+        return ""
+    import hashlib
+    import json
+
+    payload = json.dumps(detailing_options, sort_keys=True, separators=(",", ":"), default=str)
+    return "-o" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
+
+
 def procedural_detailing_glb_key(
     model_id: str,
     revision: int,
     engine: str | None = None,
     detailing: str | None = None,
     lod: str = "sim",
+    detailing_options: dict | None = None,
 ) -> str:
     """Blob key for a compiled model revision with a DETAILING engine applied.
 
     Composes with the existing suffixes so all four ``lod`` x ``detailing``
     combinations cache independently:
-    ``_procedural/{id}/r{rev}{lod_suffix}{engine_suffix}{detailing_suffix}.glb``.
+    ``_procedural/{id}/r{rev}{lod_suffix}{engine_suffix}{detailing_suffix}{options_fragment}.glb``.
 
-    Because :func:`_detailing_suffix` returns ``""`` for ``None``/``"none"``, this
+    Because :func:`_detailing_suffix` returns ``""`` for ``None``/``"none"`` and
+    :func:`_detailing_options_fragment` returns ``""`` for an empty option map, this
     reduces EXACTLY to :func:`procedural_glb_key` (sim) / :func:`procedural_detail_glb_key`
     (detail) when no detailing is selected — the plain structural key, byte-for-byte."""
     lod_suffix = "_detail" if lod == "detail" else ""
     return (
         f"{PROCEDURAL_PREFIX}{model_id}/r{revision}{lod_suffix}"
-        f"{_engine_suffix(engine)}{_detailing_suffix(detailing)}.glb"
+        f"{_engine_suffix(engine)}{_detailing_suffix(detailing)}"
+        f"{_detailing_options_fragment(detailing, detailing_options)}.glb"
     )
 
 
@@ -133,7 +152,12 @@ def doc_content_hash(doc: dict) -> str:
 
 
 def procedural_preview_glb_key(
-    model_id: str, doc_hash: str, engine: str | None = None, lod: str = "sim", detailing: str | None = None
+    model_id: str,
+    doc_hash: str,
+    engine: str | None = None,
+    lod: str = "sim",
+    detailing: str | None = None,
+    detailing_options: dict | None = None,
 ) -> str:
     """Blob key for an EPHEMERAL preview compile — a build of the current,
     *uncommitted* document so the user can visualize edits before deciding to
@@ -146,7 +170,8 @@ def procedural_preview_glb_key(
     lod_suffix = "_detail" if lod == "detail" else ""
     return (
         f"{PROCEDURAL_PREFIX}{model_id}/preview/{doc_hash}{lod_suffix}"
-        f"{_engine_suffix(engine)}{_detailing_suffix(detailing)}.glb"
+        f"{_engine_suffix(engine)}{_detailing_suffix(detailing)}"
+        f"{_detailing_options_fragment(detailing, detailing_options)}.glb"
     )
 
 

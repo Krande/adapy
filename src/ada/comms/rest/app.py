@@ -3270,6 +3270,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return None
         return spec
 
+    def _parse_detailing_options(raw: str | None) -> dict:
+        """Parse the ``?detailing_options=<json>`` query param — the per-joint-type
+        option map ``{slug: {enabled, <field>: value}}`` the Detailing tab produced.
+        Malformed / non-object JSON is treated as no options (empty dict), so a bad
+        value degrades to the default detailing rather than failing the compile."""
+        if not raw:
+            return {}
+        import json
+
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
     @api.post("/scopes/{scope}/procedural-models/{model_id}/compile")
     async def api_procedural_compile(
         request: Request,
@@ -3303,6 +3318,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # stage). A COMPILE-time choice, not on the document. None/"none" adds NO
         # key suffix -> byte-identical to the plain structural key (backward-compat).
         detailing = (request.query_params.get("detailing") or "").strip() or None
+        # ``?detailing_options=<json>`` carries the per-joint-type option map the
+        # Detailing tab produced. Folded into the derived key (a knob change is a
+        # distinct cache entry) and passed to the worker's in-process detail().
+        # Ignored (no key effect) when no detailing engine is selected.
+        detailing_options = _parse_detailing_options(request.query_params.get("detailing_options")) if detailing else {}
 
         pool = _require_procedural_pool(request)
         row = await _get_procedural_in_scope(pool, model_id, scope_obj)
@@ -3315,7 +3335,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             engine = declared or None
             if engine == "adapy-default":
                 engine = None
-        derived_key = procedural_detailing_glb_key(row["id"], row["revision"], engine, detailing, lod)
+        derived_key = procedural_detailing_glb_key(
+            row["id"], row["revision"], engine, detailing, lod, detailing_options
+        )
 
         # Resolve the selected detailing engine. An EXTERNAL (Tier-B) engine
         # (inprocess=False, e.g. weld-gen) runs as a chained ``procedural_detail``
@@ -3386,6 +3408,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "engine": engine,
                     "detailing": detailing,
                     "detailing_entrypoint": det_spec.get("entrypoint"),
+                    "detailing_options": detailing_options,
                     "structural_ifc_key": structural_ifc_key,
                     "structural_sections_key": sections_key,
                 },
@@ -3414,6 +3437,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "lod": lod,
                 "engine": engine,
                 "detailing": detailing,
+                "detailing_options": detailing_options,
             },
             derived_key=derived_key,
             force_rebuild=force,
@@ -3452,6 +3476,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lod = "detail" if (request.query_params.get("lod") or "").strip().lower() == "detail" else "sim"
         engine = (request.query_params.get("engine") or "").strip() or None
         detailing = (request.query_params.get("detailing") or "").strip() or None
+        detailing_options = _parse_detailing_options(request.query_params.get("detailing_options")) if detailing else {}
 
         pool = _require_procedural_pool(request)
         row = await _get_procedural_in_scope(pool, model_id, scope_obj)
@@ -3465,7 +3490,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 engine = None
 
         doc_hash = doc_content_hash(normalized)
-        derived_key = procedural_preview_glb_key(row["id"], doc_hash, engine, lod, detailing)
+        derived_key = procedural_preview_glb_key(row["id"], doc_hash, engine, lod, detailing, detailing_options)
 
         if not force and await storage.exists(scope_obj, derived_key):
             return JSONResponse(
@@ -3494,6 +3519,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "lod": lod,
                 "engine": engine,
                 "detailing": detailing,
+                "detailing_options": detailing_options,
                 "preview_doc": normalized,
             },
             derived_key=derived_key,

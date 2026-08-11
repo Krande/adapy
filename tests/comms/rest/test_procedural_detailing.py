@@ -119,6 +119,25 @@ def test_builtin_detailing_specs_match_registry():
     assert slim == registry == {"none", "adapy-default"}
 
 
+def test_builtin_detailing_joint_type_fields_match_registry():
+    # Phase 3: the advertised joint_types (fields/defaults/ranges) drive the whole
+    # Detailing tab, so the slim rest fallback must mirror the registry BY VALUE —
+    # not just by slug — or the panel differs when served without a live worker.
+    from ada.comms.rest.catalog import builtin_detailing_engine_specs
+    from ada.topo_model import detailing_engine_specs
+
+    slim = {s["slug"]: s for s in builtin_detailing_engine_specs()}
+    registry = {s["slug"]: s for s in detailing_engine_specs()}
+    assert slim["adapy-default"]["joint_types"] == registry["adapy-default"]["joint_types"]
+    # And the fields carry the data-driven shape the panel renders from.
+    gusset = next(j for j in slim["adapy-default"]["joint_types"] if j["slug"] == "girder_gusset")
+    assert gusset["default_enabled"] is True
+    field_names = {f["name"] for f in gusset["fields"]}
+    assert {"weld_leg", "gusset_t"} <= field_names
+    for f in gusset["fields"]:
+        assert f["type"] in ("number", "bool", "enum")
+
+
 def test_seeded_detailing_specs_carry_routing_manifest():
     # The seeded EXTERNAL engines carry the entrypoint + capability the compile
     # endpoint routes the chained procedural_detail job on.
@@ -157,6 +176,38 @@ def test_detailing_key_gets_det_suffix():
 def test_preview_key_gains_det_fragment():
     assert procedural_preview_glb_key("m", "abc", None, "sim", None) == "_procedural/m/preview/abc.glb"
     assert procedural_preview_glb_key("m", "abc", None, "sim", "adapy-default") == "_procedural/m/preview/abc.det-adapy.glb"
+
+
+def test_detailing_options_change_yields_distinct_key():
+    # Phase 3: changing a per-joint option must produce a DISTINCT cache key so the
+    # changed detailing never serves stale bytes; empty options keep the plain key.
+    base = procedural_detailing_glb_key("m", 3, None, "adapy-default", "sim")
+    assert procedural_detailing_glb_key("m", 3, None, "adapy-default", "sim", {}) == base
+
+    k20 = procedural_detailing_glb_key(
+        "m", 3, None, "adapy-default", "sim", {"beam_column_endplate": {"plate_t": 20.0}}
+    )
+    k50 = procedural_detailing_glb_key(
+        "m", 3, None, "adapy-default", "sim", {"beam_column_endplate": {"plate_t": 50.0}}
+    )
+    assert k20 != base and k50 != base and k20 != k50
+    # Stable: the SAME options hash the same key (order-independent).
+    assert k20 == procedural_detailing_glb_key(
+        "m", 3, None, "adapy-default", "sim", {"beam_column_endplate": {"plate_t": 20.0}}
+    )
+    # The preview key folds options in the same way.
+    assert procedural_preview_glb_key(
+        "m", "abc", None, "sim", "adapy-default", {"beam_column_endplate": {"plate_t": 20.0}}
+    ) != procedural_preview_glb_key("m", "abc", None, "sim", "adapy-default")
+
+
+def test_detailing_options_never_leak_into_none_key():
+    # CRITICAL backward-compat: with no detailing selected the option map has NO
+    # effect on the key (byte-identical to the plain structural key).
+    for detailing in (None, "none"):
+        assert procedural_detailing_glb_key(
+            "m", 3, None, detailing, "sim", {"beam_column_endplate": {"plate_t": 20.0}}
+        ) == procedural_glb_key("m", 3, None)
 
 
 def test_structural_ifc_key():

@@ -152,3 +152,99 @@ def test_box_joint_bool_cuts_incoming_beams():
     with_cut = [b for b in box_beams if len(b.booleans) > 0]
     assert len(with_cut) == 14
     assert sum(len(b.booleans) for b in box_beams) == 24
+
+
+# ── Phase 3: per-joint option specs reach real geometry ──────────────
+
+
+def _endplate_thickness(a: ada.Assembly) -> float:
+    ep = next(
+        p
+        for p in a.get_by_name("Joints").get_all_physical_objects(by_type=ada.Plate)
+        if p.name.endswith("_endplate")
+    )
+    return float(ep.t)
+
+
+def test_nested_per_joint_option_alters_endplate_thickness():
+    # The Phase-3 nested per-joint option shape ({slug: {enabled, <field>}}) must
+    # reach the emitted geometry: the advertised end-plate thickness (mm) becomes
+    # the Plate's thickness (m). Only the endplate family is enabled to isolate it.
+    only_ep = {"girder_gusset": {"enabled": False}, "column_base_plate": {"enabled": False}}
+
+    thin = build_topo_model()
+    detail(thin, {**only_ep, "beam_column_endplate": {"enabled": True, "plate_t": 20.0}})
+    thick = build_topo_model()
+    detail(thick, {**only_ep, "beam_column_endplate": {"enabled": True, "plate_t": 50.0}})
+
+    assert _endplate_thickness(thin) == pytest.approx(0.020)
+    assert _endplate_thickness(thick) == pytest.approx(0.050)
+    assert _endplate_thickness(thick) > _endplate_thickness(thin)
+
+
+def test_base_plate_overhang_option_alters_plate_size():
+    # The base-plate overhang (mm) grows the emitted Plate. Larger overhang -> a
+    # larger footprint bounding box.
+    def bp_extent(overhang_mm: float) -> float:
+        a = build_topo_model()
+        detail(
+            a,
+            {
+                "girder_gusset": {"enabled": False},
+                "beam_column_endplate": {"enabled": False},
+                "column_base_plate": {"enabled": True, "overhang": overhang_mm},
+            },
+        )
+        bp = next(
+            p
+            for p in a.get_by_name("Joints").get_all_physical_objects(by_type=ada.Plate)
+            if p.name.endswith("_baseplate")
+        )
+        (x0, y0, _), (x1, y1, _) = bp.bbox().minmax
+        return max(x1 - x0, y1 - y0)
+
+    assert bp_extent(120.0) > bp_extent(20.0)
+
+
+def test_box_clearance_option_grows_the_cut():
+    # A larger box clash-cut clearance (mm) grows the PrimBox cut on the incoming
+    # box beam (bigger cut volume).
+    def cut_volume(clearance_mm: float) -> float:
+        a = build_topo_model(girder_sec=_BOX_GIRDER)
+        detail(
+            a,
+            {
+                "girder_gusset": {"enabled": False},
+                "beam_column_endplate": {"enabled": False},
+                "column_base_plate": {"enabled": False},
+                "box_to_box": {"enabled": True, "clearance": clearance_mm},
+            },
+        )
+        box_beams = [b for b in a.get_all_physical_objects(by_type=ada.Beam) if b.section.name == _BOX_GIRDER]
+        vol = 0.0
+        for b in box_beams:
+            for bl in b.booleans:
+                p1, p2 = bl.primitive.p1, bl.primitive.p2
+                vol += abs((p2[0] - p1[0]) * (p2[1] - p1[1]) * (p2[2] - p1[2]))
+        return vol
+
+    assert cut_volume(10.0) > cut_volume(0.0)
+
+
+def test_flat_and_nested_option_shapes_are_equivalent():
+    # Backward-compat: the historical FLAT toggle shape and the Phase-3 NESTED
+    # per-joint shape select the same joint families.
+    flat = build_topo_model()
+    detail(flat, {"girder_gusset": False, "beam_column_endplate": True, "column_base_plate": False})
+    nested = build_topo_model()
+    detail(
+        nested,
+        {
+            "girder_gusset": {"enabled": False},
+            "beam_column_endplate": {"enabled": True},
+            "column_base_plate": {"enabled": False},
+        },
+    )
+    assert len(list(flat.get_by_name("Joints").parts.values())) == len(
+        list(nested.get_by_name("Joints").parts.values())
+    )

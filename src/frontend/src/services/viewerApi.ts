@@ -1325,6 +1325,30 @@ export interface ProceduralEngineResolved {
  * fabrication-detail stage that adds connection joints AFTER the structural
  * compile. Built-in (`none` + `adapy-default`) ∪ worker-advertised. Selecting one
  * is a COMPILE-time choice (not part of the document); `none` = structural-only. */
+/** One generated control in a joint type's option form. `type` picks the input;
+ * length fields are advertised in millimetres (`unit: "mm"`). The Detailing tab
+ * renders these VERBATIM — nothing joint-specific is hardcoded frontend-side. */
+export interface DetailingFieldSpec {
+  name: string;
+  label?: string;
+  type: "number" | "bool" | "enum";
+  default: number | boolean | string;
+  min?: number;
+  max?: number;
+  options?: string[];
+  unit?: string;
+}
+
+/** An advertised joint type: a per-joint toggle (`default_enabled`) plus the
+ * generated option `fields`. The Detailing tab is built entirely from this. */
+export interface DetailingJointTypeSpec {
+  slug: string;
+  name: string;
+  description?: string;
+  default_enabled?: boolean;
+  fields?: DetailingFieldSpec[];
+}
+
 export interface DetailingEngineSummary {
   slug: string;
   name: string;
@@ -1332,10 +1356,17 @@ export interface DetailingEngineSummary {
   /** true for an in-process builtin (adapy-default) vs an external capability engine. */
   inprocess: boolean;
   worker_capability?: string | null;
-  /** Advertised per-joint-type option specs (drives the future Detailing tab). */
-  joint_types: { slug: string; name: string; description?: string }[];
+  /** Advertised per-joint-type option specs — drives the Detailing tab. */
+  joint_types: DetailingJointTypeSpec[];
   origin: TypeOrigin;
 }
+
+/** The per-joint-type option map the Detailing tab produces and the compile call
+ * ships as `detailing_options`: keyed by joint slug, each `{enabled, <field>: value}`. */
+export type DetailingOptionsPayload = Record<
+  string,
+  Record<string, number | boolean | string>
+>;
 
 export const viewerApi = {
   /** Direct URL for the addressable blob endpoint. Includes scope.
@@ -2097,6 +2128,7 @@ export const viewerApi = {
     lod: "sim" | "detail" = "sim",
     engine?: string | null,
     detailing?: string | null,
+    detailingOptions?: DetailingOptionsPayload | null,
   ): Promise<ProceduralCompileResponse> {
     // force=true recompiles even if the revision's GLB is cached — used when the
     // compiler engine changed but the document (the cache key) didn't.
@@ -2115,6 +2147,11 @@ export const viewerApi = {
     // Detailing is a compile-time choice; "none" (the default) adds no key
     // suffix server-side, so omit it to keep the bare (backward-compat) key.
     if (detailing && detailing !== "none") params.set("detailing", detailing);
+    // Per-joint detailing options ride as a JSON query param; folded into the
+    // server's cache key (a knob change is a distinct entry) and passed to
+    // detail(). Only meaningful when a detailing engine is selected.
+    if (detailing && detailing !== "none" && detailingOptions)
+      params.set("detailing_options", JSON.stringify(detailingOptions));
     const qs = params.toString() ? `?${params.toString()}` : "";
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile${qs}`,
@@ -2140,6 +2177,7 @@ export const viewerApi = {
       lod?: "sim" | "detail";
       force?: boolean;
       detailing?: string | null;
+      detailingOptions?: DetailingOptionsPayload | null;
     },
   ): Promise<ProceduralCompileResponse> {
     const params = new URLSearchParams();
@@ -2148,6 +2186,8 @@ export const viewerApi = {
     if (opts?.engine) params.set("engine", opts.engine);
     if (opts?.detailing && opts.detailing !== "none")
       params.set("detailing", opts.detailing);
+    if (opts?.detailing && opts.detailing !== "none" && opts.detailingOptions)
+      params.set("detailing_options", JSON.stringify(opts.detailingOptions));
     const qs = params.toString() ? `?${params.toString()}` : "";
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/compile-preview${qs}`,

@@ -170,11 +170,50 @@ _DETAILING_ENGINES: tuple[dict, ...] = (
         "description": "Built-in adapy detailing: girder–girder gusset, beam–column end plate and column base-plate joints.",
         "inprocess": True,
         "worker_capability": None,
+        # Kept BY VALUE in lock-step with ``ada.topo_model.detailing_catalog``'s
+        # ``ADAPY_DEFAULT_JOINT_TYPES`` (this slim image must not import ``ada``);
+        # ``tests/comms/rest/test_procedural_detailing`` asserts the two match.
         "joint_types": [
-            {"slug": "girder_gusset", "name": "Girder–girder gusset"},
-            {"slug": "beam_column_endplate", "name": "Beam–column end plate"},
-            {"slug": "column_base_plate", "name": "Column base plate"},
-            {"slug": "box_to_box", "name": "Box-to-box clash cut"},
+            {
+                "slug": "girder_gusset",
+                "name": "Girder–girder gusset",
+                "description": "Gusset plate + fillet weld beads at each I-girder to I-girder intersection.",
+                "default_enabled": True,
+                "fields": [
+                    {"name": "weld_leg", "label": "Weld leg", "type": "number", "default": 6.0, "min": 3.0, "max": 20.0, "unit": "mm"},
+                    {"name": "gusset_t", "label": "Gusset thickness", "type": "number", "default": 10.0, "min": 5.0, "max": 40.0, "unit": "mm"},
+                ],
+            },
+            {
+                "slug": "beam_column_endplate",
+                "name": "Beam–column end plate",
+                "description": "End plate + fillet weld (bolts metadata-first) where a girder frames into a column.",
+                "default_enabled": True,
+                "fields": [
+                    {"name": "plate_t", "label": "End-plate thickness", "type": "number", "default": 20.0, "min": 8.0, "max": 60.0, "unit": "mm"},
+                    {"name": "weld_leg", "label": "Weld leg", "type": "number", "default": 6.0, "min": 3.0, "max": 20.0, "unit": "mm"},
+                    {"name": "bolt", "label": "Bolt size", "type": "enum", "default": "M20", "options": ["M16", "M20", "M24", "M30"]},
+                ],
+            },
+            {
+                "slug": "column_base_plate",
+                "name": "Column base plate",
+                "description": "Base plate + fillet welds (anchor bolts metadata-first) at each column footing.",
+                "default_enabled": True,
+                "fields": [
+                    {"name": "overhang", "label": "Overhang", "type": "number", "default": 50.0, "min": 0.0, "max": 200.0, "unit": "mm"},
+                    {"name": "weld_leg", "label": "Weld leg", "type": "number", "default": 6.0, "min": 3.0, "max": 20.0, "unit": "mm"},
+                ],
+            },
+            {
+                "slug": "box_to_box",
+                "name": "Box-to-box clash cut",
+                "description": "Boolean-cut the incoming box beam with the landing box member so they no longer clash (no weld/plate; opt-in).",
+                "default_enabled": False,
+                "fields": [
+                    {"name": "clearance", "label": "Cut clearance", "type": "number", "default": 2.0, "min": 0.0, "max": 20.0, "unit": "mm"},
+                ],
+            },
         ],
     },
 )
