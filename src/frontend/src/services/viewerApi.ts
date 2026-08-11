@@ -1157,6 +1157,9 @@ export interface ProceduralTypeOption {
   origin: TypeOrigin;
   id?: string; // present for catalog-origin entries
   ports?: TypePortSummary[];
+  /** Whether a CAD asset is linked to this type (catalog origin only) — gates
+   * the selected-object "Show as CAD" toggle. */
+  has_cad?: boolean;
 }
 
 /** A system type offered by the cellbuilder's systems inspector. */

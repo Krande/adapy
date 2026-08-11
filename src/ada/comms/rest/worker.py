@@ -1826,10 +1826,35 @@ async def _run_procedural_import_xlsx(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+_MESH_EXTS = (".glb", ".gltf", ".stl", ".obj")
+
+
+def _mesh_scene_to_zup(scene, ext: str):
+    """Re-orient an externally authored mesh asset to adapy's native Z-up frame.
+
+    Mesh formats (GLB/glTF per the glTF spec, and STL/OBJ from graphics tools)
+    are authored **Y-up**, whereas every ada reader (STEP/IFC/SAT/XML) and the
+    whole adapy pipeline — compiler, main viewer, ``_load_cad_mesh`` splice — is
+    **Z-up**. trimesh does NOT re-orient on load (it returns the file's raw
+    axes), so a Y-up upload keeps its height on Y. Rotate +90° about X so the
+    asset's vertical (Y) maps to Z (height); the two horizontals (old X, old Z)
+    become X and Y. This makes the inferred ``lz`` the true height for *both*
+    branches and yields a Z-up preview GLB that renders correctly in the Z-up
+    main viewer as well as the catalogue preview."""
+    if ext.lower() in _MESH_EXTS:
+        import numpy as _np
+        import trimesh as _tm
+
+        scene.apply_transform(_tm.transformations.rotation_matrix(_np.pi / 2.0, [1, 0, 0]))
+    return scene
+
+
 def _infer_equipment_geometry(data: bytes, ext: str) -> tuple[dict, bytes]:
     """Read a CAD/mesh asset, returning its axis-aligned bounding-box extents
-    ``{lx, ly, lz}`` (in metres) and a preview GLB for the sidecar viewer. Mesh
-    formats load via trimesh; CAD formats via the matching ada reader."""
+    ``{lx, ly, lz}`` (in metres, **Z-up** so ``lz`` is the height) and a Z-up
+    preview GLB for the sidecar viewer. Mesh formats load via trimesh (and are
+    re-oriented Y-up→Z-up, see :func:`_mesh_scene_to_zup`); CAD formats via the
+    matching ada reader (already Z-up)."""
     import pathlib as _pl
     import tempfile as _tf
 
@@ -1837,12 +1862,15 @@ def _infer_equipment_geometry(data: bytes, ext: str) -> tuple[dict, bytes]:
     with _tf.TemporaryDirectory(prefix="eqbbox_") as tmp:
         src = _pl.Path(tmp) / f"source{ext}"
         src.write_bytes(data)
-        if ext in (".glb", ".gltf", ".stl", ".obj"):
+        if ext in _MESH_EXTS:
             import trimesh
 
             scene = trimesh.load(src, force="scene")
+            # Normalise to Z-up before measuring/exporting so lz == the CAD's
+            # true vertical extent and the preview GLB matches the ada branch.
+            scene = _mesh_scene_to_zup(scene, ext)
             bounds = scene.bounds
-            preview = data if ext in (".glb", ".gltf") else scene.export(file_type="glb")
+            preview = scene.export(file_type="glb")
         else:
             import ada
 
@@ -1882,8 +1910,11 @@ def _load_cad_mesh(data: bytes, ext: str):
     with _tf.TemporaryDirectory(prefix="eqcad_") as tmp:
         src = _pl.Path(tmp) / f"source{ext}"
         src.write_bytes(data)
-        if ext in (".glb", ".gltf", ".stl", ".obj"):
+        if ext in _MESH_EXTS:
             scene = trimesh.load(src, force="scene")
+            # Mesh uploads are Y-up; the compiler splices into a Z-up model, so
+            # re-orient to match the bbox inference and the ada readers.
+            scene = _mesh_scene_to_zup(scene, ext)
         else:
             import ada
 

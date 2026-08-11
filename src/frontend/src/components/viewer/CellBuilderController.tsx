@@ -4,10 +4,14 @@ import {LineSegments2} from "three/examples/jsm/lines/LineSegments2";
 import {LineSegmentsGeometry} from "three/examples/jsm/lines/LineSegmentsGeometry";
 import {LineMaterial} from "three/examples/jsm/lines/LineMaterial";
 import {TransformControls} from "three/examples/jsm/controls/TransformControls";
+import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
+import {ungzip} from "pako";
 
 import {cameraRef, controlsRef, rendererRef, sceneRef} from "@/state/refs";
 import {portSnapTargets, portsForEquipment} from "@/utils/cellbuilder/ports";
 import {requestRender} from "@/state/perfStore";
+import {viewerApi} from "@/services/viewerApi";
+import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
 import {bandFaceIds, stationRingPoints} from "@/utils/cellbuilder/loft";
@@ -261,6 +265,20 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     // compiled structure.
     const portsGroup = new THREE.Group();
     container.add(portsGroup);
+
+    // "Show as CAD" per-object previews: the equipment type's preview GLB seated
+    // at the cell placement, replacing that cell's placeholder box. Its own
+    // subgroup (inherits the container's model offset). `cadPreviewCache` holds a
+    // parsed prototype per type id (clones share its geometry, so clones are
+    // removed but NOT disposed — only the cache prototypes are freed at cleanup);
+    // `cadPreviewShown` tracks which cells currently render CAD so their box is
+    // hidden.
+    const cadPreviewGroup = new THREE.Group();
+    cadPreviewGroup.name = "__cad_preview__";
+    container.add(cadPreviewGroup);
+    const cadPreviewCache = new Map<string, THREE.Group | "loading" | "error">();
+    const cadPreviewShown = new Set<string>();
+
     // Shared unit-sphere for the nozzle-position markers (scaled per port);
     // per-port materials carry the port colour. Freed once at cleanup.
     const portMarkerGeom = new THREE.SphereGeometry(1, 12, 8);
@@ -703,8 +721,133 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     const applyCellVisibility = () => {
         const hidden = useCellBuilderStore.getState().hiddenCellIds;
         for (const [cellId, mesh] of meshById) {
-            mesh.visible = !hidden.includes(cellId);
+            // A cell shown as CAD hides its placeholder box (the CAD stands in).
+            mesh.visible = !hidden.includes(cellId) && !cadPreviewShown.has(cellId);
         }
+    };
+
+    // ── "Show as CAD" per-object previews ─────────────────────────────
+    const previewScope = (): string => {
+        const s = useScopeStore.getState().current;
+        return s ? scopeUrlPart(s) : "user:me";
+    };
+
+    // The catalog type id for an equipment cell (needed to fetch its preview
+    // GLB), resolved by slug then name like portsForEquipment. Built-in code
+    // archetypes have no id (and no CAD), so those yield null.
+    const cadTypeIdForCell = (cell: BuilderCell): string | null => {
+        if (cell.kind !== "equipment" || !cell.equipmentType) return null;
+        const types = useCellBuilderStore.getState().equipmentTypes;
+        const key = cell.equipmentType.toLowerCase();
+        const t =
+            types.find((o) => o.slug.toLowerCase() === key) ?? types.find((o) => o.name.toLowerCase() === key);
+        return t?.id ?? null;
+    };
+
+    // Parse an equipment preview GLB blob into a group (gzip-sniffed, like the
+    // catalogue preview + the result loader). The preview GLB is Z-up native, so
+    // it drops straight into the Z-up main scene with no re-orientation.
+    const parseCadGlb = async (scope: string, key: string): Promise<THREE.Group | null> => {
+        const buf = await viewerApi.getBlob(scope, key);
+        let bytes: Uint8Array<ArrayBufferLike> = new Uint8Array(buf);
+        if (bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) bytes = ungzip(bytes);
+        const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+        return await new Promise((resolve) => {
+            new GLTFLoader().parse(
+                ab,
+                "",
+                (gltf) => resolve(gltf.scene),
+                () => resolve(null),
+            );
+        });
+    };
+
+    // Lazily fetch + cache a type's preview GLB, then re-run the CAD rebuild.
+    const ensureCadLoaded = (typeId: string) => {
+        if (cadPreviewCache.has(typeId)) return;
+        cadPreviewCache.set(typeId, "loading");
+        void (async () => {
+            try {
+                const scope = previewScope();
+                const detail = await viewerApi.getEquipmentType(scope, typeId);
+                if (!detail.preview_glb_key) {
+                    cadPreviewCache.set(typeId, "error");
+                } else {
+                    const g = await parseCadGlb(scope, detail.preview_glb_key);
+                    cadPreviewCache.set(typeId, g ?? "error");
+                }
+            } catch {
+                cadPreviewCache.set(typeId, "error");
+            }
+            rebuildCadPreviews();
+        })();
+    };
+
+    // Clone the cached prototype and seat its min corner at the cell origin (the
+    // compiler's "min corner → cell corner" convention), then spin it about the
+    // footprint centre to match the cell rotation — mirroring the box placement.
+    const placeCadPreview = (proto: THREE.Group, cell: BuilderCell): THREE.Object3D | null => {
+        const g = proto.clone(true);
+        g.position.set(0, 0, 0);
+        g.rotation.set(0, 0, 0);
+        g.updateWorldMatrix(true, true);
+        const b = new THREE.Box3().setFromObject(g);
+        if (b.isEmpty()) return null;
+        const seat = new THREE.Vector3(cell.origin[0] - b.min.x, cell.origin[1] - b.min.y, cell.origin[2] - b.min.z);
+        g.position.copy(seat);
+        const rot = cell.rotation;
+        if (rot && (rot[0] || rot[1] || rot[2])) {
+            const euler = new THREE.Euler(
+                THREE.MathUtils.degToRad(rot[0]),
+                THREE.MathUtils.degToRad(rot[1]),
+                THREE.MathUtils.degToRad(rot[2]),
+                "ZYX",
+            );
+            const pivot = new THREE.Vector3(
+                cell.origin[0] + cell.size[0] / 2,
+                cell.origin[1] + cell.size[1] / 2,
+                cell.origin[2],
+            );
+            const holder = new THREE.Group();
+            holder.position.copy(pivot);
+            holder.setRotationFromEuler(euler);
+            g.position.sub(pivot); // re-express seat relative to the pivot holder
+            holder.add(g);
+            return holder;
+        }
+        return g;
+    };
+
+    const rebuildCadPreviews = () => {
+        // Clones share the cached prototype's geometry/materials — remove them
+        // without disposing (the cache owns those resources; freed at teardown).
+        for (let i = cadPreviewGroup.children.length - 1; i >= 0; i--) {
+            cadPreviewGroup.remove(cadPreviewGroup.children[i]);
+        }
+        cadPreviewShown.clear();
+        const st = useCellBuilderStore.getState();
+        if (st.active) {
+            for (const cellId of st.cadPreviewCells) {
+                const cell = st.cells[cellId];
+                if (!cell || cell.kind !== "equipment") continue;
+                const typeId = cadTypeIdForCell(cell);
+                if (!typeId) continue;
+                const cached = cadPreviewCache.get(typeId);
+                if (cached === undefined) {
+                    ensureCadLoaded(typeId);
+                    continue;
+                }
+                if (cached === "loading" || cached === "error") continue;
+                const placed = placeCadPreview(cached, cell);
+                if (placed) {
+                    cadPreviewGroup.add(placed);
+                    cadPreviewShown.add(cellId);
+                }
+            }
+        }
+        cadPreviewGroup.visible = st.cellsVisible;
+        applyCellVisibility();
+        requestRender();
     };
 
     // ArrowHelper owns a Line (non-LineSegments) + a Mesh; the generic
@@ -3433,6 +3576,16 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (s.cells !== prev.cells || s.active !== prev.active || s.equipmentCad !== prev.equipmentCad) rebuild();
         else if (s.selection !== prev.selection || s.selectedCellIds !== prev.selectedCellIds)
             refreshFaceStyles();
+        // "Show as CAD" toggles + any cell/type change re-seat the CAD previews
+        // (after rebuild() has re-made the boxes so applyCellVisibility hides the
+        // right ones).
+        if (
+            s.cadPreviewCells !== prev.cadPreviewCells ||
+            s.cells !== prev.cells ||
+            s.active !== prev.active ||
+            s.equipmentTypes !== prev.equipmentTypes
+        )
+            rebuildCadPreviews();
         // Keep the keyboard "active loft station" in step with the selection:
         // reset it when the selected loft MEMBER changes (preserving the index
         // within the same member, so F/D + setLoftActive don't fight), and clear
@@ -3481,6 +3634,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (s.active !== prev.active || s.gridStep !== prev.gridStep) syncBuilderGrid();
         if (s.cellsVisible !== prev.cellsVisible) {
             cellsGroup.visible = s.cellsVisible;
+            cadPreviewGroup.visible = s.cellsVisible;
             refreshEdgeOverlays();
             requestRender();
         }
@@ -3548,6 +3702,15 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         hiddenDefaultGrids.length = 0;
         disposeBuilderGrid();
         clearPorts();
+        // Free the CAD-preview cache prototypes (the scene clones share their
+        // resources, so this is the single owner that disposes them).
+        for (const proto of cadPreviewCache.values()) {
+            if (proto === "loading" || proto === "error") continue;
+            proto.traverse((m: any) => {
+                if (m.isMesh || m.isLineSegments) disposeMesh(m);
+            });
+        }
+        cadPreviewCache.clear();
         portMarkerGeom.dispose();
         for (let i = container.children.length - 1; i >= 0; i--) {
             const o = container.children[i];

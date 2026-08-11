@@ -357,6 +357,13 @@ interface CellBuilderState {
     portName: string;
     mode: "translate" | "rotate";
   } | null;
+  /** Equipment cell ids currently rendered as their type's CAD model in the
+   * main viewer ("Show as CAD" per-object toggle). The 3D controller lazily
+   * loads each type's preview GLB, seats it at the cell placement, and hides the
+   * placeholder box for those cells; an empty list = every equipment shows its
+   * box. Reset when the model unloads. A plain array so the controller's
+   * reference-equality subscription fires on toggle. */
+  cadPreviewCells: string[];
   gridStep: number;
   snapThreshold: number;
   dirty: boolean;
@@ -503,6 +510,9 @@ interface CellBuilderState {
   setPortGizmoMode: (mode: "translate" | "rotate") => void;
   /** Stop editing the port (detach the gizmo). */
   stopPortGizmo: () => void;
+  /** Toggle whether an equipment cell renders as its type's CAD model (vs the
+   * placeholder box) in the main viewer. No-op for non-equipment cells. */
+  toggleCadPreview: (cellId: string) => void;
   /** Persist a per-instance port edit (position and/or outward direction, in
    * the equipment's LOCAL frame) as an override on the equipment cell — it
    * round-trips through the doc so it survives a recompile. Undoable. */
@@ -1440,6 +1450,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     insertMenu: null,
     portMenu: null,
     portGizmo: null,
+    cadPreviewCells: [],
     gridStep: 0.1,
     snapThreshold: 0.25,
     dirty: false,
@@ -1521,6 +1532,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         insertMenu: null,
         portMenu: null,
         portGizmo: null,
+        cadPreviewCells: [],
         dirty: false,
         conflict: null,
         compileJob: null,
@@ -1580,6 +1592,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         insertMenu: null,
         portMenu: null,
         portGizmo: null,
+        cadPreviewCells: [],
         dirty: false,
         panelVisible: false,
         compileJob: null,
@@ -1670,6 +1683,17 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     setPortGizmoMode: (mode) =>
       set((s) => (s.portGizmo ? { portGizmo: { ...s.portGizmo, mode } } : {})),
     stopPortGizmo: () => set({ portGizmo: null }),
+    toggleCadPreview: (cellId) =>
+      set((s) => {
+        const cell = s.cells[cellId];
+        if (!cell || cell.kind !== "equipment") return {};
+        const on = s.cadPreviewCells.includes(cellId);
+        return {
+          cadPreviewCells: on
+            ? s.cadPreviewCells.filter((id) => id !== cellId)
+            : [...s.cadPreviewCells, cellId],
+        };
+      }),
     updateEquipmentPort: (cellId, portName, patch) =>
       withHistory((s) => {
         const cur = s.cells[cellId];

@@ -2711,6 +2711,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "name": spec.get("name") or slug,
                 "origin": "code",
                 "ports": _ports_of(spec.get("doc")),
+                "has_cad": False,
             }
         pool = getattr(request.app.state, "db_pool", None)
         if pool is not None:
@@ -2728,6 +2729,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "origin": "catalog",
                         "id": t["id"],
                         "ports": _ports_of(docs_by_slug.get(slug)),
+                        # Whether a CAD asset is linked — drives the selected-object
+                        # "Show as CAD" toggle (which loads this type's preview GLB).
+                        "has_cad": bool(t.get("cad_key")),
                     }
         types = sorted(by_slug.values(), key=lambda x: x["name"].lower())
         return JSONResponse({"equipment_types": types})

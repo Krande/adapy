@@ -191,6 +191,44 @@ def test_validate_doc_preserves_design_rules():
         validate_doc({"spaces": [], "design_rules": 123})
 
 
+def test_infer_equipment_geometry_axis_mapping():
+    """``_infer_equipment_geometry`` must return **Z-up** extents (``lz`` = the
+    vertical/height) for BOTH the ada-reader branch (STEP/IFC/… already Z-up)
+    and the mesh branch (GLB/STL/OBJ authored Y-up, re-oriented to Z-up). A box
+    with distinct extents (x=1, y=2, height=3) must yield lz≈3 either way, and
+    the returned preview GLB must itself be Z-up so it renders correctly in the
+    Z-up main viewer."""
+    import trimesh
+
+    import ada
+    from ada.comms.rest.worker import _infer_equipment_geometry
+
+    # ── ada-reader branch: a Z-up box, height (z) = 3 ──
+    box = ada.PrimBox("b", (0.0, 0.0, 0.0), (1.0, 2.0, 3.0))
+    a = ada.Assembly("A") / (ada.Part("P") / box)
+    with tempfile.TemporaryDirectory() as tmp:
+        sp = pathlib.Path(tmp) / "b.step"
+        a.to_stp(sp)
+        bbox_step, _ = _infer_equipment_geometry(sp.read_bytes(), ".step")
+    assert bbox_step["lx"] == pytest.approx(1.0, abs=1e-3)
+    assert bbox_step["ly"] == pytest.approx(2.0, abs=1e-3)
+    assert bbox_step["lz"] == pytest.approx(3.0, abs=1e-3)  # height lands in lz
+
+    # ── mesh branch: a genuine Y-up GLB (tall on Y = height 3) ──
+    # Footprint 1 (x) × 2 (z), height 3 on Y — the glTF up-axis. After the
+    # Y-up→Z-up re-orientation the height must move into lz (not ly).
+    yup = trimesh.creation.box(extents=[1.0, 3.0, 2.0]).export(file_type="glb")
+    bbox_glb, preview = _infer_equipment_geometry(yup, ".glb")
+    assert bbox_glb["lx"] == pytest.approx(1.0, abs=1e-3)
+    assert bbox_glb["ly"] == pytest.approx(2.0, abs=1e-3)
+    assert bbox_glb["lz"] == pytest.approx(3.0, abs=1e-3)  # Y-up height -> lz
+
+    # Preview GLB is Z-up: reloading it puts the height back on Z.
+    scene = trimesh.load(trimesh.util.wrap_as_stream(preview), file_type="glb", force="scene")
+    ext = (scene.bounds[1] - scene.bounds[0]).tolist()
+    assert ext[2] == pytest.approx(3.0, abs=1e-3)  # height on Z in the preview
+
+
 # ── live-Postgres API path ───────────────────────────────────────────
 
 
