@@ -6,6 +6,7 @@ import {LineMaterial} from "three/examples/jsm/lines/LineMaterial";
 import {TransformControls} from "three/examples/jsm/controls/TransformControls";
 
 import {cameraRef, controlsRef, rendererRef, sceneRef} from "@/state/refs";
+import {effectivePorts, portSnapTargets, readPortOverrides} from "@/utils/cellbuilder/ports";
 import {requestRender} from "@/state/perfStore";
 import {useModelState} from "@/state/modelState";
 import {useCellBuilderStore, type BuilderCell} from "@/state/cellBuilderStore";
@@ -253,7 +254,11 @@ function portsForEquipment(cell: BuilderCell, types: ProceduralTypeOption[]): Ty
     const key = cell.equipmentType.toLowerCase();
     const t =
         types.find((o) => o.slug.toLowerCase() === key) ?? types.find((o) => o.name.toLowerCase() === key);
-    return t?.ports ?? [];
+    const base = t?.ports ?? [];
+    if (!base.length) return base;
+    // Overlay any per-instance port edits (dragged in the preview) stored on
+    // this equipment cell, so the overlay + gizmo reflect the edited geometry.
+    return effectivePorts(base, readPortOverrides(cell.params));
 }
 
 function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): () => void {
@@ -796,7 +801,15 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                         ? nozzle.clone().addScaledVector(dir, -len)
                         : nozzle;
                 const arrow = new THREE.ArrowHelper(dir, tail, len, color, len * 0.4, len * 0.25);
-                arrow.traverse((o) => o.layers.set(1));
+                // Tag every part of the arrow (+ its marker) with the port
+                // identity so a right-click can resolve which equipment port it
+                // hit and open the port edit menu. Layer 1 keeps them out of the
+                // normal (layer-0) cell/face pick.
+                arrow.traverse((o) => {
+                    o.layers.set(1);
+                    o.userData.__portCellId = cell.id;
+                    o.userData.__portName = p.name;
+                });
                 portsGroup.add(arrow);
                 // Nozzle-position marker: a small sphere at the attachment point
                 // so the position is shown independently of the arrow tip.
@@ -807,6 +820,8 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
                 marker.position.copy(nozzle);
                 marker.scale.setScalar(len * 0.08);
                 marker.layers.set(1);
+                marker.userData.__portCellId = cell.id;
+                marker.userData.__portName = p.name;
                 portsGroup.add(marker);
             }
         }
@@ -1206,6 +1221,233 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             const e = gizmoProxy.rotation;
             const deg = (v: number) => Math.round(THREE.MathUtils.radToDeg(v) * 10) / 10;
             st.setCellRotation(cell.id, [deg(e.x), deg(e.y), deg(e.z)]);
+        }
+    });
+
+    // --- Equipment-port edit gizmo -------------------------------------------
+    // A dedicated TransformControls (separate from the cell gizmo so the two
+    // never clobber each other) that edits ONE equipment port: translate moves
+    // the nozzle position (snapping to the equipment bbox corners + any CAD
+    // vertices), rotate spins the outward direction about the port ANCHOR (the
+    // arrow root). The proxy lives in the container so it shares the model
+    // offset — its position is model-space, like gizmoProxy.
+    const portProxy = new THREE.Object3D();
+    portProxy.userData.__excludeFromFit = true;
+    container.add(portProxy);
+    const portGizmo = new TransformControls(cameraRef.current ?? (camera as THREE.Camera), renderer.domElement);
+    portGizmo.setSpace("world");
+    const portGizmoHelper = portGizmo.getHelper();
+    portGizmoHelper.userData.__excludeFromFit = true;
+    portGizmoHelper.visible = false;
+    scene.add(portGizmoHelper);
+    // Outward world direction of the edited port at rotate-drag start; the
+    // rotate delta accumulates from identity onto it (see objectChange).
+    let portRotateStartDir: THREE.Vector3 | null = null;
+
+    // Resolve an equipment port's anchor (nozzle) + outward direction in MODEL
+    // space, mirroring rebuildPorts' math (including the equipment's ZYX spin).
+    const portGeom = (
+        cellId: string,
+        portName: string,
+    ): {anchor: Vec3; dir: Vec3; center: Vec3; quat: THREE.Quaternion | null} | null => {
+        const st = useCellBuilderStore.getState();
+        const cell = st.cells[cellId];
+        if (!cell || cell.kind !== "equipment") return null;
+        const p = portsForEquipment(cell, st.equipmentTypes).find((x) => x.name === portName);
+        if (!p) return null;
+        const cx = cell.origin[0] + cell.size[0] / 2;
+        const cy = cell.origin[1] + cell.size[1] / 2;
+        const cz = cell.origin[2];
+        const rot = cell.rotation;
+        const quat =
+            rot && (rot[0] || rot[1] || rot[2])
+                ? new THREE.Quaternion().setFromEuler(
+                      new THREE.Euler(
+                          THREE.MathUtils.degToRad(rot[0]),
+                          THREE.MathUtils.degToRad(rot[1]),
+                          THREE.MathUtils.degToRad(rot[2]),
+                          "ZYX",
+                      ),
+                  )
+                : null;
+        const pos = p.position ?? [0, 0, 0];
+        const lp = new THREE.Vector3(pos[0], pos[1], pos[2]);
+        if (quat) lp.applyQuaternion(quat);
+        const dv = p.direction_vector ?? [0, 0, 1];
+        const d = new THREE.Vector3(dv[0], dv[1], dv[2]);
+        if (quat) d.applyQuaternion(quat);
+        if (d.lengthSq() < 1e-9) d.set(0, 0, 1);
+        d.normalize();
+        return {
+            anchor: [cx + lp.x, cy + lp.y, cz + lp.z],
+            dir: [d.x, d.y, d.z],
+            center: [cx, cy, cz],
+            quat,
+        };
+    };
+
+    // CAD-mesh vertices (model space) for a CAD-backed equipment, so a port can
+    // snap onto the real geometry — not just the bounding box. Best-effort:
+    // active only when "Use CAD models" is on and a loaded mesh in the scene is
+    // named for this equipment; downsampled so a dense asset can't stall the
+    // per-move snap search. Boxes-only topology view yields none (bbox corners
+    // remain the snap set).
+    const collectCadVerts = (cell: BuilderCell): Vec3[] => {
+        const st = useCellBuilderStore.getState();
+        if (!st.equipmentCad) return [];
+        let mesh: THREE.Mesh | null = null;
+        (sceneRef.current ?? scene).traverse((o) => {
+            if (mesh) return;
+            if ((o as THREE.Mesh).isMesh && o.name && o.name === cell.name) mesh = o as THREE.Mesh;
+        });
+        if (!mesh) return [];
+        const foundMesh: THREE.Mesh = mesh;
+        const posAttr = (foundMesh.geometry as THREE.BufferGeometry).getAttribute("position");
+        if (!posAttr) return [];
+        const off = offsetVec();
+        const MAX = 4000;
+        const stride = Math.max(1, Math.floor(posAttr.count / MAX));
+        const v = new THREE.Vector3();
+        const out: Vec3[] = [];
+        for (let i = 0; i < posAttr.count; i += stride) {
+            v.fromBufferAttribute(posAttr, i).applyMatrix4(foundMesh.matrixWorld);
+            out.push([v.x - off.x, v.y - off.y, v.z - off.z]);
+        }
+        return out;
+    };
+
+    // The port snap target (bbox corner or CAD vertex, model space) nearest the
+    // pointer on screen within SNAP_PX, or null — the port analogue of
+    // nearestCornerToPointer.
+    const nearestPortSnapToPointer = (cell: BuilderCell): Vec3 | null => {
+        const cam = cameraRef.current ?? (camera as THREE.PerspectiveCamera);
+        const off = offsetVec();
+        const rect = renderer.domElement.getBoundingClientRect();
+        const sx0 = (pointer.x * 0.5 + 0.5) * rect.width;
+        const sy0 = (-pointer.y * 0.5 + 0.5) * rect.height;
+        const v = new THREE.Vector3();
+        let best: Vec3 | null = null;
+        let bestD = SNAP_PX;
+        for (const t of portSnapTargets({origin: cell.origin, size: cell.size}, collectCadVerts(cell))) {
+            v.set(t[0] + off.x, t[1] + off.y, t[2] + off.z).project(cam);
+            if (v.z < -1 || v.z > 1) continue;
+            const sx = (v.x * 0.5 + 0.5) * rect.width;
+            const sy = (-v.y * 0.5 + 0.5) * rect.height;
+            const d = Math.hypot(sx - sx0, sy - sy0);
+            if (d <= bestD) {
+                bestD = d;
+                best = t;
+            }
+        }
+        return best;
+    };
+
+    // A dedicated raycaster restricted to layer 1 (where the port glyphs live),
+    // so a right-click can hit a port arrow/marker that the normal pick ignores.
+    const portRaycaster = new THREE.Raycaster();
+    portRaycaster.layers.set(1);
+
+    const pickPort = (): {cellId: string; portName: string} | null => {
+        const st = useCellBuilderStore.getState();
+        if (!st.active || !st.portsOverlayVisible) return null;
+        portRaycaster.setFromCamera(pointer, cameraRef.current ?? (camera as THREE.Camera));
+        const hits = portRaycaster.intersectObjects(portsGroup.children, true);
+        for (const h of hits) {
+            let o: THREE.Object3D | null = h.object;
+            while (o) {
+                const cid = o.userData.__portCellId as string | undefined;
+                const pn = o.userData.__portName as string | undefined;
+                if (cid && pn) return {cellId: cid, portName: pn};
+                o = o.parent;
+            }
+        }
+        return null;
+    };
+
+    const syncPortGizmo = () => {
+        const st = useCellBuilderStore.getState();
+        if (cameraRef.current) portGizmo.camera = cameraRef.current;
+        const pg = st.portGizmo;
+        const info = pg ? portGeom(pg.cellId, pg.portName) : null;
+        const on = !!(st.active && pg && info && st.portsOverlayVisible && st.cellsVisible);
+        if (on && pg && info) {
+            if (!portGizmo.dragging) {
+                portProxy.rotation.set(0, 0, 0);
+                portProxy.position.set(info.anchor[0], info.anchor[1], info.anchor[2]);
+            }
+            if (portGizmo.object !== portProxy) portGizmo.attach(portProxy);
+            if (pg.mode === "rotate") {
+                portGizmo.setMode("rotate");
+                portGizmo.setRotationSnap(THREE.MathUtils.degToRad(15));
+            } else {
+                portGizmo.setMode("translate");
+                portGizmo.setTranslationSnap(
+                    st.gizmoVertexSnap ? null : st.gridStep > 0 ? st.gridStep : null,
+                );
+            }
+            portGizmoHelper.visible = true;
+        } else {
+            if (portGizmo.object) portGizmo.detach();
+            portGizmoHelper.visible = false;
+        }
+        requestRender();
+    };
+
+    portGizmo.addEventListener("dragging-changed", (e: any) => {
+        const st = useCellBuilderStore.getState();
+        if (controlsRef.current) controlsRef.current.enabled = !e.value;
+        if (e.value) {
+            st.beginTransaction();
+            const pg = st.portGizmo;
+            const info = pg ? portGeom(pg.cellId, pg.portName) : null;
+            portRotateStartDir = info ? new THREE.Vector3(info.dir[0], info.dir[1], info.dir[2]) : null;
+            portProxy.rotation.set(0, 0, 0); // rotate delta accumulates from identity
+        } else {
+            st.endTransaction();
+            portRotateStartDir = null;
+            showSnapMarker(null);
+        }
+        requestRender();
+    });
+
+    portGizmo.addEventListener("objectChange", () => {
+        const st = useCellBuilderStore.getState();
+        const pg = st.portGizmo;
+        if (!pg) return;
+        const cell = st.cells[pg.cellId];
+        const info = portGeom(pg.cellId, pg.portName);
+        if (!cell || !info) return;
+        const invQuat = info.quat ? info.quat.clone().invert() : null;
+        if (pg.mode === "translate") {
+            // Proxy position is the dragged (model-space) nozzle; vertex snap
+            // pulls it onto the nearest bbox corner / CAD vertex under the cursor.
+            let nozzle: Vec3 = [portProxy.position.x, portProxy.position.y, portProxy.position.z];
+            let target: Vec3 | null = null;
+            if (st.gizmoVertexSnap) {
+                target = nearestPortSnapToPointer(cell);
+                if (target) nozzle = target;
+            }
+            // Back out the equipment's footprint centre + spin to the port's
+            // stored LOCAL position (so it round-trips like the type geometry).
+            const local = new THREE.Vector3(
+                nozzle[0] - info.center[0],
+                nozzle[1] - info.center[1],
+                nozzle[2] - info.center[2],
+            );
+            if (invQuat) local.applyQuaternion(invQuat);
+            st.updateEquipmentPort(pg.cellId, pg.portName, {position: [local.x, local.y, local.z]});
+            showSnapMarker(target);
+        } else {
+            // Rotate about the anchor: apply the proxy's accumulated rotation to
+            // the start direction, then back out the equipment spin to store the
+            // port's LOCAL outward direction. Position is unchanged.
+            if (!portRotateStartDir) return;
+            const world = portRotateStartDir.clone().applyQuaternion(portProxy.quaternion).normalize();
+            if (invQuat) world.applyQuaternion(invQuat);
+            world.normalize();
+            st.updateEquipmentPort(pg.cellId, pg.portName, {
+                direction_vector: [world.x, world.y, world.z],
+            });
         }
     });
 
@@ -1819,6 +2061,14 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         const st = useCellBuilderStore.getState();
         if (!st.active) return;
         setPointer(ev as unknown as PointerEvent);
+        // A right-click ON a port arrow opens the port edit menu (Move / Rotate)
+        // — checked before the cell menu so a port glyph over a cell wins.
+        const port = pickPort();
+        if (port) {
+            ev.preventDefault();
+            st.openPortMenu(ev.clientX, ev.clientY, port.cellId, port.portName);
+            return;
+        }
         const hit = pickBuilderMesh();
         if (!hit) return;
         ev.preventDefault();
@@ -3087,7 +3337,11 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
             return;
         }
         // Escape unwinds one layer at a time: menu → gizmo → add-mode → selection.
-        if (st.contextMenu) {
+        if (st.portMenu) {
+            st.closePortMenu();
+        } else if (st.portGizmo) {
+            st.stopPortGizmo();
+        } else if (st.contextMenu) {
             st.closeContextMenu();
         } else if (st.gizmoMode !== "none") {
             st.setGizmoMode("none");
@@ -3116,6 +3370,7 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
     rebuildPorts();
     syncBuilderGrid();
     syncGizmo();
+    syncPortGizmo();
     const unsub = useCellBuilderStore.subscribe((s, prev) => {
         // Leaving an add mode drops any in-progress numeric placement.
         if (
@@ -3166,6 +3421,17 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         ) {
             syncGizmo();
         }
+        if (
+            s.portGizmo !== prev.portGizmo ||
+            s.cells !== prev.cells ||
+            s.active !== prev.active ||
+            s.portsOverlayVisible !== prev.portsOverlayVisible ||
+            s.cellsVisible !== prev.cellsVisible ||
+            s.gizmoVertexSnap !== prev.gizmoVertexSnap ||
+            s.gridStep !== prev.gridStep
+        ) {
+            syncPortGizmo();
+        }
         if (s.active !== prev.active || s.gridStep !== prev.gridStep) syncBuilderGrid();
         if (s.cellsVisible !== prev.cellsVisible) {
             cellsGroup.visible = s.cellsVisible;
@@ -3205,6 +3471,9 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         gizmo.detach();
         gizmo.dispose();
         scene.remove(gizmoHelper);
+        portGizmo.detach();
+        portGizmo.dispose();
+        scene.remove(portGizmoHelper);
         guideLine.geometry.dispose();
         (guideLine.material as THREE.Material).dispose();
         container.remove(guideLine);

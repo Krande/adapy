@@ -25,6 +25,7 @@ import ComponentIcon from "./icons/ComponentIcon";
 import CellBuilderIcon from "./icons/CellBuilderIcon";
 import CellBuilderPanel from "./viewer/CellBuilderPanel";
 import CellBuilderContextMenu from "./viewer/CellBuilderContextMenu";
+import CellBuilderPortMenu from "./viewer/CellBuilderPortMenu";
 import CellBuilderInsertMenu from "./viewer/CellBuilderInsertMenu";
 import CellBuilderGizmoHud from "./viewer/CellBuilderGizmoHud";
 import { useCellBuilderStore } from "@/state/cellBuilderStore";
@@ -345,6 +346,7 @@ const Menu = () => {
           {componentControlsVisible && <ComponentControls />}
           {proceduralActive && <CellBuilderPanel />}
           {proceduralActive && <CellBuilderContextMenu />}
+          {proceduralActive && <CellBuilderPortMenu />}
           {proceduralActive && <CellBuilderInsertMenu />}
           {proceduralActive && <CellBuilderGizmoHud />}
           {proceduralActive && equipmentPanelOpen && (

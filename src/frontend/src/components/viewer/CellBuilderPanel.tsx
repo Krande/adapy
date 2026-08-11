@@ -7,7 +7,19 @@ import {
   type SystemConnection,
 } from "@/state/cellBuilderStore";
 import { useEquipmentCatalogStore } from "@/state/equipmentCatalogStore";
+import { typePickerItems } from "@/utils/cellbuilder/ports";
 import { useTypeIconsStore } from "@/state/typeIconsStore";
+
+// The per-scope catalog admin panels are surfaced INLINE inside the Equipment
+// and Systems tabs (embedded prop = no floating chrome). Lazily loaded so the
+// equipment catalog's WebGL preview only enters the bundle when a catalog tab
+// is opened.
+const EquipmentAdminPanel = React.lazy(
+  () => import("@/components/admin/EquipmentAdminPanel"),
+);
+const SystemAdminPanel = React.lazy(
+  () => import("@/components/admin/SystemAdminPanel"),
+);
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { followerUrl } from "@/utils/cellbuilder/proceduralChannel";
@@ -615,13 +627,15 @@ const ConnectionAdder: React.FC<{
   );
 };
 
-type PanelTab = "build" | "systems" | "view" | "tools";
+type PanelTab = "build" | "equipment" | "systems" | "view" | "tools";
 
 const CellBuilderPanel: React.FC = () => {
   const s = useCellBuilderStore();
   const equipBtnRef = React.useRef<HTMLButtonElement>(null);
+  const openingBtnRef = React.useRef<HTMLButtonElement>(null);
   const compileCaretRef = React.useRef<HTMLButtonElement>(null);
   const [equipMenuOpen, setEquipMenuOpen] = React.useState(false);
+  const [openingMenuOpen, setOpeningMenuOpen] = React.useState(false);
   const [compileMenuOpen, setCompileMenuOpen] = React.useState(false);
   const [tab, setTab] = React.useState<PanelTab>("build");
   const hasCells = Object.values(s.cells).some((c) => c.kind === "cell");
@@ -634,6 +648,15 @@ const CellBuilderPanel: React.FC = () => {
   React.useEffect(() => {
     if (focusedSystem) setTab("systems");
   }, [focusedSystem]);
+
+  // Load the per-scope catalog for the tab being opened (mirrors what the old
+  // "Equipment/System overview" toggle buttons did on open).
+  React.useEffect(() => {
+    if (tab === "equipment")
+      void useEquipmentCatalogStore.getState().refreshEquipment();
+    else if (tab === "systems")
+      void useEquipmentCatalogStore.getState().refreshSystems();
+  }, [tab]);
 
   // Mobile bottom-sheet: the grab handle drags the sheet taller/shorter and a
   // flick down dismisses it. Only the phone layout is a sheet (the handle is
@@ -822,6 +845,7 @@ const CellBuilderPanel: React.FC = () => {
         role="tablist"
       >
         {tabBtn("build", "Build", cellCount)}
+        {tabBtn("equipment", "Equipment")}
         {tabBtn("systems", "Systems", systemCount)}
         {tabBtn("view", "View")}
         {tabBtn("tools", "Tools")}
@@ -844,16 +868,55 @@ const CellBuilderPanel: React.FC = () => {
               + Cell
             </button>
             <button
+              ref={openingBtnRef}
               className={
                 s.mode === "add-opening" ? `${btn} ring-2 ring-blue-300` : btn
               }
-              onClick={() =>
-                s.setMode(s.mode === "add-opening" ? "idle" : "add-opening")
-              }
-              title="Add a door/window opening — click a wall to drop a negative-volume box that cuts the plate it overlaps (Esc cancels). Pick door/window on the placed opening."
+              onClick={() => {
+                // Already placing → toggle back to idle; otherwise open the
+                // contextual type picker (door/window/… from the engine list).
+                if (s.mode === "add-opening") {
+                  s.setMode("idle");
+                  return;
+                }
+                setOpeningMenuOpen((v) => !v);
+              }}
+              title="Add a door/window opening — pick a type, then click a wall to drop a negative-volume box that cuts the plate it overlaps (Esc cancels)."
             >
               + Opening
             </button>
+            {openingMenuOpen && (
+              <PositionedMenu
+                anchor={{
+                  kind: "rect",
+                  getRect: () => openingBtnRef.current?.getBoundingClientRect(),
+                }}
+                ignoreOutsideRef={openingBtnRef}
+                onClose={() => setOpeningMenuOpen(false)}
+                header={
+                  <span className="font-medium text-gray-200">Opening type</span>
+                }
+                items={
+                  s.openingTypes.length
+                    ? typePickerItems(s.openingTypes).map((it) => ({
+                        key: it.key,
+                        label: it.label,
+                        onClick: () => {
+                          s.setSelectedOpeningType(it.slug);
+                          s.setMode("add-opening");
+                        },
+                      }))
+                    : [
+                        {
+                          key: "none",
+                          label: "No opening types",
+                          disabled: true,
+                          onClick: () => {},
+                        },
+                      ]
+                }
+              />
+            )}
             <button
               className={btn}
               onClick={() => s.addLoftMember()}
@@ -871,15 +934,15 @@ const CellBuilderPanel: React.FC = () => {
               }
               onClick={() => {
                 // Already placing at cursor → toggle back to idle. Otherwise
-                // open the choice menu: place freely at the cursor, or seat it
-                // onto/into an existing cell.
+                // open the contextual type picker: pick a type to start placing
+                // it at the cursor, or seat it onto/into an existing cell.
                 if (s.mode === "add-equipment") {
                   s.setMode("idle");
                   return;
                 }
                 setEquipMenuOpen((v) => !v);
               }}
-              title="Add equipment — place at the cursor or seat it onto/into a cell"
+              title="Add equipment — pick a type to place at the cursor, or seat it onto/into a cell"
             >
               + Equipment
             </button>
@@ -891,20 +954,43 @@ const CellBuilderPanel: React.FC = () => {
                 }}
                 ignoreOutsideRef={equipBtnRef}
                 onClose={() => setEquipMenuOpen(false)}
+                header={
+                  <span className="font-medium text-gray-200">
+                    Equipment type
+                  </span>
+                }
                 items={[
-                  {
-                    key: "cursor",
-                    label: "Place at cursor",
-                    onClick: () => s.setMode("add-equipment"),
-                  },
+                  ...(s.equipmentTypes.length
+                    ? typePickerItems(s.equipmentTypes).map((it) => ({
+                        key: it.key,
+                        label: it.label,
+                        title: "Place this type at the cursor",
+                        onClick: () => {
+                          s.setSelectedEquipmentType(it.slug);
+                          s.setMode("add-equipment");
+                        },
+                      }))
+                    : [
+                        {
+                          key: "none",
+                          label: "No equipment types",
+                          disabled: true,
+                          onClick: () => {},
+                        },
+                      ]),
                   {
                     key: "insert",
                     label: "Insert onto/into cell…",
-                    disabled: !hasCells,
+                    separatorBefore: true,
+                    disabled: !hasCells || s.equipmentTypes.length === 0,
                     title: hasCells
-                      ? "Seat equipment on a cell's floor or roof, centred on its footprint"
+                      ? "Seat the selected type on a cell's floor or roof, centred on its footprint"
                       : "Add a cell first",
                     onClick: () => {
+                      // The insert flow builds the currently-selected type;
+                      // default to the first when none is picked yet.
+                      if (!s.selectedEquipmentType && s.equipmentTypes[0])
+                        s.setSelectedEquipmentType(s.equipmentTypes[0].slug);
                       const r = equipBtnRef.current?.getBoundingClientRect();
                       s.openInsertMenu(
                         r?.left ?? 200,
@@ -962,61 +1048,10 @@ const CellBuilderPanel: React.FC = () => {
             </div>
           )}
 
-          {/* Opening type — the engine-advertised door/window + Opening places
-              (drives the placed opening's subtype + default size). */}
-          {s.openingTypes.length > 1 && (
-            <div className="flex items-center gap-1 flex-wrap">
-              <span className="text-gray-300">opening</span>
-              <select
-                className={`${inputCls} flex-1 min-w-0`}
-                value={s.selectedOpeningType ?? ""}
-                onChange={(e) =>
-                  s.setSelectedOpeningType(e.target.value || null)
-                }
-                title="Opening type — the engine-advertised door/window the + Opening button places (subtype + default size)"
-              >
-                {s.openingTypes.map((t) => (
-                  <option key={t.slug} value={t.slug}>
-                    {t.name} ({t.origin === "code" ? "code" : "db"})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div className="flex items-center gap-1 flex-wrap">
-            <select
-              className={`${inputCls} flex-1 min-w-0`}
-              value={s.selectedEquipmentType ?? ""}
-              onChange={(e) =>
-                s.setSelectedEquipmentType(e.target.value || null)
-              }
-              title="Equipment type — built-in archetypes ∪ this scope's DB catalog"
-            >
-              {s.equipmentTypes.length === 0 && (
-                <option value="">no types</option>
-              )}
-              {s.equipmentTypes.map((t) => (
-                <option key={t.slug} value={t.slug}>
-                  {t.name} ({t.origin === "code" ? "code" : "db"})
-                </option>
-              ))}
-            </select>
-            {(() => {
-              const sel = s.equipmentTypes.find(
-                (t) => t.slug === s.selectedEquipmentType,
-              );
-              return sel?.origin === "code" ? (
-                <button
-                  className="px-1 rounded-sm text-sky-300 hover:bg-gray-600"
-                  title="Sync this built-in archetype into the scope's DB catalog"
-                  onClick={() => void s.syncEquipmentTypeToDb(sel.slug)}
-                >
-                  ⤓DB
-                </button>
-              ) : null;
-            })()}
-          </div>
+          {/* Opening & equipment TYPES are chosen contextually now — the
+              + Opening / + Equipment buttons open a type-picker popup — so the
+              standalone dropdowns are gone. The full catalogs live in the
+              Equipment / Systems tabs. */}
 
           <Section title="Grid & snapping">
             <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
@@ -1177,28 +1212,8 @@ const CellBuilderPanel: React.FC = () => {
             </div>
           </Section>
 
-          <Section title="Catalogs">
-            <div className="flex items-center gap-1 flex-wrap">
-              <button
-                className={btnGray}
-                onClick={() =>
-                  useEquipmentCatalogStore.getState().toggleEquipmentPanel()
-                }
-                title="Open the equipment-type catalog (full admin panel) — the reusable equipment defined for this scope"
-              >
-                Equipment overview
-              </button>
-              <button
-                className={btnGray}
-                onClick={() =>
-                  useEquipmentCatalogStore.getState().toggleSystemPanel()
-                }
-                title="Open the system-template catalog (full admin panel) — the reusable system kinds defined for this scope"
-              >
-                System overview
-              </button>
-            </div>
-          </Section>
+          {/* The equipment & system catalogs live in their own tabs now
+              (Equipment / Systems) — no separate overview buttons/panels. */}
 
           <Section title="Compile settings">
             <label
@@ -1408,9 +1423,34 @@ const CellBuilderPanel: React.FC = () => {
           })()}
         </div>
 
-        {/* SYSTEMS — kept mounted (hidden) so auto-highlight tracks results */}
+        {/* EQUIPMENT — the per-scope equipment catalog, inline (browse / select
+            / manage). Mounted only while active so its WebGL preview and fetch
+            spin up on demand. */}
+        <div className={tab === "equipment" ? "block" : "hidden"}>
+          {tab === "equipment" && (
+            <React.Suspense
+              fallback={<p className="text-gray-500">Loading catalog…</p>}
+            >
+              <EquipmentAdminPanel embedded />
+            </React.Suspense>
+          )}
+        </div>
+
+        {/* SYSTEMS — the system-template catalog (inline, on demand) above the
+            service-runs inspector. SystemsTab stays mounted (hidden) so its
+            auto-highlight effect keeps tracking a freshly-loaded result. */}
         <div className={tab === "systems" ? "block" : "hidden"}>
-          <SystemsTab />
+          {tab === "systems" && (
+            <React.Suspense fallback={null}>
+              <SystemAdminPanel embedded />
+            </React.Suspense>
+          )}
+          <div className="mt-3 pt-2 border-t border-gray-600/50">
+            <div className="font-semibold text-gray-300 mb-1.5">
+              Service runs
+            </div>
+            <SystemsTab />
+          </div>
         </div>
 
         {/* VIEW */}

@@ -33,6 +33,11 @@ import {
   structureNameToGroup,
 } from "@/utils/cellbuilder/groups";
 import { pushSnapshot, redoStep, undoStep } from "@/utils/cellbuilder/history";
+import {
+  PORT_OVERRIDES_KEY,
+  readPortOverrides,
+  withPortOverride,
+} from "@/utils/cellbuilder/ports";
 import { postPreviewReady } from "@/utils/cellbuilder/proceduralChannel";
 import {
   bandBounds,
@@ -335,6 +340,18 @@ interface CellBuilderState {
    * new equipment. Opened from the + Equipment menu (new) or an equipment's
    * context menu (re-seat). */
   insertMenu: { x: number; y: number; equipmentId: string | null } | null;
+  /** Right-click-a-port menu (choose Move / Rotate for that equipment port):
+   * screen position + which port on which equipment it was opened on. */
+  portMenu: { x: number; y: number; cellId: string; portName: string } | null;
+  /** The equipment port currently being edited with a direct-manipulation
+   * gizmo (translate = move the nozzle position, rotate = spin the outward
+   * direction about the port anchor), or null. Independent of the cell gizmo
+   * (`gizmoMode`); starting one clears the other. */
+  portGizmo: {
+    cellId: string;
+    portName: string;
+    mode: "translate" | "rotate";
+  } | null;
   gridStep: number;
   snapThreshold: number;
   dirty: boolean;
@@ -463,6 +480,35 @@ interface CellBuilderState {
   closeContextMenu: () => void;
   openInsertMenu: (x: number, y: number, equipmentId: string | null) => void;
   closeInsertMenu: () => void;
+  /** Open the port context menu (right-click a port arrow) — Move / Rotate. */
+  openPortMenu: (
+    x: number,
+    y: number,
+    cellId: string,
+    portName: string,
+  ) => void;
+  closePortMenu: () => void;
+  /** Begin editing an equipment port with the translate/rotate gizmo. */
+  startPortGizmo: (
+    cellId: string,
+    portName: string,
+    mode: "translate" | "rotate",
+  ) => void;
+  /** Flip the active port gizmo between move and rotate (no-op if none). */
+  setPortGizmoMode: (mode: "translate" | "rotate") => void;
+  /** Stop editing the port (detach the gizmo). */
+  stopPortGizmo: () => void;
+  /** Persist a per-instance port edit (position and/or outward direction, in
+   * the equipment's LOCAL frame) as an override on the equipment cell — it
+   * round-trips through the doc so it survives a recompile. Undoable. */
+  updateEquipmentPort: (
+    cellId: string,
+    portName: string,
+    patch: {
+      position?: [number, number, number];
+      direction_vector?: [number, number, number];
+    },
+  ) => void;
   /** Seat equipment onto/into a cell: create a new equipment (equipmentId
    * null) or re-position an existing one on the chosen surface/side, centred
    * on the cell footprint. */
@@ -1369,6 +1415,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     faceDragResize: false,
     contextMenu: null,
     insertMenu: null,
+    portMenu: null,
+    portGizmo: null,
     gridStep: 0.1,
     snapThreshold: 0.25,
     dirty: false,
@@ -1444,6 +1492,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         gizmoMode: "none",
         contextMenu: null,
         insertMenu: null,
+        portMenu: null,
+        portGizmo: null,
         dirty: false,
         conflict: null,
         compileJob: null,
@@ -1492,6 +1542,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         gizmoMode: "none",
         contextMenu: null,
         insertMenu: null,
+        portMenu: null,
+        portGizmo: null,
         dirty: false,
         panelVisible: false,
         compileJob: null,
@@ -1537,8 +1589,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     toggleCellAddMode: () => set((s) => ({ cellAddMode: !s.cellAddMode })),
     setSelectMode: (selectMode) => set({ selectMode }),
     setToolHint: (toolHint) => set({ toolHint }),
-    // Switching gizmo (or turning it off) drops any axis constraint.
-    setGizmoMode: (gizmoMode) => set({ gizmoMode, gizmoAxisLock: null }),
+    // Switching gizmo (or turning it off) drops any axis constraint — and any
+    // active port-edit gizmo, so the cell and port gizmos never fight.
+    setGizmoMode: (gizmoMode) =>
+      set({ gizmoMode, gizmoAxisLock: null, portGizmo: null }),
     setGizmoAxisLock: (gizmoAxisLock) => set({ gizmoAxisLock }),
     setGizmoVertexSnap: (gizmoVertexSnap) => set({ gizmoVertexSnap }),
     setMoveEquipWithCell: (moveEquipWithCell) => set({ moveEquipWithCell }),
@@ -1562,6 +1616,32 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     openInsertMenu: (x, y, equipmentId) =>
       set({ insertMenu: { x, y, equipmentId }, contextMenu: null }),
     closeInsertMenu: () => set({ insertMenu: null }),
+    openPortMenu: (x, y, cellId, portName) =>
+      set({ portMenu: { x, y, cellId, portName }, contextMenu: null }),
+    closePortMenu: () => set({ portMenu: null }),
+    startPortGizmo: (cellId, portName, mode) =>
+      // Starting a port edit clears the cell gizmo + the menu it came from.
+      set({
+        portGizmo: { cellId, portName, mode },
+        portMenu: null,
+        gizmoMode: "none",
+        gizmoAxisLock: null,
+      }),
+    setPortGizmoMode: (mode) =>
+      set((s) => (s.portGizmo ? { portGizmo: { ...s.portGizmo, mode } } : {})),
+    stopPortGizmo: () => set({ portGizmo: null }),
+    updateEquipmentPort: (cellId, portName, patch) =>
+      withHistory((s) => {
+        const cur = s.cells[cellId];
+        if (!cur || cur.kind !== "equipment") return {};
+        const overrides = readPortOverrides(cur.params);
+        const next = withPortOverride(overrides, portName, patch);
+        const params = { ...cur.params, [PORT_OVERRIDES_KEY]: next };
+        return {
+          cells: { ...s.cells, [cellId]: { ...cur, params } },
+          dirty: true,
+        };
+      }),
     insertEquipmentIntoCell: ({ equipmentId, cellId, surface, side }) =>
       withHistory((s) => {
         const cell = s.cells[cellId];

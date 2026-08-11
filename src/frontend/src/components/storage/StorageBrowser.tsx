@@ -365,6 +365,9 @@ const StorageBrowser: React.FC = () => {
         try {
             const detail = await viewerApi.getProceduralModel(scopeKey, m.id);
             useCellBuilderStore.getState().open(detail.id, detail.name, detail.revision, detail.doc);
+            // The model now owns the screen (the cellbuilder panel opens) — collapse
+            // the storage overview so it doesn't sit on top of the freshly-opened model.
+            useServerInfoStore.getState().setShowServerInfoBox(false);
         } catch (e) {
             window.alert(`Failed to open procedural model: ${e instanceof Error ? e.message : e}`);
         }
