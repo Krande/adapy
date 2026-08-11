@@ -29,10 +29,69 @@ __all__ = [
     "register_detailing_engine",
     "detailing_engine_specs",
     "DEFAULT_DETAILING",
+    "ADAPY_DEFAULT_JOINT_TYPES",
 ]
 
 #: The sentinel slug meaning "no detailing" (the default).
 DEFAULT_DETAILING = "none"
+
+# The advertised per-joint-type OPTION SPEC the Detailing tab is generated from
+# (Phase 3). Each joint type carries:
+#   - ``slug`` / ``name`` / ``description`` — identity + label,
+#   - ``default_enabled`` — whether the joint family fires unless the user toggles
+#     it off (box-to-box is opt-in, the plated joints are default-on),
+#   - ``fields`` — the per-joint numeric/enum knobs, each
+#     ``{name, label, type: "number"|"bool"|"enum", default, min?, max?, options?,
+#     unit?}``. LENGTH fields are advertised in MILLIMETRES (``unit: "mm"``);
+#     ``ada.topo_model.detailing.detail`` converts mm -> m before it touches
+#     geometry. The panel renders these verbatim — nothing joint-specific is
+#     hardcoded frontend-side, so a new engine advertising different fields just
+#     works.
+# This literal is the single in-code source of truth; the slim REST fallback in
+# ``ada.comms.rest.catalog`` mirrors it by value (that image must not import
+# ``ada``), guarded by ``tests/comms/rest/test_procedural_detailing`` parity.
+ADAPY_DEFAULT_JOINT_TYPES: list[dict] = [
+    {
+        "slug": "girder_gusset",
+        "name": "Girder–girder gusset",
+        "description": "Gusset plate + fillet weld beads at each I-girder to I-girder intersection.",
+        "default_enabled": True,
+        "fields": [
+            {"name": "weld_leg", "label": "Weld leg", "type": "number", "default": 6.0, "min": 3.0, "max": 20.0, "unit": "mm"},
+            {"name": "gusset_t", "label": "Gusset thickness", "type": "number", "default": 10.0, "min": 5.0, "max": 40.0, "unit": "mm"},
+        ],
+    },
+    {
+        "slug": "beam_column_endplate",
+        "name": "Beam–column end plate",
+        "description": "End plate + fillet weld (bolts metadata-first) where a girder frames into a column.",
+        "default_enabled": True,
+        "fields": [
+            {"name": "plate_t", "label": "End-plate thickness", "type": "number", "default": 20.0, "min": 8.0, "max": 60.0, "unit": "mm"},
+            {"name": "weld_leg", "label": "Weld leg", "type": "number", "default": 6.0, "min": 3.0, "max": 20.0, "unit": "mm"},
+            {"name": "bolt", "label": "Bolt size", "type": "enum", "default": "M20", "options": ["M16", "M20", "M24", "M30"]},
+        ],
+    },
+    {
+        "slug": "column_base_plate",
+        "name": "Column base plate",
+        "description": "Base plate + fillet welds (anchor bolts metadata-first) at each column footing.",
+        "default_enabled": True,
+        "fields": [
+            {"name": "overhang", "label": "Overhang", "type": "number", "default": 50.0, "min": 0.0, "max": 200.0, "unit": "mm"},
+            {"name": "weld_leg", "label": "Weld leg", "type": "number", "default": 6.0, "min": 3.0, "max": 20.0, "unit": "mm"},
+        ],
+    },
+    {
+        "slug": "box_to_box",
+        "name": "Box-to-box clash cut",
+        "description": "Boolean-cut the incoming box beam with the landing box member so they no longer clash (no weld/plate; opt-in).",
+        "default_enabled": False,
+        "fields": [
+            {"name": "clearance", "label": "Cut clearance", "type": "number", "default": 2.0, "min": 0.0, "max": 20.0, "unit": "mm"},
+        ],
+    },
+]
 
 # slug -> spec dict. Insertion-ordered; last writer per slug wins (a re-imported
 # preload module just replaces its own entry). ``none`` is kept first so it is
@@ -99,26 +158,5 @@ register_detailing_engine(
     inprocess=True,
     entrypoint="ada.topo_model.detailing:detail",
     worker_capability=None,
-    joint_types=[
-        {
-            "slug": "girder_gusset",
-            "name": "Girder–girder gusset",
-            "description": "Gusset plate + fillet weld beads at each I-girder to I-girder intersection.",
-        },
-        {
-            "slug": "beam_column_endplate",
-            "name": "Beam–column end plate",
-            "description": "End plate + fillet weld (bolts metadata-first) where a girder frames into a column.",
-        },
-        {
-            "slug": "column_base_plate",
-            "name": "Column base plate",
-            "description": "Base plate + fillet welds (anchor bolts metadata-first) at each column footing.",
-        },
-        {
-            "slug": "box_to_box",
-            "name": "Box-to-box clash cut",
-            "description": "Boolean-cut the incoming box beam with the landing box member so they no longer clash (no weld/plate; opt-in).",
-        },
-    ],
+    joint_types=ADAPY_DEFAULT_JOINT_TYPES,
 )

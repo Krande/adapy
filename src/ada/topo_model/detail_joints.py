@@ -59,7 +59,7 @@ def eval_joint_req(joint: type[JointBase], intersecting_members: List["Beam"]) -
     return jrc.eval_joint_req()
 
 
-def collect_girder_joints(assembly) -> List["GirderJoint"]:
+def collect_girder_joints(assembly, *, weld_leg: float | None = None, gusset_t: float | None = None) -> List["GirderJoint"]:
     """All I-girder joints in ``assembly``, as :class:`GirderJoint` objects (their
     ``.connection`` carries the gusset + welds).
 
@@ -67,15 +67,21 @@ def collect_girder_joints(assembly) -> List["GirderJoint"]:
     end-at-mid-span T-junctions, but its bbox pre-filter is node-based, so it MISSES
     a pure "+" crossing where two girders pass through each other's mid-span with no
     node near either — :func:`_find_interior_crossings` adds those. Endpoints stay
-    owned by ``find`` (the interior test excludes them), so nothing is double-counted."""
-    assembly.connections.find(joint_func=detail_joint_map)
+    owned by ``find`` (the interior test excludes them), so nothing is double-counted.
+
+    ``weld_leg`` (fillet throat) and ``gusset_t`` (gusset plate thickness), both in
+    METRES, override the section-derived defaults so the detailing UI's knobs reach
+    the emitted geometry; ``None`` keeps the historical (section-derived) sizing."""
+    assembly.connections.find(joint_func=_make_joint_map(weld_leg, gusset_t))
     joints: List["GirderJoint"] = [c for c in assembly.connections.connections if isinstance(c, GirderJoint)]
     seen = {_centre_key(j.centre) for j in joints}
-    joints += _find_interior_crossings(assembly, seen)
+    joints += _find_interior_crossings(assembly, seen, weld_leg, gusset_t)
     return joints
 
 
-def _find_interior_crossings(assembly, seen: set) -> List["GirderJoint"]:
+def _find_interior_crossings(
+    assembly, seen: set, weld_leg: float | None = None, gusset_t: float | None = None
+) -> List["GirderJoint"]:
     """Girder pairs that cross INSIDE both spans (a "+" crossing) — the case
     ``connections.find`` misses. ``seen`` holds the centre keys already jointed so a
     crossing coincident with an existing joint is not duplicated."""
@@ -101,22 +107,46 @@ def _find_interior_crossings(assembly, seen: set) -> List["GirderJoint"]:
             if key in seen:
                 continue
             seen.add(key)
-            out.append(GirderJoint(f"GJx_{i:02d}_{j:02d}", [g1, g2], point, parent=assembly.connections))
+            out.append(
+                GirderJoint(
+                    f"GJx_{i:02d}_{j:02d}",
+                    [g1, g2],
+                    point,
+                    parent=assembly.connections,
+                    weld_leg=weld_leg,
+                    gusset_t=gusset_t,
+                )
+            )
     return out
 
 
-def detail_joint_map(joint_name, intersecting_members, centre, parent=None) -> Union[JointBase, None]:
+def _make_joint_map(weld_leg: float | None, gusset_t: float | None):
+    """A ``connections.find`` ``joint_func`` closure that carries the detailing
+    knobs (``weld_leg`` / ``gusset_t``) into each :class:`GirderJoint` it builds —
+    ``find`` calls ``joint_func(name, members, centre, parent=...)`` with a fixed
+    signature, so the sizing has to ride in via the closure."""
+
+    def joint_map(joint_name, intersecting_members, centre, parent=None) -> Union[JointBase, None]:
+        return detail_joint_map(joint_name, intersecting_members, centre, parent=parent, weld_leg=weld_leg, gusset_t=gusset_t)
+
+    return joint_map
+
+
+def detail_joint_map(
+    joint_name, intersecting_members, centre, parent=None, *, weld_leg: float | None = None, gusset_t: float | None = None
+) -> Union[JointBase, None]:
     """Map a detected beam intersection to a detail joint.
 
     Mirrors ``ada.param_models.basic_joints.joint_map`` but only knows the
     net-new :class:`GirderJoint` (I-girder to I-girder). Any intersection whose
     member types / count do not match returns ``None`` (skipped by
-    ``Connections.find``)."""
+    ``Connections.find``). ``weld_leg`` / ``gusset_t`` (metres) size the emitted
+    gusset when supplied."""
     joints: list[type[JointBase]] = [GirderJoint]
 
     for joint in joints:
         if eval_joint_req(joint, intersecting_members):
-            return joint(joint_name, intersecting_members, centre, parent=parent)
+            return joint(joint_name, intersecting_members, centre, parent=parent, weld_leg=weld_leg, gusset_t=gusset_t)
 
     member_types = [m.member_type for m in intersecting_members]
     logger.debug(f'No detail joint matched for member types "{member_types}"')
@@ -138,15 +168,17 @@ class GirderJoint(JointBase):
     beamtypes = ["IG", "IG"]
     num_mem = 2
 
-    def __init__(self, name, members: List["Beam"], centre, parent=None):
+    def __init__(self, name, members: List["Beam"], centre, parent=None, *, weld_leg: float | None = None, gusset_t: float | None = None):
         super().__init__(name, members, centre, parent=parent)
 
         g1 = self.main_mem
         g2 = next(m for m in members if m is not g1)
 
-        self._connection = self._build_connection(name, g1, g2, centre)
+        self._connection = self._build_connection(name, g1, g2, centre, weld_leg, gusset_t)
 
-    def _build_connection(self, name, g1: "Beam", g2: "Beam", centre) -> Connection:
+    def _build_connection(
+        self, name, g1: "Beam", g2: "Beam", centre, weld_leg: float | None = None, gusset_t: float | None = None
+    ) -> Connection:
         conn = Connection(f"{name}_conn")
 
         c = np.asarray(centre, dtype=float)
@@ -156,8 +188,11 @@ class GirderJoint(JointBase):
 
         h = float(g1.section.h)
         half = h * _GUSSET_HALF_FACTOR
-        t = max(float(getattr(g1.section, "t_w", 0.0) or 0.0), _MIN_GUSSET_T)
-        throat = max(float(getattr(g1.section, "t_w", 0.0) or 0.0), _MIN_THROAT)
+        # The UI knobs (gusset thickness / weld throat, in metres) win when given;
+        # otherwise fall back to the section-web-derived sizing (floored).
+        web_t = float(getattr(g1.section, "t_w", 0.0) or 0.0)
+        t = max(float(gusset_t) if gusset_t else web_t, _MIN_GUSSET_T)
+        throat = max(float(weld_leg) if weld_leg else web_t, _MIN_THROAT)
 
         # Vertical gusset plate in the plane spanned by the main girder axis and
         # the global Z, centred on the joint node (square, side = section height).

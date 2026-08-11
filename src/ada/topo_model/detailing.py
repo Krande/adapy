@@ -54,12 +54,50 @@ if TYPE_CHECKING:
 
 logger = get_logger()
 
-# Defaults for the per-joint-type option knobs (fed from the doc / UI in later
-# phases; sensible fabrication-grade values here).
+# Defaults for the per-joint-type option knobs (fed from the doc / UI via
+# ``conversion_options["detailing_options"]``; sensible fabrication-grade values
+# here). These are the SAME numbers the advertised ``joint_types`` field specs
+# default to (mm there, metres here) — see ``detailing_catalog.ADAPY_DEFAULT_JOINT_TYPES``.
 DEFAULT_WELD_LEG = 6e-3  # fillet weld leg / throat floor [m]
 DEFAULT_BASE_PLATE_OVERHANG = 0.05  # base-plate overhang beyond the footprint [m]
+DEFAULT_END_PLATE_T = 20e-3  # end-plate thickness [m]
+DEFAULT_GUSSET_T = 10e-3  # gusset-plate thickness [m]
+DEFAULT_BOX_CLEARANCE = 2e-3  # box clash-cut clearance beyond the landing bbox [m]
 _MIN_THROAT = 6e-3
 _MIN_PLATE_T = 10e-3
+
+
+def _joint_field_opts(options: dict, slug: str, default_enabled: bool):
+    """Normalise the per-joint entry in ``options`` into ``(enabled, fields)``.
+
+    Two shapes are accepted so the frontend can send a rich nested spec while the
+    original flat toggles keep working:
+
+    - **nested** (Phase 3 / UI): ``options[slug] = {"enabled": bool, "<field>":
+      value, ...}`` — the per-joint dict the Detailing tab produces. ``enabled``
+      falls back to ``default_enabled``; ``fields`` is that dict.
+    - **flat** (backward-compat / tests): ``options[slug]`` is a plain ``bool``
+      toggle and any field values (``weld_leg`` …) live at the TOP level of
+      ``options``. Absent the key entirely, the family runs at ``default_enabled``
+      and reads its fields from the top-level ``options``.
+
+    Numeric fields are advertised in MILLIMETRES; the collectors convert via
+    :func:`_mm`, so ``fields`` here carries the raw (mm) values."""
+    raw = options.get(slug)
+    if isinstance(raw, dict):
+        return bool(raw.get("enabled", default_enabled)), raw
+    if isinstance(raw, bool):
+        return raw, options
+    return default_enabled, options
+
+
+def _mm(fields: dict, name: str, default_mm: float) -> float:
+    """Read a length field advertised in MILLIMETRES and return it in METRES,
+    tolerating a missing / non-numeric value (falls back to ``default_mm``)."""
+    try:
+        return float(fields.get(name, default_mm)) * 1e-3
+    except (TypeError, ValueError):
+        return float(default_mm) * 1e-3
 
 # Endpoint / on-axis tolerances for the endplate + base-plate detection.
 _ENDPOINT_EPS = 1e-2  # a girder param s within this of 0/1 counts as its endpoint
@@ -98,12 +136,17 @@ def _box_beams(assembly: "Part") -> List["Beam"]:
 # ── collectors ────────────────────────────────────────────────────────
 
 
-def collect_girder_joints(assembly: "Part") -> list:
+def collect_girder_joints(assembly: "Part", options: Union[dict, None] = None) -> list:
     """Girder–girder gusset joints — reuses the historical detail-joint pass
-    verbatim (see :mod:`ada.topo_model.detail_joints`)."""
+    (see :mod:`ada.topo_model.detail_joints`), threading the per-joint ``weld_leg``
+    (fillet throat) and ``gusset_t`` (gusset plate thickness) knobs (advertised in
+    mm) into every emitted gusset so a UI change reaches real geometry."""
     from .detail_joints import collect_girder_joints as _collect
 
-    return list(_collect(assembly))
+    fields = options or {}
+    weld_leg = _mm(fields, "weld_leg", DEFAULT_WELD_LEG * 1e3)
+    gusset_t = _mm(fields, "gusset_t", DEFAULT_GUSSET_T * 1e3)
+    return list(_collect(assembly, weld_leg=weld_leg, gusset_t=gusset_t))
 
 
 def collect_endplate_joints(assembly: "Part", options: dict) -> List["EndPlateJoint"]:
@@ -113,7 +156,8 @@ def collect_endplate_joints(assembly: "Part", options: dict) -> List["EndPlateJo
     the column param ``t`` inside ``[0, 1]`` = the point is on the column)."""
     from ada.core.clash_check import beam_cross_check
 
-    weld_leg = float(options.get("weld_leg", DEFAULT_WELD_LEG))
+    weld_leg = _mm(options, "weld_leg", DEFAULT_WELD_LEG * 1e3)
+    plate_t = _mm(options, "plate_t", DEFAULT_END_PLATE_T * 1e3)
     girders = _beams_of_type(assembly, "Girder")
     columns = _beams_of_type(assembly, "Column")
     out: List["EndPlateJoint"] = []
@@ -127,7 +171,7 @@ def collect_endplate_joints(assembly: "Part", options: dict) -> List["EndPlateJo
             on_column = -_ENDPOINT_EPS <= t <= 1.0 + _ENDPOINT_EPS
             if not (at_endpoint and on_column):
                 continue
-            out.append(EndPlateJoint(f"EP_{gi:02d}_{ci:02d}", [g, c], point, weld_leg=weld_leg))
+            out.append(EndPlateJoint(f"EP_{gi:02d}_{ci:02d}", [g, c], point, weld_leg=weld_leg, plate_t=plate_t))
     return out
 
 
@@ -139,6 +183,7 @@ def collect_box_joints(assembly: "Part", options: dict) -> List["BoxJoint"]:
     OCC-free via ``beam_cross_check`` (see :meth:`BoxJoint.apply` for the cut)."""
     from ada.core.clash_check import beam_cross_check
 
+    clearance = _mm(options, "clearance", DEFAULT_BOX_CLEARANCE * 1e3)
     boxes = _box_beams(assembly)
     out: List["BoxJoint"] = []
     for i in range(len(boxes)):
@@ -160,7 +205,9 @@ def collect_box_joints(assembly: "Part", options: dict) -> List["BoxJoint"]:
                 incoming, landing = b2, b1
             else:
                 continue
-            out.append(BoxJoint(f"BX_{i:02d}_{j:02d}", [b1, b2], point, incoming=incoming, landing=landing))
+            out.append(
+                BoxJoint(f"BX_{i:02d}_{j:02d}", [b1, b2], point, incoming=incoming, landing=landing, clearance=clearance)
+            )
     return out
 
 
@@ -168,8 +215,11 @@ def collect_base_plate_joints(assembly: "Part", options: dict) -> List["BasePlat
     """Column base-plate joints: every Column beam whose LOWER node sits at the
     model's base elevation (the global minimum column-foot z) gets a base plate
     with fillet welds around its footprint."""
-    weld_leg = float(options.get("weld_leg", DEFAULT_WELD_LEG))
-    overhang = float(options.get("base_plate_overhang", DEFAULT_BASE_PLATE_OVERHANG))
+    weld_leg = _mm(options, "weld_leg", DEFAULT_WELD_LEG * 1e3)
+    # ``overhang`` is the advertised field name; ``base_plate_overhang`` is the
+    # historical flat-option alias (kept working for older callers).
+    overhang_src = "overhang" if "overhang" in options else "base_plate_overhang"
+    overhang = _mm(options, overhang_src, DEFAULT_BASE_PLATE_OVERHANG * 1e3)
     columns = _beams_of_type(assembly, "Column")
     if not columns:
         return []
@@ -215,13 +265,22 @@ class EndPlateJoint(JointBase):
     beamtypes = ["IG", "IG"]
     num_mem = 2
 
-    def __init__(self, name, members: List["Beam"], centre, *, weld_leg: float = DEFAULT_WELD_LEG, parent=None):
+    def __init__(
+        self,
+        name,
+        members: List["Beam"],
+        centre,
+        *,
+        weld_leg: float = DEFAULT_WELD_LEG,
+        plate_t: float = DEFAULT_END_PLATE_T,
+        parent=None,
+    ):
         super().__init__(name, members, centre, parent=parent)
         col = self.main_mem
         gir = next(m for m in members if m is not col)
-        self._connection = self._build_connection(name, gir, col, centre, weld_leg)
+        self._connection = self._build_connection(name, gir, col, centre, weld_leg, plate_t)
 
-    def _build_connection(self, name, gir: "Beam", col: "Beam", centre, weld_leg: float) -> Connection:
+    def _build_connection(self, name, gir: "Beam", col: "Beam", centre, weld_leg: float, plate_t: float) -> Connection:
         from ada import Plate, Weld
 
         conn = Connection(f"{name}_conn")
@@ -233,7 +292,9 @@ class EndPlateJoint(JointBase):
         h = float(gir.section.h)
         w = float(getattr(gir.section, "w_top", 0.0) or h)
         half_h, half_w = 0.5 * h, 0.5 * w
-        t_plate = max(2.0 * float(getattr(gir.section, "t_w", 0.0) or 0.0), _MIN_PLATE_T)
+        # End-plate thickness is the advertised ``plate_t`` knob (floored so a thin
+        # value still yields visible geometry), NOT a section-derived guess.
+        t_plate = max(float(plate_t), _MIN_PLATE_T)
 
         a, b = half_w * w_dir, half_h * z
         pts = [c - a - b, c + a - b, c + a + b, c - a + b]
@@ -351,10 +412,21 @@ class BoxJoint(JointBase):
     beamtypes = ["BG", "BG"]
     num_mem = 2
 
-    def __init__(self, name, members: List["Beam"], centre, *, incoming: "Beam", landing: "Beam", parent=None):
+    def __init__(
+        self,
+        name,
+        members: List["Beam"],
+        centre,
+        *,
+        incoming: "Beam",
+        landing: "Beam",
+        clearance: float = DEFAULT_BOX_CLEARANCE,
+        parent=None,
+    ):
         super().__init__(name, members, centre, parent=parent)
         self._incoming = incoming
         self._landing = landing
+        self._clearance = float(clearance)
 
     @property
     def incoming(self) -> "Beam":
@@ -364,14 +436,23 @@ class BoxJoint(JointBase):
     def landing(self) -> "Beam":
         return self._landing
 
+    @property
+    def clearance(self) -> float:
+        return self._clearance
+
     def apply(self) -> None:
         """Boolean-cut the incoming beam with the landing member's volume so the
         two box beams no longer clash. Uses a ``PrimBox`` of the landing member's
-        bounding box (OCC-free, mirroring :meth:`JointBase._cut_intersecting_member`);
-        the incoming beam's tessellation folds the cut in at encode time."""
+        bounding box grown by the ``clearance`` knob on every side (a positive
+        clearance leaves a fabrication gap; OCC-free, mirroring
+        :meth:`JointBase._cut_intersecting_member`); the incoming beam's
+        tessellation folds the cut in at encode time."""
         from ada import PrimBox
 
-        p1, p2 = self._landing.bbox().minmax
+        (x1, y1, z1), (x2, y2, z2) = self._landing.bbox().minmax
+        cl = self._clearance
+        p1 = (x1 - cl, y1 - cl, z1 - cl)
+        p2 = (x2 + cl, y2 + cl, z2 + cl)
         self._incoming.add_boolean(PrimBox(f"{self.name}_cut", p1, p2))
 
 
@@ -394,21 +475,27 @@ def detail(assembly: "Part", options: Union[dict, None] = None) -> "Part":
     beam–column end plate, column base plate) as a single ``ada.Part("Joints")``
     and return the assembly.
 
-    ``options`` carries per-joint-type toggles (``girder_gusset`` /
-    ``beam_column_endplate`` / ``column_base_plate``, all default-on;
-    ``box_to_box`` opt-in / default-off) and params (``weld_leg``,
-    ``base_plate_overhang``). Idempotent per assembly is NOT guaranteed — call
-    once per build (as the compile stage does)."""
+    ``options`` is the per-joint-type option map the Detailing tab produces —
+    ``{joint_slug: {"enabled": bool, "<field>": value, ...}}`` — where the fields
+    are the advertised knobs (``weld_leg`` / ``gusset_t`` / ``plate_t`` /
+    ``overhang`` / ``clearance``, all in mm). :func:`_joint_field_opts` also accepts
+    the older FLAT shape (a plain ``bool`` toggle per slug + top-level fields) so
+    existing callers/tests keep working. Idempotent per assembly is NOT guaranteed —
+    call once per build (as the compile stage does)."""
     import ada
 
     options = dict(options or {})
     joints: list = []
-    if options.get("girder_gusset", True):
-        joints += _collect(collect_girder_joints, assembly)
-    if options.get("beam_column_endplate", True):
-        joints += _collect(collect_endplate_joints, assembly, options)
-    if options.get("column_base_plate", True):
-        joints += _collect(collect_base_plate_joints, assembly, options)
+
+    en_gg, gg = _joint_field_opts(options, "girder_gusset", True)
+    if en_gg:
+        joints += _collect(collect_girder_joints, assembly, gg)
+    en_ep, ep = _joint_field_opts(options, "beam_column_endplate", True)
+    if en_ep:
+        joints += _collect(collect_endplate_joints, assembly, ep)
+    en_bp, bp = _joint_field_opts(options, "column_base_plate", True)
+    if en_bp:
+        joints += _collect(collect_base_plate_joints, assembly, bp)
 
     joint_parts = [j.connection for j in joints]
     if joint_parts:
@@ -416,7 +503,8 @@ def detail(assembly: "Part", options: Union[dict, None] = None) -> "Part":
 
     # Box joints add no connective geometry — they only bool-cut the incoming box
     # beam so the box members no longer interpenetrate (opt-in, default off).
-    if options.get("box_to_box", False):
-        for bj in _collect(collect_box_joints, assembly, options):
+    en_bx, bx = _joint_field_opts(options, "box_to_box", False)
+    if en_bx:
+        for bj in _collect(collect_box_joints, assembly, bx):
             bj.apply()
     return assembly

@@ -1110,6 +1110,10 @@ async def _run_procedural_build(
     # plain structural build). Only the in-process builtin (adapy-default) is
     # applied here; an external (Tier-B) engine is a chained capability job (Phase 2).
     detailing = opts.get("detailing")
+    # Per-joint-type detailing options (the Detailing tab's toggles + field values,
+    # keyed by joint slug) threaded into the in-process detail() so a knob change
+    # (weld leg, plate thickness, overhang, clearance …) actually alters geometry.
+    detailing_options = opts.get("detailing_options") or {}
     # EXTERNAL detailing: when set, this structural stage runs NO in-process
     # detailing but ALSO serializes the compiled ada.Part to a neutral IFC artifact
     # (+ a per-Beam section sidecar) at the given keys, so the chained
@@ -1272,6 +1276,7 @@ async def _run_procedural_build(
             cad_scene_resolver=cad_meshes.get,
             lod=lod,
             detailing=detailing_arg,
+            detailing_options=detailing_options,
         )
         takeoff_holder["stats"] = stats
         return glb_bytes
