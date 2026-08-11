@@ -1099,6 +1099,17 @@ export interface ProceduralCompileResponse {
   cached: boolean;
 }
 
+/** Result of staging an uploaded workbook for import. `engine` is the slug read
+ * from the file's `_ADA_META` sheet, or null for a hand-made / legacy workbook
+ * (no metadata) — the frontend then prompts the user to choose an engine. */
+export interface ProceduralXlsxDetect {
+  source_key: string;
+  engine: string | null;
+  package?: string | null;
+  package_version?: string | null;
+  schema_version?: string | null;
+}
+
 /** One proposed equipment move that would make a cramped/unroutable run clean.
  * ``from``/``to`` are equipment ORIGINS (X+LX/2, Y+LY/2, Z). */
 export interface ProceduralRelocation {
@@ -2127,6 +2138,70 @@ export const viewerApi = {
     return await r.text();
   },
 
+  /** Enqueue an export of the model's committed revision to its engine's Excel
+   * workbook. Poll `convertStatus(job_id)`; on `done` the `.xlsx` lives at
+   * `derived_key` — download it as an attachment (blob GET). `cached:true` +
+   * `job_id:null` means the workbook was already built. */
+  async exportProceduralModelXlsx(
+    scope: ScopeUrl,
+    modelId: string,
+    opts?: { engine?: string | null; force?: boolean },
+  ): Promise<ProceduralCompileResponse> {
+    const params = new URLSearchParams();
+    if (opts?.force) params.set("force", "true");
+    if (opts?.engine) params.set("engine", opts.engine);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/export-xlsx${qs}`,
+      { method: "POST" },
+    );
+    return jsonOrThrow<ProceduralCompileResponse>(
+      r,
+      `exportProceduralModelXlsx(${modelId})`,
+    );
+  },
+
+  /** Stage an uploaded `.xlsx` for import and auto-detect its owning engine from
+   * the file's `_ADA_META` sheet (read server-side, dependency-free). Returns the
+   * staged `source_key` + detected `engine` (null when the workbook has no
+   * metadata — the caller then prompts). Pass the result to
+   * `importProceduralModelXlsx`. */
+  async uploadProceduralImportXlsx(
+    scope: ScopeUrl,
+    data: Blob | ArrayBuffer,
+  ): Promise<ProceduralXlsxDetect> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/import-xlsx/upload`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: data,
+      },
+    );
+    return jsonOrThrow<ProceduralXlsxDetect>(r, `uploadProceduralImportXlsx`);
+  },
+
+  /** Enqueue an import of a staged workbook into a NEW model, built by `engine`'s
+   * capability pool. Poll `convertStatus(job_id)`; on `done` GET the JSON result
+   * blob at `derived_key` (`{model_id, name, engine, revision}`) to open it. */
+  async importProceduralModelXlsx(
+    scope: ScopeUrl,
+    body: { source_key: string; engine: string; name: string },
+  ): Promise<{ job_id: string; derived_key: string }> {
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/import-xlsx`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    return jsonOrThrow<{ job_id: string; derived_key: string }>(
+      r,
+      `importProceduralModelXlsx(${body.name})`,
+    );
+  },
+
   /** Equipment types for the cellbuilder's add-equipment dropdown: the union
    * of code-defined archetypes (worker pool) and the per-scope DB catalog,
    * each tagged with its origin. */
@@ -2285,6 +2360,28 @@ export const viewerApi = {
       );
     }
     return (await r.json()) as ProceduralRelocationResult;
+  },
+
+  /** Fetch an import job's JSON result blob (`{model_id, name, engine,
+   * revision}`) written by the worker at `derived_key`. */
+  async fetchProceduralImportResult(
+    scope: ScopeUrl,
+    key: string,
+  ): Promise<{ model_id: string; name: string; engine: string | null; revision: number }> {
+    const r = await authedFetch(this.blobUrl(scope, key));
+    if (!r.ok) {
+      throw new ApiError(
+        `fetchProceduralImportResult(${key})`,
+        r.status,
+        await readDetail(r),
+      );
+    }
+    return (await r.json()) as {
+      model_id: string;
+      name: string;
+      engine: string | null;
+      revision: number;
+    };
   },
 
   /** Persist a code-defined system kind into this scope's DB system-template

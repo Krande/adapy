@@ -1281,6 +1281,213 @@ async def _run_procedural_relocations(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+async def _resolve_engine_manifest(
+    db_pool: "asyncpg.Pool", row: dict, engine: str | None
+) -> dict | None:
+    """The registry manifest doc for a NON-default, non-builtin engine (its
+    ``entrypoint``/``worker_capability``/xlsx-sibling fields), resolved by slug in
+    the model's scope. ``None`` for the default/built-in engines."""
+    from ada.topo_model.engines import BUILTIN_ENGINES, is_default_engine
+
+    if is_default_engine(engine) or engine in BUILTIN_ENGINES:
+        return None
+    eng_row = await db_module.get_procedural_engine_by_slug(
+        db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"], slug=engine
+    )
+    return (eng_row or {}).get("doc") if eng_row else None
+
+
+async def _run_procedural_export_xlsx(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Export a procedural model (postgres-stored doc) to its engine's Excel
+    workbook (bytes), stamped with the ``_ADA_META`` sheet, and store it at
+    ``job.derived_key`` (an ``.xlsx`` blob the frontend downloads). A synthetic
+    sibling of :func:`_run_procedural_build`, routed to the engine's capability."""
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    model_id = opts.get("model_id")
+    revision = opts.get("revision")
+    engine = opts.get("engine")
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not model_id or not isinstance(revision, int):
+        await _fail("export", "conversion_options.model_id and revision are required for procedural_export_xlsx")
+        return
+    if db_pool is None:
+        await _fail("export", "procedural export requires DATABASE_URL on the worker")
+        return
+
+    row = await db_module.get_procedural_model(db_pool, model_id)
+    if row is None:
+        await _fail("export", f"procedural model {model_id} not found")
+        return
+    if row["revision"] != revision:
+        await _fail(
+            "export",
+            f"procedural model {model_id} is at revision {row['revision']}, job requested r{revision}",
+        )
+        return
+
+    manifest_doc = await _resolve_engine_manifest(db_pool, row, engine)
+    doc = row["doc"]
+
+    from ada.topo_model.engines import EngineHasNoExcelFormat, export_doc_to_xlsx
+
+    def _do_export() -> bytes:
+        return export_doc_to_xlsx(engine, doc, name=row["name"], manifest_doc=manifest_doc)
+
+    loop = asyncio.get_running_loop()
+    try:
+        await queue.update(job_id, stage="export", progress=0.40)
+        xlsx_bytes = await loop.run_in_executor(None, _do_export)
+    except EngineHasNoExcelFormat as exc:
+        await _fail("export", str(exc))
+        return
+    except Exception as exc:
+        logger.exception("worker: procedural_export_xlsx failed for %s", model_id)
+        await _fail("export", str(exc), tb_module.format_exc())
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        # An xlsx is an already-compressed zip — store identity (no gzip re-encode),
+        # so the presigned/blob GET hands the browser a valid .xlsx download.
+        await storage.put_bytes(scope, job.derived_key, xlsx_bytes)
+    except Exception as exc:
+        logger.exception("worker: procedural_export_xlsx upload failed for %s", model_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
+async def _run_procedural_import_xlsx(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Import an uploaded Excel workbook into a NEW procedural model.
+
+    ``conversion_options`` carries ``{source_key, engine, name, created_by}``; the
+    engine (chosen from the ``_ADA_META`` sheet or the user's prompt) parses the
+    workbook into a procedural document, which is committed as a fresh model. The
+    original workbook is kept as the model's ``source_xlsx_key`` (full-fidelity
+    source). A small JSON result ``{model_id, name, engine, revision}`` is written
+    to ``job.derived_key`` so the frontend can open the new model."""
+    import json
+
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    source_key = opts.get("source_key")
+    engine = opts.get("engine")
+    name = (opts.get("name") or "").strip() or "Imported model"
+    created_by = opts.get("created_by")
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not source_key:
+        await _fail("import", "conversion_options.source_key is required for procedural_import_xlsx")
+        return
+    if db_pool is None:
+        await _fail("import", "procedural import requires DATABASE_URL on the worker")
+        return
+
+    try:
+        xlsx_bytes = await storage.get_bytes(scope, source_key)
+    except Exception as exc:
+        await _fail("import", f"uploaded workbook {source_key!r} unreadable: {exc}")
+        return
+
+    # A NON-default, non-builtin engine's manifest is resolved by slug in this
+    # scope (mirrors export/build) — needed to locate its import entrypoint.
+    from ada.topo_model.engines import BUILTIN_ENGINES, is_default_engine
+
+    manifest_doc = None
+    if not is_default_engine(engine) and engine not in BUILTIN_ENGINES:
+        eng_row = await db_module.get_procedural_engine_by_slug(
+            db_pool, scope_kind=scope.kind, scope_id=scope.id, slug=engine
+        )
+        if eng_row is None:
+            await _fail("import", f"procedural engine {engine!r} not found in scope")
+            return
+        manifest_doc = (eng_row or {}).get("doc")
+
+    from ada.comms.rest.procedural import procedural_source_key, validate_doc
+    from ada.topo_model.engines import DEFAULT_ENGINE_SLUG, EngineHasNoExcelFormat, import_xlsx_to_doc
+
+    def _do_import() -> dict:
+        parsed = import_xlsx_to_doc(engine, xlsx_bytes, manifest_doc=manifest_doc)
+        # Stamp the routing header so a subsequent compile auto-routes back to this
+        # engine, then validate/normalize through the same path the commit uses.
+        parsed["engine"] = engine or DEFAULT_ENGINE_SLUG
+        return validate_doc(parsed)
+
+    loop = asyncio.get_running_loop()
+    try:
+        await queue.update(job_id, stage="import", progress=0.40)
+        doc = await loop.run_in_executor(None, _do_import)
+    except EngineHasNoExcelFormat as exc:
+        await _fail("import", str(exc))
+        return
+    except Exception as exc:
+        logger.exception("worker: procedural_import_xlsx parse failed for %s", source_key)
+        await _fail("import", str(exc), tb_module.format_exc())
+        return
+
+    # Create the model row, then stash the original workbook as its full-fidelity
+    # source and commit the parsed doc (revision 0 -> 1).
+    model_row = await db_module.create_procedural_model(
+        db_pool, scope_kind=scope.kind, scope_id=scope.id, name=name, created_by=created_by
+    )
+    if model_row is None:
+        await _fail("import", f"a procedural model named {name!r} already exists in this scope")
+        return
+    model_id = model_row["id"]
+
+    src_key = procedural_source_key(model_id)
+    try:
+        await storage.put_bytes(scope, src_key, xlsx_bytes)
+        doc["source_xlsx_key"] = src_key
+    except Exception:
+        logger.warning("worker: import could not stash source workbook for %s", model_id)
+
+    new_rev = await db_module.update_procedural_model_doc(db_pool, model_id, doc, model_row["revision"])
+    if new_rev is None:
+        await _fail("import", f"failed to commit imported doc for model {model_id}")
+        return
+
+    payload = json.dumps(
+        {"model_id": model_id, "name": name, "engine": doc.get("engine"), "revision": new_rev}
+    ).encode("utf-8")
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        await storage.put_bytes(scope, job.derived_key, payload, content_encoding="gzip")
+    except Exception as exc:
+        logger.exception("worker: procedural_import_xlsx result upload failed for %s", model_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
 def _infer_equipment_geometry(data: bytes, ext: str) -> tuple[dict, bytes]:
     """Read a CAD/mesh asset, returning its axis-aligned bounding-box extents
     ``{lx, ly, lz}`` (in metres) and a preview GLB for the sidecar viewer. Mesh
@@ -1973,6 +2180,31 @@ async def _process_one(
     # runs route cleanly) instead of a GLB.
     if job.target_format == "procedural_relocations":
         await _run_procedural_relocations(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # procedural_export_xlsx / procedural_import_xlsx are synthetic too: the
+    # engine that owns the model's Excel format serializes the doc to a workbook
+    # (export) or parses an uploaded workbook into a new model (import).
+    if job.target_format == "procedural_export_xlsx":
+        await _run_procedural_export_xlsx(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    if job.target_format == "procedural_import_xlsx":
+        await _run_procedural_import_xlsx(
             job=job,
             scope=scope,
             storage=storage,
@@ -3083,6 +3315,8 @@ async def _run() -> None:
                         "component_build",
                         "procedural_build",
                         "procedural_relocations",
+                        "procedural_export_xlsx",
+                        "procedural_import_xlsx",
                         "equipment_bbox",
                     ):
                         can_handle = True

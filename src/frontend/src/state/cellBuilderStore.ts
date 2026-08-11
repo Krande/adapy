@@ -706,6 +706,27 @@ interface CellBuilderState {
    * position (converting origin → box corner) and mark dirty. Clears
    * `relocations`. The user then recompiles. */
   applyRelocations: () => void;
+
+  // ── Excel round-trip ──────────────────────────────────────────────
+  /** True while an Excel export or import job is in flight (disables the
+   * Export/Import buttons). */
+  xlsxBusy: boolean;
+  /** A staged import awaiting an engine choice: set when an uploaded workbook had
+   * no `_ADA_META` sheet so the engine couldn't be auto-detected. Non-null shows
+   * the engine-picker prompt in the panel. */
+  importPrompt: { sourceKey: string; name: string } | null;
+  /** Export the active model to its (selected) engine's Excel workbook and
+   * trigger a browser download. Commits first when there are unsaved edits so the
+   * workbook matches what's on screen. */
+  exportToExcel: () => Promise<void>;
+  /** Begin importing a workbook: upload it, auto-detect the owning engine from its
+   * `_ADA_META` sheet, and import immediately when detected — otherwise set
+   * `importPrompt` so the user picks an engine. */
+  beginImportFromExcel: (file: File) => Promise<void>;
+  /** Resolve an import that needed an engine choice (from the prompt). */
+  confirmImportEngine: (engine: string) => Promise<void>;
+  /** Dismiss the pending-import engine prompt without importing. */
+  cancelImport: () => void;
 }
 
 // Global offset that seats a cell-associated equipment at its cell. Equipment
@@ -1147,6 +1168,89 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     }
   };
 
+  // Enqueue an import job for a staged workbook (source_key) with a resolved
+  // engine, poll it, and open the freshly-created model on success. Shared by the
+  // auto-detected path and the "picked an engine from the prompt" path.
+  const IMPORT_LABEL = "Import from Excel";
+  const runImport = async (
+    sourceKey: string,
+    engine: string,
+    name: string,
+  ): Promise<void> => {
+    const scope = currentScopePart();
+    setProceduralToast(IMPORT_LABEL, {
+      status: "running",
+      progress: 0.3,
+      stage: "importing…",
+    });
+    const openImported = async (derivedKey: string) => {
+      try {
+        const result = await viewerApi.fetchProceduralImportResult(scope, derivedKey);
+        const detail = await viewerApi.getProceduralModel(scope, result.model_id);
+        get().open(detail.id, detail.name, detail.revision, detail.doc);
+        setProceduralToast(IMPORT_LABEL, {
+          status: "done",
+          progress: 1,
+          stage: "imported",
+          derivedKey,
+        });
+      } catch (e) {
+        setProceduralToast(IMPORT_LABEL, {
+          status: "error",
+          error: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        set({ xlsxBusy: false });
+      }
+    };
+    try {
+      const res = await viewerApi.importProceduralModelXlsx(scope, {
+        source_key: sourceKey,
+        engine,
+        name,
+      });
+      const jobId = res.job_id;
+      const poll = async () => {
+        try {
+          const st = await viewerApi.convertStatus(jobId);
+          if (st.status === "done") {
+            await openImported(st.derived_key || res.derived_key);
+            return;
+          }
+          if (st.status === "error") {
+            set({ xlsxBusy: false });
+            setProceduralToast(IMPORT_LABEL, {
+              status: "error",
+              stage: st.stage || "",
+              error: st.error ?? "import failed",
+            });
+            return;
+          }
+          setProceduralToast(IMPORT_LABEL, {
+            status: "running",
+            progress: st.progress ?? 0.4,
+            stage: st.stage || "importing…",
+            jobId,
+          });
+          setTimeout(poll, 1500);
+        } catch (e) {
+          set({ xlsxBusy: false });
+          setProceduralToast(IMPORT_LABEL, {
+            status: "error",
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      };
+      setTimeout(poll, 1200);
+    } catch (e) {
+      set({ xlsxBusy: false });
+      setProceduralToast(IMPORT_LABEL, {
+        status: "error",
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  };
+
   return {
     active: null,
     cells: {},
@@ -1199,6 +1303,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     buildDetail: false,
     relocations: null,
     relocationBusy: false,
+    xlsxBusy: false,
+    importPrompt: null,
     resyncBusy: false,
     resyncSummary: null,
     cellsVisible: true,
@@ -3018,5 +3124,145 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       get().endTransaction();
       set({ relocations: null });
     },
+
+    // ── Excel round-trip ──────────────────────────────────────────────
+    exportToExcel: async () => {
+      const active = get().active;
+      if (!active || get().xlsxBusy) return;
+      const scope = currentScopePart();
+      const engine = get().selectedEngine;
+      const label = "Export to Excel";
+      set({ xlsxBusy: true });
+      setProceduralToast(label, {
+        status: "running",
+        progress: 0,
+        stage: "exporting…",
+        startedAt: Date.now(),
+      });
+      const download = async (derivedKey: string) => {
+        try {
+          await viewerApi.downloadBlob(
+            scope,
+            derivedKey,
+            `${active.name || "procedural-model"}.xlsx`,
+          );
+          setProceduralToast(label, {
+            status: "done",
+            progress: 1,
+            stage: "downloaded",
+          });
+        } catch (e) {
+          setProceduralToast(label, {
+            status: "error",
+            error: e instanceof Error ? e.message : String(e),
+          });
+        } finally {
+          set({ xlsxBusy: false });
+        }
+      };
+      try {
+        // Export the COMMITTED revision (the worker reads the DB doc); commit any
+        // unsaved edits first so the workbook matches what's on screen.
+        if (get().dirty) await get().commit();
+        const res = await viewerApi.exportProceduralModelXlsx(
+          scope,
+          active.modelId,
+          { engine },
+        );
+        if (res.cached || !res.job_id) {
+          await download(res.derived_key);
+          return;
+        }
+        const jobId = res.job_id;
+        const poll = async () => {
+          try {
+            const st = await viewerApi.convertStatus(jobId);
+            if (st.status === "done") {
+              await download(st.derived_key || res.derived_key);
+              return;
+            }
+            if (st.status === "error") {
+              set({ xlsxBusy: false });
+              setProceduralToast(label, {
+                status: "error",
+                stage: st.stage || "",
+                error: st.error ?? "export failed",
+              });
+              return;
+            }
+            setProceduralToast(label, {
+              status: "running",
+              progress: st.progress ?? 0,
+              stage: st.stage || "exporting…",
+              jobId,
+            });
+            setTimeout(poll, 1500);
+          } catch (e) {
+            set({ xlsxBusy: false });
+            setProceduralToast(label, {
+              status: "error",
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        };
+        setTimeout(poll, 1200);
+      } catch (e) {
+        set({ xlsxBusy: false });
+        setProceduralToast(label, {
+          status: "error",
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    },
+
+    beginImportFromExcel: async (file: File) => {
+      if (get().xlsxBusy) return;
+      const scope = currentScopePart();
+      const label = "Import from Excel";
+      // Derive a model name from the file (drop the extension).
+      const name = file.name.replace(/\.[^.]+$/, "").trim() || "Imported model";
+      set({ xlsxBusy: true, importPrompt: null });
+      setProceduralToast(label, {
+        status: "running",
+        progress: 0,
+        stage: "uploading…",
+        startedAt: Date.now(),
+      });
+      try {
+        const buf = await file.arrayBuffer();
+        const detect = await viewerApi.uploadProceduralImportXlsx(scope, buf);
+        if (detect.engine) {
+          // Engine known from the workbook's _ADA_META — import straight away.
+          await runImport(detect.source_key, detect.engine, name);
+        } else {
+          // No metadata (hand-made / legacy workbook): ask which engine to use.
+          await get().fetchEngines();
+          setProceduralToast(label, {
+            status: "running",
+            progress: 0.2,
+            stage: "choose an engine…",
+          });
+          set({
+            xlsxBusy: false,
+            importPrompt: { sourceKey: detect.source_key, name },
+          });
+        }
+      } catch (e) {
+        set({ xlsxBusy: false });
+        setProceduralToast(label, {
+          status: "error",
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    },
+
+    confirmImportEngine: async (engine: string) => {
+      const prompt = get().importPrompt;
+      if (!prompt) return;
+      set({ importPrompt: null, xlsxBusy: true });
+      await runImport(prompt.sourceKey, engine, prompt.name);
+    },
+
+    cancelImport: () => set({ importPrompt: null }),
   };
 });

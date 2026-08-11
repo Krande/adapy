@@ -621,6 +621,7 @@ const CellBuilderPanel: React.FC = () => {
   const s = useCellBuilderStore();
   const equipBtnRef = React.useRef<HTMLButtonElement>(null);
   const compileCaretRef = React.useRef<HTMLButtonElement>(null);
+  const importInputRef = React.useRef<HTMLInputElement>(null);
   const [equipMenuOpen, setEquipMenuOpen] = React.useState(false);
   const [compileMenuOpen, setCompileMenuOpen] = React.useState(false);
   const [tab, setTab] = React.useState<PanelTab>("build");
@@ -1468,6 +1469,65 @@ const CellBuilderPanel: React.FC = () => {
               {s.relocationBusy ? "Analyzing…" : "Propose relocations"}
             </button>
           </div>
+
+          {/* ── Excel round-trip ── */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <button
+              className={btnGray}
+              disabled={s.xlsxBusy || !s.active}
+              onClick={() => void s.exportToExcel()}
+              title="Download the current model as the selected engine's Excel workbook (commits any unsaved edits first). Re-import it here or edit it offline and import it back."
+            >
+              {s.xlsxBusy ? "Working…" : "Export to Excel"}
+            </button>
+            <button
+              className={btnGray}
+              disabled={s.xlsxBusy}
+              onClick={() => importInputRef.current?.click()}
+              title="Import an .xlsx workbook as a new procedural model. The owning engine is detected from the file; a hand-made workbook prompts you to pick one."
+            >
+              Import from Excel
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                // Reset the value so re-picking the same file fires onChange again.
+                e.target.value = "";
+                if (file) void s.beginImportFromExcel(file);
+              }}
+            />
+          </div>
+
+          {s.importPrompt && (
+            <div className="border border-blue-500/50 rounded-sm p-1.5 text-[12px] flex flex-col gap-1">
+              <p className="text-gray-200">
+                This workbook has no engine metadata. Import{" "}
+                <span className="text-blue-300 break-all">
+                  “{s.importPrompt.name}”
+                </span>{" "}
+                using which engine?
+              </p>
+              <div className="flex items-center gap-1 flex-wrap">
+                {s.engines.map((eng) => (
+                  <button
+                    key={eng.slug}
+                    className={btn}
+                    onClick={() => void s.confirmImportEngine(eng.slug)}
+                    title={eng.description ?? eng.name}
+                  >
+                    {eng.name}
+                  </button>
+                ))}
+                <button className={btnGray} onClick={() => s.cancelImport()}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           {s.relocations && (
             <div className="border border-amber-500/50 rounded-sm p-1 text-[12px]">

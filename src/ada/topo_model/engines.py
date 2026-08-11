@@ -34,6 +34,9 @@ __all__ = [
     "entrypoint_for",
     "load_entrypoint",
     "compile_with_engine",
+    "engine_supports_excel",
+    "export_doc_to_xlsx",
+    "import_xlsx_to_doc",
 ]
 
 DEFAULT_ENGINE_SLUG = "adapy-default"
@@ -141,3 +144,89 @@ def compile_with_engine(engine: str, doc, **options) -> bytes:
     if is_default_engine(engine):
         raise ValueError("compile_with_engine is for non-default engines; call the default compile path directly")
     return _call_filtered(load_entrypoint(entrypoint_for(engine)), doc, options)
+
+
+# ── Excel export / import ─────────────────────────────────────────────
+#
+# A procedural model can be exported to — and imported from — the OWNING engine's
+# Excel workbook. The default engine (adapy-default) uses ada.topo_model.excel_io;
+# a non-default engine exposes sibling ``export_xlsx`` / ``import_xlsx``
+# entrypoints (a registry manifest may name them explicitly, else they are derived
+# from the compile entrypoint's module). A built-in NON-default engine (echo) has
+# no Excel format.
+
+# Built-in engine slugs that own an Excel format (the default engine does; the
+# diagnostic ``echo`` engine does not).
+_EXCEL_BUILTIN_ENGINES: frozenset[str] = frozenset({DEFAULT_ENGINE_SLUG})
+
+
+def _sibling_entrypoint(compile_entrypoint: str, func: str) -> str:
+    """Derive an engine's ``export_xlsx``/``import_xlsx`` entrypoint from its
+    ``module:compile`` entrypoint — the same module, a differently-named callable —
+    so a manifest that names only ``entrypoint`` still yields the xlsx siblings."""
+    module = compile_entrypoint.partition(":")[0]
+    return f"{module}:{func}"
+
+
+class EngineHasNoExcelFormat(ValueError):
+    """Raised when export/import is attempted on an engine with no Excel format."""
+
+
+def engine_supports_excel(engine: str | None, manifest_doc: dict | None = None) -> bool:
+    """True if ``engine`` can export/import Excel: the default engine, or a
+    registered engine whose manifest names an ``entrypoint`` (from which the xlsx
+    siblings are derived) or explicit ``export_entrypoint``/``import_entrypoint``.
+    Built-in non-default engines (echo) return False."""
+    if is_default_engine(engine):
+        return True
+    if engine in BUILTIN_ENGINES:
+        return engine in _EXCEL_BUILTIN_ENGINES
+    doc = manifest_doc or {}
+    return bool(doc.get("export_entrypoint") or doc.get("import_entrypoint") or doc.get("entrypoint"))
+
+
+def _xlsx_entrypoint(engine: str, manifest_doc: dict | None, *, direction: str) -> str:
+    """Resolve the ``module:callable`` for an engine's ``export``/``import`` xlsx
+    handler. Prefers the manifest's explicit ``{export,import}_entrypoint``; else
+    derives it from the compile ``entrypoint``'s module. Raises when neither is
+    available."""
+    doc = manifest_doc or {}
+    func = "export_xlsx" if direction == "export" else "import_xlsx"
+    explicit = doc.get(f"{direction}_entrypoint")
+    if explicit:
+        return explicit
+    compile_ep = doc.get("entrypoint") or (entrypoint_for(engine) if ":" in (engine or "") else None)
+    if not compile_ep:
+        raise EngineHasNoExcelFormat(f"engine {engine!r} manifest has no entrypoint to derive {func} from")
+    return _sibling_entrypoint(compile_ep, func)
+
+
+def export_doc_to_xlsx(engine: str | None, doc: dict, *, name: str, manifest_doc: dict | None = None) -> bytes:
+    """Serialize a procedural ``doc`` to the ``engine``'s Excel workbook (bytes),
+    with the ``_ADA_META`` sheet stamped. Raises :class:`EngineHasNoExcelFormat`
+    for an engine with no Excel format."""
+    if is_default_engine(engine):
+        from ada.topo_model.excel_io import doc_to_xlsx_bytes
+
+        return doc_to_xlsx_bytes(doc, name=name, engine=DEFAULT_ENGINE_SLUG)
+    if engine in BUILTIN_ENGINES and engine not in _EXCEL_BUILTIN_ENGINES:
+        raise EngineHasNoExcelFormat(f"engine {engine!r} has no Excel format")
+    fn = load_entrypoint(_xlsx_entrypoint(engine, manifest_doc, direction="export"))
+    return _call_filtered(fn, doc, {"name": name})
+
+
+def import_xlsx_to_doc(engine: str | None, xlsx_bytes: bytes, *, manifest_doc: dict | None = None) -> dict:
+    """Parse an ``engine``'s Excel workbook (bytes) into a procedural document.
+    Raises :class:`EngineHasNoExcelFormat` for an engine with no Excel format.
+
+    The engine's ``import_xlsx`` takes the workbook BYTES positionally (not a
+    doc), so it is called directly rather than through the ``compile(doc, …)``
+    filter."""
+    if is_default_engine(engine):
+        from ada.topo_model.excel_io import xlsx_bytes_to_doc
+
+        return xlsx_bytes_to_doc(xlsx_bytes)
+    if engine in BUILTIN_ENGINES and engine not in _EXCEL_BUILTIN_ENGINES:
+        raise EngineHasNoExcelFormat(f"engine {engine!r} has no Excel format")
+    fn = load_entrypoint(_xlsx_entrypoint(engine, manifest_doc, direction="import"))
+    return fn(xlsx_bytes)

@@ -3413,6 +3413,171 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
 
+    # ── Excel export / import ─────────────────────────────────────────
+    #
+    # Round-trip a procedural model through the OWNING engine's Excel workbook,
+    # delegated to the worker (the engine's capability pool does the read/write).
+    # Export mirrors /compile (revision-keyed cache + capability routing); import
+    # is a two-step: upload+detect (dependency-free _ADA_META peek), then enqueue.
+
+    # Built-in engine slugs with NO Excel format — echo is diagnostic only. Kept
+    # ada-free here (slim API): the default engine + registered engines support it.
+    _NO_EXCEL_ENGINE_SLUGS = {"echo"}
+
+    async def _procedural_engine_capability(pool, scope_obj: Scope, engine: str | None) -> str | None:
+        """The worker capability that owns a non-default engine's Excel format
+        (its ``worker_capability``), so export/import routes to that pool. None for
+        the default / built-in engines (base pool)."""
+        if not engine or engine == "adapy-default" or engine in ("echo",):
+            return None
+        eng = await db_module.get_procedural_engine_by_slug(
+            pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id, slug=engine
+        )
+        return (eng.get("doc") or {}).get("worker_capability") if eng else None
+
+    @api.post("/scopes/{scope}/procedural-models/{model_id}/export-xlsx")
+    async def api_procedural_export_xlsx(
+        request: Request,
+        model_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Enqueue an export of the model's committed revision to its engine's
+        Excel workbook. Mirrors :func:`api_procedural_compile`: revision-keyed
+        cache short-circuit, ``?force=true`` to rebuild, engine → capability
+        routing. The worker writes the ``.xlsx`` to ``derived_key``; the frontend
+        polls ``convertStatus`` then downloads the blob as an attachment."""
+        from .procedural import procedural_xlsx_export_key
+
+        force = (request.query_params.get("force") or "").strip().lower() in ("1", "true", "yes")
+        engine = (request.query_params.get("engine") or "").strip() or None
+
+        pool = _require_procedural_pool(request)
+        row = await _get_procedural_in_scope(pool, model_id, scope_obj)
+        # Honour the model's declared engine unless overridden (as /compile does);
+        # "adapy-default" collapses to the bare (built-in) key.
+        if engine is None:
+            declared = (row.get("engine") or "").strip()
+            engine = declared or None
+            if engine == "adapy-default":
+                engine = None
+        if engine in _NO_EXCEL_ENGINE_SLUGS:
+            raise HTTPException(status_code=400, detail=f"engine {engine!r} has no Excel format")
+
+        derived_key = procedural_xlsx_export_key(row["id"], row["revision"], engine)
+        if not force and await storage.exists(scope_obj, derived_key):
+            return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="procedural export disabled (no NATS configured)")
+
+        target_capability = await _procedural_engine_capability(pool, scope_obj, engine)
+        job = await queue.enqueue(
+            f"_synthetic/procedural/{row['id']}/r{row['revision']}/export-xlsx",
+            target_format="procedural_export_xlsx",
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            conversion_options={"model_id": row["id"], "revision": row["revision"], "engine": engine},
+            derived_key=derived_key,
+            force_rebuild=force,
+            target_capability=target_capability,
+        )
+        return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
+
+    @api.post("/scopes/{scope}/procedural-models/import-xlsx/upload")
+    async def api_procedural_import_xlsx_upload(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Stage an uploaded ``.xlsx`` for import and auto-detect its owning engine.
+
+        The workbook (octet-stream body) is stored under a hidden per-upload token;
+        its ``_ADA_META`` sheet is read dependency-free (stdlib zip/xml) to detect
+        which engine authored it. Returns ``{source_key, engine, package,
+        package_version, schema_version}``; ``engine`` is ``null`` for a hand-made /
+        legacy workbook (no ``_ADA_META``), which is the frontend's cue to PROMPT
+        the user to choose an engine before calling ``/import-xlsx``."""
+        import uuid
+
+        from .procedural import (
+            ADA_META_KEY_ENGINE,
+            ADA_META_KEY_PACKAGE,
+            ADA_META_KEY_PACKAGE_VERSION,
+            ADA_META_KEY_SCHEMA_VERSION,
+            procedural_import_source_key,
+            read_ada_meta_from_xlsx_bytes,
+        )
+
+        data = await request.body()
+        if not data:
+            raise HTTPException(status_code=400, detail="empty body")
+        if len(data) > _DIRECT_UPLOAD_THRESHOLD_BYTES:
+            raise HTTPException(status_code=413, detail="workbook too large to import")
+
+        source_key = procedural_import_source_key(uuid.uuid4().hex)
+        await storage.put_bytes(scope_obj, source_key, data)
+
+        meta = read_ada_meta_from_xlsx_bytes(data) or {}
+        engine = (meta.get(ADA_META_KEY_ENGINE) or "").strip() or None
+        return JSONResponse(
+            {
+                "source_key": source_key,
+                "engine": engine,
+                "package": meta.get(ADA_META_KEY_PACKAGE),
+                "package_version": meta.get(ADA_META_KEY_PACKAGE_VERSION),
+                "schema_version": meta.get(ADA_META_KEY_SCHEMA_VERSION),
+            }
+        )
+
+    @api.post("/scopes/{scope}/procedural-models/import-xlsx", status_code=201)
+    async def api_procedural_import_xlsx(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Enqueue an import of a previously-uploaded workbook into a NEW model.
+
+        Body: ``{source_key, engine, name}`` — ``source_key`` from
+        ``/import-xlsx/upload``; ``engine`` the detected or user-chosen slug;
+        ``name`` the new model's name. The engine's capability pool parses the
+        workbook into a procedural doc and creates the model; the frontend polls
+        ``convertStatus`` then GETs the JSON result blob to learn the new
+        ``model_id``."""
+        from .procedural import PROCEDURAL_PREFIX, procedural_import_result_key
+
+        pool = _require_procedural_pool(request)
+        body = await request.json()
+        source_key = (body.get("source_key") or "").strip()
+        engine = (body.get("engine") or "").strip() or None
+        name = (body.get("name") or "").strip()
+        if not source_key or not source_key.startswith(f"{PROCEDURAL_PREFIX}_import/"):
+            raise HTTPException(status_code=400, detail="source_key (from /import-xlsx/upload) is required")
+        if not name:
+            raise HTTPException(status_code=400, detail="name (str) is required")
+        if engine in _NO_EXCEL_ENGINE_SLUGS:
+            raise HTTPException(status_code=400, detail=f"engine {engine!r} has no Excel format")
+        if engine == "adapy-default":
+            engine = None
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="procedural import disabled (no NATS configured)")
+
+        target_capability = await _procedural_engine_capability(pool, scope_obj, engine)
+        derived_key = procedural_import_result_key(source_key)
+        job = await queue.enqueue(
+            f"_synthetic/procedural/import-xlsx/{source_key}",
+            target_format="procedural_import_xlsx",
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            conversion_options={
+                "source_key": source_key,
+                "engine": engine,
+                "name": name,
+                "created_by": user.sub,
+            },
+            derived_key=derived_key,
+            force_rebuild=True,
+            target_capability=target_capability,
+        )
+        return JSONResponse({"job_id": job.job_id, "derived_key": derived_key}, status_code=201)
+
     # ── Equipment-type & system-template catalogs (per-scope) ────────
     #
     # Admin-authored, reusable definitions the cellbuilder places by slug.
