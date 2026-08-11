@@ -53,6 +53,9 @@ def _eq(
     loc: str = "FLOOR",
     mass_dry: float = 1000.0,
     mass_cont: float = 0.0,
+    rot_x: float = 0.0,
+    rot_y: float = 0.0,
+    rot_z: float = 0.0,
 ) -> dict:
     """A full TopoEquipment dict. The template doc is committed verbatim (not
     through the cellbuilder store, which would otherwise enrich a bare
@@ -80,6 +83,9 @@ def _eq(
         "COGz": 0.0,
         "massDry": mass_dry,
         "massCont": mass_cont,
+        "ROT_X": rot_x,
+        "ROT_Y": rot_y,
+        "ROT_Z": rot_z,
     }
 
 
@@ -117,11 +123,11 @@ def _steel_structure_demo_doc() -> dict:
         [
             _eq("Pump2", "pump", 2, 2, 0, 1, 1, 1, "Cell1"),
             _eq("Tank2", "tank", 6.5, 1.5, 0, 2, 2, 2, "Cell2", mass_dry=2000, mass_cont=3000),
-            _eq("SB2", "switchboard", 0.3, 2, 0, 0.8, 0.4, 1.2, "Cell1", mass_dry=500),
+            _eq("SB2", "switchboard", 0.3, 2, 0, 0.8, 0.4, 1.2, "Cell1", mass_dry=500, rot_z=-90),
             _eq("Pump1", "pump", 2, 2, 3, 1, 1, 1, "Cell3"),
             _eq("Tank1", "tank", 6.5, 1.5, 3, 2, 2, 2, "Cell4", mass_dry=2000, mass_cont=3000),
-            _eq("SB1", "switchboard", 0.3, 2, 3, 0.8, 0.4, 1.2, "Cell3", mass_dry=500),
-            _eq("HVAC1", "hvac", 3, 3.5, 3, 1.5, 1, 1.2, "Cell3", mass_dry=800),
+            _eq("SB1", "switchboard", 0.3, 2, 3, 0.8, 0.4, 1.2, "Cell3", mass_dry=500, rot_z=-90),
+            _eq("HVAC1", "hvac", 3, 3.5, 3, 1.5, 1, 1.2, "Cell3", mass_dry=800, rot_z=180),
             _eq("Exhaust1", "exhaust_fan", 3, 3.5, 6, 0.8, 0.8, 0.6, "Cell3", loc="ROOF", mass_dry=300),
         ],
     )
