@@ -1645,12 +1645,27 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (!st.active) return;
         // A press on the translate/rotate gizmo's handle is a drag, not a long-press.
         if ((st.gizmoMode === "translate" || st.gizmoMode === "rotate") && gizmo.axis) return;
-        const hit = pickBuilderMesh();
-        if (!hit) return;
-        const cellId = hit.object.userData.__cellId as string;
         longPressStartX = ev.clientX;
         longPressStartY = ev.clientY;
         const {clientX, clientY} = ev;
+        // A long-press ON A PORT ARROW opens the port Move/Rotate menu (the touch
+        // equivalent of the desktop right-click, which orbit-controls otherwise
+        // swallow as a camera drag). Ports win over the cell body behind them.
+        const hitPort = pickPort();
+        if (hitPort) {
+            longPressTimer = setTimeout(() => {
+                longPressTimer = null;
+                drag = null;
+                pendingSelect = null;
+                useCellBuilderStore
+                    .getState()
+                    .openPortMenu(clientX, clientY, hitPort.cellId, hitPort.portName);
+            }, LONG_PRESS_MS);
+            return;
+        }
+        const hit = pickBuilderMesh();
+        if (!hit) return;
+        const cellId = hit.object.userData.__cellId as string;
         longPressTimer = setTimeout(() => {
             longPressTimer = null;
             // A long-press wins over a pending face-drag/selection.
