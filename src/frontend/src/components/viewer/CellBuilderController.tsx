@@ -2734,6 +2734,31 @@ function init(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.C
         if (!inField && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
             const k = ev.key.toLowerCase();
             const cell = st.selection ? st.cells[st.selection.cellId] : null;
+            // Representation-mode shortcuts (work regardless of selection so you
+            // can flip views mid-edit), mirroring the Representation button row:
+            // backtick cycles topology→simulation→detail, Shift+backtick reverses;
+            // Shift+1/2/3 jump straight to a mode. Plain digits are left to the
+            // builder's "1–9 = cell type" picker below (Shift+digit is `!@#`, which
+            // that picker's /^[1-9]$/ test ignores — so no clash).
+            const REP_MODES = ["topology", "simulation", "detail"] as const;
+            if (ev.code === "Backquote") {
+                const cur = Math.max(0, REP_MODES.indexOf(st.repMode));
+                const dir = ev.shiftKey ? -1 : 1;
+                const next = REP_MODES[(cur + dir + REP_MODES.length) % REP_MODES.length];
+                void st.setRepMode(next);
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
+            if (
+                ev.shiftKey &&
+                (ev.code === "Digit1" || ev.code === "Digit2" || ev.code === "Digit3")
+            ) {
+                void st.setRepMode(REP_MODES[Number(ev.code.slice(-1)) - 1]);
+                ev.preventDefault();
+                ev.stopPropagation();
+                return;
+            }
             // Shift+H hides the selected builder cells (mirrors the Hide buttons).
             // With a builder selection this wins over the global mesh-range hide;
             // with nothing selected it falls through so result meshes still hide.

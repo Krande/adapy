@@ -1414,7 +1414,7 @@ const CellBuilderPanel: React.FC = () => {
                     "The high-fidelity detail model (trimmed deck edges, I-girder joints)",
                   ],
                 ] as const
-              ).map(([m, label, title]) => (
+              ).map(([m, label, title], idx) => (
                 <button
                   key={m}
                   className={
@@ -1425,8 +1425,9 @@ const CellBuilderPanel: React.FC = () => {
                   }
                   onClick={() => void s.setRepMode(m)}
                   aria-pressed={s.repMode === m}
-                  title={title}
+                  title={`${title} — ⇧${idx + 1} jumps here; \` cycles views, ⇧\` reverse`}
                 >
+                  <span className="opacity-50 mr-0.5">⇧{idx + 1}</span>
                   {label}
                   {s.repMode === m && m !== "topology" && compileBusy
                     ? " …"
