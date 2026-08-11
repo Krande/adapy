@@ -152,6 +152,78 @@ _SIDECAR_SIBLINGS: dict[str, tuple[str, ...]] = {
 # touching the per-job code paths.
 _WORKER_IMAGE_TAG: str | None = None
 
+# The worker's graceful-shutdown event, published module-level by ``run_worker``
+# so long-running poll loops inside a handler (e.g. the chained procedural_detail
+# stage waiting on the structural build) can wake early on SIGTERM/SIGINT instead
+# of blocking the pod's shutdown for the full wait budget. ``None`` until the
+# worker loop wires it (a handler running in a unit test just sees no stop event
+# and polls to its timeout).
+_WORKER_STOP: "asyncio.Event | None" = None
+
+# Chained procedural_detail waits for the upstream structural build (a DIFFERENT
+# pool, no ordering guarantee) to write the neutral artifact before it runs. Poll
+# storage for the artifact up to this total budget, sleeping this interval between
+# checks (interruptible on shutdown). 120 s comfortably covers a realistic
+# structural compile; 3 s keeps the poll cheap without busy-spinning.
+STRUCTURAL_ARTIFACT_WAIT_BUDGET_S = 120.0
+STRUCTURAL_ARTIFACT_WAIT_INTERVAL_S = 3.0
+# Once the (required) IFC artifact exists the sections sidecar — written moments
+# later by the same build — should appear almost immediately; give it a short
+# grace before degrading to an empty sidecar.
+STRUCTURAL_SECTIONS_WAIT_BUDGET_S = 15.0
+
+
+async def _wait_for_blob(
+    storage: "Storage",
+    scope,
+    key: str,
+    *,
+    queue: "JobQueue",
+    job_id: str,
+    budget_s: float,
+    interval_s: float | None = None,
+    waiting_stage: str | None = None,
+) -> bool:
+    """Poll object storage until ``key`` exists, up to ``budget_s`` (sleeping
+    ``interval_s`` between checks — defaulting to the module poll interval, read at
+    call time so it stays tunable). Returns ``True`` as soon as the blob is present,
+    ``False`` on timeout or a graceful worker shutdown.
+
+    Interruptible + non-busy-spinning: the between-checks wait blocks on the
+    module-level shutdown event (``_WORKER_STOP``) via ``asyncio.wait_for`` so a
+    SIGTERM wakes it immediately, mirroring the keep-alive/heartbeat loops. When no
+    stop event is wired (unit tests) it falls back to a plain ``asyncio.sleep``."""
+    interval_s = STRUCTURAL_ARTIFACT_WAIT_INTERVAL_S if interval_s is None else interval_s
+    deadline = time.monotonic() + budget_s
+    stop = _WORKER_STOP
+    announced = False
+    while True:
+        try:
+            if await storage.exists(scope, key):
+                return True
+        except Exception:
+            # A transient storage error shouldn't abort the wait — retry next tick.
+            logger.debug("worker: exists() check failed for %s (retrying)", key)
+        if stop is not None and stop.is_set():
+            return False
+        if time.monotonic() >= deadline:
+            return False
+        if waiting_stage and not announced:
+            try:
+                await queue.update(job_id, stage=waiting_stage, progress=0.10)
+            except Exception:
+                logger.debug("worker: could not update stage while waiting for %s", key)
+            announced = True
+        if stop is not None:
+            try:
+                # Wake early when the worker is asked to shut down.
+                await asyncio.wait_for(stop.wait(), timeout=interval_s)
+                return False
+            except asyncio.TimeoutError:
+                pass
+        else:
+            await asyncio.sleep(interval_s)
+
 
 async def _audit_done(
     db_pool: asyncpg.Pool | None,
@@ -1375,8 +1447,32 @@ async def _run_procedural_detail(
         await _fail("detail", "conversion_options.structural_ifc_key is required for procedural_detail")
         return
 
-    # The structural stage writes the artifact + sidecar before the compile job
-    # completes; a missing blob means that stage failed / hasn't run yet.
+    # The structural build runs on a DIFFERENT pool with NO ordering guarantee
+    # relative to this job — this pool can claim procedural_detail before the
+    # structural stage has written the neutral artifact. So WAIT (bounded) for the
+    # IFC artifact to appear rather than failing on the first miss; only error if
+    # it never shows within the budget (a genuinely failed / absent structural build).
+    if not await _wait_for_blob(
+        storage,
+        scope,
+        structural_ifc_key,
+        queue=queue,
+        job_id=job_id,
+        budget_s=STRUCTURAL_ARTIFACT_WAIT_BUDGET_S,
+        waiting_stage="waiting for structural build…",
+    ):
+        # A shutdown mid-wait leaves the job for redelivery (not a hard error);
+        # a real timeout is a failure the operator should see.
+        if _WORKER_STOP is not None and _WORKER_STOP.is_set():
+            logger.info("worker: procedural_detail %s interrupted by shutdown while waiting", job_id)
+            return
+        await _fail(
+            "fetch",
+            f"structural artifact {structural_ifc_key!r} did not appear within "
+            f"{STRUCTURAL_ARTIFACT_WAIT_BUDGET_S:.0f}s — the structural build may have failed",
+        )
+        return
+
     try:
         await queue.update(job_id, stage="fetch", progress=0.20)
         model_bytes = await storage.get_bytes(scope, structural_ifc_key)
@@ -1386,6 +1482,16 @@ async def _run_procedural_detail(
 
     sections: dict = {}
     if structural_sections_key:
+        # The sidecar is written by the same build moments after the IFC; give it a
+        # short grace to appear, then degrade to an empty sidecar (best-effort).
+        await _wait_for_blob(
+            storage,
+            scope,
+            structural_sections_key,
+            queue=queue,
+            job_id=job_id,
+            budget_s=STRUCTURAL_SECTIONS_WAIT_BUDGET_S,
+        )
         try:
             sections = _json.loads(await storage.get_bytes(scope, structural_sections_key))
         except Exception:
@@ -3509,6 +3615,10 @@ async def _run() -> None:
         await asyncio.get_running_loop().run_in_executor(None, _warm_convert_imports)
 
     stop = asyncio.Event()
+    # Publish module-level so long in-handler poll loops (chained procedural_detail
+    # waiting on the structural build) can wake early on shutdown.
+    global _WORKER_STOP
+    _WORKER_STOP = stop
 
     def _signal_handler() -> None:
         logger.info("worker: shutdown signal received")

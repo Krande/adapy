@@ -278,3 +278,98 @@ def test_external_detailing_compile_enqueues_chained_job(monkeypatch, tmp_path: 
     assert body["derived_key"] == "_procedural/m1/r2.det-weld-gen.glb"
     assert body["structural_job_id"] == "job-procedural_build"
     assert body["structural_key"] == "_procedural/m1/r2.glb"
+
+
+def test_procedural_detail_waits_for_structural_artifact(monkeypatch):
+    # The structural build (a different pool) races the chained procedural_detail
+    # job: the artifact may not exist yet when this handler starts. It must WAIT
+    # (bounded, interruptible) for the artifact to appear rather than failing on
+    # the first miss. Stub storage to 404 the IFC key the first few polls, then
+    # succeed, and assert the handler proceeds to write the detailing GLB.
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    from ada.comms.rest import worker as worker_mod
+
+    # Tiny poll interval so the test doesn't spend real seconds waiting.
+    monkeypatch.setattr(worker_mod, "STRUCTURAL_ARTIFACT_WAIT_INTERVAL_S", 0.01)
+
+    ifc_key = "_procedural/m1/r2.structural.ifc"
+    sections_key = "_procedural/m1/r2.structural.sections.json"
+    detail_key = "_procedural/m1/r2.det-weld-gen.glb"
+
+    # The IFC artifact only "appears" after this many existence checks; the
+    # sidecar is present from the start (written moments after in reality).
+    misses_before_ready = 3
+    state = {"ifc_checks": 0}
+    put_calls: list[dict] = []
+    stages: list[str] = []
+
+    class FakeStorage:
+        async def exists(self, scope, key):
+            if key == ifc_key:
+                state["ifc_checks"] += 1
+                return state["ifc_checks"] > misses_before_ready
+            return True
+
+        async def get_bytes(self, scope, key):
+            if key == ifc_key:
+                return b"ISO-10303-21;\nDATA;\nENDSEC;\n"
+            if key == sections_key:
+                return json.dumps({"b1": {"section_type": "BOX", "section_props": {"h": 0.4}}}).encode()
+            raise FileNotFoundError(key)
+
+        async def put_bytes(self, scope, key, data, content_encoding=None):
+            put_calls.append({"key": key, "data": data, "content_encoding": content_encoding})
+
+    class FakeQueue:
+        async def update(self, job_id, **kw):
+            if kw.get("stage"):
+                stages.append(kw["stage"])
+
+    captured_options: dict = {}
+
+    def _fake_detail(model_bytes, options):
+        # The engine entrypoint the pool would resolve; assert it got the artifact.
+        assert model_bytes.startswith(b"ISO-10303-21;")
+        captured_options.update(options)
+        return b"glTF-detailing-layer"
+
+    monkeypatch.setattr("ada.topo_model.engines.load_entrypoint", lambda ep: _fake_detail)
+
+    job = SimpleNamespace(
+        job_id="detail-1",
+        derived_key=detail_key,
+        conversion_options={
+            "model_id": "m1",
+            "revision": 2,
+            "engine": None,
+            "detailing": "weld-gen",
+            "detailing_entrypoint": "weld_gen.adapy_detailing:detail",
+            "structural_ifc_key": ifc_key,
+            "structural_sections_key": sections_key,
+        },
+    )
+
+    asyncio.run(
+        worker_mod._run_procedural_detail(
+            job=job,
+            scope=SimpleNamespace(kind="shared", id=None),
+            storage=FakeStorage(),
+            queue=FakeQueue(),
+            db_pool=None,
+            started_at=0.0,
+        )
+    )
+
+    # It polled past the initial misses (did NOT fail on the first absence) and
+    # surfaced the "waiting" stage before proceeding.
+    assert state["ifc_checks"] > misses_before_ready
+    assert any("waiting" in s for s in stages)
+    assert "ready" in stages  # completed
+    # The detailing GLB was written gzip-at-rest, and the sidecar reached the engine.
+    written = next(c for c in put_calls if c["key"] == detail_key)
+    assert written["data"] == b"glTF-detailing-layer"
+    assert written["content_encoding"] == "gzip"
+    assert captured_options["sections"] == {"b1": {"section_type": "BOX", "section_props": {"h": 0.4}}}
