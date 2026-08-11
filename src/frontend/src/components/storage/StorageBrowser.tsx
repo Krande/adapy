@@ -321,6 +321,11 @@ const StorageBrowser: React.FC = () => {
     // rename/move; delete archives the row server-side.
     const [proceduralModels, setProceduralModels] = useState<ProceduralModelSummary[]>([]);
     const activeProcedural = useCellBuilderStore((s) => s.active?.modelId ?? null);
+    // Engine-picker prompt raised by the store when an imported workbook has no
+    // _ADA_META engine (hand-made / legacy). Rendered here because import is now
+    // triggered from the + menu, not the cellbuilder panel.
+    const importPrompt = useCellBuilderStore((s) => s.importPrompt);
+    const importEngines = useCellBuilderStore((s) => s.engines);
     const refreshProceduralModels = React.useCallback(async () => {
         try {
             setProceduralModels(await viewerApi.listProceduralModels(scopeKey));
@@ -332,6 +337,11 @@ const StorageBrowser: React.FC = () => {
     useEffect(() => {
         void refreshProceduralModels();
     }, [refreshProceduralModels]);
+    // A model becoming active (created / opened / imported) may be new to the
+    // list — refresh so an Excel-imported model appears without a manual reload.
+    useEffect(() => {
+        if (activeProcedural) void refreshProceduralModels();
+    }, [activeProcedural, refreshProceduralModels]);
 
     // Start-from templates for the "New model from template" dropdown — the
     // union of the demo templates advertised by every currently-live worker
@@ -732,6 +742,10 @@ const StorageBrowser: React.FC = () => {
     // dispatched a CustomEvent that UploadContextMenu listened for, which
     // broke the gesture chain on mobile.
     const fileInputRef = useRef<HTMLInputElement>(null);
+    // Hidden picker for "Import from Excel…" in the + menu — imports create a
+    // NEW procedural model, so the entry point lives here rather than in the
+    // cellbuilder panel (which only exists once a model is open).
+    const importXlsxInputRef = useRef<HTMLInputElement>(null);
     // Folder destination for the next picker-initiated upload
     // ("Upload here…" on a folder). Consumed once by onFilePicked.
     const uploadTargetRef = useRef<string | null>(null);
@@ -1209,6 +1223,18 @@ const StorageBrowser: React.FC = () => {
                         style={{display: "none"}}
                         onChange={onFilePicked}
                     />
+                    <input
+                        ref={importXlsxInputRef}
+                        type="file"
+                        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        style={{display: "none"}}
+                        onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            // Reset so re-picking the same file fires onChange again.
+                            e.target.value = "";
+                            if (file) void useCellBuilderStore.getState().beginImportFromExcel(file);
+                        }}
+                    />
                     <button
                         ref={plusBtnRef}
                         type="button"
@@ -1251,6 +1277,17 @@ const StorageBrowser: React.FC = () => {
                                     onClick: () => void createProceduralModel(),
                                 },
                                 {
+                                    key: "import-xlsx",
+                                    label: "Import from Excel…",
+                                    // Imports create a new procedural model; the
+                                    // owning engine is detected from the file's
+                                    // _ADA_META, else the user is prompted.
+                                    onClick: () => {
+                                        setPlusOpen(false);
+                                        importXlsxInputRef.current?.click();
+                                    },
+                                },
+                                {
                                     key: "new-from-template",
                                     label: "New model from template ▸",
                                     // Swap the + menu for the template list,
@@ -1287,6 +1324,38 @@ const StorageBrowser: React.FC = () => {
                             )}
                             onClose={() => setTemplatesOpen(false)}
                             ignoreOutsideRef={templatesBtnRef}
+                            anchor={{
+                                kind: "rect",
+                                getRect: () => plusBtnRef.current?.getBoundingClientRect(),
+                            }}
+                        />
+                    )}
+                    {importPrompt && (
+                        <PositionedMenu
+                            header={
+                                <span className="text-[11px] uppercase tracking-wide opacity-60">
+                                    Import “{importPrompt.name}” as…
+                                </span>
+                            }
+                            items={[
+                                ...importEngines.map(
+                                    (eng): KebabMenuItem => ({
+                                        key: eng.slug,
+                                        label: eng.name,
+                                        onClick: () =>
+                                            void useCellBuilderStore
+                                                .getState()
+                                                .confirmImportEngine(eng.slug),
+                                    }),
+                                ),
+                                {
+                                    key: "__cancel",
+                                    label: "Cancel",
+                                    onClick: () => useCellBuilderStore.getState().cancelImport(),
+                                },
+                            ]}
+                            onClose={() => useCellBuilderStore.getState().cancelImport()}
+                            ignoreOutsideRef={plusBtnRef}
                             anchor={{
                                 kind: "rect",
                                 getRect: () => plusBtnRef.current?.getBoundingClientRect(),
