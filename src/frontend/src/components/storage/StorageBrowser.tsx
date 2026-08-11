@@ -1345,7 +1345,11 @@ const StorageBrowser: React.FC = () => {
                                         onClick: () =>
                                             void useCellBuilderStore
                                                 .getState()
-                                                .confirmImportEngine(eng.slug),
+                                                // Pass the prompt captured here at
+                                                // render time: the menu dismisses
+                                                // (cancelImport) before this fires,
+                                                // clearing importPrompt in the store.
+                                                .confirmImportEngine(eng.slug, importPrompt),
                                     }),
                                 ),
                                 {

@@ -757,8 +757,15 @@ interface CellBuilderState {
    * `_ADA_META` sheet, and import immediately when detected — otherwise set
    * `importPrompt` so the user picks an engine. */
   beginImportFromExcel: (file: File) => Promise<void>;
-  /** Resolve an import that needed an engine choice (from the prompt). */
-  confirmImportEngine: (engine: string) => Promise<void>;
+  /** Resolve an import that needed an engine choice (from the prompt). The
+   * caller passes the prompt captured at render time: the menu that hosts the
+   * engine picker dismisses (running `cancelImport`, which nulls `importPrompt`)
+   * BEFORE the item's click handler fires, so reading `importPrompt` back from
+   * the store here would race to null and silently drop the import. */
+  confirmImportEngine: (
+    engine: string,
+    prompt?: { sourceKey: string; name: string },
+  ) => Promise<void>;
   /** Dismiss the pending-import engine prompt without importing. */
   cancelImport: () => void;
 }
@@ -1014,6 +1021,20 @@ function containingCellName(
   }
   const first = Object.values(cells).find((c) => c.kind === "cell");
   return first ? first.name : "NoSpace";
+}
+
+/** The topology's world X-width from its cells (0 when empty). Passed to the
+ * side-by-side offset so the result clears the topology even when the freshly-
+ * loaded result group isn't measurable yet (which otherwise collapsed the gap
+ * to ~1 m and overlapped for a personal-scope demo). */
+function modelXWidth(cells: Record<string, BuilderCell>): number {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const c of Object.values(cells)) {
+    minX = Math.min(minX, c.origin[0]);
+    maxX = Math.max(maxX, c.origin[0] + c.size[0]);
+  }
+  return maxX > minX ? maxX - minX : 0;
 }
 
 function snapshot(s: CellBuilderState): ModelSnapshot {
@@ -2962,8 +2983,10 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       // loader replaces the group (position resets to the model translation), so
       // re-apply on every load.
       if (get().sideBySide) {
+        const width = modelXWidth(get().cells);
         void import("@/utils/scene/handlers/side_by_side").then(
-          ({ applySideBySideOffset }) => applySideBySideOffset(sourceName, true),
+          ({ applySideBySideOffset }) =>
+            applySideBySideOffset(sourceName, true, width),
         );
       }
     },
@@ -3038,7 +3061,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           const { applySideBySideOffset } = await import(
             "@/utils/scene/handlers/side_by_side"
           );
-          applySideBySideOffset(sourceName, true);
+          applySideBySideOffset(sourceName, true, modelXWidth(get().cells));
         }
         setProceduralToast(label, {
           status: "done",
@@ -3135,10 +3158,11 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // In a result view, restore the superimpose choice for the cell layer.
         get().setCellsVisible(get().superimpose);
       }
+      const width = modelXWidth(get().cells);
       const apply = (src: string | null) => {
         if (!src) return;
         void import("@/utils/scene/handlers/side_by_side").then(
-          ({ applySideBySideOffset }) => applySideBySideOffset(src, on),
+          ({ applySideBySideOffset }) => applySideBySideOffset(src, on, width),
         );
       };
       apply(get().resultSourceName);
@@ -3388,11 +3412,15 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       }
     },
 
-    confirmImportEngine: async (engine: string) => {
-      const prompt = get().importPrompt;
-      if (!prompt) return;
+    confirmImportEngine: async (engine, prompt) => {
+      // Prefer the prompt the caller captured at render time; fall back to the
+      // store only if it's still there. The picker menu runs its `onClose`
+      // (cancelImport) before this click handler, so `get().importPrompt` has
+      // usually already been nulled — relying on it alone stalls the import.
+      const active = prompt ?? get().importPrompt;
+      if (!active) return;
       set({ importPrompt: null, xlsxBusy: true });
-      await runImport(prompt.sourceKey, engine, prompt.name);
+      await runImport(active.sourceKey, engine, active.name);
     },
 
     cancelImport: () => set({ importPrompt: null }),
