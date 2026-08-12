@@ -1,18 +1,12 @@
 // Pure helpers for the catalogue equipment 3D preview's bounding-box wireframe.
 //
-// The preview must WRAP the CAD regardless of what (possibly stale / default
-// 1×1×1) lx/ly/lz the type has stored and regardless of the preview GLB's
-// authored orientation/units — so when a CAD mesh is loaded we draw the box from
-// the CAD group's own measured AABB, overriding the stored dims entirely. Only
-// when NO CAD is attached do we fall back to the stored lx/ly/lz box (Z-up
-// equipment convention: base at z=0, centred in x/y, lz = height). Keeping the
-// math here (arrays, no THREE types) makes it unit-testable; the component just
-// feeds it the CAD Box3 min/max it measured with THREE.Box3().setFromObject.
-
-export interface AabbLike {
-  min: [number, number, number];
-  max: [number, number, number];
-}
+// The preview is a Z-up scene, IDENTICAL to the main cellbuilder view: the box
+// is BoxGeometry(lx, ly, lz) with the footprint on X/Y and LZ vertical (along
+// +Z = up) = the height, base sitting at z=0. The dims come from the backend
+// `infer bbox` job, which returns Z-up lx/ly/lz (lz = height) and a Z-up preview
+// GLB — so the box, the CAD mesh, and these numbers are all in the same frame,
+// no client-side axis juggling. Keeping the math here (arrays, no THREE types)
+// makes it unit-testable.
 
 export interface EquipmentBbox {
   lx: number;
@@ -20,68 +14,34 @@ export interface EquipmentBbox {
   lz: number;
 }
 
-/** The wireframe box to draw for the preview, as an axis-aligned min/max.
- *
- * - `cadAabb` present  → the CAD's real (non-cubic) measured bounds, verbatim.
- *   The box takes the CAD's actual extents and wraps it, no re-inference needed.
- * - `cadAabb` null     → the stored lx/ly/lz nominal box (base at 0, centred).
- */
-export function equipmentDisplayBox(
-  cadAabb: AabbLike | null,
-  bbox: EquipmentBbox,
-): AabbLike {
-  if (cadAabb) {
-    return { min: [...cadAabb.min], max: [...cadAabb.max] };
-  }
-  const { lx, ly, lz } = bbox;
-  return { min: [-lx / 2, 0, -ly / 2], max: [lx / 2, lz, ly / 2] };
-}
-
-/** The eight corners of an AABB (order is irrelevant — used as snap targets). */
-export function aabbCorners(box: AabbLike): [number, number, number][] {
-  const [x0, y0, z0] = box.min;
-  const [x1, y1, z1] = box.max;
-  const out: [number, number, number][] = [];
-  for (const x of [x0, x1])
-    for (const y of [y0, y1]) for (const z of [z0, z1]) out.push([x, y, z]);
-  return out;
-}
-
-/** Centre + size of an AABB (size clamped to ≥ 0), for a BoxGeometry + position. */
-export function aabbCenterSize(box: AabbLike): {
+/** Centre + size of the Z-up equipment box, for a BoxGeometry + its position.
+ * Base at z=0, centred on X/Y, so the centre is (0, 0, lz/2). Sizes clamp ≥ 0. */
+export function equipmentBoxCenterSize(b: EquipmentBbox): {
   center: [number, number, number];
   size: [number, number, number];
 } {
-  const [x0, y0, z0] = box.min;
-  const [x1, y1, z1] = box.max;
-  return {
-    center: [(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2],
-    size: [Math.max(0, x1 - x0), Math.max(0, y1 - y0), Math.max(0, z1 - z0)],
-  };
+  const lx = Math.max(0, b.lx);
+  const ly = Math.max(0, b.ly);
+  const lz = Math.max(0, b.lz);
+  return { center: [0, 0, lz / 2], size: [lx, ly, lz] };
 }
 
-/** The stored equipment dims (lx/ly/lz) that correspond to a measured CAD AABB
- * **in the preview's view space** — the EXACT inverse of the nominal branch of
- * `equipmentDisplayBox`, so the numeric fields always equal the drawn box's
- * extents.
- *
- * The preview renders with the swap (model x,y,z → view x,z,y), so:
- *   - lx = view-X size  (= model X)
- *   - lz = view-Y size  (= model Z, the height)
- *   - ly = view-Z size  (= model Y)
- *
- * Values are rounded (default 3 dp / mm) so the fields aren't noisy. */
-export function bboxFromViewAabb(box: AabbLike, decimals = 3): EquipmentBbox {
-  const { size } = aabbCenterSize(box);
-  const f = 10 ** decimals;
-  const r = (v: number) => Math.round(v * f) / f;
-  return { lx: r(size[0]), ly: r(size[2]), lz: r(size[1]) };
+/** The eight Z-up corners of the equipment box (footprint on X/Y ∈ ±l/2, height
+ * on Z ∈ [0, lz]). Used as port snap targets. */
+export function equipmentBoxCorners(b: EquipmentBbox): [number, number, number][] {
+  const out: [number, number, number][] = [];
+  for (const x of [-b.lx / 2, b.lx / 2])
+    for (const y of [-b.ly / 2, b.ly / 2]) for (const z of [0, b.lz]) out.push([x, y, z]);
+  return out;
 }
 
-/** Whether two bboxes agree to `decimals` places (guards the CAD-measure write
- * against re-writing identical values / a feedback loop). */
-export function bboxEquals(a: EquipmentBbox, b: EquipmentBbox, decimals = 3): boolean {
-  const f = 10 ** decimals;
-  const r = (v: number) => Math.round(v * f);
-  return r(a.lx) === r(b.lx) && r(a.ly) === r(b.ly) && r(a.lz) === r(b.lz);
+/** Whether a bbox looks un-inferred / pre-normalization: a non-positive extent,
+ * or the cubic default (all three equal, e.g. the 1×1×1 seed). With a CAD
+ * attached that's the trigger to auto-(re)infer so the backend regenerates Z-up
+ * dims + a Z-up preview GLB (self-heal for types created before the fix). */
+export function bboxLooksUninferred(b: EquipmentBbox): boolean {
+  const { lx, ly, lz } = b;
+  if (!(lx > 0) || !(ly > 0) || !(lz > 0)) return true;
+  const eq = (a: number, c: number) => Math.abs(a - c) < 1e-6;
+  return eq(lx, ly) && eq(ly, lz);
 }

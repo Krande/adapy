@@ -9,35 +9,27 @@ import {viewerApi, type EquipmentTypeDoc} from "@/services/viewerApi";
 import {useEquipmentCatalogStore} from "@/state/equipmentCatalogStore";
 import {portColorInt} from "@/utils/portColor";
 import {
-    aabbCenterSize,
-    aabbCorners,
-    bboxEquals,
-    bboxFromViewAabb,
-    equipmentDisplayBox,
-    type AabbLike,
+    bboxLooksUninferred,
+    equipmentBoxCenterSize,
+    equipmentBoxCorners,
 } from "@/utils/cellbuilder/equipmentPreviewBox";
 
 // A self-contained sidecar viewer for an equipment type: the bounding box as a
 // faint wireframe, each port as a coloured nozzle arrow, and — when a CAD asset
-// has been attached + inferred — the preview GLB rendered inside the box. Its
-// own tiny WebGL context; it never touches the main scene, but it drives the
-// camera with the same ``camera-controls`` library the main viewer uses so the
-// orbit/zoom/pan feel is identical.
+// has been attached + inferred — the preview GLB rendered inside the box.
+//
+// The scene is Z-UP, IDENTICAL to the main cellbuilder view: camera up = +Z, the
+// box is BoxGeometry(lx, ly, lz) with the footprint on X/Y and lz vertical =
+// height, and both the dims and the preview GLB come Z-up from the backend
+// `infer bbox` job. So there is NO client-side axis juggling — the box, the CAD
+// mesh, the port coords, and the topology-model box are all the same frame.
 //
 // This is also where a type's PORTS are ALIGNED: clicking a port arrow selects
 // it and drops a translate/rotate gizmo on the nozzle so the user can drag it
 // onto the CAD. Edits persist to the TYPE doc (`draft.doc.ports`) via the
-// catalog store's `updatePort`, so Save applies them to every placed instance —
-// per-instance port overrides in the cellbuilder are no longer the primary
-// alignment surface.
+// catalog store's `updatePort`, so Save applies them to every placed instance.
 
 CameraControls.install({THREE: THREE});
-
-// three is Y-up; our model + the (now Z-up) preview GLB are Z-up. This swap
-// maps between the two frames for the box/ports/proxy. It is its own inverse
-// (swapping y/z twice is a no-op), so the SAME call converts model→view and
-// view→model.
-const swapYZ = (x: number, y: number, z: number) => new THREE.Vector3(x, z, y);
 
 async function fetchPreviewGltf(scope: string, key: string): Promise<THREE.Group | null> {
     const buf = await viewerApi.getBlob(scope, key);
@@ -87,6 +79,8 @@ const EquipmentPreview: React.FC<{
     modeRef.current = mode;
     const snapRef = React.useRef(snap);
     snapRef.current = snap;
+    // Auto-(re)infer is fired at most once per preview GLB key (see the effect).
+    const autoInferKeyRef = React.useRef<string | null>(null);
 
     // Imperative three refs kept across renders.
     const stateRef = React.useRef<{
@@ -96,11 +90,11 @@ const EquipmentPreview: React.FC<{
         controls: CameraControls;
         content: THREE.Group; // box + ports (rebuilt on doc change)
         cad: THREE.Group | null;
-        cadVerts: THREE.Vector3[]; // view-space CAD vertices, for port snapping
-        proxy: THREE.Object3D; // the object the port gizmo drives (view space)
+        cadVerts: THREE.Vector3[]; // model-space (== view-space) CAD vertices, for snapping
+        proxy: THREE.Object3D; // the object the port gizmo drives
         gizmo: TransformControls;
         gizmoHelper: THREE.Object3D;
-        startDir: THREE.Vector3 | null; // outward dir (view) at rotate-drag start
+        startDir: THREE.Vector3 | null; // outward dir at rotate-drag start
         hasFit: boolean;
         raf: number;
     } | null>(null);
@@ -116,38 +110,28 @@ const EquipmentPreview: React.FC<{
         void st.controls.fitToSphere(sphere, false);
     };
 
-    // Seat the loaded CAD group so its min corner sits at the stored box's min
-    // corner (compiler convention: min corner → cell corner). This only anchors
-    // the CAD near the port frame; the wireframe box itself is then FIT to the
-    // CAD's measured AABB (see displayBox), so it wraps the real geometry no
-    // matter how stale/cubic the stored lx/ly/lz are. The CAD keeps its NATIVE
-    // GLB orientation — no display rotation — so the preview is independent of
-    // whether the (possibly old) preview GLB was authored Y-up or Z-up.
+    // Seat the loaded CAD group so its min corner sits at the Z-up box's min
+    // corner (-lx/2, -ly/2, 0) — the compiler's min-corner → cell-corner
+    // convention. The preview GLB is Z-up (backend), the scene is Z-up, so the
+    // CAD is dropped in AS-IS (no rotation) and stands upright; since the stored
+    // dims ARE the CAD's Z-up extent, the box wraps it.
     const alignCad = (group: THREE.Group) => {
         const b = new THREE.Box3().setFromObject(group);
         if (b.isEmpty()) return;
         const {lx, ly} = docRef.current.bbox;
-        const target = new THREE.Vector3(-lx / 2, 0, -ly / 2);
+        const target = new THREE.Vector3(-lx / 2, -ly / 2, 0);
         group.position.add(target.sub(b.min));
     };
 
-    // The CAD group's measured AABB in preview/view space, or null when no CAD is
-    // loaded. This is the source of truth for the wireframe box + snap corners.
-    const measuredCadAabb = (st: NonNullable<typeof stateRef.current>): AabbLike | null => {
-        if (!st.cad) return null;
-        st.cad.updateWorldMatrix(true, true);
-        const b = new THREE.Box3().setFromObject(st.cad);
-        if (b.isEmpty()) return null;
-        return {min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z]};
+    // Longest bbox extent — the scale for snap/pick thresholds + arrow length.
+    const docExtent = () => {
+        const {lx, ly, lz} = docRef.current.bbox;
+        return Math.max(lx, ly, lz);
     };
 
-    // The box to draw/snap to: the CAD's real (non-cubic) AABB when a CAD is
-    // loaded, else the stored lx/ly/lz nominal box.
-    const displayBox = (st: NonNullable<typeof stateRef.current>): AabbLike =>
-        equipmentDisplayBox(measuredCadAabb(st), docRef.current.bbox);
-
-    // (Re)draw the wireframe box from displayBox(). Tagged __box so it can be
-    // cleared without touching the CAD or the port arrows.
+    // (Re)draw the Z-up wireframe box straight from doc.bbox: BoxGeometry(lx,ly,lz)
+    // with lz vertical, base at z=0. Tagged __box so it clears without touching
+    // the CAD or the port arrows.
     const drawBox = (st: NonNullable<typeof stateRef.current>) => {
         for (const child of [...st.content.children]) {
             if (!child.userData.__box) continue;
@@ -156,7 +140,7 @@ const EquipmentPreview: React.FC<{
             ls.geometry?.dispose();
             (ls.material as THREE.Material | undefined)?.dispose();
         }
-        const {center, size} = aabbCenterSize(displayBox(st));
+        const {center, size} = equipmentBoxCenterSize(docRef.current.bbox);
         const wire = new THREE.LineSegments(
             new THREE.EdgesGeometry(new THREE.BoxGeometry(size[0], size[1], size[2])),
             new THREE.LineBasicMaterial({color: 0x94a3b8}),
@@ -166,21 +150,20 @@ const EquipmentPreview: React.FC<{
         st.content.add(wire);
     };
 
-    // The port's stored (model-space) anchor + outward direction, converted to
-    // this preview's view space. Returns null for an out-of-range index.
-    const portGeomView = (index: number): {anchor: THREE.Vector3; dir: THREE.Vector3} | null => {
+    // The port's stored anchor + outward direction (Z-up model coords — the same
+    // frame as the scene, no swap). Returns null for an out-of-range index.
+    const portGeom = (index: number): {anchor: THREE.Vector3; dir: THREE.Vector3} | null => {
         const p = docRef.current.ports[index];
         if (!p) return null;
-        const anchor = swapYZ(p.position[0], p.position[1], p.position[2]);
-        const dir = swapYZ(p.direction_vector[0], p.direction_vector[1], p.direction_vector[2]);
-        if (dir.lengthSq() < 1e-9) dir.set(0, 1, 0);
+        const anchor = new THREE.Vector3(p.position[0], p.position[1], p.position[2]);
+        const dir = new THREE.Vector3(p.direction_vector[0], p.direction_vector[1], p.direction_vector[2]);
+        if (dir.lengthSq() < 1e-9) dir.set(0, 0, 1);
         return {anchor, dir: dir.normalize()};
     };
 
-    // View-space snap targets for a port move: the display-box corners (the CAD's
-    // real AABB corners when a CAD is loaded, else the nominal box) + CAD vertices.
+    // Snap targets for a port move: the Z-up box corners + CAD vertices.
     const snapTargets = (st: NonNullable<typeof stateRef.current>): THREE.Vector3[] => {
-        const corners = aabbCorners(displayBox(st)).map((c) => new THREE.Vector3(c[0], c[1], c[2]));
+        const corners = equipmentBoxCorners(docRef.current.bbox).map((c) => new THREE.Vector3(c[0], c[1], c[2]));
         return st.cadVerts.length ? corners.concat(st.cadVerts) : corners;
     };
 
@@ -198,21 +181,22 @@ const EquipmentPreview: React.FC<{
         const scene = new THREE.Scene();
         scene.add(new THREE.HemisphereLight(0xffffff, 0x333344, 1.1));
         const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-        dir.position.set(3, 5, 4);
+        dir.position.set(4, -3, 6);
         scene.add(dir);
 
         const camera = new THREE.PerspectiveCamera(45, width / height, 0.01, 1000);
+        // Z-up, matching the main cellbuilder view (so lz reads as height).
+        camera.up.set(0, 0, 1);
         const content = new THREE.Group();
         scene.add(content);
 
-        // Same controller the main viewer uses — proper orbit/dolly/truck with
-        // momentum, bound to this preview's own canvas.
+        // Same controller the main viewer uses — proper orbit/dolly/truck.
         const controls = new CameraControls(camera, renderer.domElement);
-        controls.setLookAt(3, 3, 3, 0, 0, 0, false);
+        controls.updateCameraUp(); // honour the +Z up axis
+        controls.setLookAt(3, -3, 2.4, 0, 0, 0.5, false);
 
-        // Port-edit gizmo: a proxy the TransformControls drives (view space, in
-        // `content`'s untransformed frame == scene frame). Kept on `scene` so the
-        // per-doc content rebuild doesn't clear it.
+        // Port-edit gizmo: a proxy the TransformControls drives (scene == content
+        // frame). Kept on `scene` so the per-doc content rebuild doesn't clear it.
         const proxy = new THREE.Object3D();
         scene.add(proxy);
         const gizmo = new TransformControls(camera, renderer.domElement);
@@ -244,7 +228,7 @@ const EquipmentPreview: React.FC<{
             controls.enabled = !dragging;
             const idx = selPortRef.current;
             if (dragging && idx !== null) {
-                const g = portGeomView(idx);
+                const g = portGeom(idx);
                 st.startDir = g ? g.dir.clone() : null;
                 proxy.rotation.set(0, 0, 0); // rotate delta accumulates from identity
             } else {
@@ -257,7 +241,7 @@ const EquipmentPreview: React.FC<{
             if (idx === null) return;
             const update = useEquipmentCatalogStore.getState().updatePort;
             if (modeRef.current === "translate") {
-                // Proxy position is the dragged nozzle (view space); optional
+                // Proxy position is the dragged nozzle (Z-up model coords); optional
                 // snap pulls it onto the nearest box corner / CAD vertex.
                 const pos = proxy.position.clone();
                 if (snapRef.current) {
@@ -277,16 +261,13 @@ const EquipmentPreview: React.FC<{
                         proxy.position.copy(best);
                     }
                 }
-                const model = swapYZ(pos.x, pos.y, pos.z); // view→model
-                update(idx, {position: [model.x, model.y, model.z]});
+                update(idx, {position: [pos.x, pos.y, pos.z]});
             } else {
-                // Rotate about the anchor: apply the proxy's accumulated rotation
-                // to the outward direction captured at drag start, convert back to
-                // model space, store. Position unchanged.
+                // Rotate about the anchor: apply the proxy's accumulated rotation to
+                // the outward direction captured at drag start. Position unchanged.
                 if (!st.startDir) return;
                 const world = st.startDir.clone().applyQuaternion(proxy.quaternion).normalize();
-                const model = swapYZ(world.x, world.y, world.z).normalize(); // view→model
-                update(idx, {direction_vector: [model.x, model.y, model.z]});
+                update(idx, {direction_vector: [world.x, world.y, world.z]});
             }
         });
 
@@ -359,33 +340,21 @@ const EquipmentPreview: React.FC<{
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Longest extent of the DISPLAYED box (CAD AABB when loaded, else nominal) —
-    // the scale for snap/pick thresholds, so they track the real geometry size.
-    const docExtent = () => {
-        const st = stateRef.current;
-        if (st) {
-            const {size} = aabbCenterSize(displayBox(st));
-            const m = Math.max(size[0], size[1], size[2]);
-            if (m > 0) return m;
-        }
-        const {lx, ly, lz} = docRef.current.bbox;
-        return Math.max(lx, ly, lz);
-    };
-
     // ── rebuild box + ports whenever the doc changes ──────────────────
     React.useEffect(() => {
         const st = stateRef.current;
         if (!st) return;
-        // clear previous port helpers (the box is redrawn by drawBox; keep CAD)
+        // clear previous box + port helpers (keep any loaded CAD)
         for (const child of [...st.content.children]) {
-            if (child.userData.__cad || child.userData.__box) continue;
+            if (child.userData.__cad) continue;
             st.content.remove(child);
         }
+        drawBox(st);
 
         doc.ports.forEach((p, pi) => {
-            const origin = swapYZ(p.position[0], p.position[1], p.position[2]);
-            const d = swapYZ(p.direction_vector[0], p.direction_vector[1], p.direction_vector[2]);
-            if (d.lengthSq() < 1e-9) d.set(0, 1, 0);
+            const origin = new THREE.Vector3(p.position[0], p.position[1], p.position[2]);
+            const d = new THREE.Vector3(p.direction_vector[0], p.direction_vector[1], p.direction_vector[2]);
+            if (d.lengthSq() < 1e-9) d.set(0, 0, 1);
             d.normalize();
             // direction_vector is the outward nozzle normal; show actual flow —
             // an INPUT arrow points *into* the equipment (negate), an OUTPUT
@@ -399,10 +368,8 @@ const EquipmentPreview: React.FC<{
             st.content.add(arrow);
         });
 
-        // Keep the CAD seated on the current bbox anchor, then (re)draw the box
-        // from the CAD's real AABB (or the nominal box when no CAD is loaded).
+        // Keep the CAD seated on the (possibly resized) box.
         if (st.cad) alignCad(st.cad);
-        drawBox(st);
 
         // Frame the box the first time it appears; leave the camera alone on
         // subsequent edits.
@@ -418,27 +385,23 @@ const EquipmentPreview: React.FC<{
         const st = stateRef.current;
         if (!st) return;
         let cancelled = false;
-        // drop any previous CAD (then redraw the box back to the nominal dims)
+        // drop any previous CAD
         if (st.cad) {
             st.content.remove(st.cad);
             st.cad = null;
             st.cadVerts = [];
-            drawBox(st);
         }
         if (!previewKey) return;
         void fetchPreviewGltf(scope, previewKey).then((group) => {
             if (cancelled || !group || !stateRef.current) return;
             group.userData.__cad = true;
-            // Display the CAD in its NATIVE GLB orientation — no rotation. Existing
-            // types keep whatever preview GLB they were inferred with (Y-up or
-            // Z-up), so we must not assume an axis; the wireframe box is fit to the
-            // CAD's measured AABB instead (drawBox), which wraps it either way.
+            // Z-up preview GLB into a Z-up scene → drop in AS-IS (no rotation).
             const cur = stateRef.current;
             cur.content.add(group);
             cur.cad = group;
             alignCad(group);
-            // Cache CAD world-space (view) vertices for port snapping, capped so a
-            // dense mesh doesn't blow up the nearest search.
+            // Cache CAD world-space vertices for port snapping, capped so a dense
+            // mesh doesn't blow up the nearest search.
             const verts: THREE.Vector3[] = [];
             const CAP = 4000;
             let total = 0;
@@ -461,23 +424,7 @@ const EquipmentPreview: React.FC<{
                 }
             });
             cur.cadVerts = verts;
-            drawBox(cur); // fit the wireframe box to the CAD's real AABB
             fitToContent(cur); // the CAD changes the extent — reframe on it
-            // Resync the stored dims to the CAD: write the measured AABB back into
-            // doc.bbox (same view→lx/ly/lz mapping the box is drawn from) so the
-            // numeric fields match the wireframe and Save persists the real
-            // footprint. Runs ONCE per CAD load (this effect's deps are
-            // scope/previewKey); the resulting doc change only re-runs the [doc]
-            // effect, which draws the box from the CAD AABB (not doc.bbox) and
-            // never measures/writes — so there is no feedback loop. The equality
-            // guard skips a no-op write (and its dirty flag) when already in sync.
-            const aabb = measuredCadAabb(cur);
-            if (aabb) {
-                const next = bboxFromViewAabb(aabb);
-                if (!bboxEquals(next, docRef.current.bbox)) {
-                    useEquipmentCatalogStore.getState().setEquipmentDoc({bbox: next});
-                }
-            }
         });
         return () => {
             cancelled = true;
@@ -485,29 +432,24 @@ const EquipmentPreview: React.FC<{
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [scope, previewKey]);
 
-    // ── attach / drive the port gizmo on selection + mode change ──────
+    // ── self-heal: auto-(re)infer a CAD-backed type whose bbox is stale ──
+    // A type created before the Z-up normalization keeps a non-Z-up preview GLB
+    // and an un-inferred/default bbox, so it'd render rotated. When it HAS a CAD
+    // (previewKey present) but the stored dims look un-inferred (cubic default /
+    // non-positive), kick the backend `infer bbox` job ONCE — it regenerates the
+    // Z-up preview GLB + Z-up dims. Guarded to a single fire per preview key, and
+    // skipped while the draft is dirty or a job is already running.
     React.useEffect(() => {
-        const st = stateRef.current;
-        if (!st) return;
-        const idx = selPort !== null && selPort < doc.ports.length ? selPort : null;
-        if (idx === null) {
-            st.gizmo.detach();
-            st.gizmoHelper.visible = false;
-            if (selPort !== null) setSelPort(null); // clamp a stale index
-            return;
-        }
-        const g = portGeomView(idx);
-        if (!g) return;
-        if (!st.gizmo.dragging) {
-            st.proxy.rotation.set(0, 0, 0);
-            st.proxy.position.copy(g.anchor);
-        }
-        st.gizmo.attach(st.proxy);
-        st.gizmo.setMode(mode);
-        if (mode === "rotate") st.gizmo.setRotationSnap(THREE.MathUtils.degToRad(15));
-        st.gizmoHelper.visible = true;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selPort, mode, doc]);
+        if (!previewKey) return;
+        if (!bboxLooksUninferred(doc.bbox)) return;
+        if (autoInferKeyRef.current === previewKey) return;
+        const s = useEquipmentCatalogStore.getState();
+        if (!s.equipmentDraft || s.equipmentDirty) return;
+        const job = s.bboxJob;
+        if (job && (job.status === "queued" || job.status === "running")) return;
+        autoInferKeyRef.current = previewKey;
+        void s.inferBbox();
+    }, [previewKey, doc.bbox]);
 
     // Re-fit the camera after the canvas grows/shrinks so the whole model stays
     // framed at the new size (the ResizeObserver has already resized the buffer).
@@ -520,6 +462,30 @@ const EquipmentPreview: React.FC<{
         return () => cancelAnimationFrame(raf);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [expanded]);
+
+    // ── attach / drive the port gizmo on selection + mode change ──────
+    React.useEffect(() => {
+        const st = stateRef.current;
+        if (!st) return;
+        const idx = selPort !== null && selPort < doc.ports.length ? selPort : null;
+        if (idx === null) {
+            st.gizmo.detach();
+            st.gizmoHelper.visible = false;
+            if (selPort !== null) setSelPort(null); // clamp a stale index
+            return;
+        }
+        const g = portGeom(idx);
+        if (!g) return;
+        if (!st.gizmo.dragging) {
+            st.proxy.rotation.set(0, 0, 0);
+            st.proxy.position.copy(g.anchor);
+        }
+        st.gizmo.attach(st.proxy);
+        st.gizmo.setMode(mode);
+        if (mode === "rotate") st.gizmo.setRotationSnap(THREE.MathUtils.degToRad(15));
+        st.gizmoHelper.visible = true;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selPort, mode, doc]);
 
     const selectedName = selPort !== null ? doc.ports[selPort]?.name : undefined;
 
@@ -542,35 +508,35 @@ const EquipmentPreview: React.FC<{
                         </div>
                     )
                 ) : (
-                <div className="absolute left-2 bottom-2 flex items-center gap-1 text-[11px] bg-gray-900/80 rounded px-1.5 py-1">
-                    <span className="text-blue-300 font-medium max-w-[90px] truncate" title={selectedName}>
-                        {selectedName}
-                    </span>
-                    {(
-                        [
-                            ["translate", "Move"],
-                            ["rotate", "Rotate"],
-                        ] as const
-                    ).map(([m, label]) => (
-                        <button
-                            key={m}
-                            className={
-                                "px-1.5 py-0.5 rounded-sm " +
-                                (mode === m ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600")
-                            }
-                            onClick={() => setMode(m)}
-                            aria-pressed={mode === m}
+                    <div className="absolute left-2 bottom-2 flex items-center gap-1 text-[11px] bg-gray-900/80 rounded px-1.5 py-1">
+                        <span className="text-blue-300 font-medium max-w-[90px] truncate" title={selectedName}>
+                            {selectedName}
+                        </span>
+                        {(
+                            [
+                                ["translate", "Move"],
+                                ["rotate", "Rotate"],
+                            ] as const
+                        ).map(([m, label]) => (
+                            <button
+                                key={m}
+                                className={
+                                    "px-1.5 py-0.5 rounded-sm " +
+                                    (mode === m ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600")
+                                }
+                                onClick={() => setMode(m)}
+                                aria-pressed={mode === m}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                        <label
+                            className="flex items-center gap-0.5 text-gray-300"
+                            title="Snap the nozzle to the box corners / CAD vertices"
                         >
-                            {label}
-                        </button>
-                    ))}
-                    <label
-                        className="flex items-center gap-0.5 text-gray-300"
-                        title="Snap the nozzle to the box corners / CAD vertices"
-                    >
-                        <input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} />
-                        snap
-                    </label>
+                            <input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} />
+                            snap
+                        </label>
                         <button
                             className="px-1.5 py-0.5 rounded-sm bg-gray-700 text-gray-300 hover:bg-gray-600"
                             onClick={() => setSelPort(null)}

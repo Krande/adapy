@@ -2,73 +2,41 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  aabbCenterSize,
-  aabbCorners,
-  bboxEquals,
-  bboxFromViewAabb,
-  equipmentDisplayBox,
-  type AabbLike,
+  bboxLooksUninferred,
+  equipmentBoxCenterSize,
+  equipmentBoxCorners,
 } from "../../utils/cellbuilder/equipmentPreviewBox";
 
-test("equipmentDisplayBox fits the CAD's real (non-cubic) AABB, ignoring stored dims", () => {
-  // A CAD mesh with DISTINCT extents (2 × 5 × 3), offset from the origin.
-  const cad: AabbLike = { min: [1, 2, 3], max: [3, 7, 6] };
-  // Stored dims are the useless 1×1×1 default — must be overridden entirely.
-  const box = equipmentDisplayBox(cad, { lx: 1, ly: 1, lz: 1 });
-  assert.deepEqual(box.min, [1, 2, 3]);
-  assert.deepEqual(box.max, [3, 7, 6]);
-  const { center, size } = aabbCenterSize(box);
-  assert.deepEqual(size, [2, 5, 3]); // wraps the CAD's true extents
-  assert.deepEqual(center, [2, 4.5, 4.5]);
+test("equipmentBoxCenterSize is Z-up: BoxGeometry(lx,ly,lz), base at z=0, centred on x/y", () => {
+  const { center, size } = equipmentBoxCenterSize({ lx: 2, ly: 4, lz: 6 });
+  // size is (lx, ly, lz) verbatim — lz is the vertical (height) extent.
+  assert.deepEqual(size, [2, 4, 6]);
+  // footprint centred on x/y, box base sitting on z=0 → centre at (0, 0, lz/2)
+  assert.deepEqual(center, [0, 0, 3]);
 });
 
-test("equipmentDisplayBox falls back to the nominal lx/ly/lz box when no CAD", () => {
-  // Z-up equipment convention: base at z=0, centred in x/y, lz = height.
-  const box = equipmentDisplayBox(null, { lx: 2, ly: 4, lz: 6 });
-  assert.deepEqual(box.min, [-1, 0, -2]);
-  assert.deepEqual(box.max, [1, 6, 2]);
-  const { size } = aabbCenterSize(box);
-  assert.deepEqual(size, [2, 6, 4]);
+test("equipmentBoxCenterSize clamps negative dims to >= 0", () => {
+  const { size } = equipmentBoxCenterSize({ lx: -1, ly: 0, lz: 3 });
+  assert.deepEqual(size, [0, 0, 3]);
 });
 
-test("aabbCorners returns the eight corners of the box", () => {
-  const corners = aabbCorners({ min: [0, 0, 0], max: [1, 2, 3] });
+test("equipmentBoxCorners are Z-up: footprint on x/y ∈ ±l/2, height on z ∈ [0, lz]", () => {
+  const corners = equipmentBoxCorners({ lx: 2, ly: 4, lz: 6 });
   assert.equal(corners.length, 8);
-  // every corner uses only min/max components on each axis
   for (const [x, y, z] of corners) {
-    assert.ok(x === 0 || x === 1);
-    assert.ok(y === 0 || y === 2);
-    assert.ok(z === 0 || z === 3);
+    assert.ok(x === -1 || x === 1); // ±lx/2
+    assert.ok(y === -2 || y === 2); // ±ly/2
+    assert.ok(z === 0 || z === 6); // base .. height
   }
-  // the extreme corners are present
-  assert.ok(corners.some(([x, y, z]) => x === 0 && y === 0 && z === 0));
-  assert.ok(corners.some(([x, y, z]) => x === 1 && y === 2 && z === 3));
+  // the base + top extreme corners exist
+  assert.ok(corners.some(([x, y, z]) => x === -1 && y === -2 && z === 0));
+  assert.ok(corners.some(([x, y, z]) => x === 1 && y === 2 && z === 6));
 });
 
-test("aabbCenterSize clamps a degenerate (inverted) box size to >= 0", () => {
-  const { size } = aabbCenterSize({ min: [5, 0, 0], max: [1, 0, 0] });
-  assert.deepEqual(size, [0, 0, 0]);
-});
-
-test("bboxFromViewAabb maps a measured view AABB back to lx/ly/lz (inverse of the nominal draw)", () => {
-  // view-space AABB: X size 2, Y size 6 (height), Z size 4
-  const bbox = bboxFromViewAabb({ min: [-1, 0, -2], max: [1, 6, 2] });
-  assert.deepEqual(bbox, { lx: 2, ly: 4, lz: 6 }); // lx=X, lz=Y(height), ly=Z
-  // Round-trips through the nominal draw branch: same numbers → same box.
-  const box = equipmentDisplayBox(null, bbox);
-  const { size } = aabbCenterSize(box);
-  assert.deepEqual(size, [2, 6, 4]); // matches the measured view AABB size
-});
-
-test("bboxFromViewAabb rounds to mm (3 dp) so the fields aren't noisy", () => {
-  const bbox = bboxFromViewAabb({
-    min: [0, 0, 0],
-    max: [1.23456, 2.99999, 0.5004],
-  });
-  assert.deepEqual(bbox, { lx: 1.235, ly: 0.5, lz: 3 });
-});
-
-test("bboxEquals compares at mm precision (guards the resync write)", () => {
-  assert.ok(bboxEquals({ lx: 1, ly: 2, lz: 3 }, { lx: 1.0004, ly: 2, lz: 3 }));
-  assert.ok(!bboxEquals({ lx: 1, ly: 2, lz: 3 }, { lx: 1.02, ly: 2, lz: 3 }));
+test("bboxLooksUninferred flags the cubic default + non-positive dims, not real extents", () => {
+  assert.ok(bboxLooksUninferred({ lx: 1, ly: 1, lz: 1 })); // 1×1×1 seed
+  assert.ok(bboxLooksUninferred({ lx: 2, ly: 2, lz: 2 })); // any cube
+  assert.ok(bboxLooksUninferred({ lx: 0, ly: 3, lz: 2 })); // non-positive
+  assert.ok(!bboxLooksUninferred({ lx: 2, ly: 4, lz: 6 })); // real, inferred
+  assert.ok(!bboxLooksUninferred({ lx: 1, ly: 1, lz: 2.5 })); // non-cubic
 });
