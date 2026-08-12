@@ -506,6 +506,30 @@ def _cad_transform(eq: TopoEquipment, mesh, space_offset: tuple[float, float, fl
     return to_pivot @ spin @ from_pivot @ seat
 
 
+def _cad_mesh_to_shape(name: str, mesh, transform):
+    """Bake a 4x4 ``transform`` into a trimesh and wrap it as an ``ada.Shape``
+    carrying an :class:`~ada.geom.surfaces.TriangulatedFaceSet` (→ an
+    ``IfcTriangulatedFaceSet`` on IFC export). Used by the EXPORT path so a CAD
+    equipment's real geometry becomes a serialized assembly object rather than a
+    GLB-only scene splice. Returns ``None`` if the mesh has no faces."""
+    import numpy as np
+
+    from ada.core.guid import create_guid
+    from ada.geom import Geometry
+    from ada.geom.points import Point
+    from ada.geom.surfaces import TriangulatedFaceSet
+
+    placed = mesh.copy()
+    placed.apply_transform(np.asarray(transform, dtype=float))
+    faces = np.asarray(placed.faces)
+    if faces.size == 0:
+        return None
+    coords = [Point(*[float(c) for c in v]) for v in placed.vertices]
+    indices = (faces + 1).reshape(-1).tolist()  # IFC CoordIndex is flat + 1-based
+    tfs = TriangulatedFaceSet(coordinates=coords, normals=[], indices=indices)
+    return ada.Shape(f"{name}_cad", geom=Geometry(create_guid(), tfs, None))
+
+
 def compile_procedural_doc(
     doc: dict,
     *,
@@ -624,6 +648,7 @@ def compile_procedural_doc_with_assembly(
     name: str = "ProceduralModel",
     equipment_resolver=None,
     cad_scene_resolver=None,
+    cad_as_objects: bool = False,
     design_rules=None,
     lod: Literal["sim", "detail"] = "sim",
     detailing: str | None = None,
@@ -635,7 +660,11 @@ def compile_procedural_doc_with_assembly(
     the GLB triangles) to serialize the neutral structural artifact an EXTERNAL
     (Tier-B) detailing engine consumes — IFC bytes + a per-Beam section sidecar.
     Structural-only when ``detailing`` is ``None``/``"none"`` (an external detailing
-    engine details the model out-of-process, so this pass adds no in-process joints)."""
+    engine details the model out-of-process, so this pass adds no in-process joints).
+
+    ``cad_as_objects`` splices resolved CAD equipment into the assembly as real
+    ada.Shape geometry (for the IFC/Genie export path) rather than the GLB-only
+    scene splice — so the returned assembly carries the equipment's real shape."""
     from .builder import ProceduralBuilder
     from .takeoff import model_takeoff
 
@@ -652,8 +681,52 @@ def compile_procedural_doc_with_assembly(
         detailing_options=detailing_options,
         equipment_resolver=equipment_resolver,
         cad_scene_resolver=cad_scene_resolver,
+        cad_as_objects=cad_as_objects,
         design_rules=design_rules,
     )
     glb_bytes = builder.compile()
     stats = model_takeoff(builder.assembly, source_name=name)
     return glb_bytes, stats, builder.assembly
+
+
+def build_procedural_assembly(
+    doc: dict,
+    *,
+    blueprint_name: Literal["steel_stru", "none"] = "steel_stru",
+    name: str = "ProceduralModel",
+    equipment_resolver=None,
+    cad_scene_resolver=None,
+    cad_as_objects: bool = False,
+    design_rules=None,
+    lod: Literal["sim", "detail"] = "sim",
+    detailing: str | None = None,
+    detailing_options: dict | None = None,
+) -> "ada.Assembly":
+    """Build the procedural model to an :class:`~ada.Assembly` WITHOUT tessellating
+    to GLB — for the IFC/Genie export path, which serializes the live model and has
+    no use for the GLB triangles (and would otherwise pay the tessellation cost and
+    trip on CAD facesets that carry no per-vertex normals). Runs the same build
+    phases :meth:`ProceduralBuilder.compile` does, minus ``to_glb``."""
+    from .builder import ProceduralBuilder
+
+    doc_blueprint = doc.get("blueprint_name")
+    if doc_blueprint in ("steel_stru", "none"):
+        blueprint_name = doc_blueprint
+
+    builder = ProceduralBuilder.from_dict(
+        doc,
+        name=name,
+        blueprint_name=blueprint_name,
+        lod=lod,
+        detailing=detailing,
+        detailing_options=detailing_options,
+        equipment_resolver=equipment_resolver,
+        cad_scene_resolver=cad_scene_resolver,
+        cad_as_objects=cad_as_objects,
+        design_rules=design_rules,
+    )
+    builder.build_structure()
+    builder.build_lofts()
+    builder.build_equipment()
+    builder.build_systems()
+    return builder.assembly

@@ -54,6 +54,7 @@ from .compile import (
     _BLUEPRINT_OPTION_KEYS,
     _apply_openings,
     _build_systems,
+    _cad_mesh_to_shape,
     _cad_transform,
     _equipment_to_object,
     _require_coords,
@@ -138,6 +139,11 @@ class ProceduralBuilder:
     no_go_walls: bool = False
     equipment_resolver: Callable | None = None
     cad_scene_resolver: Callable | None = None
+    # When True, splice resolved CAD equipment meshes into the assembly as real
+    # ada.Shape objects (IfcTriangulatedFaceSet on IFC export) instead of recording
+    # them for the GLB-only scene splice. Used by the IFC/Genie EXPORT path so the
+    # equipment carries its real geometry in the serialized model, not just the GLB.
+    cad_as_objects: bool = False
 
     # Retained slug for round-tripping a named ruleset back to doc/excel; None
     # when ``design_rules`` was passed as a concrete (unnamed) DesignRules.
@@ -191,6 +197,7 @@ class ProceduralBuilder:
         detailing_options: dict | None = None,
         equipment_resolver: Callable | None = None,
         cad_scene_resolver: Callable | None = None,
+        cad_as_objects: bool = False,
         design_rules: object | None = None,
     ) -> "ProceduralBuilder":
         """Build from a procedural *document* (the viewer's commit format): a
@@ -221,6 +228,7 @@ class ProceduralBuilder:
             no_go_walls=bool(doc.get("no_go_walls")),
             equipment_resolver=equipment_resolver,
             cad_scene_resolver=cad_scene_resolver,
+            cad_as_objects=cad_as_objects,
         )
 
     @classmethod
@@ -572,7 +580,15 @@ class ProceduralBuilder:
                 # rotate so routing meets the spun CAD geometry at the right face.
                 apply_equipment_rotation(obj, *e.rotation_deg())
                 obj._topo_rotation_deg = e.rotation_deg()  # rotated footprint for occupancy/clash
-                self._cad_placements.append((cad_mesh, _cad_transform(e, cad_mesh, offset)))
+                transform = _cad_transform(e, cad_mesh, offset)
+                if self.cad_as_objects:
+                    # EXPORT path: bake the placement into the mesh and attach it as a
+                    # real Shape on the equipment, so IFC/Genie serialize the geometry.
+                    shape = _cad_mesh_to_shape(obj.name, cad_mesh, transform)
+                    if shape is not None:
+                        obj.add_object(shape)
+                else:
+                    self._cad_placements.append((cad_mesh, transform))
                 objects.append(obj)
             else:
                 objects.append(_equipment_to_object(e, self.equipment_resolver, offset))

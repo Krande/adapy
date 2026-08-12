@@ -1793,7 +1793,7 @@ async def _run_procedural_export_model(
         import os
         import tempfile
 
-        from ada.topo_model.compile import compile_procedural_doc_with_assembly
+        from ada.topo_model.compile import build_procedural_assembly
 
         # Splice CAD only when asked (IFC). ``equipment_cad`` on the doc drives the
         # compiler's box-vs-CAD choice; force it to match this export's option so a
@@ -1806,15 +1806,19 @@ async def _run_procedural_export_model(
             except Exception:
                 logger.warning("procedural export: failed to load CAD mesh for %r; using box", slug)
 
-        # Built-in engine only: it materialises an in-process ada.Assembly the IFC /
-        # Genie writers need. The equipment resolver makes catalog equipment faithful.
-        _glb, _stats, asm = compile_procedural_doc_with_assembly(
+        # Built-in engine only: build the in-process ada.Assembly the IFC / Genie
+        # writers need (no GLB — this path never tessellates). The equipment resolver
+        # makes catalog equipment faithful; cad_as_objects materialises resolved CAD
+        # equipment as real assembly geometry (IfcTriangulatedFaceSet) rather than a
+        # GLB-only splice, so it serializes into the IFC.
+        asm = build_procedural_assembly(
             export_doc,
             name=name,
             lod=lod,
             detailing=detailing if export_format == "ifc" else None,
             equipment_resolver=catalog.get,
             cad_scene_resolver=cad_meshes.get if cad_meshes else None,
+            cad_as_objects=bool(cad_meshes),
         )
         with tempfile.TemporaryDirectory() as d:
             if export_format == "ifc":
