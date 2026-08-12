@@ -118,7 +118,11 @@ def apply_equipment_rotation(eq: ada.Equipment, rx_deg: float, ry_deg: float, rz
     rotated = []
     for shp in eq.shapes:
         if isinstance(shp, ada.PrimBox):
-            rotated.append(_oriented_box(shp.name, shp.p1, shp.p2, shp.color, rot, pivot))
+            ob = _oriented_box(shp.name, shp.p1, shp.p2, shp.color, rot, pivot)
+            # Preserve parentage — the swapped-in Shape must stay owned by the
+            # equipment, else it exports as a parent-less object (IFC export raises).
+            ob.parent = eq
+            rotated.append(ob)
         else:
             rotated.append(shp)
     eq._shapes[:] = rotated
