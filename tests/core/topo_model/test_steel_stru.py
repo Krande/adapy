@@ -165,23 +165,16 @@ def test_stacked_cells_have_single_deck_per_plane():
 
 
 def test_detail_mode_trims_deck_to_girder_flanges():
-    # DETAIL mode notches each deck plate's perimeter edges inboard by the girder
-    # top-flange half-width (IPE200 w_top = 0.1 => 0.05 per edge), so the plate spans
-    # the clear opening between the surrounding girders' flanges. Simulation mode
-    # (default) must stay byte-identical: the plate reaches the cell edge.
-    #
-    # The libtess2 stream is selected per-tessellation by the ``_stream_tessellation()``
-    # context below (which restores the prior value) — do NOT set the env var at test
-    # scope: it leaks process-wide and reorders unrelated OCC tessellation output
-    # (test_batch_tessellate_solids_matches_per_object).
-    from io import BytesIO
-
+    # DETAIL mode insets each deck plate's OUTLINE inboard by the girder top-flange
+    # half-width (IPE200 w_top = 0.1 => 0.05 per edge), so the plate spans the clear
+    # opening between the surrounding girders' flanges. It is a genuine outline inset
+    # (not a boolean notch), so it renders in every path — asserted here directly on
+    # the plate outline (poly.points3d), no tessellation needed. Simulation mode
+    # (default) stays byte-identical: the plate reaches the cell edge, no booleans.
     import numpy as np
-    import trimesh
 
     from ada.topo_model.blueprint import SteelStru
     from ada.topo_model.build import make_space_boxes
-    from ada.topo_model.compile import _stream_tessellation
     from ada.topology import TopologyBuilder
 
     def build(detail):
@@ -190,21 +183,14 @@ def test_detail_mode_trims_deck_to_girder_flanges():
         return builder.get_output_assembly("m")
 
     def deck_xy_extent(a):
-        # isolate a z=0 deck plate and tessellate it through the NGEOM/libtess2
-        # stream (the boolean notches fold in at encode, as for openings)
+        # a z=0 deck plate — its base OUTLINE extent (no boolean, no stream needed).
         pl = next(
             p
             for p in a.get_all_physical_objects(by_type=ada.Plate)
             if abs(float(np.mean([q[2] for q in p.poly.points3d]))) < 1e-6
         )
-        solo = ada.Assembly("s") / (ada.Part("p") / [pl])
-        with _stream_tessellation():
-            with BytesIO() as bio:
-                solo.to_gltf(bio)
-                bio.seek(0)
-                scene = trimesh.load(bio, file_type="glb")
-        v = np.vstack([g.vertices for g in scene.geometry.values()])
-        return float(v[:, 0].min()), float(v[:, 0].max()), float(v[:, 1].min()), float(v[:, 1].max()), pl
+        xy = np.asarray([tuple(q)[:2] for q in pl.poly.points3d], dtype=float)
+        return float(xy[:, 0].min()), float(xy[:, 0].max()), float(xy[:, 1].min()), float(xy[:, 1].max()), pl
 
     setback = 0.1 / 2  # IPE200 top-flange half-width
 
@@ -215,12 +201,13 @@ def test_detail_mode_trims_deck_to_girder_flanges():
     assert (sx0, sx1, sy0, sy1) == pytest.approx((0.0, 5.0, 0.0, 5.0), abs=1e-6)
     assert not any("_trim_" in b.name for b in sim_pl.booleans)
 
-    # Detail mode: each trimmed edge recedes inboard by exactly the flange half-width.
+    # Detail mode: the OUTLINE itself recedes inboard by exactly the flange
+    # half-width on every edge — and via an inset, not a boolean cut.
     assert dx0 - sx0 == pytest.approx(setback, abs=1e-3)
     assert sx1 - dx1 == pytest.approx(setback, abs=1e-3)
     assert dy0 - sy0 == pytest.approx(setback, abs=1e-3)
     assert sy1 - dy1 == pytest.approx(setback, abs=1e-3)
-    assert any("_trim_" in b.name for b in det_pl.booleans)
+    assert not any("_trim_" in b.name for b in det_pl.booleans)
 
 
 def test_door_opening_cuts_crossing_stiffeners():

@@ -32,15 +32,10 @@ __all__ = [
     "reinforced_wall",
     "rounded_point_key",
     "seat_deck_beam",
-    "trim_deck_to_girders",
     "cut_crossing_secondary_beams",
 ]
 
 _KEY_NDIGITS = 4
-# Overshoot (metres) applied to a DETAIL-mode deck-edge notch so the strip clears
-# both plate faces (along the thickness) and the plate corners (along the edge run),
-# leaving a clean cut exactly at the girder top-flange inner edge.
-_DECK_TRIM_MARGIN = 0.02
 
 
 # --------------------------------------------------------------------------- #
@@ -163,14 +158,43 @@ def seat_deck_beam(beam: ada.Beam, top_z: float) -> ada.Beam:
     return beam
 
 
-def deck_plate(name: str, points: list[ada.Point], pl_thick: float) -> ada.Plate:
+def _inset_axis_aligned_outline(points: list[ada.Point], inset: float) -> list[ada.Point]:
+    """Shrink a rectangular, axis-aligned deck outline inward by ``inset`` on all
+    four in-plane edges (the through-thickness coordinate is preserved). Returns the
+    four inset corner points; the original points if the inset would collapse the
+    deck (so an over-wide flange never inverts the plate)."""
+    pts = np.asarray([tuple(p) for p in points], dtype=float)
+    normal_axis = int(np.argmin(pts.max(axis=0) - pts.min(axis=0)))
+    a0, a1 = (a for a in range(3) if a != normal_axis)
+    lo, hi = pts.min(axis=0), pts.max(axis=0)
+    n = float(pts[:, normal_axis].mean())
+    lo0, lo1, hi0, hi1 = lo[a0] + inset, lo[a1] + inset, hi[a0] - inset, hi[a1] - inset
+    if hi0 - lo0 <= 1e-6 or hi1 - lo1 <= 1e-6:
+        return points
+    out: list[ada.Point] = []
+    for c0, c1 in ((lo0, lo1), (hi0, lo1), (hi0, hi1), (lo0, hi1)):
+        p = [0.0, 0.0, 0.0]
+        p[a0], p[a1], p[normal_axis] = c0, c1, n
+        out.append(ada.Point(*p))
+    return out
+
+
+def deck_plate(name: str, points: list[ada.Point], pl_thick: float, inset: float = 0.0) -> ada.Plate:
     """A deck plate whose TOP sits at the outline elevation (the deck line), so the
     walking surface is at the grid level and the steel is below it — consistently,
     regardless of the face outline's winding. ``Plate.from_3d_points`` extrudes along
     the outline normal; when that points up the plate would sit ABOVE the deck line,
     so we flip it to extrude DOWN. Both faces of a deck at the same elevation then
     agree (an internal floor and an enclosing-cell deck no longer disagree by the
-    plate thickness)."""
+    plate thickness).
+
+    ``inset`` (metres) shrinks the outline inward on every edge — the DETAIL-mode
+    girder top-flange half-width, so the deck spans the CLEAR opening between the
+    surrounding girders' flanges instead of overlapping them. Applied to the OUTLINE
+    (not a boolean cut), so the trim renders in every path (GLB, IFC, OCC), not only
+    the libtess2/NGEOM stream."""
+    if inset > 0.0:
+        points = _inset_axis_aligned_outline(points, inset)
     plate = ada.Plate.from_3d_points(name, points, pl_thick)
     if float(plate.poly.normal[2]) > 0:
         plate = ada.Plate.from_3d_points(name, points, pl_thick, flip_normal=True)
@@ -181,13 +205,17 @@ def deck_plate(name: str, points: list[ada.Point], pl_thick: float) -> ada.Plate
 # Reinforced deck / wall parts (plate + evenly spaced stringers / stiffeners)
 # --------------------------------------------------------------------------- #
 def reinforced_floor(
-    name: str, points: list[ada.Point], pl_thick: float, stringer_sec: str, spacing: float
+    name: str, points: list[ada.Point], pl_thick: float, stringer_sec: str, spacing: float, deck_inset: float = 0.0
 ) -> ada.Part:
     """A reinforced floor built from a horizontal face outline: one plate (top at the
     deck line) plus stringer beams running along the longer plan direction, evenly
     distributed across the shorter one (edge positions carry girders, so they are
-    skipped). Stringers hang under the plate — their tops seat at the plate bottom."""
-    plate = deck_plate(f"{name}_pl", points, pl_thick)
+    skipped). Stringers hang under the plate — their tops seat at the plate bottom.
+
+    ``deck_inset`` (metres) shrinks only the PLATE outline inward (DETAIL-mode girder
+    flange trim); the stringers still span the full face (their ends butt to the
+    girder webs, matching the previous boolean-trim behaviour)."""
+    plate = deck_plate(f"{name}_pl", points, pl_thick, inset=deck_inset)
 
     pts = np.asarray([tuple(p) for p in points], dtype=float)
     z = float(pts[:, 2].mean())
@@ -253,58 +281,6 @@ def reinforced_wall(
 # --------------------------------------------------------------------------- #
 # DETAIL-mode cuts (deck-edge trim + secondary-member severing)
 # --------------------------------------------------------------------------- #
-def trim_deck_to_girders(plate: ada.Plate, points: list[ada.Point], pl_thick: float, girder_sec: str) -> None:
-    """DETAIL mode: notch each of the deck plate's perimeter edges inboard by the
-    girder top-flange half-width, so the plate spans the CLEAR opening between the
-    surrounding I-girders' top flanges instead of overlapping them.
-
-    Each bounding girder's axis sits on the cell edge and its top flange spans
-    ``±w_top/2`` about that axis; the deck plate should recede to the inboard flange
-    edge (``axis + w_top/2``). For every perimeter edge we subtract an axis-aligned
-    strip that runs the full edge length, spans the plate thickness (plus a small
-    margin so it clears both faces), and reaches ``w_top/2`` inboard from the edge.
-    A cut that fails is logged and skipped (see :func:`cut_box`)."""
-    setback = girder_flange_width(girder_sec) / 2.0
-    if setback <= 0.0:
-        return
-
-    pl_lo, pl_hi = plate_world_aabb(plate)
-    pts = np.asarray([tuple(p) for p in points], dtype=float)
-    normal_axis = int(np.argmin(pl_hi - pl_lo))  # deck through-thickness axis (global Z)
-    in_plane = [a for a in range(3) if a != normal_axis]
-    center = (pl_lo + pl_hi) / 2.0
-
-    n = len(pts)
-    for i in range(n):
-        p_a, p_b = pts[i], pts[(i + 1) % n]
-        edge = p_b - p_a
-        # in-plane axis the edge runs along, and the perpendicular in-plane axis the
-        # notch recedes along (rectangular, axis-aligned decks => both are axes).
-        edge_axis = max(in_plane, key=lambda a: abs(edge[a]))
-        notch_axis = next(a for a in in_plane if a != edge_axis)
-        c = float(p_a[notch_axis])  # the edge coordinate (== plate boundary here)
-        inward = 1.0 if center[notch_axis] > c else -1.0
-
-        cut_lo, cut_hi = pl_lo.copy(), pl_hi.copy()
-        # full through-thickness (+ margin) so the strip clears both plate faces
-        cut_lo[normal_axis] = pl_lo[normal_axis] - _DECK_TRIM_MARGIN
-        cut_hi[normal_axis] = pl_hi[normal_axis] + _DECK_TRIM_MARGIN
-        # full run along the edge (+ margin) so the plate corners recede too
-        cut_lo[edge_axis] = pl_lo[edge_axis] - _DECK_TRIM_MARGIN
-        cut_hi[edge_axis] = pl_hi[edge_axis] + _DECK_TRIM_MARGIN
-        # inboard strip of width `setback` from the boundary edge toward the centre
-        if inward > 0:
-            cut_lo[notch_axis] = c - _DECK_TRIM_MARGIN
-            cut_hi[notch_axis] = c + setback
-        else:
-            cut_lo[notch_axis] = c - setback
-            cut_hi[notch_axis] = c + _DECK_TRIM_MARGIN
-
-        exc = cut_box(plate, f"{plate.name}_trim_{i:02d}", cut_lo, cut_hi)
-        if exc is not None:
-            logger.warning("procedural: skipping deck trim %r edge %d: %s", plate.name, i, exc)
-
-
 def cut_crossing_secondary_beams(host: ada.Part, opening_name: str, lo: np.ndarray, hi: np.ndarray) -> int:
     """Boolean-cut every SECONDARY member (wall stiffener / deck stringer, matched
     by the ``_stf_``/``_str_`` name marker) whose axis segment overlaps the box

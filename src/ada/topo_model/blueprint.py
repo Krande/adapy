@@ -36,11 +36,11 @@ from ._geometry import (
     dedupe_edges,
     face_center_key,
     frame_axes,
+    girder_flange_width,
     plate_world_aabb,
     reinforced_floor,
     reinforced_wall,
     seat_deck_beam,
-    trim_deck_to_girders,
 )
 
 # Re-export the wall builder under its historical private name for tests that
@@ -138,20 +138,18 @@ class SteelStru(BlueprintBase):
     def _floor(self, name: str, face: GraphFace, ledger: DeckLedger, room: ada.Part) -> None:
         """Build a reinforced deck for ``face``, record it in ``ledger`` (so a
         shared plane is never plated twice and the deck can later be tagged onto
-        the face for penetration cutting), detail-trim it, and add it to ``room``."""
-        deck = reinforced_floor(name, face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing)
-        ledger.record(face, deck)
-        self._detail_trim_deck(deck, face.get_points())
-        room.add_part(deck)
+        the face for penetration cutting), and add it to ``room``.
 
-    def _detail_trim_deck(self, floor: ada.Part, points: list[ada.Point]) -> None:
-        """In DETAIL mode, trim the deck plate(s) inside a built floor part back to
-        the surrounding girders' top-flange inner edges. A no-op in simulation mode
-        (``self.detail is False``), keeping that geometry byte-identical to before."""
-        if not self.detail:
-            return
-        for pl in floor.get_all_physical_objects(by_type=ada.Plate):
-            trim_deck_to_girders(pl, points, self.pl_thick, self.girder_sec)
+        In DETAIL mode the deck plate outline is inset by the surrounding girders'
+        top-flange half-width so it spans the clear opening between the flanges
+        instead of overlapping them; simulation mode keeps the full-cell deck
+        (``deck_inset=0``), byte-identical to before."""
+        deck_inset = girder_flange_width(self.girder_sec) / 2.0 if self.detail else 0.0
+        deck = reinforced_floor(
+            name, face.get_points(), self.pl_thick, self.stringer_sec, self.stringer_spacing, deck_inset=deck_inset
+        )
+        ledger.record(face, deck)
+        room.add_part(deck)
 
     def build(self) -> ada.Part:
         self.output_part = ada.Part(self.name)
