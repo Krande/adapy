@@ -185,9 +185,20 @@ class IfcWriter:
         f = self.ifc_store.f
 
         for mat, objects in obj_map.items():
-            rel_mat = f.by_guid(mat.guid)
+            try:
+                rel_mat = f.by_guid(mat.guid)
+            except RuntimeError:
+                rel_mat = None
             if rel_mat is None:
-                raise ValueError(f"No IfcRelAssociatesMaterial found for mat.guid={mat.guid}")
+                # The material was never registered in the file — e.g. an ad-hoc
+                # Shape material on a placeholder equipment body. Skip its material
+                # association rather than crashing the whole export; the object's
+                # geometry is still written.
+                logger.warning(
+                    "ifc-write: no IfcRelAssociatesMaterial for material %r; skipping its association",
+                    getattr(mat, "name", None) or mat.guid,
+                )
+                continue
 
             ifc_elems = []
             ifc_elems_pipe_seg = []

@@ -845,6 +845,10 @@ interface CellBuilderState {
    * trigger a browser download. Commits first when there are unsaved edits so the
    * workbook matches what's on screen. */
   exportToExcel: () => Promise<void>;
+  /** Export + download the committed model as a CAD/analysis file: "ifc" (the
+   * DETAIL model, clash cuts as IfcRelVoidsElement voids) or "gxml" (the
+   * SIMULATION model as a Genie concept XML). Commits first when dirty. */
+  exportModel: (format: "ifc" | "gxml") => Promise<void>;
   /** Begin importing a workbook: upload it, auto-detect the owning engine from its
    * `_ADA_META` sheet, and import immediately when detected — otherwise set
    * `importPrompt` so the user picks an engine. */
@@ -3609,6 +3613,95 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           scope,
           active.modelId,
           { engine },
+        );
+        if (res.cached || !res.job_id) {
+          await download(res.derived_key);
+          return;
+        }
+        const jobId = res.job_id;
+        const poll = async () => {
+          try {
+            const st = await viewerApi.convertStatus(jobId);
+            if (st.status === "done") {
+              await download(st.derived_key || res.derived_key);
+              return;
+            }
+            if (st.status === "error") {
+              set({ xlsxBusy: false });
+              setProceduralToast(label, {
+                status: "error",
+                stage: st.stage || "",
+                error: st.error ?? "export failed",
+              });
+              return;
+            }
+            setProceduralToast(label, {
+              status: "running",
+              progress: st.progress ?? 0,
+              stage: st.stage || "exporting…",
+              jobId,
+            });
+            setTimeout(poll, 1500);
+          } catch (e) {
+            set({ xlsxBusy: false });
+            setProceduralToast(label, {
+              status: "error",
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        };
+        setTimeout(poll, 1200);
+      } catch (e) {
+        set({ xlsxBusy: false });
+        setProceduralToast(label, {
+          status: "error",
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    },
+
+    exportModel: async (format) => {
+      const active = get().active;
+      if (!active || get().xlsxBusy) return;
+      const scope = currentScopePart();
+      const label =
+        format === "ifc" ? "Download IFC (detail)" : "Download Genie XML (sim)";
+      set({ xlsxBusy: true });
+      setProceduralToast(label, {
+        status: "running",
+        progress: 0,
+        stage: "compiling…",
+        startedAt: Date.now(),
+      });
+      const download = async (derivedKey: string) => {
+        try {
+          await viewerApi.downloadBlob(
+            scope,
+            derivedKey,
+            `${active.name || "procedural-model"}.${format}`,
+          );
+          setProceduralToast(label, {
+            status: "done",
+            progress: 1,
+            stage: "downloaded",
+          });
+        } catch (e) {
+          setProceduralToast(label, {
+            status: "error",
+            error: e instanceof Error ? e.message : String(e),
+          });
+        } finally {
+          set({ xlsxBusy: false });
+        }
+      };
+      try {
+        // Export the COMMITTED revision (the worker reads the DB doc); commit any
+        // unsaved edits first so the file matches what's on screen.
+        if (get().dirty) await get().commit();
+        const res = await viewerApi.exportProceduralModel(
+          scope,
+          active.modelId,
+          format,
         );
         if (res.cached || !res.job_id) {
           await download(res.derived_key);

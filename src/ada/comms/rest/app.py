@@ -3768,6 +3768,64 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
 
+    @api.post("/scopes/{scope}/procedural-models/{model_id}/export-model")
+    async def api_procedural_export_model(
+        request: Request,
+        model_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Enqueue an export of the model's committed revision to a downloadable CAD
+        / analysis file. ``?format=ifc`` serializes the DETAIL model (beams, plates,
+        joints — the clash cuts ride along as IfcRelVoidsElement voids, equipment as
+        IfcPump/IfcTank/…); ``?format=gxml`` serializes the SIMULATION model as a
+        Genie concept XML. Mirrors :func:`api_procedural_export_xlsx` (revision-keyed
+        cache, ``?force=true`` to rebuild). Built-in engine only — a non-default
+        engine emits GLB, not an in-process ada assembly the writers need. The
+        worker writes ``derived_key``; the frontend polls then downloads the blob."""
+        from .procedural import procedural_model_export_key
+
+        fmt = (request.query_params.get("format") or "").strip().lower()
+        if fmt not in ("ifc", "gxml"):
+            raise HTTPException(status_code=400, detail="format must be 'ifc' or 'gxml'")
+        force = (request.query_params.get("force") or "").strip().lower() in ("1", "true", "yes")
+
+        pool = _require_procedural_pool(request)
+        row = await _get_procedural_in_scope(pool, model_id, scope_obj)
+        engine = (row.get("engine") or "").strip()
+        if engine and engine != "adapy-default":
+            raise HTTPException(
+                status_code=400,
+                detail=f"IFC/Genie export is only available for the built-in engine, not {engine!r}",
+            )
+
+        # IFC = the detail model (with its fabrication detailing); Genie = the sim model.
+        lod = "detail" if fmt == "ifc" else "sim"
+        detailing = (row.get("doc") or {}).get("detailing") if fmt == "ifc" else None
+
+        derived_key = procedural_model_export_key(row["id"], row["revision"], fmt)
+        if not force and await storage.exists(scope_obj, derived_key):
+            return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="procedural export disabled (no NATS configured)")
+
+        job = await queue.enqueue(
+            f"_synthetic/procedural/{row['id']}/r{row['revision']}/export-{fmt}",
+            target_format="procedural_export_model",
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            conversion_options={
+                "model_id": row["id"],
+                "revision": row["revision"],
+                "export_format": fmt,
+                "lod": lod,
+                "detailing": detailing,
+            },
+            derived_key=derived_key,
+            force_rebuild=force,
+            target_capability=None,
+        )
+        return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False})
+
     @api.post("/scopes/{scope}/procedural-models/import-xlsx/upload")
     async def api_procedural_import_xlsx_upload(
         request: Request,

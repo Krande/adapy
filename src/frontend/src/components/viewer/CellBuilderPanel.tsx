@@ -1733,6 +1733,26 @@ const CellBuilderPanel: React.FC = () => {
             >
               {s.xlsxBusy ? "Working…" : "Export to Excel"}
             </button>
+            {(s.selectedEngine || "adapy-default") === "adapy-default" && (
+              <>
+                <button
+                  className={btnGray}
+                  disabled={s.xlsxBusy || !s.active}
+                  onClick={() => void s.exportModel("ifc")}
+                  title="Download the DETAIL model as an IFC — beams, plates, joints and equipment, with the clash cuts as IfcRelVoidsElement voids (commits any unsaved edits first)."
+                >
+                  {s.xlsxBusy ? "Working…" : "Download IFC (detail)"}
+                </button>
+                <button
+                  className={btnGray}
+                  disabled={s.xlsxBusy || !s.active}
+                  onClick={() => void s.exportModel("gxml")}
+                  title="Download the SIMULATION model as a Genie concept XML (.gxml) for Sesam GeniE (commits any unsaved edits first)."
+                >
+                  {s.xlsxBusy ? "Working…" : "Download Genie XML (sim)"}
+                </button>
+              </>
+            )}
           </div>
 
           {s.relocations && (

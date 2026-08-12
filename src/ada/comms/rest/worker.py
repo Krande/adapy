@@ -1713,6 +1713,102 @@ async def _run_procedural_export_xlsx(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+async def _run_procedural_export_model(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Export a procedural model to a downloadable CAD/analysis file: ``ifc`` (the
+    DETAIL model — the clash cuts ride along as IfcRelVoidsElement voids, equipment
+    as IfcPump/IfcTank/…) or ``gxml`` (the SIMULATION model as a Genie concept XML).
+
+    Compiles the postgres-stored doc to an in-process adapy assembly (built-in
+    engine only) at the format's LOD, serializes it, and stores the bytes at
+    ``job.derived_key``. A synthetic sibling of :func:`_run_procedural_export_xlsx`."""
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    model_id = opts.get("model_id")
+    revision = opts.get("revision")
+    export_format = (opts.get("export_format") or "").lower()
+    lod = "detail" if (opts.get("lod") or "sim") == "detail" else "sim"
+    detailing = opts.get("detailing")
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not model_id or not isinstance(revision, int):
+        await _fail("export", "conversion_options.model_id and revision are required for procedural_export_model")
+        return
+    if export_format not in ("ifc", "gxml"):
+        await _fail("export", f"unsupported export_format {export_format!r} (expected ifc or gxml)")
+        return
+    if db_pool is None:
+        await _fail("export", "procedural export requires DATABASE_URL on the worker")
+        return
+
+    row = await db_module.get_procedural_model(db_pool, model_id)
+    if row is None:
+        await _fail("export", f"procedural model {model_id} not found")
+        return
+    if row["revision"] != revision:
+        await _fail("export", f"procedural model {model_id} is at revision {row['revision']}, job requested r{revision}")
+        return
+
+    doc = row["doc"]
+    name = row["name"]
+
+    def _do_export() -> bytes:
+        import os
+        import tempfile
+
+        from ada.topo_model.compile import compile_procedural_doc_with_assembly
+
+        # Built-in engine only: it materialises an in-process ada.Assembly (beams,
+        # plates, joints, equipment) the IFC / Genie writers need. Catalog equipment
+        # without a resolver falls back to placeholder boxes.
+        _glb, _stats, asm = compile_procedural_doc_with_assembly(
+            doc, name=name, lod=lod, detailing=detailing if export_format == "ifc" else None
+        )
+        with tempfile.TemporaryDirectory() as d:
+            if export_format == "ifc":
+                p = os.path.join(d, "model.ifc")
+                asm.to_ifc(p, file_obj_only=False)
+            else:
+                p = os.path.join(d, "model.gxml")
+                # embed_sat=False keeps the export CAD-backend-independent (plates as
+                # polygons; Genie rebuilds the ACIS on import).
+                asm.to_genie_xml(p, embed_sat=False)
+            with open(p, "rb") as fh:
+                return fh.read()
+
+    loop = asyncio.get_running_loop()
+    try:
+        await queue.update(job_id, stage="export", progress=0.40)
+        data = await loop.run_in_executor(None, _do_export)
+    except Exception as exc:
+        logger.exception("worker: procedural_export_model (%s) failed for %s", export_format, model_id)
+        await _fail("export", str(exc), tb_module.format_exc())
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        # Store identity (not gzip-at-rest) so the presigned/blob GET hands the
+        # browser a directly-usable .ifc / .gxml text file.
+        await storage.put_bytes(scope, job.derived_key, data)
+    except Exception as exc:
+        logger.exception("worker: procedural_export_model upload failed for %s", model_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
 async def _run_procedural_import_xlsx(
     *,
     job: Job,
@@ -2590,6 +2686,19 @@ async def _process_one(
     # (export) or parses an uploaded workbook into a new model (import).
     if job.target_format == "procedural_export_xlsx":
         await _run_procedural_export_xlsx(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # procedural_export_model: compile the doc to an ada assembly and serialize it
+    # to a downloadable IFC (detail) / Genie XML (sim) file.
+    if job.target_format == "procedural_export_model":
+        await _run_procedural_export_model(
             job=job,
             scope=scope,
             storage=storage,
@@ -3743,6 +3852,7 @@ async def _run() -> None:
                         "procedural_detail",
                         "procedural_relocations",
                         "procedural_export_xlsx",
+                        "procedural_export_model",
                         "procedural_import_xlsx",
                         "equipment_bbox",
                     ):

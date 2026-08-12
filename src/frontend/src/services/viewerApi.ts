@@ -2317,6 +2317,29 @@ export const viewerApi = {
     );
   },
 
+  /** Enqueue an export of the committed revision to a downloadable CAD/analysis
+   * file: `format: "ifc"` (the DETAIL model — clash cuts as IfcRelVoidsElement
+   * voids, equipment as IfcPump/IfcTank/…) or `"gxml"` (the SIMULATION model as a
+   * Genie concept XML). Built-in engine only. Poll `convertStatus` then
+   * `downloadBlob`, exactly like `exportProceduralModelXlsx`. */
+  async exportProceduralModel(
+    scope: ScopeUrl,
+    modelId: string,
+    format: "ifc" | "gxml",
+    opts?: { force?: boolean },
+  ): Promise<ProceduralCompileResponse> {
+    const params = new URLSearchParams({ format });
+    if (opts?.force) params.set("force", "true");
+    const r = await authedFetch(
+      `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/export-model?${params.toString()}`,
+      { method: "POST" },
+    );
+    return jsonOrThrow<ProceduralCompileResponse>(
+      r,
+      `exportProceduralModel(${modelId}, ${format})`,
+    );
+  },
+
   /** Stage an uploaded `.xlsx` for import and auto-detect its owning engine from
    * the file's `_ADA_META` sheet (read server-side, dependency-free). Returns the
    * staged `source_key` + detected `engine` (null when the workbook has no
