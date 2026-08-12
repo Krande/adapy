@@ -60,7 +60,6 @@ SCHEMA_VERSION = 2
 # viewer's per-type counts line up; ``adapy.<slug>`` is the connection spec_name.
 _JOINT_DISPLAY: dict[str, str] = {
     "girder_gusset": "Girder gusset",
-    "beam_column_endplate": "Beam–column end plate",
     "column_base_plate": "Column base plate",
     "box_to_box": "Box-to-box",
 }

@@ -88,9 +88,9 @@ def test_detailing_engines_builtin_without_db(app_client: TestClient):
     for slug in ("none", "adapy-default"):
         assert next(e for e in engines if e["slug"] == slug)["origin"] == "code"
     adapy = next(e for e in engines if e["slug"] == "adapy-default")
-    assert {"girder_gusset", "beam_column_endplate", "column_base_plate", "box_to_box"} <= {
-        j["slug"] for j in adapy["joint_types"]
-    }
+    assert {"girder_gusset", "column_base_plate", "box_to_box"} <= {j["slug"] for j in adapy["joint_types"]}
+    # End plates were dropped from the engine entirely — never advertised.
+    assert "beam_column_endplate" not in {j["slug"] for j in adapy["joint_types"]}
 
 
 def test_external_weldgen_detailing_engine_seeded_offline(app_client: TestClient):
@@ -185,19 +185,19 @@ def test_detailing_options_change_yields_distinct_key():
     assert procedural_detailing_glb_key("m", 3, None, "adapy-default", "sim", {}) == base
 
     k20 = procedural_detailing_glb_key(
-        "m", 3, None, "adapy-default", "sim", {"beam_column_endplate": {"plate_t": 20.0}}
+        "m", 3, None, "adapy-default", "sim", {"column_base_plate": {"overhang": 20.0}}
     )
     k50 = procedural_detailing_glb_key(
-        "m", 3, None, "adapy-default", "sim", {"beam_column_endplate": {"plate_t": 50.0}}
+        "m", 3, None, "adapy-default", "sim", {"column_base_plate": {"overhang": 50.0}}
     )
     assert k20 != base and k50 != base and k20 != k50
     # Stable: the SAME options hash the same key (order-independent).
     assert k20 == procedural_detailing_glb_key(
-        "m", 3, None, "adapy-default", "sim", {"beam_column_endplate": {"plate_t": 20.0}}
+        "m", 3, None, "adapy-default", "sim", {"column_base_plate": {"overhang": 20.0}}
     )
     # The preview key folds options in the same way.
     assert procedural_preview_glb_key(
-        "m", "abc", None, "sim", "adapy-default", {"beam_column_endplate": {"plate_t": 20.0}}
+        "m", "abc", None, "sim", "adapy-default", {"column_base_plate": {"overhang": 20.0}}
     ) != procedural_preview_glb_key("m", "abc", None, "sim", "adapy-default")
 
 
@@ -206,7 +206,7 @@ def test_detailing_options_never_leak_into_none_key():
     # effect on the key (byte-identical to the plain structural key).
     for detailing in (None, "none"):
         assert procedural_detailing_glb_key(
-            "m", 3, None, detailing, "sim", {"beam_column_endplate": {"plate_t": 20.0}}
+            "m", 3, None, detailing, "sim", {"column_base_plate": {"overhang": 20.0}}
         ) == procedural_glb_key("m", 3, None)
 
 

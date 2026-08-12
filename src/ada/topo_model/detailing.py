@@ -26,11 +26,9 @@ tessellation, no overlay).
 Starter joint set (the SteelStru demo scope):
 
 1. **Girder–girder gusset** — reuses :func:`ada.topo_model.detail_joints.collect_girder_joints`
-   verbatim (gusset :class:`~ada.Plate` + fillet :class:`~ada.Weld` beads).
-2. **Beam–column end plate** — :class:`EndPlateJoint`: an end plate at the girder
-   end sized to the girder section, a fillet weld girder-web -> end-plate, and a
-   bolt group modelled metadata-first (a ``ConnectionInfo``-style record).
-3. **Column base plate** — :class:`BasePlateJoint`: a rectangular base plate at
+   verbatim (gusset :class:`~ada.Plate` + fillet :class:`~ada.Weld` beads). Only
+   PRIMARY frame girders qualify (HP bulb-flat stringers are excluded).
+2. **Column base plate** — :class:`BasePlateJoint`: a rectangular base plate at
    the column's lowest node, fillet welds around the column footprint, anchor
    bolts metadata-first.
 
@@ -47,7 +45,6 @@ import numpy as np
 
 from ada.api.connections import Connection, JointBase
 from ada.config import get_logger
-from ada.core.vector_utils import unit_vector
 
 if TYPE_CHECKING:
     from ada import Beam, Part
@@ -60,7 +57,6 @@ logger = get_logger()
 # default to (mm there, metres here) — see ``detailing_catalog.ADAPY_DEFAULT_JOINT_TYPES``.
 DEFAULT_WELD_LEG = 6e-3  # fillet weld leg / throat floor [m]
 DEFAULT_BASE_PLATE_OVERHANG = 0.05  # base-plate overhang beyond the footprint [m]
-DEFAULT_END_PLATE_T = 20e-3  # end-plate thickness [m]
 DEFAULT_GUSSET_T = 10e-3  # gusset-plate thickness [m]
 DEFAULT_BOX_CLEARANCE = 2e-3  # box clash-cut clearance beyond the landing bbox [m]
 _MIN_THROAT = 6e-3
@@ -149,36 +145,6 @@ def collect_girder_joints(assembly: "Part", options: Union[dict, None] = None) -
     return list(_collect(assembly, weld_leg=weld_leg, gusset_t=gusset_t))
 
 
-def collect_endplate_joints(assembly: "Part", options: dict) -> List["EndPlateJoint"]:
-    """Beam–column end-plate joints: a girder whose ENDPOINT is coincident with a
-    column axis frames into that column with an end plate. Detection is the
-    OCC-free ``beam_cross_check`` (the girder param ``s`` near 0/1 = its endpoint;
-    the column param ``t`` inside ``[0, 1]`` = the point is on the column)."""
-    from ada.core.clash_check import beam_cross_check
-
-    from .detail_joints import is_frame_member
-
-    weld_leg = _mm(options, "weld_leg", DEFAULT_WELD_LEG * 1e3)
-    plate_t = _mm(options, "plate_t", DEFAULT_END_PLATE_T * 1e3)
-    # Secondary members (HP stringers) are direction-classified as "Girder" but must
-    # never get an end plate — restrict to primary frame girders.
-    girders = [g for g in _beams_of_type(assembly, "Girder") if is_frame_member(g)]
-    columns = _beams_of_type(assembly, "Column")
-    out: List["EndPlateJoint"] = []
-    for gi, g in enumerate(girders):
-        for ci, c in enumerate(columns):
-            res = beam_cross_check(g, c, _CROSS_TOL)
-            if res is None:
-                continue
-            point, s, t = res
-            at_endpoint = s < _ENDPOINT_EPS or s > 1.0 - _ENDPOINT_EPS
-            on_column = -_ENDPOINT_EPS <= t <= 1.0 + _ENDPOINT_EPS
-            if not (at_endpoint and on_column):
-                continue
-            out.append(EndPlateJoint(f"EP_{gi:02d}_{ci:02d}", [g, c], point, weld_leg=weld_leg, plate_t=plate_t))
-    return out
-
-
 def collect_box_joints(assembly: "Part", options: dict) -> List["BoxJoint"]:
     """Box-to-box clash joints: two box beams that meet, where one beam's END is
     coincident with the other beam. Deterministic incoming/landing assignment —
@@ -224,7 +190,11 @@ def collect_base_plate_joints(assembly: "Part", options: dict) -> List["BasePlat
     # historical flat-option alias (kept working for older callers).
     overhang_src = "overhang" if "overhang" in options else "base_plate_overhang"
     overhang = _mm(options, overhang_src, DEFAULT_BASE_PLATE_OVERHANG * 1e3)
-    columns = _beams_of_type(assembly, "Column")
+    from .detail_joints import is_frame_member
+
+    # Secondary members (HP wall stiffeners) can be direction-classified as "Column"
+    # too — never give them a base plate. Restrict to primary frame columns.
+    columns = [c for c in _beams_of_type(assembly, "Column") if is_frame_member(c)]
     if not columns:
         return []
     base_z = min(float(_lower_node(c).p[2]) for c in columns)
@@ -258,84 +228,6 @@ def _bolt_metadata(
         "weld_names": weld_names,
         "centre": None if centre is None else [round(float(v), 4) for v in np.asarray(centre, dtype=float)],
     }
-
-
-class EndPlateJoint(JointBase):
-    """A beam-to-column end-plate connection.
-
-    ``member_type`` is direction-derived: a horizontal girder framing into a
-    vertical column gives the combo ``["Girder", "Column"]`` (the column is the
-    landing member via :meth:`JointBase._get_landing_member`). Emits an end plate
-    sized to the girder section at the girder end, a fillet weld along the girder
-    web line, and a metadata-first bolt group — all parked in a
-    ``Connection(Part)`` exposed via :attr:`connection`.
-    """
-
-    mem_types = ["Girder", "Column"]
-    beamtypes = ["IG", "IG"]
-    num_mem = 2
-
-    def __init__(
-        self,
-        name,
-        members: List["Beam"],
-        centre,
-        *,
-        weld_leg: float = DEFAULT_WELD_LEG,
-        plate_t: float = DEFAULT_END_PLATE_T,
-        parent=None,
-    ):
-        super().__init__(name, members, centre, parent=parent)
-        col = self.main_mem
-        gir = next(m for m in members if m is not col)
-        self._connection = self._build_connection(name, gir, col, centre, weld_leg, plate_t)
-
-    def _build_connection(self, name, gir: "Beam", col: "Beam", centre, weld_leg: float, plate_t: float) -> Connection:
-        from ada import Plate, Weld
-
-        conn = Connection(f"{name}_conn")
-        c = np.asarray(centre, dtype=float)
-        u_g = np.asarray(unit_vector(gir.xvec), dtype=float)
-        z = np.array([0.0, 0.0, 1.0])
-        w_dir = unit_vector(np.cross(u_g, z))
-
-        h = float(gir.section.h)
-        w = float(getattr(gir.section, "w_top", 0.0) or h)
-        half_h, half_w = 0.5 * h, 0.5 * w
-        # End-plate thickness is the advertised ``plate_t`` knob (floored so a thin
-        # value still yields visible geometry), NOT a section-derived guess.
-        t_plate = max(float(plate_t), _MIN_PLATE_T)
-
-        a, b = half_w * w_dir, half_h * z
-        pts = [c - a - b, c + a - b, c + a + b, c - a + b]
-        endplate = Plate.from_3d_points(f"{name}_endplate", [tuple(p) for p in pts], t_plate)
-        conn.add_plate(endplate)
-
-        throat = max(float(getattr(gir.section, "t_w", 0.0) or 0.0), weld_leg, _MIN_THROAT)
-        weld = Weld(
-            f"{name}_weld",
-            p1=tuple(c - b),
-            p2=tuple(c + b),
-            xdir=tuple(u_g),
-            throat=throat,
-            members=(gir, col),
-        )
-        conn.add_weld(weld)
-
-        _bolt_metadata(
-            conn,
-            spec_name="adapy.beam_column_endplate",
-            member_roles={"incoming": [gir.name], "landing": [col.name]},
-            plate_names=[endplate.name],
-            weld_names=[weld.name],
-            centre=centre,
-        )
-        return conn
-
-    @property
-    def connection(self) -> Connection:
-        """The ``Connection(Part)`` carrying this joint's end plate + weld."""
-        return self._connection
 
 
 class BasePlateJoint(JointBase):
@@ -502,9 +394,6 @@ def detail(assembly: "Part", options: Union[dict, None] = None) -> "Part":
     en_gg, gg = _joint_field_opts(options, "girder_gusset", True)
     if en_gg:
         joints += _collect(collect_girder_joints, assembly, gg)
-    en_ep, ep = _joint_field_opts(options, "beam_column_endplate", True)
-    if en_ep:
-        joints += _collect(collect_endplate_joints, assembly, ep)
     en_bp, bp = _joint_field_opts(options, "column_base_plate", True)
     if en_bp:
         joints += _collect(collect_base_plate_joints, assembly, bp)

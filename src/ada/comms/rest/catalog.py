@@ -214,17 +214,6 @@ _DETAILING_ENGINES: tuple[dict, ...] = (
                 ],
             },
             {
-                "slug": "beam_column_endplate",
-                "name": "Beam–column end plate",
-                "description": "End plate + fillet weld (bolts metadata-first) where a girder frames into a column.",
-                "default_enabled": True,
-                "fields": [
-                    {"name": "plate_t", "label": "End-plate thickness", "type": "number", "default": 20.0, "min": 8.0, "max": 60.0, "unit": "mm"},
-                    {"name": "weld_leg", "label": "Weld leg", "type": "number", "default": 6.0, "min": 3.0, "max": 20.0, "unit": "mm"},
-                    {"name": "bolt", "label": "Bolt size", "type": "enum", "default": "M20", "options": ["M16", "M20", "M24", "M30"]},
-                ],
-            },
-            {
                 "slug": "column_base_plate",
                 "name": "Column base plate",
                 "description": "Base plate + fillet welds (anchor bolts metadata-first) at each column footing.",

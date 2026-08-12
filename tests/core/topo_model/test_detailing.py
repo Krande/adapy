@@ -16,7 +16,6 @@ from ada.topo_model import build_topo_model
 from ada.topo_model.detailing import (
     collect_base_plate_joints,
     collect_box_joints,
-    collect_endplate_joints,
     collect_girder_joints,
     detail,
 )
@@ -36,9 +35,9 @@ def test_starter_joint_counts_pinned(demo):
     # HP bulb-flat stringers are excluded from connection detailing (they are
     # direction-classified as "Girder" but are secondary members) — so the demo's
     # only girder–girder crossings (all with a column present) form no 2-member
-    # gusset, and every stringer end is left plain.
+    # gusset, and every stringer end is left plain. End plates were dropped
+    # entirely (no beam–column end plates anywhere), leaving base plates only.
     assert len(collect_girder_joints(demo)) == 0
-    assert len(collect_endplate_joints(demo, {})) == 36
     assert len(collect_base_plate_joints(demo, {})) == 6
 
 
@@ -52,17 +51,17 @@ def test_detail_adds_joints_part_with_pinned_geometry(demo):
     joints = demo.get_by_name("Joints")
     assert joints is not None, "detailing produced no Joints part"
 
-    # One Connection part per detected joint (0 girder gusset + 36 endplate + 6
-    # base — HP stringers excluded, so no stringer gussets).
+    # One Connection part per detected joint. End plates dropped, stringers
+    # excluded, and every girder node carries a column (no bare girder gusset) —
+    # so the demo details to 6 column base plates only.
     connections = list(joints.parts.values())
-    assert len(connections) == 42
+    assert len(connections) == 6
 
     plates = list(joints.get_all_physical_objects(by_type=ada.Plate))
     welds = list(joints.get_all_welds())
-    # Each joint contributes exactly one plate; welds = 36 endplate (1 each) + 24
-    # base (4 each).
-    assert len(plates) == 42
-    assert len(welds) == 60
+    # Each base plate contributes one plate + 4 fillet welds.
+    assert len(plates) == 6
+    assert len(welds) == 24
 
 
 def test_each_connection_carries_expected_plate_and_weld_names(demo):
@@ -72,14 +71,11 @@ def test_each_connection_carries_expected_plate_and_weld_names(demo):
     plate_names = {p.name for p in joints.get_all_physical_objects(by_type=ada.Plate)}
     weld_names = {w.name for w in joints.get_all_welds()}
 
-    # Girder gussets require a bare girder–girder crossing; the demo has none
-    # (every girder node also carries a column, and stringers are excluded), so
-    # only end plates + base plates are emitted here.
+    # Only base plates are emitted here: gussets need a bare girder–girder crossing
+    # (the demo has none), and end plates were dropped entirely.
     assert not any(n.endswith("_gusset") for n in plate_names)
-    assert any(n.endswith("_endplate") for n in plate_names)
+    assert not any(n.endswith("_endplate") for n in plate_names)
     assert any(n.endswith("_baseplate") for n in plate_names)
-    # And each emitted family welds.
-    assert any("EP_" in n and n.endswith("_weld") for n in weld_names)
     assert any("BP_" in n and "_weld_" in n for n in weld_names)
 
 
@@ -107,13 +103,13 @@ def test_hp_stringers_never_get_connection_joints(demo):
 
 
 def test_bolt_group_is_metadata_first(demo):
-    # Bolts are modelled metadata-first (no first-class fastener primitive in
-    # Phase 1): an end-plate Connection carries a ConnectionInfo-style record.
+    # Anchor bolts are modelled metadata-first (no first-class fastener primitive
+    # in Phase 1): a base-plate Connection carries a ConnectionInfo-style record.
     detail(demo, {})
     joints = demo.get_by_name("Joints")
-    ep = next(p for p in joints.parts.values() if p.name.startswith("EP_"))
-    info = ep.metadata.get("connection_info")
-    assert info and info["spec_name"] == "adapy.beam_column_endplate"
+    bp = next(p for p in joints.parts.values() if p.name.startswith("BP_"))
+    info = bp.metadata.get("connection_info")
+    assert info and info["spec_name"] == "adapy.column_base_plate"
     assert info["member_roles"].get("landing")
     assert info["plate_names"] and info["weld_names"]
 
@@ -122,7 +118,7 @@ def test_bolt_group_is_metadata_first(demo):
 
 
 def test_toggles_select_joint_families(demo):
-    detail(demo, {"girder_gusset": False, "beam_column_endplate": False, "column_base_plate": True})
+    detail(demo, {"girder_gusset": False, "column_base_plate": True})
     joints = demo.get_by_name("Joints")
     # Only base plates -> 6 connections, all base plates.
     assert len(list(joints.parts.values())) == 6
@@ -137,7 +133,6 @@ def test_none_selected_adds_no_joints():
         a,
         {
             "girder_gusset": False,
-            "beam_column_endplate": False,
             "column_base_plate": False,
             "box_to_box": False,
         },
@@ -170,7 +165,6 @@ def test_box_joint_bool_cuts_incoming_beams():
         a,
         {
             "girder_gusset": False,
-            "beam_column_endplate": False,
             "column_base_plate": False,
             "box_to_box": True,
         },
@@ -187,31 +181,6 @@ def test_box_joint_bool_cuts_incoming_beams():
 # ── Phase 3: per-joint option specs reach real geometry ──────────────
 
 
-def _endplate_thickness(a: ada.Assembly) -> float:
-    ep = next(
-        p
-        for p in a.get_by_name("Joints").get_all_physical_objects(by_type=ada.Plate)
-        if p.name.endswith("_endplate")
-    )
-    return float(ep.t)
-
-
-def test_nested_per_joint_option_alters_endplate_thickness():
-    # The Phase-3 nested per-joint option shape ({slug: {enabled, <field>}}) must
-    # reach the emitted geometry: the advertised end-plate thickness (mm) becomes
-    # the Plate's thickness (m). Only the endplate family is enabled to isolate it.
-    only_ep = {"girder_gusset": {"enabled": False}, "column_base_plate": {"enabled": False}}
-
-    thin = build_topo_model()
-    detail(thin, {**only_ep, "beam_column_endplate": {"enabled": True, "plate_t": 20.0}})
-    thick = build_topo_model()
-    detail(thick, {**only_ep, "beam_column_endplate": {"enabled": True, "plate_t": 50.0}})
-
-    assert _endplate_thickness(thin) == pytest.approx(0.020)
-    assert _endplate_thickness(thick) == pytest.approx(0.050)
-    assert _endplate_thickness(thick) > _endplate_thickness(thin)
-
-
 def test_base_plate_overhang_option_alters_plate_size():
     # The base-plate overhang (mm) grows the emitted Plate. Larger overhang -> a
     # larger footprint bounding box.
@@ -221,7 +190,6 @@ def test_base_plate_overhang_option_alters_plate_size():
             a,
             {
                 "girder_gusset": {"enabled": False},
-                "beam_column_endplate": {"enabled": False},
                 "column_base_plate": {"enabled": True, "overhang": overhang_mm},
             },
         )
@@ -245,7 +213,6 @@ def test_box_clearance_option_grows_the_cut():
             a,
             {
                 "girder_gusset": {"enabled": False},
-                "beam_column_endplate": {"enabled": False},
                 "column_base_plate": {"enabled": False},
                 "box_to_box": {"enabled": True, "clearance": clearance_mm},
             },
@@ -265,14 +232,13 @@ def test_flat_and_nested_option_shapes_are_equivalent():
     # Backward-compat: the historical FLAT toggle shape and the Phase-3 NESTED
     # per-joint shape select the same joint families.
     flat = build_topo_model()
-    detail(flat, {"girder_gusset": False, "beam_column_endplate": True, "column_base_plate": False})
+    detail(flat, {"girder_gusset": False, "column_base_plate": True})
     nested = build_topo_model()
     detail(
         nested,
         {
             "girder_gusset": {"enabled": False},
-            "beam_column_endplate": {"enabled": True},
-            "column_base_plate": {"enabled": False},
+            "column_base_plate": {"enabled": True},
         },
     )
     assert len(list(flat.get_by_name("Joints").parts.values())) == len(
