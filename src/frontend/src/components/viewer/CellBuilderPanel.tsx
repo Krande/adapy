@@ -1281,6 +1281,97 @@ const CellBuilderPanel: React.FC = () => {
                 ))}
               </select>
             </label>
+
+            {/* Advertised blueprint parameters (doc.blueprint) — generated from
+                the selected blueprint's `fields`. For steel_stru these are the
+                girder/column/stringer section enums: pick a `BG…` box or `TUB…`
+                tube to build the frame in box beams instead of I-beams. */}
+            {(() => {
+              const bp = s.blueprints.find(
+                (b) => b.slug === s.selectedBlueprint,
+              );
+              const fields = bp?.fields ?? [];
+              if (fields.length === 0) return null;
+              return (
+                <div className="flex flex-col gap-1 pl-2 ml-1 border-l border-gray-600/40">
+                  {fields.map((f) => {
+                    const cur = s.blueprintOptions[f.name] ?? f.default;
+                    const label =
+                      (f.label ?? f.name) + (f.unit ? ` (${f.unit})` : "");
+                    const title = `Sets doc.blueprint.${f.name}`;
+                    if (f.type === "enum") {
+                      return (
+                        <label
+                          key={f.name}
+                          className="flex items-center gap-1"
+                          title={title}
+                        >
+                          <span className="whitespace-nowrap text-gray-300">
+                            {label}
+                          </span>
+                          <select
+                            className={`${inputCls} flex-1 min-w-0`}
+                            value={String(cur)}
+                            onChange={(e) =>
+                              s.setBlueprintOption(f.name, e.target.value)
+                            }
+                          >
+                            {(f.options ?? []).map((o) => (
+                              <option key={o} value={o}>
+                                {o}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      );
+                    }
+                    if (f.type === "bool") {
+                      return (
+                        <label
+                          key={f.name}
+                          className="flex items-center gap-1 cursor-pointer text-gray-300"
+                          title={title}
+                        >
+                          <input
+                            type="checkbox"
+                            className="accent-blue-600"
+                            checked={Boolean(cur)}
+                            onChange={(e) =>
+                              s.setBlueprintOption(f.name, e.target.checked)
+                            }
+                          />
+                          <span>{label}</span>
+                        </label>
+                      );
+                    }
+                    return (
+                      <label
+                        key={f.name}
+                        className="flex items-center gap-1 text-gray-300"
+                        title={title}
+                      >
+                        <span className="whitespace-nowrap">{label}</span>
+                        <input
+                          type="number"
+                          className={inputCls}
+                          value={
+                            Number.isFinite(Number(cur)) ? Number(cur) : ""
+                          }
+                          min={f.min}
+                          max={f.max}
+                          step="any"
+                          onChange={(e) => {
+                            const n = Number(e.target.value);
+                            if (Number.isFinite(n))
+                              s.setBlueprintOption(f.name, n);
+                          }}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              );
+            })()}
             <label
               className="flex items-center gap-1"
               title={

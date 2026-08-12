@@ -138,3 +138,23 @@ def test_builtin_blueprint_specs_match_slim_catalog():
     # An engine with no static built-ins returns an empty list (endpoint then
     # falls back to the engine-default entry).
     assert builtin_procedural_blueprint_specs("pm-engine") == []
+
+
+def test_blueprint_fields_match_ada_registry():
+    # The steel_stru parameter fields (the section-profile enums) are duplicated
+    # BY VALUE in the slim rest catalog (that image must not import ada); assert
+    # the two definitions stay identical so the "box beams" knob can't drift.
+    from ada.comms.rest.catalog import builtin_procedural_blueprint_specs
+    from ada.topo_model import procedural_blueprint_specs
+    from ada.topo_model.blueprint_catalog import STEEL_STRU_FIELDS
+
+    static = {s["slug"]: s for s in builtin_procedural_blueprint_specs("adapy-default")}
+    registry = {s["slug"]: s for s in procedural_blueprint_specs("adapy-default")}
+    assert static["steel_stru"]["fields"] == STEEL_STRU_FIELDS
+    assert registry["steel_stru"]["fields"] == STEEL_STRU_FIELDS
+    assert static["none"]["fields"] == []
+    assert registry["none"]["fields"] == []
+    # The section enums are the frame's profile knobs; each has selectable options.
+    keys = {f["name"] for f in STEEL_STRU_FIELDS}
+    assert {"girder_sec", "column_sec", "stringer_sec"} <= keys
+    assert all(f["type"] == "enum" and f["options"] for f in STEEL_STRU_FIELDS)

@@ -2895,6 +2895,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "slug": spec["slug"],
                 "name": spec["name"],
                 "description": spec.get("description", ""),
+                "fields": spec.get("fields", []),
                 "origin": "code",
             }
         for slug, spec in (await _live_worker_specs("procedural_blueprint_specs")).items():
@@ -2906,6 +2907,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "slug": slug,
                 "name": spec.get("name") or slug,
                 "description": spec.get("description", ""),
+                "fields": spec.get("fields", []),
                 "origin": "code",
             }
         blueprints = list(by_slug.values())

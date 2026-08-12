@@ -218,6 +218,13 @@ _BLUEPRINT_OPTION_KEYS = (
     "pl_thick",
     "wall_pl_thick",
     "stringer_spacing",
+    # Section profiles (advertised as enum fields on the steel_stru blueprint —
+    # see blueprint_catalog.STEEL_STRU_FIELDS). Forwarded RAW to SteelStru; each
+    # value is a section string parsed by ada.sections.interpret_section_str. This
+    # is the "box beams instead of I-beams" knob (a BG…/TUB… value).
+    "girder_sec",
+    "column_sec",
+    "stringer_sec",
 )
 
 

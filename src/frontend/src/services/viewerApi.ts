@@ -1206,6 +1206,13 @@ export interface ProceduralBlueprintOption {
   slug: string;
   name: string;
   description: string;
+  /** Advertised parameter fields (same `{name,label,type,default,...}` shape the
+   * Detailing tab renders) — the Blueprint panel generates one input per field and
+   * writes the value into `doc.blueprint`. Absent/empty for a blueprint with no
+   * knobs (e.g. `none`). For `steel_stru` these are the section-profile enums
+   * (girder/column/stringer) — switching a girder to a `BG…` box or `TUB…` tube
+   * is the "box beams instead of I-beams" knob. */
+  fields?: DetailingFieldSpec[];
   origin: TypeOrigin;
 }
 

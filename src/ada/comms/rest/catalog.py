@@ -133,6 +133,33 @@ DEFAULT_OPENING_SIZE = [1.0, 1.0, 2.0]
 # ``procedural_blueprint_specs``. The FIRST entry for an engine is its default.
 # The engine slug is a literal here (this slim module must not import ada) — it
 # matches ``ada.topo_model.engines.DEFAULT_ENGINE_SLUG``.
+# Kept BY VALUE in lock-step with ``ada.topo_model.blueprint_catalog``'s
+# ``STEEL_STRU_FIELDS`` (this slim image must not import ``ada``); parity asserted
+# by ``tests/comms/rest/test_procedural_blueprints``.
+_STEEL_STRU_FIELDS: tuple[dict, ...] = (
+    {
+        "name": "girder_sec",
+        "label": "Girder section",
+        "type": "enum",
+        "default": "IPE200",
+        "options": ["IPE200", "IPE300", "IPE400", "HEB200", "HEB300", "BG300x300x8x8", "BG400x300x12x16", "TUB200x10"],
+    },
+    {
+        "name": "column_sec",
+        "label": "Column section",
+        "type": "enum",
+        "default": "HEB200",
+        "options": ["HEB200", "HEB300", "HEB400", "HEA300", "BG300x300x8x8", "BG400x400x12x12", "TUB200x10"],
+    },
+    {
+        "name": "stringer_sec",
+        "label": "Stringer section",
+        "type": "enum",
+        "default": "HP140x8",
+        "options": ["HP140x8", "HP160x8", "HP200x10", "IPE200"],
+    },
+)
+
 _PROCEDURAL_BLUEPRINTS: dict[str, tuple[dict, ...]] = {
     "adapy-default": (
         {
@@ -140,11 +167,13 @@ _PROCEDURAL_BLUEPRINTS: dict[str, tuple[dict, ...]] = {
             "name": "Steel structure",
             "description": "Decked steel structure framed over the space cells "
             "(girders, stringers, plate decks and walls).",
+            "fields": list(_STEEL_STRU_FIELDS),
         },
         {
             "slug": "none",
             "name": "Raw boxes — no blueprint",
             "description": "Render the space cells as raw boxes with no structural blueprint.",
+            "fields": [],
         },
     ),
 }
