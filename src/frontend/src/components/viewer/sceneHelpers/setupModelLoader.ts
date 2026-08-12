@@ -3,7 +3,16 @@ import {prepareLoadedModel} from "./prepareLoadedModel";
 import {useModelState} from "@/state/modelState";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useAnimationStore} from "@/state/animationStore";
-import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef, adaExtensionRef} from "@/state/refs";
+import {
+    animationControllerRef,
+    cameraRef,
+    controlsRef,
+    modelKeyMapRef,
+    sceneRef,
+    simulationDataRef,
+    adaExtensionRef,
+} from "@/state/refs";
+import {zoomToAll} from "./setupCameraControlsHandlers";
 import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 import {requestRender} from "@/state/perfStore";
 import {FilePurpose} from "@/flatbuffers/base/file-purpose";
@@ -40,6 +49,13 @@ export async function setupModelLoaderAsync(
     }
 
     const main_scene = sceneRef.current;
+
+    // Whether this is the first model going into an empty scene, decided before
+    // the load so the camera fit below can tell a primary load from an overlay.
+    // clear_loaded_model empties this map, so opening a new model fits, while
+    // overlaying a second file onto a scene the user has already framed does not
+    // yank their camera (overlay_file_in_scene comes through here too).
+    const isFirstModelInScene = (modelKeyMapRef.current?.size ?? 0) === 0;
 
     // 3) prepare & add the model to the scene
     const modelGroup = new THREE.Group();
@@ -155,6 +171,27 @@ export async function setupModelLoaderAsync(
     // Without this kick the freshly-added model only paints once the
     // user rotates / pans the camera.
     requestRender();
+
+    // Frame the model on open, so it lands fitted in the viewport instead of
+    // wherever the default camera happens to look (on a large topside that is
+    // often inside the geometry, or far enough out that the model is a speck).
+    // Deferred a frame: the canvas needs its final size for camera.aspect, and
+    // the meshes need to be in the scene graph for the bounding box. Same code
+    // path as the Shift+A "zoom to all" shortcut, so helper/hidden objects are
+    // excluded identically.
+    if (isFirstModelInScene) {
+        requestAnimationFrame(() => {
+            const camera = cameraRef.current;
+            const controls = controlsRef.current;
+            if (!camera || !controls) return;
+            try {
+                zoomToAll(main_scene, camera, controls, false);
+                requestRender();
+            } catch (err) {
+                console.warn("Initial zoom-to-fit failed:", err);
+            }
+        });
+    }
 
     // Ensure point sizes and sizing mode are applied after the model is in the scene,
     // so points are visible immediately without needing the Options panel.

@@ -32,6 +32,11 @@ export const CAPACITY_RESULTS_FORMAT = "dnv-rp-c201-capacity-results";
 // As one file the stiffened-panel summary hit 908 MB on the full DBSW OPE run,
 // past the V8 ~537 MB max string length, so TextDecoder.decode threw and the
 // worst table silently rendered empty (girders, at 20 MB, kept working).
+// v15: worst-summary rows intern their names. One table per run at
+// runs[].worst_summary.strings; shard rows carry indices (m/s/pg/c/cl/e) with
+// only u/p inline. Run-wide, not per shard, because the repetition is across
+// cases — a stiffener appears on one row per case but in all 84 DBSW shards.
+// The reader also gets one string object per name for the whole run.
 // Kept in lockstep with viewer_export.py.
 export interface CapacityValidationContext {
     manifest?: Pick<FeaManifest, "source_sha256"> | null;

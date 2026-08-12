@@ -31,7 +31,11 @@ import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useCapacityResultsStore, WORST_CASE_ID} from "@/state/capacityResultsStore";
-import type {CapacityResults, CapacityWorstShard} from "@/state/capacityResultsStore";
+import type {
+    CapacityResults,
+    CapacityWorstRow,
+    CapacityWorstShard,
+} from "@/state/capacityResultsStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {usePerfStore, requestRender} from "@/state/perfStore";
 import {applyFieldToMesh} from "../fea/applyField";
@@ -781,6 +785,35 @@ const inFlightWorstShards = new Set<string>();
  *  overlap them, so only the last one out clears the loading flag. */
 let activeWorstLoads = 0;
 
+/** Expand a v15 shard's index-encoded rows back into named rows.
+ *
+ *  ``table`` is the run's shared worst_summary.strings, so every row of every
+ *  case points at the same string object per name — the ~9k model/stiffener
+ *  names are allocated once for the run, not once per row across 84 shards. */
+function decodeWorstShard(
+    shard: CapacityWorstShard,
+    table: string[],
+): {
+    label?: string;
+    rows: CapacityWorstRow[];
+} {
+    const at = (i: number | null | undefined): string | null =>
+        i === null || i === undefined ? null : table[i] ?? null;
+    return {
+        label: shard.label,
+        rows: (shard.rows ?? []).map((r) => ({
+            m: at(r.m) ?? "",
+            s: at(r.s),
+            pg: at(r.pg) ?? "",
+            u: r.u,
+            p: r.p,
+            c: at(r.c),
+            cl: at(r.cl),
+            e: at(r.e),
+        })),
+    };
+}
+
 /** Lazy-load the per-case worst-over-cases summary shards into the capacity store.
  *
  *  v14 sharded this: as one file the stiffened-panel summary reached 908 MB on
@@ -800,6 +833,7 @@ export async function loadCapacityWorstSummary(caseIds?: string[]): Promise<void
     const run = results.runs.find((r) => r.id === store.activeRunId) ?? results.runs[0];
     const template = run?.worst_summary?.url_template;
     if (!run || !template) return;
+    const stringTable = run.worst_summary?.strings ?? [];
 
     const runId = run.id;
     const wanted = caseIds ?? store.worstCaseIds ?? run.result_cases.map((c) => c.id);
@@ -824,7 +858,7 @@ export async function loadCapacityWorstSummary(caseIds?: string[]): Promise<void
                         const shard = JSON.parse(
                             new TextDecoder("utf-8").decode(buf),
                         ) as CapacityWorstShard;
-                        return [caseId, {label: shard.label, rows: shard.rows ?? []}] as const;
+                        return [caseId, decodeWorstShard(shard, stringTable)] as const;
                     } catch (err) {
                         // eslint-disable-next-line no-console
                         console.warn(`[capacity] failed to load worst summary for case ${caseId}:`, err);

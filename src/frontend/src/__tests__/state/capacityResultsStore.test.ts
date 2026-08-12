@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   useCapacityResultsStore,
+  WORST_CASE_ID,
   type CapacityResults,
 } from "../../state/capacityResultsStore";
 import type { CapacityManifest } from "../../services/viewerApi";
@@ -60,7 +61,10 @@ describe("capacityResultsStore", () => {
     useCapacityResultsStore.getState().clear();
   });
 
-  it("uses manifest.default_run_id and the first case as active state", () => {
+  // A multi-case run opens on the worst over all its cases: one arbitrary case
+  // in isolation says nothing about which case governs. Applies to both run
+  // types — the girder run reaches the same defaultCaseId().
+  it("uses manifest.default_run_id and opens a multi-case run on Worst", () => {
     useCapacityResultsStore
       .getState()
       .setCapacityData(
@@ -70,12 +74,46 @@ describe("capacityResultsStore", () => {
       );
 
     const state = useCapacityResultsStore.getState();
-    assert.equal(state.activeRunId, "run-b");
-    assert.equal(state.activeCaseId, "7");
+    assert.equal(state.activeRunId, "run-b"); // two cases: 7 and 8
+    assert.equal(state.activeCaseId, WORST_CASE_ID);
+    assert.deepEqual(state.worstCaseIds, ["7", "8"]);
     assert.equal(state.activeMetricId, "capacity.uf.governing");
     assert.equal(state.selectedResultId, null);
     assert.equal(state.error, null);
     assert.equal(state.loading, false);
+  });
+
+  it("opens a single-case run on that case, not on Worst", () => {
+    useCapacityResultsStore
+      .getState()
+      .setCapacityData(
+        { ...MANIFEST, default_run_id: "run-a" },
+        { sourceName: "model.SIN", resultsUrl: "capacity.results.json" },
+        RESULTS,
+      );
+
+    const state = useCapacityResultsStore.getState();
+    assert.equal(state.activeRunId, "run-a"); // one case: 1
+    assert.equal(state.activeCaseId, "1");
+  });
+
+  it("switching to a multi-case run lands on Worst too", () => {
+    const store = () => useCapacityResultsStore.getState();
+    store().setCapacityData(
+      { ...MANIFEST, default_run_id: "run-a" },
+      { sourceName: "model.SIN", resultsUrl: "capacity.results.json" },
+      RESULTS,
+    );
+    assert.equal(store().activeCaseId, "1");
+
+    store().setActiveRunId("run-b");
+    assert.equal(store().activeCaseId, WORST_CASE_ID);
+
+    // Returning to a run restores what was open there rather than re-defaulting.
+    store().setActiveCaseId("8");
+    store().setActiveRunId("run-a");
+    store().setActiveRunId("run-b");
+    assert.equal(store().activeCaseId, "8");
   });
 
   it("clears selected model when run or case changes", () => {

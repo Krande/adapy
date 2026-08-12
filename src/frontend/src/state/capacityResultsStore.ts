@@ -144,6 +144,10 @@ export interface CapacityCaseDetailPointer {
   strategy: string;
   /** Filename template with a ``{case}`` placeholder, manifest-relative. */
   url_template: string;
+  /** v15, worst_summary only: the run's shared string table. Shard rows carry
+   *  indices into this instead of spelling the names out. It lives on the spine
+   *  rather than in each shard because the same names recur in every case. */
+  strings?: string[];
 }
 
 /** Synthetic "case" id for the worst-over-selected-cases view. */
@@ -189,7 +193,22 @@ export interface CapacityWorstShard {
   version?: number;
   case_id?: string;
   label?: string;
-  rows?: CapacityWorstRow[];
+  rows?: CapacityWorstRowEncoded[];
+}
+
+/** A shard row on the wire (v15). The name fields are indices into the run's
+ *  shared ``worst_summary.strings`` table — those names are long and recur in
+ *  every case's shard, so spelling them out per row dominated the file.
+ *  ``u``/``p`` are numbers and stay inline. */
+export interface CapacityWorstRowEncoded {
+  m: number;
+  s?: number | null;
+  pg?: number | null;
+  u: number | null;
+  p: boolean;
+  c?: number | null;
+  cl?: number | null;
+  e?: number | null;
 }
 
 /** Shards merged in the store, keyed by case id. Only the cases the user has
@@ -316,6 +335,16 @@ export interface CapacityResultsState {
 
 const DEFAULT_METRIC = "capacity.uf.governing";
 
+/** Which Case a run opens on. With more than one load case the useful default
+ *  is the worst over all of them — a single case in isolation says nothing
+ *  about which one governs — so both run types (stiffened panel and girder)
+ *  start there. A single-case run has no worst to take, so it opens on it. */
+function defaultCaseId(run: CapacityRun | null | undefined): string | null {
+  const cases = run?.result_cases ?? [];
+  if (cases.length > 1) return WORST_CASE_ID;
+  return cases[0]?.id ?? run?.case_results?.[0]?.case_id ?? null;
+}
+
 export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   manifest: null,
   source: null,
@@ -344,8 +373,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   setError: (error) => set({ error, loading: false }),
   setCapacityData: (manifest, source, results) => {
     const run = pickRun(results, manifest.default_run_id);
-    const caseId =
-      run?.result_cases?.[0]?.id ?? run?.case_results?.[0]?.case_id ?? null;
+    const caseId = defaultCaseId(run);
     set({
       manifest,
       source,
@@ -450,7 +478,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
         runUiMemory,
         selectedModelId: saved?.selectedModelId ?? null,
         selectedResultId: saved?.selectedResultId ?? null,
-        activeCaseId: saved?.activeCaseId ?? run?.result_cases?.[0]?.id ?? null,
+        activeCaseId: saved?.activeCaseId ?? defaultCaseId(run),
         // Metric ids are run-specific (panel vs girder checks); fall back to
         // the governing UF, which every run carries.
         activeMetricId: saved?.activeMetricId ?? DEFAULT_METRIC,

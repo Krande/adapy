@@ -117,7 +117,15 @@ const isExcludedFromFit = (obj: THREE.Object3D): boolean => {
     return false;
 };
 
-export const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, controls: OrbitControls | CameraControls) => {
+export const zoomToAll = (
+    scene: THREE.Scene,
+    camera: THREE.PerspectiveCamera,
+    controls: OrbitControls | CameraControls,
+    // Animate the move. The initial fit on load passes false: there is no
+    // meaningful pose to travel from, and a swoop out of the default camera
+    // reads as the model drifting rather than as the view framing it.
+    smooth: boolean = true,
+) => {
     // Compute bounding box only from imported/visible meshes, excluding helpers
     // like GridHelper, the section caps/stencil and the transform gizmo.
     const overallBox = new THREE.Box3();
@@ -163,7 +171,7 @@ export const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, c
         controls.setLookAt(
             newPosition.x, newPosition.y, newPosition.z,
             center.x, center.y, center.z,
-            true // enable smooth transition
+            smooth
         );
     }
 

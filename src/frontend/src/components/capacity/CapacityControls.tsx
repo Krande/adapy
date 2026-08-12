@@ -393,7 +393,7 @@ const CapacityControls: React.FC = () => {
         <div className="p-3 space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1">
-              <span className="text-gray-400">Run</span>
+              <span className="text-gray-400">Capacity check type</span>
               <select
                 className="bg-gray-800 border border-gray-600 rounded-sm px-2 py-1"
                 value={run.id}
