@@ -396,6 +396,12 @@ def _doc_model():
         # named design ruleset (routing/penetration rules) resolved by the
         # compiler via ada.topo_model.resolve_design_rules; unknown -> standard
         design_rules: Optional[str] = None
+        # selected fabrication-detail engine slug (adds connection joints after the
+        # structural build); None/"none" = structural-only. Persisted so a model
+        # (or a template) carries its detailing intent across open/commit; the
+        # compile still reads the effective value from the job's conversion_options
+        # (which the cellbuilder seeds from this on open).
+        detailing: Optional[str] = None
         # when true, catalog equipment with a linked CAD asset render as the
         # real CAD geometry (spliced in at compile) instead of a box
         equipment_cad: bool = False
@@ -446,6 +452,11 @@ def _validate_doc_shallow(doc: dict) -> dict:
         if not isinstance(design_rules, str):
             raise ValueError("design_rules must be a string")
         out["design_rules"] = design_rules
+    detailing = doc.get("detailing")
+    if detailing is not None:
+        if not isinstance(detailing, str):
+            raise ValueError("detailing must be a string")
+        out["detailing"] = detailing
     if not isinstance(out["grid"], dict):
         raise ValueError("grid must be an object")
     if not isinstance(out["blueprint"], dict):

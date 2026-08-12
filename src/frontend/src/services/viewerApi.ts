@@ -1074,6 +1074,10 @@ export interface ProceduralDoc {
   /** Named design ruleset slug (routing/penetration rules) resolved by the
    * compiler; unknown/absent falls back to "standard". */
   design_rules?: string;
+  /** Selected fabrication-detail engine slug (adds connection joints after the
+   * structural build); absent/"none" = structural-only. The cellbuilder seeds
+   * `selectedDetailing` from this on open and persists it back on commit. */
+  detailing?: string;
   /** When true, catalog equipment with a linked CAD asset render as real CAD
    * geometry (spliced at compile) instead of a box. */
   equipment_cad?: boolean;

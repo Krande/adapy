@@ -1531,10 +1531,11 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // Reflect the engine this model was built for in the dropdown (a
         // pm-engine example opens on pm-engine, not the adapy-default default).
         selectedEngine: doc.engine || "adapy-default",
-        // Detailing is a compile-time choice, NOT stored on the document — reset
-        // to "none" (structural-only) on every model open. Its per-joint options
-        // are reconciled from the advertised specs by fetchDetailingEngines below.
-        selectedDetailing: "none",
+        // Detailing selection now rides on the document (a template can default it
+        // to adapy-default); absent = "none" (structural-only). Its per-joint
+        // options are reconciled from the advertised specs by fetchDetailingEngines
+        // below.
+        selectedDetailing: doc.detailing ?? "none",
         detailingOptions: {},
         past: [],
         future: [],
@@ -2723,6 +2724,12 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // `blueprint` options); a legacy/absent selection defaults to steel_stru.
         blueprint_name: get().selectedBlueprint ?? "steel_stru",
         design_rules: get().designRules,
+        // Persist the fabrication-detail selection so the model (or a template)
+        // carries its detailing intent across open/commit ("none" stays absent to
+        // keep a structural-only doc byte-identical).
+        ...(get().selectedDetailing && get().selectedDetailing !== "none"
+          ? { detailing: get().selectedDetailing }
+          : {}),
         equipment_cad: get().equipmentCad,
         spaces,
         equipments,
@@ -2742,6 +2749,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         equipmentCad: Boolean(doc.equipment_cad),
         designRules: doc.design_rules ?? "standard",
         selectedBlueprint: doc.blueprint_name ?? "steel_stru",
+        selectedDetailing: doc.detailing ?? "none",
         past: [],
         future: [],
         txDepth: 0,

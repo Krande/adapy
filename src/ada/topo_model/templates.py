@@ -133,7 +133,11 @@ def _steel_structure_demo_doc() -> dict:
     )
     return {
         "grid": {},
-        "blueprint": {"enclosed_cells": ["Cell3"]},
+        # Box girders + built-in detailing are the demo's out-of-the-box look:
+        # the main load-carrying frame is a rectangular hollow section (girders),
+        # and the beam–column end-plate / base-plate joints are modelled.
+        "blueprint": {"enclosed_cells": ["Cell3"], "girder_sec": "BG400x300x12x16"},
+        "detailing": "adapy-default",
         "design_rules": "standard",
         "spaces": spaces,
         "equipments": equipments,
