@@ -584,6 +584,9 @@ interface CellBuilderState {
   detailingOptionsPayload: () => ReturnType<typeof toDetailingOptionsPayload>;
   /** Select the structural blueprint (doc.blueprint_name); marks the model dirty. */
   setSelectedBlueprint: (slug: string) => void;
+  /** Set one advertised blueprint parameter into doc.blueprint (e.g. a section
+   * profile like `girder_sec`); marks the model dirty so a recompile picks it up. */
+  setBlueprintOption: (name: string, value: unknown) => void;
   /** Fetch the blueprints the SELECTED engine offers and reconcile the current
    * selection (keep it if still offered, else the engine's default). */
   fetchBlueprints: () => Promise<void>;
@@ -1205,7 +1208,19 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     const fetchStats = (derivedKey: string) => {
       const active = get().active;
       if (!active || !derivedKey) return;
-      void useStatsStore.getState().fetchModelStats(currentScopePart(), active.modelId, derivedKey);
+      void useStatsStore
+        .getState()
+        .fetchModelStats(currentScopePart(), active.modelId, derivedKey)
+        .then(() => {
+          // The take-off carries the per-type joint counts (from the detailing
+          // stage). Surface them as the Detailing tab's "N detected" badges; a
+          // model with no joints clears the badges.
+          const joints = useStatsStore.getState().stats?.joints;
+          const counts = joints?.by_type?.length
+            ? Object.fromEntries(joints.by_type.map((t) => [t.slug, t.count]))
+            : null;
+          set({ detailingJointCounts: counts });
+        });
     };
     // Announce a ready server build to any follower tab (BroadcastChannel), so a
     // second window opened with ?pfollow=<modelId> can load and show it live.
@@ -2957,6 +2972,12 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           ? {}
           : { selectedBlueprint: slug, dirty: true },
       ),
+
+    setBlueprintOption: (name, value) =>
+      set((s) => ({
+        blueprintOptions: { ...s.blueprintOptions, [name]: value },
+        dirty: true,
+      })),
 
     fetchBlueprints: async () => {
       try {

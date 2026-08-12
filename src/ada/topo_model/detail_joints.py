@@ -208,6 +208,7 @@ class GirderJoint(JointBase):
         # xdir orients the fillet cross-section up (toward +Z); Weld -> PrimExtrude.
         from ada import Weld
 
+        weld_names = [f"{name}_weld_1"]
         conn.add_weld(
             Weld(
                 f"{name}_weld_1",
@@ -230,7 +231,19 @@ class GirderJoint(JointBase):
                     members=(g1, g2),
                 )
             )
+            weld_names.append(f"{name}_weld_2")
 
+        # Uniform connection record (matches detailing.py's plated joints) so the
+        # take-off / joints overview treats every joint type the same way.
+        conn.spec_name = "adapy.girder_gusset"
+        conn.metadata["connection_info"] = {
+            "name": conn.name,
+            "spec_name": "adapy.girder_gusset",
+            "member_roles": {"members": [g1.name, g2.name]},
+            "plate_names": [gusset.name],
+            "weld_names": weld_names,
+            "centre": [round(float(v), 4) for v in c],
+        }
         return conn
 
     @property

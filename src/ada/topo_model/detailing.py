@@ -236,10 +236,15 @@ def collect_base_plate_joints(assembly: "Part", options: dict) -> List["BasePlat
 # ── joint types ───────────────────────────────────────────────────────
 
 
-def _bolt_metadata(conn: Connection, spec_name: str, member_roles: dict, plate_names: list, weld_names: list) -> None:
+def _bolt_metadata(
+    conn: Connection, spec_name: str, member_roles: dict, plate_names: list, weld_names: list, centre=None
+) -> None:
     """Attach a ``ConnectionInfo``-style record (bolts modelled metadata-first in
     Phase 1) onto the connection's metadata so the inspector can surface the
-    bolt group / member roles without a first-class fastener primitive."""
+    bolt group / member roles without a first-class fastener primitive.
+
+    ``centre`` (the joint node) is recorded so the take-off / joints overview can
+    place each connection without re-deriving it from the tessellated geometry."""
     conn.spec_name = spec_name
     conn.metadata["connection_info"] = {
         "name": conn.name,
@@ -247,6 +252,7 @@ def _bolt_metadata(conn: Connection, spec_name: str, member_roles: dict, plate_n
         "member_roles": member_roles,
         "plate_names": plate_names,
         "weld_names": weld_names,
+        "centre": None if centre is None else [round(float(v), 4) for v in np.asarray(centre, dtype=float)],
     }
 
 
@@ -318,6 +324,7 @@ class EndPlateJoint(JointBase):
             member_roles={"incoming": [gir.name], "landing": [col.name]},
             plate_names=[endplate.name],
             weld_names=[weld.name],
+            centre=centre,
         )
         return conn
 
@@ -387,6 +394,7 @@ class BasePlateJoint(JointBase):
             member_roles={"landing": [col.name]},
             plate_names=[baseplate.name],
             weld_names=weld_names,
+            centre=centre,
         )
         return conn
 

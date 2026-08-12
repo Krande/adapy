@@ -11,9 +11,11 @@ import FacePickingToggle from "./FacePickingToggle";
 import FaceSearchSection from "./FaceSearchSection";
 import SectionPlanesPanel from "./SectionPlanesPanel";
 import FemConceptsPanel from "./FemConceptsPanel";
+import JointsOverviewPanel from "./JointsOverviewPanel";
 import MeshDistortionSection from "./MeshDistortionSection";
 import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
+import {useStatsStore} from "@/state/statsStore";
 import {useBottomSheet} from "@/utils/useBottomSheet";
 
 // The Scene panel groups everything that talks about the loaded scene (rather
@@ -35,7 +37,7 @@ const CHROME =
     "bg-[var(--ada-panel-bg)] border border-[var(--ada-panel-border)] " +
     "text-[var(--ada-panel-text)] shadow-lg";
 
-type SceneTab = "model" | "tools" | "clip" | "mesh" | "fem";
+type SceneTab = "model" | "tools" | "clip" | "mesh" | "fem" | "joints";
 
 const TAB_META: {id: SceneTab; label: string; ctx?: boolean}[] = [
     {id: "model", label: "Model"},
@@ -43,6 +45,7 @@ const TAB_META: {id: SceneTab; label: string; ctx?: boolean}[] = [
     {id: "clip", label: "Clip"},
     {id: "mesh", label: "Mesh"},
     {id: "fem", label: "FEM", ctx: true},
+    {id: "joints", label: "Joints", ctx: true},
 ];
 
 const MODE_TO_TAB: Record<SceneInfoMode, SceneTab> = {
@@ -52,6 +55,7 @@ const MODE_TO_TAB: Record<SceneInfoMode, SceneTab> = {
     section: "clip",
     mesh: "mesh",
     fem: "fem",
+    joints: "joints",
 };
 
 const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
@@ -60,6 +64,7 @@ const TAB_TO_MODE: Record<SceneTab, SceneInfoMode> = {
     clip: "section",
     mesh: "mesh",
     fem: "fem",
+    joints: "joints",
 };
 
 const SceneInfoBox = () => {
@@ -72,10 +77,15 @@ const SceneInfoBox = () => {
     const femHasConcepts = useFemConceptsStore(
         (s) => s.masses.length > 0 || s.bcs.length > 0 || s.scenarios.length > 0,
     );
+    // Joints is the other contextual tab: it appears only when the loaded model's
+    // take-off carries fabrication-detail joints (a model compiled with a
+    // detailing engine).
+    const hasJoints = useStatsStore((s) => (s.stats?.joints?.count ?? 0) > 0);
 
     const {panelRef, isMobile, sheetStyle, grab} = useBottomSheet(() => setShow(false));
 
-    const tabs = TAB_META.filter((t) => !t.ctx || femHasConcepts);
+    const ctxAvailable: Record<string, boolean> = {fem: femHasConcepts, joints: hasJoints};
+    const tabs = TAB_META.filter((t) => !t.ctx || ctxAvailable[t.id]);
     // Derive the active tab from the store mode, falling back to Model if the
     // stored mode points at a tab that isn't currently available (e.g. FEM after
     // the FE model was unloaded).
@@ -174,6 +184,8 @@ const SceneInfoBox = () => {
                     <SectionPlanesPanel />
                 ) : tab === "mesh" ? (
                     <MeshDistortionSection />
+                ) : tab === "joints" ? (
+                    <JointsOverviewPanel />
                 ) : (
                     <FemConceptsPanel />
                 )}

@@ -63,6 +63,29 @@ export interface MajorItem {
   cog: [number, number, number];
 }
 
+/** A fabrication-detail joint type roll-up (the Detailing tab's "N detected"). */
+export interface JointTypeRow {
+  slug: string;
+  name: string;
+  count: number;
+}
+/** One detailing joint instance (from the compiled model's Connection parts). */
+export interface JointItem {
+  name: string;
+  slug: string;
+  type: string;
+  members: string[];
+  plates: number;
+  welds: number;
+  centre: [number, number, number] | null;
+}
+/** Per-joint overview computed at compile (present only for detail models). */
+export interface JointsTakeoff {
+  count: number;
+  by_type: JointTypeRow[];
+  items: JointItem[];
+}
+
 export interface ModelStats {
   schema_version: number;
   source_name: string | null;
@@ -76,6 +99,9 @@ export interface ModelStats {
   piping: { mass: number; segments: PipeRow[]; fittings: FittingRow[] };
   hvac: { mass: number; segments: DuctRow[]; fittings: FittingRow[] };
   electrical: { mass: number; trays: TrayRow[]; cables: CableRow[] };
+  /** Fabrication-detail joints overview — present (schema_version ≥ 2) only when
+   * the model was compiled with a detailing engine; absent/empty otherwise. */
+  joints?: JointsTakeoff;
   major_items: MajorItem[];
 }
 

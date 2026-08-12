@@ -53,7 +53,66 @@ _SEG_CLASS_DISCIPLINE: dict[str, str] = {
 }
 
 _KG_PER_TONNE = 1000.0
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Fabrication-detail joint spec_name -> (slug, display name). The slug matches the
+# Detailing engine's advertised joint-type slug (see detailing_catalog.py) so the
+# viewer's per-type counts line up; ``adapy.<slug>`` is the connection spec_name.
+_JOINT_DISPLAY: dict[str, str] = {
+    "girder_gusset": "Girder gusset",
+    "beam_column_endplate": "Beam–column end plate",
+    "column_base_plate": "Column base plate",
+    "box_to_box": "Box-to-box",
+}
+
+
+def _joint_slug(spec_name: str | None) -> str:
+    """``"adapy.girder_gusset"`` -> ``"girder_gusset"`` (the detailing joint slug)."""
+    if not spec_name:
+        return "unknown"
+    return spec_name.split(".", 1)[1] if "." in spec_name else spec_name
+
+
+def _joints_takeoff(part: "Part") -> dict:
+    """Per-joint overview from the compiled model's fabrication-detail connections.
+
+    Walks every :class:`~ada.api.connections.joints.Connection` parked under the
+    detailing stage's ``Part("Joints")`` and reads its ``connection_info`` record
+    (name, spec_name, member roles, plate/weld names, centre). Returns a total
+    count, a per-type roll-up (``by_type`` — slug/name/count, the data behind the
+    Detailing tab's "N detected" badge) and a per-instance ``items`` table (the
+    Joints overview). Empty when the model carries no detailing joints.
+    """
+    from ada.api.connections.joints import Connection
+
+    items: list[dict] = []
+    by_type: dict[str, dict] = {}
+    for conn in part.get_all_parts_in_assembly(by_type=Connection):
+        info = (getattr(conn, "metadata", None) or {}).get("connection_info") or {}
+        spec_name = info.get("spec_name") or getattr(conn, "spec_name", None)
+        slug = _joint_slug(spec_name)
+        name = _JOINT_DISPLAY.get(slug, slug.replace("_", " ").title())
+        roles = info.get("member_roles") or {}
+        members = sorted({m for names in roles.values() for m in (names or [])})
+        plate_names = list(info.get("plate_names") or [])
+        weld_names = list(info.get("weld_names") or [])
+        row = by_type.setdefault(slug, {"slug": slug, "name": name, "count": 0})
+        row["count"] += 1
+        items.append(
+            {
+                "name": info.get("name") or conn.name,
+                "slug": slug,
+                "type": name,
+                "members": members,
+                "plates": len(plate_names),
+                "welds": len(weld_names),
+                "centre": info.get("centre"),
+            }
+        )
+
+    by_type_rows = sorted(by_type.values(), key=lambda r: r["count"], reverse=True)
+    items.sort(key=lambda r: (r["slug"], r["name"]))
+    return {"count": len(items), "by_type": by_type_rows, "items": items}
 
 
 def classify_discipline(obj) -> Discipline:
@@ -354,6 +413,8 @@ def model_takeoff(part: "Part", *, source_name: str | None = None) -> dict:
         {"name": name, "discipline": disc, "mass": round(mass, 4), "cog": cog} for name, disc, mass, cog in major[:12]
     ]
 
+    joints = _joints_takeoff(part)
+
     return {
         "schema_version": SCHEMA_VERSION,
         "source_name": source_name,
@@ -383,6 +444,7 @@ def model_takeoff(part: "Part", *, source_name: str | None = None) -> dict:
             "trays": tray_rows,
             "cables": [],
         },
+        "joints": joints,
         "major_items": major_items,
     }
 
@@ -464,6 +526,26 @@ _TAB_TABLES: dict[str, list[tuple[str, tuple[str, ...], list[tuple[str, str]]]]]
         ),
         ("Cables by type", ("electrical", "cables"), [("type", "Type"), ("length", "Length (m)")]),
     ],
+    "joints": [
+        (
+            "Joints by type",
+            ("joints", "by_type"),
+            [("name", "Type"), ("count", "Count")],
+        ),
+        (
+            "Joints",
+            ("joints", "items"),
+            [
+                ("name", "Name"),
+                ("type", "Type"),
+                ("plates", "Plates"),
+                ("welds", "Welds"),
+                ("centre.0", "X (m)"),
+                ("centre.1", "Y (m)"),
+                ("centre.2", "Z (m)"),
+            ],
+        ),
+    ],
 }
 
 _TAB_SHEET_NAMES: dict[str, str] = {
@@ -473,8 +555,9 @@ _TAB_SHEET_NAMES: dict[str, str] = {
     "piping": "Piping",
     "hvac": "HVAC",
     "electrical": "Electrical",
+    "joints": "Joints",
 }
-_EXPORT_TABS: tuple[str, ...] = ("overview", "cogs", "structural", "piping", "hvac", "electrical")
+_EXPORT_TABS: tuple[str, ...] = ("overview", "cogs", "structural", "piping", "hvac", "electrical", "joints")
 
 
 def _dig(row: dict, path: str):

@@ -31,7 +31,7 @@ def steel_takeoff() -> dict:
 
 def test_steel_headline_numbers(steel_takeoff):
     t = steel_takeoff
-    assert t["schema_version"] == 1
+    assert t["schema_version"] == 2
     assert t["source_name"] == "TopoModelDemo"
     assert t["units"] == {"length": "m", "mass": "tonne", "area": "m2"}
     # 72 physical objects: 68 beams (48 HP + 14 IPE + 6 HEB) + 4 deck plates.
@@ -39,6 +39,35 @@ def test_steel_headline_numbers(steel_takeoff):
     assert t["total_mass"] == pytest.approx(12.7763, abs=1e-3)
     assert t["total_cog"] == pytest.approx([5.0, 2.5185, 1.4722], abs=1e-3)
     assert t["bbox"] == pytest.approx([10.0, 5.0, 3.0], abs=1e-3)
+
+
+def test_structural_only_model_has_empty_joints(steel_takeoff):
+    # A model compiled without a detailing engine carries no connection joints.
+    j = steel_takeoff["joints"]
+    assert j == {"count": 0, "by_type": [], "items": []}
+
+
+def test_detailed_model_joints_takeoff():
+    # With the built-in detailing engine applied, the take-off surfaces the per-
+    # type roll-up (the Detailing tab's "N detected") and a per-instance table.
+    from ada.topo_model.detailing import detail
+
+    a = build_topo_model()
+    detail(a, {})
+    t = model_takeoff(a, source_name="Detailed")
+    j = t["joints"]
+    # 48 girder gussets + 36 beam-column end plates + 6 column base plates.
+    assert j["count"] == 90
+    by_slug = {r["slug"]: r["count"] for r in j["by_type"]}
+    assert by_slug == {"girder_gusset": 48, "beam_column_endplate": 36, "column_base_plate": 6}
+    # by_type is count-sorted (largest first) and each row carries a display name.
+    assert [r["slug"] for r in j["by_type"]][0] == "girder_gusset"
+    assert all(r.get("name") for r in j["by_type"])
+    # Every instance carries framed members, plate/weld counts and a node centre.
+    gusset = next(it for it in j["items"] if it["slug"] == "girder_gusset")
+    assert gusset["plates"] == 1 and gusset["welds"] >= 1
+    assert len(gusset["members"]) == 2
+    assert gusset["centre"] is not None and len(gusset["centre"]) == 3
 
 
 def test_steel_disciplines_are_structural_only(steel_takeoff):
@@ -128,7 +157,7 @@ def test_xlsx_export_is_valid_workbook(steel_takeoff):
     assert data[:2] == b"PK"  # a zip container
     assert len(data) > 0
     wb = load_workbook(io.BytesIO(data))
-    assert wb.sheetnames == ["Overview", "COGs", "Structural", "Piping", "HVAC", "Electrical"]
+    assert wb.sheetnames == ["Overview", "COGs", "Structural", "Piping", "HVAC", "Electrical", "Joints"]
     # The Structural sheet carries the beams-by-section rows.
     text = "\n".join(
         str(c.value) for row in wb["Structural"].iter_rows() for c in row if c.value is not None
