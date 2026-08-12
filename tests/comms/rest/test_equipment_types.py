@@ -192,12 +192,11 @@ def test_validate_doc_preserves_design_rules():
 
 
 def test_infer_equipment_geometry_axis_mapping():
-    """``_infer_equipment_geometry`` must return **Z-up** extents (``lz`` = the
-    vertical/height) for BOTH the ada-reader branch (STEP/IFC/… already Z-up)
-    and the mesh branch (GLB/STL/OBJ authored Y-up, re-oriented to Z-up). A box
-    with distinct extents (x=1, y=2, height=3) must yield lz≈3 either way, and
-    the returned preview GLB must itself be Z-up so it renders correctly in the
-    Z-up main viewer."""
+    """``_infer_equipment_geometry`` takes assets as authored **Z-up** (adapy's
+    convention — ada readers AND ada-exported GLBs are Z-up), so ``lz`` = the raw
+    Z extent = height, with NO re-orientation. A box with distinct extents
+    (x=1, y=2, height=3 on Z) yields lz≈3 for both the ada-reader and mesh
+    branches, and the GLB preview is returned verbatim."""
     import trimesh
 
     import ada
@@ -212,21 +211,15 @@ def test_infer_equipment_geometry_axis_mapping():
         bbox_step, _ = _infer_equipment_geometry(sp.read_bytes(), ".step")
     assert bbox_step["lx"] == pytest.approx(1.0, abs=1e-3)
     assert bbox_step["ly"] == pytest.approx(2.0, abs=1e-3)
-    assert bbox_step["lz"] == pytest.approx(3.0, abs=1e-3)  # height lands in lz
+    assert bbox_step["lz"] == pytest.approx(3.0, abs=1e-3)  # height on Z -> lz
 
-    # ── mesh branch: a genuine Y-up GLB (tall on Y = height 3) ──
-    # Footprint 1 (x) × 2 (z), height 3 on Y — the glTF up-axis. After the
-    # Y-up→Z-up re-orientation the height must move into lz (not ly).
-    yup = trimesh.creation.box(extents=[1.0, 3.0, 2.0]).export(file_type="glb")
-    bbox_glb, preview = _infer_equipment_geometry(yup, ".glb")
+    # ── mesh branch: a Z-up-authored GLB (height on Z = 3), taken verbatim ──
+    zup = trimesh.creation.box(extents=[1.0, 2.0, 3.0]).export(file_type="glb")
+    bbox_glb, preview = _infer_equipment_geometry(zup, ".glb")
     assert bbox_glb["lx"] == pytest.approx(1.0, abs=1e-3)
     assert bbox_glb["ly"] == pytest.approx(2.0, abs=1e-3)
-    assert bbox_glb["lz"] == pytest.approx(3.0, abs=1e-3)  # Y-up height -> lz
-
-    # Preview GLB is Z-up: reloading it puts the height back on Z.
-    scene = trimesh.load(trimesh.util.wrap_as_stream(preview), file_type="glb", force="scene")
-    ext = (scene.bounds[1] - scene.bounds[0]).tolist()
-    assert ext[2] == pytest.approx(3.0, abs=1e-3)  # height on Z in the preview
+    assert bbox_glb["lz"] == pytest.approx(3.0, abs=1e-3)  # raw Z extent, no rotation
+    assert preview == zup  # GLB preview returned verbatim (no re-orientation)
 
 
 # ── live-Postgres API path ───────────────────────────────────────────
