@@ -33,6 +33,7 @@ __all__ = [
     "rounded_point_key",
     "seat_deck_beam",
     "cut_crossing_secondary_beams",
+    "clash_cut_frame",
 ]
 
 _KEY_NDIGITS = 4
@@ -301,6 +302,60 @@ def cut_crossing_secondary_beams(host: ada.Part, opening_name: str, lo: np.ndarr
         else:
             logger.warning("procedural: skipping opening %r beam cut in %r: %s", opening_name, bm.name, exc)
     return count
+
+
+# --------------------------------------------------------------------------- #
+# DETAIL-mode clash resolution (sever interpenetrating frame members)
+# --------------------------------------------------------------------------- #
+_CLASH_CLEARANCE = 2e-3  # fabrication gap (m) left where a cut member meets its host
+_CLASH_EPS = 1e-4  # min per-axis AABB overlap to count as a clash (ignore touching faces)
+_CLASH_MIN_VOL = 1e-8  # min overlap volume (m^3) to bother cutting
+
+
+def _clash_priority(beam: ada.Beam) -> int:
+    """Frame-member precedence for clash resolution: a continuous member outranks
+    one that frames into it, so the LOWER-ranked member is the one cut back.
+    Columns (3) carry girders (2), which carry secondary stringers/stiffeners (1)."""
+    name = beam.name
+    if "Column" in name:
+        return 3
+    if "Girder" in name:
+        return 2
+    return 1
+
+
+def clash_cut_frame(beams: list[ada.Beam], clearance: float = _CLASH_CLEARANCE) -> int:
+    """DETAIL mode: sever interpenetrating frame members so no two beams clash.
+
+    For every pair of beams whose axis-aligned bounding boxes overlap, boolean-cut
+    the LOWER-priority member (see :func:`_clash_priority`; ties broken by order —
+    the later-built member yields) with the higher member's box grown by
+    ``clearance`` on every side, mirroring the box-joint clash cut. The victim
+    recedes to the host's face (plus the fabrication gap), so the two no longer
+    interpenetrate. OCC-free — every cut folds into the victim's tessellation at
+    encode time. Returns the number of cuts applied."""
+    aabbs = [tuple(np.asarray(c, dtype=float) for c in bm.bbox().minmax) for bm in beams]
+    cuts = 0
+    for i in range(len(beams)):
+        lo_i, hi_i = aabbs[i]
+        for j in range(i + 1, len(beams)):
+            lo_j, hi_j = aabbs[j]
+            lo = np.maximum(lo_i, lo_j)
+            hi = np.minimum(hi_i, hi_j)
+            d = hi - lo
+            if not (d > _CLASH_EPS).all() or float(np.prod(d)) <= _CLASH_MIN_VOL:
+                continue
+            pi, pj = _clash_priority(beams[i]), _clash_priority(beams[j])
+            # Cut the lower-priority member; on a tie the later-built (higher index)
+            # one yields to the earlier. `cutter` keeps its full volume.
+            victim, cutter = (i, j) if pi < pj else (j, i)
+            c_lo, c_hi = aabbs[cutter]
+            exc = cut_box(beams[victim], f"{beams[victim].name}_clash_{cutter:02d}", c_lo - clearance, c_hi + clearance)
+            if exc is None:
+                cuts += 1
+            else:
+                logger.warning("procedural: skipping clash cut on %r: %s", beams[victim].name, exc)
+    return cuts
 
 
 # --------------------------------------------------------------------------- #

@@ -35,6 +35,7 @@ from ._geometry import (
     cut_crossing_secondary_beams,
     dedupe_edges,
     face_center_key,
+    clash_cut_frame,
     frame_axes,
     girder_flange_width,
     plate_world_aabb,
@@ -261,6 +262,12 @@ class SteelStru(BlueprintBase):
         for r in rooms.values():
             self.output_part.add_part(r)
         self.output_part.add_part(frame)
+
+        # DETAIL mode: sever interpenetrating members (girders into columns,
+        # stringers into girders, girder–girder corners) so no two beams clash.
+        # A no-op in simulation mode, keeping that geometry byte-identical.
+        if self.detail:
+            clash_cut_frame(list(self.output_part.get_all_physical_objects(by_type=ada.Beam)))
         return self.output_part
 
     def cut_opening(self, host: ada.Part, opening: TopoOpening) -> ada.Part | None:

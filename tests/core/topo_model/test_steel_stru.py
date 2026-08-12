@@ -210,6 +210,62 @@ def test_detail_mode_trims_deck_to_girder_flanges():
     assert not any("_trim_" in b.name for b in det_pl.booleans)
 
 
+def test_detail_mode_resolves_all_beam_clashes():
+    # DETAIL mode severs every interpenetrating frame member (stringers into
+    # girders, girders into columns, girder–girder corners) with a boolean cut, so
+    # no two beams clash. Simulation mode leaves the members full (no clash cuts).
+    import numpy as np
+
+    from ada.topo_model.blueprint import SteelStru
+    from ada.topo_model.build import make_space_boxes
+    from ada.topology import TopologyBuilder
+
+    def build(detail):
+        # wide box girders make the overlaps large — the worst case to resolve
+        bp = SteelStru(detail=detail, girder_sec="BG400x300x12x16")
+        builder = TopologyBuilder.from_prim_boxes(make_space_boxes(), blueprint=bp)
+        builder.build()
+        return builder.get_output_assembly("m")
+
+    def aabb(bm):
+        (x1, y1, z1), (x2, y2, z2) = bm.bbox().minmax
+        return np.array([x1, y1, z1]), np.array([x2, y2, z2])
+
+    def clash_boxes(bm):
+        return [
+            (np.minimum(bl.primitive.p1, bl.primitive.p2), np.maximum(bl.primitive.p1, bl.primitive.p2))
+            for bl in bm.booleans
+            if "_clash_" in bl.primitive.name
+        ]
+
+    def covered(lo, hi, boxes):
+        return any(np.all(blo <= lo + 1e-9) and np.all(bhi >= hi - 1e-9) for blo, bhi in boxes)
+
+    # Simulation mode: members are left full — no clash cuts at all.
+    sim = build(False)
+    sim_beams = list(sim.get_all_physical_objects(by_type=ada.Beam))
+    assert not any("_clash_" in bl.primitive.name for b in sim_beams for bl in b.booleans)
+
+    # Detail mode: every overlapping beam pair has its overlap subtracted from one
+    # of the two members, so nothing clashes.
+    det = build(True)
+    beams = list(det.get_all_physical_objects(by_type=ada.Beam))
+    boxes = [aabb(b) for b in beams]
+    cuts = [clash_boxes(b) for b in beams]
+    assert sum(len(c) for c in cuts) > 0, "detail mode produced no clash cuts"
+
+    unresolved = 0
+    for i in range(len(beams)):
+        for j in range(i + 1, len(beams)):
+            lo = np.maximum(boxes[i][0], boxes[j][0])
+            hi = np.minimum(boxes[i][1], boxes[j][1])
+            d = hi - lo
+            if (d > 1e-4).all() and float(np.prod(d)) > 1e-8:
+                if not (covered(lo, hi, cuts[i]) or covered(lo, hi, cuts[j])):
+                    unresolved += 1
+    assert unresolved == 0, f"{unresolved} beam clashes left unresolved in detail mode"
+
+
 def test_door_opening_cuts_crossing_stiffeners():
     from ada.topo_model.blueprint import SteelStru
     from ada.topo_model.compile import _apply_openings
