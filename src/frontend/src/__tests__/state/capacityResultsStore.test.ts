@@ -140,4 +140,44 @@ describe("capacityResultsStore", () => {
       method: "SCM2",
     });
   });
+
+  // v14: the worst summary arrives as one shard per case rather than a single
+  // whole-run file, which on large models exceeded the max string length and
+  // made the decode throw (the worst table then rendered empty).
+  it("accumulates worst-summary shards case by case", () => {
+    const store = () => useCapacityResultsStore.getState();
+    store().setCapacityData(
+      MANIFEST,
+      { sourceName: "model.SIN", resultsUrl: "capacity.results.json" },
+      RESULTS,
+    );
+    assert.equal(store().worstSummary, null);
+
+    store().mergeWorstSummaryCases({
+      "7": { label: "Case 7", rows: [{ m: "model-1", pg: "panel", u: 0.5, p: true }] },
+    });
+    store().mergeWorstSummaryCases({
+      "8": { label: "Case 8", rows: [{ m: "model-1", pg: "panel", u: 0.9, p: false }] },
+    });
+
+    assert.deepEqual(Object.keys(store().worstSummary!.cases).sort(), ["7", "8"]);
+    assert.equal(store().worstSummary!.cases["8"].rows[0].u, 0.9);
+    // A re-fetched case replaces its own bucket without disturbing the others.
+    store().mergeWorstSummaryCases({
+      "7": { label: "Case 7", rows: [] },
+    });
+    assert.equal(store().worstSummary!.cases["7"].rows.length, 0);
+    assert.equal(store().worstSummary!.cases["8"].rows.length, 1);
+  });
+
+  it("drops accumulated worst-summary shards on clear", () => {
+    useCapacityResultsStore.getState().mergeWorstSummaryCases({
+      "7": { label: "Case 7", rows: [] },
+    });
+    useCapacityResultsStore.getState().setWorstSummaryError("partial load");
+    useCapacityResultsStore.getState().clear();
+
+    assert.equal(useCapacityResultsStore.getState().worstSummary, null);
+    assert.equal(useCapacityResultsStore.getState().worstSummaryError, null);
+  });
 });

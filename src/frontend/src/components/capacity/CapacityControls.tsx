@@ -63,6 +63,7 @@ const CapacityControls: React.FC = () => {
     worstCaseIds,
     worstSummary,
     worstSummaryLoading,
+    worstSummaryError,
     toggleWorstCase,
     setWorstCaseIds,
     setActiveRunId,
@@ -111,12 +112,13 @@ const CapacityControls: React.FC = () => {
 
   const isWorst = activeCaseId === WORST_CASE_ID;
 
-  // Load the compact worst summary when the worst view is first opened.
+  // Load the worst-summary shards for the ticked cases. v14 fetches one file per
+  // case, so this re-runs as the subset changes; the loader skips cases already
+  // loaded or in flight.
   useEffect(() => {
-    if (!isWorst || !run?.worst_summary_url) return;
-    if (worstSummary || worstSummaryLoading) return;
-    void loadCapacityWorstSummary();
-  }, [isWorst, run, worstSummary, worstSummaryLoading]);
+    if (!isWorst || !run?.worst_summary) return;
+    void loadCapacityWorstSummary(worstCaseIds);
+  }, [isWorst, run, worstCaseIds]);
 
   // Worst over the selected case subset: per (model, stiffener), the max UF and
   // the case it came from. Shaped like a normal row so the table reuses it.
@@ -540,6 +542,14 @@ const CapacityControls: React.FC = () => {
               {worstSummaryLoading && (
                 <div className="text-[11px] text-gray-500">
                   Loading worst summary…
+                </div>
+              )}
+              {worstSummaryError && (
+                <div
+                  className="text-[11px] text-amber-400"
+                  title={worstSummaryError}
+                >
+                  {worstSummaryError}
                 </div>
               )}
             </div>

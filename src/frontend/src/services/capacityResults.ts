@@ -26,6 +26,12 @@ export const CAPACITY_RESULTS_FORMAT = "dnv-rp-c201-capacity-results";
 // worst summaries; ERROR takes precedence over every numeric UF.
 // v13: provenance is indexed by row in one lazy file per case; detail rows carry
 // provenance_url + provenance_key instead of pointing at one file per row.
+// v14: the worst-over-cases summary is sharded per case
+// (capacity.summary/<case>.json) behind runs[].worst_summary, replacing the
+// single-file runs[].worst_summary_url; the redundant per-row "k" key is dropped.
+// As one file the stiffened-panel summary hit 908 MB on the full DBSW OPE run,
+// past the V8 ~537 MB max string length, so TextDecoder.decode threw and the
+// worst table silently rendered empty (girders, at 20 MB, kept working).
 // Kept in lockstep with viewer_export.py.
 export interface CapacityValidationContext {
     manifest?: Pick<FeaManifest, "source_sha256"> | null;

@@ -162,8 +162,6 @@ interface RunUiMemory {
 
 /** One compact row in the worst-over-cases summary (no heavy check detail). */
 export interface CapacityWorstRow {
-  /** Unique per (case, model, stiffener). */
-  k: string;
   /** capacity_model_id. */
   m: string;
   /** stiffener name. */
@@ -182,9 +180,21 @@ export interface CapacityWorstRow {
   e?: string | null;
 }
 
+/** One per-case worst-summary shard, as written to
+ *  ``capacity.summary/<case>.json``. v14 splits the former single whole-run
+ *  file into these: on large models it grew past the V8 max string length and
+ *  ``TextDecoder.decode`` threw, leaving the worst table silently empty. */
+export interface CapacityWorstShard {
+  format?: string;
+  version?: number;
+  case_id?: string;
+  label?: string;
+  rows?: CapacityWorstRow[];
+}
+
+/** Shards merged in the store, keyed by case id. Only the cases the user has
+ *  ticked for the worst view are ever fetched, so this is usually partial. */
 export interface CapacityWorstSummary {
-  format: string;
-  version: number;
   cases: Record<string, { label?: string; rows: CapacityWorstRow[] }>;
 }
 
@@ -223,8 +233,9 @@ export interface CapacityRun {
   field_case_steps?: string[];
   /** v6: pointer to the per-case detail files. */
   case_detail?: CapacityCaseDetailPointer;
-  /** v6: manifest-relative URL of the compact worst-over-cases summary. */
-  worst_summary_url?: string;
+  /** v14: pointer to the per-case worst-over-cases summary shards. Replaces the
+   *  v7-v13 ``worst_summary_url`` single-file pointer. */
+  worst_summary?: CapacityCaseDetailPointer;
 }
 
 export interface CapacityResults {
@@ -263,6 +274,9 @@ export interface CapacityResultsState {
   worstCaseIds: string[];
   worstSummary: CapacityWorstSummary | null;
   worstSummaryLoading: boolean;
+  /** Set when one or more shards failed to load, so the worst table can say the
+   *  numbers are incomplete instead of quietly showing a partial maximum. */
+  worstSummaryError: string | null;
   /** Selection state remembered per run id (restored on run switch). */
   runUiMemory: Record<string, RunUiMemory>;
   setLoading: (loading: boolean) => void;
@@ -277,7 +291,12 @@ export interface CapacityResultsState {
   setWorstCaseIds: (caseIds: string[]) => void;
   toggleWorstCase: (caseId: string) => void;
   setWorstSummary: (summary: CapacityWorstSummary | null) => void;
+  /** Merge freshly fetched per-case shards into the accumulated summary. */
+  mergeWorstSummaryCases: (
+    cases: Record<string, { label?: string; rows: CapacityWorstRow[] }>,
+  ) => void;
   setWorstSummaryLoading: (loading: boolean) => void;
+  setWorstSummaryError: (error: string | null) => void;
   clear: () => void;
   setActiveRunId: (runId: string | null) => void;
   setActiveCaseId: (caseId: string | null) => void;
@@ -319,6 +338,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   worstCaseIds: [],
   worstSummary: null,
   worstSummaryLoading: false,
+  worstSummaryError: null,
   runUiMemory: {},
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error, loading: false }),
@@ -344,6 +364,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       worstCaseIds: run?.result_cases?.map((c) => c.id) ?? [],
       worstSummary: null,
       worstSummaryLoading: false,
+      worstSummaryError: null,
       runUiMemory: {},
       loading: false,
       error: null,
@@ -369,7 +390,12 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       };
     }),
   setWorstSummary: (worstSummary) => set({ worstSummary, worstSummaryLoading: false }),
+  mergeWorstSummaryCases: (cases) =>
+    set((state) => ({
+      worstSummary: { cases: { ...state.worstSummary?.cases, ...cases } },
+    })),
   setWorstSummaryLoading: (worstSummaryLoading) => set({ worstSummaryLoading }),
+  setWorstSummaryError: (worstSummaryError) => set({ worstSummaryError }),
   clear: () =>
     set({
       manifest: null,
@@ -391,6 +417,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       worstCaseIds: [],
       worstSummary: null,
       worstSummaryLoading: false,
+      worstSummaryError: null,
       runUiMemory: {},
       loading: false,
       error: null,
@@ -431,6 +458,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
           saved?.worstCaseIds ?? run?.result_cases?.map((c) => c.id) ?? [],
         worstSummary: saved?.worstSummary ?? null,
         worstSummaryLoading: false,
+        worstSummaryError: null,
       };
     }),
   setActiveCaseId: (activeCaseId) =>

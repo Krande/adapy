@@ -31,7 +31,7 @@ import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useCapacityResultsStore, WORST_CASE_ID} from "@/state/capacityResultsStore";
-import type {CapacityResults, CapacityWorstSummary} from "@/state/capacityResultsStore";
+import type {CapacityResults, CapacityWorstShard} from "@/state/capacityResultsStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {usePerfStore, requestRender} from "@/state/perfStore";
 import {applyFieldToMesh} from "../fea/applyField";
@@ -768,27 +768,99 @@ async function fetchAfelWorstValues(
     return out;
 }
 
-/** Lazy-load the compact worst-over-cases summary into the capacity store. */
-export async function loadCapacityWorstSummary(): Promise<void> {
+/** How many worst-summary shards to have in flight at once. The full DBSW OPE
+ *  run ticks 84 cases; firing all of them at once buries the geometry and AFEL
+ *  requests sharing the same connection. */
+const WORST_SHARD_CONCURRENCY = 6;
+
+/** Shards already being fetched, keyed ``runId::caseId``, so overlapping calls
+ *  (the effect re-runs on every case toggle) never refetch the same file. */
+const inFlightWorstShards = new Set<string>();
+
+/** Number of loadCapacityWorstSummary calls still running. Rapid case toggles
+ *  overlap them, so only the last one out clears the loading flag. */
+let activeWorstLoads = 0;
+
+/** Lazy-load the per-case worst-over-cases summary shards into the capacity store.
+ *
+ *  v14 sharded this: as one file the stiffened-panel summary reached 908 MB on
+ *  the full DBSW OPE run, past the V8 ~537 MB max string length, so the decode
+ *  below threw RangeError and the worst table came up empty (the girder run's
+ *  20 MB file was unaffected — hence "works for girders, not panels"). Only the
+ *  ticked cases are fetched, and each shard is a few MB.
+ *
+ *  Idempotent: already-loaded and in-flight cases are skipped, so it is safe to
+ *  call on every change to the selected case subset. */
+export async function loadCapacityWorstSummary(caseIds?: string[]): Promise<void> {
     const ctx = active?.capacityFetch;
     if (!ctx) return;
     const store = useCapacityResultsStore.getState();
     const results = store.results;
     if (!results) return;
     const run = results.runs.find((r) => r.id === store.activeRunId) ?? results.runs[0];
-    const url = run?.worst_summary_url;
-    if (!url) return;
-    if (store.worstSummary || store.worstSummaryLoading) return;
+    const template = run?.worst_summary?.url_template;
+    if (!run || !template) return;
 
-    store.setWorstSummaryLoading(true);
+    const runId = run.id;
+    const wanted = caseIds ?? store.worstCaseIds ?? run.result_cases.map((c) => c.id);
+    const loaded = store.worstSummary?.cases ?? {};
+    const pending = wanted.filter(
+        (caseId) => !loaded[caseId] && !inFlightWorstShards.has(`${runId}::${caseId}`),
+    );
+    if (pending.length === 0) return;
+    for (const caseId of pending) inFlightWorstShards.add(`${runId}::${caseId}`);
+
+    activeWorstLoads += 1;
+    useCapacityResultsStore.getState().setWorstSummaryLoading(true);
+    const failed: string[] = [];
     try {
-        const buf = await ctx.fetcher(url);
-        const summary = JSON.parse(new TextDecoder("utf-8").decode(buf)) as CapacityWorstSummary;
-        useCapacityResultsStore.getState().setWorstSummary(summary);
-    } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn("[capacity] failed to load worst summary:", err);
-        useCapacityResultsStore.getState().setWorstSummary(null);
+        for (let i = 0; i < pending.length; i += WORST_SHARD_CONCURRENCY) {
+            const chunk = pending.slice(i, i + WORST_SHARD_CONCURRENCY);
+            const settled = await Promise.all(
+                chunk.map(async (caseId) => {
+                    try {
+                        const url = template.replace("{case}", encodeURIComponent(caseId));
+                        const buf = await ctx.fetcher(url);
+                        const shard = JSON.parse(
+                            new TextDecoder("utf-8").decode(buf),
+                        ) as CapacityWorstShard;
+                        return [caseId, {label: shard.label, rows: shard.rows ?? []}] as const;
+                    } catch (err) {
+                        // eslint-disable-next-line no-console
+                        console.warn(`[capacity] failed to load worst summary for case ${caseId}:`, err);
+                        failed.push(caseId);
+                        return null;
+                    }
+                }),
+            );
+            // The user may have switched run mid-flight; these shards are keyed by
+            // that run's case ids, so merging them into another run would be wrong.
+            if (useCapacityResultsStore.getState().activeRunId !== runId) return;
+            const merged = Object.fromEntries(
+                settled.filter((entry): entry is NonNullable<typeof entry> => entry !== null),
+            );
+            if (Object.keys(merged).length > 0) {
+                useCapacityResultsStore.getState().mergeWorstSummaryCases(merged);
+            }
+        }
+    } finally {
+        for (const caseId of pending) inFlightWorstShards.delete(`${runId}::${caseId}`);
+        activeWorstLoads -= 1;
+        const latest = useCapacityResultsStore.getState();
+        // Only clear the flag once nothing is still fetching, and never write
+        // state belonging to a run the user has since switched away from.
+        if (activeWorstLoads === 0 && latest.activeRunId === runId) {
+            latest.setWorstSummaryLoading(false);
+            // Report a partial load rather than silently showing an understated
+            // maximum — the previous single-file catch is exactly what hid issue #37.
+            latest.setWorstSummaryError(
+                failed.length > 0
+                    ? `Could not load ${String(failed.length)} of ${String(pending.length)} load case(s): ` +
+                      `${failed.slice(0, 3).join(", ")}${failed.length > 3 ? ", …" : ""}. ` +
+                      "The worst-case table below may understate the true maximum."
+                    : null,
+            );
+        }
     }
 }
 
