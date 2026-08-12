@@ -235,15 +235,18 @@ def procedural_xlsx_export_key(model_id: str, revision: int, engine: str | None 
     return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}{_engine_suffix(engine)}.xlsx"
 
 
-def procedural_model_export_key(model_id: str, revision: int, fmt: str) -> str:
+def procedural_model_export_key(model_id: str, revision: int, fmt: str, *, cad_equipment: bool = True) -> str:
     """Blob key for a model revision exported to a downloadable CAD/analysis file.
 
     ``fmt`` is ``"ifc"`` (the DETAIL model — beams/plates/joints with the clash
     cuts as IfcRelVoidsElement voids, equipment as IfcPump/IfcTank/…) or ``"gxml"``
     (the SIMULATION model as a Genie concept XML). Revision-stamped so a re-export
-    of an unchanged revision is served from cache. Only the built-in engine builds
-    an in-process adapy assembly, so these are adapy-default only."""
-    return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}.{fmt}"
+    of an unchanged revision is served from cache. ``cad_equipment`` (IFC only)
+    distinguishes the CAD-spliced variant from the placeholder-box one so the two
+    never collide in cache. Only the built-in engine builds an in-process adapy
+    assembly, so these are adapy-default only."""
+    variant = "" if (fmt != "ifc" or cad_equipment) else "_box"
+    return f"{PROCEDURAL_PREFIX}{model_id}/r{revision}{variant}.{fmt}"
 
 
 # Hidden staging prefix for an IMPORT upload: the workbook has no model yet, so

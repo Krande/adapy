@@ -2326,10 +2326,13 @@ export const viewerApi = {
     scope: ScopeUrl,
     modelId: string,
     format: "ifc" | "gxml",
-    opts?: { force?: boolean },
+    opts?: { force?: boolean; cad?: boolean },
   ): Promise<ProceduralCompileResponse> {
     const params = new URLSearchParams({ format });
     if (opts?.force) params.set("force", "true");
+    // IFC only: splice real catalog CAD geometry for equipment (default on server-
+    // side). Only send when explicitly off, to keep the default URL clean.
+    if (format === "ifc" && opts?.cad === false) params.set("cad", "false");
     const r = await authedFetch(
       `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/procedural-models/${encodeURIComponent(modelId)}/export-model?${params.toString()}`,
       { method: "POST" },

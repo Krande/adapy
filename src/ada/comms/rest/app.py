@@ -3788,6 +3788,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if fmt not in ("ifc", "gxml"):
             raise HTTPException(status_code=400, detail="format must be 'ifc' or 'gxml'")
         force = (request.query_params.get("force") or "").strip().lower() in ("1", "true", "yes")
+        # IFC only: splice real catalog CAD geometry for equipment (default on). A
+        # falsy value renders equipment as placeholder boxes; gxml ignores it (it
+        # always exports equipment as its Genie concept type).
+        cad_raw = (request.query_params.get("cad") or "").strip().lower()
+        cad_equipment = fmt == "ifc" and cad_raw not in ("0", "false", "no")
 
         pool = _require_procedural_pool(request)
         row = await _get_procedural_in_scope(pool, model_id, scope_obj)
@@ -3802,7 +3807,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lod = "detail" if fmt == "ifc" else "sim"
         detailing = (row.get("doc") or {}).get("detailing") if fmt == "ifc" else None
 
-        derived_key = procedural_model_export_key(row["id"], row["revision"], fmt)
+        derived_key = procedural_model_export_key(row["id"], row["revision"], fmt, cad_equipment=cad_equipment)
         if not force and await storage.exists(scope_obj, derived_key):
             return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
         if not queue.enabled:
@@ -3819,6 +3824,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "export_format": fmt,
                 "lod": lod,
                 "detailing": detailing,
+                "cad_equipment": cad_equipment,
             },
             derived_key=derived_key,
             force_rebuild=force,

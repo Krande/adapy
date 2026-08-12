@@ -1736,6 +1736,10 @@ async def _run_procedural_export_model(
     export_format = (opts.get("export_format") or "").lower()
     lod = "detail" if (opts.get("lod") or "sim") == "detail" else "sim"
     detailing = opts.get("detailing")
+    # IFC only: splice real catalog CAD geometry for equipment (default on). The
+    # Genie export keeps equipment as its concept type (prism_shape), so it never
+    # splices CAD — equipment there stays an ada.Equipment carrying mass/footprint.
+    cad_equipment = export_format == "ifc" and bool(opts.get("cad_equipment", True))
 
     async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
@@ -1762,17 +1766,55 @@ async def _run_procedural_export_model(
     doc = row["doc"]
     name = row["name"]
 
+    # Resolve placed catalog equipment (by slug) to its per-scope definition so the
+    # equipment is faithful — an ada.Equipment with the catalog's bbox/mass/ports/IFC
+    # class (IfcPump/IfcTank/…) and a Genie prism_shape — instead of an anonymous box.
+    catalog = await db_module.get_equipment_docs_by_scope(
+        db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
+    )
+    # IFC + CAD-on: prefetch the linked CAD assets for the placed slugs so the
+    # compiler can splice real geometry in place of the placeholder box body.
+    cad_bytes: dict[str, tuple[bytes, str, bool]] = {}
+    if cad_equipment:
+        used = {(e.get("DESCRIPTION") or "").strip() for e in (doc.get("equipments") or [])}
+        cad_keys = await db_module.get_equipment_cad_keys_by_scope(
+            db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
+        )
+        for slug, cad_key in cad_keys.items():
+            if slug and slug in used and cad_key:
+                try:
+                    data = await storage.get_bytes(scope, cad_key)
+                    z_up = bool((catalog.get(slug) or {}).get("cad_z_up", True))
+                    cad_bytes[slug] = (data, pathlib.PurePosixPath(cad_key).suffix.lower(), z_up)
+                except Exception:
+                    logger.warning("procedural export: CAD asset %s for %r unreadable; using box", cad_key, slug)
+
     def _do_export() -> bytes:
         import os
         import tempfile
 
         from ada.topo_model.compile import compile_procedural_doc_with_assembly
 
-        # Built-in engine only: it materialises an in-process ada.Assembly (beams,
-        # plates, joints, equipment) the IFC / Genie writers need. Catalog equipment
-        # without a resolver falls back to placeholder boxes.
+        # Splice CAD only when asked (IFC). ``equipment_cad`` on the doc drives the
+        # compiler's box-vs-CAD choice; force it to match this export's option so a
+        # download reflects the toggle rather than the model's stored preference.
+        export_doc = {**doc, "equipment_cad": bool(cad_equipment and cad_bytes)}
+        cad_meshes: dict[str, object] = {}
+        for slug, (data, ext, z_up) in cad_bytes.items():
+            try:
+                cad_meshes[slug] = _load_cad_mesh(data, ext, z_up=z_up)
+            except Exception:
+                logger.warning("procedural export: failed to load CAD mesh for %r; using box", slug)
+
+        # Built-in engine only: it materialises an in-process ada.Assembly the IFC /
+        # Genie writers need. The equipment resolver makes catalog equipment faithful.
         _glb, _stats, asm = compile_procedural_doc_with_assembly(
-            doc, name=name, lod=lod, detailing=detailing if export_format == "ifc" else None
+            export_doc,
+            name=name,
+            lod=lod,
+            detailing=detailing if export_format == "ifc" else None,
+            equipment_resolver=catalog.get,
+            cad_scene_resolver=cad_meshes.get if cad_meshes else None,
         )
         with tempfile.TemporaryDirectory() as d:
             if export_format == "ifc":
@@ -1780,6 +1822,15 @@ async def _run_procedural_export_model(
                 asm.to_ifc(p, file_obj_only=False)
             else:
                 p = os.path.join(d, "model.gxml")
+                # Equipment defaults to AS_IS (which the Genie writer skips); promote
+                # each to FOOTPRINT_MASS so it exports as a Genie equipment concept
+                # (prism_shape + placed load) rather than being dropped.
+                from ada.api.spatial.eq_types import EquipRepr
+                from ada.api.spatial.equipment import Equipment
+
+                for part in asm.get_all_parts_in_assembly(include_self=True):
+                    if isinstance(part, Equipment) and part.eq_repr == EquipRepr.AS_IS:
+                        part.eq_repr = EquipRepr.FOOTPRINT_MASS
                 # embed_sat=False keeps the export CAD-backend-independent (plates as
                 # polygons; Genie rebuilds the ACIS on import).
                 asm.to_genie_xml(p, embed_sat=False)

@@ -847,8 +847,13 @@ interface CellBuilderState {
   exportToExcel: () => Promise<void>;
   /** Export + download the committed model as a CAD/analysis file: "ifc" (the
    * DETAIL model, clash cuts as IfcRelVoidsElement voids) or "gxml" (the
-   * SIMULATION model as a Genie concept XML). Commits first when dirty. */
+   * SIMULATION model as a Genie concept XML). Commits first when dirty. IFC
+   * honours `exportIfcCad` (splice real catalog CAD equipment). */
   exportModel: (format: "ifc" | "gxml") => Promise<void>;
+  /** IFC export: splice real catalog CAD geometry for equipment (default on).
+   * Off = placeholder boxes. gxml ignores this (Genie equipment concept type). */
+  exportIfcCad: boolean;
+  setExportIfcCad: (v: boolean) => void;
   /** Begin importing a workbook: upload it, auto-detect the owning engine from its
    * `_ADA_META` sheet, and import immediately when detected — otherwise set
    * `importPrompt` so the user picks an engine. */
@@ -1495,6 +1500,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
     relocations: null,
     relocationBusy: false,
     xlsxBusy: false,
+    exportIfcCad: true,
     importPrompt: null,
     resyncBusy: false,
     resyncSummary: null,
@@ -3660,6 +3666,8 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
       }
     },
 
+    setExportIfcCad: (v) => set({ exportIfcCad: v }),
+
     exportModel: async (format) => {
       const active = get().active;
       if (!active || get().xlsxBusy) return;
@@ -3702,6 +3710,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
           scope,
           active.modelId,
           format,
+          format === "ifc" ? { cad: get().exportIfcCad } : undefined,
         );
         if (res.cached || !res.job_id) {
           await download(res.derived_key);

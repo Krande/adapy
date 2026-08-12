@@ -1743,6 +1743,18 @@ const CellBuilderPanel: React.FC = () => {
                 >
                   {s.xlsxBusy ? "Working…" : "Download IFC (detail)"}
                 </button>
+                <label
+                  className="flex items-center gap-1 text-gray-300 text-[11px] cursor-pointer"
+                  title="Splice real catalog CAD geometry for equipment in the IFC (off = placeholder boxes). Genie XML always uses the equipment concept type."
+                >
+                  <input
+                    type="checkbox"
+                    className="accent-blue-600"
+                    checked={s.exportIfcCad}
+                    onChange={(e) => s.setExportIfcCad(e.target.checked)}
+                  />
+                  CAD equip
+                </label>
                 <button
                   className={btnGray}
                   disabled={s.xlsxBusy || !s.active}
