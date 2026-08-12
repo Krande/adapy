@@ -568,6 +568,35 @@ const EquipmentAdminPanel: React.FC<{ embedded?: boolean }> = ({
                 Infer bbox + preview
               </button>
             </div>
+            {draft.cad_key && (
+              <label
+                className="flex items-center gap-1.5"
+                title="Uncheck if the CAD asset is authored glTF-spec Y-up; it will be re-oriented to adapy's Z-up frame before measuring and splicing."
+              >
+                <input
+                  type="checkbox"
+                  checked={draft.doc.cad_z_up !== false}
+                  disabled={
+                    equipmentBusy ||
+                    bboxJob?.status === "queued" ||
+                    bboxJob?.status === "running"
+                  }
+                  onChange={(e) => {
+                    // The Z-up assumption changes the measured extents + preview,
+                    // so persist it and re-run inference (the endpoint reads the
+                    // stored doc, hence save-before-infer).
+                    store
+                      .getState()
+                      .setEquipmentDoc({ cad_z_up: e.target.checked });
+                    void (async () => {
+                      await store.getState().saveEquipment();
+                      void store.getState().inferBbox();
+                    })();
+                  }}
+                />
+                <span>CAD source is Z-up</span>
+              </label>
+            )}
             <button
               className={btnGray + " self-start"}
               disabled={equipmentBusy}

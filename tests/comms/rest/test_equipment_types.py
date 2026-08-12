@@ -222,6 +222,29 @@ def test_infer_equipment_geometry_axis_mapping():
     assert preview == zup  # GLB preview returned verbatim (no re-orientation)
 
 
+def test_infer_equipment_geometry_y_up_reorients():
+    """With ``z_up=False`` a mesh asset is treated as glTF-spec Y-up and re-oriented
+    Y-up→Z-up (rotate +90° about X) before measuring: a box with extents
+    ``[1, 3, 2]`` (height on **Y**) yields lz≈3, whereas ``z_up=True`` (default,
+    verbatim) yields lz≈2. The Y-up preview is re-exported (not returned verbatim)."""
+    import trimesh
+
+    from ada.comms.rest.worker import _infer_equipment_geometry
+
+    yup = trimesh.creation.box(extents=[1.0, 3.0, 2.0]).export(file_type="glb")
+
+    # z_up=False: Y (height 3) rotates onto Z -> lz≈3
+    bbox_yup, preview_yup = _infer_equipment_geometry(yup, ".glb", z_up=False)
+    assert bbox_yup["lx"] == pytest.approx(1.0, abs=1e-3)
+    assert bbox_yup["ly"] == pytest.approx(2.0, abs=1e-3)  # original Z -> Y
+    assert bbox_yup["lz"] == pytest.approx(3.0, abs=1e-3)  # original Y -> Z (height)
+    assert preview_yup != yup  # re-oriented preview is re-exported, not verbatim
+
+    # z_up=True (default): verbatim, raw Z extent = 2
+    bbox_zup, _ = _infer_equipment_geometry(yup, ".glb", z_up=True)
+    assert bbox_zup["lz"] == pytest.approx(2.0, abs=1e-3)
+
+
 # ── live-Postgres API path ───────────────────────────────────────────
 
 
@@ -440,12 +463,14 @@ def test_resync_target_doc_preserves_cad_geometry():
         "ports": [{"name": "inlet", "position": [0, 0, 3.1]}],  # user-aligned to CAD
         "mass": 50.0,
         "ifc_element_class": "IfcTank",
+        "cad_z_up": False,  # user flagged the CAD as Y-up authored
     }
 
     out = resync_target_doc(archetype, stored, has_cad=True)
     assert out["bbox"] == stored["bbox"], "inferred bbox must survive resync"
     assert out["cog"] == stored["cog"]
     assert out["ports"] == stored["ports"], "aligned ports must survive resync"
+    assert out["cad_z_up"] is False, "the CAD Z-up assumption must survive resync"
     assert out["mass"] == archetype["mass"], "non-geometry code change flows through"
     assert out["ifc_element_class"] == archetype["ifc_element_class"]
 

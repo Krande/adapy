@@ -4100,13 +4100,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="equipment type has no linked CAD asset to infer from")
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="bbox inference disabled (no NATS configured)")
+        # The type's Z-up assumption (default True = verbatim) travels to the
+        # worker so inference measures/previews in the frame the user selected.
+        cad_z_up = bool((row.get("doc") or {}).get("cad_z_up", True))
         derived_key = equipment_preview_glb_key(type_id)
         job = await queue.enqueue(
             f"_synthetic/equipment/{type_id}/bbox",
             target_format="equipment_bbox",
             scope_kind=scope_obj.kind,
             scope_id=scope_obj.id,
-            conversion_options={"type_id": type_id, "cad_key": row["cad_key"]},
+            conversion_options={"type_id": type_id, "cad_key": row["cad_key"], "cad_z_up": cad_z_up},
             derived_key=derived_key,
         )
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})

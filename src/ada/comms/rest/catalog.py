@@ -350,6 +350,11 @@ def _equipment_doc_model():
         # compile time when omitted
         cog: Optional[Vec3] = None
         ifc_element_class: str = "IfcBuildingElementProxy"
+        # Whether the linked CAD asset is authored in adapy's Z-up convention.
+        # True (default) = take the asset verbatim (Z is height). False = the CAD
+        # is glTF-spec Y-up and gets re-oriented Y-up→Z-up before measuring and
+        # splicing. Only meaningful for mesh assets (.glb/.gltf/.stl/.obj).
+        cad_z_up: bool = True
         ports: List[CatalogPort] = Field(default_factory=list)
 
     return EquipmentTypeDoc
@@ -401,9 +406,10 @@ def resync_target_doc(archetype_doc: dict, stored_doc: dict, has_cad: bool) -> d
     and ``ports`` the user aligned to that CAD — must be PRESERVED across a resync
     (which runs on every model open); otherwise an inferred bbox reverts to the
     archetype default cube every open, and aligned ports snap back. For such a
-    type, keep those three fields from the stored doc and take only the
-    non-geometry code fields (mass, ifc_element_class) from the archetype. A type
-    with no CAD resyncs fully to the archetype."""
+    type, keep those fields from the stored doc and take only the non-geometry
+    code fields (mass, ifc_element_class) from the archetype. ``cad_z_up`` is a
+    CAD property (not in the code archetype) so it's preserved too. A type with
+    no CAD resyncs fully to the archetype."""
     if not has_cad:
         return archetype_doc
     return {
@@ -411,6 +417,7 @@ def resync_target_doc(archetype_doc: dict, stored_doc: dict, has_cad: bool) -> d
         "bbox": stored_doc.get("bbox", archetype_doc.get("bbox")),
         "cog": stored_doc.get("cog", archetype_doc.get("cog")),
         "ports": stored_doc.get("ports", archetype_doc.get("ports")),
+        "cad_z_up": stored_doc.get("cad_z_up", archetype_doc.get("cad_z_up", True)),
     }
 
 

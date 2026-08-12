@@ -1230,6 +1230,10 @@ export interface EquipmentTypeDoc {
   mass: number;
   cog?: [number, number, number] | null;
   ifc_element_class: string;
+  // Whether the linked CAD asset is authored in adapy's Z-up convention. True
+  // (default) = take it verbatim; false = a glTF-spec Y-up asset re-oriented to
+  // Z-up before measuring/splicing. Only meaningful for mesh CAD assets.
+  cad_z_up?: boolean;
   ports: CatalogPort[];
 }
 

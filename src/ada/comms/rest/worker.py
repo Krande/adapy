@@ -1232,8 +1232,11 @@ async def _run_procedural_build(
             )
         cad_meshes = {}
         for slug, (data, ext) in cad_bytes.items():
+            # Honor the type's Z-up assumption so the spliced geometry lands in
+            # the same frame the bbox was inferred in (default True = verbatim).
+            z_up = bool((catalog.get(slug) or {}).get("cad_z_up", True))
             try:
-                cad_meshes[slug] = _load_cad_mesh(data, ext)
+                cad_meshes[slug] = _load_cad_mesh(data, ext, z_up=z_up)
             except Exception:
                 logger.warning("procedural: failed to load CAD mesh for %r; using box", slug)
         # The user-selected structural blueprint rides on the document
@@ -1826,15 +1829,19 @@ async def _run_procedural_import_xlsx(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
-def _infer_equipment_geometry(data: bytes, ext: str) -> tuple[dict, bytes]:
+def _infer_equipment_geometry(data: bytes, ext: str, z_up: bool = True) -> tuple[dict, bytes]:
     """Read a CAD/mesh asset, returning its axis-aligned bounding-box extents
     ``{lx, ly, lz}`` (in metres) and a preview GLB for the sidecar viewer. Mesh
     formats load via trimesh; CAD formats via the matching ada reader.
 
-    Assets are taken as authored **Z-up** (adapy's convention; ada readers and
-    ada-exported GLBs are Z-up), so ``lz`` = the Z extent = height and the mesh is
-    NOT re-oriented — measuring/previewing it verbatim keeps lz == the CAD's real
-    vertical extent. (A genuinely Y-up upload would need re-orienting upstream.)"""
+    ``z_up=True`` (default) takes the asset as authored in adapy's **Z-up**
+    convention (ada readers and ada-exported GLBs are Z-up): ``lz`` = the Z extent
+    = height and the mesh is NOT re-oriented — measuring/previewing it verbatim
+    keeps lz == the CAD's real vertical extent. ``z_up=False`` treats a mesh asset
+    (.glb/.gltf/.stl/.obj) as glTF-spec **Y-up** and re-orients it Y-up→Z-up
+    (rotate +90° about X) before measuring and previewing, so the inferred bbox
+    and the preview GLB are both in adapy's Z-up frame. ``z_up`` is ignored for
+    ada-reader formats (already Z-up)."""
     import pathlib as _pl
     import tempfile as _tf
 
@@ -1843,11 +1850,19 @@ def _infer_equipment_geometry(data: bytes, ext: str) -> tuple[dict, bytes]:
         src = _pl.Path(tmp) / f"source{ext}"
         src.write_bytes(data)
         if ext in (".glb", ".gltf", ".stl", ".obj"):
+            import numpy as np
             import trimesh
 
             scene = trimesh.load(src, force="scene")
+            if not z_up:
+                # Re-orient a Y-up authored mesh into adapy's Z-up frame; both the
+                # measured bounds and the exported preview then match Z-up.
+                scene.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0]))
             bounds = scene.bounds
-            preview = data if ext in (".glb", ".gltf") else scene.export(file_type="glb")
+            if z_up and ext in (".glb", ".gltf"):
+                preview = data
+            else:
+                preview = scene.export(file_type="glb")
         else:
             import ada
 
@@ -1874,13 +1889,20 @@ def _infer_equipment_geometry(data: bytes, ext: str) -> tuple[dict, bytes]:
     return bbox, preview
 
 
-def _load_cad_mesh(data: bytes, ext: str):
+def _load_cad_mesh(data: bytes, ext: str, z_up: bool = True):
     """Load a CAD/mesh asset into a single concatenated trimesh (graph
     transforms baked). Used to splice real equipment geometry into a compiled
-    procedural model."""
+    procedural model.
+
+    ``z_up=True`` (default) takes the asset verbatim (adapy Z-up convention).
+    ``z_up=False`` re-orients a mesh asset (.glb/.gltf/.stl/.obj) from glTF-spec
+    Y-up into Z-up (rotate +90° about X) before baking, so the spliced geometry
+    lands in the same frame as the inferred bbox. Ignored for ada-reader formats
+    (already Z-up)."""
     import pathlib as _pl
     import tempfile as _tf
 
+    import numpy as np
     import trimesh
 
     ext = ext.lower()
@@ -1889,6 +1911,8 @@ def _load_cad_mesh(data: bytes, ext: str):
         src.write_bytes(data)
         if ext in (".glb", ".gltf", ".stl", ".obj"):
             scene = trimesh.load(src, force="scene")
+            if not z_up:
+                scene.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0]))
         else:
             import ada
 
@@ -1923,6 +1947,9 @@ async def _run_equipment_bbox(
     opts = job.conversion_options or {}
     type_id = opts.get("type_id")
     cad_key = opts.get("cad_key")
+    # Whether the CAD asset is authored Z-up (adapy convention). Default True =
+    # verbatim; False re-orients a Y-up mesh into Z-up before measuring.
+    cad_z_up = bool(opts.get("cad_z_up", True))
 
     async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
@@ -1947,7 +1974,9 @@ async def _run_equipment_bbox(
     loop = asyncio.get_running_loop()
     try:
         await queue.update(job_id, stage="build", progress=0.40)
-        bbox, preview = await loop.run_in_executor(None, lambda: _infer_equipment_geometry(data, ext))
+        bbox, preview = await loop.run_in_executor(
+            None, lambda: _infer_equipment_geometry(data, ext, z_up=cad_z_up)
+        )
     except Exception as exc:
         logger.exception("worker: equipment_bbox failed for %s", type_id)
         await _fail("build", str(exc), tb_module.format_exc())
