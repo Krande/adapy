@@ -52,6 +52,25 @@ _INTERIOR_EPS = 1e-2
 _CROSS_TOL = 0.1  # out-of-plane tolerance for two girder axes to count as crossing
 
 
+def is_frame_member(beam) -> bool:
+    """True for a PRIMARY frame member (girder / column) eligible for gusset,
+    end-plate and base-plate detailing.
+
+    Excludes SECONDARY members — HP bulb-flat stringers/stiffeners and other
+    ANGULAR sections — which are direction-classified as ``"Girder"`` (they run
+    horizontal) but must never receive connection plates or welds. Keyed on the
+    section (an ``HP…`` name or an ``ANGULAR`` type), so it holds regardless of the
+    member's grid role."""
+    from ada.sections.categories import BaseTypes
+
+    sec = getattr(beam, "section", None)
+    if sec is None:
+        return True
+    if (getattr(sec, "name", "") or "").upper().startswith("HP"):
+        return False
+    return getattr(sec, "type", None) != BaseTypes.ANGULAR
+
+
 def eval_joint_req(joint: type[JointBase], intersecting_members: List["Beam"]) -> bool:
     """True when ``intersecting_members`` satisfy ``joint``'s member-type /
     count requirements (mirrors ``ada.param_models.basic_joints.eval_joint_req``)."""
@@ -89,7 +108,9 @@ def _find_interior_crossings(
     from ada.core.clash_check import beam_cross_check
 
     girders = [
-        b for b in assembly.get_all_physical_objects(by_type=Beam) if getattr(b, "member_type", None) == "Girder"
+        b
+        for b in assembly.get_all_physical_objects(by_type=Beam)
+        if getattr(b, "member_type", None) == "Girder" and is_frame_member(b)
     ]
     out: List["GirderJoint"] = []
     for i in range(len(girders)):
@@ -142,6 +163,11 @@ def detail_joint_map(
     member types / count do not match returns ``None`` (skipped by
     ``Connections.find``). ``weld_leg`` / ``gusset_t`` (metres) size the emitted
     gusset when supplied."""
+    # Secondary members (HP stringers/stiffeners) never get a connection joint,
+    # even where they meet a primary girder — skip any intersection involving one.
+    if not all(is_frame_member(m) for m in intersecting_members):
+        return None
+
     joints: list[type[JointBase]] = [GirderJoint]
 
     for joint in joints:

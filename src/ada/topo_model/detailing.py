@@ -156,9 +156,13 @@ def collect_endplate_joints(assembly: "Part", options: dict) -> List["EndPlateJo
     the column param ``t`` inside ``[0, 1]`` = the point is on the column)."""
     from ada.core.clash_check import beam_cross_check
 
+    from .detail_joints import is_frame_member
+
     weld_leg = _mm(options, "weld_leg", DEFAULT_WELD_LEG * 1e3)
     plate_t = _mm(options, "plate_t", DEFAULT_END_PLATE_T * 1e3)
-    girders = _beams_of_type(assembly, "Girder")
+    # Secondary members (HP stringers) are direction-classified as "Girder" but must
+    # never get an end plate — restrict to primary frame girders.
+    girders = [g for g in _beams_of_type(assembly, "Girder") if is_frame_member(g)]
     columns = _beams_of_type(assembly, "Column")
     out: List["EndPlateJoint"] = []
     for gi, g in enumerate(girders):

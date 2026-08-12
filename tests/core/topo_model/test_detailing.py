@@ -33,7 +33,11 @@ def demo() -> ada.Assembly:
 
 
 def test_starter_joint_counts_pinned(demo):
-    assert len(collect_girder_joints(demo)) == 48
+    # HP bulb-flat stringers are excluded from connection detailing (they are
+    # direction-classified as "Girder" but are secondary members) — so the demo's
+    # only girder–girder crossings (all with a column present) form no 2-member
+    # gusset, and every stringer end is left plain.
+    assert len(collect_girder_joints(demo)) == 0
     assert len(collect_endplate_joints(demo, {})) == 36
     assert len(collect_base_plate_joints(demo, {})) == 6
 
@@ -48,16 +52,17 @@ def test_detail_adds_joints_part_with_pinned_geometry(demo):
     joints = demo.get_by_name("Joints")
     assert joints is not None, "detailing produced no Joints part"
 
-    # One Connection part per detected joint (48 girder + 36 endplate + 6 base).
+    # One Connection part per detected joint (0 girder gusset + 36 endplate + 6
+    # base — HP stringers excluded, so no stringer gussets).
     connections = list(joints.parts.values())
-    assert len(connections) == 90
+    assert len(connections) == 42
 
     plates = list(joints.get_all_physical_objects(by_type=ada.Plate))
     welds = list(joints.get_all_welds())
-    # Each joint contributes exactly one plate; welds = 96 girder (2 each) + 36
-    # endplate (1 each) + 24 base (4 each).
-    assert len(plates) == 90
-    assert len(welds) == 156
+    # Each joint contributes exactly one plate; welds = 36 endplate (1 each) + 24
+    # base (4 each).
+    assert len(plates) == 42
+    assert len(welds) == 60
 
 
 def test_each_connection_carries_expected_plate_and_weld_names(demo):
@@ -67,13 +72,38 @@ def test_each_connection_carries_expected_plate_and_weld_names(demo):
     plate_names = {p.name for p in joints.get_all_physical_objects(by_type=ada.Plate)}
     weld_names = {w.name for w in joints.get_all_welds()}
 
-    # The three joint families each name their plate distinctively.
-    assert any(n.endswith("_gusset") for n in plate_names)
+    # Girder gussets require a bare girder–girder crossing; the demo has none
+    # (every girder node also carries a column, and stringers are excluded), so
+    # only end plates + base plates are emitted here.
+    assert not any(n.endswith("_gusset") for n in plate_names)
     assert any(n.endswith("_endplate") for n in plate_names)
     assert any(n.endswith("_baseplate") for n in plate_names)
-    # And each family emits welds.
+    # And each emitted family welds.
     assert any("EP_" in n and n.endswith("_weld") for n in weld_names)
     assert any("BP_" in n and "_weld_" in n for n in weld_names)
+
+
+def test_hp_stringers_never_get_connection_joints(demo):
+    # The user requirement: no end plate / weld on any HP profile. HP bulb-flat
+    # stringers are secondary members — is_frame_member rejects them, so no
+    # connection references a stringer, at any joint family.
+    from ada.topo_model.detail_joints import is_frame_member
+
+    stringers = [
+        b
+        for b in demo.get_all_physical_objects(by_type=ada.Beam)
+        if b.section.name.upper().startswith("HP")
+    ]
+    assert stringers, "demo should have HP stringers to exercise the exclusion"
+    assert all(not is_frame_member(b) for b in stringers)
+
+    detail(demo, {})
+    joints = demo.get_by_name("Joints")
+    stringer_names = {b.name for b in stringers}
+    for conn in joints.parts.values():
+        roles = conn.metadata.get("connection_info", {}).get("member_roles", {})
+        members = {m for names in roles.values() for m in (names or [])}
+        assert members.isdisjoint(stringer_names), f"{conn.name} details a stringer"
 
 
 def test_bolt_group_is_metadata_first(demo):

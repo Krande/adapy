@@ -56,18 +56,19 @@ def test_detailed_model_joints_takeoff():
     detail(a, {})
     t = model_takeoff(a, source_name="Detailed")
     j = t["joints"]
-    # 48 girder gussets + 36 beam-column end plates + 6 column base plates.
-    assert j["count"] == 90
+    # 36 beam-column end plates + 6 column base plates (HP stringers excluded, so
+    # no stringer gussets — see test_detailing).
+    assert j["count"] == 42
     by_slug = {r["slug"]: r["count"] for r in j["by_type"]}
-    assert by_slug == {"girder_gusset": 48, "beam_column_endplate": 36, "column_base_plate": 6}
+    assert by_slug == {"beam_column_endplate": 36, "column_base_plate": 6}
     # by_type is count-sorted (largest first) and each row carries a display name.
-    assert [r["slug"] for r in j["by_type"]][0] == "girder_gusset"
+    assert [r["slug"] for r in j["by_type"]][0] == "beam_column_endplate"
     assert all(r.get("name") for r in j["by_type"])
     # Every instance carries framed members, plate/weld counts and a node centre.
-    gusset = next(it for it in j["items"] if it["slug"] == "girder_gusset")
-    assert gusset["plates"] == 1 and gusset["welds"] >= 1
-    assert len(gusset["members"]) == 2
-    assert gusset["centre"] is not None and len(gusset["centre"]) == 3
+    ep = next(it for it in j["items"] if it["slug"] == "beam_column_endplate")
+    assert ep["plates"] == 1 and ep["welds"] >= 1
+    assert len(ep["members"]) == 2
+    assert ep["centre"] is not None and len(ep["centre"]) == 3
 
 
 def test_steel_disciplines_are_structural_only(steel_takeoff):
