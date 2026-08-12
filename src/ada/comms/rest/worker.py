@@ -2489,7 +2489,16 @@ async def _process_one(
     # ``duration_ms`` numbers would lie about actual conversion
     # cost. Regular convert jobs leave this False so the
     # redelivery safety-net still works.
-    if not getattr(job, "force_rebuild", False) and await storage.exists(scope, job.derived_key):
+    # equipment_bbox is EXEMPT: its real output is the inferred bbox merged into
+    # the equipment doc (a DB side-effect), NOT the derived preview.glb blob. The
+    # preview key isn't revision-stamped, so a cached preview would short-circuit
+    # every re-infer and the bbox would never be (re)applied — leaving it stuck at
+    # the archetype default. Always run the handler for it.
+    if (
+        not getattr(job, "force_rebuild", False)
+        and job.target_format != "equipment_bbox"
+        and await storage.exists(scope, job.derived_key)
+    ):
         await queue.update(
             job_id,
             status=JOB_STATUS_DONE,

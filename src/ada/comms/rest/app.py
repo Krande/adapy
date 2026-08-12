@@ -3047,7 +3047,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         height — flow into the catalog docs that placed equipment resolve against,
         so a recompile picks them up. Idempotent: a slug whose catalog doc already
         equals the code doc is left untouched. Returns per-slug outcomes."""
-        from .catalog import summarize_equipment_doc_changes, validate_equipment_doc
+        from .catalog import resync_target_doc, summarize_equipment_doc_changes, validate_equipment_doc
 
         pool = _require_catalog_pool(request)
         specs = await _live_worker_specs("procedural_equipment_specs")
@@ -3078,11 +3078,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cur = existing.get(slug)
             if cur is not None:
                 full = await db_module.get_equipment_type(pool, cur["id"])
-                if full is not None and full.get("doc") == doc and full.get("name") == name:
+                stored_doc = (full or {}).get("doc") or {}
+                # A CAD-backed type's inferred geometry + aligned ports must survive
+                # the resync (which runs on every model open); see resync_target_doc.
+                target_doc = resync_target_doc(doc, stored_doc, bool(cur.get("cad_key")))
+                if full is not None and stored_doc == target_doc and full.get("name") == name:
                     unchanged.append(slug)
                     continue
                 changes[slug] = summarize_equipment_doc_changes(
-                    (full or {}).get("doc") or {}, (full or {}).get("name") or slug, doc, name
+                    stored_doc, (full or {}).get("name") or slug, target_doc, name
                 )
                 await db_module.update_equipment_type(
                     pool,
@@ -3090,7 +3094,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     slug=slug,
                     name=name,
                     description=(full or {}).get("description") or "Synced from built-in archetype",
-                    doc=doc,
+                    doc=target_doc,
                     base_revision=cur["revision"],
                 )
                 updated.append(slug)

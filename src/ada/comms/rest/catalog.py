@@ -394,6 +394,26 @@ def validate_equipment_doc(doc: dict) -> dict:
     return model.model_dump(mode="json")
 
 
+def resync_target_doc(archetype_doc: dict, stored_doc: dict, has_cad: bool) -> dict:
+    """The doc to write when resyncing an equipment type to its code archetype.
+
+    A CAD-backed type's geometry — ``bbox``/``cog`` inferred from its CAD asset,
+    and ``ports`` the user aligned to that CAD — must be PRESERVED across a resync
+    (which runs on every model open); otherwise an inferred bbox reverts to the
+    archetype default cube every open, and aligned ports snap back. For such a
+    type, keep those three fields from the stored doc and take only the
+    non-geometry code fields (mass, ifc_element_class) from the archetype. A type
+    with no CAD resyncs fully to the archetype."""
+    if not has_cad:
+        return archetype_doc
+    return {
+        **archetype_doc,
+        "bbox": stored_doc.get("bbox", archetype_doc.get("bbox")),
+        "cog": stored_doc.get("cog", archetype_doc.get("cog")),
+        "ports": stored_doc.get("ports", archetype_doc.get("ports")),
+    }
+
+
 def summarize_equipment_doc_changes(old_doc: dict, old_name: str, new_doc: dict, new_name: str) -> list[str]:
     """Human-readable list of what changed between an equipment catalog entry and
     the code archetype it's being resynced to — so the resync summary can tell the

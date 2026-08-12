@@ -426,3 +426,35 @@ async def test_db_helpers_direct():
         await dbm.archive_equipment_type(pool, row2["id"])
     finally:
         await pool.close()
+
+
+def test_resync_target_doc_preserves_cad_geometry():
+    """Regression: the archetype resync (runs on every model open) must NOT clobber
+    a CAD-backed type's inferred bbox/cog + user-aligned ports back to the code
+    defaults — only flow non-geometry code fields (mass, ifc class) through."""
+    from ada.comms.rest.catalog import resync_target_doc
+
+    archetype = {
+        "bbox": {"lx": 2.0, "ly": 2.0, "lz": 2.0},
+        "cog": [0.0, 0.0, 0.0],
+        "ports": [{"name": "inlet", "position": [0, 0, 2]}],
+        "mass": 100.0,
+        "ifc_element_class": "IfcTank",
+    }
+    stored = {
+        "bbox": {"lx": 1.357, "ly": 2.115, "lz": 3.175},  # inferred from CAD, not a cube
+        "cog": [0.1, 0.0, 1.5],
+        "ports": [{"name": "inlet", "position": [0, 0, 3.1]}],  # user-aligned to CAD
+        "mass": 50.0,
+        "ifc_element_class": "IfcTank",
+    }
+
+    out = resync_target_doc(archetype, stored, has_cad=True)
+    assert out["bbox"] == stored["bbox"], "inferred bbox must survive resync"
+    assert out["cog"] == stored["cog"]
+    assert out["ports"] == stored["ports"], "aligned ports must survive resync"
+    assert out["mass"] == archetype["mass"], "non-geometry code change flows through"
+    assert out["ifc_element_class"] == archetype["ifc_element_class"]
+
+    # No CAD asset → full resync to the archetype.
+    assert resync_target_doc(archetype, stored, has_cad=False) == archetype
