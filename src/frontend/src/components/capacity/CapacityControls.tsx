@@ -21,6 +21,7 @@ import {
   type CapacityVisualFieldLike,
 } from "@/components/capacity/capacityFormat";
 import {
+  readyCaseIds,
   useCapacityResultsStore,
   WORST_CASE_ID,
   type CapacityCalcProgress,
@@ -190,6 +191,13 @@ const CapacityControls: React.FC = () => {
   useEffect(() => {
     selectedRowRef.current?.scrollIntoView({ block: "nearest" });
   }, [selectedResultId, selectedModelId]);
+
+  // Which cases the calculation has published, or null when nothing is
+  // streaming and every case is available.
+  const readyCases = useMemo(
+    () => readyCaseIds(calcProgress, activeRunId),
+    [calcProgress, activeRunId],
+  );
 
   const worstSelection = useMemo(
     () =>
@@ -477,11 +485,18 @@ const CapacityControls: React.FC = () => {
                 <option value={WORST_CASE_ID}>
                   Worst (over selected cases)
                 </option>
-                {run.result_cases.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label ?? c.id}
-                  </option>
-                ))}
+                {run.result_cases.map((c) => {
+                  // While streaming, a case the run has not published yet has
+                  // no results behind it — say so rather than letting it look
+                  // like a case with nothing wrong in it.
+                  const pending = readyCases !== null && !readyCases.has(c.id);
+                  return (
+                    <option key={c.id} value={c.id} disabled={pending}>
+                      {c.label ?? c.id}
+                      {pending ? "  — in progress" : ""}
+                    </option>
+                  );
+                })}
               </select>
             </label>
           </div>
@@ -595,7 +610,23 @@ const CapacityControls: React.FC = () => {
                       checked={worstCaseIds.includes(c.id)}
                       onChange={() => toggleWorstCase(c.id)}
                     />
-                    <span className="truncate" title={c.label ?? c.id}>
+                    <span
+                      className={
+                        "truncate " +
+                        (readyCases !== null && !readyCases.has(c.id)
+                          ? "text-gray-500 italic"
+                          : "")
+                      }
+                      title={
+                        readyCases !== null && !readyCases.has(c.id)
+                          ? `${c.label ?? c.id} — still being calculated`
+                          : (c.label ?? c.id)
+                      }
+                    >
+                      {/* A ticked case that has not been computed yet still
+                          counts toward the worst view; the marker is what tells
+                          the user the number is not final. */}
+                      {readyCases !== null && !readyCases.has(c.id) ? "· " : ""}
                       {c.label ?? c.id}
                     </span>
                   </label>
@@ -2145,8 +2176,14 @@ export default CapacityControls;
 const CapacityCalcProgressPanel: React.FC<{
   progress: CapacityCalcProgress;
 }> = ({ progress }) => {
+  const [showLog, setShowLog] = useState(false);
   const total = Math.max(progress.cases_total, 1);
   const pct = Math.round((progress.cases_done / total) * 100);
+  // Before the checks enumerate their work there is no case count — reading the
+  // SIN and rebuilding the models takes minutes on a large model. Run the bar
+  // indeterminate through that rather than showing a meaningless 0/0.
+  const known = progress.cases_known !== false && progress.cases_total > 0;
+  const log = progress.log ?? [];
   return (
     <div className="border-b border-gray-700 px-3 py-2 space-y-2">
       <div className="flex items-center justify-between gap-2 min-w-0">
@@ -2154,13 +2191,19 @@ const CapacityCalcProgressPanel: React.FC<{
           {progress.message || "Calculating results"}
         </span>
         <span className="shrink-0 font-mono text-gray-400">
-          {progress.cases_done}/{progress.cases_total}
+          {known
+            ? `${progress.cases_done}/${progress.cases_total}`
+            : progress.elapsed_s
+              ? `${Math.round(progress.elapsed_s)}s`
+              : "…"}
         </span>
       </div>
       <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
         <div
-          className="h-full bg-blue-500 transition-all"
-          style={{ width: `${Math.max(pct, 2)}%` }}
+          className={
+            "h-full bg-blue-500 " + (known ? "transition-all" : "animate-pulse")
+          }
+          style={{ width: known ? `${Math.max(pct, 2)}%` : "100%" }}
         />
       </div>
       <div className="space-y-1">
@@ -2199,9 +2242,42 @@ const CapacityCalcProgressPanel: React.FC<{
           );
         })}
       </div>
-      <div className="text-[11px] text-gray-500">
-        Results appear as each load case finishes — the model is usable now.
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] text-gray-500 truncate min-w-0">
+          Results appear as each load case finishes.
+        </span>
+        {log.length > 0 && (
+          <button
+            className="shrink-0 rounded-sm border border-gray-600 px-1.5 text-[11px] text-gray-400 hover:bg-gray-700"
+            onClick={() => setShowLog((v) => !v)}
+            title="What the calculation has been doing"
+          >
+            {showLog ? "Hide log" : "Log"}
+          </button>
+        )}
       </div>
+      {showLog && (
+        // The run's phase transitions, newest last. Not a full terminal, but
+        // enough to see where the time is going during the long stages.
+        <div className="max-h-28 overflow-y-auto rounded-sm border border-gray-700 bg-gray-950/60 p-1 font-mono text-[10px] leading-relaxed text-gray-400">
+          {log.map((entry, i) => (
+            <div key={`${entry.at_s}-${i}`} className="flex gap-2">
+              <span className="shrink-0 text-gray-600">
+                {formatElapsed(entry.at_s)}
+              </span>
+              <span className="truncate" title={entry.message}>
+                {entry.message}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
+
+/** m:ss for the activity log, so long runs stay readable. */
+function formatElapsed(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}

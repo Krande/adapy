@@ -176,8 +176,26 @@ export interface CapacityCalcProgress {
   message?: string;
   cases_total: number;
   cases_done: number;
+  /** False until the checks have enumerated their work — during the long
+   *  start-up (baking, SIN read, model reconstruction) there is no case count
+   *  yet, so the bar runs indeterminate rather than showing a bogus 0/0. */
+  cases_known?: boolean;
+  elapsed_s?: number;
+  /** Recent phase transitions, newest last, for the activity log. */
+  log?: Array<{ at_s: number; phase: string; message: string }>;
   runs: CapacityCalcRunProgress[];
   updated_utc?: string;
+}
+
+/** Case ids the calculation has published for a run, or null when nothing is
+ *  streaming (a finished bundle — every case is available). */
+export function readyCaseIds(
+  progress: CapacityCalcProgress | null,
+  runId: string | null,
+): Set<string> | null {
+  if (!progress || progress.complete) return null;
+  const run = progress.runs.find((r) => r.id === runId) ?? progress.runs[0];
+  return new Set(run?.cases_ready ?? []);
 }
 
 /** UI selection stashed per run so switching Run (stiffened panel <-> girder)

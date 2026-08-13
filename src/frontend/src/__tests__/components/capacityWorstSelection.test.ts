@@ -6,6 +6,10 @@ import {
   resolveWorstSelection,
   type CapacityCaseResultLike,
 } from "../../components/capacity/capacityFormat";
+import {
+  readyCaseIds,
+  type CapacityCalcProgress,
+} from "../../state/capacityResultsStore";
 
 /** A compact worst-view row: keyed (model, stiffener), carrying the case its
  *  maximum came from and no per-check detail. */
@@ -191,5 +195,41 @@ describe("isSameResultRow", () => {
     assert.equal(isSameResultRow(null, row), false);
     assert.equal(isSameResultRow(row, undefined), false);
     assert.equal(isSameResultRow(null, null), false);
+  });
+});
+
+describe("readyCaseIds", () => {
+  const progress = (over: Partial<CapacityCalcProgress> = {}) =>
+    ({
+      complete: false,
+      phase: "checking",
+      cases_total: 4,
+      cases_done: 2,
+      runs: [
+        { id: "run-001", scope: "stiffened_panel", cases_total: 2, cases_ready: ["9"], complete: false },
+        { id: "run-002", scope: "girder", cases_total: 2, cases_ready: ["g9", "g10"], complete: true },
+      ],
+      ...over,
+    }) as CapacityCalcProgress;
+
+  it("reports only the cases a run has published", () => {
+    const ready = readyCaseIds(progress(), "run-001");
+    assert.ok(ready?.has("9"));
+    assert.equal(ready?.has("10"), false);
+  });
+
+  it("is per run, so a finished girder run reads as fully available", () => {
+    const ready = readyCaseIds(progress(), "run-002");
+    assert.deepEqual([...(ready ?? [])].sort(), ["g10", "g9"]);
+  });
+
+  it("returns null once the calculation completes", () => {
+    // null means "not streaming" — every case is available and the UI stops
+    // marking anything as in progress.
+    assert.equal(readyCaseIds(progress({ complete: true }), "run-001"), null);
+  });
+
+  it("returns null when nothing is streaming at all", () => {
+    assert.equal(readyCaseIds(null, "run-001"), null);
   });
 });
