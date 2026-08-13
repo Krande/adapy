@@ -464,7 +464,7 @@ const CapacityControls: React.FC = () => {
               </select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-gray-400">Case</span>
+              <span className="text-gray-400">Result case</span>
               <select
                 className="bg-gray-800 border border-gray-600 rounded-sm px-2 py-1"
                 value={activeCaseId ?? ""}
