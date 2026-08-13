@@ -67,6 +67,7 @@ const CapacityControls: React.FC = () => {
     worstSummary,
     worstSummaryLoading,
     worstSummaryError,
+    worstSummaryProgress,
     toggleWorstCase,
     setWorstCaseIds,
     setActiveRunId,
@@ -598,8 +599,43 @@ const CapacityControls: React.FC = () => {
                 ))}
               </div>
               {worstSummaryLoading && (
-                <div className="text-[11px] text-gray-500">
-                  Loading worst summary…
+                <div className="space-y-1 min-w-0">
+                  <div className="flex justify-between items-center gap-2 text-[11px] text-gray-400">
+                    <span className="truncate min-w-0">
+                      Streaming result cases
+                    </span>
+                    <span className="shrink-0 font-mono">
+                      {worstSummaryProgress
+                        ? `${worstSummaryProgress.loaded}/${worstSummaryProgress.total}`
+                        : "…"}
+                    </span>
+                  </div>
+                  {/* Same bar as the conversion toast, so progress reads the
+                      same way everywhere in the viewer. Indeterminate until
+                      the shard count is known; the 4% floor keeps a sliver
+                      visible at zero rather than showing an empty track. */}
+                  <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
+                    <div
+                      className={
+                        "h-full bg-blue-500 " +
+                        (worstSummaryProgress
+                          ? "transition-all"
+                          : "animate-pulse")
+                      }
+                      style={{
+                        width: worstSummaryProgress
+                          ? `${Math.max(
+                              Math.round(
+                                (worstSummaryProgress.loaded /
+                                  Math.max(worstSummaryProgress.total, 1)) *
+                                  100,
+                              ),
+                              4,
+                            )}%`
+                          : "100%",
+                      }}
+                    />
+                  </div>
                 </div>
               )}
               {worstSummaryError && (

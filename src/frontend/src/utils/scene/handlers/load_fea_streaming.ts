@@ -846,6 +846,16 @@ export async function loadCapacityWorstSummary(caseIds?: string[]): Promise<void
 
     activeWorstLoads += 1;
     useCapacityResultsStore.getState().setWorstSummaryLoading(true);
+    // Report progress per shard: the full DBSW run streams 84 files, long
+    // enough that a bare "Loading" leaves the user with nothing to judge (#44).
+    let completed = 0;
+    const reportProgress = () => {
+        if (useCapacityResultsStore.getState().activeRunId !== runId) return;
+        useCapacityResultsStore
+            .getState()
+            .setWorstSummaryProgress({ loaded: completed, total: pending.length });
+    };
+    reportProgress();
     const failed: string[] = [];
     try {
         for (let i = 0; i < pending.length; i += WORST_SHARD_CONCURRENCY) {
@@ -864,6 +874,11 @@ export async function loadCapacityWorstSummary(caseIds?: string[]): Promise<void
                         console.warn(`[capacity] failed to load worst summary for case ${caseId}:`, err);
                         failed.push(caseId);
                         return null;
+                    } finally {
+                        // Counts attempts, not successes, so a failing shard
+                        // cannot stall the bar short of 100%.
+                        completed += 1;
+                        reportProgress();
                     }
                 }),
             );
@@ -885,6 +900,7 @@ export async function loadCapacityWorstSummary(caseIds?: string[]): Promise<void
         // state belonging to a run the user has since switched away from.
         if (activeWorstLoads === 0 && latest.activeRunId === runId) {
             latest.setWorstSummaryLoading(false);
+            latest.setWorstSummaryProgress(null);
             // Report a partial load rather than silently showing an understated
             // maximum — the previous single-file catch is exactly what hid issue #37.
             latest.setWorstSummaryError(

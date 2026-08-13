@@ -296,6 +296,10 @@ export interface CapacityResultsState {
   /** Set when one or more shards failed to load, so the worst table can say the
    *  numbers are incomplete instead of quietly showing a partial maximum. */
   worstSummaryError: string | null;
+  /** How far the per-case shard stream has got. The full DBSW run pulls 84
+   *  files, which is long enough that a bare "Loading" gives the user nothing
+   *  to judge by (#44). Null when nothing is streaming. */
+  worstSummaryProgress: { loaded: number; total: number } | null;
   /** Selection state remembered per run id (restored on run switch). */
   runUiMemory: Record<string, RunUiMemory>;
   setLoading: (loading: boolean) => void;
@@ -316,6 +320,9 @@ export interface CapacityResultsState {
   ) => void;
   setWorstSummaryLoading: (loading: boolean) => void;
   setWorstSummaryError: (error: string | null) => void;
+  setWorstSummaryProgress: (
+    progress: { loaded: number; total: number } | null,
+  ) => void;
   clear: () => void;
   setActiveRunId: (runId: string | null) => void;
   setActiveCaseId: (caseId: string | null) => void;
@@ -368,6 +375,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   worstSummary: null,
   worstSummaryLoading: false,
   worstSummaryError: null,
+  worstSummaryProgress: null,
   runUiMemory: {},
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error, loading: false }),
@@ -393,6 +401,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       worstSummary: null,
       worstSummaryLoading: false,
       worstSummaryError: null,
+      worstSummaryProgress: null,
       runUiMemory: {},
       loading: false,
       error: null,
@@ -424,6 +433,8 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
     })),
   setWorstSummaryLoading: (worstSummaryLoading) => set({ worstSummaryLoading }),
   setWorstSummaryError: (worstSummaryError) => set({ worstSummaryError }),
+  setWorstSummaryProgress: (worstSummaryProgress) =>
+    set({ worstSummaryProgress }),
   clear: () =>
     set({
       manifest: null,
@@ -446,6 +457,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       worstSummary: null,
       worstSummaryLoading: false,
       worstSummaryError: null,
+      worstSummaryProgress: null,
       runUiMemory: {},
       loading: false,
       error: null,
@@ -487,6 +499,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
         worstSummary: saved?.worstSummary ?? null,
         worstSummaryLoading: false,
         worstSummaryError: null,
+        worstSummaryProgress: null,
       };
     }),
   setActiveCaseId: (activeCaseId) =>
