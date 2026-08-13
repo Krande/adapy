@@ -32,6 +32,7 @@ import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useCapacityResultsStore, WORST_CASE_ID} from "@/state/capacityResultsStore";
 import type {
+    CapacityCalcProgress,
     CapacityResults,
     CapacityWorstRow,
     CapacityWorstShard,
@@ -537,18 +538,39 @@ async function loadCapacityResultsIfPresent(
     scope: ScopeUrl,
     sourceName: string,
     manifest: FeaManifest,
+    // Re-read a spine that is still being written by a streaming run. Skips the
+    // "already loaded" short-circuit, and swaps the data in without resetting
+    // the case, subset and selection the user is working with.
+    refresh = false,
 ): Promise<void> {
     const capacity = await resolveCapacityManifest(fetcher, scope, sourceName, manifest);
     const store = useCapacityResultsStore.getState();
     if (!capacity?.results_url) {
-        store.clear();
+        // Mid-stream the spine may simply not exist yet; keep whatever is loaded.
+        if (!refresh) store.clear();
         return;
     }
     if (
-        store.source?.sourceName === sourceName
+        !refresh
+        && store.source?.sourceName === sourceName
         && store.source.resultsUrl === capacity.results_url
         && store.results
     ) {
+        return;
+    }
+    if (refresh && store.results) {
+        try {
+            const buf = await fetchCapacityBuffer(fetcher, scope, capacity.results_url);
+            const results = JSON.parse(
+                new TextDecoder("utf-8").decode(buf),
+            ) as CapacityResults;
+            validateCapacityResults(results, {manifest});
+            useCapacityResultsStore.getState().refreshResults(results);
+        } catch (err) {
+            // A partly written spine is expected mid-run; keep the last good one.
+            // eslint-disable-next-line no-console
+            console.debug("[capacity] spine refresh skipped:", err);
+        }
         return;
     }
 
@@ -785,6 +807,89 @@ const inFlightWorstShards = new Set<string>();
  *  overlap them, so only the last one out clears the loading flag. */
 let activeWorstLoads = 0;
 
+/** Published by a `--stream-results` run; absent for a finished bundle. */
+const CAPACITY_PROGRESS_URL = "capacity.progress.json";
+/** Slow enough to be invisible next to a check run measured in minutes, quick
+ *  enough that a case shows up shortly after it is computed. */
+const CAPACITY_PROGRESS_POLL_MS = 3000;
+
+let capacityProgressTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function stopCapacityProgressPolling(): void {
+    if (capacityProgressTimer !== null) {
+        clearTimeout(capacityProgressTimer);
+        capacityProgressTimer = null;
+    }
+}
+
+/** Follow a streaming calculation: pick up the spine once it exists, and pull
+ *  in each result case as the run publishes it.
+ *
+ *  A `--stream-results` run opens the viewer *before* the checks, so the sidecar
+ *  may not exist yet at model load and the one-shot discovery in
+ *  loadCapacityResultsIfPresent finds nothing. Polling the small progress file
+ *  is what turns that into results appearing as they are computed (#44). Stops
+ *  as soon as the run reports complete, and never starts at all for a normal
+ *  bundle, where the file is absent. */
+export function startCapacityProgressPolling(
+    reloadSpine: () => Promise<void>,
+): void {
+    stopCapacityProgressPolling();
+    let lastDone = -1;
+    let lastRunCount = -1;
+
+    const tick = async (): Promise<void> => {
+        const ctx = active?.capacityFetch;
+        if (!ctx) return; // model unloaded — stop quietly
+        let progress: CapacityCalcProgress | null = null;
+        try {
+            const buf = await ctx.fetcher(CAPACITY_PROGRESS_URL);
+            progress = JSON.parse(
+                new TextDecoder("utf-8").decode(buf),
+            ) as CapacityCalcProgress;
+        } catch {
+            // No progress file: a normal, already-complete bundle. Nothing to follow.
+            useCapacityResultsStore.getState().setCalcProgress(null);
+            return;
+        }
+
+        useCapacityResultsStore.getState().setCalcProgress(progress);
+        const store = useCapacityResultsStore.getState();
+
+        // Re-read the spine when a run appears (it is rewritten as each run's
+        // first case lands) or when the run finishes and the spine goes final.
+        const runCount = progress.runs.length;
+        const needSpine =
+            !store.results || runCount !== lastRunCount || progress.complete;
+        if (needSpine) {
+            lastRunCount = runCount;
+            try {
+                await reloadSpine();
+            } catch (err) {
+                // eslint-disable-next-line no-console
+                console.warn("[capacity] streaming spine reload failed:", err);
+            }
+        }
+
+        // New cases published: pull the ones the worst view is showing.
+        if (progress.cases_done !== lastDone) {
+            lastDone = progress.cases_done;
+            const latest = useCapacityResultsStore.getState();
+            if (latest.activeCaseId === WORST_CASE_ID) {
+                void loadCapacityWorstSummary(latest.worstCaseIds);
+            }
+        }
+
+        if (progress.complete) {
+            useCapacityResultsStore.getState().setCalcProgress(null);
+            return;
+        }
+        capacityProgressTimer = setTimeout(() => void tick(), CAPACITY_PROGRESS_POLL_MS);
+    };
+
+    capacityProgressTimer = setTimeout(() => void tick(), 0);
+}
+
 /** Expand a v15 shard's index-encoded rows back into named rows.
  *
  *  ``table`` is the run's shared worst_summary.strings, so every row of every
@@ -836,7 +941,17 @@ export async function loadCapacityWorstSummary(caseIds?: string[]): Promise<void
     const stringTable = run.worst_summary?.strings ?? [];
 
     const runId = run.id;
-    const wanted = caseIds ?? store.worstCaseIds ?? run.result_cases.map((c) => c.id);
+    let wanted = caseIds ?? store.worstCaseIds ?? run.result_cases.map((c) => c.id);
+    // While a streaming run is in flight the spine already lists every case,
+    // but only the published ones exist on disk. Asking for the rest would be
+    // 84 failed fetches per poll, and would mark them errored in the UI.
+    const calc = store.calcProgress;
+    if (calc && !calc.complete) {
+        const ready = new Set(
+            calc.runs.find((r) => r.id === runId)?.cases_ready ?? [],
+        );
+        wanted = wanted.filter((caseId) => ready.has(caseId));
+    }
     const loaded = store.worstSummary?.cases ?? {};
     const pending = wanted.filter(
         (caseId) => !loaded[caseId] && !inFlightWorstShards.has(`${runId}::${caseId}`),
@@ -2248,6 +2363,13 @@ export async function load_fea_streaming(args: {
     // the sidecar before that would make the Capacity panel disappear even
     // though the sidecar request succeeded.
     await loadCapacityResultsIfPresent(fetcher, scope, sourceName, manifest);
+    // A --stream-results run opens the viewer before the checks, so the sidecar
+    // may not exist yet (or may be only partly written). Follow its progress
+    // file and pick results up as they are published; a no-op for a normal
+    // bundle, where that file is absent.
+    startCapacityProgressPolling(() =>
+        loadCapacityResultsIfPresent(fetcher, scope, sourceName, manifest, true),
+    );
 
     // Resolve the warp source. The picked field drives colour
     // regardless; warp depends on category:

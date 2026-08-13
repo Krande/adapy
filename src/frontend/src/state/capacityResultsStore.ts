@@ -153,6 +153,33 @@ export interface CapacityCaseDetailPointer {
 /** Synthetic "case" id for the worst-over-selected-cases view. */
 export const WORST_CASE_ID = "__worst__";
 
+/** One run's share of a streaming calculation (capacity.progress.json). */
+export interface CapacityCalcRunProgress {
+  id: string;
+  scope: string;
+  label?: string;
+  cases_total: number;
+  cases_ready: string[];
+  complete: boolean;
+  elapsed_s?: number;
+}
+
+/** Published by a `--stream-results` run while the checks are still going, so
+ *  the viewer can show results as they land instead of waiting for the lot.
+ *  Absent for a normal run, where the bundle is complete before the viewer
+ *  opens. Runs finish at very different times — the girder check is several
+ *  times quicker than the panel check — so each reports its own state. */
+export interface CapacityCalcProgress {
+  format?: string;
+  complete: boolean;
+  phase: string;
+  message?: string;
+  cases_total: number;
+  cases_done: number;
+  runs: CapacityCalcRunProgress[];
+  updated_utc?: string;
+}
+
 /** UI selection stashed per run so switching Run (stiffened panel <-> girder)
  *  and back restores what was open and selected. */
 interface RunUiMemory {
@@ -300,6 +327,8 @@ export interface CapacityResultsState {
    *  files, which is long enough that a bare "Loading" gives the user nothing
    *  to judge by (#44). Null when nothing is streaming. */
   worstSummaryProgress: { loaded: number; total: number } | null;
+  /** Live calculation progress while a streaming run fills the bundle. */
+  calcProgress: CapacityCalcProgress | null;
   /** Selection state remembered per run id (restored on run switch). */
   runUiMemory: Record<string, RunUiMemory>;
   setLoading: (loading: boolean) => void;
@@ -323,6 +352,14 @@ export interface CapacityResultsState {
   setWorstSummaryProgress: (
     progress: { loaded: number; total: number } | null,
   ) => void;
+  setCalcProgress: (progress: CapacityCalcProgress | null) => void;
+  /** Swap in a newer spine without disturbing the view.
+   *
+   *  A streaming run rewrites the spine as it goes, so it gets re-read while
+   *  the user is already reading results. setCapacityData would reset the
+   *  active case, the worst-case subset and the selection every few seconds;
+   *  this keeps all of that and only replaces the data. */
+  refreshResults: (results: CapacityResults) => void;
   clear: () => void;
   setActiveRunId: (runId: string | null) => void;
   setActiveCaseId: (caseId: string | null) => void;
@@ -376,6 +413,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   worstSummaryLoading: false,
   worstSummaryError: null,
   worstSummaryProgress: null,
+  calcProgress: null,
   runUiMemory: {},
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error, loading: false }),
@@ -402,6 +440,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       worstSummaryLoading: false,
       worstSummaryError: null,
       worstSummaryProgress: null,
+      calcProgress: null,
       runUiMemory: {},
       loading: false,
       error: null,
@@ -435,6 +474,28 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   setWorstSummaryError: (worstSummaryError) => set({ worstSummaryError }),
   setWorstSummaryProgress: (worstSummaryProgress) =>
     set({ worstSummaryProgress }),
+  setCalcProgress: (calcProgress) => set({ calcProgress }),
+  refreshResults: (results) =>
+    set((state) => {
+      const run =
+        results.runs.find((r) => r.id === state.activeRunId) ?? results.runs[0];
+      const caseIds = run?.result_cases?.map((c) => c.id) ?? [];
+      // Cases the run has grown since the last spine: adopt them into the
+      // worst subset, since the user's intent was "all of them".
+      const known = new Set(state.worstCaseIds);
+      const grew = caseIds.filter((id) => !known.has(id));
+      return {
+        results,
+        activeRunId: state.activeRunId ?? run?.id ?? null,
+        activeCaseId: state.activeCaseId ?? defaultCaseId(run),
+        worstCaseIds:
+          state.worstCaseIds.length === 0
+            ? caseIds
+            : [...state.worstCaseIds, ...grew],
+        loading: false,
+        error: null,
+      };
+    }),
   clear: () =>
     set({
       manifest: null,
@@ -458,6 +519,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       worstSummaryLoading: false,
       worstSummaryError: null,
       worstSummaryProgress: null,
+      calcProgress: null,
       runUiMemory: {},
       loading: false,
       error: null,
@@ -500,6 +562,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
         worstSummaryLoading: false,
         worstSummaryError: null,
         worstSummaryProgress: null,
+        calcProgress: null,
       };
     }),
   setActiveCaseId: (activeCaseId) =>

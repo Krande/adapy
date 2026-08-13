@@ -23,6 +23,7 @@ import {
 import {
   useCapacityResultsStore,
   WORST_CASE_ID,
+  type CapacityCalcProgress,
 } from "@/state/capacityResultsStore";
 import { useObjectInfoStore } from "@/state/objectInfoStore";
 import {
@@ -68,6 +69,7 @@ const CapacityControls: React.FC = () => {
     worstSummaryLoading,
     worstSummaryError,
     worstSummaryProgress,
+    calcProgress,
     toggleWorstCase,
     setWorstCaseIds,
     setActiveRunId,
@@ -447,6 +449,7 @@ const CapacityControls: React.FC = () => {
           </div>
         </details>
       )}
+      {calcProgress && <CapacityCalcProgressPanel progress={calcProgress} />}
       {run && (
         <div className="p-3 space-y-3">
           <div className="grid grid-cols-2 gap-2">
@@ -2131,3 +2134,74 @@ function elementIdFromName(name: string): number | null {
 }
 
 export default CapacityControls;
+
+/** Live progress of a `--stream-results` calculation.
+ *
+ *  One overall bar for the whole run, then a row per check type. The two checks
+ *  finish at very different times — the girder check is several times quicker
+ *  than the stiffened-panel check — so "62% overall" on its own would hide that
+ *  every girder result is already there and ready to inspect. Each row reports
+ *  its own count, its own bar, and how long it took once done. */
+const CapacityCalcProgressPanel: React.FC<{
+  progress: CapacityCalcProgress;
+}> = ({ progress }) => {
+  const total = Math.max(progress.cases_total, 1);
+  const pct = Math.round((progress.cases_done / total) * 100);
+  return (
+    <div className="border-b border-gray-700 px-3 py-2 space-y-2">
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <span className="truncate min-w-0 text-gray-200">
+          {progress.message || "Calculating results"}
+        </span>
+        <span className="shrink-0 font-mono text-gray-400">
+          {progress.cases_done}/{progress.cases_total}
+        </span>
+      </div>
+      <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
+        <div
+          className="h-full bg-blue-500 transition-all"
+          style={{ width: `${Math.max(pct, 2)}%` }}
+        />
+      </div>
+      <div className="space-y-1">
+        {progress.runs.map((r) => {
+          const runTotal = Math.max(r.cases_total, 1);
+          const done = r.cases_ready.length;
+          const runPct = Math.round((done / runTotal) * 100);
+          return (
+            <div key={r.id} className="space-y-0.5">
+              <div className="flex items-center justify-between gap-2 text-[11px] min-w-0">
+                <span
+                  className={
+                    "truncate min-w-0 " +
+                    (r.complete ? "text-emerald-400" : "text-gray-400")
+                  }
+                  title={r.label ?? r.scope}
+                >
+                  {r.complete ? "✓ " : ""}
+                  {r.label ?? r.scope}
+                </span>
+                <span className="shrink-0 font-mono text-gray-500">
+                  {done}/{r.cases_total}
+                  {r.complete && r.elapsed_s ? ` · ${r.elapsed_s}s` : ""}
+                </span>
+              </div>
+              <div className="h-0.5 bg-gray-800 rounded-sm overflow-hidden">
+                <div
+                  className={
+                    "h-full transition-all " +
+                    (r.complete ? "bg-emerald-500" : "bg-blue-500/70")
+                  }
+                  style={{ width: `${Math.max(runPct, 2)}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="text-[11px] text-gray-500">
+        Results appear as each load case finishes — the model is usable now.
+      </div>
+    </div>
+  );
+};
