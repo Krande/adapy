@@ -72,8 +72,21 @@ export function capacityRowScore(row: CapacityCaseResultLike): number {
  *  Worst-view rows are keyed this way, while per-case detail rows carry a
  *  case-qualified ``id``, so the two are matched on this rather than on
  *  ``caseResultKey``. */
-function rowIdentity(row: CapacityCaseResultLike): string {
+export function rowIdentity(row: CapacityCaseResultLike): string {
   return `${row.capacity_model_id}::${row.stiffener ?? row.panel_group}`;
+}
+
+/** Whether two rows describe the same item, regardless of which case they came
+ *  from. Used to mark the selected row in the table: comparing ``caseResultKey``
+ *  fails in the worst view, where the table lists (model, stiffener)-keyed rows
+ *  while the selection resolves to a case-qualified detail row. Within any one
+ *  case an item appears once, so this stays unambiguous in the per-case view. */
+export function isSameResultRow(
+  a: CapacityCaseResultLike | null | undefined,
+  b: CapacityCaseResultLike | null | undefined,
+): boolean {
+  if (!a || !b) return false;
+  return rowIdentity(a) === rowIdentity(b);
 }
 
 /** Resolve what the "Worst (over selected cases)" view has selected.

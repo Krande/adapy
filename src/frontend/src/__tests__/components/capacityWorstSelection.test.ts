@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  isSameResultRow,
   resolveWorstSelection,
   type CapacityCaseResultLike,
 } from "../../components/capacity/capacityFormat";
@@ -151,5 +152,44 @@ describe("resolveWorstSelection", () => {
 
     assert.equal(hit, null);
     assert.equal(row, null);
+  });
+});
+
+describe("isSameResultRow", () => {
+  it("matches a worst row against the same item's detail row", () => {
+    // The table lists worst rows keyed (model, stiffener) while the selection
+    // resolves to a case-qualified detail row. Comparing keys leaves the
+    // selected row unhighlighted (#46); identity is what actually matches.
+    const worst = worstRow("model-a", "Stiff_2", "20", 1.4);
+    const detail = detailRow("model-a", "Stiff_2", "20", 1.4);
+
+    assert.notEqual(worst.id, detail.id);
+    assert.ok(isSameResultRow(worst, detail));
+  });
+
+  it("matches the same item across different cases", () => {
+    assert.ok(
+      isSameResultRow(
+        detailRow("model-a", "Stiff_2", "16", 0.3),
+        detailRow("model-a", "Stiff_2", "20", 1.4),
+      ),
+    );
+  });
+
+  it("separates different stiffeners in the same capacity model", () => {
+    assert.equal(
+      isSameResultRow(
+        worstRow("model-a", "Stiff_1", "16", 2.91),
+        worstRow("model-a", "Stiff_2", "20", 1.4),
+      ),
+      false,
+    );
+  });
+
+  it("is false when either row is missing", () => {
+    const row = worstRow("model-a", "Stiff_1", "16", 2.91);
+    assert.equal(isSameResultRow(null, row), false);
+    assert.equal(isSameResultRow(row, undefined), false);
+    assert.equal(isSameResultRow(null, null), false);
   });
 });

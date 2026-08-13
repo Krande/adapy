@@ -1584,7 +1584,7 @@ function updateCapacitySelectionOverlay(
     if (!selectedModel) return;
     const overlay = buildCapacityBoundaryOverlay(
         [selectedModel],
-        0xff1f3d,
+        CAPACITY_SELECTED_MODEL_COLOR,
         "capacity-selected-model-boundary",
         false,
     );
@@ -1596,7 +1596,8 @@ function updateCapacitySelectionOverlay(
 
     // When an individual stiffener row is selected within a multi-stiffener
     // panel, outline that stiffener's own strip (line + tributary plate) in
-    // amber so the specific capacity model under inspection stands out.
+    // magenta so the specific capacity model under inspection stands out from
+    // the violet panel outline around it.
     const selectedResultId = useCapacityResultsStore.getState().selectedResultId;
     const stiffeners = selectedModel.stiffeners ?? [];
     const stiffName = selectedResultId?.split("::").pop() ?? null;
@@ -1616,7 +1617,7 @@ function updateCapacitySelectionOverlay(
                 element_ids: {all: stripIds},
             },
         ],
-        0xffc53d,
+        CAPACITY_SELECTED_STRIP_COLOR,
         "capacity-selected-strip-boundary",
         false,
     );
@@ -1636,6 +1637,18 @@ function applySelectionOverlay(mesh: THREE.Mesh | undefined, rangeIds: string[])
 
 // Failed-model definition edges (a check raised for this model/case).
 const CAPACITY_FAILED_EDGE_COLOR = 0xef4444;
+
+// Selection colours deliberately sit outside every other colour in this view.
+// The UF ramp runs sky -> cyan -> green -> yellow -> orange -> red, definition
+// boundaries are near-white (0xf8fafc) and failed edges are red, so selection
+// had nowhere to go: the old red 0xff1f3d read as "UF > 1.0 / failed" and the
+// old amber 0xffc53d read as "UF ~ 0.8" (#46). Violet and magenta are the only
+// hues the ramp never reaches, which makes them unambiguous at a glance:
+//   violet  = the selected panel (capacity model)
+//   magenta = the specific stiffener/strip being inspected inside it
+// Both draw with depthTest disabled so they stay visible through the mesh.
+const CAPACITY_SELECTED_MODEL_COLOR = 0xa855f7;
+const CAPACITY_SELECTED_STRIP_COLOR = 0xff2bd6;
 
 function rebuildCapacityBoundaryOverlay(
     models: Array<{id: string; panel_group: string; element_ids: {all?: number[]}}>,

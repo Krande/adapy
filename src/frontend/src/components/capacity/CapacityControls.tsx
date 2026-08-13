@@ -10,6 +10,7 @@ import {
   caseLabelForRow,
   caseResultKey,
   formatUf,
+  isSameResultRow,
   resolveWorstSelection,
   formulaReference,
   modeButton,
@@ -173,6 +174,20 @@ const CapacityControls: React.FC = () => {
   // Which worst-view row the selection refers to. Worst rows are synthesized
   // per (model, stiffener) and carry the case their maximum came from, so this
   // is what tells us whose detail to fetch while Case stays on Worst.
+  // The 3D picker effect fires on a click, not when the table changes, so it
+  // reads the current rows through a ref instead of taking them as a dependency
+  // (which would re-run the pick handler on every row recompute).
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+
+  // Picking in the 3D view selects a row that may be scrolled out of the table.
+  // "nearest" moves the list the minimum needed, so it does not jump when the
+  // row is already visible (e.g. when the click came from the list itself).
+  const selectedRowRef = useRef<HTMLTableRowElement | null>(null);
+  useEffect(() => {
+    selectedRowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedResultId, selectedModelId]);
+
   const worstSelection = useMemo(
     () =>
       isWorst
@@ -360,12 +375,16 @@ const CapacityControls: React.FC = () => {
     // Click inside the already-selected model: select the individual
     // stiffener/strip under the cursor so the Input/Results/Points panels
     // (and the amber strip highlight) follow that specific capacity model.
+    // The rows the table is showing — worst rows in the worst view, the active
+    // case's rows otherwise — so a 3D pick resolves to a row that actually
+    // exists in the list, and the list highlight follows the 3D selection.
     const rowKey = pickResultRowForElement(
       run,
       match,
       elementId,
       currentCaseId,
       currentMetricId,
+      rowsRef.current,
     );
     if (rowKey && rowKey !== currentSelectedResultId) {
       setSelectedCapacityResult(match.id, rowKey);
@@ -541,7 +560,8 @@ const CapacityControls: React.FC = () => {
             <div className="border border-gray-700 rounded-sm p-2 space-y-1">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] uppercase text-gray-500">
-                  Cases in worst ({worstCaseIds.length}/{run.result_cases.length})
+                  Result cases in worst ({worstCaseIds.length}/
+                  {run.result_cases.length})
                 </span>
                 <div className="flex gap-1">
                   <button
@@ -608,18 +628,29 @@ const CapacityControls: React.FC = () => {
               <tbody>
                 {rows.map((row) => {
                   const rowKey = caseResultKey(row);
-                  const selected = selectedRow
-                    ? caseResultKey(selectedRow) === rowKey
-                    : false;
+                  // Match on identity, not row key: in the worst view the table
+                  // lists (model, stiffener)-keyed rows while the selection
+                  // resolves to the governing case's detail row, whose id is
+                  // case-qualified (#46 -- the selected row stayed unhighlighted).
+                  const selected = isSameResultRow(selectedRow, row);
                   const worstCaseLabel = (
                     row as { worstCaseLabel?: string }
                   ).worstCaseLabel;
                   return (
                     <tr
                       key={rowKey}
+                      ref={selected ? selectedRowRef : undefined}
                       className={
-                        "cursor-pointer border-t border-gray-800 hover:bg-gray-800 " +
-                        (selected ? "bg-gray-800" : "")
+                        // The selected row carries the same violet the 3D view
+                        // outlines the selected panel with, so list and viewport
+                        // read as one selection. It has to outrank hover, which
+                        // is why the old bg-gray-800 was invisible once selected:
+                        // it was the hover colour (#46). The inset bar marks the
+                        // row without shifting the layout.
+                        "cursor-pointer border-t border-gray-800 " +
+                        (selected
+                          ? "bg-violet-500/25 shadow-[inset_3px_0_0_0_#a855f7] "
+                          : "hover:bg-gray-800 ")
                       }
                       onClick={() => {
                         // Select in place. In the worst view this deliberately
@@ -1962,14 +1993,23 @@ function pickCapacityModelForElement(
  *  specific capacity model (not just the panel's worst). Overlapping strips
  *  resolve to the highest UF for the active metric. The worst view keeps
  *  model-level selection (its rows aggregate over cases). */
+/** Which result row a picked element belongs to, for the second click inside an
+ *  already-selected panel: it selects that specific capacity model rather than
+ *  the panel's worst one.
+ *
+ *  ``candidateRows`` is what the table is currently showing, so this works in
+ *  the worst view too. It used to bail out on WORST_CASE_ID and derive rows from
+ *  the active case, which meant drilling into a specific stiffener silently did
+ *  nothing while the worst view was open (#46). */
 function pickResultRowForElement(
   run: CapacityRunLike,
   model: CapacityRunLike["capacity_models"][number],
   elementId: number,
   activeCaseId: string | null,
   activeMetricId: string,
+  candidateRows: CapacityCaseResultLike[],
 ): string | null {
-  if (!activeCaseId || activeCaseId === WORST_CASE_ID) return null;
+  if (!activeCaseId) return null;
   const stiffeners = (model.stiffeners ?? []) as Array<Record<string, unknown>>;
   const owners = new Set(
     stiffeners
@@ -1981,11 +2021,7 @@ function pickResultRowForElement(
       .map((s) => String(s.name)),
   );
   if (owners.size === 0) return null;
-  const store = useCapacityResultsStore.getState();
-  const rows = (
-    store.caseDetail[activeCaseId] ??
-    run.case_results.filter((r) => r.case_id === activeCaseId)
-  ).filter(
+  const rows = candidateRows.filter(
     (r) => r.capacity_model_id === model.id && owners.has(String(r.stiffener)),
   );
   if (rows.length === 0) return null;
