@@ -39,6 +39,41 @@
     100% { transform: translateX(300%); }
 }
 
+/* Live-activity text: a highlight sweeps left to right across the letters, the
+   way a terminal agent shows it is still working. Used on the capacity panel's
+   current step, where a long stage (recovering stress fields, resolving loads)
+   would otherwise look frozen. Paints the glyphs themselves via
+   background-clip, so it needs no extra element and does not shift layout. */
+@keyframes ada-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.ada-shimmer-text {
+    background: linear-gradient(
+        90deg,
+        currentColor 0%,
+        currentColor 35%,
+        #ffffff 50%,
+        currentColor 65%,
+        currentColor 100%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: ada-shimmer 2.4s linear infinite;
+}
+
+/* Respect users who ask for less motion: keep the text legible, drop the sweep. */
+@media (prefers-reduced-motion: reduce) {
+    .ada-shimmer-text {
+        animation: none;
+        -webkit-text-fill-color: currentColor;
+        background: none;
+    }
+}
+
 /* Use dvh so the canvas fills the *visible* viewport on mobile, where
    the URL bar shrinks the visible area below the layout viewport that
    `100%`/`100vh` reports. Without this the gizmo at bottom-right ends

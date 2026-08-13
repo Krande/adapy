@@ -10,11 +10,13 @@ import {
   caseLabelForRow,
   caseResultKey,
   formatUf,
+  groupCapacityErrors,
   isSameResultRow,
   resolveWorstSelection,
   formulaReference,
   modeButton,
   shortName,
+  summariseCases,
   ufClass,
   type CapacityCaseResultLike,
   type CapacityRunLike,
@@ -248,20 +250,25 @@ const CapacityControls: React.FC = () => {
     activeCaseId,
   ]);
 
-  const meshWarningCount = useMemo(() => {
-    if (!run) return 0;
-    let bad = 0;
-    for (const model of run.capacity_models) {
-      const stiffeners = (model.stiffeners ?? []) as Array<
-        Record<string, unknown>
-      >;
-      const violates = stiffeners.some(
+  // The under-meshed models themselves, not just how many: the banner lets you
+  // jump to each one in the 3D view.
+  const meshWarnings = useMemo(() => {
+    if (!run) return [];
+    return run.capacity_models.filter((model) =>
+      ((model.stiffeners ?? []) as Array<Record<string, unknown>>).some(
         (s) => (s.discretization as { ok?: boolean } | undefined)?.ok === false,
-      );
-      if (violates) bad += 1;
-    }
-    return bad;
+      ),
+    );
   }, [run]);
+
+  // 109 errors listed one per line is unreadable, and they are nearly always
+  // the same handful of failures repeated across cases. Group by the kind of
+  // error and then by the model it happened on, so the banner says what went
+  // wrong and where rather than replaying every occurrence.
+  const errorGroups = useMemo(
+    () => groupCapacityErrors(run?.errors ?? []),
+    [run],
+  );
 
   useEffect(() => {
     if (!run) return;
@@ -432,28 +439,65 @@ const CapacityControls: React.FC = () => {
               run.errors.length === 1 ? "" : "s"
             } failed with an error — affected rows are treated as failures`}
           </summary>
-          <ul className="mt-2 space-y-1">
-            {run.errors.map((err, i) => (
-              <li key={err.id ?? `${err.capacity_model_id}:${err.case_id}:${i}`}>
-                <span className="font-mono text-red-100">
-                  {err.panel_group}
-                  {err.stiffener ? ` / ${err.stiffener}` : ""}
-                </span>
-                <span className="text-red-400">{` (case ${err.case_id})`}</span>
-                <div className="text-red-300/90">{err.message}</div>
-              </li>
+          <div className="mt-2 space-y-2">
+            {errorGroups.map((group) => (
+              <div key={group.kind} className="space-y-1">
+                <div className="text-red-300/90">
+                  <span className="font-mono text-red-200">{group.kind}</span>
+                  <span className="text-red-400">{` — ${group.count} occurrence${group.count === 1 ? "" : "s"}`}</span>
+                </div>
+                <ul className="space-y-0.5 pl-2">
+                  {group.models.map((m) => (
+                    <li key={m.capacity_model_id + m.label}>
+                      <button
+                        className="text-left hover:underline"
+                        title={`${m.label}\nCases: ${m.cases.join(", ")}\n\n${m.sample}`}
+                        onClick={() => setSelectedModelId(m.capacity_model_id)}
+                      >
+                        <span className="font-mono text-red-100">
+                          {shortName(m.label)}
+                        </span>
+                        <span className="text-red-400">
+                          {` — ${m.cases.length} case${m.cases.length === 1 ? "" : "s"} (${summariseCases(m.cases)})`}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+            <div className="text-red-400/80">
+              Select a row to highlight that capacity model in the 3D view.
+            </div>
+          </div>
         </details>
       )}
-      {meshWarningCount > 0 && (
+      {meshWarnings.length > 0 && (
         <details className="border-b border-amber-700/60 bg-amber-950/40 px-3 py-2 text-amber-200">
           <summary className="cursor-pointer font-semibold text-amber-300">
-            {`⚠ ${meshWarningCount} model(s) under-meshed for SCM2 [6.4.3]`}
+            {`⚠ ${meshWarnings.length} model(s) under-meshed for SCM2 [6.4.3]`}
           </summary>
-          <div className="mt-2 text-amber-300/90">
-            Fewer than 4 elements along the stiffener (first-order). Resolved
-            stresses may be unreliable.
+          <div className="mt-2 space-y-1 text-amber-300/90">
+            <div>
+              Fewer than 4 elements along the stiffener (first-order). Resolved
+              stresses may be unreliable.
+            </div>
+            <ul className="max-h-40 space-y-0.5 overflow-y-auto pl-2">
+              {meshWarnings.map((model) => (
+                <li key={model.id}>
+                  <button
+                    className="text-left font-mono text-amber-100 hover:underline"
+                    title={`${model.panel_group} — highlight in the 3D view`}
+                    onClick={() => setSelectedModelId(model.id)}
+                  >
+                    {shortName(model.panel_group)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="text-amber-400/80">
+              Select one to highlight it in the 3D view.
+            </div>
           </div>
         </details>
       )}
@@ -2166,28 +2210,81 @@ function elementIdFromName(name: string): number | null {
 
 export default CapacityControls;
 
+
+/** One labelled progress row: a title line and a thin bar. */
+const ProgressRow: React.FC<{
+  label: string;
+  right: string;
+  pct: number | null;
+  state: "pending" | "active" | "done";
+  title?: string;
+}> = ({ label, right, pct, state, title }) => {
+  const bar =
+    state === "done"
+      ? "bg-emerald-500"
+      : state === "pending"
+        ? "bg-gray-600"
+        : "bg-blue-500/80";
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center justify-between gap-2 text-[11px] min-w-0">
+        <span
+          className={
+            "truncate min-w-0 " +
+            (state === "done"
+              ? "text-emerald-400"
+              : state === "pending"
+                ? "text-gray-600"
+                : "text-gray-300 ada-shimmer-text")
+          }
+          title={title ?? label}
+        >
+          {state === "done" ? "✓ " : state === "pending" ? "· " : ""}
+          {label}
+        </span>
+        <span className="shrink-0 font-mono text-gray-500">{right}</span>
+      </div>
+      <div className="h-0.5 bg-gray-800 rounded-sm overflow-hidden">
+        <div
+          className={"h-full transition-all " + bar}
+          // A pending row shows an empty track: nothing has happened yet.
+          style={{ width: pct === null ? "0%" : `${Math.max(pct, 2)}%` }}
+        />
+      </div>
+    </div>
+  );
+};
+
 /** Live progress of a `--stream-results` calculation.
  *
- *  One overall bar for the whole run, then a row per check type. The two checks
- *  finish at very different times — the girder check is several times quicker
- *  than the stiffened-panel check — so "62% overall" on its own would hide that
- *  every girder result is already there and ready to inspect. Each row reports
- *  its own count, its own bar, and how long it took once done. */
+ *  One overall bar, then a row for preparation and a row per check type. The
+ *  parts finish at very different times — preparation is over a minute before
+ *  any case lands, and the girder check is several times quicker than the
+ *  stiffened-panel check — so a single percentage would hide that a whole check
+ *  is already done and ready to inspect. Every run is listed from the start,
+ *  including ones that have not begun, so nothing appears out of nowhere. */
 const CapacityCalcProgressPanel: React.FC<{
   progress: CapacityCalcProgress;
 }> = ({ progress }) => {
-  const [showLog, setShowLog] = useState(false);
   const total = Math.max(progress.cases_total, 1);
   const pct = Math.round((progress.cases_done / total) * 100);
   // Before the checks enumerate their work there is no case count — reading the
   // SIN and rebuilding the models takes minutes on a large model. Run the bar
   // indeterminate through that rather than showing a meaningless 0/0.
   const known = progress.cases_known !== false && progress.cases_total > 0;
-  const log = progress.log ?? [];
+  const prep = progress.prep;
+  const prepSteps = prep?.steps ?? [];
+  const prepDone = prepSteps.filter((s) => s.done).length;
+
   return (
     <div className="border-b border-gray-700 px-3 py-2 space-y-2">
       <div className="flex items-center justify-between gap-2 min-w-0">
-        <span className="truncate min-w-0 text-gray-200">
+        <span
+          className={
+            "truncate min-w-0 text-gray-200 " +
+            (progress.complete ? "" : "ada-shimmer-text")
+          }
+        >
           {progress.message || "Calculating results"}
         </span>
         <span className="shrink-0 font-mono text-gray-400">
@@ -2206,78 +2303,54 @@ const CapacityCalcProgressPanel: React.FC<{
           style={{ width: known ? `${Math.max(pct, 2)}%` : "100%" }}
         />
       </div>
+
       <div className="space-y-1">
+        {/* Preparation: model reconstruction, stress recovery, load resolution.
+            Most of the wait before the first case, and previously invisible. */}
+        {prep && (
+          <ProgressRow
+            label={
+              prep.complete
+                ? "Preparing model and loads"
+                : (prep.active ?? "Preparing model and loads")
+            }
+            right={
+              prep.complete
+                ? `${prepDone} steps`
+                : `${prepDone}/${Math.max(prepSteps.length, 1)}`
+            }
+            // Step count grows as stages are discovered, so a percentage would
+            // jump around; show it as simply active until it is done.
+            pct={prep.complete ? 100 : null}
+            state={prep.complete ? "done" : "active"}
+            title={prepSteps.map((s) => s.label).join(" → ")}
+          />
+        )}
+
         {progress.runs.map((r) => {
           const runTotal = Math.max(r.cases_total, 1);
           const done = r.cases_ready.length;
-          const runPct = Math.round((done / runTotal) * 100);
+          const started = r.started !== false;
           return (
-            <div key={r.id} className="space-y-0.5">
-              <div className="flex items-center justify-between gap-2 text-[11px] min-w-0">
-                <span
-                  className={
-                    "truncate min-w-0 " +
-                    (r.complete ? "text-emerald-400" : "text-gray-400")
-                  }
-                  title={r.label ?? r.scope}
-                >
-                  {r.complete ? "✓ " : ""}
-                  {r.label ?? r.scope}
-                </span>
-                <span className="shrink-0 font-mono text-gray-500">
-                  {done}/{r.cases_total}
-                  {r.complete && r.elapsed_s ? ` · ${r.elapsed_s}s` : ""}
-                </span>
-              </div>
-              <div className="h-0.5 bg-gray-800 rounded-sm overflow-hidden">
-                <div
-                  className={
-                    "h-full transition-all " +
-                    (r.complete ? "bg-emerald-500" : "bg-blue-500/70")
-                  }
-                  style={{ width: `${Math.max(runPct, 2)}%` }}
-                />
-              </div>
-            </div>
+            <ProgressRow
+              key={r.id}
+              label={r.label ?? r.scope}
+              right={
+                !started
+                  ? "queued"
+                  : `${done}/${r.cases_total}` +
+                    (r.complete && r.elapsed_s ? ` · ${Math.round(r.elapsed_s)}s` : "")
+              }
+              pct={!started ? null : Math.round((done / runTotal) * 100)}
+              state={r.complete ? "done" : started ? "active" : "pending"}
+            />
           );
         })}
       </div>
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] text-gray-500 truncate min-w-0">
-          Results appear as each load case finishes.
-        </span>
-        {log.length > 0 && (
-          <button
-            className="shrink-0 rounded-sm border border-gray-600 px-1.5 text-[11px] text-gray-400 hover:bg-gray-700"
-            onClick={() => setShowLog((v) => !v)}
-            title="What the calculation has been doing"
-          >
-            {showLog ? "Hide log" : "Log"}
-          </button>
-        )}
+
+      <div className="text-[11px] text-gray-500">
+        Results appear as each load case finishes.
       </div>
-      {showLog && (
-        // The run's phase transitions, newest last. Not a full terminal, but
-        // enough to see where the time is going during the long stages.
-        <div className="max-h-28 overflow-y-auto rounded-sm border border-gray-700 bg-gray-950/60 p-1 font-mono text-[10px] leading-relaxed text-gray-400">
-          {log.map((entry, i) => (
-            <div key={`${entry.at_s}-${i}`} className="flex gap-2">
-              <span className="shrink-0 text-gray-600">
-                {formatElapsed(entry.at_s)}
-              </span>
-              <span className="truncate" title={entry.message}>
-                {entry.message}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 };
-
-/** m:ss for the activity log, so long runs stay readable. */
-function formatElapsed(seconds: number): string {
-  const s = Math.max(0, Math.round(seconds));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}

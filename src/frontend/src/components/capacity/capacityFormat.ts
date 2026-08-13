@@ -62,6 +62,116 @@ export function caseResultKey(row: CapacityCaseResultLike): string {
   );
 }
 
+/** A run's errors, grouped for a banner that stays readable at 100+ of them. */
+export interface CapacityErrorGroup {
+  /** The kind of failure, with the case-specific numbers stripped out. */
+  kind: string;
+  count: number;
+  models: Array<{
+    capacity_model_id: string;
+    label: string;
+    cases: string[];
+    /** One full message, kept for the tooltip. */
+    sample: string;
+  }>;
+}
+
+/** Strip the parts of a message that vary case to case.
+ *
+ *  The same failure reported 109 times differs only in its numbers — "radicand:
+ *  -0.785…" vs "-0.224…" — so collapsing numeric literals is what makes them
+ *  group. Kept short: the full text is still available as a tooltip. */
+function errorKind(message: string): string {
+  const withoutNumbers = message
+    .replace(/-?\d+\.\d+(e[-+]?\d+)?/gi, "N")
+    .replace(/\s+/g, " ")
+    .trim();
+  return withoutNumbers.length > 140
+    ? `${withoutNumbers.slice(0, 137)}...`
+    : withoutNumbers;
+}
+
+/** Group a run's errors by kind, then by the model they occurred on.
+ *
+ *  Listing every occurrence makes the banner unusable on a real model — the
+ *  DBSW run reports 109 errors that are two models failing the same way across
+ *  most load cases. Grouped, that reads as one kind and two rows. */
+export function groupCapacityErrors(
+  errors: Array<{
+    capacity_model_id: string;
+    panel_group: string;
+    stiffener?: string;
+    case_id: string;
+    message: string;
+  }>,
+): CapacityErrorGroup[] {
+  const byKind = new Map<string, CapacityErrorGroup>();
+  for (const err of errors) {
+    const kind = errorKind(err.message);
+    let group = byKind.get(kind);
+    if (!group) {
+      group = { kind, count: 0, models: [] };
+      byKind.set(kind, group);
+    }
+    group.count += 1;
+    const label = err.stiffener
+      ? `${err.panel_group} / ${err.stiffener}`
+      : err.panel_group;
+    let model = group.models.find(
+      (m) => m.capacity_model_id === err.capacity_model_id && m.label === label,
+    );
+    if (!model) {
+      model = {
+        capacity_model_id: err.capacity_model_id,
+        label,
+        cases: [],
+        sample: err.message,
+      };
+      group.models.push(model);
+    }
+    if (!model.cases.includes(err.case_id)) model.cases.push(err.case_id);
+  }
+  const groups = [...byKind.values()];
+  groups.sort((a, b) => b.count - a.count);
+  for (const group of groups) {
+    group.models.sort((a, b) => b.cases.length - a.cases.length);
+  }
+  return groups;
+}
+
+/** "14-18, 21, 30-32" — contiguous numeric case ids collapse into ranges. */
+export function summariseCases(cases: string[]): string {
+  const numeric = cases
+    .map((c) => ({ raw: c, n: Number(c.replace(/^\D+/, "")) }))
+    .filter((c) => Number.isFinite(c.n))
+    .sort((a, b) => a.n - b.n);
+  if (numeric.length !== cases.length || numeric.length === 0) {
+    // Non-numeric ids: fall back to a plain, truncated list.
+    return cases.length > 6
+      ? `${cases.slice(0, 6).join(", ")}, +${cases.length - 6}`
+      : cases.join(", ");
+  }
+  const parts: string[] = [];
+  let start = numeric[0];
+  let prev = numeric[0];
+  const flush = () => {
+    parts.push(start.n === prev.n ? start.raw : `${start.raw}-${prev.raw}`);
+  };
+  for (const item of numeric.slice(1)) {
+    if (item.n === prev.n + 1) {
+      prev = item;
+      continue;
+    }
+    flush();
+    start = item;
+    prev = item;
+  }
+  flush();
+  return parts.length > 6
+    ? `${parts.slice(0, 6).join(", ")}, +${parts.length - 6} more`
+    : parts.join(", ");
+}
+
 /** Ordering weight for a result row: worst first. */
 export function capacityRowScore(row: CapacityCaseResultLike): number {
   // A missing engineering result is more severe than any finite utilization.

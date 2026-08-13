@@ -162,6 +162,10 @@ export interface CapacityCalcRunProgress {
   cases_ready: string[];
   complete: boolean;
   elapsed_s?: number;
+  /** False for a run that is announced but has not begun — the girder check
+   *  only starts once the panel check is done, and showing it as queued beats
+   *  having a second bar appear from nowhere. */
+  started?: boolean;
 }
 
 /** Published by a `--stream-results` run while the checks are still going, so
@@ -181,8 +185,16 @@ export interface CapacityCalcProgress {
    *  yet, so the bar runs indeterminate rather than showing a bogus 0/0. */
   cases_known?: boolean;
   elapsed_s?: number;
-  /** Recent phase transitions, newest last, for the activity log. */
+  /** Recent phase transitions, newest last. */
   log?: Array<{ at_s: number; phase: string; message: string }>;
+  /** Everything before per-case checking — model reconstruction, stress
+   *  recovery, load resolution. Over a minute of the wait before the first
+   *  case lands on a large model, so it gets its own row. */
+  prep?: {
+    complete: boolean;
+    active: string | null;
+    steps: Array<{ label: string; done: boolean; elapsed_s: number }>;
+  };
   runs: CapacityCalcRunProgress[];
   updated_utc?: string;
 }
