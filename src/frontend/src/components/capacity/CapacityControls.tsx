@@ -6,9 +6,11 @@ import { buildCodecheckCasePayload } from "@/services/codecheckCase";
 import {
   CAPACITY_FLOATING_PANEL_RIGHT_PX,
   CAPACITY_INPUT_RIGHT_WITH_RESULTS_PX,
+  capacityRowScore,
   caseLabelForRow,
   caseResultKey,
   formatUf,
+  resolveWorstSelection,
   formulaReference,
   modeButton,
   shortName,
@@ -168,8 +170,36 @@ const CapacityControls: React.FC = () => {
       .sort((a, b) => capacityRowScore(b) - capacityRowScore(a));
   }, [isWorst, worstRows, activeRows, activeCaseId, failedOnly]);
 
+  // Which worst-view row the selection refers to. Worst rows are synthesized
+  // per (model, stiffener) and carry the case their maximum came from, so this
+  // is what tells us whose detail to fetch while Case stays on Worst.
+  const worstSelection = useMemo(
+    () =>
+      isWorst
+        ? resolveWorstSelection({
+            worstRows,
+            caseDetail,
+            selectedResultId,
+            selectedModelId,
+          })
+        : { worstRow: null, row: null },
+    [isWorst, worstRows, caseDetail, selectedModelId, selectedResultId],
+  );
+
+  // Worst rows are compact (checks: []), so the Input/Results panels need the
+  // governing case's detail file. Fetch it without touching activeCaseId —
+  // that is the whole point of the fix for #35.
+  useEffect(() => {
+    const caseId = worstSelection.worstRow?.case_id;
+    if (!run?.case_detail || !caseId) return;
+    if (caseDetail[caseId] || caseDetailLoading[caseId]) return;
+    void loadCapacityCaseDetail(caseId);
+  }, [run, worstSelection, caseDetail, caseDetailLoading]);
+
   const selectedRow = useMemo(() => {
-    if (!run || !activeCaseId) return null;
+    if (!run) return null;
+    if (isWorst) return worstSelection.row;
+    if (!activeCaseId) return null;
     if (selectedResultId) {
       const resultMatch = activeRows.find(
         (row) => caseResultKey(row) === selectedResultId,
@@ -182,7 +212,15 @@ const CapacityControls: React.FC = () => {
         .filter((row) => row.capacity_model_id === selectedModelId)
         .sort((a, b) => capacityRowScore(b) - capacityRowScore(a))[0] ?? null
     );
-  }, [run, activeRows, selectedModelId, selectedResultId, activeCaseId]);
+  }, [
+    run,
+    isWorst,
+    worstSelection,
+    activeRows,
+    selectedModelId,
+    selectedResultId,
+    activeCaseId,
+  ]);
 
   const meshWarningCount = useMemo(() => {
     if (!run) return 0;
@@ -584,16 +622,16 @@ const CapacityControls: React.FC = () => {
                         (selected ? "bg-gray-800" : "")
                       }
                       onClick={() => {
-                        if (isWorst) {
-                          // Drill into the case that produced this worst UF.
-                          setActiveCaseId(row.case_id);
-                          setSelectedModelId(row.capacity_model_id);
-                        } else {
-                          setSelectedCapacityResult(
-                            row.capacity_model_id,
-                            rowKey,
-                          );
-                        }
+                        // Select in place. In the worst view this deliberately
+                        // does NOT switch Case to the row's governing case:
+                        // picking an item to look at it in 3D should not throw
+                        // away the worst-over-cases view the user is reading.
+                        // The governing case's detail is loaded separately (see
+                        // selectedWorstRow) so the panels still show real values.
+                        setSelectedCapacityResult(
+                          row.capacity_model_id,
+                          rowKey,
+                        );
                       }}
                     >
                       <td
@@ -1070,11 +1108,6 @@ const ProvenanceSourceSetView: React.FC<{ sourceSet: ProvenanceSourceSet }> = ({
  *  maximum. A specific check metric uses that check's usage from the row; rows
  *  without per-check usages (the worst-summary rows) fall back to the governing
  *  UF. */
-function capacityRowScore(row: CapacityCaseResultLike): number {
-  // A missing engineering result is more severe than any finite utilization.
-  return row.error ? Number.MAX_VALUE : (row.governing_usage ?? -1);
-}
-
 function buildIndividualUfValues(
   rows: CapacityCaseResultLike[],
   run: CapacityRunLike,

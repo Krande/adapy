@@ -62,6 +62,60 @@ export function caseResultKey(row: CapacityCaseResultLike): string {
   );
 }
 
+/** Ordering weight for a result row: worst first. */
+export function capacityRowScore(row: CapacityCaseResultLike): number {
+  // A missing engineering result is more severe than any finite utilization.
+  return row.error ? Number.MAX_VALUE : (row.governing_usage ?? -1);
+}
+
+/** Identity of a result row across cases: (capacity model, stiffener).
+ *  Worst-view rows are keyed this way, while per-case detail rows carry a
+ *  case-qualified ``id``, so the two are matched on this rather than on
+ *  ``caseResultKey``. */
+function rowIdentity(row: CapacityCaseResultLike): string {
+  return `${row.capacity_model_id}::${row.stiffener ?? row.panel_group}`;
+}
+
+/** Resolve what the "Worst (over selected cases)" view has selected.
+ *
+ *  Returns the compact worst row -- which carries the case its maximum came
+ *  from, so the caller knows whose detail to fetch -- and the row to display:
+ *  the full row from that case once its detail has loaded, otherwise the
+ *  compact row so the panel is never blank.
+ *
+ *  Selecting must not change the active case. The user asked for the worst
+ *  over a set of cases, and silently dropping them into one case throws that
+ *  away (issue #35). */
+export function resolveWorstSelection<T extends CapacityCaseResultLike>(args: {
+  worstRows: T[];
+  caseDetail: Record<string, CapacityCaseResultLike[]>;
+  selectedResultId: string | null;
+  selectedModelId: string | null;
+}): { worstRow: T | null; row: CapacityCaseResultLike | null } {
+  const { worstRows, caseDetail, selectedResultId, selectedModelId } = args;
+
+  let worstRow: T | null = null;
+  if (selectedResultId) {
+    worstRow =
+      worstRows.find((row) => caseResultKey(row) === selectedResultId) ?? null;
+  }
+  if (!worstRow && selectedModelId) {
+    // Picking in the 3D view selects a model, not a specific row.
+    worstRow =
+      worstRows
+        .filter((row) => row.capacity_model_id === selectedModelId)
+        .sort((a, b) => capacityRowScore(b) - capacityRowScore(a))[0] ?? null;
+  }
+  if (!worstRow) return { worstRow: null, row: null };
+
+  const want = rowIdentity(worstRow);
+  const detailed =
+    (caseDetail[worstRow.case_id] ?? []).find(
+      (row) => rowIdentity(row) === want,
+    ) ?? null;
+  return { worstRow, row: detailed ?? worstRow };
+}
+
 /** Human-readable case label for a result row. Worst-view rows carry the case
  *  they came from in ``worstCaseLabel``; otherwise resolve via the run's
  *  ``result_cases`` (falling back to the row's own label / id). */
