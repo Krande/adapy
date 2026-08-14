@@ -131,7 +131,7 @@ export interface BuilderCell extends CellBox {
   rotation?: [number, number, number];
   /** Group this cell belongs to (a group is one structure compiled with its own
    * blueprint). Serializes as the space's `STRUCTURE_NAME`; undefined/blank means
-   * ungrouped. Meaningful only for grouping-capable engines (pm-engine); the
+   * ungrouped. Meaningful only for grouping-capable engines; the
    * built-in engine ignores it. Cells only. */
   group?: string;
   /** Extra pydantic entity fields (TopoSpace/TopoEquipment) beyond the
@@ -1539,7 +1539,7 @@ export const useCellBuilderStore = create<CellBuilderState>((set, get) => {
         // offered list by fetchBlueprints below.
         selectedBlueprint: doc.blueprint_name ?? "steel_stru",
         // Reflect the engine this model was built for in the dropdown (a
-        // pm-engine example opens on pm-engine, not the adapy-default default).
+        // capability-engine example opens on that engine, not the adapy-default default).
         selectedEngine: doc.engine || "adapy-default",
         // Detailing selection now rides on the document (a template can default it
         // to adapy-default); absent = "none" (structural-only). Its per-joint

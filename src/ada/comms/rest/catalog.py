@@ -249,44 +249,15 @@ def builtin_detailing_engine_specs() -> list[dict]:
     return out
 
 
-# Seeded EXTERNAL (Tier-B) detailing engines — engines that run on a FOREIGN
-# capability pool (their own image/deps) rather than in-process. Registered here
-# as a code-level "DB seed" so they are selectable/routable in the Detailing
-# dropdown (tagged ``origin`` ``db``) even when their pool is offline — the
-# frontend renders an "(offline)" hint when no live worker re-announces the slug
-# (the same dual builtin+DB pattern the procedural engines use). ``entrypoint`` +
-# ``worker_capability`` drive the chained ``procedural_detail`` job: the compile
-# endpoint routes to ``worker_capability`` and passes ``entrypoint`` so the pool's
-# worker resolves ``detail(model_bytes, options) -> glb`` via ``load_entrypoint``.
-_SEEDED_DETAILING_ENGINES: tuple[dict, ...] = (
-    {
-        "slug": "weld-gen",
-        "name": "weld-gen detailing",
-        "description": "External weld-gen detailing engine — box/tubular fillet welds + boolean clash cuts; "
-        "runs on the weld-gen worker pool and consumes the neutral structural IFC artifact.",
-        "inprocess": False,
-        "entrypoint": "weld_gen.adapy_detailing:detail",
-        "worker_capability": "weld-gen",
-        "joint_types": [
-            {"slug": "box_to_box", "name": "Box-to-box fillet weld"},
-            {"slug": "box_to_plate", "name": "Box-to-plate fillet weld"},
-        ],
-    },
-)
-
-
-def seeded_detailing_engine_specs() -> list[dict]:
-    """Specs for the seeded EXTERNAL detailing engines (surfaced ``origin`` ``db``).
-    Tier-B engines routed to a foreign capability pool; listed even when the pool
-    is offline so a compile can still select/route them (frontend shows "(offline)").
-    Carry ``entrypoint`` + ``worker_capability`` for the chained ``procedural_detail``
-    job the compile endpoint enqueues."""
-    out: list[dict] = []
-    for d in _SEEDED_DETAILING_ENGINES:
-        spec = dict(d)
-        spec["joint_types"] = [dict(j) for j in d.get("joint_types", [])]
-        out.append(spec)
-    return out
+# NOTE: adapy hardcodes NO external (Tier-B, out-of-process) detailing engines.
+# An external engine is discovered ONLY from a live capability worker's heartbeat:
+# the worker's ``ADA_WORKER_PRELOAD`` module registers the engine via
+# ``ada.topo_model.register_detailing_engine`` (slug + ``entrypoint`` +
+# ``worker_capability`` + joint types) at import, so ``detailing_engine_specs()``
+# picks it up and the heartbeat advertises it (see ``_resolve_detailing_engine`` and
+# the ``/detailing-engines`` endpoint, which union the built-ins with live specs).
+# The engine is therefore selectable/routable whenever its pool is online and
+# absent otherwise — no engine-specific identity lives in this repo.
 
 
 def builtin_procedural_blueprint_specs(engine: str) -> list[dict]:

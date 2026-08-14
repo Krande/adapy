@@ -37,6 +37,14 @@ from ada.comms.rest.procedural import (  # noqa: E402
 )
 
 
+async def _async_none():
+    return None
+
+
+async def _async_val(v):
+    return v
+
+
 def _settings(tmp_path: pathlib.Path) -> Settings:
     return Settings(
         storage_kind="local",
@@ -74,38 +82,70 @@ def app_client(tmp_path: pathlib.Path):
 # ── endpoint: built-in detailing engines served without a DB/worker ──
 
 
+# A generic EXTERNAL (out-of-process) detailing engine, as a capability worker
+# would advertise it in its heartbeat (adapy hardcodes no external engines — they
+# are discovered only from live workers). Used to exercise the discovery + routing.
+_EXT_ENGINE = {
+    "slug": "ext-detail",
+    "name": "External detailing",
+    "description": "An external detailing engine on its own capability pool.",
+    "inprocess": False,
+    "entrypoint": "ext_detailing.adapy:detail",
+    "worker_capability": "ext-detail",
+    "joint_types": [
+        {"slug": "box_to_box", "name": "Box-to-box fillet weld"},
+        {"slug": "box_to_plate", "name": "Box-to-plate fillet weld"},
+    ],
+}
+
+
+def _live_worker_advertising_ext_detail():
+    """A fresh (non-stale) worker heartbeat that advertises ``_EXT_ENGINE`` — the
+    shape ``JobQueue.list_workers`` returns and ``_live_worker_specs`` reads."""
+    import time as _time
+
+    return [{"last_heartbeat": _time.time(), "procedural_detailing_engine_specs": [dict(_EXT_ENGINE)]}]
+
+
 def test_detailing_engines_builtin_without_db(app_client: TestClient):
     r = app_client.get("/api/scopes/shared/procedural-models/detailing-engines")
     assert r.status_code == 200, r.text
     engines = r.json()["detailing_engines"]
     slugs = [e["slug"] for e in engines]
-    # Built-ins first (none = the default), then the seeded EXTERNAL weld-gen engine.
-    assert slugs == ["none", "adapy-default", "weld-gen"]
+    # Only the in-process built-ins (none = the default) without a live worker —
+    # adapy hardcodes NO external engines, so none appear until a pool advertises one.
+    assert slugs == ["none", "adapy-default"]
     for e in engines:
         assert e["name"]
         assert isinstance(e["joint_types"], list)
-    # The in-process built-ins are origin=code; the external weld-gen is origin=db.
-    for slug in ("none", "adapy-default"):
-        assert next(e for e in engines if e["slug"] == slug)["origin"] == "code"
+        assert e["origin"] == "code"
     adapy = next(e for e in engines if e["slug"] == "adapy-default")
     assert {"girder_gusset", "column_base_plate", "box_to_box"} <= {j["slug"] for j in adapy["joint_types"]}
     # End plates were dropped from the engine entirely — never advertised.
     assert "beam_column_endplate" not in {j["slug"] for j in adapy["joint_types"]}
 
 
-def test_external_weldgen_detailing_engine_seeded_offline(app_client: TestClient):
-    # The external weld-gen engine is a code-level DB seed so it is selectable /
-    # routable even when its pool is offline: origin=db, online=False, inprocess=False,
-    # and it advertises its worker_capability + joint types.
-    r = app_client.get("/api/scopes/shared/procedural-models/detailing-engines")
+def test_external_detailing_engine_discovered_from_live_worker(monkeypatch, tmp_path: pathlib.Path):
+    # An external engine appears in the dropdown ONLY while a capability worker
+    # advertises it (origin=db, online=True, inprocess=False), carrying its
+    # worker_capability + joint types. No live worker -> absent (test above).
+    from ada.comms.rest.queue import JobQueue
+
+    monkeypatch.setattr(JobQueue, "enabled", property(lambda self: True))
+    monkeypatch.setattr(JobQueue, "connect", lambda self: _async_none())
+    monkeypatch.setattr(JobQueue, "list_workers", lambda self: _async_val(_live_worker_advertising_ext_detail()))
+
+    app = create_app(_settings(tmp_path))
+    with TestClient(app) as client:
+        r = client.get("/api/scopes/shared/procedural-models/detailing-engines")
     assert r.status_code == 200, r.text
     engines = r.json()["detailing_engines"]
-    weldgen = next(e for e in engines if e["slug"] == "weld-gen")
-    assert weldgen["origin"] == "db"
-    assert weldgen["online"] is False  # no live worker pool in the test env
-    assert weldgen["inprocess"] is False
-    assert weldgen["worker_capability"] == "weld-gen"
-    assert {"box_to_box", "box_to_plate"} <= {j["slug"] for j in weldgen["joint_types"]}
+    ext = next(e for e in engines if e["slug"] == "ext-detail")
+    assert ext["origin"] == "db"
+    assert ext["online"] is True
+    assert ext["inprocess"] is False
+    assert ext["worker_capability"] == "ext-detail"
+    assert {"box_to_box", "box_to_plate"} <= {j["slug"] for j in ext["joint_types"]}
 
 
 def test_builtin_detailing_specs_match_registry():
@@ -138,17 +178,6 @@ def test_builtin_detailing_joint_type_fields_match_registry():
         assert f["type"] in ("number", "bool", "enum")
 
 
-def test_seeded_detailing_specs_carry_routing_manifest():
-    # The seeded EXTERNAL engines carry the entrypoint + capability the compile
-    # endpoint routes the chained procedural_detail job on.
-    from ada.comms.rest.catalog import seeded_detailing_engine_specs
-
-    weldgen = next(s for s in seeded_detailing_engine_specs() if s["slug"] == "weld-gen")
-    assert weldgen["inprocess"] is False
-    assert weldgen["worker_capability"] == "weld-gen"
-    assert weldgen["entrypoint"] == "weld_gen.adapy_detailing:detail"
-
-
 # ── blob-key routing: "none" is byte-identical to the plain key ──────
 
 
@@ -158,8 +187,8 @@ def test_detailing_none_key_is_byte_identical_to_structural():
     for detailing in (None, "none"):
         assert procedural_detailing_glb_key("m", 3, None, detailing, "sim") == procedural_glb_key("m", 3, None)
         assert procedural_detailing_glb_key("m", 3, None, detailing, "detail") == procedural_detail_glb_key("m", 3, None)
-        assert procedural_detailing_glb_key("m", 3, "pm-engine", detailing, "sim") == procedural_glb_key(
-            "m", 3, "pm-engine"
+        assert procedural_detailing_glb_key("m", 3, "other-engine", detailing, "sim") == procedural_glb_key(
+            "m", 3, "other-engine"
         )
 
 
@@ -212,7 +241,7 @@ def test_detailing_options_never_leak_into_none_key():
 
 def test_structural_ifc_key():
     assert procedural_structural_ifc_key("m", 3) == "_procedural/m/r3.structural.ifc"
-    assert procedural_structural_ifc_key("m", 3, "pm-engine") == "_procedural/m/r3.pm-engine.structural.ifc"
+    assert procedural_structural_ifc_key("m", 3, "other-engine") == "_procedural/m/r3.other-engine.structural.ifc"
 
 
 def test_structural_sections_key_is_ifc_sibling():
@@ -221,8 +250,8 @@ def test_structural_sections_key_is_ifc_sibling():
     # SAME base as the IFC artifact, .structural.ifc -> .structural.sections.json.
     assert procedural_structural_sections_key("m", 3) == "_procedural/m/r3.structural.sections.json"
     assert (
-        procedural_structural_sections_key("m", 3, "pm-engine")
-        == "_procedural/m/r3.pm-engine.structural.sections.json"
+        procedural_structural_sections_key("m", 3, "other-engine")
+        == "_procedural/m/r3.other-engine.structural.sections.json"
     )
 
 
@@ -230,9 +259,9 @@ def test_structural_sections_key_is_ifc_sibling():
 
 
 def test_serialize_structural_artifact_contract():
-    # The neutral structural artifact the weld-gen side consumes: IFC bytes + a
-    # per-Beam section sidecar keyed by member name, section_type = the BOX/…
-    # tag weld-gen matches on, plus the numeric section geometry.
+    # The neutral structural artifact the external detailing side consumes: IFC
+    # bytes + a per-Beam section sidecar keyed by member name, section_type = the
+    # BOX/… tag the engine matches on, plus the numeric section geometry.
     import ada
     from ada.comms.rest.worker import _serialize_structural_artifact
 
@@ -248,8 +277,9 @@ def test_serialize_structural_artifact_contract():
 def test_external_detailing_compile_enqueues_chained_job(monkeypatch, tmp_path: pathlib.Path):
     # An external (Tier-B) detailing compile enqueues TWO jobs: the structural
     # build (writing the neutral artifact) and the chained procedural_detail job
-    # routed to the engine's worker_capability. Stub the DB + queue at the enqueue
-    # boundary (no pg / NATS / weld-gen image needed).
+    # routed to the engine's worker_capability. The engine is discovered from a
+    # LIVE worker's heartbeat (adapy hardcodes no external engines). Stub the DB +
+    # queue at the enqueue boundary (no pg / NATS / external image needed).
     from types import SimpleNamespace
 
     from ada.comms.rest import db as db_module
@@ -272,7 +302,10 @@ def test_external_detailing_compile_enqueues_chained_job(monkeypatch, tmp_path: 
         return SimpleNamespace(job_id=f"job-{target_format}")
 
     async def _fake_list_workers(self):
-        return []
+        # A live capability worker advertising the external detailing engine, so the
+        # compile endpoint resolves + routes it (its entrypoint/capability come from
+        # the heartbeat, not from any hardcoded adapy seed).
+        return _live_worker_advertising_ext_detail()
 
     async def _fake_connect(self):
         return None
@@ -298,7 +331,7 @@ def test_external_detailing_compile_enqueues_chained_job(monkeypatch, tmp_path: 
     with TestClient(app) as client:
         # _require_procedural_pool only checks non-None; the stubbed DB fns ignore it.
         client.app.state.db_pool = object()
-        r = client.post("/api/scopes/shared/procedural-models/m1/compile", params={"detailing": "weld-gen"})
+        r = client.post("/api/scopes/shared/procedural-models/m1/compile", params={"detailing": "ext-detail"})
     assert r.status_code == 200, r.text
     body = r.json()
 
@@ -316,17 +349,18 @@ def test_external_detailing_compile_enqueues_chained_job(monkeypatch, tmp_path: 
     assert build["conversion_options"]["structural_sections_key"] == sections_key
     assert build["derived_key"] == "_procedural/m1/r2.glb"  # plain structural key
 
-    # Chained detail stage: routed to weld-gen with the artifact keys + entrypoint.
-    assert detail["target_capability"] == "weld-gen"
-    assert detail["conversion_options"]["detailing_entrypoint"] == "weld_gen.adapy_detailing:detail"
+    # Chained detail stage: routed to the engine's capability with the artifact keys
+    # + the entrypoint the live worker advertised.
+    assert detail["target_capability"] == "ext-detail"
+    assert detail["conversion_options"]["detailing_entrypoint"] == "ext_detailing.adapy:detail"
     assert detail["conversion_options"]["structural_ifc_key"] == ifc_key
     assert detail["conversion_options"]["structural_sections_key"] == sections_key
-    assert detail["derived_key"] == "_procedural/m1/r2.det-weld-gen.glb"
+    assert detail["derived_key"] == "_procedural/m1/r2.det-ext-detail.glb"
 
     # The endpoint returns the detail job + the detailing GLB key, plus the
     # structural job/key so a caller can load both layers.
     assert body["job_id"] == "job-procedural_detail"
-    assert body["derived_key"] == "_procedural/m1/r2.det-weld-gen.glb"
+    assert body["derived_key"] == "_procedural/m1/r2.det-ext-detail.glb"
     assert body["structural_job_id"] == "job-procedural_build"
     assert body["structural_key"] == "_procedural/m1/r2.glb"
 
@@ -348,7 +382,7 @@ def test_procedural_detail_waits_for_structural_artifact(monkeypatch):
 
     ifc_key = "_procedural/m1/r2.structural.ifc"
     sections_key = "_procedural/m1/r2.structural.sections.json"
-    detail_key = "_procedural/m1/r2.det-weld-gen.glb"
+    detail_key = "_procedural/m1/r2.det-ext-detail.glb"
 
     # The IFC artifact only "appears" after this many existence checks; the
     # sidecar is present from the start (written moments after in reality).
@@ -396,8 +430,8 @@ def test_procedural_detail_waits_for_structural_artifact(monkeypatch):
             "model_id": "m1",
             "revision": 2,
             "engine": None,
-            "detailing": "weld-gen",
-            "detailing_entrypoint": "weld_gen.adapy_detailing:detail",
+            "detailing": "ext-detail",
+            "detailing_entrypoint": "ext_detailing.adapy:detail",
             "structural_ifc_key": ifc_key,
             "structural_sections_key": sections_key,
         },

@@ -89,7 +89,7 @@ def test_blueprints_default_engine_is_the_query_default(app_client: TestClient):
 def test_blueprints_unknown_engine_falls_back_to_engine_default(app_client: TestClient):
     # An engine with no static built-ins and no live worker still yields a
     # non-empty dropdown so the compile can proceed.
-    r = app_client.get("/api/scopes/shared/procedural-models/blueprints?engine=pm-engine")
+    r = app_client.get("/api/scopes/shared/procedural-models/blueprints?engine=ext-engine")
     assert r.status_code == 200, r.text
     blueprints = r.json()["blueprints"]
     assert len(blueprints) == 1
@@ -117,11 +117,11 @@ def test_builtin_blueprint_specs_are_announced():
 def test_register_procedural_blueprint_is_idempotent_and_engine_scoped():
     from ada.topo_model import procedural_blueprint_specs, register_procedural_blueprint
 
-    register_procedural_blueprint("pm-engine", "hull", "Hull shell", description="demo")
-    register_procedural_blueprint("pm-engine", "hull", "Hull shell")  # replace, not dup
-    hulls = [s for s in procedural_blueprint_specs("pm-engine") if s["slug"] == "hull"]
+    register_procedural_blueprint("ext-engine", "hull", "Hull shell", description="demo")
+    register_procedural_blueprint("ext-engine", "hull", "Hull shell")  # replace, not dup
+    hulls = [s for s in procedural_blueprint_specs("ext-engine") if s["slug"] == "hull"]
     assert len(hulls) == 1
-    assert hulls[0]["engine"] == "pm-engine"
+    assert hulls[0]["engine"] == "ext-engine"
 
     # It's scoped to its engine, not leaked into adapy-default.
     assert "hull" not in {s["slug"] for s in procedural_blueprint_specs("adapy-default")}
@@ -137,7 +137,7 @@ def test_builtin_blueprint_specs_match_slim_catalog():
     assert default["steel_stru"]["name"] == "Steel structure"
     # An engine with no static built-ins returns an empty list (endpoint then
     # falls back to the engine-default entry).
-    assert builtin_procedural_blueprint_specs("pm-engine") == []
+    assert builtin_procedural_blueprint_specs("ext-engine") == []
 
 
 def test_blueprint_fields_match_ada_registry():

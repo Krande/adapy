@@ -17,7 +17,7 @@ Two built-ins are registered at import:
   (:func:`ada.topo_model.detailing.detail`) that adds the SteelStru starter
   joints (girder–girder gusset, beam–column end plate, column base plate).
 
-An external capability engine (e.g. weld-gen) advertises ``inprocess=False`` and
+An external capability engine advertises ``inprocess=False`` and
 a ``worker_capability`` by importing a module that calls
 :func:`register_detailing_engine` at worker start — see ``ADA_WORKER_PRELOAD`` —
 exactly like the procedural engine capabilities.

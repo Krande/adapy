@@ -837,7 +837,7 @@ def _export_with_ada(
         # welding closes the seam that the UV-grid fast path leaves cracked. Scoped over the whole
         # GLB leg — both the native record route and the Python ``to_gltf`` fall-through read
         # ADA_TESS_WT_CDT_FULL_PATCH in adacpp. Only set when such a plate is present (the adacpp
-        # side further gates on real shared-edge pins), so flat-plate / crane models are untouched;
+        # side further gates on real shared-edge pins), so flat-plate models are untouched;
         # an explicit ambient value is respected. Restored in the finally for the next job.
         _prev_cdt = _os.environ.get("ADA_TESS_WT_CDT_FULL_PATCH")
         if _prev_cdt is None and _model_has_thick_curved_shells(model):

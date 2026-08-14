@@ -2639,7 +2639,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         The list is the union of the demo templates advertised by every
         currently-live worker: the base worker announces the ``adapy-default``
-        templates, and a capability worker (e.g. pm-engine) announces its own —
+        templates, and a capability worker announces its own —
         so a template appears exactly while a worker that can build it is up, and
         vanishes when that pool goes offline. Each carries the ``doc`` committed
         verbatim on instantiate (for a non-default engine, a thin routing
@@ -2958,17 +2958,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_obj: Scope = Depends(_scope_from_path),
     ) -> JSONResponse:
         """Detailing engines for the Compile-settings "Detailing" dropdown: the
-        union of the static built-ins (``none`` + ``adapy-default``) and any a
-        live (non-stale) worker advertises via ``procedural_detailing_engine_specs``
-        (a capability worker registers external engines like weld-gen), each
-        tagged ``origin`` ``code``/``db``. Selecting one is a COMPILE-time choice
-        (not part of the document); ``none`` (the default, first) passes no
-        detailing -> structural-only GLB. Built-in + worker-advertised, no DB
-        rows — modeled on the blueprints/design-rulesets dropdowns."""
-        from .catalog import (
-            builtin_detailing_engine_specs,
-            seeded_detailing_engine_specs,
-        )
+        union of the static built-ins (``none`` + ``adapy-default``) and any an
+        external (out-of-process) engine a live (non-stale) capability worker
+        advertises via ``procedural_detailing_engine_specs``, each tagged ``origin``
+        ``code``/``db``. Selecting one is a COMPILE-time choice (not part of the
+        document); ``none`` (the default, first) passes no detailing -> structural-
+        only GLB. No hardcoded external engines: an external engine appears only
+        while its pool is online (modeled on the blueprints/design-rulesets
+        dropdowns)."""
+        from .catalog import builtin_detailing_engine_specs
 
         by_slug: dict[str, dict] = {}
         for spec in builtin_detailing_engine_specs():
@@ -2982,22 +2980,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "origin": "code",
                 "online": True,
             }
-        # Seeded EXTERNAL engines (weld-gen) — a code-level DB seed so they are
-        # selectable/routable even when their pool is offline. Tagged origin=db and
-        # online=False here; a live worker re-announcing the slug (below) flips
-        # online=True. The frontend shows an "(offline)" hint off online=False.
+        # External engines are discovered ONLY from live capability workers (their
+        # ADA_WORKER_PRELOAD registers the engine, so the heartbeat advertises it).
         live_detailing = await _live_worker_specs("procedural_detailing_engine_specs")
-        for spec in seeded_detailing_engine_specs():
-            by_slug[spec["slug"]] = {
-                "slug": spec["slug"],
-                "name": spec["name"],
-                "description": spec.get("description", ""),
-                "inprocess": bool(spec.get("inprocess", False)),
-                "worker_capability": spec.get("worker_capability"),
-                "joint_types": spec.get("joint_types", []),
-                "origin": "db",
-                "online": spec["slug"] in live_detailing,
-            }
         builtin_slugs = {s["slug"] for s in builtin_detailing_engine_specs()}
         for slug, spec in live_detailing.items():
             by_slug[slug] = {
@@ -3305,19 +3290,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse({"status": "archived"})
 
     async def _resolve_detailing_engine(detailing: str | None) -> dict | None:
-        """Resolve a selected detailing slug to its merged spec (or ``None`` for
-        ``none``/absent). Unions the seeded EXTERNAL engines with any a live worker
-        advertises (live wins), so an external engine is routable even offline. An
-        in-process built-in (``adapy-default``) has no external spec and returns
-        ``None`` — its detailing runs as stage 2 of the structural build (Phase 1)."""
+        """Resolve a selected detailing slug to the spec a live capability worker
+        advertises (or ``None`` for ``none``/absent). External engines are
+        discovered only from live heartbeats, so an external engine is routable
+        while its pool is online. An in-process built-in (``adapy-default``) has no
+        external spec and returns ``None`` — its detailing runs as stage 2 of the
+        structural build (Phase 1)."""
         if not detailing or detailing == "none":
             return None
-        from .catalog import seeded_detailing_engine_specs
-
-        by_slug = {s["slug"]: s for s in seeded_detailing_engine_specs()}
-        for slug, spec in (await _live_worker_specs("procedural_detailing_engine_specs")).items():
-            by_slug[slug] = {**by_slug.get(slug, {}), **spec}
-        spec = by_slug.get(detailing)
+        spec = (await _live_worker_specs("procedural_detailing_engine_specs")).get(detailing)
         # Only EXTERNAL (out-of-process) engines are routed as a chained job; an
         # in-process one falls through to the unchanged Phase-1 in-process path.
         if spec is None or spec.get("inprocess", False):
@@ -3401,7 +3382,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         catalog_fp = await _catalog_fingerprint_for(pool, scope_obj, row.get("doc") or {})
 
         # Resolve the selected detailing engine. An EXTERNAL (Tier-B) engine
-        # (inprocess=False, e.g. weld-gen) runs as a chained ``procedural_detail``
+        # (inprocess=False) runs as a chained ``procedural_detail``
         # job on its own capability pool consuming a neutral structural artifact;
         # an in-process one (none/adapy-default) is unchanged from Phase 1.
         det_spec = await _resolve_detailing_engine(detailing)
@@ -3651,7 +3632,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         The frontend passes the GLB ``derived_key`` (from the compile/preview
         response) as ``?key=``; the stats are that key's ``.stats.json`` sibling
-        (:func:`procedural_stats_key`). A model with no such sibling (pm-engine /
+        (:func:`procedural_stats_key`). A model with no such sibling (a capability engine /
         STEP-IFC imports) returns ``{"available": false}`` (HTTP 200) so the panel
         can degrade gracefully to a muted "take-off not available" state rather
         than erroring."""
@@ -4382,7 +4363,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "revision": 0,
         "origin": "builtin",
         # Built-ins compile a single model-level blueprint; cell grouping is a
-        # capability engine (pm-engine) feature, advertised via the worker heartbeat.
+        # capability engine feature, advertised via the worker heartbeat.
         "supports_grouping": False,
         "doc": {"kind": "builtin", "entrypoint": "ada.topo_model.wasm_compile:compile_doc"},
     }
@@ -4421,7 +4402,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ]
         # Fold each engine's advertised capability flags (from live, non-stale
         # workers) onto its summary by slug — this is how a DB-registered capability
-        # engine (pm-engine) reports ``supports_grouping=True`` while its worker is
+        # engine reports ``supports_grouping=True`` while its worker is
         # up. A slug with no live spec defaults to non-grouping. Built-ins carry
         # their static flag above and are overridden only if a worker re-announces.
         engine_caps = await _live_worker_specs("procedural_engine_specs")

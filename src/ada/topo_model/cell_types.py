@@ -11,7 +11,7 @@ advertises the cell/opening types it can build in its registry heartbeat
 ``ada.comms.rest.catalog`` so the dropdowns are never empty without a worker).
 
 The base adapy worker announces the ``adapy-default`` built-ins registered below.
-A capability worker (e.g. pm-engine) registers its own by importing a module that
+A capability worker registers its own by importing a module that
 calls :func:`register_procedural_cell_type` / :func:`register_procedural_opening_type`
 at worker start — see ``ADA_WORKER_PRELOAD`` — exactly like
 :func:`ada.topo_model.register_procedural_template`.

@@ -15,7 +15,7 @@ import ModelStatsPanel from "./ModelStatsPanel";
 // The compact "Stats" card in the scene menu: total mass, object count, inline
 // COG, a discipline mass-share bar + legend, and a top-right expand button that
 // opens the detailed take-off panel. Wired to the fetched take-off; degrades to
-// a muted note for models with no take-off (pm-engine / STEP-IFC imports).
+// a muted note for models with no take-off (a capability engine / STEP-IFC imports).
 
 function ExpandIcon() {
   return (

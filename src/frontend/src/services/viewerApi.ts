@@ -1055,7 +1055,7 @@ export interface ProceduralTemplate {
   /** Stable identity (the template slug). */
   id: string;
   name: string;
-  /** Engine slug shown in parentheses in the menu, e.g. "pm-engine". */
+  /** Engine slug shown in parentheses in the menu, e.g. an external engine. */
   engine: string;
   /** The document committed verbatim when the user picks this template. */
   doc: ProceduralDoc;
@@ -1314,7 +1314,7 @@ export interface ProceduralEngineSummary {
   /**
    * Whether this engine understands the cellbuilder's cell GROUPS (a group is one
    * structure compiled with its own blueprint). Advertised per engine by the
-   * backend (built-ins = false; a capability engine like pm-engine reports true
+   * backend (built-ins = false; a capability engine reports true
    * from its live worker). The Groups UI is gated on this flag — never on a
    * hardcoded engine slug.
    */
@@ -2153,8 +2153,8 @@ export const viewerApi = {
     // lod=detail compiles the richer detail model into a separate cache key.
     // engine selects the procedural engine. Pass it whenever the caller made an
     // explicit choice — INCLUDING "adapy-default": otherwise the server falls
-    // back to the model's stored engine, so picking adapy-default on a pm-engine
-    // model would silently still compile with pm-engine. Omit only when the
+    // back to the model's stored engine, so picking adapy-default on a capability-engine
+    // model would silently still compile with that engine. Omit only when the
     // caller passes null/undefined (e.g. auto-compile on instantiate, which
     // should honour the model's stored engine). adapy-default shares the bare
     // cache key with the no-engine case, so this is cache-safe.
@@ -2241,7 +2241,7 @@ export const viewerApi = {
   /** Fetch the quantity take-off computed alongside a compiled GLB (the data
    * behind the viewer Stats panel). `derivedKey` is the compile response's GLB
    * key; the stats are its `.stats.json` sibling. Returns `{available:false}`
-   * (HTTP 200) for models without a take-off (pm-engine / STEP-IFC imports) so
+   * (HTTP 200) for models without a take-off (a capability engine / STEP-IFC imports) so
    * the panel degrades gracefully rather than erroring. */
   async fetchModelStats(
     scope: ScopeUrl,

@@ -8,7 +8,7 @@ appears exactly while a worker that can build it is up.
 
 The base adapy worker announces the ``adapy-default`` templates defined below
 (they compile with the in-repo engine, server-side or in-browser). A capability
-worker (e.g. pm-engine) registers its own demos by importing a module that calls
+worker registers its own demos by importing a module that calls
 :func:`register_procedural_template` at worker start — see ``ADA_WORKER_PRELOAD``.
 
 A template's ``doc`` is the document committed verbatim when the user picks it;

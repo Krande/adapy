@@ -72,8 +72,8 @@ def _settings(tmp_path: pathlib.Path) -> Settings:
 def test_catalog_fp_key_is_sidecar_of_derived_key():
     # The sidecar is a plain ``.catfp`` sibling — one rule covers every variant.
     assert procedural_catalog_fp_key("_procedural/m1/r2.glb") == "_procedural/m1/r2.glb.catfp"
-    assert procedural_catalog_fp_key("_procedural/m1/r2.det-weld-gen.glb") == (
-        "_procedural/m1/r2.det-weld-gen.glb.catfp"
+    assert procedural_catalog_fp_key("_procedural/m1/r2.det-ext-detail.glb") == (
+        "_procedural/m1/r2.det-ext-detail.glb.catfp"
     )
     assert procedural_catalog_fp_key("_procedural/m1/r3_box.ifc") == "_procedural/m1/r3_box.ifc.catfp"
 

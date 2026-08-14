@@ -76,7 +76,7 @@ def _strip_none(d):
     typed ``float`` with a None DEFAULT accept None as a default but REJECT an
     explicit None to the constructor — so unpacking a null-laden dict raises and
     the whole compile drops entities. Stripping lets field defaults reapply.
-    Mirrors param_models' pm-engine ``_clean`` on the same reconstruction."""
+    Mirrors the external engine's ``_clean`` on the same reconstruction."""
     return {k: v for k, v in d.items() if v is not None} if isinstance(d, dict) else d
 
 
@@ -467,8 +467,8 @@ class ProceduralBuilder:
           blueprint is *framed*: the :class:`~ada.topo_model.blueprint.SteelStru`
           blueprint runs over the member's loft-derived cell graph and emits beams
           (columns/girders/stringers + floor plates), exactly as it does for box
-          ``spaces`` — a loft is just another topology source, mirroring the
-          pm-engine's ``SECTION_LOFT`` path. ``TopologyBuilder`` consumes the
+          ``spaces`` — a loft is just another topology source, mirroring a
+          capability engine's ``SECTION_LOFT`` path. ``TopologyBuilder`` consumes the
           prebuilt cell graph directly.
         * A **skin** member (``SURFACE_ONLY=True``, or ``blueprint_name='none'``)
           lofts its placed station profiles into a part of plates

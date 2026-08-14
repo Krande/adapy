@@ -1459,7 +1459,7 @@ const CellBuilderPanel: React.FC = () => {
                 {!supportsGrouping ? (
                   <div className="text-gray-400 text-xs">
                     {eng?.name ?? s.selectedEngine} compiles a single blueprint;
-                    grouping is available with pm-engine.
+                    grouping is available with a capability engine.
                   </div>
                 ) : (
                   <>

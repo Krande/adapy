@@ -1398,7 +1398,7 @@ def _serialize_structural_artifact(assembly) -> "tuple[bytes, dict]":
     external (Tier-B) detailing engine consumes: IFC bytes + a per-Beam section
     sidecar ``{member_name: {"section_type": <BOX/…>, "section_props": {...}}}``.
 
-    The sidecar is authoritative for section-type detection (weld-gen matches on
+    The sidecar is authoritative for section-type detection (the external engine matches on
     ``section.type.value.upper()``) so the external engine never has to re-derive
     it from a potentially lossy IFC round-trip. ``section_props`` carries the
     numeric geometry (``h``/``w_top``/``t_w``/``r``/``wt``/…) present on the section."""
@@ -1449,7 +1449,7 @@ async def _run_procedural_detail(
     started_at: float,
 ) -> None:
     """Chained EXTERNAL (Tier-B) detailing stage — the sibling of
-    :func:`_run_procedural_build` that runs on a foreign capability pool (weld-gen).
+    :func:`_run_procedural_build` that runs on a foreign capability pool.
 
     Reads the neutral structural artifact (IFC bytes) + its section sidecar the
     structural build wrote, resolves the external detailing engine's ``module:callable``
@@ -3571,7 +3571,7 @@ async def _run() -> None:
     _WORKER_IMAGE_TAG = image_tag or None
     worker_id = os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}"
     capabilities = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
-    # An extra-capability pool (e.g. weld-gen) builds FROM / runs an independent adapy and still
+    # An extra-capability pool builds FROM / runs an independent adapy and still
     # advertises the full base converter matrix, so it wins base conversion jobs (gxml->glb, ...)
     # it has no business running — and when that image is stale it produces outdated output (e.g.
     # non-manifold meshes). ADA_WORKER_BASE_CONVERSIONS=false makes this worker advertise ZERO base
@@ -3857,7 +3857,7 @@ async def _run() -> None:
     # Warm the heavy CAD imports in this (parent) process before the per-job fork
     # loop below, so forked children inherit them copy-on-write instead of paying
     # a cold re-import per conversion. Base pool only — capability pools
-    # (weld-gen/abaqus) run foreign images with their own deps. Run in a thread so
+    # (e.g. abaqus) run foreign images with their own deps. Run in a thread so
     # a slow cold import (OCC/ifcopenshell off a cold page cache) doesn't stall the
     # event loop's NATS keepalive while the worker is still starting up.
     if "base" in {c.lower() for c in capabilities}:

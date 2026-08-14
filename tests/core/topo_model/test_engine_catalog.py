@@ -3,7 +3,7 @@ engine's tolerate-and-ignore of a grouped doc.
 
 The capability flag is advertised per engine and rides in the worker heartbeat
 (``procedural_engine_specs``); the built-ins report ``supports_grouping=False``,
-a capability engine (pm-engine) registers ``True``. adapy-default ignores any
+a capability engine registers ``True``. adapy-default ignores any
 ``groups``/``STRUCTURE_NAME`` a doc carries — it compiles a single blueprint —
 but must not choke on them."""
 

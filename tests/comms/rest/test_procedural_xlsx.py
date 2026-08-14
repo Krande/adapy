@@ -79,7 +79,7 @@ def test_export_key_shape():
     assert key == "_procedural/abc-123/r4.xlsx"
     assert is_hidden_key(key)
     # non-default engine gets its own suffixed key
-    assert procedural_xlsx_export_key("abc-123", 4, "pm-engine") == "_procedural/abc-123/r4.pm-engine.xlsx"
+    assert procedural_xlsx_export_key("abc-123", 4, "ext-engine") == "_procedural/abc-123/r4.ext-engine.xlsx"
     assert procedural_xlsx_export_key("abc-123", 4, "adapy-default") == key  # collapses to bare
 
 
@@ -91,10 +91,10 @@ def test_import_key_shapes():
 
 
 def test_ada_meta_reader_roundtrips():
-    data = _xlsx_with_meta([("ada_meta_version", "1"), ("engine", "pm-engine"), ("package_version", "0.10.2")])
+    data = _xlsx_with_meta([("ada_meta_version", "1"), ("engine", "ext-engine"), ("package_version", "0.10.2")])
     meta = read_ada_meta_from_xlsx_bytes(data)
     assert meta is not None
-    assert meta["engine"] == "pm-engine"
+    assert meta["engine"] == "ext-engine"
     assert meta["package_version"] == "0.10.2"
 
 
@@ -135,13 +135,13 @@ def test_export_and_import_enqueue_503_without_db(app_client: TestClient):
 def test_import_upload_detects_engine_without_db(app_client: TestClient):
     # Upload + auto-detect needs neither a DB nor ada: the _ADA_META sheet is read
     # dependency-free and the workbook is staged under a hidden import token.
-    data = _xlsx_with_meta([("engine", "pm-engine"), ("package_version", "0.10.2")])
+    data = _xlsx_with_meta([("engine", "ext-engine"), ("package_version", "0.10.2")])
     r = app_client.post(
         "/api/scopes/shared/procedural-models/import-xlsx/upload", content=data
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["engine"] == "pm-engine"
+    assert body["engine"] == "ext-engine"
     assert body["source_key"].startswith("_procedural/_import/")
 
     # A legacy workbook (no _ADA_META) -> engine null (frontend then prompts).

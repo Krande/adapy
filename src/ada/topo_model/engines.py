@@ -81,7 +81,7 @@ class EngineBinding(BaseModel):
 # per-group blueprints (a group == one structure with its own blueprint). The
 # built-ins do NOT: adapy-default compiles a single model-level blueprint and
 # tolerates-but-ignores any ``groups``/``STRUCTURE_NAME`` in the doc; echo renders
-# raw boxes. A capability engine (pm-engine) advertises ``True`` from its worker
+# raw boxes. A capability engine advertises ``True`` from its worker
 # specs (see ``ada.topo_model.engine_catalog`` / the worker heartbeat).
 BUILTIN_ENGINES: dict[str, dict] = {
     DEFAULT_ENGINE_SLUG: {

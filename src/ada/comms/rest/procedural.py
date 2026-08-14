@@ -30,7 +30,7 @@ def engine_wheel_key(engine_id: str, filename: str) -> str:
 
 def procedural_source_key(model_id: str, ext: str = ".xlsx") -> str:
     """Blob key for a procedural model's ORIGINAL source document (e.g. the
-    param_models workbook it was imported from). Kept so a full-fidelity engine can
+    workbook it was imported from). Kept so a full-fidelity engine can
     compile the source directly (all config the topology doc drops); referenced by
     ``doc["source_xlsx_key"]``."""
     return f"{PROCEDURAL_PREFIX}{model_id}/source{ext.lower()}"
@@ -198,7 +198,7 @@ def procedural_stats_key(glb_key: str) -> str:
     ``preview/{hash}.glb``) and the stats key can never drift from the key the
     worker actually wrote the GLB to (mirrors :func:`procedural_log_key`). The
     frontend fetches it to populate the viewer's Stats panel; a model with no such
-    sibling (pm-engine / STEP-IFC imports) degrades gracefully to "no take-off"."""
+    sibling (a capability engine / STEP-IFC imports) degrades gracefully to "no take-off"."""
     if glb_key.endswith(".glb"):
         return f"{glb_key[: -len('.glb')]}.stats.json"
     return f"{glb_key}.stats.json"
@@ -242,8 +242,8 @@ def procedural_relocations_key(model_id: str) -> str:
 # ── Excel round-trip (export / import) ────────────────────────────────
 #
 # A procedural model can be exported to — and imported from — the OWNING
-# engine's Excel workbook (adapy-default: ada.topo_model.excel; pm-engine: the
-# param_models workbook). Both directions DELEGATE to the worker (the engine's
+# engine's Excel workbook (adapy-default: ada.topo_model.excel; a capability
+# engine: its own workbook). Both directions DELEGATE to the worker (the engine's
 # capability pool owns the read/write), mirroring the compile/relocations
 # synthetic-job pattern.
 
@@ -533,7 +533,7 @@ def validate_doc(doc: dict) -> dict:
     # DEFAULT (e.g. TopoOpening.X/Y/Z/DX/DY/DZ). pydantic accepts None as a
     # default but REJECTS an explicit None passed to the constructor — so a dump
     # that re-injects nulls makes every downstream `TopoOpening(**o)` /
-    # `TopoEquipment(**e)` reconstruction (adapy-default compile.py + pm-engine
-    # procedural_engine) raise, silently dropping equipment/openings. Dropping
+    # `TopoEquipment(**e)` reconstruction (adapy-default compile.py + a capability
+    # engine's procedural_engine) raise, silently dropping equipment/openings. Dropping
     # None-valued keys lets field defaults reapply cleanly on reconstruction.
     return model.model_dump(mode="json", exclude_none=True)

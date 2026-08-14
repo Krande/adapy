@@ -199,12 +199,12 @@ def test_engine_binding_roundtrips_through_doc_and_excel(tmp_path):
     assert default_doc["schema_version"] == PROCEDURAL_SCHEMA_VERSION
 
     # An explicit engine round-trips: object -> doc -> object, and via excel.
-    pb = ProceduralBuilder(spaces=list(ProceduralBuilder.from_dict(DOC).spaces), engine="param_models")
-    assert pb.to_doc()["engine"] == "param_models"
-    assert ProceduralBuilder.from_dict(pb.to_doc()).engine == "param_models"
+    pb = ProceduralBuilder(spaces=list(ProceduralBuilder.from_dict(DOC).spaces), engine="ext-engine")
+    assert pb.to_doc()["engine"] == "ext-engine"
+    assert ProceduralBuilder.from_dict(pb.to_doc()).engine == "ext-engine"
     xlsx = tmp_path / "engine.xlsx"
     pb.to_excel(xlsx)
-    assert ProceduralBuilder.from_excel(xlsx).engine == "param_models"
+    assert ProceduralBuilder.from_excel(xlsx).engine == "ext-engine"
 
 
 def test_from_json_string_and_file(tmp_path):

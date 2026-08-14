@@ -345,7 +345,7 @@ const StorageBrowser: React.FC = () => {
 
     // Start-from templates for the "New model from template" dropdown — the
     // union of the demo templates advertised by every currently-live worker
-    // (base worker → adapy-default; pm-engine worker → its loft demos, etc.).
+    // (base worker → adapy-default; a capability worker → its loft demos, etc.).
     // Refetched on scope change; empty when no workers are up.
     const [allTemplates, setAllTemplates] = useState<ProceduralTemplate[]>([]);
     const [templatesOpen, setTemplatesOpen] = useState(false);
@@ -390,7 +390,7 @@ const StorageBrowser: React.FC = () => {
     // verbatim (so loft members / systems survive untouched — the cellbuilder's
     // box round-trip would drop them), then kick a compile and open it. The
     // committed doc's engine is mirrored onto the model, so a worker-backed
-    // (e.g. pm-engine) template auto-routes its compile to that worker.
+    // template auto-routes its compile to that worker.
     const createProceduralModelFromTemplate = async (tpl: ProceduralTemplate) => {
         setTemplatesOpen(false);
         setPlusOpen(false);

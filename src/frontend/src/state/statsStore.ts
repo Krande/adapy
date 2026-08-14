@@ -2,7 +2,7 @@
 //
 // Holds the take-off fetched for the active model's compiled GLB, plus the
 // detail-panel UI state (open? which tab?). Fetching is best-effort: a model
-// with no sidecar (pm-engine / STEP-IFC imports) resolves to available:false and
+// with no sidecar (a capability engine / STEP-IFC imports) resolves to available:false and
 // the card shows a muted "take-off not available" state rather than erroring.
 
 import { create } from "zustand";

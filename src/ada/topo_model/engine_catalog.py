@@ -5,7 +5,7 @@ capability flagged here is ``supports_grouping``: whether the engine understands
 the cellbuilder's cell GROUPS (a group is one structure compiled with its own
 blueprint). The built-in engines do NOT — ``adapy-default`` compiles a single
 model-level blueprint (and tolerates-but-ignores any ``groups``/``STRUCTURE_NAME``
-a doc carries), ``echo`` renders raw boxes. A capability engine (e.g. pm-engine)
+a doc carries), ``echo`` renders raw boxes. A capability engine
 advertises ``supports_grouping=True`` by importing a module that calls
 :func:`register_procedural_engine_capabilities` at worker start — see
 ``ADA_WORKER_PRELOAD`` — exactly like :func:`register_procedural_blueprint`.
@@ -37,7 +37,7 @@ def register_procedural_engine_capabilities(
     supports_grouping: bool = False,
 ) -> None:
     """Register (or replace) the capability flags an engine advertises. ``slug`` is
-    the engine slug (e.g. ``pm-engine``); ``supports_grouping`` advertises whether
+    the engine slug (e.g. an external engine); ``supports_grouping`` advertises whether
     the engine compiles per-group blueprints. Idempotent by ``slug``."""
     _ENGINE_CAPABILITY_REGISTRY[slug] = {
         "slug": slug,
