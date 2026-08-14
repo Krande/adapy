@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { shouldShowCapacityPanel } from "../../components/capacity/capacityFormat";
 import CapacityRunStatus, {
   formatRunElapsed,
   runRow,
@@ -181,5 +182,41 @@ describe("CapacityRunStatus", () => {
     assert.ok(html.includes("ada-bar-indeterminate"));
     assert.ok(html.includes("Reading the SIN and reconstructing capacity models"));
     assert.ok(!html.includes("0 / 0"));
+  });
+});
+
+describe("capacity panel visibility", () => {
+  it("stays on screen for a streaming run that has computed nothing yet", () => {
+    // The state a --stream-results run opens in: viewer up, models being read,
+    // no spine to load. Keying the panel on results alone hid the run status
+    // for the whole calculation.
+    assert.equal(
+      shouldShowCapacityPanel({
+        hasResults: false,
+        loading: false,
+        error: false,
+        calculating: true,
+      }),
+      true,
+    );
+  });
+
+  it("stays hidden for a model with no code check at all", () => {
+    assert.equal(
+      shouldShowCapacityPanel({
+        hasResults: false,
+        loading: false,
+        error: false,
+        calculating: false,
+      }),
+      false,
+    );
+  });
+
+  it("shows a finished bundle, and a load in progress or failed", () => {
+    const base = { hasResults: false, loading: false, error: false, calculating: false };
+    assert.equal(shouldShowCapacityPanel({ ...base, hasResults: true }), true);
+    assert.equal(shouldShowCapacityPanel({ ...base, loading: true }), true);
+    assert.equal(shouldShowCapacityPanel({ ...base, error: true }), true);
   });
 });

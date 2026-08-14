@@ -22,6 +22,7 @@ import {
   formulaReference,
   modeButton,
   shortName,
+  shouldShowCapacityPanel,
   summariseCases,
   ufClass,
   worstCoverageLabel,
@@ -438,7 +439,18 @@ const CapacityControls: React.FC = () => {
     setSelectedCapacityResult,
   ]);
 
-  if (!results && !loading && !error) return null;
+  // Everything below the run status is already gated on ``run``, so the panel
+  // can render with a calculation in flight and nothing computed yet.
+  if (
+    !shouldShowCapacityPanel({
+      hasResults: !!results,
+      loading,
+      error: !!error,
+      calculating: !!calcProgress,
+    })
+  ) {
+    return null;
+  }
 
   return (
     <div className="rounded-sm border border-gray-700 bg-gray-900/95 text-gray-100 text-xs shadow-lg">

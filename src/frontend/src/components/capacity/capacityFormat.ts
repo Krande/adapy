@@ -305,3 +305,20 @@ export function formulaReference(
     : "";
   return `${clause}${equations}`;
 }
+
+/** Whether the Capacity panel should be on screen at all.
+ *
+ *  A streaming run opens the viewer *before* it computes anything, so there is
+ *  no spine to load until its first result case lands — and the run status is
+ *  the entire point of the panel until then. Keying this on results alone left
+ *  a fresh streaming run looking like a model with no code check, which only
+ *  went unnoticed because a previous run's sidecar stayed discoverable and kept
+ *  the panel alive with stale numbers in it. */
+export function shouldShowCapacityPanel(args: {
+  hasResults: boolean;
+  loading: boolean;
+  error: boolean;
+  calculating: boolean;
+}): boolean {
+  return args.hasResults || args.loading || args.error || args.calculating;
+}
