@@ -203,6 +203,11 @@ export interface CapacityCalcProgress {
    *  yet, so the bar runs indeterminate rather than showing a bogus 0/0. */
   cases_known?: boolean;
   elapsed_s?: number;
+  /** Which spine is on disk. A streaming run rewrites it as runs enter — first
+   *  with their definitions, later with their results — and this is the only
+   *  signal that says the loaded copy is behind. Absent on sidecars written
+   *  before it existed; needsSpineReload falls back to its older reading. */
+  spine_revision?: number;
   /** Recent phase transitions, newest last. */
   log?: Array<{ at_s: number; phase: string; message: string }>;
   /** Everything before per-case checking — model reconstruction, stress
@@ -266,8 +271,18 @@ export function needsSpineReload(
   knownRunIds: readonly string[],
   hasResults: boolean,
   complete: boolean,
+  revisions?: { published?: number; loaded: number | null },
 ): boolean {
   if (!hasResults || complete) return true;
+  // The run publishes a revision every time it rewrites the spine, so "the
+  // copy I hold is behind" is answered exactly rather than inferred. It has to
+  // be: a run enters the spine when its *definitions* are published, which the
+  // reading below cannot see — it waits for cases, so a check that had been
+  // reconstructed but not yet run stayed missing from the dropdown.
+  const published = revisions?.published;
+  if (typeof published === "number") {
+    return revisions?.loaded == null || published > revisions.loaded;
+  }
   const known = new Set(knownRunIds);
   return runs.some((run) => run.cases_ready.length > 0 && !known.has(run.id));
 }
@@ -554,7 +569,11 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       worstSummary: null,
       worstSummaryLoading: false,
       worstSummaryError: null,
-      calcProgress: null,
+      // calcProgress is deliberately left alone here. This runs when a sidecar
+      // loads for the first time — which, for a streaming run, is *during* the
+      // calculation, as soon as it publishes its definitions. Clearing the run
+      // status there made it disappear and come back on the next poll.
+      // Unloading a model clears it, through clear().
       runUiMemory: {},
       loading: false,
       error: null,

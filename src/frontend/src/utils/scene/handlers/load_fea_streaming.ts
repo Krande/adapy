@@ -859,6 +859,9 @@ export function startCapacityProgressPolling(
     let lastDone = -1;
     let everSeen = false;
     let consecutiveFailures = 0;
+    // Which spine revision the store holds. Per polling session, because it is
+    // per bundle: a new model load starts polling afresh.
+    let loadedSpineRevision: number | null = null;
 
     const tick = async (): Promise<void> => {
         const ctx = active?.capacityFetch;
@@ -904,19 +907,21 @@ export function startCapacityProgressPolling(
         useCapacityResultsStore.getState().setCalcProgress(progress);
         const store = useCapacityResultsStore.getState();
 
-        // Re-read the spine when a run that has published cases is missing from
-        // it (it is rewritten as each run's first case lands), or when the run
-        // finishes and the spine goes final.
+        // Re-read the spine when the run says it has rewritten it — which it
+        // does as each run enters, first with its definitions and later with
+        // its results — or when the run finishes and the spine goes final.
         if (
             needsSpineReload(
                 progress.runs,
                 store.results?.runs.map((r) => r.id) ?? [],
                 !!store.results,
                 progress.complete,
+                {published: progress.spine_revision, loaded: loadedSpineRevision},
             )
         ) {
             try {
                 await reloadSpine();
+                loadedSpineRevision = progress.spine_revision ?? loadedSpineRevision;
             } catch (err) {
                 // eslint-disable-next-line no-console
                 console.warn("[capacity] streaming spine reload failed:", err);

@@ -321,6 +321,66 @@ describe("needsSpineReload", () => {
     assert.equal(needsSpineReload([], [], false, false), true);
     assert.equal(needsSpineReload([], ["run-001"], true, true), true);
   });
+
+  it("re-reads when the run has rewritten the spine since it was loaded", () => {
+    // Runs enter the spine as their *definitions* are published, before they
+    // have checked anything — which the cases_ready reading cannot see. A check
+    // that had been reconstructed but not yet run therefore stayed out of the
+    // "Capacity check type" dropdown for the whole run.
+    assert.equal(
+      needsSpineReload(
+        [publishing("run-001", ["9"]), publishing("run-003", [])],
+        ["run-001"],
+        true,
+        false,
+        { published: 4, loaded: 2 },
+      ),
+      true,
+    );
+  });
+
+  it("leaves the spine alone while the revision it holds is current", () => {
+    assert.equal(
+      needsSpineReload(
+        [publishing("run-001", ["9"]), publishing("run-003", [])],
+        ["run-001", "run-003"],
+        true,
+        false,
+        { published: 4, loaded: 4 },
+      ),
+      false,
+    );
+  });
+
+  it("reads the spine once when a revision is published but none is loaded", () => {
+    assert.equal(
+      needsSpineReload([publishing("run-001", [])], ["run-001"], true, false, {
+        published: 1,
+        loaded: null,
+      }),
+      true,
+    );
+  });
+
+  it("falls back to the published-cases reading for a sidecar with no revision", () => {
+    assert.equal(
+      needsSpineReload(
+        [publishing("run-001", ["9"]), publishing("run-002", ["g9"])],
+        ["run-001"],
+        true,
+        false,
+        { published: undefined, loaded: null },
+      ),
+      true,
+    );
+    assert.equal(
+      needsSpineReload([publishing("run-001", ["9"])], ["run-001"], true, false, {
+        published: undefined,
+        loaded: null,
+      }),
+      false,
+    );
+  });
 });
 
 describe("girderLineTint", () => {
