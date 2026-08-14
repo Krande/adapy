@@ -326,6 +326,11 @@ interface RunUiMemory {
   selectedModelId: string | null;
   selectedResultId: string | null;
   worstCaseIds: string[];
+  /** Whether the subset above is the user's choice. Unpinned, it is only the
+   *  "every case" default and is re-taken from the run, which matters while a
+   *  calculation is running: a run visited before it had published anything
+   *  would otherwise be remembered as having no cases selected. */
+  worstCaseIdsPinned: boolean;
   worstSummary: CapacityWorstSummary | null;
 }
 
@@ -456,6 +461,11 @@ export interface CapacityResultsState {
   caseDetailLoading: Record<string, boolean>;
   /** Worst-over-cases: which result cases are included (default all). */
   worstCaseIds: string[];
+  /** True once the user has chosen the subset above. Until then it tracks the
+   *  run's cases, so a calculation that publishes them as it goes ends up with
+   *  every case included rather than however many existed when the run was
+   *  first looked at. */
+  worstCaseIdsPinned: boolean;
   worstSummary: CapacityWorstSummary | null;
   worstSummaryLoading: boolean;
   /** Set when one or more shards failed to load, so the worst table can say the
@@ -540,6 +550,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   caseDetail: {},
   caseDetailLoading: {},
   worstCaseIds: [],
+  worstCaseIdsPinned: false,
   worstSummary: null,
   worstSummaryLoading: false,
   worstSummaryError: null,
@@ -566,6 +577,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       caseDetail: {},
       caseDetailLoading: {},
       worstCaseIds: run?.result_cases?.map((c) => c.id) ?? [],
+      worstCaseIdsPinned: false,
       worstSummary: null,
       worstSummaryLoading: false,
       worstSummaryError: null,
@@ -588,7 +600,11 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
     set((state) => ({
       caseDetailLoading: { ...state.caseDetailLoading, [caseId]: loading },
     })),
-  setWorstCaseIds: (worstCaseIds) => set({ worstCaseIds }),
+  // Both of these are user actions (the All/None buttons and the per-case
+  // checkboxes), so they pin the subset: from here on it is a choice to be
+  // preserved, not a default to be widened as more cases arrive.
+  setWorstCaseIds: (worstCaseIds) =>
+    set({ worstCaseIds, worstCaseIdsPinned: true }),
   toggleWorstCase: (caseId) =>
     set((state) => {
       const has = state.worstCaseIds.includes(caseId);
@@ -596,6 +612,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
         worstCaseIds: has
           ? state.worstCaseIds.filter((id) => id !== caseId)
           : [...state.worstCaseIds, caseId],
+        worstCaseIdsPinned: true,
       };
     }),
   setWorstSummary: (worstSummary) => set({ worstSummary, worstSummaryLoading: false }),
@@ -612,17 +629,21 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
         results.runs.find((r) => r.id === state.activeRunId) ?? results.runs[0];
       const caseIds = run?.result_cases?.map((c) => c.id) ?? [];
       // Cases the run has grown since the last spine: adopt them into the
-      // worst subset, since the user's intent was "all of them".
-      const known = new Set(state.worstCaseIds);
+      // worst subset, since the user's intent was "all of them". Measured
+      // against the run's previous case list, not against the selection —
+      // against the selection, every case the user had unticked counted as new
+      // and was silently ticked again on the next refresh.
+      const previous = state.results?.runs.find((r) => r.id === run?.id);
+      const known = new Set(previous?.result_cases?.map((c) => c.id) ?? []);
       const grew = caseIds.filter((id) => !known.has(id));
       return {
         results,
         activeRunId: state.activeRunId ?? run?.id ?? null,
         activeCaseId: state.activeCaseId ?? defaultCaseId(run),
-        worstCaseIds:
-          state.worstCaseIds.length === 0
-            ? caseIds
-            : [...state.worstCaseIds, ...grew],
+        // Until the user picks a subset, it is simply every case the run has.
+        worstCaseIds: state.worstCaseIdsPinned
+          ? [...state.worstCaseIds, ...grew]
+          : caseIds,
         loading: false,
         error: null,
       };
@@ -673,6 +694,7 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
           selectedModelId: state.selectedModelId,
           selectedResultId: state.selectedResultId,
           worstCaseIds: state.worstCaseIds,
+          worstCaseIdsPinned: state.worstCaseIdsPinned,
           worstSummary: state.worstSummary,
         };
       }
@@ -686,8 +708,14 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
         // Metric ids are run-specific (panel vs girder checks); fall back to
         // the governing UF, which every run carries.
         activeMetricId: saved?.activeMetricId ?? DEFAULT_METRIC,
-        worstCaseIds:
-          saved?.worstCaseIds ?? run?.result_cases?.map((c) => c.id) ?? [],
+        // A run's remembered subset is restored only if the user chose it.
+        // Otherwise take every case the run has *now* — a run looked at before
+        // its check had published anything would otherwise be remembered as
+        // having no cases selected, and come back with an empty worst table.
+        worstCaseIds: saved?.worstCaseIdsPinned
+          ? saved.worstCaseIds
+          : run?.result_cases?.map((c) => c.id) ?? [],
+        worstCaseIdsPinned: saved?.worstCaseIdsPinned ?? false,
         worstSummary: saved?.worstSummary ?? null,
         worstSummaryLoading: false,
         worstSummaryError: null,

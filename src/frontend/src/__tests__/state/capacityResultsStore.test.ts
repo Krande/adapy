@@ -219,3 +219,56 @@ describe("capacityResultsStore", () => {
     assert.equal(useCapacityResultsStore.getState().worstSummaryError, null);
   });
 });
+
+describe("capacity worst-case subset defaults", () => {
+  beforeEach(() => {
+    useCapacityResultsStore.getState().clear();
+  });
+
+  /** A run's cases only exist once its check has published them, so a run can
+   *  be selected while it still has none. */
+  const streaming = (runCases: string[]): CapacityResults => ({
+    ...RESULTS,
+    runs: [
+      { ...RESULTS.runs[0] },
+      {
+        ...RESULTS.runs[1],
+        result_cases: runCases.map((id) => ({ id })),
+      },
+    ],
+  });
+
+  it("includes every case a run gains while the calculation runs", () => {
+    const store = useCapacityResultsStore.getState();
+    store.setCapacityData(MANIFEST, { sourceName: "m.SIN", resultsUrl: "u" }, streaming([]));
+    assert.deepEqual(useCapacityResultsStore.getState().worstCaseIds, []);
+
+    useCapacityResultsStore.getState().refreshResults(streaming(["7", "8"]));
+    assert.deepEqual(useCapacityResultsStore.getState().worstCaseIds, ["7", "8"]);
+  });
+
+  it("selects every case of a run first visited before it had any", () => {
+    // Switching away stashes the run's state; restoring an empty subset left
+    // the worst table empty for the rest of the session.
+    const store = useCapacityResultsStore.getState();
+    store.setCapacityData(MANIFEST, { sourceName: "m.SIN", resultsUrl: "u" }, streaming([]));
+    useCapacityResultsStore.getState().setActiveRunId("run-a");
+    useCapacityResultsStore.getState().refreshResults(streaming(["7", "8"]));
+    useCapacityResultsStore.getState().setActiveRunId("run-b");
+
+    assert.deepEqual(useCapacityResultsStore.getState().worstCaseIds, ["7", "8"]);
+  });
+
+  it("keeps a subset the user chose, and still adopts new cases into it", () => {
+    const store = useCapacityResultsStore.getState();
+    store.setCapacityData(MANIFEST, { sourceName: "m.SIN", resultsUrl: "u" }, streaming(["7", "8"]));
+    useCapacityResultsStore.getState().setWorstCaseIds(["7"]);
+
+    useCapacityResultsStore.getState().refreshResults(streaming(["7", "8", "9"]));
+    assert.deepEqual(useCapacityResultsStore.getState().worstCaseIds, ["7", "9"]);
+
+    useCapacityResultsStore.getState().setActiveRunId("run-a");
+    useCapacityResultsStore.getState().setActiveRunId("run-b");
+    assert.deepEqual(useCapacityResultsStore.getState().worstCaseIds, ["7", "9"]);
+  });
+});

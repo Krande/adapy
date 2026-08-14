@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   capacityOverlayKey,
   girderLineTint,
+  girderLineUfMap,
   isSameResultRow,
   resolveWorstSelection,
   worstCoverageLabel,
@@ -473,5 +474,28 @@ describe("capacityOverlayKey", () => {
       capacityOverlayKey({runId: "run-001", isolated: false, keepSize: 0}),
       capacityOverlayKey({runId: "run-003", isolated: false, keepSize: 0}),
     );
+  });
+});
+
+describe("girderLineUfMap", () => {
+  it("keeps girders off the UF scale for a run with no results yet", () => {
+    // Null means "definitions view" to the overlay, and its amber is
+    // indistinguishable from the 0.8-1.0 band. A run can be selected before its
+    // check has produced anything, and every girder looked nearly
+    // overutilised.
+    const map = girderLineUfMap(true, null);
+    assert.ok(map instanceof Map);
+    assert.equal(map?.size, 0);
+    assert.equal(girderLineTint(map?.get("girder-1"), map != null), "no-result");
+  });
+
+  it("uses the definitions colour only when results are turned off", () => {
+    assert.equal(girderLineUfMap(false, null), null);
+    assert.equal(girderLineUfMap(false, new Map([["g", 0.5]])), null);
+  });
+
+  it("passes computed usage factors through unchanged", () => {
+    const computed = new Map<string, number | null>([["girder-1", 0.42]]);
+    assert.equal(girderLineUfMap(true, computed), computed);
   });
 });

@@ -16,6 +16,7 @@ import {
   caseLabelForRow,
   caseResultKey,
   formatUf,
+  girderLineUfMap,
   groupCapacityErrors,
   isSameResultRow,
   resolveWorstSelection,
@@ -308,10 +309,16 @@ const CapacityControls: React.FC = () => {
       applyCapacityIndividualField(
         buildIndividualUfValues(rows, run, activeMetricId),
       );
-      applyCapacityGirderLineUf(buildGirderUfMap(rows, run, activeMetricId));
+      applyCapacityGirderLineUf(
+        girderLineUfMap(showResults, buildGirderUfMap(rows, run, activeMetricId)),
+      );
     } else {
       clearCapacityVisualField();
-      applyCapacityGirderLineUf(null);
+      // Not necessarily the definitions view: a run selected before its check
+      // has produced anything has no case to show. Girders stay off the UF
+      // scale there rather than reverting to the definitions amber, which is
+      // indistinguishable from the 0.8-1.0 band.
+      applyCapacityGirderLineUf(girderLineUfMap(showResults, null));
     }
     applyCapacitySelectionHighlight();
   }, [

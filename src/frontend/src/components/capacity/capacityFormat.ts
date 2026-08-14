@@ -277,6 +277,24 @@ export function girderLineTint(
   return showingResults ? "no-result" : "definition";
 }
 
+/** What to hand the girder-line overlay: usage factors, or null for the
+ *  definitions amber.
+ *
+ *  Null tells that overlay "definitions view", and its amber is the colour
+ *  described above — so it may only be used when the user has actually turned
+ *  results off. A run can now be selected before it has computed anything (its
+ *  models are published for review while its check is still queued), and
+ *  falling back to null there put every girder back in the colour that reads as
+ *  nearly overutilised. With results on, an empty map is the honest input: no
+ *  girder has a value yet, so they all tint as "no result". */
+export function girderLineUfMap(
+  showResults: boolean,
+  computed: Map<string, number | null> | null,
+): Map<string, number | null> | null {
+  if (!showResults) return null;
+  return computed ?? new Map<string, number | null>();
+}
+
 /** What the worst table's coverage line says.
  *
  *  Permanently on screen, so it has to read sensibly in every state rather than
