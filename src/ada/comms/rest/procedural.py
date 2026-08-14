@@ -204,6 +204,26 @@ def procedural_stats_key(glb_key: str) -> str:
     return f"{glb_key}.stats.json"
 
 
+def procedural_catalog_fp_key(derived_key: str) -> str:
+    """Blob key for the CATALOG-FINGERPRINT sidecar of a compiled artifact — the
+    plain-text fingerprint (:func:`ada.comms.rest.db.get_catalog_fingerprint`) of
+    the equipment + system catalog state the artifact was built from. A ``.catfp``
+    sibling of the derived key, so one rule covers every artifact variant (committed
+    GLB, its ``_detail`` LOD, an engine-suffixed key, a ``preview/{hash}.glb``, and
+    the ``.ifc``/``.gxml`` exports).
+
+    The catalog is a LIVE compile input that the model's own revision does NOT
+    capture: editing a placed equipment type (moving its ports, changing its
+    bbox/mass, re-linking CAD) or a system template must produce a fresh model, but
+    leaves the revision-stamped derived key unchanged. The compile/preview/export
+    endpoints therefore compare the LIVE catalog fingerprint against this sidecar:
+    a match serves the cached artifact; a mismatch (or a missing sidecar, e.g. an
+    artifact built before this feature) forces a recompile that overwrites the key.
+    A catalog-independent model (no equipment, no systems) never writes it — its
+    cache stays purely revision/doc-hash keyed, byte-identical to before."""
+    return f"{derived_key}.catfp"
+
+
 def procedural_stats_xlsx_key(glb_key: str) -> str:
     """Blob key for the take-off stats exported as an Excel workbook — a
     ``.stats.xlsx`` sibling of the GLB derived key (whole-model, multi-sheet)."""
@@ -394,7 +414,13 @@ def _doc_model():
     # TopoSystem/SystemConnection are the importable, xlsx-ready twins of the
     # local closure classes this used to declare — reused here so the wire format
     # has a single source of truth (they carry ClassVars but dump the same shape).
-    from ada.topology.entities import TopoEquipment, TopoLoftMember, TopoOpening, TopoSpace, TopoSystem
+    from ada.topology.entities import (
+        TopoEquipment,
+        TopoLoftMember,
+        TopoOpening,
+        TopoSpace,
+        TopoSystem,
+    )
 
     class ProceduralDoc(BaseModel):
         # Routing/identity header (see ada.topo_model.engines.EngineBinding):

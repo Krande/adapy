@@ -18,6 +18,7 @@ via the :func:`get_pool` accessor.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.resources
 import json
 from dataclasses import dataclass
@@ -3185,6 +3186,39 @@ async def get_equipment_cad_keys_by_scope(
         scope_id,
     )
     return {r["slug"]: r["cad_key"] for r in rows}
+
+
+async def get_catalog_fingerprint(pool: asyncpg.Pool, *, scope_kind: str, scope_id: str | None) -> str:
+    """A short, stable fingerprint of a scope's EQUIPMENT + SYSTEM catalogs — the
+    live inputs a procedural compile resolves that are NOT captured by the model's
+    own revision. Aggregates every non-archived catalog item's ``slug:revision``
+    (plus ``cad_key`` for equipment, since re-linking CAD changes the spliced
+    geometry). The value therefore changes whenever a catalog item is added (a new
+    slug appears), edited (its revision bumps), CAD-relinked, or archived (its slug
+    drops out). Folded into the procedural compile cache decision (via a sidecar) so
+    a catalog edit forces a fresh compile instead of serving the revision-stamped
+    stale artifact. Empty catalogs hash to a stable constant (md5 of '')."""
+    eq_fp = await pool.fetchval(
+        """
+        SELECT md5(COALESCE(
+            string_agg(slug || ':' || revision::text || ':' || COALESCE(cad_key, ''), ',' ORDER BY slug),
+            ''))
+        FROM equipment_types
+        WHERE scope_kind = $1 AND COALESCE(scope_id, '') = COALESCE($2, '') AND NOT archived
+        """,
+        scope_kind,
+        scope_id,
+    )
+    sy_fp = await pool.fetchval(
+        """
+        SELECT md5(COALESCE(string_agg(slug || ':' || revision::text, ',' ORDER BY slug), ''))
+        FROM system_templates
+        WHERE scope_kind = $1 AND COALESCE(scope_id, '') = COALESCE($2, '') AND NOT archived
+        """,
+        scope_kind,
+        scope_id,
+    )
+    return hashlib.sha256(f"eq:{eq_fp}|sy:{sy_fp}".encode("utf-8")).hexdigest()[:16]
 
 
 async def get_equipment_type(pool: asyncpg.Pool, type_id: str) -> dict | None:

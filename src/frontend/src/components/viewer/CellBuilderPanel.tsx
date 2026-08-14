@@ -3,7 +3,6 @@ import React from "react";
 import { PositionedMenu } from "@/components/common/PositionedMenu";
 import DetailingPanel from "@/components/viewer/DetailingPanel";
 import {
-  needsPreviewCompile,
   useCellBuilderStore,
   type SystemConnection,
 } from "@/state/cellBuilderStore";
@@ -1892,16 +1891,16 @@ const CellBuilderPanel: React.FC = () => {
         <span className="inline-flex">
           <button
             className={btn + " rounded-r-none flex items-center gap-1.5"}
-            // Enabled when there are uncommitted changes OR the wanted result
-            // isn't loaded yet (so a clean model with no result still compiles
-            // one). Disabled only once the result is present and nothing has
-            // changed — the ▾ menu's force-recompile is the rebuild escape hatch.
-            disabled={compileBusy || !needsPreviewCompile(s)}
+            // Always clickable on an active model: an explicit Compile re-consults
+            // the server, which is authoritative on cache-vs-rebuild. It rebuilds
+            // when anything the last compile depended on has changed — the document
+            // itself OR the equipment/system CATALOGS this model draws from (edited
+            // in the catalog window, so the doc stays "clean" and needsPreviewCompile
+            // can't see it) — and returns the cached result cheaply when nothing has.
+            disabled={compileBusy || !s.active}
             onClick={() => void s.compilePreviewSelected()}
             title={
-              !needsPreviewCompile(s)
-                ? "The current model is already shown and unchanged. Make an edit, or use ▾ → Recompile to force a rebuild."
-                : "Compile a preview of the current, uncommitted model (⇧↵) at the selected level(s) of detail. Nothing is saved — commit only when you're happy with what you see."
+              "Compile a preview of the current model (⇧↵) at the selected level(s) of detail. Rebuilds when the model — or the equipment/system catalog it uses — changed since the last compile; serves the cached result otherwise. Nothing is saved."
             }
           >
             {compileBusy ? `Compiling (${compileState?.status})…` : "Compile"}

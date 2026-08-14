@@ -1081,6 +1081,25 @@ def _assemble_compile_log(handler: _CompileLogCapture, stdout_buf: io.StringIO, 
     return text
 
 
+async def _write_catalog_fp_sidecar(storage: "Storage", scope, derived_key: str, opts: dict | None) -> None:
+    """Record the catalog fingerprint a procedural artifact was built from, as a
+    ``.catfp`` sibling of ``derived_key`` (see procedural.procedural_catalog_fp_key).
+    The compile/preview/export endpoints read it back to decide whether a cached
+    artifact is stale w.r.t. the live equipment/system catalogs. Best-effort and
+    only for catalog-dependent models (the endpoint passes ``catalog_fingerprint``
+    only when the model places catalog items); a write failure just means the next
+    compile treats the cache as stale and rebuilds once."""
+    fp = (opts or {}).get("catalog_fingerprint")
+    if not fp:
+        return
+    try:
+        from .procedural import procedural_catalog_fp_key
+
+        await storage.put_bytes(scope, procedural_catalog_fp_key(derived_key), str(fp).encode("utf-8"))
+    except Exception:
+        logger.warning("worker: failed to write catalog-fp sidecar for %s", derived_key)
+
+
 async def _run_procedural_build(
     *,
     job: Job,
@@ -1155,7 +1174,11 @@ async def _run_procedural_build(
     # The document to compile: the inline preview doc, or the DB revision's doc.
     doc = preview_doc if is_preview else row["doc"]
 
-    from ada.topo_model.engines import BUILTIN_ENGINES, compile_with_engine, is_default_engine
+    from ada.topo_model.engines import (
+        BUILTIN_ENGINES,
+        compile_with_engine,
+        is_default_engine,
+    )
 
     # A non-builtin engine selection is a registered (DB) engine: resolve its
     # manifest by slug to get the entrypoint. The engine's package is pre-installed
@@ -1227,9 +1250,7 @@ async def _run_procedural_build(
             # source_xlsx (when the model stored its workbook) drives the engine's
             # full-fidelity path; compile_with_engine passes only the kwargs the
             # engine accepts, so a doc-only engine ignores it.
-            return compile_with_engine(
-                selector, doc, name=row["name"], lod=lod, source_xlsx=source_xlsx
-            )
+            return compile_with_engine(selector, doc, name=row["name"], lod=lod, source_xlsx=source_xlsx)
         cad_meshes = {}
         for slug, (data, ext) in cad_bytes.items():
             # Honor the type's Z-up assumption so the spliced geometry lands in
@@ -1325,6 +1346,10 @@ async def _run_procedural_build(
         await _fail("upload", str(exc), tb_module.format_exc())
         return
 
+    # Bind this artifact to the catalog state it was built from, so a later catalog
+    # edit invalidates the (revision/doc-hash-stamped) cache and forces a recompile.
+    await _write_catalog_fp_sidecar(storage, scope, job.derived_key, job.conversion_options)
+
     # Take-off stats sidecar (default-engine builds only): a gzip-at-rest
     # ``.stats.json`` sibling of the GLB (procedural_stats_key). Best-effort — a
     # failure here must not fail an otherwise-good compile; the panel degrades.
@@ -1354,9 +1379,7 @@ async def _run_procedural_build(
             import json as _json
 
             await queue.update(job_id, stage="artifact", progress=0.95)
-            ifc_bytes, sections = await loop.run_in_executor(
-                None, _serialize_structural_artifact, assembly
-            )
+            ifc_bytes, sections = await loop.run_in_executor(None, _serialize_structural_artifact, assembly)
             await storage.put_bytes(scope, structural_ifc_key, ifc_bytes, content_encoding="gzip")
             await storage.put_bytes(
                 scope, structural_sections_key, _json.dumps(sections).encode("utf-8"), content_encoding="gzip"
@@ -1449,7 +1472,9 @@ async def _run_procedural_detail(
         await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
 
     if not entrypoint or ":" not in str(entrypoint):
-        await _fail("detail", "conversion_options.detailing_entrypoint (module:callable) is required for procedural_detail")
+        await _fail(
+            "detail", "conversion_options.detailing_entrypoint (module:callable) is required for procedural_detail"
+        )
         return
     if not structural_ifc_key:
         await _fail("detail", "conversion_options.structural_ifc_key is required for procedural_detail")
@@ -1534,6 +1559,10 @@ async def _run_procedural_detail(
         logger.exception("worker: procedural_detail upload failed for %s", model_id)
         await _fail("upload", str(exc), tb_module.format_exc())
         return
+
+    # The external detail output rides on the same catalog state as its structural
+    # stage; stamp its own sidecar so the endpoint's staleness check on derived_key works.
+    await _write_catalog_fp_sidecar(storage, scope, job.derived_key, job.conversion_options)
 
     await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
     await _audit_done(db_pool, job_id, "done", None, started_at)
@@ -1622,9 +1651,7 @@ async def _run_procedural_relocations(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
-async def _resolve_engine_manifest(
-    db_pool: "asyncpg.Pool", row: dict, engine: str | None
-) -> dict | None:
+async def _resolve_engine_manifest(db_pool: "asyncpg.Pool", row: dict, engine: str | None) -> dict | None:
     """The registry manifest doc for a NON-default, non-builtin engine (its
     ``entrypoint``/``worker_capability``/xlsx-sibling fields), resolved by slug in
     the model's scope. ``None`` for the default/built-in engines."""
@@ -1760,7 +1787,9 @@ async def _run_procedural_export_model(
         await _fail("export", f"procedural model {model_id} not found")
         return
     if row["revision"] != revision:
-        await _fail("export", f"procedural model {model_id} is at revision {row['revision']}, job requested r{revision}")
+        await _fail(
+            "export", f"procedural model {model_id} is at revision {row['revision']}, job requested r{revision}"
+        )
         return
 
     doc = row["doc"]
@@ -1860,6 +1889,9 @@ async def _run_procedural_export_model(
         await _fail("upload", str(exc), tb_module.format_exc())
         return
 
+    # Bind the export to the catalog state it resolved equipment from.
+    await _write_catalog_fp_sidecar(storage, scope, job.derived_key, job.conversion_options)
+
     await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
@@ -1922,7 +1954,11 @@ async def _run_procedural_import_xlsx(
         manifest_doc = (eng_row or {}).get("doc")
 
     from ada.comms.rest.procedural import procedural_source_key, validate_doc
-    from ada.topo_model.engines import DEFAULT_ENGINE_SLUG, EngineHasNoExcelFormat, import_xlsx_to_doc
+    from ada.topo_model.engines import (
+        DEFAULT_ENGINE_SLUG,
+        EngineHasNoExcelFormat,
+        import_xlsx_to_doc,
+    )
 
     def _do_import() -> dict:
         parsed = import_xlsx_to_doc(engine, xlsx_bytes, manifest_doc=manifest_doc)
@@ -1965,9 +2001,9 @@ async def _run_procedural_import_xlsx(
         await _fail("import", f"failed to commit imported doc for model {model_id}")
         return
 
-    payload = json.dumps(
-        {"model_id": model_id, "name": name, "engine": doc.get("engine"), "revision": new_rev}
-    ).encode("utf-8")
+    payload = json.dumps({"model_id": model_id, "name": name, "engine": doc.get("engine"), "revision": new_rev}).encode(
+        "utf-8"
+    )
     try:
         await queue.update(job_id, stage="upload", progress=0.90)
         await storage.put_bytes(scope, job.derived_key, payload, content_encoding="gzip")
@@ -2125,9 +2161,7 @@ async def _run_equipment_bbox(
     loop = asyncio.get_running_loop()
     try:
         await queue.update(job_id, stage="build", progress=0.40)
-        bbox, preview = await loop.run_in_executor(
-            None, lambda: _infer_equipment_geometry(data, ext, z_up=cad_z_up)
-        )
+        bbox, preview = await loop.run_in_executor(None, lambda: _infer_equipment_geometry(data, ext, z_up=cad_z_up))
     except Exception as exc:
         logger.exception("worker: equipment_bbox failed for %s", type_id)
         await _fail("build", str(exc), tb_module.format_exc())
@@ -3672,7 +3706,10 @@ async def _run() -> None:
     # capability worker's ADA_WORKER_PRELOAD registered (register_procedural_cell_type
     # / register_procedural_opening_type), exactly like the start-from templates.
     try:
-        from ada.topo_model import procedural_cell_type_specs, procedural_opening_type_specs
+        from ada.topo_model import (
+            procedural_cell_type_specs,
+            procedural_opening_type_specs,
+        )
 
         procedural_cell_specs = procedural_cell_type_specs()
         procedural_opening_specs = procedural_opening_type_specs()

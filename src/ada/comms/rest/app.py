@@ -2583,6 +2583,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="procedural model not found")
         return row
 
+    async def _catalog_fingerprint_for(pool, scope_obj: Scope, doc: dict) -> str | None:
+        """Fingerprint of the scope's equipment + system catalogs, but ONLY when the
+        model actually references catalog items — else ``None``, i.e. the model has no
+        catalog dependency and its cache stays purely revision/doc-hash keyed. The
+        equipment/system catalogs are live compile inputs the model's revision doesn't
+        capture, so folding this (via the ``.catfp`` sidecar) makes a catalog edit force
+        a fresh compile."""
+        if not (doc.get("equipments") or doc.get("systems")):
+            return None
+        return await db_module.get_catalog_fingerprint(pool, scope_kind=scope_obj.kind, scope_id=scope_obj.id)
+
+    async def _catalog_cache_stale(scope_obj: Scope, derived_key: str, catalog_fp: str | None) -> bool:
+        """True when a cached artifact must be rebuilt because the catalog changed
+        since it was built. ``catalog_fp is None`` (no catalog dependency) is never
+        stale. Otherwise compare the live fingerprint against the ``.catfp`` sidecar
+        written beside the artifact: a mismatch — or a missing sidecar (an artifact
+        built before this feature, or one whose sidecar write was lost) — is stale, so
+        the cache heals itself on the next compile."""
+        if catalog_fp is None:
+            return False
+        from .procedural import procedural_catalog_fp_key
+
+        try:
+            stored = (
+                (await storage.get_bytes(scope_obj, procedural_catalog_fp_key(derived_key))).decode("utf-8").strip()
+            )
+        except Exception:
+            stored = None
+        return stored != catalog_fp
+
     @api.get("/scopes/{scope}/procedural-models")
     async def api_procedural_list(
         request: Request,
@@ -2860,9 +2890,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "slug": slug,
                 "name": spec.get("name") or slug,
                 "origin": "code",
-                "subtype": spec.get("subtype")
-                if spec.get("subtype") in ("door", "window", "opening")
-                else "door",
+                "subtype": spec.get("subtype") if spec.get("subtype") in ("door", "window", "opening") else "door",
                 "size": spec.get("size") or [1.0, 1.0, 2.0],
             }
             for slug, spec in by_slug.items()
@@ -2937,7 +2965,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         (not part of the document); ``none`` (the default, first) passes no
         detailing -> structural-only GLB. Built-in + worker-advertised, no DB
         rows — modeled on the blueprints/design-rulesets dropdowns."""
-        from .catalog import builtin_detailing_engine_specs, seeded_detailing_engine_specs
+        from .catalog import (
+            builtin_detailing_engine_specs,
+            seeded_detailing_engine_specs,
+        )
 
         by_slug: dict[str, dict] = {}
         for spec in builtin_detailing_engine_specs():
@@ -3049,7 +3080,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         height — flow into the catalog docs that placed equipment resolve against,
         so a recompile picks them up. Idempotent: a slug whose catalog doc already
         equals the code doc is left untouched. Returns per-slug outcomes."""
-        from .catalog import resync_target_doc, summarize_equipment_doc_changes, validate_equipment_doc
+        from .catalog import (
+            resync_target_doc,
+            summarize_equipment_doc_changes,
+            validate_equipment_doc,
+        )
 
         pool = _require_catalog_pool(request)
         specs = await _live_worker_specs("procedural_equipment_specs")
@@ -3231,6 +3266,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             from .procedural import (
                 doc_content_hash,
+                procedural_catalog_fp_key,
                 procedural_glb_key,
                 procedural_preview_glb_key,
             )
@@ -3243,6 +3279,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if await storage.exists(scope_obj, preview_key) and not await storage.exists(scope_obj, revision_key):
                 data = await storage.get_bytes(scope_obj, preview_key)
                 await storage.put_bytes(scope_obj, revision_key, data, content_encoding="gzip")
+                # Carry the catalog-fingerprint sidecar across too, so the first
+                # post-commit compile short-circuits to cache instead of rebuilding
+                # once to (re)establish it (catalog-bearing models only).
+                try:
+                    fp = await storage.get_bytes(scope_obj, procedural_catalog_fp_key(preview_key))
+                    await storage.put_bytes(scope_obj, procedural_catalog_fp_key(revision_key), fp)
+                except Exception:
+                    pass
         except Exception:
             logger.warning("procedural: promote-on-commit failed for %s (non-fatal)", model_id, exc_info=True)
         return JSONResponse({"id": row["id"], "revision": new_revision})
@@ -3349,6 +3393,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             row["id"], row["revision"], engine, detailing, lod, detailing_options
         )
 
+        # The equipment/system catalogs are LIVE compile inputs the model revision
+        # doesn't capture — a catalog edit must yield a fresh compile even though the
+        # derived key is unchanged. Fingerprint them (only when the model places
+        # catalog items) and, on a hit, rebuild if the cached artifact predates the
+        # current catalog state (sidecar mismatch).
+        catalog_fp = await _catalog_fingerprint_for(pool, scope_obj, row.get("doc") or {})
+
         # Resolve the selected detailing engine. An EXTERNAL (Tier-B) engine
         # (inprocess=False, e.g. weld-gen) runs as a chained ``procedural_detail``
         # job on its own capability pool consuming a neutral structural artifact;
@@ -3357,7 +3408,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         is_external_detailing = det_spec is not None
 
         if not force and await storage.exists(scope_obj, derived_key):
-            return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
+            if not await _catalog_cache_stale(scope_obj, derived_key, catalog_fp):
+                return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
+            # Cached artifact is stale w.r.t. the catalog — rebuild it in place
+            # (force past the worker's own redelivery short-circuit).
+            force = True
 
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="procedural build disabled (no NATS configured)")
@@ -3401,6 +3456,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "detailing_external": True,
                     "structural_ifc_key": structural_ifc_key,
                     "structural_sections_key": sections_key,
+                    "catalog_fingerprint": catalog_fp,
                 },
                 derived_key=structural_key,
                 force_rebuild=force,
@@ -3421,6 +3477,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "detailing_options": detailing_options,
                     "structural_ifc_key": structural_ifc_key,
                     "structural_sections_key": sections_key,
+                    "catalog_fingerprint": catalog_fp,
                 },
                 derived_key=derived_key,
                 force_rebuild=force,
@@ -3448,6 +3505,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "engine": engine,
                 "detailing": detailing,
                 "detailing_options": detailing_options,
+                "catalog_fingerprint": catalog_fp,
             },
             derived_key=derived_key,
             force_rebuild=force,
@@ -3471,7 +3529,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         Mirrors :func:`api_procedural_compile` for engine routing / cache / enqueue,
         but the worker gets the doc inline (``conversion_options.preview_doc``)."""
-        from .procedural import doc_content_hash, procedural_preview_glb_key, validate_doc
+        from .procedural import (
+            doc_content_hash,
+            procedural_preview_glb_key,
+            validate_doc,
+        )
 
         body = await request.json()
         doc = body.get("doc")
@@ -3502,10 +3564,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         doc_hash = doc_content_hash(normalized)
         derived_key = procedural_preview_glb_key(row["id"], doc_hash, engine, lod, detailing, detailing_options)
 
+        # The preview key is content-keyed on the DOC, but catalog equipment/systems
+        # are resolved live at compile — so a catalog edit must invalidate a cached
+        # preview too (same reasoning as /compile). Fingerprint the referenced catalogs.
+        catalog_fp = await _catalog_fingerprint_for(pool, scope_obj, normalized)
+
         if not force and await storage.exists(scope_obj, derived_key):
-            return JSONResponse(
-                {"job_id": None, "derived_key": derived_key, "cached": True, "doc_hash": doc_hash}
-            )
+            if not await _catalog_cache_stale(scope_obj, derived_key, catalog_fp):
+                return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True, "doc_hash": doc_hash})
+            force = True
 
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="procedural build disabled (no NATS configured)")
@@ -3531,14 +3598,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "detailing": detailing,
                 "detailing_options": detailing_options,
                 "preview_doc": normalized,
+                "catalog_fingerprint": catalog_fp,
             },
             derived_key=derived_key,
             force_rebuild=force,
             target_capability=target_capability,
         )
-        return JSONResponse(
-            {"job_id": job.job_id, "derived_key": derived_key, "cached": False, "doc_hash": doc_hash}
-        )
+        return JSONResponse({"job_id": job.job_id, "derived_key": derived_key, "cached": False, "doc_hash": doc_hash})
 
     @api.get("/scopes/{scope}/procedural-models/{model_id}/compile-log")
     async def api_procedural_compile_log(
@@ -3808,8 +3874,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         detailing = (row.get("doc") or {}).get("detailing") if fmt == "ifc" else None
 
         derived_key = procedural_model_export_key(row["id"], row["revision"], fmt, cad_equipment=cad_equipment)
+        # Equipment (and, for gxml, systems) are resolved live from the catalog at
+        # export — so a catalog edit must invalidate a cached export too.
+        catalog_fp = await _catalog_fingerprint_for(pool, scope_obj, row.get("doc") or {})
         if not force and await storage.exists(scope_obj, derived_key):
-            return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
+            if not await _catalog_cache_stale(scope_obj, derived_key, catalog_fp):
+                return JSONResponse({"job_id": None, "derived_key": derived_key, "cached": True})
+            force = True
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="procedural export disabled (no NATS configured)")
 
@@ -3825,6 +3896,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "lod": lod,
                 "detailing": detailing,
                 "cad_equipment": cad_equipment,
+                "catalog_fingerprint": catalog_fp,
             },
             derived_key=derived_key,
             force_rebuild=force,
