@@ -11,6 +11,7 @@ import { buildCodecheckCasePayload } from "@/services/codecheckCase";
 import {
   CAPACITY_FLOATING_PANEL_RIGHT_PX,
   CAPACITY_INPUT_RIGHT_WITH_RESULTS_PX,
+  CAPACITY_NO_RESULT_COLOR,
   capacityRowScore,
   caseLabelForRow,
   caseResultKey,
@@ -1029,6 +1030,15 @@ const CapacityLegend: React.FC = () => (
       <span className="absolute left-1/2 -translate-x-1/2">0.6</span>
       <span className="absolute left-[66.6667%] -translate-x-1/2">0.8</span>
       <span className="absolute left-[83.3333%] -translate-x-1/2">1.0</span>
+    </div>
+    {/* The scale covers every value the check can produce; this covers the
+        absence of one, which during a streaming run is most of the model. */}
+    <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
+      <span
+        className="inline-block h-2 w-3 shrink-0 rounded-sm"
+        style={{ backgroundColor: CAPACITY_NO_RESULT_COLOR }}
+      />
+      Not calculated
     </div>
   </div>
 );

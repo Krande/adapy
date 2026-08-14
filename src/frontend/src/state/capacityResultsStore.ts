@@ -249,6 +249,29 @@ export function progressPollFailureAction(
   return consecutiveFailures >= limits.maxFailures ? "stop-keep" : "retry";
 }
 
+/** Whether the spine (capacity.results.json) has to be re-read.
+ *
+ *  The spine is what the panel's run list, model list and case list come from,
+ *  and a streaming run rewrites it as each run's first case lands. This used to
+ *  trigger on the *number of runs in the progress file* changing — but both
+ *  runs are announced before either starts, so that number is 2 from the first
+ *  poll and never changed again. The girder run therefore stayed missing from
+ *  the "Capacity check type" dropdown for the whole run, even while it was
+ *  publishing results.
+ *
+ *  The real condition is a run that has published cases but is not in the spine
+ *  we hold. */
+export function needsSpineReload(
+  runs: CapacityCalcRunProgress[],
+  knownRunIds: readonly string[],
+  hasResults: boolean,
+  complete: boolean,
+): boolean {
+  if (!hasResults || complete) return true;
+  const known = new Set(knownRunIds);
+  return runs.some((run) => run.cases_ready.length > 0 && !known.has(run.id));
+}
+
 /** Which worst-summary string table to decode a run's shards with.
  *
  *  Three sources can disagree mid-run: the spine's copy (written when the run's

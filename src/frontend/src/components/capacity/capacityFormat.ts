@@ -252,6 +252,31 @@ export function caseLabelForRow(
   return match?.label ?? row.case_label ?? `Case ${row.case_id}`;
 }
 
+/** Painted on a capacity model that is on screen with results but has none of
+ *  its own yet. Deliberately off the UF scale — that ramp runs red / orange /
+ *  yellow / green / cyan / blue, so any colour from it reads as a utilisation
+ *  the check has not actually produced. */
+export const CAPACITY_NO_RESULT_COLOR = "#9CA3AF";
+
+/** How a girder line should be tinted in the 3D view.
+ *
+ *  * `uf` — it has a usage factor; colour it by the UF bands.
+ *  * `definition` — the definitions view, where every girder is drawn in the
+ *    same amber as the other capacity-model definitions.
+ *  * `no-result` — results are being shown but this girder has none yet.
+ *
+ *  The last case used to fall back to the definition amber (#F59E0B), which is
+ *  all but identical to the #FFA400 of the 0.8–1.0 UF band: an un-computed
+ *  girder read as a nearly-overutilised one. It gets a colour off the scale
+ *  entirely instead. */
+export function girderLineTint(
+  uf: number | null | undefined,
+  showingResults: boolean,
+): "uf" | "definition" | "no-result" {
+  if (uf != null && Number.isFinite(uf)) return "uf";
+  return showingResults ? "no-result" : "definition";
+}
+
 /** What the worst table's coverage line says.
  *
  *  Permanently on screen, so it has to read sensibly in every state rather than

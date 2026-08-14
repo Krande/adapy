@@ -31,6 +31,11 @@ import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {
+    CAPACITY_NO_RESULT_COLOR,
+    girderLineTint,
+} from "@/components/capacity/capacityFormat";
+import {
+    needsSpineReload,
     progressPollFailureAction,
     useCapacityResultsStore,
     worstStringTableChoice,
@@ -852,7 +857,6 @@ export function startCapacityProgressPolling(
     // String-table indices are only meaningful within one bundle.
     streamStringTables.clear();
     let lastDone = -1;
-    let lastRunCount = -1;
     let everSeen = false;
     let consecutiveFailures = 0;
 
@@ -900,13 +904,17 @@ export function startCapacityProgressPolling(
         useCapacityResultsStore.getState().setCalcProgress(progress);
         const store = useCapacityResultsStore.getState();
 
-        // Re-read the spine when a run appears (it is rewritten as each run's
-        // first case lands) or when the run finishes and the spine goes final.
-        const runCount = progress.runs.length;
-        const needSpine =
-            !store.results || runCount !== lastRunCount || progress.complete;
-        if (needSpine) {
-            lastRunCount = runCount;
+        // Re-read the spine when a run that has published cases is missing from
+        // it (it is rewritten as each run's first case lands), or when the run
+        // finishes and the spine goes final.
+        if (
+            needsSpineReload(
+                progress.runs,
+                store.results?.runs.map((r) => r.id) ?? [],
+                !!store.results,
+                progress.complete,
+            )
+        ) {
             try {
                 await reloadSpine();
             } catch (err) {
@@ -1258,16 +1266,25 @@ function rebuildCapacityGirderLineOverlay(
     const positions: number[] = [];
     const colors: number[] = [];
     const amber = new THREE.Color(CAPACITY_GIRDER_LINE_COLOR);
+    const grey = new THREE.Color(CAPACITY_NO_RESULT_COLOR);
     const band = new Float32Array(3);
+    // Null means the definitions view; a map means results are on screen and a
+    // girder missing from it genuinely has no value yet.
+    const showingResults = ufByModelId != null;
     for (const model of models) {
         if (model.type !== "girder") continue;
         const uf = ufByModelId?.get(model.id);
+        const tint = girderLineTint(uf, showingResults);
         let r = amber.r;
         let g = amber.g;
         let b = amber.b;
-        if (uf != null && isFinite(uf)) {
-            capacityUfColor(uf, band);
+        if (tint === "uf") {
+            capacityUfColor(uf as number, band);
             [r, g, b] = band;
+        } else if (tint === "no-result") {
+            r = grey.r;
+            g = grey.g;
+            b = grey.b;
         }
         for (const stiff of model.stiffeners ?? []) {
             const stations = stiff.stations as number[][] | undefined;

@@ -2,12 +2,14 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  girderLineTint,
   isSameResultRow,
   resolveWorstSelection,
   worstCoverageLabel,
   type CapacityCaseResultLike,
 } from "../../components/capacity/capacityFormat";
 import {
+  needsSpineReload,
   progressPollFailureAction,
   readyCaseIds,
   worstStringTableChoice,
@@ -261,6 +263,82 @@ describe("progressPollFailureAction", () => {
 
   it("stops quietly for an ordinary finished bundle", () => {
     assert.equal(progressPollFailureAction(false, 3, limits), "stop-no-run");
+  });
+});
+
+describe("needsSpineReload", () => {
+  const publishing = (id: string, ready: string[]) =>
+    ({
+      id,
+      scope: id === "run-002" ? "girder" : "stiffened_panel",
+      cases_total: 84,
+      cases_ready: ready,
+      complete: false,
+    }) as CapacityCalcProgress["runs"][number];
+
+  it("re-reads when a run has published cases the spine does not have", () => {
+    // Both runs are announced before either starts, so the old "did the number
+    // of runs change?" test was false from the first poll onwards and the
+    // girder run never reached the Capacity check type dropdown.
+    assert.equal(
+      needsSpineReload(
+        [publishing("run-001", ["9"]), publishing("run-002", ["g9"])],
+        ["run-001"],
+        true,
+        false,
+      ),
+      true,
+    );
+  });
+
+  it("leaves the spine alone when every publishing run is already in it", () => {
+    assert.equal(
+      needsSpineReload(
+        [publishing("run-001", ["9", "10"]), publishing("run-002", ["g9"])],
+        ["run-001", "run-002"],
+        true,
+        false,
+      ),
+      false,
+    );
+  });
+
+  it("does not re-read for a run that has been announced but published nothing", () => {
+    // The girder run shows as queued in the run status; there is nothing to put
+    // in the spine for it yet.
+    assert.equal(
+      needsSpineReload(
+        [publishing("run-001", ["9"]), publishing("run-002", [])],
+        ["run-001"],
+        true,
+        false,
+      ),
+      false,
+    );
+  });
+
+  it("always re-reads before there is a spine, and once the run completes", () => {
+    assert.equal(needsSpineReload([], [], false, false), true);
+    assert.equal(needsSpineReload([], ["run-001"], true, true), true);
+  });
+});
+
+describe("girderLineTint", () => {
+  it("colours a girder by its usage factor when it has one", () => {
+    assert.equal(girderLineTint(0.42, true), "uf");
+    assert.equal(girderLineTint(0, true), "uf");
+  });
+
+  it("marks a girder with no result yet as such, not as nearly overutilised", () => {
+    // The definition amber (#F59E0B) is all but identical to the #FFA400 of the
+    // 0.8-1.0 band, so falling back to it made un-computed girders look like
+    // they were running at 0.8-1.0.
+    assert.equal(girderLineTint(null, true), "no-result");
+    assert.equal(girderLineTint(undefined, true), "no-result");
+  });
+
+  it("keeps the definition colour when results are not being shown", () => {
+    assert.equal(girderLineTint(null, false), "definition");
   });
 });
 
