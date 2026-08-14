@@ -7,12 +7,27 @@ path the worker's ``procedural_export_model`` job runs, on the built-in steel de
 from __future__ import annotations
 
 import os
+import platform
 import tempfile
+
+import pytest
 
 from ada.topo_model.compile import build_procedural_assembly
 from ada.topo_model.templates import _eq, _localize, _steel_structure_demo_doc
 
+# ifcopenshell.geom.serialise() (the tessellation/advanced-brep write path) aborts the
+# process on macOS for some boolean-cut BReps — an uncatchable native SIGABRT, the same
+# class of macOS ifcopenshell instability guarded on the read side by _kernel_occ_shape
+# (see tests/core/cadit/ifc/read/test_macos_kernel_guard.py). The IFC export runs in the
+# Linux worker in production, so skip the to_ifc() cases on macOS. Override to run them
+# anyway with ADA_IFC_MACOS_SERIALISE=1.
+_macos_ifc_abort = pytest.mark.skipif(
+    platform.system() == "Darwin" and os.environ.get("ADA_IFC_MACOS_SERIALISE") != "1",
+    reason="ifcopenshell.geom.serialise aborts natively on macOS; export runs on Linux workers",
+)
 
+
+@_macos_ifc_abort
 def test_detail_model_exports_to_ifc_with_clash_voids():
     asm = build_procedural_assembly(
         _steel_structure_demo_doc(), name="SteelDemo", lod="detail", detailing="adapy-default"
@@ -75,6 +90,7 @@ def _catalog_cad_doc():
     }
 
 
+@_macos_ifc_abort
 def test_catalog_cad_equipment_is_faithful_in_ifc():
     # A catalog equipment with a linked CAD asset must export its REAL geometry (an
     # IfcTriangulatedFaceSet), not a placeholder box — via cad_as_objects, which
@@ -108,6 +124,7 @@ def test_catalog_cad_equipment_is_faithful_in_ifc():
     assert txt.count("IFCTRIANGULATEDFACESET") == 1  # the spliced CAD geometry
 
 
+@_macos_ifc_abort
 def test_catalog_equipment_without_cad_is_a_box():
     # CAD off (the "CAD equip" toggle off): the equipment is a placeholder box with
     # the catalog IFC class — no triangulated face set.
