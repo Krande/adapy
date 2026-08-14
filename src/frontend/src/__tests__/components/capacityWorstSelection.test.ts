@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  capacityOverlayKey,
   girderLineTint,
   isSameResultRow,
   resolveWorstSelection,
@@ -445,5 +446,32 @@ describe("worstCoverageLabel", () => {
 
   it("does not claim a complete table when nothing is selected", () => {
     assert.equal(worstCoverageLabel(0, 0, false), "No result cases selected");
+  });
+});
+
+describe("capacityOverlayKey", () => {
+  it("changes when the run changes, so the overlay is rebuilt for its faces", () => {
+    // The overlay collapses non-kept faces to zero area. Keyed on the isolation
+    // flag alone, switching run kept an overlay built for the previous run's
+    // elements and the new run's painted into degenerate triangles — usage
+    // factors in the table, nothing in the 3D view.
+    const panel = capacityOverlayKey({runId: "run-001", isolated: true, keepSize: 1794});
+    const plate = capacityOverlayKey({runId: "run-003", isolated: true, keepSize: 276});
+    assert.notEqual(panel, plate);
+  });
+
+  it("changes when a streaming run's models grow", () => {
+    assert.notEqual(
+      capacityOverlayKey({runId: "run-001", isolated: true, keepSize: 12}),
+      capacityOverlayKey({runId: "run-001", isolated: true, keepSize: 40}),
+    );
+  });
+
+  it("is shared by every run when nothing is isolated", () => {
+    // Without isolation the overlay keeps all faces, so one serves every run.
+    assert.equal(
+      capacityOverlayKey({runId: "run-001", isolated: false, keepSize: 0}),
+      capacityOverlayKey({runId: "run-003", isolated: false, keepSize: 0}),
+    );
   });
 });

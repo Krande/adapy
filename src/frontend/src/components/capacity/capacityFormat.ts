@@ -322,3 +322,20 @@ export function shouldShowCapacityPanel(args: {
 }): boolean {
   return args.hasResults || args.loading || args.error || args.calculating;
 }
+
+/** Identity of the capacity colour overlay's geometry.
+ *
+ *  The overlay bakes the isolation "keep" set in: non-kept faces collapse to
+ *  zero area. So it is only reusable while that set is the same one — and the
+ *  set comes from the active run's capacity models, which changes when the user
+ *  switches run and grows while a streaming calculation publishes models. Keyed
+ *  on the isolation flag alone, a run switch kept an overlay in which the new
+ *  run's elements were collapsed, and painting them wrote colours into
+ *  degenerate triangles: usage factors in the table, nothing in the 3D view. */
+export function capacityOverlayKey(args: {
+  runId: string | null;
+  isolated: boolean;
+  keepSize: number;
+}): string {
+  return args.isolated ? `${args.runId ?? ""}:${args.keepSize}` : "all";
+}

@@ -32,6 +32,7 @@ import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {
     CAPACITY_NO_RESULT_COLOR,
+    capacityOverlayKey,
     girderLineTint,
 } from "@/components/capacity/capacityFormat";
 import {
@@ -1634,6 +1635,14 @@ export function setFeaWireframeVisible(visible: boolean): void {
 
 /** Element ids that belong to a capacity model in the active run — the set the
  *  "Only definitions" view keeps visible. */
+/** Id of the run the capacity views are currently showing. */
+function capacityActiveRunId(): string | null {
+    const store = useCapacityResultsStore.getState();
+    const results = store.results;
+    const run = results?.runs.find((r) => r.id === store.activeRunId) ?? results?.runs[0];
+    return run?.id ?? null;
+}
+
 function capacityKeepElementIds(): Set<number> | null {
     const store = useCapacityResultsStore.getState();
     if (!store.isolateDefinitions) return null;
@@ -1657,12 +1666,33 @@ function capacityColorOverlayFor(mesh: THREE.Mesh): THREE.Mesh | null {
     // non-capacity faces to zero area, a non-isolated one greys them. Comparing
     // here (rather than disposing from the isolation toggle) keeps it correct
     // regardless of React effect ordering.
-    if (existing && existing.userData.capacityIsolated === wantIsolated) return existing;
+    //
+    // *Which* faces it kept matters as much as whether it isolated at all: the
+    // set comes from the active run's capacity models, so switching runs
+    // changes it while the flag stays true. Keeping the old overlay then left
+    // the new run's elements collapsed to zero area, and painting them wrote
+    // colours into degenerate triangles — the unstiffened plate run computed
+    // its usage factors and coloured nothing. The run id and the size of the
+    // keep set together catch both a switch and a run whose models grow as a
+    // streaming calculation publishes them.
+    const key = capacityOverlayKey({
+        runId: capacityActiveRunId(),
+        isolated: wantIsolated,
+        keepSize: keep?.size ?? 0,
+    });
+    if (
+        existing
+        && existing.userData.capacityIsolated === wantIsolated
+        && existing.userData.capacityKeepKey === key
+    ) {
+        return existing;
+    }
     if (existing) disposeCapacityColorOverlay(isBeam ? "beam" : "main");
 
     const overlay = buildCapacityColorOverlay(mesh, keep);
     if (!overlay) return null;
     overlay.userData.capacityIsolated = wantIsolated;
+    overlay.userData.capacityKeepKey = key;
     mesh.add(overlay);
     if (isBeam) active.beamSolidCapacityColorOverlay = overlay;
     else active.capacityColorOverlay = overlay;
