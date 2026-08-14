@@ -2,6 +2,15 @@
 
 
 
+## v0.35.0 (2026-08-14)
+
+### Feature
+
+* feat: procedural cell-modelling engine + viewer cellbuilder (#248)
+
+Co-authored-by: Claude Fable 5 &lt;noreply@anthropic.com&gt; ([`4fe5e8a`](https://github.com/Krande/adapy/commit/4fe5e8ab3ab2d00722d432c2ff17fe3a0cfcb5d2))
+
+
 ## v0.34.1 (2026-07-26)
 
 ### Fix
