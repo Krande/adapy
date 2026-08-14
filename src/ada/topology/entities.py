@@ -20,7 +20,14 @@ from __future__ import annotations
 from functools import cached_property
 from typing import Annotated, Any, ClassVar, Literal, Optional, get_args
 
-from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    PrivateAttr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 import ada
 from ada.api.spatial.eq_types import EquipRepr
@@ -402,15 +409,33 @@ class TopoEquipment(_TopoConfigBoundModel):
 
             if self.GLOBAL_COORDS is False:
                 if space is None:
-                    raise ValueError("Space not found for equipment origin (GLOBAL_COORDS=False).")
-                origin = space.get_p1()
+                    # Degrade gracefully instead of crashing the whole compile: a
+                    # missing host space means we can't localise this unit, so fall
+                    # back to world coordinates (its X/Y/Z land it at the model
+                    # origin). This keeps the shared entity usable by any external
+                    # procedural engine that resolves placement through get_origin()
+                    # — a robustness contract, not a silent success (hence the warn).
+                    logger.warning(
+                        "Topo Equipment %s: space %r not found (GLOBAL_COORDS=False); " "placing at world origin.",
+                        self.NAME,
+                        self.SPACE_NAME,
+                    )
+                    origin = ada.Point(0, 0, 0)
+                else:
+                    origin = space.get_p1()
             else:
                 origin = ada.Point(0, 0, 0)
 
             if self.SPACE_LOC == "ROOF":
                 if space is None:
-                    raise ValueError("Space not found for ROOF placement.")
-                origin += ada.Point(0, 0, space.DZ)
+                    logger.warning(
+                        "Topo Equipment %s: space %r not found for ROOF placement; "
+                        "skipping the roof (top-of-cell) offset.",
+                        self.NAME,
+                        self.SPACE_NAME,
+                    )
+                else:
+                    origin += ada.Point(0, 0, space.DZ)
 
             self._origin = origin
 
