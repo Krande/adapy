@@ -2,6 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import CapacityResultsPanel from "@/components/capacity/CapacityResultsPanel";
+import CapacityRunStatus, {
+  ACCENT,
+  ACCENT_DIM,
+  TRACK,
+} from "@/components/capacity/CapacityRunStatus";
 import { buildCodecheckCasePayload } from "@/services/codecheckCase";
 import {
   CAPACITY_FLOATING_PANEL_RIGHT_PX,
@@ -18,6 +23,7 @@ import {
   shortName,
   summariseCases,
   ufClass,
+  worstCoverageLabel,
   type CapacityCaseResultLike,
   type CapacityRunLike,
   type CapacityVisualFieldLike,
@@ -26,7 +32,6 @@ import {
   readyCaseIds,
   useCapacityResultsStore,
   WORST_CASE_ID,
-  type CapacityCalcProgress,
 } from "@/state/capacityResultsStore";
 import { useObjectInfoStore } from "@/state/objectInfoStore";
 import {
@@ -71,7 +76,6 @@ const CapacityControls: React.FC = () => {
     worstSummary,
     worstSummaryLoading,
     worstSummaryError,
-    worstSummaryProgress,
     calcProgress,
     toggleWorstCase,
     setWorstCaseIds,
@@ -200,6 +204,21 @@ const CapacityControls: React.FC = () => {
     () => readyCaseIds(calcProgress, activeRunId),
     [calcProgress, activeRunId],
   );
+
+  // A calculation is still filling the bundle: counts shown here are running
+  // tallies rather than the final picture, and the panel says so.
+  const calculating = !!calcProgress && !calcProgress.complete;
+
+  // How much of the worst table is actually in hand. Shards are fetched per
+  // ticked case, and during a streaming run only the cases the calculation has
+  // published exist yet, so this is regularly short of the ticked count.
+  const worstCasesLoaded = useMemo(
+    () => worstCaseIds.filter((id) => worstSummary?.cases[id]).length,
+    [worstCaseIds, worstSummary],
+  );
+  // Ignore the one- and two-shard top-ups a streaming run triggers every few
+  // seconds; only a load the user could actually read is worth announcing.
+  const loadingWorst = useSustained(worstSummaryLoading, 500);
 
   const worstSelection = useMemo(
     () =>
@@ -429,15 +448,22 @@ const CapacityControls: React.FC = () => {
           <div className="text-red-300 truncate max-w-[220px]">{error}</div>
         )}
       </div>
-      {/* Notices — errors and warnings sit together at the top, presented the
-          same way (full-width collapsible banners), error (red) above
-          warning (amber). */}
+      {/* Run status first: while a calculation is streaming, everything below
+          depends on how far it has got, so the state of the run comes before
+          the numbers it has produced so far. */}
+      {calcProgress && <CapacityRunStatus progress={calcProgress} />}
+      {/* Notices — errors and warnings sit together, presented the same way
+          (full-width collapsible banners), error (red) above warning (amber). */}
       {run?.errors && run.errors.length > 0 && (
         <details className="border-b border-red-600/70 bg-red-950/50 px-3 py-2 text-red-200">
           <summary className="cursor-pointer font-semibold text-red-300">
             {`⛔ ${run.errors.length} capacity check${
               run.errors.length === 1 ? "" : "s"
-            } failed with an error — affected rows are treated as failures`}
+            } failed with an error${
+              // Mid-run this is a running tally, not the verdict: the count
+              // grows with every case that lands.
+              calculating ? " so far, and the run is still going" : ""
+            } — affected rows are treated as failures`}
           </summary>
           <div className="mt-2 space-y-2">
             {errorGroups.map((group) => (
@@ -501,7 +527,6 @@ const CapacityControls: React.FC = () => {
           </div>
         </details>
       )}
-      {calcProgress && <CapacityCalcProgressPanel progress={calcProgress} />}
       {run && (
         <div className="p-3 space-y-3">
           <div className="grid grid-cols-2 gap-2">
@@ -676,46 +701,47 @@ const CapacityControls: React.FC = () => {
                   </label>
                 ))}
               </div>
-              {worstSummaryLoading && (
-                <div className="space-y-1 min-w-0">
-                  <div className="flex justify-between items-center gap-2 text-[11px] text-gray-400">
-                    <span className="truncate min-w-0">
-                      Streaming result cases
-                    </span>
-                    <span className="shrink-0 font-mono">
-                      {worstSummaryProgress
-                        ? `${worstSummaryProgress.loaded}/${worstSummaryProgress.total}`
-                        : "…"}
-                    </span>
-                  </div>
-                  {/* Same bar as the conversion toast, so progress reads the
-                      same way everywhere in the viewer. Indeterminate until
-                      the shard count is known; the 4% floor keeps a sliver
-                      visible at zero rather than showing an empty track. */}
-                  <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
-                    <div
-                      className={
-                        "h-full bg-blue-500 " +
-                        (worstSummaryProgress
-                          ? "transition-all"
-                          : "animate-pulse")
-                      }
-                      style={{
-                        width: worstSummaryProgress
-                          ? `${Math.max(
-                              Math.round(
-                                (worstSummaryProgress.loaded /
-                                  Math.max(worstSummaryProgress.total, 1)) *
-                                  100,
-                              ),
-                              4,
-                            )}%`
-                          : "100%",
-                      }}
-                    />
-                  </div>
+              {/* Coverage of the table below, always on screen.
+                  This used to be a "Streaming result cases" block that appeared
+                  and vanished every few seconds: a streaming run tops the table
+                  up with a shard or two as each case lands, and each top-up
+                  inserted and removed a whole element. As a permanent line it
+                  answers the question that actually matters — is the worst
+                  value I am reading taken over every case I ticked? — and only
+                  its text changes. */}
+              <div className="space-y-1 min-w-0 pt-0.5">
+                <div className="flex items-baseline justify-between gap-2 text-[11px]">
+                  <span
+                    className={
+                      "truncate min-w-0 " +
+                      (loadingWorst ? "text-gray-300" : "text-gray-500")
+                    }
+                  >
+                    {worstCoverageLabel(
+                      worstCasesLoaded,
+                      worstCaseIds.length,
+                      loadingWorst,
+                    )}
+                  </span>
+                  <span className="shrink-0 font-mono tabular-nums text-gray-500">
+                    {`${worstCasesLoaded} / ${worstCaseIds.length}`}
+                  </span>
                 </div>
-              )}
+                <div
+                  className="h-[3px] overflow-hidden rounded-full"
+                  style={{ backgroundColor: TRACK }}
+                >
+                  <div
+                    className="h-full transition-[width] duration-500 ease-out"
+                    style={{
+                      width: `${Math.round(
+                        (worstCasesLoaded / Math.max(worstCaseIds.length, 1)) * 100,
+                      )}%`,
+                      backgroundColor: loadingWorst ? ACCENT : ACCENT_DIM,
+                    }}
+                  />
+                </div>
+              </div>
               {worstSummaryError && (
                 <div
                   className="text-[11px] text-amber-400"
@@ -2201,6 +2227,22 @@ function activeMetricScores(
   return out;
 }
 
+/** True once `on` has been true for `delayMs` without interruption; false the
+ *  moment it clears. Keeps a short-lived busy flag from flickering a label on
+ *  and off faster than anyone can read it. */
+function useSustained(on: boolean, delayMs: number): boolean {
+  const [sustained, setSustained] = useState(false);
+  useEffect(() => {
+    if (!on) {
+      setSustained(false);
+      return;
+    }
+    const timer = setTimeout(() => setSustained(true), delayMs);
+    return () => clearTimeout(timer);
+  }, [on, delayMs]);
+  return sustained;
+}
+
 function elementIdFromName(name: string): number | null {
   const match = /^E(\d+)$/.exec(name.trim());
   if (!match) return null;
@@ -2209,148 +2251,3 @@ function elementIdFromName(name: string): number | null {
 }
 
 export default CapacityControls;
-
-
-/** One labelled progress row: a title line and a thin bar. */
-const ProgressRow: React.FC<{
-  label: string;
-  right: string;
-  pct: number | null;
-  state: "pending" | "active" | "done";
-  title?: string;
-}> = ({ label, right, pct, state, title }) => {
-  const bar =
-    state === "done"
-      ? "bg-emerald-500"
-      : state === "pending"
-        ? "bg-gray-600"
-        : "bg-blue-500/80";
-  return (
-    <div className="space-y-0.5">
-      <div className="flex items-center justify-between gap-2 text-[11px] min-w-0">
-        <span
-          className={
-            "truncate min-w-0 " +
-            (state === "done"
-              ? "text-emerald-400"
-              : state === "pending"
-                ? "text-gray-600"
-                : "text-gray-300 ada-shimmer-text")
-          }
-          title={title ?? label}
-        >
-          {state === "done" ? "✓ " : state === "pending" ? "· " : ""}
-          {label}
-        </span>
-        <span className="shrink-0 font-mono text-gray-500">{right}</span>
-      </div>
-      <div className="h-0.5 bg-gray-800 rounded-sm overflow-hidden">
-        <div
-          className={"h-full transition-all " + bar}
-          // A pending row shows an empty track: nothing has happened yet.
-          style={{ width: pct === null ? "0%" : `${Math.max(pct, 2)}%` }}
-        />
-      </div>
-    </div>
-  );
-};
-
-/** Live progress of a `--stream-results` calculation.
- *
- *  One overall bar, then a row for preparation and a row per check type. The
- *  parts finish at very different times — preparation is over a minute before
- *  any case lands, and the girder check is several times quicker than the
- *  stiffened-panel check — so a single percentage would hide that a whole check
- *  is already done and ready to inspect. Every run is listed from the start,
- *  including ones that have not begun, so nothing appears out of nowhere. */
-const CapacityCalcProgressPanel: React.FC<{
-  progress: CapacityCalcProgress;
-}> = ({ progress }) => {
-  const total = Math.max(progress.cases_total, 1);
-  const pct = Math.round((progress.cases_done / total) * 100);
-  // Before the checks enumerate their work there is no case count — reading the
-  // SIN and rebuilding the models takes minutes on a large model. Run the bar
-  // indeterminate through that rather than showing a meaningless 0/0.
-  const known = progress.cases_known !== false && progress.cases_total > 0;
-  const prep = progress.prep;
-  const prepSteps = prep?.steps ?? [];
-  const prepDone = prepSteps.filter((s) => s.done).length;
-
-  return (
-    <div className="border-b border-gray-700 px-3 py-2 space-y-2">
-      <div className="flex items-center justify-between gap-2 min-w-0">
-        <span
-          className={
-            "truncate min-w-0 text-gray-200 " +
-            (progress.complete ? "" : "ada-shimmer-text")
-          }
-        >
-          {progress.message || "Calculating results"}
-        </span>
-        <span className="shrink-0 font-mono text-gray-400">
-          {known
-            ? `${progress.cases_done}/${progress.cases_total}`
-            : progress.elapsed_s
-              ? `${Math.round(progress.elapsed_s)}s`
-              : "…"}
-        </span>
-      </div>
-      <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
-        <div
-          className={
-            "h-full bg-blue-500 " + (known ? "transition-all" : "animate-pulse")
-          }
-          style={{ width: known ? `${Math.max(pct, 2)}%` : "100%" }}
-        />
-      </div>
-
-      <div className="space-y-1">
-        {/* Preparation: model reconstruction, stress recovery, load resolution.
-            Most of the wait before the first case, and previously invisible. */}
-        {prep && (
-          <ProgressRow
-            label={
-              prep.complete
-                ? "Preparing model and loads"
-                : (prep.active ?? "Preparing model and loads")
-            }
-            right={
-              prep.complete
-                ? `${prepDone} steps`
-                : `${prepDone}/${Math.max(prepSteps.length, 1)}`
-            }
-            // Step count grows as stages are discovered, so a percentage would
-            // jump around; show it as simply active until it is done.
-            pct={prep.complete ? 100 : null}
-            state={prep.complete ? "done" : "active"}
-            title={prepSteps.map((s) => s.label).join(" → ")}
-          />
-        )}
-
-        {progress.runs.map((r) => {
-          const runTotal = Math.max(r.cases_total, 1);
-          const done = r.cases_ready.length;
-          const started = r.started !== false;
-          return (
-            <ProgressRow
-              key={r.id}
-              label={r.label ?? r.scope}
-              right={
-                !started
-                  ? "queued"
-                  : `${done}/${r.cases_total}` +
-                    (r.complete && r.elapsed_s ? ` · ${Math.round(r.elapsed_s)}s` : "")
-              }
-              pct={!started ? null : Math.round((done / runTotal) * 100)}
-              state={r.complete ? "done" : started ? "active" : "pending"}
-            />
-          );
-        })}
-      </div>
-
-      <div className="text-[11px] text-gray-500">
-        Results appear as each load case finishes.
-      </div>
-    </div>
-  );
-};

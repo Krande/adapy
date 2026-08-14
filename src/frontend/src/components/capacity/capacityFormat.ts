@@ -252,6 +252,25 @@ export function caseLabelForRow(
   return match?.label ?? row.case_label ?? `Case ${row.case_id}`;
 }
 
+/** What the worst table's coverage line says.
+ *
+ *  Permanently on screen, so it has to read sensibly in every state rather than
+ *  only while something is loading. Its job is to answer whether the maximum in
+ *  the table below is taken over every case the user ticked: short of that the
+ *  number is provisional, and saying so beats letting it pass as final. */
+export function worstCoverageLabel(
+  loaded: number,
+  ticked: number,
+  loading: boolean,
+): string {
+  if (loading) return "Loading result cases";
+  if (ticked === 0) return "No result cases selected";
+  if (loaded < ticked) {
+    return "Cases in this table — the rest are still being calculated";
+  }
+  return "Cases in this table";
+}
+
 export function formulaReference(
   check: Pick<CapacityCheckResult, "clause" | "equations">,
 ): string {

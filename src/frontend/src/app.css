@@ -65,12 +65,33 @@
     animation: ada-shimmer 2.4s linear infinite;
 }
 
-/* Respect users who ask for less motion: keep the text legible, drop the sweep. */
+/* A step that cannot report a count (reading a SIN, merging panel fields) runs
+   its bar as a travelling sliver rather than a full track, so "working, length
+   unknown" never reads as "finished". Used by the capacity run status. */
+@keyframes ada-bar-sweep {
+    0%   { transform: translateX(-70%); }
+    100% { transform: translateX(240%); }
+}
+
+.ada-bar-indeterminate {
+    width: 40%;
+    animation: ada-bar-sweep 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+/* Respect users who ask for less motion: keep the text legible, drop the sweep.
+   The indeterminate bar settles into a static partial fill — still visibly not
+   a completed bar, without anything moving. */
 @media (prefers-reduced-motion: reduce) {
     .ada-shimmer-text {
         animation: none;
         -webkit-text-fill-color: currentColor;
         background: none;
+    }
+
+    .ada-bar-indeterminate {
+        animation: none;
+        transform: none;
+        opacity: 0.6;
     }
 }
 

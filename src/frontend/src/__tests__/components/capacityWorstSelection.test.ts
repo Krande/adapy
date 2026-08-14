@@ -4,10 +4,13 @@ import assert from "node:assert/strict";
 import {
   isSameResultRow,
   resolveWorstSelection,
+  worstCoverageLabel,
   type CapacityCaseResultLike,
 } from "../../components/capacity/capacityFormat";
 import {
+  progressPollFailureAction,
   readyCaseIds,
+  worstStringTableChoice,
   type CapacityCalcProgress,
 } from "../../state/capacityResultsStore";
 
@@ -231,5 +234,78 @@ describe("readyCaseIds", () => {
 
   it("returns null when nothing is streaming at all", () => {
     assert.equal(readyCaseIds(null, "run-001"), null);
+  });
+});
+
+describe("progressPollFailureAction", () => {
+  const limits = { initialAttempts: 3, maxFailures: 10 };
+
+  it("keeps following the run after a single failed read", () => {
+    // The calculation rewrites the progress file constantly; one unreadable
+    // poll is a race, not the end of the run. Treating it as the end cleared
+    // the run status mid-run and left the worst view asking for cases that did
+    // not exist yet ("Could not load 84 of 84").
+    assert.equal(progressPollFailureAction(true, 1, limits), "retry");
+    assert.equal(progressPollFailureAction(true, 9, limits), "retry");
+  });
+
+  it("keeps the last status on screen when a run goes quiet for good", () => {
+    assert.equal(progressPollFailureAction(true, 10, limits), "stop-keep");
+  });
+
+  it("retries a few times before concluding no run is streaming", () => {
+    // The viewer can open a moment before the calculation's first publish.
+    assert.equal(progressPollFailureAction(false, 1, limits), "retry");
+    assert.equal(progressPollFailureAction(false, 2, limits), "retry");
+  });
+
+  it("stops quietly for an ordinary finished bundle", () => {
+    assert.equal(progressPollFailureAction(false, 3, limits), "stop-no-run");
+  });
+});
+
+describe("worstStringTableChoice", () => {
+  it("reads the streaming table once the run has interned more names", () => {
+    // The spine's copy is written when the run's first case lands; later cases
+    // can add governing-check names it never saw, and those decode to blank.
+    assert.equal(worstStringTableChoice(9000, null, 9012), "refetch");
+  });
+
+  it("refetches when the cached copy has fallen behind", () => {
+    assert.equal(worstStringTableChoice(9000, 9010, 9012), "refetch");
+  });
+
+  it("reuses the cached copy while nothing new has been published", () => {
+    assert.equal(worstStringTableChoice(9000, 9012, 9012), "cached");
+  });
+
+  it("stays on the spine when it already covers everything published", () => {
+    // The common case by far: case one interns essentially every name.
+    assert.equal(worstStringTableChoice(9000, null, 9000), "spine");
+  });
+
+  it("prefers the spine when it is the longer of the two", () => {
+    // After the final spine rewrite it is the complete table.
+    assert.equal(worstStringTableChoice(9012, 9000, 9000), "spine");
+  });
+});
+
+describe("worstCoverageLabel", () => {
+  it("says the table is complete when every ticked case is in it", () => {
+    assert.equal(worstCoverageLabel(84, 84, false), "Cases in this table");
+  });
+
+  it("flags a provisional maximum while cases are still being calculated", () => {
+    // The worst value is taken over what has landed; without this the number
+    // reads as final when it is not.
+    assert.match(worstCoverageLabel(62, 84, false), /still being calculated/);
+  });
+
+  it("reports the load itself while shards are being fetched", () => {
+    assert.equal(worstCoverageLabel(62, 84, true), "Loading result cases");
+  });
+
+  it("does not claim a complete table when nothing is selected", () => {
+    assert.equal(worstCoverageLabel(0, 0, false), "No result cases selected");
   });
 });

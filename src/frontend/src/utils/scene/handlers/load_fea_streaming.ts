@@ -30,10 +30,16 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
-import {useCapacityResultsStore, WORST_CASE_ID} from "@/state/capacityResultsStore";
+import {
+    progressPollFailureAction,
+    useCapacityResultsStore,
+    worstStringTableChoice,
+    WORST_CASE_ID,
+} from "@/state/capacityResultsStore";
 import type {
     CapacityCalcProgress,
     CapacityResults,
+    CapacityRun,
     CapacityWorstRow,
     CapacityWorstShard,
 } from "@/state/capacityResultsStore";
@@ -812,6 +818,14 @@ const CAPACITY_PROGRESS_URL = "capacity.progress.json";
 /** Slow enough to be invisible next to a check run measured in minutes, quick
  *  enough that a case shows up shortly after it is computed. */
 const CAPACITY_PROGRESS_POLL_MS = 3000;
+/** Consecutive failed polls before we stop following a run that had been
+ *  publishing. ~30 s of silence: long enough to ride out a torn read or a
+ *  server blip, short enough not to poll a dead run forever. */
+const CAPACITY_PROGRESS_MAX_FAILURES = 10;
+/** Polls before concluding there is no streaming run at all. More than one, so
+ *  a viewer that opens a hair before the calculation's first publish still
+ *  picks the run up instead of deciding it is looking at a finished bundle. */
+const CAPACITY_PROGRESS_INITIAL_ATTEMPTS = 3;
 
 let capacityProgressTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -835,8 +849,12 @@ export function startCapacityProgressPolling(
     reloadSpine: () => Promise<void>,
 ): void {
     stopCapacityProgressPolling();
+    // String-table indices are only meaningful within one bundle.
+    streamStringTables.clear();
     let lastDone = -1;
     let lastRunCount = -1;
+    let everSeen = false;
+    let consecutiveFailures = 0;
 
     const tick = async (): Promise<void> => {
         const ctx = active?.capacityFetch;
@@ -847,12 +865,38 @@ export function startCapacityProgressPolling(
             progress = JSON.parse(
                 new TextDecoder("utf-8").decode(buf),
             ) as CapacityCalcProgress;
-        } catch {
-            // No progress file: a normal, already-complete bundle. Nothing to follow.
-            useCapacityResultsStore.getState().setCalcProgress(null);
+        } catch (err) {
+            // One failed read is not the end of the run. It is usually a torn
+            // read of a file the calculation is rewriting, or a blip from the
+            // viewer API. Giving up here is what killed whole sessions: the run
+            // status vanished mid-run and, with it, the record of which cases
+            // exist — so the worst view then asked for every shard and failed
+            // on all of them ("Could not load 84 of 84").
+            consecutiveFailures += 1;
+            const action = progressPollFailureAction(everSeen, consecutiveFailures, {
+                initialAttempts: CAPACITY_PROGRESS_INITIAL_ATTEMPTS,
+                maxFailures: CAPACITY_PROGRESS_MAX_FAILURES,
+            });
+            if (action === "stop-no-run") {
+                // Never published one: a normal, already-complete bundle.
+                useCapacityResultsStore.getState().setCalcProgress(null);
+                return;
+            }
+            if (action === "stop-keep") {
+                // eslint-disable-next-line no-console
+                console.warn(
+                    `[capacity] no progress file for ${String(consecutiveFailures)} polls; ` +
+                        "leaving the last known run status on screen:",
+                    err,
+                );
+                return;
+            }
+            capacityProgressTimer = setTimeout(() => void tick(), CAPACITY_PROGRESS_POLL_MS);
             return;
         }
 
+        everSeen = true;
+        consecutiveFailures = 0;
         useCapacityResultsStore.getState().setCalcProgress(progress);
         const store = useCapacityResultsStore.getState();
 
@@ -881,7 +925,11 @@ export function startCapacityProgressPolling(
         }
 
         if (progress.complete) {
-            useCapacityResultsStore.getState().setCalcProgress(null);
+            // Keep the finished state rather than clearing it: the run status
+            // section collapses itself when complete, and having it vanish at
+            // the moment the results land makes the panel rearrange under the
+            // user. readyCaseIds() already reports "not streaming" once
+            // progress.complete is set, so nothing is marked in progress.
             return;
         }
         capacityProgressTimer = setTimeout(() => void tick(), CAPACITY_PROGRESS_POLL_MS);
@@ -919,6 +967,53 @@ function decodeWorstShard(
     };
 }
 
+/** Streaming worst-summary string tables, keyed by run id. Cleared with the
+ *  model, since the ids are only meaningful within one bundle. */
+const streamStringTables = new Map<string, string[]>();
+
+/** The string table to decode this run's shards with.
+ *
+ *  The spine's copy is written when the run's *first* case lands, so mid-run it
+ *  can be short of what later shards index into — those names decode to null
+ *  and the odd governing-check cell comes up blank. A streaming run republishes
+ *  the growing tables next to the shards; read those while it is in flight.
+ *
+ *  The tables only ever append, so a longer table is always a superset and
+ *  indices never move — which is what makes "take whichever is longer" safe. */
+async function worstStringTable(
+    fetcher: (url: string) => Promise<ArrayBuffer>,
+    run: CapacityRun,
+    calc: CapacityCalcProgress | null,
+): Promise<string[]> {
+    const spine = run.worst_summary?.strings ?? [];
+    if (!calc || calc.complete || !calc.strings_url) return spine;
+    const cached = streamStringTables.get(run.id);
+    const choice = worstStringTableChoice(
+        spine.length,
+        cached?.length ?? null,
+        calc.runs.find((r) => r.id === run.id)?.strings_count ?? 0,
+    );
+    if (choice === "spine") return spine;
+    if (choice === "cached") return cached ?? spine;
+    try {
+        const buf = await fetcher(calc.strings_url);
+        const payload = JSON.parse(new TextDecoder("utf-8").decode(buf)) as {
+            runs?: Record<string, string[]>;
+        };
+        const table = payload.runs?.[run.id] ?? [];
+        if (table.length > 0) {
+            streamStringTables.set(run.id, table);
+            return table.length >= spine.length ? table : spine;
+        }
+    } catch (err) {
+        // Not fatal: fall back to whatever we already have. Worst case a few
+        // names decode blank, which is what this exists to reduce.
+        // eslint-disable-next-line no-console
+        console.warn("[capacity] streaming string table unavailable:", err);
+    }
+    return cached && cached.length >= spine.length ? cached : spine;
+}
+
 /** Lazy-load the per-case worst-over-cases summary shards into the capacity store.
  *
  *  v14 sharded this: as one file the stiffened-panel summary reached 908 MB on
@@ -938,7 +1033,6 @@ export async function loadCapacityWorstSummary(caseIds?: string[]): Promise<void
     const run = results.runs.find((r) => r.id === store.activeRunId) ?? results.runs[0];
     const template = run?.worst_summary?.url_template;
     if (!run || !template) return;
-    const stringTable = run.worst_summary?.strings ?? [];
 
     const runId = run.id;
     let wanted = caseIds ?? store.worstCaseIds ?? run.result_cases.map((c) => c.id);
@@ -957,20 +1051,19 @@ export async function loadCapacityWorstSummary(caseIds?: string[]): Promise<void
         (caseId) => !loaded[caseId] && !inFlightWorstShards.has(`${runId}::${caseId}`),
     );
     if (pending.length === 0) return;
+    // Read once per call, after the ready-set filter: any shard about to be
+    // fetched has been announced, and the table is published before the shard
+    // that indexes into it, so this table covers every row we are about to
+    // decode.
+    const stringTable = await worstStringTable(ctx.fetcher, run, calc);
     for (const caseId of pending) inFlightWorstShards.add(`${runId}::${caseId}`);
 
     activeWorstLoads += 1;
     useCapacityResultsStore.getState().setWorstSummaryLoading(true);
-    // Report progress per shard: the full DBSW run streams 84 files, long
-    // enough that a bare "Loading" leaves the user with nothing to judge (#44).
-    let completed = 0;
-    const reportProgress = () => {
-        if (useCapacityResultsStore.getState().activeRunId !== runId) return;
-        useCapacityResultsStore
-            .getState()
-            .setWorstSummaryProgress({ loaded: completed, total: pending.length });
-    };
-    reportProgress();
+    // No separate shard counter: the panel reports how many of the ticked cases
+    // are in the table (worstSummary.cases), which is the figure that answers
+    // "is this maximum taken over everything I ticked?" and advances as chunks
+    // are merged below.
     const failed: string[] = [];
     try {
         for (let i = 0; i < pending.length; i += WORST_SHARD_CONCURRENCY) {
@@ -989,11 +1082,6 @@ export async function loadCapacityWorstSummary(caseIds?: string[]): Promise<void
                         console.warn(`[capacity] failed to load worst summary for case ${caseId}:`, err);
                         failed.push(caseId);
                         return null;
-                    } finally {
-                        // Counts attempts, not successes, so a failing shard
-                        // cannot stall the bar short of 100%.
-                        completed += 1;
-                        reportProgress();
                     }
                 }),
             );
@@ -1015,7 +1103,6 @@ export async function loadCapacityWorstSummary(caseIds?: string[]): Promise<void
         // state belonging to a run the user has since switched away from.
         if (activeWorstLoads === 0 && latest.activeRunId === runId) {
             latest.setWorstSummaryLoading(false);
-            latest.setWorstSummaryProgress(null);
             // Report a partial load rather than silently showing an understated
             // maximum — the previous single-file catch is exactly what hid issue #37.
             latest.setWorstSummaryError(

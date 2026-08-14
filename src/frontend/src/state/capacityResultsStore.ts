@@ -166,6 +166,24 @@ export interface CapacityCalcRunProgress {
    *  only starts once the panel check is done, and showing it as queued beats
    *  having a second bar appear from nowhere. */
   started?: boolean;
+  /** How many names this run's shared string table holds. The table only ever
+   *  appends, so a count above what the viewer has cached is the signal to
+   *  re-read it (see `strings_url`). */
+  strings_count?: number;
+}
+
+/** One preparation step of a streaming calculation — reading the SIN,
+ *  rebuilding capacity models, recovering stress fields. The counts mirror the
+ *  bar the same step fills in the terminal; ``total`` is 0 for a step that
+ *  cannot report one, and the viewer runs it indeterminate. */
+export interface CapacityCalcStep {
+  label: string;
+  done: boolean;
+  elapsed_s: number;
+  /** Steps nest (panel-group identification runs geometry steps inside it). */
+  depth?: number;
+  completed?: number;
+  total?: number;
 }
 
 /** Published by a `--stream-results` run while the checks are still going, so
@@ -191,12 +209,64 @@ export interface CapacityCalcProgress {
    *  recovery, load resolution. Over a minute of the wait before the first
    *  case lands on a large model, so it gets its own row. */
   prep?: {
+    /** True when no step is running. Not "every run has started": the girder
+     *  check only begins once panels are done, and the old reading left the
+     *  viewer animating a finished step list for minutes. */
     complete: boolean;
     active: string | null;
-    steps: Array<{ label: string; done: boolean; elapsed_s: number }>;
+    steps: CapacityCalcStep[];
   };
   runs: CapacityCalcRunProgress[];
+  /** Bundle-relative URL of the worst-summary string tables as they stand right
+   *  now, keyed by run id. The spine's copy is only rewritten when a run's
+   *  first case lands, so mid-run it can be short of what later shards index
+   *  into — leaving the odd governing-check cell blank. Read this instead while
+   *  a run is in flight. */
+  strings_url?: string;
   updated_utc?: string;
+}
+
+/** What the progress poller should do after a failed read.
+ *
+ *  * `retry` — try again; a single failure means nothing.
+ *  * `stop-no-run` — no progress file ever appeared: an ordinary finished
+ *    bundle, so clear the run status and stop polling.
+ *  * `stop-keep` — a run *was* publishing and has gone quiet for a long time:
+ *    stop polling but keep the last status on screen.
+ *
+ *  Separated out because getting it wrong is expensive: treating one torn read
+ *  of a file the calculation is rewriting as "no run" cleared the run status
+ *  mid-run and, with it, the record of which cases exist — after which the
+ *  worst view requested every shard and failed on all of them. */
+export function progressPollFailureAction(
+  everSeen: boolean,
+  consecutiveFailures: number,
+  limits: { initialAttempts: number; maxFailures: number },
+): "retry" | "stop-no-run" | "stop-keep" {
+  if (!everSeen) {
+    return consecutiveFailures >= limits.initialAttempts ? "stop-no-run" : "retry";
+  }
+  return consecutiveFailures >= limits.maxFailures ? "stop-keep" : "retry";
+}
+
+/** Which worst-summary string table to decode a run's shards with.
+ *
+ *  Three sources can disagree mid-run: the spine's copy (written when the run's
+ *  first case landed), a copy already fetched from the streaming table, and
+ *  what the calculation says it has published now. The tables only ever append,
+ *  so indices never move and the longest table is always a superset — the only
+ *  real question is whether a fetch is worth doing.
+ *
+ *  Getting this wrong is invisible rather than loud: a shard row indexing past
+ *  the table decodes to null, so a governing-check cell just comes up blank. */
+export function worstStringTableChoice(
+  spineLength: number,
+  cachedLength: number | null,
+  publishedCount: number,
+): "spine" | "cached" | "refetch" {
+  if (publishedCount > (cachedLength ?? spineLength)) return "refetch";
+  if (cachedLength !== null && cachedLength >= spineLength) return "cached";
+  return "spine";
 }
 
 /** Case ids the calculation has published for a run, or null when nothing is
@@ -353,10 +423,6 @@ export interface CapacityResultsState {
   /** Set when one or more shards failed to load, so the worst table can say the
    *  numbers are incomplete instead of quietly showing a partial maximum. */
   worstSummaryError: string | null;
-  /** How far the per-case shard stream has got. The full DBSW run pulls 84
-   *  files, which is long enough that a bare "Loading" gives the user nothing
-   *  to judge by (#44). Null when nothing is streaming. */
-  worstSummaryProgress: { loaded: number; total: number } | null;
   /** Live calculation progress while a streaming run fills the bundle. */
   calcProgress: CapacityCalcProgress | null;
   /** Selection state remembered per run id (restored on run switch). */
@@ -379,9 +445,6 @@ export interface CapacityResultsState {
   ) => void;
   setWorstSummaryLoading: (loading: boolean) => void;
   setWorstSummaryError: (error: string | null) => void;
-  setWorstSummaryProgress: (
-    progress: { loaded: number; total: number } | null,
-  ) => void;
   setCalcProgress: (progress: CapacityCalcProgress | null) => void;
   /** Swap in a newer spine without disturbing the view.
    *
@@ -442,7 +505,6 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
   worstSummary: null,
   worstSummaryLoading: false,
   worstSummaryError: null,
-  worstSummaryProgress: null,
   calcProgress: null,
   runUiMemory: {},
   setLoading: (loading) => set({ loading }),
@@ -469,7 +531,6 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       worstSummary: null,
       worstSummaryLoading: false,
       worstSummaryError: null,
-      worstSummaryProgress: null,
       calcProgress: null,
       runUiMemory: {},
       loading: false,
@@ -502,8 +563,6 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
     })),
   setWorstSummaryLoading: (worstSummaryLoading) => set({ worstSummaryLoading }),
   setWorstSummaryError: (worstSummaryError) => set({ worstSummaryError }),
-  setWorstSummaryProgress: (worstSummaryProgress) =>
-    set({ worstSummaryProgress }),
   setCalcProgress: (calcProgress) => set({ calcProgress }),
   refreshResults: (results) =>
     set((state) => {
@@ -548,7 +607,6 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
       worstSummary: null,
       worstSummaryLoading: false,
       worstSummaryError: null,
-      worstSummaryProgress: null,
       calcProgress: null,
       runUiMemory: {},
       loading: false,
@@ -591,8 +649,8 @@ export const useCapacityResultsStore = create<CapacityResultsState>((set) => ({
         worstSummary: saved?.worstSummary ?? null,
         worstSummaryLoading: false,
         worstSummaryError: null,
-        worstSummaryProgress: null,
-        calcProgress: null,
+        // calcProgress describes the whole calculation, not one run — switching
+        // between the panel and girder checks must not blank the run status.
       };
     }),
   setActiveCaseId: (activeCaseId) =>
