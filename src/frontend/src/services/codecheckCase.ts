@@ -1,6 +1,10 @@
 export interface CodecheckCaseInput {
   name: string;
-  check_id: "fe_stiffened" | "fe_girder";
+  // One per capacity-model type: stiffened panels and girders use the web UI's
+  // FE checks (Section 5 design stresses -> resultants), while an unstiffened
+  // plate field's membrane stresses are the Section-4 inputs directly, so it
+  // uses that app's plain "unstiffened_plate" check.
+  check_id: "fe_stiffened" | "fe_girder" | "unstiffened_plate";
   capacity_model_id: string;
   case_id: string;
   values: Record<string, unknown>;

@@ -1303,7 +1303,19 @@ function buildIndividualUfValues(
     if (!model) continue;
     // Girder results belong on the dedicated thick dashed line overlay. Do not
     // paint the supporting plate or girder FE faces with the girder UF.
-    if ((model as { type?: string }).type === "girder") continue;
+    const modelType = (model as { type?: string }).type;
+    if (modelType === "girder") continue;
+    // An unstiffened plate field has no stiffener to divide it: the field is
+    // the individual unit, so its own faces carry its UF.
+    if (modelType === "unstiffened_plate") {
+      const uf = r.error ? 1.01 : rowMetricUf(r, checkId);
+      if (uf == null) continue;
+      for (const id of model.element_ids?.plates ?? []) {
+        const prev = byElement.get(id);
+        if (prev == null || uf > prev) byElement.set(id, uf);
+      }
+      continue;
+    }
     let byName = stiffMaps.get(model.id);
     if (!byName) {
       const stiffeners = (model.stiffeners ?? []) as Array<
@@ -1736,6 +1748,140 @@ function buildUiGirderValues(
   };
 }
 
+/** Unstiffened-plate run ``check_inputs`` payload (see
+ *  plate_capacity_check.plate_check_inputs — mm / MPa). */
+interface PlateCheckInputs {
+  plate?: { s_mm?: number; l_mm?: number; t_mm?: number };
+  material?: { fy_mpa?: number; E_mpa?: number; gamma_m?: number };
+  loads?: {
+    sigma_x_mpa?: number;
+    sigma_y_mpa?: number;
+    tau_mpa?: number;
+    p_mpa?: number;
+    // Non-null only when the field's stress varies across it and the [4.6] /
+    // [4.8] varying-stress treatment was used.
+    sigma_x_2_mpa?: number | null;
+    sigma_y_2_mpa?: number | null;
+  };
+}
+
+function plateCheckInputs(row: CapacityCaseResultLike): PlateCheckInputs {
+  return (row.check_inputs ?? {}) as unknown as PlateCheckInputs;
+}
+
+/** Build the codecheck.ui ``unstiffened_plate`` value map from a plate row.
+ *
+ *  The simplest of the three exports: for a plate field the membrane stresses
+ *  *are* the Section-4 inputs ([5.3]), so there is no resultant to invert and
+ *  the as-checked ``check_inputs`` map straight onto the UI's fields. The
+ *  second edge/end values export blank unless the run used the varying-stress
+ *  treatment, which is what keeps a uniform field uniform on import.
+ *
+ *  Mirrored in codecheck's tests/unit/test_plate_viewer_export.py, which round
+ *  trips the mapping through the real check — keep the two in sync. */
+function buildUiPlateValues(
+  row: CapacityCaseResultLike,
+): Record<string, number | string | boolean> {
+  const ci = plateCheckInputs(row);
+  const dr = (v: number | null | undefined, fallback = 0): number =>
+    displayRound(v == null ? fallback : v);
+  const optional = (v: number | null | undefined): number | string =>
+    v == null ? "" : displayRound(v);
+  return {
+    fy: dr(asNum(ci.material?.fy_mpa), 355),
+    E: dr(asNum(ci.material?.E_mpa), 210000),
+    gamma_M: dr(asNum(ci.material?.gamma_m), 1.15),
+    s: dr(asNum(ci.plate?.s_mm)),
+    l: dr(asNum(ci.plate?.l_mm)),
+    t: dr(asNum(ci.plate?.t_mm)),
+    sigma_x: dr(asNum(ci.loads?.sigma_x_mpa)),
+    sigma_y: dr(asNum(ci.loads?.sigma_y_mpa)),
+    tau: dr(asNum(ci.loads?.tau_mpa)),
+    p: dr(asNum(ci.loads?.p_mpa)),
+    sigma_x_2: optional(asNum(ci.loads?.sigma_x_2_mpa)),
+    sigma_y_2: optional(asNum(ci.loads?.sigma_y_2_mpa)),
+  };
+}
+
+/** Section-4 unstiffened-plate Input panel: the field's own geometry and the
+ *  membrane stresses the check consumed. There is no stiffener, no [5.3]
+ *  station trio and no derived design value — the resolved field mean and its
+ *  edge/end samples are listed so the varying-stress choice is visible. */
+function buildPlateInputGroups(row: CapacityCaseResultLike): InputGroup[] {
+  const ci = plateCheckInputs(row);
+  const vec = (row.resolved_vectors ?? {}) as Record<string, unknown>;
+  const edges = (vec.EdgeLongitudinalStresses ?? []) as unknown[];
+  const ends = (vec.EndTransverseStresses ?? []) as unknown[];
+  const f = (
+    symbol: string,
+    label: string,
+    value: number | string | null,
+    unit?: string,
+    pos?: number,
+    ref?: string,
+  ): InputField => ({ symbol, label, value, unit, pos, ref });
+  const at = (values: unknown[], index: number): number | null =>
+    values[index] != null ? scaled(values[index], 1e-6) : null;
+  const s = asNum(ci.plate?.s_mm);
+  const t = asNum(ci.plate?.t_mm);
+  const p = asNum(ci.loads?.p_mpa);
+  const sigmaX2 = asNum(ci.loads?.sigma_x_2_mpa);
+  const sigmaY2 = asNum(ci.loads?.sigma_y_2_mpa);
+  return [
+    {
+      title: "Plate field",
+      fields: [
+        f("s", "Width (buckling-prone)", s, "mm", undefined, "[4.2]"),
+        f("l", "Length", asNum(ci.plate?.l_mm), "mm"),
+        f("t", "Thickness", t, "mm"),
+        f("s/t", "Slenderness", s != null && t ? displayRound(s / t) : null, undefined,
+          undefined, "(4.3)"),
+      ],
+    },
+    {
+      title: "Material",
+      fields: [
+        f("f_y", "Yield strength", asNum(ci.material?.fy_mpa), "MPa", undefined, "[2.1]"),
+        f("E", "Young's modulus", asNum(ci.material?.E_mpa), "MPa"),
+        f("γ_M", "Material factor", asNum(ci.material?.gamma_m), undefined, undefined,
+          "[2.1]"),
+      ],
+    },
+    {
+      title: "Longitudinal stress",
+      fields: [
+        f("σ_x,Sd", "Design value", asNum(ci.loads?.sigma_x_mpa), "MPa", undefined,
+          sigmaX2 == null ? "[4.2]" : "[4.6]"),
+        f("σ_x2", "Opposite edge", sigmaX2 ?? "uniform",
+          sigmaX2 == null ? undefined : "MPa"),
+        f("", "Edge 1 (resolved)", at(edges, 0), "MPa", 1),
+        f("", "Field mean (resolved)", at(edges, 1), "MPa", 2),
+        f("", "Edge 2 (resolved)", at(edges, 2), "MPa", 3),
+      ],
+    },
+    {
+      title: "Transverse stress",
+      fields: [
+        f("σ_y,Sd", "Design value", asNum(ci.loads?.sigma_y_mpa), "MPa", undefined,
+          sigmaY2 == null ? "[4.3]" : "[4.8]"),
+        f("σ_y2", "Opposite end", sigmaY2 ?? "uniform",
+          sigmaY2 == null ? undefined : "MPa"),
+        f("", "End 1 (resolved)", at(ends, 0), "MPa", 1),
+        f("", "Field mean (resolved)", at(ends, 1), "MPa", 2),
+        f("", "End 2 (resolved)", at(ends, 2), "MPa", 3),
+      ],
+    },
+    {
+      title: "Other loads",
+      fields: [
+        f("τ_Sd", "Shear stress", asNum(ci.loads?.tau_mpa), "MPa", undefined, "[4.4]"),
+        f("p_Sd", "Lateral pressure", p == null ? null : displayRound(p * 1e3), "kPa",
+          undefined, "[4.3]"),
+      ],
+    },
+  ];
+}
+
 function slugForFile(value: string): string {
   return (
     (value || "case").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
@@ -1745,23 +1891,33 @@ function slugForFile(value: string): string {
 /** Download the current input as a codecheck.ui case file. The schema
  *  (``codecheck/case@1`` + ``standard_id``/``check_id``/``values``) is what that
  *  app's "Import JSON…" expects. Girder rows export the Section-7 ``fe_girder``
- *  check; panel rows the ``fe_stiffened`` check. */
+ *  check, unstiffened plate fields the Section-4 ``unstiffened_plate`` check,
+ *  and panel rows the ``fe_stiffened`` check. */
 function downloadUiCase(run: CapacityRunLike, row: CapacityCaseResultLike): void {
-  const isGirder =
-    run.capacity_models.find((m) => m.id === row.capacity_model_id)?.type ===
-    "girder";
+  const modelType = run.capacity_models.find(
+    (m) => m.id === row.capacity_model_id,
+  )?.type;
   const name = `${shortName(row.stiffener ?? row.panel_group)} ${caseLabelForRow(
     run,
     row,
   )}`.trim();
+  const checkId =
+    modelType === "girder"
+      ? "fe_girder"
+      : modelType === "unstiffened_plate"
+        ? "unstiffened_plate"
+        : "fe_stiffened";
   const payload = buildCodecheckCasePayload({
     name,
-    check_id: isGirder ? "fe_girder" : "fe_stiffened",
+    check_id: checkId,
     capacity_model_id: row.capacity_model_id,
     case_id: row.case_id,
-    values: isGirder
-      ? buildUiGirderValues(row)
-      : buildUiCaseValues(run, row),
+    values:
+      modelType === "girder"
+        ? buildUiGirderValues(row)
+        : modelType === "unstiffened_plate"
+          ? buildUiPlateValues(row)
+          : buildUiCaseValues(run, row),
   });
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
     type: "application/json",
@@ -1786,6 +1942,7 @@ function buildInputGroups(
 ): InputGroup[] {
   const model = run.capacity_models.find((m) => m.id === row.capacity_model_id);
   if (model?.type === "girder") return buildGirderInputGroups(row);
+  if (model?.type === "unstiffened_plate") return buildPlateInputGroups(row);
   const plate = (model?.plates?.[0] ?? {}) as Record<string, unknown>;
   const stiffeners = (model?.stiffeners ?? []) as Array<
     Record<string, unknown>
