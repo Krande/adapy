@@ -42,9 +42,7 @@ def clone_repo(repo_url: str, ref: str, dest: str | pathlib.Path, *, ssh_key_pat
     git uses only that key."""
     env = dict(os.environ)
     if ssh_key_path:
-        env["GIT_SSH_COMMAND"] = (
-            f"ssh -i {ssh_key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
-        )
+        env["GIT_SSH_COMMAND"] = f"ssh -i {ssh_key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
     subprocess.run(
         ["git", "clone", "--depth", "1", "--branch", ref, repo_url, str(dest)],
         check=True,

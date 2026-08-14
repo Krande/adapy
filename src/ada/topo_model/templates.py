@@ -35,8 +35,7 @@ def procedural_template_specs() -> list[dict]:
     """The registered templates, as the worker advertises them (a fresh copy so
     callers can't mutate the registry)."""
     return [
-        {"slug": v["slug"], "name": v["name"], "engine": v["engine"], "doc": dict(v["doc"])}
-        for v in _REGISTRY.values()
+        {"slug": v["slug"], "name": v["name"], "engine": v["engine"], "doc": dict(v["doc"])} for v in _REGISTRY.values()
     ]
 
 
@@ -142,31 +141,72 @@ def _steel_structure_demo_doc() -> dict:
         "spaces": spaces,
         "equipments": equipments,
         "systems": [
-            {"NAME": "CoolingWater", "TYPE": "piping", "MEDIUM": "water",
-             "CONNECTIONS": [{"EQUIPMENT": "Pump1", "PORT": "discharge"}, {"EQUIPMENT": "Tank1", "PORT": "inlet"}]},
-            {"NAME": "ServiceWater", "TYPE": "piping", "MEDIUM": "water",
-             "CONNECTIONS": [{"EQUIPMENT": "Pump2", "PORT": "discharge"}, {"EQUIPMENT": "Tank2", "PORT": "inlet"}]},
-            {"NAME": "Mains", "TYPE": "electrical",
-             "CONNECTIONS": [{"SITE": "grid_supply", "POSITION": [0, 1, 1], "DIRECTION": "IN", "DIRECTION_VECTOR": [1, 0, 0]},
-                             {"EQUIPMENT": "SB2", "PORT": "incoming"}]},
-            {"NAME": "PowerFeed2", "TYPE": "electrical",
-             "CONNECTIONS": [{"EQUIPMENT": "SB2", "PORT": "feeder"}, {"EQUIPMENT": "Pump2", "PORT": "power"}]},
-            {"NAME": "DeckTie", "TYPE": "electrical",
-             "CONNECTIONS": [{"EQUIPMENT": "SB2", "PORT": "feeder2"}, {"EQUIPMENT": "SB1", "PORT": "incoming"}]},
-            {"NAME": "PowerFeed1", "TYPE": "electrical",
-             "CONNECTIONS": [{"EQUIPMENT": "SB1", "PORT": "feeder"}, {"EQUIPMENT": "Pump1", "PORT": "power"}]},
-            {"NAME": "HvacPower", "TYPE": "electrical",
-             "CONNECTIONS": [{"EQUIPMENT": "SB1", "PORT": "feeder2"}, {"EQUIPMENT": "HVAC1", "PORT": "power"}]},
-            {"NAME": "HvacExhaust", "TYPE": "duct", "MEDIUM": "air",
-             "CONNECTIONS": [{"EQUIPMENT": "HVAC1", "PORT": "supply"}, {"EQUIPMENT": "Exhaust1", "PORT": "intake"}]},
-            {"NAME": "Drain", "TYPE": "piping", "MEDIUM": "water",
-             # Drain out the near (right, x=10) wall by Tank2 — the old x=0 site
-             # was boxed in by switchboard SB2, so the run couldn't route.
-             "CONNECTIONS": [{"EQUIPMENT": "Tank2", "PORT": "outlet"},
-                             {"SITE": "drain", "POSITION": [10, 2.5, 1], "DIRECTION": "OUT", "DIRECTION_VECTOR": [1, 0, 0]}]},
-            {"NAME": "Suction", "TYPE": "piping", "MEDIUM": "water",
-             "CONNECTIONS": [{"SITE": "seawater", "POSITION": [0, 4, 1], "DIRECTION": "IN", "DIRECTION_VECTOR": [1, 0, 0]},
-                             {"EQUIPMENT": "Pump2", "PORT": "suction"}]},
+            {
+                "NAME": "CoolingWater",
+                "TYPE": "piping",
+                "MEDIUM": "water",
+                "CONNECTIONS": [{"EQUIPMENT": "Pump1", "PORT": "discharge"}, {"EQUIPMENT": "Tank1", "PORT": "inlet"}],
+            },
+            {
+                "NAME": "ServiceWater",
+                "TYPE": "piping",
+                "MEDIUM": "water",
+                "CONNECTIONS": [{"EQUIPMENT": "Pump2", "PORT": "discharge"}, {"EQUIPMENT": "Tank2", "PORT": "inlet"}],
+            },
+            {
+                "NAME": "Mains",
+                "TYPE": "electrical",
+                "CONNECTIONS": [
+                    {"SITE": "grid_supply", "POSITION": [0, 1, 1], "DIRECTION": "IN", "DIRECTION_VECTOR": [1, 0, 0]},
+                    {"EQUIPMENT": "SB2", "PORT": "incoming"},
+                ],
+            },
+            {
+                "NAME": "PowerFeed2",
+                "TYPE": "electrical",
+                "CONNECTIONS": [{"EQUIPMENT": "SB2", "PORT": "feeder"}, {"EQUIPMENT": "Pump2", "PORT": "power"}],
+            },
+            {
+                "NAME": "DeckTie",
+                "TYPE": "electrical",
+                "CONNECTIONS": [{"EQUIPMENT": "SB2", "PORT": "feeder2"}, {"EQUIPMENT": "SB1", "PORT": "incoming"}],
+            },
+            {
+                "NAME": "PowerFeed1",
+                "TYPE": "electrical",
+                "CONNECTIONS": [{"EQUIPMENT": "SB1", "PORT": "feeder"}, {"EQUIPMENT": "Pump1", "PORT": "power"}],
+            },
+            {
+                "NAME": "HvacPower",
+                "TYPE": "electrical",
+                "CONNECTIONS": [{"EQUIPMENT": "SB1", "PORT": "feeder2"}, {"EQUIPMENT": "HVAC1", "PORT": "power"}],
+            },
+            {
+                "NAME": "HvacExhaust",
+                "TYPE": "duct",
+                "MEDIUM": "air",
+                "CONNECTIONS": [{"EQUIPMENT": "HVAC1", "PORT": "supply"}, {"EQUIPMENT": "Exhaust1", "PORT": "intake"}],
+            },
+            {
+                "NAME": "Drain",
+                "TYPE": "piping",
+                "MEDIUM": "water",
+                # Drain out the near (right, x=10) wall by Tank2 — the old x=0 site
+                # was boxed in by switchboard SB2, so the run couldn't route.
+                "CONNECTIONS": [
+                    {"EQUIPMENT": "Tank2", "PORT": "outlet"},
+                    {"SITE": "drain", "POSITION": [10, 2.5, 1], "DIRECTION": "OUT", "DIRECTION_VECTOR": [1, 0, 0]},
+                ],
+            },
+            {
+                "NAME": "Suction",
+                "TYPE": "piping",
+                "MEDIUM": "water",
+                "CONNECTIONS": [
+                    {"SITE": "seawater", "POSITION": [0, 4, 1], "DIRECTION": "IN", "DIRECTION_VECTOR": [1, 0, 0]},
+                    {"EQUIPMENT": "Pump2", "PORT": "suction"},
+                ],
+            },
         ],
         "openings": [],
     }
@@ -197,18 +237,26 @@ def _topside_jacket_doc() -> dict:
             ],
         ),
         "systems": [
-            {"NAME": "CoolingWater", "TYPE": "piping", "MEDIUM": "water",
-             "CONNECTIONS": [{"EQUIPMENT": "Pump", "PORT": "discharge"}, {"EQUIPMENT": "Tank", "PORT": "inlet"}]},
+            {
+                "NAME": "CoolingWater",
+                "TYPE": "piping",
+                "MEDIUM": "water",
+                "CONNECTIONS": [{"EQUIPMENT": "Pump", "PORT": "discharge"}, {"EQUIPMENT": "Tank", "PORT": "inlet"}],
+            },
         ],
         "openings": [],
         "loft_members": [
-            {"NAME": "Jacket", "INCLUDE": True, "REPRESENTATION": "JACKET",
-             "STATIONS": [
-                 {"TYPE": "rectangle", "X": 0, "Y": 0, "Z": 0, "WIDTH": 40, "HEIGHT": 40, "SEGMENTS": 4},
-                 {"TYPE": "rectangle", "X": 0, "Y": 0, "Z": 20, "WIDTH": 40, "HEIGHT": 40, "SEGMENTS": 4},
-                 {"TYPE": "rectangle", "X": 0, "Y": 0, "Z": 60, "WIDTH": 31, "HEIGHT": 31, "SEGMENTS": 4},
-                 {"TYPE": "rectangle", "X": 0, "Y": 0, "Z": 100, "WIDTH": 24, "HEIGHT": 24, "SEGMENTS": 4},
-             ]},
+            {
+                "NAME": "Jacket",
+                "INCLUDE": True,
+                "REPRESENTATION": "JACKET",
+                "STATIONS": [
+                    {"TYPE": "rectangle", "X": 0, "Y": 0, "Z": 0, "WIDTH": 40, "HEIGHT": 40, "SEGMENTS": 4},
+                    {"TYPE": "rectangle", "X": 0, "Y": 0, "Z": 20, "WIDTH": 40, "HEIGHT": 40, "SEGMENTS": 4},
+                    {"TYPE": "rectangle", "X": 0, "Y": 0, "Z": 60, "WIDTH": 31, "HEIGHT": 31, "SEGMENTS": 4},
+                    {"TYPE": "rectangle", "X": 0, "Y": 0, "Z": 100, "WIDTH": 24, "HEIGHT": 24, "SEGMENTS": 4},
+                ],
+            },
         ],
     }
 

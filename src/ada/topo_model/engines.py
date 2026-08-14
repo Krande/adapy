@@ -68,6 +68,7 @@ class EngineBinding(BaseModel):
         """Same MAJOR version = compatible (minor bumps are additive)."""
         return self.schema_version.split(".", 1)[0] == current.split(".", 1)[0]
 
+
 # Built-in engines shipped inside the adapy wheel — available both server-side
 # and in the browser (they import only adapy, no external wheel). Each maps a
 # slug to its ``module:callable`` entrypoint.

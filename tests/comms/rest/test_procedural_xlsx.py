@@ -48,9 +48,7 @@ def _settings(tmp_path: pathlib.Path, database_url: str = "") -> Settings:
             kv_bucket="ada-viewer-jobs",
             durable="ada-viewer-worker",
         ),
-        auth=AuthConfig(
-            enabled=False, issuer="", client_id="", audience="", admin_group="", cli_token_secret=""
-        ),
+        auth=AuthConfig(enabled=False, issuer="", client_id="", audience="", admin_group="", cli_token_secret=""),
         database_url=database_url,
     )
 
@@ -136,9 +134,7 @@ def test_import_upload_detects_engine_without_db(app_client: TestClient):
     # Upload + auto-detect needs neither a DB nor ada: the _ADA_META sheet is read
     # dependency-free and the workbook is staged under a hidden import token.
     data = _xlsx_with_meta([("engine", "ext-engine"), ("package_version", "0.10.2")])
-    r = app_client.post(
-        "/api/scopes/shared/procedural-models/import-xlsx/upload", content=data
-    )
+    r = app_client.post("/api/scopes/shared/procedural-models/import-xlsx/upload", content=data)
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["engine"] == "ext-engine"
@@ -151,9 +147,7 @@ def test_import_upload_detects_engine_without_db(app_client: TestClient):
     wb.active.title = "Spaces"
     buf = io.BytesIO()
     wb.save(buf)
-    r2 = app_client.post(
-        "/api/scopes/shared/procedural-models/import-xlsx/upload", content=buf.getvalue()
-    )
+    r2 = app_client.post("/api/scopes/shared/procedural-models/import-xlsx/upload", content=buf.getvalue())
     assert r2.status_code == 200, r2.text
     assert r2.json()["engine"] is None
 

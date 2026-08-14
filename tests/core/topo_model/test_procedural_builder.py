@@ -24,18 +24,42 @@ DOC = {
     ],
     "equipments": [
         {
-            "NAME": "Pump2", "DESCRIPTION": "pump", "SPACE_NAME": "Cell1", "SPACE_LOC": "FLOOR",
-            "X": 2.0, "Y": 2.0, "Z": 0.0, "LX": 1.0, "LY": 1.0, "LZ": 1.0,
-            "COGx": 0, "COGy": 0, "COGz": 0.5, "massDry": 1000, "massCont": 0,
+            "NAME": "Pump2",
+            "DESCRIPTION": "pump",
+            "SPACE_NAME": "Cell1",
+            "SPACE_LOC": "FLOOR",
+            "X": 2.0,
+            "Y": 2.0,
+            "Z": 0.0,
+            "LX": 1.0,
+            "LY": 1.0,
+            "LZ": 1.0,
+            "COGx": 0,
+            "COGy": 0,
+            "COGz": 0.5,
+            "massDry": 1000,
+            "massCont": 0,
         },
         {
             # Authored in GLOBAL coords (X=6.5 is a world position inside Cell2's
             # 5..10 span, not a cell-local offset) — so GLOBAL_COORDS opts out of
             # the default cell-relative placement.
-            "NAME": "Tank2", "DESCRIPTION": "tank", "SPACE_NAME": "Cell2", "SPACE_LOC": "FLOOR",
+            "NAME": "Tank2",
+            "DESCRIPTION": "tank",
+            "SPACE_NAME": "Cell2",
+            "SPACE_LOC": "FLOOR",
             "GLOBAL_COORDS": True,
-            "X": 6.5, "Y": 1.5, "Z": 0.0, "LX": 2.0, "LY": 2.0, "LZ": 2.0,
-            "COGx": 0, "COGy": 0, "COGz": 1.0, "massDry": 1000, "massCont": 0,
+            "X": 6.5,
+            "Y": 1.5,
+            "Z": 0.0,
+            "LX": 2.0,
+            "LY": 2.0,
+            "LZ": 2.0,
+            "COGx": 0,
+            "COGy": 0,
+            "COGz": 1.0,
+            "massDry": 1000,
+            "massCont": 0,
         },
     ],
     "systems": [
@@ -220,7 +244,9 @@ def test_from_json_string_and_file(tmp_path):
 def test_excel_roundtrip_compiles(tmp_path):
     """to_excel -> from_excel round-trips the WHOLE model (spaces + equipment +
     systems + doc-level scalars) and the reloaded model still compiles."""
-    doc = dict(DOC, blueprint={"reinforce_internal_walls": True, "enclosed_cells": ["Cell1"]}, design_rules="route_only")
+    doc = dict(
+        DOC, blueprint={"reinforce_internal_walls": True, "enclosed_cells": ["Cell1"]}, design_rules="route_only"
+    )
     pb = ProceduralBuilder.from_dict(doc)
 
     xlsx = tmp_path / "model.xlsx"
@@ -244,9 +270,7 @@ def test_from_dict_tolerates_null_laden_doc():
     from ada.topology.entities import TopoOpening
 
     space = TopoSpace(NAME="Cell1", X=0, Y=0, Z=0, DX=5, DY=5, DZ=3, INCLUDE=True)
-    op = TopoOpening(
-        NAME="op1", SPACE_NAME="Cell1", POS_X=1.0, POS_Y=1.0, SIZE_X=1.0, SIZE_Y=1.0, DEPTH=0.5
-    )
+    op = TopoOpening(NAME="op1", SPACE_NAME="Cell1", POS_X=1.0, POS_Y=1.0, SIZE_X=1.0, SIZE_Y=1.0, DEPTH=0.5)
     # Null-laden dumps (the pre-fix stored-doc shape — NO exclude_none): the
     # opening's optional coord fields (X/Y/Z/...) serialise as explicit null.
     doc = {

@@ -158,9 +158,7 @@ def test_xlsx_export_is_valid_workbook(steel_takeoff):
     wb = load_workbook(io.BytesIO(data))
     assert wb.sheetnames == ["Overview", "COGs", "Structural", "Piping", "HVAC", "Electrical", "Joints"]
     # The Structural sheet carries the beams-by-section rows.
-    text = "\n".join(
-        str(c.value) for row in wb["Structural"].iter_rows() for c in row if c.value is not None
-    )
+    text = "\n".join(str(c.value) for row in wb["Structural"].iter_rows() for c in row if c.value is not None)
     assert "HP140x8" in text and "IPE200" in text and "HEB200" in text
 
 

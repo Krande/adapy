@@ -88,6 +88,8 @@ def test_excel_roundtrip_multi(tmp_path):
     assert {s.NAME for s in back.spaces} == {"S1_Cell1", "S1_Cell2", "S2_Cell1"}
     # STRUCTURE_NAME survives the round-trip so the regroup on build works
     assert {s.NAME: s.STRUCTURE_NAME for s in back.spaces} == {
-        "S1_Cell1": "S1", "S1_Cell2": "S1", "S2_Cell1": "S2",
+        "S1_Cell1": "S1",
+        "S1_Cell2": "S1",
+        "S2_Cell1": "S2",
     }
     assert _is_glb(back.compile())

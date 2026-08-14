@@ -57,8 +57,24 @@ ADAPY_DEFAULT_JOINT_TYPES: list[dict] = [
         "description": "Gusset plate + fillet weld beads at each I-girder to I-girder intersection.",
         "default_enabled": True,
         "fields": [
-            {"name": "weld_leg", "label": "Weld leg", "type": "number", "default": 6.0, "min": 3.0, "max": 20.0, "unit": "mm"},
-            {"name": "gusset_t", "label": "Gusset thickness", "type": "number", "default": 10.0, "min": 5.0, "max": 40.0, "unit": "mm"},
+            {
+                "name": "weld_leg",
+                "label": "Weld leg",
+                "type": "number",
+                "default": 6.0,
+                "min": 3.0,
+                "max": 20.0,
+                "unit": "mm",
+            },
+            {
+                "name": "gusset_t",
+                "label": "Gusset thickness",
+                "type": "number",
+                "default": 10.0,
+                "min": 5.0,
+                "max": 40.0,
+                "unit": "mm",
+            },
         ],
     },
     {
@@ -67,8 +83,24 @@ ADAPY_DEFAULT_JOINT_TYPES: list[dict] = [
         "description": "Base plate + fillet welds (anchor bolts metadata-first) at each column footing.",
         "default_enabled": True,
         "fields": [
-            {"name": "overhang", "label": "Overhang", "type": "number", "default": 50.0, "min": 0.0, "max": 200.0, "unit": "mm"},
-            {"name": "weld_leg", "label": "Weld leg", "type": "number", "default": 6.0, "min": 3.0, "max": 20.0, "unit": "mm"},
+            {
+                "name": "overhang",
+                "label": "Overhang",
+                "type": "number",
+                "default": 50.0,
+                "min": 0.0,
+                "max": 200.0,
+                "unit": "mm",
+            },
+            {
+                "name": "weld_leg",
+                "label": "Weld leg",
+                "type": "number",
+                "default": 6.0,
+                "min": 3.0,
+                "max": 20.0,
+                "unit": "mm",
+            },
         ],
     },
     {
@@ -77,7 +109,15 @@ ADAPY_DEFAULT_JOINT_TYPES: list[dict] = [
         "description": "Boolean-cut the incoming box beam with the landing box member so they no longer clash (no weld/plate; opt-in).",
         "default_enabled": False,
         "fields": [
-            {"name": "clearance", "label": "Cut clearance", "type": "number", "default": 2.0, "min": 0.0, "max": 20.0, "unit": "mm"},
+            {
+                "name": "clearance",
+                "label": "Cut clearance",
+                "type": "number",
+                "default": 2.0,
+                "min": 0.0,
+                "max": 20.0,
+                "unit": "mm",
+            },
         ],
     },
 ]

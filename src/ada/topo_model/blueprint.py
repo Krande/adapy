@@ -31,11 +31,11 @@ from ada.topology.graph import GraphFace
 # Re-export for callers/tests that reach the wall builder through this module.
 from ._geometry import (
     DeckLedger,
+    clash_cut_frame,
     cut_box,
     cut_crossing_secondary_beams,
     dedupe_edges,
     face_center_key,
-    clash_cut_frame,
     frame_axes,
     girder_flange_width,
     plate_world_aabb,

@@ -20,7 +20,12 @@ from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
 
-from ada.topology.graph import CellGraph, _round_key, classify_loft_face, loft_face_id_str
+from ada.topology.graph import (
+    CellGraph,
+    _round_key,
+    classify_loft_face,
+    loft_face_id_str,
+)
 from ada.topology.metadata import TopologyMetadata
 
 if TYPE_CHECKING:

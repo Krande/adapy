@@ -78,7 +78,9 @@ def eval_joint_req(joint: type[JointBase], intersecting_members: List["Beam"]) -
     return jrc.eval_joint_req()
 
 
-def collect_girder_joints(assembly, *, weld_leg: float | None = None, gusset_t: float | None = None) -> List["GirderJoint"]:
+def collect_girder_joints(
+    assembly, *, weld_leg: float | None = None, gusset_t: float | None = None
+) -> List["GirderJoint"]:
     """All I-girder joints in ``assembly``, as :class:`GirderJoint` objects (their
     ``.connection`` carries the gusset + welds).
 
@@ -148,13 +150,21 @@ def _make_joint_map(weld_leg: float | None, gusset_t: float | None):
     signature, so the sizing has to ride in via the closure."""
 
     def joint_map(joint_name, intersecting_members, centre, parent=None) -> Union[JointBase, None]:
-        return detail_joint_map(joint_name, intersecting_members, centre, parent=parent, weld_leg=weld_leg, gusset_t=gusset_t)
+        return detail_joint_map(
+            joint_name, intersecting_members, centre, parent=parent, weld_leg=weld_leg, gusset_t=gusset_t
+        )
 
     return joint_map
 
 
 def detail_joint_map(
-    joint_name, intersecting_members, centre, parent=None, *, weld_leg: float | None = None, gusset_t: float | None = None
+    joint_name,
+    intersecting_members,
+    centre,
+    parent=None,
+    *,
+    weld_leg: float | None = None,
+    gusset_t: float | None = None,
 ) -> Union[JointBase, None]:
     """Map a detected beam intersection to a detail joint.
 
@@ -194,7 +204,16 @@ class GirderJoint(JointBase):
     beamtypes = ["IG", "IG"]
     num_mem = 2
 
-    def __init__(self, name, members: List["Beam"], centre, parent=None, *, weld_leg: float | None = None, gusset_t: float | None = None):
+    def __init__(
+        self,
+        name,
+        members: List["Beam"],
+        centre,
+        parent=None,
+        *,
+        weld_leg: float | None = None,
+        gusset_t: float | None = None,
+    ):
         super().__init__(name, members, centre, parent=parent)
 
         g1 = self.main_mem

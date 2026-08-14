@@ -186,7 +186,9 @@ def test_detailing_none_key_is_byte_identical_to_structural():
     # plain structural key, at every lod/engine combination.
     for detailing in (None, "none"):
         assert procedural_detailing_glb_key("m", 3, None, detailing, "sim") == procedural_glb_key("m", 3, None)
-        assert procedural_detailing_glb_key("m", 3, None, detailing, "detail") == procedural_detail_glb_key("m", 3, None)
+        assert procedural_detailing_glb_key("m", 3, None, detailing, "detail") == procedural_detail_glb_key(
+            "m", 3, None
+        )
         assert procedural_detailing_glb_key("m", 3, "other-engine", detailing, "sim") == procedural_glb_key(
             "m", 3, "other-engine"
         )
@@ -196,7 +198,9 @@ def test_detailing_key_gets_det_suffix():
     key = procedural_detailing_glb_key("m", 3, None, "adapy-default", "sim")
     assert key == "_procedural/m/r3.det-adapy.glb"
     # Composes with lod + engine suffixes, all four combos distinct.
-    assert procedural_detailing_glb_key("m", 3, None, "adapy-default", "detail") == "_procedural/m/r3_detail.det-adapy.glb"
+    assert (
+        procedural_detailing_glb_key("m", 3, None, "adapy-default", "detail") == "_procedural/m/r3_detail.det-adapy.glb"
+    )
     assert procedural_detailing_glb_key("m", 3, "echo", "adapy-default", "sim") == "_procedural/m/r3.echo.det-adapy.glb"
     # The .log sibling rule follows the key automatically.
     assert procedural_log_key(key) == "_procedural/m/r3.det-adapy.log"
@@ -204,7 +208,10 @@ def test_detailing_key_gets_det_suffix():
 
 def test_preview_key_gains_det_fragment():
     assert procedural_preview_glb_key("m", "abc", None, "sim", None) == "_procedural/m/preview/abc.glb"
-    assert procedural_preview_glb_key("m", "abc", None, "sim", "adapy-default") == "_procedural/m/preview/abc.det-adapy.glb"
+    assert (
+        procedural_preview_glb_key("m", "abc", None, "sim", "adapy-default")
+        == "_procedural/m/preview/abc.det-adapy.glb"
+    )
 
 
 def test_detailing_options_change_yields_distinct_key():
@@ -213,12 +220,8 @@ def test_detailing_options_change_yields_distinct_key():
     base = procedural_detailing_glb_key("m", 3, None, "adapy-default", "sim")
     assert procedural_detailing_glb_key("m", 3, None, "adapy-default", "sim", {}) == base
 
-    k20 = procedural_detailing_glb_key(
-        "m", 3, None, "adapy-default", "sim", {"column_base_plate": {"overhang": 20.0}}
-    )
-    k50 = procedural_detailing_glb_key(
-        "m", 3, None, "adapy-default", "sim", {"column_base_plate": {"overhang": 50.0}}
-    )
+    k20 = procedural_detailing_glb_key("m", 3, None, "adapy-default", "sim", {"column_base_plate": {"overhang": 20.0}})
+    k50 = procedural_detailing_glb_key("m", 3, None, "adapy-default", "sim", {"column_base_plate": {"overhang": 50.0}})
     assert k20 != base and k50 != base and k20 != k50
     # Stable: the SAME options hash the same key (order-independent).
     assert k20 == procedural_detailing_glb_key(

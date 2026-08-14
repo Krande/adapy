@@ -3,10 +3,7 @@ compiler dispatches on (user-selectable structural blueprint)."""
 
 from __future__ import annotations
 
-from ada.topo_model import (
-    procedural_blueprint_specs,
-    register_procedural_blueprint,
-)
+from ada.topo_model import procedural_blueprint_specs, register_procedural_blueprint
 from ada.topo_model.compile import compile_procedural_doc
 
 _DOC = {

@@ -95,6 +95,7 @@ def _mm(fields: dict, name: str, default_mm: float) -> float:
     except (TypeError, ValueError):
         return float(default_mm) * 1e-3
 
+
 # Endpoint / on-axis tolerances for the endplate + base-plate detection.
 _ENDPOINT_EPS = 1e-2  # a girder param s within this of 0/1 counts as its endpoint
 _CROSS_TOL = 0.1  # out-of-plane tolerance for two axes to count as crossing
@@ -176,7 +177,9 @@ def collect_box_joints(assembly: "Part", options: dict) -> List["BoxJoint"]:
             else:
                 continue
             out.append(
-                BoxJoint(f"BX_{i:02d}_{j:02d}", [b1, b2], point, incoming=incoming, landing=landing, clearance=clearance)
+                BoxJoint(
+                    f"BX_{i:02d}_{j:02d}", [b1, b2], point, incoming=incoming, landing=landing, clearance=clearance
+                )
             )
     return out
 
@@ -271,16 +274,30 @@ class BasePlateJoint(JointBase):
         half_f = 0.5 * foot
         half_p = half_f + overhang
 
-        pts = [c - half_p * x - half_p * y, c + half_p * x - half_p * y, c + half_p * x + half_p * y, c - half_p * x + half_p * y]
-        baseplate = Plate.from_3d_points(f"{name}_baseplate", [tuple(p) for p in pts], max(2.0 * _MIN_PLATE_T, _MIN_PLATE_T))
+        pts = [
+            c - half_p * x - half_p * y,
+            c + half_p * x - half_p * y,
+            c + half_p * x + half_p * y,
+            c - half_p * x + half_p * y,
+        ]
+        baseplate = Plate.from_3d_points(
+            f"{name}_baseplate", [tuple(p) for p in pts], max(2.0 * _MIN_PLATE_T, _MIN_PLATE_T)
+        )
         conn.add_plate(baseplate)
 
         throat = max(weld_leg, _MIN_THROAT)
-        corners = [c - half_f * x - half_f * y, c + half_f * x - half_f * y, c + half_f * x + half_f * y, c - half_f * x + half_f * y]
+        corners = [
+            c - half_f * x - half_f * y,
+            c + half_f * x - half_f * y,
+            c + half_f * x + half_f * y,
+            c - half_f * x + half_f * y,
+        ]
         weld_names: list = []
         for i in range(4):
             p1, p2 = corners[i], corners[(i + 1) % 4]
-            weld = Weld(f"{name}_weld_{i + 1}", p1=tuple(p1), p2=tuple(p2), xdir=tuple(z), throat=throat, members=(col,))
+            weld = Weld(
+                f"{name}_weld_{i + 1}", p1=tuple(p1), p2=tuple(p2), xdir=tuple(z), throat=throat, members=(col,)
+            )
             conn.add_weld(weld)
             weld_names.append(weld.name)
 

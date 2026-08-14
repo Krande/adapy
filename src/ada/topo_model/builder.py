@@ -49,7 +49,6 @@ from ada.topology.entities import (
 )
 
 from .blueprint import SteelStru
-from .engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION, EngineBinding
 from .compile import (
     _BLUEPRINT_OPTION_KEYS,
     _apply_openings,
@@ -61,6 +60,7 @@ from .compile import (
     _space_to_box,
     _stream_tessellation,
 )
+from .engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION, EngineBinding
 
 __all__ = ["ProceduralBuilder"]
 
@@ -169,11 +169,17 @@ class ProceduralBuilder:
         # Coerce plain dicts (a convenience for callers that mix objects + dicts)
         # into the typed value objects, so downstream is uniformly object-based.
         self.spaces = [s if isinstance(s, TopoSpace) else TopoSpace(**_strip_none(s)) for s in self.spaces]
-        self.equipments = [e if isinstance(e, TopoEquipment) else TopoEquipment(**_strip_none(e)) for e in self.equipments]
+        self.equipments = [
+            e if isinstance(e, TopoEquipment) else TopoEquipment(**_strip_none(e)) for e in self.equipments
+        ]
         self.systems = [s if isinstance(s, TopoSystem) else TopoSystem(**_strip_none(s)) for s in self.systems]
         self.openings = [o if isinstance(o, TopoOpening) else TopoOpening(**_strip_none(o)) for o in self.openings]
-        self.structures = [s if isinstance(s, TopoStructure) else TopoStructure(**_strip_none(s)) for s in self.structures]
-        self.loft_members = [m if isinstance(m, TopoLoftMember) else TopoLoftMember(**_strip_none(m)) for m in self.loft_members]
+        self.structures = [
+            s if isinstance(s, TopoStructure) else TopoStructure(**_strip_none(s)) for s in self.structures
+        ]
+        self.loft_members = [
+            m if isinstance(m, TopoLoftMember) else TopoLoftMember(**_strip_none(m)) for m in self.loft_members
+        ]
         # Whitelist the structural options so an unknown key can't reach SteelStru.
         self.blueprint_options = {k: v for k, v in dict(self.blueprint_options).items() if k in _BLUEPRINT_OPTION_KEYS}
         # Resolve a named/absent ruleset to a DesignRules; keep the slug for round-trip.
@@ -221,7 +227,9 @@ class ProceduralBuilder:
             # Detailing is a compile-time choice threaded from the worker/API, not
             # persisted on the document; a doc value is a tolerated fallback.
             detailing=detailing if detailing is not None else doc.get("detailing"),
-            detailing_options=detailing_options if detailing_options is not None else (doc.get("detailing_options") or {}),
+            detailing_options=(
+                detailing_options if detailing_options is not None else (doc.get("detailing_options") or {})
+            ),
             # An explicit design_rules argument wins; else the doc's named slug.
             design_rules=design_rules if design_rules is not None else doc.get("design_rules"),
             equipment_cad=bool(doc.get("equipment_cad")),
@@ -524,9 +532,7 @@ class ProceduralBuilder:
 
         for m in skinned:
             lofts_part.add_part(
-                loft_member_to_part(
-                    m.NAME, m.world_profiles(), thickness=m.THICKNESS, exclude_faces=m.EXCLUDE_FACES
-                )
+                loft_member_to_part(m.NAME, m.world_profiles(), thickness=m.THICKNESS, exclude_faces=m.EXCLUDE_FACES)
             )
 
         if self.assembly is None:

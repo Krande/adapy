@@ -101,6 +101,7 @@ def procedural_blueprint_specs(engine: str | None = None) -> list[dict]:
     registry). With ``engine`` given, only that engine's blueprints; with
     ``engine=None``, the union across every registered engine (each spec carries
     its ``engine`` so the endpoint can filter) — the shape the worker advertises."""
+
     def _copy(v: dict) -> dict:
         spec = dict(v)
         spec["fields"] = [dict(f) for f in v.get("fields", [])]

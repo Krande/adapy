@@ -253,9 +253,7 @@ def model_takeoff(part: "Part", *, source_name: str | None = None) -> dict:
             continue
         thk = round(float(pl.t), 6)
         label = f"PL{round(thk * 1000):g}"
-        row = plates_by_thk.setdefault(
-            thk, {"label": label, "thickness": thk, "count": 0, "area": 0.0, "mass": 0.0}
-        )
+        row = plates_by_thk.setdefault(thk, {"label": label, "thickness": thk, "count": 0, "area": 0.0, "mass": 0.0})
         row["count"] += 1
         row["area"] += area
         row["mass"] += mass_kg / _KG_PER_TONNE
@@ -302,9 +300,7 @@ def model_takeoff(part: "Part", *, source_name: str | None = None) -> dict:
         # flanged end connections ~ endpoints of each pipe run
         n_flanges += 2
         pipe_cog = (pipe_moment / pipe_mass_kg) if pipe_mass_kg > 1e-12 else np.zeros(3)
-        major.append(
-            (pipe.name, "piping", pipe_mass_kg / _KG_PER_TONNE, [round(float(v), 3) for v in pipe_cog])
-        )
+        major.append((pipe.name, "piping", pipe_mass_kg / _KG_PER_TONNE, [round(float(v), 3) for v in pipe_cog]))
 
     # --- hvac (duct) + electrical (cable tray): swept runs ----------------
     duct_by_size: dict[str, dict] = {}
@@ -331,9 +327,7 @@ def model_takeoff(part: "Part", *, source_name: str | None = None) -> dict:
             w = float(getattr(section, "w_top", 0.0) or 0.0)
             h = float(getattr(section, "h", 0.0) or 0.0)
             surf = 2.0 * (w + h) * length
-            row = duct_by_size.setdefault(
-                size, {"size": size, "segments": 0, "length": 0.0, "area": 0.0, "mass": 0.0}
-            )
+            row = duct_by_size.setdefault(size, {"size": size, "segments": 0, "length": 0.0, "area": 0.0, "mass": 0.0})
             row["segments"] += 1
             row["length"] += length
             row["area"] += surf

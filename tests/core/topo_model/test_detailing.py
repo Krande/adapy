@@ -85,11 +85,7 @@ def test_hp_stringers_never_get_connection_joints(demo):
     # connection references a stringer, at any joint family.
     from ada.topo_model.detail_joints import is_frame_member
 
-    stringers = [
-        b
-        for b in demo.get_all_physical_objects(by_type=ada.Beam)
-        if b.section.name.upper().startswith("HP")
-    ]
+    stringers = [b for b in demo.get_all_physical_objects(by_type=ada.Beam) if b.section.name.upper().startswith("HP")]
     assert stringers, "demo should have HP stringers to exercise the exclusion"
     assert all(not is_frame_member(b) for b in stringers)
 

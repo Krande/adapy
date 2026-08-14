@@ -23,7 +23,13 @@ from pydantic import BaseModel, Field
 
 from ada.serialize.xlsx import WorkbookSerializer
 from ada.topo_model.engines import DEFAULT_ENGINE_SLUG, PROCEDURAL_SCHEMA_VERSION
-from ada.topology.entities import TopoEquipment, TopoOpening, TopoSpace, TopoStructure, TopoSystem
+from ada.topology.entities import (
+    TopoEquipment,
+    TopoOpening,
+    TopoSpace,
+    TopoStructure,
+    TopoSystem,
+)
 
 if TYPE_CHECKING:
     from .builder import ProceduralBuilder
@@ -75,7 +81,9 @@ class ProceduralModelMeta(BaseModel):
     REINFORCE_EXTERNAL_WALLS: Annotated[bool | None, Field(description="Plate + stiffen outer walls")] = None
     ENCLOSED_CELLS: Annotated[
         list[str] | None,
-        Field(description="Cells to fully enclose (all faces plated)", json_schema_extra={"excel": {"codec": "jsonlist"}}),
+        Field(
+            description="Cells to fully enclose (all faces plated)", json_schema_extra={"excel": {"codec": "jsonlist"}}
+        ),
     ] = None
     PL_THICK: Annotated[float | None, Field(description="Deck plate thickness (m)")] = None
     WALL_PL_THICK: Annotated[float | None, Field(description="Wall plate thickness (m)")] = None

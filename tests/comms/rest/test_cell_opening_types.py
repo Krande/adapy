@@ -116,9 +116,7 @@ def test_register_procedural_cell_and_opening_types_are_idempotent():
         register_procedural_opening_type,
     )
 
-    register_procedural_cell_type(
-        "engine-bay", "Engine bay", (8.0, 6.0, 4.0), description="demo", metadata={"CRIT": 3}
-    )
+    register_procedural_cell_type("engine-bay", "Engine bay", (8.0, 6.0, 4.0), description="demo", metadata={"CRIT": 3})
     register_procedural_cell_type("engine-bay", "Engine bay", (8.0, 6.0, 4.0))  # replace, not dup
     bays = [s for s in procedural_cell_type_specs() if s["slug"] == "engine-bay"]
     assert len(bays) == 1

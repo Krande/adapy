@@ -178,7 +178,10 @@ def test_endpoints_503_without_db(app_client: TestClient):
 
 
 def test_procedural_stats_key_shape():
-    from ada.comms.rest.procedural import procedural_stats_key, procedural_stats_xlsx_key
+    from ada.comms.rest.procedural import (
+        procedural_stats_key,
+        procedural_stats_xlsx_key,
+    )
 
     glb = procedural_glb_key("abc-123", 4)
     assert procedural_stats_key(glb) == "_procedural/abc-123/r4.stats.json"
@@ -347,8 +350,6 @@ async def test_db_helpers_direct():
         await pool.close()
 
 
-
-
 def test_validate_doc_strips_nulls_so_entities_reconstruct():
     """Regression: validate_doc must NOT re-inject explicit nulls. Topo* entities
     type several fields as ``float`` with a None DEFAULT (TopoOpening.X/Y/Z/... ,
@@ -368,9 +369,7 @@ def test_validate_doc_strips_nulls_so_entities_reconstruct():
     # A clean (import-shaped) doc goes in; validate_doc must NOT re-inject nulls
     # into what it returns for storage — else the next compile's reconstruction
     # of the stored doc raises and drops the entity.
-    out = validate_doc(
-        {"spaces": [], "openings": [op.model_dump(mode="json", exclude_none=True)]}
-    )
+    out = validate_doc({"spaces": [], "openings": [op.model_dump(mode="json", exclude_none=True)]})
     op_out = out["openings"][0]
     assert all(v is not None for v in op_out.values()), "validate_doc leaked a null"
     # Reconstructs cleanly (this is what the compile path does per entity).

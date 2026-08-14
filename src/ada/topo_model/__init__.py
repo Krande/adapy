@@ -6,20 +6,7 @@ Start with :func:`build_topo_model` for the one-liner happy path, and read
 """
 
 from .blueprint import SteelStru
-from .blueprint_catalog import (
-    procedural_blueprint_specs,
-    register_procedural_blueprint,
-)
-from .engine_catalog import (
-    procedural_engine_specs,
-    register_procedural_engine_capabilities,
-)
-from .detailing_catalog import (
-    DEFAULT_DETAILING,
-    detailing_engine_specs,
-    register_detailing_engine,
-)
-from .jacket import JacketStru
+from .blueprint_catalog import procedural_blueprint_specs, register_procedural_blueprint
 from .build import (
     build_routing_grid,
     build_topo_model,
@@ -34,14 +21,24 @@ from .cell_types import (
     register_procedural_cell_type,
     register_procedural_opening_type,
 )
-from .excel import ProceduralModelMeta
 from .design_rulesets import (
     DEFAULT_DESIGN_RULESET,
     DESIGN_RULESETS,
     design_ruleset_specs,
     resolve_design_rules,
 )
+from .detailing_catalog import (
+    DEFAULT_DETAILING,
+    detailing_engine_specs,
+    register_detailing_engine,
+)
+from .engine_catalog import (
+    procedural_engine_specs,
+    register_procedural_engine_capabilities,
+)
 from .equipment import create_pump, create_switchboard, create_tank
+from .excel import ProceduralModelMeta
+from .jacket import JacketStru
 from .penetration import (
     PenetrationBlueprintBase,
     StandardPenetrations,

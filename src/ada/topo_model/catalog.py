@@ -130,9 +130,7 @@ class ProceduralCatalog:
         from ada.comms.rest import db as db_module
 
         async def _load():
-            rows = await db_module.list_equipment_types(
-                self._pool, scope_kind=self.scope_kind, scope_id=self.scope_id
-            )
+            rows = await db_module.list_equipment_types(self._pool, scope_kind=self.scope_kind, scope_id=self.scope_id)
             docs = await db_module.get_equipment_docs_by_scope(
                 self._pool, scope_kind=self.scope_kind, scope_id=self.scope_id
             )
@@ -177,9 +175,7 @@ class ProceduralCatalog:
         from ada.comms.rest import db as db_module
 
         async def _load():
-            rows = await db_module.list_system_templates(
-                self._pool, scope_kind=self.scope_kind, scope_id=self.scope_id
-            )
+            rows = await db_module.list_system_templates(self._pool, scope_kind=self.scope_kind, scope_id=self.scope_id)
             out = []
             for r in rows:
                 full = await db_module.get_system_template(self._pool, r["id"])
