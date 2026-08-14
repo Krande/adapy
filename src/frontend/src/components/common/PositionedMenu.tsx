@@ -141,7 +141,10 @@ export const PositionedMenu: React.FC<PositionedMenuProps> = ({
             // z-[70]: body-portaled, so it must clear the floating admin
             // panel host (fixed z-[60]) — the corpus tab's kebab/context
             // menus open from inside it.
-            className="fixed z-[70] min-w-[180px] rounded-sm border border-gray-700 bg-gray-800 shadow-lg text-gray-100"
+            // max-h + scroll so a long menu (e.g. the template list) doesn't
+            // overflow a short/mobile viewport; overscroll-contain keeps the
+            // page behind from scrolling when the menu list hits its ends.
+            className="fixed z-[70] min-w-[180px] max-h-[80vh] overflow-y-auto overscroll-contain rounded-sm border border-gray-700 bg-gray-800 shadow-lg text-gray-100"
             style={style}
             onClick={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.preventDefault()}

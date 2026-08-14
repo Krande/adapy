@@ -46,6 +46,33 @@ class CellGrid:
     def iter_occupied(self):
         return ((idx, geoms) for idx, geoms in self.occupancy.items() if geoms)
 
+    @classmethod
+    def from_bounds(
+        cls,
+        p_min: tuple[float, float, float],
+        p_max: tuple[float, float, float],
+        spacing: float,
+    ) -> "CellGrid":
+        """Uniform lattice between ``p_min`` and ``p_max`` with the given node
+        ``spacing`` (the max bound is always included as the last grid line)."""
+        if spacing <= 0:
+            raise ValueError(f"spacing must be positive, got {spacing}")
+
+        def _axis(lo: float, hi: float) -> list[float]:
+            if hi < lo:
+                raise ValueError(f"invalid bounds: max {hi} < min {lo}")
+            n = int(round((hi - lo) / spacing))
+            vals = [lo + i * spacing for i in range(n + 1)]
+            if abs(vals[-1] - hi) > spacing * 1e-6:
+                vals.append(hi)
+            return vals
+
+        return cls(
+            x_list=_axis(p_min[0], p_max[0]),
+            y_list=_axis(p_min[1], p_max[1]),
+            z_list=_axis(p_min[2], p_max[2]),
+        )
+
     def index_of(self, x: float, y: float, z: float, tol: float = 1e-6) -> GridIndex:
         return (
             _find_index(self.x_list, x, tol),

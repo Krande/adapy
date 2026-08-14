@@ -318,16 +318,33 @@ jobs:
 
           # Docs image is a Sphinx static site (deploy/Dockerfile.docs)
           # that also bundles the paradoc-backed FEA verification report.
-          # It is by far the slowest image to build, so it is OPT-IN: it
-          # builds only when the head commit message carries a ``[docs]``
-          # marker, regardless of what changed. Viewer/worker builds are
-          # unaffected. Works for push and workflow_dispatch (GITHUB_SHA is
-          # the branch tip either way; fetch-depth:0 above makes the message
-          # available).
+          # It is by far the slowest image to build, so it is OPT-IN: a
+          # ``[docs]`` marker in a commit message requests it, regardless of
+          # what changed. Viewer/worker builds are unaffected.
+          #
+          # Self-healing (mirrors the per-image diff-base logic above): scan
+          # the WHOLE un-deployed range — last-deployed docs SHA (DOCS_BEFORE)
+          # .. HEAD — not just the head commit. cancel-in-progress kills an
+          # in-flight [docs] build whenever a superseding push lands, and that
+          # push is usually not itself a [docs] commit, so a head-only check
+          # would drop the docs request until someone re-tagged a commit.
+          # DOCS_BEFORE is the gitops-deployed docs SHA, which a cancelled/
+          # skipped docs build never advances — so a pending [docs] commit
+          # stays in DOCS_BEFORE..HEAD and the next push rebuilds it. Once docs
+          # deploy, the gitops bump moves DOCS_BEFORE past it and the range no
+          # longer matches (no redundant rebuilds). Works for push and
+          # workflow_dispatch; fetch-depth:0 makes the messages available.
           docs=false
           docs_full=false
-          COMMIT_MSG=$(git log -1 --format=%B "$GITHUB_SHA" 2>/dev/null || echo "")
-          if printf '%s' "$COMMIT_MSG" | grep -qiF '[docs]'; then
+          if [ -n "$DOCS_BEFORE" ] && git cat-file -e "${DOCS_BEFORE}^{commit}" 2>/dev/null; then
+            DOCS_RANGE="${DOCS_BEFORE}..${GITHUB_SHA}"
+            DOCS_MSGS=$(git log --format=%B "$DOCS_RANGE" 2>/dev/null || echo "")
+          else
+            # No usable base (first push / orphaned SHA) → head commit only.
+            DOCS_RANGE="$GITHUB_SHA (head only)"
+            DOCS_MSGS=$(git log -1 --format=%B "$GITHUB_SHA" 2>/dev/null || echo "")
+          fi
+          if printf '%s' "$DOCS_MSGS" | grep -qiF '[docs]'; then
             docs=true
             # Fast build (re-run fea-doc + sphinx on the cached env base)
             # unless the pixi env / Dockerfile / workflow changed — those
@@ -338,9 +355,9 @@ jobs:
                match_scope "$DOCS_CHANGED" '^\.forgejo/workflows/build\.yaml$'; then
               docs_full=true
             fi
-            echo "[docs] present in the head commit message — building docs (full=$docs_full)."
+            echo "[docs] pending in range ${DOCS_RANGE} — building docs (full=$docs_full)."
           else
-            echo "docs build is opt-in — add [docs] to the head commit message to build it. Skipping."
+            echo "docs build is opt-in — no [docs] pending since the last docs deploy (${DOCS_RANGE}). Skipping."
           fi
 
           {

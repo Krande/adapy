@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from ada import PipeSegStraight
 from ada.cadit.ifc.utils import add_colour, create_ifcpolyline, create_local_placement
 from ada.cadit.ifc.write.geom import solids as igeo_so
+from ada.cadit.ifc.write.pipes.entity_class import segment_entity_class
 from ada.core.utils import to_real
 
 if TYPE_CHECKING:
@@ -59,7 +60,7 @@ def write_pipe_straight_seg(ifc_store: IfcStore, pipe_seg: PipeSegStraight):  # 
     local_placement = create_local_placement(f)
 
     pipe_segment = f.create_entity(
-        "IfcPipeSegment",
+        segment_entity_class(pipe_seg),
         GlobalId=pipe_seg.guid,
         OwnerHistory=owner_history,
         Name=pipe_seg.name,

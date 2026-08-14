@@ -65,6 +65,9 @@ test-fem-viz = { cmd = "pytest tests/fem/visualization --durations=0", env = { "
 
 print-paths = { cmd = "python -c \"import sys, os; print('\\n'.join(sys.path + os.environ.get('PYTHONPATH', '').split(os.pathsep)))\"" }
 
+[feature.prod.tasks]
+topo-model-demo = { cmd = "python topo_model_demo.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, cwd = "examples" }
+
 [feature.frontend.tasks]
 npm = { cmd = "npm", cwd = "./src/frontend" }
 winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJECT_ROOT/src/frontend/node_modules"] }
@@ -183,7 +186,7 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # for every other path (IFC/XML/FEM, occ-builtin fallback). Shares occt 7.9.3 with
 # pyocc (see above) so both coexist in one env.
 [feature.adacpp-runtime.dependencies]
-ada-cpp = "0.19.0.*"
+ada-cpp = "0.20.0.*"
 
 # ada-cpp CAD backend (AdacppBackend) — native CPython build of the
 # wasm-capable kernel. Brings its own occt 7.9.3 + gmsh + ifcopenshell,
@@ -211,7 +214,10 @@ ada-cpp = "0.19.0.*"
 # the thick-shell cap<->wall seam-weld (Libtess2Opts::cdt_full_patch, env ADA_TESS_WT_CDT_FULL_PATCH,
 # honoured by the record streamer via ngeom_tess_params too) that the converter's curved-shell
 # auto-enable wiring drives — REQUIRED: without it hull/gxml thick shells render with cracked seams.
-ada-cpp = "0.19.0.*"
+# 0.20 adds the native is_planar_face verb (GeomLib_IsPlanarSurface, PR #46) so a loft compile on
+# the adacpp backend classifies ruled corner panels vs planar caps natively — restores curved-corner
+# loft parity without routing through a local OccBackend (the loft_backend() OCC workaround).
+ada-cpp = "0.20.0.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"

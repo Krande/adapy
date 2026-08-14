@@ -5,10 +5,14 @@ import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelect
 import {hideSelectedRanges, unhideAllRanges} from '@/utils/scene/visibility';
 import {elementFirstNodeId} from '@/utils/scene/fea/goToNode';
 import {centerViewOnSelection} from '@/utils/scene/centerViewOnSelection';
+import {frameCells} from '@/utils/scene/frameCells';
 import {zoomToAll} from '@/components/viewer/sceneHelpers/setupCameraControlsHandlers';
 import {sceneRef, cameraRef, controlsRef} from '@/state/refs';
 import {requestRender} from '@/state/perfStore';
+import {useCellBuilderStore} from '@/state/cellBuilderStore';
+import {parentLevelName, selectParentLevel} from '@/utils/tree_view/treeNavigation';
 import ObjectMetadataPanel from './ObjectMetadataPanel';
+import CellBuilderSelectionInfo from './CellBuilderSelectionInfo';
 
 // 1500 ms is the smallest hold that still feels intentional vs a
 // reflexive tap-and-release; long enough that "Copied" lingers on
@@ -22,6 +26,7 @@ const ObjectInfoBox = () => {
         useSelectedObjectStore,
         useTableNavStore,
         useFeaAnimationStore,
+        useTreeViewStore,
     } = useViewerStores();
     const {
         name,
@@ -30,14 +35,67 @@ const ObjectInfoBox = () => {
     const selectedObjects = useSelectedObjectStore((s) => s.selectedObjects);
     const additiveMode = useSelectedObjectStore((s) => s.additiveMode);
     const toggleAdditiveMode = useSelectedObjectStore((s) => s.toggleAdditiveMode);
+
+    // Procedural cell context: when a cellbuilder model has a selection, this
+    // one panel represents the selected cell(s) — name, copy, visibility and
+    // add-mode all target cells rather than regular draw ranges. A click that
+    // misses every cell still routes through the regular path below.
+    const cbActive = useCellBuilderStore((s) => s.active !== null);
+    const cbSelection = useCellBuilderStore((s) => s.selection);
+    const cbSelectedIds = useCellBuilderStore((s) => s.selectedCellIds);
+    const cbCells = useCellBuilderStore((s) => s.cells);
+    const cbAddMode = useCellBuilderStore((s) => s.cellAddMode);
+    const hideCells = useCellBuilderStore((s) => s.hideCells);
+    const unhideAllCells = useCellBuilderStore((s) => s.unhideAllCells);
+    const toggleCellAddMode = useCellBuilderStore((s) => s.toggleCellAddMode);
+    const cellCtx = cbActive && cbSelection !== null;
+    const cellNames = cbSelectedIds
+        .map((id) => cbCells[id]?.name)
+        .filter((n): n is string => !!n);
+
+    // Whether the scene has anything at all — a loaded model (tree) or builder
+    // cells. Scene-wide recovery actions (Unhide all) stay available as long as
+    // entities remain, even with nothing selected, so hiding the last selection
+    // doesn't strand what you hid.
+    const treeData = useTreeViewStore((s) => s.treeData);
+    const hasEntities = treeData != null || (cbActive && Object.keys(cbCells).length > 0);
+
+    // Tree-level "up": the parent level the current selection would climb to.
+    // null hides the arrow (nothing selected, already at a file root, or a
+    // cellbuilder selection — cells aren't tree nodes). Recomputed when the
+    // selection or the tree changes. Shown on mobile and desktop; desktop also
+    // has the Shift+ArrowUp shortcut.
+    const parentName = React.useMemo(
+        () => (cellCtx ? null : parentLevelName()),
+        [selectedObjects, treeData, cellCtx],
+    );
+    const onSelectParent = () => void selectParentLevel();
+
     // Total drawRangeIds across all selected meshes — that's the
     // count of "things selected" the user thinks of (one per
     // clicked element, regardless of how many meshes back them).
-    let multiSelectCount = 0;
+    let rangeCount = 0;
     selectedObjects.forEach((ids) => {
-        multiSelectCount += ids.size;
+        rangeCount += ids.size;
     });
+    // Effective selection identity — cell context takes priority so the panel
+    // reads as the cell you clicked, not a result element hidden behind it.
+    const displayName = cellCtx
+        ? (cbSelection && cbCells[cbSelection.cellId]?.name) || ''
+        : name;
+    const multiSelectCount = cellCtx ? cbSelectedIds.length : rangeCount;
     const isMultiSelect = multiSelectCount > 1;
+    const addModeOn = cellCtx ? cbAddMode : additiveMode;
+
+    // Visibility / selection actions dispatch to the active source. Unhide-all
+    // always clears both (regular ranges + cell hides) so "show everything"
+    // never leaves something hidden in the other system.
+    const onHide = () => (cellCtx ? hideCells(cbSelectedIds) : hideSelectedRanges());
+    const onUnhideAll = () => {
+        unhideAllRanges();
+        if (cbActive) unhideAllCells();
+    };
+    const onToggleAddMode = () => (cellCtx ? toggleCellAddMode() : toggleAdditiveMode());
 
     const [copied, setCopied] = useState<"single" | "multi" | null>(null);
     const flashCopied = (which: "single" | "multi") => {
@@ -46,11 +104,17 @@ const ObjectInfoBox = () => {
     };
 
     const onCopySingle = async () => {
-        if (!name) return;
-        const ok = await writeToClipboard(name);
+        if (!displayName) return;
+        const ok = await writeToClipboard(displayName);
         if (ok) flashCopied("single");
     };
     const onCopyAll = async () => {
+        if (cellCtx) {
+            if (!cellNames.length) return;
+            const ok = await writeToClipboard(cellNames.join("\n"));
+            if (ok) flashCopied("multi");
+            return;
+        }
         const n = await copySelectionNames(selectedObjects);
         if (n > 0) flashCopied("multi");
     };
@@ -70,24 +134,33 @@ const ObjectInfoBox = () => {
     };
 
     // Camera actions — desktop has keyboard shortcuts (zoom-fit / center-on-selection), but
-    // mobile has no keyboard, so surface them as buttons in this panel.
+    // mobile has no keyboard, so surface them as buttons in this panel. Builder
+    // cells are excluded from the fittable scene, so frame them explicitly.
     const onFitAll = () => {
         const s = sceneRef.current, c = cameraRef.current, ctl = controlsRef.current;
-        if (s && c && ctl) {
+        if (!c || !ctl) return;
+        if (cbActive && Object.keys(cbCells).length > 0 && frameCells("all", ctl, c)) {
+            requestRender();
+            return;
+        }
+        if (s) {
             zoomToAll(s, c, ctl);
             requestRender();
         }
     };
     const onGoToObject = () => {
         const c = cameraRef.current, ctl = controlsRef.current;
-        if (c && ctl) {
-            centerViewOnSelection(ctl, c);
+        if (!c || !ctl) return;
+        if (cellCtx && frameCells(cbSelectedIds, ctl, c)) {
             requestRender();
+            return;
         }
+        centerViewOnSelection(ctl, c);
+        requestRender();
     };
 
     return (
-        <div className={`${PANEL_CHROME} min-w-80`}>
+        <div className={`${PANEL_CHROME} min-w-80 max-h-[80svh] overflow-y-auto`}>
             <h2 className="font-bold">Selected Object Info</h2>
             {/* Name. Two layouts because mobile and desktop have very
                 different real-estate constraints:
@@ -106,33 +179,45 @@ const ObjectInfoBox = () => {
                 mobile (iOS/Android long-press idiom) and falls back
                 to plain selectable text on desktop where Shift+C
                 covers the multi-name copy. */}
-            {name && (
+            {displayName && (
                 <>
                     <div className="hidden sm:table-row">
                         <div className="table-cell w-24">Name:</div>
                         <div className="table-cell w-48 break-all">
+                            <div className="flex items-start gap-1">
+                                {parentName && (
+                                    <ParentUpButton parentName={parentName} onUp={onSelectParent}/>
+                                )}
+                                <div className="break-all flex-1">
+                                    <NameCopyButton
+                                        name={displayName}
+                                        copied={copied === "single"}
+                                        onCopy={onCopySingle}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="sm:hidden flex items-start gap-1">
+                        {parentName && (
+                            <ParentUpButton parentName={parentName} onUp={onSelectParent}/>
+                        )}
+                        <div className="break-all flex-1">
                             <NameCopyButton
-                                name={name}
+                                name={displayName}
                                 copied={copied === "single"}
                                 onCopy={onCopySingle}
                             />
                         </div>
                     </div>
-                    <div className="sm:hidden break-all">
-                        <NameCopyButton
-                            name={name}
-                            copied={copied === "single"}
-                            onCopy={onCopySingle}
-                        />
-                    </div>
                 </>
             )}
-            {/* Multi-select copy: a small inline pill, mobile-only.
-                Desktop uses Shift+C — adding a pill there would be
-                redundant. Only renders when > 1 element is selected
-                so single-tap selections aren't cluttered. */}
-            {name && isMultiSelect && (
-                <div className="sm:hidden mt-1">
+            {/* Multi-select copy pill. Regular selections use Shift+C on desktop
+                so it's mobile-only there; procedural cells have no such shortcut,
+                so show it on all sizes when several cells are selected. Only
+                renders when > 1 thing is selected. */}
+            {displayName && isMultiSelect && (
+                <div className={(cellCtx ? "" : "sm:hidden ") + "mt-1"}>
                     <button
                         type="button"
                         onClick={() => void onCopyAll()}
@@ -155,33 +240,57 @@ const ObjectInfoBox = () => {
                 buttons make the operation findable without
                 cluttering desktop unnecessarily (single row, small
                 pills). */}
-            {name && (
+            {(displayName || hasEntities) && (
                 <div className="mt-2 flex flex-wrap gap-2 items-center">
+                    {/* Hide acts on the current selection, so it only shows when
+                        something is selected. */}
+                    {displayName && (
+                        <button
+                            type="button"
+                            onClick={onHide}
+                            className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
+                            title={
+                                cellCtx
+                                    ? (isMultiSelect ? `Hide ${multiSelectCount} selected cells` : "Hide selected cell")
+                                    : isMultiSelect
+                                        ? `Hide ${multiSelectCount} selected (Shift+H)`
+                                        : "Hide selected (Shift+H)"
+                            }
+                            aria-label="Hide selected"
+                        >
+                            <EyeOffIcon/>
+                            Hide
+                            {isMultiSelect ? ` (${multiSelectCount})` : ""}
+                        </button>
+                    )}
+                    {/* Unhide all is a scene-wide recovery action — it stays
+                        available as long as any entity remains, even with no
+                        selection, so you can always undo a Hide. */}
                     <button
                         type="button"
-                        onClick={() => hideSelectedRanges()}
+                        onClick={onUnhideAll}
                         className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
-                        title={
-                            isMultiSelect
-                                ? `Hide ${multiSelectCount} selected (Shift+H)`
-                                : "Hide selected (Shift+H)"
-                        }
-                        aria-label="Hide selected geometry"
-                    >
-                        <EyeOffIcon/>
-                        Hide
-                        {isMultiSelect ? ` (${multiSelectCount})` : ""}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => unhideAllRanges()}
-                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
-                        title="Unhide every hidden draw range across the scene (Shift+U)"
-                        aria-label="Unhide all geometry"
+                        title="Unhide everything hidden in the scene (cells and geometry) (Shift+U)"
+                        aria-label="Unhide all"
                     >
                         <EyeIcon/>
                         Unhide all
                     </button>
+                    {/* Fit all frames the whole scene — a scene-wide action like
+                        Unhide all, so it stays next to it and available even with
+                        nothing selected. Mobile-only (desktop has Shift+A). */}
+                    <button
+                        type="button"
+                        onClick={onFitAll}
+                        className="sm:hidden bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
+                        title="Fit the whole model to the view"
+                        aria-label="Fit all to view"
+                    >
+                        Fit all
+                    </button>
+                    {/* The rest act on the current selection — hidden when
+                        nothing is selected (only Unhide all persists). */}
+                    {displayName && (<>
                     {firstNodeId != null && (
                         <button
                             type="button"
@@ -194,9 +303,9 @@ const ObjectInfoBox = () => {
                             Show in data
                         </button>
                     )}
-                    {/* Camera buttons — mobile-only (desktop has keyboard
-                        shortcuts). "Go to object" frames the current
-                        selection; "Fit all" frames the whole scene. */}
+                    {/* Camera button — mobile-only (desktop has keyboard
+                        shortcuts). "Go to object" frames the current selection;
+                        "Fit all" (scene-wide) lives next to Unhide all above. */}
                     <button
                         type="button"
                         onClick={onGoToObject}
@@ -206,40 +315,33 @@ const ObjectInfoBox = () => {
                     >
                         Go to object
                     </button>
+                    {/* Additive selection toggle. Sticky — stays on across
+                        clicks (and deselects) so a multi-pick session is
+                        uninterrupted; click again to turn off. For regular
+                        geometry it's mobile-only (desktop has Shift+click); for
+                        procedural cells there's no such shortcut, so show it on
+                        all sizes. */}
                     <button
                         type="button"
-                        onClick={onFitAll}
-                        className="sm:hidden bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
-                        title="Fit the whole model to the view"
-                        aria-label="Fit all to view"
-                    >
-                        Fit all
-                    </button>
-                    {/* Additive selection toggle. Mobile-only: desktop
-                        users have Shift+click for the same effect, and
-                        adding a chrome button there would be redundant.
-                        Sticky — stays on across taps and even across
-                        deselects, so a multi-pick session is uninterrupted
-                        once enabled. Tap again to turn off. */}
-                    <button
-                        type="button"
-                        onClick={toggleAdditiveMode}
+                        onClick={onToggleAddMode}
                         className={
-                            "sm:hidden text-[11px] rounded-sm px-2 py-1 text-white " +
-                            (additiveMode
+                            (cellCtx ? "" : "sm:hidden ") +
+                            "text-[11px] rounded-sm px-2 py-1 text-white " +
+                            (addModeOn
                                 ? "bg-amber-600 hover:bg-amber-500 active:bg-amber-700"
                                 : "bg-gray-700 hover:bg-gray-600 active:bg-gray-800")
                         }
                         title={
-                            additiveMode
-                                ? "Tapping objects adds to selection. Tap to switch back to single-select."
-                                : "Switch to multi-select: subsequent taps will add to the selection instead of replacing it."
+                            addModeOn
+                                ? "Clicking adds to the selection. Click to switch back to single-select."
+                                : "Switch to multi-select: subsequent clicks add to the selection instead of replacing it."
                         }
-                        aria-pressed={additiveMode}
-                        aria-label={additiveMode ? "Disable add-to-selection" : "Enable add-to-selection"}
+                        aria-pressed={addModeOn}
+                        aria-label={addModeOn ? "Disable add-to-selection" : "Enable add-to-selection"}
                     >
-                        {additiveMode ? "✓ Add mode on" : "+ Add mode"}
+                        {addModeOn ? "✓ Add mode on" : "+ Add mode"}
                     </button>
+                    </>)}
                 </div>
             )}
             {/* The Properties panel renders for any selection — even
@@ -248,6 +350,10 @@ const ObjectInfoBox = () => {
                 extension's ``object_metadata`` field) AND hosts the
                 clicked-coordinate row that used to live above. */}
             {name && <ObjectMetadataPanel data={jsonData}/>}
+            {/* Procedural cellbuilder selection detail — cell/equipment
+                parameters, gizmo toggles and connected systems. Lives here
+                (not in the busy cellbuilder tool panel) as its own section. */}
+            <CellBuilderSelectionInfo/>
         </div>
     );
 };
@@ -276,6 +382,29 @@ const NameCopyButton: React.FC<{
     >
         {copied ? `${name} ✓` : name}
     </button>
+);
+
+// Up-a-level button next to the selected name. Selects the parent tree level of
+// the current selection; the tooltip names that parent (hover shows it on
+// desktop). Shown on both mobile and desktop; desktop also has the Shift+ArrowUp
+// shortcut (see setupCameraControlsHandlers). Does not open the tree panel.
+// Rendered only when a parent level exists.
+const ParentUpButton: React.FC<{parentName: string; onUp: () => void}> = ({parentName, onUp}) => (
+    <button
+        type="button"
+        onClick={onUp}
+        className="shrink-0 mt-0.5 bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white rounded-sm p-1 inline-flex items-center"
+        title={`Select parent level: ${parentName}`}
+        aria-label={`Select parent level: ${parentName}`}
+    >
+        <ChevronUpIcon/>
+    </button>
+);
+
+const ChevronUpIcon: React.FC = () => (
+    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+        <path d="M3.5 10 8 5.5 12.5 10"/>
+    </svg>
 );
 
 // Inline SVG icons. Inherit ``currentColor`` so they pick up the

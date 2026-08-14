@@ -170,7 +170,7 @@ spec:
             # Scope this pool to its own capability only: advertise ZERO base
             # conversions + base source-ext handling, leaving its capability-routed
             # utility intact (see worker.py ADA_WORKER_BASE_CONVERSIONS). The clean
-            # alternative to ADA_WORKER_EXT_ALLOW for a pool (e.g. weld-gen) that
+            # alternative to ADA_WORKER_EXT_ALLOW for a pool (e.g. an external pool) that
             # needs NO base file work at all — an allowlist can only narrow to a
             # positive set of suffixes, not to none. Takes effect once the pool runs
             # an adapy image new enough to read this env.
@@ -209,7 +209,7 @@ spec:
           # silently broken while jobs pile up unconsumed.
           #
           # This heartbeat probe ONLY works on pools running the adapy worker image, which writes the
-          # file. Capability pools that run a foreign image (abaqus, weld-gen) never write it, so the
+          # file. Capability pools that run a foreign image (e.g. abaqus) never write it, so the
           # probe would fail every time and SIGKILL-crashloop them. Hence it is OPT-IN: emitted only
           # when the pool sets `heartbeatLiveness: true` (the adapy worker default) or supplies its own
           # `livenessProbe:`. Pools that do neither get no liveness probe.

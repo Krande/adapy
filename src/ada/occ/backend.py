@@ -341,6 +341,31 @@ class OccBackend:
             "Geom_SurfaceOfRevolution": "revolution",
         }.get(name, name)
 
+    def is_planar_face(self, shape: ShapeHandle, tol: float = 1e-6) -> bool:
+        # True when the face's surface is geometrically a plane — including a
+        # Geom_BSplineSurface that happens to be flat. OCC's ThruSections stores
+        # even the flat side/taper panels of a loft as B-spline surfaces, so a
+        # surface-*type* check would misclassify them as curved; GeomLib probes
+        # the actual geometry (samples the surface, fits a plane) so only the
+        # genuinely-ruled corner-transition panels come back non-planar.
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.GeomLib import GeomLib_IsPlanarSurface
+        from OCC.Core.TopAbs import TopAbs_FACE
+        from OCC.Core.TopExp import TopExp_Explorer
+        from OCC.Core.TopoDS import topods
+
+        if shape.ShapeType() == TopAbs_FACE:
+            face = topods.Face(shape)
+        else:
+            exp = TopExp_Explorer(shape, TopAbs_FACE)
+            if not exp.More():
+                raise ValueError("is_planar_face: shape has no face")
+            face = topods.Face(exp.Current())
+        surface = BRep_Tool.Surface(face)
+        if surface.DynamicType().Name() == "Geom_Plane":
+            return True
+        return bool(GeomLib_IsPlanarSurface(surface, tol).IsPlanar())
+
     def extrude_face_along_normal(self, face: ShapeHandle, thickness: float) -> ShapeHandle:
         from ada.occ.plate_curved import extrude_face_along_normal
 

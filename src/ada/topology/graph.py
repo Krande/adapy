@@ -56,6 +56,82 @@ def _round_key(pt, ndigits: int = 4) -> tuple[float, float, float]:
     return (round(float(pt[0]), ndigits), round(float(pt[1]), ndigits), round(float(pt[2]), ndigits))
 
 
+# --------------------------------------------------------------------------------------
+# Loft-native face identity (Phase 3b). Box faces are named by ``GOLDEN_SIDE_ORDER`` /
+# ``stable_face_id`` (axis-aligned normals); loft band faces have no such fixed side and
+# fall into the overflow bucket, so they get their own id derived from the *profile
+# geometry* — deterministic and independent of the kernel's face-enumeration order.
+# ``stable_face_id`` for box cells is untouched; these run only on loft cells.
+# --------------------------------------------------------------------------------------
+
+
+def loft_face_id_str(member: str, bay: int, kind: str, edge: int) -> str:
+    """Canonical stable id of a loft band-cell face.
+
+    * side panel — ``"{member}:bay{bay}:edge{edge}"`` — the swept panel of profile
+      edge ``edge`` (station vertex ``edge`` -> ``edge+1``) between stations ``bay``
+      and ``bay+1``.
+    * end cap — ``"{member}:bay{bay}:cap_lo"`` / ``"...:cap_hi"`` — coplanar with the
+      band's low / high station profile.
+
+    The member-relative part (everything after ``"{member}:"``) is what
+    ``TopoLoftMember.EXCLUDE_FACES`` addresses.
+    """
+    if kind == "side":
+        return f"{member}:bay{bay}:edge{edge}"
+    if kind in ("cap_lo", "cap_hi"):
+        return f"{member}:bay{bay}:{kind}"
+    raise ValueError(f"unknown loft face kind '{kind}'")
+
+
+def _consecutive_pair(indices: list[int], n: int) -> "int | None":
+    """Profile-edge index of a cyclic consecutive vertex pair among ``indices``.
+
+    Returns ``k`` when ``indices`` is exactly ``{k, k+1}`` (mod ``n``) — the profile
+    edge from vertex ``k`` to ``k+1`` — else ``None``.
+    """
+    if len(indices) != 2:
+        return None
+    a, b = sorted(indices)
+    if b - a == 1:
+        return a
+    if a == 0 and b == n - 1:
+        return b  # wrap-around edge (vertex n-1 -> 0)
+    return None
+
+
+def classify_loft_face(face_keys, profile_key_lists) -> "tuple[str, int, int] | None":
+    """Match one face to a loft ``(kind, bay, edge)`` by profile-vertex incidence.
+
+    ``face_keys`` is the set of the face's rounded vertex keys; ``profile_key_lists``
+    the ordered per-station list of that station profile's rounded vertex keys. The
+    match is purely which profile vertices the face touches, so it is robust to the
+    kernel returning the band's faces in any order:
+
+    * a face carrying an entire station profile (its neighbour station absent) is an
+      end cap — ``cap_lo`` at the first station, ``cap_hi`` at the last;
+    * a side panel touches a consecutive vertex pair ``{k, k+1}`` on two adjacent
+      stations ``bay`` / ``bay+1`` -> ``("side", bay, k)``.
+
+    Returns ``None`` when nothing matches (caller leaves the id unset). ``edge`` is
+    ``-1`` for caps.
+    """
+    n_st = len(profile_key_lists)
+    present = [[i for i, k in enumerate(keys) if k in face_keys] for keys in profile_key_lists]
+    # End caps: a full station present with its neighbour station absent.
+    if len(present[0]) == len(profile_key_lists[0]) and (n_st < 2 or not present[1]):
+        return ("cap_lo", 0, -1)
+    if len(present[-1]) == len(profile_key_lists[-1]) and (n_st < 2 or not present[-2]):
+        return ("cap_hi", n_st - 2, -1)
+    # Side panels: a consecutive vertex pair shared by two adjacent stations.
+    for b in range(n_st - 1):
+        e0 = _consecutive_pair(present[b], len(profile_key_lists[b]))
+        e1 = _consecutive_pair(present[b + 1], len(profile_key_lists[b + 1]))
+        if e0 is not None and e0 == e1:
+            return ("side", b, e0)
+    return None
+
+
 @dataclass
 class GraphEdge:
     handle: ShapeHandle = field(repr=False)
@@ -144,6 +220,11 @@ class GraphFace:
     source_cell: "GraphCell | None" = field(default=None, repr=False)
     source_feature_id: str | None = None
     stable_face_id: int | None = None
+
+    # Loft-native face id (Phase 3b), set only on band-cell faces by
+    # ``ada.topology.io.assign_loft_face_ids``. ``None`` for box faces (which keep
+    # ``stable_face_id``). See :func:`loft_face_id_str`.
+    loft_face_id: str | None = None
 
     _name: str | None = None
     _points: list[ada.Point] | None = None
@@ -472,6 +553,21 @@ class CellGraph:
             for face in cell.faces:
                 if face.shared_face_connection is None and not face.should_skip():
                     out.append(face)
+        return out
+
+    def loft_face_map(self) -> dict[str, GraphFace]:
+        """Map every loft-native face id -> its :class:`GraphFace` across all cells.
+
+        Only band-cell faces carry a ``loft_face_id`` (box faces are ``None`` and
+        skipped). The keys are the canonical ids from :func:`loft_face_id_str`, so a
+        frontend that picked a band sub-face (or a compiled plate, which is named by
+        the same id) can resolve it back to the face here.
+        """
+        out: dict[str, GraphFace] = {}
+        for cell in self.cells:
+            for face in cell.faces:
+                if face.loft_face_id is not None:
+                    out[face.loft_face_id] = face
         return out
 
     def get_space_faces(self, space_name) -> list[GraphFace]:

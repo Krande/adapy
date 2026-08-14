@@ -7,6 +7,8 @@ import RowKebabMenu, {KebabMenuItem} from '@/components/common/RowKebabMenu';
 import {writeToClipboard} from '@/utils/clipboard/copySelectionNames';
 import ConnectionsSection from './ConnectionsSection';
 import MeshStatsSection from './MeshStatsSection';
+import ProceduralSystemSection from './ProceduralSystemSection';
+import ProceduralEquipmentSection from './ProceduralEquipmentSection';
 
 // Decimal-place choices offered in the Properties kebab menu for the "Clicked at" row. A small
 // model (a few units across) needs more decimals before nearby clicks show a different position.
@@ -370,6 +372,8 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
                 </div>
             )}
             <ConnectionsSection fileName={fileName} objectName={clickedName} />
+            <ProceduralSystemSection objectName={clickedName} />
+            <ProceduralEquipmentSection objectName={clickedName} />
         </div>
     );
 };

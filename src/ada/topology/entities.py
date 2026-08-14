@@ -20,7 +20,14 @@ from __future__ import annotations
 from functools import cached_property
 from typing import Annotated, Any, ClassVar, Literal, Optional, get_args
 
-from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    PrivateAttr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 import ada
 from ada.api.spatial.eq_types import EquipRepr
@@ -32,6 +39,11 @@ __all__ = [
     "TopoSpace",
     "TopoOpening",
     "TopoEquipment",
+    "SystemConnection",
+    "TopoSystem",
+    "TopoStructure",
+    "LoftStation",
+    "TopoLoftMember",
     "beam_section_description_with_examples",
     "from_ada_obj",
     "from_ada_meta",
@@ -55,6 +67,20 @@ class _TopoConfigBoundModel(BaseModel):
     _PARENT_CONFIG: Optional[Any] = PrivateAttr(default=None)
     HIDE_IN_EXCEL: ClassVar[list[str]] = []
     ORIENTATION: ClassVar[str] = "HORIZONTAL"
+
+    METADATA: Annotated[
+        dict[str, Any],
+        Field(
+            default_factory=dict,
+            description=(
+                "Open, user-defined extended metadata for this topology instance — an "
+                "arbitrary JSON object. Round-trips through the procedural document (and "
+                "thus the DB) untouched by the compiler; it is not part of the geometry, "
+                "so viewers/integrations can attach their own config to any cell, "
+                "equipment, opening or loft member. Serialised as one JSON cell in Excel."
+            ),
+        ),
+    ]
 
     @property
     def parent_config(self) -> Optional[Any]:
@@ -81,6 +107,9 @@ class _TopoConfigBoundModel(BaseModel):
 
 class TopoSpace(_TopoConfigBoundModel):
     SHEET_NAME: ClassVar[str] = "Spaces"
+    # Read alias: sibling procedural-modelling workbooks name this sheet "Rooms";
+    # accept it so their xlsx imports directly. Writing always uses "Spaces".
+    ALT_SHEET_NAMES: ClassVar[list[str]] = ["Rooms"]
     TAB_COLOR: ClassVar[str] = "92D050"  # HEX string without '#'
     HIDE_IN_EXCEL: ClassVar[list[str]] = ["IS_COMPLEX_SHAPE", "SE"]
 
@@ -259,6 +288,20 @@ class TopoEquipment(_TopoConfigBoundModel):
     LY: Annotated[float | None, Field(description="Length of equipment in Y direction")] = None
     LZ: Annotated[float | None, Field(description="Length of equipment in Z direction")] = None
     GLOBAL_COORDS: Annotated[bool | None, Field(description="Use global coordinate system")] = False
+    ROT_X: Annotated[
+        float | None,
+        Field(description="Rotation about the X axis in degrees, pivoting on the equipment footprint centre"),
+    ] = 0.0
+    ROT_Y: Annotated[
+        float | None,
+        Field(description="Rotation about the Y axis in degrees, pivoting on the equipment footprint centre"),
+    ] = 0.0
+    ROT_Z: Annotated[
+        float | None,
+        Field(
+            description="Rotation about the Z (vertical) axis in degrees, pivoting on the equipment footprint centre"
+        ),
+    ] = 0.0
     COGx: Annotated[float, Field(description="X-coordinate of COG offset from equipment X-centroid")]
     COGy: Annotated[float, Field(description="Y-coordinate of COG offset from equipment Y-centroid")]
     COGz: Annotated[float, Field(description="Z-coordinate of COG offset from equipment base")]
@@ -366,15 +409,33 @@ class TopoEquipment(_TopoConfigBoundModel):
 
             if self.GLOBAL_COORDS is False:
                 if space is None:
-                    raise ValueError("Space not found for equipment origin (GLOBAL_COORDS=False).")
-                origin = space.get_p1()
+                    # Degrade gracefully instead of crashing the whole compile: a
+                    # missing host space means we can't localise this unit, so fall
+                    # back to world coordinates (its X/Y/Z land it at the model
+                    # origin). This keeps the shared entity usable by any external
+                    # procedural engine that resolves placement through get_origin()
+                    # — a robustness contract, not a silent success (hence the warn).
+                    logger.warning(
+                        "Topo Equipment %s: space %r not found (GLOBAL_COORDS=False); " "placing at world origin.",
+                        self.NAME,
+                        self.SPACE_NAME,
+                    )
+                    origin = ada.Point(0, 0, 0)
+                else:
+                    origin = space.get_p1()
             else:
                 origin = ada.Point(0, 0, 0)
 
             if self.SPACE_LOC == "ROOF":
                 if space is None:
-                    raise ValueError("Space not found for ROOF placement.")
-                origin += ada.Point(0, 0, space.DZ)
+                    logger.warning(
+                        "Topo Equipment %s: space %r not found for ROOF placement; "
+                        "skipping the roof (top-of-cell) offset.",
+                        self.NAME,
+                        self.SPACE_NAME,
+                    )
+                else:
+                    origin += ada.Point(0, 0, space.DZ)
 
             self._origin = origin
 
@@ -402,6 +463,11 @@ class TopoEquipment(_TopoConfigBoundModel):
         self._resolve_geometry_from_space_if_needed()
         return self.get_p1() + ada.Point(self.LX / 2, self.LY / 2, 0) + ada.Point(self.COGx, self.COGy, self.COGz)
 
+    def rotation_deg(self) -> tuple[float, float, float]:
+        """Per-axis rotation (X, Y, Z) in degrees, pivoting on the footprint
+        centre. All-zero means the equipment is placed axis-aligned."""
+        return (float(self.ROT_X or 0.0), float(self.ROT_Y or 0.0), float(self.ROT_Z or 0.0))
+
 
 class TopoOpening(_TopoConfigBoundModel):
     SHEET_NAME: ClassVar[str] = "Openings"
@@ -411,6 +477,17 @@ class TopoOpening(_TopoConfigBoundModel):
     INCLUDE: Annotated[bool, Field(description="Include Opening in build")] = False
     NAME: Annotated[str, Field(description="Name of opening")]
     FUNCTION: Annotated[Literal["opening", "door"], Field(description="Function of the opening")] = "opening"
+    SUBTYPE: Annotated[
+        Literal["door", "window", "opening"],
+        Field(
+            description=(
+                "Opening subtype driving the reinforcement framing: 'door' cuts a full-height opening to "
+                "the floor (jamb studs + head/lintel + threshold sill at floor level); 'window' cuts a "
+                "punched rectangle at the placed Z (jamb studs + head + sill); 'opening' is a generic "
+                "punched rectangle framed the same as a window (jamb studs + head + sill)."
+            )
+        ),
+    ] = "door"
     SPACE_NAME: Annotated[str, Field(description="Name of space the opening is located in")] = None
     SPACE_SIDE: Annotated[
         Literal["-X", "X", "-Y", "Y", "-Z", "Z"], Field(description="Space side in the global coordinate system")
@@ -498,6 +575,358 @@ class TopoOpening(_TopoConfigBoundModel):
             _, self._p2 = self._calculate_p1_p2_from_local()
 
         return self._p2
+
+
+class SystemConnection(BaseModel):
+    """One endpoint of a routed system.
+
+    Either an equipment-port endpoint (``EQUIPMENT`` + ``PORT``) or a site
+    terminal — a model-boundary input/output given by a ``SITE`` name, a world
+    ``POSITION``, an ``IN``/``OUT`` ``DIRECTION`` and an optional
+    ``DIRECTION_VECTOR`` (the terminal's outward orientation, default +Z)."""
+
+    EQUIPMENT: Annotated[str | None, Field(description="Name of the connected equipment (port endpoint)")] = None
+    PORT: Annotated[str | None, Field(description="Name of the equipment port to connect to")] = None
+    SITE: Annotated[str | None, Field(description="Name of the site terminal (model-boundary endpoint)")] = None
+    POSITION: Annotated[list[float] | None, Field(description="World position of a site terminal")] = None
+    DIRECTION: Annotated[Literal["IN", "OUT"] | None, Field(description="Flow direction of a site terminal")] = None
+    DIRECTION_VECTOR: Annotated[
+        list[float] | None, Field(description="Outward orientation vector of a site terminal (default +Z)")
+    ] = None
+
+
+class TopoSystem(_TopoConfigBoundModel):
+    """A routed service system (piping/duct/cable/electrical) whose ordered
+    :class:`SystemConnection` endpoints the procedural engine wires, routes over
+    the model grid, and renders as pipe/duct/tray runs.
+
+    The nested ``CONNECTIONS`` list serializes to a single JSON cell in Excel
+    (via the ``jsonlist`` codec), so a system is one row on the ``Systems``
+    sheet."""
+
+    SHEET_NAME: ClassVar[str] = "Systems"
+    TAB_COLOR: ClassVar[str] = "4472C4"  # HEX string without '#'
+
+    STRUCTURE_NAME: Annotated[str | None, Field(description="Name of the structure the system belongs to")] = None
+    NAME: Annotated[str, Field(description="Name of the system")]
+    TYPE: Annotated[
+        Literal["piping", "duct", "cable", "electrical"], Field(description="Service type of the system")
+    ] = "piping"
+    MEDIUM: Annotated[str | None, Field(description="Conveyed medium, e.g. 'water' or 'air'")] = None
+    CONNECTIONS: Annotated[
+        list[SystemConnection],
+        Field(
+            default_factory=list,
+            description="Ordered endpoints (equipment ports and/or site terminals) the run connects",
+            json_schema_extra={"excel": {"codec": "jsonlist"}},
+        ),
+    ]
+
+
+class TopoStructure(_TopoConfigBoundModel):
+    """One topology model ("structure") in a multi-structure procedural model — a
+    named group of spaces/equipment/systems/openings (tagged by ``STRUCTURE_NAME``)
+    placed at an origin. A workbook's ``Structures`` sheet lists them; the
+    :class:`~ada.topo_model.multi_builder.ProceduralMultiBuilder` compiles each and
+    places it at ``(X, Y, Z)``.
+
+    The columns mirror the ``Structures`` sheet of the sibling procedural-modelling
+    tool, so a workbook round-trips between the two. adapy uses ``NAME`` +
+    ``X``/``Y``/``Z`` + ``INCLUDE``; ``MODEL_INPUT``/``BLUEPRINT``/``CONDITION_NAME``
+    are carried for that tool's compatibility (typed permissively here)."""
+
+    SHEET_NAME: ClassVar[str] = "Structures"
+    TAB_COLOR: ClassVar[str] = "C00000"  # HEX string without '#'
+
+    INCLUDE: Annotated[bool, Field(description="Include this structure in the build")] = True
+    NAME: Annotated[str, Field(description="Name of the structure")]
+    X: Annotated[float, Field(description="X-coordinate of the structure origin")] = 0.0
+    Y: Annotated[float, Field(description="Y-coordinate of the structure origin")] = 0.0
+    Z: Annotated[float, Field(description="Z-coordinate of the structure origin")] = 0.0
+    # Carried for the sibling tool's Structures sheet (adapy does not act on these).
+    MODEL_INPUT: Annotated[str | None, Field(description="External model input (e.g. SPACES/SECTION_LOFT)")] = "SPACES"
+    BLUEPRINT: Annotated[str | None, Field(description="External blueprint name")] = "Framework with deck"
+    CONDITION_NAME: Annotated[str | None, Field(description="External condition name")] = None
+
+    def origin(self) -> tuple[float, float, float]:
+        return (float(self.X or 0.0), float(self.Y or 0.0), float(self.Z or 0.0))
+
+
+class LoftStation(BaseModel):
+    """One closed section profile at a point on a loft member's spine.
+
+    A station is authored as a simple analytic outline centred at ``(X, Y)`` and
+    lying in the plane ``z == Z`` (the profile plane), so a stack of stations
+    describes a member swept along +Z (or any spine implied by the station
+    centres). Two profile families are supported:
+
+    * ``"rectangle"`` — an axis-aligned box from ``WIDTH``/``HEIGHT`` (the full
+      side lengths), i.e. corners at ``(X ± WIDTH/2, Y ± HEIGHT/2, Z)``. With
+      ``CORNER_RADIUS > 0`` the corners are rounded (a 3-point-per-corner,
+      12-point outline), byte-identical to the sibling loft tool's
+      ``RectangleSection``.
+    * ``"circle"`` — a regular polygon sampling of a ``RADIUS`` circle, using
+      ``SEGMENTS`` points.
+
+    :meth:`to_poly_loop` turns the station into the closed
+    :class:`~ada.geom.curves.PolyLoop` that Phase 1's ``from_section_loft`` and
+    ``ada.api.loft`` consume (winding is CCW seen from +Z). It mirrors the loft
+    tool's ``SectionFactory``: a rounded rectangle emits the 12-point rounded
+    outline; a sharp rectangle emits 4 points, unless ``force_12pt`` (set by
+    :class:`TopoLoftMember` when the member mixes sharp and rounded rectangles)
+    upgrades it to a 12-point sharp outline so ``BRepOffsetAPI_ThruSections``
+    pairs wire edges 1:1 with the rounded sister profile."""
+
+    # 5% × min(w,h) inset used only when ``force_12pt`` upgrades a sharp
+    # rectangle to 12 points (mirrors RectangleSection._SHARP_LAYOUT_OFFSET_FRACTION).
+    # The corner vertex stays at the literal corner (sharp stays sharp); only the two
+    # flanking vertices are inset along the adjacent edges by this fraction.
+    _SHARP_LAYOUT_OFFSET_FRACTION: ClassVar[float] = 0.05
+
+    TYPE: Annotated[Literal["rectangle", "circle"], Field(description="Section profile family")] = "rectangle"
+    X: Annotated[float, Field(description="X-coordinate of the station (profile centre)")] = 0.0
+    Y: Annotated[float, Field(description="Y-coordinate of the station (profile centre)")] = 0.0
+    Z: Annotated[float, Field(description="Z-coordinate of the station (profile plane height)")] = 0.0
+    WIDTH: Annotated[float | None, Field(description="Full width (X) of a rectangle section")] = None
+    HEIGHT: Annotated[float | None, Field(description="Full height (Y) of a rectangle section")] = None
+    CORNER_RADIUS: Annotated[
+        float,
+        Field(description="Corner-rounding radius of a rectangle section (0 = sharp; must be < min(WIDTH, HEIGHT)/2)"),
+    ] = 0.0
+    RADIUS: Annotated[float | None, Field(description="Radius of a circle section")] = None
+    # Number of polygon samples for a circle section. Matches the loft tool's
+    # CircleSection default (36) so a segments-omitted circle station is byte-identical.
+    SEGMENTS: Annotated[int, Field(description="Number of polygon samples for a circle section", ge=3)] = 36
+
+    @model_validator(mode="after")
+    def _validate_corner_radius(self) -> "LoftStation":
+        if self.TYPE == "rectangle" and self.CORNER_RADIUS and self.WIDTH is not None and self.HEIGHT is not None:
+            limit = min(self.WIDTH, self.HEIGHT) / 2
+            if self.CORNER_RADIUS >= limit:
+                raise ValueError(
+                    f"CORNER_RADIUS {self.CORNER_RADIUS} is too large for rectangle {self.WIDTH}x{self.HEIGHT}. "
+                    f"It must be smaller than {limit}."
+                )
+        return self
+
+    def to_poly_loop(self, force_12pt: bool = False):
+        """Build the closed :class:`~ada.geom.curves.PolyLoop` for this station
+        in world coordinates (centred at ``X``/``Y``, in the plane ``z == Z``).
+
+        ``force_12pt`` (set by :class:`TopoLoftMember` when the member's
+        rectangle stack mixes sharp and rounded sections) upgrades a *sharp*
+        rectangle to the 12-point sharp outline so its wire pairs 1:1 with the
+        rounded sister profile. A rounded rectangle always emits 12 points; a
+        circle is unaffected by ``force_12pt``."""
+        import math
+
+        from ada.geom.curves import PolyLoop
+        from ada.geom.points import Point
+
+        if self.TYPE == "rectangle":
+            if self.WIDTH is None or self.HEIGHT is None:
+                raise ValueError(f"rectangle LoftStation needs WIDTH and HEIGHT (got {self.WIDTH}, {self.HEIGHT})")
+            local_xy = self._rectangle_local_xy(force_12pt=force_12pt)
+            polygon = [Point(self.X + dx, self.Y + dy, self.Z) for dx, dy in local_xy]
+            return PolyLoop(polygon=polygon)
+
+        # circle
+        if self.RADIUS is None:
+            raise ValueError("circle LoftStation needs RADIUS")
+        n = int(self.SEGMENTS) if int(self.SEGMENTS) >= 3 else 36
+        polygon = [
+            Point(
+                self.X + self.RADIUS * math.cos(2.0 * math.pi * i / n),
+                self.Y + self.RADIUS * math.sin(2.0 * math.pi * i / n),
+                self.Z,
+            )
+            for i in range(n)
+        ]
+        return PolyLoop(polygon=polygon)
+
+    def _rectangle_local_xy(self, force_12pt: bool) -> list[tuple[float, float]]:
+        """The rectangle's 2D outline (centred on origin) — byte-identical to the
+        loft tool's ``RectangleSection.create``. Rounded => 12 pt; sharp+force_12pt
+        => 12 pt (corner vertex at the literal corner); sharp => 4 pt."""
+        import math
+
+        w, h = self.WIDTH / 2.0, self.HEIGHT / 2.0
+        sqrt2_2 = math.sqrt(2) / 2
+        if self.CORNER_RADIUS and self.CORNER_RADIUS > 0:
+            r = self.CORNER_RADIUS
+            return [
+                # Bottom-left arc: edge-tangent -> arc midpoint -> edge-tangent
+                (-w + r, -h),
+                (-w + r - r * sqrt2_2, -h + r - r * sqrt2_2),
+                (-w, -h + r),
+                # Top-left
+                (-w, h - r),
+                (-w + r - r * sqrt2_2, h - r + r * sqrt2_2),
+                (-w + r, h),
+                # Top-right
+                (w - r, h),
+                (w - r + r * sqrt2_2, h - r + r * sqrt2_2),
+                (w, h - r),
+                # Bottom-right
+                (w, -h + r),
+                (w - r + r * sqrt2_2, -h + r - r * sqrt2_2),
+                (w - r, -h),
+            ]
+        if force_12pt:
+            # Sharp corners, 12-point layout. The middle of each corner triplet sits
+            # at the actual corner so the 90 deg angle is preserved; the flanking
+            # points are inset by ``r`` along the adjacent edges.
+            r = self._SHARP_LAYOUT_OFFSET_FRACTION * min(self.WIDTH, self.HEIGHT)
+            return [
+                (-w + r, -h),  # bottom edge, r from bottom-left
+                (-w, -h),  # bottom-left corner (sharp)
+                (-w, -h + r),  # left edge, r from bottom-left
+                (-w, h - r),  # left edge, r from top-left
+                (-w, h),  # top-left corner (sharp)
+                (-w + r, h),  # top edge, r from top-left
+                (w - r, h),  # top edge, r from top-right
+                (w, h),  # top-right corner (sharp)
+                (w, h - r),  # right edge, r from top-right
+                (w, -h + r),  # right edge, r from bottom-right
+                (w, -h),  # bottom-right corner (sharp)
+                (w - r, -h),  # bottom edge, r from bottom-right
+            ]
+        return [(-w, -h), (w, -h), (w, h), (-w, h)]
+
+
+class TopoLoftMember(_TopoConfigBoundModel):
+    """A swept ("lofted") member authored as an ordered stack of
+    :class:`LoftStation` section profiles — the loft-tool sibling of
+    :class:`TopoSpace`.
+
+    Additive to the box world: a procedural model may carry both ``spaces``
+    (axis-aligned boxes) and ``loft_members`` (swept members) and they compile
+    into one model. Each member decomposes into ``len(STATIONS) - 1`` inter-station
+    swept BAND cells via :func:`ada.topology.io.from_section_loft` (see
+    :meth:`to_loft_member`), and renders as plates via :func:`ada.api.loft.loft_to_part`.
+
+    ``PLACEMENT`` is an optional 4x4 affine (row-major nested list) applied to the
+    member — its band solids and its plate profiles — after they are built in the
+    member's own frame (mirrored/rotated/translated members, e.g. a floater's
+    legs). ``None`` (the default) means identity / world coordinates. ``THICKNESS``
+    is the plate thickness; ``SURFACE_ONLY`` marks a member whose plates are the
+    only intended geometry (no interior structure) — carried for the viewer/blueprint."""
+
+    SHEET_NAME: ClassVar[str] = "LoftMembers"
+    TAB_COLOR: ClassVar[str] = "00B0F0"  # HEX string without '#'
+
+    STRUCTURE_NAME: Annotated[str | None, Field(description="Name of Structure the member belongs to")] = None
+    INCLUDE: Annotated[bool, Field(description="Include member in the build")] = True
+    NAME: Annotated[str, Field(description="Name of the loft member")]
+    STATIONS: Annotated[
+        list[LoftStation], Field(min_length=2, description="Ordered section profiles along the spine (>= 2)")
+    ]
+    PLACEMENT: Annotated[
+        list[list[float]] | None,
+        Field(description="Optional 4x4 affine (row-major) applied to the member; identity when omitted"),
+    ] = None
+    THICKNESS: Annotated[float, Field(description="Plate thickness of the lofted skin")] = 0.01
+    SURFACE_ONLY: Annotated[bool, Field(description="Member is a surface skin only (no interior structure)")] = False
+    REPRESENTATION: Annotated[
+        Literal["SKIN", "FRAME", "JACKET"],
+        Field(
+            description=(
+                "How a structural loft member is built by the ProceduralBuilder: SKIN = plate "
+                "skin, FRAME = SteelStru framework (decked/floored), JACKET = open tubular truss "
+                "(legs + ring + diagonal braces). SURFACE_ONLY=True forces SKIN regardless."
+            )
+        ),
+    ] = "FRAME"
+    EXCLUDE_FACES: Annotated[
+        list[str],
+        Field(
+            default_factory=list,
+            description=(
+                "Member-relative loft face ids to drop (Phase 3b), e.g. 'bay0:edge2' or "
+                "'bay0:cap_lo' — the matching plate is omitted at build. Empty by default."
+            ),
+            json_schema_extra={"excel": {"codec": "jsonlist"}},
+        ),
+    ]
+
+    # --- cell-metadata duck-typing (parity with TopoSpace) -----------------
+    @property
+    def name(self) -> str:
+        return self.NAME
+
+    @field_validator("PLACEMENT")
+    @classmethod
+    def _validate_placement(cls, v):
+        if v is None:
+            return v
+        if len(v) != 4 or any(len(row) != 4 for row in v):
+            raise ValueError("PLACEMENT must be a 4x4 matrix (list of 4 rows of 4 floats)")
+        return v
+
+    def _placement_matrix(self):
+        """The member's placement as a 4x4 numpy array, or ``None`` for identity."""
+        if self.PLACEMENT is None:
+            return None
+        import numpy as np
+
+        return np.asarray(self.PLACEMENT, dtype=float)
+
+    def _force_12pt(self) -> bool:
+        """True iff the member's rectangle stack MIXES sharp (CORNER_RADIUS == 0)
+        and rounded (CORNER_RADIUS > 0) sections — the loft tool's
+        ``LoftCreator._force_12pt_flag`` rule.
+
+        ``BRepOffsetAPI_ThruSections`` needs matching wire vertex counts to
+        produce clean ruled faces between profiles; when a member mixes sharp and
+        rounded rectangles every rectangle emits 12 points so the edges pair 1:1.
+        An all-sharp or all-rounded member is left as-is (4-pt or 12-pt)."""
+        rects = [
+            st for st in self.STATIONS if st.TYPE == "rectangle" and st.WIDTH is not None and st.HEIGHT is not None
+        ]
+        if len(rects) < 2:
+            return False
+        has_rounded = any((st.CORNER_RADIUS or 0) > 0 for st in rects)
+        has_sharp = any((st.CORNER_RADIUS or 0) == 0 for st in rects)
+        return has_rounded and has_sharp
+
+    def _station_poly_loops(self) -> list:
+        """The station profiles as local-frame closed
+        :class:`~ada.geom.curves.PolyLoop`\\ s, applying the member-level 12-point
+        mixing rule to the rectangle stations."""
+        force_12pt = self._force_12pt()
+        return [st.to_poly_loop(force_12pt=force_12pt) for st in self.STATIONS]
+
+    def world_profiles(self) -> list:
+        """The station profiles as closed :class:`~ada.geom.curves.PolyLoop`\\ s
+        with ``PLACEMENT`` applied — i.e. in the member's placed (world) frame.
+
+        Used by the plate build path (``loft_to_part``), which — unlike the cell
+        derivation — has no separate placement step, so the transform is baked
+        into the points here."""
+        from ada.geom.curves import PolyLoop
+        from ada.geom.points import Point
+
+        loops = self._station_poly_loops()
+        mat = self._placement_matrix()
+        if mat is None:
+            return loops
+        placed = []
+        for loop in loops:
+            pts = []
+            for p in loop.polygon:
+                v = mat @ [float(p.x), float(p.y), float(p.z), 1.0]
+                pts.append(Point(float(v[0]), float(v[1]), float(v[2])))
+            placed.append(PolyLoop(polygon=pts))
+        return placed
+
+    def to_loft_member(self):
+        """Build the Phase 1 :class:`ada.topology.io.LoftMember` from the authored
+        stations: ordered local-frame profiles + the placement matrix (which
+        ``from_section_loft`` applies to the derived band solids)."""
+        from ada.topology.io import LoftMember
+
+        profiles = self._station_poly_loops()
+        return LoftMember(name=self.NAME, profiles=profiles, placement=self._placement_matrix())
 
 
 def from_ada_obj(obj: ada.PrimBox) -> TopoSpace | TopoOpening | TopoEquipment:

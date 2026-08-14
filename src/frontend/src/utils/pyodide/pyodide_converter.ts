@@ -179,6 +179,40 @@ export async function convertViaPyodide(
     return result;
 }
 
+/** Compile a procedural cell-model document to GLB bytes entirely in-browser via
+ * the built-in adapy engine (ada.topo_model.wasm_compile.compile_doc). `doc` is
+ * the cellbuilder commit document; it is JSON-stringified and handed to the
+ * warm Pyodide worker. No server round-trip. */
+/** A kind:wheel engine descriptor: micropip-install the wheel (+ deps) then
+ * dispatch to its module:callable entrypoint. */
+export interface PyodideEngineWheel {
+    entrypoint: string;
+    deps: string[];
+    url: string;
+}
+
+export async function compileProceduralViaPyodide(
+    doc: unknown,
+    opts?: {
+        onLog?: (msg: string) => void;
+        engine?: string | null;
+        wheel?: PyodideEngineWheel | null;
+    },
+): Promise<Uint8Array> {
+    if (workerPromise && lastHeapBytes > RECYCLE_HEAP_BYTES) {
+        killWorker();
+    }
+    const worker = await ensurePyodideWorker(opts?.onLog);
+    const reqId = nextReqId++;
+    const result = awaitWorkerResult(worker, reqId, opts?.onLog);
+    // engine = a built-in slug (echo) dispatched directly; wheel = an external
+    // engine the worker micropip-installs, then dispatches via its entrypoint.
+    const engine = opts?.engine && opts.engine !== "adapy-default" ? opts.engine : null;
+    const wheel = opts?.wheel ?? null;
+    worker.postMessage({type: "procedural-compile", reqId, doc: JSON.stringify(doc), engine, wheel});
+    return result;
+}
+
 /** Stream a conversion from a range-capable URL instead of uploading the whole
  * source — for sources too large to stage in wasm memory (a multi-GB SIN
  * exceeds the wasm32 ceiling and the 2 GiB ArrayBuffer cap). The worker reads

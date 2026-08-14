@@ -122,7 +122,7 @@ export const centerViewOnSelection = (
     }
 };
 
-function center_on_bounding_box(boundingBox: THREE.Box3, camera: Camera, fillFactor: number = 1, controls: OrbitControls | CameraControls) {
+export function center_on_bounding_box(boundingBox: THREE.Box3, camera: Camera, fillFactor: number = 1, controls: OrbitControls | CameraControls) {
     if (boundingBox.isEmpty()) {
         console.warn('Bounding box is empty after processing selected vertices.');
         return;

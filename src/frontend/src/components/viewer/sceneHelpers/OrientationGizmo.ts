@@ -143,7 +143,12 @@ export class OrientationGizmo extends HTMLElement {
         this.style.width = `${this.options.size}px`;
         this.style.height = `${this.options.size}px`;
         this.style.position = "fixed";
-        this.style.zIndex = this.style.zIndex || "10";
+        // Sit just below the menu/panel layer (z-10) so an open side panel —
+        // e.g. the equipment/system catalog editor on mobile — covers the
+        // gizmo where they overlap and its Save button stays clickable. The
+        // menu wrapper is pointer-events-none except over actual panel content,
+        // so the gizmo remains visible and clickable everywhere else.
+        this.style.zIndex = this.style.zIndex || "9";
         this.style.pointerEvents = "auto";
         // Inline-default canvas adds a baseline descender gap below it;
         // block kills that. 100% lets it follow the host size.

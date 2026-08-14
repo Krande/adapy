@@ -4,6 +4,9 @@ import ColorLegend from "./ColorLegend";
 import ThreeCanvas from "./ThreeCanvas";
 import SectionPlanesController from "./SectionPlanesController";
 import FemConceptsController from "./FemConceptsController";
+import CellBuilderController from "./CellBuilderController";
+import TypeIconController from "./TypeIconController";
+import ProceduralFollowerController from "./ProceduralFollowerController";
 import GalleryControls from "./GalleryControls";
 
 const CanvasWrapper: React.FC = () => {
@@ -22,6 +25,13 @@ const CanvasWrapper: React.FC = () => {
       <SectionPlanesController />
       {/* Headless: draws the FEM-concept glyph overlay (masses / BCs / loads). */}
       <FemConceptsController />
+      {/* Headless: procedural cellbuilder box meshes + snapping/face-drag. */}
+      <CellBuilderController />
+      {/* Headless: Factorio-style type-icon overlay (equipment / media / missing inputs). */}
+      <TypeIconController />
+      {/* Cross-tab: when opened with ?pfollow=<modelId>, live-loads that model's
+          compiled results as the editing tab produces them. Inert otherwise. */}
+      <ProceduralFollowerController />
     </div>
   );
 };

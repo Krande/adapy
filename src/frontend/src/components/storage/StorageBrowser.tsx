@@ -38,7 +38,9 @@ import {RowKebabMenu} from "@/components/common/RowKebabMenu";
 import InlineNameInput from "@/components/common/InlineNameInput";
 import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu";
 import FolderPickerModal from "@/components/common/FolderPickerModal";
-import {viewerApi} from "@/services/viewerApi";
+import {viewerApi, type ProceduralModelSummary, type ProceduralTemplate} from "@/services/viewerApi";
+import ProceduralModelIcon from "../icons/ProceduralModelIcon";
+import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useStorageMutations} from "./useStorageMutations";
 import {useLoadQueueStore} from "@/state/loadQueueStore";
 import {buildFileMenuItems, buildFolderMenuItems} from "./storageMenuItems";
@@ -273,6 +275,7 @@ const StorageBrowser: React.FC = () => {
         }
         setRefreshing(true);
         void request_list_of_files_from_server();
+        void refreshProceduralModels();
         refreshTimerRef.current = window.setTimeout(() => {
             setRefreshing(false);
             refreshTimerRef.current = null;
@@ -311,6 +314,118 @@ const StorageBrowser: React.FC = () => {
             else next.add(path);
             return next;
         });
+    };
+
+    // Procedural cell models: pg-backed pseudo-entries listed above the file
+    // tree. Each row refers to the single postgres source, not a blob — no
+    // rename/move; delete archives the row server-side.
+    const [proceduralModels, setProceduralModels] = useState<ProceduralModelSummary[]>([]);
+    const activeProcedural = useCellBuilderStore((s) => s.active?.modelId ?? null);
+    // Engine-picker prompt raised by the store when an imported workbook has no
+    // _ADA_META engine (hand-made / legacy). Rendered here because import is now
+    // triggered from the + menu, not the cellbuilder panel.
+    const importPrompt = useCellBuilderStore((s) => s.importPrompt);
+    const importEngines = useCellBuilderStore((s) => s.engines);
+    const refreshProceduralModels = React.useCallback(async () => {
+        try {
+            setProceduralModels(await viewerApi.listProceduralModels(scopeKey));
+        } catch {
+            // shared-only deployments (503) or older APIs: hide the section
+            setProceduralModels([]);
+        }
+    }, [scopeKey]);
+    useEffect(() => {
+        void refreshProceduralModels();
+    }, [refreshProceduralModels]);
+    // A model becoming active (created / opened / imported) may be new to the
+    // list — refresh so an Excel-imported model appears without a manual reload.
+    useEffect(() => {
+        if (activeProcedural) void refreshProceduralModels();
+    }, [activeProcedural, refreshProceduralModels]);
+
+    // Start-from templates for the "New model from template" dropdown — the
+    // union of the demo templates advertised by every currently-live worker
+    // (base worker → adapy-default; a capability worker → its loft demos, etc.).
+    // Refetched on scope change; empty when no workers are up.
+    const [allTemplates, setAllTemplates] = useState<ProceduralTemplate[]>([]);
+    const [templatesOpen, setTemplatesOpen] = useState(false);
+    const templatesBtnRef = useRef<HTMLButtonElement | null>(null);
+    const refreshTemplates = React.useCallback(async () => {
+        try {
+            setAllTemplates(await viewerApi.listProceduralTemplates(scopeKey));
+        } catch {
+            setAllTemplates([]);
+        }
+    }, [scopeKey]);
+    useEffect(() => {
+        void refreshTemplates();
+    }, [refreshTemplates]);
+
+    const openProceduralModel = async (m: ProceduralModelSummary) => {
+        try {
+            const detail = await viewerApi.getProceduralModel(scopeKey, m.id);
+            useCellBuilderStore.getState().open(detail.id, detail.name, detail.revision, detail.doc);
+            // The model now owns the screen (the cellbuilder panel opens) — collapse
+            // the storage overview so it doesn't sit on top of the freshly-opened model.
+            useServerInfoStore.getState().setShowServerInfoBox(false);
+        } catch (e) {
+            window.alert(`Failed to open procedural model: ${e instanceof Error ? e.message : e}`);
+        }
+    };
+
+    const createProceduralModel = async () => {
+        const name = window.prompt("Name for the new procedural model:", "");
+        if (!name || !name.trim()) return;
+        try {
+            const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
+            const store = useCellBuilderStore.getState();
+            store.open(detail.id, detail.name, detail.revision, detail.doc);
+            void refreshProceduralModels();
+        } catch (e) {
+            window.alert(`Failed to create procedural model: ${e instanceof Error ? e.message : e}`);
+        }
+    };
+
+    // Instantiate a new model from a template: commit the template's document
+    // verbatim (so loft members / systems survive untouched — the cellbuilder's
+    // box round-trip would drop them), then kick a compile and open it. The
+    // committed doc's engine is mirrored onto the model, so a worker-backed
+    // template auto-routes its compile to that worker.
+    const createProceduralModelFromTemplate = async (tpl: ProceduralTemplate) => {
+        setTemplatesOpen(false);
+        setPlusOpen(false);
+        const name = window.prompt("Name for the new procedural model:", tpl.name);
+        if (!name || !name.trim()) return;
+        try {
+            const detail = await viewerApi.createProceduralModel(scopeKey, name.trim());
+            const {revision} = await viewerApi.commitProceduralModel(scopeKey, detail.id, tpl.doc, detail.revision);
+            // Compile so the model has a rendered GLB immediately; ignore compile
+            // errors here (the model still opens and can be recompiled).
+            try {
+                await viewerApi.compileProceduralModel(scopeKey, detail.id);
+            } catch {
+                /* compile is best-effort on create */
+            }
+            const fresh = await viewerApi.getProceduralModel(scopeKey, detail.id);
+            useCellBuilderStore
+                .getState()
+                .open(fresh.id, fresh.name, revision, fresh.doc);
+            void refreshProceduralModels();
+        } catch (e) {
+            window.alert(`Failed to create from template: ${e instanceof Error ? e.message : e}`);
+        }
+    };
+
+    const deleteProceduralModel = async (m: ProceduralModelSummary) => {
+        if (!window.confirm(`Delete procedural model "${m.name}"?`)) return;
+        try {
+            await viewerApi.deleteProceduralModel(scopeKey, m.id);
+            const st = useCellBuilderStore.getState();
+            if (st.active?.modelId === m.id) st.close();
+            void refreshProceduralModels();
+        } catch (e) {
+            window.alert(`Failed to delete: ${e instanceof Error ? e.message : e}`);
+        }
     };
 
     // Client-side "pending" empty folders — storage is prefix-based so
@@ -630,6 +745,10 @@ const StorageBrowser: React.FC = () => {
     // dispatched a CustomEvent that UploadContextMenu listened for, which
     // broke the gesture chain on mobile.
     const fileInputRef = useRef<HTMLInputElement>(null);
+    // Hidden picker for "Import from Excel…" in the + menu — imports create a
+    // NEW procedural model, so the entry point lives here rather than in the
+    // cellbuilder panel (which only exists once a model is open).
+    const importXlsxInputRef = useRef<HTMLInputElement>(null);
     // Folder destination for the next picker-initiated upload
     // ("Upload here…" on a folder). Consumed once by onFilePicked.
     const uploadTargetRef = useRef<string | null>(null);
@@ -753,6 +872,11 @@ const StorageBrowser: React.FC = () => {
         setBulkBusy("clear");
         try {
             await clear_loaded_model();
+            // Also close any open procedural model — its cellbuilder proxies /
+            // compiled result are part of "what's in the scene", so Clear should
+            // tear that down too (and hide the cellbuilder panel).
+            const cb = useCellBuilderStore.getState();
+            if (cb.active) cb.close();
         } catch (err) {
             console.error("clear scene failed", err);
         } finally {
@@ -1057,7 +1181,12 @@ const StorageBrowser: React.FC = () => {
                       // the area behind the browser chrome, so a
                       // vh-sized panel ran past the visible bottom.
                       "w-[min(1100px,calc(100vw-2rem))] h-[min(720px,calc(100dvh-5rem))] flex flex-col"
-                    : "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md")
+                    : // Mobile: bound the panel to the viewport and SCROLL its
+                      // content (overflow-y-auto), so a long file list can't run
+                      // the panel past the bottom of the screen. Desktop keeps the
+                      // natural unbounded block layout (md:max-h-none md:overflow-visible).
+                      "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md " +
+                      "max-h-[calc(100dvh-6rem)] overflow-y-auto md:max-h-none md:overflow-visible")
             }
         >
             {maximized && createPortal(
@@ -1097,6 +1226,18 @@ const StorageBrowser: React.FC = () => {
                         style={{display: "none"}}
                         onChange={onFilePicked}
                     />
+                    <input
+                        ref={importXlsxInputRef}
+                        type="file"
+                        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        style={{display: "none"}}
+                        onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            // Reset so re-picking the same file fires onChange again.
+                            e.target.value = "";
+                            if (file) void useCellBuilderStore.getState().beginImportFromExcel(file);
+                        }}
+                    />
                     <button
                         ref={plusBtnRef}
                         type="button"
@@ -1133,8 +1274,94 @@ const StorageBrowser: React.FC = () => {
                                     label: "New folder…",
                                     onClick: () => setNewFolderAt(""),
                                 },
+                                {
+                                    key: "new-procedural",
+                                    label: "New procedural model…",
+                                    onClick: () => void createProceduralModel(),
+                                },
+                                {
+                                    key: "import-xlsx",
+                                    label: "Import from Excel…",
+                                    // Imports create a new procedural model; the
+                                    // owning engine is detected from the file's
+                                    // _ADA_META, else the user is prompted.
+                                    onClick: () => {
+                                        setPlusOpen(false);
+                                        importXlsxInputRef.current?.click();
+                                    },
+                                },
+                                {
+                                    key: "new-from-template",
+                                    label: "New model from template ▸",
+                                    // Swap the + menu for the template list,
+                                    // anchored off the same + button.
+                                    onClick: () => {
+                                        setPlusOpen(false);
+                                        setTemplatesOpen(true);
+                                    },
+                                },
                             ]}
                             onClose={() => setPlusOpen(false)}
+                            ignoreOutsideRef={plusBtnRef}
+                            anchor={{
+                                kind: "rect",
+                                getRect: () => plusBtnRef.current?.getBoundingClientRect(),
+                            }}
+                        />
+                    )}
+                    {templatesOpen && (
+                        <PositionedMenu
+                            header={
+                                <span className="text-[11px] uppercase tracking-wide opacity-60">
+                                    Start from template
+                                </span>
+                            }
+                            items={allTemplates.map(
+                                (tpl): KebabMenuItem => ({
+                                    key: tpl.id,
+                                    // Engine in parentheses, per request — e.g.
+                                    // "Topside + jacket (adapy-default)".
+                                    label: `${tpl.name} (${tpl.engine})`,
+                                    onClick: () => void createProceduralModelFromTemplate(tpl),
+                                }),
+                            )}
+                            onClose={() => setTemplatesOpen(false)}
+                            ignoreOutsideRef={templatesBtnRef}
+                            anchor={{
+                                kind: "rect",
+                                getRect: () => plusBtnRef.current?.getBoundingClientRect(),
+                            }}
+                        />
+                    )}
+                    {importPrompt && (
+                        <PositionedMenu
+                            header={
+                                <span className="text-[11px] uppercase tracking-wide opacity-60">
+                                    Import “{importPrompt.name}” as…
+                                </span>
+                            }
+                            items={[
+                                ...importEngines.map(
+                                    (eng): KebabMenuItem => ({
+                                        key: eng.slug,
+                                        label: eng.name,
+                                        onClick: () =>
+                                            void useCellBuilderStore
+                                                .getState()
+                                                // Pass the prompt captured here at
+                                                // render time: the menu dismisses
+                                                // (cancelImport) before this fires,
+                                                // clearing importPrompt in the store.
+                                                .confirmImportEngine(eng.slug, importPrompt),
+                                    }),
+                                ),
+                                {
+                                    key: "__cancel",
+                                    label: "Cancel",
+                                    onClick: () => useCellBuilderStore.getState().cancelImport(),
+                                },
+                            ]}
+                            onClose={() => useCellBuilderStore.getState().cancelImport()}
                             ignoreOutsideRef={plusBtnRef}
                             anchor={{
                                 kind: "rect",
@@ -1169,7 +1396,7 @@ const StorageBrowser: React.FC = () => {
                         user picks the files they want via per-row
                         checkboxes; loading every file at once would
                         rarely be the right thing. */}
-                    {anyLoaded && (
+                    {(anyLoaded || activeProcedural) && (
                         <button
                             type="button"
                             className={
@@ -1179,7 +1406,7 @@ const StorageBrowser: React.FC = () => {
                             }
                             onClick={() => void onHideAll()}
                             disabled={bulkBusy !== null}
-                            title="Unload every model currently in the scene"
+                            title="Unload every model in the scene, and close any open procedural model"
                             aria-label="Clear scene"
                             aria-busy={bulkBusy === "clear"}
                         >
@@ -1301,6 +1528,52 @@ const StorageBrowser: React.FC = () => {
                     </div>
                 </div>
             )}
+            {proceduralModels.length > 0 && (
+                <div className="mb-1">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-400 px-2">Procedural models</div>
+                    {proceduralModels.map((m) => (
+                        <div
+                            key={m.id}
+                            className={
+                                "flex items-center gap-1.5 px-2 py-1 rounded-sm hover:bg-gray-700/50 cursor-pointer " +
+                                (activeProcedural === m.id ? "bg-blue-900/40" : "")
+                            }
+                            onClick={() => void openProceduralModel(m)}
+                            title="Procedural cell model (single database source) — click to open in the cellbuilder"
+                        >
+                            <ProceduralModelIcon className="shrink-0"/>
+                            <span className="truncate text-sm">{m.name}</span>
+                            <span className="text-[10px] text-purple-300 border border-purple-400/50 rounded-sm px-1">
+                                r{m.revision}
+                            </span>
+                            <span className="ml-auto flex items-center gap-1">
+                                {m.latest_glb_key && (
+                                    <button
+                                        className="px-1 rounded-sm hover:bg-gray-500/40"
+                                        title="View compiled result"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            void useCellBuilderStore.getState().viewResult(m.latest_glb_key!);
+                                        }}
+                                    >
+                                        <ViewIcon/>
+                                    </button>
+                                )}
+                                <button
+                                    className="px-1 rounded-sm hover:bg-gray-500/40"
+                                    title="Delete procedural model"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        void deleteProceduralModel(m);
+                                    }}
+                                >
+                                    🗑
+                                </button>
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
             {files.length === 0 && pendingFolders.length === 0 && newFolderAt === null ? (
                 <div
                     className="text-xs italic text-gray-300 rounded-sm border border-dashed border-gray-600 p-3"
@@ -1324,7 +1597,11 @@ const StorageBrowser: React.FC = () => {
                             className={
                                 "flex flex-col overflow-auto focus:outline-hidden " +
                                 "focus-visible:ring-1 focus-visible:ring-blue-500/40 rounded-sm " +
-                                (maximized ? "flex-1 min-h-0" : "max-h-80")
+                                // Desktop compact keeps the fixed 20rem cap;
+                                // maximized fills. On mobile compact the whole
+                                // panel scrolls (root overflow-y-auto), so the
+                                // list itself is uncapped there (no double scroll).
+                                (maximized ? "flex-1 min-h-0" : "md:max-h-80")
                             }
                             // Background (non-row) drops land at root:
                             // internal drags move to root, OS files

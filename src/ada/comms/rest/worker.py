@@ -15,13 +15,17 @@ worker reconverts (deterministic output, so this is safe).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ctypes
 import functools
+import io
+import logging
 import os
 import pathlib
 import shutil
 import signal
 import tempfile
+import threading
 import time
 import traceback as tb_module
 from concurrent.futures import (  # noqa: F401 — kept for the legacy _process_one signature
@@ -147,6 +151,78 @@ _SIDECAR_SIBLINGS: dict[str, tuple[str, ...]] = {
 # attribution we publish on the workers KV registry without
 # touching the per-job code paths.
 _WORKER_IMAGE_TAG: str | None = None
+
+# The worker's graceful-shutdown event, published module-level by ``run_worker``
+# so long-running poll loops inside a handler (e.g. the chained procedural_detail
+# stage waiting on the structural build) can wake early on SIGTERM/SIGINT instead
+# of blocking the pod's shutdown for the full wait budget. ``None`` until the
+# worker loop wires it (a handler running in a unit test just sees no stop event
+# and polls to its timeout).
+_WORKER_STOP: "asyncio.Event | None" = None
+
+# Chained procedural_detail waits for the upstream structural build (a DIFFERENT
+# pool, no ordering guarantee) to write the neutral artifact before it runs. Poll
+# storage for the artifact up to this total budget, sleeping this interval between
+# checks (interruptible on shutdown). 120 s comfortably covers a realistic
+# structural compile; 3 s keeps the poll cheap without busy-spinning.
+STRUCTURAL_ARTIFACT_WAIT_BUDGET_S = 120.0
+STRUCTURAL_ARTIFACT_WAIT_INTERVAL_S = 3.0
+# Once the (required) IFC artifact exists the sections sidecar — written moments
+# later by the same build — should appear almost immediately; give it a short
+# grace before degrading to an empty sidecar.
+STRUCTURAL_SECTIONS_WAIT_BUDGET_S = 15.0
+
+
+async def _wait_for_blob(
+    storage: "Storage",
+    scope,
+    key: str,
+    *,
+    queue: "JobQueue",
+    job_id: str,
+    budget_s: float,
+    interval_s: float | None = None,
+    waiting_stage: str | None = None,
+) -> bool:
+    """Poll object storage until ``key`` exists, up to ``budget_s`` (sleeping
+    ``interval_s`` between checks — defaulting to the module poll interval, read at
+    call time so it stays tunable). Returns ``True`` as soon as the blob is present,
+    ``False`` on timeout or a graceful worker shutdown.
+
+    Interruptible + non-busy-spinning: the between-checks wait blocks on the
+    module-level shutdown event (``_WORKER_STOP``) via ``asyncio.wait_for`` so a
+    SIGTERM wakes it immediately, mirroring the keep-alive/heartbeat loops. When no
+    stop event is wired (unit tests) it falls back to a plain ``asyncio.sleep``."""
+    interval_s = STRUCTURAL_ARTIFACT_WAIT_INTERVAL_S if interval_s is None else interval_s
+    deadline = time.monotonic() + budget_s
+    stop = _WORKER_STOP
+    announced = False
+    while True:
+        try:
+            if await storage.exists(scope, key):
+                return True
+        except Exception:
+            # A transient storage error shouldn't abort the wait — retry next tick.
+            logger.debug("worker: exists() check failed for %s (retrying)", key)
+        if stop is not None and stop.is_set():
+            return False
+        if time.monotonic() >= deadline:
+            return False
+        if waiting_stage and not announced:
+            try:
+                await queue.update(job_id, stage=waiting_stage, progress=0.10)
+            except Exception:
+                logger.debug("worker: could not update stage while waiting for %s", key)
+            announced = True
+        if stop is not None:
+            try:
+                # Wake early when the worker is asked to shut down.
+                await asyncio.wait_for(stop.wait(), timeout=interval_s)
+                return False
+            except asyncio.TimeoutError:
+                pass
+        else:
+            await asyncio.sleep(interval_s)
 
 
 async def _audit_done(
@@ -930,6 +1006,1269 @@ async def _run_parity_validation(
         await _audit_done(db_pool, job_id, "error", msg, started_at, metrics=metrics)
 
 
+# Cap the persisted compile log so a runaway (per-cell) warning storm can't
+# balloon the blob; keep the TAIL (the end usually carries the failure).
+_COMPILE_LOG_CAP_BYTES = 256 * 1024
+
+
+class _CompileLogCapture(logging.Handler):
+    """In-memory logging handler that buffers records emitted DURING a procedural
+    compile so the worker can persist them as an inspectable ``.log`` blob.
+
+    Thread-safe: the compile runs in an executor thread while the event loop keeps
+    logging heartbeats on the main thread, so both may ``emit`` concurrently."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.INFO)
+        self.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s"))
+        self._lines: list[str] = []
+        self._lock = threading.Lock()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            line = self.format(record)
+        except Exception:
+            return
+        with self._lock:
+            self._lines.append(line)
+
+    def snapshot(self) -> list[str]:
+        with self._lock:
+            return list(self._lines)
+
+
+@contextlib.contextmanager
+def _capture_compile_logs():
+    """Attach a :class:`_CompileLogCapture` to the ``ada`` logger (where the
+    compile emits — it has ``propagate=False``) and the root logger (where an
+    external engine's own logger propagates), forcing INFO level for the duration
+    so INFO+ records are captured, then restoring everything on exit."""
+    handler = _CompileLogCapture()
+    ada_logger = logging.getLogger("ada")
+    root_logger = logging.getLogger()
+    targets = [ada_logger, root_logger]
+    prev_levels = [(lg, lg.level) for lg in targets]
+    for lg in targets:
+        lg.addHandler(handler)
+        # A logger only calls handlers for records at/above its effective level;
+        # WARNING-defaulted loggers would drop the INFO messages we want.
+        if lg.level == logging.NOTSET or lg.level > logging.INFO:
+            lg.setLevel(logging.INFO)
+    try:
+        yield handler
+    finally:
+        for lg in targets:
+            lg.removeHandler(handler)
+        for lg, level in prev_levels:
+            lg.setLevel(level)
+
+
+def _assemble_compile_log(handler: _CompileLogCapture, stdout_buf: io.StringIO, extra: str | None) -> str:
+    """Merge captured logging records, any compile stdout, and an optional extra
+    section (a traceback on failure) into one bounded text blob (tail-capped)."""
+    text = "\n".join(handler.snapshot())
+    out = stdout_buf.getvalue().strip()
+    if out:
+        text = f"{text}\n" if text else ""
+        text += f"{'-' * 8} stdout {'-' * 8}\n{out}"
+    if extra:
+        prefix = f"{text}\n" if text else ""
+        text = f"{prefix}{'-' * 8} traceback {'-' * 8}\n{extra.strip()}"
+    data = text.encode("utf-8")
+    if len(data) > _COMPILE_LOG_CAP_BYTES:
+        tail = data[-_COMPILE_LOG_CAP_BYTES:].decode("utf-8", errors="ignore")
+        text = f"…[log truncated to last {_COMPILE_LOG_CAP_BYTES // 1024} KB]…\n{tail}"
+    return text
+
+
+async def _write_catalog_fp_sidecar(storage: "Storage", scope, derived_key: str, opts: dict | None) -> None:
+    """Record the catalog fingerprint a procedural artifact was built from, as a
+    ``.catfp`` sibling of ``derived_key`` (see procedural.procedural_catalog_fp_key).
+    The compile/preview/export endpoints read it back to decide whether a cached
+    artifact is stale w.r.t. the live equipment/system catalogs. Best-effort and
+    only for catalog-dependent models (the endpoint passes ``catalog_fingerprint``
+    only when the model places catalog items); a write failure just means the next
+    compile treats the cache as stale and rebuilds once."""
+    fp = (opts or {}).get("catalog_fingerprint")
+    if not fp:
+        return
+    try:
+        from .procedural import procedural_catalog_fp_key
+
+        await storage.put_bytes(scope, procedural_catalog_fp_key(derived_key), str(fp).encode("utf-8"))
+    except Exception:
+        logger.warning("worker: failed to write catalog-fp sidecar for %s", derived_key)
+
+
+async def _run_procedural_build(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Compile a procedural cell model (postgres-stored doc) into a GLB.
+
+    ``conversion_options`` carries ``{"model_id": ..., "revision": ...}``; the
+    worker reads the doc straight from postgres (single source of truth) and
+    errors on a revision mismatch so the revision-stamped derived_key always
+    matches its content. The compile runs in-process via
+    ``ada.topo_model.compile`` (pure adapy + tessellation)."""
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    model_id = opts.get("model_id")
+    revision = opts.get("revision")
+    lod = "detail" if (opts.get("lod") or "sim") == "detail" else "sim"
+    # Selected procedural engine (None / "adapy-default" = the built-in compile).
+    engine = opts.get("engine")
+    # Selected DETAILING engine — a fabrication-detail stage run in-process as
+    # stage 2 of this same job, between the structural build and to_glb() (see
+    # ada.topo_model.detailing). None/"none" = no detailing (byte-identical to the
+    # plain structural build). Only the in-process builtin (adapy-default) is
+    # applied here; an external (Tier-B) engine is a chained capability job (Phase 2).
+    detailing = opts.get("detailing")
+    # Per-joint-type detailing options (the Detailing tab's toggles + field values,
+    # keyed by joint slug) threaded into the in-process detail() so a knob change
+    # (weld leg, plate thickness, overhang, clearance …) actually alters geometry.
+    detailing_options = opts.get("detailing_options") or {}
+    # EXTERNAL detailing: when set, this structural stage runs NO in-process
+    # detailing but ALSO serializes the compiled ada.Part to a neutral IFC artifact
+    # (+ a per-Beam section sidecar) at the given keys, so the chained
+    # ``procedural_detail`` job on the detailing engine's capability pool can read it.
+    detailing_external = bool(opts.get("detailing_external"))
+    structural_ifc_key = opts.get("structural_ifc_key")
+    structural_sections_key = opts.get("structural_sections_key")
+    # An ephemeral *preview* build carries the current (uncommitted) document
+    # inline: compile THAT instead of the DB revision's doc, and skip the
+    # revision-match check (a preview isn't tied to a persisted revision). The
+    # model row is still loaded for its scope + name + catalog/CAD resolution.
+    preview_doc = opts.get("preview_doc")
+    is_preview = isinstance(preview_doc, dict)
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not model_id or not isinstance(revision, int):
+        await _fail("build", "conversion_options.model_id and revision are required for procedural_build")
+        return
+    if db_pool is None:
+        await _fail("build", "procedural build requires DATABASE_URL on the worker")
+        return
+
+    from . import db as db_module
+
+    row = await db_module.get_procedural_model(db_pool, model_id)
+    if row is None:
+        await _fail("build", f"procedural model {model_id} not found")
+        return
+    if not is_preview and row["revision"] != revision:
+        await _fail(
+            "build",
+            f"procedural model {model_id} is at revision {row['revision']}, job requested r{revision} — "
+            "re-trigger compile for the current revision",
+        )
+        return
+    # The document to compile: the inline preview doc, or the DB revision's doc.
+    doc = preview_doc if is_preview else row["doc"]
+
+    from ada.topo_model.engines import (
+        BUILTIN_ENGINES,
+        compile_with_engine,
+        is_default_engine,
+    )
+
+    # A non-builtin engine selection is a registered (DB) engine: resolve its
+    # manifest by slug to get the entrypoint. The engine's package is pre-installed
+    # in this worker's capability image (that's why the job was routed here), so
+    # no install happens — the entrypoint module is imported like any other.
+    external_entrypoint: str | None = None
+    if not is_default_engine(engine) and engine not in BUILTIN_ENGINES:
+        eng_row = await db_module.get_procedural_engine_by_slug(
+            db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"], slug=engine
+        )
+        if eng_row is None:
+            await _fail("build", f"procedural engine {engine!r} not found in scope")
+            return
+        external_entrypoint = (eng_row.get("doc") or {}).get("entrypoint")
+        if not external_entrypoint:
+            await _fail("build", f"engine {engine!r} manifest has no entrypoint")
+            return
+
+    # Full-fidelity source: a model imported from an external workbook carries its
+    # original file (source_xlsx_key) so a non-default engine can compile the source
+    # directly (all config the topology doc drops). Fetch it for the engine.
+    source_xlsx: bytes | None = None
+    source_key = doc.get("source_xlsx_key")
+    if source_key and not is_default_engine(engine):
+        try:
+            source_xlsx = await storage.get_bytes(scope, source_key)
+        except Exception:
+            logger.warning("procedural: source workbook %s unreadable; compiling from the doc", source_key)
+
+    # Resolve placed catalog equipment (by slug) to its per-scope definition.
+    catalog = await db_module.get_equipment_docs_by_scope(
+        db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
+    )
+
+    # When equipment_cad is on, prefetch the linked CAD assets for the catalog
+    # slugs the model actually places, so the compiler can splice in real
+    # geometry instead of boxes.
+    cad_bytes: dict[str, tuple[bytes, str]] = {}
+    if doc.get("equipment_cad"):
+        used = {(e.get("DESCRIPTION") or "").strip() for e in (doc.get("equipments") or [])}
+        cad_keys = await db_module.get_equipment_cad_keys_by_scope(
+            db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
+        )
+        for slug, cad_key in cad_keys.items():
+            if slug and slug in used and cad_key:
+                try:
+                    data = await storage.get_bytes(scope, cad_key)
+                    cad_bytes[slug] = (data, pathlib.PurePosixPath(cad_key).suffix.lower())
+                except Exception:
+                    logger.warning("procedural: CAD asset %s for %r unreadable; using box", cad_key, slug)
+
+    # The quantity take-off computed alongside a DEFAULT-engine compile (the
+    # structured model is in-process there); persisted as a ``.stats.json`` sibling
+    # of the GLB for the viewer's Stats panel. Non-default engines don't expose an
+    # ada.Part here, so their stats stay absent and the panel degrades gracefully.
+    takeoff_holder: dict[str, dict] = {}
+    # For an EXTERNAL-detailing build the compiled ada.Part is captured here so it
+    # can be serialized to the neutral structural artifact after the GLB upload.
+    assembly_holder: dict[str, object] = {}
+
+    def _do_compile() -> bytes:
+        # A non-default engine gets the raw document through the uniform
+        # ``compile(doc, **options)`` contract — catalog/CAD resolution is a
+        # default-engine feature (it needs the DB), so it's skipped for others.
+        # Built-in slugs (echo) dispatch by slug; a registered engine dispatches
+        # via its manifest entrypoint (module:callable, resolved above).
+        if not is_default_engine(engine):
+            selector = engine if engine in BUILTIN_ENGINES else external_entrypoint
+            # source_xlsx (when the model stored its workbook) drives the engine's
+            # full-fidelity path; compile_with_engine passes only the kwargs the
+            # engine accepts, so a doc-only engine ignores it.
+            return compile_with_engine(selector, doc, name=row["name"], lod=lod, source_xlsx=source_xlsx)
+        cad_meshes = {}
+        for slug, (data, ext) in cad_bytes.items():
+            # Honor the type's Z-up assumption so the spliced geometry lands in
+            # the same frame the bbox was inferred in (default True = verbatim).
+            z_up = bool((catalog.get(slug) or {}).get("cad_z_up", True))
+            try:
+                cad_meshes[slug] = _load_cad_mesh(data, ext, z_up=z_up)
+            except Exception:
+                logger.warning("procedural: failed to load CAD mesh for %r; using box", slug)
+        # The user-selected structural blueprint rides on the document
+        # (``blueprint_name``, out of the whitelisted ``blueprint`` options); an
+        # unset/unknown name falls back to ``steel_stru`` for backward compat.
+        bp_name = doc.get("blueprint_name")
+        blueprint_name = bp_name if bp_name in ("steel_stru", "none") else "steel_stru"
+        # The in-process detailing engine runs as stage 2 inside the builder
+        # (right where the old girder-joint pass ran, before to_glb()). Only a
+        # builtin detailing slug is applied here; None/"none"/external names add
+        # nothing (external = a Phase-2 chained capability job).
+        from ada.topo_model.detailing_catalog import detailing_engine_specs
+
+        builtin_detailing = {s["slug"] for s in detailing_engine_specs() if s.get("inprocess")}
+        detailing_arg = detailing if detailing in builtin_detailing else None
+        # An external-detailing build keeps the live ada.Part so it can be
+        # serialized to the neutral structural artifact after tessellation.
+        if detailing_external:
+            from ada.topo_model.compile import compile_procedural_doc_with_assembly
+
+            glb_bytes, stats, assembly = compile_procedural_doc_with_assembly(
+                doc,
+                name=row["name"],
+                blueprint_name=blueprint_name,
+                equipment_resolver=catalog.get,
+                cad_scene_resolver=cad_meshes.get,
+                lod=lod,
+                detailing=None,
+            )
+            takeoff_holder["stats"] = stats
+            assembly_holder["assembly"] = assembly
+            return glb_bytes
+        from ada.topo_model.compile import compile_procedural_doc_with_takeoff
+
+        glb_bytes, stats = compile_procedural_doc_with_takeoff(
+            doc,
+            name=row["name"],
+            blueprint_name=blueprint_name,
+            equipment_resolver=catalog.get,
+            cad_scene_resolver=cad_meshes.get,
+            lod=lod,
+            detailing=detailing_arg,
+            detailing_options=detailing_options,
+        )
+        takeoff_holder["stats"] = stats
+        return glb_bytes
+
+    loop = asyncio.get_running_loop()
+    # Capture the engine's logging (and stdout) DURING the compile so the messages
+    # are inspectable from the viewer — persisted as a ``.log`` sibling of the GLB
+    # (procedural_log_key) on BOTH success and failure so errors stay diagnosable.
+    from .procedural import procedural_log_key
+
+    log_key = procedural_log_key(job.derived_key)
+    stdout_buf = io.StringIO()
+
+    def _do_compile_captured() -> bytes:
+        with contextlib.redirect_stdout(stdout_buf):
+            return _do_compile()
+
+    async def _persist_log(handler: _CompileLogCapture, extra: str | None = None) -> None:
+        text = _assemble_compile_log(handler, stdout_buf, extra)
+        if not text:
+            return
+        try:
+            await storage.put_bytes(scope, log_key, text.encode("utf-8"), content_encoding="gzip")
+        except Exception:
+            logger.exception("worker: procedural_build log upload failed for %s", model_id)
+
+    with _capture_compile_logs() as log_handler:
+        try:
+            await queue.update(job_id, stage="build", progress=0.40)
+            glb_bytes = await loop.run_in_executor(None, _do_compile_captured)
+        except Exception as exc:
+            logger.exception("worker: procedural_build failed for %s", model_id)
+            await _persist_log(log_handler, extra=tb_module.format_exc())
+            await _fail("build", str(exc), tb_module.format_exc())
+            return
+        await _persist_log(log_handler)
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        await storage.put_bytes(scope, job.derived_key, glb_bytes, content_encoding="gzip")
+    except Exception as exc:
+        logger.exception("worker: procedural_build upload failed for %s", model_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    # Bind this artifact to the catalog state it was built from, so a later catalog
+    # edit invalidates the (revision/doc-hash-stamped) cache and forces a recompile.
+    await _write_catalog_fp_sidecar(storage, scope, job.derived_key, job.conversion_options)
+
+    # Take-off stats sidecar (default-engine builds only): a gzip-at-rest
+    # ``.stats.json`` sibling of the GLB (procedural_stats_key). Best-effort — a
+    # failure here must not fail an otherwise-good compile; the panel degrades.
+    stats = takeoff_holder.get("stats")
+    if stats is not None:
+        try:
+            import json as _json
+
+            from .procedural import procedural_stats_key
+
+            await storage.put_bytes(
+                scope,
+                procedural_stats_key(job.derived_key),
+                _json.dumps(stats).encode("utf-8"),
+                content_encoding="gzip",
+            )
+        except Exception:
+            logger.exception("worker: procedural_build stats sidecar upload failed for %s", model_id)
+
+    # EXTERNAL detailing: serialize the compiled ada.Part to the neutral structural
+    # artifact (IFC bytes) + a per-Beam section sidecar the chained procedural_detail
+    # job reads. A hard failure here (unlike the best-effort stats sidecar): the
+    # external pipeline can't proceed without the artifact, so surface it.
+    assembly = assembly_holder.get("assembly")
+    if detailing_external and assembly is not None and structural_ifc_key and structural_sections_key:
+        try:
+            import json as _json
+
+            await queue.update(job_id, stage="artifact", progress=0.95)
+            ifc_bytes, sections = await loop.run_in_executor(None, _serialize_structural_artifact, assembly)
+            await storage.put_bytes(scope, structural_ifc_key, ifc_bytes, content_encoding="gzip")
+            await storage.put_bytes(
+                scope, structural_sections_key, _json.dumps(sections).encode("utf-8"), content_encoding="gzip"
+            )
+        except Exception as exc:
+            logger.exception("worker: procedural_build structural artifact failed for %s", model_id)
+            await _fail("artifact", str(exc), tb_module.format_exc())
+            return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
+def _serialize_structural_artifact(assembly) -> "tuple[bytes, dict]":
+    """Serialize a compiled structural ``ada.Part`` to the NEUTRAL artifact an
+    external (Tier-B) detailing engine consumes: IFC bytes + a per-Beam section
+    sidecar ``{member_name: {"section_type": <BOX/…>, "section_props": {...}}}``.
+
+    The sidecar is authoritative for section-type detection (a consumer matches on
+    ``section.type.value.upper()``) so a consumer never has to re-derive
+    it from a potentially lossy IFC round-trip. ``section_props`` carries the
+    numeric geometry (``h``/``w_top``/``t_w``/``r``/``wt``/…) present on the section."""
+    import ada
+    from ada.api.beams import Beam
+
+    sections: dict[str, dict] = {}
+    for bm in assembly.get_all_physical_objects(by_type=Beam):
+        sec = bm.section
+        props = {
+            "name": sec.name,
+            "h": sec.h,
+            "w_top": sec.w_top,
+            "w_btn": sec.w_btn,
+            "t_w": sec.t_w,
+            "t_ftop": sec.t_ftop,
+            "t_fbtn": sec.t_fbtn,
+            "r": sec.r,
+            "wt": sec.wt,
+        }
+        sections[bm.name] = {
+            "section_type": sec.type.value,
+            "section_props": {k: v for k, v in props.items() if v is not None},
+        }
+
+    fd, tmp_name = tempfile.mkstemp(suffix=".ifc")
+    os.close(fd)
+    tmp_path = pathlib.Path(tmp_name)
+    try:
+        # In-memory ifcopenshell writer (no OCC): the freshly built concept objects
+        # emit analytic profiles/solids straight to SPF. file_obj_only would keep it
+        # in RAM but we need bytes on disk to read back uniformly.
+        if not isinstance(assembly, ada.Assembly):
+            assembly = ada.Assembly("StructuralArtifact") / assembly
+        assembly.to_ifc(tmp_path, file_obj_only=False)
+        return tmp_path.read_bytes(), sections
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+async def _run_procedural_detail(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Chained EXTERNAL (Tier-B) detailing stage — the sibling of
+    :func:`_run_procedural_build` that runs on a foreign capability pool.
+
+    Reads the neutral structural artifact (IFC bytes) + its section sidecar the
+    structural build wrote, resolves the external detailing engine's ``module:callable``
+    entrypoint via :func:`ada.topo_model.engines.load_entrypoint` (the same mechanism
+    the procedural engines use), and calls ``entrypoint(model_bytes, options)`` where
+    ``options`` carries ``{"sections": <sidecar dict>, ...joint options}``. The returned
+    detailing-layer GLB is written to ``job.derived_key`` gzip-at-rest."""
+    import json as _json
+
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    model_id = opts.get("model_id")
+    entrypoint = opts.get("detailing_entrypoint")
+    structural_ifc_key = opts.get("structural_ifc_key")
+    structural_sections_key = opts.get("structural_sections_key")
+    lod = "detail" if (opts.get("lod") or "sim") == "detail" else "sim"
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not entrypoint or ":" not in str(entrypoint):
+        await _fail(
+            "detail", "conversion_options.detailing_entrypoint (module:callable) is required for procedural_detail"
+        )
+        return
+    if not structural_ifc_key:
+        await _fail("detail", "conversion_options.structural_ifc_key is required for procedural_detail")
+        return
+
+    # The structural build runs on a DIFFERENT pool with NO ordering guarantee
+    # relative to this job — this pool can claim procedural_detail before the
+    # structural stage has written the neutral artifact. So WAIT (bounded) for the
+    # IFC artifact to appear rather than failing on the first miss; only error if
+    # it never shows within the budget (a genuinely failed / absent structural build).
+    if not await _wait_for_blob(
+        storage,
+        scope,
+        structural_ifc_key,
+        queue=queue,
+        job_id=job_id,
+        budget_s=STRUCTURAL_ARTIFACT_WAIT_BUDGET_S,
+        waiting_stage="waiting for structural build…",
+    ):
+        # A shutdown mid-wait leaves the job for redelivery (not a hard error);
+        # a real timeout is a failure the operator should see.
+        if _WORKER_STOP is not None and _WORKER_STOP.is_set():
+            logger.info("worker: procedural_detail %s interrupted by shutdown while waiting", job_id)
+            return
+        await _fail(
+            "fetch",
+            f"structural artifact {structural_ifc_key!r} did not appear within "
+            f"{STRUCTURAL_ARTIFACT_WAIT_BUDGET_S:.0f}s — the structural build may have failed",
+        )
+        return
+
+    try:
+        await queue.update(job_id, stage="fetch", progress=0.20)
+        model_bytes = await storage.get_bytes(scope, structural_ifc_key)
+    except Exception as exc:
+        await _fail("fetch", f"structural artifact {structural_ifc_key!r} unreadable: {exc}")
+        return
+
+    sections: dict = {}
+    if structural_sections_key:
+        # The sidecar is written by the same build moments after the IFC; give it a
+        # short grace to appear, then degrade to an empty sidecar (best-effort).
+        await _wait_for_blob(
+            storage,
+            scope,
+            structural_sections_key,
+            queue=queue,
+            job_id=job_id,
+            budget_s=STRUCTURAL_SECTIONS_WAIT_BUDGET_S,
+        )
+        try:
+            sections = _json.loads(await storage.get_bytes(scope, structural_sections_key))
+        except Exception:
+            logger.warning("procedural_detail: section sidecar %s unreadable; passing empty", structural_sections_key)
+
+    from ada.topo_model.engines import load_entrypoint
+
+    # Per-joint options selected in the UI ride on the job; the section sidecar is
+    # merged in under a reserved key so the engine can guarantee section detection.
+    options = {"sections": sections, "lod": lod}
+    for k, v in (opts.get("detailing_options") or {}).items():
+        options[k] = v
+
+    loop = asyncio.get_running_loop()
+
+    def _do_detail() -> bytes:
+        fn = load_entrypoint(entrypoint)
+        return fn(model_bytes, options)
+
+    try:
+        await queue.update(job_id, stage="detail", progress=0.50)
+        glb_bytes = await loop.run_in_executor(None, _do_detail)
+    except Exception as exc:
+        logger.exception("worker: procedural_detail failed for %s", model_id)
+        await _fail("detail", str(exc), tb_module.format_exc())
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        await storage.put_bytes(scope, job.derived_key, glb_bytes, content_encoding="gzip")
+    except Exception as exc:
+        logger.exception("worker: procedural_detail upload failed for %s", model_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    # The external detail output rides on the same catalog state as its structural
+    # stage; stamp its own sidecar so the endpoint's staleness check on derived_key works.
+    await _write_catalog_fp_sidecar(storage, scope, job.derived_key, job.conversion_options)
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
+async def _run_procedural_relocations(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Propose the minimum set of equipment relocations that make a procedural
+    model's runs route cleanly (see :func:`ada.topo_model.relocate.propose_relocations`).
+
+    A synthetic sibling of :func:`_run_procedural_build`: it reads the same
+    postgres-stored doc (resolving placed catalog equipment by slug the same way)
+    but produces a JSON *proposal* document rather than a GLB. The result is
+    stored gzip-at-rest under the model's ``relocations.json`` derived key so the
+    frontend can poll the job then fetch the blob. Relocations are proposals only —
+    the worker never mutates the model."""
+    import json
+
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    model_id = opts.get("model_id")
+    revision = opts.get("revision")
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not model_id or not isinstance(revision, int):
+        await _fail("relocate", "conversion_options.model_id and revision are required for procedural_relocations")
+        return
+    if db_pool is None:
+        await _fail("relocate", "procedural relocations require DATABASE_URL on the worker")
+        return
+
+    from . import db as db_module
+
+    row = await db_module.get_procedural_model(db_pool, model_id)
+    if row is None:
+        await _fail("relocate", f"procedural model {model_id} not found")
+        return
+    if row["revision"] != revision:
+        await _fail(
+            "relocate",
+            f"procedural model {model_id} is at revision {row['revision']}, job requested r{revision} — "
+            "re-trigger propose-relocations for the current revision",
+        )
+        return
+
+    from ada.topo_model.relocate import propose_relocations
+
+    # Resolve placed catalog equipment (by slug) to its per-scope definition, so a
+    # candidate move keeps the equipment's real bbox/ports (matching the compile).
+    catalog = await db_module.get_equipment_docs_by_scope(
+        db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
+    )
+
+    def _do_propose() -> bytes:
+        result = propose_relocations(row["doc"], equipment_resolver=catalog.get)
+        return json.dumps(result).encode("utf-8")
+
+    loop = asyncio.get_running_loop()
+    try:
+        await queue.update(job_id, stage="relocate", progress=0.40)
+        payload = await loop.run_in_executor(None, _do_propose)
+    except Exception as exc:
+        logger.exception("worker: procedural_relocations failed for %s", model_id)
+        await _fail("relocate", str(exc), tb_module.format_exc())
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        await storage.put_bytes(scope, job.derived_key, payload, content_encoding="gzip")
+    except Exception as exc:
+        logger.exception("worker: procedural_relocations upload failed for %s", model_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
+async def _resolve_engine_manifest(db_pool: "asyncpg.Pool", row: dict, engine: str | None) -> dict | None:
+    """The registry manifest doc for a NON-default, non-builtin engine (its
+    ``entrypoint``/``worker_capability``/xlsx-sibling fields), resolved by slug in
+    the model's scope. ``None`` for the default/built-in engines."""
+    from ada.topo_model.engines import BUILTIN_ENGINES, is_default_engine
+
+    if is_default_engine(engine) or engine in BUILTIN_ENGINES:
+        return None
+    eng_row = await db_module.get_procedural_engine_by_slug(
+        db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"], slug=engine
+    )
+    return (eng_row or {}).get("doc") if eng_row else None
+
+
+async def _run_procedural_export_xlsx(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Export a procedural model (postgres-stored doc) to its engine's Excel
+    workbook (bytes), stamped with the ``_ADA_META`` sheet, and store it at
+    ``job.derived_key`` (an ``.xlsx`` blob the frontend downloads). A synthetic
+    sibling of :func:`_run_procedural_build`, routed to the engine's capability."""
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    model_id = opts.get("model_id")
+    revision = opts.get("revision")
+    engine = opts.get("engine")
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not model_id or not isinstance(revision, int):
+        await _fail("export", "conversion_options.model_id and revision are required for procedural_export_xlsx")
+        return
+    if db_pool is None:
+        await _fail("export", "procedural export requires DATABASE_URL on the worker")
+        return
+
+    row = await db_module.get_procedural_model(db_pool, model_id)
+    if row is None:
+        await _fail("export", f"procedural model {model_id} not found")
+        return
+    if row["revision"] != revision:
+        await _fail(
+            "export",
+            f"procedural model {model_id} is at revision {row['revision']}, job requested r{revision}",
+        )
+        return
+
+    manifest_doc = await _resolve_engine_manifest(db_pool, row, engine)
+    doc = row["doc"]
+
+    from ada.topo_model.engines import EngineHasNoExcelFormat, export_doc_to_xlsx
+
+    def _do_export() -> bytes:
+        return export_doc_to_xlsx(engine, doc, name=row["name"], manifest_doc=manifest_doc)
+
+    loop = asyncio.get_running_loop()
+    try:
+        await queue.update(job_id, stage="export", progress=0.40)
+        xlsx_bytes = await loop.run_in_executor(None, _do_export)
+    except EngineHasNoExcelFormat as exc:
+        await _fail("export", str(exc))
+        return
+    except Exception as exc:
+        logger.exception("worker: procedural_export_xlsx failed for %s", model_id)
+        await _fail("export", str(exc), tb_module.format_exc())
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        # An xlsx is an already-compressed zip — store identity (no gzip re-encode),
+        # so the presigned/blob GET hands the browser a valid .xlsx download.
+        await storage.put_bytes(scope, job.derived_key, xlsx_bytes)
+    except Exception as exc:
+        logger.exception("worker: procedural_export_xlsx upload failed for %s", model_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
+async def _run_procedural_export_model(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Export a procedural model to a downloadable CAD/analysis file: ``ifc`` (the
+    DETAIL model — the clash cuts ride along as IfcRelVoidsElement voids, equipment
+    as IfcPump/IfcTank/…) or ``gxml`` (the SIMULATION model as a Genie concept XML).
+
+    Compiles the postgres-stored doc to an in-process adapy assembly (built-in
+    engine only) at the format's LOD, serializes it, and stores the bytes at
+    ``job.derived_key``. A synthetic sibling of :func:`_run_procedural_export_xlsx`."""
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    model_id = opts.get("model_id")
+    revision = opts.get("revision")
+    export_format = (opts.get("export_format") or "").lower()
+    lod = "detail" if (opts.get("lod") or "sim") == "detail" else "sim"
+    detailing = opts.get("detailing")
+    # IFC only: splice real catalog CAD geometry for equipment (default on). The
+    # Genie export keeps equipment as its concept type (prism_shape), so it never
+    # splices CAD — equipment there stays an ada.Equipment carrying mass/footprint.
+    cad_equipment = export_format == "ifc" and bool(opts.get("cad_equipment", True))
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not model_id or not isinstance(revision, int):
+        await _fail("export", "conversion_options.model_id and revision are required for procedural_export_model")
+        return
+    if export_format not in ("ifc", "gxml"):
+        await _fail("export", f"unsupported export_format {export_format!r} (expected ifc or gxml)")
+        return
+    if db_pool is None:
+        await _fail("export", "procedural export requires DATABASE_URL on the worker")
+        return
+
+    row = await db_module.get_procedural_model(db_pool, model_id)
+    if row is None:
+        await _fail("export", f"procedural model {model_id} not found")
+        return
+    if row["revision"] != revision:
+        await _fail(
+            "export", f"procedural model {model_id} is at revision {row['revision']}, job requested r{revision}"
+        )
+        return
+
+    doc = row["doc"]
+    name = row["name"]
+
+    # Resolve placed catalog equipment (by slug) to its per-scope definition so the
+    # equipment is faithful — an ada.Equipment with the catalog's bbox/mass/ports/IFC
+    # class (IfcPump/IfcTank/…) and a Genie prism_shape — instead of an anonymous box.
+    catalog = await db_module.get_equipment_docs_by_scope(
+        db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
+    )
+    # IFC + CAD-on: prefetch the linked CAD assets for the placed slugs so the
+    # compiler can splice real geometry in place of the placeholder box body.
+    cad_bytes: dict[str, tuple[bytes, str, bool]] = {}
+    if cad_equipment:
+        used = {(e.get("DESCRIPTION") or "").strip() for e in (doc.get("equipments") or [])}
+        cad_keys = await db_module.get_equipment_cad_keys_by_scope(
+            db_pool, scope_kind=row["scope_kind"], scope_id=row["scope_id"]
+        )
+        for slug, cad_key in cad_keys.items():
+            if slug and slug in used and cad_key:
+                try:
+                    data = await storage.get_bytes(scope, cad_key)
+                    z_up = bool((catalog.get(slug) or {}).get("cad_z_up", True))
+                    cad_bytes[slug] = (data, pathlib.PurePosixPath(cad_key).suffix.lower(), z_up)
+                except Exception:
+                    logger.warning("procedural export: CAD asset %s for %r unreadable; using box", cad_key, slug)
+
+    def _do_export() -> bytes:
+        import os
+        import tempfile
+
+        from ada.topo_model.compile import build_procedural_assembly
+
+        # Splice CAD only when asked (IFC). ``equipment_cad`` on the doc drives the
+        # compiler's box-vs-CAD choice; force it to match this export's option so a
+        # download reflects the toggle rather than the model's stored preference.
+        export_doc = {**doc, "equipment_cad": bool(cad_equipment and cad_bytes)}
+        cad_meshes: dict[str, object] = {}
+        for slug, (data, ext, z_up) in cad_bytes.items():
+            try:
+                cad_meshes[slug] = _load_cad_mesh(data, ext, z_up=z_up)
+            except Exception:
+                logger.warning("procedural export: failed to load CAD mesh for %r; using box", slug)
+
+        # Built-in engine only: build the in-process ada.Assembly the IFC / Genie
+        # writers need (no GLB — this path never tessellates). The equipment resolver
+        # makes catalog equipment faithful; cad_as_objects materialises resolved CAD
+        # equipment as real assembly geometry (IfcTriangulatedFaceSet) rather than a
+        # GLB-only splice, so it serializes into the IFC.
+        asm = build_procedural_assembly(
+            export_doc,
+            name=name,
+            lod=lod,
+            detailing=detailing if export_format == "ifc" else None,
+            equipment_resolver=catalog.get,
+            cad_scene_resolver=cad_meshes.get if cad_meshes else None,
+            cad_as_objects=bool(cad_meshes),
+        )
+        with tempfile.TemporaryDirectory() as d:
+            if export_format == "ifc":
+                p = os.path.join(d, "model.ifc")
+                asm.to_ifc(p, file_obj_only=False)
+            else:
+                p = os.path.join(d, "model.gxml")
+                # Equipment defaults to AS_IS (which the Genie writer skips); promote
+                # each to FOOTPRINT_MASS so it exports as a Genie equipment concept
+                # (prism_shape + placed load) rather than being dropped.
+                from ada.api.spatial.eq_types import EquipRepr
+                from ada.api.spatial.equipment import Equipment
+
+                for part in asm.get_all_parts_in_assembly(include_self=True):
+                    if isinstance(part, Equipment) and part.eq_repr == EquipRepr.AS_IS:
+                        part.eq_repr = EquipRepr.FOOTPRINT_MASS
+                # embed_sat=False keeps the export CAD-backend-independent (plates as
+                # polygons; Genie rebuilds the ACIS on import).
+                asm.to_genie_xml(p, embed_sat=False)
+            with open(p, "rb") as fh:
+                return fh.read()
+
+    loop = asyncio.get_running_loop()
+    try:
+        await queue.update(job_id, stage="export", progress=0.40)
+        data = await loop.run_in_executor(None, _do_export)
+    except Exception as exc:
+        logger.exception("worker: procedural_export_model (%s) failed for %s", export_format, model_id)
+        await _fail("export", str(exc), tb_module.format_exc())
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        # Store identity (not gzip-at-rest) so the presigned/blob GET hands the
+        # browser a directly-usable .ifc / .gxml text file.
+        await storage.put_bytes(scope, job.derived_key, data)
+    except Exception as exc:
+        logger.exception("worker: procedural_export_model upload failed for %s", model_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    # Bind the export to the catalog state it resolved equipment from.
+    await _write_catalog_fp_sidecar(storage, scope, job.derived_key, job.conversion_options)
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
+async def _run_procedural_import_xlsx(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Import an uploaded Excel workbook into a NEW procedural model.
+
+    ``conversion_options`` carries ``{source_key, engine, name, created_by}``; the
+    engine (chosen from the ``_ADA_META`` sheet or the user's prompt) parses the
+    workbook into a procedural document, which is committed as a fresh model. The
+    original workbook is kept as the model's ``source_xlsx_key`` (full-fidelity
+    source). A small JSON result ``{model_id, name, engine, revision}`` is written
+    to ``job.derived_key`` so the frontend can open the new model."""
+    import json
+
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    source_key = opts.get("source_key")
+    engine = opts.get("engine")
+    name = (opts.get("name") or "").strip() or "Imported model"
+    created_by = opts.get("created_by")
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not source_key:
+        await _fail("import", "conversion_options.source_key is required for procedural_import_xlsx")
+        return
+    if db_pool is None:
+        await _fail("import", "procedural import requires DATABASE_URL on the worker")
+        return
+
+    try:
+        xlsx_bytes = await storage.get_bytes(scope, source_key)
+    except Exception as exc:
+        await _fail("import", f"uploaded workbook {source_key!r} unreadable: {exc}")
+        return
+
+    # A NON-default, non-builtin engine's manifest is resolved by slug in this
+    # scope (mirrors export/build) — needed to locate its import entrypoint.
+    from ada.topo_model.engines import BUILTIN_ENGINES, is_default_engine
+
+    manifest_doc = None
+    if not is_default_engine(engine) and engine not in BUILTIN_ENGINES:
+        eng_row = await db_module.get_procedural_engine_by_slug(
+            db_pool, scope_kind=scope.kind, scope_id=scope.id, slug=engine
+        )
+        if eng_row is None:
+            await _fail("import", f"procedural engine {engine!r} not found in scope")
+            return
+        manifest_doc = (eng_row or {}).get("doc")
+
+    from ada.comms.rest.procedural import procedural_source_key, validate_doc
+    from ada.topo_model.engines import (
+        DEFAULT_ENGINE_SLUG,
+        EngineHasNoExcelFormat,
+        import_xlsx_to_doc,
+    )
+
+    def _do_import() -> dict:
+        parsed = import_xlsx_to_doc(engine, xlsx_bytes, manifest_doc=manifest_doc)
+        # Stamp the routing header so a subsequent compile auto-routes back to this
+        # engine, then validate/normalize through the same path the commit uses.
+        parsed["engine"] = engine or DEFAULT_ENGINE_SLUG
+        return validate_doc(parsed)
+
+    loop = asyncio.get_running_loop()
+    try:
+        await queue.update(job_id, stage="import", progress=0.40)
+        doc = await loop.run_in_executor(None, _do_import)
+    except EngineHasNoExcelFormat as exc:
+        await _fail("import", str(exc))
+        return
+    except Exception as exc:
+        logger.exception("worker: procedural_import_xlsx parse failed for %s", source_key)
+        await _fail("import", str(exc), tb_module.format_exc())
+        return
+
+    # Create the model row, then stash the original workbook as its full-fidelity
+    # source and commit the parsed doc (revision 0 -> 1).
+    model_row = await db_module.create_procedural_model(
+        db_pool, scope_kind=scope.kind, scope_id=scope.id, name=name, created_by=created_by
+    )
+    if model_row is None:
+        await _fail("import", f"a procedural model named {name!r} already exists in this scope")
+        return
+    model_id = model_row["id"]
+
+    src_key = procedural_source_key(model_id)
+    try:
+        await storage.put_bytes(scope, src_key, xlsx_bytes)
+        doc["source_xlsx_key"] = src_key
+    except Exception:
+        logger.warning("worker: import could not stash source workbook for %s", model_id)
+
+    new_rev = await db_module.update_procedural_model_doc(db_pool, model_id, doc, model_row["revision"])
+    if new_rev is None:
+        await _fail("import", f"failed to commit imported doc for model {model_id}")
+        return
+
+    payload = json.dumps({"model_id": model_id, "name": name, "engine": doc.get("engine"), "revision": new_rev}).encode(
+        "utf-8"
+    )
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        await storage.put_bytes(scope, job.derived_key, payload, content_encoding="gzip")
+    except Exception as exc:
+        logger.exception("worker: procedural_import_xlsx result upload failed for %s", model_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
+def _infer_equipment_geometry(data: bytes, ext: str, z_up: bool = True) -> tuple[dict, bytes]:
+    """Read a CAD/mesh asset, returning its axis-aligned bounding-box extents
+    ``{lx, ly, lz}`` (in metres) and a preview GLB for the sidecar viewer. Mesh
+    formats load via trimesh; CAD formats via the matching ada reader.
+
+    ``z_up=True`` (default) takes the asset as authored in adapy's **Z-up**
+    convention (ada readers and ada-exported GLBs are Z-up): ``lz`` = the Z extent
+    = height and the mesh is NOT re-oriented — measuring/previewing it verbatim
+    keeps lz == the CAD's real vertical extent. ``z_up=False`` treats a mesh asset
+    (.glb/.gltf/.stl/.obj) as glTF-spec **Y-up** and re-orients it Y-up→Z-up
+    (rotate +90° about X) before measuring and previewing, so the inferred bbox
+    and the preview GLB are both in adapy's Z-up frame. ``z_up`` is ignored for
+    ada-reader formats (already Z-up)."""
+    import pathlib as _pl
+    import tempfile as _tf
+
+    ext = ext.lower()
+    with _tf.TemporaryDirectory(prefix="eqbbox_") as tmp:
+        src = _pl.Path(tmp) / f"source{ext}"
+        src.write_bytes(data)
+        if ext in (".glb", ".gltf", ".stl", ".obj"):
+            import numpy as np
+            import trimesh
+
+            scene = trimesh.load(src, force="scene")
+            if not z_up:
+                # Re-orient a Y-up authored mesh into adapy's Z-up frame; both the
+                # measured bounds and the exported preview then match Z-up.
+                scene.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0]))
+            bounds = scene.bounds
+            if z_up and ext in (".glb", ".gltf"):
+                preview = data
+            else:
+                preview = scene.export(file_type="glb")
+        else:
+            import ada
+
+            readers = {
+                ".step": ada.from_step,
+                ".stp": ada.from_step,
+                ".ifc": ada.from_ifc,
+                ".sat": ada.from_acis,
+                ".xml": ada.from_genie_xml,
+            }
+            reader = readers.get(ext)
+            if reader is None:
+                raise ValueError(f"unsupported CAD extension {ext!r} for bbox inference")
+            a = reader(src)
+            bounds = a.to_trimesh_scene().bounds
+            out = _pl.Path(tmp) / "preview.glb"
+            a.to_gltf(out)
+            preview = out.read_bytes()
+
+    if bounds is None:
+        raise ValueError("could not determine geometry bounds (empty model?)")
+    lo, hi = bounds[0], bounds[1]
+    bbox = {"lx": float(hi[0] - lo[0]), "ly": float(hi[1] - lo[1]), "lz": float(hi[2] - lo[2])}
+    return bbox, preview
+
+
+def _load_cad_mesh(data: bytes, ext: str, z_up: bool = True):
+    """Load a CAD/mesh asset into a single concatenated trimesh (graph
+    transforms baked). Used to splice real equipment geometry into a compiled
+    procedural model.
+
+    ``z_up=True`` (default) takes the asset verbatim (adapy Z-up convention).
+    ``z_up=False`` re-orients a mesh asset (.glb/.gltf/.stl/.obj) from glTF-spec
+    Y-up into Z-up (rotate +90° about X) before baking, so the spliced geometry
+    lands in the same frame as the inferred bbox. Ignored for ada-reader formats
+    (already Z-up)."""
+    import pathlib as _pl
+    import tempfile as _tf
+
+    import numpy as np
+    import trimesh
+
+    ext = ext.lower()
+    with _tf.TemporaryDirectory(prefix="eqcad_") as tmp:
+        src = _pl.Path(tmp) / f"source{ext}"
+        src.write_bytes(data)
+        if ext in (".glb", ".gltf", ".stl", ".obj"):
+            scene = trimesh.load(src, force="scene")
+            if not z_up:
+                scene.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0]))
+        else:
+            import ada
+
+            readers = {
+                ".step": ada.from_step,
+                ".stp": ada.from_step,
+                ".ifc": ada.from_ifc,
+                ".sat": ada.from_acis,
+                ".xml": ada.from_genie_xml,
+            }
+            reader = readers.get(ext)
+            if reader is None:
+                raise ValueError(f"unsupported CAD extension {ext!r} for geometry splice")
+            scene = reader(src).to_trimesh_scene()
+    return scene.dump(concatenate=True)
+
+
+async def _run_equipment_bbox(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Infer an equipment type's bounding box from its linked CAD asset and
+    render a preview GLB. ``conversion_options`` carries ``{"type_id", "cad_key"}``;
+    the inferred bbox is merged into the equipment doc (no revision bump) and the
+    preview lands at ``job.derived_key`` (``_equipment/{id}/preview.glb``)."""
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    type_id = opts.get("type_id")
+    cad_key = opts.get("cad_key")
+    # Whether the CAD asset is authored Z-up (adapy convention). Default True =
+    # verbatim; False re-orients a Y-up mesh into Z-up before measuring.
+    cad_z_up = bool(opts.get("cad_z_up", True))
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not type_id or not cad_key:
+        await _fail("build", "conversion_options.type_id and cad_key are required for equipment_bbox")
+        return
+    if db_pool is None:
+        await _fail("build", "equipment bbox inference requires DATABASE_URL on the worker")
+        return
+
+    from . import db as db_module
+
+    try:
+        data = await storage.get_bytes(scope, cad_key)
+    except Exception as exc:
+        await _fail("read", f"CAD asset {cad_key} not readable: {exc}")
+        return
+
+    ext = pathlib.PurePosixPath(cad_key).suffix.lower()
+    loop = asyncio.get_running_loop()
+    try:
+        await queue.update(job_id, stage="build", progress=0.40)
+        bbox, preview = await loop.run_in_executor(None, lambda: _infer_equipment_geometry(data, ext, z_up=cad_z_up))
+    except Exception as exc:
+        logger.exception("worker: equipment_bbox failed for %s", type_id)
+        await _fail("build", str(exc), tb_module.format_exc())
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        await storage.put_bytes(scope, job.derived_key, preview, content_encoding="gzip")
+        await db_module.apply_inferred_bbox(db_pool, type_id, bbox)
+    except Exception as exc:
+        logger.exception("worker: equipment_bbox upload failed for %s", type_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
+def _engine_deploy_key_path(secret_name: str | None) -> str | None:
+    """Filesystem path of the SSH deploy key for an external engine, or None for a
+    public repo. The manifest names a secret; the deployment mounts that key file
+    and points ``ENGINE_DEPLOY_KEY_<SECRET>`` at it (secret name uppercased,
+    non-alnum -> ``_``). None when unset — the clone then runs without a key."""
+    if not secret_name:
+        return None
+    env = "ENGINE_DEPLOY_KEY_" + "".join(c.upper() if c.isalnum() else "_" for c in secret_name)
+    return os.environ.get(env)
+
+
+async def _run_procedural_engine_build(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Build a ``kind:wheel`` procedural engine's wheel from its git repo and
+    store it under the hidden ``_engines/`` prefix.
+
+    ``conversion_options`` carries ``{"engine_id"}``; the manifest (repo_url/ref/
+    deploy_key_secret) is read from postgres. The wheel is a pure-python
+    (``py3-none-any``) build the browser micropip-installs. The built wheel's key
+    is recorded in the engine doc (``wheel_key``, no revision bump), mirroring
+    :func:`_run_equipment_bbox`."""
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    engine_id = opts.get("engine_id")
+
+    async def _fail(stage: str, msg: str, trace: str | None = None) -> None:
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage=stage, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at, traceback=trace)
+
+    if not engine_id:
+        await _fail("build", "conversion_options.engine_id is required for procedural_engine_build")
+        return
+    if db_pool is None:
+        await _fail("build", "engine build requires DATABASE_URL on the worker")
+        return
+
+    from . import db as db_module
+
+    row = await db_module.get_procedural_engine(db_pool, engine_id)
+    if row is None:
+        await _fail("build", f"procedural engine {engine_id} not found")
+        return
+    doc = row.get("doc") or {}
+    if doc.get("kind") != "wheel":
+        await _fail("build", f"engine {engine_id} is not kind=wheel (got {doc.get('kind')!r})")
+        return
+    repo_url = doc.get("repo_url")
+    ref = doc.get("ref") or "main"
+    if not repo_url:
+        await _fail("build", "engine manifest is missing repo_url")
+        return
+    ssh_key_path = _engine_deploy_key_path(doc.get("deploy_key_secret"))
+
+    from .engine_build import build_engine_wheel
+    from .procedural import engine_wheel_key
+
+    loop = asyncio.get_running_loop()
+    try:
+        await queue.update(job_id, stage="build", progress=0.30)
+        filename, wheel_bytes = await loop.run_in_executor(
+            None, lambda: build_engine_wheel(repo_url, ref, ssh_key_path=ssh_key_path)
+        )
+    except Exception as exc:
+        logger.exception("worker: procedural_engine_build failed for %s", engine_id)
+        await _fail("build", str(exc), tb_module.format_exc())
+        return
+
+    key = engine_wheel_key(engine_id, filename)
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        # A wheel is an already-compressed zip — store as-is (no gzip re-encode).
+        await storage.put_bytes(scope, key, wheel_bytes)
+        await db_module.set_procedural_engine_wheel(db_pool, engine_id, key)
+    except Exception as exc:
+        logger.exception("worker: procedural_engine_build upload failed for %s", engine_id)
+        await _fail("upload", str(exc), tb_module.format_exc())
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
 async def _run_component_build(
     *,
     job: Job,
@@ -1338,7 +2677,16 @@ async def _process_one(
     # ``duration_ms`` numbers would lie about actual conversion
     # cost. Regular convert jobs leave this False so the
     # redelivery safety-net still works.
-    if not getattr(job, "force_rebuild", False) and await storage.exists(scope, job.derived_key):
+    # equipment_bbox is EXEMPT: its real output is the inferred bbox merged into
+    # the equipment doc (a DB side-effect), NOT the derived preview.glb blob. The
+    # preview key isn't revision-stamped, so a cached preview would short-circuit
+    # every re-infer and the bbox would never be (re)applied — leaving it stuck at
+    # the archetype default. Always run the handler for it.
+    if (
+        not getattr(job, "force_rebuild", False)
+        and job.target_format != "equipment_bbox"
+        and await storage.exists(scope, job.derived_key)
+    ):
         await queue.update(
             job_id,
             status=JOB_STATUS_DONE,
@@ -1371,6 +2719,112 @@ async def _process_one(
     # registered handler).
     if job.target_format == "component_build":
         await _run_component_build(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # procedural_build is synthetic too: the model doc lives in postgres (the
+    # single source of truth) and is compiled in-process via ada.topo_model.
+    if job.target_format == "procedural_build":
+        await _run_procedural_build(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # procedural_detail is synthetic too: the chained EXTERNAL (Tier-B) detailing
+    # stage. Routed to the detailing engine's capability pool (target_capability),
+    # it reads the neutral structural artifact + section sidecar the structural
+    # build wrote and produces the detailing-layer GLB.
+    if job.target_format == "procedural_detail":
+        await _run_procedural_detail(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # procedural_relocations is synthetic too: read the same postgres-stored doc
+    # and produce a JSON proposal document (minimum equipment moves that make the
+    # runs route cleanly) instead of a GLB.
+    if job.target_format == "procedural_relocations":
+        await _run_procedural_relocations(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # procedural_export_xlsx / procedural_import_xlsx are synthetic too: the
+    # engine that owns the model's Excel format serializes the doc to a workbook
+    # (export) or parses an uploaded workbook into a new model (import).
+    if job.target_format == "procedural_export_xlsx":
+        await _run_procedural_export_xlsx(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # procedural_export_model: compile the doc to an ada assembly and serialize it
+    # to a downloadable IFC (detail) / Genie XML (sim) file.
+    if job.target_format == "procedural_export_model":
+        await _run_procedural_export_model(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    if job.target_format == "procedural_import_xlsx":
+        await _run_procedural_import_xlsx(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # equipment_bbox is synthetic too: read the equipment type's linked CAD
+    # asset, infer its bbox into the doc and render a preview GLB.
+    if job.target_format == "equipment_bbox":
+        await _run_equipment_bbox(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # procedural_engine_build is synthetic too: clone a kind:wheel engine's repo,
+    # build its wheel and store it under _engines/ for the browser to micropip-install.
+    if job.target_format == "procedural_engine_build":
+        await _run_procedural_engine_build(
             job=job,
             scope=scope,
             storage=storage,
@@ -1495,7 +2949,7 @@ async def _process_one(
 
             # Optional per-job wall-clock budget. Empty / 0 / non-
             # numeric leaves the watchdog off so legitimately-long
-            # bakes (a 4 GiB Abaqus ODB sweep can take 20+ min)
+            # bakes (a multi-GiB FEA result sweep can take 20+ min)
             # aren't artificially killed. Set as a positive minutes
             # value to enable; the parent process then SIGTERMs the
             # convert subprocess after the deadline and SIGKILLs
@@ -2117,7 +3571,7 @@ async def _run() -> None:
     _WORKER_IMAGE_TAG = image_tag or None
     worker_id = os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}"
     capabilities = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
-    # An extra-capability pool (e.g. weld-gen) builds FROM / runs an independent adapy and still
+    # An extra-capability pool builds FROM / runs an independent adapy and still
     # advertises the full base converter matrix, so it wins base conversion jobs (gxml->glb, ...)
     # it has no business running — and when that image is stale it produces outdated output (e.g.
     # non-manifold meshes). ADA_WORKER_BASE_CONVERSIONS=false makes this worker advertise ZERO base
@@ -2214,6 +3668,103 @@ async def _run() -> None:
 
     utilities = UtilityRegistry.specs()
 
+    # Equipment archetypes + system kinds this worker can compile into
+    # procedural models — advertised (with full catalog-shaped specs) so the
+    # viewer's cellbuilder can offer typed dropdowns that union code-defined
+    # types with the per-scope DB catalog, show each type's origin, and "sync" a
+    # code type into the DB catalog.
+    try:
+        from ada.topo_model.equipment import (
+            equipment_archetype_specs,
+            list_equipment_types,
+        )
+
+        procedural_equipment_types = list_equipment_types()
+        procedural_equipment_specs = equipment_archetype_specs()
+    except Exception:
+        logger.exception("worker: failed to list procedural equipment types (non-fatal)")
+        procedural_equipment_types = []
+        procedural_equipment_specs = []
+    try:
+        from ada.api.systems import list_system_types, system_type_specs
+
+        procedural_system_types = list_system_types()
+        procedural_system_specs = system_type_specs()
+    except Exception:
+        logger.exception("worker: failed to list procedural system types (non-fatal)")
+        procedural_system_types = []
+        procedural_system_specs = []
+    try:
+        from ada.topo_model import design_ruleset_specs
+
+        procedural_design_rulesets = design_ruleset_specs()
+    except Exception:
+        logger.exception("worker: failed to list procedural design rulesets (non-fatal)")
+        procedural_design_rulesets = []
+    # Cell/opening types this worker can place — advertised so the cellbuilder's
+    # + Cell / + Opening pickers union the code-defined defaults with any a
+    # capability worker's ADA_WORKER_PRELOAD registered (register_procedural_cell_type
+    # / register_procedural_opening_type), exactly like the start-from templates.
+    try:
+        from ada.topo_model import (
+            procedural_cell_type_specs,
+            procedural_opening_type_specs,
+        )
+
+        procedural_cell_specs = procedural_cell_type_specs()
+        procedural_opening_specs = procedural_opening_type_specs()
+    except Exception:
+        logger.exception("worker: failed to list procedural cell/opening types (non-fatal)")
+        procedural_cell_specs = []
+        procedural_opening_specs = []
+    # Structural blueprints this worker can compile, advertised PER ENGINE (each
+    # spec carries its ``engine``) so the cellbuilder's Blueprint dropdown unions
+    # the code-defined defaults (adapy-default: steel_stru/none) with any a
+    # capability worker's ADA_WORKER_PRELOAD registered (register_procedural_blueprint).
+    try:
+        from ada.topo_model import procedural_blueprint_specs
+
+        procedural_blueprints = procedural_blueprint_specs()
+    except Exception:
+        logger.exception("worker: failed to list procedural blueprints (non-fatal)")
+        procedural_blueprints = []
+    # Start-from templates this worker can build, announced so the viewer's
+    # "New model from template" dropdown is the union of live workers' demos.
+    # The base image carries the adapy-default templates; a capability worker's
+    # ADA_WORKER_PRELOAD module registers its own into the same registry before
+    # this read (import side-effect), so they ride along here.
+    try:
+        from ada.topo_model import procedural_template_specs
+
+        procedural_templates = procedural_template_specs()
+    except Exception:
+        logger.exception("worker: failed to list procedural templates (non-fatal)")
+        procedural_templates = []
+    # Per-engine capability flags (e.g. ``supports_grouping``), advertised so the
+    # viewer's engine summary can gate capability-specific UI (the Groups section).
+    # The base image carries the built-in engines' flags (all non-grouping); a
+    # capability worker's ADA_WORKER_PRELOAD module registers its own via
+    # register_procedural_engine_capabilities before this read (import side-effect).
+    try:
+        from ada.topo_model import procedural_engine_specs
+
+        procedural_engines = procedural_engine_specs()
+    except Exception:
+        logger.exception("worker: failed to list procedural engine capabilities (non-fatal)")
+        procedural_engines = []
+    # Detailing engines this worker offers (a fabrication-detail stage that adds
+    # connection joints after the structural build), advertised so the viewer's
+    # Compile-settings "Detailing" dropdown unions the built-in adapy-default (+
+    # the none sentinel) with any external engine a capability worker's
+    # ADA_WORKER_PRELOAD module registered via register_detailing_engine.
+    try:
+        from ada.topo_model import detailing_engine_specs
+
+        procedural_detailing_engines = detailing_engine_specs()
+    except Exception:
+        logger.exception("worker: failed to list detailing engines (non-fatal)")
+        procedural_detailing_engines = []
+
     async def _publish_registration() -> None:
         try:
             await queue.register_worker(
@@ -2224,6 +3775,17 @@ async def _run() -> None:
                     "source_exts": source_exts,
                     "conversions": conversions,
                     "utilities": utilities,
+                    "procedural_equipment_types": procedural_equipment_types,
+                    "procedural_equipment_specs": procedural_equipment_specs,
+                    "procedural_system_types": procedural_system_types,
+                    "procedural_system_specs": procedural_system_specs,
+                    "procedural_design_rulesets": procedural_design_rulesets,
+                    "procedural_cell_specs": procedural_cell_specs,
+                    "procedural_opening_specs": procedural_opening_specs,
+                    "procedural_blueprint_specs": procedural_blueprints,
+                    "procedural_template_specs": procedural_templates,
+                    "procedural_engine_specs": procedural_engines,
+                    "procedural_detailing_engine_specs": procedural_detailing_engines,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },
@@ -2238,35 +3800,46 @@ async def _run() -> None:
         ",".join(capabilities),
     )
 
-    # Optional DB pool — only used to flip audit_log rows from 'queued'
-    # to 'done'/'error' when a job finishes. Without it the worker still
-    # functions; admin panel rows just stay at 'queued'. Migrations are
-    # the API's job, so the worker does NOT call init_pool — it builds a
-    # plain pool and trusts the schema is already applied.
+    # DB pool. Audit-log updates (queued -> done/error) degrade gracefully
+    # without it, but procedural_build / relocations / engine builds REQUIRE it
+    # (they load the model row) — so a one-shot connect failure at startup must
+    # not silently disable them. A rollout restarts many pods at once and can
+    # trip a transient CoreDNS hiccup ("Name or service not known" on the DB
+    # host); retry with backoff so that heals itself instead of stranding the
+    # pod without a pool until someone restarts it by hand. Migrations are the
+    # API's job — the worker builds a plain pool and trusts the schema is applied.
     db_pool: asyncpg.Pool | None = None
     if settings.database_url:
-        try:
-            db_pool = await asyncpg.create_pool(
-                dsn=settings.database_url,
-                min_size=1,
-                max_size=4,
-                max_inactive_connection_lifetime=600.0,
+        for attempt in range(1, 7):
+            try:
+                db_pool = await asyncpg.create_pool(
+                    dsn=settings.database_url,
+                    min_size=1,
+                    max_size=4,
+                    max_inactive_connection_lifetime=600.0,
+                )
+                logger.info("worker: db pool ready (attempt %d)", attempt)
+                break
+            except Exception:
+                logger.warning("worker: db connect attempt %d/6 failed; retrying", attempt)
+                await asyncio.sleep(min(2**attempt, 15))
+        if db_pool is None:
+            logger.error(
+                "worker: db connect failed after retries; audit updates + procedural/engine "
+                "builds will fail on this pod until it can reach the DB"
             )
-            logger.info("worker: db pool ready")
-            # Capture this worker image's package manifest once at startup so
-            # convert audit rows (stamped with worker_image_tag) can link to the
-            # exact toolchain that produced their output.
-            if _WORKER_IMAGE_TAG:
-                try:
-                    await db_module.upsert_worker_packages(
-                        db_pool,
-                        worker_image_tag=_WORKER_IMAGE_TAG,
-                        packages=_capture_worker_packages(),
-                    )
-                except Exception:
-                    logger.exception("worker: package manifest capture failed")
-        except Exception:
-            logger.exception("worker: db connect failed; running without audit updates")
+        # Capture this worker image's package manifest once at startup so convert
+        # audit rows (stamped with worker_image_tag) can link to the exact
+        # toolchain that produced their output.
+        elif _WORKER_IMAGE_TAG:
+            try:
+                await db_module.upsert_worker_packages(
+                    db_pool,
+                    worker_image_tag=_WORKER_IMAGE_TAG,
+                    packages=_capture_worker_packages(),
+                )
+            except Exception:
+                logger.exception("worker: package manifest capture failed")
 
     # Subscribe to ONLY this pool's subject — NATS does the routing
     # so this worker never sees jobs tagged for another capability.
@@ -2284,13 +3857,17 @@ async def _run() -> None:
     # Warm the heavy CAD imports in this (parent) process before the per-job fork
     # loop below, so forked children inherit them copy-on-write instead of paying
     # a cold re-import per conversion. Base pool only — capability pools
-    # (weld-gen/abaqus) run foreign images with their own deps. Run in a thread so
+    # run foreign images with their own deps. Run in a thread so
     # a slow cold import (OCC/ifcopenshell off a cold page cache) doesn't stall the
     # event loop's NATS keepalive while the worker is still starting up.
     if "base" in {c.lower() for c in capabilities}:
         await asyncio.get_running_loop().run_in_executor(None, _warm_convert_imports)
 
     stop = asyncio.Event()
+    # Publish module-level so long in-handler poll loops (chained procedural_detail
+    # waiting on the structural build) can wake early on shutdown.
+    global _WORKER_STOP
+    _WORKER_STOP = stop
 
     def _signal_handler() -> None:
         logger.info("worker: shutdown signal received")
@@ -2361,7 +3938,16 @@ async def _run() -> None:
                     # the build endpoint via target_capability, and
                     # the per-spec handler resolves from the registry
                     # the worker preloaded at startup (ADA_WORKER_PRELOAD).
-                    if peeked.target_format == "component_build":
+                    if peeked.target_format in (
+                        "component_build",
+                        "procedural_build",
+                        "procedural_detail",
+                        "procedural_relocations",
+                        "procedural_export_xlsx",
+                        "procedural_export_model",
+                        "procedural_import_xlsx",
+                        "equipment_bbox",
+                    ):
                         can_handle = True
                         ext = ""
                     else:

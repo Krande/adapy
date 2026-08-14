@@ -136,7 +136,7 @@ class JobQueue:
     # Default capability tag for jobs with no explicit ``target_capability``.
     # Maps to the per-pool subject suffix the base worker subscribes to,
     # so a user-driven /convert with no pool selection always lands on the
-    # base pool. Capability workers (audit, abaqus) only get jobs whose
+    # base pool. Capability workers only get jobs whose
     # ``target_capability`` matches their tag — NATS subject routing
     # replaces the in-loop NAK gate that previously burned the message's
     # delivery budget when a capability pod pulled a job it couldn't
@@ -312,7 +312,7 @@ class JobQueue:
                 requested_engine = conversion_options.get("step_glb_pipeline")
             target_capability = await self._capability_for_ext(source_key, requested_engine)
             # Persist the resolved capability so the worker / UI can
-            # show "audit-dispatched to abaqus" without a second
+            # show which pool a job was dispatched to without a second
             # registry lookup.
             job.target_capability = target_capability
         # Always persist before publishing so the worker (and the
@@ -331,7 +331,7 @@ class JobQueue:
         """Look up the capability tag of the online worker pool that should handle this job.
 
         Routes to the first online pool whose advertised ``source_exts`` includes the source's suffix
-        (``.odb`` → abaqus etc.). When ``engine`` is given (a STEP→GLB job pinned to a specific
+        (a solver's result suffix → its capability pool). When ``engine`` is given (a STEP→GLB job pinned to a specific
         tessellation engine), PREFER a pool that also advertises that engine in its conversion matrix
         — so an ``adacpp-native`` job lands on a pool that actually has adacpp — and fall back to any
         ext-capable pool (the worker's own engine fallback chain then applies) rather than stranding it.

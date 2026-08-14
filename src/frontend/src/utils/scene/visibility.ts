@@ -19,6 +19,7 @@ import * as THREE from "three";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {sceneRef} from "@/state/refs";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
+import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {requestRender} from "@/state/perfStore";
 
 /** Hide every draw range currently selected. No-op when nothing is
@@ -26,7 +27,8 @@ import {requestRender} from "@/state/perfStore";
  * Shift+H handler does — selection entries can be keyed by either a
  * CustomBatchedMesh or a wrapper whose subtree contains one. */
 export function hideSelectedRanges(): void {
-    const selected = useSelectedObjectStore.getState().selectedObjects;
+    const store = useSelectedObjectStore.getState();
+    const selected = store.selectedObjects;
     if (selected.size === 0) return;
     selected.forEach((rangeIds, mesh) => {
         if (mesh instanceof CustomBatchedMesh) {
@@ -39,6 +41,15 @@ export function hideSelectedRanges(): void {
             }
         });
     });
+    // The selection's blue overlay draws on top of the base geometry, so hiding
+    // the base alone leaves the highlight rendering the now-hidden ranges in blue
+    // until the selection is cleared (the "still there until I click elsewhere"
+    // nuisance). Clear the selection now so the highlight vanishes with the
+    // geometry; the ranges stay hidden (hiddenRanges is independent of the
+    // selection). Also drop the stale name so the panel doesn't offer Hide on an
+    // already-hidden object.
+    store.clearSelectedObjects();
+    useObjectInfoStore.getState().setName(null);
     // On-demand render loop: hide mutates per-draw-range material flags
     // which the renderer doesn't observe on its own.
     requestRender();

@@ -231,6 +231,8 @@ class IfcStore:
 
         self.writer.sync_mapped_instances()
 
+        self.writer.sync_systems()
+
         num_mod = self.writer.sync_modified_physical_objects()
 
         self.writer.sync_groups()

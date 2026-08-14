@@ -6,12 +6,15 @@ import AuditRunsTab from "./AuditRunsTab";
 import CliTokenButton from "./CliTokenButton";
 import ConversionSettingsTab from "./ConversionSettingsTab";
 import CorpusTab from "./CorpusTab";
+import EquipmentAdminPanel from "./EquipmentAdminPanel";
 import FrontendLoadsTab from "./FrontendLoadsTab";
 import IssueTargetTab from "./IssueTargetTab";
 import PerformanceTab from "./PerformanceTab";
 import ProjectsTab from "./ProjectsTab";
 import SchedulesTab from "./SchedulesTab";
 import StorageTab from "./StorageTab";
+import SystemAdminPanel from "./SystemAdminPanel";
+import ProceduralEngineAdminPanel from "./ProceduralEngineAdminPanel";
 import WorkersTab from "./WorkersTab";
 
 // Path-mounted admin page (``/admin``) — full-screen on every
@@ -30,6 +33,7 @@ import WorkersTab from "./WorkersTab";
 const VALID_TABS = new Set<AdminTab>([
     "audit", "audit_runs", "schedules", "issues", "performance",
     "frontend_loads", "corpus", "projects", "storage", "workers", "conversion",
+    "equipment", "system", "engines",
 ]);
 
 function readTabFromHash(): AdminTab {
@@ -140,6 +144,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                     <TabButton active={tab === "conversion"} onClick={() => setTab("conversion")}>
                         Conversion
                     </TabButton>
+                    <TabButton active={tab === "equipment"} onClick={() => setTab("equipment")}>
+                        Equipment
+                    </TabButton>
+                    <TabButton active={tab === "system"} onClick={() => setTab("system")}>
+                        System
+                    </TabButton>
+                    <TabButton active={tab === "engines"} onClick={() => setTab("engines")}>
+                        Engines
+                    </TabButton>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <CliTokenButton/>
@@ -166,6 +179,21 @@ const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false, initialTab}) =
                 {tab === "storage" && <StorageTab/>}
                 {tab === "workers" && <WorkersTab/>}
                 {tab === "conversion" && <ConversionSettingsTab/>}
+                {tab === "equipment" && (
+                    <div className="h-full overflow-y-auto p-3 sm:p-4">
+                        <EquipmentAdminPanel embedded/>
+                    </div>
+                )}
+                {tab === "system" && (
+                    <div className="h-full overflow-y-auto p-3 sm:p-4">
+                        <SystemAdminPanel embedded/>
+                    </div>
+                )}
+                {tab === "engines" && (
+                    <div className="h-full overflow-y-auto p-3 sm:p-4">
+                        <ProceduralEngineAdminPanel embedded/>
+                    </div>
+                )}
             </main>
         </div>
     );

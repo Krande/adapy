@@ -18,6 +18,12 @@ def write_ifc_spatial_hierarchy(ifc_store: IfcStore):
 
 
 def write_ifc_part(ifc_store: IfcStore, part: Part, include_fem):
+    from ada.api.spatial.equipment import Equipment
+    from ada.cadit.ifc.write.write_equipment import write_ifc_equipment
+
+    if isinstance(part, Equipment):
+        return write_ifc_equipment(ifc_store, part)
+
     sw = SpatialWriter(ifc_store)
 
     ifc_part = sw.create_ifc_part(part)

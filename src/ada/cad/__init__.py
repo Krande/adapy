@@ -288,6 +288,7 @@ class CadBackend(Protocol):
     def area(self, shape: ShapeHandle) -> float: ...
     def shape_type(self, shape: ShapeHandle) -> str: ...
     def face_surface_type(self, shape: ShapeHandle) -> str: ...
+    def is_planar_face(self, shape: ShapeHandle, tol: float = 1e-6) -> bool: ...
     def extrude_face_along_normal(self, face: ShapeHandle, thickness: float) -> ShapeHandle: ...
     def face_to_advanced_face(self, shape: ShapeHandle): ...
     def build_bspline_advanced_face_from_grid(self, grid: "list", tol: float): ...
@@ -1423,6 +1424,15 @@ class AdacppBackend:
         if fn is None:
             raise NotImplementedError("adacpp.cad.face_surface_type is not available in this build")
         return fn(shape)
+
+    def is_planar_face(self, shape: ShapeHandle, tol: float = 1e-6) -> bool:
+        occ = self._occ_fallback_for(shape)
+        if occ is not None:
+            return occ.is_planar_face(shape, tol)
+        fn = getattr(self._cad, "is_planar_face", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.is_planar_face is not available in this build")
+        return bool(fn(shape, tol))
 
     def extrude_face_along_normal(self, face: ShapeHandle, thickness: float) -> ShapeHandle:
         fn = getattr(self._cad, "extrude_face_along_normal", None)

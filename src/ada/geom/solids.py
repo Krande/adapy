@@ -67,6 +67,13 @@ class FixedReferenceSweptAreaSolid:
     # bounded directrix (e.g. IfcGradientCurve) IfcOpenShell sweeps the whole curve regardless, and
     # we match that.
     fixed_reference: Direction = field(default_factory=lambda: Direction(0.0, 0.0, 1.0))
+    # Optional precomputed per-station frames ``(origins, dir_x, dir_y)`` as (N,3) arrays. This is
+    # NOT an IFC attribute — it lets a producer that sweeps a run in SEGMENTS (a routed duct/cable
+    # tray split into individually selectable straight/bend pieces) supply frames computed
+    # CONTINUOUSLY across the whole run, so each segment renders with a globally-consistent frame
+    # instead of re-framing in isolation (which twists at out-of-plane bends). When set, both the
+    # NGEOM stream serializer and the OCC builder use these directly and ignore ``fixed_reference``.
+    precomputed_frames: object | None = None
 
 
 @dataclass(slots=True)

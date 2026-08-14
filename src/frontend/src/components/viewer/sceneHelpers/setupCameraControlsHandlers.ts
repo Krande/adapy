@@ -9,6 +9,10 @@ import CameraControls from "camera-controls";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
 import {hideSelectedRanges, unhideAllRanges} from "@/utils/scene/visibility";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
+import {selectChildLevel, selectParentLevel, selectSibling} from "@/utils/tree_view/treeNavigation";
+import {useCellBuilderStore, needsPreviewCompile} from "@/state/cellBuilderStore";
+import {frameCells} from "@/utils/scene/frameCells";
+import {requestRender} from "@/state/perfStore";
 
 export function setupCameraControlsHandlers(
     scene: THREE.Scene,
@@ -73,9 +77,39 @@ export function setupCameraControlsHandlers(
         } else if (shift && key === "u") {
             unhideAllRanges();
         } else if (shift && key === "f") {
-            centerViewOnSelection(controls, camera);
+            // Builder cells are __excludeFromFit (they're a tool overlay), so
+            // centerViewOnSelection finds nothing for a cell selection — frame
+            // the selected cells directly, same as the mobile "Go to object"
+            // button. Falls through to the draw-range selection otherwise.
+            const cb = useCellBuilderStore.getState();
+            if (cb.active !== null && cb.selection !== null && frameCells(cb.selectedCellIds, controls, camera)) {
+                requestRender();
+            } else {
+                centerViewOnSelection(controls, camera);
+            }
         } else if (shift && key === "a") {
-            zoomToAll(scene, camera, controls);
+            // Likewise "fit all": a procedural model in the cellbuilder shows
+            // only excluded cell boxes until it's compiled, so zoomToAll would
+            // frame nothing — frame all cells instead when the builder is active.
+            const cb = useCellBuilderStore.getState();
+            if (cb.active !== null && Object.keys(cb.cells).length > 0 && frameCells("all", controls, camera)) {
+                requestRender();
+            } else {
+                zoomToAll(scene, camera, controls);
+            }
+        } else if (shift && key === "enter") {
+            // ⇧↵ — preview-compile the current (uncommitted) procedural model:
+            // the fast path when editing, and what makes a side-by-side result
+            // view feel live. No commit — the user commits only when happy.
+            const cb = useCellBuilderStore.getState();
+            // Compile when there are uncommitted changes OR when the wanted
+            // result isn't in the scene yet — so ⇧↵ on an unchanged model with
+            // no simulation/detail loaded still produces one. Mirrors the
+            // Compile button's disabled state. See needsPreviewCompile.
+            if (cb.active && needsPreviewCompile(cb)) {
+                event.preventDefault();
+                void cb.compilePreviewSelected();
+            }
         } else if (shift && key === "q") {
             const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();
             setIsOptionsVisible(!isOptionsVisible);
@@ -89,6 +123,23 @@ export function setupCameraControlsHandlers(
             void copySelectionNames(selectedObjects).then((n) => {
                 if (n === 0) console.warn("Shift+C: nothing copied");
             });
+        } else if (shift && key === "arrowup") {
+            // Tree-level traversal from the current selection (Shift is the
+            // "activate traversal" modifier). Up = parent level; Down = first
+            // child; Left/Right = previous/next sibling. Never opens the tree
+            // panel — see utils/tree_view/treeNavigation. preventDefault stops
+            // the arrows from also scrolling the page.
+            event.preventDefault();
+            void selectParentLevel();
+        } else if (shift && key === "arrowdown") {
+            event.preventDefault();
+            void selectChildLevel();
+        } else if (shift && key === "arrowleft") {
+            event.preventDefault();
+            void selectSibling(-1);
+        } else if (shift && key === "arrowright") {
+            event.preventDefault();
+            void selectSibling(1);
         }
     };
 

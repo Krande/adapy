@@ -41,6 +41,7 @@ let stepStackPromise = null;
 let satStackPromise = null;
 let femStackPromise = null;
 let meshStackPromise = null;
+let proceduralStackPromise = null;
 let trimeshPromise = null;
 let pyquaternionPromise = null;
 let adacppWheelPromise = null;
@@ -283,6 +284,74 @@ async function ensureFemStack() {
     return femStackPromise;
 }
 
+// Lazy procedural stack — the built-in adapy procedural engine compiled fully
+// in-browser (ada.topo_model.wasm_compile.compile_doc). Same set as the SAT
+// stack (pydantic for the topology entities; trimesh for the GLB export;
+// adacpp for the OCC-free libtess2 tessellation the compile streams through).
+async function ensureProceduralStack() {
+    if (!proceduralStackPromise) {
+        proceduralStackPromise = (async () => {
+            log("Installing procedural stack (pydantic + trimesh + adacpp)…");
+            await pyodide.loadPackage(["pydantic", "Pillow"]);
+            await ensureTrimesh();
+            await ensurePyquaternion();
+            await ensureAdacppWheel();
+            await ensureAdapyWheel();
+            log("Verifying procedural stack…");
+            await pyodide.runPythonAsync(`
+                import ada.cad
+                ada.cad.select_backend(prefer="adacpp")
+                import ada.topo_model.wasm_compile  # entrypoint resolved
+                print("procedural stack ready")
+            `);
+        })();
+    }
+    return proceduralStackPromise;
+}
+
+// Compile a procedural doc (JSON string) to GLB bytes entirely in the browser.
+// engine (optional slug) selects a built-in non-default engine (e.g. echo). wheel
+// (optional {entrypoint, deps, url}) is an EXTERNAL engine: micropip-install its
+// deps + wheel, then dispatch to its module:callable entrypoint — the same
+// ada.topo_model.engines resolution the server uses.
+async function compileProcedural(docJson, engine, wheel) {
+    await ensureProceduralStack();
+    let effectiveEngine = engine || null;
+    if (wheel && wheel.url && wheel.entrypoint) {
+        log("Installing external engine wheel…");
+        pyodide.globals.set("_pc_wheel_url", wheel.url);
+        pyodide.globals.set("_pc_wheel_deps_json", JSON.stringify(wheel.deps || []));
+        try {
+            await pyodide.runPythonAsync(`
+import json, micropip
+_deps = json.loads(_pc_wheel_deps_json)
+if _deps:
+    await micropip.install(_deps)
+await micropip.install(_pc_wheel_url)
+`);
+        } finally {
+            try { pyodide.globals.delete("_pc_wheel_url"); } catch (_) { /* fine */ }
+            try { pyodide.globals.delete("_pc_wheel_deps_json"); } catch (_) { /* fine */ }
+        }
+        // Dispatch via the wheel's module:callable entrypoint (engines resolves ":").
+        effectiveEngine = wheel.entrypoint;
+    }
+    pyodide.globals.set("_pc_doc", docJson);
+    pyodide.globals.set("_pc_engine", effectiveEngine);
+    try {
+        const result = await pyodide.runPythonAsync(`
+import ada.topo_model.wasm_compile as _pc
+_pc.compile_doc(_pc_doc, engine=_pc_engine)
+`);
+        const arr = result.toJs({create_proxies: false});
+        result.destroy();
+        return arr;
+    } finally {
+        try { pyodide.globals.delete("_pc_doc"); } catch (_) { /* fine */ }
+        try { pyodide.globals.delete("_pc_engine"); } catch (_) { /* fine */ }
+    }
+}
+
 // ── stack selection (host-specific) + dispatch into adapy ─────────────────
 // All conversion LOGIC lives in adapy (ada.cadit.wasm_convert), shipped in the
 // pyodide wheel and shared verbatim with the node sweep driver — no duplicated
@@ -505,6 +574,25 @@ self.onmessage = async (e) => {
             self.postMessage({type: "log", message: "WASM engine pre-warmed"});
         } catch (err) {
             self.postMessage({type: "log", message: `prewarm failed: ${String(err.message || err)}`});
+        }
+        return;
+    }
+
+    if (data.type === "procedural-compile") {
+        // Compile a procedural doc to GLB bytes in-browser (the built-in
+        // adapy-default engine). data.doc is the cellbuilder commit JSON string.
+        const reqId = data.reqId;
+        try {
+            const bytes = await compileProcedural(data.doc, data.engine, data.wheel);
+            let heap = 0;
+            try {
+                heap = pyodide._module.HEAP8.length;
+            } catch (_) {
+                /* heap introspection unavailable */
+            }
+            self.postMessage({type: "result", reqId, bytes, heap}, [bytes.buffer]);
+        } catch (err) {
+            self.postMessage({type: "error", reqId, message: String(err.message || err)});
         }
         return;
     }

@@ -184,7 +184,33 @@ def make_swept_disk_solid_from_geom(sds: geo_so.SweptDiskSolid) -> TopoDS_Shape 
     return solid
 
 
-def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSweptAreaSolid) -> TopoDS_Solid:
+def _swept_area_profile_is_2d(profile) -> bool:
+    """True when the swept profile is a genuine 2D section living in its own local XY plane
+    (its boundary points are 2D). That is the :class:`BeamCurved` case, where the profile is a
+    flat section and ``fixed_reference`` frames it upright along the directrix.
+
+    :class:`PrimSweep` instead bakes the profile's orientation into 3D boundary points (len 3,
+    e.g. the section rotated into the YZ plane) — those are already placed in space, so they
+    must be swept as authored (PipeShell), not reframed. Reframing a pre-oriented 3D profile
+    double-orients it and yields a torn, non-watertight shell."""
+    outer = getattr(profile, "outer_curve", None)
+    if outer is None:
+        return False
+    segs = getattr(outer, "segments", None)
+    if segs:
+        return all(len(getattr(s, "start", ())) == 2 for s in segs)
+    pts = getattr(outer, "points", None)
+    if pts:
+        return all(len(p) == 2 for p in pts)
+    return False
+
+
+def _make_fixed_ref_pipeshell_shape(frs: geo_so.FixedReferenceSweptAreaSolid) -> TopoDS_Shape:
+    """Fixed-reference sweep via PipeShell — the historical path, retained for sweeps whose
+    profile is already oriented in 3D (``PrimSweep``, whose ``swept_area`` carries 3D boundary
+    points) and for alignment (``GradientCurve`` directrix) road/rail sweeps. ``position``
+    places the whole body. A flat 2D ``BeamCurved`` section instead goes through
+    :func:`make_fixed_reference_swept_area_shape_from_geom`'s framed loft."""
     spine = make_wire_from_curve(frs.directrix)
 
     profile_face = make_profile_from_geom(frs.swept_area)
@@ -220,3 +246,130 @@ def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSw
     trsf_to_pos.SetTranslation(gp_Vec(*location))
     transformed_solid = BRepBuilderAPI_Transform(swept_solid, trsf_to_pos, True, True).Shape()
     return transformed_solid
+
+
+def _profile_char_len(profile_wire) -> float:
+    """The largest in-plane extent of the section wire — the length scale below which two
+    swept sections are ~coincident and their ruled band degenerates. Used to size the
+    station-decimation epsilon so it tracks the actual profile rather than a magic constant."""
+    from OCC.Core.Bnd import Bnd_Box
+    from OCC.Core.BRepBndLib import brepbndlib
+
+    bb = Bnd_Box()
+    brepbndlib.Add(profile_wire, bb)
+    xmn, ymn, zmn, xmx, ymx, zmx = bb.Get()
+    return max(xmx - xmn, ymx - ymn, zmx - zmn)
+
+
+def _decimate_stations(origins, dir_x, dir_y, profile_char: float) -> list[int]:
+    """Indices of the directrix stations to loft through, dropping the redundant
+    near-coincident samples a dense-fillet directrix carries while keeping every real bend.
+
+    A station is kept when it is more than ``eps`` from the last kept station (``eps`` a small
+    fraction of the profile size — the scale at which a ruled band between two sections
+    degenerates) OR the tangent has turned past ``angle_tol`` since the last kept station. The
+    angle guard means a bend is always sampled (curved fillets survive any ``eps``); the
+    distance guard removes the near-coincident arc samples that make ThruSections raise
+    StdFail_NotDone. The endpoints are always kept."""
+    import numpy as np
+
+    n = len(origins)
+    if n <= 2:
+        return list(range(n))
+    eps = max(1e-6, 0.05 * profile_char)
+    cos_tol = math.cos(math.radians(8.0))
+    tang = np.cross(dir_x, dir_y)
+    tn = np.linalg.norm(tang, axis=1, keepdims=True)
+    tang = tang / np.where(tn < 1e-12, 1.0, tn)
+
+    keep = [0]
+    for i in range(1, n - 1):
+        far = float(np.linalg.norm(origins[i] - origins[keep[-1]])) > eps
+        turned = float(np.dot(tang[i], tang[keep[-1]])) < cos_tol
+        if far or turned:
+            keep.append(i)
+    keep.append(n - 1)
+    return keep
+
+
+def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSweptAreaSolid) -> TopoDS_Shape:
+    """Sweep ``swept_area`` along ``directrix`` keeping the profile un-twisted relative to
+    ``fixed_reference`` (world "up"), so a box/channel section stays upright and follows the
+    curve — the OCC analogue of :class:`BeamCurved`'s solid_geom.
+
+    For a general (non-alignment) directrix — a plain IndexedPolyCurve / polyline / arc, e.g. a
+    routed duct or cable-tray run — this frames the directrix with the SAME convention as the
+    NGEOM/libtess2 stream path (``ada.cadit.ngeom.serialize.general_directrix_frames``): the
+    sampled directrix points are absolute world-space station origins (``position`` is ignored,
+    exactly as the stream serializer passes an identity placement), the profile's local +x maps
+    to the lateral ``tangent x up`` and local +y to the in-plane up. The profile section is
+    placed at every station via that frame and lofted (ruled ThruSections) into the swept solid,
+    ringing straight between stations just like libtess2 does — so OCC and libtess2 agree.
+
+    A pre-oriented 3D profile (``PrimSweep``) or an alignment ``GradientCurve`` directrix
+    (clothoid/vertical-gradient road/rail sweep) keeps the historical PipeShell path, where
+    ``position`` places the whole body."""
+    import numpy as np
+    from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    from OCC.Core.TopoDS import topods
+
+    import ada.geom.curves as geo_cu
+    from ada.cadit.ngeom.serialize import general_directrix_frames
+
+    if isinstance(frs.directrix, geo_cu.GradientCurve) or not _swept_area_profile_is_2d(frs.swept_area):
+        return _make_fixed_ref_pipeshell_shape(frs)
+
+    pre = getattr(frs, "precomputed_frames", None)
+    if pre is not None:
+        # Frames computed CONTINUOUSLY across a segmented run (see
+        # FixedReferenceSweptAreaSolid.precomputed_frames): use directly so OCC
+        # frames each segment identically to the stream path.
+        origins, dir_x, dir_y = (np.asarray(a, dtype=float) for a in pre)
+    else:
+        try:
+            origins, dir_x, dir_y = general_directrix_frames(frs.directrix, frs.fixed_reference)
+        except Exception as e:
+            # A directrix the shared sampler can't turn into stations (e.g. a top-level
+            # BSplineCurveWithKnots axis — unsupported on the libtess2 stream path too). Raise
+            # NotImplementedError so the tessellator's documented stream fallback still fires,
+            # matching the pre-existing control flow, rather than hard-failing the object.
+            raise NotImplementedError(f"FixedReferenceSweptAreaSolid: unsupported directrix ({e})") from e
+    if len(origins) < 2:
+        raise NotImplementedError("FixedReferenceSweptAreaSolid: general directrix has < 2 stations")
+
+    profile_face = make_profile_from_geom(frs.swept_area)
+    # Outer wire of the profile; swept as a filled section (voids do not affect the swept
+    # extents/orientation and are not carried by ThruSections here).
+    profile_wire = list(TopologyExplorer(profile_face).wires())[0]
+
+    # The shared sampler tessellates every arc of the directrix into many closely-spaced
+    # stations (a tight fillet becomes dozens of points ~1 profile-thickness apart). Feeding
+    # all of those to ThruSections as section wires makes the ruled loft raise StdFail_NotDone:
+    # consecutive near-coincident sections form near-zero-area ruled patches that OCC cannot
+    # fit through. libtess2 rings straight between the same dense stations without a global
+    # surface fit, so it is unaffected — that is why the tray renders there but is skipped here.
+    #
+    # Decimate to well-separated sections before lofting: keep a station only if it is more
+    # than ``eps`` (a fraction of the profile's own size — the scale that governs when a ruled
+    # band degenerates) from the last kept station, OR the tangent has turned past a small
+    # angle since then. The angle guard preserves every bend regardless of ``eps`` (so the
+    # fillets stay curved and cannot collapse to a chord), while the distance guard drops the
+    # redundant near-coincident arc samples that break the loft. The retained sections are the
+    # same frames the stream path uses, so the swept extent/orientation is identical.
+    keep = _decimate_stations(origins, dir_x, dir_y, _profile_char_len(profile_wire))
+
+    # Loft the profile through a copy placed at every kept station. Placing local +z along the
+    # station normal (dir_x x dir_y) and local +x along dir_x makes the gp_Ax3-derived local +y
+    # come out as dir_y (up) — so local (u, v) -> u*dir_x + v*dir_y, matching the stream path.
+    thru = BRepOffsetAPI_ThruSections(True, True)  # isSolid=True (cap ends), isRuled=True
+    for i in keep:
+        normal = np.cross(dir_x[i], dir_y[i])
+        section = transform_shape_to_pos(profile_wire, Point(*origins[i]), Direction(*normal), Direction(*dir_x[i]))
+        thru.AddWire(topods.Wire(section))
+    thru.Build()
+    if not thru.IsDone():
+        raise NotImplementedError(
+            "FixedReferenceSweptAreaSolid: ruled loft could not build a valid solid "
+            f"from {len(keep)} sections (general directrix)"
+        )
+    return thru.Shape()

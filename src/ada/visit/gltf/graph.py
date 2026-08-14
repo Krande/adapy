@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ada.config import logger
 from ada.core.guid import create_guid
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshRef
 
@@ -73,13 +72,31 @@ class GraphStore:
             if p.guid == root_node.hash:
                 continue
             if p.guid in self.hash_map.keys():
-                logger.error(f"Duplicate GUID found for {p}")
                 continue
-            parent_node = self.hash_map.get(p.parent.guid)
-            n = self.add_node(GraphNode(p.name, self.next_node_id(), hash=p.guid))
-            if parent_node is not None:
-                n.parent = parent_node
-                parent_node.children.append(n)
+            self._ensure_node(p, root_node)
+
+    def _ensure_node(self, obj, root_node: "GraphNode") -> "GraphNode":
+        """Return ``obj``'s graph node, creating it — and any missing ancestor —
+        on demand so nothing orphans to the scene root.
+
+        ``pipe_to_segments=True`` (see :meth:`add_nodes_from_part`) yields a pipe's
+        segments but never the ``Pipe`` container itself, so each segment's parent
+        (the pipe) is absent from ``hash_map``; without this the whole pipe would
+        flatten to the root of the selection tree. Walking the parent chain here
+        materialises the pipe (and, generally, any skipped intermediate) so the
+        segments nest under it and it under the pipe's own part."""
+        existing = self.hash_map.get(obj.guid)
+        if existing is not None:
+            return existing
+        parent = getattr(obj, "parent", None)
+        parent_node = (
+            root_node if parent is None or parent.guid == root_node.hash else self._ensure_node(parent, root_node)
+        )
+        n = self.add_node(GraphNode(obj.name, self.next_node_id(), hash=obj.guid))
+        if parent_node is not None:
+            n.parent = parent_node
+            parent_node.children.append(n)
+        return n
 
     def next_node_id(self):
         return len(self.nodes.keys())

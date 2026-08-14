@@ -126,7 +126,17 @@ class IfcWriter:
         # This avoids brittle f.by_guid(obj.guid) lookups (which can fail for some object types).
         created_ifc_by_obj_guid: dict[str, object] = {}
 
+        from ada import Beam as _Beam
+
         for i, to_be_added in enumerate(new_objects, start=1):
+            # A routed duct/cable-tray run is a set of Beams tagged with a
+            # segment_ifc_class; they are written as grouped IfcDuctSegment/
+            # IfcCableSegment distribution elements in sync_systems, not as plain
+            # structural IfcBeams here.
+            if isinstance(to_be_added, _Beam) and (to_be_added.metadata or {}).get("segment_ifc_class"):
+                to_be_added.change_type = ChangeAction.NOCHANGE
+                continue
+
             self.eval_validity(to_be_added, mat_map, rel_mats_map)
 
             ifc_elem = self.add(to_be_added)
@@ -175,9 +185,20 @@ class IfcWriter:
         f = self.ifc_store.f
 
         for mat, objects in obj_map.items():
-            rel_mat = f.by_guid(mat.guid)
+            try:
+                rel_mat = f.by_guid(mat.guid)
+            except RuntimeError:
+                rel_mat = None
             if rel_mat is None:
-                raise ValueError(f"No IfcRelAssociatesMaterial found for mat.guid={mat.guid}")
+                # The material was never registered in the file — e.g. an ad-hoc
+                # Shape material on a placeholder equipment body. Skip its material
+                # association rather than crashing the whole export; the object's
+                # geometry is still written.
+                logger.warning(
+                    "ifc-write: no IfcRelAssociatesMaterial for material %r; skipping its association",
+                    getattr(mat, "name", None) or mat.guid,
+                )
+                continue
 
             ifc_elems = []
             ifc_elems_pipe_seg = []
@@ -218,6 +239,16 @@ class IfcWriter:
             self.add_related_elements_to_spatial_container(relating_elements, spatial_elem_guid)
 
         return num_new_objects
+
+    def sync_systems(self) -> int:
+        """Fold the assembly's logical systems (ada.api.systems) onto their
+        written route pipes' IfcDistributionSystem groupings."""
+        from ada.cadit.ifc.write.write_equipment import write_ifc_systems
+
+        systems = getattr(self.ifc_store.assembly, "systems", None) or []
+        if not systems:
+            return 0
+        return write_ifc_systems(self.ifc_store, systems)
 
     def sync_modified_physical_objects(self) -> int:
         num_mod = 0
@@ -495,6 +526,25 @@ class IfcWriter:
 
     def add_related_elements_to_spatial_container(self, elements: list[ifcopenshell.entity_instance], guid: str):
         parent_ifc_elem = self.ifc_store.get_by_guid(guid)
+
+        if not parent_ifc_elem.is_a("IfcSpatialElement"):
+            # IfcRelContainedInSpatialStructure requires a spatial element; a non-spatial
+            # parent (IfcPump, IfcElementAssembly, ...) decomposes its children instead.
+            existing_rel_agg = self.ifc_store.get_rel_aggregates(parent_ifc_elem)
+            if existing_rel_agg is not None:
+                existing_rel_agg.RelatedObjects = tuple([*existing_rel_agg.RelatedObjects, *elements])
+            else:
+                new_rel_agg = self.ifc_store.f.create_entity(
+                    "IfcRelAggregates",
+                    GlobalId=create_guid(),
+                    OwnerHistory=self.ifc_store.owner_history,
+                    Name="Element Decomposition",
+                    Description=None,
+                    RelatingObject=parent_ifc_elem,
+                    RelatedObjects=elements,
+                )
+                self.ifc_store.register_rel_aggregates(parent_ifc_elem, new_rel_agg)
+            return
 
         existing_spatial = None
         for existing_rel in self.ifc_store.f.by_type("IfcRelContainedInSpatialStructure"):

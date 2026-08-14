@@ -502,7 +502,14 @@ def is_derived_key(key: str) -> bool:
 # hidden?", and storage.list(skip_prefixes=...) uses the same tuple to avoid ENUMERATING them —
 # a listing that skipped a different set than it filtered would be a silent correctness bug (a real
 # file vanishing from the browser), so the two must not drift.
-HIDDEN_PREFIXES: tuple[str, ...] = ("_derived/", "_overlays/", "_reconvert/")
+HIDDEN_PREFIXES: tuple[str, ...] = (
+    "_derived/",
+    "_overlays/",
+    "_reconvert/",
+    "_procedural/",
+    "_equipment/",
+    "_engines/",
+)
 
 
 def is_hidden_key(key: str) -> bool:
@@ -830,7 +837,7 @@ def _export_with_ada(
         # welding closes the seam that the UV-grid fast path leaves cracked. Scoped over the whole
         # GLB leg — both the native record route and the Python ``to_gltf`` fall-through read
         # ADA_TESS_WT_CDT_FULL_PATCH in adacpp. Only set when such a plate is present (the adacpp
-        # side further gates on real shared-edge pins), so flat-plate / crane models are untouched;
+        # side further gates on real shared-edge pins), so flat-plate models are untouched;
         # an explicit ambient value is respected. Restored in the finally for the next job.
         _prev_cdt = _os.environ.get("ADA_TESS_WT_CDT_FULL_PATCH")
         if _prev_cdt is None and _model_has_thick_curved_shells(model):

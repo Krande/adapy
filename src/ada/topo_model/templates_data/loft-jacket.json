@@ -1,0 +1,113 @@
+{
+ "grid": {},
+ "engine": "adapy-default",
+ "spaces": [],
+ "systems": [],
+ "openings": [],
+ "blueprint": {},
+ "equipments": [],
+ "loft_members": [
+  {
+   "NAME": "Leg",
+   "INCLUDE": true,
+   "STATIONS": [
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 0.0,
+     "TYPE": "rectangle",
+     "WIDTH": 50.0,
+     "HEIGHT": 50.0,
+     "SEGMENTS": 16
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 10.0,
+     "TYPE": "rectangle",
+     "WIDTH": 50.0,
+     "HEIGHT": 50.0,
+     "SEGMENTS": 16
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 46.0,
+     "TYPE": "rectangle",
+     "WIDTH": 50.0,
+     "HEIGHT": 50.0,
+     "SEGMENTS": 16
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 81.0,
+     "TYPE": "rectangle",
+     "WIDTH": 44.205298013245034,
+     "HEIGHT": 44.205298013245034,
+     "SEGMENTS": 16
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 115.0,
+     "TYPE": "rectangle",
+     "WIDTH": 38.57615894039735,
+     "HEIGHT": 38.57615894039735,
+     "SEGMENTS": 16
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 144.0,
+     "TYPE": "rectangle",
+     "WIDTH": 33.77483443708609,
+     "HEIGHT": 33.77483443708609,
+     "SEGMENTS": 16
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 174.0,
+     "TYPE": "rectangle",
+     "WIDTH": 28.807947019867548,
+     "HEIGHT": 28.807947019867548,
+     "SEGMENTS": 16
+    },
+    {
+     "X": 0.0,
+     "Y": 0.0,
+     "Z": 197.0,
+     "TYPE": "rectangle",
+     "WIDTH": 25.0,
+     "HEIGHT": 25.0,
+     "SEGMENTS": 16
+    },
+    {
+     "X": 1.0,
+     "Y": 0.0,
+     "Z": 207.0,
+     "TYPE": "rectangle",
+     "WIDTH": 30.0,
+     "HEIGHT": 22.5,
+     "SEGMENTS": 16
+    },
+    {
+     "X": 1.0,
+     "Y": 0.0,
+     "Z": 210.0,
+     "TYPE": "rectangle",
+     "WIDTH": 30.0,
+     "HEIGHT": 22.5,
+     "SEGMENTS": 16
+    }
+   ],
+   "THICKNESS": 0.01,
+   "SURFACE_ONLY": false,
+   "EXCLUDE_FACES": [],
+   "REPRESENTATION": "JACKET"
+  }
+ ],
+ "equipment_cad": false,
+ "schema_version": "1.0"
+}

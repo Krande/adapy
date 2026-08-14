@@ -17,9 +17,24 @@ from __future__ import annotations
 from ada.cad import Containment
 from ada.topology.blueprint import BlueprintBase
 from ada.topology.builder import TopologyBuilder
+from ada.topology.design_rules import (
+    DesignResult,
+    DesignRules,
+    Penetration,
+    PenetrationPlanContext,
+    RoutePlan,
+    RoutePlanContext,
+    default_penetration_planner,
+    default_route_modeller,
+    default_route_planner,
+    find_face_crossings,
+    run_design,
+)
 from ada.topology.entities import (
     EquipRepr,
+    LoftStation,
     TopoEquipment,
+    TopoLoftMember,
     TopoOpening,
     TopoSpace,
     from_ada_meta,
@@ -33,14 +48,41 @@ from ada.topology.graph import (
     GraphFace,
 )
 from ada.topology.grid import CellGrid, GridIndexError
-from ada.topology.io import from_assembly, from_ifc, from_part
+from ada.topology.io import (
+    LoftMember,
+    assign_loft_face_ids,
+    from_assembly,
+    from_ifc,
+    from_part,
+    from_section_loft,
+    loft_member_to_part,
+)
 from ada.topology.metadata import TopologyMetadata
+from ada.topology.routing import (
+    RoutingBlueprintBase,
+    RoutingError,
+    RoutingRules,
+    RunWarning,
+    astar_route,
+    astar_route_constrained,
+    nearest_index,
+    occupy_faces,
+    occupy_run,
+    path_to_polyline,
+    route_system,
+    run_half_extent,
+    swept_bend_params,
+    system_route_to_geometry,
+)
+from ada.topology.run_builder import RunBuilder
 
 __all__ = [
     "Containment",
     "BlueprintBase",
     "CellGraph",
     "CellGrid",
+    "DesignResult",
+    "DesignRules",
     "EquipRepr",
     "TopologyBuilder",
     "FaceConnectionInfo",
@@ -48,7 +90,34 @@ __all__ = [
     "GraphEdge",
     "GraphFace",
     "GridIndexError",
+    "LoftMember",
+    "LoftStation",
+    "Penetration",
+    "PenetrationPlanContext",
+    "RoutePlan",
+    "RoutePlanContext",
+    "RoutingBlueprintBase",
+    "RoutingError",
+    "RoutingRules",
+    "astar_route",
+    "astar_route_constrained",
+    "swept_bend_params",
+    "default_penetration_planner",
+    "default_route_modeller",
+    "default_route_planner",
+    "find_face_crossings",
+    "nearest_index",
+    "occupy_faces",
+    "occupy_run",
+    "path_to_polyline",
+    "route_system",
+    "run_half_extent",
+    "run_design",
+    "RunBuilder",
+    "RunWarning",
+    "system_route_to_geometry",
     "TopoEquipment",
+    "TopoLoftMember",
     "TopoOpening",
     "TopoSpace",
     "TopologyMetadata",
@@ -57,4 +126,7 @@ __all__ = [
     "from_assembly",
     "from_ifc",
     "from_part",
+    "from_section_loft",
+    "assign_loft_face_ids",
+    "loft_member_to_part",
 ]

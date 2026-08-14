@@ -35,6 +35,8 @@ export async function replace_model(
     requestHeaders?: Record<string, string>,
     // Optional admin load-metrics recorder (REST view path). No-op when absent.
     metrics?: import("@/utils/scene/loadMetrics").LoadMetricsRecorder | null,
+    // Override the post-load auto-fit (undefined = scene config; false = never).
+    autoFitOverride?: boolean,
 ) {
         // Clear animation state first
     const animationStore = useAnimationStore.getState();
@@ -77,7 +79,7 @@ export async function replace_model(
 
         }
     }
-    return await setupModelLoaderAsync(url, translate, prepareHook, sourceName, requestHeaders, metrics);
+    return await setupModelLoaderAsync(url, translate, prepareHook, sourceName, requestHeaders, metrics, autoFitOverride);
 }
 
 export async function update_scene_from_message(message: Message) {

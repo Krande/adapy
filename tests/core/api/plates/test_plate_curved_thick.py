@@ -163,7 +163,8 @@ def test_ifc_export_validates_and_tessellates():
     from ifcopenshell.validate import json_logger, validate
 
     a, _ = _thick_assembly()
-    ifc_path = tempfile.mktemp(suffix=".ifc")
+    fd, ifc_path = tempfile.mkstemp(suffix=".ifc")
+    os.close(fd)  # to_ifc opens by path
     a.to_ifc(ifc_path, validate=False)
     f = ifcopenshell.open(ifc_path)
     assert len(f.by_type("IfcAdvancedBrep")) == 1
@@ -182,7 +183,8 @@ def test_ifc_export_validates_and_tessellates():
 
 def test_step_stream_roundtrip_volume():
     a, _ = _thick_assembly()
-    stp_path = tempfile.mktemp(suffix=".stp")
+    fd, stp_path = tempfile.mkstemp(suffix=".stp")
+    os.close(fd)  # to_stp opens by path
     a.to_stp(stp_path, writer="stream")
     data = open(stp_path, "rb").read()
     assert b"CLOSED_SHELL" in data

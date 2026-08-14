@@ -13,6 +13,7 @@ from ada.cadit.ifc.utils import (
     write_elem_property_sets,
 )
 from ada.cadit.ifc.write.geom import solids as igeo_so
+from ada.cadit.ifc.write.pipes.entity_class import fitting_entity_class
 from ada.core.constants import O
 from ada.core.utils import to_real
 from ada.core.vector_transforms import global_2_local_nodes
@@ -40,8 +41,9 @@ def write_pipe_elbow_seg(ifc_store: IfcStore, pipe_elbow: PipeSegElbow):  # -> i
     # exists when segments are written (the pipe is now an IfcDistributionSystem created after).
     pfitting_placement = create_local_placement(f)
 
+    fitting_class = fitting_entity_class(pipe_elbow)
     pfitting = f.create_entity(
-        "IfcPipeFitting",
+        fitting_class,
         GlobalId=pipe_elbow.guid,
         OwnerHistory=owner_history,
         Name=pipe_elbow.name,
@@ -50,7 +52,8 @@ def write_pipe_elbow_seg(ifc_store: IfcStore, pipe_elbow: PipeSegElbow):  # -> i
         ObjectPlacement=pfitting_placement,
         Representation=ifc_elbow,
         Tag=None,
-        PredefinedType="BEND",
+        # IfcCableFittingTypeEnum has no BEND literal
+        PredefinedType="NOTDEFINED" if fitting_class == "IfcCableFitting" else "BEND",
     )
 
     props = dict(

@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ada import Beam
-from ada.api.beams import BeamRevolve, BeamSweep, BeamTapered
+from ada.api.beams import BeamCurved, BeamRevolve, BeamSweep, BeamTapered
 from ada.cadit.ifc.utils import convert_bm_jusl_to_ifc
+from ada.cadit.ifc.write.beams.curved_beam import create_curved_beam
 from ada.cadit.ifc.write.beams.revolved_beam import create_revolved_beam
 from ada.cadit.ifc.write.beams.straight_beam import extrude_straight_beam
 from ada.cadit.ifc.write.beams.straight_beam_tapered import (
@@ -19,16 +20,20 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
 
-def write_ifc_beam(ifc_store: IfcStore, beam: Beam):
+def write_ifc_beam(ifc_store: IfcStore, beam: Beam, entity_class: str = "IfcBeam"):
     ibw = IfcBeamWriter(ifc_store)
-    return ibw.create_ifc_beam(beam)
+    return ibw.create_ifc_beam(beam, entity_class=entity_class)
 
 
 @dataclass
 class IfcBeamWriter:
     ifc_store: IfcStore
 
-    def create_ifc_beam(self, beam: Beam):
+    def create_ifc_beam(self, beam: Beam, entity_class: str = "IfcBeam"):
+        """Write ``beam`` as ``entity_class`` (default ``IfcBeam``). A routed
+        duct/cable-tray run reuses this with ``IfcDuctSegment``/
+        ``IfcCableSegment`` so its straight box/channel segments become proper
+        distribution flow elements rather than structural beams."""
         if beam.parent is None:
             raise ValueError("Parent cannot be None for IFC export")
 
@@ -39,6 +44,8 @@ class IfcBeamWriter:
 
         if isinstance(beam, BeamRevolve):
             axis, body, loc_plac = create_revolved_beam(beam, f, profile)
+        elif isinstance(beam, BeamCurved):
+            axis, body, loc_plac = create_curved_beam(beam, f, profile)
         elif isinstance(beam, BeamSweep):
             axis, body, loc_plac = create_swept_beam(beam, f, profile)
         elif isinstance(beam, BeamTapered):
@@ -49,7 +56,7 @@ class IfcBeamWriter:
         prod_def_shp = f.create_entity("IfcProductDefinitionShape", None, None, (axis, body))
 
         ifc_beam = f.create_entity(
-            "IfcBeam",
+            entity_class,
             GlobalId=beam.guid,
             OwnerHistory=owner_history,
             Name=beam.name,

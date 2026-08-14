@@ -68,7 +68,14 @@ async function send_view_request(name: string) {
  * needs to auto-decompress) it falls back to the authed streaming ``/blobs/{key}`` GET,
  * where the server reliably forwards ``Content-Encoding: gzip``. Either way GLTFLoader
  * streams + the browser decompresses natively — no whole-file server buffer, no pako. */
-export async function load_glb_by_url_rest(scope: string, glbKey: string, sourceName: string) {
+export async function load_glb_by_url_rest(
+    scope: string,
+    glbKey: string,
+    sourceName: string,
+    // Override the post-load auto-fit. Procedural result loads pass false so a
+    // compile/recompile never moves the camera; normal file views omit it.
+    autoFitOverride?: boolean,
+) {
     const {viewerApi} = await import("@/services/viewerApi");
     const {getAccessToken} = await import("@/services/auth/oidc");
     const {replace_model} = await import("./update_scene_from_message");
@@ -83,14 +90,14 @@ export async function load_glb_by_url_rest(scope: string, glbKey: string, source
         try {
             const presigned = await viewerApi.requestDownloadUrl(scope as any, glbKey);
             metrics?.setTransport("presigned");
-            group = await replace_model(presigned.url, undefined, sourceName, false, undefined, metrics);
+            group = await replace_model(presigned.url, undefined, sourceName, false, undefined, metrics, autoFitOverride);
         } catch (e) {
             console.warn("view: presigned GLB load failed, falling back to authed streaming GET", e);
             const url = viewerApi.blobUrl(scope as any, glbKey);
             const token = getAccessToken();
             const headers = token ? {Authorization: `Bearer ${token}`} : undefined;
             metrics?.setTransport("relayed");
-            group = await replace_model(url, undefined, sourceName, false, headers, metrics);
+            group = await replace_model(url, undefined, sourceName, false, headers, metrics, autoFitOverride);
         }
     } catch (e) {
         // Record the failed load too, then re-throw to the caller's handler.
@@ -101,6 +108,28 @@ export async function load_glb_by_url_rest(scope: string, glbKey: string, source
     // so it must run BEFORE we register this primary model's group — otherwise the group we just
     // registered is cleared, leaving the model in loadedSourceNames with no group and thus a
     // non-toggleable eye in the loaded-models list (couldn't hide the original under an overlay).
+    useModelState.getState().setLoadedSourceName(sourceName);
+    if (group && sourceName) {
+        useModelState.getState().registerLoadedSource(sourceName, group);
+    }
+}
+
+// Load a GLB straight from in-memory bytes (e.g. an in-browser procedural
+// compile) — no storage round-trip. Wraps the bytes in a Blob URL and reuses the
+// same replace_model → registerLoadedSource path as load_glb_by_url_rest.
+export async function load_glb_from_bytes(
+    bytes: Uint8Array,
+    sourceName: string,
+    autoFitOverride?: boolean,
+) {
+    const {replace_model} = await import("./update_scene_from_message");
+    const url = URL.createObjectURL(new Blob([bytes], {type: "model/gltf-binary"}));
+    let group: Awaited<ReturnType<typeof replace_model>> | undefined;
+    try {
+        group = await replace_model(url, undefined, sourceName, false, undefined, undefined, autoFitOverride);
+    } finally {
+        URL.revokeObjectURL(url);
+    }
     useModelState.getState().setLoadedSourceName(sourceName);
     if (group && sourceName) {
         useModelState.getState().registerLoadedSource(sourceName, group);
