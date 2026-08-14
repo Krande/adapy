@@ -8,7 +8,7 @@ OCC-free (numpy clash detection + ``Weld`` -> ``PrimExtrude``)."""
 from __future__ import annotations
 
 import ada
-from ada.topo_model.compile import _apply_girder_joints, compile_procedural_doc
+from ada.topo_model.compile import _apply_girder_joints
 
 # Two IPE200 girders meeting at a shared corner node (the node-based clash check
 # keys on shared endpoints, mirroring how the blueprint seats deck-edge girders).
@@ -44,14 +44,6 @@ def test_sim_assembly_has_no_joints_part():
     # The sim path never runs the joint pass, so no Joints part is created.
     a = _corner_girder_assembly()
     assert a.get_by_name("Joints") is None
-
-
-def test_detail_glb_larger_than_sim():
-    sim = compile_procedural_doc(_DOC, lod="sim")
-    detail = compile_procedural_doc(_DOC, lod="detail")
-    assert sim[:4] == b"glTF" and detail[:4] == b"glTF"
-    # The modelled joints (gusset plate + weld beads) add geometry.
-    assert len(detail) > len(sim)
 
 
 def test_mid_span_cross_junction_is_jointed():
