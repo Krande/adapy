@@ -1,9 +1,8 @@
 """ProceduralBuilder: the root object of a procedural cell-model compile.
 
-This mirrors the ``Builder`` pattern used in sibling procedural-modelling
-codebases: **one object owns the whole model** — the spaces, equipment, systems,
-openings, structural blueprint, topology cell graph and design ruleset — and
-every child reaches back to it through an injected ``.procedural`` reference:
+The Builder pattern: **one object owns the whole model** — the spaces, equipment,
+systems, openings, structural blueprint, topology cell graph and design ruleset —
+and every child reaches back to it through an injected ``.procedural`` reference:
 
     blueprint.procedural   -> ProceduralBuilder     (set when the structure is built)
     cell_graph.procedural  -> ProceduralBuilder
@@ -75,8 +74,7 @@ def _strip_none(d):
     (ada.comms.rest.procedural): those carry explicit nulls, and Topo* fields
     typed ``float`` with a None DEFAULT accept None as a default but REJECT an
     explicit None to the constructor — so unpacking a null-laden dict raises and
-    the whole compile drops entities. Stripping lets field defaults reapply.
-    Mirrors the external engine's ``_clean`` on the same reconstruction."""
+    the whole compile drops entities. Stripping lets field defaults reapply."""
     return {k: v for k, v in d.items() if v is not None} if isinstance(d, dict) else d
 
 
@@ -475,9 +473,8 @@ class ProceduralBuilder:
           blueprint is *framed*: the :class:`~ada.topo_model.blueprint.SteelStru`
           blueprint runs over the member's loft-derived cell graph and emits beams
           (columns/girders/stringers + floor plates), exactly as it does for box
-          ``spaces`` — a loft is just another topology source, mirroring a
-          capability engine's ``SECTION_LOFT`` path. ``TopologyBuilder`` consumes the
-          prebuilt cell graph directly.
+          ``spaces`` — a loft is just another topology source. ``TopologyBuilder``
+          consumes the prebuilt cell graph directly.
         * A **skin** member (``SURFACE_ONLY=True``, or ``blueprint_name='none'``)
           lofts its placed station profiles into a part of plates
           (:func:`ada.topology.io.loft_member_to_part`); each plate is named by its

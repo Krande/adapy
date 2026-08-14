@@ -323,10 +323,9 @@ class BoxJoint(JointBase):
     Unlike the plated/welded joints above, this one adds NO connective geometry —
     its detailing is deliberately minimal: a single boolean cut on the *incoming*
     box beam using the *landing* member's volume, so the two box beams no longer
-    interpenetrate at the junction. This mirrors an external engine's box-to-box
-    ``incoming.add_boolean(boolean_cut)`` step, WITHOUT the weld — the bool cut
-    only — and is the minimal testbed for swapping joint definitions on the same
-    demo (box sections + a box joint), later comparable to an external engine's box specs.
+    interpenetrate at the junction — an ``incoming.add_boolean(boolean_cut)`` step,
+    WITHOUT the weld (the bool cut only) — and is the minimal testbed for swapping
+    joint definitions on the same demo (box sections + a box joint).
     """
 
     mem_types = ["Girder", "Girder"]

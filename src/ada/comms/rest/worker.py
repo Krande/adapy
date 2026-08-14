@@ -1398,8 +1398,8 @@ def _serialize_structural_artifact(assembly) -> "tuple[bytes, dict]":
     external (Tier-B) detailing engine consumes: IFC bytes + a per-Beam section
     sidecar ``{member_name: {"section_type": <BOX/…>, "section_props": {...}}}``.
 
-    The sidecar is authoritative for section-type detection (the external engine matches on
-    ``section.type.value.upper()``) so the external engine never has to re-derive
+    The sidecar is authoritative for section-type detection (a consumer matches on
+    ``section.type.value.upper()``) so a consumer never has to re-derive
     it from a potentially lossy IFC round-trip. ``section_props`` carries the
     numeric geometry (``h``/``w_top``/``t_w``/``r``/``wt``/…) present on the section."""
     import ada
@@ -2949,7 +2949,7 @@ async def _process_one(
 
             # Optional per-job wall-clock budget. Empty / 0 / non-
             # numeric leaves the watchdog off so legitimately-long
-            # bakes (a 4 GiB Abaqus ODB sweep can take 20+ min)
+            # bakes (a multi-GiB FEA result sweep can take 20+ min)
             # aren't artificially killed. Set as a positive minutes
             # value to enable; the parent process then SIGTERMs the
             # convert subprocess after the deadline and SIGKILLs
@@ -3857,7 +3857,7 @@ async def _run() -> None:
     # Warm the heavy CAD imports in this (parent) process before the per-job fork
     # loop below, so forked children inherit them copy-on-write instead of paying
     # a cold re-import per conversion. Base pool only — capability pools
-    # (e.g. abaqus) run foreign images with their own deps. Run in a thread so
+    # run foreign images with their own deps. Run in a thread so
     # a slow cold import (OCC/ifcopenshell off a cold page cache) doesn't stall the
     # event loop's NATS keepalive while the worker is still starting up.
     if "base" in {c.lower() for c in capabilities}:

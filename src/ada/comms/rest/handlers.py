@@ -94,7 +94,7 @@ def _infer_file_type(key: str, extra_source_exts: frozenset[str] | None = None) 
     if ext in _CONVERTABLE_AS_IFC:
         return FileTypeDC.IFC
     # Extensions advertised by capability workers' stream-reader plug-ins
-    # (e.g. .odb when an abaqus-capability worker is online). adapy core
+    # (e.g. a solver result format a capability worker is online for). adapy core
     # doesn't know these statically, so they'd otherwise be silently
     # filtered out of the storage overview even though the upload
     # succeeded. Flag them as IFC so the same convert-or-pick-step UX
