@@ -638,13 +638,22 @@ const CapacityControls: React.FC = () => {
                 className="bg-gray-800 border border-gray-600 rounded-sm px-2 py-1"
                 value={activeMetricId}
                 onChange={(e) => setActiveMetricId(e.target.value)}
-                disabled={!showResults}
+                disabled={!showResults || run.visual_fields.length === 0}
               >
-                {run.visual_fields.map((field) => (
-                  <option key={field.id} value={field.id}>
-                    {metricLabel(run, field)}
+                {/* A run published as definitions only — reconstructed, not yet
+                    checked — has no fields to colour by. Say so rather than
+                    render an empty dropdown that reads as broken. */}
+                {run.visual_fields.length === 0 ? (
+                  <option value="">
+                    {calculating ? "Not calculated yet" : "No results"}
                   </option>
-                ))}
+                ) : (
+                  run.visual_fields.map((field) => (
+                    <option key={field.id} value={field.id}>
+                      {metricLabel(run, field)}
+                    </option>
+                  ))
+                )}
               </select>
             </label>
             <label className="inline-flex items-center gap-2 pb-1 text-gray-300">
