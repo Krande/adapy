@@ -36,9 +36,15 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
     ms = fea_res.mesh.create_mesh_stores(fea_res.name, converter.graph, converter.graph.top_level)
     ms.add_to_scene(scene, graph)
 
-    face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == ms.faces_node_name][0]
-    edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == ms.edges_node_name][0]
-    vrtx_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == ms.points_node_name][0]
+    # Animation channels target the node index in the *exported* glTF tree.
+    # trimesh 5 no longer emits the synthetic base frame ("world") as a node
+    # when it carries no geometry, so the exported node index equals the
+    # position among the geometry nodes — use ``nodes_geometry`` (which
+    # excludes the base frame) rather than ``nodes`` (which includes it and
+    # would be off by one).
+    face_node_idx = [i for i, n in enumerate(scene.graph.nodes_geometry) if n == ms.faces_node_name][0]
+    edge_node_idx = [i for i, n in enumerate(scene.graph.nodes_geometry) if n == ms.edges_node_name][0]
+    vrtx_node_idx = [i for i, n in enumerate(scene.graph.nodes_geometry) if n == ms.points_node_name][0]
 
     # React renderer supports animations
     sim_data = export_sim_metadata(fea_res)
