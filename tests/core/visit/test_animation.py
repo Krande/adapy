@@ -17,7 +17,10 @@ def test_polygon_animation_simple(polygon_mesh, tmp_path):
     # Debugging existing glb/gltf files containing animations: https://3d-tile-content-inspector.vercel.app/
     # Validation of created glb/gltf file: https://github.khronos.org/glTF-Validator/
 
-    def add_animation_to_buffer(buffer_items, tree, node_no=1):
+    # trimesh 5 drops the synthetic "world" base frame from the exported glTF
+    # nodes when it carries no geometry, so the single geometry node is index 0
+    # (it was 1 under trimesh 4, which emitted the base frame as node 0).
+    def add_animation_to_buffer(buffer_items, tree, node_no=0):
         from trimesh.exchange.gltf import _data_append
 
         deform = np.array(
@@ -83,7 +86,7 @@ def test_single_polygon_animate_using_store(polygon_mesh, tmp_path):
     scene = trimesh.Scene()
 
     node_name = scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
-    node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == node_name][0]
+    node_idx = [i for i, n in enumerate(scene.graph.nodes_geometry) if n == node_name][0]
 
     animation_store = SceneConverter(None)
 
@@ -112,7 +115,7 @@ def test_single_polygon_multiple_animations(polygon_mesh, tmp_path):
     scene = trimesh.Scene()
 
     node_name = scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
-    node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == node_name][0]
+    node_idx = [i for i, n in enumerate(scene.graph.nodes_geometry) if n == node_name][0]
 
     animation_store = SceneConverter(None)
 

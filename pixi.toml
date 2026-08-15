@@ -256,7 +256,7 @@ h5py = "*"
 ifcopenshell = "*"
 python-gmsh = "*"
 pyquaternion = "*"
-trimesh = "*"
+trimesh = ">=5,<6"
 websockets = ">=14"
 pyparsing = "*"
 flatbuffers = "*"
@@ -264,6 +264,10 @@ python-flatbuffers = "*"
 lark = "*"
 pillow = "*"
 pydantic = "*"
+# openpyxl backs ada.serialize.xlsx (+ topo_model excel_io / takeoff). It was
+# previously only reaching users transitively; declare it explicitly so the
+# runtime closure is self-contained.
+openpyxl = "*"
 
 # Notebook / rendering / static-export deps. Held separate from `prod`
 # so the slim viewer-api / worker images don't ship the
