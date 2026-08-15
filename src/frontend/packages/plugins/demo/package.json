@@ -1,0 +1,17 @@
+{
+  "name": "@adapy-plugins/demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Built-in demo plugin — exercises every adapy viewer plugin slot end-to-end. Dormant unless explicitly enabled (?plugins=demo).",
+  "main": "./src/register.tsx",
+  "module": "./src/register.tsx",
+  "types": "./src/register.tsx",
+  "exports": {
+    ".": {
+      "types": "./src/register.tsx",
+      "import": "./src/register.tsx"
+    },
+    "./manifest": "./plugin.manifest.json"
+  }
+}
