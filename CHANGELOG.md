@@ -2,6 +2,15 @@
 
 
 
+## v0.35.1 (2026-08-15)
+
+### Fix
+
+* fix: pin trimesh 5.x and declare openpyxl as an explicit dependency (#249)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`187dbd7`](https://github.com/Krande/adapy/commit/187dbd79f36639cd77856b913cedb4d1fa8eb13a))
+
+
 ## v0.35.0 (2026-08-14)
 
 ### Feature
