@@ -2703,6 +2703,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             out[slug] = {"slug": slug, "name": slug.replace("_", " ").title()}
         return out
 
+    @api.get("/plugins")
+    async def api_plugins(request: Request) -> JSONResponse:
+        """Backend plugins advertised to the viewer plugin system: the union of
+        the static built-ins (``builtin_plugin_specs`` — empty in core) and any a
+        live (non-stale) worker advertises via ``plugin_specs`` (its
+        ``ADA_WORKER_PRELOAD`` / ``ada.plugins`` entry point registered it with
+        ``register_plugin_backend``), keyed by ``slug`` and tagged ``origin``
+        ``code``/``db`` + ``online:true``. No hardcoded plugins: a backend plugin
+        appears only while a pool that provides it is online — the same
+        self-describing contract the procedural/detailing engines use. The
+        frontend build-time registry can seed off this so a runtime-only backend
+        plugin still surfaces."""
+        from .catalog import builtin_plugin_specs
+
+        by_slug: dict[str, dict] = {}
+        for spec in builtin_plugin_specs():
+            by_slug[spec["slug"]] = {**spec, "origin": "code", "online": True}
+        builtin_slugs = set(by_slug)
+        for slug, spec in (await _live_worker_specs("plugin_specs")).items():
+            by_slug[slug] = {
+                **spec,
+                "slug": slug,
+                "origin": "code" if slug in builtin_slugs else "db",
+                "online": True,
+            }
+        return JSONResponse({"plugins": list(by_slug.values())})
+
     @api.get("/scopes/{scope}/procedural-models/equipment-types")
     async def api_procedural_equipment_types(
         request: Request,

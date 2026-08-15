@@ -3552,6 +3552,18 @@ async def _run() -> None:
             logger.info("worker: preloading %s", mod_name)
             _importlib.import_module(mod_name)
 
+    # Entry-point plugin discovery (the ``ada.plugins`` group) — the in-core
+    # complement to ADA_WORKER_PRELOAD. Each plugin's register() runs its
+    # import-side-effect ``register_plugin_backend`` so the heartbeat below
+    # advertises it. Isolated per-plugin (a broken plugin is logged + skipped),
+    # unlike the deliberately-fatal preload above.
+    try:
+        from ada.plugins import discover_plugins
+
+        discover_plugins()
+    except Exception:
+        logger.exception("worker: ada.plugins discovery failed (non-fatal)")
+
     # Self-identify so the viewer's /api/config + /api/admin/workers
     # can surface this worker. Two artefacts:
     #
@@ -3764,6 +3776,17 @@ async def _run() -> None:
     except Exception:
         logger.exception("worker: failed to list detailing engines (non-fatal)")
         procedural_detailing_engines = []
+    # Backend plugin specs (the viewer plugin system). Advertised so the REST
+    # ``/api/plugins`` endpoint unions the static built-ins with any plugin a
+    # capability worker's ADA_WORKER_PRELOAD / ``ada.plugins`` entry point
+    # registered via register_plugin_backend. Empty until a plugin registers.
+    try:
+        from ada.plugins import plugin_backend_specs
+
+        plugin_specs = plugin_backend_specs()
+    except Exception:
+        logger.exception("worker: failed to list backend plugins (non-fatal)")
+        plugin_specs = []
 
     async def _publish_registration() -> None:
         try:
@@ -3786,6 +3809,7 @@ async def _run() -> None:
                     "procedural_template_specs": procedural_templates,
                     "procedural_engine_specs": procedural_engines,
                     "procedural_detailing_engine_specs": procedural_detailing_engines,
+                    "plugin_specs": plugin_specs,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },

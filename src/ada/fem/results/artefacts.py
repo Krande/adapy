@@ -2010,6 +2010,30 @@ def build_manifest(
         manifest["groups"] = groups
     if legacy_glb_url_template is not None:
         manifest["legacy_glb"] = {"url_template": legacy_glb_url_template}
+
+    # Plugin artefact contributors (Decision 3). Core must NOT import any plugin;
+    # instead each registered contributor is called with a small bake context and
+    # its opaque return lands under the reserved ``manifest["plugins"][id]`` map.
+    # Phase 1 registers no contributors, so this adds nothing (the ``plugins`` key
+    # only appears when a plugin contributes) — behaviour is unchanged. Every
+    # contributor is isolated so a broken plugin can't fail the bake.
+    import logging as _logging
+
+    try:
+        from ada.plugins import plugin_artefact_contributors
+
+        bake_ctx = {"src": src, "n_cells": n_cells, "n_fields": len(fields_payload)}
+        for plugin_id, contribute in plugin_artefact_contributors():
+            try:
+                contribution = contribute(bake_ctx)
+            except Exception:
+                _logging.getLogger(__name__).exception("plugin %s artefact contributor failed (skipped)", plugin_id)
+                continue
+            if contribution is not None:
+                manifest.setdefault("plugins", {})[plugin_id] = contribution
+    except Exception:
+        _logging.getLogger(__name__).exception("plugin artefact-contributor hook failed (non-fatal)")
+
     return manifest
 
 
