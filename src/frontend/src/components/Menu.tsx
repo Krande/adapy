@@ -39,6 +39,7 @@ const EquipmentAdminPanel = React.lazy(
 const SystemAdminPanel = React.lazy(() => import("./admin/SystemAdminPanel"));
 import SceneInfoBox from "./info_box_scene/SceneInfoBox";
 import { WebsocketStatusMenu, WebsocketStatusBox } from "./WebsocketStatusMenu";
+import { PluginTopBarButtons, PluginPanelRegion } from "@/plugins";
 
 // `md:` Tailwind breakpoint. Match it with matchMedia so the menu can
 // react to viewport changes (rotating a tablet, dragging the window
@@ -308,6 +309,9 @@ const Menu = () => {
           </button>
           {/* Equipment / system catalogs live in the Admin panel
                         (Equipment / System tabs) — no separate top-row buttons. */}
+          {/* Plugin-contributed top-bar buttons (region "top-panel"). Core
+              iterates the registry; no plugin is named here. */}
+          <PluginTopBarButtons navBtnClass={(active) => navBtnClass(active)} />
           {!runtime.isRestMode() && (
             <div className={navBtnClass(showWebsocketInfoBox)}>
               <WebsocketStatusMenu />
@@ -359,6 +363,10 @@ const Menu = () => {
               <SystemAdminPanel />
             </Suspense>
           )}
+          {/* Plugin-contributed panels (region "top-panel"). Each is wrapped in
+              an ErrorBoundary inside PluginPanelRegion so a plugin crash is
+              contained. Renders nothing when no plugin is active. */}
+          <PluginPanelRegion region="top-panel" />
         </div>
       </div>
     </div>

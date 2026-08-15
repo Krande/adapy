@@ -402,6 +402,13 @@ export interface FeaManifest {
     fe_object_type?: "node" | "element";
   }[];
   legacy_glb?: { url_template: string };
+  /** Reserved plugin data map (Decision 3). Each key is a plugin id; the value
+   *  is OPAQUE to core — a plugin's result-sidecar loader reads its own entry
+   *  (`manifest.plugins["<id>"]`) and its `{sidecarPrefix}.*` blobs. Core never
+   *  interprets the shape, so the manifest schema stays stable as plugins come
+   *  and go. This is the pass-through a result plugin's manifest sub-object
+   *  rides on. */
+  plugins?: Record<string, unknown>;
 }
 
 export interface FeaManifestLineage {
@@ -1393,6 +1400,14 @@ export const viewerApi = {
    * along. */
   blobUrl(scope: ScopeUrl, key: string): string {
     return `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/blobs/${encodeURIComponent(key)}`;
+  },
+
+  /** Base URL for a plugin's namespaced REST routes: `/api/plugins/{id}` (the
+   * frontend twin of the backend's path-prefixed plugin router convention,
+   * Decision 3). A plugin builds its own endpoints as `${pluginBase(id)}/...`;
+   * core reserves the `/plugins/` path segment and never names a plugin here. */
+  pluginBase(id: string): string {
+    return `${runtime.apiBase()}/plugins/${encodeURIComponent(id)}`;
   },
 
   /** Bootstrap the SPA's identity + available scopes. */

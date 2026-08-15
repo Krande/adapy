@@ -22,6 +22,8 @@ export default defineConfig({
     resolve: {
         alias: {
             "@": path.resolve(__dirname, 'src'),
+            // See vite.config.ts — plugin packages resolve to their TS source.
+            "@adapy-plugins/demo": path.resolve(__dirname, 'packages/plugins/demo/src/register.tsx'),
         },
     },
     build: {

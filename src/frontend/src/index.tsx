@@ -5,6 +5,12 @@ import { initWebSocket } from "./utils/websocket/initWebSocket";
 import { load_base64_model } from "./utils/scene/handlers/update_scene_from_message";
 import { runtime } from "@/runtime/config";
 import ErrorBoundary from "./components/common/ErrorBoundary";
+import { loadPlugins } from "@/plugins";
+
+// Register built-in (build-time) plugins into the core registry before the UI
+// mounts, so the slot hosts see a populated registry on first render. Plugins
+// ship dormant (activation-gated), so this is a no-op for existing users.
+loadPlugins();
 
 // start websocket here
 initWebSocket();

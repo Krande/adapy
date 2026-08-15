@@ -16,6 +16,8 @@ import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
 import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
 import {fastSceneBox} from "@/utils/scene/boundsFast";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
+import {runResultSidecarLoaders, makeManifestFetcher} from "@/plugins/sidecarLoaders";
+import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 
 /** Optional hook to mutate the freshly-loaded gltf scene (typically
  * to inject ``userData["draw_ranges_<meshName>"]`` and
@@ -204,5 +206,25 @@ export async function setupModelLoaderAsync(
             requestAnimationFrame(() => zoomToAll(scn, cam as THREE.PerspectiveCamera, ctl));
         }
     }
+
+    // Plugin result-sidecar run-point: once core geometry is visible, offer the
+    // load to any registered sidecar loader (multi-plugin generalisation of the
+    // FEA-only prepareHook above). This generic CAD/GLB path carries no result
+    // manifest, so loaders that key on `manifest.plugins` see undefined and
+    // no-op; loaders that self-detect (e.g. a deep-link flag) still run. The FEA
+    // streaming path passes its real manifest. Fully isolated — a throwing
+    // plugin can't break the load.
+    try {
+        const scope = scopeUrlPart(useScopeStore.getState().current);
+        void runResultSidecarLoaders({
+            manifest: undefined,
+            fetcher: makeManifestFetcher(modelUrl, requestHeaders),
+            scope,
+            sourceName,
+        });
+    } catch (err) {
+        console.warn("[plugins] sidecar run-point failed (non-fatal)", err);
+    }
+
     return modelGroup;
 }

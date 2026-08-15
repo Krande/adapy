@@ -18,6 +18,10 @@ export default defineConfig({
     resolve: {
         alias: {
             "@": path.resolve(__dirname, 'src'),
+            // Build-time plugin packages resolve to their TS source so they are
+            // transformed as first-party code (avoids a node_modules TSX
+            // pre-bundle for the workspace symlink). Enabled set is in plugins.json.
+            "@adapy-plugins/demo": path.resolve(__dirname, 'packages/plugins/demo/src/register.tsx'),
         },
     },
     build: {

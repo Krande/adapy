@@ -29,6 +29,7 @@ import PlayPauseIcon from "../icons/PlayPauseIcon";
 import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
 import FEMDataPanelIcon from "../icons/FEMDataPanelIcon";
+import {PluginPanelRegion, PluginColorFields} from "@/plugins";
 
 const SimulationControls = () => {
     const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
@@ -58,6 +59,14 @@ const SimulationControls = () => {
                     <SimulationDataInfoPanel/>
                 </div>
             )}
+            {/* Plugin-contributed scene color fields — an additive picker that
+                routes selection through core's paint + legend path. No-op when
+                no plugin advertises a color field. */}
+            <PluginColorFields/>
+            {/* Plugin-contributed FEM-sidebar panels (region "fem-sidebar").
+                Each is ErrorBoundary-wrapped; renders nothing when no plugin is
+                active. This is the seam a result-review plugin panel mounts into. */}
+            <PluginPanelRegion region="fem-sidebar"/>
         </div>
     );
 };

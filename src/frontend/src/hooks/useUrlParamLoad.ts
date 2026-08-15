@@ -2,6 +2,7 @@ import {useEffect, useRef} from "react";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {sceneRef} from "@/state/refs";
 import {runtime} from "@/runtime/config";
+import {dispatchPluginUrlParams} from "@/plugins/urlParams";
 
 // Consume ``?scope=...&file=...`` query params on viewer mount.
 //
@@ -27,12 +28,22 @@ const SCENE_WAIT_MAX_MS = 15000;
 
 export function useUrlParamLoad(): void {
     const consumed = useRef(false);
+    const pluginParamsOffered = useRef(false);
     const available = useScopeStore((s) => s.available);
     const setCurrent = useScopeStore((s) => s.setCurrent);
 
     useEffect(() => {
         if (consumed.current) return;
         if (!runtime.isRestMode()) return;
+
+        // Offer the deep-link query params to registered plugin url-param
+        // handlers once on mount (independent of core's ?file= handling below,
+        // and before it — a plugin may claim params even with no file load).
+        // Fully isolated; core routing is unchanged.
+        if (!pluginParamsOffered.current) {
+            pluginParamsOffered.current = true;
+            void dispatchPluginUrlParams(window.location.search);
+        }
 
         const params = new URLSearchParams(window.location.search);
         const fileParam = params.get("file");

@@ -129,6 +129,44 @@ const AdaViewerContext = createContext<AdaViewerCtx | null>(null)
 
 
 /**
+ * The Phase-1 singleton store bag, built once. The provider hands this to React
+ * consumers via `useViewerStores()`; non-React callers (e.g. the plugin
+ * sidecar-loader run-point, which fires mid model-load outside the React tree)
+ * read it through `getSingletonViewerStores()`. Both paths therefore see the
+ * exact same store instances. Phase 2/3 replaces this with per-instance
+ * `createStore()` factories built inside the provider.
+ */
+export const SINGLETON_VIEWER_STORES: AdaViewerStores = {
+    useAnimationStore: g_useAnimationStore,
+    useColorStore: g_useColorStore,
+    useCompressionStore: g_useCompressionStore,
+    useConversionStore: g_useConversionStore,
+    useExperimentalStore: g_useExperimentalStore,
+    useFeaAnimationStore: g_useFeaAnimationStore,
+    useSceneInfoStore: g_useSceneInfoStore,
+    useLineageStore: g_useLineageStore,
+    useMeStore: g_useMeStore,
+    useModelState: g_useModelState,
+    useObjectInfoStore: g_useObjectInfoStore,
+    useOptionsStore: g_useOptionsStore,
+    usePerfStore: g_usePerfStore,
+    useScopeStore: g_useScopeStore,
+    useServerInfoStore: g_useServerInfoStore,
+    useTableNavStore: g_useTableNavStore,
+    useTreeViewStore: g_useTreeViewStore,
+    useNodeEditorStore: g_useNodeEditorStore,
+    useSelectedObjectStore: g_useSelectedObjectStore,
+    useWebsocketStatusStore: g_useWebsocketStatusStore,
+    useWebSocketStore: g_useWebSocketStore,
+}
+
+/** Non-hook accessor for the Phase-1 singleton store bag (see above). */
+export function getSingletonViewerStores(): AdaViewerStores {
+    return SINGLETON_VIEWER_STORES
+}
+
+
+/**
  * Read the surrounding `<AdaViewerProvider>`'s context. Throws when
  * called outside one — every consumer is supposed to live inside an
  * `<AdaViewerProvider>`, so a missing provider is a programmer
@@ -183,29 +221,7 @@ export function AdaViewerProvider({ children }: { children: ReactNode }) {
                 modelKeyMap: g_modelKeyMapRef,
                 selectedPoint: g_selectedPointRef,
             },
-            stores: {
-                useAnimationStore: g_useAnimationStore,
-                useColorStore: g_useColorStore,
-                useCompressionStore: g_useCompressionStore,
-                useConversionStore: g_useConversionStore,
-                useExperimentalStore: g_useExperimentalStore,
-                useFeaAnimationStore: g_useFeaAnimationStore,
-                useSceneInfoStore: g_useSceneInfoStore,
-                useLineageStore: g_useLineageStore,
-                useMeStore: g_useMeStore,
-                useModelState: g_useModelState,
-                useObjectInfoStore: g_useObjectInfoStore,
-                useOptionsStore: g_useOptionsStore,
-                usePerfStore: g_usePerfStore,
-                useScopeStore: g_useScopeStore,
-                useServerInfoStore: g_useServerInfoStore,
-                useTableNavStore: g_useTableNavStore,
-                useTreeViewStore: g_useTreeViewStore,
-                useNodeEditorStore: g_useNodeEditorStore,
-                useSelectedObjectStore: g_useSelectedObjectStore,
-                useWebsocketStatusStore: g_useWebsocketStatusStore,
-                useWebSocketStore: g_useWebSocketStore,
-            },
+            stores: SINGLETON_VIEWER_STORES,
         }),
         [],
     )

@@ -117,6 +117,11 @@ export default defineConfig({
                 find: /^@\/utils\/pyodide\/pyodide_converter$/,
                 replacement: path.resolve(__dirname, 'embed/stubs/pyodide_converter.ts'),
             },
+            // Plugin packages resolve to their TS source (see vite.config.ts).
+            {
+                find: '@adapy-plugins/demo',
+                replacement: path.resolve(__dirname, 'packages/plugins/demo/src/register.tsx'),
+            },
             {find: '@', replacement: path.resolve(__dirname, 'src')},
         ],
     },
