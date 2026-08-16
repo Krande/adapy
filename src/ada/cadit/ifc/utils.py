@@ -379,11 +379,23 @@ def write_elem_property_sets(metadata_props, elem, f, owner_history) -> None:
     if len(metadata_props.keys()) == 0 or Config().ifc_export_props is False:
         return None
 
-    if isinstance(list(metadata_props.values())[0], dict):
-        for pro_id, prop_ in metadata_props.items():
-            add_properties_to_elem(pro_id, f, elem, prop_, owner_history=owner_history)
-    else:
+    # Metadata may be homogeneous (every value a nested property-set dict),
+    # flat (all scalar/list values -> one "Properties" set), or MIXED (nested
+    # dicts alongside scalar tags, e.g. a "STRUCTURE_NAME": "Mini" next to
+    # computed sub-dicts). Route each dict value to its own named set and
+    # collect the remaining scalar/list values into a single default set,
+    # rather than assuming homogeneity from the first value alone — a mixed
+    # dict whose first value was a dict crashed on the scalar siblings.
+    nested = {k: v for k, v in metadata_props.items() if isinstance(v, dict)}
+    if not nested:
         add_properties_to_elem("Properties", f, elem, metadata_props, owner_history=owner_history)
+        return None
+
+    for pro_id, prop_ in nested.items():
+        add_properties_to_elem(pro_id, f, elem, prop_, owner_history=owner_history)
+    flat = {k: v for k, v in metadata_props.items() if not isinstance(v, dict)}
+    if flat:
+        add_properties_to_elem("Properties", f, elem, flat, owner_history=owner_history)
 
 
 def add_negative_extrusion(f, origin, loc_z, loc_x, depth, points, parent):
