@@ -15,6 +15,7 @@ from ada.plugins import (
     PLUGIN_ENTRY_POINT_GROUP,
     discover_plugins,
     plugin_artefact_contributors,
+    plugin_backend_spec,
     plugin_backend_specs,
     register_plugin_artefact_contributor,
     register_plugin_backend,
@@ -73,6 +74,25 @@ def test_reserved_sidecar_prefix_defaults_to_id_and_honours_alias():
 def test_register_backend_plugin_rejects_bad_id():
     with pytest.raises(ValueError):
         register_plugin_backend("")
+
+
+def test_plugin_backend_spec_lookup_resolves_job_entrypoint():
+    # The worker's generic plugin-job dispatch resolves a plugin's job_entrypoint
+    # (advertised via **extra) through this lookup — core never names the plugin.
+    register_plugin_backend(
+        "capacity-manager",
+        worker_capability="capacity",
+        job_entrypoint="codecheck.adapy_plugin:run_capacity_job",
+    )
+    spec = plugin_backend_spec("capacity-manager")
+    assert spec is not None
+    assert spec["worker_capability"] == "capacity"
+    assert spec["job_entrypoint"] == "codecheck.adapy_plugin:run_capacity_job"
+    # Unknown id -> None (dispatch then errors the job with a helpful message).
+    assert plugin_backend_spec("unknown") is None
+    # Returned dict is a copy — mutating it must not corrupt the registry.
+    spec["worker_capability"] = "mutated"
+    assert plugin_backend_spec("capacity-manager")["worker_capability"] == "capacity"
 
 
 def test_artefact_contributor_registration_and_ordering():

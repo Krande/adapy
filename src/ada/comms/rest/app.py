@@ -2703,6 +2703,75 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             out[slug] = {"slug": slug, "name": slug.replace("_", " ").title()}
         return out
 
+    @api.post("/plugins/{plugin_id}/jobs")
+    async def api_plugin_job(
+        plugin_id: str,
+        request: Request,
+        scope: str = "shared",
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Enqueue an on-demand backend job for a plugin — generic; core names no
+        plugin.
+
+        Body: ``{"options": dict, "derived_key": str | None, "derived_prefix":
+        str | None, "capability": str | None}``. ``options`` is passed opaquely to
+        the plugin's ``job_entrypoint``; the returned summary lands as JSON at
+        ``derived_key`` and the plugin writes its sidecar bundle under its reserved
+        prefix (``derived_prefix``). Poll via ``GET /api/convert/{job_id}``.
+        """
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="plugin jobs disabled (no NATS configured)")
+        body = await request.json()
+        options = body.get("options") or {}
+        if not isinstance(options, dict):
+            raise HTTPException(status_code=400, detail="options must be a dict")
+
+        scope_obj = _parse_scope(scope, user)
+        scope_obj = await _resolve_project_scope(getattr(request.app.state, "db_pool", None), scope_obj)
+        if not await scope_can_access(user, scope_obj, getattr(request.app.state, "db_pool", None)):
+            raise HTTPException(status_code=403, detail="forbidden")
+
+        # No source file — synthetic source_key over (plugin_id, options hash) so
+        # identical requests cache-hit. derived_key holds the JSON summary the
+        # plugin returns (the sidecar bundle lives under derived_prefix).
+        import hashlib as _hashlib
+
+        opts_hash = _hashlib.sha256(json.dumps(options, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+        source_key = f"_synthetic/plugin_job/{plugin_id}/{opts_hash}"
+        derived_key = body.get("derived_key")
+        if not isinstance(derived_key, str) or not derived_key.strip():
+            derived_key = f"_derived/plugin_jobs/{plugin_id}/{opts_hash}.json"
+
+        # Route to the pool advertising this plugin's worker_capability. Caller may
+        # override; otherwise read it off the live plugin spec so the right pool
+        # (e.g. a capacity worker) picks the job up.
+        target_capability = body.get("capability")
+        if isinstance(target_capability, str) and target_capability.strip():
+            target_capability = target_capability.strip().lower()
+        else:
+            target_capability = None
+            for spec in (await _live_worker_specs("plugin_specs")).values():
+                if spec.get("slug") == plugin_id or spec.get("id") == plugin_id:
+                    cap = spec.get("worker_capability")
+                    if isinstance(cap, str) and cap.strip():
+                        target_capability = cap.strip().lower()
+                    break
+
+        job = await queue.enqueue(
+            source_key,
+            target_format="plugin_job",
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            conversion_options={
+                "plugin_id": plugin_id,
+                "options": options,
+                "derived_prefix": body.get("derived_prefix"),
+            },
+            derived_key=derived_key,
+            target_capability=target_capability,
+        )
+        return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
+
     @api.get("/plugins")
     async def api_plugins(request: Request) -> JSONResponse:
         """Backend plugins advertised to the viewer plugin system: the union of

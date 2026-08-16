@@ -43,6 +43,7 @@ __all__ = [
     "PLUGIN_ENTRY_POINT_GROUP",
     "register_plugin_backend",
     "plugin_backend_specs",
+    "plugin_backend_spec",
     "register_plugin_artefact_contributor",
     "plugin_artefact_contributors",
     "reserved_sidecar_prefix",
@@ -103,6 +104,15 @@ def plugin_backend_specs() -> list[dict]:
     the registry) — the shape a worker advertises on its heartbeat under
     ``plugin_specs``."""
     return [dict(v) for v in _PLUGIN_REGISTRY.values()]
+
+
+def plugin_backend_spec(plugin_id: str) -> dict | None:
+    """The registered spec for ``plugin_id`` (a fresh copy), or ``None`` if not
+    registered. Used by the worker's generic plugin-job dispatch to resolve a
+    plugin's ``job_entrypoint`` (advertised via ``**extra`` on
+    :func:`register_plugin_backend`) without core ever naming the plugin."""
+    spec = _PLUGIN_REGISTRY.get(plugin_id)
+    return dict(spec) if spec else None
 
 
 def reserved_sidecar_prefix(plugin_id: str) -> str:

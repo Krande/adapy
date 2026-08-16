@@ -2493,6 +2493,117 @@ async def _run_utility_job(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+async def _run_plugin_job(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Run a plugin's on-demand backend job — the generic dispatch (core names no
+    plugin). Synthetic: no source file; the plugin fetches whatever it needs via
+    the scope-bound storage facade.
+
+    ``conversion_options`` carries ``{"plugin_id": str, "options": dict,
+    "derived_prefix": str | None}``. The worker resolves the plugin's advertised
+    ``job_entrypoint`` (``"module:callable"``) from the backend registry the pool
+    preloaded (``ADA_WORKER_PRELOAD`` / ``ada.plugins``), calls it in an executor
+    with the sync storage facade + a progress bridge + the derived-blob prefix,
+    and stores the returned summary dict (JSON, gzipped) at ``job.derived_key``.
+    The plugin owns writing its own sidecar bundle under its reserved prefix.
+    """
+    import importlib
+    import json
+
+    from ada.plugins import plugin_backend_spec
+
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    plugin_id = opts.get("plugin_id")
+    if not plugin_id:
+        await queue.update(
+            job_id,
+            status=JOB_STATUS_ERROR,
+            stage="plugin",
+            error="conversion_options.plugin_id is required for a plugin_job",
+        )
+        await _audit_done(db_pool, job_id, "error", "missing plugin_id", started_at)
+        return
+
+    spec = plugin_backend_spec(plugin_id)
+    entry = (spec or {}).get("job_entrypoint")
+    if not spec or not entry:
+        msg = (
+            f"plugin {plugin_id!r} is not registered on this worker or advertises no "
+            f"job_entrypoint — is its backend on ADA_WORKER_PRELOAD / an ada.plugins entry point?"
+        )
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="plugin", error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at)
+        return
+
+    try:
+        mod_name, _, attr = entry.partition(":")
+        fn = getattr(importlib.import_module(mod_name), attr)
+    except Exception as exc:
+        logger.exception("worker: plugin_job entrypoint %s import failed", entry)
+        await queue.update(
+            job_id, status=JOB_STATUS_ERROR, stage="plugin", error=f"entrypoint import failed: {exc}"
+        )
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
+        return
+
+    loop = asyncio.get_running_loop()
+    sync_storage = _SyncStorageFacade(storage, scope, loop)
+
+    async def _aprog(stage: str, frac: float) -> None:
+        await queue.update(job_id, stage=stage, progress=max(0.1, min(0.95, float(frac))))
+
+    def _sync_on_progress(stage: str, frac: float) -> None:
+        # The plugin calls this synchronously from the executor thread; hop it
+        # onto the loop so stage/progress land in the job row. A hiccup here must
+        # never sink the job.
+        try:
+            asyncio.run_coroutine_threadsafe(_aprog(stage, frac), loop)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _invoke() -> dict:
+        return fn(
+            opts.get("options") or {},
+            storage=sync_storage,
+            scope=scope,
+            on_progress=_sync_on_progress,
+            derived_prefix=opts.get("derived_prefix"),
+        )
+
+    try:
+        await queue.update(job_id, stage="plugin", progress=0.10)
+        summary = await loop.run_in_executor(None, _invoke)
+    except Exception as exc:
+        logger.exception("worker: plugin_job %s failed for job %s", plugin_id, job_id)
+        trace = tb_module.format_exc()
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="plugin", error=str(exc))
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.95)
+        payload = summary if isinstance(summary, dict) else {"result": summary}
+        await storage.put_bytes(
+            scope, job.derived_key, json.dumps(payload).encode("utf-8"), content_encoding="gzip"
+        )
+    except Exception as exc:
+        logger.exception("worker: plugin_job %s summary upload failed for job %s", plugin_id, job_id)
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
 async def _try_reduced_sif_source(
     storage: Storage,
     scope: Scope,
@@ -2732,6 +2843,20 @@ async def _process_one(
     # single source of truth) and is compiled in-process via ada.topo_model.
     if job.target_format == "procedural_build":
         await _run_procedural_build(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
+    # plugin_job is synthetic too: a plugin's on-demand backend job. Core names
+    # no plugin — the worker resolves the registered plugin's job_entrypoint from
+    # the backend registry the pool preloaded (ADA_WORKER_PRELOAD / ada.plugins).
+    if job.target_format == "plugin_job":
+        await _run_plugin_job(
             job=job,
             scope=scope,
             storage=storage,
@@ -3971,6 +4096,7 @@ async def _run() -> None:
                         "procedural_export_model",
                         "procedural_import_xlsx",
                         "equipment_bbox",
+                        "plugin_job",
                     ):
                         can_handle = True
                         ext = ""
