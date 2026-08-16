@@ -30,11 +30,13 @@ def general_beam(sec: Section, sec_id) -> str:
 
 def angular(sec: Section, sec_id) -> str:
     p = sec.properties
+    width = sec.w_top if sec.w_top is not None else sec.w_btn
+    thickness = sec.t_ftop if sec.t_ftop is not None else sec.t_fbtn
     return write_ff(
         "GLSEC",
         [
-            (sec_id, sec.h, sec.t_w, sec.w_btn),
-            (sec.t_fbtn, p.Sfy, p.Sfz, 1),
+            (sec_id, sec.h, sec.t_w, width),
+            (thickness, p.Sfy, p.Sfz, 1),
         ],
     )
 

@@ -36,6 +36,7 @@ def get_sections(bulk_str, fem: FEM, mass_elem, spring_elem) -> FemSections:
         (get_isection(m, sect_names, fem) for m in cards.GIORH.to_ff_re().finditer(bulk_str)),
         (get_box_section(m, sect_names, fem) for m in cards.GBOX.to_ff_re().finditer(bulk_str)),
         (get_tubular_section(m, sect_names, fem) for m in cards.re_gpipe.finditer(bulk_str)),
+        (get_angular_section(m, sect_names, fem) for m in cards.GLSEC.to_ff_re().finditer(bulk_str)),
         (get_flatbar(m, sect_names, fem) for m in cards.re_gbarm.finditer(bulk_str)),
     )
 
@@ -86,6 +87,23 @@ def get_box_section(match, sect_names, fem) -> Section:
         t_w=roundoff(d["ty"]),
         t_ftop=roundoff(d["tt"]),
         t_fbtn=roundoff(d["tb"]),
+        parent=fem.parent,
+    )
+
+
+def get_angular_section(match, sect_names, fem) -> Section:
+    d = match.groupdict()
+    sec_id = str_to_int(d["geono"])
+    return Section(
+        name=sect_names[sec_id],
+        sec_id=sec_id,
+        sec_type=Section.TYPES.ANGULAR,
+        h=roundoff(d["hz"]),
+        w_top=roundoff(d["by"]),
+        w_btn=roundoff(d["by"]),
+        t_w=roundoff(d["ty"]),
+        t_ftop=roundoff(d["tz"]),
+        t_fbtn=roundoff(d["tz"]),
         parent=fem.parent,
     )
 
