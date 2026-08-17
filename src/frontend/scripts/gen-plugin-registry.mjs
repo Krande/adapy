@@ -19,6 +19,30 @@ const outPath = resolve(root, "src/plugins/registry.generated.ts");
 const config = JSON.parse(readFileSync(configPath, "utf8"));
 const enabled = Array.isArray(config.enabled) ? config.enabled : [];
 
+// Build-time overlay: extra plugin packages enabled without editing the committed
+// plugins.json — a comma-separated ADA_PLUGINS_EXTRA (package names, or
+// package=importName). This is how an externally-overlaid plugin (dropped into
+// packages/plugins/ at build time) registers, keeping core config plugin-neutral.
+const extraEnv = (process.env.ADA_PLUGINS_EXTRA || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .map((spec) => {
+    const [pkg, importName] = spec.split("=").map((s) => s.trim());
+    return importName ? { package: pkg, importName } : pkg;
+  });
+if (extraEnv.length) {
+  const seen = new Set(enabled.map((e) => (typeof e === "string" ? e : e.package)));
+  for (const e of extraEnv) {
+    const pkg = typeof e === "string" ? e : e.package;
+    if (!seen.has(pkg)) {
+      enabled.push(e);
+      seen.add(pkg);
+    }
+  }
+  console.log(`[gen-plugin-registry] +${extraEnv.length} from ADA_PLUGINS_EXTRA`);
+}
+
 const imports = [];
 const calls = [];
 enabled.forEach((entry, i) => {

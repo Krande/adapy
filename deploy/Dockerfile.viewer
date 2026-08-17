@@ -44,6 +44,35 @@ WORKDIR /build
 COPY src/frontend/package.json src/frontend/package-lock.json ./
 RUN npm ci
 COPY src/frontend/ ./
+
+# Optional external-plugin overlay — GENERIC, names no plugin here. When
+# EXTRA_PLUGINS_GIT is set (via the forgejo build's Action variables/secret), clone
+# that repo and drop each plugin package under EXTRA_PLUGINS_SUBDIR into
+# packages/plugins/, then enable them with ADA_PLUGINS_ENABLE (→ ADA_PLUGINS_EXTRA,
+# read by gen:plugins). Unset → the overlay is a no-op and the build is identical
+# to a plain viewer build. The codecheck↔adapy link lives only in the CI config.
+ARG EXTRA_PLUGINS_GIT=""
+ARG EXTRA_PLUGINS_REF="main"
+ARG EXTRA_PLUGINS_SUBDIR="."
+ARG EXTRA_PLUGINS_ENABLE=""
+RUN --mount=type=secret,id=extra_plugins_key \
+    if [ -n "$EXTRA_PLUGINS_GIT" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends git openssh-client ca-certificates && rm -rf /var/lib/apt/lists/* ; \
+      mkdir -p /root/.ssh && chmod 700 /root/.ssh ; \
+      if [ -f /run/secrets/extra_plugins_key ]; then install -m 600 /run/secrets/extra_plugins_key /root/.ssh/id_ed25519 ; fi ; \
+      GIT_SSH_COMMAND="ssh -i /root/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
+        git clone --depth 1 --branch "$EXTRA_PLUGINS_REF" "$EXTRA_PLUGINS_GIT" /tmp/extra-plugins ; \
+      mkdir -p packages/plugins ; \
+      cp -r /tmp/extra-plugins/"$EXTRA_PLUGINS_SUBDIR"/*/ packages/plugins/ ; \
+      rm -rf /root/.ssh /tmp/extra-plugins ; \
+      echo "overlaid external plugins: $(ls packages/plugins)" ; \
+    fi
+ENV ADA_PLUGINS_EXTRA=${EXTRA_PLUGINS_ENABLE}
+
+# Regenerate the build-time plugin registry (picks up ADA_PLUGINS_EXTRA above).
+# No-op-equivalent when unset — reproduces the committed registry from plugins.json.
+RUN npm run gen:plugins
+
 # `build:serve` uses vite.config.serve.ts — split chunks (three/react/flow)
 # without the embed-script inlining step (that's reserved for `build`,
 # which produces the singlefile bundle baked into the Python package).

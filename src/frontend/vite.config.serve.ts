@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 // @ts-ignore
 import path from 'path';
 import {versionInjectPlugin} from './version-plugin';
+import {adapyPluginsResolver} from './vite.plugin-resolver.mjs';
 
 // Serve config — split-chunk build for the cloud viewer image. Distinct
 // from vite.config.ts (whose `manualChunks: undefined` is a contract with
@@ -18,12 +19,10 @@ export default defineConfig({
     root: path.resolve(__dirname, 'src'),
     publicDir: path.resolve(__dirname, 'public'),
     base: '/',
-    plugins: [react(), versionInjectPlugin()],
+    plugins: [react(), versionInjectPlugin(), adapyPluginsResolver()],
     resolve: {
         alias: {
             "@": path.resolve(__dirname, 'src'),
-            // See vite.config.ts — plugin packages resolve to their TS source.
-            "@adapy-plugins/demo": path.resolve(__dirname, 'packages/plugins/demo/src/register.tsx'),
         },
     },
     build: {

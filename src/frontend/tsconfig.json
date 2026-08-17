@@ -4,7 +4,7 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@adapy-plugins/demo": ["packages/plugins/demo/src/register.tsx"]
+      "@adapy-plugins/*": ["packages/plugins/*/src/register.tsx"]
     },
     "target": "ESNext",
     "lib": ["DOM", "DOM.Iterable", "ESNext", "WebWorker"],
