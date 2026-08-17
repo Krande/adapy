@@ -2577,9 +2577,7 @@ async def _run_plugin_job(
         fn = getattr(importlib.import_module(mod_name), attr)
     except Exception as exc:
         logger.exception("worker: plugin_job entrypoint %s import failed", entry)
-        await queue.update(
-            job_id, status=JOB_STATUS_ERROR, stage="plugin", error=f"entrypoint import failed: {exc}"
-        )
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="plugin", error=f"entrypoint import failed: {exc}")
         await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
         return
 
@@ -2693,9 +2691,7 @@ async def _run_plugin_job(
             )
             # VmHWM is a monotonic high-water mark; ru_maxrss (kB on Linux) is the
             # fallback when /proc is unavailable.
-            peak_rss_kb = _read_self_vmhwm_kb() or int(
-                max(ru1_self.ru_maxrss, ru1_child.ru_maxrss)
-            )
+            peak_rss_kb = _read_self_vmhwm_kb() or int(max(ru1_self.ru_maxrss, ru1_child.ru_maxrss))
             prof_bytes: bytes | None = None
             try:
                 with tempfile.NamedTemporaryFile(suffix=".prof", delete=False) as tf:
@@ -2743,14 +2739,16 @@ async def _run_plugin_job(
                 await queue.update(job_id, status="cancelled", stage="cancelled", progress=1.0, error=None)
             except Exception:
                 pass
-            await _audit_done(db_pool, job_id, "cancelled", "cancelled by user", started_at,
-                              metrics=await _plugin_metrics())
+            await _audit_done(
+                db_pool, job_id, "cancelled", "cancelled by user", started_at, metrics=await _plugin_metrics()
+            )
             return
         logger.exception("worker: plugin_job %s failed for job %s", plugin_id, job_id)
         trace = tb_module.format_exc()
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="plugin", error=str(exc))
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace,
-                          metrics=await _plugin_metrics())
+        await _audit_done(
+            db_pool, job_id, "error", str(exc), started_at, traceback=trace, metrics=await _plugin_metrics()
+        )
         return
     finally:
         # Stop the cancel poller in all paths (cancelling an already-finished
@@ -2761,9 +2759,7 @@ async def _run_plugin_job(
     try:
         await queue.update(job_id, stage="upload", progress=0.95)
         payload = summary if isinstance(summary, dict) else {"result": summary}
-        await storage.put_bytes(
-            scope, job.derived_key, json.dumps(payload).encode("utf-8"), content_encoding="gzip"
-        )
+        await storage.put_bytes(scope, job.derived_key, json.dumps(payload).encode("utf-8"), content_encoding="gzip")
     except Exception as exc:
         logger.exception("worker: plugin_job %s summary upload failed for job %s", plugin_id, job_id)
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
@@ -3239,9 +3235,7 @@ async def _process_one(
             # without a per-job override. Same key the plugin_job harness reads.
             _ptt = await _read_bool_setting("profile_task_types")
             _allowed_types = {t.strip() for t in (_ptt or "").split(",") if t.strip()}
-            profile_enabled = profile_enabled and (
-                not _allowed_types or job.target_format in _allowed_types
-            )
+            profile_enabled = profile_enabled and (not _allowed_types or job.target_format in _allowed_types)
             if profile_enabled:
                 # The C++ sibling of the cProfile artefact: adacpp's env-gated
                 # [STEPPROF] pipeline profiler (phase wall times, RSS at phase
