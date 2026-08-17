@@ -146,7 +146,10 @@ const SimWindowFrame: React.FC<Props> = ({mode, setMode, onOpenWindow, title = "
             {...(mode === "floating" && !isMobile ? {onPointerDown: onPointerDown("move"), onPointerMove, onPointerUp, onPointerCancel: onPointerUp} : {})}
         >
             <span className="font-bold text-sm">{title}</span>
-            <div className="flex items-center gap-0.5">
+            {/* Stop pointerdown here from reaching the header's drag handler — in
+                floating mode the header captures the pointer on pointerdown, which
+                otherwise swallows the button clicks (Restore / new-window). */}
+            <div className="flex items-center gap-0.5" onPointerDown={(e) => e.stopPropagation()}>
                 {mode === "docked" && (
                     <HeaderBtn onClick={() => setMode("floating")} title="Floating window">
                         <MaximizeIcon />

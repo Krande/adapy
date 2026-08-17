@@ -117,6 +117,22 @@ export function getActiveFeaSelectedRangeIds(): string[] {
     return selected ? Array.from(selected) : [];
 }
 
+/** Drive core's per-element selection on the active FEA mesh from a set of
+ *  draw-range ids. This writes the SAME ``useSelectedObjectStore`` entry that a
+ *  scene click writes, so the highlight uses the exact selection colour +
+ *  CustomBatchedMesh path as click-select — a plugin listing results should call
+ *  this instead of painting its own overlay. ``additive`` false (default)
+ *  replaces the selection; true unions with the current one. No-op when no FEA
+ *  model is loaded. Generic: names no plugin, takes raw range ids only. */
+export function setActiveFeaSelectedRangeIds(rangeIds: string[], additive = false): void {
+    const mesh = active?.mesh;
+    if (!mesh) return;
+    const store = useSelectedObjectStore.getState();
+    if (!additive) store.clearSelectedObjects();
+    for (const id of rangeIds) store.addSelectedObject(mesh, id);
+    requestRender();
+}
+
 export function clearActiveFeaStreaming(): void {
     active = null;
     useFeaAnimationStore.getState().reset();

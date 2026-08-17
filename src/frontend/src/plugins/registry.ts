@@ -70,6 +70,14 @@ export interface SceneHandle {
   // colour instead of hiding it. Plain string ids — no three import, names no
   // plugin.
   getSelectedFeaRangeIds: () => string[];
+  // Drive core's per-element selection on the active FEA mesh from a set of
+  // draw-range ids — writes the SAME selection store a scene click writes, so the
+  // highlight uses the exact selection colour + CustomBatchedMesh path as
+  // click-select. A plugin listing results should call this (instead of painting
+  // its own overlay) so list-selection and click-selection look identical.
+  // ``additive`` false (default) replaces the selection; true unions. No-op when
+  // no FEA model is loaded. Plain string ids — no three import, names no plugin.
+  setSelectedFeaRanges: (rangeIds: string[], additive?: boolean) => void;
 }
 
 /** Namespaced REST client helper — plugin routes live under `/api/plugins/{id}`. */
