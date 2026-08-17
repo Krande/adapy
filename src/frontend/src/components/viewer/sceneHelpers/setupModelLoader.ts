@@ -121,26 +121,25 @@ export async function setupModelLoaderAsync(
     // delegate all the caching to our helper (sourceName -> the tree root label)
     await cacheAndBuildTree(model_hash, rawUD, sourceName);
 
+    // Union of per-geometry boundingBoxes (set cheaply in prepareLoadedModel via
+    // fastComputeBounds) — avoids setFromObject's per-vertex iteration on large
+    // models. This is the LOCAL (pre-translation) box; the world box we store
+    // below shifts it by the applied position.
+    const localBox = fastSceneBox(gltf_scene);
     if (modelStore.translation && translate) {
         console.log("Model already translated");
         gltf_scene.position.add(modelStore.translation);
     } else {
-        // Union of per-geometry boundingBoxes (set cheaply in
-        // prepareLoadedModel via fastComputeBounds) — avoids setFromObject's
-        // per-vertex iteration on large models.
-        const boundingBox = fastSceneBox(gltf_scene);
-        modelStore.setBoundingBox(boundingBox);
-
         if (!optionsStore.lockTranslation) {
-            const center = boundingBox.getCenter(new THREE.Vector3());
+            const center = localBox.getCenter(new THREE.Vector3());
             const translation = center.clone().multiplyScalar(-1);
             if (modelStore.zIsUp) {
-                const minZ = boundingBox.min.z;
-                const bheight = boundingBox.max.z - minZ;
+                const minZ = localBox.min.z;
+                const bheight = localBox.max.z - minZ;
                 translation.z = -minZ + bheight * 0.05;
             } else {
-                const minY = boundingBox.min.y;
-                const bheight = boundingBox.max.y - minY;
+                const minY = localBox.min.y;
+                const bheight = localBox.max.y - minY;
                 translation.y = -minY + bheight * 0.05;
             }
 
@@ -148,6 +147,13 @@ export async function setupModelLoaderAsync(
             modelStore.setTranslation(translation);
         }
     }
+    // Store the WORLD box (local box shifted by the applied position) — the model
+    // is recentred to the origin above, so a pre-translation box would place the
+    // section-plane centre (and slider midpoint) away from the geometry as
+    // rendered. The clip plane + slider operate in world space; the FEA path
+    // likewise stores a world box. Sphere radius is translation-invariant, so the
+    // adaptive-clipping fit below is unaffected.
+    modelStore.setBoundingBox(localBox.clone().translate(gltf_scene.position));
 
 
     modelGroup.add(gltf_scene);

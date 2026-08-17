@@ -23,7 +23,12 @@ function sliderRange(p: SectionPlane): [number, number] {
     ].map(([x, y, z]) => n.dot(new THREE.Vector3(x, y, z)));
     const lo = Math.min(...corners);
     const hi = Math.max(...corners);
-    const pad = (hi - lo) * 0.02 || 1;
+    // Pad the range well past the bbox on BOTH ends (10% of the extent each side)
+    // so sliding to either extreme moves the plane completely clear of the model
+    // — fully revealed at one end, fully clipped at the other. The range stays
+    // symmetric about the bbox centre, so the plane (added at the centre) sits at
+    // the slider midpoint.
+    const pad = (hi - lo) * 0.1 || 1;
     return [lo - pad, hi + pad];
 }
 
