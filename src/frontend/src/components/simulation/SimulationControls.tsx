@@ -35,7 +35,6 @@ import ErrorBoundary from "@/components/common/ErrorBoundary";
 import {useViewerStores} from "@/state/AdaViewerContext";
 import {
     PluginPanelRegion,
-    PluginColorFields,
     makePluginContext,
     getSimulationTabs,
     findSimulationTabById,
@@ -150,10 +149,6 @@ const AnimationTab: React.FC<{sessionActive: boolean; showSimData: boolean; onTo
                 <SimulationDataInfoPanel />
             </div>
         )}
-        {/* Plugin-contributed scene color fields — an additive picker that
-            routes selection through core's paint + legend path. No-op when
-            no plugin advertises a color field. */}
-        <PluginColorFields />
         {/* Plugin-contributed FEM-sidebar panels that did NOT opt into a tab.
             Each is ErrorBoundary-wrapped; renders nothing when no plugin is
             active. `excludeTabs` keeps asTab panels out (the tab host owns them). */}

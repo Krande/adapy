@@ -15,6 +15,7 @@ import JointsOverviewPanel from "./JointsOverviewPanel";
 import MeshDistortionSection from "./MeshDistortionSection";
 import {useSceneInfoStore, type SceneInfoMode} from "@/state/sceneInfoStore";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useStatsStore} from "@/state/statsStore";
 import {useBottomSheet} from "@/utils/useBottomSheet";
 
@@ -72,11 +73,17 @@ const SceneInfoBox = () => {
     const setMode = useSceneInfoStore((s) => s.setMode);
     const setShow = useSceneInfoStore((s) => s.setShowSceneInfoBox);
 
-    // FEM is the one contextual tab: it appears only when the loaded model
-    // carries FE concepts to show (masses / boundary conditions / load cases).
+    // FEM is a contextual tab. It appears when the loaded model carries FE
+    // concepts (masses / boundary conditions / load cases) OR whenever an FEA
+    // result session is active — any FEA result file (e.g. a Sesam SIN) streams
+    // through the FEA path and enables the panel's mesh tools ("Beams as solid",
+    // scenario selector) even when the result carries no baked concepts, so the
+    // tab shouldn't be limited to concept-carrying models.
     const femHasConcepts = useFemConceptsStore(
         (s) => s.masses.length > 0 || s.bcs.length > 0 || s.scenarios.length > 0,
     );
+    const feaSessionActive = useFeaAnimationStore((s) => s.sessionActive);
+    const femTabAvailable = femHasConcepts || feaSessionActive;
     // Joints is the other contextual tab: it appears only when the loaded model's
     // take-off carries fabrication-detail joints (a model compiled with a
     // detailing engine).
@@ -84,7 +91,7 @@ const SceneInfoBox = () => {
 
     const {panelRef, isMobile, sheetStyle, grab} = useBottomSheet(() => setShow(false));
 
-    const ctxAvailable: Record<string, boolean> = {fem: femHasConcepts, joints: hasJoints};
+    const ctxAvailable: Record<string, boolean> = {fem: femTabAvailable, joints: hasJoints};
     const tabs = TAB_META.filter((t) => !t.ctx || ctxAvailable[t.id]);
     // Derive the active tab from the store mode, falling back to Model if the
     // stored mode points at a tab that isn't currently available (e.g. FEM after
