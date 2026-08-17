@@ -2,6 +2,17 @@
 
 
 
+## v0.37.0 (2026-08-17)
+
+### Feature
+
+* feat: viewer plugin-system scaffolding (extension-point framework) (#250)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`94c3536`](https://github.com/Krande/adapy/commit/94c353686a710069a85f3e4adfd869d601cdc93c))
+
+
 ## v0.36.0 (2026-08-16)
 
 ### Feature
@@ -118,16 +129,17 @@ Co-authored-by: Claude Fable 5 &lt;noreply@anthropic.com&gt; ([`ec25512`](https:
 * fix(chart): heartbeat livenessProbe opt-in — stop crashlooping capability workers
 
 The pull-loop heartbeat livenessProbe (task #74) was emitted for EVERY worker
-pool, but only the adapy worker image writes /tmp/worker-alive. External
-capability pools run foreign images that never write it, so the probe failed
-every cycle and SIGKILL-crashlooped them (exit 137 ~4.5min after start) — which in
-turn spammed PodCrashLooping/PodCrashLoopingSlow alerts all night.
+pool, but only the adapy worker image writes /tmp/worker-alive. The abaqus and
+weld-gen capability pools run foreign images (adapy-viewer-worker-abaqus, an old
+base; asa-weld-gen-runner) that never write it, so the probe failed every cycle
+and SIGKILL-crashlooped them (exit 137 ~4.5min after start) — which in turn spammed
+PodCrashLooping/PodCrashLoopingSlow alerts all night.
 
 Make the heartbeat probe opt-in: the helper emits it only when a pool sets
 `heartbeatLiveness: true` (now the default on the adapy `worker` pool) or supplies
 its own `livenessProbe:`. Capability pools that do neither get no liveness probe.
-helm template verified: main worker keeps the heartbeat probe, external capability
-pools render with none.
+helm template verified: main worker keeps the heartbeat probe, abaqus + weld-gen
+render with none.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`b606c1d`](https://github.com/Krande/adapy/commit/b606c1d7cbf7175f159eb9f2217d6f6615a8e211))
 
