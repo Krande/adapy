@@ -883,9 +883,21 @@ export async function load_fea_streaming(args: {
                     const lineMat = new THREE.LineBasicMaterial({
                         color: 0x111111,
                         depthTest: true,
+                        // Transparent (opacity stays 1 — colour unchanged) so the
+                        // element-edge wireframe joins the transparent render pass
+                        // and, with the renderOrder below, sorts ABOVE a plugin
+                        // field/utilisation face overlay instead of being painted
+                        // over + z-fighting it (which read as flicker on the
+                        // element edges). Opaque lines would render in the opaque
+                        // pass, before any transparent overlay draws over them.
+                        transparent: true,
                     });
                     const segments = new THREE.LineSegments(lineGeom, lineMat);
                     segments.name = "fea-element-edges";
+                    // Above field/plugin face overlays (renderOrder 2), below the
+                    // selection highlight (renderOrder 8), so element edges stay
+                    // legible through a field overlay without hiding selection.
+                    segments.renderOrder = 3;
                     // Clip the element-edge wireframe with the model under section planes.
                     segments.userData.__clipWithModel = true;
                     // Layer 1: rendered (camera enables layers 0+1) but
