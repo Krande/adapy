@@ -50,7 +50,7 @@ COPY src/frontend/ ./
 # that repo and drop each plugin package under EXTRA_PLUGINS_SUBDIR into
 # packages/plugins/, then enable them with ADA_PLUGINS_ENABLE (→ ADA_PLUGINS_EXTRA,
 # read by gen:plugins). Unset → the overlay is a no-op and the build is identical
-# to a plain viewer build. The codecheck↔adapy link lives only in the CI config.
+# to a plain viewer build. The external-plugin↔adapy link lives only in the CI config.
 ARG EXTRA_PLUGINS_GIT=""
 ARG EXTRA_PLUGINS_REF="main"
 ARG EXTRA_PLUGINS_SUBDIR="."
