@@ -2493,6 +2493,35 @@ async def _run_utility_job(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+def _read_self_proc_io() -> tuple[int, int]:
+    """Return ``(read_bytes, write_bytes)`` for THIS process from
+    ``/proc/self/io``. Best-effort: returns ``(0, 0)`` off Linux or when the
+    file is unreadable, so a missing counter never breaks the harness."""
+    read_bytes = 0
+    write_bytes = 0
+    try:
+        for line in pathlib.Path("/proc/self/io").read_text().splitlines():
+            if line.startswith("read_bytes:"):
+                read_bytes = int(line.split()[1])
+            elif line.startswith("write_bytes:"):
+                write_bytes = int(line.split()[1])
+    except (FileNotFoundError, PermissionError, ValueError, IndexError):
+        pass
+    return read_bytes, write_bytes
+
+
+def _read_self_vmhwm_kb() -> int:
+    """Return this process's peak resident set (VmHWM, kB) from
+    ``/proc/self/status``; ``0`` when unavailable (non-Linux)."""
+    try:
+        for line in pathlib.Path("/proc/self/status").read_text().splitlines():
+            if line.startswith("VmHWM:"):
+                return int(line.split()[1])
+    except (FileNotFoundError, ValueError, IndexError):
+        pass
+    return 0
+
+
 async def _run_plugin_job(
     *,
     job: Job,
@@ -2569,24 +2598,165 @@ async def _run_plugin_job(
         except Exception:  # noqa: BLE001
             pass
 
+    # --- Mid-run cooperative cancellation -----------------------------------
+    # The plugin entrypoint runs in a worker THREAD (run_in_executor), not the
+    # SIGKILL-watchdog subprocess the convert path uses, so a running plugin job
+    # can't be reaped by killing a child. Instead we poll the audit row (the
+    # cancel endpoint's source of truth) and set a threading.Event the plugin can
+    # observe cooperatively between units of work. A pure-CPU plugin that ignores
+    # the event runs to completion unchanged (fully backward-compatible).
+    cancel_event = threading.Event()
+
+    async def _cancel_poller() -> None:
+        while True:
+            await asyncio.sleep(2.0)
+            try:
+                if await db_module.audit_is_cancelled(db_pool, job_id):
+                    logger.info("worker: plugin_job %s cancel requested mid-run", job_id)
+                    cancel_event.set()
+                    return
+            except Exception:
+                logger.debug("worker: plugin_job cancel poll failed for %s", job_id, exc_info=True)
+
+    poller: "asyncio.Task | None" = None
+    if db_pool is not None:
+        poller = asyncio.create_task(_cancel_poller())
+
+    # Only pass cancel_event to plugins that actually accept it, so an older
+    # entrypoint whose signature predates the kwarg keeps working untouched.
+    import inspect
+
+    try:
+        _sig = inspect.signature(fn)
+        _accepts_cancel = "cancel_event" in _sig.parameters or any(
+            p.kind is inspect.Parameter.VAR_KEYWORD for p in _sig.parameters.values()
+        )
+    except (TypeError, ValueError):
+        _accepts_cancel = False
+
+    # --- In-process profiling harness (toggle + per-task filter gated) ------
+    # Read the same admin toggle the convert path reads (`profile_conversions`)
+    # plus the per-task filter (`profile_task_types`, comma-separated list of
+    # target_format values; empty = all tasks). A plugin_job runs in an executor
+    # THREAD and spawns its own trace subprocesses, so the fork-child cProfile /
+    # rusage harness can't reach it — we run an in-process harness around the
+    # call instead. NOTE: resource.getrusage(RUSAGE_SELF) + /proc/self are
+    # WHOLE-PROCESS (the executor model can't isolate a single thread's counters),
+    # so metrics include any concurrent work on this worker.
+    profile_enabled = False
+    if db_pool is not None:
+        try:
+            _pv = await db_module.get_setting(db_pool, "profile_conversions")
+            _profile_on = (_pv or "").strip().lower() in {"1", "true", "yes", "on"}
+            _tt = await db_module.get_setting(db_pool, "profile_task_types")
+            _allowed_types = {t.strip() for t in (_tt or "").split(",") if t.strip()}
+            profile_enabled = _profile_on and (not _allowed_types or "plugin_job" in _allowed_types)
+        except Exception:
+            logger.exception("worker: failed to read profile settings for plugin_job %s", job_id)
+
+    prof_holder: dict[str, object] = {}
+
     def _invoke() -> dict:
-        return fn(
-            opts.get("options") or {},
+        kwargs: dict = dict(
             storage=sync_storage,
             scope=scope,
             on_progress=_sync_on_progress,
             derived_prefix=opts.get("derived_prefix"),
         )
+        if _accepts_cancel:
+            kwargs["cancel_event"] = cancel_event
+        if not profile_enabled:
+            return fn(opts.get("options") or {}, **kwargs)
+
+        # Harness: cProfile + rusage/VmHWM/proc-io deltas around the call. All
+        # readings are whole-process (see note above).
+        import cProfile
+        import resource
+
+        prof = cProfile.Profile()
+        ru0_self = resource.getrusage(resource.RUSAGE_SELF)
+        ru0_child = resource.getrusage(resource.RUSAGE_CHILDREN)
+        rd0, wr0 = _read_self_proc_io()
+        prof.enable()
+        try:
+            result = fn(opts.get("options") or {}, **kwargs)
+        finally:
+            prof.disable()
+            ru1_self = resource.getrusage(resource.RUSAGE_SELF)
+            ru1_child = resource.getrusage(resource.RUSAGE_CHILDREN)
+            rd1, wr1 = _read_self_proc_io()
+            cpu_user_ms = int(
+                ((ru1_self.ru_utime - ru0_self.ru_utime) + (ru1_child.ru_utime - ru0_child.ru_utime)) * 1000
+            )
+            cpu_sys_ms = int(
+                ((ru1_self.ru_stime - ru0_self.ru_stime) + (ru1_child.ru_stime - ru0_child.ru_stime)) * 1000
+            )
+            # VmHWM is a monotonic high-water mark; ru_maxrss (kB on Linux) is the
+            # fallback when /proc is unavailable.
+            peak_rss_kb = _read_self_vmhwm_kb() or int(
+                max(ru1_self.ru_maxrss, ru1_child.ru_maxrss)
+            )
+            prof_bytes: bytes | None = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".prof", delete=False) as tf:
+                    _prof_path = tf.name
+                prof.dump_stats(_prof_path)
+                prof_bytes = pathlib.Path(_prof_path).read_bytes()
+                os.unlink(_prof_path)
+            except Exception:
+                logger.debug("worker: plugin_job profile dump failed for %s", job_id, exc_info=True)
+            prof_holder["metrics"] = {
+                "cpu_user_ms": cpu_user_ms,
+                "cpu_sys_ms": cpu_sys_ms,
+                "peak_rss_kb": peak_rss_kb,
+                "read_bytes": max(0, rd1 - rd0),
+                "write_bytes": max(0, wr1 - wr0),
+            }
+            prof_holder["profile_bytes"] = prof_bytes
+        return result
+
+    async def _plugin_metrics() -> dict:
+        """Assemble the audit metrics dict from the harness output, uploading the
+        .prof via the same helper the convert path uses. No-op when profiling off."""
+        metrics = dict(prof_holder.get("metrics") or {})  # type: ignore[arg-type]
+        prof_bytes = prof_holder.get("profile_bytes")
+        if prof_bytes:
+            try:
+                profile_key = f"_derived/{job.source_key}.{job_id}.prof"
+                await storage.put_bytes(scope, profile_key, prof_bytes)  # type: ignore[arg-type]
+                metrics["profile_key"] = profile_key
+            except Exception:
+                logger.exception("worker: plugin_job profile upload failed for %s", job_id)
+        return metrics
 
     try:
         await queue.update(job_id, stage="plugin", progress=0.10)
         summary = await loop.run_in_executor(None, _invoke)
     except Exception as exc:
+        # Distinguish a user-cancel (poller tripped the event, plugin bailed
+        # cooperatively) from a genuine error: on cancel, mark cancelled (NOT
+        # error) and return without the error path — mirrors the convert path's
+        # CANCELLED branch.
+        if cancel_event.is_set():
+            logger.info("worker: plugin_job %s cancelled by user mid-run", job_id)
+            try:
+                await queue.update(job_id, status="cancelled", stage="cancelled", progress=1.0, error=None)
+            except Exception:
+                pass
+            await _audit_done(db_pool, job_id, "cancelled", "cancelled by user", started_at,
+                              metrics=await _plugin_metrics())
+            return
         logger.exception("worker: plugin_job %s failed for job %s", plugin_id, job_id)
         trace = tb_module.format_exc()
         await queue.update(job_id, status=JOB_STATUS_ERROR, stage="plugin", error=str(exc))
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace,
+                          metrics=await _plugin_metrics())
         return
+    finally:
+        # Stop the cancel poller in all paths (cancelling an already-finished
+        # task is harmless).
+        if poller is not None:
+            poller.cancel()
 
     try:
         await queue.update(job_id, stage="upload", progress=0.95)
@@ -2601,7 +2771,7 @@ async def _run_plugin_job(
         return
 
     await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
-    await _audit_done(db_pool, job_id, "done", None, started_at)
+    await _audit_done(db_pool, job_id, "done", None, started_at, metrics=await _plugin_metrics())
 
 
 async def _try_reduced_sif_source(
@@ -3063,6 +3233,15 @@ async def _process_one(
 
             v = await _read_bool_setting("profile_conversions")
             profile_enabled = (v or "").strip().lower() in {"1", "true", "yes", "on"}
+            # Per-task profiling filter (admin key `profile_task_types`, a
+            # comma-separated target_format list; empty = all tasks). Gates the
+            # toggle so an admin can profile only e.g. `glb` or `plugin_job`
+            # without a per-job override. Same key the plugin_job harness reads.
+            _ptt = await _read_bool_setting("profile_task_types")
+            _allowed_types = {t.strip() for t in (_ptt or "").split(",") if t.strip()}
+            profile_enabled = profile_enabled and (
+                not _allowed_types or job.target_format in _allowed_types
+            )
             if profile_enabled:
                 # The C++ sibling of the cProfile artefact: adacpp's env-gated
                 # [STEPPROF] pipeline profiler (phase wall times, RSS at phase
