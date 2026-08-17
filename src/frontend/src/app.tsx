@@ -10,6 +10,7 @@ import {useNodeEditorStore} from "./state/useNodeEditorStore";
 import {AdaViewerProvider} from "./state/AdaViewerContext";
 import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
 import {useUrlParamLoad} from "./hooks/useUrlParamLoad";
+import {followerParams as simFollowerParams} from "@/utils/simChannel";
 
 // REST-only UI lives in its own chunk so the embedded desktop bundle
 // (the index.zip shipped with ada-py) doesn't pull in the conversion /
@@ -21,7 +22,11 @@ const AuthCallback = React.lazy(() => import("./components/auth/AuthCallback"));
 const ConvertPage = React.lazy(() => import("./components/convert/ConvertPage"));
 const AdminPanel = React.lazy(() => import("./components/admin/AdminPanel"));
 const InViewerPanelHost = React.lazy(() => import("./components/InViewerPanelHost"));
+// Canvas-less Simulation follower window (`?simfollow=…`) — mounted in its own
+// lazy chunk so a normal viewer tab never pulls it in.
+const SimFollowerPage = React.lazy(() => import("./components/simulation/SimFollowerPage"));
 const isRestMode = runtime.isRestMode();
+const isSimFollower = !!simFollowerParams();
 const isAuthCallback = isRestMode && window.location.pathname === "/auth/callback";
 const isConvertPage = isRestMode && window.location.pathname.startsWith("/convert");
 const isAdminPage = isRestMode && window.location.pathname.startsWith("/admin");
@@ -72,6 +77,29 @@ function App() {
                     </div>
                 </AuthGate>
             </Suspense>
+        );
+    }
+
+    if (isSimFollower) {
+        // A follower window boots controls-only: the Simulation plugin tab
+        // full-window, no 3D canvas / tree / websocket. Under the provider so the
+        // tab's stores resolve; behind AuthGate in REST mode so plugin API calls
+        // (e.g. enqueuing a check) carry the caller's token.
+        const page = (
+            <Suspense fallback={null}>
+                <SimFollowerPage/>
+            </Suspense>
+        );
+        return (
+            <AdaViewerProvider>
+                {isRestMode ? (
+                    <Suspense fallback={null}>
+                        <AuthGate>{page}</AuthGate>
+                    </Suspense>
+                ) : (
+                    page
+                )}
+            </AdaViewerProvider>
         );
     }
 

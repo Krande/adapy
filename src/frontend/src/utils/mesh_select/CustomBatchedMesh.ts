@@ -607,6 +607,19 @@ export class CustomBatchedMesh extends THREE.Mesh {
         // Assign material array to overlay
         (this._selectionOverlay as THREE.Mesh).material = [visibleSelMat, invisibleMat];
 
+        // Draw the selection highlight in the TRANSPARENT pass, above field /
+        // plugin face overlays. `selectedMaterial` is opaque, so by default the
+        // highlight renders in the opaque pass — and three.js draws the whole
+        // transparent pass afterwards, so any transparent overlay on the same
+        // geometry (e.g. a utilisation-colour face overlay at renderOrder 2)
+        // occludes the highlight regardless of renderOrder. Flagging it
+        // transparent (opacity is still 1.0, so the colour is unchanged) puts it in
+        // the same pass, and the high renderOrder makes it sort last so the
+        // highlight is always visible. depthTest stays on (polygonOffset above
+        // prevents z-fight), so it's still hidden behind solid geometry in front.
+        (visibleSelMat as THREE.Material).transparent = true;
+        (this._selectionOverlay as THREE.Mesh).renderOrder = 8;
+
         // Make overlay follow the same morph targets as the base mesh
         (this._selectionOverlay as any).morphTargetInfluences = (this as any).morphTargetInfluences;
         (this._selectionOverlay as any).morphTargetDictionary = (this as any).morphTargetDictionary;

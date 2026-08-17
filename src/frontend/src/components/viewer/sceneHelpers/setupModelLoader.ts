@@ -16,6 +16,8 @@ import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
 import type {LoadMetricsRecorder} from "@/utils/scene/loadMetrics";
 import {fastSceneBox} from "@/utils/scene/boundsFast";
 import {applyAdaptiveClipping} from "@/components/viewer/sceneHelpers/adaptiveClipping";
+import {runResultSidecarLoaders, makeManifestFetcher} from "@/plugins/sidecarLoaders";
+import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 
 /** Optional hook to mutate the freshly-loaded gltf scene (typically
  * to inject ``userData["draw_ranges_<meshName>"]`` and
@@ -119,26 +121,25 @@ export async function setupModelLoaderAsync(
     // delegate all the caching to our helper (sourceName -> the tree root label)
     await cacheAndBuildTree(model_hash, rawUD, sourceName);
 
+    // Union of per-geometry boundingBoxes (set cheaply in prepareLoadedModel via
+    // fastComputeBounds) — avoids setFromObject's per-vertex iteration on large
+    // models. This is the LOCAL (pre-translation) box; the world box we store
+    // below shifts it by the applied position.
+    const localBox = fastSceneBox(gltf_scene);
     if (modelStore.translation && translate) {
         console.log("Model already translated");
         gltf_scene.position.add(modelStore.translation);
     } else {
-        // Union of per-geometry boundingBoxes (set cheaply in
-        // prepareLoadedModel via fastComputeBounds) — avoids setFromObject's
-        // per-vertex iteration on large models.
-        const boundingBox = fastSceneBox(gltf_scene);
-        modelStore.setBoundingBox(boundingBox);
-
         if (!optionsStore.lockTranslation) {
-            const center = boundingBox.getCenter(new THREE.Vector3());
+            const center = localBox.getCenter(new THREE.Vector3());
             const translation = center.clone().multiplyScalar(-1);
             if (modelStore.zIsUp) {
-                const minZ = boundingBox.min.z;
-                const bheight = boundingBox.max.z - minZ;
+                const minZ = localBox.min.z;
+                const bheight = localBox.max.z - minZ;
                 translation.z = -minZ + bheight * 0.05;
             } else {
-                const minY = boundingBox.min.y;
-                const bheight = boundingBox.max.y - minY;
+                const minY = localBox.min.y;
+                const bheight = localBox.max.y - minY;
                 translation.y = -minY + bheight * 0.05;
             }
 
@@ -146,6 +147,13 @@ export async function setupModelLoaderAsync(
             modelStore.setTranslation(translation);
         }
     }
+    // Store the WORLD box (local box shifted by the applied position) — the model
+    // is recentred to the origin above, so a pre-translation box would place the
+    // section-plane centre (and slider midpoint) away from the geometry as
+    // rendered. The clip plane + slider operate in world space; the FEA path
+    // likewise stores a world box. Sphere radius is translation-invariant, so the
+    // adaptive-clipping fit below is unaffected.
+    modelStore.setBoundingBox(localBox.clone().translate(gltf_scene.position));
 
 
     modelGroup.add(gltf_scene);
@@ -204,5 +212,25 @@ export async function setupModelLoaderAsync(
             requestAnimationFrame(() => zoomToAll(scn, cam as THREE.PerspectiveCamera, ctl));
         }
     }
+
+    // Plugin result-sidecar run-point: once core geometry is visible, offer the
+    // load to any registered sidecar loader (multi-plugin generalisation of the
+    // FEA-only prepareHook above). This generic CAD/GLB path carries no result
+    // manifest, so loaders that key on `manifest.plugins` see undefined and
+    // no-op; loaders that self-detect (e.g. a deep-link flag) still run. The FEA
+    // streaming path passes its real manifest. Fully isolated — a throwing
+    // plugin can't break the load.
+    try {
+        const scope = scopeUrlPart(useScopeStore.getState().current);
+        void runResultSidecarLoaders({
+            manifest: undefined,
+            fetcher: makeManifestFetcher(modelUrl, requestHeaders),
+            scope,
+            sourceName,
+        });
+    } catch (err) {
+        console.warn("[plugins] sidecar run-point failed (non-fatal)", err);
+    }
+
     return modelGroup;
 }

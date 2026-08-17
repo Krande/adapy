@@ -300,6 +300,16 @@ def builtin_detailing_engine_specs() -> list[dict]:
 # absent otherwise — no engine-specific identity lives in this repo.
 
 
+def builtin_plugin_specs() -> list[dict]:
+    """Static fallback for the viewer plugin system's ``/api/plugins`` endpoint
+    (origin ``code``). adapy ships NO built-in backend plugins, so this is empty
+    by design — a plugin appears only while a worker advertising it (via
+    ``register_plugin_backend``) is online. Present (and importable WITHOUT ``ada``
+    — this module runs in the slim API image) so the endpoint is never undefined
+    for want of a live worker."""
+    return []
+
+
 def builtin_procedural_blueprint_specs(engine: str) -> list[dict]:
     """Specs for an engine's built-in structural blueprints (origin ``code``).
     Empty for an engine with no static built-ins (its blueprints come from a live

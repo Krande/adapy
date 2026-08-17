@@ -1,0 +1,4 @@
+{
+  "$comment": "Build-time plugin registry config. Each entry is an npm package under packages/plugins/* that exports register(); the generated src/plugins/registry.generated.ts imports exactly these. Extra out-of-tree plugins are overlaid at build time via ADA_PLUGINS_EXTRA (see scripts/gen-plugin-registry.mjs), so they need not be listed here. The demo plugin (packages/plugins/demo) is kept as a scaffold reference but NOT enabled — it must not ship in the production viewer.",
+  "enabled": []
+}

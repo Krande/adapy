@@ -3,7 +3,8 @@
     "rootDirs": ["./src"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@adapy-plugins/*": ["packages/plugins/*/src/register.tsx"]
     },
     "target": "ESNext",
     "lib": ["DOM", "DOM.Iterable", "ESNext", "WebWorker"],
@@ -20,6 +21,6 @@
     "noEmit": true,
     "jsx": "react"
   },
-  "include": ["src/**/*.*"],
+  "include": ["src/**/*.*", "packages/plugins/**/*.*"],
   "exclude": ["node_modules"]
 }

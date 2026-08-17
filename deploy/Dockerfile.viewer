@@ -44,6 +44,21 @@ WORKDIR /build
 COPY src/frontend/package.json src/frontend/package-lock.json ./
 RUN npm ci
 COPY src/frontend/ ./
+
+# Optional external-plugin overlay — GENERIC, names no plugin here. Any extra
+# plugin package(s) are expected to already sit under packages/plugins/ in the
+# build context (the CI pre-clones them there, keeping the clone credential in the
+# workflow rather than the image). EXTRA_PLUGINS_ENABLE (→ ADA_PLUGINS_EXTRA, read
+# by gen:plugins below) lists the package names to register. Unset → the overlay is
+# a no-op and the build is identical to a plain viewer build. The external-plugin↔
+# adapy link lives only in the CI config, never in this repo.
+ARG EXTRA_PLUGINS_ENABLE=""
+ENV ADA_PLUGINS_EXTRA=${EXTRA_PLUGINS_ENABLE}
+
+# Regenerate the build-time plugin registry (picks up ADA_PLUGINS_EXTRA above).
+# No-op-equivalent when unset — reproduces the committed registry from plugins.json.
+RUN npm run gen:plugins
+
 # `build:serve` uses vite.config.serve.ts — split chunks (three/react/flow)
 # without the embed-script inlining step (that's reserved for `build`,
 # which produces the singlefile bundle baked into the Python package).
@@ -150,3 +165,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).status == 200 else 1)"
 
 CMD ["python", "-m", "ada.comms.rest"]
+
+# (build trigger: external-plugin overlay vars now configured in CI)
+
+# (rebuild: pick up updated capacity plugin — 3D scene interactions)

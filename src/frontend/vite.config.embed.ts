@@ -6,6 +6,7 @@ import path from 'path';
 // @ts-ignore
 import fs from 'fs';
 import {versionInjectPlugin} from './version-plugin';
+import {adapyPluginsResolver} from './vite.plugin-resolver.mjs';
 
 // Embed bundle — produces a single self-contained ESM that exports
 // `mountViewer` for paradoc to consume from its `vendor/ada-viewer/`.
@@ -103,7 +104,7 @@ function inlineCssAtRuntime(): Plugin {
 
 export default defineConfig({
     publicDir: false,
-    plugins: [react(), inlineCssAtRuntime(), versionInjectPlugin()],
+    plugins: [react(), inlineCssAtRuntime(), versionInjectPlugin(), adapyPluginsResolver()],
     resolve: {
         // Array form so the exact-match pyodide stub is checked BEFORE the
         // broad "@" prefix alias. The embed never runs an in-browser Pyodide

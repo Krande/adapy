@@ -2493,6 +2493,283 @@ async def _run_utility_job(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+def _read_self_proc_io() -> tuple[int, int]:
+    """Return ``(read_bytes, write_bytes)`` for THIS process from
+    ``/proc/self/io``. Best-effort: returns ``(0, 0)`` off Linux or when the
+    file is unreadable, so a missing counter never breaks the harness."""
+    read_bytes = 0
+    write_bytes = 0
+    try:
+        for line in pathlib.Path("/proc/self/io").read_text().splitlines():
+            if line.startswith("read_bytes:"):
+                read_bytes = int(line.split()[1])
+            elif line.startswith("write_bytes:"):
+                write_bytes = int(line.split()[1])
+    except (FileNotFoundError, PermissionError, ValueError, IndexError):
+        pass
+    return read_bytes, write_bytes
+
+
+def _read_self_vmhwm_kb() -> int:
+    """Return this process's peak resident set (VmHWM, kB) from
+    ``/proc/self/status``; ``0`` when unavailable (non-Linux)."""
+    try:
+        for line in pathlib.Path("/proc/self/status").read_text().splitlines():
+            if line.startswith("VmHWM:"):
+                return int(line.split()[1])
+    except (FileNotFoundError, ValueError, IndexError):
+        pass
+    return 0
+
+
+async def _run_plugin_job(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Run a plugin's on-demand backend job — the generic dispatch (core names no
+    plugin). Synthetic: no source file; the plugin fetches whatever it needs via
+    the scope-bound storage facade.
+
+    ``conversion_options`` carries ``{"plugin_id": str, "options": dict,
+    "derived_prefix": str | None}``. The worker resolves the plugin's advertised
+    ``job_entrypoint`` (``"module:callable"``) from the backend registry the pool
+    preloaded (``ADA_WORKER_PRELOAD`` / ``ada.plugins``), calls it in an executor
+    with the sync storage facade + a progress bridge + the derived-blob prefix,
+    and stores the returned summary dict (JSON, gzipped) at ``job.derived_key``.
+    The plugin owns writing its own sidecar bundle under its reserved prefix.
+    """
+    import importlib
+    import json
+
+    from ada.plugins import plugin_backend_spec
+
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    plugin_id = opts.get("plugin_id")
+    if not plugin_id:
+        await queue.update(
+            job_id,
+            status=JOB_STATUS_ERROR,
+            stage="plugin",
+            error="conversion_options.plugin_id is required for a plugin_job",
+        )
+        await _audit_done(db_pool, job_id, "error", "missing plugin_id", started_at)
+        return
+
+    spec = plugin_backend_spec(plugin_id)
+    entry = (spec or {}).get("job_entrypoint")
+    if not spec or not entry:
+        msg = (
+            f"plugin {plugin_id!r} is not registered on this worker or advertises no "
+            f"job_entrypoint — is its backend on ADA_WORKER_PRELOAD / an ada.plugins entry point?"
+        )
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="plugin", error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at)
+        return
+
+    try:
+        mod_name, _, attr = entry.partition(":")
+        fn = getattr(importlib.import_module(mod_name), attr)
+    except Exception as exc:
+        logger.exception("worker: plugin_job entrypoint %s import failed", entry)
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="plugin", error=f"entrypoint import failed: {exc}")
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=tb_module.format_exc())
+        return
+
+    loop = asyncio.get_running_loop()
+    sync_storage = _SyncStorageFacade(storage, scope, loop)
+
+    async def _aprog(stage: str, frac: float) -> None:
+        await queue.update(job_id, stage=stage, progress=max(0.1, min(0.95, float(frac))))
+
+    def _sync_on_progress(stage: str, frac: float) -> None:
+        # The plugin calls this synchronously from the executor thread; hop it
+        # onto the loop so stage/progress land in the job row. A hiccup here must
+        # never sink the job.
+        try:
+            asyncio.run_coroutine_threadsafe(_aprog(stage, frac), loop)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # --- Mid-run cooperative cancellation -----------------------------------
+    # The plugin entrypoint runs in a worker THREAD (run_in_executor), not the
+    # SIGKILL-watchdog subprocess the convert path uses, so a running plugin job
+    # can't be reaped by killing a child. Instead we poll the audit row (the
+    # cancel endpoint's source of truth) and set a threading.Event the plugin can
+    # observe cooperatively between units of work. A pure-CPU plugin that ignores
+    # the event runs to completion unchanged (fully backward-compatible).
+    cancel_event = threading.Event()
+
+    async def _cancel_poller() -> None:
+        while True:
+            await asyncio.sleep(2.0)
+            try:
+                if await db_module.audit_is_cancelled(db_pool, job_id):
+                    logger.info("worker: plugin_job %s cancel requested mid-run", job_id)
+                    cancel_event.set()
+                    return
+            except Exception:
+                logger.debug("worker: plugin_job cancel poll failed for %s", job_id, exc_info=True)
+
+    poller: "asyncio.Task | None" = None
+    if db_pool is not None:
+        poller = asyncio.create_task(_cancel_poller())
+
+    # Only pass cancel_event to plugins that actually accept it, so an older
+    # entrypoint whose signature predates the kwarg keeps working untouched.
+    import inspect
+
+    try:
+        _sig = inspect.signature(fn)
+        _accepts_cancel = "cancel_event" in _sig.parameters or any(
+            p.kind is inspect.Parameter.VAR_KEYWORD for p in _sig.parameters.values()
+        )
+    except (TypeError, ValueError):
+        _accepts_cancel = False
+
+    # --- In-process profiling harness (toggle + per-task filter gated) ------
+    # Read the same admin toggle the convert path reads (`profile_conversions`)
+    # plus the per-task filter (`profile_task_types`, comma-separated list of
+    # target_format values; empty = all tasks). A plugin_job runs in an executor
+    # THREAD and spawns its own trace subprocesses, so the fork-child cProfile /
+    # rusage harness can't reach it — we run an in-process harness around the
+    # call instead. NOTE: resource.getrusage(RUSAGE_SELF) + /proc/self are
+    # WHOLE-PROCESS (the executor model can't isolate a single thread's counters),
+    # so metrics include any concurrent work on this worker.
+    profile_enabled = False
+    if db_pool is not None:
+        try:
+            _pv = await db_module.get_setting(db_pool, "profile_conversions")
+            _profile_on = (_pv or "").strip().lower() in {"1", "true", "yes", "on"}
+            _tt = await db_module.get_setting(db_pool, "profile_task_types")
+            _allowed_types = {t.strip() for t in (_tt or "").split(",") if t.strip()}
+            profile_enabled = _profile_on and (not _allowed_types or "plugin_job" in _allowed_types)
+        except Exception:
+            logger.exception("worker: failed to read profile settings for plugin_job %s", job_id)
+
+    prof_holder: dict[str, object] = {}
+
+    def _invoke() -> dict:
+        kwargs: dict = dict(
+            storage=sync_storage,
+            scope=scope,
+            on_progress=_sync_on_progress,
+            derived_prefix=opts.get("derived_prefix"),
+        )
+        if _accepts_cancel:
+            kwargs["cancel_event"] = cancel_event
+        if not profile_enabled:
+            return fn(opts.get("options") or {}, **kwargs)
+
+        # Harness: cProfile + rusage/VmHWM/proc-io deltas around the call. All
+        # readings are whole-process (see note above).
+        import cProfile
+        import resource
+
+        prof = cProfile.Profile()
+        ru0_self = resource.getrusage(resource.RUSAGE_SELF)
+        ru0_child = resource.getrusage(resource.RUSAGE_CHILDREN)
+        rd0, wr0 = _read_self_proc_io()
+        prof.enable()
+        try:
+            result = fn(opts.get("options") or {}, **kwargs)
+        finally:
+            prof.disable()
+            ru1_self = resource.getrusage(resource.RUSAGE_SELF)
+            ru1_child = resource.getrusage(resource.RUSAGE_CHILDREN)
+            rd1, wr1 = _read_self_proc_io()
+            cpu_user_ms = int(
+                ((ru1_self.ru_utime - ru0_self.ru_utime) + (ru1_child.ru_utime - ru0_child.ru_utime)) * 1000
+            )
+            cpu_sys_ms = int(
+                ((ru1_self.ru_stime - ru0_self.ru_stime) + (ru1_child.ru_stime - ru0_child.ru_stime)) * 1000
+            )
+            # VmHWM is a monotonic high-water mark; ru_maxrss (kB on Linux) is the
+            # fallback when /proc is unavailable.
+            peak_rss_kb = _read_self_vmhwm_kb() or int(max(ru1_self.ru_maxrss, ru1_child.ru_maxrss))
+            prof_bytes: bytes | None = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".prof", delete=False) as tf:
+                    _prof_path = tf.name
+                prof.dump_stats(_prof_path)
+                prof_bytes = pathlib.Path(_prof_path).read_bytes()
+                os.unlink(_prof_path)
+            except Exception:
+                logger.debug("worker: plugin_job profile dump failed for %s", job_id, exc_info=True)
+            prof_holder["metrics"] = {
+                "cpu_user_ms": cpu_user_ms,
+                "cpu_sys_ms": cpu_sys_ms,
+                "peak_rss_kb": peak_rss_kb,
+                "read_bytes": max(0, rd1 - rd0),
+                "write_bytes": max(0, wr1 - wr0),
+            }
+            prof_holder["profile_bytes"] = prof_bytes
+        return result
+
+    async def _plugin_metrics() -> dict:
+        """Assemble the audit metrics dict from the harness output, uploading the
+        .prof via the same helper the convert path uses. No-op when profiling off."""
+        metrics = dict(prof_holder.get("metrics") or {})  # type: ignore[arg-type]
+        prof_bytes = prof_holder.get("profile_bytes")
+        if prof_bytes:
+            try:
+                profile_key = f"_derived/{job.source_key}.{job_id}.prof"
+                await storage.put_bytes(scope, profile_key, prof_bytes)  # type: ignore[arg-type]
+                metrics["profile_key"] = profile_key
+            except Exception:
+                logger.exception("worker: plugin_job profile upload failed for %s", job_id)
+        return metrics
+
+    try:
+        await queue.update(job_id, stage="plugin", progress=0.10)
+        summary = await loop.run_in_executor(None, _invoke)
+    except Exception as exc:
+        # Distinguish a user-cancel (poller tripped the event, plugin bailed
+        # cooperatively) from a genuine error: on cancel, mark cancelled (NOT
+        # error) and return without the error path — mirrors the convert path's
+        # CANCELLED branch.
+        if cancel_event.is_set():
+            logger.info("worker: plugin_job %s cancelled by user mid-run", job_id)
+            try:
+                await queue.update(job_id, status="cancelled", stage="cancelled", progress=1.0, error=None)
+            except Exception:
+                pass
+            await _audit_done(
+                db_pool, job_id, "cancelled", "cancelled by user", started_at, metrics=await _plugin_metrics()
+            )
+            return
+        logger.exception("worker: plugin_job %s failed for job %s", plugin_id, job_id)
+        trace = tb_module.format_exc()
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="plugin", error=str(exc))
+        await _audit_done(
+            db_pool, job_id, "error", str(exc), started_at, traceback=trace, metrics=await _plugin_metrics()
+        )
+        return
+    finally:
+        # Stop the cancel poller in all paths (cancelling an already-finished
+        # task is harmless).
+        if poller is not None:
+            poller.cancel()
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.95)
+        payload = summary if isinstance(summary, dict) else {"result": summary}
+        await storage.put_bytes(scope, job.derived_key, json.dumps(payload).encode("utf-8"), content_encoding="gzip")
+    except Exception as exc:
+        logger.exception("worker: plugin_job %s summary upload failed for job %s", plugin_id, job_id)
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at, metrics=await _plugin_metrics())
+
+
 async def _try_reduced_sif_source(
     storage: Storage,
     scope: Scope,
@@ -2741,6 +3018,20 @@ async def _process_one(
         )
         return
 
+    # plugin_job is synthetic too: a plugin's on-demand backend job. Core names
+    # no plugin — the worker resolves the registered plugin's job_entrypoint from
+    # the backend registry the pool preloaded (ADA_WORKER_PRELOAD / ada.plugins).
+    if job.target_format == "plugin_job":
+        await _run_plugin_job(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
+
     # procedural_detail is synthetic too: the chained EXTERNAL (Tier-B) detailing
     # stage. Routed to the detailing engine's capability pool (target_capability),
     # it reads the neutral structural artifact + section sidecar the structural
@@ -2938,6 +3229,13 @@ async def _process_one(
 
             v = await _read_bool_setting("profile_conversions")
             profile_enabled = (v or "").strip().lower() in {"1", "true", "yes", "on"}
+            # Per-task profiling filter (admin key `profile_task_types`, a
+            # comma-separated target_format list; empty = all tasks). Gates the
+            # toggle so an admin can profile only e.g. `glb` or `plugin_job`
+            # without a per-job override. Same key the plugin_job harness reads.
+            _ptt = await _read_bool_setting("profile_task_types")
+            _allowed_types = {t.strip() for t in (_ptt or "").split(",") if t.strip()}
+            profile_enabled = profile_enabled and (not _allowed_types or job.target_format in _allowed_types)
             if profile_enabled:
                 # The C++ sibling of the cProfile artefact: adacpp's env-gated
                 # [STEPPROF] pipeline profiler (phase wall times, RSS at phase
@@ -3552,6 +3850,18 @@ async def _run() -> None:
             logger.info("worker: preloading %s", mod_name)
             _importlib.import_module(mod_name)
 
+    # Entry-point plugin discovery (the ``ada.plugins`` group) — the in-core
+    # complement to ADA_WORKER_PRELOAD. Each plugin's register() runs its
+    # import-side-effect ``register_plugin_backend`` so the heartbeat below
+    # advertises it. Isolated per-plugin (a broken plugin is logged + skipped),
+    # unlike the deliberately-fatal preload above.
+    try:
+        from ada.plugins import discover_plugins
+
+        discover_plugins()
+    except Exception:
+        logger.exception("worker: ada.plugins discovery failed (non-fatal)")
+
     # Self-identify so the viewer's /api/config + /api/admin/workers
     # can surface this worker. Two artefacts:
     #
@@ -3764,6 +4074,17 @@ async def _run() -> None:
     except Exception:
         logger.exception("worker: failed to list detailing engines (non-fatal)")
         procedural_detailing_engines = []
+    # Backend plugin specs (the viewer plugin system). Advertised so the REST
+    # ``/api/plugins`` endpoint unions the static built-ins with any plugin a
+    # capability worker's ADA_WORKER_PRELOAD / ``ada.plugins`` entry point
+    # registered via register_plugin_backend. Empty until a plugin registers.
+    try:
+        from ada.plugins import plugin_backend_specs
+
+        plugin_specs = plugin_backend_specs()
+    except Exception:
+        logger.exception("worker: failed to list backend plugins (non-fatal)")
+        plugin_specs = []
 
     async def _publish_registration() -> None:
         try:
@@ -3786,6 +4107,7 @@ async def _run() -> None:
                     "procedural_template_specs": procedural_templates,
                     "procedural_engine_specs": procedural_engines,
                     "procedural_detailing_engine_specs": procedural_detailing_engines,
+                    "plugin_specs": plugin_specs,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },
@@ -3947,6 +4269,7 @@ async def _run() -> None:
                         "procedural_export_model",
                         "procedural_import_xlsx",
                         "equipment_bbox",
+                        "plugin_job",
                     ):
                         can_handle = True
                         ext = ""

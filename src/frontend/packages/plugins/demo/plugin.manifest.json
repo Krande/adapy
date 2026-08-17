@@ -1,0 +1,10 @@
+{
+  "id": "demo",
+  "version": "0.1.0",
+  "coreApiRange": ">=1.0 <2.0",
+  "schemaVersion": 1,
+  "frontend": "@adapy-plugins/demo",
+  "backend": null,
+  "slots": ["panels", "topBarButtons", "sceneColorFields", "resultSidecarLoaders", "urlParamHandlers"],
+  "sidecarPrefix": "demo"
+}

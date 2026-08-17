@@ -13,18 +13,21 @@ import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
 import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batch_mesh";
 import {FeaManifest, FeaManifestField, viewerApi} from "@/services/viewerApi";
+import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
+import type {SidecarFetcher} from "@/plugins/registry";
 import {sceneRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useConversionStore} from "@/state/conversionStore";
-import {usePerfStore} from "@/state/perfStore";
+import {usePerfStore, requestRender} from "@/state/perfStore";
 import {applyFieldToMesh} from "../fea/applyField";
 import {applyElemFieldToMesh} from "../fea/applyElemField";
 import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
 import {clearGoToNode} from "../fea/goToNode";
 import {useTableNavStore} from "@/state/tableNavStore";
+import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {replace_model} from "./update_scene_from_message";
 
 // Cached state for the currently-rendered FEA streaming source.
@@ -90,6 +93,44 @@ export function setBeamSolidsVisible(visible: boolean): void {
         // wireframe to a sibling without losing the link.
         active.beamSolidEdges.visible = visible;
     }
+}
+
+/** The active FEA mesh (a custom-batch THREE.Mesh carrying per-element
+ *  ``drawRanges``), or null when no FEA model is loaded. Exposed so a plugin can
+ *  drive element-level scene ops (isolate / highlight / attach overlays) off the
+ *  same mesh core deforms — reached via the plugin SceneHandle, never imported. */
+export function getActiveFeaMesh(): THREE.Mesh | null {
+    return active?.mesh ?? null;
+}
+
+/** Draw-range ids (e.g. ``E123``) currently selected on the active FEA mesh,
+ *  or ``[]`` when nothing is selected / no FEA model is loaded. This is the same
+ *  per-element selection the CustomBatchedMesh highlights (it reads the shared
+ *  ``useSelectedObjectStore`` entry keyed on the active mesh). Exposed so a
+ *  plugin drawing its own overlay on top of the FEA mesh can mirror core's
+ *  selection highlight — reached via the plugin SceneHandle, never imported.
+ *  Generic: names no plugin and returns the raw selection identity only. */
+export function getActiveFeaSelectedRangeIds(): string[] {
+    const mesh = active?.mesh;
+    if (!mesh) return [];
+    const selected = useSelectedObjectStore.getState().selectedObjects.get(mesh);
+    return selected ? Array.from(selected) : [];
+}
+
+/** Drive core's per-element selection on the active FEA mesh from a set of
+ *  draw-range ids. This writes the SAME ``useSelectedObjectStore`` entry that a
+ *  scene click writes, so the highlight uses the exact selection colour +
+ *  CustomBatchedMesh path as click-select — a plugin listing results should call
+ *  this instead of painting its own overlay. ``additive`` false (default)
+ *  replaces the selection; true unions with the current one. No-op when no FEA
+ *  model is loaded. Generic: names no plugin, takes raw range ids only. */
+export function setActiveFeaSelectedRangeIds(rangeIds: string[], additive = false): void {
+    const mesh = active?.mesh;
+    if (!mesh) return;
+    const store = useSelectedObjectStore.getState();
+    if (!additive) store.clearSelectedObjects();
+    for (const id of rangeIds) store.addSelectedObject(mesh, id);
+    requestRender();
 }
 
 export function clearActiveFeaStreaming(): void {
@@ -706,6 +747,17 @@ export async function load_fea_streaming(args: {
         const basePositions = snapshotBasePositions(mesh.geometry);
 
         active = {sourceName, manifest, mesh, basePositions};
+        // Publish the model bounding box (the CAD path does this in
+        // setupModelLoader; the FEA path bypasses it). Without it, features that
+        // key off the model centre — section planes, camera-fit — fall back to the
+        // world origin, so a new clip plane sits at (0,0,0) instead of the model.
+        try {
+            mesh.updateWorldMatrix(true, false);
+            const worldBox = new THREE.Box3().setFromObject(mesh);
+            if (!worldBox.isEmpty()) useModelState.getState().setBoundingBox(worldBox);
+        } catch {
+            /* best-effort — never break the load over a bbox */
+        }
         // Material flags (vertexColors + morphTargets) are flipped on
         // inside applyFieldToMesh so they cover both the array-typed
         // material that prepareLoadedModel installs on
@@ -760,6 +812,8 @@ export async function load_fea_streaming(args: {
                         });
                         const segments = new THREE.LineSegments(lineGeom, lineMat);
                         segments.name = "fea-beam-solid-element-edges";
+                        // Clip the element-edge wireframe with the model under section planes.
+                        segments.userData.__clipWithModel = true;
                         // Layer 1: rendered but not pickable — beam-solid
                         // face picking goes through the parent
                         // CustomBatchedMesh; the wireframe is decorative.
@@ -829,9 +883,23 @@ export async function load_fea_streaming(args: {
                     const lineMat = new THREE.LineBasicMaterial({
                         color: 0x111111,
                         depthTest: true,
+                        // Transparent (opacity stays 1 — colour unchanged) so the
+                        // element-edge wireframe joins the transparent render pass
+                        // and, with the renderOrder below, sorts ABOVE a plugin
+                        // field/utilisation face overlay instead of being painted
+                        // over + z-fighting it (which read as flicker on the
+                        // element edges). Opaque lines would render in the opaque
+                        // pass, before any transparent overlay draws over them.
+                        transparent: true,
                     });
                     const segments = new THREE.LineSegments(lineGeom, lineMat);
                     segments.name = "fea-element-edges";
+                    // Above field/plugin face overlays (renderOrder 2), below the
+                    // selection highlight (renderOrder 8), so element edges stay
+                    // legible through a field overlay without hiding selection.
+                    segments.renderOrder = 3;
+                    // Clip the element-edge wireframe with the model under section planes.
+                    segments.userData.__clipWithModel = true;
                     // Layer 1: rendered (camera enables layers 0+1) but
                     // not pickable (setupPointerHandler's raycaster
                     // explicitly disables layer 1). prepareLoadedModel
@@ -1186,6 +1254,28 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
             convStore.clearJob(storeKey);
             return;
         }
+        // Fire registered plugin result-sidecar loaders once the FEA geometry is
+        // loaded — the FEA path does its own scene setup and bypasses
+        // setupModelLoader (the CAD/GLB run-point), so without this a plugin's
+        // sidecar (e.g. a code-check result next to the FEA manifest) never loads.
+        // Core names no plugin; the fetcher is rooted at the same _derived/<src>.fea/
+        // dir the mesh + field blobs come from. Best-effort — never breaks the load.
+        const fireResultSidecarLoaders = () => {
+            try {
+                const {fetcher, rangeFetcher} = makeViewerApiFetcher(scope, sourceName);
+                const feaPrefix = `_derived/${sourceName.replace(/^\/+/, "")}.fea/`;
+                const sidecar: SidecarFetcher = {
+                    url: (rel) => viewerApi.blobUrl(scope, feaPrefix + rel.replace(/^\/+/, "")),
+                    json: async (rel) =>
+                        JSON.parse(new TextDecoder().decode(new Uint8Array(await fetcher(rel)))),
+                    bytes: async (rel, range) =>
+                        range ? rangeFetcher(rel, range.start, range.end) : fetcher(rel),
+                };
+                void runResultSidecarLoaders({manifest, fetcher: sidecar, scope, sourceName});
+            } catch (err) {
+                console.warn("[fea] plugin result-sidecar loaders failed (non-fatal)", err);
+            }
+        };
         if (!Array.isArray(manifest.fields) || manifest.fields.length === 0) {
             // No result fields — a design-model FEM mesh (.inp/.fem/.med) or a results deck
             // whose nodal output was all filtered out. Load the geometry field-lessly: mesh +
@@ -1210,6 +1300,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
                 sourceKey: storeKey, jobId: "", derivedKey: "", status: "done",
                 progress: 1, stage: "ready", error: null, startedAt,
             });
+            fireResultSidecarLoaders();
             return;
         }
         // Prefer ``category === "displacement"`` so a fresh load opens
@@ -1259,6 +1350,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
             error: null,
             startedAt,
         });
+        fireResultSidecarLoaders();
     } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
             // User cancelled (or server-side cancel via the kill
