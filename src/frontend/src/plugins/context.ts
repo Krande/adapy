@@ -9,7 +9,7 @@ import { sceneRef } from "@/state/refs";
 import { requestRender } from "@/state/perfStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { useColorStore } from "@/state/colorLegendStore";
-import { getActiveFeaMesh } from "@/utils/scene/handlers/load_fea_streaming";
+import { getActiveFeaMesh, getActiveFeaSelectedRangeIds } from "@/utils/scene/handlers/load_fea_streaming";
 import { getSingletonViewerStores, type AdaViewerStores } from "@/state/AdaViewerContext";
 import type {
   AdaPluginContext,
@@ -78,6 +78,7 @@ function makeSceneHandle(): SceneHandle {
       void fieldId;
     },
     getActiveFeaMesh: () => getActiveFeaMesh(),
+    getSelectedFeaRangeIds: () => getActiveFeaSelectedRangeIds(),
   };
 }
 

@@ -21,7 +21,7 @@ function fakeCtx(pluginId = ""): AdaPluginContext {
     pluginId,
     api: { base: "/api", plugin: (id?: string) => `/api/plugins/${id ?? pluginId}` },
     stores: {} as AdaPluginContext["stores"],
-    scene: { add() {}, remove() {}, requestRender() {}, paintField() {} },
+    scene: { add() {}, remove() {}, requestRender() {}, paintField() {}, getActiveFeaMesh: () => null, getSelectedFeaRangeIds: () => [] },
     scope: () => "user:me",
     log: (_l, m) => logs.push(m),
   };

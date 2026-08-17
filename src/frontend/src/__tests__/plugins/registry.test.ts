@@ -27,6 +27,8 @@ function fakeCtx(): AdaPluginContext {
       remove() {},
       requestRender() {},
       paintField() {},
+      getActiveFeaMesh: () => null,
+      getSelectedFeaRangeIds: () => [],
     },
     scope: () => "user:me",
     log() {},

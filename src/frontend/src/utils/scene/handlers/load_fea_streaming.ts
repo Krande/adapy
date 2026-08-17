@@ -27,6 +27,7 @@ import {applyElemFieldToMesh} from "../fea/applyElemField";
 import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
 import {clearGoToNode} from "../fea/goToNode";
 import {useTableNavStore} from "@/state/tableNavStore";
+import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {replace_model} from "./update_scene_from_message";
 
 // Cached state for the currently-rendered FEA streaming source.
@@ -100,6 +101,20 @@ export function setBeamSolidsVisible(visible: boolean): void {
  *  same mesh core deforms — reached via the plugin SceneHandle, never imported. */
 export function getActiveFeaMesh(): THREE.Mesh | null {
     return active?.mesh ?? null;
+}
+
+/** Draw-range ids (e.g. ``E123``) currently selected on the active FEA mesh,
+ *  or ``[]`` when nothing is selected / no FEA model is loaded. This is the same
+ *  per-element selection the CustomBatchedMesh highlights (it reads the shared
+ *  ``useSelectedObjectStore`` entry keyed on the active mesh). Exposed so a
+ *  plugin drawing its own overlay on top of the FEA mesh can mirror core's
+ *  selection highlight — reached via the plugin SceneHandle, never imported.
+ *  Generic: names no plugin and returns the raw selection identity only. */
+export function getActiveFeaSelectedRangeIds(): string[] {
+    const mesh = active?.mesh;
+    if (!mesh) return [];
+    const selected = useSelectedObjectStore.getState().selectedObjects.get(mesh);
+    return selected ? Array.from(selected) : [];
 }
 
 export function clearActiveFeaStreaming(): void {

@@ -63,6 +63,13 @@ export interface SceneHandle {
   // scene ops (isolate / highlight / attach overlays) off the same mesh core
   // deforms. Structural ``unknown`` — no three import in this dependency-free core.
   getActiveFeaMesh: () => unknown | null;
+  // Draw-range ids (per-element selection) currently highlighted on the active
+  // FEA mesh, or an empty array when nothing is selected / no FEA model is
+  // loaded. Same identity core's own selection highlight uses, so a plugin
+  // drawing an opaque overlay on top of the mesh can mirror the selection
+  // colour instead of hiding it. Plain string ids — no three import, names no
+  // plugin.
+  getSelectedFeaRangeIds: () => string[];
 }
 
 /** Namespaced REST client helper — plugin routes live under `/api/plugins/{id}`. */
