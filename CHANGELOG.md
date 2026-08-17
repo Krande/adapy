@@ -2,6 +2,15 @@
 
 
 
+## v0.36.0 (2026-08-16)
+
+### Feature
+
+* feat: Sesam SIN/SIF reader and writer enrichments (#251)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`bbee7b4`](https://github.com/Krande/adapy/commit/bbee7b4a552305a8d441448df1f921bdd03182fe))
+
+
 ## v0.35.1 (2026-08-15)
 
 ### Fix
