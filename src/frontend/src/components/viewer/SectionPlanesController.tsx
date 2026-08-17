@@ -146,11 +146,11 @@ function init(
                         mat.needsUpdate = true;
                     }
                 } else if (o.userData?.__clipWithModel) {
-                    // Plugin-contributed result overlays (e.g. a capacity UF colour
-                    // mesh, girder/stiffener lines) opt into section clipping by
-                    // tagging themselves; without this they render UNCLIPPED and
-                    // their backfaces show through the cut (grey faces). Generic —
-                    // core names no plugin, just honours the flag.
+                    // Plugin-contributed result overlays (a coloured field mesh,
+                    // feature lines, markers) opt into section clipping by tagging
+                    // themselves; without this they render UNCLIPPED and their
+                    // backfaces show through the cut (grey faces / stray lines).
+                    // Generic — core names no plugin, just honours the flag.
                     const anyO = o as unknown as {
                         material?: THREE.Material | THREE.Material[];
                     };
