@@ -94,6 +94,14 @@ export function setBeamSolidsVisible(visible: boolean): void {
     }
 }
 
+/** The active FEA mesh (a custom-batch THREE.Mesh carrying per-element
+ *  ``drawRanges``), or null when no FEA model is loaded. Exposed so a plugin can
+ *  drive element-level scene ops (isolate / highlight / attach overlays) off the
+ *  same mesh core deforms — reached via the plugin SceneHandle, never imported. */
+export function getActiveFeaMesh(): THREE.Mesh | null {
+    return active?.mesh ?? null;
+}
+
 export function clearActiveFeaStreaming(): void {
     active = null;
     useFeaAnimationStore.getState().reset();

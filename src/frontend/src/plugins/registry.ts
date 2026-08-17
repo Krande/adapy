@@ -58,6 +58,11 @@ export interface SceneHandle {
   // Route a named color field through core's paint + legend path
   // (applyField / colorLegendStore). Core owns the single active-field arbiter.
   paintField: (fieldId: string, result: SceneColorFieldResult) => void;
+  // The active FEA mesh (a custom-batch mesh with per-element ``drawRanges``), or
+  // null when no FEA model is loaded. Lets a result plugin drive element-level
+  // scene ops (isolate / highlight / attach overlays) off the same mesh core
+  // deforms. Structural ``unknown`` — no three import in this dependency-free core.
+  getActiveFeaMesh: () => unknown | null;
 }
 
 /** Namespaced REST client helper — plugin routes live under `/api/plugins/{id}`. */
