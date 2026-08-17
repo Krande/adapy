@@ -402,6 +402,7 @@ jobs:
           # Set these Action variables to bake an out-of-tree plugin package into
           # the viewer; unset → a plain viewer build. GITOPS_TOKEN clones it.
           EXTRA_PLUGINS_GIT: ${{ vars.EXTRA_PLUGINS_GIT }}
+          EXTRA_PLUGINS_SCHEME: ${{ vars.EXTRA_PLUGINS_SCHEME }}
           EXTRA_PLUGINS_REF: ${{ vars.EXTRA_PLUGINS_REF }}
           EXTRA_PLUGINS_SUBDIR: ${{ vars.EXTRA_PLUGINS_SUBDIR }}
           EXTRA_PLUGINS_ENABLE: ${{ vars.EXTRA_PLUGINS_ENABLE }}
@@ -443,8 +444,10 @@ jobs:
             if [ -n "$EXTRA_PLUGINS_GIT" ]; then
               echo "Overlaying external plugins from $EXTRA_PLUGINS_GIT (ref ${EXTRA_PLUGINS_REF:-main})"
               rm -rf /tmp/extra-plugins
+              # EXTRA_PLUGINS_GIT is host/path (no scheme); EXTRA_PLUGINS_SCHEME
+              # picks http (internal forgejo :3000) or https (external), default http.
               git clone --depth 1 --branch "${EXTRA_PLUGINS_REF:-main}" \
-                "https://x-access-token:${GITOPS_TOKEN}@${EXTRA_PLUGINS_GIT}" /tmp/extra-plugins
+                "${EXTRA_PLUGINS_SCHEME:-http}://x-access-token:${GITOPS_TOKEN}@${EXTRA_PLUGINS_GIT}" /tmp/extra-plugins
               mkdir -p src/frontend/packages/plugins
               cp -r /tmp/extra-plugins/"${EXTRA_PLUGINS_SUBDIR:-.}"/*/ src/frontend/packages/plugins/
               rm -rf /tmp/extra-plugins
