@@ -13,6 +13,8 @@ import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
 import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batch_mesh";
 import {FeaManifest, FeaManifestField, viewerApi} from "@/services/viewerApi";
+import {runResultSidecarLoaders} from "@/plugins/sidecarLoaders";
+import type {SidecarFetcher} from "@/plugins/registry";
 import {sceneRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
@@ -1186,6 +1188,28 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
             convStore.clearJob(storeKey);
             return;
         }
+        // Fire registered plugin result-sidecar loaders once the FEA geometry is
+        // loaded — the FEA path does its own scene setup and bypasses
+        // setupModelLoader (the CAD/GLB run-point), so without this a plugin's
+        // sidecar (e.g. a code-check result next to the FEA manifest) never loads.
+        // Core names no plugin; the fetcher is rooted at the same _derived/<src>.fea/
+        // dir the mesh + field blobs come from. Best-effort — never breaks the load.
+        const fireResultSidecarLoaders = () => {
+            try {
+                const {fetcher, rangeFetcher} = makeViewerApiFetcher(scope, sourceName);
+                const feaPrefix = `_derived/${sourceName.replace(/^\/+/, "")}.fea/`;
+                const sidecar: SidecarFetcher = {
+                    url: (rel) => viewerApi.blobUrl(scope, feaPrefix + rel.replace(/^\/+/, "")),
+                    json: async (rel) =>
+                        JSON.parse(new TextDecoder().decode(new Uint8Array(await fetcher(rel)))),
+                    bytes: async (rel, range) =>
+                        range ? rangeFetcher(rel, range.start, range.end) : fetcher(rel),
+                };
+                void runResultSidecarLoaders({manifest, fetcher: sidecar, scope, sourceName});
+            } catch (err) {
+                console.warn("[fea] plugin result-sidecar loaders failed (non-fatal)", err);
+            }
+        };
         if (!Array.isArray(manifest.fields) || manifest.fields.length === 0) {
             // No result fields — a design-model FEM mesh (.inp/.fem/.med) or a results deck
             // whose nodal output was all filtered out. Load the geometry field-lessly: mesh +
@@ -1210,6 +1234,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
                 sourceKey: storeKey, jobId: "", derivedKey: "", status: "done",
                 progress: 1, stage: "ready", error: null, startedAt,
             });
+            fireResultSidecarLoaders();
             return;
         }
         // Prefer ``category === "displacement"`` so a fresh load opens
@@ -1259,6 +1284,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
             error: null,
             startedAt,
         });
+        fireResultSidecarLoaders();
     } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
             // User cancelled (or server-side cancel via the kill
