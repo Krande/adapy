@@ -207,6 +207,18 @@ function init(
                 container.add(helper);
 
                 for (const m of meshes) {
+                    // Stencil capping assumes a CLOSED SOLID: back faces increment
+                    // and front faces decrement, netting non-zero only *inside* the
+                    // solid. An OPEN SHELL (DoubleSide mesh — thin plates, FEA shell
+                    // elements) breaks that: after the cut, a ray hits only the
+                    // shell's back face, so the stencil marks the whole far shell and
+                    // the cap quad fills it flat grey ("faces turn grey when clipped").
+                    // A shell has no interior to fill anyway — skip its cap.
+                    const mats = Array.isArray(m.material) ? m.material : [m.material];
+                    const isShell = mats.some(
+                        (mm) => (mm as THREE.Material | undefined)?.side === THREE.DoubleSide,
+                    );
+                    if (isShell) continue;
                     m.updateWorldMatrix(true, false);
                     container.add(createPlaneStencilGroup(m.geometry, plane, order, m.matrixWorld));
                 }
