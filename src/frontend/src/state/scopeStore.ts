@@ -70,3 +70,15 @@ export function scopeUrlPart(s: ScopeOption | null): string {
     if (s.kind === "corpus") return `corpus:${s.id}`; // admin-only, gated server-side
     return `project:${s.id}`;
 }
+
+/** Inverse of {@link scopeUrlPart}: parse a URL scope part (e.g. "project:abc")
+ *  back into a ScopeOption. Used when a scope arrives via a URL param (a
+ *  follower window adopting the driving tab's scope) before /api/me lands. */
+export function scopeFromUrlPart(part: string): ScopeOption {
+    if (!part || part === "shared") return {kind: "shared", id: null, name: "Shared"};
+    const [kind, id] = part.split(":");
+    if (kind === "user") return {kind: "user", id: "me", name: "My files"};
+    if (kind === "corpus") return {kind: "corpus", id: id ?? null, name: id ?? "corpus"};
+    if (kind === "project") return {kind: "project", id: id ?? null, name: id ?? "project"};
+    return {kind: "shared", id: null, name: "Shared"};
+}

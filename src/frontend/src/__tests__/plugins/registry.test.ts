@@ -31,6 +31,17 @@ function fakeCtx(): AdaPluginContext {
       getSelectedFeaRangeIds: () => [],
     },
     scope: () => "user:me",
+    theme: {
+      bg: "#111827",
+      surface: "#1f2937",
+      border: "#374151",
+      text: "#f3f4f6",
+      textMuted: "#9ca3af",
+      accent: "#3b82f6",
+      pass: "#22c55e",
+      warn: "#f59e0b",
+      fail: "#ef4444",
+    },
     log() {},
   };
 }

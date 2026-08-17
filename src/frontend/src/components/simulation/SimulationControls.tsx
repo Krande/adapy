@@ -22,16 +22,38 @@ import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useTableNavStore} from "@/state/tableNavStore";
 import {animationControllerRef} from "@/state/refs";
+import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
 import {load_fea_streaming} from "@/utils/scene/handlers/load_fea_streaming";
+import {followerUrl} from "@/utils/simChannel";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
 import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
 import FEMDataPanelIcon from "../icons/FEMDataPanelIcon";
-import {PluginPanelRegion, PluginColorFields} from "@/plugins";
+import ErrorBoundary from "@/components/common/ErrorBoundary";
+import {useViewerStores} from "@/state/AdaViewerContext";
+import {
+    PluginPanelRegion,
+    PluginColorFields,
+    makePluginContext,
+    getSimulationTabs,
+    disablePlugin,
+    type AdaPluginContext,
+    type PanelSlot,
+    type SimulationTabEntry,
+} from "@/plugins";
+import SimWindowFrame, {type SimFrameMode} from "./SimWindowFrame";
 
-const SimulationControls = () => {
+export interface SimulationControlsProps {
+    // The follower / new-window entry boots the frame already maximized as a
+    // full window and locks it to a single plugin tab (no tab strip, no
+    // animation tab). Omitted for the normal docked panel.
+    initialMode?: SimFrameMode;
+    forcedTabId?: string;
+}
+
+const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "docked", forcedTabId}) => {
     const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
     // Panel-visibility now lives in tableNavStore so external
     // triggers (ObjectInfoBoxComponent's "Show in data" button) can
@@ -41,35 +63,193 @@ const SimulationControls = () => {
     const showSimData = useTableNavStore((s) => s.isPanelOpen);
     const togglePanel = useTableNavStore((s) => s.togglePanel);
 
-    return (
-        <div className="flex flex-col gap-2">
-            {sessionActive ? (
-                <FeaModeControls
-                    showSimData={showSimData}
-                    onToggleData={togglePanel}
+    const stores = useViewerStores();
+    const [mode, setMode] = useState<SimFrameMode>(initialMode);
+    const [activeTabState, setActiveTabState] = useState<string>("animation");
+    const activeTab = forcedTabId ?? activeTabState;
+
+    // Plugin-contributed Simulation tabs (fem-sidebar panels carrying `asTab`).
+    // Rebuilt each render so activation + badges track live store state.
+    const baseCtx = makePluginContext("", stores);
+    const tabs = getSimulationTabs(baseCtx);
+
+    // Snap back to Animation if the active plugin tab goes away (model unloaded).
+    useEffect(() => {
+        if (forcedTabId) return;
+        if (activeTabState !== "animation" && !tabs.some((t) => t.panel.id === activeTabState)) {
+            setActiveTabState("animation");
+        }
+    }, [tabs, activeTabState, forcedTabId]);
+
+    const onOpenWindow = () => {
+        const panelId = forcedTabId ?? (activeTab !== "animation" ? activeTab : tabs[0]?.panel.id ?? "");
+        const source = useFeaAnimationStore.getState().sourceName || "model";
+        const scope = scopeUrlPart(useScopeStore.getState().current);
+        window.open(followerUrl(source, panelId, scope), "_blank", "noopener,width=920,height=820");
+    };
+
+    const activePluginTab = tabs.find((t) => t.panel.id === activeTab);
+
+    const body = (
+        <div className="flex flex-col gap-2 min-w-0">
+            {!forcedTabId && tabs.length > 0 && (
+                <SimTabStrip
+                    tabs={tabs}
+                    activeTab={activeTab}
+                    onSelect={setActiveTabState}
+                    ctxFor={(pid) => makePluginContext(pid, stores)}
+                />
+            )}
+            {activePluginTab ? (
+                <PluginTabBody
+                    pluginId={activePluginTab.pluginId}
+                    panel={activePluginTab.panel}
+                    ctx={makePluginContext(activePluginTab.pluginId, stores)}
                 />
             ) : (
-                <GltfClipControls
+                <AnimationTab
+                    sessionActive={sessionActive}
                     showSimData={showSimData}
                     onToggleData={togglePanel}
                 />
             )}
-            {showSimData && (
-                <div className="flex-1 overflow-hidden">
-                    <SimulationDataInfoPanel/>
-                </div>
-            )}
-            {/* Plugin-contributed scene color fields — an additive picker that
-                routes selection through core's paint + legend path. No-op when
-                no plugin advertises a color field. */}
-            <PluginColorFields/>
-            {/* Plugin-contributed FEM-sidebar panels (region "fem-sidebar").
-                Each is ErrorBoundary-wrapped; renders nothing when no plugin is
-                active. This is the seam a result-review plugin panel mounts into. */}
-            <PluginPanelRegion region="fem-sidebar"/>
         </div>
     );
+
+    return (
+        <SimWindowFrame mode={mode} setMode={setMode} onOpenWindow={onOpenWindow}>
+            {body}
+        </SimWindowFrame>
+    );
 };
+
+// Built-in "animation" tab — the FEA / GLTF transport controls, the optional
+// data panel, plus the additive plugin color-field picker and any buttonless
+// fem-sidebar panels (asTab panels are hoisted to their own tabs instead).
+const AnimationTab: React.FC<{sessionActive: boolean; showSimData: boolean; onToggleData: () => void}> = ({
+    sessionActive,
+    showSimData,
+    onToggleData,
+}) => (
+    <div className="flex flex-col gap-2">
+        {sessionActive ? (
+            <FeaModeControls showSimData={showSimData} onToggleData={onToggleData} />
+        ) : (
+            <GltfClipControls showSimData={showSimData} onToggleData={onToggleData} />
+        )}
+        {showSimData && (
+            <div className="flex-1 overflow-hidden">
+                <SimulationDataInfoPanel />
+            </div>
+        )}
+        {/* Plugin-contributed scene color fields — an additive picker that
+            routes selection through core's paint + legend path. No-op when
+            no plugin advertises a color field. */}
+        <PluginColorFields />
+        {/* Plugin-contributed FEM-sidebar panels that did NOT opt into a tab.
+            Each is ErrorBoundary-wrapped; renders nothing when no plugin is
+            active. `excludeTabs` keeps asTab panels out (the tab host owns them). */}
+        <PluginPanelRegion region="fem-sidebar" excludeTabs />
+    </div>
+);
+
+const SimTabStrip: React.FC<{
+    tabs: SimulationTabEntry[];
+    activeTab: string;
+    onSelect: (id: string) => void;
+    ctxFor: (pluginId: string) => AdaPluginContext;
+}> = ({tabs, activeTab, onSelect, ctxFor}) => (
+    <div
+        className="flex gap-0.5 border-b border-white/15 overflow-x-auto"
+        role="tablist"
+        aria-label="Simulation panel section"
+    >
+        <SimTabButton id="animation" label="Animation" active={activeTab === "animation"} onClick={() => onSelect("animation")} />
+        {tabs.map((t) => {
+            let badge: number | string | null = null;
+            try {
+                badge = t.asTab.badge ? t.asTab.badge(ctxFor(t.pluginId)) : null;
+            } catch (err) {
+                disablePlugin(t.pluginId, `tab badge threw: ${String(err)}`);
+                badge = null;
+            }
+            return (
+                <SimTabButton
+                    key={t.panel.id}
+                    id={t.panel.id}
+                    label={t.asTab.label}
+                    active={activeTab === t.panel.id}
+                    contextual={t.asTab.contextual}
+                    badge={badge}
+                    onClick={() => onSelect(t.panel.id)}
+                />
+            );
+        })}
+    </div>
+);
+
+const SimTabButton: React.FC<{
+    id: string;
+    label: string;
+    active: boolean;
+    contextual?: boolean;
+    badge?: number | string | null;
+    onClick: () => void;
+}> = ({label, active, contextual, badge, onClick}) => {
+    const showBadge = badge != null && badge !== 0 && badge !== "";
+    return (
+        <button
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={onClick}
+            className={
+                "px-2.5 py-1.5 font-semibold whitespace-nowrap border-b-2 -mb-px flex items-center gap-1.5 text-sm " +
+                (active
+                    ? "border-blue-400 text-[var(--ada-panel-text)]"
+                    : "border-transparent text-gray-400 hover:text-[var(--ada-panel-text)]")
+            }
+        >
+            {contextual && <span className="w-1.5 h-1.5 rounded-full bg-violet-400" aria-hidden="true" />}
+            {label}
+            {showBadge && (
+                <span className="ml-0.5 rounded-full bg-[var(--ada-fail,#ef4444)] text-white text-[10px] leading-none px-1.5 py-0.5">
+                    {badge}
+                </span>
+            )}
+        </button>
+    );
+};
+
+// One plugin tab body inside a per-plugin ErrorBoundary — a crash disables the
+// plugin for the session (mirrors PluginPanelRegion) rather than the whole panel.
+const PluginTabBody: React.FC<{pluginId: string; panel: PanelSlot; ctx: AdaPluginContext}> = ({
+    pluginId,
+    panel,
+    ctx,
+}) => (
+    <ErrorBoundary
+        label={`Plugin ${pluginId}`}
+        fallback={(error, reset) => {
+            disablePlugin(pluginId, `sim tab render threw: ${error.message}`);
+            return (
+                <div className="rounded-md border border-red-700/60 bg-gray-800/95 p-2 text-xs text-gray-100">
+                    <div className="font-semibold text-red-300">Plugin “{pluginId}” hit an error</div>
+                    <div className="mt-0.5 mb-1.5 break-words text-gray-400">{error.message}</div>
+                    <button
+                        type="button"
+                        onClick={reset}
+                        className="rounded-sm bg-gray-700 px-2 py-1 text-white hover:bg-gray-600"
+                    >
+                        Retry
+                    </button>
+                </div>
+            );
+        }}
+    >
+        {panel.render(ctx)}
+    </ErrorBoundary>
+);
 
 interface ControlPanelProps {
     showSimData: boolean;

@@ -79,6 +79,25 @@ export interface PluginApiClient {
   plugin: (id?: string) => string;
 }
 
+/** Resolved colour tokens core hands plugins so their panels paint with core's
+ * active theme instead of hardcoding grays — the same values core mirrors onto
+ * the `--ada-*` CSS custom properties (so a panel can consume either the object
+ * here or `var(--ada-…)` directly). `bg`/`surface`/`border`/`text`/`textMuted`
+ * track the user's panel-chrome theme; `accent`/`pass`/`warn`/`fail` are the
+ * theme-neutral semantic colours (interactive / OK / caution / failure). Any
+ * CSS colour string. Named generically — core carries no plugin knowledge. */
+export interface PluginTheme {
+  bg: string;
+  surface: string;
+  border: string;
+  text: string;
+  textMuted: string;
+  accent: string;
+  pass: string;
+  warn: string;
+  fail: string;
+}
+
 /** The single context object every slot callback receives. */
 export interface AdaPluginContext {
   pluginId: string;
@@ -86,6 +105,9 @@ export interface AdaPluginContext {
   stores: AdaViewerStores;
   scene: SceneHandle;
   scope: () => string;
+  /** Active theme tokens (mirrors of the `--ada-*` CSS vars) so plugin panels
+   * match core's chrome in light + dark without hardcoding colours. */
+  theme: PluginTheme;
   log: (level: PluginLogLevel, msg: string, ...args: unknown[]) => void;
 }
 
@@ -108,6 +130,20 @@ export interface PanelSlot {
   activationPredicate?: ActivationPredicate;
   render: (ctx: AdaPluginContext) => React.ReactNode;
   topBarButton?: TopBarButtonSpec;
+  // When set on a `fem-sidebar` panel, core promotes the panel to a tab in the
+  // Simulation panel (alongside the built-in "animation" tab) rather than
+  // stacking it inline. Buttonless / non-`asTab` fem-sidebar panels keep
+  // rendering inline via `PluginPanelRegion` — this is purely additive.
+  asTab?: {
+    label: string;
+    order?: number;
+    // Show a small dot on the tab button when the panel's activation predicate
+    // holds (mirrors SceneInfoBox's contextual-tab dot).
+    contextual?: boolean;
+    // Optional count/label rendered as a badge on the tab button. Wrapped in a
+    // try/catch by core; a throw disables the plugin rather than the panel.
+    badge?: (ctx: AdaPluginContext) => number | string | null;
+  };
 }
 
 export interface SceneColorFieldProvider {
@@ -325,6 +361,31 @@ export function getPanelsForRegion(
   }
   out.sort((a, b) => (a.order - b.order) || a.panel.id.localeCompare(b.panel.id));
   return out.map(({ pluginId, panel }) => ({ pluginId, panel }));
+}
+
+/** One plugin-contributed Simulation tab. */
+export interface SimulationTabEntry {
+  pluginId: string;
+  panel: PanelSlot;
+  asTab: NonNullable<PanelSlot["asTab"]>;
+}
+
+/** `fem-sidebar` panels that opt into a Simulation tab (carry `asTab`), filtered
+ * by activation exactly like `getPanelsForRegion` and ordered by
+ * `(asTab.order ?? 0, id)`. Core appends these after the built-in "animation"
+ * tab; each carries its owning `pluginId` so core can build a per-plugin ctx and
+ * ErrorBoundary-wrap the mount. Empty when no plugin advertises a tab (the panel
+ * then looks byte-identical to the pre-plugin Simulation panel). */
+export function getSimulationTabs(ctx: AdaPluginContext): SimulationTabEntry[] {
+  const entries = getPanelsForRegion("fem-sidebar", ctx)
+    .filter(({ panel }) => !!panel.asTab)
+    .map(({ pluginId, panel }) => ({ pluginId, panel, asTab: panel.asTab! }));
+  entries.sort(
+    (a, b) =>
+      (a.asTab.order ?? 0) - (b.asTab.order ?? 0) ||
+      a.panel.id.localeCompare(b.panel.id),
+  );
+  return entries;
 }
 
 /** Color-field providers available under the given ctx, ordered by `id`. */

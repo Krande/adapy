@@ -9,6 +9,7 @@ import { sceneRef } from "@/state/refs";
 import { requestRender } from "@/state/perfStore";
 import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import { useColorStore } from "@/state/colorLegendStore";
+import { effectivePluginTheme, useThemeStore } from "@/state/themeStore";
 import { getActiveFeaMesh, getActiveFeaSelectedRangeIds } from "@/utils/scene/handlers/load_fea_streaming";
 import { getSingletonViewerStores, type AdaViewerStores } from "@/state/AdaViewerContext";
 import type {
@@ -99,6 +100,11 @@ export function makePluginContext(pluginId: string, stores: AdaViewerStores): Ad
     stores,
     scene: makeSceneHandle(),
     scope: () => scopeUrlPart(useScopeStore.getState().current),
+    // Snapshot the active theme tokens. makePluginContext is rebuilt on every
+    // slot-host render, so a theme switch (which re-renders subscribers) re-reads
+    // the current values; plugin panels that also want live updates can read the
+    // `--ada-*` CSS vars this mirrors.
+    theme: effectivePluginTheme(useThemeStore.getState()),
     log,
   };
 }

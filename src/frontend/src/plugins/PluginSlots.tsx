@@ -28,14 +28,23 @@ const PluginPanelBody: React.FC<{ ctx: AdaPluginContext; panel: PanelSlot }> = (
 
 /** Mount every registered panel for a region. Panels with a top-bar button only
  * render while that button toggled them visible; buttonless panels render
- * whenever their activation predicate holds (data-present case). */
-export const PluginPanelRegion: React.FC<{ region: PluginRegion }> = ({ region }) => {
+ * whenever their activation predicate holds (data-present case).
+ *
+ * `excludeTabs` drops panels that opted into a Simulation tab (carry `asTab`) so
+ * the region can coexist with the tabbed Simulation host without double-rendering
+ * them — the tab host mounts those, this mounts the rest. */
+export const PluginPanelRegion: React.FC<{ region: PluginRegion; excludeTabs?: boolean }> = ({
+  region,
+  excludeTabs,
+}) => {
   const stores = useViewerStores();
   // Subscribe to visibility so a top-bar toggle re-renders this region.
   const visible = usePluginUiStore((s) => s.visible);
 
   const baseCtx = makePluginContext("", stores);
-  const panels = getPanelsForRegion(region, baseCtx);
+  const panels = getPanelsForRegion(region, baseCtx).filter(
+    ({ panel }) => !excludeTabs || !panel.asTab,
+  );
   if (panels.length === 0) return null;
 
   return (
