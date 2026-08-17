@@ -716,6 +716,17 @@ export async function load_fea_streaming(args: {
         const basePositions = snapshotBasePositions(mesh.geometry);
 
         active = {sourceName, manifest, mesh, basePositions};
+        // Publish the model bounding box (the CAD path does this in
+        // setupModelLoader; the FEA path bypasses it). Without it, features that
+        // key off the model centre — section planes, camera-fit — fall back to the
+        // world origin, so a new clip plane sits at (0,0,0) instead of the model.
+        try {
+            mesh.updateWorldMatrix(true, false);
+            const worldBox = new THREE.Box3().setFromObject(mesh);
+            if (!worldBox.isEmpty()) useModelState.getState().setBoundingBox(worldBox);
+        } catch {
+            /* best-effort — never break the load over a bbox */
+        }
         // Material flags (vertexColors + morphTargets) are flipped on
         // inside applyFieldToMesh so they cover both the array-typed
         // material that prepareLoadedModel installs on
