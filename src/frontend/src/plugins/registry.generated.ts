@@ -4,8 +4,7 @@
 // Core imports ONLY this file to load plugins; it never names a plugin
 // elsewhere. registerBuiltinPlugins() is invoked once at app bootstrap.
 
-import { register as register_0 } from "@adapy-plugins/demo";
 
 export function registerBuiltinPlugins(): void {
-  register_0(); // @adapy-plugins/demo
+  /* no plugins enabled */
 }

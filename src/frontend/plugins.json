@@ -1,6 +1,4 @@
 {
-  "$comment": "Build-time plugin registry config. Each entry is an npm package under packages/plugins/* that exports register(). The generated src/plugins/registry.generated.ts imports exactly these — enabling/disabling a plugin is a rebuild (see scripts/gen-plugin-registry.mjs). The demo plugin ships enabled-but-dormant; it only activates at runtime via ?plugins=demo.",
-  "enabled": [
-    { "package": "@adapy-plugins/demo", "importName": "register" }
-  ]
+  "$comment": "Build-time plugin registry config. Each entry is an npm package under packages/plugins/* that exports register(); the generated src/plugins/registry.generated.ts imports exactly these. Extra out-of-tree plugins are overlaid at build time via ADA_PLUGINS_EXTRA (see scripts/gen-plugin-registry.mjs), so they need not be listed here. The demo plugin (packages/plugins/demo) is kept as a scaffold reference but NOT enabled — it must not ship in the production viewer.",
+  "enabled": []
 }

@@ -2770,6 +2770,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             derived_key=derived_key,
             target_capability=target_capability,
         )
+        # Register as a first-class audit task (row keyed by job_id). Without this
+        # the worker's mark_audit_running/_audit_done no-op, /my-jobs shows nothing,
+        # and cancel/metrics/profiling can't attach. action + target_format are
+        # free-text; "plugin_job" keeps it filterable from conversions.
+        await _audit(
+            request,
+            user,
+            scope_obj,
+            "plugin_job",
+            key=source_key,
+            target_format="plugin_job",
+            status="queued",
+            job_id=job.job_id,
+        )
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
 
     @api.get("/plugins")
