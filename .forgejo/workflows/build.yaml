@@ -398,6 +398,14 @@ jobs:
           # the branch image) so the new adacpp wheel is actually picked up.
           ADACPP_BASE_IMAGE: ${{ secrets.ADACPP_BASE_IMAGE }}
           FULL: ${{ needs.detect.outputs.viewer_full }}
+          # Optional external-plugin overlay (generic — names no plugin here).
+          # Set these Action variables to bake an out-of-tree plugin package into
+          # the viewer; unset → a plain viewer build. GITOPS_TOKEN clones it.
+          EXTRA_PLUGINS_GIT: ${{ vars.EXTRA_PLUGINS_GIT }}
+          EXTRA_PLUGINS_REF: ${{ vars.EXTRA_PLUGINS_REF }}
+          EXTRA_PLUGINS_SUBDIR: ${{ vars.EXTRA_PLUGINS_SUBDIR }}
+          EXTRA_PLUGINS_ENABLE: ${{ vars.EXTRA_PLUGINS_ENABLE }}
+          GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
         run: |
           if [ -z "$REGISTRY_IMAGE" ]; then
             echo "::error::VIEWER_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
@@ -427,6 +435,22 @@ jobs:
               .
           else
             echo "Full viewer build (FULL=$FULL)"
+            # Optional external-plugin overlay: pre-clone the plugin package(s)
+            # into packages/plugins/ so the frontend build stage picks them up via
+            # `COPY src/frontend/`. Keeps the clone credential (GITOPS_TOKEN) in the
+            # workflow, not the image. Unset EXTRA_PLUGINS_GIT → identical to before.
+            EXTRA_BUILD_ARGS=""
+            if [ -n "$EXTRA_PLUGINS_GIT" ]; then
+              echo "Overlaying external plugins from $EXTRA_PLUGINS_GIT (ref ${EXTRA_PLUGINS_REF:-main})"
+              rm -rf /tmp/extra-plugins
+              git clone --depth 1 --branch "${EXTRA_PLUGINS_REF:-main}" \
+                "https://x-access-token:${GITOPS_TOKEN}@${EXTRA_PLUGINS_GIT}" /tmp/extra-plugins
+              mkdir -p src/frontend/packages/plugins
+              cp -r /tmp/extra-plugins/"${EXTRA_PLUGINS_SUBDIR:-.}"/*/ src/frontend/packages/plugins/
+              rm -rf /tmp/extra-plugins
+              echo "packages/plugins now: $(ls src/frontend/packages/plugins)"
+              EXTRA_BUILD_ARGS="--build-arg EXTRA_PLUGINS_ENABLE=${EXTRA_PLUGINS_ENABLE}"
+            fi
             # Default to the repo-pinned base when the secret is unset. READ the pin out
             # of deploy/Dockerfile.viewer rather than restating it: this line used to
             # carry its own literal with a "matches deploy/Dockerfile.viewer" comment,
@@ -450,6 +474,7 @@ jobs:
               -f deploy/Dockerfile.viewer \
               --build-arg "IMAGE_TAG=${TAG}" \
               --build-arg "ADACPP_BASE_IMAGE=${ADACPP_BASE_IMAGE}" \
+              $EXTRA_BUILD_ARGS \
               -t "${REGISTRY_IMAGE}:${TAG}" \
               -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
               .
