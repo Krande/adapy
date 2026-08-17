@@ -27,8 +27,23 @@ export function useBottomSheet(onDismiss: () => void) {
     const dragRef = React.useRef<{startY: number; startPx: number; livePx: number} | null>(null);
     // Never let the sheet's top rise above this margin from the screen top.
     const TOP_MARGIN = 56;
-    const maxSheetPx = () => Math.max(120, (window.innerHeight || 1) - TOP_MARGIN);
+    // Visible viewport height — visualViewport tracks the mobile URL-bar/keyboard
+    // retract/expand, unlike `vh` (which is the *large* viewport) and even
+    // innerHeight on some browsers. This is the number the sheet must never exceed
+    // or its top (and grab handle) leave the screen and it can't be dragged closed.
+    const visibleH = () => {
+        if (typeof window === "undefined") return 1;
+        return window.visualViewport?.height ?? window.innerHeight ?? 1;
+    };
+    const maxSheetPx = () => Math.max(120, visibleH() - TOP_MARGIN);
     const clampPx = (px: number) => Math.max(80, Math.min(maxSheetPx(), px));
+
+    // Track the live cap so the sheet is bounded by the visible viewport even
+    // BEFORE any drag (initial render) — the undragged sheet otherwise sized off a
+    // `vh` CSS class and could open taller than the screen.
+    const [maxPx, setMaxPx] = React.useState<number>(() =>
+        typeof window === "undefined" ? 600 : maxSheetPx(),
+    );
 
     React.useEffect(() => {
         const mq = window.matchMedia("(max-width: 639px)");
@@ -38,12 +53,21 @@ export function useBottomSheet(onDismiss: () => void) {
         return () => mq.removeEventListener("change", on);
     }, []);
 
-    // Re-clamp when the viewport shrinks (toolbar shows, rotation, keyboard) so a
-    // previously-set height can't strand the handle off-screen.
+    // Re-clamp when the visible viewport shrinks (toolbar shows, rotation,
+    // keyboard) so a previously-set height — or the initial cap — can't strand the
+    // handle off-screen. visualViewport fires on toolbar show/hide where `resize`
+    // alone may not.
     React.useEffect(() => {
-        const onResize = () => setSheetPx((prev) => (prev == null ? prev : clampPx(prev)));
+        const onResize = () => {
+            setMaxPx(maxSheetPx());
+            setSheetPx((prev) => (prev == null ? prev : clampPx(prev)));
+        };
         window.addEventListener("resize", onResize);
-        return () => window.removeEventListener("resize", onResize);
+        window.visualViewport?.addEventListener("resize", onResize);
+        return () => {
+            window.removeEventListener("resize", onResize);
+            window.visualViewport?.removeEventListener("resize", onResize);
+        };
     }, []);
 
     const onGrabDown = (e: React.PointerEvent) => {
@@ -82,8 +106,13 @@ export function useBottomSheet(onDismiss: () => void) {
         );
     };
 
-    const sheetStyle: React.CSSProperties | undefined =
-        isMobile && sheetPx != null ? {height: `${sheetPx}px`, maxHeight: `${sheetPx}px`} : undefined;
+    // Always cap the sheet by the visible viewport (maxPx), even undragged, so the
+    // top can never leave the screen. Height is only pinned once the user drags.
+    const sheetStyle: React.CSSProperties | undefined = isMobile
+        ? sheetPx != null
+            ? {height: `${Math.min(sheetPx, maxPx)}px`, maxHeight: `${maxPx}px`}
+            : {maxHeight: `${maxPx}px`}
+        : undefined;
 
     const grab = {
         onPointerDown: onGrabDown,

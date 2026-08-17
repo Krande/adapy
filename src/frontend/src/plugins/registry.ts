@@ -388,6 +388,24 @@ export function getSimulationTabs(ctx: AdaPluginContext): SimulationTabEntry[] {
   return entries;
 }
 
+/** Resolve a single Simulation tab by panel id, IGNORING activation predicates.
+ * The forced-tab hosts (the "open in new window" follower and the maximized
+ * window) mount one specific plugin panel by id; those hosts are canvas-less and
+ * load only result sidecars, so the plugin's activation predicate (which may key
+ * off a loaded mesh) can be false even though the panel's own data is present.
+ * Returns null only when no plugin registers a `fem-sidebar` `asTab` panel with
+ * that id at all. */
+export function findSimulationTabById(panelId: string): SimulationTabEntry | null {
+  for (const p of _registry.values()) {
+    for (const panel of p.panels) {
+      if (panel.region === "fem-sidebar" && panel.asTab && panel.id === panelId) {
+        return { pluginId: p.id, panel, asTab: panel.asTab };
+      }
+    }
+  }
+  return null;
+}
+
 /** Color-field providers available under the given ctx, ordered by `id`. */
 export function getSceneColorFieldProviders(
   ctx: AdaPluginContext,

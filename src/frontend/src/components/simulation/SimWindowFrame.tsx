@@ -64,8 +64,42 @@ const HeaderBtn: React.FC<{onClick: () => void; title: string; children: React.R
     </button>
 );
 
+// Docked panel is horizontally resizable and remembers its width. The default is
+// wide enough that plugin tabs with tabular content (e.g. results tables) don't
+// force horizontal scrolling out of the box; the user can drag the right edge to
+// widen further (persisted) or narrow it back.
+const DOCKED_WIDTH_KEY = "ada:sim-docked-width";
+const DOCKED_DEFAULT = 620;
+const DOCKED_MIN = 360;
+
 const SimWindowFrame: React.FC<Props> = ({mode, setMode, onOpenWindow, title = "Simulation", children}) => {
     const {panelRef, isMobile, sheetStyle, grab} = useBottomSheet(() => setMode("docked"));
+
+    const [dockedWidth, setDockedWidth] = React.useState<number>(() => {
+        if (typeof window === "undefined") return DOCKED_DEFAULT;
+        const saved = parseInt(window.localStorage.getItem(DOCKED_WIDTH_KEY) || "", 10);
+        return Number.isFinite(saved) && saved >= DOCKED_MIN ? saved : DOCKED_DEFAULT;
+    });
+    React.useEffect(() => {
+        if (typeof window !== "undefined") window.localStorage.setItem(DOCKED_WIDTH_KEY, String(dockedWidth));
+    }, [dockedWidth]);
+    const dockResizeRef = React.useRef<{sx: number; ow: number} | null>(null);
+    const onDockResizeDown = (e: React.PointerEvent) => {
+        e.preventDefault();
+        dockResizeRef.current = {sx: e.clientX, ow: dockedWidth};
+        e.currentTarget.setPointerCapture(e.pointerId);
+    };
+    const onDockResizeMove = (e: React.PointerEvent) => {
+        const d = dockResizeRef.current;
+        if (!d) return;
+        const max = typeof window !== "undefined" ? Math.max(DOCKED_MIN, window.innerWidth - 32) : 1400;
+        setDockedWidth(Math.min(max, Math.max(DOCKED_MIN, d.ow + (e.clientX - d.sx))));
+    };
+    const onDockResizeUp = (e: React.PointerEvent) => {
+        if (!dockResizeRef.current) return;
+        dockResizeRef.current = null;
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
+    };
 
     // Floating-dialog geometry (desktop only). Centred on first maximize; the
     // title bar drags it and the corner handle resizes it, both in raw pixels so
@@ -114,7 +148,7 @@ const SimWindowFrame: React.FC<Props> = ({mode, setMode, onOpenWindow, title = "
             <span className="font-bold text-sm">{title}</span>
             <div className="flex items-center gap-0.5">
                 {mode === "docked" && (
-                    <HeaderBtn onClick={() => setMode("floating")} title="Maximize">
+                    <HeaderBtn onClick={() => setMode("floating")} title="Floating window">
                         <MaximizeIcon />
                     </HeaderBtn>
                 )}
@@ -144,9 +178,11 @@ const SimWindowFrame: React.FC<Props> = ({mode, setMode, onOpenWindow, title = "
 
     // ── mobile: bottom sheet for docked AND floating (floating = taller) ──
     if (isMobile) {
-        const base =
-            "fixed inset-x-0 bottom-0 z-30 w-full rounded-t-2xl flex flex-col overflow-hidden " +
-            (mode === "floating" ? "max-h-[92vh]" : "max-h-[82vh]");
+        // Height cap comes from useBottomSheet's sheetStyle (visible-viewport
+        // pixels), NOT a `vh` class — `vh` tracks the large viewport and would let
+        // the sheet's top (and grab handle) leave the screen when the mobile
+        // toolbar is shown, making it impossible to drag closed.
+        const base = "fixed inset-x-0 bottom-0 z-30 w-full rounded-t-2xl flex flex-col overflow-hidden";
         return (
             <div ref={panelRef} style={sheetStyle} className={CHROME + " " + base}>
                 <div
@@ -163,11 +199,13 @@ const SimWindowFrame: React.FC<Props> = ({mode, setMode, onOpenWindow, title = "
         );
     }
 
-    // ── floating: centred, draggable + resizable dialog over a scrim ──
+    // ── floating: a non-modal, draggable + resizable window ──
+    // No scrim: the viewer behind stays fully interactive (rotate / pick / edit)
+    // while the floating panel is open. Floating just means "detached window you
+    // can move and resize"; use Restore in the header to dock it again.
     if (mode === "floating") {
         return (
             <>
-                <div className="fixed inset-0 z-30 bg-black/40" onClick={() => setMode("docked")} aria-hidden="true" />
                 <div
                     className={CHROME + " fixed z-40 flex flex-col overflow-hidden rounded-md"}
                     style={rect ? {left: rect.x, top: rect.y, width: rect.w, height: rect.h} : undefined}
@@ -194,11 +232,25 @@ const SimWindowFrame: React.FC<Props> = ({mode, setMode, onOpenWindow, title = "
         );
     }
 
-    // ── docked: inline in the menu column (default) ──
+    // ── docked: inline in the menu column (default), horizontally resizable ──
     return (
-        <div className={CHROME + " rounded-md flex flex-col overflow-hidden min-w-80 max-w-[440px]"}>
+        <div
+            className={CHROME + " relative rounded-md flex flex-col overflow-hidden"}
+            style={{width: dockedWidth, minWidth: DOCKED_MIN, maxWidth: "calc(100vw - 32px)"}}
+        >
             {header}
-            <div className="min-h-0 overflow-y-auto p-2 max-h-[70vh]">{children}</div>
+            <div className="min-h-0 overflow-auto p-2 max-h-[70vh]">{children}</div>
+            {/* Right-edge handle — drag to resize the panel horizontally. */}
+            <div
+                className="absolute top-0 right-0 h-full w-1.5 cursor-ew-resize touch-none hover:bg-blue-400/40"
+                onPointerDown={onDockResizeDown}
+                onPointerMove={onDockResizeMove}
+                onPointerUp={onDockResizeUp}
+                onPointerCancel={onDockResizeUp}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize simulation panel width"
+            />
         </div>
     );
 };

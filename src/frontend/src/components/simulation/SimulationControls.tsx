@@ -38,6 +38,7 @@ import {
     PluginColorFields,
     makePluginContext,
     getSimulationTabs,
+    findSimulationTabById,
     disablePlugin,
     type AdaPluginContext,
     type PanelSlot,
@@ -88,7 +89,14 @@ const SimulationControls: React.FC<SimulationControlsProps> = ({initialMode = "d
         window.open(followerUrl(source, panelId, scope), "_blank", "noopener,width=920,height=820");
     };
 
-    const activePluginTab = tabs.find((t) => t.panel.id === activeTab);
+    // Forced-tab hosts (new-window follower / maximized window) are canvas-less
+    // and load only result sidecars, so the plugin's activation predicate can be
+    // false and `tabs` empty even though the panel's data is present. Fall back to
+    // an activation-ignoring lookup by id so the follower mounts the real plugin
+    // controls instead of silently dropping to the Animation tab.
+    const activePluginTab =
+        tabs.find((t) => t.panel.id === activeTab) ??
+        (forcedTabId ? findSimulationTabById(forcedTabId) : null);
 
     const body = (
         <div className="flex flex-col gap-2 min-w-0">
@@ -160,7 +168,7 @@ const SimTabStrip: React.FC<{
     ctxFor: (pluginId: string) => AdaPluginContext;
 }> = ({tabs, activeTab, onSelect, ctxFor}) => (
     <div
-        className="flex gap-0.5 border-b border-white/15 overflow-x-auto"
+        className="flex flex-wrap gap-0.5 border-b border-white/15"
         role="tablist"
         aria-label="Simulation panel section"
     >
