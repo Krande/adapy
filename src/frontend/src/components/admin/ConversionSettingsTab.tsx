@@ -81,14 +81,18 @@ const ROWS: SettingRow[] = [
     },
     {
         key: "profile_conversions",
-        label: "Profile conversions",
+        label: "Profile tasks",
         description:
-            "Run the worker fork-child under cProfile and upload the .prof to the audit " +
-            "row. Adds a few % overhead and bloats audit storage; intended for short " +
-            "debugging windows, not production.",
+            "Run worker tasks under cProfile and upload the .prof to the audit row. Covers " +
+            "conversions (fork-child harness) AND on-demand plugin jobs (in-process harness). " +
+            "Adds a few % overhead and bloats audit storage; intended for short debugging " +
+            "windows, not production. Restrict which task types are profiled with the " +
+            "“Profile task filter” below.",
         codeDefault: false,
     },
 ];
+
+const PROFILE_TASK_TYPES_KEY = "profile_task_types";
 
 const STREAMER_THRESHOLD_KEY = "step_streamer_threshold_mb";
 const SOLID_TIMEOUT_KEY = "step_stream_solid_timeout_s";
@@ -576,6 +580,19 @@ const ConversionSettingsTab: React.FC = () => {
                         }
                     />
                 )}
+                {!loading && (
+                    <StringSetting
+                        settingKey={PROFILE_TASK_TYPES_KEY}
+                        label="Profile task filter"
+                        placeholder="all tasks"
+                        onError={setError}
+                        description={
+                            "Comma-separated list of task types to profile when “Profile tasks” is on " +
+                            "(e.g. glb, ifc, plugin_job). Empty = profile every task type. Matches a job's " +
+                            "target format; on-demand plugin jobs match plugin_job."
+                        }
+                    />
+                )}
                 {loading ? (
                     <div className="px-3 sm:px-4 py-4 text-sm text-gray-300">Loading settings…</div>
                 ) : (
@@ -682,6 +699,77 @@ const NumberSetting: React.FC<{
                     className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm w-32 text-gray-100"
                 />
                 <span className="text-xs text-gray-400">{unit}</span>
+                <button
+                    type="button"
+                    onClick={save}
+                    disabled={saving}
+                    className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                >
+                    {saving ? "Saving…" : "Save"}
+                </button>
+                {savedAt && (
+                    <span className="text-[11px] text-emerald-400">
+                        saved {Math.floor((Date.now() - savedAt) / 1000)}s ago
+                    </span>
+                )}
+            </div>
+            <div className="text-xs text-gray-400 max-w-2xl">{description}</div>
+        </div>
+    );
+};
+
+// Self-contained free-text app_setting row (loads + saves its own key). Used for
+// the comma-separated profile task filter; empty = adapy's code default (all tasks).
+const StringSetting: React.FC<{
+    settingKey: string;
+    label: string;
+    placeholder: string;
+    description: React.ReactNode;
+    onError: (msg: string | null) => void;
+}> = ({settingKey, label, placeholder, description, onError}) => {
+    const [value, setValue] = useState("");
+    const [saving, setSaving] = useState(false);
+    const [savedAt, setSavedAt] = useState<number | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const v = await viewerApi.adminGetSetting(settingKey);
+                if (!cancelled) setValue((v || "").trim());
+            } catch {
+                /* surfaced by the tab's batch load */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [settingKey]);
+    const save = async () => {
+        setSaving(true);
+        onError(null);
+        try {
+            await viewerApi.adminSetSetting(settingKey, value.trim());
+            setSavedAt(Date.now());
+        } catch (e) {
+            onError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setSaving(false);
+        }
+    };
+    return (
+        <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+            <div>
+                <div className="font-medium text-sm">{label}</div>
+                <div className="text-[11px] text-gray-400 font-mono">{settingKey}</div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+                <input
+                    type="text"
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    placeholder={placeholder}
+                    className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm w-64 text-gray-100"
+                />
                 <button
                     type="button"
                     onClick={save}
