@@ -130,37 +130,34 @@ function init(
             // on cut-exposed interior elements hit the visible element instead
             // of the (invisible) cut-away shell in front of it.
             gpuMeshPicker.setClippingPlanes(planes);
+            const setClip = (mat: unknown, shadows: boolean) => {
+                const mats = Array.isArray(mat) ? mat : [mat];
+                for (const m of mats) {
+                    if (!m) continue;
+                    (m as THREE.Material).clippingPlanes = cp;
+                    if (shadows) (m as THREE.Material).clipShadows = true;
+                    (m as THREE.Material).needsUpdate = true;
+                }
+            };
             scene.traverse((o) => {
-                if (o instanceof CustomBatchedMesh) {
-                    const mats = Array.isArray(o.material) ? o.material : [o.material];
-                    for (const m of mats) {
-                        (m as THREE.Material).clippingPlanes = cp;
-                        (m as THREE.Material).clipShadows = true;
-                        (m as THREE.Material).needsUpdate = true;
-                    }
+                // Plugin-contributed result overlays (a coloured field mesh, feature
+                // lines, markers) opt into section clipping by tagging themselves.
+                // Checked FIRST and for ANY object type — otherwise a tagged
+                // THREE.LineSegments overlay is caught by the isLineSegments branch
+                // below and skipped, so it renders UNCLIPPED (stray lines / grey
+                // backfaces through the cut). Generic — core names no plugin.
+                if (o.userData?.__clipWithModel) {
+                    setClip((o as unknown as { material?: unknown }).material, false);
+                } else if (o instanceof CustomBatchedMesh) {
+                    setClip(o.material, true);
                 } else if ((o as THREE.LineSegments).isLineSegments) {
-                    // Edge overlay (custom ShaderMaterial w/ clipping:true) — cut it too.
+                    // Design edge overlay (custom ShaderMaterial w/ clipping:true) —
+                    // cut it too. Gated on uVisibleTex so UI line helpers (the
+                    // PlaneHelper, grid, axes) are NOT clipped. The FEA element-edge
+                    // wireframe uses a plain LineBasicMaterial and is instead tagged
+                    // __clipWithModel at creation, handled by the branch above.
                     const mat: any = (o as THREE.LineSegments).material;
-                    if (mat?.uniforms?.uVisibleTex) {
-                        mat.clippingPlanes = cp;
-                        mat.needsUpdate = true;
-                    }
-                } else if (o.userData?.__clipWithModel) {
-                    // Plugin-contributed result overlays (a coloured field mesh,
-                    // feature lines, markers) opt into section clipping by tagging
-                    // themselves; without this they render UNCLIPPED and their
-                    // backfaces show through the cut (grey faces / stray lines).
-                    // Generic — core names no plugin, just honours the flag.
-                    const anyO = o as unknown as {
-                        material?: THREE.Material | THREE.Material[];
-                    };
-                    const mats = anyO.material
-                        ? Array.isArray(anyO.material) ? anyO.material : [anyO.material]
-                        : [];
-                    for (const m of mats) {
-                        (m as THREE.Material).clippingPlanes = cp;
-                        (m as THREE.Material).needsUpdate = true;
-                    }
+                    if (mat?.uniforms?.uVisibleTex) setClip(mat, false);
                 }
             });
         };

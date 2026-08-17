@@ -781,6 +781,8 @@ export async function load_fea_streaming(args: {
                         });
                         const segments = new THREE.LineSegments(lineGeom, lineMat);
                         segments.name = "fea-beam-solid-element-edges";
+                        // Clip the element-edge wireframe with the model under section planes.
+                        segments.userData.__clipWithModel = true;
                         // Layer 1: rendered but not pickable — beam-solid
                         // face picking goes through the parent
                         // CustomBatchedMesh; the wireframe is decorative.
@@ -853,6 +855,8 @@ export async function load_fea_streaming(args: {
                     });
                     const segments = new THREE.LineSegments(lineGeom, lineMat);
                     segments.name = "fea-element-edges";
+                    // Clip the element-edge wireframe with the model under section planes.
+                    segments.userData.__clipWithModel = true;
                     // Layer 1: rendered (camera enables layers 0+1) but
                     // not pickable (setupPointerHandler's raycaster
                     // explicitly disables layer 1). prepareLoadedModel
