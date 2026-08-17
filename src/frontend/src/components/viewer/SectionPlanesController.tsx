@@ -145,6 +145,22 @@ function init(
                         mat.clippingPlanes = cp;
                         mat.needsUpdate = true;
                     }
+                } else if (o.userData?.__clipWithModel) {
+                    // Plugin-contributed result overlays (e.g. a capacity UF colour
+                    // mesh, girder/stiffener lines) opt into section clipping by
+                    // tagging themselves; without this they render UNCLIPPED and
+                    // their backfaces show through the cut (grey faces). Generic —
+                    // core names no plugin, just honours the flag.
+                    const anyO = o as unknown as {
+                        material?: THREE.Material | THREE.Material[];
+                    };
+                    const mats = anyO.material
+                        ? Array.isArray(anyO.material) ? anyO.material : [anyO.material]
+                        : [];
+                    for (const m of mats) {
+                        (m as THREE.Material).clippingPlanes = cp;
+                        (m as THREE.Material).needsUpdate = true;
+                    }
                 }
             });
         };
