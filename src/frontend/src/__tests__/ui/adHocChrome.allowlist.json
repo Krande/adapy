@@ -72,5 +72,11 @@
     "src/components/viewer/CellBuilderInsertMenu.tsx",
     "src/components/viewer/CellBuilderPanel.tsx",
     "src/components/viewer/DetailingPanel.tsx",
-    "src/components/viewer/GalleryControls.tsx"
+    "src/components/viewer/GalleryControls.tsx",
+    "src/components/viewer/cellbuilder/BuildTab.tsx",
+    "src/components/viewer/cellbuilder/ConnectionAdder.tsx",
+    "src/components/viewer/cellbuilder/Section.tsx",
+    "src/components/viewer/cellbuilder/SystemsTab.tsx",
+    "src/components/viewer/cellbuilder/ViewTab.tsx",
+    "src/components/viewer/cellbuilder/chrome.ts"
 ]

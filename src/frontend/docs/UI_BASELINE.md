@@ -865,3 +865,46 @@ opaque, so viewport content ghosts faintly through them. Menus arguably want to 
 opaque regardless of the panel theme — you read them for a fraction of a second over
 arbitrary content. That is a product-wide look decision affecting every popover in
 every preset, not something to fold into a bug fix, so it is left as-is and noted here.
+
+---
+
+## CellBuilderPanel split (phase 1 of 2 — no behaviour change)
+
+`CellBuilderPanel.tsx` was 1963 lines holding a panel shell, six tab bodies and five
+helper components in one scope. Split into `viewer/cellbuilder/*`; the shell is now 421
+lines and does what a shell should — header, tab strip, mobile sheet drag, pinned
+footer.
+
+| File | Lines | Was |
+|---|---|---|
+| `CellBuilderPanel.tsx` | 421 | the whole thing |
+| `BuildTab.tsx` | 692 | inline in the render |
+| `SystemsTab.tsx` | 222 | top-level in the same file |
+| `ConnectionAdder.tsx` | 198 | top-level, + its port/orient tables |
+| `ToolsTab.tsx` | 196 | inline in the render |
+| `ViewTab.tsx` | 166 | inline in the render |
+| `Section` / `IconOverlaySection` / `CompileLogSection` / `describeToolState` / `chrome` | 196 | top-level |
+
+**Deliberately a pure move.** Bodies were sliced out verbatim and only import headers
+were written. The re-chrome onto the design system is a separate commit, because the
+whole point of two-phase is that if something breaks, `git diff` tells you whether it
+was the move or the restyle. Two references needed re-deriving in their new home
+(`compileBusy` in ViewTab, the two dropdown-menu states into BuildTab) and nothing else
+— the tabs turned out to be far less entangled than the file's size suggested.
+
+**The contract that had to survive: tabs are hidden, not unmounted.** Every tab body
+renders inside `className={tab === x ? … : "hidden"}`, so switching tabs keeps each
+tab's local state — which sections you expanded, which menus were open. Extracting to
+components would have broken that the moment anyone wrote `{tab === "build" && <BuildTab/>}`.
+The `hidden` wrapper stays in the shell and the components sit inside it. Verified in
+the browser: expand a Build section, go to Tools, come back — still expanded.
+
+`equipMenuOpen` / `openingMenuOpen` and their button refs moved *into* BuildTab, since
+nothing outside that tab ever read them. `compileMenuOpen` stayed in the shell, since
+it belongs to the footer's compile split-button.
+
+**The allowlist grew by six, and that is correct.** `noAdHocChrome` immediately failed
+on the new files — the ad-hoc chrome did not go away, it changed address. Registering
+them keeps the guard honest rather than silently widening it; phase 2 deletes all six
+lines at once. The class strings themselves are collected in `cellbuilder/chrome.ts`
+unchanged, so the re-chrome is one edit rather than five.
