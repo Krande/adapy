@@ -9,6 +9,7 @@ import FloatLayer from "./FloatLayer";
 import StatusBar from "./StatusBar";
 import TitleBar from "./TitleBar";
 import CommandPalette from "./CommandPalette";
+import MarkingMenu from "./MarkingMenu";
 import ToastHost from "./ToastHost";
 import ToolRail from "./ToolRail";
 import ViewportHost from "./ViewportHost";
@@ -166,6 +167,10 @@ export default function AppShell({profile = "viewer", viewportOverride}: AppShel
 
             {/* Ctrl+K. Outside the grid — a modal overlay, not a region. */}
             <CommandPalette />
+
+            {/* Right-click in the viewport. Yields to the cellbuilder's own cell/port
+                menus, which claim the event by calling preventDefault. */}
+            {p.canvas && <MarkingMenu />}
         </div>
     );
 }
