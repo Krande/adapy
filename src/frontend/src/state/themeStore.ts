@@ -1,6 +1,7 @@
 import {create} from "zustand";
 import {persist} from "zustand/middleware";
 import type {PluginTheme} from "@/plugins/registry";
+import {computeThemeVars, SEMANTIC_COLORS} from "@/ui/themeTokens";
 
 // Panel theming for the menu-row info boxes (Options / Storage /
 // Selected Object / Scene / Server / WS status). The panels read
@@ -53,13 +54,12 @@ export const THEME_PRESETS: Record<string, {name: string; hint: string; theme: P
 /** Theme-neutral semantic colours — mid-tones chosen to read on both the light
  *  and dark panel presets. Not user-themable (the presets only re-chrome the
  *  panel surround); a plugin uses these for interactive / status accents so
- *  Scene, Procedural and plugin panels share one status vocabulary. */
-export const SEMANTIC_TOKENS = {
-    accent: "#3b82f6",
-    pass: "#22c55e",
-    warn: "#f59e0b",
-    fail: "#ef4444",
-} as const;
+ *  Scene, Procedural and plugin panels share one status vocabulary.
+ *
+ *  Defined in ui/themeTokens (the DOM-free module that also derives the rest of the
+ *  palette); re-exported here under its original name for existing importers.
+ *  `info` is new — the four original keys are unchanged. */
+export const SEMANTIC_TOKENS = SEMANTIC_COLORS;
 
 export type ThemePresetId = keyof typeof THEME_PRESETS;
 
@@ -113,20 +113,44 @@ export function effectivePluginTheme(
     return {...effectivePanelTheme(s), ...SEMANTIC_TOKENS};
 }
 
+// Where the CSS custom properties get written. Defaults to <html>.
+//
+// `mountViewer` can redirect this to its own mount element (see setThemeRoot) so a
+// host page embedding two viewers isn't fighting over one global root — a
+// prerequisite for the per-instance stores AdaViewerContext is heading toward.
+let themeRoot: HTMLElement | null = null;
+
+function resolveRoot(): HTMLElement | null {
+    if (themeRoot) return themeRoot;
+    // Guarded so importing this module in a plain `node --test` process (no jsdom)
+    // is a no-op instead of a crash. The token maths itself lives in ui/themeTokens
+    // and is DOM-free, so it can be tested without any of this.
+    if (typeof document === "undefined") return null;
+    return document.documentElement;
+}
+
+/**
+ * Redirect theme variables at a specific element instead of <html>.
+ *
+ * Pass null to go back to <html>. Repaints immediately so the caller doesn't have to
+ * wait for the next store change.
+ */
+export function setThemeRoot(el: HTMLElement | null): void {
+    themeRoot = el;
+    applyPanelThemeVars(effectivePanelTheme(useThemeStore.getState()));
+}
+
 function applyPanelThemeVars(theme: PanelTheme): void {
-    const root = document.documentElement.style;
-    root.setProperty("--ada-panel-bg", theme.bg);
-    root.setProperty("--ada-panel-border", theme.border);
-    root.setProperty("--ada-panel-text", theme.text);
-    // Extended tokens for plugin panels (see effectivePluginTheme). The panel
-    // chrome above stays the source of truth for core's own boxes; these add
-    // the raised-surface / muted-text / semantic accents plugins need to match.
-    root.setProperty("--ada-panel-surface", theme.surface);
-    root.setProperty("--ada-panel-text-muted", theme.textMuted);
-    root.setProperty("--ada-accent", SEMANTIC_TOKENS.accent);
-    root.setProperty("--ada-pass", SEMANTIC_TOKENS.pass);
-    root.setProperty("--ada-warn", SEMANTIC_TOKENS.warn);
-    root.setProperty("--ada-fail", SEMANTIC_TOKENS.fail);
+    const el = resolveRoot();
+    if (!el) return;
+    // computeThemeVars emits the five --ada-panel-* and four semantic names exactly as
+    // before, plus the derived design-system tokens (surfaces, text steps, borders,
+    // focus ring, status fills, selection). Applied imperatively rather than declared
+    // in CSS — see the comment at the top of ui/themeTokens.ts for why that matters.
+    const vars = computeThemeVars(theme);
+    for (const [name, value] of Object.entries(vars)) {
+        el.style.setProperty(name, value);
+    }
 }
 
 export const useThemeStore = create<ThemeState>()(

@@ -31,8 +31,24 @@ const isAuthCallback = isRestMode && window.location.pathname === "/auth/callbac
 const isConvertPage = isRestMode && window.location.pathname.startsWith("/convert");
 const isAdminPage = isRestMode && window.location.pathname.startsWith("/admin");
 
+// Design-system catalogue at `?uikit=1`. Dev-only (import.meta.env.DEV is statically
+// replaced, so rollup drops both the flag and the lazy chunk from every production
+// build) and mounted before every other branch, since it needs no comms, no scene and
+// no auth. Reviewing it cannot affect the real app.
+const UiGallery = React.lazy(() => import("./components/ui/__gallery__/UiGallery"));
+const isUiGallery =
+    import.meta.env.DEV && new URLSearchParams(window.location.search).get("uikit") === "1";
+
 
 function App() {
+    if (isUiGallery) {
+        return (
+            <Suspense fallback={null}>
+                <UiGallery/>
+            </Suspense>
+        );
+    }
+
     if (isAuthCallback) {
         // Dedicated landing for OIDC redirect_uri. Doesn't render the
         // viewer at all — it just exchanges the code and bounces back.

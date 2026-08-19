@@ -1,4 +1,8 @@
 @import 'tailwindcss';
+/* Design-system tokens + the Tailwind @theme namespace they feed.
+   Must sit with the other @import: CSS requires @import to precede all other rules,
+   and placing it after @config silently dropped the whole file from the build. */
+@import './ui/tokens.css';
 
 @config '../tailwind.config.js';
 

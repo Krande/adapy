@@ -133,12 +133,90 @@ on them. None were introduced by the rewrite.
    explicit `define`; as a side effect React now runs in production mode there and
    the bundle shrank 3,917,720 → 3,304,986 B (−16 %).
 
-### Known defect, deferred to M1
+---
 
-**The embed has no style isolation against its host page.** `@scope (.ada-viewer-scope)`
-stops embed CSS leaking *out*, but nothing stops host CSS cascading *in* — in
-`embed/dev.html` the host's `button { background:#c00; border-radius:999px }` deforms
-the embed's toolbar buttons. Any paradoc host page with global control styling hits
-this. The fix falls out of M1 for free: once every control is a `Button`/`IconButton`
-primitive setting background, radius and padding from explicit tokens, host styles
-have nothing to win. Re-verify in `embed/dev.html` at the end of M1.
+# M1 — design-system kernel
+
+Review it at **`npm run dev` → http://localhost:5173/?uikit=1`**. The real app is
+untouched by this milestone; the gallery is a separate route that mounts before every
+other branch and needs no comms, scene or auth.
+
+## What landed
+
+| | |
+|---|---|
+| `src/ui/themeTokens.ts` | Derives the full colour set from the user's panel theme. DOM-free, so it unit-tests under plain `node --test`. |
+| `src/ui/tokens.css` | Static tokens (radii, spacing, control heights, type, icons, elevation, motion, z-index) + the Tailwind v4 `@theme` namespace. |
+| `src/ui/selectionColor.ts` | One definition of the selection colour, imported by both the three.js material and `--ada-select`. |
+| `src/components/ui/*` | 17 primitives + barrel. |
+| `src/components/icons/index.tsx` | Name→component registry (50 glyphs) and the `<Icon>` wrapper. |
+| `src/components/ui/__gallery__` | The live catalogue at `?uikit=1`. |
+
+## Sizes after M1
+
+| Build | M0 | M1 | Delta |
+|---|---|---|---|
+| `dist/index.html` | 2,826,306 B | 2,873,391 B | **+1.67 %** (budget +8 %) |
+| `dist-embed/index.js` | 3,304,986 B | 3,324,446 B | +0.59 % |
+| `build:serve` chunks | 12+ | 29 | — |
+
+Contract checks still hold: zero `/assets/*.js` script tags in `dist/index.html`,
+zero `process.env` in the embed, no `.css` sidecar.
+
+**Tests: 260 pass, 0 fail, 0 skipped** (M0: 218). New suites — `ui/tokens`,
+`ui/embedCssHoist`, `ui/noAdHocChrome`, `ui/primitives.smoke`.
+
+## Burn-down: unchanged, by design
+
+M1 built the system; it converted no consumers. The audit numbers move from M3
+onward, as panels are re-chromed. `src/__tests__/ui/adHocChrome.allowlist.json`
+holds the 81 files under `src/components/**` still naming palette colours; the test
+fails both on a new offender and on a stale entry, so the list can only shrink.
+
+## Two things worth knowing
+
+**Selection colour changed.** It was the CSS keyword `blue` (#0000FF), which is so
+dark it read as a hole in the geometry rather than a highlight, and failed contrast
+against the dark panel presets. It is now #2563EB, defined once in
+`ui/selectionColor.ts` and consumed by the three.js material *and* `--ada-select`, so
+a selected outliner row and the selected geometry cannot drift apart.
+
+**Panel presets were designed as translucent overlays over 3D, not as app chrome.**
+Viewed full-page in the gallery, `Pale glass` (50 %-alpha grey, white text) is
+low-contrast, because there is no bright 3D content behind it. `Slate glass`, `Dark`
+and `Mist` all read well. When M2 introduces docked regions this needs a decision:
+either docked panels use an opaque surface, or the pale preset is revised. Flagged,
+not silently changed — the presets are a user-facing choice.
+
+### The embed defect from M0 — fixed, and it was not what it looked like
+
+M0 recorded that host-page CSS cascades *into* the embed and guessed that converting
+controls to token-setting primitives would fix it. **That guess was wrong**, and the
+real cause is worth writing down.
+
+The embed's stylesheet is Tailwind v4 output, which lives entirely inside
+`@layer properties/theme/base/components/utilities`. **A style in a cascade layer
+loses to an unlayered style unconditionally — specificity is not even considered.** So
+a host page's plain `button { background:#c00 }` beat our `.bg-blue-700` class.
+Primitives would have lost too: they are utilities in `@layer utilities`.
+
+The fix is `flattenLayers()` in `vite.plugin-embed-css.mjs` — strip the `@layer`
+wrappers from the embed build so its rules compete on ordinary specificity, where a
+class beats an element selector. Layer order and source order agree in Tailwind's
+output, so relative precedence is preserved. Only the embed is flattened; the
+standalone app owns its whole document and keeps normal layering.
+
+Verified in `embed/dev.html`: the embed's toolbar keeps its own blue/4 px styling,
+the host's heading and pill button are untouched, and `--ada-radius-md` resolves
+through the hoisted block.
+
+`@layer properties` still survives flattening. It is Tailwind's `@property` fallback
+block — it declares `--tw-*` initial values via `@supports` and contains no competing
+utilities, so it is harmless. Left as-is rather than special-cased.
+
+**A parser bug this exposed, worth remembering:** the block scanner treated `\'` as a
+string delimiter. Tailwind compiles a `content-['']` utility (used by `Checkbox`) to
+the selector `.checked\:after\:content-\[\'\'\]`, so the scanner entered string mode
+and stayed there for the rest of the file, swallowing every brace. Both the hoist and
+the flatten silently no-opped — no error, just an unstyled embed. CSS escapes apply in
+selectors, not only inside strings. Covered by two regression tests.
