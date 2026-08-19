@@ -199,7 +199,7 @@ export const PANELS: Record<PanelId, PanelDef> = {
         defaultDock: "float",
         shortcut: "Shift+Q",
         hint: "Display, theme, performance and conversion options",
-        component: lazy(() => import("@/components/OptionsComponent")),
+        component: lazy(() => import("@/components/options/OptionsBody")),
     },
 };
 

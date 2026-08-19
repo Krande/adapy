@@ -1,4 +1,5 @@
 import React from "react";
+import {Button, PropertyRow, Slider, Switch, cn} from "@/components/ui";
 import {
     effectivePanelTheme,
     THEME_PRESETS,
@@ -7,10 +8,13 @@ import {
 } from "@/state/themeStore";
 import {useGalleryStore} from "@/state/galleryStore";
 
-// Theme picker for the menu-row panels. Four preset cards (each a
-// live mini-preview of its chrome) plus custom swatches for panel
-// background + text and an opacity slider, for landing anywhere
-// between "max legibility" and "don't distract from the 3D view".
+// Theme picker for the panel chrome. Four preset cards (each a live mini-preview of its
+// own chrome) plus custom swatches for panel background + text and an opacity slider, for
+// landing anywhere between "max legibility" and "don't distract from the 3D view".
+//
+// Re-chromed, with one deliberate exception: the preset cards keep their inline
+// `style={{background: p.theme.bg}}`. That is not ad-hoc styling — it is the preview, and
+// the whole point is that a card looks like the thing it selects.
 
 const ThemeOptions: React.FC = () => {
     const preset = useThemeStore((s) => s.preset);
@@ -30,21 +34,14 @@ const ThemeOptions: React.FC = () => {
     const effective = effectivePanelTheme({preset, customBg, customText, bgOpacity});
 
     return (
-        <div className="space-y-3 text-xs">
-            <label className="flex items-center justify-between gap-2 cursor-pointer">
-                <span>
-                    Gallery mode
-                    <span className="block text-[10px] text-gray-400">
-                        Prev/next HUD cycling this scope's files
-                    </span>
-                </span>
-                <input
-                    type="checkbox"
-                    checked={galleryEnabled}
-                    onChange={(e) => setGalleryEnabled(e.target.checked)}
-                    className="h-4 w-4 cursor-pointer accent-blue-500"
-                />
-            </label>
+        <div className="flex flex-col gap-3">
+            <Switch
+                label="Gallery mode"
+                hint="Prev/next HUD cycling this scope's files"
+                checked={galleryEnabled}
+                onChange={(e) => setGalleryEnabled(e.target.checked)}
+            />
+
             <div className="grid grid-cols-2 gap-2">
                 {(Object.keys(THEME_PRESETS) as ThemePresetId[]).map((id) => {
                     const p = THEME_PRESETS[id];
@@ -55,12 +52,13 @@ const ThemeOptions: React.FC = () => {
                             type="button"
                             onClick={() => setPreset(id)}
                             title={p.hint}
-                            className={
-                                "rounded-md border px-2 py-1.5 text-left cursor-pointer " +
-                                (active
-                                    ? "border-blue-400 ring-1 ring-blue-400"
-                                    : "border-gray-600 hover:border-gray-400")
-                            }
+                            aria-pressed={active}
+                            className={cn(
+                                "ada-focus rounded-md border px-2 py-1.5 text-left text-xs cursor-pointer",
+                                "transition-colors duration-(--ada-dur-fast)",
+                                active ? "border-accent ring-1 ring-accent" : "border-edge pointer-fine:hover:border-edge-strong",
+                            )}
+                            // The card IS the preview — these come from the preset data.
                             style={{background: p.theme.bg, color: p.theme.text}}
                         >
                             <div className="font-semibold">{p.name}</div>
@@ -69,66 +67,58 @@ const ThemeOptions: React.FC = () => {
                     );
                 })}
             </div>
-            <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                    <span>Panel color</span>
+
+            <div className="flex flex-col gap-1.5">
+                <PropertyRow label="Panel colour">
                     <input
                         type="color"
-                        // Color inputs need a hex; when no override is set show
-                        // a neutral derived from the active preset family.
+                        // Colour inputs need a hex; with no override set, show a neutral
+                        // derived from the active preset family.
                         value={customBg ?? "#111827"}
                         onChange={(e) => setCustomBg(e.target.value)}
-                        className="h-6 w-10 cursor-pointer rounded-sm border border-gray-600 bg-transparent"
+                        className="ada-focus h-6 w-10 cursor-pointer rounded-sm border border-edge bg-transparent"
                         title="Custom panel background"
                     />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                    <span>Text color</span>
+                </PropertyRow>
+                <PropertyRow label="Text colour">
                     <input
                         type="color"
                         value={customText ?? "#f3f4f6"}
                         onChange={(e) => setCustomText(e.target.value)}
-                        className="h-6 w-10 cursor-pointer rounded-sm border border-gray-600 bg-transparent"
-                        title="Custom panel text color"
+                        className="ada-focus h-6 w-10 cursor-pointer rounded-sm border border-edge bg-transparent"
+                        title="Custom panel text colour"
                     />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                    <span className={customBg ? "" : "opacity-50"}>
-                        Panel opacity
-                    </span>
-                    <input
-                        type="range"
-                        min={0.1}
-                        max={1}
-                        step={0.05}
-                        value={bgOpacity}
-                        onChange={(e) => setBgOpacity(Number(e.target.value))}
-                        disabled={!customBg}
-                        className="w-28 cursor-pointer disabled:cursor-default"
-                        title={customBg
-                            ? "Opacity of the custom panel color"
-                            : "Pick a custom panel color first — presets carry their own opacity"}
-                    />
-                </div>
+                </PropertyRow>
+                <PropertyRow
+                    label={<span className={cn(!customBg && "opacity-50")}>Panel opacity</span>}
+                    hint={customBg ? undefined : "Pick a custom panel colour first — presets carry their own opacity"}
+                >
+                    <div className="w-32">
+                        <Slider
+                            min={0.1}
+                            max={1}
+                            step={0.05}
+                            value={bgOpacity}
+                            disabled={!customBg}
+                            readout
+                            format={(n) => n.toFixed(2)}
+                            onValueChange={(n) => setBgOpacity(n)}
+                        />
+                    </div>
+                </PropertyRow>
+
                 {hasCustom && (
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center justify-between gap-2 pt-1">
                         <span
-                            className="rounded-sm border px-2 py-0.5"
-                            style={{
-                                background: effective.bg,
-                                color: effective.text,
-                                borderColor: effective.border,
-                            }}
+                            className="rounded-sm border px-2 py-0.5 text-xs"
+                            // Live preview of the custom combination — data, not chrome.
+                            style={{background: effective.bg, color: effective.text, borderColor: effective.border}}
                         >
                             custom preview
                         </span>
-                        <button
-                            type="button"
-                            onClick={resetCustom}
-                            className="text-blue-400 hover:text-blue-300 cursor-pointer"
-                        >
+                        <Button size="sm" variant="subtle" onClick={resetCustom}>
                             Reset to preset
-                        </button>
+                        </Button>
                     </div>
                 )}
             </div>

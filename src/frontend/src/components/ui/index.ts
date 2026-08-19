@@ -23,6 +23,7 @@ export {
 
 export {Input, Textarea, Field, FIELD_BASE, type InputProps, type TextareaProps, type FieldProps, type FieldSize} from "./Input";
 export {Select, type SelectProps} from "./Select";
+export {Slider, type SliderProps} from "./Slider";
 export {Checkbox, Switch, type CheckboxProps, type SwitchProps} from "./Checkbox";
 
 export {SegmentedControl, type SegmentedControlProps, type SegmentedOption} from "./SegmentedControl";

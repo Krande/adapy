@@ -715,3 +715,75 @@ the selector `.checked\:after\:content-\[\'\'\]`, so the scanner entered string 
 and stayed there for the rest of the file, swallowing every brace. Both the hoist and
 the flatten silently no-opped — no error, just an unstyled embed. CSS escapes apply in
 selectors, not only inside strings. Covered by two regression tests.
+
+---
+
+## Preferences re-chrome
+
+Every control in Preferences now renders on the design system. This closes the
+"inconsistent look" pain for the one panel the user reaches most often to change
+something, and it removes 6 files from the `noAdHocChrome` allowlist (80 → 74).
+
+**The split.** `OptionsComponent` drew its own bordered, separately-scrolling panel.
+In the classic UI that is correct — it sits in the info-box column and has to look
+like its neighbours. In the shell it produced a box inside the dock's box, with a
+second scrollbar. The content moved to `options/OptionsBody.tsx`, which has no chrome
+of its own; the shell's registry now points there, and `OptionsComponent` is reduced
+to the classic mobile-drawer / desktop-panel wrapper that renders it. Same split as
+the M3 info boxes, same reason, and both halves go at cutover.
+
+`ShortcutsModal` stays on the classic wrapper rather than moving into the body: the
+shell supersedes it with the command palette, so putting it in the shared body would
+have shipped two answers to the same question.
+
+**Converted:** `DisplayOptions` (11 rows), `PointSizeOptions`, `PerformanceOptions`
+(13 toggles + a select + a slider), `ThemeOptions`, `ExperimentalOptions`,
+`RestSection`, `ActionButtons`, `ShortcutsModal`, `OptionsComponent`.
+
+**Choices worth recording:**
+
+*`Switch`, not `Checkbox`, for all of them.* Every one of these settings takes effect
+the moment you flip it — nothing here is a pending value confirmed by an OK button.
+A checkbox implies "selected, will be applied"; a switch implies "on, now".
+
+*The `<hr>` rules in Performance became named `Section`s* — Materials, Rasterisation,
+Loading, Picking, Frontend metrics. A divider tells you something changed but not
+what, and with thirteen switches in one column that is the difference between a list
+you can navigate and one you have to read end to end. The `reload` markers became
+`Badge tone="warn"` instead of parenthetical prose.
+
+*The theme preset cards keep their inline `style={{background: p.theme.bg}}`.* That
+is not ad-hoc styling that escaped the sweep — it is the preview. The card is
+supposed to look like the thing it selects, and the value comes from preset data.
+
+*`RestSection`'s purple "Admin panel" and blue "Convert files" are now plain
+secondary buttons.* Two maximally-loud full-width buttons for things you press
+occasionally, in a colour (purple) that meant nothing anywhere else in the product.
+Admin is marked by a badge now rather than by being shouted.
+
+Behaviour was preserved deliberately in two places that look like bugs and are not:
+`PerformanceOptions` keeps its inverted antialias handler (`checked={!antialias}` —
+the row is labelled *Disable* antialias), and `OptionsBody` passes
+`defaultOpen={false}` to every section because the shared `CollapsibleSection`
+defaults to open and the drawer's sections have always started closed.
+
+### Two defects this surfaced
+
+**`Slider` collapsed to zero width inside a flex row.** The primitive wrapped its
+track in a `flex items-center gap-2` div with no width of its own. Dropped into the
+point-size row next to a number field, that wrapper resolved to `flex-basis: auto`
+over zero-width content, collapsed, and the track vanished under its neighbour. The
+`flex-1` was on the `<input>`, which only made it fill its already-collapsed parent.
+Fixed on the primitive (`w-full min-w-0` on the wrapper), not on the three call
+sites.
+
+**`className="w-20"` on an `Input` did nothing.** `Input` sets `w-full` itself, and
+which of the two wins is decided by stylesheet order, not by prop order — so the
+"override" silently lost and the field took the whole row. Width now goes on a
+wrapper element, which is deterministic. Worth watching for wherever a caller tries
+to override a primitive's own layout classes.
+
+Neither was visible in the classic UI, where the drawer is wide enough that the
+collapse did not overlap anything. Both only showed up in the shell's narrower float
+panel — an argument for reviewing panels at their real width, not at their most
+generous one.

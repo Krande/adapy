@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import { Button, Icon, IconButton, Kbd } from "@/components/ui";
+import { Z } from "@/shell/zIndex";
 
 // Single source of truth for the keyboard-shortcut help map. Grouped by
 // the CONTEXT in which the keys are live so the user knows WHERE/WHEN each
@@ -107,17 +109,13 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
   },
 ];
 
-const Kbd: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <kbd className="inline-block rounded border border-gray-600 bg-gray-800 px-1.5 py-0.5 text-xs font-mono text-gray-100 shadow-sm">
-    {children}
-  </kbd>
-);
-
+// Key combos render on the design system's Kbd chip — the same chip the command
+// palette and tooltips use, so a key looks like a key everywhere in the product.
 const KeyCombo: React.FC<{ keys: string[] }> = ({ keys }) => (
   <span className="inline-flex items-center gap-1 whitespace-nowrap">
     {keys.map((k, i) => (
       <React.Fragment key={i}>
-        {i > 0 && <span className="text-gray-500">+</span>}
+        {i > 0 && <span className="text-content-subtle">+</span>}
         <Kbd>{k}</Kbd>
       </React.Fragment>
     ))}
@@ -141,51 +139,49 @@ const ShortcutsModal: React.FC = () => {
 
   return (
     <div>
-      <button
-        className="bg-blue-700 hover:bg-blue-600 text-white font-semibold py-1 px-2 rounded-sm w-full"
-        onClick={() => setOpen(true)}
-      >
-        Shortcut Keys
-      </button>
+      <Button variant="secondary" block onClick={() => setOpen(true)}>
+        Shortcut keys
+      </Button>
       {open && (
         <div
-          className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
+          className="fixed inset-0 flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
+          // From the z registry, not a z-[70] literal — see shell/zIndex.ts.
+          style={{ zIndex: Z.dialog }}
           onClick={() => setOpen(false)}
         >
           <div
-            className="bg-gray-900 border border-gray-700 rounded-md shadow-xl flex flex-col w-full max-w-3xl max-h-[85vh] my-auto text-white"
+            className={
+              "bg-surface-1 border border-edge rounded-lg shadow-float flex flex-col " +
+              "w-full max-w-3xl max-h-[85vh] my-auto text-content"
+            }
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label="Keyboard shortcuts"
           >
-            <div className="flex items-center gap-3 border-b border-gray-700 px-4 py-3">
+            <div className="flex items-center gap-3 border-b border-edge px-4 py-3">
               <h2 className="flex-1 text-base font-bold">Keyboard shortcuts</h2>
-              <button
-                type="button"
-                className="shrink-0 text-gray-300 hover:text-white text-xl leading-none px-2"
+              <IconButton
+                tooltip="Close (Esc)"
+                icon={<Icon name="close" />}
                 onClick={() => setOpen(false)}
-                aria-label="Close"
-                title="Close (Esc)"
-              >
-                ×
-              </button>
+              />
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            <div className="flex-1 overflow-y-auto scrollbar p-4 space-y-6">
               {SHORTCUT_GROUPS.map((group) => (
                 <section key={group.context}>
-                  <h3 className="text-sm font-semibold text-blue-300">
+                  <h3 className="text-sm font-semibold text-accent">
                     {group.context}
                   </h3>
-                  <p className="mb-2 text-xs text-gray-400">{group.when}</p>
-                  <ul className="divide-y divide-gray-800 rounded-sm border border-gray-800">
+                  <p className="mb-2 text-xs text-content-muted">{group.when}</p>
+                  <ul className="divide-y divide-edge rounded-md border border-edge">
                     {group.shortcuts.map((sc, i) => (
                       <li
                         key={i}
                         className="flex items-center justify-between gap-4 px-3 py-1.5"
                       >
-                        <span className="text-sm text-gray-200">
+                        <span className="text-sm text-content">
                           {sc.description}
                         </span>
                         <KeyCombo keys={sc.keys} />

@@ -1,19 +1,17 @@
 import React from "react";
+import {Switch} from "@/components/ui";
 import {useOptionsStore} from "@/state/optionsStore";
 import {useColorStore} from "@/state/colorLegendStore";
 import {useModelState} from "@/state/modelState";
 import {refreshEdgeOverlays} from "@/utils/scene/refreshEdgeOverlays";
 
-const Toggle: React.FC<{
-    checked: boolean;
-    onChange: () => void;
-    children: React.ReactNode;
-}> = ({checked, onChange, children}) => (
-    <label className="flex items-center space-x-2">
-        <input type="checkbox" checked={checked} onChange={onChange}/>
-        <span>{children}</span>
-    </label>
-);
+// Re-chromed onto the design system. Every control drives exactly the setter it drove
+// before — only the markup changed.
+//
+// Switch rather than Checkbox throughout: these all take effect immediately, which is the
+// distinction the two primitives encode (a checkbox is a value in a set, or a setting
+// that applies on save). The hand-rolled `Toggle` this replaced was a bare
+// <input type=checkbox>, which read as "this will apply later".
 
 const DisplayOptions: React.FC = () => {
     const {
@@ -30,68 +28,68 @@ const DisplayOptions: React.FC = () => {
     const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelState();
 
     return (
-        <div className="space-y-2">
-            {/* "Show Stats" moved to the top of the Performance
-                section — it's a perf-diagnosis toggle, not a display
-                preference. */}
-            <Toggle checked={showLegend} onChange={() => setShowLegend(!showLegend)}>Show Color Legend</Toggle>
-            <Toggle
+        <div className="flex flex-col gap-2">
+            {/* "Show Stats" lives at the top of the Performance section — it is a
+                perf-diagnosis toggle, not a display preference. */}
+            <Switch
+                label="Show colour legend"
+                checked={showLegend}
+                onChange={() => setShowLegend(!showLegend)}
+            />
+            <Switch
+                label="Geometry edges"
                 checked={showEdges}
                 onChange={() => {
                     setShowEdges(!showEdges);
                     refreshEdgeOverlays();
                 }}
-            >
-                Geometry Edges
-            </Toggle>
+            />
             {showEdges && (
-                <label className="flex items-start space-x-2 pl-6">
-                    <input
-                        type="checkbox"
-                        className="mt-1"
+                <div className="pl-4 border-l border-edge">
+                    <Switch
+                        label="Hide tessellation lines"
+                        hint="Drops near-coplanar edges (the triangulation grid on curved surfaces). Keeps real feature edges and silhouettes. Smaller edge buffer ⇒ slightly faster."
                         checked={hideTessellationEdges}
                         onChange={() => {
                             setHideTessellationEdges(!hideTessellationEdges);
                             refreshEdgeOverlays();
                         }}
                     />
-                    <span className="leading-tight">
-                        Hide tessellation lines
-                        <span className="block text-xs text-gray-400">
-                            Drops near-coplanar edges (the triangulation grid
-                            on curved surfaces). Keeps real feature edges and
-                            silhouettes. Smaller edge buffer ⇒ slightly faster.
-                        </span>
-                    </span>
-                </label>
+                </div>
             )}
-            <Toggle checked={showMeshStats} onChange={() => setShowMeshStats(!showMeshStats)}>
-                Mesh stats in Properties
-            </Toggle>
-            <label className="flex items-start space-x-2">
-                <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={autoConvertOnUpload}
-                    onChange={() => setAutoConvertOnUpload(!autoConvertOnUpload)}
-                />
-                <span className="leading-tight">
-                    Auto-convert uploads to GLB
-                    <span className="block text-xs text-gray-400">
-                        When on, uploading a source file (STEP/IFC/FEM…) immediately
-                        queues a GLB conversion. Off (default) — upload only; convert
-                        on demand from the file row.
-                    </span>
-                </span>
-            </label>
-            <Toggle checked={autoFit} onChange={() => setAutoFit(!autoFit)}>Auto Fit to View</Toggle>
-            <Toggle checked={lockTranslation} onChange={() => setLockTranslation(!lockTranslation)}>Lock Translation</Toggle>
-            <Toggle checked={enableNodeEditor} onChange={() => setEnableNodeEditor(!enableNodeEditor)}>Enable Node Editor</Toggle>
-            <Toggle checked={enableWebsocket} onChange={() => setEnableWebsocket(!enableWebsocket)}>Enable Websocket</Toggle>
-            <Toggle checked={zIsUp} onChange={() => setZIsUp(!zIsUp)}>Z is UP</Toggle>
-            <Toggle checked={defaultOrbitController} onChange={() => setDefaultOrbitController(!defaultOrbitController)}>
-                Use Default Orbitcontroller
-            </Toggle>
+            <Switch
+                label="Mesh stats in Properties"
+                checked={showMeshStats}
+                onChange={() => setShowMeshStats(!showMeshStats)}
+            />
+            <Switch
+                label="Auto-convert uploads to GLB"
+                hint="When on, uploading a source file (STEP/IFC/FEM…) immediately queues a GLB conversion. Off (default) — upload only; convert on demand from the file row."
+                checked={autoConvertOnUpload}
+                onChange={() => setAutoConvertOnUpload(!autoConvertOnUpload)}
+            />
+            <Switch label="Auto fit to view" checked={autoFit} onChange={() => setAutoFit(!autoFit)} />
+            <Switch
+                label="Lock translation"
+                checked={lockTranslation}
+                onChange={() => setLockTranslation(!lockTranslation)}
+            />
+            <Switch
+                label="Enable node editor"
+                checked={enableNodeEditor}
+                onChange={() => setEnableNodeEditor(!enableNodeEditor)}
+            />
+            <Switch
+                label="Enable websocket"
+                checked={enableWebsocket}
+                onChange={() => setEnableWebsocket(!enableWebsocket)}
+            />
+            <Switch label="Z is up" checked={zIsUp} onChange={() => setZIsUp(!zIsUp)} />
+            <Switch
+                label="Use default orbit controller"
+                checked={defaultOrbitController}
+                onChange={() => setDefaultOrbitController(!defaultOrbitController)}
+            />
         </div>
     );
 };

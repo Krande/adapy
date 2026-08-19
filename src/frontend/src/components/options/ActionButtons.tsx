@@ -1,21 +1,24 @@
 import React from "react";
+import {Button} from "@/components/ui";
 import {takeScreenshot} from "@/utils/takeScreenshot";
 import {loadRobot} from "@/utils/robots";
 import {debug_print} from "@/utils/debug_print";
 
-const buttonClass =
-    "bg-blue-700 hover:bg-blue-600 text-white font-semibold py-1 px-2 rounded-sm w-full";
+// Re-chromed. These are diagnostic/utility actions, not the panel's main affordance, so
+// they are `secondary` rather than the three identical accent-blue buttons they were —
+// three primary buttons in a row give no clue which one you actually want.
 
 const ActionButtons: React.FC = () => (
-    <div className="space-y-2">
-        <button className={buttonClass} onClick={() => debug_print()}>
+    <div className="flex flex-col gap-2">
+        <Button variant="secondary" block onClick={() => debug_print()}>
             Debug print
-        </button>
-        <button className={buttonClass} onClick={loadRobot}>
-            Load URDF Model
-        </button>
-        <button
-            className={buttonClass}
+        </Button>
+        <Button variant="secondary" block onClick={loadRobot}>
+            Load URDF model
+        </Button>
+        <Button
+            variant="secondary"
+            block
             onClick={async () => {
                 try {
                     await takeScreenshot();
@@ -24,8 +27,8 @@ const ActionButtons: React.FC = () => (
                 }
             }}
         >
-            Take Screenshot
-        </button>
+            Take screenshot
+        </Button>
     </div>
 );
 
