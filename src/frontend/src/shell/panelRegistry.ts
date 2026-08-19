@@ -52,6 +52,8 @@ export const PANEL_IDS = [
     "scene",
     "simulation",
     "fea-table",
+    "cellbuilder",
+    "node-editor",
     "storage",
     "preferences",
 ] as const;
@@ -110,6 +112,27 @@ export const PANELS: Record<PanelId, PanelDef> = {
         defaultOpen: true,
         hint: "Result fields, deformation and playback",
         component: lazy(() => import("@/components/simulation/SimulationControls")),
+    },
+    cellbuilder: {
+        id: "cellbuilder",
+        title: "Builder",
+        icon: "cellbuilder",
+        modes: ["build"],
+        defaultDock: "right",
+        defaultOpen: true,
+        hint: "Cells, equipment, systems and detailing",
+        component: lazy(() => import("@/components/viewer/CellBuilderPanel")),
+    },
+    "node-editor": {
+        id: "node-editor",
+        title: "Procedures",
+        icon: "graph",
+        modes: ["build"],
+        // Bottom rather than a side dock: a node graph is wide, and the classic UI's
+        // 800x600 floating window was covering the very model the procedures act on.
+        defaultDock: "bottom",
+        hint: "Run procedures over file objects",
+        component: lazy(() => import("@/components/node_editor/NodeEditorPanel")),
     },
     "fea-table": {
         id: "fea-table",

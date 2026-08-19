@@ -2,6 +2,8 @@ import React from "react";
 import {StatusDot, cn} from "@/components/ui";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {useWebsocketStatusStore} from "@/state/websocketStatusStore";
+import {needsPreviewCompile, useCellBuilderStore} from "@/state/cellBuilderStore";
+import {compilePreview} from "./buildActions";
 import {runtime} from "@/runtime/config";
 import {useModeStore} from "./modeStore";
 import {Z} from "./zIndex";
@@ -60,6 +62,8 @@ export default function StatusBar() {
                     : `${selectionCount} selected`}
             </span>
 
+            <CompileGate />
+
             <span className="flex-1 min-w-0" />
 
             <span className="shrink-0 capitalize">{mode}</span>
@@ -76,4 +80,57 @@ export default function StatusBar() {
 
 function Sep() {
     return <span aria-hidden="true" className="shrink-0 w-px h-3 bg-edge" />;
+}
+
+/**
+ * Compile state for the open procedural model.
+ *
+ * In the classic UI "you have uncommitted changes" was visible only inside the
+ * cellbuilder panel — so with the panel closed you could edit for a while and have no
+ * indication that a compile was owed. The status bar is where ambient state like this
+ * belongs: always visible, costs nothing, and the button is the same action as ⇧↵ and the
+ * panel's Compile.
+ *
+ * Renders nothing when no procedural model is open, so it does not clutter the other
+ * three modes.
+ */
+function CompileGate() {
+    const active = useCellBuilderStore((s) => s.active);
+    // Subscribe to the individual gate inputs rather than the whole store, so an
+    // unrelated cellbuilder edit does not re-render the status bar.
+    const dirty = useCellBuilderStore((s) => s.dirty);
+    const buildSim = useCellBuilderStore((s) => s.buildSim);
+    const buildDetail = useCellBuilderStore((s) => s.buildDetail);
+    const resultSourceName = useCellBuilderStore((s) => s.resultSourceName);
+    const detailSourceName = useCellBuilderStore((s) => s.detailSourceName);
+
+    if (!active) return null;
+
+    const pending = needsPreviewCompile({dirty, buildSim, buildDetail, resultSourceName, detailSourceName});
+
+    return (
+        <>
+            <Sep />
+            <span className="flex items-center gap-1.5 shrink-0">
+                <StatusDot
+                    tone={pending ? "warn" : "pass"}
+                    label={pending ? "Compile pending" : "Compiled and up to date"}
+                />
+                <span className="truncate max-w-40">{active.name}</span>
+                {pending && (
+                    <button
+                        type="button"
+                        onClick={compilePreview}
+                        title="Compile a preview of the current model (Shift+Enter)"
+                        className={
+                            "ada-focus px-1.5 h-4 rounded-sm text-xs font-medium " +
+                            "bg-warn-subtle text-warn border border-warn/40 pointer-fine:hover:brightness-110"
+                        }
+                    >
+                        Compile
+                    </button>
+                )}
+            </span>
+        </>
+    );
 }

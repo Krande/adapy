@@ -186,3 +186,34 @@ test("toggling a VISIBLE panel still closes it", () => {
     s.togglePanel("results", "fea-table", "bottom");
     assert.ok(!layout("results").docks.bottom.tabs.includes("fea-table"));
 });
+
+test("Build mode widens the right dock for the Builder", () => {
+    // The Builder is a dense authoring surface — tabs, numeric fields, a compile
+    // control. At the 300px default its content truncates, which reads as a broken
+    // panel rather than a narrow one.
+    const build = layout("build").docks.right;
+    const inspect = layout("inspect").docks.right;
+    assert.ok(build.size > inspect.size, "Build's right dock should be wider than Inspect's");
+    assert.ok(build.tabs.includes("cellbuilder"));
+    assert.equal(build.active, "cellbuilder", "authoring is what the mode is for");
+});
+
+test("Build mode ships the procedure graph collapsed", () => {
+    // A second authoring surface, not something that should eat viewport height before
+    // you ask for it.
+    const bottom = layout("build").docks.bottom;
+    assert.ok(bottom.tabs.includes("node-editor"));
+    assert.equal(bottom.collapsed, true);
+});
+
+test("per-mode dock sizes are clamped like any other", () => {
+    // defaultLayout's size override goes through the same clamp as a user drag, so a
+    // future mode cannot ship a dock outside its own limits.
+    for (const mode of MODE_IDS) {
+        for (const dock of ["left", "right", "bottom"] as const) {
+            const {size} = layout(mode).docks[dock];
+            assert.ok(size >= DOCK_LIMITS[dock].min, `${mode}/${dock} below min`);
+            assert.ok(size <= DOCK_LIMITS[dock].max, `${mode}/${dock} above max`);
+        }
+    }
+});

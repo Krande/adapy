@@ -1,6 +1,5 @@
 import {useColorStore} from "@/state/colorLegendStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
-import {useTableNavStore} from "@/state/tableNavStore";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import {useLayoutStore} from "./layoutStore";
 import {useModeStore} from "./modeStore";
@@ -20,11 +19,9 @@ export function toggleLegend(): void {
 /** Show or hide the result data table in the bottom dock. */
 export function toggleDataTable(): void {
     const {mode} = useModeStore.getState();
+    // The legacy isPanelOpen flag follows automatically via useLegacyFlagSync, so this
+    // only has to move the layout.
     useLayoutStore.getState().togglePanel(mode, "fea-table", "bottom");
-    // Keep the legacy flag in step: SimulationDataInfoPanel gates on it, and other
-    // callers (the Properties panel's "Show in data") still set it directly.
-    const nav = useTableNavStore.getState();
-    nav.setPanelOpen(!nav.isPanelOpen);
 }
 
 /** Reveal the FEM concepts view (masses / BCs / load scenarios). */

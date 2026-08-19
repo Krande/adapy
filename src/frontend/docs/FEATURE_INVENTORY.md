@@ -147,25 +147,25 @@ attach drag gizmo · cap colour · delete. `sectionStore`, `section_caps.ts`.
 | E1.8 | Loft members / stations → bands | `cellbuilder/loft.ts` | Pending |
 | E1.9 | Groups → blueprints / structures | `cellbuilder/groups.ts`, `blueprints.ts` | Pending |
 | E1.10 | Port overrides (round-trip) | `cellbuilder/ports.ts` | Pending |
-| E1.11 | Undo / redo (`Ctrl+Z`, `Shift+Z`, `Y`) | `cellbuilder/history.ts` | Pending |
-| E1.12 | Compile + preview gate (`Shift+Enter`) | `cellbuilder/compileGate.ts` | **status bar** | Pending |
+| E1.11 | Undo / redo (`Ctrl+Z`, `Shift+Z`, `Y`) | `cellbuilder/history.ts` (+ Build rail) | Verified (M5, browser) |
+| E1.12 | Compile + preview gate (`Shift+Enter`) | `cellbuilder/compileGate.ts` | **status bar** | Verified (M5, browser) |
 | E1.13 | Side-by-side compiled preview | `cellbuilder/sideBySide.ts` | Pending |
 | E1.14 | Cross-tab sync (`?pfollow=`) | `cellbuilder/proceduralChannel.ts` | Pending |
 | E1.15 | Gizmo HUD (`G`/`R`/`S`, `X`/`Y`/`Z`) | `CellBuilderGizmoHud.tsx` | `OverlayLayer` | Pending |
 | E1.16 | Context / port / insert menus | `CellBuilder*Menu.tsx` | → `ContextMenu` primitive | Pending |
 | E1.17 | Equipment CAD preview + bbox infer | `EquipmentPreview.tsx` | Pending |
-| E1.18 | Cell selection info | `CellBuilderSelectionInfo.tsx` (1017 ln) | → Properties provider, moved verbatim | Pending |
+| E1.18 | Cell selection info | `CellBuilderSelectionInfo.tsx` (1017 ln) | Properties provider `cellbuilder-cell` | Verified (M3/M5) |
 
 ### E2 Node editor
 | ID | Feature | Business logic (untouched) | Status |
 |---|---|---|---|
-| E2.1 | Procedure nodes with typed params | `node_editor/handlers/run_procedure.ts` | Pending |
+| E2.1 | Procedure nodes with typed params | `node_editor/handlers/run_procedure.ts` | Verified (M5, dock panel) |
 | E2.2 | File-object nodes | `CustomFileObjectNode.tsx` | Pending |
-| E2.3 | List procedures | `request_list_of_nodes.ts` (`LIST_PROCEDURES`) | Pending |
+| E2.3 | List procedures | `request_list_of_nodes.ts` (`LIST_PROCEDURES`) | Verified (M5, toolbar action) |
 | E2.4 | Run procedure | `RUN_PROCEDURE` flatbuffer | Pending |
 | E2.5 | Finished-procedure → new node | `handle_finished_procedure.ts` | Pending |
 | E2.6 | Delete node/edge on server | `on_delete.ts` (`DELETE_FILE_OBJECT`) | Pending |
-| E2.7 | Spawn standalone editor | `start_new_node_editor.ts` | Pending |
+| E2.7 | Spawn standalone editor | `start_new_node_editor.ts` | Verified (M5, toolbar action) |
 
 ### E3 Component builder
 `ComponentControls.tsx`, `componentSpecsStore`, `componentBuildStore`,

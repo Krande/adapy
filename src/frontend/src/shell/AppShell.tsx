@@ -10,6 +10,7 @@ import StatusBar from "./StatusBar";
 import TitleBar from "./TitleBar";
 import ToolRail from "./ToolRail";
 import ViewportHost from "./ViewportHost";
+import {useLegacyFlagSync} from "./useLegacyFlagSync";
 
 // The shell.
 //
@@ -39,6 +40,10 @@ export default function AppShell({profile = "viewer", viewportOverride}: AppShel
     const mode = useModeStore((s) => s.mode);
     const layout = useLayoutStore((s) => s.perMode[mode]);
     const setDockSize = useLayoutStore((s) => s.setDockSize);
+
+    // Keep the legacy per-panel visibility booleans in step with the docks; several
+    // panels still gate themselves on those flags. See useLegacyFlagSync.
+    useLegacyFlagSync();
 
     // A dock occupies a track only when it has something to show. An empty or collapsed
     // dock collapses to zero width rather than leaving a stripe of chrome.

@@ -1,0 +1,82 @@
+{
+  "$comment": "Dev fixture for Build mode, loaded by ?build=1. Hand-written rather than exported from a real model: the shape is a plain ProceduralDoc (see services/viewerApi.ts) and a small readable one exercises the parts that matter — several grouped cells, catalog equipment with ports, and a system connecting two of them — without dragging a multi-megabyte plant model into the repo.",
+  "blueprint_name": "steel_stru",
+  "design_rules": "standard",
+  "engine": "adapy-default",
+  "equipment_cad": false,
+  "blueprint": {},
+  "groups": [
+    { "NAME": "MODULE_A", "DESCRIPTION": "Process module" },
+    { "NAME": "MODULE_B", "DESCRIPTION": "Utilities module" }
+  ],
+  "spaces": [
+    {
+      "NAME": "CELL_A1",
+      "STRUCTURE_NAME": "MODULE_A",
+      "X": 0, "Y": 0, "Z": 0,
+      "DX": 6, "DY": 6, "DZ": 4
+    },
+    {
+      "NAME": "CELL_A2",
+      "STRUCTURE_NAME": "MODULE_A",
+      "X": 6, "Y": 0, "Z": 0,
+      "DX": 6, "DY": 6, "DZ": 4
+    },
+    {
+      "NAME": "CELL_A3",
+      "STRUCTURE_NAME": "MODULE_A",
+      "X": 0, "Y": 0, "Z": 4,
+      "DX": 6, "DY": 6, "DZ": 4
+    },
+    {
+      "NAME": "CELL_B1",
+      "STRUCTURE_NAME": "MODULE_B",
+      "X": 12, "Y": 0, "Z": 0,
+      "DX": 5, "DY": 6, "DZ": 4
+    }
+  ],
+  "equipments": [
+    {
+      "NAME": "PUMP_01",
+      "DESCRIPTION": "Feed pump",
+      "X": 1.5, "Y": 1.5, "Z": 0,
+      "LX": 1.6, "LY": 1.0, "LZ": 1.2,
+      "ROT_X": 0, "ROT_Y": 0, "ROT_Z": 0
+    },
+    {
+      "NAME": "VESSEL_01",
+      "DESCRIPTION": "Separator",
+      "X": 8.0, "Y": 2.0, "Z": 0,
+      "LX": 2.4, "LY": 2.4, "LZ": 3.0,
+      "ROT_X": 0, "ROT_Y": 0, "ROT_Z": 0
+    },
+    {
+      "NAME": "SWITCHBOARD_01",
+      "DESCRIPTION": "MCC panel",
+      "X": 13.5, "Y": 1.0, "Z": 0,
+      "LX": 1.2, "LY": 0.6, "LZ": 2.0,
+      "ROT_X": 0, "ROT_Y": 0, "ROT_Z": 0
+    }
+  ],
+  "openings": [],
+  "systems": [
+    {
+      "NAME": "P-100",
+      "TYPE": "pipe",
+      "MEDIUM": "process",
+      "CONNECTIONS": [
+        { "EQUIPMENT": "PUMP_01", "PORT": "out" },
+        { "EQUIPMENT": "VESSEL_01", "PORT": "in" }
+      ]
+    },
+    {
+      "NAME": "E-200",
+      "TYPE": "cable",
+      "MEDIUM": "electrical",
+      "CONNECTIONS": [
+        { "EQUIPMENT": "SWITCHBOARD_01", "PORT": "out" },
+        { "EQUIPMENT": "PUMP_01", "PORT": "power" }
+      ]
+    }
+  ]
+}

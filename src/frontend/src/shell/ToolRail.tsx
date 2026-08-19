@@ -5,6 +5,7 @@ import {useLayoutStore} from "./layoutStore";
 import {panelsForMode} from "./panelRegistry";
 import {fitAll, focusSelection, hideSelection, unhideAll} from "./inspectActions";
 import {openFemConcepts, toggleDataTable, toggleLegend} from "./resultsActions";
+import {redo, undo} from "./buildActions";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import {Z} from "./zIndex";
 
@@ -69,9 +70,11 @@ const MODE_TOOLS: Record<ModeId, RailTool[]> = {
         // removing, not adding.
     ],
     build: [
-        {id: "add-cell", icon: "plus", label: "Add cell", pending: true},
-        {id: "undo", icon: "undo", label: "Undo", shortcut: "Ctrl+Z", pending: true},
-        {id: "redo", icon: "redo", label: "Redo", shortcut: "Shift+Z", pending: true},
+        {id: "undo", icon: "undo", label: "Undo", shortcut: "Ctrl+Z", run: undo},
+        {id: "redo", icon: "redo", label: "Redo", shortcut: "Shift+Z", run: redo},
+        // Cell placement is a viewport gesture (click a face, drag to extrude) driven by
+        // CellBuilderController, not a rail button — putting an "Add cell" button here
+        // would imply a mode the tool does not have.
     ],
     data: [
         {id: "upload", icon: "upload", label: "Upload", pending: true},

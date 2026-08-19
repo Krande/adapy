@@ -52,6 +52,9 @@ const emptyDock = (id: DockedId): DockState => ({
     active: null,
 });
 
+const clampSize = (dock: DockedId, n: number) =>
+    Math.min(DOCK_LIMITS[dock].max, Math.max(DOCK_LIMITS[dock].min, Math.round(n)));
+
 /**
  * Default layout for a mode.
  *
@@ -67,8 +70,18 @@ function defaultLayout(mode: ModeId): ModeLayout {
         pinned: [],
     };
 
-    const put = (dock: DockedId, tabs: PanelId[], collapsed = false) => {
-        base.docks[dock] = {...emptyDock(dock), tabs, active: tabs[0] ?? null, collapsed};
+    // `size` lets a mode widen a dock for a panel that genuinely needs the room. The
+    // Builder is the case in point: it is a dense authoring surface with tabs, numeric
+    // fields and a compile control, and at the 300px default its content truncates —
+    // which reads as a broken panel rather than a narrow one.
+    const put = (dock: DockedId, tabs: PanelId[], collapsed = false, size?: number) => {
+        base.docks[dock] = {
+            ...emptyDock(dock),
+            ...(size != null ? {size: clampSize(dock, size)} : {}),
+            tabs,
+            active: tabs[0] ?? null,
+            collapsed,
+        };
     };
 
     switch (mode) {
@@ -88,8 +101,12 @@ function defaultLayout(mode: ModeId): ModeLayout {
             break;
         case "build":
             put("left", ["outliner"], true);
-            put("right", ["properties"]);
-            put("bottom", [], true);
+            // Builder first: authoring is what this mode is for, and Properties reads
+            // the selected cell beside it.
+            put("right", ["cellbuilder", "properties"], false, 400);
+            // The procedure graph is present but collapsed — it is a second authoring
+            // surface, not something you want eating viewport height by default.
+            put("bottom", ["node-editor"], true);
             break;
         case "data":
             put("left", ["storage"]);
@@ -102,9 +119,6 @@ function defaultLayout(mode: ModeId): ModeLayout {
 
 const defaultPerMode = (): Record<ModeId, ModeLayout> =>
     Object.fromEntries(MODE_IDS.map((m) => [m, defaultLayout(m)])) as Record<ModeId, ModeLayout>;
-
-const clampSize = (dock: DockedId, n: number) =>
-    Math.min(DOCK_LIMITS[dock].max, Math.max(DOCK_LIMITS[dock].min, Math.round(n)));
 
 interface LayoutState {
     v: number;

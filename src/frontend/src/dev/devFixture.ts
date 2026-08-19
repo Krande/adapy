@@ -41,6 +41,40 @@ export function loadDevFixtureIfRequested(search: string = window.location.searc
     return true;
 }
 
+/**
+ * Consume ``?build=1`` and open the procedural fixture in the cellbuilder.
+ *
+ * Goes through `cellBuilderStore.open()` — the same action the REST load path calls once
+ * it has fetched a doc — so the store ends up in exactly the state a real model produces:
+ * cells, equipment, groups and systems all parsed by the store's own `*FromDoc` readers.
+ * The only thing skipped is the fetch, because the doc ships as a static file.
+ *
+ * Works in plain `npm run dev`: unlike the FEA fixture, nothing here needs REST.
+ */
+export async function loadDevBuildFixtureIfRequested(
+    search: string = window.location.search,
+): Promise<boolean> {
+    if (!import.meta.env.DEV) return false;
+
+    const value = new URLSearchParams(search).get("build");
+    if (!value || value === "0" || value === "false") return false;
+
+    try {
+        const doc = await (await fetch("/dev/procedural.json")).json();
+        const {useCellBuilderStore} = await import("@/state/cellBuilderStore");
+        console.info(
+            `[devFixture] opening procedural fixture — ` +
+                `${doc.spaces?.length ?? 0} cells, ${doc.equipments?.length ?? 0} equipment, ` +
+                `${doc.systems?.length ?? 0} systems`,
+        );
+        useCellBuilderStore.getState().open("dev-procedural", "Dev procedural model", 1, doc);
+        return true;
+    } catch (err) {
+        console.warn("[devFixture] procedural fixture load failed", err);
+        return false;
+    }
+}
+
 /** Source key the FEA fixture is baked under; must match vite.plugin-dev-rest.mjs. */
 const FEA_SOURCE = "dev-cantilever";
 

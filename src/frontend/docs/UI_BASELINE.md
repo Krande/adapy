@@ -436,6 +436,78 @@ removed, and it carries real risk around the `ada-sim` BroadcastChannel sync.
 mode sliders it belongs with. A duplicate play control would be a second control for one
 piece of state — the thing this rebuild removes, not adds.
 
+---
+
+# M5 — Build mode
+
+Review it at **`http://localhost:5173/?shell=1&build=1`** → **Build**. Works in plain
+`npm run dev`; unlike the FEA fixture, nothing here needs REST.
+
+## A procedural fixture
+
+`public/dev/procedural.json` is a hand-written `ProceduralDoc`: 4 cells across two
+groups, 3 pieces of equipment, and 2 systems connecting them. Hand-written rather than
+exported from a real plant model because the shape is plain JSON and a small readable one
+exercises the parts that matter — grouped cells, equipment with ports, systems — without
+dragging megabytes into the repo.
+
+`?build=1` calls `cellBuilderStore.open()`, the same action the REST load path uses once
+it has a doc, so the store lands in exactly the state a real model produces (every
+`*FromDoc` reader runs). Only the fetch is skipped.
+
+## The legacy-flag bridge
+
+`CellBuilderPanel` returns null unless `cellBuilderStore.panelVisible`;
+`SimulationDataInfoPanel` unless `tableNavStore.isPanelOpen`. In the classic UI those
+flags **were** the visibility model — in the shell the dock is. Without a bridge a docked
+panel mounts and then decides not to draw, which is an invisible failure.
+
+`useLegacyFlagSync` mirrors dock visibility into those flags, one-way (layout → flag).
+Two-way sync between a boolean and a layout tree invites a feedback loop; the reverse
+direction stays where it belongs, in the actions that own each panel. The flags are not
+deleted because external callers still set them — the Properties panel's "Show in data"
+opens the table by flipping `isPanelOpen` — and deleting them means editing components
+under the fence. They go at M8 with the classic UI that needs them.
+
+## Also in M5
+
+- **Node editor as a dock panel.** Its ReactFlow body was extracted verbatim into
+  `NodeEditorBody`, shared by the classic floating window and the new dock panel, so the
+  two cannot drift. The dock supplies the frame, so the react-rnd wrapper and its
+  hand-styled header are gone from the shell path; the two header actions (reload
+  procedures, pop out) survive as toolbar buttons calling the same handlers. It sits in
+  the **bottom** dock — a node graph is wide, and the classic 800×600 floating window was
+  covering the model the procedures act on.
+- **Build rail: undo / redo**, delegating to the store so the undo stack keeps exactly one
+  owner. There is deliberately no "Add cell" button: cell placement is a viewport gesture
+  driven by `CellBuilderController`, and a rail button would imply a mode the tool does
+  not have.
+- **The compile gate is in the status bar.** Previously "you have uncommitted changes" was
+  visible only *inside* the cellbuilder panel — so with the panel closed you could edit
+  for a while with no indication a compile was owed. It now shows the model name, a
+  pass/warn dot and a Compile button running the same action as ⇧↵.
+- **Per-mode dock sizes.** Build opens its right dock at 400 px; at the 300 px default the
+  Builder's content truncates, which reads as a broken panel rather than a narrow one.
+
+## Numbers
+
+| | M4 | M5 |
+|---|---|---|
+| Tests | 315 | **318** (0 skipped) |
+| `dist/index.html` | 2,899,394 B | 2,902,435 B (**+2.69 %** vs M0, budget +8 %) |
+
+## Deferred, with reasoning
+
+**`CellBuilderPanel` (1963 lines) is not split or re-chromed.** The plan had both here.
+The panel now works correctly in the dock, and the split's only purpose is to make a
+re-chrome tractable — so doing the split *without* the re-chrome is churn and risk on the
+most complex authoring surface in the app for zero user-visible gain, while doing both
+properly needs more care than the tail of this milestone allows. It wants a dedicated
+pass, and it is the single largest remaining item in the rewrite.
+
+Its buttons stay on the `noAdHocChrome` allowlist until then, which is the honest state:
+the burn-down number reflects work not yet done rather than work hidden.
+
 ### The embed defect from M0 — fixed, and it was not what it looked like
 
 M0 recorded that host-page CSS cascades *into* the embed and guessed that converting
