@@ -6,6 +6,7 @@ import { load_base64_model } from "./utils/scene/handlers/update_scene_from_mess
 import { runtime } from "@/runtime/config";
 import ErrorBoundary from "./components/common/ErrorBoundary";
 import { loadPlugins } from "@/plugins";
+import { loadDevFixtureIfRequested } from "./dev/devFixture";
 
 // Register built-in (build-time) plugins into the core registry before the UI
 // mounts, so the slot hosts see a populated registry on first render. Plugins
@@ -17,7 +18,9 @@ initWebSocket();
 
 if (runtime.b64Gltf()) {
   load_base64_model();
-} else {
+} else if (!loadDevFixtureIfRequested()) {
+  // Dev-only fallback: ?demo=1 loads the committed fixture so `npm run dev` has a model
+  // without a backend. Compiled out of production builds.
   console.log("B64GLTF not attached.");
 }
 const container = document.getElementById("root");

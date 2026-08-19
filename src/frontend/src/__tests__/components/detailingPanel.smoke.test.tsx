@@ -9,12 +9,13 @@ import { test } from "node:test";
 // ("Maximum update depth exceeded"), which every selector here is written to
 // avoid (each returns a stored ref, never a fresh array/object).
 //
-// jsdom is a THROWAWAY diagnostic dep (not in package.json); when it isn't
-// installed the test skips rather than breaking the suite.
+// jsdom is a real devDependency (the design-system rewrite added a client-render
+// suite that depends on it). The skip guard below is kept as belt-and-braces so a
+// partial install degrades to a skip instead of failing the whole suite.
 
-// jsdom is optional + type-less here (not in package.json), so reference it via a
-// runtime dynamic import behind a loose constructor type — a static
-// `import("jsdom")` type reference would fail `tsc` when it isn't installed.
+// Imported via a runtime dynamic import behind a loose constructor type: this file
+// predates jsdom being a declared dep, and keeping the loose typing means `tsc`
+// still passes in a tree where it hasn't been installed yet.
 type JsdomCtor = new (
   html: string,
   opts?: Record<string, unknown>,

@@ -104,6 +104,14 @@ function inlineCssAtRuntime(): Plugin {
 
 export default defineConfig({
     publicDir: false,
+    // Lib-mode builds do not substitute process.env the way app builds do, so React's
+    // ~64 `process.env.NODE_ENV` guards survived into the bundle and the embed threw
+    // "process is not defined" the moment a host page imported it without a shim —
+    // i.e. it was never actually the self-contained ESM file it is documented to be.
+    // Pinning to production also drops React's dev-only warning paths from the bundle.
+    define: {
+        'process.env.NODE_ENV': JSON.stringify('production'),
+    },
     plugins: [react(), inlineCssAtRuntime(), versionInjectPlugin(), adapyPluginsResolver()],
     resolve: {
         // Array form so the exact-match pyodide stub is checked BEFORE the
