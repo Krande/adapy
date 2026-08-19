@@ -6,6 +6,7 @@ import {panelsForMode} from "./panelRegistry";
 import {fitAll, focusSelection, hideSelection, unhideAll} from "./inspectActions";
 import {openFemConcepts, toggleDataTable, toggleLegend} from "./resultsActions";
 import {redo, undo} from "./buildActions";
+import {openConvert, openUpload, refreshFiles} from "./dataActions";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import {Z} from "./zIndex";
 
@@ -77,9 +78,9 @@ const MODE_TOOLS: Record<ModeId, RailTool[]> = {
         // would imply a mode the tool does not have.
     ],
     data: [
-        {id: "upload", icon: "upload", label: "Upload", pending: true},
-        {id: "convert", icon: "reload", label: "Convert", pending: true},
-        {id: "search", icon: "search", label: "Find file", pending: true},
+        {id: "upload", icon: "upload", label: "Upload files", run: openUpload},
+        {id: "convert", icon: "reload", label: "Convert", run: openConvert},
+        {id: "refresh", icon: "reload", label: "Refresh file list", run: refreshFiles},
     ],
 };
 

@@ -217,3 +217,13 @@ test("per-mode dock sizes are clamped like any other", () => {
         }
     }
 });
+
+test("Data mode opens storage and convert side by side", () => {
+    // The point of folding /convert into a mode: as a separate PAGE it was a dead end —
+    // no way back to the viewer, and no sight of the storage it reads from.
+    const l = layout("data");
+    assert.ok(l.docks.left.tabs.includes("storage"));
+    assert.ok(l.docks.right.tabs.includes("convert"));
+    assert.equal(l.docks.left.collapsed, false);
+    assert.equal(l.docks.right.collapsed, false);
+});

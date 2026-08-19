@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {versionInjectPlugin} from './version-plugin';
 import {adapyPluginsResolver} from './vite.plugin-resolver.mjs';
-import {adapyDevRestConfig} from './vite.plugin-dev-rest.mjs';
+import {adapyDevRestConfig} from './vite.plugin-dev-rest';
 
 export default defineConfig({
     root: path.resolve(__dirname, 'src'), // Set the root directory to 'src'

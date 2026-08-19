@@ -100,3 +100,14 @@ test("the shell hosts every plugin region that the classic UI hosted", () => {
     const registry = fs.readFileSync(path.resolve(import.meta.dirname, "../../shell/panelRegistry.ts"), "utf8");
     assert.match(registry, /simulation\/SimulationControls/, "fem-sidebar's host is not mounted by the shell");
 });
+
+test("the shell performs the REST bootstrap the classic path does", () => {
+    // Regression. AuthGate is not only a sign-in gate: it calls /api/me and populates the
+    // scope store. The shell originally rendered AppShell without it, so it booted with
+    // no scopes and no admin flag — the scope picker rendered nothing and every scoped
+    // request fell back to a default. Nothing errored; it was simply wrong.
+    const app = fs.readFileSync(path.resolve(import.meta.dirname, "../../app.tsx"), "utf8");
+    const shellBranch = app.slice(app.indexOf("if (useNewShell)"), app.indexOf("if (isAuthCallback)"));
+    assert.match(shellBranch, /AuthGate/, "the shell branch must mount AuthGate in REST mode");
+    assert.match(shellBranch, /isRestMode/, "and must gate it on REST, as the classic path does");
+});

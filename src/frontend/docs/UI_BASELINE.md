@@ -508,6 +508,84 @@ pass, and it is the single largest remaining item in the rewrite.
 Its buttons stay on the `noAdHocChrome` allowlist until then, which is the honest state:
 the burn-down number reflects work not yet done rather than work hidden.
 
+---
+
+# M6 — Data mode
+
+Review it at **`npm run dev:rest`** → `http://localhost:5173/?shell=1` → **Data**.
+
+## Storage and Convert, side by side
+
+`/convert` was a separate page: no way back to the viewer, and no sight of the storage it
+reads from. It is now a Data-mode panel in the right dock, beside the file list in the
+left. You pick a file on one side and convert it on the other.
+
+## The scope picker moved into the title bar
+
+Scope is the most consequential context in a multi-project deployment — every file,
+conversion and job belongs to one. It lived inside the Options drawer: three clicks from
+the file list it governs, and invisible while you were using it.
+
+The switch itself goes through a new shared `applyScopeChange`, extracted from the
+classic drawer, because the *teardown* is the part that matters and is easy to get wrong
+by reimplementing: clear the file list, unload the scene, refresh. Without it you see the
+previous project's files still listed and a stale 3D scene from a project you are no
+longer in — which reads as a data-leak bug rather than a missing refresh.
+
+## A toast host
+
+`ConversionProgress` positioned itself fixed bottom-right; the upload toast fixed
+bottom-left; each with its own z-index guess. That is how two toasts overlap and how one
+ends up behind a panel. One host, one corner, one layer from the registry — `Z.toast`,
+above `Z.contextMenu` (a job failing while a menu is open must still be readable) and
+below `Z.dialog` (a modal you are actively answering wins). The components keep their own
+visibility logic, so *when* a toast appears is unchanged.
+
+## The dev fixture now speaks flatbuffers
+
+StorageBrowser's file list does **not** come from a JSON endpoint — it goes through the
+flatbuffer RPC at `POST /rpc`, the same envelope the websocket transport uses. Serving
+JSON would have left the panel permanently empty, so the dev server builds a real
+`Message`. The envelope shape is not obvious and cost a round of debugging: the client
+dispatches on `commandType === SERVER_REPLY` and *then* on `serverReply().replyTo()`, so
+a message typed `LIST_FILE_OBJECTS` directly is silently ignored — no error, just an
+empty list.
+
+Unmatched `/api` routes now return a JSON 404 instead of falling through to the SPA
+shell, which was producing `Unexpected token '<'` errors that said nothing about the
+actual problem.
+
+## A third silent-loss bug
+
+**The shell never mounted `AuthGate`**, so it never called `/api/me`. Besides being the
+sign-in gate, that is what populates the scope store and the admin flag — so the shell
+booted with no scopes, the picker rendered nothing, and every scoped request fell back to
+a default. Nothing errored; it was simply wrong. Now mirrored from the classic path and
+covered by a test.
+
+That is three of this kind now (plugin regions in M4, legacy visibility flags in M5, REST
+bootstrap here). They share a shape worth naming: **the classic UI did bootstrap work
+inside components the shell does not render.** Anything remaining in `Menu.tsx`,
+`AppBody` or `RestModeUI` should be assumed guilty until checked.
+
+## Numbers
+
+| | M5 | M6 |
+|---|---|---|
+| Tests | 318 | **320** (0 skipped) |
+| `dist/index.html` | 2,902,435 B | 2,904,479 B (**+2.77 %** vs M0, budget +8 %) |
+
+## Deferred
+
+**`StorageBrowser` (2526 lines) is not split or re-chromed**, for the same reason as
+`CellBuilderPanel`: it works correctly in the dock, and the split only pays off alongside
+a re-chrome that needs its own pass. Its highest-risk parts — the row context menu and
+the presigned direct upload — want manual verification against a real backend, not a
+fixture.
+
+**`/admin` is still its own route.** Folding 14 tabs into a Data workspace is M7's job,
+where they get the codemod pass; doing it here would mean moving them twice.
+
 ### The embed defect from M0 — fixed, and it was not what it looked like
 
 M0 recorded that host-page CSS cascades *into* the embed and guessed that converting

@@ -58,13 +58,27 @@ function App() {
     }
 
     if (useNewShell) {
-        // Same providers as the classic viewer path, so the shell's panels see the same
-        // context; only the layout differs.
+        // Same providers AND the same REST bootstrap as the classic viewer path; only
+        // the layout differs.
+        //
+        // AuthGate is not optional in REST mode: besides the sign-in gate it is what
+        // calls /api/me and populates the scope store. Without it the shell booted with
+        // no scopes and no admin flag — so the scope picker rendered nothing and every
+        // scoped request used a default. Mirrors the classic path below exactly.
+        const shell = (
+            <Suspense fallback={null}>
+                <AppShell profile="viewer" />
+            </Suspense>
+        );
         return (
             <AdaViewerProvider>
-                <Suspense fallback={null}>
-                    <AppShell profile="viewer" />
-                </Suspense>
+                {isRestMode ? (
+                    <Suspense fallback={null}>
+                        <AuthGate>{shell}</AuthGate>
+                    </Suspense>
+                ) : (
+                    shell
+                )}
             </AdaViewerProvider>
         );
     }

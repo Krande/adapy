@@ -55,6 +55,7 @@ export const PANEL_IDS = [
     "cellbuilder",
     "node-editor",
     "storage",
+    "convert",
     "preferences",
 ] as const;
 
@@ -158,6 +159,19 @@ export const PANELS: Record<PanelId, PanelDef> = {
         available: () => runtime.isRestMode(),
         hint: "Browse, upload and convert files",
         component: lazy(() => import("@/components/storage/StorageBrowser")),
+    },
+    convert: {
+        id: "convert",
+        title: "Convert",
+        icon: "reload",
+        modes: ["data"],
+        // Right dock beside the file list: you pick a file on the left and convert it on
+        // the right. As a separate /convert PAGE it was a dead end — no way back to the
+        // viewer, and no sight of the storage it reads from.
+        defaultDock: "right",
+        available: () => runtime.isRestMode(),
+        hint: "Convert uploaded files to other formats",
+        component: lazy(() => import("@/components/convert/ConvertPage")),
     },
     preferences: {
         id: "preferences",

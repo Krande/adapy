@@ -109,8 +109,10 @@ function defaultLayout(mode: ModeId): ModeLayout {
             put("bottom", ["node-editor"], true);
             break;
         case "data":
-            put("left", ["storage"]);
-            put("right", [], true);
+            put("left", ["storage"], false, 320);
+            // Convert sits beside the files it acts on, rather than being a separate
+            // page you navigate away to.
+            put("right", ["convert"], false, 360);
             put("bottom", [], true);
             break;
     }

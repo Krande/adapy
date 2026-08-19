@@ -8,6 +8,7 @@ import DockHost from "./DockHost";
 import FloatLayer from "./FloatLayer";
 import StatusBar from "./StatusBar";
 import TitleBar from "./TitleBar";
+import ToastHost from "./ToastHost";
 import ToolRail from "./ToolRail";
 import ViewportHost from "./ViewportHost";
 import {useLegacyFlagSync} from "./useLegacyFlagSync";
@@ -157,6 +158,10 @@ export default function AppShell({profile = "viewer", viewportOverride}: AppShel
             {p.statusBar && <StatusBar />}
 
             {p.docks && <FloatLayer />}
+
+            {/* Ambient job/upload notifications. Outside the grid: they are transient
+                overlays, not a region, and must not reflow the layout when they appear. */}
+            <ToastHost />
         </div>
     );
 }

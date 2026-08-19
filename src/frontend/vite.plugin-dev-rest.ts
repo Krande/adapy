@@ -1,6 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
+import * as flatbuffers from "flatbuffers";
+import {Message} from "./src/flatbuffers/wsock/message";
+import {Server} from "./src/flatbuffers/server/server";
+import {ServerReply} from "./src/flatbuffers/server/server-reply";
+import {FileObject} from "./src/flatbuffers/base/file-object";
+import {FileType} from "./src/flatbuffers/base/file-type";
+import {CommandType} from "./src/flatbuffers/commands/command-type";
+import {TargetType} from "./src/flatbuffers/commands/target-type";
 
 // Serves /config.js — and a small offline slice of the REST API — inside the vite dev
 // server, so the hosted-mode UI can be reviewed without deploying the stack.
@@ -87,6 +95,78 @@ function sendFile(req, res, filePath) {
     fs.createReadStream(filePath).pipe(res);
 }
 
+/**
+ * The files the fixture pretends the scope holds.
+ *
+ * A deliberately mixed set: two source formats, a converted derivative and the baked FEA
+ * deck. StorageBrowser groups by folder and badges by type, so a list of identical files
+ * would show none of that.
+ */
+const FIXTURE_FILES: {name: string; type: FileType; modified: string}[] = [
+    {name: "cantilever.step", type: FileType.STEP, modified: "2026-08-14T09:12:00Z"},
+    {name: "topside.ifc", type: FileType.IFC, modified: "2026-08-15T14:03:00Z"},
+    {name: "dev-cantilever.rmed", type: FileType.IFC, modified: "2026-08-18T08:41:00Z"},
+    {name: "_derived/cantilever.step.glb", type: FileType.GLB, modified: "2026-08-14T09:14:00Z"},
+];
+
+/**
+ * Build the flatbuffer reply for LIST_FILE_OBJECTS.
+ *
+ * StorageBrowser's file list does NOT come from a JSON endpoint — it goes through the
+ * flatbuffer RPC at POST /rpc, the same envelope the websocket transport uses. Serving
+ * JSON here would leave the panel permanently empty, so the fixture speaks the real
+ * protocol: this is the one place the dev server has to build a Message rather than
+ * hand back a file.
+ */
+function buildFileListReply(instanceId: number): Uint8Array {
+    const b = new flatbuffers.Builder(1024);
+
+    const fileOffsets = FIXTURE_FILES.map((f) => {
+        const name = b.createString(f.name);
+        const filepath = b.createString(`/dev-fixture/${f.name}`);
+        const lastModified = b.createString(f.modified);
+        FileObject.startFileObject(b);
+        FileObject.addName(b, name);
+        FileObject.addFileType(b, f.type);
+        FileObject.addFilepath(b, filepath);
+        FileObject.addLastModified(b, lastModified);
+        return FileObject.endFileObject(b);
+    });
+
+    const vec = Server.createAllFileObjectsVector(b, fileOffsets);
+    Server.startServer(b);
+    Server.addAllFileObjects(b, vec);
+    const server = Server.endServer(b);
+
+    // The envelope shape matters and is not obvious: the client dispatches on
+    // commandType === SERVER_REPLY and then on serverReply().replyTo(). A message typed
+    // LIST_FILE_OBJECTS directly is silently ignored — it matches no case, so the list
+    // stays empty with no error anywhere.
+    ServerReply.startServerReply(b);
+    ServerReply.addReplyTo(b, CommandType.LIST_FILE_OBJECTS);
+    const reply = ServerReply.endServerReply(b);
+
+    Message.startMessage(b);
+    Message.addInstanceId(b, instanceId);
+    Message.addCommandType(b, CommandType.SERVER_REPLY);
+    Message.addTargetGroup(b, TargetType.WEB);
+    Message.addClientType(b, TargetType.SERVER);
+    Message.addServer(b, server);
+    Message.addServerReply(b, reply);
+    b.finish(Message.endMessage(b));
+
+    return b.asUint8Array();
+}
+
+/** Read a whole request body. */
+function readBody(req: {on: (ev: string, cb: (c?: Buffer) => void) => void}): Promise<Buffer> {
+    return new Promise((resolve) => {
+        const chunks: Buffer[] = [];
+        req.on("data", (c) => c && chunks.push(c));
+        req.on("end", () => resolve(Buffer.concat(chunks)));
+    });
+}
+
 export function adapyDevRestConfig() {
     const enabled = Boolean(process.env.ADA_DEV_REST);
 
@@ -127,7 +207,7 @@ export function adapyDevRestConfig() {
             // ADA_DEV_API_BASE at a real backend must not be shadowed by these stubs.
             if (!apiBase.startsWith("/")) return;
 
-            server.middlewares.use(apiBase, (req, res, next) => {
+            server.middlewares.use(apiBase, (req, res) => {
                 const url = new URL(req.url ?? "/", "http://localhost");
                 const route = url.pathname;
 
@@ -139,17 +219,53 @@ export function adapyDevRestConfig() {
                         email: "dev@localhost",
                         displayName: "Dev User",
                         isAdmin: true,
-                        scopes: [{kind: "user", id: "me", name: "My files"}],
+                        // Two scopes so the title-bar picker actually renders — it
+                        // hides itself when there is nothing to choose between, which is
+                        // correct behaviour but leaves the control unreviewable.
+                        scopes: [
+                            {kind: "shared", id: null, name: "Shared"},
+                            {kind: "user", id: "me", name: "My files"},
+                        ],
                         projects: [],
                     });
                 }
 
-                // File listing for the storage browser: just the fixture source, so the
-                // FEA deck is reachable from the UI rather than only by deep link.
+                // JSON file listing — used by the file pickers, the corpus tab and the
+                // admin storage tab (StorageBrowser uses the flatbuffer RPC below).
                 const files = /^\/scopes\/[^/]+\/files$/.exec(route);
                 if (files) {
                     return sendJson(res, {
-                        files: hasFixture ? [{key: `${FIXTURE_SRC}.rmed`, size: 0}] : [],
+                        files: FIXTURE_FILES.map((f) => ({key: f.name, size: 0})),
+                    });
+                }
+
+                // The flatbuffer RPC. Only LIST_FILE_OBJECTS is answered; everything else
+                // gets 204 (no Message to dispatch), which the client treats as a silent
+                // no-op rather than an error — the honest response for a command this
+                // fixture does not implement.
+                if (route === "/rpc" && req.method === "POST") {
+                    return void readBody(req as never).then((body) => {
+                        let command: number | null = null;
+                        let instanceId = 0;
+                        try {
+                            const msg = Message.getRootAsMessage(
+                                new flatbuffers.ByteBuffer(new Uint8Array(body)),
+                            );
+                            command = msg.commandType();
+                            instanceId = Number(msg.instanceId() ?? 0);
+                        } catch {
+                            /* unparseable: fall through to 204 */
+                        }
+
+                        if (command === CommandType.LIST_FILE_OBJECTS) {
+                            const reply = buildFileListReply(instanceId);
+                            res.statusCode = 200;
+                            res.setHeader("Content-Type", "application/octet-stream");
+                            res.setHeader("Cache-Control", "no-store");
+                            return res.end(Buffer.from(reply));
+                        }
+                        res.statusCode = 204;
+                        res.end();
                     });
                 }
 
@@ -167,7 +283,14 @@ export function adapyDevRestConfig() {
                     return res.end(`no dev fixture for key ${key}`);
                 }
 
-                next();
+                // Anything else under /api gets a clean JSON 404. Falling through to
+                // vite's SPA fallback would return the index.html shell, and callers that
+                // expect JSON then fail with "Unexpected token '<'" — an error that says
+                // nothing about the actual problem (this fixture does not implement that
+                // endpoint). The cellbuilder catalog fetches hit this constantly.
+                res.statusCode = 404;
+                res.setHeader("Content-Type", "application/json");
+                return res.end(JSON.stringify({detail: `dev fixture does not implement ${route}`}));
             });
         },
     };

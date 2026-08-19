@@ -6,7 +6,7 @@ import {useServerInfoStore} from "@/state/serverInfoStore";
 import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import {getUser, isAuthEnabled, signOut} from "@/services/auth/oidc";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
-import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
+import {applyScopeChange} from "@/utils/scope/applyScopeChange";
 
 // REST-mode controls inside the options drawer. Replaces the cluster
 // of menu-bar buttons (scope picker / admin / user pill) — those don't
@@ -105,21 +105,9 @@ const ScopeSelector: React.FC = () => {
     const onChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const picked = available.find((s) => scopeUrlPart(s) === e.target.value);
         if (!picked) return;
-        // Project switch tears down anything that belongs to the
-        // outgoing scope: the file list (server-derived; the new
-        // request below re-populates it), every loaded model in
-        // the scene, and the selection state. Without these, the
-        // user sees the old project's files lingering in the
-        // panel and a stale 3D scene from a project they're no
-        // longer in.
-        useServerInfoStore.getState().setServerFileObjects([]);
-        useServerInfoStore.getState().setServerFiles([]);
-        void clear_loaded_model();
-        setCurrent(picked as ScopeOption);
-        // Background refresh — the response lands via the same
-        // LIST_FILE_OBJECTS handler the Refresh button uses. UI
-        // shows "no files yet" until it returns (~hundreds of ms).
-        void request_list_of_files_from_server();
+        // The teardown (clear the file list, unload the scene, refresh) lives in
+        // applyScopeChange so this drawer and the shell's title-bar picker cannot drift.
+        applyScopeChange(picked as ScopeOption);
     };
     return (
         <label className="block text-xs">

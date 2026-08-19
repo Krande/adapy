@@ -29,7 +29,7 @@ rule in the plan.
 | A5 | Simulation follower window | `?simfollow=` | `simulation/SimFollowerPage.tsx` | `ada-sim` BroadcastChannel | `profile="window"` | Pending |
 | A6 | Node-editor-only window | `NODE_EDITOR_ONLY` | `node_editor/NodeEditorComponent.tsx` | flatbuffers procedures | `profile="graph"` | Pending |
 | A7 | Paradoc / Jupyter embed | `mountViewer()` | `embed/EmbedUI.tsx` | `embed/index.ts` | `profile="embed"` (EmbedUI deleted) | Pending |
-| A8 | Auth gate (REST) | wraps app | `auth/AuthGate.tsx` | `services/auth/oidc.ts`, `meStore` | unchanged, wraps `AppShell` | Pending |
+| A8 | Auth gate (REST) | wraps app | `auth/AuthGate.tsx` | `services/auth/oidc.ts`, `meStore` | wraps `AppShell` | Verified (M6, test) |
 | A9 | Fatal error boundary | on throw | `common/ErrorBoundary.tsx` | — | unchanged, plus per-dock boundaries | Pending |
 
 ## B. Top toolbar (`components/Menu.tsx`) — every button
@@ -175,23 +175,23 @@ attach drag gizmo · cap colour · delete. `sectionStore`, `section_caps.ts`.
 
 | ID | Feature | Owning component | Business logic (untouched) | Status |
 |---|---|---|---|---|
-| F1 | Storage browser (folder tree over flat keys) | `StorageBrowser.tsx` | `utils/storage/fileTree.ts` | Pending |
+| F1 | Storage browser (folder tree over flat keys) | `StorageBrowser.tsx` (Data left dock) | `utils/storage/fileTree.ts` | Verified (M6, browser) |
 | F2 | Row kebab / context menu | `storageMenuItems.tsx`, `RowKebabMenu.tsx` | `useStorageMutations.ts` | Pending |
 | F3 | Rename / move / delete / new folder | same | `viewerApi.ts` | Pending |
-| F4 | Upload (+ presigned direct >200 MB) | `UploadContextMenu.tsx` | `upload_source_file.ts` | Pending |
+| F4 | Upload (+ presigned direct >200 MB) | `UploadContextMenu.tsx` (ToastHost) | `upload_source_file.ts`, rail trigger | Moved (needs a real backend to verify) |
 | F5 | Download | `storageMenuItems.tsx` | `viewerApi.ts` | Pending |
 | F6 | Load into scene | — | `overlay_file_in_scene.ts` | Pending |
 | F7 | CI upload history | `GitHistoryPanel.tsx` | `.build.json` sidecars | Pending |
 | F8 | Field picker | `FieldPickerModal.tsx` | — | Pending |
-| F9 | Convert page (drop zone, target picker, rows) | `convert/*` | `services/conversion/*` | Pending |
+| F9 | Convert page (drop zone, target picker, rows) | `convert/*` (Data right dock) | `services/conversion/*` | Verified (M6, browser) |
 | F10 | Server conversion (NATS worker) | — | `serverPipeline.ts` | Pending |
 | F11 | Pyodide in-browser conversion | — | `pyodidePipeline.ts` | Pending |
 | F12 | Native wasm CAD→GLB | — | `nativeCadGlbPipeline.ts` | Pending |
 | F13 | Native wasm B-rep writer | — | `nativeBrepWriterPipeline.ts` | Pending |
-| F14 | Conversion progress toasts | `ConversionProgress.tsx` | `conversionStore` | → `ToastHost` | Pending |
+| F14 | Conversion progress toasts | `ConversionProgress.tsx` | `conversionStore` | `ToastHost` | Verified (M6) |
 | F15 | `CONVERSION_MATRIX` target gating | `SerializerTessellatorSelect.tsx` | `runtime/config.ts` | Pending |
 | F16 | Worker status badge | `WorkerStatusBadge.tsx` | — | Pending |
-| F17 | Scope / project picker | `RestSection.tsx` | `scopeStore` | → title bar | Pending |
+| F17 | Scope / project picker | shell `ScopePicker` + classic drawer | `scopeStore`, shared `applyScopeChange` | title bar | Verified (M6, browser) |
 | F18 | Sign in / out | `RestSection.tsx` | `services/auth/oidc.ts` | Pending |
 | F19 | Server info file list (non-REST) | `ServerInfoBox.tsx` | `server_info/handlers/*` | Pending |
 | F20 | GLB↔GLB diff | — | `utils/diffConverter/*` | Pending |

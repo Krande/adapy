@@ -5,6 +5,7 @@ import {useLayoutStore} from "./layoutStore";
 import {panelsForMode} from "./panelRegistry";
 import {useShellPrefs} from "./shellPrefs";
 import {PluginPanelRegion, PluginTopBarButtons} from "@/plugins";
+import ScopePicker from "./ScopePicker";
 import {Z} from "./zIndex";
 
 /** Chrome for a plugin's top-bar button, in the shell's idiom rather than the classic
@@ -87,6 +88,11 @@ export default function TitleBar({showModeSwitcher}: TitleBarProps) {
             <PanelMenu mode={mode} />
 
             <span className="flex-1 min-w-0" />
+
+            {/* Scope is the most consequential context in a multi-project deployment —
+                every file, conversion and job belongs to one. It was buried in the
+                Options drawer; persistent chrome is where it belongs. */}
+            <ScopePicker />
 
             {/* Plugin contributions.
                 These are hosted ONLY in the classic Menu.tsx, which the shell never
