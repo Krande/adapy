@@ -1,7 +1,7 @@
 import React from 'react';
 
 const GraphIcon = (props: React.SVGProps<SVGSVGElement>) => (
-    <svg strokeWidth="1.5" viewBox="0 0 24 24" fill="none"
+    <svg width="24" height="24" strokeWidth="1.5" viewBox="0 0 24 24" fill="none"
          xmlns="http://www.w3.org/2000/svg">
         <rect width="7" height="5" rx="0.6" transform="matrix(0 -1 -1 0 22 21)" stroke="currentColor"
               strokeWidth="1.5"></rect>

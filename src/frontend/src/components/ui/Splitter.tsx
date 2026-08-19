@@ -26,7 +26,7 @@ export interface SplitterProps {
     side?: "before" | "after";
     /** Accessible name — say which region resizes. */
     label: string;
-    /** px per arrow-key press; ×4 with shift. */
+    /** px per arrow-key press; ×4 with Ctrl/Cmd. */
     step?: number;
     className?: string;
 }
@@ -50,7 +50,11 @@ export function Splitter({
     const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
         // Ignore secondary buttons so a right-click never starts a drag.
         if (e.button !== 0) return;
+        // preventDefault stops text selection while dragging, but it ALSO suppresses the
+        // default focus that a click would give this element — which silently made the
+        // keyboard resize unreachable by pointer users. Focus explicitly.
         e.preventDefault();
+        e.currentTarget.focus();
         e.currentTarget.setPointerCapture(e.pointerId);
         start.current = {pos: vertical ? e.clientX : e.clientY, size: value};
     };
@@ -71,7 +75,11 @@ export function Splitter({
     const onKeyDown = (e: React.KeyboardEvent) => {
         const grow = vertical ? "ArrowRight" : "ArrowDown";
         const shrink = vertical ? "ArrowLeft" : "ArrowUp";
-        const amount = e.shiftKey ? step * 4 : step;
+        // Coarse step is Ctrl/Cmd, NOT Shift: Shift+Arrow is already bound globally to
+        // tree navigation (setupCameraControlsHandlers), and that handler only skips
+        // inputs/textareas/contentEditable — a focused separator is none of those, so
+        // Shift+Arrow here would resize the dock AND jump the tree selection.
+        const amount = e.ctrlKey || e.metaKey ? step * 4 : step;
         let next: number | null = null;
         if (e.key === grow) next = value + (side === "before" ? amount : -amount);
         else if (e.key === shrink) next = value - (side === "before" ? amount : -amount);
@@ -79,6 +87,8 @@ export function Splitter({
         else if (e.key === "End") next = max;
         if (next == null) return;
         e.preventDefault();
+        // Keep the keystroke away from the window-level shortcut handler entirely.
+        e.stopPropagation();
         onChange(clamp(next));
     };
 

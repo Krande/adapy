@@ -1,7 +1,7 @@
 import React from 'react';
 
 const PopOutIcon = (props: React.SVGProps<SVGSVGElement>) => (
-    <svg fill="currentColor" viewBox="0 0 36 36" version="1.1"
+    <svg width="24" height="24" fill="currentColor" viewBox="0 0 36 36" version="1.1"
          preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
         <title>pop-out-line</title>
         <path className="clr-i-outline clr-i-outline-path-1"

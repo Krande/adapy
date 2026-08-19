@@ -11,6 +11,7 @@ import {AdaViewerProvider} from "./state/AdaViewerContext";
 import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
 import {useUrlParamLoad} from "./hooks/useUrlParamLoad";
 import {followerParams as simFollowerParams} from "@/utils/simChannel";
+import {resolveShellEnabled} from "./shell/shellPrefs";
 
 // REST-only UI lives in its own chunk so the embedded desktop bundle
 // (the index.zip shipped with ada-py) doesn't pull in the conversion /
@@ -39,6 +40,13 @@ const UiGallery = React.lazy(() => import("./components/ui/__gallery__/UiGallery
 const isUiGallery =
     import.meta.env.DEV && new URLSearchParams(window.location.search).get("uikit") === "1";
 
+// The new shell, opt-in behind ?shell=1 (remembered afterwards) while it is built out.
+// The classic UI below stays the default and is completely untouched by this branch —
+// the two never render at once, so reviewing the shell cannot regress the product.
+// Resolved once at module load so the choice cannot flip mid-session.
+const AppShell = React.lazy(() => import("./shell/AppShell"));
+const useNewShell = !isUiGallery && !isAuthCallback && resolveShellEnabled();
+
 
 function App() {
     if (isUiGallery) {
@@ -46,6 +54,18 @@ function App() {
             <Suspense fallback={null}>
                 <UiGallery/>
             </Suspense>
+        );
+    }
+
+    if (useNewShell) {
+        // Same providers as the classic viewer path, so the shell's panels see the same
+        // context; only the layout differs.
+        return (
+            <AdaViewerProvider>
+                <Suspense fallback={null}>
+                    <AppShell profile="viewer" />
+                </Suspense>
+            </AdaViewerProvider>
         );
     }
 

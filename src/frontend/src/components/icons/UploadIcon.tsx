@@ -4,7 +4,7 @@ import React from "react";
 // Matches the 24px / 15-unit viewBox the other icons in this folder
 // use so they line up flush in toolbars.
 const UploadIcon = (props: React.SVGProps<SVGSVGElement>) => (
-    <svg
+    <svg width="24" height="24"
         viewBox="0 0 15 15"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"

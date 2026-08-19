@@ -1,7 +1,7 @@
 import React from 'react';
 
 const ServerIcon = (props: React.SVGProps<SVGSVGElement>) => (
-    <svg strokeWidth="1.5" viewBox="0 0 24 24" fill="none"
+    <svg width="24" height="24" strokeWidth="1.5" viewBox="0 0 24 24" fill="none"
          xmlns="http://www.w3.org/2000/svg">
         <path d="M3 19H12M21 19H12M12 19V13M12 13H18V5H6V13H12Z" stroke="currentColor" strokeWidth="1.5"
               strokeLinecap="round"

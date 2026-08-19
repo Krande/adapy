@@ -188,6 +188,93 @@ and `Mist` all read well. When M2 introduces docked regions this needs a decisio
 either docked panels use an opaque surface, or the pale preset is revised. Flagged,
 not silently changed — the presets are a user-facing choice.
 
+---
+
+# M2 — the shell
+
+Review it at **`http://localhost:5173/?shell=1&demo=1`**. The choice is remembered, so
+later reloads need no query string; `?shell=0` (or the ⇱ button in the title bar) returns
+to the classic UI, which stays the default and is untouched by this milestone.
+
+## The layout
+
+```
+titlebar   titlebar   titlebar   titlebar   titlebar
+rail       leftdock   split-l    viewport   rightdock
+rail       bottomdock bottomdock bottomdock bottomdock
+statusbar  statusbar  statusbar  statusbar  statusbar
+```
+
+A CSS grid whose track sizes come from `layoutStore`. **This is the whole mechanism for
+the headline fix**: dragging a splitter changes one number, the grid reflows,
+ThreeCanvas's existing `ResizeObserver` fires and three.js resizes itself. The viewport
+is a *track*, not a backdrop, so a panel cannot cover the model. No renderer change was
+needed — the observer was already there, waiting for a container that actually changed
+size.
+
+The bottom dock spans the full width deliberately: the FEA data table and the conversion
+log are wide-and-short, and putting them across the bottom is what stops them being
+floated over the geometry.
+
+**No docking library.** Two reasons, and the second is decisive: the pip-bundled desktop
+build inlines everything into one HTML file, so a ~90 KB dock library lands whole in it;
+and every docking library re-parents DOM nodes when you drag a tab, which would orphan
+the imperatively-appended WebGL canvas. `react-rnd` (already a dependency) is used only
+for the float layer.
+
+## Verified in the browser
+
+- Splitter drag resizes the dock and the canvas reflows — model stays fully visible and
+  undistorted, camera untouched.
+- Mode switch Inspect → Results → Inspect: rail tools swap, docks change, and the model
+  and camera are **identical** either side. Per-mode layouts restore, including a width
+  set by hand.
+- Layout persists across a full page navigation.
+- Selection works end to end: click geometry → highlight → Properties fills → status bar
+  count.
+- `Shift+T` typed into the Outliner's search field does **not** toggle the dock; the
+  global shortcut is correctly suppressed while focus is in a dock input.
+
+## Sizes after M2
+
+| Build | M0 | M2 | Delta |
+|---|---|---|---|
+| `dist/index.html` | 2,826,306 B | 2,896,392 B | **+2.48 %** (budget +8 %) |
+| `dist-embed/index.js` | 3,304,986 B | 3,325,519 B | +0.62 % |
+| `build:serve` chunks | 12+ | 31 | — |
+
+**Tests: 303 pass, 0 fail, 0 skipped** (M1: 260). New suites — `shell/panelRegistry`,
+`shell/modeSemantics`, `shell/layoutStore`, `shell/zIndex`, `shell/regionCompat`.
+
+## Two bugs this milestone found in M1's work
+
+**The splitter could not be focused by clicking.** `preventDefault()` in `onPointerDown`
+(there to stop text selection during a drag) also suppressed the default focus, so the
+keyboard resize was unreachable for pointer users. Now focuses explicitly.
+
+**`Shift+Arrow` collided with an existing global shortcut.** The splitter used Shift for
+coarse steps, but `Shift+Arrow` is already bound to tree navigation, and that handler
+only skips inputs/textareas/contentEditable — a focused separator is none of those, so
+one keystroke would have resized the dock *and* jumped the tree selection. Coarse step is
+now Ctrl/Cmd, and the splitter stops propagation on keys it handles.
+
+**And one M1 regression in the classic UI.** Normalising the icons stripped their
+intrinsic `width`/`height` so the `<Icon>` wrapper could own sizing — which broke every
+call site that renders an icon component *directly*. The classic `Menu.tsx` does exactly
+that, and six of its eight toolbar icons collapsed to 0×0. Intrinsic sizes are restored;
+`<Icon>` still wins because it sizes via `[&>svg]:w-full` and CSS beats presentation
+attributes. Covered by a regression test.
+
+## Deliberately not done yet
+
+- Panels are mounted **as-is** inside the docks, so they still draw their own headers —
+  a box-in-a-box in places. Re-chroming is each mode's own milestone (M3–M6).
+- The tool rail's mode tools are rendered **disabled** with an honest "not wired up yet"
+  tooltip. Showing the shape of each mode beats an empty rail; a live control that did
+  nothing would be worse than both.
+- `PanelFrame` (promoted from `SimWindowFrame`) is still pending — the float layer
+  currently hand-rolls its header. It folds in with M4, where `SimWindowFrame` is deleted.
+
 ### The embed defect from M0 — fixed, and it was not what it looked like
 
 M0 recorded that host-page CSS cascades *into* the embed and guessed that converting

@@ -2,7 +2,7 @@ import React from 'react';
 
 // 2x2 grid of cells with one "extruding" — the procedural cellbuilder tool.
 const CellBuilderIcon = (props: React.SVGProps<SVGSVGElement>) => (
-    <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+    <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
         <rect x="1" y="8" width="6" height="6" stroke="currentColor" strokeWidth="1.4" fill="none"/>
         <rect x="8.6" y="8" width="6" height="6" stroke="currentColor" strokeWidth="1.4" fill="none"/>
         <rect x="1" y="1" width="6" height="6" stroke="currentColor" strokeWidth="1.4" fill="currentColor" fillOpacity="0.35"/>

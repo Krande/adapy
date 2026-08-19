@@ -16,6 +16,11 @@ type P = React.SVGProps<SVGSVGElement>;
 
 const Svg = ({children, ...p}: P & {children: React.ReactNode}) => (
     <svg
+        // Intrinsic size so an icon rendered directly (not through <Icon>) has a size.
+        // <Icon> overrides it with `[&>svg]:w-full`, and CSS beats presentation
+        // attributes, so both call styles work.
+        width="24"
+        height="24"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"

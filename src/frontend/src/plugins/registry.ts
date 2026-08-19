@@ -17,16 +17,80 @@ import type { AdaViewerStores } from "@/state/AdaViewerContext";
 // Bumped on a breaking change to any slot interface below. A plugin declares the
 // core range it was built against via `coreApiRange`; an out-of-range plugin is
 // skipped with a visible log rather than loaded half-way (Decision 5 / lifecycle).
-export const PLUGIN_API_VERSION = "1.0.0";
+// 1.1.0 adds the shell dock regions plus the optional `dock` / `modes` fields on
+// PanelSlot. Purely additive: a plugin declaring `">=1.0 <2.0"` (as the demo does)
+// still satisfies this, and one that names only the original four regions keeps
+// working through the compat map below.
+export const PLUGIN_API_VERSION = "1.1.0";
 
-// The named mount regions core exposes in Phase 1. Deliberately small
-// (`fem-sidebar` covers the FEM simulation panel, `top-panel` the menu bar);
-// more are added on demand rather than up-front.
+// The named mount regions core exposes.
+//
+// The first four are the original Phase-1 names and MUST NOT be removed — plugins are
+// built against them. `fem-sidebar` covers the FEM simulation panel and `top-panel` the
+// menu bar; `scene-info` and `storage-detail` were declared but never wired, and the
+// shell finally gives them real hosts.
+//
+// The dock ids are the shell's regions. A plugin can target one directly, or keep using
+// a legacy name and let LEGACY_REGION_PLACEMENT decide where it lands.
 export type PluginRegion =
+  // legacy (Phase 1) — stable
   | "fem-sidebar"
   | "top-panel"
   | "scene-info"
-  | "storage-detail";
+  | "storage-detail"
+  // shell docks (1.1.0)
+  | "left"
+  | "right"
+  | "bottom"
+  | "float"
+  | "overlay";
+
+/** Shell dock ids, mirrored here so registry.ts stays dependency-free. */
+export type PluginDockId = "left" | "right" | "bottom" | "float" | "overlay";
+
+/** Shell mode ids, mirrored for the same reason. */
+export type PluginModeId = "inspect" | "results" | "build" | "data";
+
+/**
+ * Where a legacy region lands in the shell, and in which modes.
+ *
+ * This is the whole of the backward-compatibility story: a plugin written against the
+ * Phase-1 API keeps its declared region string and the shell maps it. `null` modes
+ * means every mode.
+ */
+export const LEGACY_REGION_PLACEMENT: Record<
+  "fem-sidebar" | "top-panel" | "scene-info" | "storage-detail",
+  {dock: PluginDockId; modes: PluginModeId[] | null}
+> = {
+  // The simulation sidebar is the Results-mode right dock.
+  "fem-sidebar": {dock: "right", modes: ["results"]},
+  // Top-bar contributions were mode-independent and stay so.
+  "top-panel": {dock: "right", modes: null},
+  // Finally wired: rides alongside the Scene panel.
+  "scene-info": {dock: "right", modes: ["inspect", "results", "build"]},
+  // Finally wired: the Data-mode detail pane.
+  "storage-detail": {dock: "right", modes: ["data"]},
+};
+
+export const isLegacyRegion = (
+  r: PluginRegion,
+): r is keyof typeof LEGACY_REGION_PLACEMENT => r in LEGACY_REGION_PLACEMENT;
+
+/**
+ * Resolve a slot's effective placement, preferring explicit `dock`/`modes` over the
+ * legacy region mapping.
+ */
+export function resolveSlotPlacement(slot: {
+  region: PluginRegion;
+  dock?: PluginDockId;
+  modes?: PluginModeId[];
+}): {dock: PluginDockId; modes: PluginModeId[] | null} {
+  const legacy = isLegacyRegion(slot.region) ? LEGACY_REGION_PLACEMENT[slot.region] : null;
+  return {
+    dock: slot.dock ?? legacy?.dock ?? (slot.region as PluginDockId),
+    modes: slot.modes ?? legacy?.modes ?? null,
+  };
+}
 
 export type PluginLogLevel = "debug" | "info" | "warn" | "error";
 
@@ -134,6 +198,11 @@ export interface PanelSlot {
   // Local id; namespaced to `${pluginId}:${id}` on register.
   id: string;
   region: PluginRegion;
+  // Shell placement (API 1.1.0). Both optional: omit them and the shell derives
+  // placement from `region` via LEGACY_REGION_PLACEMENT, so Phase-1 plugins need no
+  // change. Set them to target a dock directly and scope the panel to specific modes.
+  dock?: PluginDockId;
+  modes?: PluginModeId[];
   order?: number;
   activationPredicate?: ActivationPredicate;
   render: (ctx: AdaPluginContext) => React.ReactNode;

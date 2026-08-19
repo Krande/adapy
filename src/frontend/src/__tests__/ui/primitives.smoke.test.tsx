@@ -256,3 +256,22 @@ test("icons set no colour of their own", {skip}, () => {
         }
     }
 });
+
+test("every icon has an intrinsic size for direct (non-<Icon>) use", {skip}, () => {
+    // Regression. M1 stripped width/height from the icon roots so the <Icon> wrapper
+    // could own sizing — which silently broke every call site that renders an icon
+    // component directly. The classic Menu.tsx does exactly that, and six of its eight
+    // toolbar icons collapsed to 0x0.
+    //
+    // <Icon> still wins: it sizes via `[&>svg]:w-full`, and CSS beats presentation
+    // attributes. So the attribute is a floor, not a constraint.
+    for (const name of ui.ICON_NAMES) {
+        const Glyph = ui.ICONS[name];
+        const host = render(React.createElement(Glyph));
+        const svg = host.querySelector("svg")!;
+        assert.ok(
+            svg.getAttribute("width") && svg.getAttribute("height"),
+            `icon "${name}" has no intrinsic size — it will render 0x0 when used directly`,
+        );
+    }
+});
