@@ -5,7 +5,7 @@ import {useMeStore} from "@/state/meStore";
 import {useScopeStore, ScopeOption, scopeUrlPart} from "@/state/scopeStore";
 import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import {getUser, isAuthEnabled, signOut} from "@/services/auth/oidc";
-import {applyScopeChange} from "@/utils/scope/applyScopeChange";
+import {requestScopeChange} from "@/utils/scope/requestScopeChange";
 
 // REST-mode controls inside the options drawer: identity, scope, and the entry points to
 // Convert and Admin.
@@ -100,9 +100,13 @@ const ScopeSelector: React.FC = () => {
     const onChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const picked = available.find((s) => scopeUrlPart(s) === e.target.value);
         if (!picked) return;
-        // The teardown (clear the file list, unload the scene, refresh) lives in
-        // applyScopeChange so this drawer and the shell's title-bar picker cannot drift.
-        applyScopeChange(picked as ScopeOption);
+        // The teardown (clear the file list, unload the scene, refresh) and the guard
+        // that asks before discarding a loaded model both live in requestScopeChange, so
+        // this drawer and the shell's title-bar picker cannot drift apart on either.
+        const el = e.currentTarget;
+        void requestScopeChange(picked as ScopeOption).then((switched) => {
+            if (!switched) el.value = value;
+        });
     };
     return (
         <label className="flex flex-col gap-1">

@@ -23,6 +23,7 @@ const AuthCallback = React.lazy(() => import("./components/auth/AuthCallback"));
 const ConvertPage = React.lazy(() => import("./components/convert/ConvertPage"));
 const AdminPanel = React.lazy(() => import("./components/admin/AdminPanel"));
 const InViewerPanelHost = React.lazy(() => import("./components/InViewerPanelHost"));
+import {ConfirmHost} from "./components/ui";
 // Canvas-less Simulation follower window (`?simfollow=…`) — mounted in its own
 // lazy chunk so a normal viewer tab never pulls it in.
 const SimFollowerPage = React.lazy(() => import("./components/simulation/SimFollowerPage"));
@@ -219,6 +220,11 @@ function AppBody() {
                     <InViewerPanelHost/>
                 </Suspense>
             )}
+
+            {/* Pending confirmations. The classic UI needs its own host because it
+                does not go through AppShell — the scope picker in the Options drawer
+                asks before it unloads your model, same as the title-bar one. */}
+            <ConfirmHost/>
 
         </div>
     );

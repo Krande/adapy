@@ -787,3 +787,81 @@ Neither was visible in the classic UI, where the drawer is wide enough that the
 collapse did not overlap anything. Both only showed up in the shell's narrower float
 panel — an argument for reviewing panels at their real width, not at their most
 generous one.
+
+---
+
+## Two recovery fixes
+
+Both came out of using the shell rather than reading it, and both are cases where the
+shell made something *more* reachable than the classic UI did without adding the
+guardrail that reachability needs.
+
+### Switching scope no longer discards your model silently
+
+`applyScopeChange` unloads the scene, because the model belongs to the scope you are
+leaving. In the classic UI that control was three clicks deep in the Options drawer,
+so it was hard to hit by accident. The shell moved it to the title bar — correct for
+visibility, since scope is the most consequential context in a multi-project
+deployment, and wrong for a destructive default. Loading a large model is minutes of
+work and there is no undo.
+
+`requestScopeChange` now asks first, and only when there is something to lose — a
+confirmation on an empty scene is a dialog that teaches people to dismiss dialogs.
+Both call sites (title bar, classic drawer) go through it, so they cannot drift.
+
+Declining has to put the `<select>` back: the element has already moved to the new
+option by the time the promise resolves, and a picker claiming a scope you are not in
+is worse than the original bug.
+
+**The first version of this guard did nothing.** It asked `modelState.loadedSourceNames`,
+which only the storage browser populates — so `?demo=1`, a `.show()` push over the
+websocket, and drag-and-drop all presented an empty set with a full scene. It now also
+consults `modelKeyMapRef`, which is what `clear_loaded_model` actually tears down and
+therefore the honest answer. Caught by clicking the control, not by reading the code;
+the test that covers it is named for the case.
+
+New shared machinery, both on the plan as Tier 2:
+
+* `components/ui/Dialog.tsx` — the modal shell. Five hand-rolled versions existed
+  (FilePicker, FolderPicker, Shortcuts, WorkerInfo, FieldPicker), each with its own
+  backdrop, own z literal, and its own answer on whether Escape works. Deliberately
+  not a `<dialog>` element: `showModal()` promotes to the browser's top layer, which
+  escapes the embed's `@scope` wrapper and would land unstyled over the host page.
+* `ui/confirm.ts` — an awaitable confirmation. `window.confirm` was the alternative;
+  in the embed it prefixes the host page's origin, so a docs page would say
+  "docs.example.com says: Discard the loaded model?", which reads as phishing rather
+  than as part of the viewer. A second request cancels the first rather than stacking:
+  the one the user never saw resolves as declined, which is the safe direction.
+
+### Layout reset is in permanent chrome, not just the command palette
+
+Layout persists per mode, so one bad afternoon of dragging follows you across reloads
+and the app simply looks broken. Reset existed — in the command palette, which is
+precisely what you cannot be expected to find while the UI is the thing that is wrong.
+The Panels menu now ends with "Reset <Mode> layout" and "Reset every mode's layout".
+
+**This immediately exposed a z-index bug that the registry could not have caught.**
+The Panels dropdown carries `z-index: contextMenu` (50) and floating panels carry
+`float` (40), so the menu should win. It did not: the title bar is a **grid item** with
+`z-index: dock` (20), and a z-index on a grid item applies even at `position: static`
+— and brings a stacking context with it. The menu's 50 was being resolved *inside* that
+context, so every float panel drew over it. The registry's ordering was right; the
+containment was the bug.
+
+Fixed by portalling the menu to `<body>`, where its z means what it says. That also
+meant teaching dismiss-on-outside-click about the portal, since the menu is no longer
+a descendant of the trigger and clicking a panel toggle would otherwise close the menu
+— when toggling several panels in a row is the normal way to use it.
+
+Worth generalising: **any popover rendered inside a docked region has this problem.**
+`zIndex.test.ts` checks the registry is ordered, which is necessary and not sufficient;
+a z-index is only comparable against things in the same stacking context. Popovers
+belong in a portal, full stop.
+
+### Not changed, deliberately
+
+Menus inherit the panel surface, which in the default "Slate glass" preset is 62%
+opaque, so viewport content ghosts faintly through them. Menus arguably want to be
+opaque regardless of the panel theme — you read them for a fraction of a second over
+arbitrary content. That is a product-wide look decision affecting every popover in
+every preset, not something to fold into a bug fix, so it is left as-is and noted here.

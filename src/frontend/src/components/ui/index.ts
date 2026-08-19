@@ -35,5 +35,7 @@ export {Toolbar, ToolbarGroup, ToolbarSeparator, ToolbarSpacer, type ToolbarProp
 export {Tooltip, type TooltipProps} from "./Tooltip";
 export {Splitter, type SplitterProps} from "./Splitter";
 export {Badge, StatusDot, Kbd, type BadgeProps, type Tone} from "./Badge";
+export {Dialog, type DialogProps} from "./Dialog";
+export {default as ConfirmHost} from "./ConfirmHost";
 
 export {Icon, ICONS, ICON_NAMES, type IconName, type IconProps, type IconSize} from "@/components/icons";

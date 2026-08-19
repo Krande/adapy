@@ -11,6 +11,7 @@ import TitleBar from "./TitleBar";
 import CommandPalette from "./CommandPalette";
 import MarkingMenu from "./MarkingMenu";
 import ToastHost from "./ToastHost";
+import {ConfirmHost} from "@/components/ui";
 import ToolRail from "./ToolRail";
 import ViewportHost from "./ViewportHost";
 import {useLegacyFlagSync} from "./useLegacyFlagSync";
@@ -164,6 +165,10 @@ export default function AppShell({profile = "viewer", viewportOverride}: AppShel
             {/* Ambient job/upload notifications. Outside the grid: they are transient
                 overlays, not a region, and must not reflow the layout when they appear. */}
             <ToastHost />
+
+            {/* Whatever `confirm()` currently has pending. One host per shell; callers
+                await a promise rather than rendering their own dialog. */}
+            <ConfirmHost />
 
             {/* Ctrl+K. Outside the grid — a modal overlay, not a region. */}
             <CommandPalette />

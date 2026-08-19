@@ -1,7 +1,7 @@
 import React from "react";
 import {Select} from "@/components/ui";
 import {scopeUrlPart, useScopeStore, type ScopeOption} from "@/state/scopeStore";
-import {applyScopeChange} from "@/utils/scope/applyScopeChange";
+import {requestScopeChange} from "@/utils/scope/requestScopeChange";
 import {runtime} from "@/runtime/config";
 
 // Which scope you are looking at, in the title bar.
@@ -12,8 +12,10 @@ import {runtime} from "@/runtime/config";
 // and job is scoped, and not knowing which one you are in is how work lands in the wrong
 // project. It belongs in persistent chrome.
 //
-// The switch itself goes through applyScopeChange, shared with the classic drawer, so
-// both paths perform the same teardown.
+// The switch goes through requestScopeChange, shared with the classic drawer, so both
+// paths perform the same teardown AND the same "this will unload your model" guard.
+// Moving the control here made it one click from anywhere, which is what a destructive
+// action least wants to be — hence the guard.
 
 export default function ScopePicker() {
     const current = useScopeStore((s) => s.current);
@@ -31,7 +33,14 @@ export default function ScopePicker() {
                 value={current ? scopeUrlPart(current) : ""}
                 onChange={(e) => {
                     const picked = available.find((s) => scopeUrlPart(s) === e.target.value);
-                    if (picked) applyScopeChange(picked as ScopeOption);
+                    if (!picked) return;
+                    // The select has already moved to the new option; if the user backs
+                    // out of the confirmation we have to put it back, or the title bar
+                    // claims a scope we are not in.
+                    const el = e.currentTarget;
+                    void requestScopeChange(picked as ScopeOption).then((switched) => {
+                        if (!switched) el.value = current ? scopeUrlPart(current) : "";
+                    });
                 }}
                 title="Active scope — every file, conversion and job belongs to this"
             >
