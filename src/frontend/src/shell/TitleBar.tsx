@@ -6,6 +6,8 @@ import {panelsForMode} from "./panelRegistry";
 import {useShellPrefs} from "./shellPrefs";
 import {PluginPanelRegion, PluginTopBarButtons} from "@/plugins";
 import ScopePicker from "./ScopePicker";
+import {openCommandPalette} from "./CommandPalette";
+import {keysFor} from "./shortcuts";
 import {Z} from "./zIndex";
 
 /** Chrome for a plugin's top-bar button, in the shell's idiom rather than the classic
@@ -88,6 +90,15 @@ export default function TitleBar({showModeSwitcher}: TitleBarProps) {
             <PanelMenu mode={mode} />
 
             <span className="flex-1 min-w-0" />
+
+            {/* A visible way in. The palette's job is discoverability, so hiding it
+                behind a shortcut you must already know would defeat it. */}
+            <IconButton
+                size="sm"
+                tooltip={`Search commands (${keysFor("command-palette") ?? "Ctrl+K"})`}
+                icon={<Icon name="search" size="sm" />}
+                onClick={openCommandPalette}
+            />
 
             {/* Scope is the most consequential context in a multi-project deployment —
                 every file, conversion and job belongs to one. It was buried in the

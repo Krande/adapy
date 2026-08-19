@@ -232,10 +232,30 @@ export function adapyDevRestConfig() {
 
                 // JSON file listing — used by the file pickers, the corpus tab and the
                 // admin storage tab (StorageBrowser uses the flatbuffer RPC below).
+                //
+                // Same path serves two shapes: `?include_derived=1` returns AdminFileEntry
+                // (format, available_targets, derived), which the Convert page reads. That
+                // panel accesses `entry.available_targets.length` unguarded, so returning
+                // the thin shape here crashes it — which is how this was found. Against a
+                // real backend the fields are always present; the fixture has to match the
+                // contract, not approximate it.
                 const files = /^\/scopes\/[^/]+\/files$/.exec(route);
                 if (files) {
+                    const withDerived = url.searchParams.get("include_derived") === "1";
+                    if (!withDerived) {
+                        return sendJson(res, {files: FIXTURE_FILES.map((f) => ({key: f.name, size: 0}))});
+                    }
                     return sendJson(res, {
-                        files: FIXTURE_FILES.map((f) => ({key: f.name, size: 0})),
+                        files: FIXTURE_FILES.filter((f) => !f.name.startsWith("_derived/")).map((f) => ({
+                            key: f.name,
+                            size: 0,
+                            last_modified: f.modified,
+                            format: f.name.split(".").pop() ?? "",
+                            // Empty: no workers are registered in the fixture, so nothing
+                            // is convertible. The panel renders that state correctly.
+                            available_targets: [],
+                            derived: [],
+                        })),
                     });
                 }
 

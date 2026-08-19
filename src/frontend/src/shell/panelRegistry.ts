@@ -3,6 +3,7 @@ import type {IconName} from "@/components/icons";
 import type {DockId} from "./regions";
 import type {ModeId} from "./modeStore";
 import {runtime} from "@/runtime/config";
+import {useMeStore} from "@/state/meStore";
 
 // The panel catalogue.
 //
@@ -56,6 +57,7 @@ export const PANEL_IDS = [
     "node-editor",
     "storage",
     "convert",
+    "admin",
     "preferences",
 ] as const;
 
@@ -172,6 +174,19 @@ export const PANELS: Record<PanelId, PanelDef> = {
         available: () => runtime.isRestMode(),
         hint: "Convert uploaded files to other formats",
         component: lazy(() => import("@/components/convert/ConvertPage")),
+    },
+    admin: {
+        id: "admin",
+        title: "Admin",
+        icon: "settings",
+        modes: ["data"],
+        // Bottom dock: 14 tabs of tables want width, not a 360px column.
+        defaultDock: "bottom",
+        // Admin-only AND REST-only. AdminPanel gates internally too, but a panel that
+        // renders "you are not an admin" is worse than one that is simply not offered.
+        available: () => runtime.isRestMode() && useMeStore.getState().isAdmin,
+        hint: "Audit runs, workers, projects, corpora and system settings",
+        component: lazy(() => import("@/components/admin/AdminPanel")),
     },
     preferences: {
         id: "preferences",

@@ -586,6 +586,103 @@ fixture.
 **`/admin` is still its own route.** Folding 14 tabs into a Data workspace is M7's job,
 where they get the codemod pass; doing it here would mean moving them twice.
 
+---
+
+# M7 — discoverability
+
+"Features exist but users don't know they're there" was one of the four cited pains. The
+old model was ten identical icon buttons and a drawer: if you did not already know a
+feature existed, nothing told you.
+
+## One shortcuts registry
+
+`src/shell/shortcuts.ts` is now the single description of every binding. There were
+three: the actual handler, a hand-written cheat sheet in `ShortcutsModal`, and whatever
+each tooltip happened to say. Two of those were documentation, and documentation drifts
+**silently** — a tooltip promising a renamed key is wrong forever and nothing notices.
+
+`shortcuts.test.ts` parses `setupCameraControlsHandlers` and checks the registry against
+it **in both directions**: a promise the handler does not keep fails, and so does a
+binding nobody documented. `docs/SHORTCUTS.md` is generated from the registry
+(`npm run gen:shortcuts`), so the reference cannot be the stale copy.
+
+## Command palette
+
+`Ctrl+K` (or `Ctrl+Shift+P`, or the search button in the title bar). Commands are
+**generated** from the panel, mode and shortcut registries — a hand-written list would be
+a fourth copy of facts that already exist, and the copy that goes stale because nothing
+breaks when it does. Add a panel and it appears; add a shortcut and its keys show up
+beside the command.
+
+It also teaches the shortcuts rather than hiding them in a modal: every command that has
+one displays it.
+
+Two decisions worth recording:
+
+- **Panel commands are scoped to the current mode.** Offering "open the Builder" from
+  Results would either do nothing or silently switch mode, and silent mode switches are
+  what the non-modality contract forbids. Switching mode is itself a command, so the path
+  exists — it is just explicit.
+- **The palette closes before running a command.** A command that changes layout or mode
+  re-renders the tree beneath it, and running it while the overlay is still up leaves the
+  change behind a scrim the user then has to dismiss.
+
+Ranking lives in `commandFilter.ts`, separate from the wiring, for the same reason
+`coreProviderRules` is separate: the action imports reach a vite `?worker&inline` module
+that only a bundler resolves. Ranking is also the half users feel — typing three letters
+and getting the wrong first result is what makes a palette not get used twice — so it has
+its own tests: titles outrank keywords, prefixes outrank mid-word hits, and "fta" finds
+"Fit all to view".
+
+## Admin folds into Data mode
+
+`AdminPanel` is now a Data-mode bottom-dock panel, gated on `isAdmin && isRestMode`. It
+gates internally too, but a panel that renders "you are not an admin" is worse than one
+that is simply not offered. The `/admin` route still works as a deep link.
+
+## Numbers
+
+| | M6 | M7 |
+|---|---|---|
+| Tests | 320 | **335** (0 skipped) |
+| `dist/index.html` | 2,904,479 B | 2,913,210 B (**+3.07 %** vs M0, budget +8 %) |
+| Files hardcoding palette colours (`ui:audit`, all of `src/`) | 81 | **82** |
+| Enforced allowlist (`src/components/**`) | 80 | **80** |
+
+The audit metric went the **wrong way by one**: the new `CommandPalette` uses a
+`bg-black/40` scrim for its modal backdrop. Recorded rather than quietly excluded.
+
+Writing that up exposed a real gap in the enforcement itself: **the test only scanned
+`src/components`, so all of `src/shell` — the newest code in the codebase, written after
+the design system existed — was exempt from the standard it was meant to demonstrate.**
+`src/shell` is now checked too, with **no allowlist**: there is no legacy there to
+grandfather. It passes today, so this locks in rather than reveals.
+
+## Verified, and one thing not
+
+The palette opens from the title-bar button, generates 24 commands in Inspect, filters
+correctly ("leg" → the legend command), and shows shortcut hints. Admin registers and
+gates correctly.
+
+**The keyboard shortcut could not be verified through the automation harness**: Chrome
+claims both `Ctrl+K` and `Ctrl+Shift+P` before the page sees them, so synthetic keys never
+arrive. The handler is verified by direct event dispatch, and the button is verified
+end-to-end — but a real keypress in a real browser is worth one manual check.
+
+That limitation is also why the title-bar button exists at all: a palette reachable only
+by a shortcut you must already know does not solve discoverability, which was the point.
+
+## Deferred
+
+**Empty states**, **saved workspaces** and the **customisable tool rail** are not done.
+`PropertiesPanel` already has a proper empty state from M3 and empty docks render nothing
+rather than chrome, so the remaining cases sit inside `CellBuilderPanel` and
+`StorageBrowser` — the two panels awaiting their re-chrome pass. Doing them now would mean
+touching those files twice.
+
+`ShortcutsModal` is not yet regenerated from the registry; it is classic-UI chrome that
+goes at M8, and the palette already supersedes it in the shell.
+
 ### The embed defect from M0 — fixed, and it was not what it looked like
 
 M0 recorded that host-page CSS cascades *into* the embed and guessed that converting

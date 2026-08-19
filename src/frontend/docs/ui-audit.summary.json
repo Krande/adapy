@@ -1,11 +1,11 @@
 {
-  "filesScanned": 374,
-  "classStrings": 2125,
-  "distinctRecipes": 1244,
-  "filesWithHardcodedColour": 83,
+  "filesScanned": 409,
+  "classStrings": 2175,
+  "distinctRecipes": 1290,
+  "filesWithHardcodedColour": 82,
   "rawElements": {
-    "button": 375,
-    "input": 115,
+    "button": 379,
+    "input": 116,
     "select": 77,
     "textarea": 2,
     "checkbox": 60
@@ -49,14 +49,20 @@
     },
     {
       "recipe": "flex-1 min-w-0",
-      "count": 13,
-      "files": 9,
+      "count": 17,
+      "files": 13,
       "primitive": ""
     },
     {
       "recipe": "flex flex-col gap-2",
       "count": 12,
       "files": 3,
+      "primitive": ""
+    },
+    {
+      "recipe": "flex-1 truncate",
+      "count": 11,
+      "files": 8,
       "primitive": ""
     },
     {
@@ -81,12 +87,6 @@
       "recipe": "font-mono text-[11px] text-gray-400",
       "count": 10,
       "files": 3,
-      "primitive": ""
-    },
-    {
-      "recipe": "flex-1 truncate",
-      "count": 10,
-      "files": 7,
       "primitive": ""
     },
     {

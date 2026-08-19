@@ -75,6 +75,18 @@ test("the allowlist only shrinks — remove entries as files are converted", () 
     );
 });
 
+test("the shell is held to the rule with no allowlist at all", () => {
+    // src/shell is entirely new code written after the design system existed, so there is
+    // no legacy to grandfather — it gets no allowlist. This was a gap: the check only
+    // scanned src/components, leaving the newest code in the codebase exempt from the
+    // standard it was written to demonstrate.
+    const shellDir = path.resolve(import.meta.dirname, "../../shell");
+    const bad = walk(shellDir)
+        .filter((f) => PALETTE.test(stripComments(fs.readFileSync(f, "utf8"))))
+        .map(rel);
+    assert.deepEqual(bad, [], `src/shell must use tokens only:\n  ${bad.join("\n  ")}`);
+});
+
 test("the design system itself does not regress into ad-hoc colours", () => {
     const uiDir = path.join(COMPONENTS, "ui");
     const bad = walk(uiDir)

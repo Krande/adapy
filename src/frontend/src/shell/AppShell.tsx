@@ -8,6 +8,7 @@ import DockHost from "./DockHost";
 import FloatLayer from "./FloatLayer";
 import StatusBar from "./StatusBar";
 import TitleBar from "./TitleBar";
+import CommandPalette from "./CommandPalette";
 import ToastHost from "./ToastHost";
 import ToolRail from "./ToolRail";
 import ViewportHost from "./ViewportHost";
@@ -162,6 +163,9 @@ export default function AppShell({profile = "viewer", viewportOverride}: AppShel
             {/* Ambient job/upload notifications. Outside the grid: they are transient
                 overlays, not a region, and must not reflow the layout when they appear. */}
             <ToastHost />
+
+            {/* Ctrl+K. Outside the grid — a modal overlay, not a region. */}
+            <CommandPalette />
         </div>
     );
 }

@@ -212,7 +212,7 @@ rewrite.** Status: Pending.
 | G2 | Theme | 4 presets (Slate glass / Dark / Mist / Pale glass), custom hex + opacity, Gallery mode | Pending |
 | G3 | Performance | Show Stats, material mode, backface-cull, smooth-shade, disable shadow map, disable AA, pixel-ratio slider, adaptive DPR, on-demand render, time-sliced load, skip beam-solid load, flat-varying picker, GPU face picking, skip element-edge wireframe, admin metrics | Pending |
 | G4 | Conversion engine | Convert in-browser (WASM) | Pending |
-| G5 | Shortcut Keys modal | `ShortcutsModal.tsx` | → regenerated from `shortcuts.ts` | Pending |
+| G5 | Shortcut Keys modal | `ShortcutsModal.tsx` | superseded in the shell by the command palette; `docs/SHORTCUTS.md` is generated from `shell/shortcuts.ts` | Verified (M7) |
 | G6 | Version / build info | adapy version, frontend SHA, image tags | → title bar / About | Pending |
 
 ## H. Cross-cutting

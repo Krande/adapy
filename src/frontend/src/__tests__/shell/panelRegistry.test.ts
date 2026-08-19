@@ -21,7 +21,7 @@ import {DOCK_IDS} from "../../shell/regions";
 // EXPECTED_PANELS is written out rather than derived from PANEL_IDS on purpose: deriving
 // it would make the test pass no matter what the registry contained.
 
-const EXPECTED_PANELS = ["outliner", "properties", "scene", "simulation", "fea-table", "cellbuilder", "node-editor", "storage", "convert", "preferences"];
+const EXPECTED_PANELS = ["outliner", "properties", "scene", "simulation", "fea-table", "cellbuilder", "node-editor", "storage", "convert", "admin", "preferences"];
 
 test("every expected panel is registered", () => {
     for (const id of EXPECTED_PANELS) {
