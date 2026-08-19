@@ -53,7 +53,6 @@
   "src/components/info_box_scene/UtilitiesSection.tsx",
   "src/components/info_box_selected_object/CellBuilderSelectionInfo.tsx",
   "src/components/info_box_selected_object/ConnectionsSection.tsx",
-  "src/components/info_box_selected_object/ObjectInfoBoxComponent.tsx",
   "src/components/info_box_selected_object/ObjectMetadataPanel.tsx",
   "src/components/node_editor/NodeEditorComponent.tsx",
   "src/components/node_editor/nodes/file_node/CustomFileObjectNode.tsx",

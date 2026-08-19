@@ -275,6 +275,90 @@ attributes. Covered by a regression test.
 - `PanelFrame` (promoted from `SimWindowFrame`) is still pending — the float layer
   currently hand-rolls its header. It folds in with M4, where `SimWindowFrame` is deleted.
 
+---
+
+# M3 — Inspect mode and the unified Properties panel
+
+## The Properties registry
+
+`components/properties/` replaces "N bespoke info boxes, each deciding for itself
+whether to appear". A provider declares **when** it applies and **what** it renders;
+the panel composes whatever matches, in order.
+
+The three panels that previously composed `ObjectInfoBoxComponent` by hard reference
+are now sibling providers:
+
+| Provider | order | applies when |
+|---|---|---|
+| `selection-summary` | 0 | anything selected, **or** nothing selected but the scene holds entities |
+| `object-metadata` | 10 | a named mesh selection |
+| `cellbuilder-cell` | 20 | a builder-cell selection |
+
+That second half of the `selection-summary` rule is a real decision, not a detail:
+scene-wide recovery (Unhide all / Fit all) must stay reachable **after you hide your
+last selection**, or you have hidden something with no way to get it back.
+
+Orders leave gaps of ten so a plugin can slot between core entries without renumbering.
+This is also the genuine replacement for the plugin framework's `scene-info` region,
+declared in Phase 1 and never wired.
+
+**The split was two-phase, per the hard rule.** `ObjectInfoBoxComponent`'s 436 lines
+moved into `SelectionSummary.tsx` **verbatim** — only the outer chrome was removed —
+and only then was the chrome re-done. The cell-vs-mesh dispatch in that file is subtle
+and correct; it was moved, not rewritten. `ObjectInfoBoxComponent` survives as a thin
+wrapper so the **classic UI renders exactly what it did before**.
+
+`match` predicates live in their own module (`coreProviderRules.ts`) because the render
+half transitively imports the whole viewer — `cellBuilderStore` reaches a vite
+`?worker&inline` module only a bundler can resolve. Splitting them means the
+composition rules are unit-testable under plain `node --test`, which is the half most
+likely to be got wrong.
+
+## Also in M3
+
+- **Scene panel tabs re-chromed** onto the design-system `Tabs`. The store still owns
+  which tab is active; the FEM/Joints contextual dot is now the primitive's `contextual`
+  flag. Gained for free: roving-tabindex arrow-key navigation the hand-rolled strip
+  never had.
+- **The Inspect rail is live.** Fit all, Focus selection, Hide, Unhide all and Section
+  planes all work — and all **delegate** to the handlers the keyboard shortcuts and the
+  classic panel already call (`hideSelectedRanges`, `unhideAllRanges`,
+  `centerViewOnSelection`, `zoomToAll`, `frameCells`). Nothing is reimplemented, so the
+  rail and the shortcuts cannot diverge. Section planes opens the Scene panel on its
+  Clip tab rather than duplicating that UI. Measure remains honestly disabled.
+
+## Verified in the browser
+
+Selecting geometry fills Properties through the provider chain (`selection-summary` +
+`object-metadata`); an empty selection with a model loaded still offers Unhide all; the
+Section-planes rail button opens the Scene dock *and* selects its Clip tab; the Scene
+tabs render FEM/Joints only when their data exists.
+
+## Numbers
+
+| | M2 | M3 |
+|---|---|---|
+| Tests | 303 | **312** (0 skipped) |
+| `dist/index.html` | 2,896,392 B | 2,897,873 B (**+2.53 %** vs M0, budget +8 %) |
+| Files hardcoding palette colours | 81 | **80** |
+
+That last row is the first burn-down tick — and it came from the enforcement test
+failing, correctly, when `SelectionSummary.tsx` arrived carrying colours moved out of a
+file that *was* on the allowlist. The list can only shrink, so moving debt around does
+not pass.
+
+## Known limits at this point
+
+- **The `?demo=1` fixture does not register a model *source***, so the Scene panel's
+  "Loaded models" list is empty even with geometry on screen. A fixture limitation, not
+  a shell defect — but it means that inventory row cannot be marked verified from the
+  fixture alone.
+- **Preferences still renders its own translucent chrome** inside the float panel, so
+  it reads as a box in a box. It is re-chromed with its own milestone.
+- **Mode-independence of Properties is verified by test, not by hand**: the fixture has
+  no cellbuilder model, so "click a cell while in Results mode" needs a procedural model
+  to confirm in the browser.
+
 ### The embed defect from M0 — fixed, and it was not what it looked like
 
 M0 recorded that host-page CSS cascades *into* the embed and guessed that converting

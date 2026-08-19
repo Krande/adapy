@@ -88,7 +88,7 @@ export const PANELS: Record<PanelId, PanelDef> = {
         defaultOpen: true,
         pinnable: true,
         hint: "Selected object",
-        component: lazy(() => import("@/components/info_box_selected_object/ObjectInfoBoxComponent")),
+        component: lazy(() => import("@/components/properties/PropertiesPanel")),
     },
     scene: {
         id: "scene",

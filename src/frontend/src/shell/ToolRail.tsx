@@ -3,6 +3,8 @@ import {Icon, IconButton, cn, type IconName} from "@/components/ui";
 import {useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
 import {panelsForMode} from "./panelRegistry";
+import {fitAll, focusSelection, hideSelection, unhideAll} from "./inspectActions";
+import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import {Z} from "./zIndex";
 
 // The dynamic tool palette — Cinema 4D R25's central idea, and the direct answer to
@@ -26,14 +28,19 @@ interface RailTool {
     /** Not yet wired — rendered disabled with an honest tooltip rather than hidden, so
      *  the shape of the mode is visible during the rebuild. */
     pending?: boolean;
+    /** Delegates to an existing handler. Never reimplements behaviour. */
+    run?: () => void;
 }
 
 /** Always present, always in the same order, in every mode. */
 const PINNED_TOOLS: RailTool[] = [
-    {id: "select", icon: "mode-inspect", label: "Select", shortcut: "Q"},
-    {id: "move", icon: "move", label: "Move", shortcut: "G", pending: true},
-    {id: "rotate", icon: "rotate", label: "Rotate", shortcut: "R", pending: true},
-    {id: "scale", icon: "scale", label: "Scale", shortcut: "S", pending: true},
+    // Fit and focus are camera actions every persona reaches for constantly, which is
+    // exactly what C4D pins: the things you use in every discipline must not move when
+    // you change discipline.
+    {id: "fit", icon: "expand", label: "Fit all", shortcut: "Shift+A", run: fitAll},
+    {id: "focus", icon: "mode-inspect", label: "Focus selection", shortcut: "Shift+F", run: focusSelection},
+    {id: "hide", icon: "view-off", label: "Hide selection", shortcut: "Shift+H", run: hideSelection},
+    {id: "unhide", icon: "view", label: "Unhide all", shortcut: "Shift+U", run: unhideAll},
 ];
 
 /**
@@ -46,9 +53,9 @@ const PINNED_TOOLS: RailTool[] = [
  */
 const MODE_TOOLS: Record<ModeId, RailTool[]> = {
     inspect: [
-        {id: "isolate", icon: "view", label: "Isolate selection", shortcut: "Shift+H", pending: true},
-        {id: "unhide", icon: "view-off", label: "Unhide all", shortcut: "Shift+U", pending: true},
-        {id: "section", icon: "section-plane", label: "Section plane", pending: true},
+        // Opens the Scene panel on its Clip tab rather than duplicating the
+        // section-plane UI — one implementation, reachable from the rail.
+        {id: "section", icon: "section-plane", label: "Section planes", run: openSectionPlanes},
         {id: "measure", icon: "measure", label: "Measure", pending: true},
     ],
     results: [
@@ -67,6 +74,13 @@ const MODE_TOOLS: Record<ModeId, RailTool[]> = {
         {id: "search", icon: "search", label: "Find file", pending: true},
     ],
 };
+
+/** Reveal the section-plane UI where it already lives: the Scene panel's Clip tab. */
+function openSectionPlanes(): void {
+    useSceneInfoStore.getState().setMode("section");
+    const {mode} = useModeStore.getState();
+    useLayoutStore.getState().openPanel(mode, "scene", "right");
+}
 
 export default function ToolRail() {
     const mode = useModeStore((s) => s.mode);
@@ -119,17 +133,19 @@ export default function ToolRail() {
 }
 
 function RailButton({tool}: {tool: RailTool}) {
+    const disabled = tool.pending || !tool.run;
     return (
         <IconButton
             size="md"
-            disabled={tool.pending}
+            disabled={disabled}
+            onClick={tool.run}
             tooltip={
-                tool.pending
+                disabled
                     ? `${tool.label} — not wired up yet`
                     : `${tool.label}${tool.shortcut ? ` (${tool.shortcut})` : ""}`
             }
             icon={<Icon name={tool.icon} />}
-            className={cn(tool.pending && "opacity-35")}
+            className={cn(disabled && "opacity-35")}
         />
     );
 }

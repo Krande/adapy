@@ -18,6 +18,7 @@ import {useFemConceptsStore} from "@/state/femConceptsStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useStatsStore} from "@/state/statsStore";
 import {useBottomSheet} from "@/utils/useBottomSheet";
+import {Tabs} from "@/components/ui";
 
 // The Scene panel groups everything that talks about the loaded scene (rather
 // than a single selected object). Its destinations used to hide behind a 6-way
@@ -135,35 +136,20 @@ const SceneInfoBox = () => {
                 </CollapsibleSection>
             </div>
 
-            {/* ── adaptive tab strip ── */}
-            <div
-                className="shrink-0 flex gap-0.5 px-1.5 border-b border-white/15 overflow-x-auto"
-                role="tablist"
-                aria-label="Scene panel section"
-            >
-                {tabs.map((t) => (
-                    <button
-                        key={t.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={tab === t.id}
-                        onClick={() => setMode(TAB_TO_MODE[t.id])}
-                        className={
-                            "px-2.5 py-1.5 font-semibold whitespace-nowrap border-b-2 -mb-px flex items-center gap-1.5 " +
-                            (tab === t.id
-                                ? "border-blue-400 text-[var(--ada-panel-text)]"
-                                : "border-transparent text-gray-400 hover:text-[var(--ada-panel-text)]")
-                        }
-                    >
-                        {t.ctx && (
-                            <span
-                                className="w-1.5 h-1.5 rounded-full bg-violet-400"
-                                aria-hidden="true"
-                            />
-                        )}
-                        {t.label}
-                    </button>
-                ))}
+            {/* ── adaptive tab strip ──
+                Re-chromed onto the design-system Tabs primitive. The store still owns
+                which tab is active (deep links and cross-panel actions set it from
+                outside), and the contextual dot on FEM/Joints is now the primitive's
+                `contextual` flag rather than a hand-placed span. Gained for free:
+                roving-tabindex arrow-key navigation, which the hand-rolled strip
+                never had. */}
+            <div className="shrink-0 px-1.5">
+                <Tabs
+                    label="Scene panel section"
+                    value={tab}
+                    onChange={(id) => setMode(TAB_TO_MODE[id as SceneTab])}
+                    items={tabs.map((t) => ({id: t.id, label: t.label, contextual: t.ctx}))}
+                />
             </div>
 
             {/* ── scrollable tab body ── */}

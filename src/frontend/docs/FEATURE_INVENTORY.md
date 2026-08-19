@@ -54,11 +54,11 @@ rule in the plan.
 ### C1 Selection and navigation
 | ID | Feature | Owning component | Business logic (untouched) | Status |
 |---|---|---|---|---|
-| C1.1 | Click-to-select mesh (GPU pick) | `setupPointerHandler.ts` | `mesh_select/GpuMeshPicker.ts`, `CustomBatchedMesh.ts` | Pending |
+| C1.1 | Click-to-select mesh (GPU pick) | `setupPointerHandler.ts` | `mesh_select/GpuMeshPicker.ts`, `CustomBatchedMesh.ts` | Verified (M3, browser) |
 | C1.2 | Face-level picking | Scene ▸ Tools | `mesh_select/faceHighlight.ts`, `GpuMeshPicker` | Pending |
 | C1.3 | Point-cloud picking | option `useGpuPointPicking` | `mesh_select/GpuPointPicker.ts` | Pending |
-| C1.4 | Selection highlight | — | `utils/default_materials.ts` `selectedMaterial` | Pending |
-| C1.5 | Model hierarchy tree | `tree_view/ResizableTreeView.tsx` | `utils/tree_view/treeGraph.ts`, `react-arborist` | Pending |
+| C1.4 | Selection highlight | — | `utils/default_materials.ts` `selectedMaterial` | Verified (M1/M3, browser) |
+| C1.5 | Model hierarchy tree | `tree_view/TreeViewComponent.tsx` (dock) | `utils/tree_view/treeGraph.ts`, `react-arborist` | Verified (M2, browser) |
 | C1.6 | Tree keyboard nav (`Shift+↑↓←→`) | `setupCameraControlsHandlers.ts:126-140` | `utils/tree_view/treeNavigation.ts` | Pending |
 | C1.7 | Cross-model select | — | `utils/scene/crossModelSelect.ts` | Pending |
 | C1.8 | Copy selected names (`Shift+C`) | — | `utils/clipboard/copySelectionNames.ts` | Pending |
@@ -68,9 +68,9 @@ rule in the plan.
 | ID | Feature | Reached today | Business logic | Status |
 |---|---|---|---|---|
 | C2.1 | Hide selection (`Shift+H`) | shortcut + Object Info | `utils/scene/visibility.ts` | Pending |
-| C2.2 | Unhide all (`Shift+U`) | shortcut + Object Info | same | Pending |
+| C2.2 | Unhide all (`Shift+U`) | shortcut + Properties + rail | same | Verified (M3, browser) |
 | C2.3 | Centre on selection (`Shift+F`) | shortcut | `centerViewOnSelection.ts` | Pending |
-| C2.4 | Zoom to fit (`Shift+A`) | shortcut | `setupCameraControlsHandlers.ts` `zoomToAll` | Pending |
+| C2.4 | Zoom to fit (`Shift+A`) | shortcut + rail | `setupCameraControlsHandlers.ts` `zoomToAll` | Verified (M3, browser) |
 | C2.5 | Orbit / pan / zoom | canvas | OrbitControls or `camera-controls` | Pending |
 | C2.6 | Orientation gizmo (view cube) | canvas corner | `addOrientationGizmo` | Pending |
 | C2.7 | Adaptive near/far clipping | automatic | `applyAdaptiveClipping` | Pending |
@@ -86,7 +86,7 @@ rule in the plan.
 | C3.5 | Tools ▸ utilities | `UtilitiesSection.tsx` | Pending |
 | C3.6 | Tools ▸ face picking toggle | `FacePickingToggle.tsx` | Pending |
 | C3.7 | Tools ▸ face search | `FaceSearchSection.tsx` | Pending |
-| C3.8 | Clip ▸ section planes | `SectionPlanesPanel.tsx` + `SectionPlanesController.tsx` | Pending |
+| C3.8 | Clip ▸ section planes | `SectionPlanesPanel.tsx` + `SectionPlanesController.tsx` | Verified (M3, reachable from rail) |
 | C3.9 | Mesh ▸ distortion scan | `MeshDistortionSection.tsx`, `meshPanelStore` | Pending |
 | C3.10 | FEM ▸ concepts *(contextual)* | `FemConceptsPanel.tsx` | Pending |
 | C3.11 | Joints ▸ overview *(contextual)* | `JointsOverviewPanel.tsx` | Pending |
@@ -102,7 +102,7 @@ attach drag gizmo · cap colour · delete. `sectionStore`, `section_caps.ts`.
 | C5.2 | Stats detail + export menu | `statsStore.detailOpen/exportMenuOpen` | Pending |
 | C5.3 | Gallery walk (prev/next, `←`/`→`) | `GalleryControls.tsx`, `galleryWalk.ts` | Pending |
 | C5.4 | Type-icon overlay | `TypeIconController.tsx`, `typeIconClassify.ts` | Pending |
-| C5.5 | Object metadata | `ObjectMetadataPanel.tsx` | Pending |
+| C5.5 | Object metadata | `ObjectMetadataPanel.tsx` (provider `object-metadata`) | Verified (M3, browser) |
 | C5.6 | Coordinate display (+ decimals option) | `CoordinateDisplay.tsx` | Pending |
 | C5.7 | Connections section | `ConnectionsSection.tsx`, `connectionGraphStore` | Pending |
 | C5.8 | Mesh stats per selection | `MeshStatsSection.tsx`, `meshStats.ts` | Pending |
