@@ -1,0 +1,175 @@
+{
+  "version": 2,
+  "src": "dev-cantilever",
+  "mesh": {
+    "url": "fea.mesh.glb",
+    "n_points": 403,
+    "n_cells": 360,
+    "edges_url": "fea.mesh.edges.bin",
+    "n_edges": 762,
+    "elements_url": "fea.mesh.elements.bin",
+    "n_elements": 360
+  },
+  "fields": [
+    {
+      "name_canonical": "modes___DEPL",
+      "name_native": "modes___DEPL",
+      "kind": "vector6",
+      "category": "displacement",
+      "support": "nodal",
+      "analysis_kind": "eigen",
+      "components": [
+        "DX",
+        "DY",
+        "DZ",
+        "DRX",
+        "DRY",
+        "DRZ"
+      ],
+      "blob": {
+        "url": "fea.modes___DEPL.bin",
+        "header_bytes": 1024,
+        "stride_bytes": 9672,
+        "dtype": "float32",
+        "byte_order": "little"
+      },
+      "n_steps": 20,
+      "steps": [
+        {
+          "i": 0,
+          "value": 13.53625675820233,
+          "label": "13.5363"
+        },
+        {
+          "i": 1,
+          "value": 20.32094643858448,
+          "label": "20.3209"
+        },
+        {
+          "i": 2,
+          "value": 52.155714162868584,
+          "label": "52.1557"
+        },
+        {
+          "i": 3,
+          "value": 79.22321975547801,
+          "label": "79.2232"
+        },
+        {
+          "i": 4,
+          "value": 101.4339067075451,
+          "label": "101.434"
+        },
+        {
+          "i": 5,
+          "value": 125.5323276819513,
+          "label": "125.532"
+        },
+        {
+          "i": 6,
+          "value": 144.2574768968637,
+          "label": "144.257"
+        },
+        {
+          "i": 7,
+          "value": 168.5307481205199,
+          "label": "168.531"
+        },
+        {
+          "i": 8,
+          "value": 193.5923779761234,
+          "label": "193.592"
+        },
+        {
+          "i": 9,
+          "value": 232.1820842458711,
+          "label": "232.182"
+        },
+        {
+          "i": 10,
+          "value": 257.5581340177336,
+          "label": "257.558"
+        },
+        {
+          "i": 11,
+          "value": 263.3748622369572,
+          "label": "263.375"
+        },
+        {
+          "i": 12,
+          "value": 265.99576665752414,
+          "label": "265.996"
+        },
+        {
+          "i": 13,
+          "value": 271.1387980925368,
+          "label": "271.139"
+        },
+        {
+          "i": 14,
+          "value": 284.5199448529615,
+          "label": "284.52"
+        },
+        {
+          "i": 15,
+          "value": 291.1388801890042,
+          "label": "291.139"
+        },
+        {
+          "i": 16,
+          "value": 297.7228304953671,
+          "label": "297.723"
+        },
+        {
+          "i": 17,
+          "value": 328.1209120561497,
+          "label": "328.121"
+        },
+        {
+          "i": 18,
+          "value": 329.0910597692302,
+          "label": "329.091"
+        },
+        {
+          "i": 19,
+          "value": 361.3616729251978,
+          "label": "361.362"
+        }
+      ],
+      "scalar_range": {
+        "DX": [
+          -0.172545924782753,
+          0.172545924782753
+        ],
+        "DY": [
+          -0.4632779657840729,
+          1.0
+        ],
+        "DZ": [
+          -0.6590560078620911,
+          1.0
+        ],
+        "DRX": [
+          -1.0,
+          1.0
+        ],
+        "DRY": [
+          -0.5669718980789185,
+          1.0
+        ],
+        "DRZ": [
+          -0.9056965708732605,
+          1.0
+        ],
+        "magnitude": [
+          0.0,
+          1.0036506652832031
+        ]
+      },
+      "default_view": {
+        "reduction": "magnitude",
+        "colormap": "viridis"
+      }
+    }
+  ]
+}

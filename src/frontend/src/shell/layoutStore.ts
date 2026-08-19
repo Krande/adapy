@@ -80,9 +80,11 @@ function defaultLayout(mode: ModeId): ModeLayout {
         case "results":
             put("left", ["outliner"], true);
             put("right", ["simulation", "properties"]);
-            // The direct fix for "panels cover the 3D": the FEA table is wide and
-            // short, so it belongs across the bottom, not over the model.
-            put("bottom", [], true);
+            // The direct fix for "panels cover the 3D". Present but COLLAPSED: the table
+            // is the thing you open when you want numbers, and defaulting it open would
+            // spend 220px of viewport on an empty grid for every user who only wants to
+            // look at a mode shape.
+            put("bottom", ["fea-table"], true);
             break;
         case "build":
             put("left", ["outliner"], true);
@@ -206,8 +208,26 @@ export const useLayoutStore = create<LayoutState>()(
             togglePanel: (mode, panel, dock) =>
                 set((s) => {
                     const l = s.perMode[mode] ?? defaultLayout(mode);
+
+                    // A panel sitting in a COLLAPSED dock is not visible, so "toggle"
+                    // must mean reveal it — not remove it. Treating collapsed as open
+                    // made the rail button look broken: the first click silently dropped
+                    // a panel the user could not see, and only the second showed it.
+                    const collapsedHost = (Object.keys(l.docks) as DockedId[]).find(
+                        (d) => l.docks[d].collapsed && l.docks[d].tabs.includes(panel),
+                    );
+                    if (collapsedHost) {
+                        return editMode(s, mode, (x) => ({
+                            ...x,
+                            docks: {
+                                ...x.docks,
+                                [collapsedHost]: {...x.docks[collapsedHost], collapsed: false, active: panel},
+                            },
+                        }));
+                    }
+
                     const open =
-                        Object.values(l.docks).some((d) => d.tabs.includes(panel)) ||
+                        Object.values(l.docks).some((d) => !d.collapsed && d.tabs.includes(panel)) ||
                         panel in l.floats ||
                         l.overlays[panel] === true;
                     if (open) return editMode(s, mode, (x) => removeEverywhere(x, panel));

@@ -46,7 +46,7 @@ rule in the plan.
 | B8 | Toggle animation controls | `animationStore.isControlsVisible` | Results mode, right dock | Pending |
 | B9 | Toggle connection-component panel | `componentControlsStore.isVisible` | Build mode, right dock | Pending |
 | B10 | Toggle procedural cellbuilder panel | `cellBuilderStore.panelVisible` | Build mode, right dock | Pending |
-| B11 | Plugin top-bar buttons | `pluginUiStore` visible-map | preserved via `PluginRegion` compat map | Pending |
+| B11 | Plugin top-bar buttons | `pluginUiStore` visible-map | hosted by shell TitleBar + compat map | Verified (M4, test) |
 | B12 | Websocket status | `websocketStatusStore.showInfoBox` | **Status bar** | Pending |
 
 ## C. Inspect mode
@@ -111,9 +111,9 @@ attach drag gizmo · cap colour · delete. `sectionStore`, `section_caps.ts`.
 
 | ID | Feature | Owning component | Business logic (untouched) | Status |
 |---|---|---|---|---|
-| D1 | Streaming FEA load | — | `load_fea_streaming.ts`, `services/fea/feaFetcher.ts` | Pending |
-| D2 | Per-step HTTP Range fetch | — | `FeaRangeFetcher` | Pending |
-| D3 | Nodal field → colours + morph | — | `scene/fea/applyField.ts` | Pending |
+| D1 | Streaming FEA load | — | `load_fea_streaming.ts`, `services/fea/feaFetcher.ts` | Verified (M4, browser) |
+| D2 | Per-step HTTP Range fetch | — | `FeaRangeFetcher` | Verified (M4, 206 confirmed) |
+| D3 | Nodal field → colours + morph | — | `scene/fea/applyField.ts` | Verified (M4, browser) |
 | D4 | Element field | — | `scene/fea/applyElemField.ts` | Pending |
 | D5 | Colormaps (viridis/abaqus/jet/coolwarm/grayscale) | field picker | `scene/fea/colormaps.ts` | Pending |
 | D6 | Deformation scale | `SimulationControls.tsx` | — | Pending |
@@ -121,8 +121,8 @@ attach drag gizmo · cap colour · delete. `sectionStore`, `section_caps.ts`.
 | D8 | Play / pause / stop | `SimulationControls.tsx` | `feaAnimationDriver.ts` | Pending |
 | D9 | GLTF animation clips (legacy) | `animationStore` | `AnimationController.ts` | Pending |
 | D10 | Morph propagation to edges/points | — | `assignMorphToEdgeAlso.ts`, `assignMorphToPointsAlso.ts` | Pending |
-| D11 | Colour legend | `ColorLegend.tsx`, `colorLegendStore` | — | Pending |
-| D12 | FEA data table | `SimulationDataInfoPanel.tsx`, `tableNavStore` | — | **bottom dock** | Pending |
+| D11 | Colour legend | `ColorLegend.tsx` (OverlayLayer) | — | Verified (M4, browser) |
+| D12 | FEA data table | `SimulationDataInfoPanel.tsx`, `tableNavStore` | — | **bottom dock** | Verified (M4, browser) |
 | D13 | Table row → 3D marker + camera | — | `scene/fea/goToNode.ts` | Pending |
 | D14 | Beam-solids warp | — | `services/feaBeamSolidsWarp.ts` | Pending |
 | D15 | FEM concepts glyphs (masses / BCs) | `FemConceptsController.tsx`, `femConceptsStore` | — | Pending |

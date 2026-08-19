@@ -159,3 +159,30 @@ test("loading an unknown workspace is a no-op, not a wipe", () => {
     s.loadWorkspace("does-not-exist");
     assert.equal(layout("inspect").docks.left.size, 400);
 });
+
+test("toggling a panel in a COLLAPSED dock reveals it instead of removing it", () => {
+    // Regression. Results mode ships fea-table in a collapsed bottom dock, so the panel
+    // is present but invisible. Counting that as "open" made the rail button look
+    // broken: the first click silently dropped a panel the user could not see, and only
+    // a second click brought it back.
+    const s = useLayoutStore.getState();
+    s.openPanel("results", "fea-table", "bottom");
+    s.toggleDock("results", "bottom", true);
+    assert.equal(layout("results").docks.bottom.collapsed, true);
+
+    s.togglePanel("results", "fea-table", "bottom");
+
+    const d = layout("results").docks.bottom;
+    assert.equal(d.collapsed, false, "the dock must expand");
+    assert.ok(d.tabs.includes("fea-table"), "the panel must still be there");
+    assert.equal(d.active, "fea-table");
+});
+
+test("toggling a VISIBLE panel still closes it", () => {
+    const s = useLayoutStore.getState();
+    s.openPanel("results", "fea-table", "bottom");
+    assert.equal(layout("results").docks.bottom.collapsed, false);
+
+    s.togglePanel("results", "fea-table", "bottom");
+    assert.ok(!layout("results").docks.bottom.tabs.includes("fea-table"));
+});

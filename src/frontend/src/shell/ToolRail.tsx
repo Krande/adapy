@@ -4,6 +4,7 @@ import {useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
 import {panelsForMode} from "./panelRegistry";
 import {fitAll, focusSelection, hideSelection, unhideAll} from "./inspectActions";
+import {openFemConcepts, toggleDataTable, toggleLegend} from "./resultsActions";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import {Z} from "./zIndex";
 
@@ -59,9 +60,13 @@ const MODE_TOOLS: Record<ModeId, RailTool[]> = {
         {id: "measure", icon: "measure", label: "Measure", pending: true},
     ],
     results: [
-        {id: "field", icon: "mode-results", label: "Result field", pending: true},
-        {id: "play", icon: "play", label: "Play / pause", pending: true},
-        {id: "legend", icon: "filter", label: "Colour legend", pending: true},
+        {id: "legend", icon: "filter", label: "Colour legend", run: toggleLegend},
+        {id: "table", icon: "fem-data", label: "Result data table", run: toggleDataTable},
+        {id: "fem", icon: "group", label: "FEM concepts (masses, BCs)", run: openFemConcepts},
+        // Playback lives on the Simulation panel's transport, where the step and mode
+        // sliders it belongs with already are. A duplicate play button in the rail would
+        // be a second control for one piece of state — the thing this rebuild is
+        // removing, not adding.
     ],
     build: [
         {id: "add-cell", icon: "plus", label: "Add cell", pending: true},

@@ -4,7 +4,19 @@ import {MODES, useModeStore, type ModeId} from "./modeStore";
 import {useLayoutStore} from "./layoutStore";
 import {panelsForMode} from "./panelRegistry";
 import {useShellPrefs} from "./shellPrefs";
+import {PluginPanelRegion, PluginTopBarButtons} from "@/plugins";
 import {Z} from "./zIndex";
+
+/** Chrome for a plugin's top-bar button, in the shell's idiom rather than the classic
+ *  Menu.tsx's. Plugins supply an icon and a label; the shape is core's to decide. */
+const pluginNavBtnClass = (active: boolean) =>
+    cn(
+        "ada-focus inline-flex items-center justify-center w-control-md h-control-md rounded-sm",
+        "transition-colors duration-(--ada-dur-fast)",
+        active
+            ? "bg-accent-subtle text-accent"
+            : "text-content-muted pointer-fine:hover:text-content pointer-fine:hover:bg-surface-2",
+    );
 
 // Top bar: identity, the mode switcher, the mode's panel menu, global actions.
 //
@@ -75,6 +87,16 @@ export default function TitleBar({showModeSwitcher}: TitleBarProps) {
             <PanelMenu mode={mode} />
 
             <span className="flex-1 min-w-0" />
+
+            {/* Plugin contributions.
+                These are hosted ONLY in the classic Menu.tsx, which the shell never
+                renders — so without this a plugin's top-bar button silently disappeared
+                the moment the shell was enabled. That is inventory row B11, and exactly
+                the kind of quiet loss the parity checklist exists to catch.
+                `fem-sidebar` needs no equivalent: SimulationControls hosts it and the
+                shell mounts that in the Results dock. */}
+            <PluginTopBarButtons navBtnClass={pluginNavBtnClass} />
+            <PluginPanelRegion region="top-panel" />
 
             <Badge tone="accent">new shell</Badge>
             {/* Always offer the way back while the two UIs coexist. The classic pages

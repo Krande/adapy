@@ -359,6 +359,83 @@ not pass.
   no cellbuilder model, so "click a cell while in Results mode" needs a procedural model
   to confirm in the browser.
 
+---
+
+# M4 — Results mode
+
+Review it at **`npm run dev:rest`** → `http://localhost:5173/?shell=1&fea=1`, then pick
+**Results**. Needs `dev:rest`, not `dev` — the FEA loader is REST-gated.
+
+## A real FEA fixture, and an offline REST slice to serve it
+
+`scripts/make-fea-fixture.py` bakes the repo's own code_aster **eigen shell cantilever**
+into `public/dev/fea/` — 403 points, 360 cells, **20 modes**, 6 components, 218 kB.
+Eigen rather than static on purpose: several modes are what make the step scrubber worth
+looking at, where a static result gives one step and proves nothing.
+
+Serving it needed a decision. `load_fea_streaming` is REST-gated and builds its own
+fetcher, so the options were to relax that gate (a fenced business-logic file) or to
+stand up the URLs it already expects. The dev-rest vite plugin now serves a small slice
+of the REST API — `/me`, the file list, and blob reads **with real 206 range responses**
+— at exactly the paths `makeViewerApiFetcher` constructs. The review therefore exercises
+the production path, per-step range requests included, rather than a shortcut around it.
+
+The fixture loader waits for `sceneRef` before dispatching. It fires at module-eval,
+before `ThreeCanvas` mounts, and without the wait it threw `scene not ready` and silently
+never appeared — the same polling shape `useUrlParamLoad` uses, for the same reason.
+
+## The bottom dock earns its keep
+
+`fea-table` (the result data table) is registered as a **bottom-dock** panel. This is the
+concrete answer to "panels cover the 3D": the table is wide and short — dozens of columns,
+a handful of rows in view — so floated over the model it hides exactly the geometry you
+are reading it against. Across the bottom it costs height the 3D does not need, and the
+canvas reflows above it.
+
+It ships **collapsed**: defaulting it open would spend 220 px of viewport on an empty grid
+for every user who only wants to look at a mode shape. The rail button opens it.
+
+`OverlayLayer` now carries canvas-anchored HUDs (the colour legend) *inside the viewport
+track*, so a legend cannot drift over a dock when the layout changes — the failure mode of
+the old `absolute right-5 top-80`, which was measured against the window.
+
+## Two real bugs found
+
+**Toggling a panel in a collapsed dock removed it instead of revealing it.** Results ships
+`fea-table` present-but-collapsed, so `togglePanel` counted it as open: the first rail
+click silently dropped a panel the user could not see, and only a second brought it back.
+Fixed and covered by two regression tests.
+
+**The shell dropped plugin `top-panel` contributions entirely.** Those slots are hosted
+only in the classic `Menu.tsx`, which the shell never renders — so enabling the shell made
+a plugin's top-bar button vanish. That is inventory row B11, and precisely the quiet loss
+the parity checklist exists to catch. `TitleBar` now hosts them, with a test asserting
+each live region has a host in `src/shell`. (`fem-sidebar` was fine: its host is
+`SimulationControls`, which the shell mounts as the Results panel.)
+
+## Numbers
+
+| | M3 | M4 |
+|---|---|---|
+| Tests | 312 | **315** (0 skipped) |
+| `dist/index.html` | 2,897,873 B | 2,899,394 B (**+2.59 %** vs M0, budget +8 %) |
+
+## Deliberately deferred, with reasons
+
+**`SimWindowFrame` is NOT deleted.** The plan had it promoted to `PanelFrame` here, but
+that reasoning does not survive contact: in the shell the *dock* provides the frame, so
+`SimulationControls` needs no frame of its own; in the classic UI it still does. Deleting
+it belongs at M8 cutover, when the classic UI goes, not now — promoting it early would
+mean maintaining two framing paths for no user-visible gain.
+
+**`?simfollow=` still uses its own route** rather than `profile="window"`. The pop-out
+follower works today; re-routing it is churn that buys nothing until the classic UI is
+removed, and it carries real risk around the `ada-sim` BroadcastChannel sync.
+
+**Playback has no rail button.** It lives on the Simulation transport, beside the step and
+mode sliders it belongs with. A duplicate play control would be a second control for one
+piece of state — the thing this rebuild removes, not adds.
+
 ### The embed defect from M0 — fixed, and it was not what it looked like
 
 M0 recorded that host-page CSS cascades *into* the embed and guessed that converting

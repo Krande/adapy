@@ -21,6 +21,8 @@ import React, {Suspense} from "react";
 // fires, and three.js resizes itself. No renderer changes were needed — the observer
 // was already there, waiting for a container that actually changed size.
 
+import OverlayLayer from "./OverlayLayer";
+
 const CanvasWrapper = React.lazy(() => import("@/components/viewer/CanvasWrapper"));
 
 export interface ViewportHostProps {
@@ -53,6 +55,9 @@ export default function ViewportHost({visible = true, children}: ViewportHostPro
                     <CanvasWrapper />
                 </Suspense>
             )}
+            {/* Canvas-anchored HUDs, inside the viewport track so they cannot drift over
+                a dock when the layout changes. */}
+            <OverlayLayer />
         </div>
     );
 }

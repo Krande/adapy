@@ -10,6 +10,8 @@ import {
     // widening its public surface.
     _versionSatisfies as versionSatisfies,
 } from "../../plugins/registry";
+import fs from "node:fs";
+import path from "node:path";
 import {DOCK_IDS} from "../../shell/regions";
 import {MODE_IDS} from "../../shell/modeStore";
 
@@ -76,4 +78,25 @@ test("API 1.1.0 still satisfies the range Phase-1 plugins declare", () => {
     assert.equal(versionSatisfies(PLUGIN_API_VERSION, ">=1.1"), true);
     // And a plugin requiring a future API is still correctly rejected.
     assert.equal(versionSatisfies(PLUGIN_API_VERSION, ">=2.0"), false);
+});
+
+test("the shell hosts every plugin region that the classic UI hosted", () => {
+    // Regression. Plugin `top-panel` contributions were hosted ONLY in Menu.tsx, which
+    // the shell never renders — so enabling the shell silently dropped a plugin's
+    // top-bar button (inventory row B11). This asserts each live region has a host
+    // inside src/shell, so a future region cannot be added to the union without one.
+    const shellDir = path.resolve(import.meta.dirname, "../../shell");
+    const sources = fs
+        .readdirSync(shellDir)
+        .filter((f) => /\.tsx$/.test(f))
+        .map((f) => fs.readFileSync(path.join(shellDir, f), "utf8"))
+        .join("\n");
+
+    assert.match(sources, /PluginTopBarButtons/, "no host for plugin top-bar buttons");
+    assert.match(sources, /region="top-panel"/, "no host for the top-panel region");
+
+    // fem-sidebar is hosted by SimulationControls, which the shell mounts as the
+    // Results-mode Simulation panel — so it needs no host of its own here.
+    const registry = fs.readFileSync(path.resolve(import.meta.dirname, "../../shell/panelRegistry.ts"), "utf8");
+    assert.match(registry, /simulation\/SimulationControls/, "fem-sidebar's host is not mounted by the shell");
 });

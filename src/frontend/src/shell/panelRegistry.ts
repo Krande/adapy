@@ -51,6 +51,7 @@ export const PANEL_IDS = [
     "properties",
     "scene",
     "simulation",
+    "fea-table",
     "storage",
     "preferences",
 ] as const;
@@ -109,6 +110,19 @@ export const PANELS: Record<PanelId, PanelDef> = {
         defaultOpen: true,
         hint: "Result fields, deformation and playback",
         component: lazy(() => import("@/components/simulation/SimulationControls")),
+    },
+    "fea-table": {
+        id: "fea-table",
+        title: "Data",
+        icon: "fem-data",
+        modes: ["results"],
+        // THE BOTTOM DOCK, and this is the point of having one. The result table is
+        // wide and short — dozens of columns, a handful of rows in view. Floated over
+        // the model (where it lives today) it covers exactly the geometry you are
+        // reading it against; across the bottom it costs height the 3D does not need.
+        defaultDock: "bottom",
+        hint: "Result values per node and element",
+        component: lazy(() => import("@/components/simulation/SimulationDataInfoPanel")),
     },
     storage: {
         id: "storage",
