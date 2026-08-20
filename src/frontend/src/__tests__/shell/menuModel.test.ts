@@ -39,7 +39,7 @@ describe("menu structure", () => {
         // Catches a typo like `panels:storage` or `actions:undo`, which would otherwise
         // just silently vanish from the menu.
         for (const id of menuCommandIds()) {
-            assert.match(id, /^(action|panel|mode|layout|help):/, `${id} has no known prefix`);
+            assert.match(id, /^(action|panel|mode|layout|help|app):/, `${id} has no known prefix`);
         }
     });
 });

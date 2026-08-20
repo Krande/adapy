@@ -12,6 +12,7 @@ import {useCellBuilderStore} from "@/state/cellBuilderStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {runtime} from "@/runtime/config";
 import {showAbout, showShortcuts} from "./HelpDialogs";
+import {openSettings} from "@/components/options/SettingsDialog";
 import type {IconName} from "@/components/icons";
 import type {Command} from "./commandFilter";
 
@@ -184,6 +185,18 @@ export function buildCommands(scope: "palette" | "menu" = "palette"): Command[] 
         icon: "settings",
         keywords: "default arrangement docks",
         run: () => layout.resetAll(),
+    });
+
+    // Settings. A dialog, not a panel — so it is named for what it IS rather than
+    // generated as "Show preferences", which is what the panel command produced.
+    commands.push({
+        id: "app:settings",
+        title: "Settings…",
+        context: "Application",
+        icon: "settings",
+        keys: keysFor("toggle-options"),
+        keywords: "preferences options theme performance appearance",
+        run: openSettings,
     });
 
     // Help. Present in both scopes: the palette is where people look for "shortcuts"

@@ -55,7 +55,7 @@ export const MENUS: MenuDef[] = [
             cmd("panel:storage"),
             sep,
             // Settings under File follows the Windows/Linux convention (and PyCharm's).
-            cmd("panel:preferences"),
+            cmd("app:settings"),
         ],
     },
     {

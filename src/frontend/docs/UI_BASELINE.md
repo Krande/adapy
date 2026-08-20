@@ -1814,3 +1814,46 @@ actions for a model that was not even visible. The overlay is tagged
 and the shortcut registry got "Show all"; the marking menu kept the old label, because it
 builds its items from its own list. Worth noting as a smell — the label is data in four
 registries rather than one — though consolidating them is its own change.
+
+---
+
+## Preferences becomes Settings — a dialog, not a panel
+
+It read **"Show preferences"** in the File menu, and that label was a symptom rather than
+a typo. Panel commands are generated as `${isOpen ? "Hide" : "Show"} ${title}`, which is
+right for something you park beside the model and meaningless for a destination you open,
+use and close. Being a panel also meant it inherited the panel theme — so on the default
+glass preset the settings were **translucent over the 3D view** — and that it competed for
+dock space with panels you actually want open while working.
+
+It is a dialog now, shaped after PyCharm's Settings: search top-left, categories down the
+left, the selected page on the right. That layout scales; a single scrolling column of
+disclosures does not, and this already has five groups.
+
+`Scene · Theme · Performance · Conversion engine · Account & scope`, with the build
+identity in the footer. `Shift+Q` opens it. `File ▸ Settings…` — with the ellipsis, which
+is the convention for "this opens a window".
+
+**Search is category-level, and that is a deliberate subset.** PyCharm searches actual
+setting labels because every setting there is declared data; ours are JSX, so a true index
+would mean restructuring every option first. Category keywords name the settings people
+would actually type ("antialias", "point size", "dpr"), which gets you to the right page —
+most of the value — and `matchCategories` requires *every* word to match, so a two-word
+query narrows rather than widens. The weakness is that the keyword lists are
+hand-maintained and will drift; the fix is expressing options as data, which is its own
+change.
+
+The `preferences` panel is gone from the registry, and `panelRegistry.test` records why so
+the next person does not "restore" it.
+
+## Compile in the dev fixture
+
+`Compile` reported `previewProceduralModel(...) failed: 404 Not Found`, which reads as a
+broken feature. It is not: compiling runs a worker and produces a GLB, and there is
+nothing honest a static fixture can return.
+
+It now answers **501 with the reason in the status text** — "compiling needs a worker -
+the dev REST stub has none". The status line is the only channel available: `ApiError`'s
+message is built from `${what} failed: ${status} ${statusText}` and drops the JSON detail
+entirely, so a body would never have reached the user. Worth remembering when adding
+fixture routes: the reason has to go in the status line, not the body.

@@ -98,12 +98,12 @@ test("floating a docked panel removes it from its dock", () => {
 
 test("docking a floating panel removes it from the float layer", () => {
     const s = useLayoutStore.getState();
-    s.floatPanel("inspect", "preferences", {x: 10, y: 10, w: 300, h: 300});
-    s.dockPanel("inspect", "preferences", "right");
+    s.floatPanel("inspect", "properties", {x: 10, y: 10, w: 300, h: 300});
+    s.dockPanel("inspect", "properties", "right");
 
     const l = layout("inspect");
-    assert.ok(!("preferences" in l.floats));
-    assert.ok(l.docks.right.tabs.includes("preferences"));
+    assert.ok(!("properties" in l.floats));
+    assert.ok(l.docks.right.tabs.includes("properties"));
 });
 
 test("layouts are per mode — editing one leaves the others alone", () => {

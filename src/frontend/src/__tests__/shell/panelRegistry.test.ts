@@ -21,7 +21,11 @@ import {DOCK_IDS} from "../../shell/regions";
 // EXPECTED_PANELS is written out rather than derived from PANEL_IDS on purpose: deriving
 // it would make the test pass no matter what the registry contained.
 
-const EXPECTED_PANELS = ["outliner", "properties", "scene", "simulation", "fea-table", "cellbuilder", "node-editor", "storage", "convert", "admin", "preferences"];
+// "preferences" is deliberately absent: settings became a DIALOG, not a dock panel.
+// It read "Show preferences" in the menu because panel commands are generated with a
+// Show/Hide prefix, it inherited the panel theme's translucency, and it competed for
+// dock space with panels you want open while working. See SettingsDialog.
+const EXPECTED_PANELS = ["outliner", "properties", "scene", "simulation", "fea-table", "cellbuilder", "node-editor", "storage", "convert", "admin"];
 
 test("every expected panel is registered", () => {
     for (const id of EXPECTED_PANELS) {

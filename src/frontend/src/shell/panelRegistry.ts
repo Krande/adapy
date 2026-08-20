@@ -58,7 +58,6 @@ export const PANEL_IDS = [
     "storage",
     "convert",
     "admin",
-    "preferences",
 ] as const;
 
 export type PanelId = (typeof PANEL_IDS)[number];
@@ -197,19 +196,6 @@ export const PANELS: Record<PanelId, PanelDef> = {
         available: () => runtime.isRestMode() && useMeStore.getState().isAdmin,
         hint: "Audit runs, workers, projects, corpora and system settings",
         component: lazy(() => import("@/components/admin/AdminPanel")),
-    },
-    preferences: {
-        id: "preferences",
-        title: "Preferences",
-        icon: "settings",
-        modes: "all",
-        // Floating rather than docked: it is a settings surface you open, adjust and
-        // dismiss, not something you work alongside. Docking it would permanently
-        // spend viewport width on it.
-        defaultDock: "float",
-        shortcut: "Shift+Q",
-        hint: "Display, theme, performance and conversion options",
-        component: lazy(() => import("@/components/options/OptionsBody")),
     },
 };
 

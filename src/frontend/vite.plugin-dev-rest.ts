@@ -351,6 +351,27 @@ export function adapyDevRestConfig() {
                     if (model) return sendJson(res, model);
                 }
 
+                // Compile / preview. Deliberately NOT faked.
+                //
+                // Compiling runs a worker and produces a GLB; there is nothing honest a
+                // static fixture can return. So it answers 501 with the reason in the
+                // STATUS TEXT rather than a body: ApiError's message is built from
+                // "${what} failed: ${status} ${statusText}" and drops the JSON detail,
+                // so the status line is the only channel that reaches the user.
+                //
+                // Without this the UI showed "404 Not Found", which reads as a broken
+                // feature. It is not broken — there is simply no worker here.
+                const procCompile =
+                    /^\/scopes\/[^/]+\/procedural-models\/[^/]+\/(compile|compile-preview)$/.exec(route);
+                if (procCompile) {
+                    res.statusCode = 501;
+                    res.statusMessage = "compiling needs a worker - the dev REST stub has none";
+                    res.setHeader("Content-Type", "application/json");
+                    return res.end(JSON.stringify({
+                        detail: "The dev fixture cannot compile. Run a real backend (pixi run -e viewer-api viewer-api) with a procedural worker.",
+                    }));
+                }
+
                 // Blob reads. The FEA fetcher builds
                 //   {apiBase}/scopes/{scope}/blobs/{encoded _derived/<src>.fea/<file>}
                 const blob = /^\/scopes\/[^/]+\/blobs\/(.+)$/.exec(route);

@@ -13,6 +13,7 @@ import MarkingMenu from "./MarkingMenu";
 import ToastHost from "./ToastHost";
 import {ConfirmHost} from "@/components/ui";
 import HelpDialogs from "./HelpDialogs";
+const SettingsDialog = React.lazy(() => import("@/components/options/SettingsDialog"));
 import {useUrlParamLoad} from "@/hooks/useUrlParamLoad";
 import {runtime} from "@/runtime/config";
 
@@ -225,6 +226,13 @@ export default function AppShell({profile = "viewer", viewportOverride, pageTitl
             {/* Help ▸ Keyboard shortcuts / About. Rendered from shortcuts.ts rather
                 than a hand-kept list, so a bound key is a documented key. */}
             <HelpDialogs />
+
+            {/* Settings. A dialog rather than a dock panel: a destination you open, use
+                and close, which also means it gets an opaque surface instead of the
+                panel theme's glass. */}
+            <Suspense fallback={null}>
+                <SettingsDialog />
+            </Suspense>
 
             {/* Ctrl+K. Outside the grid — a modal overlay, not a region.
                 Menus and palette travel together: both index commands that act on a
