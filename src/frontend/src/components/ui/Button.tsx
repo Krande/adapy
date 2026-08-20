@@ -162,12 +162,21 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(f
     // icon was therefore unexplained, which defeats the entire point of greying with a
     // reason: the reason existed and was unreachable.
     //
+    // Disabled controls use the DEFAULT cursor, not `not-allowed`.
+    //
+    // The 🚫 cursor says "this action is forbidden". Almost nothing here is forbidden — the
+    // controls are temporarily inapplicable, which is a much milder claim: nothing is
+    // selected yet, no result set is loaded. Dimming plus a tooltip that says which already
+    // carries the message; a barred cursor on top of that is a scolding.
+    //
+    // Reserved for the genuine case: an action the user is not permitted to perform.
+    //
     // The fix is a wrapper that is not disabled and so still gets hover. `inline-flex`
     // keeps it out of the layout's way (toolbars are flex rows and a plain span would
     // stretch), and the wrapper is aria-hidden-free but carries no role, so assistive
     // tech still reads the button's own disabled state rather than a phantom control.
     return (
-        <span title={tooltip} className="inline-flex cursor-not-allowed">
+        <span title={tooltip} className="inline-flex cursor-default">
             {button}
         </span>
     );

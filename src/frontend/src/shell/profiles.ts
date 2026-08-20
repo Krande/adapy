@@ -37,11 +37,21 @@ export interface ShellProfile {
      * would not merely no-op.
      */
     menus: boolean;
+    /**
+     * Offer "Back to the viewer" in the reduced title bar.
+     *
+     * True for the pages, which are destinations you navigated TO and need a way out of.
+     * False for a follower window, which is a pop-out belonging to another tab: sending
+     * it to "/" would not return anywhere, it would quietly turn the follower into a
+     * second full viewer — a second websocket and a second 3D scene, both driving the
+     * same session.
+     */
+    backToViewer: boolean;
 }
 
 export const SHELL_PROFILES: Record<ProfileId, ShellProfile> = {
     // The full application.
-    viewer: {id: "viewer", canvas: true, modeSwitcher: true, toolRail: true, docks: true, statusBar: true, menus: true},
+    viewer: {id: "viewer", canvas: true, modeSwitcher: true, toolRail: true, docks: true, statusBar: true, menus: true, backToViewer: false},
     // A canvas-less full-window workspace: /convert, /admin. Keeps a reduced title bar,
     // which is the entire point — these routes were a dead end with no way back.
     //
@@ -49,14 +59,16 @@ export const SHELL_PROFILES: Record<ProfileId, ShellProfile> = {
     // mode has open, which on these routes would be viewer panels (Outliner, Properties)
     // reaching for a scene that was deliberately never mounted. The page fills the
     // viewport track via viewportOverride instead.
-    page: {id: "page", canvas: false, modeSwitcher: false, toolRail: false, docks: false, statusBar: true, menus: false},
-    // A popped-out single panel (?simfollow=). Title bar + one dock, nothing else.
-    window: {id: "window", canvas: false, modeSwitcher: false, toolRail: false, docks: true, statusBar: false, menus: false},
+    page: {id: "page", canvas: false, modeSwitcher: false, toolRail: false, docks: false, statusBar: true, menus: false, backToViewer: true},
+    // A popped-out single panel (?simfollow=). A thin title bar naming what it follows,
+    // and nothing else — docks off for the same reason as `page`: the persisted layout
+    // would open viewer panels reaching for a scene this window never mounts.
+    window: {id: "window", canvas: false, modeSwitcher: false, toolRail: false, docks: false, statusBar: false, menus: false, backToViewer: false},
     // NODE_EDITOR_ONLY: the viewport region hosts ReactFlow instead of three.js.
-    graph: {id: "graph", canvas: false, modeSwitcher: false, toolRail: true, docks: true, statusBar: true, menus: true},
+    graph: {id: "graph", canvas: false, modeSwitcher: false, toolRail: true, docks: true, statusBar: true, menus: true, backToViewer: false},
     // Jupyter / paradoc. Canvas plus optional panels, no chrome of our own — the host
     // page owns the surrounding layout.
-    embed: {id: "embed", canvas: true, modeSwitcher: false, toolRail: false, docks: false, statusBar: false, menus: false},
+    embed: {id: "embed", canvas: true, modeSwitcher: false, toolRail: false, docks: false, statusBar: false, menus: false, backToViewer: false},
 };
 
 export const profileDef = (id: ProfileId): ShellProfile => SHELL_PROFILES[id] ?? SHELL_PROFILES.viewer;

@@ -51,7 +51,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(functi
                 "indeterminate:after:h-0 indeterminate:after:mx-auto indeterminate:after:mt-[6px]",
                 "indeterminate:after:border-t-2 indeterminate:after:border-accent-fg",
                 "transition-colors duration-(--ada-dur-fast)",
-                "disabled:opacity-50 disabled:cursor-not-allowed",
+                "disabled:opacity-50 disabled:cursor-default",
                 className,
             )}
             {...rest}
@@ -64,7 +64,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(functi
         <label
             className={cn(
                 "flex items-start gap-2 text-sm text-content select-none",
-                disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
+                disabled ? "opacity-50 cursor-default" : "cursor-pointer",
             )}
         >
             {control}
@@ -96,7 +96,7 @@ export const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(function S
                     "ada-focus peer appearance-none w-8 h-[18px] rounded-pill cursor-pointer",
                     "bg-surface-3 border border-edge checked:bg-accent checked:border-accent",
                     "transition-colors duration-(--ada-dur-base)",
-                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                    "disabled:opacity-50 disabled:cursor-default",
                     className,
                 )}
                 {...rest}
@@ -119,7 +119,7 @@ export const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(function S
         <label
             className={cn(
                 "flex items-center justify-between gap-3 text-sm text-content select-none",
-                disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
+                disabled ? "opacity-50 cursor-default" : "cursor-pointer",
             )}
         >
             <span className="flex flex-col gap-0.5 leading-tight">

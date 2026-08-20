@@ -64,7 +64,7 @@ function MenuItems({items, onRun, depth = 0}: {items: ResolvedItem[]; onRun: () 
                             ITEM,
                             depth > 0 && "pl-6",
                             disabled
-                                ? "cursor-not-allowed text-content-subtle"
+                                ? "cursor-default text-content-subtle"
                                 : "text-content pointer-fine:hover:bg-surface-2",
                         )}
                     >

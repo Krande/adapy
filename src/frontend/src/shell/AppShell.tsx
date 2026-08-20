@@ -108,7 +108,12 @@ export default function AppShell({profile = "viewer", viewportOverride, pageTitl
                 ].join(" "),
             }}
         >
-            <TitleBar showModeSwitcher={p.modeSwitcher} showMenus={p.menus} pageTitle={pageTitle} />
+            <TitleBar
+                showModeSwitcher={p.modeSwitcher}
+                showMenus={p.menus}
+                pageTitle={pageTitle}
+                backToViewer={p.backToViewer}
+            />
 
             {p.toolRail && <ToolRail />}
 

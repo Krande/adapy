@@ -169,7 +169,7 @@ export default function MarkingMenu() {
                                     // cannot learn the position of something you cannot
                                     // see — so a disabled entry stays legible and says
                                     // why it is off, rather than fading to nothing.
-                                    ? "bg-surface-2/80 text-content-muted border-edge/60 cursor-not-allowed"
+                                    ? "bg-surface-2/80 text-content-muted border-edge/60 cursor-default"
                                     : active
                                       ? "bg-accent text-accent-fg border-accent scale-105"
                                       : "bg-surface-1 text-content border-edge pointer-fine:hover:bg-surface-3",

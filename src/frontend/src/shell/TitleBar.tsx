@@ -37,9 +37,11 @@ export interface TitleBarProps {
     showMenus?: boolean;
     /** Names the page in the reduced bar, e.g. "Convert files". */
     pageTitle?: string;
+    /** Offer the way back. Off for pop-out windows — see profiles.ts. */
+    backToViewer?: boolean;
 }
 
-export default function TitleBar({showModeSwitcher, showMenus = true, pageTitle}: TitleBarProps) {
+export default function TitleBar({showModeSwitcher, showMenus = true, pageTitle, backToViewer = false}: TitleBarProps) {
     // A page (/convert, /admin) gets a deliberately thin bar: who we are, what this page
     // is, and the way back.
     //
@@ -65,6 +67,7 @@ export default function TitleBar({showModeSwitcher, showMenus = true, pageTitle}
 
                 <ScopePicker />
 
+                {backToViewer && (
                 <Button
                     size="sm"
                     variant="secondary"
@@ -78,6 +81,7 @@ export default function TitleBar({showModeSwitcher, showMenus = true, pageTitle}
                 >
                     Back to the viewer
                 </Button>
+                )}
             </header>
         );
     }

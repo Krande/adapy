@@ -1555,3 +1555,39 @@ The test each entry now has to pass: *would this still make sense in a mode that
 model / no results / no procedural document?* If yes, it is a rail or a menu item. The
 remaining strips survive it — Move needs a builder selection, Play needs a result set,
 Upload needs a scope.
+
+---
+
+## ?simfollow= becomes a shell window
+
+The last standalone route. It renders `AppShell` on the `window` profile with
+`SimFollowerPage` filling the viewport track — canvas-less like the pages, outside the
+provider, no 3D and no websocket.
+
+**It deliberately has no "Back to the viewer".** A follower is a pop-out belonging to the
+tab that opened it, driving *that* tab's scene over the `ada-sim` BroadcastChannel.
+Sending it to `/` would not return anywhere; it would quietly promote the follower into a
+second full viewer — a second websocket and a second scene against the same session. So
+`backToViewer` is a profile flag rather than something the reduced bar always shows: the
+same chrome, two different truths about where "back" is.
+
+The title earns its place. These windows get opened several at a time, one per source, and
+until now they were indistinguishable in the taskbar. It now says *Following
+&lt;source&gt;*.
+
+`SimFollowerPage` also dropped its own `h-[100dvh]` wrapper for `h-full`: the shell's
+viewport track sets the height, and a viewport unit inside a grid cell ignores its track
+and overflows past the bottom.
+
+All five profiles are now real. `app.tsx` is routing and nothing else.
+
+## Disabled controls use the default cursor
+
+`cursor-not-allowed` — the 🚫 — says *this action is forbidden*. Almost nothing in this UI
+is forbidden; the controls are temporarily **inapplicable**, which is a much milder claim:
+nothing is selected yet, no result set is loaded. Dimming plus a tooltip saying which
+already carries the message, and a barred cursor on top of it is a scolding.
+
+Changed across the design system and the shell (IconButton, MenuBar, MarkingMenu, Slider,
+Checkbox, Switch). Reserved now for the genuine case — an action the user is not permitted
+to perform. The admin tabs still use it; they have not been through the design system.

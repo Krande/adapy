@@ -134,14 +134,28 @@ function App() {
     }
 
     if (isSimFollower) {
-        // A follower window boots controls-only: the Simulation plugin tab
-        // full-window, no 3D canvas / tree / websocket. Under the provider so the
-        // tab's stores resolve; behind AuthGate in REST mode so plugin API calls
-        // (e.g. enqueuing a check) carry the caller's token.
+        // A follower window (?simfollow=…) on the shell's window profile: a thin title
+        // bar naming what it follows, and the panel filling the rest.
+        //
+        // Canvas-less, like the pages — no 3D, no tree, no websocket — but unlike them it
+        // offers no way "back", because there is nowhere back to. A follower belongs to
+        // the tab that opened it and drives that tab's scene over the ada-sim
+        // BroadcastChannel; navigating it to "/" would not return anywhere, it would
+        // quietly promote it to a second full viewer against the same session.
+        //
+        // The title earns its place: these windows are opened several at a time, one per
+        // source, and until now they were indistinguishable in the taskbar.
+        const follow = simFollowerParams();
         const page = (
-            <Suspense fallback={null}>
-                <SimFollowerPage/>
-            </Suspense>
+            <AppShell
+                profile="window"
+                pageTitle={follow ? `Following ${follow.source}` : "Simulation follower"}
+                viewportOverride={
+                    <Suspense fallback={null}>
+                        <SimFollowerPage/>
+                    </Suspense>
+                }
+            />
         );
         return (
             <AdaViewerProvider>
@@ -156,10 +170,6 @@ function App() {
         );
     }
 
-    // Everything that touches viewer state lives under the provider so
-    // Phase-2 migrations can flip consumers off the module-level
-    // singletons in state/refs.ts and state/*Store.ts without touching
-    // this file.
     // Unreachable: the viewer branch above claims everything the four page branches do
     // not. An explicit null rather than nothing, so a route added later without its own
     // return does not fall off the end of the function and render undefined.

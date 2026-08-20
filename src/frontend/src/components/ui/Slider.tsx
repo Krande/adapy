@@ -44,7 +44,7 @@ export const Slider = React.forwardRef<HTMLInputElement, SliderProps>(function S
                 // the whole panel — the classic UI floats these in draggable windows, and
                 // without it the slider is unusable there.
                 "no-drag",
-                disabled && "opacity-50 cursor-not-allowed",
+                disabled && "opacity-50 cursor-default",
                 className,
             )}
             {...rest}

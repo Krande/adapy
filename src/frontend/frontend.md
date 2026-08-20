@@ -98,11 +98,27 @@ the semantic utilities (`bg-surface-*`, `text-content-*`, `bg-accent`, `text-fai
 primitive from `components/ui`. The allowlist is a burn-down of files not yet converted
 and only ever shrinks.
 
+## Routes
+
+Every route is the same shell under a different profile (`shell/profiles.ts`), which is
+what decides whether it gets a canvas, docks, menus and a way back.
+
+| Route | Profile | Notes |
+|---|---|---|
+| `/` | `viewer` | the application |
+| `/convert`, `/admin` | `page` | canvas-less, reduced bar, "Back to the viewer" |
+| `?simfollow=` | `window` | canvas-less pop-out; deliberately no way "back" |
+| `?uikit=1` | — | the design-system gallery, dev builds only |
+| `/auth/callback` | — | outside the shell; it is a redirect handler |
+
+`page` and `window` mount outside `AdaViewerProvider` with `canvas: false`, so no 3D
+scene, websocket or tree spins up and three.js stays out of their entry chunk. That
+separation is the reason these were once standalone pages; folding them into the shell
+kept it.
+
 ## Known rough edges
 
 - `?shell=0` and `shell/useLegacyFlagSync.ts` are cutover leftovers. The flag bridge
   survives because two panels gate on store booleans that the classic UI used to write;
   removing it means un-gating them, which is business-logic work.
-- `/convert`, `/admin` and `?simfollow=` are still separate top-level routes rather than
-  shell profiles, so they have no way back to the viewer.
 - The admin tabs have not been through the design system.
